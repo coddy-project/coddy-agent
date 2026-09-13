@@ -84,7 +84,7 @@ func (s *Server) coddyBranchCreate(w http.ResponseWriter, r *http.Request) {
 	if st := s.mgr.SessionByID(id); st != nil && st.IsSubagentRun() {
 		writeSubagentsError(w, http.StatusConflict, subagentReadOnlyMessage(st))
 		return
-	} else if snap, err := fs.ReadSnapshot(id); err == nil && snap.Meta.IsSubagentRun(id) {
+	} else if snap, err := fs.ReadSnapshot(id); err == nil && snap.Meta.IsSubagentRun() {
 		writeSubagentsError(w, http.StatusConflict, "subagent sessions are read-only transcripts; branch the parent session "+snap.Meta.ParentSessionID+" instead")
 		return
 	}

@@ -63,7 +63,7 @@ def max_turns_in(config_path: Path) -> int:
 
 def main() -> int:
     v1 = os.environ.get("BASE_URL", "http://127.0.0.1:19876/v1").rstrip("/")
-    yaml_model = os.environ.get("MODEL", "rpa/gpt-oss:120b").strip()
+    yaml_model = os.environ.get("MODEL", "rpa/qwen3.6-35b-a3b").strip()
     profile = os.environ.get("CODDY_CHAT_PROFILE", "agent").strip()
     cfg_env = os.environ.get("CODDY_CONFIG", "").strip()
     if not cfg_env:

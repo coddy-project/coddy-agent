@@ -366,7 +366,14 @@ func (s *Sender) streamUpdate(llmText, toolName string) {
 // buildStreamPreview builds the text shown in the live streaming message.
 // While a tool is running, it appends "⚙️ toolName…" below the accumulated LLM text.
 // While the LLM is writing, it appends "…" to signal the response is not finished.
+//
+// The preview is sent with no parse mode - half a sentence is half a markup -
+// so the accumulated text goes through the plain rendering: the reader sees the
+// answer taking shape, not the markers it is written with.
 func buildStreamPreview(llmText, toolName string) string {
+	if llmText != "" {
+		llmText = mdToPlainPreview(llmText)
+	}
 	if toolName != "" {
 		indicator := "⚙️ " + toolName + "…"
 		if llmText == "" {

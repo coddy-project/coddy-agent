@@ -10,7 +10,7 @@ Environment:
 
 - ``BASE_URL`` - OpenAI-compatible base (default ``http://127.0.0.1:19876/v1``),
   same as the other HTTP harnesses.
-- ``MODEL`` - YAML ``models[].model`` id (default ``rpa/gpt-oss:120b``).
+- ``MODEL`` - YAML ``models[].model`` id (default ``rpa/qwen3.6-35b-a3b``).
 - ``CODDY_CHAT_PROFILE`` - session profile (default ``agent``).
 
 Exits non-zero on any HTTP error or unmet expectation.
@@ -59,7 +59,7 @@ def coddy_base(base: str) -> str:
 def main() -> int:
     base = os.environ.get("BASE_URL", "http://127.0.0.1:19876/v1").rstrip("/")
     coddy = coddy_base(base)
-    yaml_model = os.environ.get("MODEL", "rpa/gpt-oss:120b").strip()
+    yaml_model = os.environ.get("MODEL", "rpa/qwen3.6-35b-a3b").strip()
     profile = os.environ.get("CODDY_CHAT_PROFILE", "agent").strip()
     tasks_url = f"{coddy}/coddy/sessions/{SESSION_ID}/background-tasks"
 

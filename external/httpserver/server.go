@@ -717,11 +717,6 @@ func (s *Server) resolveSession(ctx context.Context, r *http.Request) (st *sessi
 		}
 		st2, err := s.mgr.EnsureHTTPSession(ctx, sid, s.defaultCWD)
 		if err != nil {
-			if errors.Is(err, session.ErrReservedSessionID) {
-				// Only the runtime creates sub_ sessions; a header naming an
-				// unknown one is a missing session, not a request for a new one.
-				return nil, "", false, errSessionNotFound
-			}
 			return nil, "", false, err
 		}
 		return st2, sid, false, nil

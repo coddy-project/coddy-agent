@@ -95,7 +95,7 @@ models:
   #   reasoning_default: medium
 
   # NeuralDeep examples (reasoning levels auto-detect to low, medium, high).
-  # - model: "neuraldeep/gpt-oss-120b"
+  # - model: "neuraldeep/qwen3.8-27b"
   #   max_tokens: 8192
   #   temperature: 0.2
   #   multimodal: false
@@ -382,7 +382,7 @@ tools:
 # Stores markdown under memory.dir (default ${CODDY_HOME}/memory) and <session cwd>/memory (project). Injects text into the
 # same {{.Memory}} section as session notes; main agent never sees memory_* tools.
 # memory.model is used ONLY for recall + persist LLM calls. Set it to an exact models[].model id when you want memory
-# pinned independently of agent.model (example: "rpa/gpt-oss:120b"). Leave empty to reuse the session or agent default model.
+# pinned independently of agent.model (example: "rpa/qwen3.6-35b-a3b"). Leave empty to reuse the session or agent default model.
 # memory:
 #   enable: false
 #   model: ""

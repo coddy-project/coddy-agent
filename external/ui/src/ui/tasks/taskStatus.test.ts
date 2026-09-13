@@ -162,7 +162,7 @@ describe("taskTimingLine", () => {
     const finished = {
       kind: "agent" as const,
       label: "agent explore: survey the repo",
-      agent: { name: "explore", session_id: "sub_0a1b2c" },
+      agent: { name: "explore", session_id: "sess_0a1b2c" },
       running: false,
       elapsed_seconds: 90,
     };
@@ -240,7 +240,7 @@ describe("agent tasks", () => {
     id: "bg_7",
     kind: "agent",
     label: "agent explore: survey the repo",
-    agent: { name: "explore", session_id: "sub_0a1b2c" },
+    agent: { name: "explore", session_id: "sess_0a1b2c" },
   });
 
   test("are told apart by kind, not by label", () => {
@@ -255,7 +255,7 @@ describe("agent tasks", () => {
   });
 
   test("resolve the child session only when the snapshot carries it", () => {
-    expect(agentTranscriptSessionId(agent)).toBe("sub_0a1b2c");
+    expect(agentTranscriptSessionId(agent)).toBe("sess_0a1b2c");
     expect(
       agentTranscriptSessionId(
         task({ kind: "agent", agent: { name: "explore" } }),
@@ -268,7 +268,7 @@ describe("agent tasks", () => {
     ).toBeNull();
     expect(
       agentTranscriptSessionId(
-        task({ agent: { name: "explore", session_id: "sub_0a1b2c" } }),
+        task({ agent: { name: "explore", session_id: "sess_0a1b2c" } }),
       ),
     ).toBeNull();
   });

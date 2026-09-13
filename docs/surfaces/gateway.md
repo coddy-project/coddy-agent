@@ -18,6 +18,7 @@ The messenger gateway lets you drive a Coddy agent directly from a chat applicat
   - [Private chats](#private-chats)
   - [Group chats](#group-chats)
   - [Commands](#commands)
+- [What the messenger needs, and where it is said](#what-the-messenger-needs-and-where-it-is-said)
 - [Writing a new adapter](#writing-a-new-adapter)
   - [1. Implement the Adapter interface](#1-implement-the-adapter-interface)
   - [2. Register in Start()](#2-register-in-start)
@@ -209,7 +210,8 @@ gateways:
 | Final message | `mdToTelegram` downgrades headings/tables to plain text | Agent's native Markdown sent verbatim via `sendRichMessage` — headings, tables, task lists, fenced code, footnotes, LaTeX all render |
 | Streaming (private chats) | progressive `editMessageText` of a live message | ephemeral `sendRichMessageDraft` preview (30 s, animated) |
 | Tool activity | `⚙️ toolname…` line, dropped from the final message | live `<tg-thinking>` placeholder during streaming **and** one collapsed `<details>` block per executed tool (name + output, `❌` on failure) in the final message |
-| Formatting hint | one-time "use the restricted Telegram subset" note on the first turn | none — the agent's natural Markdown renders as-is, so every turn is identical |
+| What the session sees | what the person typed | what the person typed |
+| System prompt block | the legacy subset, spelled out for the turn | full GFM renders; keep it short for a phone |
 
 **Behaviour notes:**
 
@@ -397,6 +399,59 @@ When `isolation` is `admin`, the bot additionally ignores everyone who is not in
 
 ---
 
+## What the messenger needs, and where it is said
+
+A messenger has its own dialect and its own shape of screen. Coddy says both in
+two places that belong to the gateway, and neither of them touches the
+conversation the session keeps.
+
+### The model is told, for that turn
+
+Before a chat turn runs, the adapter hands the session a block of the **system
+prompt** describing how to answer into this chat: the emphasis Telegram
+renders, the headings it does not, that a table becomes a wall of pipes, that
+identifiers belong in backticks because a bare `_` opens italics, and that a
+chat is a narrow column on a phone. It lives in
+`external/gateway/telegram/prompt.go`, and `rich_messages: true` sends a
+different one - there the chat renders GitHub-flavoured Markdown in full, so
+the only thing worth saying is how much of it a phone screen wants.
+
+The block belongs to the **turn**, not to the session
+(`session.PromptRunOpts.SurfaceSystemPrompt`). Nothing of it is persisted, so
+the transcript holds the conversation and not the surface that ran it, and a
+browser turn on the same session is built without it. That does mean the prompt
+prefix differs between surfaces, so a turn that follows one from elsewhere does
+not reuse its cached prefix. It is the deliberate price of letting each
+integration speak for itself instead of teaching the core about messengers.
+
+### The answer is rendered, on its way out
+
+A model does not always comply, and a chat that shows a raw `##` is a worse
+answer than one the gateway quietly fixed, so the reply is also converted as it
+leaves, in `external/gateway/telegram/markdown.go`.
+
+For the legacy send: ATX headings and `**bold**` become `*bold*`, `__x__`
+becomes `_x_`, an asterisk bullet becomes `•`, a table is flattened to plain
+rows and a horizontal rule to a separator line. Fenced blocks and inline code
+spans are set aside before any rule runs and put back untouched, so a Go `**p`
+or a `# comment` inside a block reaches the chat as the model wrote it. The live
+streaming preview is sent with no parse mode - half a sentence is half a markup
+- so it gets the same conversion with the emphasis markers dropped rather than
+shown as punctuation. If Telegram still refuses to parse a message, the sender
+resends it without a parse mode: a stray asterisk in prose costs formatting,
+never the reply.
+
+With `rich_messages: true` there is nothing to downgrade - the agent's Markdown
+goes out verbatim - and the fallback path is the legacy rendering above.
+
+### Adding an integration
+
+Both halves are the new adapter's to write: a `prompt.go` saying what its
+messenger needs, and a renderer for its syntax. Nothing in `internal/` learns
+about it.
+
+---
+
 ## Writing a new adapter
 
 To add, for example, a Discord adapter alongside Telegram, follow this pattern.
@@ -513,9 +568,11 @@ Update the `start.go` / `start_stub.go` constraint to include the new tag.
 With `httpserver.enable` and `gateways.telegram.enable` both on, a Telegram
 conversation and the web UI are two views of one session.
 
-- **The chat session appears in the browser.** Gateway sessions are stored the
-  way every other session is, so `GET /coddy/sessions` lists them (their ids
-  carry a `gw_` prefix) and opening one loads the same transcript.
+- **The chat session appears in the browser.** A chat conversation is an
+  ordinary session with an ordinary `sess_` id - where a person is sitting
+  decides nothing about the session behind the conversation - so
+  `GET /coddy/sessions` lists it beside the sessions started in a terminal or
+  a browser tab, and opening one loads the same transcript.
 - **A chat turn streams into the browser while it runs.** The gateway publishes
   its turn into the session's composer relay - the same mechanism a background
   task's wake turn uses - so a tab watching that session sees the tokens as
@@ -561,13 +618,13 @@ manager.HandleSessionPromptWithSender(ctx, params, sender, nil)
         ▼
 sender.Flush()
         │  replaces the live streaming message with the final formatted text
-        │  (Telegram-compatible markdown; headers, double-star bold, and tables
-        │   converted to Telegram legacy format)
+        │  (markdown.go renders the answer for Telegram: headings, double-star
+        │   bold and tables into the legacy subset, fenced code untouched)
         ▼
 Session bundle written to disk ($CODDY_HOME/sessions/<id>/)
 ```
 
-**Session store persistence** — The key→session-ID mapping is persisted in `gateway_sessions.json` inside `$CODDY_HOME/sessions/` (same directory as session bundles). On restart the bot reloads this file and continues existing conversations seamlessly, without re-sending the one-time formatting hint to sessions that already received it.
+**Session store persistence** — The key→session-ID mapping is persisted in `gateway_sessions.json` inside `$CODDY_HOME/sessions/` (same directory as session bundles). On restart the bot reloads this file and continues existing conversations seamlessly.
 
 **`/clear` flow:**
 

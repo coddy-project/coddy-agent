@@ -162,7 +162,6 @@ import {
 } from "./tasks/api";
 import { tasksPollIntervalMs } from "./tasks/taskStatus";
 import {
-  isSubagentSessionId,
   parseSubagentTranscriptMeta,
   type SubagentTranscriptMeta,
 } from "./chat/subagentTranscript";
@@ -2852,11 +2851,13 @@ export function App() {
       if (lifecycle.signal.aborted) {
         return;
       }
-      // Child sessions are hidden from History, so a `sub_*` id is fetched on
-      // its own: the messages endpoint serves it and marks it read-only.
+      // A session spawned by another one is hidden from History and nothing
+      // about its id sets it apart, so an id History does not carry is still
+      // fetched: the messages endpoint serves it and marks it read-only, and
+      // answers 404 when it names nothing.
       const listed = !!list?.some((s) => s.id === sessionId);
-      const exists = listed || isSubagentSessionId(sessionId);
-      if (exists) {
+      // A block, so `sess` stays out of the way of the rest of the effect.
+      {
         const sess = list?.find((s) => s.id === sessionId);
         const statsRes = await fetchJSON<{ stats?: SessionStats | null }>(
           `/coddy/sessions/${encodeURIComponent(sessionId)}/stats`,
@@ -2892,9 +2893,8 @@ export function App() {
             !listed &&
             viewedSessionIdRef.current.trim() === sessionId
           ) {
-            // A `sub_*` id the server no longer serves: nothing to keep a
-            // skeleton up for, so it lands on the empty state like any
-            // unknown id.
+            // An id the server does not serve: nothing to keep a skeleton up
+            // for, so it lands on the empty state like any unknown id.
             setSessionLoading(false);
           }
           if (activeComposerSidRef.current.has(sessionId)) {
@@ -2911,20 +2911,6 @@ export function App() {
           ) {
             void rejoinComposerLiveStream(sessionId, loaded);
           }
-        }
-      } else {
-        const shElse = streamShadowBySidRef.current.get(sessionId);
-        if (
-          activeComposerSidRef.current.has(sessionId) ||
-          (shElse && shElse.length > 0)
-        ) {
-          if (shElse && shElse.length > 0) {
-            setItems([...shElse]);
-            setSessionLoading(false);
-          }
-        } else {
-          setItems([]);
-          setSessionLoading(false);
         }
       }
     })();

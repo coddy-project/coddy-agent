@@ -40,7 +40,7 @@ def http_json(method: str, url: str, body: dict[str, Any] | None, headers: dict[
 
 def main() -> int:
     base = os.environ.get("BASE_URL", "http://127.0.0.1:19876/v1").rstrip("/")
-    model = os.environ.get("MODEL", "rpa/gpt-oss:120b").strip()
+    model = os.environ.get("MODEL", "rpa/qwen3.6-35b-a3b").strip()
 
     code, models, _ = http_json("GET", f"{base}/models", None, {})
     if code != 200 or models.get("object") != "list":

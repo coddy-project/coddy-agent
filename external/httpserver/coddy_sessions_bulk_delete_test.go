@@ -205,9 +205,9 @@ func TestBulkDeleteAllSparesTheAncestorsOfAnException(t *testing.T) {
 	parent := storeSession(t, mgr, store, "the parent chat")
 	other := storeSession(t, mgr, store, "an unrelated chat")
 
-	// A child bundle the way spawn_agent stores one.
-	child := "sub_0123456789abcdef01234567"
-	dir, err := store.EnsureLayout(child)
+	// A child bundle the way spawn_agent stores one: inside the parent's.
+	child := session.NewSessionID()
+	dir, err := store.EnsureChildLayout(parent, child)
 	if err != nil {
 		t.Fatal(err)
 	}

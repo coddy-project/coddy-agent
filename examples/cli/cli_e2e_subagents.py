@@ -41,7 +41,9 @@ def trust_agent(home: Path, workdir: Path) -> None:
 
 
 def parent_session_dir(tui: CoddyTUI) -> Path:
-    dirs = [d for d in tui.session_dirs() if not d.name.startswith("sub_")]
+    # A session spawned by another one lives inside its parent's bundle, so
+    # the sessions root holds the conversation alone.
+    dirs = tui.session_dirs()
     if len(dirs) != 1:
         raise AssertionError(f"expected one parent session dir, found {[d.name for d in dirs]}")
     return dirs[0]
@@ -131,12 +133,12 @@ def main() -> int:
         task = wait_agent_task(parent)
         agent = task.get("agent") or {}
         child_id = str(agent.get("session_id") or "")
-        if not child_id.startswith("sub_") or agent.get("name") != AGENT:
-            raise AssertionError(f"agent task does not name a sub_ child session for {AGENT}: {task}")
+        if not child_id or agent.get("name") != AGENT:
+            raise AssertionError(f"agent task does not name a child session for {AGENT}: {task}")
         if task.get("status") != "succeeded":
             raise AssertionError(f"subagent task ended as {task.get('status')!r}, want succeeded")
 
-        child = tui.sessions_root() / child_id
+        child = parent / "subagents" / child_id
         session_json = child / "session.json"
         if not session_json.exists():
             raise AssertionError(f"child session bundle missing at {child}")

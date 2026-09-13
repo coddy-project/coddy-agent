@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -822,12 +823,19 @@ func (s *subagentsFeatureState) spawnResultSaysNotApproved() error {
 }
 
 func (s *subagentsFeatureState) noChildSessionCreated() error {
-	entries, err := os.ReadDir(s.store.Root)
+	if s.parent == nil {
+		return fmt.Errorf("no parent session")
+	}
+	dir := filepath.Join(s.store.SessionPath(s.parent.ID), session.ChildSessionsDirName)
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), "sub_") {
+		if e.IsDir() {
 			return fmt.Errorf("a child session %s was created", e.Name())
 		}
 	}
@@ -848,6 +856,42 @@ func (s *subagentsFeatureState) childBundleRecordsParent(name string) error {
 	}
 	if !snap.Meta.SubagentRun || snap.Meta.ParentSessionID != s.parent.ID || snap.Meta.SubagentName != name {
 		return fmt.Errorf("child meta = %+v", snap.Meta)
+	}
+	return nil
+}
+
+// ordinarySessionIDPattern is the shape session.NewSessionID mints. Every
+// session carries it, whoever started it: a chat, a console run, a child of a
+// spawn_agent call. The scenario asserts the child is not marked out by its id.
+var ordinarySessionIDPattern = regexp.MustCompile(`^sess_[0-9a-f]{24}$`)
+
+func (s *subagentsFeatureState) childBundleUnderParent() error {
+	if s.lastChildID == "" || s.parent == nil {
+		return fmt.Errorf("no child session known")
+	}
+	want := filepath.Join(s.store.SessionPath(s.parent.ID), session.ChildSessionsDirName, s.lastChildID)
+	if _, err := os.Stat(filepath.Join(want, "session.json")); err != nil {
+		return fmt.Errorf("no child bundle at %s: %w", want, err)
+	}
+	if got := s.store.SessionPath(s.lastChildID); got != want {
+		return fmt.Errorf("SessionPath(%s) = %s, want %s", s.lastChildID, got, want)
+	}
+	return nil
+}
+
+func (s *subagentsFeatureState) rootHoldsNoChildFolder() error {
+	if s.lastChildID == "" {
+		return fmt.Errorf("no child session known")
+	}
+	if _, err := os.Stat(filepath.Join(s.store.Root, s.lastChildID)); !os.IsNotExist(err) {
+		return fmt.Errorf("the sessions root still holds a folder for the child %s", s.lastChildID)
+	}
+	return nil
+}
+
+func (s *subagentsFeatureState) childIDLooksOrdinary() error {
+	if !ordinarySessionIDPattern.MatchString(s.lastChildID) {
+		return fmt.Errorf("child session id %q is not shaped like an ordinary session id", s.lastChildID)
 	}
 	return nil
 }
@@ -1087,6 +1131,9 @@ func initializeSubagentsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the spawn_agent tool result says the definition is not approved for this workspace$`, s.spawnResultSaysNotApproved)
 	sc.Step(`^no child session was created$`, s.noChildSessionCreated)
 	sc.Step(`^the child session bundle records the parent session id and the subagent name "([^"]*)"$`, s.childBundleRecordsParent)
+	sc.Step(`^the child session bundle sits under the parent's subagents folder$`, s.childBundleUnderParent)
+	sc.Step(`^the sessions root holds no folder of its own for the child$`, s.rootHoldsNoChildFolder)
+	sc.Step(`^the child session id is shaped like any other session id$`, s.childIDLooksOrdinary)
 	sc.Step(`^the child session ran with permission mode "([^"]*)"$`, s.childRanWithPermissionMode)
 	sc.Step(`^the pool recorded a finished task of kind "agent" for the parent session$`, s.poolRecordedFinishedAgentTask)
 	sc.Step(`^the pool lists a running or finished task of kind "agent" for the parent session$`, s.poolListsAgentTask)

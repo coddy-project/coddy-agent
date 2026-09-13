@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  isSubagentSessionId,
-  parseSubagentTranscriptMeta,
-} from "./subagentTranscript";
+import { parseSubagentTranscriptMeta } from "./subagentTranscript";
 
 describe("parseSubagentTranscriptMeta", () => {
   test("an ordinary session carries no marker", () => {
@@ -41,18 +38,5 @@ describe("parseSubagentTranscriptMeta", () => {
         subagent: { parentSessionId: 12, name: null, taskId: undefined },
       }),
     ).toEqual({ parentSessionId: "", name: "", taskId: "" });
-  });
-});
-
-describe("isSubagentSessionId", () => {
-  test.each([
-    ["sub_0a1b2c", true],
-    [" sub_ABCDEF ", true],
-    ["s_123", false],
-    ["sub_", false],
-    ["sub_xyz", false],
-    ["", false],
-  ])("%j -> %s", (id, want) => {
-    expect(isSubagentSessionId(id)).toBe(want);
   });
 });

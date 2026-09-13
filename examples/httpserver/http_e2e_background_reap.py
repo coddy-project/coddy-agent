@@ -27,7 +27,7 @@ Requires ``build/coddy`` built with ``-tags http``.
 Environment:
 
 - ``CODDY_BIN`` - path to the coddy binary (default ``<repo>/build/coddy``).
-- ``MODEL`` - YAML ``models[].model`` id (default ``neuraldeep/gpt-oss-120b``).
+- ``MODEL`` - YAML ``models[].model`` id (default ``neuraldeep/qwen3.8-27b``).
 - ``NEURALDEEP_API_KEY`` - provider key, read by coddy itself. Never written to
   the generated config: a provider named ``neuraldeep`` with no ``api_key``
   falls back to this variable.
@@ -226,7 +226,7 @@ def main() -> int:
             print(f"coddy binary not found: {binary} (build with -tags http)", file=sys.stderr)
             return 1
 
-    model = os.environ.get("MODEL", "neuraldeep/gpt-oss-120b").strip()
+    model = os.environ.get("MODEL", "neuraldeep/qwen3.8-27b").strip()
     port = int(os.environ.get("REAP_PORT", "19912"))
     home = Path(tempfile.mkdtemp(prefix="coddy-reap-home-"))
     work = Path(tempfile.mkdtemp(prefix="coddy-reap-work-"))

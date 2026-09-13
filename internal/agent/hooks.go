@@ -372,6 +372,20 @@ func (a *Agent) hookContextBlock() string {
 	return "## Hook context\n\nThe operator's hooks handed over the following context.\n\n" + strings.Join(parts, "\n\n")
 }
 
+// surfaceBlock is the system prompt block the surface running this turn
+// contributed: a chat gateway describing the syntax its messenger renders, and
+// whatever the next integration needs to say about answering through it. It is
+// turn-scoped state on the session, set by the manager for the length of the
+// turn and never persisted, so the transcript does not record where an answer
+// was going.
+func (a *Agent) surfaceBlock() string {
+	st := sessionStatePtr(a.state)
+	if st == nil {
+		return ""
+	}
+	return strings.TrimSpace(st.GetSurfaceSystemPrompt())
+}
+
 func reasonOr(reason, fallback string) string {
 	if strings.TrimSpace(reason) == "" {
 		return fallback
