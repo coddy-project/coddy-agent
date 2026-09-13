@@ -329,12 +329,12 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 	isGroup := msg.Chat.IsGroup() || msg.Chat.IsSuperGroup() || msg.Chat.IsChannel()
 	rich := b.cfg.RichMessages
 
-	// The session gets what the person typed and nothing else. Which syntax
-	// this messenger understands is the gateway's business, applied to the
-	// answer on its way out (Sender.Flush, markdown.go), so the transcript
-	// reads the same whether the turn came from a chat, a browser or a
-	// terminal - and the next integration renders the same answer its own way
-	// without a word of Telegram in the conversation.
+	// The session gets what the person typed and nothing else. What this
+	// messenger needs is told to the model for the turn, as a block of the
+	// system prompt (prompt.go), and applied to the answer on its way out
+	// (Sender.Flush, markdown.go). Neither reaches the transcript, so the
+	// conversation reads the same whether the turn came from a chat, a browser
+	// or a terminal.
 	b.log.Debug("telegram: prompt turn",
 		"session", st.GetID(),
 		"user", userID,
@@ -361,7 +361,10 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 	result, err := b.runner.HandleSessionPromptWithSender(ctx2, acp.SessionPromptParams{
 		SessionID: st.GetID(),
 		Prompt:    []acp.ContentBlock{{Type: "text", Text: text}},
-	}, mirrored, &session.PromptRunOpts{SkipUsagePublish: true})
+	}, mirrored, &session.PromptRunOpts{
+		SkipUsagePublish:    true,
+		SurfaceSystemPrompt: surfaceSystemPrompt(rich),
+	})
 	sender.Flush()
 
 	stopReason := ""

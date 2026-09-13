@@ -2,8 +2,13 @@ Feature: A chat conversation is an ordinary session
   Where a person talks to the agent decides nothing about the session behind the
   conversation. A chat opened from Telegram gets the same kind of id a console or
   a browser session gets, and nothing about the messenger is written into the
-  transcript: the syntax one messenger understands is applied to the answer on its
-  way out of the gateway, where the next integration will apply its own.
+  transcript.
+
+  What the messenger needs is told to the model for the turn instead, as a block
+  of the system prompt, and applied to the answer on its way out of the gateway.
+  Both belong to the surface: the next integration describes its own quirks and
+  renders its own syntax, and the conversation it leaves behind reads like any
+  other.
 
   Background:
     Given a telegram gateway over a scripted agent
@@ -17,6 +22,12 @@ Feature: A chat conversation is an ordinary session
     Then the agent was prompted with exactly "hello"
     When the user sends "and again"
     Then the agent was prompted with exactly "and again"
+
+  Scenario: The model is told how to answer through this messenger
+    When the user sends "hello"
+    Then the turn carried a system prompt block naming Telegram
+    And that block describes the answer format
+    And nothing of it reached the message the agent was prompted with
 
   Scenario: The answer is rendered for the messenger on its way out
     Given the agent answers with "## Findings\n\n**two** of them"

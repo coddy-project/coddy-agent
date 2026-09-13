@@ -645,6 +645,18 @@ type PromptRunOpts struct {
 	// numbers set it: coddy -p, the messenger gateway, the background wake.
 	SkipUsagePublish bool
 
+	// SurfaceSystemPrompt is what the surface running this turn wants the model
+	// to know about answering through it: a complete system prompt block,
+	// heading included, appended after the template. A messenger gateway
+	// describes the syntax its chat renders and the shape an answer should
+	// take there; the next integration describes its own.
+	//
+	// It belongs to the turn, not to the session. Nothing of it is persisted,
+	// so the transcript reads the same whoever was answering, and a turn from
+	// another surface on the same session carries a different prefix - which
+	// costs that turn its cached prefix, deliberately.
+	SurfaceSystemPrompt string
+
 	// subagentTurn marks the one prompt a child session may run: its own task
 	// turn, started by the subagent runtime. Every other prompt against a child
 	// is refused with ErrSubagentReadOnly (see RunSubagentTurn).
@@ -801,6 +813,13 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		return nil, err
 	}
 	defer finish()
+
+	// What the surface wants the model to know lasts exactly this turn: set
+	// under the turn lock, cleared before it is released, never persisted.
+	if opts != nil && strings.TrimSpace(opts.SurfaceSystemPrompt) != "" {
+		state.SetSurfaceSystemPrompt(opts.SurfaceSystemPrompt)
+		defer state.SetSurfaceSystemPrompt("")
+	}
 
 	sessionDir := strings.TrimSpace(state.GetPersistedSessionDir())
 	if sessionDir != "" {

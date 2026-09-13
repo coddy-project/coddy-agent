@@ -122,6 +122,9 @@ type State struct {
 
 	// pendingImageParts are image attachments for the next user message (from inline_files in agent mode); not persisted.
 	pendingImageParts []llm.ImagePart
+	// surfaceSystemPrompt is the block the surface running the current turn
+	// contributed to the system prompt; turn-scoped and never persisted.
+	surfaceSystemPrompt string
 
 	// SessionDir is the persisted session bundle directory (<sessionsRoot>/<id>/).
 	SessionDir string
@@ -693,6 +696,24 @@ func (s *State) TakePendingPlanContext() string {
 	out := s.pendingPlanContext
 	s.pendingPlanContext = ""
 	return out
+}
+
+// SetSurfaceSystemPrompt records the system prompt block the surface running
+// the current turn contributed. It is turn-scoped state, held only while the
+// turn lock is: nothing writes it to the bundle, so what a session keeps does
+// not depend on where its last turn came from.
+func (s *State) SetSurfaceSystemPrompt(block string) {
+	s.mu.Lock()
+	s.surfaceSystemPrompt = strings.TrimSpace(block)
+	s.mu.Unlock()
+}
+
+// GetSurfaceSystemPrompt returns that block, or "" when the turn came from a
+// surface that asks for nothing.
+func (s *State) GetSurfaceSystemPrompt() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.surfaceSystemPrompt
 }
 
 // SetPendingImageParts stores image parts to be attached to the next user message.

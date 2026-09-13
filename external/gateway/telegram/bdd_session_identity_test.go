@@ -45,6 +45,9 @@ type scriptedRunner struct {
 	live    map[string]*session.State
 	answer  string
 	prompts []string
+	// surfaces records the system prompt block each turn was given, so the
+	// spec can assert the gateway spoke for itself without a real model.
+	surfaces []string
 }
 
 func newScriptedRunner() *scriptedRunner {
@@ -69,13 +72,18 @@ func (r *scriptedRunner) EnsureHTTPSession(_ context.Context, sessionID, cwd str
 	return st, nil
 }
 
-func (r *scriptedRunner) HandleSessionPromptWithSender(_ context.Context, params acp.SessionPromptParams, sender acp.UpdateSender, _ *session.PromptRunOpts) (*acp.SessionPromptResult, error) {
+func (r *scriptedRunner) HandleSessionPromptWithSender(_ context.Context, params acp.SessionPromptParams, sender acp.UpdateSender, opts *session.PromptRunOpts) (*acp.SessionPromptResult, error) {
 	r.mu.Lock()
 	var text strings.Builder
 	for _, block := range params.Prompt {
 		text.WriteString(block.Text)
 	}
 	r.prompts = append(r.prompts, text.String())
+	surface := ""
+	if opts != nil {
+		surface = opts.SurfaceSystemPrompt
+	}
+	r.surfaces = append(r.surfaces, surface)
 	answer := r.answer
 	r.mu.Unlock()
 
@@ -204,6 +212,51 @@ func (w *identityWorld) agentPromptedWith(want string) error {
 	return nil
 }
 
+// lastSurface is the system prompt block the most recent turn carried.
+func (w *identityWorld) lastSurface() string {
+	w.runner.mu.Lock()
+	defer w.runner.mu.Unlock()
+	if len(w.runner.surfaces) == 0 {
+		return ""
+	}
+	return w.runner.surfaces[len(w.runner.surfaces)-1]
+}
+
+func (w *identityWorld) surfaceNamesTelegram() error {
+	block := w.lastSurface()
+	if block == "" {
+		return fmt.Errorf("the turn carried no system prompt block")
+	}
+	if !strings.Contains(block, "Telegram") {
+		return fmt.Errorf("the block does not name Telegram: %q", block)
+	}
+	return nil
+}
+
+func (w *identityWorld) surfaceDescribesTheFormat() error {
+	block := w.lastSurface()
+	// The subset a Telegram chat renders is what the block has to be about:
+	// the emphasis it understands, the headings it does not.
+	for _, want := range []string{"*bold*", "`inline code`", "no `#` headings", "no tables"} {
+		if !strings.Contains(block, want) {
+			return fmt.Errorf("the block does not mention %q: %q", want, block)
+		}
+	}
+	return nil
+}
+
+func (w *identityWorld) surfaceStayedOutOfThePrompt() error {
+	block := w.lastSurface()
+	w.runner.mu.Lock()
+	defer w.runner.mu.Unlock()
+	for _, p := range w.runner.prompts {
+		if strings.Contains(p, "Telegram") || (block != "" && strings.Contains(p, block)) {
+			return fmt.Errorf("the message the agent was prompted with carries the block: %q", p)
+		}
+	}
+	return nil
+}
+
 // sentTexts returns the text of every message the bot posted to the chat.
 func (w *identityWorld) sentTexts() []string {
 	w.mu.Lock()
@@ -252,6 +305,9 @@ func initializeSessionIdentityScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the user sends "([^"]*)"$`, w.userSends)
 	sc.Step(`^the session behind the chat has an ordinary session id$`, w.sessionIDIsOrdinary)
 	sc.Step(`^the agent was prompted with exactly "([^"]*)"$`, w.agentPromptedWith)
+	sc.Step(`^the turn carried a system prompt block naming Telegram$`, w.surfaceNamesTelegram)
+	sc.Step(`^that block describes the answer format$`, w.surfaceDescribesTheFormat)
+	sc.Step(`^nothing of it reached the message the agent was prompted with$`, w.surfaceStayedOutOfThePrompt)
 	sc.Step(`^the chat received "([^"]*)"$`, w.chatReceived)
 	sc.Step(`^the chat received no text containing "([^"]*)"$`, w.chatReceivedNothingContaining)
 }

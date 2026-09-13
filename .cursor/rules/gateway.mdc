@@ -16,7 +16,7 @@ Built with **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (
 | `external/gateway/access` | `CanAccess`, `EffectiveAccess`, `EffectiveIsolation` — ACL helpers |
 | `external/gateway/sessionstore` | `Store`: maps stable chat/user keys to Coddy session IDs; persisted to `gateway_sessions.json` |
 | `external/gateway/proxyutil` | `BuildHTTPClient` — HTTP/SOCKS5 proxy support for outbound adapter requests |
-| `external/gateway/telegram` | `Bot` (polling, dispatch, ACL), `Sender` (streaming output), `commands.go` (inline keyboards), `markdown.go` (md → Telegram format) |
+| `external/gateway/telegram` | `Bot` (polling, dispatch, ACL), `Sender` (streaming output), `commands.go` (inline keyboards), `prompt.go` (what the model is told about answering here), `markdown.go` (md → Telegram format) |
 
 ## Session store
 
@@ -49,9 +49,13 @@ type SessionRunner interface {
 - `Flush()` → replaces the live message with the final formatted text, converted to Telegram legacy Markdown via `markdown.go`.
 - `RequestPermission` auto-approves (the admin configured the bot deliberately).
 
+## Answering through a surface
+
+`prompt.go` holds what this adapter tells the model about answering into a Telegram chat: the legacy subset when `rich_messages` is off, and a shorter note about phone-sized answers when it is on. The bot passes it per turn as `session.PromptRunOpts.SurfaceSystemPrompt`; `internal/session` holds it on the state for the length of the turn (`SetSurfaceSystemPrompt`, cleared before the turn lock is released, never persisted) and `internal/agent` appends it to the system prompt after the hook context (`Agent.surfaceBlock`). A turn from another surface on the same session carries a different prefix and loses the cached one - the accepted cost of keeping messenger quirks out of the core.
+
 ## Markdown conversion
 
-`markdown.go` is the gateway's **outbound rendering step**, and the only place Telegram's syntax exists: the prompt and the transcript carry none of it, so a chat conversation is an ordinary session and the next integration renders the same answer its own way by adding a file like this one.
+`markdown.go` is the gateway's **outbound rendering step**: the safety net under the prompt block above, because a model does not always comply. The transcript carries none of it, so a chat conversation is an ordinary session, and the next integration adds its own `prompt.go` plus its own renderer.
 
 `convertMarkdown` does the work behind two entry points. `mdToTelegram` renders for `ParseMode="Markdown"` (ATX headings and `**text**` → `*text*`, `__x__` → `_x_`, bullet `* item` → `• item`, tables flattened, horizontal rules → a separator) and `mdToPlainPreview` renders for the live streaming message, which is sent with **no** parse mode and therefore drops the emphasis markers rather than showing them as punctuation. Fenced code blocks are set aside **before** any rule runs and restored afterwards, so a `**p` or a `# comment` inside a block is never rewritten; an unclosed fence (a truncated answer) is taken to run to the end. Capture groups are written `${1}`, not `$1`: an underscore is a word character, so `"_$1_"` names a group called `1_` and expands to nothing.
 

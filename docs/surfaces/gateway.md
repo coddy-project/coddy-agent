@@ -18,7 +18,7 @@ The messenger gateway lets you drive a Coddy agent directly from a chat applicat
   - [Private chats](#private-chats)
   - [Group chats](#group-chats)
   - [Commands](#commands)
-- [The messenger's syntax is applied on the way out](#the-messengers-syntax-is-applied-on-the-way-out)
+- [What the messenger needs, and where it is said](#what-the-messenger-needs-and-where-it-is-said)
 - [Writing a new adapter](#writing-a-new-adapter)
   - [1. Implement the Adapter interface](#1-implement-the-adapter-interface)
   - [2. Register in Start()](#2-register-in-start)
@@ -211,6 +211,7 @@ gateways:
 | Streaming (private chats) | progressive `editMessageText` of a live message | ephemeral `sendRichMessageDraft` preview (30 s, animated) |
 | Tool activity | `⚙️ toolname…` line, dropped from the final message | live `<tg-thinking>` placeholder during streaming **and** one collapsed `<details>` block per executed tool (name + output, `❌` on failure) in the final message |
 | What the session sees | what the person typed | what the person typed |
+| System prompt block | the legacy subset, spelled out for the turn | full GFM renders; keep it short for a phone |
 
 **Behaviour notes:**
 
@@ -398,34 +399,56 @@ When `isolation` is `admin`, the bot additionally ignores everyone who is not in
 
 ---
 
-## The messenger's syntax is applied on the way out
+## What the messenger needs, and where it is said
 
-The agent writes ordinary GitHub-flavoured Markdown, the same text a browser tab
-or a terminal shows. Which syntax a messenger understands is the gateway's
-business and nobody else's: the answer is rendered for Telegram on its way out
-of the process, in `external/gateway/telegram/markdown.go`, and neither the
-prompt the session receives nor the transcript it keeps carries a word about
-Telegram.
+A messenger has its own dialect and its own shape of screen. Coddy says both in
+two places that belong to the gateway, and neither of them touches the
+conversation the session keeps.
 
-That is what makes a chat conversation an ordinary session. The same transcript
-reads the same whether the turn came from a chat, a browser or a terminal, and
-the next integration - Discord, Slack, whatever it is - renders the very same
-answer in its own syntax by adding a file like that one and touching nothing
-else.
+### The model is told, for that turn
 
-For the legacy send that means: ATX headings and `**bold**` become `*bold*`,
-`__x__` becomes `_x_`, an asterisk bullet becomes `•`, a table is flattened to
-plain rows and a horizontal rule to a separator line. Fenced code is set aside
-before any of it runs and put back untouched, so a Go `**p` or a `# comment`
-inside a block reaches the chat as the model wrote it. The live streaming
-preview is sent with no parse mode - half a sentence is half a markup - so it
-gets the same conversion with the emphasis markers dropped rather than shown as
-punctuation. If Telegram still refuses to parse a message, the sender resends it
-without a parse mode: a stray asterisk in prose costs formatting, never the
-reply.
+Before a chat turn runs, the adapter hands the session a block of the **system
+prompt** describing how to answer into this chat: the emphasis Telegram
+renders, the headings it does not, that a table becomes a wall of pipes, that
+identifiers belong in backticks because a bare `_` opens italics, and that a
+chat is a narrow column on a phone. It lives in
+`external/gateway/telegram/prompt.go`, and `rich_messages: true` sends a
+different one - there the chat renders GitHub-flavoured Markdown in full, so
+the only thing worth saying is how much of it a phone screen wants.
+
+The block belongs to the **turn**, not to the session
+(`session.PromptRunOpts.SurfaceSystemPrompt`). Nothing of it is persisted, so
+the transcript holds the conversation and not the surface that ran it, and a
+browser turn on the same session is built without it. That does mean the prompt
+prefix differs between surfaces, so a turn that follows one from elsewhere does
+not reuse its cached prefix. It is the deliberate price of letting each
+integration speak for itself instead of teaching the core about messengers.
+
+### The answer is rendered, on its way out
+
+A model does not always comply, and a chat that shows a raw `##` is a worse
+answer than one the gateway quietly fixed, so the reply is also converted as it
+leaves, in `external/gateway/telegram/markdown.go`.
+
+For the legacy send: ATX headings and `**bold**` become `*bold*`, `__x__`
+becomes `_x_`, an asterisk bullet becomes `•`, a table is flattened to plain
+rows and a horizontal rule to a separator line. Fenced blocks and inline code
+spans are set aside before any rule runs and put back untouched, so a Go `**p`
+or a `# comment` inside a block reaches the chat as the model wrote it. The live
+streaming preview is sent with no parse mode - half a sentence is half a markup
+- so it gets the same conversion with the emphasis markers dropped rather than
+shown as punctuation. If Telegram still refuses to parse a message, the sender
+resends it without a parse mode: a stray asterisk in prose costs formatting,
+never the reply.
 
 With `rich_messages: true` there is nothing to downgrade - the agent's Markdown
 goes out verbatim - and the fallback path is the legacy rendering above.
+
+### Adding an integration
+
+Both halves are the new adapter's to write: a `prompt.go` saying what its
+messenger needs, and a renderer for its syntax. Nothing in `internal/` learns
+about it.
 
 ---
 

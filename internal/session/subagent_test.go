@@ -1502,3 +1502,49 @@ func TestReadOnlyChildSettings(t *testing.T) {
 		t.Fatalf("ask child mode = %q", st.GetMode())
 	}
 }
+
+// ---- the surface speaks for one turn ----
+
+// A surface that contributes a system prompt block gets it for the length of
+// its turn and no longer: the next turn on the same session, from a surface
+// that asks for nothing, builds the prompt every other surface would.
+func TestSurfaceSystemPromptLastsExactlyOneTurn(t *testing.T) {
+	seen := make(chan string, 4)
+	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		st.AddMessage(acpToLLM(prompt))
+		seen <- st.GetSurfaceSystemPrompt()
+		return string(acp.StopReasonEndTurn), nil
+	}
+	m, _, root := newSubagentTestManagerWithRunner(t, runner)
+	parent := newParent(t, m, root)
+
+	const block = "## Answering in a Telegram chat\n\nNo `#` headings."
+	prompt := []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "hello"}}
+	if _, err := m.HandleSessionPromptWithSender(context.Background(),
+		acp.SessionPromptParams{SessionID: parent.ID, Prompt: prompt}, noopSender{},
+		&session.PromptRunOpts{SurfaceSystemPrompt: block}); err != nil {
+		t.Fatal(err)
+	}
+	if got := <-seen; got != block {
+		t.Fatalf("the turn ran without the surface block: %q", got)
+	}
+	if got := parent.GetSurfaceSystemPrompt(); got != "" {
+		t.Fatalf("the block outlived its turn: %q", got)
+	}
+
+	// A second turn, from a surface with nothing to say.
+	if _, err := m.HandleSessionPromptWithSender(context.Background(),
+		acp.SessionPromptParams{SessionID: parent.ID, Prompt: prompt}, noopSender{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := <-seen; got != "" {
+		t.Fatalf("a turn nobody spoke for carried %q", got)
+	}
+
+	// And nothing of it is in what the session kept.
+	for _, msg := range parent.GetMessages() {
+		if strings.Contains(msg.Content, "Telegram") {
+			t.Fatalf("the transcript records the surface: %q", msg.Content)
+		}
+	}
+}
