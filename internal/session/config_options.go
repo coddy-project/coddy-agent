@@ -27,55 +27,53 @@ func BuildACPConfigOptions(cfg *config.Config, state *State) []acp.ConfigOption 
 	}
 
 	out := []acp.ConfigOption{modeOpt}
-	if len(cfg.Models) == 0 {
-		return out
-	}
-
-	opts := make([]acp.ConfigOptionValue, 0, len(cfg.Models))
-	for _, d := range cfg.Models {
-		name := d.Model
-		desc := ""
-		if p := cfg.FindProvider(d.ProviderName()); p != nil {
-			desc = p.Type
+	if len(cfg.Models) > 0 {
+		opts := make([]acp.ConfigOptionValue, 0, len(cfg.Models))
+		for _, d := range cfg.Models {
+			name := d.Model
+			desc := ""
+			if p := cfg.FindProvider(d.ProviderName()); p != nil {
+				desc = p.Type
+			}
+			opts = append(opts, acp.ConfigOptionValue{
+				Value:       d.Model,
+				Name:        name,
+				Description: desc,
+			})
 		}
-		opts = append(opts, acp.ConfigOptionValue{
-			Value:       d.Model,
-			Name:        name,
-			Description: desc,
-		})
-	}
 
-	current := state.EffectiveModelID(cfg)
-	modelOpt := acp.ConfigOption{
-		ID:           "model",
-		Name:         "Model",
-		Description:  "LLM used for this session.",
-		Category:     "model",
-		Type:         "select",
-		CurrentValue: current,
-		Options:      opts,
-	}
-	out = append(out, modelOpt)
+		current := state.EffectiveModelID(cfg)
+		modelOpt := acp.ConfigOption{
+			ID:           "model",
+			Name:         "Model",
+			Description:  "LLM used for this session.",
+			Category:     "model",
+			Type:         "select",
+			CurrentValue: current,
+			Options:      opts,
+		}
+		out = append(out, modelOpt)
 
-	if ent := cfg.FindModelEntry(state.EffectiveModelID(cfg)); ent != nil {
-		levels := cfg.ReasoningLevelsFor(ent)
-		if len(levels) > 0 {
-			reasoningOptions := make([]acp.ConfigOptionValue, 0, len(levels))
-			for _, level := range levels {
-				reasoningOptions = append(reasoningOptions, acp.ConfigOptionValue{
-					Value: level,
-					Name:  level,
+		if ent := cfg.FindModelEntry(state.EffectiveModelID(cfg)); ent != nil {
+			levels := cfg.ReasoningLevelsFor(ent)
+			if len(levels) > 0 {
+				reasoningOptions := make([]acp.ConfigOptionValue, 0, len(levels))
+				for _, level := range levels {
+					reasoningOptions = append(reasoningOptions, acp.ConfigOptionValue{
+						Value: level,
+						Name:  level,
+					})
+				}
+				out = append(out, acp.ConfigOption{
+					ID:           "reasoning",
+					Name:         "Reasoning",
+					Description:  "Controls the reasoning effort used for this session.",
+					Category:     "model",
+					Type:         "select",
+					CurrentValue: state.EffectiveReasoning(cfg),
+					Options:      reasoningOptions,
 				})
 			}
-			out = append(out, acp.ConfigOption{
-				ID:           "reasoning",
-				Name:         "Reasoning",
-				Description:  "Controls the reasoning effort used for this session.",
-				Category:     "model",
-				Type:         "select",
-				CurrentValue: state.EffectiveReasoning(cfg),
-				Options:      reasoningOptions,
-			})
 		}
 	}
 

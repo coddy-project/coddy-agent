@@ -220,6 +220,34 @@ func TestManagerSessionNewIncludesConfigOptions(t *testing.T) {
 	}
 }
 
+func TestManagerSessionNewIncludesPermissionModeWithoutModels(t *testing.T) {
+	cfg := testConfig()
+	cfg.Models = nil
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
+
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatalf("HandleSessionNew: %v", err)
+	}
+
+	options := make(map[string]acp.ConfigOption, len(res.ConfigOptions))
+	for _, option := range res.ConfigOptions {
+		options[option.ID] = option
+	}
+	if _, ok := options["mode"]; !ok {
+		t.Fatal("expected config option id mode")
+	}
+	if _, ok := options["permission_mode"]; !ok {
+		t.Fatal("expected config option id permission_mode")
+	}
+	if _, ok := options["model"]; ok {
+		t.Fatal("did not expect config option id model without configured models")
+	}
+	if _, ok := options["reasoning"]; ok {
+		t.Fatal("did not expect config option id reasoning without configured models")
+	}
+}
+
 func TestManagerSetConfigOptionModel(t *testing.T) {
 	cfg := testConfig()
 	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
