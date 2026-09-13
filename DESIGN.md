@@ -696,19 +696,22 @@ token of the environment selector and is never gated here.
 - **Boot.** While the one **`/coddy/auth/me`** round trip is outstanding the gate renders
   **`.auth-boot`** — a bare **`--bg`** ground, no spinner and no application chrome. Rendering the
   app and then replacing it with a form reads as a glitch; a spinner for 20 ms reads as a slow page.
-- **The card** is **`min(380px, 100%)`** wide with the glass panel tokens
+- **The column** (**`.auth-shell`**, **`min(380px, 100%)`**) holds two things with a **22px** gap:
+  the wordmark, then the card. The logo stands **above** the card and outside it, because it names
+  the product while the card asks for one thing.
+- **The card** (**`.auth-card`**, the column's full width) uses the glass panel tokens
   (**`--coddy-glass-panel-bg`** / **`-border`** / **`-backdrop`** / **`-shadow`** / **`-radius`**),
-  **28px** padding and a **14px** column gap: the wordmark, **`h1`** title, the two fields, the
-  error line, the submit button. Nothing explains the screen in prose - a form with two fields and
-  a product's own mark above it needs no caption.
-- **The wordmark** (**`.auth-logo`**) is the rectangular logo with the product name in it, not a
-  text line: **`src/assets/coddy-logo-wordmark.svg`** on the six dark themes and **`-light.svg`** on
-  **`light`** (**`LIGHT_THEMES`**). It spans the card's content width with
-  **`aspect-ratio: 188 / 56`** holding the height, so the card does not reflow while the image
-  decodes. Both files are under Vite's inline limit, so they travel inside the bundle and the one
-  screen a browser sees before it has any credential paints without a second request. Its **`alt`**
-  is a dictionary key (**`auth.signIn.logoAlt`**), because the name in the image is what a screen
-  reader must hear.
+  **28px** padding and a **14px** column gap: **`h1`** title, the two fields, the error line, the
+  submit button. Nothing explains the screen in prose - a form with two fields under a title that
+  says Sign in needs no caption.
+- **The wordmark** (**`.auth-logo`**, **`min(240px, 72%)`** of the column, centred) is the
+  rectangular logo with the product name in it, not a text line:
+  **`src/assets/coddy-logo-wordmark.svg`** on the six dark themes and **`-light.svg`** on
+  **`light`** (**`LIGHT_THEMES`**). **`aspect-ratio: 188 / 56`** holds its height, so nothing below
+  it moves while the image decodes. Both files are under Vite's inline limit, so they travel inside
+  the bundle and the one screen a browser sees before it has any credential paints without a second
+  request. Its **`alt`** is a dictionary key (**`auth.signIn.logoAlt`**), because the name in the
+  image is what a screen reader must hear.
 - **Fields** are ordinary **`label`**-wrapped inputs (**`.auth-field`** / **`.auth-label`** /
   **`.auth-input`**) with **`autocomplete="username"`** and **`"current-password"`** so a password
   manager fills them. Focus draws the accent ring (**`--accent`** at 55% border, 25% glow), never a

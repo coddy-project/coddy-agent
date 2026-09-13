@@ -10738,8 +10738,18 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   background: var(--bg);
 }
 
-.auth-card {
+/* The logo stands above the card, not inside it: it belongs to the product, and
+   the card belongs to the one thing being asked. */
+.auth-shell {
   width: min(380px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+}
+
+.auth-card {
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -10751,14 +10761,13 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   box-shadow: var(--coddy-glass-panel-shadow);
 }
 
-/* The wordmark carries the product name, so the card needs no text above the
-   title. It spans the card's content width; the aspect ratio of the 188x56
-   artwork fixes the height, so nothing reflows while the image decodes. */
+/* The wordmark is the heading of the page, above the card. The aspect ratio of
+   the 188x56 artwork fixes its height, so nothing below it moves while the
+   image decodes. */
 .auth-logo {
-  width: 100%;
+  width: min(240px, 72%);
   height: auto;
   aspect-ratio: 188 / 56;
-  margin-bottom: 2px;
 }
 
 .auth-title {

@@ -66,7 +66,7 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
 
   return (
     <div className="auth-screen" data-testid="sign-in-screen">
-      <form className="auth-card" onSubmit={submit}>
+      <div className="auth-shell">
         <img
           className="auth-logo"
           src={wordmark}
@@ -74,49 +74,51 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
           width={188}
           height={56}
         />
-        <h1 className="auth-title">{t("auth.signIn.title")}</h1>
+        <form className="auth-card" onSubmit={submit}>
+          <h1 className="auth-title">{t("auth.signIn.title")}</h1>
 
-        <label className="auth-field">
-          <span className="auth-label">{t("auth.signIn.user")}</span>
-          <input
-            className="auth-input"
-            type="text"
-            name="username"
-            autoComplete="username"
-            autoFocus
-            value={user}
-            onChange={(e) => setUser(e.target.value)}
-            disabled={busy}
-          />
-        </label>
+          <label className="auth-field">
+            <span className="auth-label">{t("auth.signIn.user")}</span>
+            <input
+              className="auth-input"
+              type="text"
+              name="username"
+              autoComplete="username"
+              autoFocus
+              value={user}
+              onChange={(e) => setUser(e.target.value)}
+              disabled={busy}
+            />
+          </label>
 
-        <label className="auth-field">
-          <span className="auth-label">{t("auth.signIn.password")}</span>
-          <input
-            className="auth-input"
-            type="password"
-            name="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            disabled={busy}
-          />
-        </label>
+          <label className="auth-field">
+            <span className="auth-label">{t("auth.signIn.password")}</span>
+            <input
+              className="auth-input"
+              type="password"
+              name="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={busy}
+            />
+          </label>
 
-        {error ? (
-          <p className="auth-error" role="alert">
-            {error}
-          </p>
-        ) : null}
+          {error ? (
+            <p className="auth-error" role="alert">
+              {error}
+            </p>
+          ) : null}
 
-        <button
-          className="auth-submit"
-          type="submit"
-          disabled={busy || user.trim() === "" || password === ""}
-        >
-          {busy ? t("auth.signIn.working") : t("auth.signIn.submit")}
-        </button>
-      </form>
+          <button
+            className="auth-submit"
+            type="submit"
+            disabled={busy || user.trim() === "" || password === ""}
+          >
+            {busy ? t("auth.signIn.working") : t("auth.signIn.submit")}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
