@@ -220,6 +220,34 @@ func TestManagerSessionNewIncludesConfigOptions(t *testing.T) {
 	}
 }
 
+func TestManagerSessionNewIncludesPermissionModeWithoutModels(t *testing.T) {
+	cfg := testConfig()
+	cfg.Models = nil
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
+
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatalf("HandleSessionNew: %v", err)
+	}
+
+	options := make(map[string]acp.ConfigOption, len(res.ConfigOptions))
+	for _, option := range res.ConfigOptions {
+		options[option.ID] = option
+	}
+	if _, ok := options["mode"]; !ok {
+		t.Fatal("expected config option id mode")
+	}
+	if _, ok := options["permission_mode"]; !ok {
+		t.Fatal("expected config option id permission_mode")
+	}
+	if _, ok := options["model"]; ok {
+		t.Fatal("did not expect config option id model without configured models")
+	}
+	if _, ok := options["reasoning"]; ok {
+		t.Fatal("did not expect config option id reasoning without configured models")
+	}
+}
+
 func TestManagerSetConfigOptionModel(t *testing.T) {
 	cfg := testConfig()
 	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
@@ -249,6 +277,103 @@ func TestManagerSetConfigOptionModel(t *testing.T) {
 	}
 	if current != "p3/claude-3" {
 		t.Fatalf("expected model p3/claude-3 after set, got %q", current)
+	}
+}
+
+func TestManagerConfigOptionsAdvertiseReasoningForEffectiveModel(t *testing.T) {
+	cfg := testConfig()
+	cfg.Models[0].Model = "p1/gpt-5"
+	cfg.Agent.Model = "p1/gpt-5"
+	cfg.Models[0].ReasoningDefault = "medium"
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
+
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatalf("HandleSessionNew: %v", err)
+	}
+
+	var reasoning *acp.ConfigOption
+	for i := range res.ConfigOptions {
+		if res.ConfigOptions[i].ID == "reasoning" {
+			reasoning = &res.ConfigOptions[i]
+			break
+		}
+	}
+	if reasoning == nil {
+		t.Fatal("expected reasoning config option")
+	}
+	if reasoning.Type != "select" || reasoning.CurrentValue != "medium" {
+		t.Fatalf("reasoning option = %+v, want select with current medium", reasoning)
+	}
+	want := []string{"minimal", "low", "medium", "high"}
+	if len(reasoning.Options) != len(want) {
+		t.Fatalf("reasoning choices = %+v, want %v", reasoning.Options, want)
+	}
+	for i, wantValue := range want {
+		if got := reasoning.Options[i].Value; got != wantValue {
+			t.Fatalf("reasoning choice %d = %q, want %q", i, got, wantValue)
+		}
+	}
+}
+
+func TestManagerSetConfigOptionReasoning(t *testing.T) {
+	cfg := testConfig()
+	cfg.Models[0].Model = "p1/gpt-5"
+	cfg.Agent.Model = "p1/gpt-5"
+	cfg.Models[0].ReasoningDefault = "medium"
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
+
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatalf("HandleSessionNew: %v", err)
+	}
+	state := m.SessionByID(res.SessionID)
+
+	setReasoning := func(value string) (*acp.SessionSetConfigOptionResult, error) {
+		return m.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
+			SessionID: res.SessionID,
+			ConfigID:  "reasoning",
+			Value:     value,
+		})
+	}
+	optionCurrent := func(out *acp.SessionSetConfigOptionResult) string {
+		t.Helper()
+		for _, option := range out.ConfigOptions {
+			if option.ID == "reasoning" {
+				return option.CurrentValue
+			}
+		}
+		t.Fatal("reasoning config option missing from result")
+		return ""
+	}
+
+	out, err := setReasoning("high")
+	if err != nil {
+		t.Fatalf("set reasoning high: %v", err)
+	}
+	if got := state.GetSelectedReasoning(); got != "high" {
+		t.Fatalf("selected reasoning = %q, want high", got)
+	}
+	if got := optionCurrent(out); got != "high" {
+		t.Fatalf("returned reasoning = %q, want high", got)
+	}
+
+	out, err = setReasoning("   ")
+	if err != nil {
+		t.Fatalf("clear reasoning: %v", err)
+	}
+	if got := state.GetSelectedReasoning(); got != "" {
+		t.Fatalf("selected reasoning = %q, want cleared", got)
+	}
+	if got := optionCurrent(out); got != "medium" {
+		t.Fatalf("returned reasoning = %q, want default medium", got)
+	}
+
+	if _, err := setReasoning("ultra"); err == nil {
+		t.Fatal("expected error for invalid reasoning value")
+	}
+	if got := state.GetSelectedReasoning(); got != "" {
+		t.Fatalf("selected reasoning changed after invalid value: %q", got)
 	}
 }
 

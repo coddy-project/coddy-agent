@@ -128,10 +128,10 @@ throttle with immediate renders after keystrokes.
 
 ## Commands and keys
 
-Slash commands: client-side `/model`, `/mode`, `/resume`, `/new`, `/theme`,
-`/hotkeys`, `/quit`; server-driven `/compact`, `/export`, `/plugin`, and every
-loaded skill (from the ACP available-commands catalog). Enter on a slash
-suggestion applies and submits in one stroke. `/export [md|html|json|jsonl]
+Slash commands: client-side `/model`, `/reasoning [level]`, `/mode`, `/resume`,
+`/new`, `/theme`, `/hotkeys`, `/quit`; server-driven `/compact`, `/export`,
+`/plugin`, and every loaded skill (from the ACP available-commands catalog).
+Enter on a slash suggestion applies and submits in one stroke. `/export [md|html|json|jsonl]
 [path]` writes the transcript into the workspace (`docs/features/session-export.md`);
 under `--remote` the file lands on the server. `/usage` forces a fresh read
 of the active provider's account usage (on a row whose panel is switched
@@ -142,6 +142,13 @@ time, the live requests-per-minute, the cooldown, the wallet with the last
 floor deferred the read, and the snapshot's age. Under `--remote` the
 server's own key is read, so a `key rejected` line there is informational
 (sign in on the server).
+
+`/reasoning` without an argument opens a selector with the active model's
+available levels; selecting a value persists that level on the session.
+`/reasoning <level>` immediately selects and persists that level instead.
+`shift+tab` cycles through the same levels and persists its selection in the
+same way. Models without reasoning levels report that reasoning is unavailable;
+an unsupported direct value reports the levels that can be selected.
 
 Agent self-configuration works as it does over ACP and HTTP: every turn
 offers the staged config tools (`config_get`, `config_set`,
@@ -161,7 +168,7 @@ offers the same tools; under `--remote` the server owns the reload.
 | ctrl+d | exit when the editor is empty |
 | ctrl+l | model selector |
 | ctrl+p / ctrl+shift+p | cycle configured models |
-| shift+tab | cycle reasoning level (models with `reasoning_levels`) |
+| shift+tab | cycle and persist the session reasoning level (models with `reasoning_levels`) |
 | ctrl+o | expand header hints + last tool output + last `!!` block |
 | ctrl+t | collapse/expand thinking blocks |
 | up / down | history at the first/last line; cursor movement otherwise |
@@ -288,9 +295,10 @@ profile per turn, and `/resume`, `-c`, and `--session-id` operate on the
 server's session list (the local folder filter does not apply). The
 permission mode is governed by the remote server's configuration:
 `--permission-mode` and the `/permissions` option are rejected with a clear
-error. Reasoning-level cycling is unavailable remotely in v1. Sessions
-persist only on the server; the startup banner shows `remote: <url>` and the
-exit hint prints a reconnect command with `--remote` included.
+error. `/reasoning` and `shift+tab` persist the selected reasoning level on
+the server session. Sessions persist only on the server; the startup banner shows
+`remote: <url>` and the exit hint prints a reconnect command with `--remote`
+included.
 
 Subagents run on the remote host: the definitions, the trust receipts and the
 child sessions are the server's. Approve a project definition there (`coddy

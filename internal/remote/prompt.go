@@ -71,6 +71,9 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	h.mu.Lock()
 	mode := st.mode
 	selected := st.modelID
+	reasoning := st.reasoning
+	defaultModel := h.defModel
+	models := h.models
 	h.mu.Unlock()
 	if mode == "" {
 		mode = "agent"
@@ -87,6 +90,16 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	body := responsesRequest{Model: mode, Input: promptInput(params.Prompt), Stream: true}
 	if selected != "" {
 		body.Metadata = map[string]string{"model": selected}
+	}
+	effectiveModel := selected
+	if effectiveModel == "" {
+		effectiveModel = defaultModel
+	}
+	if reasoning != "" && reasoningForModel(models, effectiveModel, reasoning) {
+		if body.Metadata == nil {
+			body.Metadata = map[string]string{}
+		}
+		body.Metadata["reasoning"] = reasoning
 	}
 	if slug := planSlug(params.Meta); slug != "" {
 		if body.Metadata == nil {
@@ -165,6 +178,15 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	default:
 		return nil, fmt.Errorf("remote coddy: stream ended before [DONE]")
 	}
+}
+
+func reasoningForModel(models []remoteModel, modelID, reasoning string) bool {
+	for _, model := range models {
+		if model.ID == modelID {
+			return hasReasoningLevel(model.ReasoningLevels, reasoning)
+		}
+	}
+	return false
 }
 
 // turnStream tracks one in-flight remote turn while its SSE stream is read.

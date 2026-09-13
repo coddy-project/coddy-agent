@@ -60,6 +60,7 @@ type Handler struct {
 type sessionState struct {
 	mode          string
 	modelID       string
+	reasoning     string
 	pendingReplay []messageRow
 	// turnCancel aborts the in-flight turn's stream; turnCancelled records
 	// that the cancel targeted that turn (never a later one).
@@ -68,9 +69,11 @@ type sessionState struct {
 }
 
 type remoteModel struct {
-	ID         string
-	OwnedBy    string
-	Multimodal bool
+	ID               string
+	OwnedBy          string
+	Multimodal       bool
+	ReasoningLevels  []string
+	ReasoningDefault string
 }
 
 // NewHandler validates options and returns a disconnected handler; the first
@@ -220,12 +223,13 @@ func (h *Handler) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 			// no such session remotely: a fresh one starts under this id
 		case err != nil:
 			return nil, fmt.Errorf("session/new: reopen %s: %w", id, err)
-		case len(msgs.Messages) > 0:
+		case err == nil:
 			h.mu.Lock()
 			st.pendingReplay = msgs.Messages
 			if msgs.SelectedModelID != "" {
 				st.modelID = msgs.SelectedModelID
 			}
+			st.reasoning = msgs.SelectedReasoning
 			if msgs.Mode != "" {
 				st.mode = msgs.Mode
 			}
@@ -256,6 +260,7 @@ func (h *Handler) HandleSessionLoad(ctx context.Context, params acp.SessionLoadP
 	if msgs.SelectedModelID != "" {
 		st.modelID = msgs.SelectedModelID
 	}
+	st.reasoning = msgs.SelectedReasoning
 	if msgs.Mode != "" {
 		st.mode = msgs.Mode
 	}
@@ -331,8 +336,9 @@ func (h *Handler) HandleSessionSetMode(_ context.Context, params acp.SessionSetM
 	return nil
 }
 
-// HandleSessionSetConfigOption adjusts mode or model. The permission mode is
-// governed by the remote server's configuration and cannot be set here.
+// HandleSessionSetConfigOption adjusts mode, model, or reasoning. The
+// permission mode is governed by the remote server's configuration and cannot
+// be set here.
 func (h *Handler) HandleSessionSetConfigOption(ctx context.Context, params acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error) {
 	st := h.session(params.SessionID)
 	switch params.ConfigID {
@@ -365,6 +371,52 @@ func (h *Handler) HandleSessionSetConfigOption(ctx context.Context, params acp.S
 		if err := h.patchSelectedModel(ctx, params.SessionID, params.Value); err != nil {
 			h.log.Debug("remote selected model patch", "error", err)
 		}
+		if sender := h.currentSender(); sender != nil {
+			_ = sender.SendSessionUpdate(params.SessionID, acp.ConfigOptionUpdate{
+				SessionUpdate: acp.UpdateTypeConfigOptionUpdate,
+				ConfigOptions: h.configOptions(st),
+			})
+		}
+		return &acp.SessionSetConfigOptionResult{ConfigOptions: h.configOptions(st)}, nil
+	case "reasoning":
+		if err := h.ensureModels(ctx); err != nil {
+			return nil, err
+		}
+		value := strings.TrimSpace(params.Value)
+		h.mu.Lock()
+		modelID := st.modelID
+		if modelID == "" {
+			modelID = h.defModel
+		}
+		var levels []string
+		for _, model := range h.models {
+			if model.ID == modelID {
+				levels = model.ReasoningLevels
+				break
+			}
+		}
+		h.mu.Unlock()
+		if len(levels) == 0 {
+			return nil, fmt.Errorf("reasoning is not available for model %q", modelID)
+		}
+		if value != "" {
+			known := false
+			for _, level := range levels {
+				if level == value {
+					known = true
+					break
+				}
+			}
+			if !known {
+				return nil, fmt.Errorf("unknown reasoning value: %q", value)
+			}
+		}
+		if err := h.patchSelectedReasoning(ctx, params.SessionID, value); err != nil && !isNotFound(err) {
+			return nil, err
+		}
+		h.mu.Lock()
+		st.reasoning = value
+		h.mu.Unlock()
 		if sender := h.currentSender(); sender != nil {
 			_ = sender.SendSessionUpdate(params.SessionID, acp.ConfigOptionUpdate{
 				SessionUpdate: acp.UpdateTypeConfigOptionUpdate,
@@ -502,6 +554,7 @@ func (h *Handler) configOptions(st *sessionState) []acp.ConfigOption {
 	h.mu.Lock()
 	mode := st.mode
 	current := st.modelID
+	reasoning := st.reasoning
 	models := h.models
 	if current == "" {
 		current = h.defModel
@@ -539,7 +592,41 @@ func (h *Handler) configOptions(st *sessionState) []acp.ConfigOption {
 		CurrentValue: current,
 		Options:      values,
 	})
+	for _, model := range models {
+		if model.ID != current || len(model.ReasoningLevels) == 0 {
+			continue
+		}
+		currentReasoning := ""
+		if hasReasoningLevel(model.ReasoningLevels, reasoning) {
+			currentReasoning = reasoning
+		} else if hasReasoningLevel(model.ReasoningLevels, model.ReasoningDefault) {
+			currentReasoning = model.ReasoningDefault
+		}
+		reasoningValues := make([]acp.ConfigOptionValue, 0, len(model.ReasoningLevels))
+		for _, level := range model.ReasoningLevels {
+			reasoningValues = append(reasoningValues, acp.ConfigOptionValue{Value: level, Name: level})
+		}
+		out = append(out, acp.ConfigOption{
+			ID:           "reasoning",
+			Name:         "Reasoning",
+			Description:  "Reasoning effort for this model.",
+			Category:     "model",
+			Type:         "select",
+			CurrentValue: currentReasoning,
+			Options:      reasoningValues,
+		})
+		break
+	}
 	return out
+}
+
+func hasReasoningLevel(levels []string, value string) bool {
+	for _, level := range levels {
+		if level == value {
+			return true
+		}
+	}
+	return false
 }
 
 // replayMessages mirrors Manager.replayConversation over REST message rows.

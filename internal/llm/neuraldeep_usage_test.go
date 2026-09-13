@@ -251,6 +251,7 @@ func TestNeuralDeepUsageForProviderResolvesKeyAndBase(t *testing.T) {
 }
 
 func TestNeuralDeepUsageFingerprint(t *testing.T) {
+	t.Setenv("NEURALDEEP_API_KEY", "")
 	home := t.TempDir()
 	authPath := config.NeuralDeepAuthPath(home, "neuraldeep")
 	if err := SaveNeuralDeepAuth(authPath, "sk-first-key-0123456789abcdefg", "https://hub.example", NeuralDeepClientID, "coddy"); err != nil {
