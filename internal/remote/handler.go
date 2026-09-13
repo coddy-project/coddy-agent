@@ -411,7 +411,7 @@ func (h *Handler) HandleSessionSetConfigOption(ctx context.Context, params acp.S
 				return nil, fmt.Errorf("unknown reasoning value: %q", value)
 			}
 		}
-		if err := h.patchSelectedReasoning(ctx, params.SessionID, value); err != nil {
+		if err := h.patchSelectedReasoning(ctx, params.SessionID, value); err != nil && !isNotFound(err) {
 			return nil, err
 		}
 		h.mu.Lock()
