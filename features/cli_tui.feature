@@ -36,6 +36,20 @@ Feature: Interactive console TUI
     Then the tool box shows the preview "preview line 1"
     And the tool box shows the expand hint
 
+  Scenario: A subagent call names the agent and shows what was delegated
+    When the console app starts
+    And the operator submits the prompt "delegate the review"
+    And the stub turn starts a spawn_agent call for "general" described as "review the diff" with the prompt "Read react.go and report what changed"
+    Then the transcript shows a pending tool box titled "spawn_agent general"
+    And the tool box shows "review the diff"
+    And the tool box shows "Read react.go and report what changed"
+
+  Scenario: A skill load names the skill it pulled in
+    When the console app starts
+    And the operator submits the prompt "follow the review skill"
+    And the stub turn starts a tool call named "load_skill" with argument name "code-review"
+    Then the transcript shows a pending tool box titled "load_skill code-review"
+
   Scenario: The status line names what the turn is doing right now
     When the console app starts
     And the operator submits the prompt "read the readme"

@@ -3394,10 +3394,16 @@ Top to bottom:
   markdown (headings, bold/italic, inline code, ``` fences with borders,
   `│ ` quotes, lists, box-drawing tables, OSC 8 links); italic gray thinking
   blocks (collapse with `ctrl+t`); tool calls as background-tinted boxes
-  (pending → success green tint / error red tint) with a bold title
-  (`read <path>`, `$ command`), preview capped at 10 lines, and
-  `... (ctrl+o to expand)` reading the full result from
-  `sessions/<id>/tool_calls/`.
+  (pending → success green tint / error red tint) with a bold title naming
+  what the call acts on (`read <path>`, `$ command`, `load_skill <skill>`,
+  `spawn_agent <subagent> · <task> · background · timeout 300s`, where each
+  part after the subagent appears only when the call passed it), preview
+  capped at 10 lines, and `... (ctrl+o to expand)` reading the full result
+  from `sessions/<id>/tool_calls/`. A `spawn_agent` box also carries the
+  delegation itself: under the title, in dim italic, the prompt the child
+  received, cut at the first of 10 written lines or 600 characters with
+  `... (ctrl+o for the whole prompt)`. The child's report lands below it as
+  the box body, so the task and the answer read as one block.
 - **Status**: braille spinner `⠋⠙⠹...` at 80 ms with a live status line naming
   the current step while a turn runs - verb plus target plus elapsed counter
   (`Reading README.md · 12s`, `Running npm test · 3s`, `Thinking… · 2s`,
@@ -3667,9 +3673,19 @@ process working directory, resolved like `coddy mcp`. Under
 `subagents.project_trust: deny` project files are not listed at all, and under
 `allow` they need no receipt.
 
-In the console a `spawn_agent` call shows as a tool box like any other, and the
-status line reads `Running subagent <name>` with its elapsed counter for as long
-as the child runs. A child's permission request, while its spawning turn is
+In the console a `spawn_agent` call shows as a tool box whose title names the
+subagent that took the task (`spawn_agent explore · find every caller`), with
+the prompt the child received rendered under it and the child's report added as
+the body when it comes back; the status line reads `Running subagent <name>`
+with its elapsed counter for as long as the child runs.
+
+![A delegated run in the console transcript](../assets/cli-tui/13-subagent-delegation.png)
+
+*A loaded skill and a delegated run: the box titles name the skill, and the
+subagent with the task and the timeout it was given; the dim italic block is
+the prompt the child received, and the child's report follows it*
+
+A child's permission request, while its spawning turn is
 still alive, opens the usual modal in the parent chat with the title prefixed
 `[subagent <name>]`. Child sessions (`sub_…` ids) are read-only transcripts:
 `-c` never picks one, and a prompt sent to one is refused with a message naming
@@ -3766,6 +3782,10 @@ regenerate them when the transcript chrome changes. The four usage states
 a fake hub `GET /limits` behind `CODDY_NEURALDEEP_BASE_URL`, plus one chat
 completion that answers a `429` naming a reset far ahead for the waiting
 turn, so no real key is needed; only their PNGs are kept.
+`13-subagent-delegation` comes from `examples/cli/capture_subagent.py` the
+same way: a local OpenAI-compatible endpoint scripts a `load_skill` call, a
+`spawn_agent` call, the child's report and the parent's answer, so the shot
+needs neither a provider nor a key.
 
 `docs/assets/pi-tui-reference/` holds captures of the pi original for
 comparison, as described under **Visual model**.
@@ -12083,7 +12103,7 @@ The workflow rules (`.cursor/rules/workflow.mdc`, mirrored in `.claude/rules/wor
 Capture the real surface, never a mockup and never a re-used older image that no longer matches.
 
 - **Web UI**: `make build TAGS="http ui scheduler memory cli gateway swarm"`, `coddy serve` on a disposable `CODDY_HOME` at a presentable path, Playwright at 1280x800 in the Dark theme as the default, 390 wide when the page discusses the narrow layout, Light when the page discusses themes. Never capture the provider detail pane: it renders `api_key` values in full. The `examples/` harnesses and `.cursor/rules/ui-verification.mdc` describe the stand.
-- **Console**: a real Konsole window on an isolated Xvfb display, driven with XTEST (`demo-videos/rig/stage_konsole.sh` in the demo-videos repository), cropped to the used rows. Deterministic states of the usage footer come from `examples/cli/capture_usage.py`.
+- **Console**: a real Konsole window on an isolated Xvfb display, driven with XTEST (`demo-videos/rig/stage_konsole.sh` in the demo-videos repository), cropped to the used rows. States a real model would not reproduce on demand are captured the other way, without Konsole: a script drives `coddy cli` in a pty, emulates the screen with **pyte** and renders the cell grid to PNG through headless chromium, standing its own HTTP endpoint so it needs neither a provider nor a key - `examples/cli/capture_usage.py` for the usage footer, `examples/cli/capture_subagent.py` for a delegated run with a loaded skill.
 - **Naming and placement**: `docs/assets/<page-or-feature>/<state>-<theme>-<width>.png` when a page needs more than a couple of images, otherwise `docs/assets/<feature>-<state>-<theme>-<width>.png` at the top level. Kebab-case, no issue or pull request numbers, under 1 MB.
 - **On the page**: an image line followed by a one-line caption in italics, placed next to the paragraph that explains what the image shows. One image per view and state; a table with two images side by side when the page compares them.
 
