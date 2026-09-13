@@ -31,6 +31,16 @@ func (a *App) dispatchSlash(text string) bool {
 		}
 		a.openModelSelector()
 		return true
+	case "reasoning":
+		if a.busyWithLocalShell() {
+			return true
+		}
+		if len(fields) > 1 {
+			a.setReasoning(fields[1])
+			return true
+		}
+		a.openReasoningSelector()
+		return true
 	case "mode":
 		if len(fields) > 1 && session.IsValidMode(fields[1]) {
 			a.applyMode(fields[1])
@@ -181,7 +191,7 @@ func (a *App) showHotkeys() {
 		"enter send · shift+enter/ctrl+j newline",
 		"escape interrupt · ctrl+c clear/exit · ctrl+d exit",
 		"ctrl+l model selector · ctrl+p cycle models",
-		"shift+tab cycle reasoning · ctrl+t thinking · ctrl+o expand",
+		"shift+tab cycle reasoning · /reasoning [level] · ctrl+t thinking · ctrl+o expand",
 		"up/down prompt history · / commands · @ file mention",
 		"!!<command> run it here, hidden from the agent",
 		"/usage provider quota, resets and wallet",

@@ -288,6 +288,9 @@ func (a *App) adoptSession(id string, modes *acp.ModeState, opts []acp.ConfigOpt
 		if opt.ID == "model" {
 			a.modelID = opt.CurrentValue
 		}
+		if opt.ID == "reasoning" {
+			a.reasoning = opt.CurrentValue
+		}
 	}
 	if a.modelID == "" {
 		a.modelID = a.config().Agent.Model
@@ -297,12 +300,10 @@ func (a *App) adoptSession(id string, modes *acp.ModeState, opts []acp.ConfigOpt
 }
 
 func (a *App) refreshFooterModel() {
-	reasoning := a.reasoning
-	if reasoning == "" {
-		if st := a.mgr.SessionByID(a.sessionID); st != nil {
-			reasoning = st.EffectiveReasoning(a.config())
-		}
+	if opt := a.reasoningOption(); opt != nil {
+		a.reasoning = opt.CurrentValue
 	}
+	reasoning := a.currentReasoning()
 	if reasoning == "" {
 		if entry := a.config().FindModelEntry(a.modelID); entry != nil {
 			reasoning = entry.ReasoningDefault
@@ -805,27 +806,105 @@ func (a *App) cycleModel(dir int) {
 }
 
 func (a *App) cycleReasoning() {
-	entry := a.config().FindModelEntry(a.modelID)
-	// Cycle the levels the model actually offers, not just a configured override:
-	// ReasoningLevelsFor is the same resolved, provider-aware list the composer and
-	// GET /v1/models expose, so shift+tab works for auto-detected reasoning models too.
-	levels := a.config().ReasoningLevelsFor(entry)
-	if entry == nil || len(levels) == 0 {
+	if a.busyWithLocalShell() {
 		return
 	}
+	levels := a.reasoningLevels()
+	if len(levels) == 0 {
+		return
+	}
+	current := a.currentReasoning()
 	cur := -1
 	for i, l := range levels {
-		if l == a.reasoning {
+		if l == current {
 			cur = i
 			break
 		}
 	}
 	next := levels[(cur+1+len(levels))%len(levels)]
-	a.reasoning = next
-	if st := a.mgr.SessionByID(a.sessionID); st != nil {
-		st.SetSelectedReasoning(next)
+	a.setReasoning(next)
+}
+
+func (a *App) reasoningOption() *acp.ConfigOption {
+	for i := range a.configOpts {
+		if a.configOpts[i].ID == "reasoning" {
+			return &a.configOpts[i]
+		}
 	}
-	a.refreshFooterModel()
+	return nil
+}
+
+func (a *App) reasoningLevels() []string {
+	if opt := a.reasoningOption(); opt != nil {
+		levels := make([]string, 0, len(opt.Options))
+		for _, option := range opt.Options {
+			levels = append(levels, option.Value)
+		}
+		return levels
+	}
+	if entry := a.config().FindModelEntry(a.modelID); entry != nil {
+		return a.config().ReasoningLevelsFor(entry)
+	}
+	return nil
+}
+
+func (a *App) currentReasoning() string {
+	if st := a.mgr.SessionByID(a.sessionID); st != nil {
+		return st.EffectiveReasoning(a.config())
+	}
+	if opt := a.reasoningOption(); opt != nil {
+		return opt.CurrentValue
+	}
+	return a.reasoning
+}
+
+func (a *App) openReasoningSelector() {
+	if a.busyWithLocalShell() {
+		return
+	}
+	levels := a.reasoningLevels()
+	if len(levels) == 0 {
+		a.appendStatus(roleDim, "No reasoning levels are available for this model")
+		return
+	}
+	items := make([]tui.SelectItem, 0, len(levels))
+	current := a.currentReasoning()
+	selected := 0
+	for i, level := range levels {
+		items = append(items, tui.SelectItem{Value: level, Label: tui.SanitizeText(level)})
+		if level == current {
+			selected = i
+		}
+	}
+	sel := newSelectorModal(a.theme, "Select reasoning", items, 10, a.screen.RequestRender)
+	sel.list.SetSelectedIndex(selected)
+	sel.OnDone = func(item *tui.SelectItem) {
+		a.closeModal()
+		if item == nil {
+			a.screen.RequestRender()
+			return
+		}
+		a.setReasoning(item.Value)
+	}
+	a.openModal(sel)
+}
+
+func (a *App) setReasoning(level string) {
+	if a.busyWithLocalShell() {
+		return
+	}
+	sessionID := a.sessionID
+	go func() {
+		if _, err := a.mgr.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
+			SessionID: sessionID, ConfigID: "reasoning", Value: level,
+		}); err != nil {
+			message := "reasoning: " + err.Error()
+			if levels := a.reasoningLevels(); len(levels) > 0 {
+				message += "; Valid levels: " + strings.Join(levels, ", ")
+			}
+			_ = a.Sender().SendSessionUpdate(sessionID, statusErr{msg: message})
+		}
+	}()
 }
 
 func (a *App) toggleExpanded() {
@@ -1086,6 +1165,7 @@ func (a *App) slashCatalog() []tui.AutocompleteItem {
 	var items []tui.AutocompleteItem
 	items = append(items,
 		tui.AutocompleteItem{Value: "model", Label: "model", Description: "Select model (opens selector UI)"},
+		tui.AutocompleteItem{Value: "reasoning", Label: "reasoning", Description: "Select reasoning level (opens selector UI)"},
 		tui.AutocompleteItem{Value: "mode", Label: "mode", Description: "Switch between agent, plan, and ask mode"},
 		tui.AutocompleteItem{Value: "resume", Label: "resume", Description: "Resume another session"},
 		tui.AutocompleteItem{Value: "new", Label: "new", Description: "Start a new session"},
