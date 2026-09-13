@@ -57,6 +57,28 @@ func BuildACPConfigOptions(cfg *config.Config, state *State) []acp.ConfigOption 
 	}
 	out = append(out, modelOpt)
 
+	if ent := cfg.FindModelEntry(state.EffectiveModelID(cfg)); ent != nil {
+		levels := cfg.ReasoningLevelsFor(ent)
+		if len(levels) > 0 {
+			reasoningOptions := make([]acp.ConfigOptionValue, 0, len(levels))
+			for _, level := range levels {
+				reasoningOptions = append(reasoningOptions, acp.ConfigOptionValue{
+					Value: level,
+					Name:  level,
+				})
+			}
+			out = append(out, acp.ConfigOption{
+				ID:           "reasoning",
+				Name:         "Reasoning",
+				Description:  "Controls the reasoning effort used for this session.",
+				Category:     "model",
+				Type:         "select",
+				CurrentValue: state.EffectiveReasoning(cfg),
+				Options:      reasoningOptions,
+			})
+		}
+	}
+
 	effectivePerm := state.GetPermissionMode()
 	if effectivePerm == "" {
 		effectivePerm = cfg.Tools.ResolvedPermMode()

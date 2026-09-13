@@ -954,6 +954,24 @@ func (m *Manager) HandleSessionSetConfigOption(_ context.Context, params acp.Ses
 			return nil, fmt.Errorf("unknown model value: %q", params.Value)
 		}
 		state.SetSelectedModelID(params.Value)
+	case "reasoning":
+		level := strings.TrimSpace(params.Value)
+		if level != "" {
+			ent := m.activeCfg().FindModelEntry(state.EffectiveModelID(m.activeCfg()))
+			valid := false
+			if ent != nil {
+				for _, candidate := range m.activeCfg().ReasoningLevelsFor(ent) {
+					if candidate == level {
+						valid = true
+						break
+					}
+				}
+			}
+			if !valid {
+				return nil, fmt.Errorf("invalid reasoning value: %q", params.Value)
+			}
+		}
+		state.SetSelectedReasoning(level)
 	case "permission_mode":
 		switch params.Value {
 		case config.PermModeAsk, config.PermModeAcceptEdits, config.PermModeBypass:
