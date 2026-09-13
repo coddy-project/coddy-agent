@@ -36,7 +36,7 @@ coddy -t
 coddy serve -t
 ```
 
-Every problem is printed as `file:line:column: what is wrong`, with an indented `fix:` line and, where the schema has one, a `doc:` line. The exit status is 1 on errors; warnings (`yes` for a boolean, a missing `# yaml-language-server:` header) never fail the check, and a missing file is an error. When the file is clean, go one step further:
+Every problem is printed as `file:line:column: what is wrong`, with an indented `fix:` line and, where the schema has one, a `doc:` line. A syntax error names the line whose arrival stops the file parsing, not the line the parser blames, and a start prints the same line. The exit status is 1 on errors; warnings (`yes` for a boolean, a missing `# yaml-language-server:` header) never fail the check, and a missing file is an error. When the file is clean, go one step further:
 
 ```bash
 coddy --dry-run                 # the problems and one status line
@@ -190,6 +190,7 @@ A copy under `~/.local/bin` or a build of your own is untouched by any of this a
   ```
 
 - **Updates from scripts.** `coddy update -y --no-restart` installs without starting Coddy again, for a CI step with no console to run in.
+- **Editing `config.yaml`.** Windows line endings and the byte order mark Notepad writes are read and dropped, and a save puts the file's line endings back, so editing the file in any Windows editor is safe. The exception is the encoding: a file saved as **Unicode** (UTF-16) rather than **UTF-8** is refused by name - `the file is UTF-16 LE text, not UTF-8` - and has to be re-saved. Notepad's Save As dialog has the encoding next to the Save button; most other editors call the right one "UTF-8 without BOM".
 - **Editors.** Configure ACP clients with the absolute `coddy.exe` path (see the first section).
 
 ## Collect diagnostics

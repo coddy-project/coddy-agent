@@ -59,6 +59,11 @@ func MarshalConfigYAMLPreservingComments(cfg *Config, existing []byte) ([]byte, 
 	if cfg == nil {
 		return nil, fmt.Errorf("config is nil")
 	}
+	original := existing
+	// What an editor on Windows left in the file is not part of the document: a
+	// carriage return would otherwise stay inside every comment yaml.v3 hands back
+	// and be written out again as a line of its own (see source.go).
+	existing = normalizeConfigSource(existing)
 	var next yaml.Node
 	if err := next.Encode(escapeYAMLSecrets(cfg)); err != nil {
 		return nil, fmt.Errorf("encode config: %w", err)
@@ -75,7 +80,7 @@ func MarshalConfigYAMLPreservingComments(cfg *Config, existing []byte) ([]byte, 
 	if err != nil {
 		return nil, fmt.Errorf("serialize config: %w", err)
 	}
-	return ensureSchemaModeline(out), nil
+	return applyLineEnding(ensureSchemaModeline(out), configLineEnding(original)), nil
 }
 
 // MarshalConfigYAMLForFile renders cfg as the new content of the config file at path,

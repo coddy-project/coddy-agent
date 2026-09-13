@@ -6,6 +6,9 @@ Feature: Checking config.yaml before anything starts
   the file the process would load against the published JSON Schema and the loader's own
   rules, then prints every problem with its line, what is wrong and how to fix it. It starts
   nothing and touches nothing: the backup recovery a normal load performs never runs.
+  A problem is placed where it is - the parser blames the line its enclosing block began
+  on, which on a commented file is a blank line far above - and a file an editor on Windows
+  wrote reads exactly like one written anywhere else.
 
   Scenario: a valid config passes and nothing is started or created
     Given a config.yaml with one provider and one model
@@ -27,6 +30,19 @@ Feature: Checking config.yaml before anything starts
     Then the command fails
     And the report points at the line of "verbose"
     And the report lists the allowed values "debug, info, warn, warning, error"
+
+  Scenario: a broken line is reported where it is, not where its section began
+    Given a config.yaml whose provider entry loses one space of indentation on line 22
+    When I run coddy with -t
+    Then the command fails
+    And the report points at line 22 of the config file
+
+  Scenario: a config saved by a Windows editor reads like any other
+    Given a config.yaml with one provider and one model saved as Windows text
+    When I run coddy serve with --test-config
+    Then the command succeeds
+    And the report says the config is valid
+    And the report has nothing else to say
 
   Scenario: the check never rewrites the file
     Given a config.yaml with a broken value and a valid config.yaml.bak beside it

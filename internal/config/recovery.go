@@ -63,9 +63,15 @@ func BackupCurrent(configPath string) error {
 }
 
 // AtomicWriteConfigYAML writes yamlBytes to configPath using a temp file and rename.
+// The file keeps the line endings it already had, so a config an operator edits on
+// Windows is not turned into a Unix file by a save from the settings screen; a file
+// that is not there yet is written as it was rendered.
 func AtomicWriteConfigYAML(configPath string, yamlBytes []byte) error {
 	if strings.TrimSpace(configPath) == "" {
 		return fmt.Errorf("config path is empty")
+	}
+	if current, err := os.ReadFile(configPath); err == nil {
+		yamlBytes = applyLineEnding(yamlBytes, configLineEnding(current))
 	}
 	return atomicWriteFile(configPath, yamlBytes, 0o644)
 }
@@ -103,7 +109,7 @@ func atomicWriteFile(path string, data []byte, perm fs.FileMode) error {
 func parseValidateYAMLBytes(expanded string, paths Paths) (*Config, error) {
 	var cfg Config
 	if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
-		return nil, err
+		return nil, relocateSyntaxError(err, expanded)
 	}
 	cfg.Paths = paths
 	applyDefaults(&cfg)

@@ -61,12 +61,14 @@ agent:
 type configCommentsWorld struct {
 	ts      *httptest.Server
 	cfgPath string
+	initial string
 	saved   string
 }
 
 func (w *configCommentsWorld) startGateway(t *testing.T, yml string) error {
 	home := t.TempDir()
 	w.cfgPath = filepath.Join(home, "config.yaml")
+	w.initial = yml
 	if err := os.WriteFile(w.cfgPath, []byte(yml), 0o644); err != nil {
 		return err
 	}
@@ -173,6 +175,31 @@ func (w *configCommentsWorld) wantAgentField(field string, value int) error {
 	return nil
 }
 
+// blankLines counts the lines a reader sees as empty, whatever an editor ended them with.
+func blankLines(body string) int {
+	n := 0
+	for _, line := range strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n") {
+		if strings.TrimSpace(line) == "" {
+			n++
+		}
+	}
+	return n
+}
+
+func (w *configCommentsWorld) wantNoNewBlankLines() error {
+	if got, want := blankLines(w.saved), blankLines(w.initial); got != want {
+		return fmt.Errorf("the save turned %d blank lines into %d:\n%s", want, got, w.saved)
+	}
+	return nil
+}
+
+func (w *configCommentsWorld) wantWindowsLineEndings() error {
+	if strings.Count(w.saved, "\n") != strings.Count(w.saved, "\r\n") {
+		return fmt.Errorf("the save mixed Windows and Unix line endings:\n%q", w.saved)
+	}
+	return nil
+}
+
 func (w *configCommentsWorld) wantSchemaHeader(url string) error {
 	want := "# yaml-language-server: $schema=" + url
 	first, _, _ := strings.Cut(w.saved, "\n")
@@ -204,6 +231,9 @@ func TestConfigSchemaCommentsFeature(t *testing.T) {
 			sc.Step(`^a coddy server whose config\.yaml carries operator comments$`, func() error {
 				return w.startGateway(t, commentedConfigYAML)
 			})
+			sc.Step(`^a coddy server whose config\.yaml carries operator comments in Windows text$`, func() error {
+				return w.startGateway(t, strings.ReplaceAll(commentedConfigYAML, "\n", "\r\n"))
+			})
 			sc.Step(`^a coddy server whose config\.yaml has no schema header$`, func() error {
 				return w.startGateway(t, bareConfigYAML)
 			})
@@ -213,6 +243,8 @@ func TestConfigSchemaCommentsFeature(t *testing.T) {
 			sc.Step(`^the settings screen saves the config with "([^"]*)" set to (\d+)$`, w.saveWithAgentField)
 			sc.Step(`^the saved config\.yaml still carries the operator comments$`, w.wantOperatorComments)
 			sc.Step(`^the saved config\.yaml sets "([^"]*)" to (\d+)$`, w.wantAgentField)
+			sc.Step(`^the saved config\.yaml gained no blank lines$`, w.wantNoNewBlankLines)
+			sc.Step(`^the saved config\.yaml still ends its lines the Windows way$`, w.wantWindowsLineEndings)
 			sc.Step(`^the saved config\.yaml starts with the schema header for "([^"]*)"$`, w.wantSchemaHeader)
 			sc.Step(`^the saved config\.yaml still points its editor at "([^"]*)"$`, w.wantSchemaReference)
 			sc.Step(`^the saved config\.yaml carries exactly one schema header$`, w.wantSingleSchemaHeader)

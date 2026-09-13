@@ -96,7 +96,10 @@ func readExistingConfigBytes(path string) ([]byte, bool, error) {
 	if err != nil {
 		return nil, false, fmt.Errorf("read config: %w", err)
 	}
-	return raw, true, nil
+	if enc := utf16Encoding(raw); enc != "" {
+		return nil, false, fmt.Errorf("read config: the file is %s text, not UTF-8; %s", enc, utf16Fix)
+	}
+	return normalizeConfigSource(raw), true, nil
 }
 
 func parseConfigDocument(raw []byte) (*yaml.Node, error) {
