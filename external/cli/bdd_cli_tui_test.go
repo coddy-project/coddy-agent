@@ -398,6 +398,19 @@ func (s *cliTUIState) stubRunner(ctx context.Context, st *session.State, prompt 
 
 func (s *cliTUIState) buildApp() error { return s.buildAppWith(false) }
 
+// buildAppWithReasoning configures the console with a reasoning-capable stub
+// model and medium as its default level. The fixture reaches the manager
+// before it creates the scenario session.
+func (s *cliTUIState) buildAppWithReasoning() error {
+	models := []config.ModelEntry{{
+		Model:            "stub/gpt-5.6-terra",
+		MaxTokens:        1000,
+		MaxContextTokens: 100000,
+		ReasoningDefault: "medium",
+	}}
+	return s.buildAppWithModels(false, true, models, "stub/gpt-5.6-terra")
+}
+
 // buildAppWith assembles the console; with neuraldeep the default model
 // belongs to a neuraldeep provider whose stored hub login points at a
 // stand-in GET /limits, and the manager runs on the scenario's clock.
@@ -408,6 +421,12 @@ func (s *cliTUIState) buildAppWith(neuraldeep bool) error {
 // buildAppWithUsagePanel is buildAppWith with the neuraldeep row's usage
 // limits panel switched on or off (providers[].usage_limits_panel).
 func (s *cliTUIState) buildAppWithUsagePanel(neuraldeep, panel bool) error {
+	return s.buildAppWithModels(neuraldeep, panel, nil, "")
+}
+
+// buildAppWithModels assembles the console with an optional model fixture.
+// Its model selection is applied before session.NewManager sees the config.
+func (s *cliTUIState) buildAppWithModels(neuraldeep, panel bool, models []config.ModelEntry, defaultModel string) error {
 	s.home = filepath.Join(os.TempDir(), fmt.Sprintf("coddy-cli-bdd-%d", time.Now().UnixNano()))
 	s.cwd = filepath.Join(s.home, "work")
 	for _, d := range []string{s.home, s.cwd, filepath.Join(s.home, "sessions")} {
@@ -442,6 +461,10 @@ func (s *cliTUIState) buildAppWithUsagePanel(neuraldeep, panel bool) error {
 		cfg.Providers = append(cfg.Providers, row)
 		cfg.Models = append(cfg.Models, config.ModelEntry{Model: "neuraldeep/qwen3.8-27b", MaxTokens: 1000, MaxContextTokens: 100000})
 		cfg.Agent.Model = "neuraldeep/qwen3.8-27b"
+	}
+	if len(models) > 0 {
+		cfg.Models = models
+		cfg.Agent.Model = defaultModel
 	}
 	cfg.Tools.PermissionMode = "ask"
 	cfg.Rules.AutoDiscover = &noAuto
@@ -879,6 +902,34 @@ func (s *cliTUIState) sessionStateRecordsSecondModel() error {
 	return nil
 }
 
+func (s *cliTUIState) operatorSelectsLowReasoningThroughSelector() error {
+	if err := s.operatorSubmitsCommand("/reasoning"); err != nil {
+		return err
+	}
+	if err := s.waitScreen("Select reasoning", 3*time.Second); err != nil {
+		return err
+	}
+	// The configured default is medium; low is the immediately preceding level.
+	s.press("\x1b[A")
+	s.press("\r")
+	return nil
+}
+
+func (s *cliTUIState) footerNamesReasoning(level string) error {
+	return s.waitScreen(" • "+level, 3*time.Second)
+}
+
+func (s *cliTUIState) sessionStateRecordsReasoning(level string) error {
+	st := s.app.mgr.SessionByID(s.app.sessionID)
+	if st == nil {
+		return fmt.Errorf("no live session")
+	}
+	if got := st.GetSelectedReasoning(); got != level {
+		return fmt.Errorf("session reasoning = %q, want %q", got, level)
+	}
+	return nil
+}
+
 func (s *cliTUIState) previousSessionWith(prompt, reply string) error {
 	if err := s.buildApp(); err != nil {
 		return err
@@ -1287,6 +1338,10 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the operator switches the model to the second configured model$`, s.operatorSwitchesToSecondModel)
 	sc.Step(`^the footer names the second configured model$`, s.footerNamesSecondModel)
 	sc.Step(`^the session state records the second configured model$`, s.sessionStateRecordsSecondModel)
+	sc.Step(`^a coddy console app over a stub agent runner with a reasoning-capable model$`, s.buildAppWithReasoning)
+	sc.Step(`^the operator selects the low reasoning level through the /reasoning selector$`, s.operatorSelectsLowReasoningThroughSelector)
+	sc.Step(`^the footer names the reasoning level "([^"]*)"$`, s.footerNamesReasoning)
+	sc.Step(`^the session state records the reasoning level "([^"]*)"$`, s.sessionStateRecordsReasoning)
 	sc.Step(`^a previous console session with the prompt "([^"]*)" and the reply "([^"]*)"$`, s.previousSessionWith)
 	sc.Step(`^the console app starts pinned to that session$`, s.appStartsPinnedToThatSession)
 	sc.Step(`^the replayed prompt "([^"]*)" renders as a user message block and not as assistant text$`, s.replayedPromptRendersAsUserBlock)

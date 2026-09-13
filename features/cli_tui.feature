@@ -100,6 +100,20 @@ Feature: Interactive console TUI
     Then the footer names the second configured model
     And the session state records the second configured model
 
+  Scenario: /reasoning opens a selector that persists the selected level
+    Given a coddy console app over a stub agent runner with a reasoning-capable model
+    When the console app starts
+    And the operator selects the low reasoning level through the /reasoning selector
+    Then the footer names the reasoning level "low"
+    And the session state records the reasoning level "low"
+
+  Scenario: /reasoning low persists the requested level
+    Given a coddy console app over a stub agent runner with a reasoning-capable model
+    When the console app starts
+    And the operator submits the command "/reasoning low"
+    Then the footer names the reasoning level "low"
+    And the session state records the reasoning level "low"
+
   Scenario: Reopening a session replays the transcript
     Given a previous console session with the prompt "remember me" and the reply "I remember"
     When the console app starts pinned to that session
