@@ -223,9 +223,91 @@ func openAPISpec() map[string]interface{} {
 						"in":          "query",
 						"schema":      map[string]string{"type": "boolean"},
 						"description": "When true, each session row includes **turnActive**, **activitySeq**, **readActivitySeq**, and **unreadComplete** for composer UI.",
+					}, map[string]interface{}{
+						"name":   "include_stats",
+						"in":     "query",
+						"schema": map[string]string{"type": "boolean"},
+						"description": "When true, each row also carries what the session management table renders: **messageCount** (persisted transcript rows of every role), **tokenUsage** " +
+							"(**`{inputTokens, outputTokens, totalTokens}`** from the bundle's **stats.json**, zeroes when the session never completed a model call), **createdAt** and **model**. " +
+							"**createdAt** is omitted for a bundle stored before the field existed - the moment it was started is not recoverable and is not invented - and **model** is omitted for a session " +
+							"that never overrode **`agent.model`**, so a client renders those as unknown rather than as a value. Each row costs one extra small file read.",
 					}),
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Paged session identifiers"},
+						"503": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions/bulk-delete": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Delete many sessions in one request",
+					"description": "Removes several session trees with the same semantics as **DELETE /coddy/sessions/{id}** applied to each id: branch references retracted, background tasks and subagent children stopped, bundles removed deepest first. " +
+						"The body names either an explicit **ids** list, or **scope** **`all`** with an optional **except** list of ids to keep. **`all`** is resolved on the server against the default session listing " +
+						"(scheduler runs excluded, subagent children going with their parents), so it means the whole stored history rather than the page a client happens to have loaded. " +
+						"An **except** entry is a promise that the session survives, so it is checked before anything is removed: a malformed id, or one with no bundle on disk, is a **400** and nothing is deleted - a misspelt exception would otherwise turn *keep this one* into *delete everything*. " +
+						"Sparing a session spares its **ancestors** too, because the delete takes a whole tree: excepting a **`sub_`** child keeps the parent it hangs from, which the listing names and the child does not. **except** is refused beside an **ids** list, where nothing would consult it. " +
+						"One id that cannot be removed does not abandon the rest: every id is attempted and the answer lists **deleted** and **failed** separately, so a table can drop the rows that went and keep the others with their reason. " +
+						"A **failed** entry carries the retryable conflict verbatim (a turn that would not settle, an unstable tree) and a generic **`delete failed`** for anything else, which is logged rather than returned. " +
+						"A duplicate id is deleted once, and an id with no bundle on disk counts as deleted, exactly as the single-session route answers **200** for it.",
+					"operationId": "coddySessionsBulkDelete",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"scope": map[string]interface{}{
+											"type":        "string",
+											"enum":        []string{"ids", "all"},
+											"description": "**`ids`** (the default) deletes exactly the **ids** list; **`all`** deletes every listed session minus **except**.",
+										},
+										"ids": map[string]interface{}{
+											"type":        "array",
+											"items":       map[string]string{"type": "string"},
+											"description": "Session ids to remove. Required and non-empty for scope **`ids`**; rejected together with scope **`all`**.",
+										},
+										"except": map[string]interface{}{
+											"type":        "array",
+											"items":       map[string]string{"type": "string"},
+											"description": "Session ids to keep, for scope **`all`** only (a **400** beside an **ids** list). Each one must be a valid id **and** name a stored bundle, or the whole request is a **400** and nothing is removed. Keeping a session keeps its ancestors as well.",
+										},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "What went and what stayed",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":    map[string]string{"type": "string", "example": "coddy.sessions_bulk_deleted"},
+											"requested": map[string]string{"type": "integer"},
+											"deleted": map[string]interface{}{
+												"type":  "array",
+												"items": map[string]string{"type": "string"},
+											},
+											"failed": map[string]interface{}{
+												"type": "array",
+												"items": map[string]interface{}{
+													"type": "object",
+													"properties": map[string]interface{}{
+														"id":    map[string]string{"type": "string"},
+														"error": map[string]string{"type": "string"},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"500": errorResponseRef(),
 						"503": errorResponseRef(),
 					},
 				},

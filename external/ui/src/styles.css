@@ -10848,3 +10848,196 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ---------------------------------------------------------------------------
+   Settings -> Sessions: the stored history as a table (SessionsManager.tsx).
+   The table is the one horizontally scrollable element on the tab, so a narrow
+   shell scrolls the columns instead of the page. Contract: DESIGN.md,
+   "Settings session management table".
+   --------------------------------------------------------------------------- */
+
+.sessions-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* The search field and the delete button share one row at every width: with a
+   single 40px action there is always room, and wrapping it onto a line of its
+   own made the narrow shell look unlike the desktop for no gain. */
+.sessions-manager-toolbar {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.sessions-manager-search {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sessions-manager-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+/* The three bulk actions are icon buttons; their label is the tooltip and the
+   accessible name. Only the selection count is drawn, as a badge, because it is
+   the one thing a tooltip cannot tell you at a glance. */
+.sessions-manager-action {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.sessions-manager-action-count {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 650;
+  line-height: 16px;
+  text-align: center;
+  /* Per-theme contrast pair; --coddy-blend-base is transparent in the dark
+     themes and would render the digit invisible. */
+  color: var(--coddy-on-accent-fg);
+  background: var(--accent);
+}
+
+/* The only scrollport of the tab: columns scroll inside this box. */
+.sessions-manager-tablewrap {
+  overflow-x: auto;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 10px;
+  background: var(--coddy-surface-fieldset);
+}
+
+.sessions-manager-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+  white-space: nowrap;
+}
+
+.sessions-manager-table th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.74rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 8px 7px;
+  border-bottom: 1px solid var(--coddy-glass-panel-border);
+  position: sticky;
+  top: 0;
+  background: var(--coddy-surface-raised);
+  z-index: 1;
+}
+
+.sessions-manager-table td {
+  padding: 6px 7px;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  color: var(--text);
+  vertical-align: middle;
+}
+
+.sessions-manager-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.sessions-manager-table tbody tr:hover {
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+}
+
+/* The conversation currently on screen behind the panel. */
+.sessions-manager-table tbody tr.is-active-session {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.sessions-manager-col-pick {
+  width: 34px;
+  text-align: center;
+}
+
+.sessions-manager-col-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.sessions-manager-col-act {
+  width: 40px;
+  text-align: center;
+}
+
+/* Long values get a cap and an ellipsis; the full text is in the cell title. */
+.sessions-manager-title-line > span,
+.sessions-manager-col-model > span,
+.sessions-manager-cwd {
+  display: inline-block;
+  max-width: 18ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
+.sessions-manager-title-line > span {
+  max-width: 22ch;
+}
+
+/* Title and workspace stack inside one cell. */
+.sessions-manager-col-title {
+  line-height: 1.25;
+}
+
+.sessions-manager-title-line {
+  display: block;
+}
+
+.sessions-manager-cwd {
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+/* Workspace and the "open" mark share the second line of the title cell. */
+.sessions-manager-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.sessions-manager-badge {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  line-height: 1.5;
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* The row trash has no .session-item to hover in a table. */
+.sessions-manager-table tbody tr:hover .session-trash {
+  opacity: 1;
+}
+
+.sessions-manager-empty {
+  margin: 0;
+  padding: 14px 10px;
+}
+
+.sessions-manager-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}

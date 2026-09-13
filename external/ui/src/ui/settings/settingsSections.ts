@@ -7,7 +7,8 @@ export type SectionKind =
   | "group"
   | "skills"
   | "mcp"
-  | "appearance";
+  | "appearance"
+  | "sessions";
 
 export type SectionDescriptor = {
   /** Unique id: a config key, or a synthetic id ("system", "appearance"). */
@@ -31,6 +32,7 @@ export type SectionDescriptor = {
  */
 const SECTION_LABEL_KEYS: Record<string, string> = {
   appearance: "settings.section.appearance.label",
+  sessions_manager: "settings.section.sessions_manager.label",
   providers: "settings.section.providers.label",
   models: "settings.section.models.label",
   agent: "settings.section.agent.label",
@@ -53,6 +55,7 @@ const SECTION_LABEL_KEYS: Record<string, string> = {
  */
 const SECTION_DESC_KEYS: Record<string, string> = {
   appearance: "settings.section.appearance.desc",
+  sessions_manager: "settings.section.sessions_manager.desc",
   providers: "settings.section.providers.desc",
   models: "settings.section.models.desc",
   agent: "settings.section.agent.desc",
@@ -105,8 +108,19 @@ export function deriveSettingsSections(
     kind: "appearance",
   };
 
+  // The stored history is managed, not configured: this tab reads and prunes
+  // session bundles over /coddy/sessions and edits no config key. Its id is
+  // sessions_manager because `sessions` is already a config key (the storage
+  // directory), folded into the System tab.
+  const sessionsManager: SectionDescriptor = {
+    id: "sessions_manager",
+    label: labelFor("sessions_manager"),
+    description: translate(SECTION_DESC_KEYS.sessions_manager),
+    kind: "sessions",
+  };
+
   if (!schema || schema.type !== "object" || !schema.properties) {
-    return [appearance];
+    return [appearance, sessionsManager];
   }
 
   const props = schema.properties;
@@ -194,5 +208,5 @@ export function deriveSettingsSections(
     emit(key);
   }
 
-  return [appearance, ...out];
+  return [appearance, sessionsManager, ...out];
 }

@@ -12,11 +12,9 @@ import {
   type JsonSchema,
 } from "./SchemaForm";
 import { MCPSection } from "./MCPSection";
-import {
-  schemaFieldDesc,
-  schemaFieldLabel,
-} from "./schemaI18n";
+import { schemaFieldDesc, schemaFieldLabel } from "./schemaI18n";
 import { SettingsArraySection } from "./SettingsArraySection";
+import { SessionsManager } from "../sessions/SessionsManager";
 import { SkillsSection } from "./SkillsSection";
 import type { SectionDescriptor } from "./settingsSections";
 import { useT } from "../i18n/I18nProvider";
@@ -189,8 +187,13 @@ export function SettingsSection(props: {
   setDoc: (next: Record<string, unknown>) => void;
   /** Desktop shows the edited item's name on the array-section back button. */
   isMobileShell?: boolean;
+  /** The conversation on screen, so the session table can spare it. */
+  activeSessionId?: string;
+  /** Session ids the table removed, so the shell can drop them from History. */
+  onSessionsDeleted?: (ids: string[]) => void;
 }) {
-  const { section, schema, doc, setDoc } = props;
+  const { section, schema, doc, setDoc, activeSessionId, onSessionsDeleted } =
+    props;
   const { t } = useT();
   const props_ = schema.properties ?? {};
 
@@ -217,6 +220,17 @@ export function SettingsSection(props: {
 
   if (section.kind === "appearance") {
     return <AppearanceThemePicker />;
+  }
+
+  // The session table is API-driven (/coddy/sessions): it reads and removes
+  // stored bundles and never touches the settings document.
+  if (section.kind === "sessions") {
+    return (
+      <SessionsManager
+        {...(activeSessionId ? { activeSessionId } : {})}
+        {...(onSessionsDeleted ? { onSessionsDeleted } : {})}
+      />
+    );
   }
 
   if (section.kind === "skills") {
@@ -403,7 +417,11 @@ export function SettingsSection(props: {
                 schemaFieldLabel(key, "model", ctx.schema.title, "model") ||
                 t("settings.field.defaultModelFallback")
               }
-              description={schemaFieldDesc(key, "model", ctx.schema.description)}
+              description={schemaFieldDesc(
+                key,
+                "model",
+                ctx.schema.description,
+              )}
             />
           ) : null
       : undefined;

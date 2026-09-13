@@ -111,6 +111,10 @@ export function Settings(props: {
   onConfigSaved?: () => void;
   /** Section id from the `#/settings/<section>` deep link (null = default/grid). */
   initialSection?: string | null;
+  /** The conversation on screen; the session table keeps it out of "delete all". */
+  activeSessionId?: string;
+  /** Session ids the table removed, so the shell can drop them from History. */
+  onSessionsDeleted?: (ids: string[]) => void;
 }) {
   const [schema, setSchema] = useState<JsonSchema | null>(null);
   const [doc, setDoc] = useState<Record<string, unknown>>({});
@@ -273,6 +277,12 @@ export function Settings(props: {
                 doc={doc}
                 setDoc={setDoc}
                 isMobileShell={isMobileShell}
+                {...(props.activeSessionId
+                  ? { activeSessionId: props.activeSessionId }
+                  : {})}
+                {...(props.onSessionsDeleted
+                  ? { onSessionsDeleted: props.onSessionsDeleted }
+                  : {})}
               />
             ) : null}
           </div>
@@ -284,7 +294,10 @@ export function Settings(props: {
       // the config schema loads. Render it in the normal scroll flow — NOT the
       // centered `settings-scroll-placeholder` used for the "Loading…" spinner,
       // which shrinks and off-centers the swatch grid.
-      if (section && section.kind === "appearance") {
+      if (
+        section &&
+        (section.kind === "appearance" || section.kind === "sessions")
+      ) {
         return (
           <div className="settings-scroll">
             <div className="settings-body">
@@ -293,6 +306,12 @@ export function Settings(props: {
                 schema={{ type: "object", properties: {} } as JsonSchema}
                 doc={doc}
                 setDoc={setDoc}
+                {...(props.activeSessionId
+                  ? { activeSessionId: props.activeSessionId }
+                  : {})}
+                {...(props.onSessionsDeleted
+                  ? { onSessionsDeleted: props.onSessionsDeleted }
+                  : {})}
               />
             </div>
           </div>
