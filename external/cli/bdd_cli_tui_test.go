@@ -93,9 +93,12 @@ type stubDirective struct {
 	tool    string
 	argsKey string
 	argsVal string
-	preview string
-	err     error
-	blockCh chan struct{}
+	// argsJSON carries a whole argument object for calls that need more than
+	// one field (spawn_agent), and replaces the argsKey/argsVal pair.
+	argsJSON string
+	preview  string
+	err      error
+	blockCh  chan struct{}
 	// taken is closed by the turn that pops this directive, so a step can wait
 	// for the hand-off instead of guessing at it with a pause.
 	taken   chan struct{}
@@ -298,7 +301,10 @@ func (s *cliTUIState) stubRunner(ctx context.Context, st *session.State, prompt 
 					SessionUpdate: "tool_call", ToolCallID: s.activeToolID,
 					Title: d.tool, Kind: "read", Status: "pending",
 				})
-				args := fmt.Sprintf("{%q: %q}", d.argsKey, d.argsVal)
+				args := d.argsJSON
+				if args == "" {
+					args = fmt.Sprintf("{%q: %q}", d.argsKey, d.argsVal)
+				}
 				_ = snd.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 					SessionUpdate: "tool_call_update", ToolCallID: s.activeToolID,
 					Status:  "in_progress",
@@ -392,6 +398,19 @@ func (s *cliTUIState) stubRunner(ctx context.Context, st *session.State, prompt 
 
 func (s *cliTUIState) buildApp() error { return s.buildAppWith(false) }
 
+// buildAppWithReasoning configures the console with a reasoning-capable stub
+// model and medium as its default level. The fixture reaches the manager
+// before it creates the scenario session.
+func (s *cliTUIState) buildAppWithReasoning() error {
+	models := []config.ModelEntry{{
+		Model:            "stub/gpt-5.6-terra",
+		MaxTokens:        1000,
+		MaxContextTokens: 100000,
+		ReasoningDefault: "medium",
+	}}
+	return s.buildAppWithModels(false, true, models, "stub/gpt-5.6-terra")
+}
+
 // buildAppWith assembles the console; with neuraldeep the default model
 // belongs to a neuraldeep provider whose stored hub login points at a
 // stand-in GET /limits, and the manager runs on the scenario's clock.
@@ -402,6 +421,12 @@ func (s *cliTUIState) buildAppWith(neuraldeep bool) error {
 // buildAppWithUsagePanel is buildAppWith with the neuraldeep row's usage
 // limits panel switched on or off (providers[].usage_limits_panel).
 func (s *cliTUIState) buildAppWithUsagePanel(neuraldeep, panel bool) error {
+	return s.buildAppWithModels(neuraldeep, panel, nil, "")
+}
+
+// buildAppWithModels assembles the console with an optional model fixture.
+// Its model selection is applied before session.NewManager sees the config.
+func (s *cliTUIState) buildAppWithModels(neuraldeep, panel bool, models []config.ModelEntry, defaultModel string) error {
 	s.home = filepath.Join(os.TempDir(), fmt.Sprintf("coddy-cli-bdd-%d", time.Now().UnixNano()))
 	s.cwd = filepath.Join(s.home, "work")
 	for _, d := range []string{s.home, s.cwd, filepath.Join(s.home, "sessions")} {
@@ -436,6 +461,10 @@ func (s *cliTUIState) buildAppWithUsagePanel(neuraldeep, panel bool) error {
 		cfg.Providers = append(cfg.Providers, row)
 		cfg.Models = append(cfg.Models, config.ModelEntry{Model: "neuraldeep/qwen3.8-27b", MaxTokens: 1000, MaxContextTokens: 100000})
 		cfg.Agent.Model = "neuraldeep/qwen3.8-27b"
+	}
+	if len(models) > 0 {
+		cfg.Models = models
+		cfg.Agent.Model = defaultModel
 	}
 	cfg.Tools.PermissionMode = "ask"
 	cfg.Rules.AutoDiscover = &noAuto
@@ -687,8 +716,26 @@ func (s *cliTUIState) stubStartsToolCall(tool, argKey, argVal string) error {
 	return s.waitScreen(tool, 3*time.Second)
 }
 
+// stubStartsSpawnAgent starts a delegation with the three arguments the box
+// reads: which subagent, what it is called, and the prompt the child gets.
+func (s *cliTUIState) stubStartsSpawnAgent(agent, description, prompt string) error {
+	args, err := json.Marshal(map[string]interface{}{
+		"agent": agent, "description": description, "prompt": prompt,
+	})
+	if err != nil {
+		return err
+	}
+	s.directives <- stubDirective{kind: "tool_start", tool: "spawn_agent", argsJSON: string(args)}
+	return s.waitScreen("spawn_agent "+agent, 3*time.Second)
+}
+
 func (s *cliTUIState) transcriptShowsPendingToolBox(tool string) error {
 	return s.waitScreen(tool, 2*time.Second)
+}
+
+// toolBoxShows waits for any text the box renders from the call arguments.
+func (s *cliTUIState) toolBoxShows(text string) error {
+	return s.waitScreen(text, 2*time.Second)
 }
 
 func (s *cliTUIState) stubToolCompletesWithLines(count int) error {
@@ -851,6 +898,34 @@ func (s *cliTUIState) sessionStateRecordsSecondModel() error {
 	}
 	if got := st.EffectiveModelID(s.cfg); got != "stub/model-two" {
 		return fmt.Errorf("session model = %q", got)
+	}
+	return nil
+}
+
+func (s *cliTUIState) operatorSelectsLowReasoningThroughSelector() error {
+	if err := s.operatorSubmitsCommand("/reasoning"); err != nil {
+		return err
+	}
+	if err := s.waitScreen("Select reasoning", 3*time.Second); err != nil {
+		return err
+	}
+	// The configured default is medium; low is the immediately preceding level.
+	s.press("\x1b[A")
+	s.press("\r")
+	return nil
+}
+
+func (s *cliTUIState) footerNamesReasoning(level string) error {
+	return s.waitScreen(" • "+level, 3*time.Second)
+}
+
+func (s *cliTUIState) sessionStateRecordsReasoning(level string) error {
+	st := s.app.mgr.SessionByID(s.app.sessionID)
+	if st == nil {
+		return fmt.Errorf("no live session")
+	}
+	if got := st.GetSelectedReasoning(); got != level {
+		return fmt.Errorf("session reasoning = %q, want %q", got, level)
 	}
 	return nil
 }
@@ -1233,6 +1308,10 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the stub turn starts a tool call named "([^"]*)" with argument agent "([^"]*)"$`, func(tool, agent string) error {
 		return s.stubStartsToolCall(tool, "agent", agent)
 	})
+	sc.Step(`^the stub turn starts a tool call named "([^"]*)" with argument name "([^"]*)"$`, func(tool, name string) error {
+		return s.stubStartsToolCall(tool, "name", name)
+	})
+	sc.Step(`^the stub turn starts a spawn_agent call for "([^"]*)" described as "([^"]*)" with the prompt "([^"]*)"$`, s.stubStartsSpawnAgent)
 	sc.Step(`^the stub turn starts a tool call named "([^"]*)" with argument command "([^"]*)"$`, func(tool, command string) error {
 		// A run_command box titles itself "$ <command>", not with the tool name,
 		// so readiness is the command string appearing on screen.
@@ -1243,6 +1322,7 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the transcript shows a pending tool box titled "([^"]*)"$`, s.transcriptShowsPendingToolBox)
 	sc.Step(`^the stub tool call completes with a preview of (\d+) lines$`, s.stubToolCompletesWithLines)
 	sc.Step(`^the tool box shows the preview "([^"]*)"$`, s.toolBoxShowsPreview)
+	sc.Step(`^the tool box shows "([^"]*)"$`, s.toolBoxShows)
 	sc.Step(`^the tool box shows the expand hint$`, s.toolBoxShowsExpandHint)
 	sc.Step(`^the stub tool call completes without ending the turn$`, s.stubToolCompletesWithoutEndingTurn)
 	sc.Step(`^the status line shows "([^"]*)"$`, s.statusLineShows)
@@ -1258,6 +1338,10 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the operator switches the model to the second configured model$`, s.operatorSwitchesToSecondModel)
 	sc.Step(`^the footer names the second configured model$`, s.footerNamesSecondModel)
 	sc.Step(`^the session state records the second configured model$`, s.sessionStateRecordsSecondModel)
+	sc.Step(`^a coddy console app over a stub agent runner with a reasoning-capable model$`, s.buildAppWithReasoning)
+	sc.Step(`^the operator selects the low reasoning level through the /reasoning selector$`, s.operatorSelectsLowReasoningThroughSelector)
+	sc.Step(`^the footer names the reasoning level "([^"]*)"$`, s.footerNamesReasoning)
+	sc.Step(`^the session state records the reasoning level "([^"]*)"$`, s.sessionStateRecordsReasoning)
 	sc.Step(`^a previous console session with the prompt "([^"]*)" and the reply "([^"]*)"$`, s.previousSessionWith)
 	sc.Step(`^the console app starts pinned to that session$`, s.appStartsPinnedToThatSession)
 	sc.Step(`^the replayed prompt "([^"]*)" renders as a user message block and not as assistant text$`, s.replayedPromptRendersAsUserBlock)
