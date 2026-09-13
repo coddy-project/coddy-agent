@@ -163,3 +163,12 @@ Feature: The agent delegates bounded work to subagents
     Then the second spawn_agent tool result mentions "subagents.max_concurrent"
     When the first child is released
     Then the pool recorded a finished task of kind "agent" for the parent session
+
+  Scenario: A child session is stored inside the session that spawned it
+    Given a workspace with a subagent definition "reviewer" under .coddy/agents
+    And a parent agent session in that workspace
+    And the workspace definition "reviewer" is approved for that workspace
+    When the parent model spawns "reviewer" in the foreground and the child answers "REPORT: nested"
+    Then the child session bundle sits under the parent's subagents folder
+    And the sessions root holds no folder of its own for the child
+    And the child session id is shaped like any other session id

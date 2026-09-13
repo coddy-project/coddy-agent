@@ -1305,7 +1305,7 @@ func TestAgentIdentityPersistsWithTheTaskRecord(t *testing.T) {
 		SessionID: "s",
 		Kind:      KindAgent,
 		Label:     "agent explore: map the tree",
-		Agent:     &AgentInfo{Name: "explore", SessionID: "sub_abc"},
+		Agent:     &AgentInfo{Name: "explore", SessionID: "sess_abc"},
 	}, func(string, io.Writer) (Handle, error) { return h, nil })
 	if err != nil {
 		t.Fatal(err)
@@ -1324,7 +1324,7 @@ func TestAgentIdentityPersistsWithTheTaskRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	agent, _ := record["agent"].(map[string]interface{})
-	if agent["name"] != "explore" || agent["session_id"] != "sub_abc" {
+	if agent["name"] != "explore" || agent["session_id"] != "sess_abc" {
 		t.Fatalf("persisted agent identity = %v", record["agent"])
 	}
 	if record["kind"] != "agent" {
@@ -1333,7 +1333,7 @@ func TestAgentIdentityPersistsWithTheTaskRecord(t *testing.T) {
 
 	// A command record carries no agent object at all.
 	loaded := LoadPersisted(dir)
-	if len(loaded) != 1 || loaded[0].Agent == nil || loaded[0].Agent.SessionID != "sub_abc" {
+	if len(loaded) != 1 || loaded[0].Agent == nil || loaded[0].Agent.SessionID != "sess_abc" {
 		t.Fatalf("LoadPersisted lost the agent identity: %+v", loaded)
 	}
 }

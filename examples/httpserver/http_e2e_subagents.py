@@ -261,8 +261,8 @@ def main() -> int:
     task_id = str(task.get("id") or "")
     agent = task.get("agent") or {}
     child_id = str(agent.get("session_id") or "")
-    if not task_id or not child_id.startswith("sub_") or agent.get("name") != AGENT:
-        print(f"agent task row does not name a sub_ child session for {AGENT}: {task}", file=sys.stderr)
+    if not task_id or not child_id or agent.get("name") != AGENT:
+        print(f"agent task row does not name a child session for {AGENT}: {task}", file=sys.stderr)
         return 1
 
     final: dict[str, Any] = {}

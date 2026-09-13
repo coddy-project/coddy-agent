@@ -20,9 +20,9 @@ Built with **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (
 
 ## Session store
 
-`sessionstore.NewPersisted(path)` loads/saves a JSON map of key→session-ID on every mutation. The file lives at `$CODDY_HOME/sessions/gateway_sessions.json` (set in `external/gateway/start.go`). On restart the bot reloads the map so existing conversations continue without re-sending the one-time initialization hint.
+`sessionstore.NewPersisted(path)` loads/saves a JSON map of key→session-ID on every mutation. The file lives at `$CODDY_HOME/sessions/gateway_sessions.json` (set in `external/gateway/start.go`). On restart the bot reloads the map so existing conversations continue where they left off.
 
-`KnownIDs()` is called at startup to pre-populate the `seenSessions` set (prevents re-injecting the Telegram formatting hint into existing sessions after a restart).
+`newID()` mints ids through `session.NewSessionID()`: a chat conversation is an ordinary Coddy session with an ordinary `sess_` id, so `GET /coddy/sessions` lists it beside the sessions started in a terminal or a browser.
 
 ## SessionRunner interface
 
@@ -51,13 +51,15 @@ type SessionRunner interface {
 
 ## Markdown conversion
 
-`markdown.go` converts standard Markdown to Telegram legacy format: ATX headers → `*bold*`, `**text**` → `*text*`, bullet `* item` → `• item`, tables → plain text, horizontal rules → separator. Fenced code blocks are preserved verbatim.
+`markdown.go` is the gateway's **outbound rendering step**, and the only place Telegram's syntax exists: the prompt and the transcript carry none of it, so a chat conversation is an ordinary session and the next integration renders the same answer its own way by adding a file like this one.
+
+`convertMarkdown` does the work behind two entry points. `mdToTelegram` renders for `ParseMode="Markdown"` (ATX headings and `**text**` → `*text*`, `__x__` → `_x_`, bullet `* item` → `• item`, tables flattened, horizontal rules → a separator) and `mdToPlainPreview` renders for the live streaming message, which is sent with **no** parse mode and therefore drops the emphasis markers rather than showing them as punctuation. Fenced code blocks are set aside **before** any rule runs and restored afterwards, so a `**p` or a `# comment` inside a block is never rewritten; an unclosed fence (a truncated answer) is taken to run to the end. Capture groups are written `${1}`, not `$1`: an underscore is a word character, so `"_$1_"` names a group called `1_` and expands to nothing.
 
 ## Rich Messages (Bot API 10.1)
 
 Enabled per-bot with `gateways.telegram.rich_messages: true` (`config.TelegramGatewayConfig.RichMessages`). When on, the agent's native Markdown is sent verbatim instead of being downgraded by `markdown.go`.
 
-- `richmsg.go` (pure, table-tested): `buildRichMarkdown` (final message = tool `<details>` blocks first, each with its output via the `toolCall` type, then the answer verbatim) and `buildRichDraftMarkdown` (streaming preview + draft-only `<tg-thinking>` block while a tool runs). Rich mode prepends **no** formatting hint (unlike legacy `telegramFormattingHint`), so the first turn is identical to later ones — a hint-prefixed first message was suppressing replies. The Sender captures tool args/results from `acp.ToolCallStatusUpdate`. `flushRich` retries with the answer alone if the combined message (answer + tool blocks) is rejected, so the reply is never lost.
+- `richmsg.go` (pure, table-tested): `buildRichMarkdown` (final message = tool `<details>` blocks first, each with its output via the `toolCall` type, then the answer verbatim) and `buildRichDraftMarkdown` (streaming preview + draft-only `<tg-thinking>` block while a tool runs). Rich mode has nothing to downgrade, so the answer goes out verbatim. The Sender captures tool args/results from `acp.ToolCallStatusUpdate`. `flushRich` retries with the answer alone if the combined message (answer + tool blocks) is rejected, so the reply is never lost.
 - `richclient.go`: `inputRichMessage` type, `richParams`/`richDraftParams` builders, and `sendRichMessage`/`sendRichMessageDraft` issued via `bot.MakeRequest` (the `go-telegram-bot-api/v5` library has no native methods). `InputRichMessage` takes a `markdown` string — no hand-built `RichBlock` JSON tree.
 - `Sender` carries a `richConfig{enabled, allowDraft, draftID}`. `allowDraft` is true only in private chats (drafts are private-only). `Flush()` finalizes via `sendRichMessage`; on error it falls back to the legacy formatted send so the bot never goes silent.
 - No `editRichMessage` exists; drafts are ephemeral 30 s previews and need no deletion. `<tg-thinking>` (RichBlockThinking) may be used only in drafts.

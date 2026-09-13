@@ -330,7 +330,7 @@ In the console a `spawn_agent` call shows as a tool box like any other, and the
 status line reads `Running subagent <name>` with its elapsed counter for as long
 as the child runs. A child's permission request, while its spawning turn is
 still alive, opens the usual modal in the parent chat with the title prefixed
-`[subagent <name>]`. Child sessions (`sub_…` ids) are read-only transcripts:
+`[subagent <name>]`. Child sessions are read-only transcripts:
 `-c` never picks one, and a prompt sent to one is refused with a message naming
 the parent session.
 

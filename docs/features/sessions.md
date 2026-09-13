@@ -4,7 +4,11 @@ A session is one conversation: the transcript, the working directory it runs in,
 
 ## The bundle on disk
 
-Every session is a directory under the sessions root, `$CODDY_HOME/sessions/<id>/` (`~/.coddy/sessions/` by default). The root moves with `sessions.dir` in `config.yaml` or with `--sessions-dir` on `coddy serve`, `coddy acp`, the console and the `coddy sessions` verbs ([config.yaml reference](../reference/config.md#sessions)); the process creates it at start and fails to start when it cannot. Ids are `sess_` followed by 24 hex characters; child sessions of subagents start with `sub_`, scheduler runs with `sched_`. An id doubles as the folder name, so only letters, digits, `_` and `-` are accepted.
+Every session is a directory under the sessions root, `$CODDY_HOME/sessions/<id>/` (`~/.coddy/sessions/` by default). The root moves with `sessions.dir` in `config.yaml` or with `--sessions-dir` on `coddy serve`, `coddy acp`, the console and the `coddy sessions` verbs ([config.yaml reference](../reference/config.md#sessions)); the process creates it at start and fails to start when it cannot.
+
+Ids are `sess_` followed by 24 hex characters, whoever started the session: a console run, a browser tab, a chat on a messenger gateway, a subagent run another session spawned. Where a person was sitting is not something a session id reports, so nothing downstream can branch on it; scheduler runs are the one exception, `sched_` ids written by the scheduler's own bookkeeping. An id doubles as the folder name, so only letters, digits, `_` and `-` are accepted.
+
+A session spawned by another one is stored inside it, at `<parent>/subagents/<child>/`, and a child of that child one level deeper again, so the sessions root lists the conversations a person started and each bundle carries the work it delegated. What a bundle is - a chat, a delegated run, a scheduler run - is in its `session.json`, not in its name.
 
 | Path | What it holds |
 |---|---|
@@ -68,7 +72,7 @@ Design plans written in plan mode are separate files, `plans/<slug>.plan.md`, an
 
 ## Child sessions and run bundles
 
-A subagent run is a child session with a `sub_` id: a real bundle whose `session.json` carries `subagentRun`, `parentSessionId`, `subagentName`, `subagentTaskId` and `subagentDepth`. Children stay out of every default listing - History, `GET /coddy/sessions`, `coddy sessions list`, `coddy -c`, ACP `session/list` - and are read-only transcripts: a prompt, a fork or a permission answer against one is refused with the parent named ([Subagents](subagents.md#child-sessions)). Scheduler runs are bundles too, `sched_` ids with `schedulerRun` set, hidden from the composer list and pruned per job by `scheduler.retain_sessions` ([Scheduler](../operate/scheduler.md)).
+A subagent run is a child session: a real bundle under `<parent>/subagents/<child>/` whose `session.json` carries `subagentRun`, `parentSessionId`, `subagentName`, `subagentTaskId` and `subagentDepth`. Children stay out of every default listing - History, `GET /coddy/sessions`, `coddy sessions list`, `coddy -c`, ACP `session/list` - and are read-only transcripts: a prompt, a fork or a permission answer against one is refused with the parent named ([Subagents](subagents.md#child-sessions)). Scheduler runs are bundles too, `sched_` ids with `schedulerRun` set, hidden from the composer list and pruned per job by `scheduler.retain_sessions` ([Scheduler](../operate/scheduler.md)).
 
 ## Deleting a session
 

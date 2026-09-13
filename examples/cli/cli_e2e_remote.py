@@ -57,6 +57,12 @@ def session_dirs(home: Path) -> set[str]:
     if not root.exists():
         return set()
     return {p.name for p in root.iterdir() if p.is_dir()}
+def child_session_dirs(home: Path, parent_id: str) -> set[str]:
+    """Sessions spawned by parent_id: a child bundle lives inside its parent's."""
+    root = home / "sessions" / parent_id / "subagents"
+    if not root.exists():
+        return set()
+    return {p.name for p in root.iterdir() if p.is_dir()}
 
 
 def run_client(home: Path, work: Path, args: list[str]) -> subprocess.CompletedProcess:
@@ -206,7 +212,11 @@ def main() -> int:
             raise SystemExit(f"remote subagent run failed rc={delegated.returncode}: {delegated.stderr[-800:]}")
         if SUBAGENT_MARKER not in delegated.stdout:
             raise SystemExit(f"remote subagent answer lacks the marker: {delegated.stdout[-400:]!r}")
-        children = [d for d in session_dirs(server_home) if d.startswith("sub_")]
+        children = {
+            name
+            for parent in session_dirs(server_home)
+            for name in child_session_dirs(server_home, parent)
+        }
         if not children:
             raise SystemExit(f"no child session persisted on the server: {sorted(session_dirs(server_home))}")
         if session_dirs(client_home):

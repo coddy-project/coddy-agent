@@ -594,11 +594,11 @@ A held project hooks file surfaces in the transcript as a **notice-level system 
 
 ### Subagent transcripts
 
-A child session (`sub_<hex>`) is read-only: `GET /coddy/sessions/{id}/messages` returns `subagent {parentSessionId, name, taskId}` and `readOnly: true`, and every prompt against it is refused with 409. The SPA reads those two fields (absent on an ordinary session), renders the transcript with the usual message renderer, and replaces the composer with a notice (`SubagentReadOnlyNotice`): "Read-only transcript of subagent `<name>`. Prompts go to the parent chat." with an **Open parent chat** link to `#/s/<parentSessionId>`. Retry, message editing and the plan card's **Run plan** / **Discard** are withheld for such a session (the handlers are not passed at all, so a `plan_document` card renders without its footer and its markdown editor is read-only), and the chat header reads "Subagent `<name>`" because a child has no History row to name it. Child sessions are hidden from History; the shell still fetches a `sub_*` id opened from the Tasks panel or by URL.
+A child session is read-only: `GET /coddy/sessions/{id}/messages` returns `subagent {parentSessionId, name, taskId}` and `readOnly: true`, and every prompt against it is refused with 409. The SPA reads those two fields (absent on an ordinary session), renders the transcript with the usual message renderer, and replaces the composer with a notice (`SubagentReadOnlyNotice`): "Read-only transcript of subagent `<name>`. Prompts go to the parent chat." with an **Open parent chat** link to `#/s/<parentSessionId>`. Retry, message editing and the plan card's **Run plan** / **Discard** are withheld for such a session (the handlers are not passed at all, so a `plan_document` card renders without its footer and its markdown editor is read-only), and the chat header reads "Subagent `<name>`" because a child has no History row to name it. Child sessions are hidden from History, and nothing about a child's id sets it apart, so the shell fetches any id opened from the Tasks panel or by URL and lets the messages endpoint answer.
 
 Automated checks:
 
-- **external/ui/src/ui/chat/subagentTranscript.test.ts** (marker parsing, bare `readOnly`, `sub_*` id detection)
+- **external/ui/src/ui/chat/subagentTranscript.test.ts** (marker parsing, bare `readOnly`)
 - **external/ui/src/ui/chat/SubagentReadOnlyNotice.test.tsx** (copy with and without a name, parent link href, same-tab open vs modifier click)
 - **external/ui/src/ui/chat/ChatScreen.test.tsx** (notice replaces the composer in the docked and the hero layout)
 - **external/ui/src/ui/chat/subagentReadOnlyCss.test.ts** (notice and link use theme tokens)

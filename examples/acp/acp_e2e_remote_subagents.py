@@ -12,7 +12,7 @@ Verifies:
 
 - the ``spawn_agent`` tool call streams back to the remote ACP client
 - the parent's answer repeats the marker the child reported
-- the child session (``sub_*``) is persisted on the server, linked to the
+- the child session is persisted on the server inside the parent's bundle, linked to the
   parent, and nothing is persisted in the client home
 
 Environment: CODDY_BIN, CODDY_E2E_MODEL (default neuraldeep/qwen3.8-27b).
@@ -32,7 +32,16 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from acp_remote import REPO_ROOT, coddy_bin, free_port, jd, prepare_home, session_dirs, wait_models  # noqa: E402
+from acp_remote import (  # noqa: E402
+    REPO_ROOT,
+    child_session_dirs,
+    coddy_bin,
+    free_port,
+    jd,
+    prepare_home,
+    session_dirs,
+    wait_models,
+)
 
 AGENT = "marker-reporter"
 MARKER = "MARKER: coddy-subagent-e2e-acp-remote"
@@ -156,12 +165,12 @@ Do not read notes.txt yourself. Do not call any other tool. Do not call spawn_ag
 
         if session_dirs(client_home):
             raise SystemExit(f"client home grew sessions: {session_dirs(client_home)}")
-        children = [d for d in session_dirs(server_home) if d.startswith("sub_")]
+        children = child_session_dirs(server_home, sid)
         if not children:
-            raise SystemExit(f"no child bundle on the server: {sorted(session_dirs(server_home))}")
+            raise SystemExit(f"no child bundle on the server under {sid}: {sorted(session_dirs(server_home))}")
         linked = []
         for child in children:
-            meta = json.loads((server_home / "sessions" / child / "session.json").read_text())
+            meta = json.loads((server_home / "sessions" / sid / "subagents" / child / "session.json").read_text())
             if meta.get("parentSessionId") == sid and meta.get("subagentRun"):
                 linked.append(child)
         if not linked:

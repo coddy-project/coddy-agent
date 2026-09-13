@@ -35,7 +35,9 @@ const (
 	permissionGrantsVer  = 1
 )
 
-// FileStore persists session state under Root/<sessionId>/.
+// FileStore persists session state under Root/<sessionId>/. A session spawned
+// by another one lives inside its parent's bundle instead, under
+// ChildSessionsDirName; SessionPath is what resolves either shape.
 //
 // Always use *FileStore, never a copy: the embedded mutex must not be copied.
 type FileStore struct {
@@ -43,6 +45,15 @@ type FileStore struct {
 
 	locksMu sync.Mutex
 	locks   map[string]*sync.Mutex
+
+	// childMu guards the index of nested bundles: the id of every session
+	// found inside another one, mapped to the directory it lives in.
+	// childScanned is when the sessions root was last walked to fill it, and
+	// childScanMu admits one walker at a time.
+	childMu      sync.RWMutex
+	childDirs    map[string]string
+	childScanned time.Time
+	childScanMu  sync.Mutex
 }
 
 // pathMutex returns a per-path mutex, creating it on first use. Holding it
@@ -64,9 +75,41 @@ func (f *FileStore) pathMutex(path string) *sync.Mutex {
 	return m
 }
 
-// SessionPath returns the directory for a session id.
+// SessionPath returns the directory for a session id: Root/<id> for a session
+// somebody started themselves, and the nested bundle under its parent for one
+// a spawn_agent call started. A bundle in the sessions root wins over a nested
+// one of the same name, which only a collision of two random ids could produce.
+// An id nothing has stored yet resolves to the sessions root, which is where a
+// fresh session belongs.
 func (f *FileStore) SessionPath(sessionID string) string {
-	return filepath.Join(f.Root, sessionID)
+	return f.sessionPath(sessionID, false)
+}
+
+// sessionPath resolves an id; forceScan skips the rate limit on the walk that
+// looks for a nested bundle, which the write path uses so a bundle another
+// process wrote is never answered with a second, top-level path for one id.
+func (f *FileStore) sessionPath(sessionID string, forceScan bool) string {
+	if f == nil {
+		return ""
+	}
+	if dir, ok := f.lookupChildDir(sessionID); ok {
+		return dir
+	}
+	top := filepath.Join(f.Root, sessionID)
+	if isBundleDir(top) {
+		return top
+	}
+	if dir, ok := f.resolveChildDir(sessionID, forceScan); ok {
+		return dir
+	}
+	return top
+}
+
+// isBundleDir reports whether dir holds a session.json, which is what makes a
+// directory a session bundle rather than an ordinary folder.
+func isBundleDir(dir string) bool {
+	fi, err := os.Stat(filepath.Join(dir, sessionMetaFile))
+	return err == nil && !fi.IsDir()
 }
 
 // HasPersistedSnapshot reports whether session.json exists for the id under Root.
@@ -110,6 +153,16 @@ func (f *FileStore) ResolveSessionID(idOrPrefix string) (string, error) {
 		}
 		matches = append(matches, ent.Name())
 	}
+	// A session spawned by another one is stored inside its parent's bundle,
+	// so the top-level scan never sees it. It is still a session an operator
+	// can name, so the nested bundles join the match set.
+	for id, dir := range f.scanChildDirs() {
+		if !strings.HasPrefix(id, q) || !isBundleDir(dir) {
+			continue
+		}
+		f.rememberChildDir(id, dir)
+		matches = append(matches, id)
+	}
 	sort.Strings(matches)
 	switch len(matches) {
 	case 0:
@@ -147,21 +200,31 @@ func AssetThumbnailPath(sessionDir, assetName string) string {
 
 // EnsureLayout creates session.json (if missing), messages.json, assets/, todos/, todos/archive/.
 func (f *FileStore) EnsureLayout(sessionID string) (dir string, err error) {
-	dir = f.SessionPath(sessionID)
+	// A fresh walk, not the rate-limited one: this call is about to write a
+	// bundle, and answering from a stale index would put a second bundle in
+	// the sessions root for an id another process has already stored inside a
+	// parent. It runs once per session, not once per request.
+	dir = f.sessionPath(sessionID, true)
+	return dir, f.ensureLayoutAt(sessionID, dir)
+}
+
+// ensureLayoutAt builds a bundle at an explicit directory, which is what lets
+// a session spawned by another one be created inside its parent's bundle.
+func (f *FileStore) ensureLayoutAt(sessionID, dir string) error {
 	if err := os.MkdirAll(filepath.Join(dir, todosDirName, todosArchiveName), 0o755); err != nil {
-		return "", err
+		return err
 	}
 	if err := os.MkdirAll(AssetsPath(dir), 0o755); err != nil {
-		return "", err
+		return err
 	}
 	if err := os.MkdirAll(AssetThumbnailsPath(dir), 0o755); err != nil {
-		return "", err
+		return err
 	}
 	if err := os.MkdirAll(filepath.Join(dir, toolCallsDirName), 0o755); err != nil {
-		return "", err
+		return err
 	}
 	if err := os.MkdirAll(filepath.Join(dir, "plans"), 0o755); err != nil {
-		return "", err
+		return err
 	}
 	metaPath := filepath.Join(dir, sessionMetaFile)
 	if _, statErr := os.Stat(metaPath); os.IsNotExist(statErr) {
@@ -173,17 +236,17 @@ func (f *FileStore) EnsureLayout(sessionID string) (dir string, err error) {
 			UpdatedAt: now,
 		}
 		if wErr := writeJSONAtomic(metaPath, m); wErr != nil {
-			return "", wErr
+			return wErr
 		}
 	}
 	msgPath := filepath.Join(dir, messagesFile)
 	if _, statErr := os.Stat(msgPath); os.IsNotExist(statErr) {
 		wrap := messagesFileData{Version: messagesLayout, Messages: []llm.Message{}}
 		if wErr := writeJSONAtomic(msgPath, wrap); wErr != nil {
-			return "", wErr
+			return wErr
 		}
 	}
-	return dir, nil
+	return nil
 }
 
 // SessionMeta is persisted in session.json.
@@ -236,14 +299,12 @@ func (m SessionMeta) ExcludedFromComposerSessionList(sessionFolderName string) b
 	return strings.HasPrefix(s, "sched_")
 }
 
-// IsSubagentRun reports whether this bundle is a child session spawned by
-// another session (by its meta, or by the sub_ folder prefix for a bundle whose
-// meta was never completed).
-func (m SessionMeta) IsSubagentRun(sessionFolderName string) bool {
-	if m.SubagentRun {
-		return true
-	}
-	return strings.HasPrefix(strings.TrimSpace(sessionFolderName), subagentSessionPrefix)
+// IsSubagentRun reports whether this bundle is a session spawned by another
+// session. Nothing about the id says so - every session id is minted the same
+// way - so the bundle's own metadata is the answer, written before the child
+// ever runs.
+func (m SessionMeta) IsSubagentRun() bool {
+	return m.SubagentRun
 }
 
 type messagesFileData struct {
@@ -275,7 +336,19 @@ type LoadedSnapshot struct {
 
 // ReadSnapshot loads session.json, messages.json, and todos/active.md if present.
 func (f *FileStore) ReadSnapshot(sessionID string) (*LoadedSnapshot, error) {
-	dir := f.SessionPath(sessionID)
+	return readSnapshotAt(f.SessionPath(sessionID), sessionID)
+}
+
+// readSnapshotAt reads a bundle from an explicit directory, which is how a
+// listing walk reads nested bundles it already has the path of.
+//
+// Where the bundle sits is the second line of defence next to its metadata: a
+// bundle inside another session's ChildSessionsDirName is a spawned run even
+// when its session.json does not say so yet, because only a spawn writes one
+// there. Without that, a bundle whose first save never landed - the process
+// died between the layout and the save - would read back as an ordinary,
+// writable session hidden inside its parent.
+func readSnapshotAt(dir, sessionID string) (*LoadedSnapshot, error) {
 	metaPath := filepath.Join(dir, sessionMetaFile)
 	metaBytes, err := readFileWithRetry(metaPath)
 	if err != nil {
@@ -322,6 +395,13 @@ func (f *FileStore) ReadSnapshot(sessionID string) (*LoadedSnapshot, error) {
 		}
 	}
 
+	if parent, ok := childBundleParent(dir); ok {
+		meta.SubagentRun = true
+		if strings.TrimSpace(meta.ParentSessionID) == "" {
+			meta.ParentSessionID = parent
+		}
+	}
+
 	return &LoadedSnapshot{
 		Dir:                 dir,
 		Meta:                meta,
@@ -364,6 +444,13 @@ type SessionListEntry struct {
 	// MessageCount counts the persisted transcript rows of every role. The
 	// snapshot behind this listing is already parsed, so it costs no extra read.
 	MessageCount int
+	// SubagentRun marks a session another session spawned, and the three
+	// fields below name the run. They come off the same snapshot the row was
+	// built from, so a client that shows children pays no second read.
+	SubagentRun     bool
+	ParentSessionID string
+	SubagentName    string
+	SubagentTaskID  string
 }
 
 // ListOptions selects which persisted sessions ListSnapshotsWith returns.
@@ -372,7 +459,8 @@ type ListOptions struct {
 	CWD string
 	// IncludeSchedulerRuns adds bundles created by scheduler runs (sched_ ids).
 	IncludeSchedulerRuns bool
-	// IncludeSubagents adds child sessions spawned by spawn_agent (sub_ ids).
+	// IncludeSubagents descends into the sessions spawned by spawn_agent,
+	// which are stored inside the bundle of the session that spawned them.
 	IncludeSubagents bool
 }
 
@@ -406,29 +494,11 @@ func (f *FileStore) ListSnapshotsWith(opts ListOptions) ([]SessionListEntry, err
 		if !ent.IsDir() || strings.HasPrefix(ent.Name(), ".") {
 			continue
 		}
-		id := ent.Name()
-		snap, err := f.ReadSnapshot(id)
-		if err != nil {
-			continue
+		dir := filepath.Join(f.Root, ent.Name())
+		out = f.appendBundleRow(out, dir, ent.Name(), cwdFilter, opts)
+		if opts.IncludeSubagents {
+			out = f.appendChildRows(out, dir, cwdFilter, opts, 0)
 		}
-		if !opts.IncludeSchedulerRuns && snap.Meta.ExcludedFromComposerSessionList(id) {
-			continue
-		}
-		if !opts.IncludeSubagents && snap.Meta.IsSubagentRun(id) {
-			continue
-		}
-		if cwdFilter != "" && !matchesWorkspace(cwdFilter, snap.Meta.CWD) {
-			continue
-		}
-		out = append(out, SessionListEntry{
-			SessionID:    snap.Meta.ID,
-			CWD:          snap.Meta.CWD,
-			Title:        snap.Meta.Title,
-			UpdatedAt:    snap.Meta.UpdatedAt,
-			CreatedAt:    snap.Meta.CreatedAt,
-			Model:        snap.Meta.SelectedModelID,
-			MessageCount: len(snap.Messages),
-		})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		ti, ei := time.Parse(time.RFC3339, out[i].UpdatedAt)
@@ -445,6 +515,49 @@ func (f *FileStore) ListSnapshotsWith(opts ListOptions) ([]SessionListEntry, err
 		return out[i].SessionID < out[j].SessionID
 	})
 	return out, nil
+}
+
+// appendBundleRow reads one bundle and adds its row when opts admit it.
+func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter string, opts ListOptions) []SessionListEntry {
+	snap, err := readSnapshotAt(dir, id)
+	if err != nil {
+		return out
+	}
+	if !opts.IncludeSchedulerRuns && snap.Meta.ExcludedFromComposerSessionList(id) {
+		return out
+	}
+	if !opts.IncludeSubagents && snap.Meta.IsSubagentRun() {
+		return out
+	}
+	if cwdFilter != "" && !matchesWorkspace(cwdFilter, snap.Meta.CWD) {
+		return out
+	}
+	return append(out, SessionListEntry{
+		SessionID:       snap.Meta.ID,
+		CWD:             snap.Meta.CWD,
+		Title:           snap.Meta.Title,
+		UpdatedAt:       snap.Meta.UpdatedAt,
+		CreatedAt:       snap.Meta.CreatedAt,
+		Model:           snap.Meta.SelectedModelID,
+		MessageCount:    len(snap.Messages),
+		SubagentRun:     snap.Meta.SubagentRun,
+		ParentSessionID: snap.Meta.ParentSessionID,
+		SubagentName:    snap.Meta.SubagentName,
+		SubagentTaskID:  snap.Meta.SubagentTaskID,
+	})
+}
+
+// appendChildRows adds the sessions nested inside dir, and their own children,
+// depth first.
+func (f *FileStore) appendChildRows(out []SessionListEntry, dir, cwdFilter string, opts ListOptions, depth int) []SessionListEntry {
+	if depth >= maxChildNesting {
+		return out
+	}
+	for _, child := range f.childBundleDirs(dir) {
+		out = f.appendBundleRow(out, child, filepath.Base(child), cwdFilter, opts)
+		out = f.appendChildRows(out, child, cwdFilter, opts, depth+1)
+	}
+	return out
 }
 
 // FirstUserMessageContent returns trimmed content of the first message with role user

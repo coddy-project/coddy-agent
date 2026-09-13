@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -105,16 +106,57 @@ func newParent(t *testing.T, m *session.Manager, cwd string) *session.State {
 	return st
 }
 
-func TestNewSubagentSessionIDIsAValidFolderName(t *testing.T) {
-	id := session.NewSubagentSessionID()
-	if !strings.HasPrefix(id, "sub_") {
-		t.Fatalf("id %q must carry the sub_ prefix", id)
+// A child session is not marked out by its id: it carries the same shape every
+// session carries, and where its bundle sits is what says whose work it was.
+func TestChildSessionIDsAreOrdinarySessionIDs(t *testing.T) {
+	id := session.NewSessionID()
+	if !regexp.MustCompile(`^sess_[0-9a-f]{24}$`).MatchString(id) {
+		t.Fatalf("id %q is not an ordinary session id", id)
 	}
 	if err := session.ValidateFolderSessionID(id); err != nil {
 		t.Fatal(err)
 	}
-	if session.NewSubagentSessionID() == id {
+	if session.NewSessionID() == id {
 		t.Fatal("ids must be unique")
+	}
+}
+
+// The bundle of a spawned session lives inside the bundle of the session that
+// spawned it, and a store that has never seen it resolves it by walking there.
+func TestChildBundleLivesInsideTheParentBundle(t *testing.T) {
+	m, store, root := newSubagentTestManager(t)
+	parent := newParent(t, m, root)
+
+	childID := session.NewSessionID()
+	child, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
+		ID: childID, ParentSessionID: parent.ID, Name: "reviewer", TaskID: "bg_1", CWD: root,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := filepath.Join(store.SessionPath(parent.ID), session.ChildSessionsDirName, childID)
+	if child.SessionDir != want {
+		t.Fatalf("child session dir = %q, want %q", child.SessionDir, want)
+	}
+	if _, err := os.Stat(filepath.Join(want, "session.json")); err != nil {
+		t.Fatalf("no child bundle at %s: %v", want, err)
+	}
+	if _, err := os.Stat(filepath.Join(store.Root, childID)); !os.IsNotExist(err) {
+		t.Fatalf("the sessions root still holds a folder for the child: %v", err)
+	}
+
+	// A store built from scratch - a later process, the CLI - finds the same
+	// bundle without being told where it is.
+	fresh := &session.FileStore{Root: store.Root}
+	if got := fresh.SessionPath(childID); got != want {
+		t.Fatalf("a fresh store resolved %s to %q, want %q", childID, got, want)
+	}
+	if !fresh.HasPersistedSnapshot(childID) {
+		t.Fatal("a fresh store does not see the child bundle")
+	}
+	if resolved, err := fresh.ResolveSessionID(childID[:12]); err != nil || resolved != childID {
+		t.Fatalf("ResolveSessionID by prefix = %q, %v, want %s", resolved, err, childID)
 	}
 }
 
@@ -122,7 +164,7 @@ func TestCreateSubagentSessionRegistersPersistsAndLinksToTheParent(t *testing.T)
 	m, store, root := newSubagentTestManager(t)
 	parent := newParent(t, m, root)
 
-	childID := session.NewSubagentSessionID()
+	childID := session.NewSessionID()
 	child, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
 		ID:              childID,
 		ParentSessionID: parent.ID,
@@ -167,7 +209,7 @@ func TestCreateSubagentSessionRegistersPersistsAndLinksToTheParent(t *testing.T)
 	if snap.Meta.TitlePinned != "reviewer: check the diff" {
 		t.Fatalf("child title = %q", snap.Meta.TitlePinned)
 	}
-	if !snap.Meta.IsSubagentRun(childID) {
+	if !snap.Meta.IsSubagentRun() {
 		t.Fatal("IsSubagentRun on the meta must be true")
 	}
 }
@@ -175,7 +217,7 @@ func TestCreateSubagentSessionRegistersPersistsAndLinksToTheParent(t *testing.T)
 func TestSubagentSessionsStayOutOfTheListUnlessAsked(t *testing.T) {
 	m, store, root := newSubagentTestManager(t)
 	parent := newParent(t, m, root)
-	childID := session.NewSubagentSessionID()
+	childID := session.NewSessionID()
 	if _, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
 		ID: childID, ParentSessionID: parent.ID, Name: "reviewer", TaskID: "bg_1", CWD: root,
 	}); err != nil {
@@ -191,25 +233,44 @@ func TestSubagentSessionsStayOutOfTheListUnlessAsked(t *testing.T) {
 			t.Fatal("a subagent session must not appear in the default list")
 		}
 	}
+	// A child of the child: the listing descends the whole nesting, not one
+	// level of it, and every row carries the link a client routes back with,
+	// so nothing has to open the bundle a second time.
+	grandID := session.NewSessionID()
+	if _, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
+		ID: grandID, ParentSessionID: childID, Name: "explore", TaskID: "bg_2", CWD: root, Depth: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
 	rows, err = store.ListSnapshotsWith(session.ListOptions{IncludeSubagents: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	found := false
+	byID := map[string]session.SessionListEntry{}
 	for _, r := range rows {
-		if r.SessionID == childID {
-			found = true
-		}
+		byID[r.SessionID] = r
 	}
-	if !found {
+	child, ok := byID[childID]
+	if !ok {
 		t.Fatal("include_subagents must list the child")
+	}
+	if !child.SubagentRun || child.ParentSessionID != parent.ID || child.SubagentName != "reviewer" || child.SubagentTaskID != "bg_1" {
+		t.Fatalf("child row = %+v", child)
+	}
+	grand, ok := byID[grandID]
+	if !ok {
+		t.Fatal("include_subagents must list the child of the child")
+	}
+	if !grand.SubagentRun || grand.ParentSessionID != childID {
+		t.Fatalf("grandchild row = %+v", grand)
 	}
 }
 
 func TestSubagentTurnRunsWhileExternalPromptsAreRefused(t *testing.T) {
 	m, _, root := newSubagentTestManager(t)
 	parent := newParent(t, m, root)
-	childID := session.NewSubagentSessionID()
+	childID := session.NewSessionID()
 	child, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
 		ID: childID, ParentSessionID: parent.ID, Name: "reviewer", TaskID: "bg_1", CWD: root,
 	})
@@ -245,7 +306,7 @@ func TestSubagentTurnRunsWhileExternalPromptsAreRefused(t *testing.T) {
 func TestRetireSubagentSessionDropsTheLiveEntryAndKeepsTheBundle(t *testing.T) {
 	m, store, root := newSubagentTestManager(t)
 	parent := newParent(t, m, root)
-	childID := session.NewSubagentSessionID()
+	childID := session.NewSessionID()
 	if _, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
 		ID: childID, ParentSessionID: parent.ID, Name: "reviewer", TaskID: "bg_1", CWD: root,
 	}); err != nil {
@@ -280,7 +341,7 @@ func TestDeleteSessionTreeStopsRepresentingTasksBeforeRemovingBundles(t *testing
 
 	// child under the parent, grandchild under the child; each represented by
 	// a running pool task registered under its own parent session.
-	childID := session.NewSubagentSessionID()
+	childID := session.NewSessionID()
 	childHandle := newHoldHandle()
 	childTask, err := pool.Launch(bgtask.Spec{SessionID: parent.ID, Kind: bgtask.KindAgent, Agent: &bgtask.AgentInfo{Name: "mid", SessionID: childID}},
 		func(string, io.Writer) (bgtask.Handle, error) { return childHandle, nil })
@@ -292,7 +353,7 @@ func TestDeleteSessionTreeStopsRepresentingTasksBeforeRemovingBundles(t *testing
 	}); err != nil {
 		t.Fatal(err)
 	}
-	grandID := session.NewSubagentSessionID()
+	grandID := session.NewSessionID()
 	grandHandle := newHoldHandle()
 	grandTask, err := pool.Launch(bgtask.Spec{SessionID: childID, Kind: bgtask.KindAgent, Agent: &bgtask.AgentInfo{Name: "leaf", SessionID: grandID}},
 		func(string, io.Writer) (bgtask.Handle, error) { return grandHandle, nil })
@@ -353,7 +414,7 @@ func TestDeleteSessionTreeOnAChildStopsItsOwnTaskFirst(t *testing.T) {
 	m, store, root := newSubagentTestManager(t)
 	parent := newParent(t, m, root)
 	pool := bgtask.NewWithRunner(bgtask.Config{}, nopRunner{})
-	childID := session.NewSubagentSessionID()
+	childID := session.NewSessionID()
 	handle := newHoldHandle()
 	task, err := pool.Launch(bgtask.Spec{SessionID: parent.ID, Kind: bgtask.KindAgent, Agent: &bgtask.AgentInfo{Name: "solo", SessionID: childID}},
 		func(string, io.Writer) (bgtask.Handle, error) { return handle, nil })
@@ -535,8 +596,8 @@ func TestDeleteSessionTreeStopsTasksWhileBundlesStillExist(t *testing.T) {
 	parent := newParent(t, m, root)
 	pool := bgtask.NewWithRunner(bgtask.Config{}, nopRunner{})
 
-	childID := session.NewSubagentSessionID()
-	grandID := session.NewSubagentSessionID()
+	childID := session.NewSessionID()
+	grandID := session.NewSessionID()
 	type seen struct {
 		task            string
 		parentB, childB bool
@@ -596,21 +657,86 @@ func TestDeleteSessionTreeStopsTasksWhileBundlesStillExist(t *testing.T) {
 	}
 }
 
-// The HTTP surface may not mint an ordinary session under the sub_ prefix,
-// and a child transcript cannot be forked into a writable branch.
-func TestReservedPrefixAndBranchRefusals(t *testing.T) {
+// The index must never outlive what it points at. A bundle removed behind the
+// store's back leaves the id resolving to the sessions root again, where a
+// fresh session belongs, rather than to a path inside a parent that is gone.
+func TestChildPathIsNotAnsweredAfterTheBundleIsGone(t *testing.T) {
+	m, store, root := newSubagentTestManager(t)
+	parent := newParent(t, m, root)
+
+	childID := session.NewSessionID()
+	if _, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
+		ID: childID, ParentSessionID: parent.ID, Name: "reviewer", TaskID: "bg_1", CWD: root,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	nested := store.SessionPath(childID)
+	if err := os.RemoveAll(nested); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := store.SessionPath(childID), filepath.Join(store.Root, childID); got != want {
+		t.Fatalf("SessionPath after the bundle was removed = %q, want %q", got, want)
+	}
+	if store.HasPersistedSnapshot(childID) {
+		t.Fatal("a removed bundle is still reported as persisted")
+	}
+}
+
+// Where a bundle sits is the second line of defence next to its metadata: a
+// bundle whose first save never landed still reads back as a spawned run, so a
+// surface cannot take it for an ordinary session and write to it.
+func TestABundleInsideAParentReadsAsASpawnedRun(t *testing.T) {
+	_, store, root := newSubagentTestManager(t)
+	parentID := session.NewSessionID()
+	if _, err := store.EnsureLayout(parentID); err != nil {
+		t.Fatal(err)
+	}
+	childID := session.NewSessionID()
+	dir, err := store.EnsureChildLayout(parentID, childID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = root
+
+	// The layout alone writes no subagent metadata: that arrives with the
+	// first save, which is exactly what a process dying here would skip.
+	raw, err := os.ReadFile(filepath.Join(dir, "session.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "subagentRun") {
+		t.Fatalf("the fixture is not the case under test; session.json = %s", raw)
+	}
+
+	snap, err := store.ReadSnapshot(childID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snap.Meta.IsSubagentRun() {
+		t.Fatal("a bundle inside a parent's subagents folder must read as a spawned run")
+	}
+	if snap.Meta.ParentSessionID != parentID {
+		t.Fatalf("parent = %q, want %q", snap.Meta.ParentSessionID, parentID)
+	}
+	// And it stays out of the default listing for the same reason.
+	rows, err := store.ListSnapshotsWith(session.ListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.SessionID == childID {
+			t.Fatal("an unsaved child bundle appeared in the default listing")
+		}
+	}
+}
+
+// A child transcript is served to a reader and refused to a writer: it cannot
+// be forked into a writable branch, live or retired.
+func TestChildIsServedButNotBranched(t *testing.T) {
 	m, _, root := newSubagentTestManager(t)
 	parent := newParent(t, m, root)
 
-	_, err := m.EnsureHTTPSession(context.Background(), "sub_0123456789abcdef", root)
-	if !errors.Is(err, session.ErrReservedSessionID) {
-		t.Fatalf("EnsureHTTPSession on an unknown sub_ id = %v, want ErrReservedSessionID", err)
-	}
-	if m.SessionByID("sub_0123456789abcdef") != nil {
-		t.Fatal("no session may be created under the reserved prefix")
-	}
-
-	childID := session.NewSubagentSessionID()
+	childID := session.NewSessionID()
 	if _, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
 		ID: childID, ParentSessionID: parent.ID, Name: "reviewer", TaskID: "bg_1", CWD: root,
 	}); err != nil {
@@ -620,12 +746,11 @@ func TestReservedPrefixAndBranchRefusals(t *testing.T) {
 	if _, err := m.RunSubagentTurn(context.Background(), childID, prompt, noopSender{}); err != nil {
 		t.Fatal(err)
 	}
-	// An existing child is served, not refused: the prefix guard is about
-	// creating new sessions only.
+	// An existing child is served: reading a transcript is what the id is for.
 	if st, err := m.EnsureHTTPSession(context.Background(), childID, root); err != nil || st == nil || st.ID != childID {
 		t.Fatalf("EnsureHTTPSession on a live child = %v, %v", st, err)
 	}
-	_, err = m.CreateBranchSession(session.CreateBranchParams{SourceSessionID: childID, UserMessageIndex: 0})
+	_, err := m.CreateBranchSession(session.CreateBranchParams{SourceSessionID: childID, UserMessageIndex: 0})
 	if !errors.Is(err, session.ErrSubagentReadOnly) {
 		t.Fatalf("branching a child = %v, want ErrSubagentReadOnly", err)
 	}
@@ -653,7 +778,7 @@ func TestSubagentTurnTakesThePromptVerbatim(t *testing.T) {
 	}
 	m, _, root := newSubagentTestManagerWithRunner(t, runner)
 	parent := newParent(t, m, root)
-	childID := session.NewSubagentSessionID()
+	childID := session.NewSessionID()
 	if _, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
 		ID: childID, ParentSessionID: parent.ID, Name: "reviewer", TaskID: "bg_1", CWD: root,
 	}); err != nil {
@@ -683,7 +808,7 @@ func TestSubagentTurnTakesThePromptVerbatim(t *testing.T) {
 func TestSubagentSessionIsReadOnlyFromTheMomentItIsPublished(t *testing.T) {
 	m, store, root := newSubagentTestManager(t)
 	parent := newParent(t, m, root)
-	childID := session.NewSubagentSessionID()
+	childID := session.NewSessionID()
 	published := make(chan struct{})
 	release := make(chan struct{})
 	m.SetSubagentPublishHookForTest(func(*session.State) {
@@ -843,12 +968,12 @@ func TestDeleteSessionTreeAbortsWhenATurnIgnoresCancellation(t *testing.T) {
 }
 
 // A creation that fails or is cancelled leaves nothing behind: no live entry
-// and no half-written sub_ bundle.
+// and no half-written child bundle.
 func TestCreateSubagentSessionRollsBackOnFailure(t *testing.T) {
 	t.Run("cancelled before publish", func(t *testing.T) {
 		m, store, root := newSubagentTestManager(t)
 		parent := newParent(t, m, root)
-		childID := session.NewSubagentSessionID()
+		childID := session.NewSessionID()
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		_, err := m.CreateSubagentSession(ctx, session.SubagentSpec{
@@ -864,7 +989,7 @@ func TestCreateSubagentSessionRollsBackOnFailure(t *testing.T) {
 	t.Run("cancelled after publish", func(t *testing.T) {
 		m, store, root := newSubagentTestManager(t)
 		parent := newParent(t, m, root)
-		childID := session.NewSubagentSessionID()
+		childID := session.NewSessionID()
 		ctx, cancel := context.WithCancel(context.Background())
 		m.SetSubagentPublishHookForTest(func(*session.State) { cancel() })
 		defer m.SetSubagentPublishHookForTest(nil)
@@ -884,9 +1009,14 @@ func TestCreateSubagentSessionRollsBackOnFailure(t *testing.T) {
 	t.Run("layout failure", func(t *testing.T) {
 		m, store, root := newSubagentTestManager(t)
 		parent := newParent(t, m, root)
-		childID := session.NewSubagentSessionID()
-		// A file where the bundle directory should go makes EnsureLayout fail.
-		if err := os.WriteFile(store.SessionPath(childID), []byte("in the way"), 0o644); err != nil {
+		childID := session.NewSessionID()
+		// A file where the child's bundle directory should go makes the
+		// layout fail.
+		blocker := filepath.Join(store.SessionPath(parent.ID), session.ChildSessionsDirName, childID)
+		if err := os.MkdirAll(filepath.Dir(blocker), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(blocker, []byte("in the way"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		_, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
@@ -899,7 +1029,7 @@ func TestCreateSubagentSessionRollsBackOnFailure(t *testing.T) {
 			t.Fatal("the live entry must be rolled back")
 		}
 		// Something that was there before the call is not ours to remove.
-		if _, statErr := os.Stat(store.SessionPath(childID)); statErr != nil {
+		if _, statErr := os.Stat(blocker); statErr != nil {
 			t.Fatalf("a pre-existing path was removed: %v", statErr)
 		}
 	})
@@ -1018,7 +1148,7 @@ func TestBeginTurnInstallsCancelAndRefusesDuringDeletion(t *testing.T) {
 	}
 	// A child session is never admitted through BeginTurn either.
 	other := newParent(t, m, root)
-	childID := session.NewSubagentSessionID()
+	childID := session.NewSessionID()
 	if _, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
 		ID: childID, ParentSessionID: other.ID, Name: "reviewer", TaskID: "bg_1", CWD: root,
 	}); err != nil {
@@ -1049,7 +1179,7 @@ func TestDeleteSessionTreeCatchesAChildCreatedAfterTheFirstScan(t *testing.T) {
 
 	// The delete holds its first, childless snapshot; a detached child is
 	// created and persisted meanwhile, with its task in the pool.
-	childID := session.NewSubagentSessionID()
+	childID := session.NewSessionID()
 	handle := newHoldHandle()
 	task, err := pool.Launch(bgtask.Spec{SessionID: parent.ID, Kind: bgtask.KindAgent, Agent: &bgtask.AgentInfo{Name: "late", SessionID: childID}},
 		func(string, io.Writer) (bgtask.Handle, error) { return handle, nil })
@@ -1083,7 +1213,7 @@ func TestCreateSubagentSessionRefusesWhenTheParentIsDeleted(t *testing.T) {
 	m, store, root := newSubagentTestManager(t)
 	parent := newParent(t, m, root)
 	pool := bgtask.NewWithRunner(bgtask.Config{}, nopRunner{})
-	childID := session.NewSubagentSessionID()
+	childID := session.NewSessionID()
 	published := make(chan struct{})
 	release := make(chan struct{})
 	m.SetSubagentPublishHookForTest(func(*session.State) {
@@ -1122,7 +1252,7 @@ func TestCreateSubagentSessionRefusesWhenTheParentIsDeleted(t *testing.T) {
 
 	// A parent that is not live at all refuses at once.
 	if _, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
-		ID: session.NewSubagentSessionID(), ParentSessionID: parent.ID, Name: "orphan", TaskID: "bg_2", CWD: root,
+		ID: session.NewSessionID(), ParentSessionID: parent.ID, Name: "orphan", TaskID: "bg_2", CWD: root,
 	}); err == nil || !strings.Contains(err.Error(), "not live") {
 		t.Fatalf("creation under a gone parent = %v, want a not-live refusal", err)
 	}
@@ -1260,7 +1390,7 @@ func TestDeleteSessionTreeRemovesDeepGenerationsCreatedAfterTheFirstScan(t *test
 	ids := make([]string, 0, generations)
 	prev := parent.ID
 	for depth := 1; depth <= generations; depth++ {
-		id := session.NewSubagentSessionID()
+		id := session.NewSessionID()
 		if _, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
 			ID: id, ParentSessionID: prev, Name: "gen", TaskID: "bg_" + id[4:8], CWD: root, Depth: depth,
 		}); err != nil {
@@ -1288,25 +1418,15 @@ func TestDeleteSessionTreeRemovesDeepGenerationsCreatedAfterTheFirstScan(t *test
 	}
 }
 
-// ---- merge review: reserved prefix on session/new, read-only mode setters ----
+// ---- merge review: read-only mode setters ----
 
-// A client may not mint an ordinary session under the sub_ prefix through
-// session/new either, and a child's mode, model and permission mode are fixed
-// at spawn time on every surface.
-func TestReservedPrefixOnSessionNewAndReadOnlyChildSettings(t *testing.T) {
+// A child's mode, model and permission mode are fixed at spawn time on every
+// surface.
+func TestReadOnlyChildSettings(t *testing.T) {
 	m, _, root := newSubagentTestManager(t)
 	parent := newParent(t, m, root)
 
-	m.SetPreferredSessionID("sub_00000000000000000000beef")
-	_, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: root})
-	if !errors.Is(err, session.ErrReservedSessionID) {
-		t.Fatalf("session/new with a preferred sub_ id = %v, want ErrReservedSessionID", err)
-	}
-	if m.SessionByID("sub_00000000000000000000beef") != nil {
-		t.Fatal("no session may exist under the reserved prefix")
-	}
-
-	childID := session.NewSubagentSessionID()
+	childID := session.NewSessionID()
 	if _, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
 		ID: childID, ParentSessionID: parent.ID, Name: "reviewer", TaskID: "bg_1", CWD: root, Mode: "plan",
 	}); err != nil {
@@ -1327,7 +1447,7 @@ func TestReservedPrefixOnSessionNewAndReadOnlyChildSettings(t *testing.T) {
 		t.Fatalf("set_mode on the parent = %v", err)
 	}
 	// A child may be created in ask mode (a read-only parent forces its own).
-	askChild := session.NewSubagentSessionID()
+	askChild := session.NewSessionID()
 	st, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
 		ID: askChild, ParentSessionID: parent.ID, Name: "reviewer", TaskID: "bg_2", CWD: root, Mode: "ask",
 	})

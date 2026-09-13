@@ -102,6 +102,12 @@ def session_dirs(home: Path) -> set[str]:
     if not root.exists():
         return set()
     return {p.name for p in root.iterdir() if p.is_dir()}
+def child_session_dirs(home: Path, parent_id: str) -> set[str]:
+    """Sessions spawned by parent_id: a child bundle lives inside its parent's."""
+    root = home / "sessions" / parent_id / "subagents"
+    if not root.exists():
+        return set()
+    return {p.name for p in root.iterdir() if p.is_dir()}
 
 
 def rpc(proc: subprocess.Popen, method: str, params: dict[str, Any], next_id: list[int], chunks: list[str]) -> dict[str, Any]:

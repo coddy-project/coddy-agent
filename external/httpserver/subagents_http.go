@@ -195,21 +195,14 @@ func subagentLink(parentSessionID, name, taskID string) map[string]interface{} {
 	}
 }
 
-// subagentSessionPrefix is the folder prefix session.NewSubagentSessionID
-// gives child sessions; the listing uses it to open only child bundles.
-const subagentSessionPrefix = "sub_"
-
-// subagentRowLink reads the parent link of a child session row from its
-// bundle. Only sub_ bundles are opened, so the default listing pays nothing.
-func subagentRowLink(fs *session.FileStore, id string) map[string]interface{} {
-	if !strings.HasPrefix(id, subagentSessionPrefix) {
+// subagentRowLink is the parent link of a session-list row, or nil when the
+// row is not a spawned run. The listing already parsed the bundle the row came
+// from, so this costs no second read.
+func subagentRowLink(row session.SessionListEntry) map[string]interface{} {
+	if !row.SubagentRun {
 		return nil
 	}
-	snap, err := fs.ReadSnapshot(id)
-	if err != nil || !snap.Meta.IsSubagentRun(id) {
-		return nil
-	}
-	return subagentLink(snap.Meta.ParentSessionID, snap.Meta.SubagentName, snap.Meta.SubagentTaskID)
+	return subagentLink(row.ParentSessionID, row.SubagentName, row.SubagentTaskID)
 }
 
 // subagentReadOnlyMessage names the parent a caller should prompt instead.

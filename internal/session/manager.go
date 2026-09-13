@@ -303,14 +303,9 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 		if err := ValidateFolderSessionID(preferredConsumed); err != nil {
 			return nil, fmt.Errorf("session/new: %w", err)
 		}
-		// The sub_ prefix marks child sessions; a client may reopen an existing
-		// child bundle (read-only) but never mint an ordinary session under it.
-		if IsSubagentSessionID(preferredConsumed) && (m.store == nil || !m.store.HasPersistedSnapshot(preferredConsumed)) {
-			return nil, fmt.Errorf("session/new: %w: %s", ErrReservedSessionID, preferredConsumed)
-		}
 		id = preferredConsumed
 	} else {
-		id = newSessionID()
+		id = NewSessionID()
 	}
 
 	m.mu.RLock()
@@ -460,7 +455,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		mode = ModeAgent
 	}
 	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.SelectedReasoning, snap.Meta.AgentMemory, snap.Meta.PermissionMode)
-	if snap.Meta.IsSubagentRun(params.SessionID) {
+	if snap.Meta.IsSubagentRun() {
 		// A restored child is a read-only transcript; the meta keeps the guard
 		// and the parent link, the role and tool set are not needed any more.
 		st.SetSubagentMeta(SubagentMeta{
@@ -565,12 +560,6 @@ func (m *Manager) EnsureHTTPSession(ctx context.Context, sessionID string, defau
 			return nil, fmt.Errorf("session load incomplete: %s", sessionID)
 		}
 		return st, nil
-	}
-	// The sub_ prefix is how bundles are recognised as subagent runs. A
-	// client must not be able to mint an ordinary chat under it: the listing
-	// would hide it and a reload would turn it read-only.
-	if strings.HasPrefix(sessionID, subagentSessionPrefix) {
-		return nil, fmt.Errorf("%w: %s", ErrReservedSessionID, sessionID)
 	}
 	m.SetPreferredSessionID(sessionID)
 	res, err := m.HandleSessionNew(ctx, acp.SessionNewParams{CWD: defaultCWD})
@@ -785,7 +774,7 @@ func (m *Manager) BeginTurn(ctx context.Context, sessionID string, opts *PromptR
 	if state == nil {
 		return nil, nil, fmt.Errorf("session not found: %s", sessionID)
 	}
-	if state.IsSubagentRun() || IsSubagentSessionID(sessionID) {
+	if state.IsSubagentRun() {
 		return nil, nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, sessionID, subagentParentOf(state))
 	}
 	return m.beginTurn(ctx, sessionID, state, admissionFor(opts))
@@ -800,7 +789,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if state == nil {
 		return nil, fmt.Errorf("session not found: %s", params.SessionID)
 	}
-	if (state.IsSubagentRun() || IsSubagentSessionID(params.SessionID)) && (opts == nil || !opts.subagentTurn) {
+	if state.IsSubagentRun() && (opts == nil || !opts.subagentTurn) {
 		return nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, params.SessionID, subagentParentOf(state))
 	}
 	turnBase := ctx
@@ -892,7 +881,7 @@ func (m *Manager) HandleSessionSetMode(_ context.Context, params acp.SessionSetM
 	}
 	// A child transcript is read-only: its mode was fixed at spawn time and
 	// nothing may rewrite it afterwards.
-	if state.IsSubagentRun() || IsSubagentSessionID(params.SessionID) {
+	if state.IsSubagentRun() {
 		return fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, params.SessionID, subagentParentOf(state))
 	}
 
@@ -923,7 +912,7 @@ func (m *Manager) HandleSessionSetConfigOption(_ context.Context, params acp.Ses
 	}
 	// A child transcript is read-only: mode, model and permission mode were
 	// fixed at spawn time.
-	if state.IsSubagentRun() || IsSubagentSessionID(params.SessionID) {
+	if state.IsSubagentRun() {
 		return nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, params.SessionID, subagentParentOf(state))
 	}
 
@@ -1268,7 +1257,12 @@ func (m *Manager) connectMCPServer(ctx context.Context, state *State, srv config
 	return client, nil
 }
 
-func newSessionID() string {
+// NewSessionID returns a fresh session id: sess_ followed by 24 hex
+// characters. Every session carries this shape, whoever started it - a
+// console run, a browser tab, a chat on a messenger gateway, or a subagent
+// run another session spawned - so nothing downstream can read a session's
+// origin off its id. What a session is, is in its bundle.
+func NewSessionID() string {
 	b := make([]byte, 12)
 	if _, err := rand.Read(b); err != nil {
 		panic("failed to generate session ID: " + err.Error())

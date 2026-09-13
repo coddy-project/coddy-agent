@@ -18,6 +18,7 @@ The messenger gateway lets you drive a Coddy agent directly from a chat applicat
   - [Private chats](#private-chats)
   - [Group chats](#group-chats)
   - [Commands](#commands)
+- [The messenger's syntax is applied on the way out](#the-messengers-syntax-is-applied-on-the-way-out)
 - [Writing a new adapter](#writing-a-new-adapter)
   - [1. Implement the Adapter interface](#1-implement-the-adapter-interface)
   - [2. Register in Start()](#2-register-in-start)
@@ -209,7 +210,7 @@ gateways:
 | Final message | `mdToTelegram` downgrades headings/tables to plain text | Agent's native Markdown sent verbatim via `sendRichMessage` — headings, tables, task lists, fenced code, footnotes, LaTeX all render |
 | Streaming (private chats) | progressive `editMessageText` of a live message | ephemeral `sendRichMessageDraft` preview (30 s, animated) |
 | Tool activity | `⚙️ toolname…` line, dropped from the final message | live `<tg-thinking>` placeholder during streaming **and** one collapsed `<details>` block per executed tool (name + output, `❌` on failure) in the final message |
-| Formatting hint | one-time "use the restricted Telegram subset" note on the first turn | none — the agent's natural Markdown renders as-is, so every turn is identical |
+| What the session sees | what the person typed | what the person typed |
 
 **Behaviour notes:**
 
@@ -397,6 +398,37 @@ When `isolation` is `admin`, the bot additionally ignores everyone who is not in
 
 ---
 
+## The messenger's syntax is applied on the way out
+
+The agent writes ordinary GitHub-flavoured Markdown, the same text a browser tab
+or a terminal shows. Which syntax a messenger understands is the gateway's
+business and nobody else's: the answer is rendered for Telegram on its way out
+of the process, in `external/gateway/telegram/markdown.go`, and neither the
+prompt the session receives nor the transcript it keeps carries a word about
+Telegram.
+
+That is what makes a chat conversation an ordinary session. The same transcript
+reads the same whether the turn came from a chat, a browser or a terminal, and
+the next integration - Discord, Slack, whatever it is - renders the very same
+answer in its own syntax by adding a file like that one and touching nothing
+else.
+
+For the legacy send that means: ATX headings and `**bold**` become `*bold*`,
+`__x__` becomes `_x_`, an asterisk bullet becomes `•`, a table is flattened to
+plain rows and a horizontal rule to a separator line. Fenced code is set aside
+before any of it runs and put back untouched, so a Go `**p` or a `# comment`
+inside a block reaches the chat as the model wrote it. The live streaming
+preview is sent with no parse mode - half a sentence is half a markup - so it
+gets the same conversion with the emphasis markers dropped rather than shown as
+punctuation. If Telegram still refuses to parse a message, the sender resends it
+without a parse mode: a stray asterisk in prose costs formatting, never the
+reply.
+
+With `rich_messages: true` there is nothing to downgrade - the agent's Markdown
+goes out verbatim - and the fallback path is the legacy rendering above.
+
+---
+
 ## Writing a new adapter
 
 To add, for example, a Discord adapter alongside Telegram, follow this pattern.
@@ -513,9 +545,11 @@ Update the `start.go` / `start_stub.go` constraint to include the new tag.
 With `httpserver.enable` and `gateways.telegram.enable` both on, a Telegram
 conversation and the web UI are two views of one session.
 
-- **The chat session appears in the browser.** Gateway sessions are stored the
-  way every other session is, so `GET /coddy/sessions` lists them (their ids
-  carry a `gw_` prefix) and opening one loads the same transcript.
+- **The chat session appears in the browser.** A chat conversation is an
+  ordinary session with an ordinary `sess_` id - where a person is sitting
+  decides nothing about the session behind the conversation - so
+  `GET /coddy/sessions` lists it beside the sessions started in a terminal or
+  a browser tab, and opening one loads the same transcript.
 - **A chat turn streams into the browser while it runs.** The gateway publishes
   its turn into the session's composer relay - the same mechanism a background
   task's wake turn uses - so a tab watching that session sees the tokens as
@@ -561,13 +595,13 @@ manager.HandleSessionPromptWithSender(ctx, params, sender, nil)
         ▼
 sender.Flush()
         │  replaces the live streaming message with the final formatted text
-        │  (Telegram-compatible markdown; headers, double-star bold, and tables
-        │   converted to Telegram legacy format)
+        │  (markdown.go renders the answer for Telegram: headings, double-star
+        │   bold and tables into the legacy subset, fenced code untouched)
         ▼
 Session bundle written to disk ($CODDY_HOME/sessions/<id>/)
 ```
 
-**Session store persistence** — The key→session-ID mapping is persisted in `gateway_sessions.json` inside `$CODDY_HOME/sessions/` (same directory as session bundles). On restart the bot reloads this file and continues existing conversations seamlessly, without re-sending the one-time formatting hint to sessions that already received it.
+**Session store persistence** — The key→session-ID mapping is persisted in `gateway_sessions.json` inside `$CODDY_HOME/sessions/` (same directory as session bundles). On restart the bot reloads this file and continues existing conversations seamlessly.
 
 **`/clear` flow:**
 

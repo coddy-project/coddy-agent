@@ -13,7 +13,7 @@ Verifies:
 - ``spawn_agent`` was called in the parent turn
 - the run was persisted as a task of kind ``agent`` under
   ``<parent session>/background/<task_id>/`` whose ``agent.session_id`` names
-  a ``sub_*`` child session, and the task ended ``succeeded``
+  a child session inside the parent's bundle, and the task ended ``succeeded``
 - the child session bundle exists under the sessions root with
   ``subagentRun: true`` and ``parentSessionId`` equal to the parent id
 - the child's ``messages.json`` and the task's ``output.log`` report block
@@ -385,9 +385,9 @@ Do not read notes.txt yourself. Do not call any other tool. Do not call spawn_ag
         task = agent_tasks[-1]
         agent = task.get("agent") or {}
         child_id = str(agent.get("session_id") or "")
-        if not child_id.startswith("sub_") or agent.get("name") != AGENT:
+        if not child_id or agent.get("name") != AGENT:
             print(
-                f"FAIL: agent task does not name a sub_ child session for {AGENT} (got {agent!r})",
+                f"FAIL: agent task does not name a child session for {AGENT} (got {agent!r})",
                 file=sys.stderr,
             )
             sys.exit(15)

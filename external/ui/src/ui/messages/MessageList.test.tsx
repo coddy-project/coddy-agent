@@ -158,7 +158,7 @@ test("plan document on a read-only transcript renders without Run plan and Disca
     },
   ];
 
-  render(<MessageList items={items} sessionId="sub_0a1b2c" />);
+  render(<MessageList items={items} sessionId="sess_0a1b2c" />);
 
   expect(screen.getByText("Demo plan")).toBeInTheDocument();
   expect(document.querySelector(".plan-document-card--readonly")).toBeTruthy();

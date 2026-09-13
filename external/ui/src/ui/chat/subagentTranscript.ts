@@ -46,12 +46,3 @@ export function parseSubagentTranscriptMeta(
     taskId: str(block?.taskId),
   };
 }
-
-/**
- * Child session ids are minted as `sub_<hex>` (`session.NewSubagentSessionID`).
- * They are hidden from the sessions list, so the shell uses this to decide
- * that an id it cannot find in History is still worth fetching.
- */
-export function isSubagentSessionId(id: string): boolean {
-  return /^sub_[0-9a-f]+$/i.test((id || "").trim());
-}

@@ -115,7 +115,7 @@ test("a subagent transcript replaces the docked composer with a read-only notice
   const { container } = render(
     <ChatScreen
       title="agent explore"
-      sessionId="sub_0a1b2c"
+      sessionId="sess_0a1b2c"
       heroAccentVerb="know"
       heroComposerFocusEpoch={0}
       onTitleSave={() => {}}
@@ -144,7 +144,7 @@ test("the notice also takes the hero composer's slot on an empty child transcrip
   const { container } = render(
     <ChatScreen
       title=""
-      sessionId="sub_0a1b2c"
+      sessionId="sess_0a1b2c"
       heroAccentVerb="know"
       heroComposerFocusEpoch={0}
       onTitleSave={() => {}}
