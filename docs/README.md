@@ -96,15 +96,4 @@ How Coddy is built, tested, documented and released.
 - [ZCode hooks](contributing/zcode-hooks.md) - Deterministic delivery of the Cursor rules to ZCode sessions working on this repository.
 - [Syntax highlighting audit](contributing/syntax-highlighting-audit.md) - The NeuralDeep audit of code highlighting across the seven themes, its fixtures and how to re-run it.
 - [Agent notes](../AGENTS.md) - The repository map and contributor notes for coding agents.
-
-## Design records
-
-Plans and decisions as they were taken. They are not rewritten when the code moves on.
-
-- [Console TUI plan](plans/cli-tui.md) - The design of the pi-style console.
-- [File viewer plan](plans/file-viewer.md) - The design of the file viewer in the web UI.
-- [Hooks plan](plans/hooks.md) - The design of lifecycle hooks and project trust.
-- [NeuralDeep usage plan](plans/neuraldeep-usage.md) - The design of the provider usage panel and the limit wait.
-- [Subagents plan](plans/subagents.md) - The design of subagent definitions, trust and child sessions.
-- [Remote control design](plans/remote-control.md) - The remote control and local/remote operation design, phases and resolved questions.
 <!-- docsgen:nav:end -->

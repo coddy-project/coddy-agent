@@ -13,10 +13,10 @@ How the documentation under `docs/` is organised, what a change to Coddy must ca
 | `docs/reference/` | Complete lists: CLI, `config.yaml`, environment variables, slash commands, keyboard, tools, HTTP API, ACP | Reference pages, generated where the code is the source of truth |
 | `docs/tutorials/` | Task-shaped guides, one page per tutorial | Tutorials |
 | `docs/contributing/` | How Coddy is built, tested, designed and documented | Contributor pages |
-| `docs/plans/` | Design records, decisions as they were taken | Frozen: not rewritten to match a later rename |
+| `docs/plans/` | Design records, decisions as they were taken | Internal: not in the map, frozen, not rewritten to match a later rename |
 | `docs/assets/` | What the pages embed: screenshots, videos, brand files | See [the assets index](../assets/INDEX.md) |
 
-The map of all of it is [`docs/nav.yaml`](../nav.yaml): every page with its group, title and a one-line summary. [`docs/README.md`](../README.md) (the hub), [`docs/llms.txt`](../llms.txt) and [`docs/llms-full.txt`](../llms-full.txt) are generated from it, and the sidebar of the documentation site will be too. A page that is not in the map does not exist as far as readers and agents are concerned, and `make docs-check` says so.
+The map of all of it is [`docs/nav.yaml`](../nav.yaml): every page with its group, title and a one-line summary. [`docs/README.md`](../README.md) (the hub), [`docs/llms.txt`](../llms.txt) and [`docs/llms-full.txt`](../llms-full.txt) are generated from it, and the sidebar of the documentation site will be too. A page that is not in the map does not exist as far as readers and agents are concerned, and `make docs-check` says so. The design records of `docs/plans/` are the one exception: they are internal and stay out of the map.
 
 A page that moves takes its address with it: there are no redirect stubs, so an old link breaks, and the coddy.dev address (`coddy.dev/docs/<slug>`) follows the map. Links that leave the repository use that form, and the binary, the schema and the bundled skill print the current addresses.
 
@@ -84,7 +84,7 @@ GitHub renders an inline player only for a file uploaded as a GitHub attachment:
 | File | Block | Source |
 |------|-------|--------|
 | `docs/README.md` | `docsgen:nav` | `nav.yaml`: groups, pages, summaries |
-| `docs/llms.txt`, `docs/llms-full.txt` | whole file | `nav.yaml` and the pages themselves |
+| `docs/llms.txt`, `docs/llms-full.txt` | whole file | `nav.yaml` and the pages themselves; `docs/plans/` is outside the map, so neither file carries a design record |
 | `docs/reference/config.md` | `docsgen:config` | `internal/config/config.schema.json` descriptions and the loader's defaults (`config.DocDefaults`) |
 | `docs/reference/cli.md` | `docsgen:cli` | `coddy --help` and the `--help` of every command with a flag set |
 | `docs/assets/INDEX.md` | `docsgen:assets` | the files under `docs/assets` and their references |
@@ -123,6 +123,8 @@ The site repository is `coddy-project.github.io`. A change to a page, to `nav.ya
 ## Design records
 
 `docs/plans/` holds the plans and decisions behind the larger features as they were written, dates and all. They are read for the why, not for the how, and are not rewritten when the code moves on: a rename elsewhere leaves them alone, and only a link target is repaired when a page moves. A new plan is a new file named after the feature; when a plan carries a date, the date is the day the decision was taken.
+
+They are internal, and the one part of `docs/` outside `nav.yaml`: the hub does not offer them, and neither `llms.txt` nor `llms-full.txt` carries them. A page that points at a record links it directly (`../plans/hooks.md`), and those links are checked like any other.
 
 ## The web UI design contract
 
