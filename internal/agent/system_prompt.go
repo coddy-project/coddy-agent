@@ -125,6 +125,10 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 	// Context handed over by SessionStart and UserPromptSubmit hooks; appended
 	// like the environment block so a custom template carries it too.
 	full = joinNonEmptyPromptBlocks(full, a.hookContextBlock())
+	// What the surface running this turn asked the model to know about
+	// answering through it. Last of the appended blocks, so a messenger's
+	// answer format is the nearest instruction to the conversation itself.
+	full = joinNonEmptyPromptBlocks(full, a.surfaceBlock())
 	// Applied last so it also covers a user's own prompts.dir template and the
 	// render fallback, and before the context breakdown so the estimate counts
 	// what is actually sent. See internal/prompts/identity.go.

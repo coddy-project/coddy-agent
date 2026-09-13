@@ -4,7 +4,11 @@ A session is one conversation: the transcript, the working directory it runs in,
 
 ## The bundle on disk
 
-Every session is a directory under the sessions root, `$CODDY_HOME/sessions/<id>/` (`~/.coddy/sessions/` by default). The root moves with `sessions.dir` in `config.yaml` or with `--sessions-dir` on `coddy serve`, `coddy acp`, the console and the `coddy sessions` verbs ([config.yaml reference](../reference/config.md#sessions)); the process creates it at start and fails to start when it cannot. Ids are `sess_` followed by 24 hex characters; child sessions of subagents start with `sub_`, scheduler runs with `sched_`. An id doubles as the folder name, so only letters, digits, `_` and `-` are accepted.
+Every session is a directory under the sessions root, `$CODDY_HOME/sessions/<id>/` (`~/.coddy/sessions/` by default). The root moves with `sessions.dir` in `config.yaml` or with `--sessions-dir` on `coddy serve`, `coddy acp`, the console and the `coddy sessions` verbs ([config.yaml reference](../reference/config.md#sessions)); the process creates it at start and fails to start when it cannot.
+
+Ids are `sess_` followed by 24 hex characters, whoever started the session: a console run, a browser tab, a chat on a messenger gateway, a subagent run another session spawned. Where a person was sitting is not something a session id reports, so nothing downstream can branch on it; scheduler runs are the one exception, `sched_` ids written by the scheduler's own bookkeeping. An id doubles as the folder name, so only letters, digits, `_` and `-` are accepted.
+
+A session spawned by another one is stored inside it, at `<parent>/subagents/<child>/`, and a child of that child one level deeper again, so the sessions root lists the conversations a person started and each bundle carries the work it delegated. What a bundle is - a chat, a delegated run, a scheduler run - is in its `session.json`, not in its name.
 
 | Path | What it holds |
 |---|---|
@@ -26,6 +30,18 @@ Compaction and result eviction never rewrite a bundle: both are projections buil
 ## What a session remembers
 
 The mode (`agent`, `plan` or `ask`), the model, the reasoning level and the permission mode are session-scoped overrides persisted in `session.json`: the ACP `session/set_mode` and `session/set_config_option` methods, the composer's Mode, Model and Reasoning selectors (`PATCH /coddy/sessions/{id}` with `selectedModelId` or `selectedReasoning`) and the console's `/mode` and `ctrl+l` all write there, and a session-level `permission_mode` outranks `tools.permission_mode` from the configuration. The working directory is recorded too: `coddy -c`, the console picker and `coddy sessions list --cwd` filter on it. The web UI picks the folder, the git branch and an optional worktree before the first message and locks them once the transcript has messages ([Web UI](../surfaces/web-ui.md#per-session-workspace-folder--branch--worktree-chips)). The title is derived from the first prompt until you pin one, inline in the chat header or with `PATCH /coddy/sessions/{id}` and a `title`.
+
+## Git worktrees
+
+A worktree Coddy opens for a session goes to `<repo>/.coddy/worktrees/<branch>/` - inside the checkout, beside the rest of the project-local Coddy state (`.coddy/rules`, `.coddy/agents`, `.coddy/mcp.json`), the way Claude Code and Codex keep theirs. The branch name is mapped to a folder name by replacing the characters a path cannot hold, so `feature/login` becomes `feature-login`.
+
+The root carries its own `.gitignore` holding `*`, written when the first worktree is created and put back whenever it has gone missing. It sits beside the worktrees rather than inside them and ignores everything below it, the ignore file included, so the folder stays out of the **main** checkout's `git status` and nothing has to be added to the repository's own ignore list. It does not hide the work: inside a worktree, `git status` reports your edits as it should. An ignore file already at that path belongs to the operator and is never rewritten - if what it says does not cover the worktrees, they stay visible, and that is then the operator's call.
+
+`.coddy` is repository content, so a checkout can ship it as a symlink pointing somewhere else. A worktrees root that resolves outside the checkout is refused rather than followed, and a branch name that reads as a git option (`--detach`) or maps to no usable folder name is refused before git sees it.
+
+The flip side of living inside the checkout is that the folder is an ignored path in the main working copy, so `git clean` reaches it. Measured on git 2.47: `-xdf` skips the worktrees themselves ("skipping repository") but does delete the `.gitignore`, which Coddy writes again with the next worktree; `-xdff` deletes the whole folder and leaves the entries behind as `prunable`. Run `git worktree list` before reaching for either, and `git worktree prune` after one went through.
+
+The same place is what the agent is told to use for a worktree it creates by hand (`internal/prompts/agent.md`), so a branch opened from the composer and a branch opened by a shell command land side by side. The web UI opens one through the worktree checkbox ([Web UI](../surfaces/web-ui.md#per-session-workspace-folder--branch--worktree-chips)); over HTTP it is `POST /coddy/sessions/{id}/workspace` with `{"branch":b,"worktree":true}` ([HTTP API](../reference/http-api.md)).
 
 ## One store, every surface
 
@@ -68,7 +84,7 @@ Design plans written in plan mode are separate files, `plans/<slug>.plan.md`, an
 
 ## Child sessions and run bundles
 
-A subagent run is a child session with a `sub_` id: a real bundle whose `session.json` carries `subagentRun`, `parentSessionId`, `subagentName`, `subagentTaskId` and `subagentDepth`. Children stay out of every default listing - History, `GET /coddy/sessions`, `coddy sessions list`, `coddy -c`, ACP `session/list` - and are read-only transcripts: a prompt, a fork or a permission answer against one is refused with the parent named ([Subagents](subagents.md#child-sessions)). Scheduler runs are bundles too, `sched_` ids with `schedulerRun` set, hidden from the composer list and pruned per job by `scheduler.retain_sessions` ([Scheduler](../operate/scheduler.md)).
+A subagent run is a child session: a real bundle under `<parent>/subagents/<child>/` whose `session.json` carries `subagentRun`, `parentSessionId`, `subagentName`, `subagentTaskId` and `subagentDepth`. Children stay out of every default listing - History, `GET /coddy/sessions`, `coddy sessions list`, `coddy -c`, ACP `session/list` - and are read-only transcripts: a prompt, a fork or a permission answer against one is refused with the parent named ([Subagents](subagents.md#child-sessions)). Scheduler runs are bundles too, `sched_` ids with `schedulerRun` set, hidden from the composer list and pruned per job by `scheduler.retain_sessions` ([Scheduler](../operate/scheduler.md)).
 
 ## Deleting a session
 

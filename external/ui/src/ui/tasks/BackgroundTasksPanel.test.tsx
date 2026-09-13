@@ -220,7 +220,7 @@ function agentTask(over: Partial<BackgroundTask> = {}): BackgroundTask {
     session_id: "s1",
     kind: "agent",
     label: "agent explore: survey the repo",
-    agent: { name: "explore", session_id: "sub_0a1b2c" },
+    agent: { name: "explore", session_id: "sess_0a1b2c" },
     status: "running",
     started_at: new Date(START_MS).toISOString(),
     timeout_seconds: 1800,
@@ -279,7 +279,7 @@ test("an agent task's detail names the subagent and opens its transcript", () =>
   );
 
   fireEvent.click(screen.getByTestId("bgtask-open-transcript"));
-  expect(onOpenSession).toHaveBeenCalledWith("sub_0a1b2c");
+  expect(onOpenSession).toHaveBeenCalledWith("sess_0a1b2c");
 });
 
 test("Open transcript stays disabled until the child session is known", () => {

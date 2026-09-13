@@ -1006,3 +1006,33 @@ func TestSaveRewritesAHistoryThatVanishedFromDisk(t *testing.T) {
 		t.Fatalf("history came back with %d messages", len(snap.Messages))
 	}
 }
+
+// Compaction inserts a summary into the middle of the history, which rewrites
+// everything after it. Persistence must encode the history afresh rather than
+// treat it as a history that only grew.
+func TestCompactionSummaryInsertIsPersistedInFull(t *testing.T) {
+	fs, st := savedState(t, "sess_compacted", 8)
+	st.InsertCompactionSummary(3, NewCompactionSummaryMessage("a summary of what came before", "test-model"))
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	onDisk, err := os.ReadFile(filepath.Join(st.SessionDir, messagesFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := json.MarshalIndent(messagesFileData{Version: messagesLayout, Messages: st.GetMessages()}, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = append(want, '\n')
+	if !bytes.Equal(onDisk, want) {
+		t.Fatalf("a compacted history was not persisted as a full encoding")
+	}
+	snap, err := fs.ReadSnapshot("sess_compacted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Messages) != 9 || !snap.Messages[3].CompactionSummary {
+		t.Fatalf("summary did not land at index 3 of %d messages", len(snap.Messages))
+	}
+}

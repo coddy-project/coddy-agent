@@ -358,7 +358,7 @@ func (w *modelSwitchWorld) logRecordsMenuSession() error {
 		if fmt.Sprint(rec["msg"]) != "telegram: model menu" {
 			continue
 		}
-		if id := fmt.Sprint(rec["session"]); strings.HasPrefix(id, "gw_") {
+		if id := fmt.Sprint(rec["session"]); ordinarySessionIDPattern.MatchString(id) {
 			return nil
 		}
 	}

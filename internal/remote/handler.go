@@ -6,8 +6,6 @@ package remote
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -157,18 +155,6 @@ func (h *Handler) currentSender() acp.UpdateSender {
 	return h.sender
 }
 
-// newRemoteSessionID mints a client-side session id; the server pins the
-// bundle under this exact id on the first prompt (EnsureHTTPSession).
-func newRemoteSessionID() string {
-	var buf [16]byte
-	if _, err := rand.Read(buf[:]); err != nil {
-		// crypto/rand failing is unrecoverable enough that a constant id
-		// would be worse than an error surfaced by the server.
-		panic(fmt.Sprintf("remote: session id entropy: %v", err))
-	}
-	return "sess_" + hex.EncodeToString(buf[:])
-}
-
 // ---- acp.Handler ----
 
 // HandleInitialize advertises the same capabilities as a local agent; the
@@ -205,7 +191,9 @@ func (h *Handler) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 
 	id := preferred
 	if id == "" {
-		id = newRemoteSessionID()
+		// The same shape every session carries; the server pins the bundle
+		// under this exact id on the first prompt (EnsureHTTPSession).
+		id = session.NewSessionID()
 	} else if err := session.ValidateFolderSessionID(id); err != nil {
 		return nil, fmt.Errorf("session/new: %w", err)
 	}
@@ -214,11 +202,6 @@ func (h *Handler) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 	if preferred != "" {
 		msgs, err := h.sessionMessages(ctx, id)
 		switch {
-		case isNotFound(err) && session.IsSubagentSessionID(id):
-			// The sub_ prefix belongs to subagent child sessions; an unknown
-			// one cannot be minted remotely any more than locally.
-			h.forget(id)
-			return nil, fmt.Errorf("session/new: %w: %s", session.ErrReservedSessionID, id)
 		case isNotFound(err):
 			// no such session remotely: a fresh one starts under this id
 		case err != nil:
@@ -473,13 +456,6 @@ func (h *Handler) WaitCancels(d time.Duration) {
 	case <-time.After(d):
 		h.log.Warn("remote cancel still in flight at exit", "timeout", d.String())
 	}
-}
-
-// forget drops the client-side state of a session that never came to be.
-func (h *Handler) forget(id string) {
-	h.mu.Lock()
-	delete(h.sessions, id)
-	h.mu.Unlock()
 }
 
 // ---- session.Manager extras used by the console surface ----

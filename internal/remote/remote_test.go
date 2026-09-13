@@ -6,7 +6,6 @@ package remote
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -173,7 +172,7 @@ func TestResolveMapsNamesAddressesAndTokens(t *testing.T) {
 func TestNewRemoteSessionIDsAreValidFolderIDs(t *testing.T) {
 	seen := map[string]bool{}
 	for range 32 {
-		id := newRemoteSessionID()
+		id := session.NewSessionID()
 		if err := session.ValidateFolderSessionID(id); err != nil {
 			t.Fatalf("generated id %q invalid: %v", id, err)
 		}
@@ -845,10 +844,10 @@ func TestAStaleAnswerToAWithdrawnPromptKeepsTheTurnAlive(t *testing.T) {
 	}
 }
 
-// --session-id sub_… against a remote server names a subagent child; when the
-// server has no such session the client refuses up front, like the local
-// manager, instead of minting a console that fails on its first prompt.
-func TestRemoteSessionNewRefusesAnUnknownReservedID(t *testing.T) {
+// An id the server does not know still starts a fresh remote session: every
+// session id has the same shape now, so nothing about one says it belongs to a
+// transcript the client may not write to.
+func TestRemoteSessionNewAcceptsAnUnknownPreferredID(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"agent","owned_by":"coddy"},{"id":"remote/alpha","owned_by":"remote"}]}`))
@@ -863,15 +862,9 @@ func TestRemoteSessionNewRefusesAnUnknownReservedID(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.SetServer(&collectSender{})
-	h.SetPreferredSessionID("sub_00000000000000000000dead")
-	_, err = h.HandleSessionNew(context.Background(), acp.SessionNewParams{})
-	if !errors.Is(err, session.ErrReservedSessionID) {
-		t.Fatalf("session/new with an unknown sub_ id = %v, want ErrReservedSessionID", err)
-	}
-	// An ordinary unknown id still starts a fresh remote session.
 	h.SetPreferredSessionID("sess_fresh_remote")
 	if _, err := h.HandleSessionNew(context.Background(), acp.SessionNewParams{}); err != nil {
-		t.Fatalf("an ordinary preferred id must still be accepted: %v", err)
+		t.Fatalf("an unknown preferred id must be accepted: %v", err)
 	}
 }
 

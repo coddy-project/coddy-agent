@@ -11,7 +11,7 @@ Calls a real configured LLM via ``POST /v1/responses`` (``model``: ``agent`` or 
 Environment:
 
 - ``BASE_URL`` - OpenAI-compatible base ending in ``/v1`` (default ``http://127.0.0.1:19876/v1``).
-- ``MODEL`` - YAML ``models[].model`` id (default ``rpa/gpt-oss:120b``), same as other HTTP e2e harnesses.
+- ``MODEL`` - YAML ``models[].model`` id (default ``rpa/qwen3.6-35b-a3b``), same as other HTTP e2e harnesses.
 - ``CODDY_CHAT_PROFILE`` - Coddy profile for ``POST /v1/responses`` (default ``agent``).
 
 Checks:
@@ -83,7 +83,7 @@ def coddy_http_origin(v1: str) -> str:
 def main() -> int:
     v1 = openai_v1_base()
     origin = coddy_http_origin(v1)
-    yaml_model = os.environ.get("MODEL", "rpa/gpt-oss:120b").strip()
+    yaml_model = os.environ.get("MODEL", "rpa/qwen3.6-35b-a3b").strip()
     profile = os.environ.get("CODDY_CHAT_PROFILE", "agent").strip()
 
     code, page, _ = http_json(

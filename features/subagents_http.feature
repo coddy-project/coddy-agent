@@ -7,26 +7,26 @@ Feature: The HTTP surface exposes subagent runs and definitions
 
   Scenario: An agent task row names its child session
     Given a running coddy serve server with a session
-    And that session started a subagent task for "reviewer" backed by child session "sub_bdd_child"
+    And that session started a subagent task for "reviewer" backed by child session "sess_bdd_child"
     When I GET the background tasks of that session
     Then the response lists a task of kind "agent"
-    And that task row names the agent "reviewer" and the child session "sub_bdd_child"
+    And that task row names the agent "reviewer" and the child session "sess_bdd_child"
 
   Scenario: Child sessions stay out of the History list unless asked
     Given a running coddy serve server with a session
-    And a persisted child session "sub_bdd_hidden" spawned by that session
+    And a persisted child session "sess_bdd_hidden" spawned by that session
     When I GET the sessions list
-    Then the sessions list does not include "sub_bdd_hidden"
+    Then the sessions list does not include "sess_bdd_hidden"
     When I GET the sessions list with include_subagents
-    Then the sessions list includes "sub_bdd_hidden"
+    Then the sessions list includes "sess_bdd_hidden"
 
   Scenario: A child transcript is readable while the child runs and after it finished
     Given a running coddy serve server with a session
-    And a live child session "sub_bdd_live" of that session whose transcript says "child progress"
-    When I GET the messages of "sub_bdd_live"
+    And a live child session "sess_bdd_live" of that session whose transcript says "child progress"
+    When I GET the messages of "sess_bdd_live"
     Then the messages contain "child progress"
-    When the child session "sub_bdd_live" is retired
-    And I GET the messages of "sub_bdd_live"
+    When the child session "sess_bdd_live" is retired
+    And I GET the messages of "sess_bdd_live"
     Then the messages contain "child progress"
 
   Scenario: The catalog lists built-ins and project definitions with their trust state
@@ -41,15 +41,15 @@ Feature: The HTTP surface exposes subagent runs and definitions
 
   Scenario: Deleting a running child stops its task first
     Given a running coddy serve server with a session
-    And a live child session "sub_bdd_running" of that session backed by a running subagent task
-    When I DELETE the session "sub_bdd_running"
-    Then the subagent task of "sub_bdd_running" is no longer running
-    And the session bundle "sub_bdd_running" is gone
+    And a live child session "sess_bdd_running" of that session backed by a running subagent task
+    When I DELETE the session "sess_bdd_running"
+    Then the subagent task of "sess_bdd_running" is no longer running
+    And the session bundle "sess_bdd_running" is gone
 
   Scenario: Deleting a parent removes a nested descendant that is still running
     Given a running coddy serve server with a session
-    And a live child session "sub_bdd_mid" of that session backed by a running subagent task
-    And a live child session "sub_bdd_leaf" of "sub_bdd_mid" backed by a running subagent task
+    And a live child session "sess_bdd_mid" of that session backed by a running subagent task
+    And a live child session "sess_bdd_leaf" of "sess_bdd_mid" backed by a running subagent task
     When I DELETE the parent session
-    Then the subagent task of "sub_bdd_leaf" is no longer running
-    And the session bundles "sub_bdd_mid" and "sub_bdd_leaf" are gone
+    Then the subagent task of "sess_bdd_leaf" is no longer running
+    And the session bundles "sess_bdd_mid" and "sess_bdd_leaf" are gone

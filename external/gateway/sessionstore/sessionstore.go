@@ -9,8 +9,6 @@
 package sessionstore
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -19,6 +17,7 @@ import (
 	"sync"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 // Store maps session keys to Coddy session IDs.
@@ -146,11 +145,9 @@ func (s *Store) saveUnlocked() {
 	_ = os.Rename(tmpPath, s.savePath)
 }
 
-// newID generates a random session ID with the gw_ prefix.
+// newID generates a session ID. A conversation held in a messenger is an
+// ordinary Coddy session - the same id shape a console run or a browser tab
+// gets - so nothing downstream can tell where the person was sitting.
 func newID() string {
-	b := make([]byte, 12)
-	if _, err := rand.Read(b); err != nil {
-		panic("gateway sessionstore: crypto/rand unavailable: " + err.Error())
-	}
-	return "gw_" + strings.ToLower(hex.EncodeToString(b))
+	return session.NewSessionID()
 }

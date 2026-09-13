@@ -534,7 +534,7 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	}
 
 	parentID := a.state.GetID()
-	childID := session.NewSubagentSessionID()
+	childID := session.NewSessionID()
 	background := req.Background || def.Background
 
 	// SubagentStart hooks in the parent may refuse the spawn or hand the child

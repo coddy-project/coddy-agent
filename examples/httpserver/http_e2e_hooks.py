@@ -12,7 +12,7 @@ and a second turn that runs the approved hook.
 Environment:
 
 - ``BASE_URL`` - OpenAI-compatible base (default ``http://127.0.0.1:19876/v1``).
-- ``MODEL`` - YAML ``models[].model`` id (default ``rpa/gpt-oss:120b``).
+- ``MODEL`` - YAML ``models[].model`` id (default ``rpa/qwen3.6-35b-a3b``).
 - ``CODDY_CHAT_PROFILE`` - session profile (default ``agent``).
 - ``WORK_DIR`` - the workspace the server was started with (``--cwd``).
 - ``CODDY_HOME`` - the server home (``--home``); the user-scope hooks file is
@@ -163,7 +163,7 @@ def run_turn(base: str, profile: str, yaml_model: str, headers: dict[str, str], 
 def main() -> int:
     base = os.environ.get("BASE_URL", "http://127.0.0.1:19876/v1").rstrip("/")
     coddy = coddy_base(base)
-    yaml_model = os.environ.get("MODEL", "rpa/gpt-oss:120b").strip()
+    yaml_model = os.environ.get("MODEL", "rpa/qwen3.6-35b-a3b").strip()
     profile = os.environ.get("CODDY_CHAT_PROFILE", "agent").strip()
     work = os.environ.get("WORK_DIR", "").strip()
     home = os.environ.get("CODDY_HOME", "").strip()

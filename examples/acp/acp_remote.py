@@ -50,10 +50,10 @@ def prepare_home(name: str) -> Path:
     template = (REPO_ROOT / "examples" / "config.demo.yaml").read_text()
     resolved = template.replace("__E2E_LOG_PATH__", str(home / "e2e.log"))
     resolved = resolved.replace(
-        'model: "rpa/gpt-oss:120b"\n  max_turns', f'model: "{DEFAULT_MODEL}"\n  max_turns'
+        'model: "rpa/qwen3.6-35b-a3b"\n  max_turns', f'model: "{DEFAULT_MODEL}"\n  max_turns'
     )
     resolved = resolved.replace(
-        'memory:\n  enable: true\n  model: "rpa/gpt-oss:120b"',
+        'memory:\n  enable: true\n  model: "rpa/qwen3.6-35b-a3b"',
         f'memory:\n  enable: true\n  model: "{DEFAULT_MODEL}"',
     )
     (home / "config.yaml").write_text(resolved)
@@ -99,6 +99,12 @@ def wait_models(base: str, token: str, timeout: float = 45.0) -> None:
 
 def session_dirs(home: Path) -> set[str]:
     root = home / "sessions"
+    if not root.exists():
+        return set()
+    return {p.name for p in root.iterdir() if p.is_dir()}
+def child_session_dirs(home: Path, parent_id: str) -> set[str]:
+    """Sessions spawned by parent_id: a child bundle lives inside its parent's."""
+    root = home / "sessions" / parent_id / "subagents"
     if not root.exists():
         return set()
     return {p.name for p in root.iterdir() if p.is_dir()}

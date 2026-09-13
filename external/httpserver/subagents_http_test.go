@@ -2,10 +2,10 @@
 
 package httpserver
 
-// Edge cases of the subagent HTTP surface that are not part of the happy
-// path in features/subagents_http.feature: the reserved sub_ prefix cannot
-// mint a session through the header, and a child transcript cannot be
-// branched.
+// Edge cases of the subagent HTTP surface that are not part of the happy path
+// in features/subagents_http.feature: a child transcript cannot be branched,
+// and a child bundle is stored inside the session that spawned it rather than
+// beside it in the sessions root.
 
 import (
 	"bytes"
@@ -108,7 +108,7 @@ func errorMessage(body map[string]interface{}) string {
 // it has a transcript like a real run leaves behind.
 func (r *subagentEdgeRig) createChild(t *testing.T) string {
 	t.Helper()
-	childID := session.NewSubagentSessionID()
+	childID := session.NewSessionID()
 	if _, err := r.mgr.CreateSubagentSession(context.Background(), session.SubagentSpec{
 		ID: childID, ParentSessionID: r.parent, Name: "explore", TaskID: "bg_1", CWD: r.root, Depth: 1,
 	}); err != nil {
@@ -136,45 +136,49 @@ func TestSubagentHTTPBranchingAChildIsRefused(t *testing.T) {
 	if status != http.StatusConflict || !strings.Contains(errorMessage(body), rig.parent) {
 		t.Fatalf("retired child branch = %d %v, want 409 naming the parent", status, body)
 	}
-	// Nothing was forked.
+	// Nothing was forked: the sessions root still holds the parent alone, and
+	// the child is where it was written, inside the parent's bundle.
 	entries, err := os.ReadDir(rig.store.Root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 2 {
+	if len(entries) != 1 || entries[0].Name() != rig.parent {
 		names := make([]string, 0, len(entries))
 		for _, e := range entries {
 			names = append(names, e.Name())
 		}
-		t.Fatalf("session bundles after the refusals = %v, want only the parent and the child", names)
+		t.Fatalf("session bundles after the refusals = %v, want only the parent", names)
+	}
+	want := filepath.Join(rig.store.SessionPath(rig.parent), session.ChildSessionsDirName, childID)
+	if got := rig.store.SessionPath(childID); got != want {
+		t.Fatalf("child bundle at %q, want %q", got, want)
 	}
 }
 
-func TestSubagentHTTPHeaderCannotMintAReservedSession(t *testing.T) {
+// A child transcript is reachable by its id like any other session - nothing
+// about the id sets it apart any more - and every route that would write to it
+// refuses, naming the chat to prompt instead.
+func TestSubagentHTTPChildIsReadOnlyThroughItsID(t *testing.T) {
 	rig := newSubagentEdgeRig(t)
-	ghost := "sub_00000000000000000000dead"
-	headers := map[string]string{"X-Coddy-Session-ID": ghost}
-	chat := map[string]interface{}{"model": "openai/gpt-4o", "messages": []map[string]string{{"role": "user", "content": "hi"}}}
-	status, body := rig.request(t, http.MethodPost, "/v1/chat/completions", chat, headers)
-	if status != http.StatusNotFound {
-		t.Fatalf("chat completions with an unknown sub_ header = %d %v, want 404", status, body)
-	}
-	responses := map[string]interface{}{"model": "openai/gpt-4o", "input": "hi"}
-	status, body = rig.request(t, http.MethodPost, "/v1/responses", responses, headers)
-	if status != http.StatusNotFound {
-		t.Fatalf("responses with an unknown sub_ header = %d %v, want 404", status, body)
-	}
-	workspace := map[string]interface{}{"path": rig.root}
-	status, body = rig.request(t, http.MethodPost, "/coddy/sessions/"+ghost+"/workspace", workspace, nil)
-	if status != http.StatusNotFound {
-		t.Fatalf("workspace on an unknown sub_ id = %d %v, want 404", status, body)
-	}
-	if rig.mgr.SessionByID(ghost) != nil || rig.store.HasPersistedSnapshot(ghost) {
-		t.Fatal("a session was created under the reserved prefix")
-	}
-	// A real child is still served through the same header.
 	childID := rig.createChild(t)
 	if st, err := rig.mgr.EnsureHTTPSession(context.Background(), childID, rig.root); err != nil || st == nil {
 		t.Fatalf("EnsureHTTPSession on a live child = %v, %v", st, err)
+	}
+
+	headers := map[string]string{"X-Coddy-Session-ID": childID}
+	chat := map[string]interface{}{"model": "openai/gpt-4o", "messages": []map[string]string{{"role": "user", "content": "hi"}}}
+	status, body := rig.request(t, http.MethodPost, "/v1/chat/completions", chat, headers)
+	if status != http.StatusConflict || !strings.Contains(errorMessage(body), rig.parent) {
+		t.Fatalf("chat completions against a child = %d %v, want 409 naming the parent", status, body)
+	}
+	responses := map[string]interface{}{"model": "openai/gpt-4o", "input": "hi"}
+	status, body = rig.request(t, http.MethodPost, "/v1/responses", responses, headers)
+	if status != http.StatusConflict || !strings.Contains(errorMessage(body), rig.parent) {
+		t.Fatalf("responses against a child = %d %v, want 409 naming the parent", status, body)
+	}
+	workspace := map[string]interface{}{"path": rig.root}
+	status, body = rig.request(t, http.MethodPost, "/coddy/sessions/"+childID+"/workspace", workspace, nil)
+	if status != http.StatusConflict {
+		t.Fatalf("workspace on a child = %d %v, want 409", status, body)
 	}
 }
