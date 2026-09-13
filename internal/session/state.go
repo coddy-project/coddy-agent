@@ -5,6 +5,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -69,6 +70,14 @@ type State struct {
 	// the same lock that made the change.
 	msgRev     uint64
 	msgEditRev uint64
+
+	// persistID tells this State apart from any other over the same bundle.
+	// The counters above start at zero in every State, so a session that was
+	// closed and reopened can reach a revision its predecessor already wrote;
+	// without an identity a store would read that as "nothing moved" and skip
+	// writing a history that is not on disk.
+	persistOnce sync.Once
+	persistID   uint64
 
 	// UILog holds UI-only transcript lines (errors, etc.); excluded from LLM prompts.
 	UILog []UILogEntry
@@ -627,18 +636,37 @@ func (s *State) markMessagesAppended() { s.msgRev++ }
 // s.mu.
 func (s *State) markMessagesEdited() { s.msgRev++; s.msgEditRev++ }
 
-// MessagesForPersist returns the history together with the two revisions, read
-// under one lock so a store cannot pair a history with revisions from either
-// side of a concurrent change.
-func (s *State) MessagesForPersist() (msgs []llm.Message, rev, editRev uint64) {
+// statePersistIDs hands out the identity of each State that gets persisted.
+var statePersistIDs atomic.Uint64
+
+// MessagesForPersist returns the history together with the two revisions and
+// this State's identity, read under one lock so a store cannot pair a history
+// with revisions from either side of a concurrent change.
+//
+// The copy is deep where a message can still be changed underneath it: a
+// PlanDocument is a pointer, and an in-place plan edit would otherwise rewrite
+// content this snapshot is already encoding, pairing it with the revision from
+// before the edit.
+func (s *State) MessagesForPersist() (msgs []llm.Message, rev, editRev, id uint64) {
+	s.persistOnce.Do(func() { s.persistID = statePersistIDs.Add(1) })
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	msgs = make([]llm.Message, len(s.Messages))
 	copy(msgs, s.Messages)
-	return msgs, s.msgRev, s.msgEditRev
+	for i := range msgs {
+		if pd := msgs[i].PlanDocument; pd != nil {
+			snapshot := *pd
+			msgs[i].PlanDocument = &snapshot
+		}
+	}
+	return msgs, s.msgRev, s.msgEditRev, s.persistID
 }
 
-// GetMessages returns a copy of the message history.
+// GetMessages returns a copy of the message history. The copy is shallow: a
+// message's PlanDocument is the same object the session holds, so a caller
+// must treat what it gets back as read-only. Changing it would change the
+// session's history without moving the revisions persistence reads, and the
+// change would not reach disk. MessagesForPersist is the deep variant.
 func (s *State) GetMessages() []llm.Message {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -916,9 +944,22 @@ func (s *State) SetPlanWithoutPersist(entries []acp.PlanEntry) {
 }
 
 // ReplaceMessagesWithoutPersist replaces conversation history without persisting (bootstrap).
+//
+// The plan documents are copied rather than adopted. Handed another State's
+// messages, this would otherwise share those pointers with it, and an edit
+// there would change this history without touching its revisions - which
+// persistence reads as "nothing moved".
 func (s *State) ReplaceMessagesWithoutPersist(msgs []llm.Message) {
+	owned := make([]llm.Message, len(msgs))
+	copy(owned, msgs)
+	for i := range owned {
+		if pd := owned[i].PlanDocument; pd != nil {
+			snapshot := *pd
+			owned[i].PlanDocument = &snapshot
+		}
+	}
 	s.mu.Lock()
-	s.Messages = msgs
+	s.Messages = owned
 	s.markMessagesEdited()
 	s.mu.Unlock()
 }

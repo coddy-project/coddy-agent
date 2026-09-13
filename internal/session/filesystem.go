@@ -64,10 +64,30 @@ type FileStore struct {
 // moved" from "the tail grew", which is what keeps the cost of persisting a
 // session proportional to the change rather than to the whole conversation.
 type persistedMessages struct {
+	// owner is the State this was written from: revisions start at zero in
+	// every State, so without it a reopened session could reach a revision its
+	// predecessor already wrote and be mistaken for unchanged.
+	owner   uint64
 	rev     uint64
 	editRev uint64
 	count   int
 	bytes   []byte
+
+	// size and modTime are what the file looked like once written. They are
+	// checked before a save decides it need not write: another process over
+	// the same bundle replaces the file without this store hearing about it,
+	// and existence alone would not notice.
+	size    int64
+	modTime time.Time
+}
+
+// matchesFile reports whether path still holds what this entry recorded.
+func (p *persistedMessages) matchesFile(path string) bool {
+	st, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return st.Size() == p.size && st.ModTime().Equal(p.modTime)
 }
 
 func (f *FileStore) cachedMessages(path string) *persistedMessages {
@@ -712,17 +732,19 @@ func (f *FileStore) Save(state *State) error {
 	if dir == "" {
 		return fmt.Errorf("session has no SessionDir")
 	}
-	msgs, msgRev, msgEditRev := state.MessagesForPersist()
-	title := conversationTitle(state, msgs)
 	metaPath := filepath.Join(dir, sessionMetaFile)
 	msgPath := filepath.Join(dir, messagesFile)
 
-	// Hold the history's lock across the decision and the write: the cache
-	// below is what the decision is made from, so a concurrent save of the same
-	// session must not slip between reading it and replacing it.
+	// The lock comes before the snapshot, not after. Two saves of one session
+	// overlap, and a snapshot taken outside it can be written after a newer one
+	// has already landed - putting an older history on disk and leaving the
+	// cache describing it, which the next append would then splice onto.
 	msgMu := f.pathMutex(msgPath)
 	msgMu.Lock()
 	defer msgMu.Unlock()
+
+	msgs, msgRev, msgEditRev, stateID := state.MessagesForPersist()
+	title := conversationTitle(state, msgs)
 
 	var prevMeta SessionMeta
 	metaExisted := false
@@ -738,15 +760,34 @@ func (f *FileStore) Save(state *State) error {
 	// the old code encoded the history a second time only to diff it against
 	// the file, and compared a compact encoding with an indented one, so the
 	// answer was always "changed" and updatedAt moved on every save.
+	//
+	// An entry is only worth anything while it belongs to this State and the
+	// file still holds what this store put there; another writer over the same
+	// bundle replaces it without this store hearing about it.
 	cached := f.cachedMessages(msgPath)
-	messagesUnchanged := cached != nil && cached.rev == msgRev
-	if messagesUnchanged {
-		// Skipping the write is only safe while the file it stands for is
-		// still there; the stat costs microseconds against a write of the
-		// whole history, and the history being on disk is the one thing this
-		// must not get wrong.
-		if _, err := os.Stat(msgPath); err != nil {
-			messagesUnchanged = false
+	usable := cached != nil && cached.owner == stateID && cached.matchesFile(msgPath)
+
+	var pending []byte
+	messagesUnchanged := usable && cached.rev == msgRev
+	if !messagesUnchanged {
+		// Only a history that grew purely at the end can be spliced onto what
+		// was written last; an edit or a replacement re-encodes everything.
+		var base *persistedMessages
+		if usable && cached.editRev == msgEditRev {
+			base = cached
+		}
+		data, _, err := encodeMessagesFile(msgs, base)
+		if err != nil {
+			return err
+		}
+		// A revision moves on any edit, including one that changed nothing in
+		// the end. Comparing what was encoded against what is already there
+		// costs a memcmp on a path that has just paid for the encoding, and it
+		// is what makes updatedAt follow the content rather than the bookkeeping.
+		if usable && bytes.Equal(data, cached.bytes) {
+			messagesUnchanged = true
+		} else {
+			pending = data
 		}
 	}
 	preserveUpdatedAt := messagesUnchanged && newActivitySeq == prevMeta.ActivitySeq
@@ -798,21 +839,23 @@ func (f *FileStore) Save(state *State) error {
 	if err := writeJSONAtomic(metaPath, meta); err != nil {
 		return err
 	}
-	if !messagesUnchanged {
-		// Only a history that grew purely at the end can be spliced onto what
-		// was written last; an edit or a replacement re-encodes everything.
-		var base *persistedMessages
-		if cached != nil && cached.editRev == msgEditRev {
-			base = cached
-		}
-		data, _, err := encodeMessagesFile(msgs, base)
-		if err != nil {
+	switch {
+	case pending != nil:
+		if err := writeBytesAtomic(msgPath, pending); err != nil {
 			return err
 		}
-		if err := writeBytesAtomic(msgPath, data); err != nil {
-			return err
+		entry := &persistedMessages{owner: stateID, rev: msgRev, editRev: msgEditRev, count: len(msgs), bytes: pending}
+		if st, err := os.Stat(msgPath); err == nil {
+			entry.size, entry.modTime = st.Size(), st.ModTime()
 		}
-		f.rememberMessages(msgPath, &persistedMessages{rev: msgRev, editRev: msgEditRev, count: len(msgs), bytes: data})
+		f.rememberMessages(msgPath, entry)
+	case usable && (cached.rev != msgRev || cached.editRev != msgEditRev):
+		// The history was touched but came out identical. Carry the revisions
+		// forward so the next append can still build on these bytes instead of
+		// encoding the conversation again.
+		moved := *cached
+		moved.rev, moved.editRev, moved.count = msgRev, msgEditRev, len(msgs)
+		f.rememberMessages(msgPath, &moved)
 	}
 	uiWrap := uiLogFileData{
 		Version: uiLogLayout,
