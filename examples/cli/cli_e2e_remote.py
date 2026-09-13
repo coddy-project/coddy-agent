@@ -212,11 +212,11 @@ def main() -> int:
             raise SystemExit(f"remote subagent run failed rc={delegated.returncode}: {delegated.stderr[-800:]}")
         if SUBAGENT_MARKER not in delegated.stdout:
             raise SystemExit(f"remote subagent answer lacks the marker: {delegated.stdout[-400:]!r}")
-        children = {
+        children = sorted(
             name
             for parent in session_dirs(server_home)
             for name in child_session_dirs(server_home, parent)
-        }
+        )
         if not children:
             raise SystemExit(f"no child session persisted on the server: {sorted(session_dirs(server_home))}")
         if session_dirs(client_home):
