@@ -3,8 +3,9 @@
 # This file is the single ordered list of the documentation: docs/README.md (the hub),
 # docs/llms.txt and docs/llms-full.txt are generated from it, and the sidebar of the
 # documentation site will be too. Every Markdown page under docs/ must appear here
-# `make docs-check`
-# fails when the map and the tree drift apart. A summary is one sentence: it is what
+# except docs/plans/, the design records, which are ours and not a reader's;
+# `make docs-check` fails when the map and the tree drift apart, and it reports a
+# design record listed here as well. A summary is one sentence: it is what
 # the hub and llms.txt print next to the link, so write it for a reader who is deciding
 # whether to open the page.
 groups:
@@ -207,28 +208,3 @@ groups:
       - path: ../AGENTS.md
         title: Agent notes
         summary: The repository map and contributor notes for coding agents.
-  - id: plans
-    title: Design records
-    summary: Plans and decisions as they were taken. They are not rewritten when the code moves on.
-    pages:
-      - path: plans/cli-tui.md
-        title: Console TUI plan
-        summary: The design of the pi-style console.
-      - path: plans/file-viewer.md
-        title: File viewer plan
-        summary: The design of the file viewer in the web UI.
-      - path: plans/hooks.md
-        title: Hooks plan
-        summary: The design of lifecycle hooks and project trust.
-      - path: plans/neuraldeep-usage.md
-        title: NeuralDeep usage plan
-        summary: The design of the provider usage panel and the limit wait.
-      - path: plans/subagents.md
-        title: Subagents plan
-        summary: The design of subagent definitions, trust and child sessions.
-      - path: plans/session-bus.md
-        title: Session bus plan
-        summary: The design of the per-session event bus, with every surface and every inference executor attached as a client, and the work to get there.
-      - path: plans/remote-control.md
-        title: Remote control design
-        summary: The remote control and local/remote operation design, phases and resolved questions.

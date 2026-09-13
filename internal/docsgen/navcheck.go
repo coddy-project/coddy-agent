@@ -14,6 +14,11 @@ var generatedFiles = map[string]bool{
 	"docs/llms-full.txt": true,
 }
 
+// internalDir holds the design records: ours, not a reader's, so they stay
+// out of the map and therefore out of the hub, llms.txt and llms-full.txt.
+// Their own links are still checked, because a page they point at can move.
+const internalDir = "docs/plans/"
+
 // DocsMarkdown lists every markdown file under docs/ (relative to root),
 // assets excluded, the generated files excluded when skipGenerated is set.
 func DocsMarkdown(root string, skipGenerated bool) ([]string, error) {
@@ -65,7 +70,7 @@ func CheckNav(root string, nav *Nav) []Problem {
 		return append(problems, Problem{"docs", err.Error()})
 	}
 	for _, rel := range files {
-		if !listed[rel] {
+		if !listed[rel] && !strings.HasPrefix(rel, internalDir) {
 			problems = append(problems, Problem{rel, "not listed in " + NavFile})
 		}
 	}
