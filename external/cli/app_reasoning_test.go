@@ -4,6 +4,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,34 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
+
+type blockedReasoningBackend struct {
+	backend
+	started chan string
+	release chan error
+}
+
+func (b *blockedReasoningBackend) HandleSessionSetConfigOption(ctx context.Context, params acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error) {
+	if params.ConfigID != "reasoning" {
+		return b.backend.HandleSessionSetConfigOption(ctx, params)
+	}
+	b.started <- params.Value
+	if err := <-b.release; err != nil {
+		return nil, err
+	}
+	return b.backend.HandleSessionSetConfigOption(ctx, params)
+}
+
+func waitForReasoningCall(t *testing.T, b *blockedReasoningBackend) string {
+	t.Helper()
+	select {
+	case level := <-b.started:
+		return level
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for reasoning backend call")
+		return ""
+	}
+}
 
 func newReasoningApp(t *testing.T) *App {
 	t.Helper()
@@ -92,6 +121,78 @@ func TestReasoningSelectorPersistsAndRefreshesFooter(t *testing.T) {
 	waitForReasoning(t, a, "high")
 	if got := strings.Join(a.foot.Render(100), "\n"); !strings.Contains(got, "high") {
 		t.Fatalf("footer %q does not show selected reasoning", got)
+	}
+}
+
+func TestReasoningSelectionsAreAppliedInInvocationOrder(t *testing.T) {
+	a := newReasoningApp(t)
+	b := &blockedReasoningBackend{
+		backend: a.mgr,
+		started: make(chan string, 2),
+		release: make(chan error, 2),
+	}
+	a.mgr = b
+
+	a.setReasoning("low")
+	if got := waitForReasoningCall(t, b); got != "low" {
+		t.Fatalf("first reasoning call = %q, want low", got)
+	}
+	a.setReasoning("high")
+	select {
+	case got := <-b.started:
+		t.Fatalf("second reasoning call %q started before the first completed", got)
+	case <-time.After(25 * time.Millisecond):
+	}
+
+	b.release <- nil
+	if got := waitForReasoningCall(t, b); got != "high" {
+		t.Fatalf("second reasoning call = %q, want high", got)
+	}
+	b.release <- nil
+	waitForReasoning(t, a, "high")
+}
+
+func TestReasoningFailureUsesLevelsAtInvocation(t *testing.T) {
+	a := newReasoningApp(t)
+	b := &blockedReasoningBackend{
+		backend: a.mgr,
+		started: make(chan string, 1),
+		release: make(chan error, 1),
+	}
+	a.mgr = b
+	originalLevels := a.reasoningLevels()
+
+	a.setReasoning("invalid")
+	if got := waitForReasoningCall(t, b); got != "invalid" {
+		t.Fatalf("reasoning call = %q, want invalid", got)
+	}
+	for i := range a.configOpts {
+		if a.configOpts[i].ID == "reasoning" {
+			a.configOpts[i].Options = []acp.ConfigOptionValue{{Value: "replacement"}}
+		}
+	}
+	a.modelID = "replacement-model"
+	b.release <- errors.New("invalid reasoning level")
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		select {
+		case msg := <-a.updatesCh:
+			a.applyLoopMessage(msg)
+		default:
+		}
+		if strings.Contains(transcriptText(a), "Valid levels:") {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	status := transcriptText(a)
+	wantLevels := strings.Join(originalLevels, ", ")
+	if !strings.Contains(status, "Valid levels: "+wantLevels) {
+		t.Fatalf("failure status %q does not retain original levels %q", status, wantLevels)
+	}
+	if strings.Contains(status, "replacement") {
+		t.Fatalf("failure status %q used levels changed after invocation", status)
 	}
 }
 

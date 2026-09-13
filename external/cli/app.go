@@ -96,6 +96,10 @@ type App struct {
 	modeID    string
 	modelID   string
 	reasoning string
+	// reasoningMu serializes backend updates without blocking the UI goroutine
+	// while an earlier update is in flight.
+	reasoningMu   sync.Mutex
+	reasoningTail chan struct{}
 
 	// Provider usage on the status bar (usage.go): the reset timer, the
 	// notices already shown, the follow-up armed after a passed reset, and
@@ -894,12 +898,22 @@ func (a *App) setReasoning(level string) {
 		return
 	}
 	sessionID := a.sessionID
+	levels := append([]string(nil), a.reasoningLevels()...)
+	a.reasoningMu.Lock()
+	previous := a.reasoningTail
+	done := make(chan struct{})
+	a.reasoningTail = done
+	a.reasoningMu.Unlock()
 	go func() {
+		if previous != nil {
+			<-previous
+		}
+		defer close(done)
 		if _, err := a.mgr.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
 			SessionID: sessionID, ConfigID: "reasoning", Value: level,
 		}); err != nil {
 			message := "reasoning: " + err.Error()
-			if levels := a.reasoningLevels(); len(levels) > 0 {
+			if len(levels) > 0 {
 				message += "; Valid levels: " + strings.Join(levels, ", ")
 			}
 			_ = a.Sender().SendSessionUpdate(sessionID, statusErr{msg: message})
