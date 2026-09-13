@@ -162,25 +162,127 @@ func Checkout(dir, branch string) error {
 	return err
 }
 
-// EnsureWorktree returns the path of a worktree for branch, creating it
-// under worktreesRoot when missing. Reports whether it was created.
-func EnsureWorktree(repoDir, branch, worktreesRoot string) (string, bool, error) {
-	if strings.TrimSpace(branch) == "" {
+// WorktreesRoot is where a repository keeps the worktrees Coddy opens in it:
+// one folder inside the checkout, next to the rest of the project-local Coddy
+// state, the way Claude Code and Codex keep theirs. Keeping them in the
+// repository rather than in the agent home means a worktree is found where the
+// project is, and the operator never has to ignore a stray folder of their own.
+func WorktreesRoot(repoRoot string) string {
+	return filepath.Join(repoRoot, ".coddy", "worktrees")
+}
+
+// EnsureWorktree returns the path of a worktree for branch, creating it under
+// WorktreesRoot of the main checkout when missing. Reports whether it was
+// created. repoDir may be any working copy of the repository, a linked worktree
+// included: the new tree always belongs to the main checkout's root.
+func EnsureWorktree(repoDir, branch string) (string, bool, error) {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
 		return "", false, fmt.Errorf("empty branch name")
 	}
-	for _, wt := range listWorktrees(repoDir) {
-		if wt.Branch == branch {
-			return wt.Path, false, nil
+	// `git worktree add <path> --detach` is a valid invocation, so a branch
+	// beginning with "-" would be read as an option and silently build a
+	// worktree nobody asked for. Reject it the way Clone rejects such a ref.
+	if strings.HasPrefix(branch, "-") {
+		return "", false, fmt.Errorf("refusing branch name that looks like an option: %q", branch)
+	}
+	dirName := BranchDirName(branch)
+	if dirName == "" {
+		return "", false, fmt.Errorf("branch name has no usable directory name: %q", branch)
+	}
+	// The tree belongs to the main checkout even when we were handed a linked
+	// worktree. An empty listing means git could not describe the repository at
+	// all; stop here rather than guess a root and leave the worktrees folder
+	// behind on the way to a failing `git worktree add`.
+	list := listWorktrees(repoDir)
+	mainRoot := ""
+	for _, wt := range list {
+		if wt.Main {
+			mainRoot = wt.Path
+			break
 		}
 	}
-	path := filepath.Join(worktreesRoot, BranchDirName(branch))
-	if err := os.MkdirAll(worktreesRoot, 0o755); err != nil {
+	if mainRoot == "" {
+		return "", false, fmt.Errorf("cannot locate the main checkout of %s", repoDir)
+	}
+	root := WorktreesRoot(mainRoot)
+
+	for _, wt := range list {
+		if wt.Branch != branch {
+			continue
+		}
+		// One of ours that lost its ignore file - `git clean -xdf` deletes the
+		// file and keeps the worktrees - would stay visible in git status
+		// forever, because every later call ends here. Put it back.
+		if isInside(root, wt.Path) {
+			if err := writeWorktreesIgnore(root); err != nil {
+				return "", false, err
+			}
+		}
+		return wt.Path, false, nil
+	}
+
+	if err := os.MkdirAll(root, 0o755); err != nil {
 		return "", false, fmt.Errorf("worktrees root: %w", err)
 	}
-	if _, err := runGit(repoDir, "worktree", "add", path, branch); err != nil {
+	// `.coddy` is repository content, so a checkout can ship it as a symlink
+	// aimed anywhere, and every call above follows one. Resolve what we ended
+	// up with and refuse to put a worktree outside the checkout it belongs to.
+	if !isInside(mainRoot, root) {
+		return "", false, fmt.Errorf("worktrees root %s resolves outside %s", root, mainRoot)
+	}
+	if err := writeWorktreesIgnore(root); err != nil {
+		return "", false, err
+	}
+	path := filepath.Join(root, dirName)
+	if _, err := runGit(repoDir, "worktree", "add", "--", path, branch); err != nil {
 		return "", false, err
 	}
 	return path, true, nil
+}
+
+// writeWorktreesIgnore keeps the worktrees root out of the main checkout's
+// `git status`. A .gitignore holding "*" ignores everything below it, the file
+// itself included, so the folder stays invisible without a line in the
+// repository's own ignore list. Whatever is already there belongs to the
+// operator and is left alone: O_EXCL both settles the race between two callers
+// and refuses to follow a symlink standing in for the file.
+func writeWorktreesIgnore(root string) error {
+	path := filepath.Join(root, ".gitignore")
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		if os.IsExist(err) {
+			return nil
+		}
+		return fmt.Errorf("worktrees ignore file: %w", err)
+	}
+	if _, err := f.WriteString("*\n"); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("worktrees ignore file: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("worktrees ignore file: %w", err)
+	}
+	return nil
+}
+
+// isInside reports whether path sits below root, both resolved through any
+// symlinks on the way, so a worktree elsewhere is never mistaken for one of
+// the ones this package manages.
+func isInside(root, path string) bool {
+	a, errA := filepath.EvalSymlinks(root)
+	if errA != nil {
+		a = filepath.Clean(root)
+	}
+	b, errB := filepath.EvalSymlinks(path)
+	if errB != nil {
+		b = filepath.Clean(path)
+	}
+	rel, err := filepath.Rel(a, b)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // BranchDirName maps a branch name to a filesystem-safe directory name.

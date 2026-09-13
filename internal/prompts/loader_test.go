@@ -43,6 +43,28 @@ func TestRenderAgentPrompt(t *testing.T) {
 	}
 }
 
+// The agent invents a place for a git worktree unless the prompt names one,
+// and what it invents ends up untracked at the repository root.
+func TestAgentPromptNamesWorktreesDirectory(t *testing.T) {
+	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{
+		CWD:    "/home/user/project",
+		UTCNow: fixtureUTC,
+	})
+	if err != nil {
+		t.Fatalf("Render agent: %v", err)
+	}
+	for _, want := range []string{
+		".coddy/worktrees",            // the directory itself
+		"main checkout",               // resolved, not relative to a linked worktree
+		"feature-login",               // the branch name is mapped to a folder name
+		".coddy/worktrees/.gitignore", // the ignore file sits beside the worktrees
+	} {
+		if !strings.Contains(result, want) {
+			t.Errorf("agent prompt should mention %q so worktrees land where Coddy puts them", want)
+		}
+	}
+}
+
 func TestRenderPlanPrompt(t *testing.T) {
 	result, err := prompts.Render("plan", "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD:    "/tmp/workspace",
