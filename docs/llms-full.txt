@@ -6374,7 +6374,7 @@ Every session is a directory under the sessions root, `$CODDY_HOME/sessions/<id>
 | `assets/` | files uploaded through the composer, saved read-only, with PNG previews under `thumbnails/` |
 | `todos/active.md` | the current todo checklist; `todos/archive/` keeps replaced and archived lists |
 | `plans/<slug>.plan.md` | design plans written in plan mode |
-| `tool_calls/<id>/` | `args.json`, `result.md` and `meta.json` of every tool call, so a full result can be fetched after the stream showed a preview |
+| `tool_calls/<id>/` | `args.json`, `result.md` and `meta.json` of every tool call, so a full result can be fetched after the stream showed a preview. The id is the model provider's, so it names the folder only while it is a plain single name (letters, digits, `_`, `.`, `-`, at most 128 characters); anything else - a separator, a traversal, an id longer than a file name - is stored under a digest of it instead, and `meta.json` carries the `toolCallId` the provider sent either way |
 | `stats.json` | token totals of the completed model calls |
 | `branches.json` | the branch points of an edited conversation |
 | `diffs/turn_<n>.json` | the workspace files each turn changed, replayed backwards when a branch is created |
