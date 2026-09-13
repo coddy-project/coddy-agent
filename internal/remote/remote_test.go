@@ -584,6 +584,37 @@ func TestRemoteReasoningConfigOptionPersistsAndRestores(t *testing.T) {
 	assertRemoteReasoningOption(t, loaded.ConfigOptions, "low")
 }
 
+func TestRemoteReasoningConfigOptionClampsAfterModelSwitch(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"object":"list","default_agent_model":"remote/alpha","data":[
+			{"id":"remote/alpha","owned_by":"remote","reasoning_levels":["minimal","high"],"reasoning_default":"minimal"},
+			{"id":"remote/beta","owned_by":"remote","reasoning_levels":["minimal","low"],"reasoning_default":"minimal"}]}`))
+	})
+	mux.HandleFunc("PATCH /coddy/sessions/{id}", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	h, err := NewHandler(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
+		SessionID: "sess_x", ConfigID: "reasoning", Value: "high",
+	}); err != nil {
+		t.Fatalf("set reasoning: %v", err)
+	}
+	result, err := h.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
+		SessionID: "sess_x", ConfigID: "model", Value: "remote/beta",
+	})
+	if err != nil {
+		t.Fatalf("switch model: %v", err)
+	}
+	assertRemoteReasoningOptionLevels(t, result.ConfigOptions, "minimal", []string{"minimal", "low"})
+}
+
 func assertRemoteReasoningOption(t *testing.T, options []acp.ConfigOption, current string) {
 	t.Helper()
 	for _, option := range options {

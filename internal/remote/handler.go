@@ -596,8 +596,10 @@ func (h *Handler) configOptions(st *sessionState) []acp.ConfigOption {
 		if model.ID != current || len(model.ReasoningLevels) == 0 {
 			continue
 		}
-		currentReasoning := reasoning
-		if currentReasoning == "" {
+		currentReasoning := ""
+		if hasReasoningLevel(model.ReasoningLevels, reasoning) {
+			currentReasoning = reasoning
+		} else if hasReasoningLevel(model.ReasoningLevels, model.ReasoningDefault) {
 			currentReasoning = model.ReasoningDefault
 		}
 		reasoningValues := make([]acp.ConfigOptionValue, 0, len(model.ReasoningLevels))
@@ -616,6 +618,15 @@ func (h *Handler) configOptions(st *sessionState) []acp.ConfigOption {
 		break
 	}
 	return out
+}
+
+func hasReasoningLevel(levels []string, value string) bool {
+	for _, level := range levels {
+		if level == value {
+			return true
+		}
+	}
+	return false
 }
 
 // replayMessages mirrors Manager.replayConversation over REST message rows.
