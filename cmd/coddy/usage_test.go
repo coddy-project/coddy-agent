@@ -26,7 +26,7 @@ var topLevelCommands = []string{
 // serveVerbs control a daemon that is already running. They are subcommands of
 // `serve` rather than commands of their own, so the top-level assertions above
 // say nothing about them - and the same three files still have to carry them.
-var serveVerbs = []string{"status", "stop", "restart"}
+var serveVerbs = []string{"status", "stop", "restart", "set-password"}
 
 func TestUsageListsEveryCommand(t *testing.T) {
 	assertSameSet(t, "the usage text", usageCommands(t), "topLevelCommands", topLevelCommands)

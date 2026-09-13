@@ -63,7 +63,7 @@ The active YAML file covers these areas (full field tables: https://coddy.dev/do
 - `sessions` - session bundle storage;
 - `compaction` - context compaction thresholds;
 - `memory` - long-term memory copilot (binaries built with the `memory` tag);
-- `httpserver` - OpenAI-compatible HTTP API: `enable` (omitted means true), bind address (empty means 127.0.0.1), auth token, CORS, UI (tag `http`);
+- `httpserver` - OpenAI-compatible HTTP API: `enable` (omitted means true), bind address (empty means 127.0.0.1), auth token, `login` (the optional web UI sign-in: `enable`, `user`, `password_hash`, `session_ttl_hours` - write it with `coddy serve set-password`, never by hand, and never a plaintext password), CORS, UI (tag `http`);
 - `swarm` - relay that nodes register into and that chains into other relays: `enable`, bind address, client and pairing tokens, TLS, upstreams, and the `join` list this process registers itself into (tag `swarm`; `join` is honoured whether or not this process relays);
 - `scheduler` - cron scheduler: `enable`, job directory, limits (tag `scheduler`);
 - `gateways` - messenger bots such as Telegram: `gateways.telegram.enable`, token, access control (tag `gateway`).

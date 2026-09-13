@@ -23,10 +23,6 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
 
-// httpTokenEnvVar is where the HTTP API looks for its bearer credential when no
-// flag carries one, so a token need not be written into config.yaml.
-const httpTokenEnvVar = "CODDY_HTTP_TOKEN"
-
 // runServe implements `coddy serve`: one process running every subsystem the
 // configuration enables.
 //
@@ -46,6 +42,8 @@ func runServe(args []string) error {
 			return runServeStop(args[1:])
 		case "restart":
 			return runServeRestart(args[1:])
+		case "set-password":
+			return runServeSetPassword(args[1:])
 		}
 	}
 
@@ -65,7 +63,7 @@ func runServe(args []string) error {
 	port := fs.String("P", "", "listen port for the HTTP API (default httpserver.port, else 12345)")
 	fs.StringVar(host, "host", "", "alias of -H")
 	fs.StringVar(port, "port", "", "alias of -P")
-	authToken := fs.String("auth-token", "", "bearer token required on /v1/* and /coddy/* (else "+httpTokenEnvVar+", else httpserver.auth_token). Empty = no auth")
+	authToken := fs.String("auth-token", "", "bearer token required on /v1/* and /coddy/* (else "+httpserver.TokenEnvVar+", else httpserver.auth_token). Empty = no auth")
 
 	swarmHost := fs.String("swarm-host", "", "bind address for the swarm relay (default swarm.host, else 0.0.0.0)")
 	swarmPort := fs.String("swarm-port", "", "listen port for the swarm relay (default swarm.port, else 12346)")
@@ -195,7 +193,7 @@ func runServe(args []string) error {
 	httpAddr := httpListenAddr(cfg)
 	swarmAddr := swarmListenAddr(cfg)
 
-	httpTokens := outOfBandTokens(*authToken, httpTokenEnvVar)
+	httpTokens := outOfBandTokens(*authToken, httpserver.TokenEnvVar)
 
 	rt := &serve.Runtime{}
 	all := subsystems(rt, subsystemDeps{
@@ -205,6 +203,7 @@ func runServe(args []string) error {
 		swarmListenAddr: swarmListenAddr,
 		home:            paths.Home,
 		httpAuthTokens:  httpTokens,
+		httpLogin:       outOfBandLogin(),
 		swarmAuthTokens: outOfBandTokens(*swarmAuthToken, swarm.TokenEnvVar),
 	})
 	// Resolve is the pre-flight: it refuses a configuration this binary cannot
@@ -256,7 +255,7 @@ func runServe(args []string) error {
 	}
 
 	log.Info("starting coddy serve", "version", version.Get(), "config", paths.ConfigPath, "workspace", paths.CWD)
-	printServeBanner(cfg, enabled, httpAddr, swarmAddr, len(httpTokens) > 0)
+	printServeBanner(cfg, enabled, httpAddr, swarmAddr, len(httpTokens) > 0, outOfBandLogin().IsSet())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -358,6 +357,25 @@ func applySubsystemFlags(fs *flag.FlagSet, cfg *config.Config, f subsystemFlags)
 	})
 }
 
+// httpAuthSummary names the credentials the API will accept, because "no auth"
+// next to an address on a network is the line an operator needs to read, and a
+// server closed with only one of the two is a thing worth being able to see.
+func httpAuthSummary(cfg *config.Config, extraAuth, extraLogin bool) string {
+	token := extraAuth || len(cfg.HTTPServer.EffectiveAuthTokens()) > 0
+	login := !cfg.HTTPServer.Login.IsExplicitlyDisabled() &&
+		(extraLogin || cfg.HTTPServer.Login.HasAccount() || cfg.HTTPServer.Login.IsExplicitlyEnabled())
+	switch {
+	case token && login:
+		return "bearer auth, web sign-in"
+	case token:
+		return "bearer auth"
+	case login:
+		return "web sign-in, no token for API clients"
+	default:
+		return "no auth"
+	}
+}
+
 // subsystemDeps are the already-resolved values the descriptors close over.
 type subsystemDeps struct {
 	httpAddr  string
@@ -369,6 +387,7 @@ type subsystemDeps struct {
 	swarmListenAddr func(*config.Config) string
 	home            string
 	httpAuthTokens  []string
+	httpLogin       httpserver.LoginCredentials
 	swarmAuthTokens []string
 }
 
@@ -396,6 +415,7 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 					Cfg: rt.Cfg(), Mgr: rt.Mgr, Log: rt.Log,
 					DefaultCWD: rt.Paths.CWD, Home: deps.home,
 					ListenAddr: deps.httpAddr, ExtraAuthTokens: deps.httpAuthTokens,
+					ExtraLogin: deps.httpLogin,
 					OnServer: func(s *httpserver.Server) {
 						if s == nil {
 							rt.SetTurnMirror(nil)
@@ -499,6 +519,19 @@ func needsSessions(enabled []serve.Subsystem) bool {
 
 // outOfBandTokens collects a credential from a flag and then the environment,
 // so it never has to be written into config.yaml.
+// outOfBandLogin reads the web sign-in account from the environment.
+//
+// There is deliberately no flag for it: a password on a command line is in
+// `ps` and in the shell history, which is the same reason --auth-token is
+// steered towards CODDY_HTTP_TOKEN. $CODDY_HOME/.env is the intended home, and
+// the config loader has already read that file by the time this runs.
+func outOfBandLogin() httpserver.LoginCredentials {
+	return httpserver.LoginCredentials{
+		User:     strings.TrimSpace(os.Getenv(httpserver.LoginUserEnvVar)),
+		Password: os.Getenv(httpserver.LoginPasswordEnvVar),
+	}
+}
+
 func outOfBandTokens(flagValue, envVar string) []string {
 	var out []string
 	if t := strings.TrimSpace(flagValue); t != "" {
@@ -524,16 +557,13 @@ func firstNonEmpty(values ...string) string {
 // One command that starts a different set of surfaces per config file is only
 // as clear as what it reports, so the reachable addresses and whether the API
 // is open are stated rather than left to be inferred from the logs.
-func printServeBanner(cfg *config.Config, enabled []serve.Subsystem, httpAddr, swarmAddr string, extraAuth bool) {
+func printServeBanner(cfg *config.Config, enabled []serve.Subsystem, httpAddr, swarmAddr string, extraAuth, extraLogin bool) {
 	fmt.Fprintf(os.Stderr, "coddy serve %s\n", version.Get())
 	for _, sub := range enabled {
 		switch sub.Kind {
 		case serve.KindHTTP:
-			auth := "no auth"
-			if extraAuth || len(cfg.HTTPServer.EffectiveAuthTokens()) > 0 {
-				auth = "bearer auth"
-			}
-			fmt.Fprintf(os.Stderr, "  httpserver  http://%s  (%s)\n", httpAddr, auth)
+			fmt.Fprintf(os.Stderr, "  httpserver  http://%s  (%s)\n", httpAddr,
+				httpAuthSummary(cfg, extraAuth, extraLogin))
 		case serve.KindSwarm:
 			scheme := "http"
 			if cfg.Swarm.TLS.Enabled() {

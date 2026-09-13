@@ -14,6 +14,9 @@ type authPolicy struct {
 	enabled    bool
 	tokens     []string
 	publicDocs bool
+	// login is the web sign-in form as it stands for this request. A browser
+	// that has passed it reaches the same routes a bearer token reaches.
+	login loginPolicy
 }
 
 // SetExtraAuthTokens registers bearer tokens supplied via --auth-token / CODDY_HTTP_TOKEN.
@@ -38,8 +41,11 @@ func (s *Server) authPolicyNow() authPolicy {
 	if len(s.extraAuthTokens) > 0 {
 		pol.tokens = append(pol.tokens, s.extraAuthTokens...)
 	}
-	// Auth is active whenever at least one token is configured (YAML, CLI, or env).
-	pol.enabled = len(pol.tokens) > 0
+	pol.login = s.loginPolicyNow()
+	// Auth is active whenever at least one credential is configured: a token
+	// (YAML, CLI, or env) or the web sign-in account. Either one closes the same
+	// gate, so turning on the form protects the API even with no token set.
+	pol.enabled = len(pol.tokens) > 0 || pol.login.enabled
 	return pol
 }
 
@@ -59,21 +65,46 @@ func (s *Server) authGate(next http.Handler) http.Handler {
 			// re-attach GET also accepts a ?access_token= query parameter (this route only).
 			got = strings.TrimSpace(r.URL.Query().Get("access_token"))
 		}
-		if !acceptBearer(pol.tokens, got) {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="coddy"`)
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+		if acceptBearer(pol.tokens, got) {
+			next.ServeHTTP(w, r)
 			return
 		}
-		next.ServeHTTP(w, r)
+		// A signed-in browser carries a cookie instead of a token. Same-origin
+		// requests send it on their own, which is why the SPA needs no
+		// ?access_token= on its event streams.
+		if _, ok := s.sessionFromRequest(r, pol.login); ok {
+			// A cookie travels with any request the browser makes, including one
+			// a page on another site caused, so the writes are checked for where
+			// they came from. Token clients never reach this branch.
+			if !isStateChanging(r) || isSameOriginRequest(r) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			http.Error(w, "cross-site request refused", http.StatusForbidden)
+			return
+		}
+		w.Header().Set("WWW-Authenticate", `Bearer realm="coddy"`)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	})
+}
+
+// subtleEqual compares two strings without leaking which byte differed.
+func subtleEqual(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
 // isProtectedPattern classifies a matched route pattern rather than using a fragile string prefix:
 // the SPA shell and static assets fall through to the "/" catch-all and stay public; every
-// registered API route (/v1/*, /coddy/*) is protected; /docs and /openapi.* are protected unless
-// publicDocs is set.
+// registered API route (/v1/*, /coddy/*) is protected except the sign-in routes themselves;
+// /docs and /openapi.* are protected unless publicDocs is set.
 func isProtectedPattern(pattern string, publicDocs bool) bool {
 	if pattern == "" || pattern == "/" {
+		return false
+	}
+	// The sign-in routes are the way through the gate, so they cannot be behind
+	// it: a browser with no credential yet has to be able to ask whether one is
+	// needed and to present one.
+	if isAuthRoutePattern(pattern) {
 		return false
 	}
 	if publicDocs && isDocsPattern(pattern) {

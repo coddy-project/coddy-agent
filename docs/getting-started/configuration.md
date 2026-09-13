@@ -424,6 +424,29 @@ The tool requires user permission (same as `run_command`) and returns combined s
 
 The **`httpserver`** key (`config.HTTPServerConfig` in `internal/config/http.go`) is ignored unless you use a binary built with **`-tags http`**. It sets default **`host`** and **`port`** when **`coddy serve`** is still at the built-in flag defaults (`0.0.0.0` and `12345`). See **`docs/reference/http-api.md`**.
 
+### Web UI sign-in (`httpserver.login`)
+
+Off by default. It closes the browser surface of a server that is on a network, so transcripts, tool output and the configuration editor are not readable by whoever finds the port. Write the account with the command rather than by hand:
+
+```bash
+coddy serve set-password --user pasha
+```
+
+```yaml
+httpserver:
+  host: 0.0.0.0
+  auth_token: "${CODDY_HTTP_TOKEN}"   # unchanged: the credential API clients present
+  login:
+    enable: true                       # omit to follow the credentials; false wins over everything
+    user: "pasha"
+    password_hash: "$$argon2id$$v=19$$..."   # argon2id, written by the command above
+    session_ttl_hours: 720                   # 0 = the cookie lives until the browser closes
+```
+
+A hash written into this file by hand needs every `$` doubled (`$$argon2id$$v=19$$...`), because a `$NAME` is expanded as an environment reference when the file loads. The command does that for you; `coddy -t` names the problem when it finds a hash that no longer parses.
+
+The account can also come from the environment alone - `CODDY_HTTP_USER` and `CODDY_HTTP_PASSWORD`, see the `.env` section below - which is the route for a container or a systemd unit. The form is for browsers; `coddy --remote`, `coddy acp --remote`, a swarm relay and every script still present the bearer token. Full behaviour: [HTTP API](../reference/http-api.md#web-ui-sign-in-optional), [Remote mode](../operate/remote.md#the-sign-in-form).
+
 ## Scheduler (optional build)
 
 ### MCP project trust
@@ -512,7 +535,12 @@ If **`$CODDY_HOME/.env`** exists, it is read at startup **before** `config.yaml`
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
 TELEGRAM_BOT_TOKEN=8992982910:AAF...
+CODDY_HTTP_TOKEN=a-long-random-token       # bearer credential for API clients
+CODDY_HTTP_USER=pasha                      # web UI sign-in account...
+CODDY_HTTP_PASSWORD=correct-horse-battery-staple   # ...enables the form on its own
 ```
+
+`CODDY_HTTP_USER` and `CODDY_HTTP_PASSWORD` are the one pair that is not referenced from `config.yaml` at all: the password is hashed as the server starts, the file never sees either value, and a save from the settings screen cannot write them into it. They win over an account in the file, and `httpserver.login.enable: false` switches the form off with them still set.
 
 Then in `config.yaml` reference them as usual:
 

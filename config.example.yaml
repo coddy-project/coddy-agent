@@ -335,6 +335,19 @@ tools:
 #   # "Authorization: Bearer <token>". Prefer --auth-token / CODDY_HTTP_TOKEN to keep the
 #   # secret out of this file; a "${ENV}" reference works too. Never returned by GET /coddy/config.
 #   auth_token: "${CODDY_HTTP_TOKEN}"
+#   # Web UI sign-in: the browser's half of the same gate, off unless an account exists.
+#   # Write it with `coddy serve set-password --user NAME` rather than by hand - the hash is
+#   # argon2id and every "$" of it has to be doubled to survive this file's ${ENV} expansion.
+#   # CODDY_HTTP_USER / CODDY_HTTP_PASSWORD (see ~/.coddy/.env) enable the form on their own,
+#   # win over an account here, and are never written into this file. An explicit
+#   # enable: false switches the form off with those variables still set.
+#   # A form is for browsers: coddy --remote, coddy acp --remote, a swarm relay and scripts
+#   # keep presenting auth_token, so set both when anything but a browser talks to this server.
+#   login:
+#     enable: true
+#     user: "pasha"
+#     password_hash: "$$argon2id$$v=19$$m=19456,t=2,p=1$$..."
+#     session_ttl_hours: 720   # 0 = the cookie lives until the browser closes
 #   public_docs: false      # when auth is on, keep /docs and /openapi.* reachable without a token
 #   allow_insecure: false   # silence the "reachable without auth" warning on a non-loopback bind
 #   # CORS lets a browser UI on another origin call this API (needed when the UI points here as a

@@ -255,6 +255,51 @@ export function isApiPath(path: string): boolean {
   );
 }
 
+// Listeners for a 401 from this origin's own API. The sign-in state lives in
+// ui/auth and subscribes here, rather than this module importing it: the shim
+// has to install before anything else runs, and a cycle between the two would
+// be a startup order nobody can reason about.
+const unauthorizedListeners = new Set<() => void>();
+
+/**
+ * onLocalApiUnauthorized reports a local API call refused with 401.
+ *
+ * The sign-in routes are excluded: a wrong password is answered by the form
+ * itself, and treating it as "the session ended" would loop.
+ */
+export function onLocalApiUnauthorized(cb: () => void): () => void {
+  unauthorizedListeners.add(cb);
+  return () => {
+    unauthorizedListeners.delete(cb);
+  };
+}
+
+/** isAuthPath reports the sign-in routes, which never signal a lost session. */
+export function isAuthPath(path: string): boolean {
+  return path.startsWith("/coddy/auth/");
+}
+
+/** requestPath extracts the same-origin path of a fetch argument, or null. */
+function requestPath(input: RequestInfo | URL): string | null {
+  if (typeof input === "string") {
+    return input.startsWith("/") ? input : null;
+  }
+  if (input instanceof URL) {
+    return input.origin === window.location.origin
+      ? input.pathname + input.search
+      : null;
+  }
+  if (typeof Request !== "undefined" && input instanceof Request) {
+    try {
+      const u = new URL(input.url, window.location.origin);
+      return u.origin === window.location.origin ? u.pathname + u.search : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 /** installRemoteFetchShim rewrites same-origin API requests to the selected remote. Idempotent. */
 export function installRemoteFetchShim(): void {
   if (typeof window === "undefined") return;
@@ -267,15 +312,22 @@ export function installRemoteFetchShim(): void {
     init?: RequestInit,
   ): Promise<Response> => {
     const env = getEnv();
-    if (env.mode !== "remote") return nativeFetch(input, init);
-
-    let path: string | null = null;
-    if (typeof input === "string") {
-      if (input.startsWith("/")) path = input;
-    } else if (input instanceof URL) {
-      if (input.origin === window.location.origin)
-        path = input.pathname + input.search;
+    const path = requestPath(input);
+    if (env.mode !== "remote") {
+      // Local origin: nothing is rewritten, but a refusal is worth noticing.
+      // The cookie a signed-in browser carries can stop being valid while the
+      // page is open, and this is where the app learns that.
+      if (path == null || !isApiPath(path) || isAuthPath(path)) {
+        return nativeFetch(input, init);
+      }
+      return nativeFetch(input, init).then((res) => {
+        if (res.status === 401) {
+          unauthorizedListeners.forEach((cb) => cb());
+        }
+        return res;
+      });
     }
+
     if (path == null || !isApiPath(path)) return nativeFetch(input, init);
 
     const headers = new Headers(init?.headers ?? undefined);

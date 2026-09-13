@@ -15,6 +15,22 @@ export const messagesRu: Record<string, string> = {
   "appearance.theme.nord": "Nord",
   "appearance.theme.rosePine": "Rosé Pine",
 
+  "auth.signIn.title": "Вход",
+  "auth.signIn.lead":
+    "Этот сервер Coddy спрашивает, кто вы, прежде чем что-то показать.",
+  "auth.signIn.user": "Пользователь",
+  "auth.signIn.password": "Пароль",
+  "auth.signIn.submit": "Войти",
+  "auth.signIn.working": "Вход\u2026",
+  "auth.signIn.invalid": "Неверный пользователь или пароль.",
+  "auth.signIn.unreachable": "Сервер не ответил. Он ещё работает?",
+  "auth.signIn.noAccount":
+    "Вход включён, но учётная запись не настроена. Выполните `coddy serve set-password` на сервере.",
+  "auth.signIn.crossSite": "Запрос пришёл не с этой страницы.",
+  "auth.signIn.failed": "Войти не удалось ({status}).",
+  "auth.signOut.action": "Выйти",
+  "auth.signOut.tooltipUser": "Выйти ({user})",
+
   "common.cancel": "Отмена",
   "common.confirm": "Подтвердить",
   "common.confirmAction": "Подтвердить",

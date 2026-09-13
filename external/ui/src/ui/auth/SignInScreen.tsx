@@ -1,0 +1,107 @@
+import { useState } from "react";
+import { useT } from "../i18n/I18nProvider";
+import { signIn } from "./authState";
+
+/**
+ * SignInScreen is what an anonymous browser sees instead of the app when
+ * `httpserver.login` is configured.
+ *
+ * It is the whole page, not a dialog over a blurred transcript: there is
+ * nothing behind it to look at, and a form floating over other people's
+ * conversations would suggest otherwise.
+ */
+export function SignInScreen(props: { onSignedIn?: () => void }) {
+  const { t } = useT();
+  const [user, setUser] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    if (busy) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    const res = await signIn(user, password);
+    if (res.ok) {
+      // A reload rather than a re-render: every list, stream and cached
+      // response on the page was fetched by a browser that had no session, so
+      // starting over is both simpler and more honest than patching them up.
+      if (props.onSignedIn) {
+        props.onSignedIn();
+      } else {
+        window.location.reload();
+      }
+      return;
+    }
+    setBusy(false);
+    setPassword("");
+    if (res.status === 401) {
+      setError(t("auth.signIn.invalid"));
+    } else if (res.status === 0) {
+      setError(t("auth.signIn.unreachable"));
+    } else if (res.status === 503) {
+      setError(t("auth.signIn.noAccount"));
+    } else if (res.status === 403) {
+      setError(t("auth.signIn.crossSite"));
+    } else {
+      setError(t("auth.signIn.failed", { status: String(res.status) }));
+    }
+  };
+
+  return (
+    <div className="auth-screen" data-testid="sign-in-screen">
+      <form className="auth-card" onSubmit={submit}>
+        <div className="auth-brand">
+          <span className="auth-brand-title">{t("nav.brandTitle")}</span>
+          <span className="auth-brand-sub">{t("nav.brandSub")}</span>
+        </div>
+        <h1 className="auth-title">{t("auth.signIn.title")}</h1>
+        <p className="auth-lead">{t("auth.signIn.lead")}</p>
+
+        <label className="auth-field">
+          <span className="auth-label">{t("auth.signIn.user")}</span>
+          <input
+            className="auth-input"
+            type="text"
+            name="username"
+            autoComplete="username"
+            autoFocus
+            value={user}
+            onChange={(e) => setUser(e.target.value)}
+            disabled={busy}
+          />
+        </label>
+
+        <label className="auth-field">
+          <span className="auth-label">{t("auth.signIn.password")}</span>
+          <input
+            className="auth-input"
+            type="password"
+            name="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            disabled={busy}
+          />
+        </label>
+
+        {error ? (
+          <p className="auth-error" role="alert">
+            {error}
+          </p>
+        ) : null}
+
+        <button
+          className="auth-submit"
+          type="submit"
+          disabled={busy || user.trim() === "" || password === ""}
+        >
+          {busy ? t("auth.signIn.working") : t("auth.signIn.submit")}
+        </button>
+      </form>
+    </div>
+  );
+}

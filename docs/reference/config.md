@@ -279,6 +279,12 @@ OpenAI-compatible HTTP API defaults (used only by binaries built with -tags http
 | `httpserver.host` | string | 127.0.0.1 | Bind address for the HTTP API. Empty means 127.0.0.1; set 0.0.0.0 to accept connections from other machines. |
 | `httpserver.port` | integer | 0 | Default listen port when coddy serve does not pass -P/--port. 0 falls back to 12345. |
 | `httpserver.auth_token` | string | "" | Optional bearer credential for the HTTP API. Empty means no authentication (historical default). Use a "${ENV}" reference to keep the secret out of the file; never echoed back by GET /coddy/config. Prefer --auth-token / CODDY_HTTP_TOKEN to keep it out of config.yaml entirely. See https://coddy.dev/docs/operate/remote. |
+| `httpserver.login` | object |  | Optional password sign-in for the browser, so a server on a network is not readable by everyone who finds the port. Off unless an account exists here or in CODDY_HTTP_USER / CODDY_HTTP_PASSWORD. API clients keep using auth_token. See https://coddy.dev/docs/operate/remote. |
+| `httpserver.login.enable` | boolean or null |  | Turn the sign-in form on or off explicitly. Omitted follows the credentials: an account here or in the environment enables it. false keeps the form off with the variables still set. |
+| `httpserver.login.mode` | string, one of `password` | password | How a browser authenticates. Only "password" is implemented; the key exists so a trusted-proxy mode can be added without moving your configuration. |
+| `httpserver.login.user` | string | "" | Account name for the sign-in form. Supports "${ENV}" references, e.g. "${CODDY_HTTP_USER}". |
+| `httpserver.login.password_hash` | string | "" | argon2id hash of the password in PHC form ("$argon2id$v=19$m=...$..."), written by `coddy serve set-password`. Never echoed back by GET /coddy/config, and a save from the settings screen preserves it. Put a plaintext password in CODDY_HTTP_PASSWORD instead of here. |
+| `httpserver.login.session_ttl_hours` | integer | 0 | How long a browser stays signed in. 0 means the cookie lives until the browser is closed. |
 | `httpserver.public_docs` | boolean | false | When auth is enabled, keep /docs and /openapi.* reachable without a token. |
 | `httpserver.allow_insecure` | boolean | false | Silence the startup warning about a non-loopback bind without authentication. |
 | `httpserver.cors` | object |  | Cross-origin access so a browser UI on another origin can call this API (e.g. the bundled UI pointed at a remote server). Bearer auth still applies. |

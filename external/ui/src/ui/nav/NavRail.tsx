@@ -1,5 +1,6 @@
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { useT } from "../i18n/I18nProvider";
+import { signOut, snapshotAuth, subscribeAuth } from "../auth/authState";
 import {
   appNavHrefHistory,
   appNavHrefHome,
@@ -75,6 +76,27 @@ function IconSwarm(props: { className?: string }) {
       <circle cx="5" cy="18" r="2.5" />
       <circle cx="19" cy="18" r="2.5" />
       <path d="M12 7.5 6.5 15.8M12 7.5l5.5 8.3M7.5 18h9" />
+    </svg>
+  );
+}
+
+/** A door with an arrow leaving it: sign out. */
+function IconSignOut(props: { className?: string }) {
+  return (
+    <svg
+      className={props.className}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3" />
+      <path d="M10 17l-5-5 5-5M5 12h10" />
     </svg>
   );
 }
@@ -161,6 +183,10 @@ export function NavRail(props: {
   onToggleRailLabels: () => void;
 }) {
   const { t } = useT();
+  // The sign-in state is read here rather than threaded down from the gate: the
+  // rail is the one place in the app that is always on screen, which is where a
+  // "you are signed in as ..., and here is the way out" belongs.
+  const auth = useSyncExternalStore(subscribeAuth, snapshotAuth, snapshotAuth);
   const railRef = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {
     const el = railRef.current;
@@ -382,6 +408,34 @@ export function NavRail(props: {
               </span>
             ) : null}
           </div>
+
+          {auth.loginRequired && auth.authenticated ? (
+            <div className="rail-tip-host">
+              <button
+                type="button"
+                className={navBtnCls}
+                aria-label={t("auth.signOut.action")}
+                data-testid="nav-sign-out"
+                onClick={() => {
+                  void signOut().then(() => window.location.reload());
+                }}
+              >
+                <IconSignOut className="rail-svg rail-nav-hit-svg" />
+                {pillWide ? (
+                  <span className="rail-nav-label">
+                    {t("auth.signOut.action")}
+                  </span>
+                ) : null}
+              </button>
+              {!pillWide ? (
+                <span className="rail-tip" role="tooltip">
+                  {auth.user
+                    ? t("auth.signOut.tooltipUser", { user: auth.user })
+                    : t("auth.signOut.action")}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
     </aside>

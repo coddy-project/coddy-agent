@@ -8,6 +8,7 @@ import { bootstrapUiLocaleFromUrlOrCookie } from "./ui/i18n/uiLocale";
 import { initLocale } from "./ui/i18n/i18n";
 import { I18nProvider } from "./ui/i18n/I18nProvider";
 import { installRemoteFetchShim } from "./ui/env/remoteEnv";
+import { AuthGate } from "./ui/auth/AuthGate";
 import { startActiveHealthMonitor } from "./ui/env/activeHealth";
 
 // Route API calls to the selected remote environment (no-op in local mode). Must run before the
@@ -22,7 +23,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <I18nProvider>
       <ConfirmProvider>
-        <App />
+        <AuthGate>
+          <App />
+        </AuthGate>
       </ConfirmProvider>
     </I18nProvider>
   </React.StrictMode>,
