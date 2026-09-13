@@ -69,6 +69,7 @@ test("derives tabs in schema order with Appearance first and System group", () =
   const ids = sections.map((s) => s.id);
   expect(ids).toEqual([
     "appearance",
+    "sessions_manager",
     "providers",
     "models",
     "agent",
@@ -157,8 +158,31 @@ test("the schema-driven hooks tab gets its own label and blurb", () => {
   expect(byId.hooks.description).toBe("Lifecycle hooks & trust");
 });
 
-test("Appearance tab is present even without a schema", () => {
+test("Appearance and Sessions are present even without a schema", () => {
+  // Both are client-side tabs: the theme picker edits no config key and the
+  // session table talks to /coddy/sessions, so neither waits for the schema.
   const sections = deriveSettingsSections(null);
-  expect(sections).toHaveLength(1);
-  expect(sections[0].id).toBe("appearance");
+  expect(sections.map((s) => s.id)).toEqual(["appearance", "sessions_manager"]);
+});
+
+test("the session management tab is synthetic and edits no config key", () => {
+  const byId = Object.fromEntries(
+    deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
+  );
+  // `sessions` in the schema is the storage directory and stays in System; the
+  // management tab must not be confused with it.
+  expect(byId.sessions).toBeUndefined();
+  expect(byId.sessions_manager?.kind).toBe("sessions");
+  expect(byId.sessions_manager?.schemaKey).toBeUndefined();
+  expect(byId.sessions_manager?.label).toBe("Sessions");
+  expect(byId.sessions_manager?.description).toBe("Stored chats & cleanup");
+});
+
+test("the session management tab follows the active locale", () => {
+  initLocale("ru");
+  const byId = Object.fromEntries(
+    deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
+  );
+  expect(byId.sessions_manager?.label).toBe("Сессии");
+  expect(byId.sessions_manager?.description).toBe("Сохранённые чаты и очистка");
 });

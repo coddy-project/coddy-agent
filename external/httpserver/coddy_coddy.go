@@ -128,6 +128,7 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("GET /coddy/commands", s.coddyCommandsGet)
 	s.mux.HandleFunc("GET /coddy/events", s.coddyEventsStream)
 	s.mux.HandleFunc("GET /coddy/sessions", s.coddySessionsList)
+	s.mux.HandleFunc("POST /coddy/sessions/bulk-delete", s.coddySessionsBulkDelete)
 	s.mux.HandleFunc("POST /coddy/describe", s.coddyDescribePost)
 	s.mux.HandleFunc("POST /coddy/enhance-prompt", s.coddyEnhancePromptPost)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/activity", s.coddySessionActivityGet)
@@ -754,6 +755,7 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 	}
 	slice := rows[start:end]
 	includeActivity := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_activity")), "true")
+	includeStats := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_stats")), "true")
 	sessions := make([]map[string]interface{}, 0, len(slice))
 	for _, row := range slice {
 		ent := map[string]interface{}{
@@ -772,6 +774,20 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 			if link := subagentRowLink(fs, row.SessionID); link != nil {
 				ent["subagent"] = link
 			}
+		}
+		if includeStats {
+			// createdAt is absent for a bundle stored before the field existed;
+			// model is absent for a session that never overrode the configured
+			// default. Both stay out of the row rather than being guessed, so a
+			// table can render an explicit "unknown" for them.
+			if row.CreatedAt != "" {
+				ent["createdAt"] = row.CreatedAt
+			}
+			if row.Model != "" {
+				ent["model"] = row.Model
+			}
+			ent["messageCount"] = row.MessageCount
+			ent["tokenUsage"] = coddySessionTokenUsage(fs, row.SessionID)
 		}
 		if includeActivity {
 			dir := fs.SessionPath(row.SessionID)
@@ -797,6 +813,22 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
+}
+
+// coddySessionTokenUsage reads the provider token totals a session accumulated.
+// A bundle with no stats.json yet (a chat that never completed a model call)
+// reports zeroes rather than nothing, so every row of the table has the same
+// shape and sorts numerically.
+func coddySessionTokenUsage(fs *session.FileStore, id string) map[string]int {
+	usage := map[string]int{"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}
+	stats, err := session.ReadSessionStats(fs.SessionPath(id))
+	if err != nil || stats == nil {
+		return usage
+	}
+	usage["inputTokens"] = stats.TokenUsageTotal.InputTokens
+	usage["outputTokens"] = stats.TokenUsageTotal.OutputTokens
+	usage["totalTokens"] = stats.TokenUsageTotal.TotalTokens
+	return usage
 }
 
 func (s *Server) coddySessionActivityGet(w http.ResponseWriter, r *http.Request) {
@@ -1104,6 +1136,35 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
+// deleteSessionBundle removes one session tree. It is the shared body of
+// DELETE /coddy/sessions/{id} and of every id a bulk delete works through, so
+// both routes retract branch references and stop background work the same way.
+// An id with no bundle on disk removes nothing and reports no error.
+func (s *Server) deleteSessionBundle(id string) error {
+	// Retract the session from the branch file of whatever it forked from, so the
+	// branch navigator stops offering a thread that no longer exists. Read-side
+	// filtering covers the failure case, so a prune error must not block delete.
+	// It reads the session's own branch file, so it runs before the bundle goes.
+	if err := s.mgr.PruneBranchRefs(id); err != nil {
+		s.log.Warn("prune branch refs on delete", "session", id, "error", err)
+	}
+	// The manager removes the whole tree: the tasks representing this session's
+	// subagent runs (and their descendants) are stopped and awaited first, then
+	// every remaining task of every node, then the bundles deepest first, so
+	// nothing writes into a directory that is already gone.
+	return s.mgr.DeleteSessionTree(id, bgtask.Default())
+}
+
+// sessionDeleteStatus maps a delete failure onto the status the single-session
+// route answers with: a tree that would not settle is a retryable conflict,
+// anything else is a server error.
+func sessionDeleteStatus(err error) int {
+	if errors.Is(err, session.ErrTurnNotSettled) || errors.Is(err, session.ErrTreeUnstable) {
+		return http.StatusConflict
+	}
+	return http.StatusInternalServerError
+}
+
 func (s *Server) coddySessionDelete(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		http.NotFound(w, r)
@@ -1118,32 +1179,197 @@ func (s *Server) coddySessionDelete(w http.ResponseWriter, r *http.Request) {
 	if fs == nil {
 		return
 	}
-	// Retract the session from the branch file of whatever it forked from, so the
-	// branch navigator stops offering a thread that no longer exists. Read-side
-	// filtering covers the failure case, so a prune error must not block delete.
-	// It reads the session's own branch file, so it runs before the bundle goes.
-	if err := s.mgr.PruneBranchRefs(id); err != nil {
-		s.log.Warn("prune branch refs on delete", "session", id, "error", err)
-	}
-	// The manager removes the whole tree: the tasks representing this session's
-	// subagent runs (and their descendants) are stopped and awaited first, then
-	// every remaining task of every node, then the bundles deepest first, so
-	// nothing writes into a directory that is already gone. An id with no bundle
-	// on disk removes nothing and still answers 200.
-	if err := s.mgr.DeleteSessionTree(id, bgtask.Default()); err != nil {
-		if errors.Is(err, session.ErrTurnNotSettled) || errors.Is(err, session.ErrTreeUnstable) {
+	if err := s.deleteSessionBundle(id); err != nil {
+		status := sessionDeleteStatus(err)
+		if status == http.StatusConflict {
 			// A turn of the tree ignored its cancellation, or descendants
 			// kept appearing while the tree was being marked; nothing was
 			// removed, the client may retry once the tree is quiet.
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusConflict)
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), status)
 			return
 		}
 		s.log.Error("coddy session delete", "error", err)
-		http.Error(w, `{"error":{"message":"delete failed"}}`, http.StatusInternalServerError)
+		http.Error(w, `{"error":{"message":"delete failed"}}`, status)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"object": "coddy.session_deleted", "id": id})
+}
+
+// coddySessionsBulkDeleteRequest is the body of POST /coddy/sessions/bulk-delete.
+// Either an explicit list of ids, or scope "all" with an optional keep list -
+// the session management table needs both: the rows an operator ticked, and
+// "everything except the conversation I am in", which the client cannot spell
+// as a list because it only ever holds one page of the history.
+type coddySessionsBulkDeleteRequest struct {
+	Scope  string   `json:"scope"`
+	IDs    []string `json:"ids"`
+	Except []string `json:"except"`
+}
+
+func (s *Server) coddySessionsBulkDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	fs := s.coddyRequireStore(w)
+	if fs == nil {
+		return
+	}
+	var req coddySessionsBulkDeleteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":{"message":"invalid JSON body"}}`, http.StatusBadRequest)
+		return
+	}
+	scope := strings.ToLower(strings.TrimSpace(req.Scope))
+	if scope == "" {
+		scope = "ids"
+	}
+	var targets []string
+	switch scope {
+	case "ids":
+		if len(req.IDs) == 0 {
+			http.Error(w, `{"error":{"message":"ids must not be empty"}}`, http.StatusBadRequest)
+			return
+		}
+		if len(req.Except) > 0 {
+			// Silently ignoring it would let a caller believe a session was
+			// spared when the list never consulted the field.
+			http.Error(w, `{"error":{"message":"except applies to scope \"all\" only"}}`, http.StatusBadRequest)
+			return
+		}
+		for _, raw := range req.IDs {
+			id := strings.TrimSpace(raw)
+			if err := session.ValidateFolderSessionID(id); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+				return
+			}
+			targets = append(targets, id)
+		}
+	case "all":
+		if len(req.IDs) > 0 {
+			http.Error(w, `{"error":{"message":"ids and scope \"all\" are mutually exclusive"}}`, http.StatusBadRequest)
+			return
+		}
+		// An exception is a promise that a named session survives, so it is
+		// checked before anything is removed: a misspelt id that matched
+		// nothing would quietly turn "keep this one" into "delete everything".
+		keep := make(map[string]struct{}, len(req.Except))
+		for _, raw := range req.Except {
+			id := strings.TrimSpace(raw)
+			if err := session.ValidateFolderSessionID(id); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+				return
+			}
+			if !fs.HasPersistedSnapshot(id) {
+				http.Error(w, fmt.Sprintf(`{"error":{"message":"except names a session that is not stored: %s"}}`, id), http.StatusBadRequest)
+				return
+			}
+			// A session survives only if no ancestor of it is removed: the
+			// delete takes a whole tree, so keeping a subagent child means
+			// keeping the parent it hangs from. The child is not in the
+			// listing below, its parent is.
+			for _, ancestor := range sessionAncestry(fs, id) {
+				keep[ancestor] = struct{}{}
+			}
+		}
+		// "all" is resolved server side against the same listing the table
+		// renders, so it means the whole history rather than the page the
+		// client happens to have loaded. Scheduler runs stay out of it, and
+		// subagent children go with the parent they belong to.
+		rows, err := fs.ListSnapshotsWith(session.ListOptions{})
+		if err != nil {
+			s.log.Error("coddy sessions bulk delete list", "error", err)
+			http.Error(w, `{"error":{"message":"list failed"}}`, http.StatusInternalServerError)
+			return
+		}
+		for _, row := range rows {
+			if _, skip := keep[row.SessionID]; skip {
+				continue
+			}
+			targets = append(targets, row.SessionID)
+		}
+	default:
+		http.Error(w, `{"error":{"message":"scope must be \"ids\" or \"all\""}}`, http.StatusBadRequest)
+		return
+	}
+
+	requested, deleted, failed := bulkDeleteSessions(targets, func(id string) error {
+		err := s.deleteSessionBundle(id)
+		if err != nil && sessionDeleteStatus(err) != http.StatusConflict {
+			s.log.Error("coddy sessions bulk delete", "session", id, "error", err)
+		}
+		return err
+	})
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"object":    "coddy.sessions_bulk_deleted",
+		"requested": requested,
+		"deleted":   deleted,
+		"failed":    failed,
+	})
+}
+
+// maxSessionAncestry bounds the parent walk so a corrupted bundle that points
+// at itself, or a cycle written by an older build, cannot spin here.
+const maxSessionAncestry = 32
+
+// sessionAncestry returns id followed by every ancestor reachable through
+// parentSessionId. Deleting any of them takes the whole subtree with it, so a
+// caller that wants id to survive has to spare all of them.
+func sessionAncestry(fs *session.FileStore, id string) []string {
+	out := []string{id}
+	seen := map[string]struct{}{id: {}}
+	current := id
+	for i := 0; i < maxSessionAncestry; i++ {
+		snap, err := fs.ReadSnapshot(current)
+		if err != nil {
+			return out
+		}
+		parent := strings.TrimSpace(snap.Meta.ParentSessionID)
+		if parent == "" {
+			return out
+		}
+		if _, loop := seen[parent]; loop {
+			return out
+		}
+		if err := session.ValidateFolderSessionID(parent); err != nil {
+			return out
+		}
+		seen[parent] = struct{}{}
+		out = append(out, parent)
+		current = parent
+	}
+	return out
+}
+
+// bulkDeleteSessions removes every target once, in order, and reports what went
+// and what stayed. One failing tree must not abandon the rest: a session in the
+// middle of a turn answers a conflict and the batch carries on, so the table
+// can drop the deleted rows and keep the others with their reason. The error
+// text is the sentinel's own only for the two retryable conflicts; anything
+// else is generic, because a filesystem error names paths the caller has no
+// business reading.
+func bulkDeleteSessions(targets []string, del func(string) error) (requested int, deleted []string, failed []map[string]string) {
+	deleted = make([]string, 0, len(targets))
+	failed = make([]map[string]string, 0)
+	seen := make(map[string]struct{}, len(targets))
+	for _, id := range targets {
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		if err := del(id); err != nil {
+			message := "delete failed"
+			if sessionDeleteStatus(err) == http.StatusConflict {
+				message = err.Error()
+			}
+			failed = append(failed, map[string]string{"id": id, "error": message})
+			continue
+		}
+		deleted = append(deleted, id)
+	}
+	return len(seen), deleted, failed
 }
 
 func (s *Server) coddyPlanGet(w http.ResponseWriter, r *http.Request) {

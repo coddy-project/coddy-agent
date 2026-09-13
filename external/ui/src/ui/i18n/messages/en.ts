@@ -74,6 +74,7 @@ export const messagesEn: Record<string, string> = {
   "settings.error.noItemSchema": "This section has no item schema.",
 
   "settings.section.appearance.label": "Appearance",
+  "settings.section.sessions_manager.label": "Sessions",
   "settings.section.providers.label": "LLM providers",
   "settings.section.models.label": "Logical models",
   "settings.section.agent.label": "ReAct agent",
@@ -86,6 +87,7 @@ export const messagesEn: Record<string, string> = {
   "settings.section.subagents.label": "Subagents",
   "settings.section.hooks.label": "Hooks",
   "settings.section.appearance.desc": "Theme & color mode",
+  "settings.section.sessions_manager.desc": "Stored chats & cleanup",
   "settings.section.providers.desc": "LLM API connections",
   "settings.section.models.desc": "Named model configs",
   "settings.section.agent.desc": "ReAct agent defaults",
@@ -733,6 +735,45 @@ export const messagesEn: Record<string, string> = {
   "sessions.deleteConversation": "Delete conversation",
   "sessions.delete": "Delete",
   "sessions.loadingMore": "Loading...",
+
+  "sessions.manage.lead":
+    "Every stored conversation with what it cost. Tick the rows you no longer need, or empty the history in one go.",
+  "sessions.manage.loadFailed": "Could not load the sessions: {error}",
+  "sessions.manage.deleteFailed": "Could not delete: {error}",
+  "sessions.manage.partialFailure":
+    "{count} session(s) were kept because they are still busy. First reason: {reason}",
+  "sessions.manage.deleteSelected": "Delete selected ({count})",
+  "sessions.manage.deleteOthers": "Delete all but the open one",
+  "sessions.manage.deleteAll": "Delete all",
+  "sessions.manage.noActiveSession": "No conversation is open to keep",
+  "sessions.manage.confirm.selected.title.one": "Delete {count} conversation?",
+  "sessions.manage.confirm.selected.title.other":
+    "Delete {count} conversations?",
+  "sessions.manage.confirm.selected.message":
+    "Their transcripts, tool calls and uploaded files are removed from disk. This cannot be undone.",
+  "sessions.manage.confirm.others.title": "Delete every other conversation?",
+  "sessions.manage.confirm.others.message":
+    "Everything except the conversation currently open is removed from disk, including scheduler-free chats you have not loaded in this table. This cannot be undone.",
+  "sessions.manage.confirm.all.title": "Delete the whole history?",
+  "sessions.manage.confirm.all.message":
+    "Every stored conversation is removed from disk, including the ones not loaded in this table. This cannot be undone.",
+  "sessions.manage.selectAll": "Select every listed conversation",
+  "sessions.manage.selectRow": "Select {title}",
+  "sessions.manage.column.conversation": "Conversation",
+  "sessions.manage.column.model": "Model",
+  "sessions.manage.column.messages": "Msgs",
+  "sessions.manage.column.tokens": "Tokens",
+  "sessions.manage.column.created": "Created",
+  "sessions.manage.column.updated": "Updated",
+  "sessions.manage.column.actions": "Actions",
+  "sessions.manage.openBadge": "open",
+  "sessions.manage.modelDefault": "default",
+  "sessions.manage.tokensBreakdown": "{input} in, {output} out, {total} total",
+  "sessions.manage.noMatches": "No conversation matches the search",
+  "sessions.manage.shown.one": "{count} conversation",
+  "sessions.manage.shown.other": "{count} conversations",
+  "sessions.manage.selectedSuffix": "· {count} selected",
+  "sessions.manage.loadMore": "Load more",
 
   "chat.newChat": "New chat",
   "chat.chatTitleAriaLabel": "Chat title",

@@ -147,6 +147,7 @@ import {
   setSchedulerListHash,
   setSessionTasksHash,
   setSettingsHash,
+  setSettingsSectionHash,
   stripHistorySidebarFromHash,
   appNavHrefSwarm,
 } from "./scheduler/hashRoute";
@@ -907,6 +908,10 @@ export function App() {
   }, [sessionId, generating, refreshSessionStats]);
 
   const sidebarActiveId = sessionId.trim() || activeDraftId.trim();
+  // Read by the stable Settings callback below, which must see the session on
+  // screen now rather than the one captured when it was created.
+  const sidebarActiveIdRef = useRef(sidebarActiveId);
+  sidebarActiveIdRef.current = sidebarActiveId;
 
   const sessionsForSidebar = useMemo(
     () => mergeSessionsWithDrafts(sessions, clientDraftSessions),
@@ -974,6 +979,10 @@ export function App() {
   /** Set while the viewed session is a subagent's transcript (read-only, no composer). */
   const [subagentTranscript, setSubagentTranscript] =
     useState<SubagentTranscriptMeta | null>(null);
+  // Mirrored for the stable Settings callback, which has to know that the
+  // transcript on screen belongs to a parent whose tree may have been removed.
+  const subagentParentIdRef = useRef("");
+  subagentParentIdRef.current = subagentTranscript?.parentSessionId ?? "";
   const [schedDockClusterWidthPx, setSchedDockClusterWidthPx] = useState(0);
   const [sessionFilterDraft, setSessionFilterDraft] = useState("");
   const [sessionFilterQ, setSessionFilterQ] = useState("");
@@ -2677,6 +2686,30 @@ export function App() {
     await loadSessionsList(true);
   }
 
+  // The session table in Settings removes bundles behind the open panel. Drop
+  // the rows from History right away, and when the conversation on screen was
+  // one of them, reset the chat to a new one - without leaving Settings, which
+  // is where the user still is, so the route is re-anchored on that tab.
+  const onSessionsDeletedInSettings = useCallback((ids: string[]) => {
+    if (ids.length === 0) {
+      return;
+    }
+    const gone = new Set(ids);
+    for (const id of ids) {
+      clearQuestionPromptRecords(id);
+    }
+    setSessions((prev) => prev.filter((row) => !gone.has(row.id)));
+    // A subagent transcript is not listed and is never a target of its own: it
+    // goes with the parent whose tree was removed, so the viewed child has to
+    // follow its parent home.
+    const viewing = sidebarActiveIdRef.current.trim();
+    const viewedParent = subagentParentIdRef.current.trim();
+    if (gone.has(viewing) || (viewedParent !== "" && gone.has(viewedParent))) {
+      goHome();
+      setSettingsSectionHash("sessions_manager");
+    }
+  }, []);
+
   async function handleBranchSend(text: string, userMsgIdx: number) {
     const sourceSid = sessionId.trim();
     if (!sourceSid) return;
@@ -4214,6 +4247,8 @@ export function App() {
               onClose={onCloseSettings}
               onConfigSaved={() => setConfigEpoch((e) => e + 1)}
               initialSection={settingsSection}
+              activeSessionId={sidebarActiveId}
+              onSessionsDeleted={onSessionsDeletedInSettings}
             />
           </div>
         ) : null}

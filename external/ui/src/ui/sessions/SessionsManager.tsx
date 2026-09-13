@@ -1,0 +1,533 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useConfirm } from "../components/useConfirm";
+import { useT } from "../i18n/I18nProvider";
+import { isClientDraftSessionId } from "./draftSessions";
+import {
+  allRowsSelected,
+  bulkDeleteBody,
+  formatRowTimestamp,
+  formatRowTimestampFull,
+  formatTokenCount,
+  rowTotalTokens,
+  selectionWithout,
+  someRowsSelected,
+  toggleAllRows,
+  toggleSelected,
+  workspaceBasename,
+  type BulkDeleteScope,
+  type SessionManagerRow,
+} from "./sessionManagerRows";
+
+const PAGE_SIZE = 50;
+const SEARCH_DEBOUNCE_MS = 250;
+
+/**
+ * One trash can drawn with a scope mark inside its body, so the three bulk
+ * actions share a verb and differ only in what they reach: a check for the
+ * ticked rows, a minus for "everything but the one I am in", a cross for the
+ * whole history. The plain can (no mark) is the per-row delete. What each
+ * button means in words lives in its tooltip, not on its face.
+ */
+function IconTrash(props: { mark?: "check" | "minus" | "cross" }) {
+  const mark = props.mark;
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M3 6h18" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      {mark === "check" ? <path d="M9 14.5l2 2 4-4" /> : null}
+      {mark === "minus" ? <path d="M9 15h6" /> : null}
+      {mark === "cross" ? <path d="M9.5 12.5l5 5m0-5l-5 5" /> : null}
+      {mark === undefined ? (
+        <>
+          <path d="M10 11v6" />
+          <path d="M14 11v6" />
+        </>
+      ) : null}
+    </svg>
+  );
+}
+
+type ListResponse = {
+  sessions?: SessionManagerRow[];
+  nextCursor?: string | null;
+  hasMore?: boolean;
+};
+
+type BulkDeleteResponse = {
+  deleted?: string[];
+  failed?: { id?: string; error?: string }[];
+};
+
+/**
+ * SessionsManager is the Settings tab that treats the stored history as a
+ * table: what every session cost, which backend answered it, and bulk removal
+ * by tick, by "everything" or by "everything but the conversation that is
+ * open". The History drawer stays the place to *open* a session; this is the
+ * place to prune one.
+ */
+export function SessionsManager(props: {
+  /** The conversation currently on screen, kept by "delete all except this one". */
+  activeSessionId?: string;
+  /** Reports the ids the server actually removed, so the shell can drop them. */
+  onSessionsDeleted?: (ids: string[]) => void;
+}) {
+  const { t, tp } = useT();
+  const confirm = useConfirm();
+  const { onSessionsDeleted } = props;
+  const [rows, setRows] = useState<SessionManagerRow[]>([]);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const [searchDraft, setSearchDraft] = useState("");
+  const [query, setQuery] = useState("");
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Every fetch carries a ticket; an answer that arrives after the search moved
+  // on is dropped instead of overwriting the newer listing.
+  const ticketRef = useRef(0);
+
+  const activeId = String(props.activeSessionId ?? "").trim();
+  // A client-only draft has no bundle on the server, so it is never a row here
+  // and cannot be the session an "except" list protects.
+  const activeStoredId =
+    activeId && !isClientDraftSessionId(activeId) ? activeId : "";
+
+  const load = useCallback(
+    async (reset: boolean, at: string | null) => {
+      const ticket = ++ticketRef.current;
+      setLoading(true);
+      const ps = new URLSearchParams();
+      ps.set("limit", String(PAGE_SIZE));
+      ps.set("include_stats", "true");
+      ps.set("include_activity", "true");
+      if (query) {
+        ps.set("q", query);
+      }
+      if (!reset && at) {
+        ps.set("cursor", at);
+      }
+      try {
+        const res = await fetch(`/coddy/sessions?${ps.toString()}`);
+        if (!res.ok) {
+          throw new Error(String(res.status));
+        }
+        const data = (await res.json()) as ListResponse;
+        if (ticket !== ticketRef.current) {
+          return;
+        }
+        const next = data.sessions ?? [];
+        setRows((prev) => {
+          if (reset) {
+            return next;
+          }
+          const seen = new Set(prev.map((r) => r.id));
+          return [...prev, ...next.filter((r) => !seen.has(r.id))];
+        });
+        setCursor(data.nextCursor ?? null);
+        setHasMore(!!data.hasMore);
+        setError(null);
+      } catch (e) {
+        if (ticket !== ticketRef.current) {
+          return;
+        }
+        setError(
+          t("sessions.manage.loadFailed", {
+            error: e instanceof Error ? e.message : String(e),
+          }),
+        );
+      } finally {
+        if (ticket === ticketRef.current) {
+          setLoading(false);
+        }
+      }
+    },
+    [query, t],
+  );
+
+  // The refresh after a delete must use the search the field shows now, not the
+  // one captured when the confirmation dialog opened: a debounce that fires
+  // while the dialog is up would otherwise be overwritten by the older query.
+  const loadRef = useRef(load);
+  loadRef.current = load;
+
+  useEffect(() => {
+    void load(true, null);
+  }, [load]);
+
+  // The selection never holds a row the table is not showing. A search that
+  // narrows the list drops the ticks that went with the hidden rows, so
+  // "delete selected" always means exactly the ticked rows on screen - a
+  // destructive action must never reach something invisible, and a tick must
+  // never reappear later because it survived out of sight.
+  useEffect(() => {
+    setSelected((prev) => {
+      if (prev.size === 0) {
+        return prev;
+      }
+      const visible = new Set(rows.map((row) => row.id));
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (visible.has(id)) {
+          next.add(id);
+        }
+      }
+      return next.size === prev.size ? prev : next;
+    });
+  }, [rows]);
+
+  // Debounce typing into the search box the way the History drawer does.
+  useEffect(() => {
+    const handle = window.setTimeout(
+      () => setQuery(searchDraft.trim()),
+      SEARCH_DEBOUNCE_MS,
+    );
+    return () => window.clearTimeout(handle);
+  }, [searchDraft]);
+
+  const selectedIds = rows.filter((r) => selected.has(r.id)).map((r) => r.id);
+
+  const runDelete = useCallback(
+    async (scope: BulkDeleteScope) => {
+      setBusy(true);
+      setError(null);
+      // Reported after the refresh below: re-reading the listing clears the
+      // error slot, so a message written before it would never be seen.
+      let failure: string | null = null;
+      try {
+        const res = await fetch("/coddy/sessions/bulk-delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(bulkDeleteBody(scope)),
+        });
+        const data = (await res.json().catch(() => ({}))) as BulkDeleteResponse;
+        if (!res.ok) {
+          throw new Error(String(res.status));
+        }
+        const deleted = data.deleted ?? [];
+        const failed = data.failed ?? [];
+        setSelected((prev) => selectionWithout(prev, deleted));
+        if (deleted.length > 0) {
+          onSessionsDeleted?.(deleted);
+        }
+        if (failed.length > 0) {
+          // Partial success is the normal answer when one session is mid-turn:
+          // say which ones stayed instead of pretending the batch worked.
+          failure = t("sessions.manage.partialFailure", {
+            count: failed.length,
+            reason: String(failed[0]?.error ?? ""),
+          });
+        }
+      } catch (e) {
+        failure = t("sessions.manage.deleteFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        });
+      } finally {
+        setBusy(false);
+        await loadRef.current(true, null);
+        if (failure) {
+          setError(failure);
+        }
+      }
+    },
+    [onSessionsDeleted, t],
+  );
+
+  const confirmAndDelete = useCallback(
+    async (scope: BulkDeleteScope, title: string, message: string) => {
+      const ok = await confirm({
+        title,
+        message,
+        confirmLabel: t("common.delete"),
+        variant: "danger",
+      });
+      if (!ok) {
+        return;
+      }
+      await runDelete(scope);
+    },
+    [confirm, runDelete, t],
+  );
+
+  const deleteSelectedLabel = t("sessions.manage.deleteSelected", {
+    count: selectedIds.length,
+  });
+  const deleteOthersLabel = activeStoredId
+    ? t("sessions.manage.deleteOthers")
+    : t("sessions.manage.noActiveSession");
+  const headerChecked = allRowsSelected(rows, selected);
+  const headerPartial = someRowsSelected(rows, selected);
+
+  return (
+    <div className="sessions-manager" data-testid="sessions-manager">
+      <p className="settings-field-desc">{t("sessions.manage.lead")}</p>
+
+      <div className="sessions-manager-toolbar">
+        <input
+          type="search"
+          className="settings-input sessions-manager-search"
+          placeholder={t("sessions.searchPlaceholder")}
+          aria-label={t("sessions.searchAriaLabel")}
+          data-testid="sessions-manager-search"
+          value={searchDraft}
+          onChange={(ev) => setSearchDraft(ev.target.value)}
+        />
+        {/* Icon buttons: the label of each action is its tooltip and its
+            accessible name, so three destructive scopes fit beside the search
+            field instead of pushing it onto its own line. */}
+        <div className="sessions-manager-actions">
+          <button
+            type="button"
+            className="settings-btn settings-btn-danger settings-btn-icon sessions-manager-action"
+            data-testid="sessions-manager-delete-selected"
+            disabled={busy || selectedIds.length === 0}
+            title={deleteSelectedLabel}
+            aria-label={deleteSelectedLabel}
+            onClick={() =>
+              void confirmAndDelete(
+                { kind: "ids", ids: selectedIds },
+                tp(
+                  "sessions.manage.confirm.selected.title",
+                  selectedIds.length,
+                  { count: selectedIds.length },
+                ),
+                t("sessions.manage.confirm.selected.message"),
+              )
+            }
+          >
+            <IconTrash mark="check" />
+            {selectedIds.length > 0 ? (
+              <span
+                className="sessions-manager-action-count"
+                aria-hidden
+                data-testid="sessions-manager-selected-count"
+              >
+                {selectedIds.length}
+              </span>
+            ) : null}
+          </button>
+          <button
+            type="button"
+            className="settings-btn settings-btn-danger settings-btn-icon sessions-manager-action"
+            data-testid="sessions-manager-delete-others"
+            disabled={busy || !activeStoredId}
+            // A disabled button's title is often not announced, so the reason
+            // it is disabled is the accessible name too, not only the tooltip.
+            title={deleteOthersLabel}
+            aria-label={deleteOthersLabel}
+            onClick={() =>
+              void confirmAndDelete(
+                { kind: "allExcept", keep: activeStoredId },
+                t("sessions.manage.confirm.others.title"),
+                t("sessions.manage.confirm.others.message"),
+              )
+            }
+          >
+            <IconTrash mark="minus" />
+          </button>
+          <button
+            type="button"
+            className="settings-btn settings-btn-danger settings-btn-icon sessions-manager-action"
+            data-testid="sessions-manager-delete-all"
+            disabled={busy}
+            title={t("sessions.manage.deleteAll")}
+            aria-label={t("sessions.manage.deleteAll")}
+            onClick={() =>
+              void confirmAndDelete(
+                { kind: "all" },
+                t("sessions.manage.confirm.all.title"),
+                t("sessions.manage.confirm.all.message"),
+              )
+            }
+          >
+            <IconTrash mark="cross" />
+          </button>
+        </div>
+      </div>
+
+      {error ? (
+        <p className="settings-error" data-testid="sessions-manager-error">
+          {error}
+        </p>
+      ) : null}
+
+      <div className="sessions-manager-tablewrap">
+        <table className="sessions-manager-table">
+          <thead>
+            <tr>
+              <th className="sessions-manager-col-pick" scope="col">
+                <input
+                  type="checkbox"
+                  aria-label={t("sessions.manage.selectAll")}
+                  data-testid="sessions-manager-select-all"
+                  checked={headerChecked}
+                  ref={(el) => {
+                    if (el) {
+                      el.indeterminate = headerPartial;
+                    }
+                  }}
+                  onChange={(ev) =>
+                    setSelected((prev) =>
+                      toggleAllRows(rows, prev, ev.target.checked),
+                    )
+                  }
+                />
+              </th>
+              <th scope="col">{t("sessions.manage.column.conversation")}</th>
+              <th scope="col">{t("sessions.manage.column.model")}</th>
+              <th className="sessions-manager-col-num" scope="col">
+                {t("sessions.manage.column.messages")}
+              </th>
+              <th className="sessions-manager-col-num" scope="col">
+                {t("sessions.manage.column.tokens")}
+              </th>
+              <th scope="col">{t("sessions.manage.column.created")}</th>
+              <th scope="col">{t("sessions.manage.column.updated")}</th>
+              <th className="sessions-manager-col-act" scope="col">
+                <span className="sr-only">
+                  {t("sessions.manage.column.actions")}
+                </span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const usage = row.tokenUsage ?? {};
+              const total = rowTotalTokens(row);
+              return (
+                <tr
+                  key={row.id}
+                  className={
+                    row.id === activeStoredId ? "is-active-session" : undefined
+                  }
+                  data-testid={`sessions-manager-row-${row.id}`}
+                >
+                  <td className="sessions-manager-col-pick">
+                    <input
+                      type="checkbox"
+                      aria-label={t("sessions.manage.selectRow", {
+                        title: row.title || t("sessions.newChatFallback"),
+                      })}
+                      data-testid={`sessions-manager-pick-${row.id}`}
+                      checked={selected.has(row.id)}
+                      onChange={(ev) =>
+                        setSelected((prev) =>
+                          toggleSelected(prev, row.id, ev.target.checked),
+                        )
+                      }
+                    />
+                  </td>
+                  <td className="sessions-manager-col-title">
+                    <span className="sessions-manager-title-line">
+                      <span title={row.title || row.id}>
+                        {row.title || t("sessions.newChatFallback")}
+                      </span>
+                      {row.id === activeStoredId ? (
+                        <span className="sessions-manager-badge">
+                          {t("sessions.manage.openBadge")}
+                        </span>
+                      ) : null}
+                    </span>
+                    {/* The workspace is a second line rather than a column of
+                        its own: it is context for the title, and the table has
+                        a drawer to fit into. */}
+                    <span
+                      className="sessions-manager-cwd"
+                      title={row.cwd || ""}
+                    >
+                      {workspaceBasename(row.cwd) || "—"}
+                    </span>
+                  </td>
+                  <td className="sessions-manager-col-model">
+                    <span
+                      title={row.model || t("sessions.manage.modelDefault")}
+                    >
+                      {row.model || t("sessions.manage.modelDefault")}
+                    </span>
+                  </td>
+                  <td className="sessions-manager-col-num">
+                    {row.messageCount ?? 0}
+                  </td>
+                  <td
+                    className="sessions-manager-col-num"
+                    title={t("sessions.manage.tokensBreakdown", {
+                      input: usage.inputTokens ?? 0,
+                      output: usage.outputTokens ?? 0,
+                      total,
+                    })}
+                  >
+                    {formatTokenCount(total)}
+                  </td>
+                  <td title={formatRowTimestampFull(row.createdAt)}>
+                    {formatRowTimestamp(row.createdAt)}
+                  </td>
+                  <td title={formatRowTimestampFull(row.updatedAt)}>
+                    {formatRowTimestamp(row.updatedAt)}
+                  </td>
+                  <td className="sessions-manager-col-act">
+                    <button
+                      type="button"
+                      className="session-trash"
+                      aria-label={t("sessions.deleteConversation")}
+                      title={t("sessions.delete")}
+                      data-testid={`sessions-manager-delete-${row.id}`}
+                      disabled={busy}
+                      onClick={() =>
+                        void confirmAndDelete(
+                          { kind: "ids", ids: [row.id] },
+                          t("confirm.session.deleteChat.title"),
+                          t("confirm.session.deleteChat.message"),
+                        )
+                      }
+                    >
+                      <IconTrash />
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {rows.length === 0 && !loading ? (
+          <p
+            className="settings-muted sessions-manager-empty"
+            data-testid="sessions-manager-empty"
+          >
+            {query ? t("sessions.manage.noMatches") : t("sessions.empty")}
+          </p>
+        ) : null}
+      </div>
+
+      <div className="sessions-manager-footer">
+        <span className="settings-muted" data-testid="sessions-manager-summary">
+          {tp("sessions.manage.shown", rows.length, { count: rows.length })}
+          {selectedIds.length > 0
+            ? ` ${t("sessions.manage.selectedSuffix", { count: selectedIds.length })}`
+            : ""}
+        </span>
+        {hasMore ? (
+          <button
+            type="button"
+            className="settings-btn"
+            data-testid="sessions-manager-load-more"
+            disabled={loading || busy}
+            onClick={() => void load(false, cursor)}
+          >
+            {t("sessions.manage.loadMore")}
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}

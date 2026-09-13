@@ -269,6 +269,24 @@ Session delete UX
 - If the deleted session is **not** the one currently shown in the main chat, remove it from the list (and refresh from the server) and **keep the History drawer open**. Do not change the URL or clear the transcript for the session that stayed on screen.
 - If the deleted session **is** the one currently shown, navigate to **new chat** (empty start screen, session hash cleared), **close** the History drawer, and clear composer-related state as for a normal home transition.
 - For a short interval after the user confirms delete, **ignore** shell **backdrop** pointer-driven close so a stray event from the native confirm does not dismiss History or alter the route.
+- Deleting more than one conversation at a time, and reading what each one cost, is **Settings -> Sessions** (below). History stays the place to *open* a session.
+
+## Settings: session management
+
+![The session management table with two conversations ticked](../assets/sessions-management-table-dark-1280.png)
+
+*The session management table with two conversations ticked and the three bulk-action icons beside the search field*
+
+**Settings -> Sessions** (**`#/settings/sessions_manager`**, **`SessionsManager.tsx`**, pure helpers in **`sessions/sessionManagerRows.ts`**) is the stored history as a table rather than a list to scroll. It is a client-side tab like Appearance: it reads and removes session bundles over **`/coddy/sessions`** and edits no config key, so it renders before the config schema has loaded. Its id is **`sessions_manager`** because **`sessions`** is already a config key - the storage directory, which stays in the **System** tab.
+
+- **Rows** come from **`GET /coddy/sessions?include_stats=true`**, 50 at a time with a **Load more** button. Each one shows the title with its **workspace** underneath, the **model** the session overrode (**`default`** when it never did, meaning whatever **`agent.model`** was at the time), the **message count**, the **total tokens** (input and output in the cell tooltip), and **created** / **updated** dates (the exact instant in the tooltip). A bundle stored before Coddy recorded a creation stamp shows **—** rather than a date invented from a later save.
+- **Search** is the same **`q`** filter the History drawer uses - title or first user message, case insensitive - debounced as you type.
+- **Bulk actions** are three **icon buttons** beside the search field - one trash can each, marked with a **check** (the ticked rows), a **minus** (everything but the conversation that is open) and a **cross** (the whole history). What each one does is its **tooltip** and its accessible name, not a label on its face; the only text drawn is the **selection count** badge on the first, which a tooltip cannot show at a glance. Every one of them goes through the shared confirmation dialog. The last two resolve **server side** (**`POST /coddy/sessions/bulk-delete`** with **`scope: "all"`**), so they mean the whole stored history and not the page that happens to be loaded; the minus button is disabled, with a tooltip saying why, when no stored conversation is open (a client-only draft is not one).
+- The **selection follows what the table shows**: the header checkbox ticks and unticks the rendered rows, and a search that hides a ticked row takes its tick with it (clearing the search brings the row back unticked). A destructive action never reaches a row that is off screen, and a tick cannot reappear later because it survived out of sight.
+- **Delete all but the open one** keeps the ancestors of the session it spares, so it is safe while a subagent transcript (**`sub_`**) is open: the parent whose tree would have taken the child is kept too. The server refuses the request outright if the session to keep is not stored.
+- A session that could not be removed - a turn of its tree was still running - is **reported** under the toolbar with its reason, and its row stays. The others are still gone: the request answers with **`deleted`** and **`failed`** separately.
+- The list **re-reads after every delete**; nothing is reloaded. If the conversation on screen behind the panel was one of the deleted ones, the chat resets to a new one and Settings stays open on this tab.
+- The table is the one horizontally scrollable element of the tab, so a narrow shell scrolls the columns instead of the page.
 
 ## Chat transport
 

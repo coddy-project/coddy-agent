@@ -69,6 +69,7 @@ export const messagesRu: Record<string, string> = {
   "settings.error.noItemSchema": "У этого раздела нет схемы элементов.",
 
   "settings.section.appearance.label": "Оформление",
+  "settings.section.sessions_manager.label": "Сессии",
   "settings.section.providers.label": "Провайдеры LLM",
   "settings.section.models.label": "Логические модели",
   "settings.section.agent.label": "ReAct-агент",
@@ -81,6 +82,7 @@ export const messagesRu: Record<string, string> = {
   "settings.section.subagents.label": "Субагенты",
   "settings.section.hooks.label": "Хуки",
   "settings.section.appearance.desc": "Тема и цветовой режим",
+  "settings.section.sessions_manager.desc": "Сохранённые чаты и очистка",
   "settings.section.providers.desc": "Подключения LLM API",
   "settings.section.models.desc": "Именованные конфигурации моделей",
   "settings.section.agent.desc": "Параметры агента ReAct",
@@ -747,6 +749,50 @@ export const messagesRu: Record<string, string> = {
   "sessions.deleteConversation": "Удалить диалог",
   "sessions.delete": "Удалить",
   "sessions.loadingMore": "Загрузка…",
+
+  "sessions.manage.lead":
+    "Все сохранённые диалоги и во что они обошлись. Отметьте ненужные строки или очистите историю целиком.",
+  "sessions.manage.loadFailed": "Не удалось загрузить сессии, {error}",
+  "sessions.manage.deleteFailed": "Не удалось удалить, {error}",
+  "sessions.manage.partialFailure":
+    "Сессий оставлено {count}, они ещё заняты. Первая причина, {reason}",
+  "sessions.manage.deleteSelected": "Удалить выбранные ({count})",
+  "sessions.manage.deleteOthers": "Удалить все, кроме открытой",
+  "sessions.manage.deleteAll": "Удалить все",
+  "sessions.manage.noActiveSession":
+    "Нет открытого диалога, который стоит сохранить",
+  "sessions.manage.confirm.selected.title.one": "Удалить {count} диалог?",
+  "sessions.manage.confirm.selected.title.few": "Удалить {count} диалога?",
+  "sessions.manage.confirm.selected.title.many": "Удалить {count} диалогов?",
+  "sessions.manage.confirm.selected.title.other": "Удалить {count} диалога?",
+  "sessions.manage.confirm.selected.message":
+    "Их переписка, вызовы инструментов и загруженные файлы будут стёрты с диска. Отменить это нельзя.",
+  "sessions.manage.confirm.others.title": "Удалить все остальные диалоги?",
+  "sessions.manage.confirm.others.message":
+    "С диска будет стёрто всё, кроме открытого сейчас диалога, включая чаты, которые не подгружены в эту таблицу. Отменить это нельзя.",
+  "sessions.manage.confirm.all.title": "Удалить всю историю?",
+  "sessions.manage.confirm.all.message":
+    "С диска будут стёрты все сохранённые диалоги, включая те, что не подгружены в эту таблицу. Отменить это нельзя.",
+  "sessions.manage.selectAll": "Выбрать все показанные диалоги",
+  "sessions.manage.selectRow": "Выбрать {title}",
+  "sessions.manage.column.conversation": "Диалог",
+  "sessions.manage.column.model": "Модель",
+  "sessions.manage.column.messages": "Сообщ.",
+  "sessions.manage.column.tokens": "Токены",
+  "sessions.manage.column.created": "Создан",
+  "sessions.manage.column.updated": "Изменён",
+  "sessions.manage.column.actions": "Действия",
+  "sessions.manage.openBadge": "открыт",
+  "sessions.manage.modelDefault": "по умолчанию",
+  "sessions.manage.tokensBreakdown":
+    "{input} на вход, {output} на выход, {total} всего",
+  "sessions.manage.noMatches": "По запросу ничего не найдено",
+  "sessions.manage.shown.one": "{count} диалог",
+  "sessions.manage.shown.few": "{count} диалога",
+  "sessions.manage.shown.many": "{count} диалогов",
+  "sessions.manage.shown.other": "{count} диалога",
+  "sessions.manage.selectedSuffix": "· выбрано {count}",
+  "sessions.manage.loadMore": "Показать ещё",
 
   "chat.newChat": "Новый чат",
   "chat.chatTitleAriaLabel": "Заголовок чата",

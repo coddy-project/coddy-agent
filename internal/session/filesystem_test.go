@@ -655,3 +655,123 @@ func TestListSnapshotsMatchesWorkspaceSpelledDifferently(t *testing.T) {
 		t.Fatalf("filter %q: rows = %+v, want none", other, rows)
 	}
 }
+
+// The creation stamp is written once, when the bundle directory appears, and is
+// carried forward by every later save so the session management table can sort
+// by age.
+func TestCreatedAtIsStampedOnceAndSurvivesSaves(t *testing.T) {
+	root := t.TempDir()
+	fs := &FileStore{Root: root}
+	id := "sess_created_ut"
+	dir, err := fs.EnsureLayout(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := fs.ReadSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := first.Meta.CreatedAt
+	if created == "" {
+		t.Fatal("EnsureLayout left the bundle without a createdAt")
+	}
+
+	st := &State{ID: id, CWD: "/tmp", Mode: ModeAgent, SessionDir: dir}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hi"})
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "hello"})
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := fs.ReadSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.CreatedAt != created {
+		t.Fatalf("createdAt moved from %q to %q", created, snap.Meta.CreatedAt)
+	}
+
+	// Patching only the activity counters rewrites session.json; the stamp must
+	// come through that path too.
+	st.RestoreActivityFromSnapshot(1, 0)
+	st.MarkActivityReadSynced()
+	if err := fs.PatchSessionMetaActivitySync(st); err != nil {
+		t.Fatal(err)
+	}
+	snap, err = fs.ReadSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.CreatedAt != created {
+		t.Fatalf("activity patch dropped createdAt: %q", snap.Meta.CreatedAt)
+	}
+}
+
+// A bundle written by an older build has a session.json without createdAt. The
+// moment it was started is not recoverable, so a later save must leave the
+// field empty rather than backdate the session to that save.
+func TestSaveDoesNotInventCreatedAtForALegacyBundle(t *testing.T) {
+	root := t.TempDir()
+	fs := &FileStore{Root: root}
+	id := "sess_legacy_ut"
+	dir, err := fs.EnsureLayout(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Rewrite session.json the way an older build left it.
+	legacy := SessionMeta{Version: sessionFileLayout, ID: id, UpdatedAt: "2020-01-01T00:00:00Z"}
+	if err := writeJSONAtomic(filepath.Join(dir, sessionMetaFile), legacy); err != nil {
+		t.Fatal(err)
+	}
+
+	st := &State{ID: id, CWD: "/tmp", Mode: ModeAgent, SessionDir: dir}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hi"})
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := fs.ReadSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.CreatedAt != "" {
+		t.Fatalf("createdAt = %q, want empty for a legacy bundle", snap.Meta.CreatedAt)
+	}
+}
+
+// The listing carries what the management table renders per row without
+// reopening any bundle: the model override, the transcript size and the stamps.
+func TestListSnapshotsCarriesRowStatistics(t *testing.T) {
+	root := t.TempDir()
+	fs := &FileStore{Root: root}
+	id := "sess_rowstats_ut"
+	dir, err := fs.EnsureLayout(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &State{ID: id, CWD: t.TempDir(), Mode: ModeAgent, SessionDir: dir}
+	st.SetSelectedModelID("openai/gpt-4o")
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "ask"})
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "answer"})
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := fs.ListSnapshotsWith(ListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(rows))
+	}
+	row := rows[0]
+	if row.Model != "openai/gpt-4o" {
+		t.Fatalf("model = %q", row.Model)
+	}
+	if row.MessageCount != 2 {
+		t.Fatalf("messageCount = %d, want 2", row.MessageCount)
+	}
+	if row.CreatedAt == "" {
+		t.Fatal("row carries no createdAt")
+	}
+}
