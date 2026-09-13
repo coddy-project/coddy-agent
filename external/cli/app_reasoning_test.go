@@ -95,6 +95,38 @@ func TestReasoningSelectorPersistsAndRefreshesFooter(t *testing.T) {
 	}
 }
 
+func TestReasoningSelectorFiltersAndSelectsHigh(t *testing.T) {
+	a := newReasoningApp(t)
+	a.openReasoningSelector()
+
+	sel, ok := a.modal.(*selectorModal)
+	if !ok {
+		t.Fatalf("modal = %T, want reasoning selector", a.modal)
+	}
+	a.dispatchInput([]byte("hi"))
+	if got := sel.list.SelectedItem(); got == nil || got.Value != "high" {
+		t.Fatalf("filtered selection = %v, want high", got)
+	}
+	rows := strings.Join(sel.list.Render(100), "\n")
+	if !strings.Contains(rows, "high") || strings.Contains(rows, "minimal") || strings.Contains(rows, "medium") || strings.Contains(rows, "low") {
+		t.Fatalf("filtered rows = %q, want only high", rows)
+	}
+
+	a.dispatchInput([]byte("\r"))
+	waitForReasoning(t, a, "high")
+}
+
+func TestReasoningSlashSetsHigh(t *testing.T) {
+	a := newReasoningApp(t)
+	if !a.dispatchSlash("/reasoning high") {
+		t.Fatal("/reasoning high was not handled")
+	}
+	if a.modal != nil {
+		t.Fatalf("modal = %T after /reasoning high, want no selector", a.modal)
+	}
+	waitForReasoning(t, a, "high")
+}
+
 func TestReasoningSlashReportsAvailableLevelsAndPreservesInvalidSelection(t *testing.T) {
 	a := newTestApp(t)
 	if !a.dispatchSlash("/reasoning") {
@@ -133,6 +165,19 @@ func TestCycleReasoningUsesPersistentConfigOption(t *testing.T) {
 	a := newReasoningApp(t)
 	a.cycleReasoning()
 	waitForReasoning(t, a, "high")
+}
+
+func TestShiftTabCyclesReasoningThroughWrap(t *testing.T) {
+	a := newReasoningApp(t)
+	if !a.handleGlobalKey([]byte("\x1b[Z")) {
+		t.Fatal("Shift+Tab was not handled")
+	}
+	waitForReasoning(t, a, "high")
+
+	if !a.handleGlobalKey([]byte("\x1b[Z")) {
+		t.Fatal("Shift+Tab was not handled after selecting high")
+	}
+	waitForReasoning(t, a, "minimal")
 }
 
 func TestReasoningCatalogAndRemoteOptionUpdates(t *testing.T) {
