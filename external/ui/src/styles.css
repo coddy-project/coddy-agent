@@ -1932,7 +1932,6 @@ a.rail-brand {
 
 /* Full-width vignette above the docked composer (no side gaps vs narrow card stripe) */
 .chat-bottom:has(.composer-wrap-docked)::before {
-  content: "";
   position: absolute;
   left: var(--coddy-chat-scrollbar-gutter);
   right: var(--coddy-chat-scrollbar-gutter);
