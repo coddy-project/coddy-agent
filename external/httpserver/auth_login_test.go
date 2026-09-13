@@ -83,14 +83,20 @@ func signIn(t *testing.T, srv *Server, user, password string) *httptest.Response
 	return w
 }
 
+// isSessionCookie matches the per-origin cookie name, whose suffix is a digest
+// of the host the request was addressed to.
+func isSessionCookie(name string) bool {
+	return strings.HasPrefix(name, sessionCookieBaseName)
+}
+
 func sessionCookieOf(t *testing.T, w *httptest.ResponseRecorder) *http.Cookie {
 	t.Helper()
 	for _, c := range w.Result().Cookies() {
-		if c.Name == sessionCookieName {
+		if isSessionCookie(c.Name) {
 			return c
 		}
 	}
-	t.Fatalf("no %q cookie in the response (status %d, body %s)", sessionCookieName, w.Code, w.Body.String())
+	t.Fatalf("no %q cookie in the response (status %d, body %s)", sessionCookieBaseName, w.Code, w.Body.String())
 	return nil
 }
 
@@ -113,7 +119,7 @@ func TestLoginRefusesWrongPasswordAndUnknownUser(t *testing.T) {
 	}
 	for _, w := range []*httptest.ResponseRecorder{wrongPass, unknownUser} {
 		for _, c := range w.Result().Cookies() {
-			if c.Name == sessionCookieName && c.Value != "" {
+			if isSessionCookie(c.Name) && c.Value != "" {
 				t.Fatal("a refused sign-in handed out a session cookie")
 			}
 		}
@@ -207,8 +213,11 @@ func TestLoginCookieFlags(t *testing.T) {
 	if !c.HttpOnly {
 		t.Fatal("the session cookie is readable by scripts on the page")
 	}
-	if c.SameSite != http.SameSiteLaxMode {
-		t.Fatalf("SameSite = %v, want Lax", c.SameSite)
+	if c.SameSite != http.SameSiteStrictMode {
+		// Strict costs nothing here - the page is public and every call the
+		// loaded page makes is same-origin - and it keeps the cookie off the
+		// one thing Lax allows: a cross-site link to an API route.
+		t.Fatalf("SameSite = %v, want Strict", c.SameSite)
 	}
 	if c.Path != "/" {
 		t.Fatalf("cookie path = %q, want /", c.Path)
@@ -265,7 +274,11 @@ func TestCookieWriteFromAnotherSiteIsRefused(t *testing.T) {
 		{"opaque origin", map[string]string{"Origin": "null"}, http.StatusForbidden},
 		{"same origin", map[string]string{"Sec-Fetch-Site": "same-origin"}, 0},
 		{"own origin header", map[string]string{"Origin": "http://example.com"}, 0},
-		{"no browser headers", nil, 0},
+		// A cookie with no label at all is refused too: a browser old enough to
+		// send neither header on a cross-site POST is old enough to ignore
+		// SameSite, so "unlabelled" cannot be read as "not a browser". A script
+		// that wants to write sends an Origin, or carries a bearer token.
+		{"no browser headers", nil, http.StatusForbidden},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// What is asserted is the gate's verdict, not the handler's answer:
@@ -401,7 +414,7 @@ func TestGarbageCookieIsRefused(t *testing.T) {
 	srv := newLoginServer(t, configuredLogin(t))
 	for _, value := range []string{"not-a-token", "", strings.Repeat("A", 512)} {
 		r := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
-		r.AddCookie(&http.Cookie{Name: sessionCookieName, Value: value})
+		r.AddCookie(&http.Cookie{Name: sessionCookieName(r), Value: value})
 		w := httptest.NewRecorder()
 		srv.Handler().ServeHTTP(w, r)
 		if w.Code != http.StatusUnauthorized {
@@ -724,7 +737,7 @@ func TestIsSameOriginRequest(t *testing.T) {
 		host    string
 		want    bool
 	}{
-		{"no labels at all", nil, "box:12345", true},
+		{"no labels at all", nil, "box:12345", false},
 		{"sec-fetch same-origin", map[string]string{"Sec-Fetch-Site": "same-origin"}, "box:12345", true},
 		{"sec-fetch none", map[string]string{"Sec-Fetch-Site": "none"}, "box:12345", true},
 		{"sec-fetch cross-site", map[string]string{"Sec-Fetch-Site": "cross-site"}, "box:12345", false},
@@ -757,5 +770,150 @@ func TestIsStateChanging(t *testing.T) {
 		if !isStateChanging(httptest.NewRequest(m, "/x", nil)) {
 			t.Fatalf("%s changes state", m)
 		}
+	}
+}
+
+func TestTheGateIsNotFooledByTheShapeOfAURL(t *testing.T) {
+	// The gate classifies the pattern the mux matched, not the string a client
+	// typed, so none of these reaches anything behind it. What each one gets -
+	// 401, 404 or a redirect - is the mux's business; what matters is that it
+	// is never 200.
+	srv := newLoginServer(t, configuredLogin(t))
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodGet, "/coddy/auth/login"},          // the form, wrong method
+		{http.MethodPost, "/coddy/auth/me"},            // the state, wrong method
+		{http.MethodGet, "/coddy/auth/login/"},         // a trailing slash
+		{http.MethodGet, "/coddy/auth/"},               // the prefix alone
+		{http.MethodGet, "/coddy/auth/me/../sessions"}, // a traversal in the path
+		{http.MethodGet, "/coddy/sessions/"},           // a protected route, slashed
+		{http.MethodHead, "/coddy/config"},             // a protected route, HEAD
+		{http.MethodGet, "/coddy/config?x=/coddy/auth/me"},
+		{http.MethodGet, "/v1/models/"},
+	} {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			srv.Handler().ServeHTTP(w, httptest.NewRequest(tc.method, tc.path, nil))
+			if w.Code == http.StatusOK {
+				t.Fatalf("%s %s answered 200 without a credential: %s", tc.method, tc.path, w.Body.String())
+			}
+			// A redirect is only safe when what it points at is itself gated, so
+			// the target is followed and held to the same rule.
+			if loc := w.Header().Get("Location"); loc != "" {
+				wf := httptest.NewRecorder()
+				srv.Handler().ServeHTTP(wf, httptest.NewRequest(tc.method, loc, nil))
+				if wf.Code == http.StatusOK {
+					t.Fatalf("%s %s redirects to %s, which answers 200 without a credential: %s",
+						tc.method, tc.path, loc, wf.Body.String())
+				}
+			}
+		})
+	}
+}
+
+func TestAuthRoutesStayPublicOnAnOpenServer(t *testing.T) {
+	// With nothing configured the three routes still answer, because the SPA
+	// asks on every boot whether it needs a form.
+	srv := newLoginServer(t, config.HTTPLoginConfig{})
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/coddy/auth/me", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /coddy/auth/me on an open server: %d", w.Code)
+	}
+	out := httptest.NewRequest(http.MethodPost, "/coddy/auth/logout", nil)
+	out.Header.Set("Sec-Fetch-Site", "same-origin")
+	wo := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(wo, out)
+	if wo.Code != http.StatusOK {
+		t.Fatalf("POST /coddy/auth/logout on an open server: %d", wo.Code)
+	}
+}
+
+func TestSessionCookieIsScopedToTheOrigin(t *testing.T) {
+	// Cookies are not scoped by port, so two Coddy servers on one host would
+	// otherwise overwrite each other's session on every sign-in - a relay and
+	// the node behind it, or a production one beside the one being tried out.
+	srv := newLoginServer(t, configuredLogin(t))
+
+	signInAt := func(host string) string {
+		r := loginRequest(loginTestUser, loginTestPassword)
+		r.Host = host
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("sign-in at %s: %d", host, w.Code)
+		}
+		return sessionCookieOf(t, w).Name
+	}
+	first := signInAt("box:12345")
+	second := signInAt("box:12346")
+	if first == second {
+		t.Fatalf("both servers name the cookie %q, so one signs the other out", first)
+	}
+	if !strings.HasPrefix(first, sessionCookieBaseName) || !strings.HasPrefix(second, sessionCookieBaseName) {
+		t.Fatalf("cookie names lost their common prefix: %q, %q", first, second)
+	}
+	// The name is stable for one origin, or a reload would look like a sign-out.
+	if again := signInAt("box:12345"); again != first {
+		t.Fatalf("the same origin got two names: %q then %q", first, again)
+	}
+	if upper := signInAt("BOX:12345"); upper != first {
+		t.Fatalf("the host's case changed the cookie name: %q vs %q", upper, first)
+	}
+}
+
+func TestASessionOfAnotherOriginDoesNotOpenThisOne(t *testing.T) {
+	srv := newLoginServer(t, configuredLogin(t))
+	other := loginRequest(loginTestUser, loginTestPassword)
+	other.Host = "box:12346"
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, other)
+	c := sessionCookieOf(t, w)
+
+	// The value is live, but it is filed under the other origin's name, so a
+	// request addressed here does not present it.
+	r := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	r.Host = "box:12345"
+	r.AddCookie(&http.Cookie{Name: c.Name, Value: c.Value})
+	wr := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(wr, r)
+	if wr.Code != http.StatusUnauthorized {
+		t.Fatalf("a cookie named for another origin opened this one: %d", wr.Code)
+	}
+}
+
+func TestLoginThrottleFollowsTheClientBehindAProxy(t *testing.T) {
+	// The deployment the documentation recommends puts a TLS-terminating proxy
+	// in front of a loopback listener, which would otherwise hand every request
+	// in the world the exemption meant for the operator's own machine.
+	srv := newLoginServer(t, configuredLogin(t))
+	srv.loginThrottle.Base = time.Millisecond
+	srv.loginThrottle.Max = 4 * time.Millisecond
+
+	fail := func(headers map[string]string) {
+		r := loginRequest(loginTestUser, "wrong")
+		r.RemoteAddr = "127.0.0.1:40000" // the proxy, on this machine
+		for k, v := range headers {
+			r.Header.Set(k, v)
+		}
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, r)
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("status %d, want 401", w.Code)
+		}
+	}
+	fail(map[string]string{"X-Forwarded-For": "203.0.113.30, 10.0.0.2"})
+	fail(map[string]string{"X-Forwarded-For": "203.0.113.30, 10.0.0.2"})
+	if d := srv.loginThrottle.Delay("203.0.113.30"); d <= 0 {
+		t.Fatal("a client behind a proxy was never throttled")
+	}
+	// A different client through the same proxy is a different row.
+	if d := srv.loginThrottle.Delay("203.0.113.31"); d != 0 {
+		t.Fatalf("one client's failures cost another %v", d)
+	}
+	// The operator at the machine, with no proxy in the way, still is not.
+	fail(nil)
+	fail(nil)
+	if d := srv.loginThrottle.Delay("127.0.0.1"); d != 0 {
+		t.Fatalf("the machine throttled itself by %v", d)
 	}
 }

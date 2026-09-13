@@ -362,8 +362,11 @@ func applySubsystemFlags(fs *flag.FlagSet, cfg *config.Config, f subsystemFlags)
 // server closed with only one of the two is a thing worth being able to see.
 func httpAuthSummary(cfg *config.Config, extraAuth, extraLogin bool) string {
 	token := extraAuth || len(cfg.HTTPServer.EffectiveAuthTokens()) > 0
+	// An `enable: true` with no account behind it is not a sign-in: the server
+	// refuses to start on it, and announcing one here would be the last thing
+	// the operator read before that error.
 	login := !cfg.HTTPServer.Login.IsExplicitlyDisabled() &&
-		(extraLogin || cfg.HTTPServer.Login.HasAccount() || cfg.HTTPServer.Login.IsExplicitlyEnabled())
+		(extraLogin || cfg.HTTPServer.Login.HasAccount())
 	switch {
 	case token && login:
 		return "bearer auth, web sign-in"

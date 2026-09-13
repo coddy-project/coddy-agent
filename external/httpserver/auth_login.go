@@ -8,6 +8,8 @@ package httpserver
 // a form never takes a token client's access away.
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -18,10 +20,26 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/webauth"
 )
 
-// sessionCookieName is the cookie a signed-in browser carries. It is HttpOnly,
-// so no script on the page can read it, and SameSite=Lax, so it does not travel
-// with a cross-site request that changes anything.
-const sessionCookieName = "coddy_session"
+// sessionCookieBaseName is the cookie a signed-in browser carries. It is
+// HttpOnly, so no script on the page can read it, and SameSite=Strict, so it
+// never travels with a request another site caused.
+const sessionCookieBaseName = "coddy_session"
+
+// sessionCookieName is the cookie name for one origin.
+//
+// Cookies are not scoped by port, so two Coddy servers on one host - a node and
+// the relay in front of it, a production one and the one being tried out - would
+// otherwise overwrite each other's session with every sign-in. The name carries
+// a short digest of the host the request was addressed to, which is stable for a
+// server and different for its neighbour.
+func sessionCookieName(r *http.Request) string {
+	host := strings.ToLower(strings.TrimSpace(r.Host))
+	if host == "" {
+		return sessionCookieBaseName
+	}
+	sum := sha256.Sum256([]byte(host))
+	return sessionCookieBaseName + "_" + hex.EncodeToString(sum[:4])
+}
 
 // maxLoginBodyBytes bounds the sign-in request body. A login is two short
 // strings; anything larger is a mistake or an attempt to make the server chew.
@@ -41,7 +59,9 @@ type loginAccount struct {
 	hash string
 	// source is loginSourceConfig or loginSourceEnv, for the settings screen.
 	source string
-	// ttl is how long a session lives; zero means until the browser closes.
+	// ttl is how long a session lives; zero means the cookie is dropped when the
+	// browser closes, and the server falls back to webauth.DefaultSessionTTL for
+	// the record it keeps, which it cannot otherwise ever let go of.
 	ttl time.Duration
 }
 
@@ -140,7 +160,7 @@ func (s *Server) sessionFromRequest(r *http.Request, pol loginPolicy) (webauth.S
 	if !pol.enabled || pol.broken {
 		return webauth.Session{}, false
 	}
-	c, err := r.Cookie(sessionCookieName)
+	c, err := r.Cookie(sessionCookieName(r))
 	if err != nil || c == nil || c.Value == "" {
 		return webauth.Session{}, false
 	}
@@ -160,11 +180,12 @@ func isStateChanging(r *http.Request) bool {
 // isSameOriginRequest is the CSRF check for a cookie-authenticated write.
 //
 // Browsers label every request they make: `Sec-Fetch-Site` says where it came
-// from, and `Origin` says which page. A request carrying neither is not a
-// browser navigation at all - a curl with a cookie, say - and is let through,
-// because refusing it would break clients without protecting anybody: the
-// attack this stops needs a browser, and every browser that can mount it also
-// sends the headers.
+// from, and `Origin` says which page. One of the two must be there and must say
+// "this page", and a request carrying neither is refused as well - a browser
+// old enough to send neither on a cross-site POST is also old enough to ignore
+// the cookie's SameSite attribute, so "no labels" cannot be read as "not a
+// browser". A script that drives this API with a cookie sends an Origin header
+// or, better, presents a bearer token instead.
 //
 // Bearer clients never reach here: a token is not attached by a browser on
 // somebody else's behalf, which is the whole reason CSRF exists.
@@ -177,14 +198,19 @@ func isSameOriginRequest(r *http.Request) bool {
 	}
 	origin := strings.TrimSpace(r.Header.Get("Origin"))
 	if origin == "" || strings.EqualFold(origin, "null") {
-		return origin == ""
+		return false
 	}
 	return originMatchesHost(origin, r.Host)
 }
 
 // originMatchesHost compares an Origin header with the host the request was
-// addressed to, which is what "same origin" means to the server: the scheme is
-// whatever got it here, and a proxy in front may have terminated TLS.
+// addressed to, host and port both.
+//
+// The scheme is deliberately not compared: a proxy in front may have terminated
+// TLS, so the browser's "https://box" reaches a server that speaks plain http
+// and knows nothing about it unless the proxy says so. Refusing that pair would
+// break the recommended deployment to close a gap that needs an attacker who can
+// already serve the other scheme on this very host.
 func originMatchesHost(origin, host string) bool {
 	if i := strings.Index(origin, "://"); i >= 0 {
 		origin = origin[i+3:]
@@ -253,11 +279,13 @@ func (s *Server) coddyAuthLoginPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The wait grows with the failures already seen from this address, which is
-	// what makes guessing expensive without ever locking the account - and the
-	// machine's own loopback is exempt, so nobody can shut the operator out of
-	// their own agent from outside.
-	if d := s.loginThrottle.Delay(r.RemoteAddr); d > 0 {
+	// The attempt is counted before it is judged, so a burst that arrives
+	// together pays a growing wait rather than each member reading a clean
+	// slate. A correct password clears the address again below, and the
+	// machine's own loopback is never counted at all, so nobody can shut the
+	// operator out of their own agent from outside.
+	client := loginClientAddr(r)
+	if d := s.loginThrottle.Penalize(client); d > 0 {
 		select {
 		case <-time.After(d):
 		case <-r.Context().Done():
@@ -266,14 +294,13 @@ func (s *Server) coddyAuthLoginPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !s.verifyLogin(pol.account, req.User, req.Password) {
-		s.loginThrottle.Fail(r.RemoteAddr)
-		s.log.Warn("web sign-in refused", "user", req.User, "remote", webauth.NormalizeAddr(r.RemoteAddr))
+		s.log.Warn("web sign-in refused", "user", req.User, "remote", client)
 		// The same answer whether the user exists or not: a form that says
 		// "no such user" is a list of the users that do exist.
 		writeJSON(w, http.StatusUnauthorized, map[string]interface{}{"error": "invalid credentials"})
 		return
 	}
-	s.loginThrottle.Reset(r.RemoteAddr)
+	s.loginThrottle.Reset(client)
 
 	token, sess, err := s.sessions.Issue(pol.account.user, pol.account.fingerprint(), pol.account.ttl)
 	if err != nil {
@@ -282,7 +309,7 @@ func (s *Server) coddyAuthLoginPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.SetCookie(w, sessionCookie(r, token, pol.account.ttl))
-	s.log.Info("web sign-in", "user", pol.account.user, "remote", webauth.NormalizeAddr(r.RemoteAddr))
+	s.log.Info("web sign-in", "user", pol.account.user, "remote", client)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"ok":         true,
 		"user":       sess.User,
@@ -314,7 +341,7 @@ func (s *Server) coddyAuthLogoutPost(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, map[string]interface{}{"error": "cross-site request refused"})
 		return
 	}
-	if c, err := r.Cookie(sessionCookieName); err == nil && c != nil && c.Value != "" {
+	if c, err := r.Cookie(sessionCookieName(r)); err == nil && c != nil && c.Value != "" {
 		s.sessions.Revoke(c.Value)
 	}
 	// Clear the cookie whatever happened, so a browser holding a session this
@@ -328,23 +355,39 @@ func (s *Server) coddyAuthLogoutPost(w http.ResponseWriter, r *http.Request) {
 
 // sessionCookie builds the cookie for one session.
 //
+// SameSite is Strict rather than Lax, and it costs nothing here: the page a
+// browser lands on is public, and every call the loaded page makes is
+// same-origin, so a link from anywhere still opens a signed-in app. What Strict
+// removes is the one thing Lax allows - a cross-site top-level GET carrying the
+// cookie, which is a link in a chat window reading this operator's config.
+//
 // Secure is set when the request arrived over TLS, directly or through a proxy
 // that says so. Setting it unconditionally would make the cookie unusable on the
 // plain-HTTP loopback deployments that are the common case, and a browser that
 // never sends the cookie back cannot sign in at all.
 func sessionCookie(r *http.Request, token string, ttl time.Duration) *http.Cookie {
 	c := &http.Cookie{
-		Name:     sessionCookieName,
+		Name:     sessionCookieName(r),
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		Secure:   requestIsTLS(r),
 	}
 	if ttl > 0 {
 		c.MaxAge = int(ttl / time.Second)
 	}
 	return c
+}
+
+// loginClientAddr is who a sign-in attempt is counted against.
+//
+// Behind the reverse proxy the documentation recommends, every request in the
+// world arrives from 127.0.0.1, and the loopback exemption would wave all of
+// them through; the forwarded address is therefore believed on that path, and
+// only on it.
+func loginClientAddr(r *http.Request) string {
+	return webauth.ClientAddr(r.RemoteAddr, r.Header.Get("X-Forwarded-For"), r.Header.Get("X-Real-IP"))
 }
 
 func requestIsTLS(r *http.Request) bool {

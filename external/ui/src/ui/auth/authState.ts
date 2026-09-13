@@ -54,6 +54,7 @@ export function setAuthState(next: AuthState): void {
 
 /** resetAuthStateForTests puts the module back to its initial snapshot. */
 export function resetAuthStateForTests(): void {
+  inflight = null;
   setAuthState(initial);
 }
 
@@ -64,15 +65,30 @@ type AuthMeResponse = {
   user?: string;
 };
 
+// inflight is the read that is already on its way. A burst of 401s - every
+// request the page had in the air when the session ended - must ask the server
+// once, not once each.
+let inflight: Promise<AuthState> | null = null;
+
 /**
  * refreshAuthState asks the server what it wants.
  *
  * Anything unexpected - a network error, a 404 from a server built before this
  * existed - is read as "no sign-in here", so the app renders exactly as it did
  * before rather than trapping the user behind a screen the server cannot
- * answer.
+ * answer. That answer is provisional: a later 401 from the API asks again, which
+ * is how a page that came up during a blip still finds its way to the form.
  */
-export async function refreshAuthState(): Promise<AuthState> {
+export function refreshAuthState(): Promise<AuthState> {
+  if (!inflight) {
+    inflight = readAuthState().finally(() => {
+      inflight = null;
+    });
+  }
+  return inflight;
+}
+
+async function readAuthState(): Promise<AuthState> {
   let next: AuthState = { ...initial, loaded: true };
   try {
     const res = await localFetch("/coddy/auth/me", {
@@ -129,17 +145,32 @@ export async function signIn(
   return { ok: false, status: res.status, error };
 }
 
-/** signOut drops the session on the server and forgets it here. */
-export async function signOut(): Promise<void> {
+/**
+ * signOut drops the session on the server and forgets it here.
+ *
+ * It reports whether the server actually let go. Pretending otherwise is worse
+ * than useless: the cookie is HttpOnly, so a page that clears its own state and
+ * reloads is signed straight back in, and the button looks broken rather than
+ * refused.
+ */
+export async function signOut(): Promise<boolean> {
+  let ok = false;
   try {
-    await localFetch("/coddy/auth/logout", {
+    const res = await localFetch("/coddy/auth/logout", {
       method: "POST",
       headers: { Accept: "application/json" },
     });
+    ok = res.ok;
   } catch {
-    /* the session may already be gone; the state below is what matters */
+    /* unreachable server: the state below is what the page can still do */
   }
-  setAuthState({ ...current, authenticated: false, user: "" });
+  if (ok) {
+    setAuthState({ ...current, authenticated: false, user: "" });
+    return true;
+  }
+  // The server still holds the session, so the honest thing is to show that.
+  await refreshAuthState();
+  return false;
 }
 
 /**
@@ -155,8 +186,15 @@ export function installAuthUnauthorizedWatch(): () => void {
     if (getEnv().mode !== "local") {
       return;
     }
-    if (!current.loaded || current.authenticated) {
-      void refreshAuthState();
+    // Already on the sign-in screen: the 401s behind it are expected, and
+    // asking again would only add noise.
+    if (current.loginRequired && !current.authenticated) {
+      return;
     }
+    // Everything else is worth re-reading, including the case this exists for:
+    // the boot read failed and the page is now rendering an app over an API
+    // that refuses it. A burst of refusals collapses into one question, because
+    // refreshAuthState shares the read that is already on its way.
+    void refreshAuthState();
   });
 }

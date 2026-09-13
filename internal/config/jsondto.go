@@ -507,7 +507,10 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			// PasswordHash is redacted for the same reason the token is.
 			SessionTTLHours: c.HTTPServer.Login.SessionTTLHours,
 		},
-		LoginConfigured: c.HTTPServer.Login.HasAccount(),
+		// An account behind a switched-off form is not a configured sign-in:
+		// the HTTP layer overrides this with the live policy anyway, and a
+		// reader without that overlay must not be told the opposite.
+		LoginConfigured: c.HTTPServer.Login.HasAccount() && !c.HTTPServer.Login.IsExplicitlyDisabled(),
 		CORS: HTTPCORSJSON{
 			Enabled:        c.HTTPServer.CORS.Enabled,
 			AllowedOrigins: append([]string(nil), c.HTTPServer.CORS.AllowedOrigins...),

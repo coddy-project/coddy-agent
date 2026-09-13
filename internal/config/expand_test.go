@@ -38,6 +38,12 @@ func TestEscapeYAMLDollarRoundTrip(t *testing.T) {
 		"$1$2$3",
 		"${CWD}/skills",
 		"a${CWD}b$c$${CWD}",
+		// An argon2id hash is the reason httpserver.login.password_hash is
+		// escaped on the way to disk: every "$" of it would otherwise be read
+		// as an environment reference and the operator's password would stop
+		// working on the next restart.
+		"$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHQ$RdescudvJCsgt3ub+b+dWRWJTmaaJObG",
+		"$argon2id$v=19$m=65536,t=3,p=4$abc$def",
 	} {
 		if got := expandEnvEscaped(escapeYAMLDollar(s)); got != s {
 			t.Errorf("round-trip for %q = %q", s, got)

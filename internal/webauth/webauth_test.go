@@ -291,7 +291,7 @@ func TestThrottleProgressiveDelay(t *testing.T) {
 	}
 	want := []time.Duration{100, 200, 400, 800, 800}
 	for i, w := range want {
-		th.Fail(addr)
+		th.Penalize(addr)
 		if d := th.Delay(addr); d != w*time.Millisecond {
 			t.Fatalf("after %d failures delay = %v, want %v", i+1, d, w*time.Millisecond)
 		}
@@ -306,8 +306,8 @@ func TestThrottleForgetsAfterTheWindow(t *testing.T) {
 	now := time.Now()
 	th := &Throttle{Now: func() time.Time { return now }, Base: time.Second, Window: 10 * time.Minute}
 	const addr = "198.51.100.4"
-	th.Fail(addr)
-	th.Fail(addr)
+	th.Penalize(addr)
+	th.Penalize(addr)
 	if th.Delay(addr) == 0 {
 		t.Fatal("failures were not counted")
 	}
@@ -315,7 +315,7 @@ func TestThrottleForgetsAfterTheWindow(t *testing.T) {
 	if d := th.Delay(addr); d != 0 {
 		t.Fatalf("the window did not expire: %v", d)
 	}
-	th.Fail(addr)
+	th.Penalize(addr)
 	if d := th.Delay(addr); d != time.Second {
 		t.Fatalf("the counter did not restart after the window: %v", d)
 	}
@@ -325,7 +325,7 @@ func TestThrottleNeverDelaysLoopback(t *testing.T) {
 	th := &Throttle{Base: time.Second}
 	for _, addr := range []string{"127.0.0.1:5000", "[::1]:5000", "localhost:5000", "127.0.0.53"} {
 		for i := 0; i < 20; i++ {
-			th.Fail(addr)
+			th.Penalize(addr)
 		}
 		if d := th.Delay(addr); d != 0 {
 			t.Fatalf("loopback %q was throttled by %v", addr, d)
@@ -337,7 +337,7 @@ func TestThrottleTableIsBounded(t *testing.T) {
 	now := time.Now()
 	th := &Throttle{Now: func() time.Time { return now }}
 	for i := 0; i < maxThrottleEntries+50; i++ {
-		th.Fail(netAddrFor(i))
+		th.Penalize(netAddrFor(i))
 	}
 	th.mu.Lock()
 	n := len(th.entries)
@@ -421,4 +421,107 @@ func TestConcurrentVerifyIsBoundedNotBroken(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+}
+
+func TestVerifyPasswordRefusesRuinousCostParameters(t *testing.T) {
+	// A hash carries its own cost, so a hash is also an instruction to
+	// allocate. One that asks for four gigabytes per attempt is refused as
+	// malformed rather than obeyed once per visitor.
+	cases := map[string]string{
+		"four gigabytes":    "$argon2id$v=19$m=4194304,t=2,p=1$c2FsdHNhbHQ$aGFzaGhhc2hoYXNoaGFzaA",
+		"a thousand passes": "$argon2id$v=19$m=64,t=1000,p=1$c2FsdHNhbHQ$aGFzaGhhc2hoYXNoaGFzaA",
+		"a hundred lanes":   "$argon2id$v=19$m=64,t=1,p=100$c2FsdHNhbHQ$aGFzaGhhc2hoYXNoaGFzaA",
+	}
+	for name, enc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ok, err := VerifyPassword(enc, "pw")
+			if ok || !errors.Is(err, ErrMalformedHash) {
+				t.Fatalf("ok=%v err=%v, want a malformed-hash refusal", ok, err)
+			}
+			if IsHash(enc) {
+				t.Fatal("IsHash accepted it, so config validation would let it through")
+			}
+		})
+	}
+	// The shipped parameters are comfortably inside the bounds.
+	if !IsHash(mustHashDefault(t, "pw")) {
+		t.Fatal("the default parameters are outside the bounds this build verifies")
+	}
+}
+
+func mustHashDefault(t *testing.T, plain string) string {
+	t.Helper()
+	h, err := HashPassword(plain)
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	return h
+}
+
+func TestPenalizeCountsBeforeItAnswers(t *testing.T) {
+	// Ten attempts that arrive together would all read a delay of zero if each
+	// waited to be judged wrong first.
+	th := &Throttle{Base: 10 * time.Millisecond, Max: time.Second}
+	const addr = "203.0.113.20:5000"
+	var got []time.Duration
+	for i := 0; i < 4; i++ {
+		got = append(got, th.Penalize(addr))
+	}
+	want := []time.Duration{0, 10 * time.Millisecond, 20 * time.Millisecond, 40 * time.Millisecond}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("attempt %d waited %v, want %v (all: %v)", i+1, got[i], want[i], got)
+		}
+	}
+	th.Reset(addr)
+	if d := th.Penalize(addr); d != 0 {
+		t.Fatalf("a correct password left a penalty of %v", d)
+	}
+}
+
+func TestPenalizeSparesLoopback(t *testing.T) {
+	th := &Throttle{Base: time.Second}
+	for i := 0; i < 20; i++ {
+		if d := th.Penalize("127.0.0.1:5000"); d != 0 {
+			t.Fatalf("loopback was throttled by %v", d)
+		}
+	}
+}
+
+func TestClientAddrBelievesAProxyOnlyFromLoopback(t *testing.T) {
+	cases := []struct {
+		name                         string
+		remote, forwardedFor, realIP string
+		want                         string
+	}{
+		{
+			name: "a proxy on this machine speaks for its client",
+			// Without this the documented deployment - nginx in front of a
+			// loopback listener - would exempt the whole internet.
+			remote: "127.0.0.1:54321", forwardedFor: "203.0.113.7, 10.0.0.1", want: "203.0.113.7",
+		},
+		{
+			name:   "X-Real-IP when there is no forwarded chain",
+			remote: "127.0.0.1:54321", realIP: "198.51.100.3", want: "198.51.100.3",
+		},
+		{
+			name:   "a direct client cannot claim to be someone else",
+			remote: "203.0.113.9:40000", forwardedFor: "127.0.0.1", want: "203.0.113.9",
+		},
+		{
+			name:   "loopback with no headers stays loopback",
+			remote: "127.0.0.1:54321", want: "127.0.0.1",
+		},
+		{
+			name:   "a garbage header falls back to the connection",
+			remote: "127.0.0.1:54321", forwardedFor: "   ", want: "127.0.0.1",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ClientAddr(tc.remote, tc.forwardedFor, tc.realIP); got != tc.want {
+				t.Fatalf("ClientAddr = %q, want %q", got, tc.want)
+			}
+		})
+	}
 }

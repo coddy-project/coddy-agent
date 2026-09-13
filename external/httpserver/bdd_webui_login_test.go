@@ -401,11 +401,11 @@ func (s *loginFeatureState) holdsSessionCookie() error {
 		return err
 	}
 	for _, c := range s.browser.Jar.Cookies(u) {
-		if c.Name == sessionCookieName && c.Value != "" {
+		if strings.HasPrefix(c.Name, sessionCookieBaseName) && c.Value != "" {
 			return nil
 		}
 	}
-	return fmt.Errorf("no %q cookie was set", sessionCookieName)
+	return fmt.Errorf("no %q cookie was set", sessionCookieBaseName)
 }
 
 func (s *loginFeatureState) answerSaysLoginRequired(required bool) error {

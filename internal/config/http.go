@@ -73,7 +73,9 @@ type HTTPLoginConfig struct {
 	// GET /coddy/config, and a save from the settings screen preserves it.
 	PasswordHash string `yaml:"password_hash"`
 	// SessionTTLHours is how long a browser stays signed in. Zero means the
-	// cookie lives until the browser is closed.
+	// cookie is dropped when the browser closes; the server still bounds the
+	// session it holds (webauth.DefaultSessionTTL), because it cannot see a
+	// browser close and a record it keeps forever is not a session.
 	SessionTTLHours int `yaml:"session_ttl_hours"`
 }
 
@@ -129,7 +131,8 @@ func (l *HTTPLoginConfig) IsExplicitlyEnabled() bool {
 }
 
 // SessionTTL is how long a session lives, or zero for "until the browser
-// closes", which is what the cookie then says too.
+// closes", which is what the cookie then says too - the server still applies
+// webauth.DefaultSessionTTL to its own record of it.
 func (l *HTTPLoginConfig) SessionTTL() time.Duration {
 	if l.SessionTTLHours <= 0 {
 		return 0

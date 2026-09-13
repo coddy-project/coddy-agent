@@ -417,7 +417,15 @@ export function NavRail(props: {
                 aria-label={t("auth.signOut.action")}
                 data-testid="nav-sign-out"
                 onClick={() => {
-                  void signOut().then(() => window.location.reload());
+                  // Only a server that actually dropped the session is worth
+                  // reloading for: the cookie is HttpOnly, so reloading after a
+                  // refusal would sign the browser straight back in and the
+                  // button would look broken instead of refused.
+                  void signOut().then((ok) => {
+                    if (ok) {
+                      window.location.reload();
+                    }
+                  });
                 }}
               >
                 <IconSignOut className="rail-svg rail-nav-hit-svg" />

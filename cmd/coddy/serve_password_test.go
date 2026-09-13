@@ -214,3 +214,22 @@ func TestOutOfBandLoginReadsTheEnvironment(t *testing.T) {
 		t.Fatal("half an account reports itself as set")
 	}
 }
+
+func TestServeSetPasswordRefusesANameTheFileCannotCarry(t *testing.T) {
+	// `login.user` may be an environment reference, so it is written literally;
+	// a "$" in a name would therefore be read as one on the next load and the
+	// account would change under the operator.
+	home, cfgPath := setPasswordHome(t, setPasswordBaseYAML)
+	withStdin(t, "a-long-enough-password\n")
+	err := runServeSetPassword([]string{"--home", home, "--config", cfgPath, "--user", "pa$ha"})
+	if err == nil || !strings.Contains(err.Error(), "environment reference") {
+		t.Fatalf("error = %v, want one explaining the dollar sign", err)
+	}
+	raw, readErr := os.ReadFile(cfgPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(raw) != setPasswordBaseYAML {
+		t.Fatalf("a refused name still changed the file:\n%s", raw)
+	}
+}

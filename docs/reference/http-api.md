@@ -83,30 +83,50 @@ way through the gate:
 | Route | What it does |
 |---|---|
 | **`GET /coddy/auth/me`** | `login_required`, `auth_required`, `authenticated`, and `user` / `expires_at` for a signed-in browser. The SPA calls it on boot to choose between the sign-in screen and the app. |
-| **`POST /coddy/auth/login`** | `{user, password}`. On success sets an `HttpOnly`, `SameSite=Lax` `coddy_session` cookie (`Secure` when the request arrived over TLS or through a proxy sending `X-Forwarded-Proto: https`), living for `session_ttl_hours` or until the browser closes when that is `0`. |
+| **`POST /coddy/auth/login`** | `{user, password}`. On success sets an `HttpOnly`, `SameSite=Strict` `coddy_session_<host digest>` cookie (`Secure` when the request arrived over TLS or through a proxy sending `X-Forwarded-Proto: https`), living for `session_ttl_hours`; with `0` the browser drops it on close and the server expires its own record after 30 days. The name carries a digest of the host the request was addressed to, because cookies are not scoped by port: without it two Coddy servers on one machine - a relay and the node behind it, say - would sign each other out at every login. |
 | **`POST /coddy/auth/logout`** | Drops the session on the server and expires the cookie. Idempotent. |
 
 Once signed in, the cookie opens every `/v1/*` and `/coddy/*` route, the SSE streams included - a
-same-origin `EventSource` sends cookies, so no `?access_token=` is needed. Cookie-authenticated
-requests that **change state** are refused with `403` unless `Sec-Fetch-Site` says `same-origin` (or
-`none`) or `Origin` matches the request host; bearer requests are never subject to that check, which
-is what keeps `coddy --remote`, an editor and a relay working unchanged.
+same-origin `EventSource` sends cookies, so no `?access_token=` is needed. The cookie is
+`SameSite=Strict`, which costs nothing here (the page itself is public and every call the loaded
+page makes is same-origin) and means the browser never attaches it to a request another site caused.
+On top of that, cookie-authenticated requests that **change state** are refused with `403` unless
+`Sec-Fetch-Site` says `same-origin` (or `none`) or `Origin` matches the request host - so a script
+driving this API with a cookie has to send an `Origin` header, or, better, present a bearer token.
+Bearer requests are never subject to that check, which is what keeps `coddy --remote`, an editor and
+a relay working unchanged.
 
 A wrong password and an unknown user get the same `401` and the same body, compared in constant
 time. Repeated failures from one address are answered progressively more slowly, doubling from
-250 ms to a cap of five seconds and forgotten after fifteen quiet minutes; loopback is never
-throttled, so the machine cannot lock itself out of its own agent. Sessions live in memory: a
+250 ms to a cap of five seconds and forgotten after fifteen quiet minutes; the attempt is counted
+before it is judged, so a burst arriving together pays the growing wait rather than each member
+reading a clean slate. Loopback is never throttled, so the machine cannot lock itself out of its own
+agent - and because that exemption would otherwise cover the whole internet behind a reverse proxy,
+a request that arrives *from* loopback is counted against the address in `X-Forwarded-For` (or
+`X-Real-IP`) when one is present. A request that arrives from anywhere else is counted by where it
+actually came from, headers ignored. Sessions live in memory: a
 configuration reload (saving settings from the page, for instance) keeps them, and restarting the
 process ends them. Rotating the password or renaming the account ends every session it opened, on
-the next request, with nothing to invalidate by hand.
+the next request, with nothing to invalidate by hand. The store is bounded at 512 live sessions,
+oldest first.
 
 `GET /coddy/config` never returns `password_hash`; it reports `httpserver.login_configured` and
 `httpserver.login_source` (`config` or `env`), and a save from the settings screen preserves the
-hash the way it preserves `auth_token`. The document keeps describing the file, so an account that
+hash the way it preserves `auth_token`. The neighbouring `auth_configured` means what it says - a
+bearer token is set - so a server closed with a password and no token reports
+`auth_configured: false` next to `login_configured: true`; ask `GET /coddy/auth/me` when the
+question is "does this server want a credential at all". The document keeps describing the file, so an account that
 came from the environment is never written into `config.yaml` by a save.
 
 The sign-in form is for this origin. The environment selector still reaches a **remote** server with
 a bearer token, because a cookie of this origin does not travel cross-origin.
+
+One note on `${VAR}` references. `login.user` and `login.password_hash` take them like every other
+value in `config.yaml`, and like every other value they are expanded when the file loads - so a save
+from the settings screen writes the **expanded** value back, turning `user: "${CODDY_HTTP_USER}"`
+into `user: pasha`. That is how this file has always treated `${VAR}`; if the point is to keep the
+credential out of the document entirely, use `CODDY_HTTP_USER` and `CODDY_HTTP_PASSWORD`, which
+never enter it.
 
 ### Cross-origin access and the remote UI
 

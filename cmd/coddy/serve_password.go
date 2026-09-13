@@ -65,6 +65,9 @@ func runServeSetPassword(args []string) error {
 	if account == "" {
 		account = defaultAccountName()
 	}
+	if err := checkAccountName(account); err != nil {
+		return err
+	}
 
 	password, err := readNewPassword(os.Stdin, os.Stderr)
 	if err != nil {
@@ -94,6 +97,23 @@ func runServeSetPassword(args []string) error {
 	fmt.Printf("note: the form is for browsers. API clients (coddy --remote, coddy acp --remote,\n" +
 		"      a swarm relay reaching this node, scripts) still present a bearer token:\n" +
 		"      set httpserver.auth_token, --auth-token or " + httpserver.TokenEnvVar + " for them.\n")
+	return nil
+}
+
+// checkAccountName refuses a name this file cannot carry.
+//
+// `login.user` is one of the values that may be an environment reference
+// (`user: "${CODDY_HTTP_USER}"`), so it is written literally rather than
+// escaped - which means a "$" inside a name would be read as a reference on the
+// next load and the account would quietly change. Saying so here is better than
+// writing a name that stops working at the next restart.
+func checkAccountName(name string) error {
+	if strings.ContainsAny(name, "$") {
+		return fmt.Errorf("the account name %q contains a %q, which config.yaml reads as an environment reference; pick a name without one", name, "$")
+	}
+	if strings.ContainsAny(name, "\n\r\t") {
+		return fmt.Errorf("the account name %q contains whitespace that config.yaml cannot carry", name)
+	}
 	return nil
 }
 

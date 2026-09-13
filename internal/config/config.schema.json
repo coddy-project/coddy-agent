@@ -1009,7 +1009,7 @@
             },
             "session_ttl_hours": {
               "type": "integer",
-              "description": "How long a browser stays signed in. 0 means the cookie lives until the browser is closed.",
+              "description": "How long a browser stays signed in. 0 means the cookie is dropped when the browser closes; the server still expires the session itself after 30 days, because a record it keeps forever is not a session.",
               "default": 0,
               "minimum": 0
             }

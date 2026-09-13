@@ -58,7 +58,9 @@ USER = "pasha"
 PASSWORD = "correct-horse-battery-staple"
 FILE_PASSWORD = "a-different-long-password"
 TOKEN = "relay-bearer-token"
-COOKIE = "coddy_session"
+# The cookie name carries a digest of the request host, so two servers on one
+# machine do not overwrite each other's session; the prefix is what to match on.
+COOKIE_PREFIX = "coddy_session"
 
 MINIMAL_CONFIG = """\
 providers:
@@ -90,6 +92,9 @@ class Client:
         self.base = base
         self.token = token
         self.jar = CookieJar() if cookies else None
+        # The raw Set-Cookie of the last answer, so the flags can be asserted:
+        # the jar keeps the value and throws the attributes away.
+        self.last_set_cookie = ""
         # `is not None`, not a truth test: an empty CookieJar has len 0 and is
         # falsy, which would silently leave the browser without its jar.
         handlers = (
@@ -119,6 +124,9 @@ class Client:
             req.add_header("Sec-Fetch-Site", sec_fetch_site)
         try:
             with self.opener.open(req, timeout=30) as resp:
+                for header in resp.headers.get_all("Set-Cookie") or []:
+                    if header.startswith(COOKIE_PREFIX):
+                        self.last_set_cookie = header
                 raw = resp.read().decode("utf-8", errors="replace")
                 parsed = json.loads(raw) if raw.strip().startswith(("{", "[")) else {}
                 return resp.status, parsed, raw
@@ -134,11 +142,19 @@ class Client:
     def browse(self, method: str, path: str, body: dict[str, Any] | None = None):
         return self.call(method, path, body, origin=self.base, sec_fetch_site="same-origin")
 
+    def session_cookie_pair(self) -> tuple[str, str]:
+        """The name and value of the session cookie, or two empty strings."""
+        if self.jar is not None:
+            for c in self.jar:
+                if c.name.startswith(COOKIE_PREFIX):
+                    return c.name, c.value or ""
+        return "", ""
+
     def session_cookie(self) -> str:
         if self.jar is None:
             return ""
         for c in self.jar:
-            if c.name == COOKIE:
+            if c.name.startswith(COOKIE_PREFIX):
                 return c.value or ""
         return ""
 
@@ -248,6 +264,10 @@ def check_env_account(binary: Path, port: int) -> None:
             fail(f"sign-in failed: {code} {raw}")
         if not anon.session_cookie():
             fail("sign-in set no session cookie")
+        if anon.last_set_cookie and not all(
+            flag in anon.last_set_cookie.lower() for flag in ("httponly", "samesite=strict")
+        ):
+            fail(f"the session cookie is missing HttpOnly or SameSite=Strict: {anon.last_set_cookie}")
         code, models, _ = anon.call("GET", "/v1/models")
         if code != 200:
             fail(f"a signed-in browser cannot read the model list: {code}")
@@ -273,6 +293,11 @@ def check_env_account(binary: Path, port: int) -> None:
                                origin="https://evil.example", sec_fetch_site="cross-site")
         if code != 403:
             fail(f"a cross-site write with the cookie: got {code}, want 403")
+        # ...and neither is a cookie with no label at all: a browser that sends
+        # no headers is a browser that ignores SameSite too.
+        code, _, _ = anon.call("POST", "/coddy/sessions/none/workspace", {"path": str(work)})
+        if code != 403:
+            fail(f"an unlabelled write with the cookie: got {code}, want 403")
         code, _, _ = anon.browse("POST", "/coddy/sessions/none/workspace", {"path": str(work)})
         if code in (401, 403):
             fail(f"a same-origin write was refused by the gate: {code}")
@@ -306,13 +331,13 @@ def check_env_account(binary: Path, port: int) -> None:
             fail(f"a client with no credential at all: got {code}, want 401")
 
         # 7. Signing out ends the session on the server, not only in the browser.
-        stale = anon.session_cookie()
+        stale_name, stale = anon.session_cookie_pair()
         code, _, _ = anon.browse("POST", "/coddy/auth/logout")
         if code != 200:
             fail(f"sign-out: got {code}, want 200")
         replay = Client(base)
         req = urllib.request.Request(base + "/v1/models", method="GET")
-        req.add_header("Cookie", f"{COOKIE}={stale}")
+        req.add_header("Cookie", f"{stale_name}={stale}")
         try:
             with replay.opener.open(req, timeout=10) as resp:
                 fail(f"a signed-out cookie still opens the API: {resp.status}")

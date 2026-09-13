@@ -837,10 +837,10 @@ httpserver:
     enable: true                       # omit to follow the credentials; false wins over everything
     user: "pasha"
     password_hash: "$$argon2id$$v=19$$..."   # argon2id, written by the command above
-    session_ttl_hours: 720                   # 0 = the cookie lives until the browser closes
+    session_ttl_hours: 720                   # 0 = the browser drops the cookie on close (the server still expires its record after 30 days)
 ```
 
-A hash written into this file by hand needs every `$` doubled (`$$argon2id$$v=19$$...`), because a `$NAME` is expanded as an environment reference when the file loads. The command does that for you; `coddy -t` names the problem when it finds a hash that no longer parses.
+A hash written into this file by hand needs every `$` doubled (`$$argon2id$$v=19$$...`), because a `$NAME` is expanded as an environment reference when the file loads. The command does that for you; `coddy -t` names the problem when it finds a hash that no longer parses. A `${VAR}` reference in `user` or `password_hash` works like every other value here, which also means a save from the settings screen writes the expanded value back into the file - keep a credential out of the document entirely with `CODDY_HTTP_USER` / `CODDY_HTTP_PASSWORD` instead.
 
 The account can also come from the environment alone - `CODDY_HTTP_USER` and `CODDY_HTTP_PASSWORD`, see the `.env` section below - which is the route for a container or a systemd unit. The form is for browsers; `coddy --remote`, `coddy acp --remote`, a swarm relay and every script still present the bearer token. Full behaviour: [HTTP API](../reference/http-api.md#web-ui-sign-in-optional), [Remote mode](../operate/remote.md#the-sign-in-form).
 
@@ -3909,7 +3909,7 @@ Off unless the server has an account, and a server without one renders exactly a
 - **The screen** (**`SignInScreen.tsx`**, **`.auth-screen`** / **`.auth-card`**) is the whole page, not a dialog over a blurred transcript: there is nothing behind it to look at. User, password, one error line (**`role="alert"`**), and a submit button disabled until both fields are filled. Every string is a dictionary key (**`auth.signIn.*`**), and the card uses theme tokens only, so all seven themes and both languages carry it.
 - **After a successful sign-in** the page reloads: every list, stream and cached response on it was fetched by a browser with no session.
 - **A session that ends while the page is open** - expired, rotated, signed out in another tab - brings the screen back: the local-origin **`fetch`** shim reports a **401** from any **`/v1/*`** or **`/coddy/*`** call (the **`/coddy/auth/*`** routes excepted) and the gate re-reads the state.
-- **Signing out** is the last entry of the nav rail (**`data-testid="nav-sign-out"`**), shown only while a form is configured and this browser has passed it; its tooltip names the account. It posts **`/coddy/auth/logout`** and reloads.
+- **Signing out** is the last entry of the nav rail (**`data-testid="nav-sign-out"`**), shown only while a form is configured and this browser has passed it; its tooltip names the account. It posts **`/coddy/auth/logout`** and reloads **only when the server actually dropped the session** - the cookie is HttpOnly, so a page that cleared its own state after a refusal would be signed straight back in by the reload and the button would look broken rather than refused.
 - **Remote environments are not gated here.** A remote is reached cross-origin with the bearer token from the environment selector, and a cookie of this origin would not travel with those calls; **`AuthGate`** passes straight through in remote mode.
 
 Server behaviour, the cookie and the CSRF rule: [HTTP API](../reference/http-api.md#web-ui-sign-in-optional). Visual contract: [DESIGN.md](../../DESIGN.md).
@@ -5709,7 +5709,7 @@ httpserver:
 
 **The two credentials are not interchangeable.** The form is for browsers; everything that is not a browser - `coddy --remote`, `coddy acp --remote`, a swarm relay mounting this node, the Python harnesses, Swagger's **Authorize** - still presents a bearer token. Closing a server with a password alone and no `auth_token` is what breaks those, and `coddy serve` says so in its log at startup. Set both when anything but a browser talks to the server.
 
-Signing in sets an `HttpOnly`, `SameSite=Lax` cookie that opens the same routes a token opens, streams included. Signing out (the entry at the bottom of the nav rail) drops the session on the server, so a copy of the cookie taken elsewhere stops working too. Sessions live in memory: saving settings from the page keeps them, restarting the process ends them, and rotating the password ends every session it opened. Full behaviour, including the CSRF rule for cookie-authenticated writes and the throttle on wrong passwords, is in [HTTP API](../reference/http-api.md#web-ui-sign-in-optional).
+Signing in sets an `HttpOnly`, `SameSite=Strict` cookie that opens the same routes a token opens, streams included. Signing out (the entry at the bottom of the nav rail) drops the session on the server, so a copy of the cookie taken elsewhere stops working too. Sessions live in memory: saving settings from the page keeps them, restarting the process ends them, and rotating the password ends every session it opened. Full behaviour, including the CSRF rule for cookie-authenticated writes and the throttle on wrong passwords, is in [HTTP API](../reference/http-api.md#web-ui-sign-in-optional).
 
 `coddy serve` still has no TLS of its own, so a password typed into a non-loopback `http://` page travels in clear exactly as a token does. Put a TLS-terminating reverse proxy in front of it, or reach it through the SSH tunnel above.
 
@@ -6323,7 +6323,7 @@ A session that finds a held hooks file records a notice, so you learn that hooks
 - prefer the header over `?access_token=`, which only the two SSE routes accept and which reaches proxy access logs;
 - leave `httpserver.allow_insecure` unset: it silences the warning about a non-loopback bind without a token, and nothing else.
 
-The sign-in form stores an argon2id hash, never a plaintext password, and `GET /coddy/config` reports only that an account exists and where it came from. Wrong passwords are answered in constant time and progressively more slowly per source address, with loopback exempt so the machine cannot lock itself out. A cookie-authenticated request that changes state is refused unless it came from this origin (`Sec-Fetch-Site` or `Origin`); bearer requests are not subject to that check. Sessions are held in memory only, so restarting the process ends them, and rotating the password ends every session it opened.
+The sign-in form stores an argon2id hash, never a plaintext password, and `GET /coddy/config` reports only that an account exists and where it came from. Wrong passwords are answered in constant time and progressively more slowly per source address, counted before they are judged so a burst pays the wait too, with loopback exempt so the machine cannot lock itself out - and behind a reverse proxy, where every request arrives from loopback, the forwarded client address is what the throttle counts. The session cookie is `HttpOnly` and `SameSite=Strict`, so no script reads it and no request another site caused carries it; on top of that a cookie-authenticated request that changes state is refused unless it came from this origin (`Sec-Fetch-Site` or `Origin`), while bearer requests are not subject to that check. Sessions are held in memory only, so restarting the process ends them, and rotating the password ends every session it opened.
 
 The Docker image binds `0.0.0.0` inside the container, so the mapped port is reachable from wherever the host is; treat it like any admin API. Reference: [HTTP API](../reference/http-api.md#authentication-optional), [Web UI sign-in](../reference/http-api.md#web-ui-sign-in-optional), [Remote mode](remote.md).
 
@@ -9104,7 +9104,7 @@ OpenAI-compatible HTTP API defaults (used only by binaries built with -tags http
 | `httpserver.login.mode` | string, one of `password` | password | How a browser authenticates. Only "password" is implemented; the key exists so a trusted-proxy mode can be added without moving your configuration. |
 | `httpserver.login.user` | string | "" | Account name for the sign-in form. Supports "${ENV}" references, e.g. "${CODDY_HTTP_USER}". |
 | `httpserver.login.password_hash` | string | "" | argon2id hash of the password in PHC form ("$argon2id$v=19$m=...$..."), written by `coddy serve set-password`. Never echoed back by GET /coddy/config, and a save from the settings screen preserves it. Put a plaintext password in CODDY_HTTP_PASSWORD instead of here. |
-| `httpserver.login.session_ttl_hours` | integer | 0 | How long a browser stays signed in. 0 means the cookie lives until the browser is closed. |
+| `httpserver.login.session_ttl_hours` | integer | 0 | How long a browser stays signed in. 0 means the cookie is dropped when the browser closes; the server still expires the session itself after 30 days, because a record it keeps forever is not a session. |
 | `httpserver.public_docs` | boolean | false | When auth is enabled, keep /docs and /openapi.* reachable without a token. |
 | `httpserver.allow_insecure` | boolean | false | Silence the startup warning about a non-loopback bind without authentication. |
 | `httpserver.cors` | object |  | Cross-origin access so a browser UI on another origin can call this API (e.g. the bundled UI pointed at a remote server). Bearer auth still applies. |
@@ -9930,30 +9930,50 @@ way through the gate:
 | Route | What it does |
 |---|---|
 | **`GET /coddy/auth/me`** | `login_required`, `auth_required`, `authenticated`, and `user` / `expires_at` for a signed-in browser. The SPA calls it on boot to choose between the sign-in screen and the app. |
-| **`POST /coddy/auth/login`** | `{user, password}`. On success sets an `HttpOnly`, `SameSite=Lax` `coddy_session` cookie (`Secure` when the request arrived over TLS or through a proxy sending `X-Forwarded-Proto: https`), living for `session_ttl_hours` or until the browser closes when that is `0`. |
+| **`POST /coddy/auth/login`** | `{user, password}`. On success sets an `HttpOnly`, `SameSite=Strict` `coddy_session_<host digest>` cookie (`Secure` when the request arrived over TLS or through a proxy sending `X-Forwarded-Proto: https`), living for `session_ttl_hours`; with `0` the browser drops it on close and the server expires its own record after 30 days. The name carries a digest of the host the request was addressed to, because cookies are not scoped by port: without it two Coddy servers on one machine - a relay and the node behind it, say - would sign each other out at every login. |
 | **`POST /coddy/auth/logout`** | Drops the session on the server and expires the cookie. Idempotent. |
 
 Once signed in, the cookie opens every `/v1/*` and `/coddy/*` route, the SSE streams included - a
-same-origin `EventSource` sends cookies, so no `?access_token=` is needed. Cookie-authenticated
-requests that **change state** are refused with `403` unless `Sec-Fetch-Site` says `same-origin` (or
-`none`) or `Origin` matches the request host; bearer requests are never subject to that check, which
-is what keeps `coddy --remote`, an editor and a relay working unchanged.
+same-origin `EventSource` sends cookies, so no `?access_token=` is needed. The cookie is
+`SameSite=Strict`, which costs nothing here (the page itself is public and every call the loaded
+page makes is same-origin) and means the browser never attaches it to a request another site caused.
+On top of that, cookie-authenticated requests that **change state** are refused with `403` unless
+`Sec-Fetch-Site` says `same-origin` (or `none`) or `Origin` matches the request host - so a script
+driving this API with a cookie has to send an `Origin` header, or, better, present a bearer token.
+Bearer requests are never subject to that check, which is what keeps `coddy --remote`, an editor and
+a relay working unchanged.
 
 A wrong password and an unknown user get the same `401` and the same body, compared in constant
 time. Repeated failures from one address are answered progressively more slowly, doubling from
-250 ms to a cap of five seconds and forgotten after fifteen quiet minutes; loopback is never
-throttled, so the machine cannot lock itself out of its own agent. Sessions live in memory: a
+250 ms to a cap of five seconds and forgotten after fifteen quiet minutes; the attempt is counted
+before it is judged, so a burst arriving together pays the growing wait rather than each member
+reading a clean slate. Loopback is never throttled, so the machine cannot lock itself out of its own
+agent - and because that exemption would otherwise cover the whole internet behind a reverse proxy,
+a request that arrives *from* loopback is counted against the address in `X-Forwarded-For` (or
+`X-Real-IP`) when one is present. A request that arrives from anywhere else is counted by where it
+actually came from, headers ignored. Sessions live in memory: a
 configuration reload (saving settings from the page, for instance) keeps them, and restarting the
 process ends them. Rotating the password or renaming the account ends every session it opened, on
-the next request, with nothing to invalidate by hand.
+the next request, with nothing to invalidate by hand. The store is bounded at 512 live sessions,
+oldest first.
 
 `GET /coddy/config` never returns `password_hash`; it reports `httpserver.login_configured` and
 `httpserver.login_source` (`config` or `env`), and a save from the settings screen preserves the
-hash the way it preserves `auth_token`. The document keeps describing the file, so an account that
+hash the way it preserves `auth_token`. The neighbouring `auth_configured` means what it says - a
+bearer token is set - so a server closed with a password and no token reports
+`auth_configured: false` next to `login_configured: true`; ask `GET /coddy/auth/me` when the
+question is "does this server want a credential at all". The document keeps describing the file, so an account that
 came from the environment is never written into `config.yaml` by a save.
 
 The sign-in form is for this origin. The environment selector still reaches a **remote** server with
 a bearer token, because a cookie of this origin does not travel cross-origin.
+
+One note on `${VAR}` references. `login.user` and `login.password_hash` take them like every other
+value in `config.yaml`, and like every other value they are expanded when the file loads - so a save
+from the settings screen writes the **expanded** value back, turning `user: "${CODDY_HTTP_USER}"`
+into `user: pasha`. That is how this file has always treated `${VAR}`; if the point is to keep the
+credential out of the document entirely, use `CODDY_HTTP_USER` and `CODDY_HTTP_PASSWORD`, which
+never enter it.
 
 ### Cross-origin access and the remote UI
 

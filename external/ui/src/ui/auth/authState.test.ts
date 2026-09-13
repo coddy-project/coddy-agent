@@ -7,6 +7,9 @@ let respond: (url: string, init?: RequestInit) => Response = () =>
 const seen: { url: string; method: string }[] = [];
 let envMode: "local" | "remote" = "local";
 let unauthorizedCb: (() => void) | null = null;
+// hang, when set, is the answer the next call waits on, so a test can look at
+// the moment between asking and being told.
+let hang: Promise<Response> | null = null;
 
 vi.mock("../env/remoteEnv", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../env/remoteEnv")>();
@@ -25,6 +28,9 @@ vi.mock("../env/remoteEnv", async (importOriginal) => {
     localFetch: (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       seen.push({ url, method: init?.method ?? "GET" });
+      if (hang) {
+        return hang;
+      }
       return Promise.resolve(respond(url, init));
     },
   };
@@ -50,6 +56,7 @@ beforeEach(() => {
   resetAuthStateForTests();
   seen.length = 0;
   envMode = "local";
+  hang = null;
 });
 
 afterEach(() => {
@@ -159,21 +166,38 @@ describe("signOut", () => {
 
     seen.length = 0;
     respond = () => jsonResponse(200, { ok: true });
-    await signOut();
+    expect(await signOut()).toBe(true);
     expect(seen[0]).toEqual({ url: "/coddy/auth/logout", method: "POST" });
     expect(snapshotAuth().authenticated).toBe(false);
     expect(snapshotAuth().user).toBe("");
   });
 
-  it("forgets the session even when the call fails", async () => {
+  it("reports a refusal instead of pretending, because the cookie is the server's", async () => {
+    // A page that cleared its own state and reloaded would be signed straight
+    // back in by the cookie it cannot see, and the button would look broken.
+    respond = (url) => {
+      if (url === "/coddy/auth/logout") {
+        return jsonResponse(403, { error: "cross-site request refused" });
+      }
+      return jsonResponse(200, {
+        login_required: true,
+        authenticated: true,
+        user: "operator",
+      });
+    };
+    await refreshAuthState();
+    expect(await signOut()).toBe(false);
+    expect(snapshotAuth().authenticated).toBe(true);
+  });
+
+  it("says so when the server cannot be reached at all", async () => {
     respond = () =>
       jsonResponse(200, { login_required: true, authenticated: true });
     await refreshAuthState();
     respond = () => {
       throw new Error("gone");
     };
-    await signOut();
-    expect(snapshotAuth().authenticated).toBe(false);
+    expect(await signOut()).toBe(false);
   });
 });
 
@@ -196,6 +220,65 @@ describe("installAuthUnauthorizedWatch", () => {
     // back 401 - the session ended while the page was open.
     unauthorizedCb?.();
     await vi.waitFor(() => expect(snapshotAuth().authenticated).toBe(false));
+    stop();
+  });
+
+  it("recovers a page that came up while the server was unreachable", async () => {
+    // The boot read failed, so the gate rendered the app over an API that
+    // refuses it. The first 401 has to be what puts the form back.
+    const { installAuthUnauthorizedWatch } = await import("./authState");
+    respond = () => {
+      throw new Error("connection refused");
+    };
+    await refreshAuthState();
+    expect(snapshotAuth()).toMatchObject({
+      loaded: true,
+      loginRequired: false,
+    });
+
+    const stop = installAuthUnauthorizedWatch();
+    respond = () =>
+      jsonResponse(200, { login_required: true, authenticated: false });
+    unauthorizedCb?.();
+    await vi.waitFor(() => expect(snapshotAuth().loginRequired).toBe(true));
+    stop();
+  });
+
+  it("asks once for a burst of refusals", async () => {
+    // Every request the page had in the air when the session ended answers 401
+    // at about the same moment; that must be one question, not a dozen.
+    const { installAuthUnauthorizedWatch } = await import("./authState");
+    respond = () =>
+      jsonResponse(200, { login_required: true, authenticated: true });
+    await refreshAuthState();
+
+    const stop = installAuthUnauthorizedWatch();
+    seen.length = 0;
+    let release: ((r: Response) => void) | null = null;
+    hang = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    unauthorizedCb?.();
+    unauthorizedCb?.();
+    unauthorizedCb?.();
+    expect(seen.filter((s) => s.url === "/coddy/auth/me")).toHaveLength(1);
+    release?.(
+      jsonResponse(200, { login_required: true, authenticated: false }),
+    );
+    hang = null;
+    await vi.waitFor(() => expect(snapshotAuth().authenticated).toBe(false));
+    stop();
+  });
+
+  it("says nothing more once the sign-in screen is up", async () => {
+    const { installAuthUnauthorizedWatch } = await import("./authState");
+    respond = () =>
+      jsonResponse(200, { login_required: true, authenticated: false });
+    await refreshAuthState();
+    const stop = installAuthUnauthorizedWatch();
+    seen.length = 0;
+    unauthorizedCb?.();
+    expect(seen).toHaveLength(0);
     stop();
   });
 

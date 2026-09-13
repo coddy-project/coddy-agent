@@ -347,7 +347,7 @@ tools:
 #     enable: true
 #     user: "pasha"
 #     password_hash: "$$argon2id$$v=19$$m=19456,t=2,p=1$$..."
-#     session_ttl_hours: 720   # 0 = the cookie lives until the browser closes
+#     session_ttl_hours: 720   # 0 = the browser drops the cookie on close; the server still expires its record after 30 days
 #   public_docs: false      # when auth is on, keep /docs and /openapi.* reachable without a token
 #   allow_insecure: false   # silence the "reachable without auth" warning on a non-loopback bind
 #   # CORS lets a browser UI on another origin call this API (needed when the UI points here as a

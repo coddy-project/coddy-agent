@@ -42,6 +42,21 @@ type HashParams struct {
 // password are hashed with.
 var DefaultHashParams = HashParams{Memory: 19 * 1024, Time: 2, Threads: 1, SaltLen: 16, KeyLen: 32}
 
+// The bounds a stored hash has to stay inside.
+//
+// argon2 is memory-hard by design, so the parameters of a hash are also an
+// instruction to allocate: a "$argon2id$...m=4194304..." in the file would make
+// every sign-in attempt ask for four gigabytes. The file is the operator's, but
+// it is also what the agent's own config tools edit, and a bound that refuses
+// such a hash at load is cheaper than a server that dies on the first visitor.
+const (
+	maxHashMemoryKiB = 1 << 20 // 1 GiB
+	maxHashTime      = 16
+	maxHashThreads   = 16
+	maxHashSaltLen   = 1024
+	maxHashKeyLen    = 1024
+)
+
 // ErrMalformedHash is returned when a stored credential is not an argon2id hash
 // this build can read. It is reported as a configuration problem, never as a
 // wrong password, so an operator who pasted half a hash learns which it was.
@@ -61,6 +76,10 @@ func HashPasswordWith(plain string, p HashParams) (string, error) {
 	}
 	if p.SaltLen == 0 || p.KeyLen == 0 || p.Memory == 0 || p.Time == 0 || p.Threads == 0 {
 		return "", errors.New("invalid argon2id parameters")
+	}
+	if p.Memory > maxHashMemoryKiB || p.Time > maxHashTime || p.Threads > maxHashThreads ||
+		p.SaltLen > maxHashSaltLen || p.KeyLen > maxHashKeyLen {
+		return "", errors.New("argon2id parameters are out of the range this build will verify")
 	}
 	salt := make([]byte, p.SaltLen)
 	if _, err := rand.Read(salt); err != nil {
@@ -136,12 +155,15 @@ func decodeHash(encoded string) (HashParams, []byte, []byte, error) {
 	if p.Memory == 0 || p.Time == 0 || p.Threads == 0 {
 		return p, nil, nil, ErrMalformedHash
 	}
+	if p.Memory > maxHashMemoryKiB || p.Time > maxHashTime || p.Threads > maxHashThreads {
+		return p, nil, nil, fmt.Errorf("%w: cost parameters out of range (m=%d,t=%d,p=%d)", ErrMalformedHash, p.Memory, p.Time, p.Threads)
+	}
 	salt, err := base64.RawStdEncoding.Strict().DecodeString(parts[4])
-	if err != nil || len(salt) == 0 {
+	if err != nil || len(salt) == 0 || len(salt) > maxHashSaltLen {
 		return p, nil, nil, ErrMalformedHash
 	}
 	key, err := base64.RawStdEncoding.Strict().DecodeString(parts[5])
-	if err != nil || len(key) == 0 {
+	if err != nil || len(key) == 0 || len(key) > maxHashKeyLen {
 		return p, nil, nil, ErrMalformedHash
 	}
 	p.SaltLen = uint32(len(salt))
