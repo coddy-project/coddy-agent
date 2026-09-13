@@ -17,8 +17,6 @@ export const messagesRu: Record<string, string> = {
 
   "auth.signIn.logoAlt": "Coddy агент",
   "auth.signIn.title": "Вход",
-  "auth.signIn.lead":
-    "Этот сервер Coddy спрашивает, кто вы, прежде чем что-то показать.",
   "auth.signIn.user": "Пользователь",
   "auth.signIn.password": "Пароль",
   "auth.signIn.submit": "Войти",

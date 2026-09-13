@@ -10768,13 +10768,6 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   color: var(--text);
 }
 
-.auth-lead {
-  margin: -6px 0 2px;
-  font-size: 0.85rem;
-  line-height: 1.45;
-  color: var(--muted);
-}
-
 .auth-field {
   display: flex;
   flex-direction: column;

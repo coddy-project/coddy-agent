@@ -698,8 +698,9 @@ token of the environment selector and is never gated here.
   app and then replacing it with a form reads as a glitch; a spinner for 20 ms reads as a slow page.
 - **The card** is **`min(380px, 100%)`** wide with the glass panel tokens
   (**`--coddy-glass-panel-bg`** / **`-border`** / **`-backdrop`** / **`-shadow`** / **`-radius`**),
-  **28px** padding and a **14px** column gap: the wordmark, **`h1`** title, lead paragraph, the two
-  fields, the error line, the submit button.
+  **28px** padding and a **14px** column gap: the wordmark, **`h1`** title, the two fields, the
+  error line, the submit button. Nothing explains the screen in prose - a form with two fields and
+  a product's own mark above it needs no caption.
 - **The wordmark** (**`.auth-logo`**) is the rectangular logo with the product name in it, not a
   text line: **`src/assets/coddy-logo-wordmark.svg`** on the six dark themes and **`-light.svg`** on
   **`light`** (**`LIGHT_THEMES`**). It spans the card's content width with

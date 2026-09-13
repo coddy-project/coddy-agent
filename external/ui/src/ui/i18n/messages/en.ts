@@ -21,8 +21,6 @@ export const messagesEn: Record<string, string> = {
   // reader says in its place.
   "auth.signIn.logoAlt": "Coddy agent",
   "auth.signIn.title": "Sign in",
-  "auth.signIn.lead":
-    "This Coddy server asks who you are before it shows anything.",
   "auth.signIn.user": "User",
   "auth.signIn.password": "Password",
   "auth.signIn.submit": "Sign in",

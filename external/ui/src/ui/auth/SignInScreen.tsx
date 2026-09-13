@@ -75,7 +75,6 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
           height={56}
         />
         <h1 className="auth-title">{t("auth.signIn.title")}</h1>
-        <p className="auth-lead">{t("auth.signIn.lead")}</p>
 
         <label className="auth-field">
           <span className="auth-label">{t("auth.signIn.user")}</span>
