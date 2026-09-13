@@ -1,6 +1,8 @@
 package session
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -773,5 +775,234 @@ func TestListSnapshotsCarriesRowStatistics(t *testing.T) {
 	}
 	if row.CreatedAt == "" {
 		t.Fatal("row carries no createdAt")
+	}
+}
+
+// Persisting a session rewrote the whole history on every state change, so the
+// cost of a save followed the length of the conversation rather than what had
+// moved in it. These tests hold a save to the size of the change.
+
+// buildHistory returns n messages of a realistic shape.
+func buildHistory(n int) []llm.Message {
+	msgs := make([]llm.Message, 0, n)
+	for i := 0; i < n; i++ {
+		switch i % 3 {
+		case 0:
+			msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("question %d about the repository layout", i)})
+		case 1:
+			msgs = append(msgs, llm.Message{
+				Role:      llm.RoleAssistant,
+				Content:   fmt.Sprintf("answer %d with some detail worth persisting", i),
+				ToolCalls: []llm.ToolCall{{ID: fmt.Sprintf("call_%d", i), Name: "read_file", InputJSON: `{"path":"internal/session/filesystem.go"}`}},
+			})
+		default:
+			msgs = append(msgs, llm.Message{Role: llm.RoleTool, ToolCallID: fmt.Sprintf("call_%d", i-1), Content: strings.Repeat("file line\n", 40)})
+		}
+	}
+	return msgs
+}
+
+func savedState(t *testing.T, id string, n int) (*FileStore, *State) {
+	t.Helper()
+	fs := &FileStore{Root: t.TempDir()}
+	dir, err := fs.EnsureLayout(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &State{ID: id, CWD: "/tmp", Mode: ModeAgent, SessionDir: dir}
+	st.ReplaceMessagesWithoutPersist(buildHistory(n))
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	return fs, st
+}
+
+// Appending a message must not re-encode the conversation behind it. Encoding
+// a long history is slow rather than allocation-heavy (1.27 ms against 0.03 ms
+// for 400 messages), so the work is asserted by how many messages the encoder
+// had to touch rather than by time or allocations.
+func TestAppendingEncodesOnlyTheNewMessages(t *testing.T) {
+	msgs := buildHistory(400)
+
+	whole, encoded, err := encodeMessagesFile(msgs, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if encoded != 400 {
+		t.Fatalf("encoding from nothing touched %d messages, want the whole history", encoded)
+	}
+
+	base, _, err := encodeMessagesFile(msgs[:398], nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grown, encoded, err := encodeMessagesFile(msgs, &persistedMessages{count: 398, bytes: base})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if encoded != 2 {
+		t.Fatalf("appending two messages to a 398-message history encoded %d of them", encoded)
+	}
+	if !bytes.Equal(whole, grown) {
+		t.Fatalf("the incremental encoding differs from the full one")
+	}
+}
+
+// A history that was edited rather than extended cannot be built on, and the
+// encoder must notice rather than splice onto stale bytes.
+func TestAnEditedHistoryIsEncodedInFull(t *testing.T) {
+	msgs := buildHistory(20)
+	base, _, err := encodeMessagesFile(msgs, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Same length: there is no new tail to append, so the whole history is
+	// encoded again.
+	edited := append([]llm.Message(nil), msgs...)
+	edited[3].Content = "rewritten"
+	out, encoded, err := encodeMessagesFile(edited, &persistedMessages{count: 20, bytes: base})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if encoded != 20 {
+		t.Fatalf("an edited history encoded %d messages, want all of them", encoded)
+	}
+	want, _, err := encodeMessagesFile(edited, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(out, want) {
+		t.Fatalf("an edited history was not encoded as a full encoding")
+	}
+}
+
+// Content the previous bytes cannot be built on is refused rather than spliced
+// into something malformed.
+func TestSpliceRefusesContentItDoesNotRecognise(t *testing.T) {
+	if _, ok := spliceMessages([]byte("{\n  \"version\": 1,\n  \"messages\": []\n}\n"), buildHistory(1)); ok {
+		t.Fatalf("spliced onto an empty history instead of refusing")
+	}
+	if _, ok := spliceMessages([]byte("garbage"), buildHistory(1)); ok {
+		t.Fatalf("spliced onto unrecognised content instead of refusing")
+	}
+}
+
+// A save that changes nothing must not rewrite the history at all, and must
+// leave updatedAt alone. The byte comparison this used to rely on compared a
+// compact encoding against the indented file and so never matched.
+func TestSaveThatChangesNothingKeepsUpdatedAtAndTheFile(t *testing.T) {
+	fs, st := savedState(t, "sess_nochange", 12)
+	first, err := fs.ReadSnapshot("sess_nochange")
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgPath := filepath.Join(st.SessionDir, messagesFile)
+	before, err := os.Stat(msgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(1100 * time.Millisecond)
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := fs.ReadSnapshot("sess_nochange")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Meta.UpdatedAt != first.Meta.UpdatedAt {
+		t.Fatalf("updatedAt moved on a save that changed nothing: %q -> %q", first.Meta.UpdatedAt, second.Meta.UpdatedAt)
+	}
+	after, err := os.Stat(msgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !after.ModTime().Equal(before.ModTime()) {
+		t.Fatalf("messages.json was rewritten by a save that changed nothing")
+	}
+	if len(second.Messages) != 12 {
+		t.Fatalf("history came back with %d messages", len(second.Messages))
+	}
+}
+
+// However the file is produced, it must be byte-for-byte what a plain full
+// encoding would have written: the incremental path may not drift from the
+// format every other reader expects.
+func TestPersistedHistoryMatchesAFullEncoding(t *testing.T) {
+	fs, st := savedState(t, "sess_format", 5)
+	msgPath := filepath.Join(st.SessionDir, messagesFile)
+
+	check := func(stage string) {
+		t.Helper()
+		onDisk, err := os.ReadFile(msgPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, err := json.MarshalIndent(messagesFileData{Version: messagesLayout, Messages: st.GetMessages()}, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want = append(want, '\n')
+		if !bytes.Equal(onDisk, want) {
+			t.Fatalf("%s: persisted history is not a full encoding\n--- on disk ---\n%s\n--- want ---\n%s", stage, onDisk, want)
+		}
+	}
+	check("initial")
+
+	for i := 0; i < 3; i++ {
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("appended %d", i)})
+		if err := fs.Save(st); err != nil {
+			t.Fatal(err)
+		}
+		check(fmt.Sprintf("append %d", i))
+	}
+
+	// An edit in the middle of the history is not an append and must still
+	// land correctly.
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, PlanDocument: &llm.PlanDocumentSnapshot{Slug: "plan", Name: "before"}})
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	st.MarkPlanDocumentDiscarded("plan")
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	check("after an in-place edit")
+
+	// A wholesale replacement (compaction, restore) too.
+	st.ReplaceMessagesWithoutPersist(buildHistory(3))
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	check("after a replacement")
+
+	// A store that never wrote this session - the next process - has nothing to
+	// build on and must fall back to encoding the history in full.
+	fresh := &FileStore{Root: fs.Root}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "after a restart"})
+	if err := fresh.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	check("from a store with no memory of the session")
+}
+
+// The store skips rewriting a history it believes is already on disk, so it
+// must notice when that file is no longer there.
+func TestSaveRewritesAHistoryThatVanishedFromDisk(t *testing.T) {
+	fs, st := savedState(t, "sess_vanished", 6)
+	msgPath := filepath.Join(st.SessionDir, messagesFile)
+	if err := os.Remove(msgPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := fs.ReadSnapshot("sess_vanished")
+	if err != nil {
+		t.Fatalf("history was not written back: %v", err)
+	}
+	if len(snap.Messages) != 6 {
+		t.Fatalf("history came back with %d messages", len(snap.Messages))
 	}
 }

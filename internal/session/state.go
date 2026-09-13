@@ -62,6 +62,14 @@ type State struct {
 	// Messages is the conversation history.
 	Messages []llm.Message
 
+	// msgRev counts every change to Messages and msgEditRev only those that
+	// are not a plain append. Persistence reads the pair to tell "nothing
+	// moved" from "the tail grew" without re-encoding the history to find out;
+	// every write to Messages must bump them through the helpers below, under
+	// the same lock that made the change.
+	msgRev     uint64
+	msgEditRev uint64
+
 	// UILog holds UI-only transcript lines (errors, etc.); excluded from LLM prompts.
 	UILog []UILogEntry
 
@@ -602,8 +610,29 @@ func normalizeModelID(cfg *config.Config, id string) string {
 func (s *State) AddMessage(msg llm.Message) {
 	s.mu.Lock()
 	s.Messages = append(s.Messages, msg)
+	s.markMessagesAppended()
 	s.mu.Unlock()
 	s.touchPersist()
+}
+
+// markMessagesAppended records that messages were added at the end and nothing
+// else moved. Callers hold s.mu.
+func (s *State) markMessagesAppended() { s.msgRev++ }
+
+// markMessagesEdited records a change that is not a plain append: an existing
+// message was rewritten, or the history was replaced wholesale. Callers hold
+// s.mu.
+func (s *State) markMessagesEdited() { s.msgRev++; s.msgEditRev++ }
+
+// MessagesForPersist returns the history together with the two revisions, read
+// under one lock so a store cannot pair a history with revisions from either
+// side of a concurrent change.
+func (s *State) MessagesForPersist() (msgs []llm.Message, rev, editRev uint64) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	msgs = make([]llm.Message, len(s.Messages))
+	copy(msgs, s.Messages)
+	return msgs, s.msgRev, s.msgEditRev
 }
 
 // GetMessages returns a copy of the message history.
@@ -737,6 +766,7 @@ func (s *State) AppendPlanDocument(doc plans.Document) {
 		},
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 	})
+	s.markMessagesAppended()
 	s.mu.Unlock()
 	s.touchPersist()
 }
@@ -791,6 +821,7 @@ func (s *State) UpdatePlanDocumentFromWrite(doc plans.Document) {
 		if updated != "" {
 			s.Messages[i].PlanDocument.UpdatedAt = updated
 		}
+		s.markMessagesEdited()
 	}
 	s.mu.Unlock()
 	s.touchPersist()
@@ -809,6 +840,7 @@ func (s *State) MarkPlanDocumentDiscarded(slug string) {
 			continue
 		}
 		s.Messages[i].PlanDocument.Discarded = true
+		s.markMessagesEdited()
 	}
 	s.mu.Unlock()
 	s.touchPersist()
@@ -866,6 +898,7 @@ func (s *State) SetPlanWithoutPersist(entries []acp.PlanEntry) {
 func (s *State) ReplaceMessagesWithoutPersist(msgs []llm.Message) {
 	s.mu.Lock()
 	s.Messages = msgs
+	s.markMessagesEdited()
 	s.mu.Unlock()
 }
 

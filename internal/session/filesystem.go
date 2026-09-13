@@ -43,6 +43,84 @@ type FileStore struct {
 
 	locksMu sync.Mutex
 	locks   map[string]*sync.Mutex
+
+	msgCacheMu sync.Mutex
+	msgCache   map[string]*persistedMessages
+}
+
+// persistedMessages remembers what was last written to one messages.json. A
+// save compares the state's message revisions against it to tell "nothing
+// moved" from "the tail grew", which is what keeps the cost of persisting a
+// session proportional to the change rather than to the whole conversation.
+type persistedMessages struct {
+	rev     uint64
+	editRev uint64
+	count   int
+	bytes   []byte
+}
+
+func (f *FileStore) cachedMessages(path string) *persistedMessages {
+	f.msgCacheMu.Lock()
+	defer f.msgCacheMu.Unlock()
+	return f.msgCache[path]
+}
+
+func (f *FileStore) rememberMessages(path string, p *persistedMessages) {
+	f.msgCacheMu.Lock()
+	defer f.msgCacheMu.Unlock()
+	if f.msgCache == nil {
+		f.msgCache = make(map[string]*persistedMessages)
+	}
+	f.msgCache[path] = p
+}
+
+// messagesFileTail is how an encoded history with at least one message ends.
+// Splicing replaces it with the new entries and puts it back.
+const messagesFileTail = "\n  ]\n}\n"
+
+// encodeMessagesFile renders messages.json. When the previous content is known
+// and the history only grew at the end, the new entries are appended to those
+// bytes instead of encoding every earlier message again. The result is
+// byte-for-byte what encoding the whole history would have produced, which
+// TestPersistedHistoryMatchesAFullEncoding holds it to.
+//
+// The second return value is how many messages had to be encoded: the whole
+// history when it could not build on the previous content, and only the new
+// tail when it could. Nothing in the store reads it, but it is what makes the
+// difference between the two paths observable to a test - encoding a long
+// history is slow rather than allocation-heavy, so the work cannot be measured
+// any other way without timing.
+func encodeMessagesFile(msgs []llm.Message, base *persistedMessages) ([]byte, int, error) {
+	if base != nil && base.count > 0 && len(msgs) > base.count {
+		if out, ok := spliceMessages(base.bytes, msgs[base.count:]); ok {
+			return out, len(msgs) - base.count, nil
+		}
+	}
+	data, err := json.MarshalIndent(messagesFileData{Version: messagesLayout, Messages: msgs}, "", "  ")
+	if err != nil {
+		return nil, 0, err
+	}
+	return append(data, '\n'), len(msgs), nil
+}
+
+// spliceMessages appends added to an already encoded history. It reports false
+// when prev is not shaped as expected, so the caller falls back to encoding the
+// whole history rather than writing something malformed.
+func spliceMessages(prev []byte, added []llm.Message) ([]byte, bool) {
+	if !bytes.HasSuffix(prev, []byte(messagesFileTail)) {
+		return nil, false
+	}
+	out := make([]byte, 0, len(prev)+len(added)*1024)
+	out = append(out, prev[:len(prev)-len(messagesFileTail)]...)
+	for i := range added {
+		frag, err := json.MarshalIndent(added[i], "    ", "  ")
+		if err != nil {
+			return nil, false
+		}
+		out = append(out, ",\n    "...)
+		out = append(out, frag...)
+	}
+	return append(out, messagesFileTail...), true
 }
 
 // pathMutex returns a per-path mutex, creating it on first use. Holding it
@@ -516,10 +594,17 @@ func (f *FileStore) Save(state *State) error {
 	if dir == "" {
 		return fmt.Errorf("session has no SessionDir")
 	}
-	msgs := state.GetMessages()
-	title := persistedConversationTitle(state)
+	msgs, msgRev, msgEditRev := state.MessagesForPersist()
+	title := conversationTitle(state, msgs)
 	metaPath := filepath.Join(dir, sessionMetaFile)
 	msgPath := filepath.Join(dir, messagesFile)
+
+	// Hold the history's lock across the decision and the write: the cache
+	// below is what the decision is made from, so a concurrent save of the same
+	// session must not slip between reading it and replacing it.
+	msgMu := f.pathMutex(msgPath)
+	msgMu.Lock()
+	defer msgMu.Unlock()
 
 	var prevMeta SessionMeta
 	metaExisted := false
@@ -531,15 +616,22 @@ func (f *FileStore) Save(state *State) error {
 	newActivitySeq := state.GetActivitySeq()
 	newReadSeq := state.GetReadActivitySeq()
 
-	wrapPreview := messagesFileData{
-		Version:  messagesLayout,
-		Messages: msgs,
+	// What was last written is remembered rather than read back and compared:
+	// the old code encoded the history a second time only to diff it against
+	// the file, and compared a compact encoding with an indented one, so the
+	// answer was always "changed" and updatedAt moved on every save.
+	cached := f.cachedMessages(msgPath)
+	messagesUnchanged := cached != nil && cached.rev == msgRev
+	if messagesUnchanged {
+		// Skipping the write is only safe while the file it stands for is
+		// still there; the stat costs microseconds against a write of the
+		// whole history, and the history being on disk is the one thing this
+		// must not get wrong.
+		if _, err := os.Stat(msgPath); err != nil {
+			messagesUnchanged = false
+		}
 	}
-	newMsgBytes, encErr := json.Marshal(wrapPreview)
-	oldMsgBytes, oldMsgErr := os.ReadFile(msgPath)
-	preserveUpdatedAt := encErr == nil && oldMsgErr == nil &&
-		bytes.Equal(oldMsgBytes, newMsgBytes) &&
-		newActivitySeq == prevMeta.ActivitySeq
+	preserveUpdatedAt := messagesUnchanged && newActivitySeq == prevMeta.ActivitySeq
 
 	updatedAt := time.Now().UTC().Format(time.RFC3339Nano)
 	if preserveUpdatedAt && strings.TrimSpace(prevMeta.UpdatedAt) != "" {
@@ -588,12 +680,21 @@ func (f *FileStore) Save(state *State) error {
 	if err := writeJSONAtomic(metaPath, meta); err != nil {
 		return err
 	}
-	wrap := messagesFileData{
-		Version:  messagesLayout,
-		Messages: msgs,
-	}
-	if err := writeJSONAtomic(msgPath, wrap); err != nil {
-		return err
+	if !messagesUnchanged {
+		// Only a history that grew purely at the end can be spliced onto what
+		// was written last; an edit or a replacement re-encodes everything.
+		var base *persistedMessages
+		if cached != nil && cached.editRev == msgEditRev {
+			base = cached
+		}
+		data, _, err := encodeMessagesFile(msgs, base)
+		if err != nil {
+			return err
+		}
+		if err := writeBytesAtomic(msgPath, data); err != nil {
+			return err
+		}
+		f.rememberMessages(msgPath, &persistedMessages{rev: msgRev, editRev: msgEditRev, count: len(msgs), bytes: data})
 	}
 	uiWrap := uiLogFileData{
 		Version: uiLogLayout,
@@ -645,7 +746,14 @@ func (f *FileStore) PatchSessionMetaActivitySync(st *State) error {
 }
 
 func deriveSessionTitle(s *State) string {
-	for _, msg := range s.GetMessages() {
+	return titleFromMessages(s.GetMessages())
+}
+
+// titleFromMessages derives the title from a history the caller already holds,
+// so a save does not copy the whole conversation a second time just to read
+// its first line.
+func titleFromMessages(msgs []llm.Message) string {
+	for _, msg := range msgs {
 		if msg.Role == llm.RoleUser && strings.TrimSpace(msg.Content) != "" {
 			text := stripCoddySessionAssetsXML(strings.TrimSpace(msg.Content))
 			// A hydrated @mention turn also carries <coddy_attachment> file bodies;
@@ -723,10 +831,16 @@ func stripCoddyAttachmentXML(s string) string {
 
 // persistedConversationTitle selects the snapshot title saved to session.json.
 func persistedConversationTitle(s *State) string {
+	return conversationTitle(s, s.GetMessages())
+}
+
+// conversationTitle is persistedConversationTitle over a history the caller
+// already has.
+func conversationTitle(s *State, msgs []llm.Message) string {
 	if p := strings.TrimSpace(s.GetTitlePinned()); p != "" {
 		return p
 	}
-	return deriveSessionTitle(s)
+	return titleFromMessages(msgs)
 }
 
 func truncateRunes(s string, max int) string {
