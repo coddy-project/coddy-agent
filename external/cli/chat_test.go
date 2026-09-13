@@ -559,15 +559,18 @@ func TestSpawnAgentToolBoxNamesTheAgentAndShowsTheDelegatedPrompt(t *testing.T) 
 
 	text := toolBoxText(t, tb, 100)
 	for _, want := range []string{
-		"spawn_agent general",
-		"review the diff",
-		"timeout 300s",
 		"Read internal/agent/react.go",
 		"and report what changed",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("%q missing from the box:\n%s", want, text)
 		}
+	}
+	// The subagent, the task and the options the run was launched with belong
+	// on the title row, each behind the same separator.
+	title := tui.StripTerminalSequences(tb.title())
+	if title != "spawn_agent general · review the diff · timeout 300s" {
+		t.Fatalf("title row reads %q", title)
 	}
 }
 
@@ -578,7 +581,7 @@ func TestSpawnAgentToolBoxReadsLabelledArguments(t *testing.T) {
 	tb := newToolBox(newTheme("dark"), "call-15", "spawn_agent", "other", nil)
 	tb.SetArgs(`Arguments: {"agent":"general","description":"check the docs","prompt":"Read the page"}`)
 	text := toolBoxText(t, tb, 100)
-	for _, want := range []string{"spawn_agent general", "check the docs", "Read the page"} {
+	for _, want := range []string{"spawn_agent general · check the docs", "Read the page"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("%q missing from a labelled delegation:\n%s", want, text)
 		}
@@ -613,13 +616,11 @@ func TestSpawnAgentToolBoxNamesABackgroundRun(t *testing.T) {
 	tb.SetArgs(`{"agent":"explore","prompt":"Find every caller","background":true}`)
 	tb.SetStatus("in_progress", "", 0, 0)
 
-	text := toolBoxText(t, tb, 100)
-	if !strings.Contains(text, "spawn_agent explore") || !strings.Contains(text, "background") {
-		t.Fatalf("background delegation renders as:\n%s", text)
-	}
-	// Nothing was set, so no timeout is claimed.
-	if strings.Contains(text, "timeout") {
-		t.Fatalf("a timeout the call never passed reached the box:\n%s", text)
+	// No description and no timeout were passed, so neither is claimed: the
+	// row carries the agent and the one option that was set.
+	title := tui.StripTerminalSequences(tb.title())
+	if title != "spawn_agent explore · background" {
+		t.Fatalf("title row reads %q", title)
 	}
 }
 

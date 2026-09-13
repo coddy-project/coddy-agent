@@ -232,8 +232,8 @@ func (t *toolBox) title() string {
 	case "spawn_agent":
 		if t.spawned {
 			title := t.theme.Bold(t.name) + " " + t.theme.Fg(roleAccent, t.spawn.agent)
-			if t.spawn.description != "" {
-				title += t.theme.Fg(roleDim, " · "+t.spawn.description)
+			if tail := t.spawn.titleTail(); tail != "" {
+				title += t.theme.Fg(roleDim, tail)
 			}
 			return title
 		}
@@ -305,17 +305,25 @@ func parseSpawnAgentArgs(argsJSON string) (spawnAgentDetails, bool) {
 	return details, true
 }
 
-// launchLine names the options the delegation was started with. A foreground
-// run on the configured timeout sets none of them and gets no line.
-func (d spawnAgentDetails) launchLine() string {
+// titleTail is what follows the subagent on the title row: the call's own task
+// label, then the options the run was launched with, each behind the same
+// separator. A foreground run on the configured timeout with no description
+// sets none of them and the row ends at the agent.
+func (d spawnAgentDetails) titleTail() string {
 	var parts []string
+	if d.description != "" {
+		parts = append(parts, d.description)
+	}
 	if d.background {
 		parts = append(parts, "background")
 	}
 	if d.timeout > 0 {
 		parts = append(parts, "timeout "+itoa(d.timeout)+"s")
 	}
-	return strings.Join(parts, " · ")
+	if len(parts) == 0 {
+		return ""
+	}
+	return " · " + strings.Join(parts, " · ")
 }
 
 // Longest delegated prompt a collapsed spawn_agent box shows. The prompt is
@@ -489,24 +497,18 @@ func (t *toolBox) rebuild() {
 	t.AddChild(box)
 }
 
-// addDelegation writes what a spawn_agent call handed to its child: how the
-// run was launched, then the prompt itself. A delegated turn happens out of
-// sight, so without this the operator watches a box that says only that some
-// subagent is busy. The child's report arrives later as the box body, which
-// puts the task and the answer in one block. Collapsed, a long prompt is cut
-// and ctrl+o shows the whole of it.
+// addDelegation writes what a spawn_agent call handed to its child: the prompt
+// itself, under a title row that already names the subagent, the task and the
+// options the run was launched with. A delegated turn happens out of sight, so
+// without this the operator watches a box that says only that some subagent is
+// busy. The child's report arrives later as the box body, which puts the task
+// and the answer in one block. Collapsed, a long prompt is cut and ctrl+o
+// shows the whole of it.
 func (t *toolBox) addDelegation(box *tui.Box) {
-	if !t.spawned {
+	if !t.spawned || t.spawn.prompt == "" {
 		return
 	}
-	details := t.spawn
-	if line := details.launchLine(); line != "" {
-		box.AddChild(tui.NewText(t.theme.Fg(roleDim, line), 0, 0, nil))
-	}
-	if details.prompt == "" {
-		return
-	}
-	prompt, cut := details.prompt, false
+	prompt, cut := t.spawn.prompt, false
 	if !t.expanded {
 		prompt, cut = truncatePrompt(prompt, collapsedPreviewLines, collapsedPromptChars)
 	}
