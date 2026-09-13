@@ -77,7 +77,12 @@ func (f *FileStore) pathMutex(path string) *sync.Mutex {
 
 // SessionPath returns the directory for a session id: Root/<id> for a session
 // somebody started themselves, and the nested bundle under its parent for one
-// a spawn_agent call started. A bundle in the sessions root wins over a nested
+// a spawn_agent call started.
+//
+// The id must already have passed ValidateFolderSessionID - every entry point
+// that takes one from a client runs it (the HTTP routes, EnsureHTTPSession,
+// session/load, session/new with a preferred id) - because the path is built
+// by joining, and joining only cleans a traversal, it does not refuse one. A bundle in the sessions root wins over a nested
 // one of the same name, which only a collision of two random ids could produce.
 // An id nothing has stored yet resolves to the sessions root, which is where a
 // fresh session belongs.
@@ -336,7 +341,7 @@ type LoadedSnapshot struct {
 
 // ReadSnapshot loads session.json, messages.json, and todos/active.md if present.
 func (f *FileStore) ReadSnapshot(sessionID string) (*LoadedSnapshot, error) {
-	return readSnapshotAt(f.SessionPath(sessionID), sessionID)
+	return f.readSnapshotAt(f.SessionPath(sessionID), sessionID)
 }
 
 // readSnapshotAt reads a bundle from an explicit directory, which is how a
@@ -348,7 +353,7 @@ func (f *FileStore) ReadSnapshot(sessionID string) (*LoadedSnapshot, error) {
 // there. Without that, a bundle whose first save never landed - the process
 // died between the layout and the save - would read back as an ordinary,
 // writable session hidden inside its parent.
-func readSnapshotAt(dir, sessionID string) (*LoadedSnapshot, error) {
+func (f *FileStore) readSnapshotAt(dir, sessionID string) (*LoadedSnapshot, error) {
 	metaPath := filepath.Join(dir, sessionMetaFile)
 	metaBytes, err := readFileWithRetry(metaPath)
 	if err != nil {
@@ -395,7 +400,7 @@ func readSnapshotAt(dir, sessionID string) (*LoadedSnapshot, error) {
 		}
 	}
 
-	if parent, ok := childBundleParent(dir); ok {
+	if parent, ok := f.childBundleParent(dir); ok {
 		meta.SubagentRun = true
 		if strings.TrimSpace(meta.ParentSessionID) == "" {
 			meta.ParentSessionID = parent
@@ -519,7 +524,7 @@ func (f *FileStore) ListSnapshotsWith(opts ListOptions) ([]SessionListEntry, err
 
 // appendBundleRow reads one bundle and adds its row when opts admit it.
 func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter string, opts ListOptions) []SessionListEntry {
-	snap, err := readSnapshotAt(dir, id)
+	snap, err := f.readSnapshotAt(dir, id)
 	if err != nil {
 		return out
 	}

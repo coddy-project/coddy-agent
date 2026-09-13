@@ -37,9 +37,10 @@ var (
 	reBulletStar  = regexp.MustCompile(`(?m)^([ \t]*)\* `)
 	reHRule       = regexp.MustCompile(`(?m)^(\*{3,}|-{3,}|={3,})$`)
 	reTableAlign  = regexp.MustCompile(`(?m)^\|?[\s\-:|]+\|[\s\-:|]*\|?$`) // alignment row
-	// A fence opens on three or more backticks or tildes; an inline span is one
-	// backtick to the next on the same line.
-	reFenceOpen  = regexp.MustCompile("^[`~]{3,}")
+	// A fence opens on three or more backticks or tildes - one character or the
+	// other, never a mix, so the run that must close it is unambiguous; an
+	// inline span is one backtick to the next on the same line.
+	reFenceOpen  = regexp.MustCompile("^(?:`{3,}|~{3,})")
 	reInlineCode = regexp.MustCompile("`[^`\n]+`")
 )
 

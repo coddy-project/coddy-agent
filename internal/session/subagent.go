@@ -404,7 +404,7 @@ func (m *Manager) SessionTree(rootID string) ([]SessionTreeNode, error) {
 			}
 			id := filepath.Base(childDir)
 			node := SessionTreeNode{ID: id, ParentSessionID: parentID, SubagentRun: true}
-			if snap, err := readSnapshotAt(childDir, id); err == nil {
+			if snap, err := m.store.readSnapshotAt(childDir, id); err == nil {
 				node.SubagentTaskID = strings.TrimSpace(snap.Meta.SubagentTaskID)
 			}
 			children[parentID] = append(children[parentID], node)

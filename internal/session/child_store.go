@@ -16,10 +16,13 @@ import (
 // whose work it was.
 const ChildSessionsDirName = "subagents"
 
-// maxChildNesting bounds the walk that indexes child bundles. Real trees are
-// far shallower (subagents.max_depth caps them at a handful of levels); the
-// bound only keeps a corrupted or hand-made directory from walking forever.
-const maxChildNesting = 32
+// maxChildNesting bounds the walk that indexes child bundles. Nothing in a
+// directory tree can loop - a symlink is not a directory to os.ReadDir - so
+// this is a guard against a hand-made tree, not a limit on how deep spawning
+// may nest. It sits far above any subagents.max_depth an operator would set,
+// because a bundle past it would resolve to the sessions root instead: the
+// two numbers are related, and this one has to stay the larger.
+const maxChildNesting = 128
 
 // childRescanInterval is the shortest gap between two full walks of the
 // sessions root. The index is kept up to date by EnsureChildLayout for every
@@ -52,9 +55,14 @@ func (f *FileStore) lookupChildDir(sessionID string) (string, bool) {
 }
 
 // rememberChildDir records where a child bundle lives, so SessionPath resolves
-// it without walking the tree.
+// it without walking the tree. A name that could not be a session id never
+// enters the index: the walk reads whatever the filesystem holds, and a
+// hand-made folder must not become a path anything answers with.
 func (f *FileStore) rememberChildDir(sessionID, dir string) {
 	if f == nil || sessionID == "" || dir == "" {
+		return
+	}
+	if err := ValidateFolderSessionID(sessionID); err != nil {
 		return
 	}
 	f.childMu.Lock()
@@ -157,7 +165,9 @@ func collectChildDirs(dir string, out map[string]string, depth int) {
 			continue
 		}
 		child := filepath.Join(kids, ent.Name())
-		out[ent.Name()] = child
+		if ValidateFolderSessionID(ent.Name()) == nil {
+			out[ent.Name()] = child
+		}
 		collectChildDirs(child, out, depth+1)
 	}
 }
@@ -203,11 +213,16 @@ func (f *FileStore) EnsureChildLayout(parentSessionID, childSessionID string) (s
 // childBundleParent names the session a bundle at dir was spawned by, read off
 // the path: a child lives at <parent>/<ChildSessionsDirName>/<child>.
 //
-// The folder above must be a bundle of its own, not merely a folder with the
-// right name: an operator who points sessions.dir at a directory called
-// "subagents" would otherwise have every session read as a delegated run.
-func childBundleParent(dir string) (string, bool) {
+// A bundle sitting directly in the sessions root is a session somebody started,
+// whatever that root is called: an operator who points sessions.dir at a folder
+// named "subagents" would otherwise have every session of it read as a
+// delegated run. Above that, the folder holding the children must be inside a
+// bundle of its own.
+func (f *FileStore) childBundleParent(dir string) (string, bool) {
 	children := filepath.Dir(dir)
+	if f != nil && f.Root != "" && children == filepath.Clean(f.Root) {
+		return "", false
+	}
 	if filepath.Base(children) != ChildSessionsDirName {
 		return "", false
 	}

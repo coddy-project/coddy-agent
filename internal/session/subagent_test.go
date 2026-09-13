@@ -730,6 +730,50 @@ func TestABundleInsideAParentReadsAsASpawnedRun(t *testing.T) {
 	}
 }
 
+// The location of a bundle says it was delegated only relative to the sessions
+// root. An operator who points sessions.dir at a folder called "subagents"
+// inside something that happens to be a bundle still has ordinary sessions
+// there, not a root full of delegated runs.
+func TestABundleInTheSessionsRootIsNeverReadAsDelegated(t *testing.T) {
+	tmp := t.TempDir()
+	outer := &session.FileStore{Root: tmp}
+	if _, err := outer.EnsureLayout("sess_outer"); err != nil {
+		t.Fatal(err)
+	}
+	// The sessions root is a folder named like the one children live in,
+	// inside a bundle of its own: the shape the path check must survive.
+	root := filepath.Join(tmp, "sess_outer", session.ChildSessionsDirName)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store := &session.FileStore{Root: root}
+	id := session.NewSessionID()
+	if _, err := store.EnsureLayout(id); err != nil {
+		t.Fatal(err)
+	}
+
+	snap, err := store.ReadSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.IsSubagentRun() {
+		t.Fatalf("a session in the sessions root reads as a delegated run: %+v", snap.Meta)
+	}
+	rows, err := store.ListSnapshotsWith(session.ListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, r := range rows {
+		if r.SessionID == id {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("the session was hidden from the default listing")
+	}
+}
+
 // A child transcript is served to a reader and refused to a writer: it cannot
 // be forked into a writable branch, live or retired.
 func TestChildIsServedButNotBranched(t *testing.T) {
