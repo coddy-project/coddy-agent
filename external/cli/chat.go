@@ -98,6 +98,8 @@ func (a *assistantMessage) rebuild() {
 
 // collapsedPreviewLines is the client-side preview cap (pi shows 10 lines
 // then the expand hint; the server already truncates previews at 19 lines).
+// It also caps the delegated prompt of a spawn_agent box, and
+// docs/surfaces/console.md quotes the number: move both with it.
 const collapsedPreviewLines = 10
 
 // toolBox renders one tool call: Spacer + Box whose background tracks the
@@ -112,6 +114,12 @@ type toolBox struct {
 	args   string
 	status string // pending | in_progress | completed | failed | cancelled
 
+	// spawn holds the parsed delegation of a spawn_agent call, and spawned
+	// says the arguments were complete enough to read one. Kept on the box
+	// because rebuild runs on every status, expand and argument update, and
+	// a prompt is worth several kilobytes of JSON to re-parse each time.
+	spawn      spawnAgentDetails
+	spawned    bool
 	preview    string
 	fullText   string
 	expanded   bool
@@ -132,6 +140,10 @@ func newToolBox(theme *tui.Theme, id, name, kind string, loadFull func(id string
 // SetArgs stores the raw argument JSON streamed for the call.
 func (t *toolBox) SetArgs(argsJSON string) {
 	t.args = argsJSON
+	t.spawn, t.spawned = spawnAgentDetails{}, false
+	if t.name == "spawn_agent" {
+		t.spawn, t.spawned = parseSpawnAgentArgs(argsJSON)
+	}
 	t.rebuild()
 }
 
@@ -162,6 +174,16 @@ func (t *toolBox) SetExpanded(expanded bool) {
 
 // Expanded reports the current expand state.
 func (t *toolBox) Expanded() bool { return t.expanded }
+
+// finished reports a call the manager has closed. Only then is there a result
+// in sessions/<id>/tool_calls/ for an expand to fail to read.
+func (t *toolBox) finished() bool {
+	switch t.status {
+	case "completed", "failed", "cancelled":
+		return true
+	}
+	return false
+}
 
 func (t *toolBox) bgRole() string {
 	switch t.status {
@@ -208,10 +230,10 @@ func (t *toolBox) title() string {
 			return t.theme.Bold(t.name) + " " + t.theme.Fg(roleAccent, titleField(name))
 		}
 	case "spawn_agent":
-		if details, ok := parseSpawnAgentArgs(t.args); ok {
-			title := t.theme.Bold(t.name) + " " + t.theme.Fg(roleAccent, details.agent)
-			if details.description != "" {
-				title += t.theme.Fg(roleDim, " · "+details.description)
+		if t.spawned {
+			title := t.theme.Bold(t.name) + " " + t.theme.Fg(roleAccent, t.spawn.agent)
+			if t.spawn.description != "" {
+				title += t.theme.Fg(roleDim, " · "+t.spawn.description)
 			}
 			return title
 		}
@@ -442,7 +464,7 @@ func (t *toolBox) rebuild() {
 	}
 	// Only a finished call has a persisted result; a running one has nothing
 	// to fail to load, and expanding it asks for the arguments anyway.
-	if t.expanded && t.loadFailed && t.hasResult {
+	if t.expanded && t.loadFailed && t.finished() {
 		box.AddChild(tui.NewText(t.theme.Fg(roleDim, "full output unavailable (tool_calls result missing)"), 0, 0, nil))
 	}
 	if body != "" {
@@ -474,13 +496,10 @@ func (t *toolBox) rebuild() {
 // puts the task and the answer in one block. Collapsed, a long prompt is cut
 // and ctrl+o shows the whole of it.
 func (t *toolBox) addDelegation(box *tui.Box) {
-	if t.name != "spawn_agent" {
+	if !t.spawned {
 		return
 	}
-	details, ok := parseSpawnAgentArgs(t.args)
-	if !ok {
-		return
-	}
+	details := t.spawn
 	if line := details.launchLine(); line != "" {
 		box.AddChild(tui.NewText(t.theme.Fg(roleDim, line), 0, 0, nil))
 	}

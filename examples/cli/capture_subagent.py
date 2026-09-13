@@ -245,6 +245,12 @@ tui.pump(1.0)
 tui.send("Delegate the tool title survey to a subagent." + CR)
 tui.wait_for("three title rules", timeout=120)
 tui.pump(1.0)
+# The shot is only worth keeping if the rows it exists to show are on screen:
+# a taller transcript or a changed title would otherwise be captured silently.
+for row in ("load_skill code-review", "spawn_agent explore", "timeout 300s",
+            "list every tool whose box title"):
+    if row not in tui.text():
+        raise AssertionError(f"{row!r} is not on the captured screen:\n{tui.text()}")
 capture.snapshot(tui, OUT, "13-subagent-delegation")
 print("delegation captured")
 tui.send("\x03"); time.sleep(0.2); tui.send("\x03")

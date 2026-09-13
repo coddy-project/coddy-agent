@@ -571,6 +571,41 @@ func TestSpawnAgentToolBoxNamesTheAgentAndShowsTheDelegatedPrompt(t *testing.T) 
 	}
 }
 
+// The arguments also travel behind an "Arguments:" label, and a delegation is
+// the one call the console reads several fields of, so the envelope has to
+// come off for the whole object rather than for a single key.
+func TestSpawnAgentToolBoxReadsLabelledArguments(t *testing.T) {
+	tb := newToolBox(newTheme("dark"), "call-15", "spawn_agent", "other", nil)
+	tb.SetArgs(`Arguments: {"agent":"general","description":"check the docs","prompt":"Read the page"}`)
+	text := toolBoxText(t, tb, 100)
+	for _, want := range []string{"spawn_agent general", "check the docs", "Read the page"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("%q missing from a labelled delegation:\n%s", want, text)
+		}
+	}
+}
+
+// A finished call whose result never made it to disk still says so, even when
+// it printed nothing: the guard is about the call being over, not about
+// whether there was a preview.
+func TestToolBoxReportsAMissingResultOnlyOnceTheCallIsOver(t *testing.T) {
+	missing := func(string) (string, bool) { return "", false }
+
+	running := newToolBox(newTheme("dark"), "call-16", "read", "read", missing)
+	running.SetStatus("in_progress", "", 0, 0)
+	running.SetExpanded(true)
+	if text := toolBoxText(t, running, 100); strings.Contains(text, "full output unavailable") {
+		t.Fatalf("a running call claimed a missing result:\n%s", text)
+	}
+
+	done := newToolBox(newTheme("dark"), "call-17", "read", "read", missing)
+	done.SetStatus("completed", "", 0, 0)
+	done.SetExpanded(true)
+	if text := toolBoxText(t, done, 100); !strings.Contains(text, "full output unavailable") {
+		t.Fatalf("a finished call with no result stayed silent:\n%s", text)
+	}
+}
+
 // A background run returns a task id at once instead of the report, which is
 // the one thing about a delegation the prompt itself does not say.
 func TestSpawnAgentToolBoxNamesABackgroundRun(t *testing.T) {
