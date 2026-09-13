@@ -652,6 +652,47 @@ func TestRemoteReasoningConfigOptionRetainsSelectionBeforeFirstPrompt(t *testing
 	t.Fatalf("config option update missing: %#v", sender.updates)
 }
 
+func TestRemotePromptSendsPrePromptReasoningSelection(t *testing.T) {
+	var request responsesRequest
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"object":"list","default_agent_model":"remote/terra","data":[{"id":"remote/terra","owned_by":"remote","reasoning_levels":["low","high"],"reasoning_default":"low"}]}`))
+	})
+	mux.HandleFunc("PATCH /coddy/sessions/{id}", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
+	})
+	mux.HandleFunc("POST /v1/responses", func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode responses request: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	h, err := NewHandler(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := &collectSender{}
+	h.SetServer(sender)
+	if _, err := h.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
+		SessionID: "sess_fresh", ConfigID: "reasoning", Value: "high",
+	}); err != nil {
+		t.Fatalf("set reasoning before first prompt: %v", err)
+	}
+	if _, err := h.HandleSessionPromptWithSender(context.Background(), acp.SessionPromptParams{
+		SessionID: "sess_fresh",
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "hi"}},
+	}, sender, nil); err != nil {
+		t.Fatalf("first prompt: %v", err)
+	}
+	if request.Metadata["reasoning"] != "high" {
+		t.Fatalf("response metadata = %#v, want reasoning high", request.Metadata)
+	}
+}
+
 func assertRemoteReasoningOption(t *testing.T, options []acp.ConfigOption, current string) {
 	t.Helper()
 	for _, option := range options {
