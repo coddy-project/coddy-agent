@@ -452,6 +452,10 @@ config test failed
 
 The exit status is 1 when the file has errors and 0 otherwise, so the flag fits a deploy script right before `coddy serve restart`. Warnings (marked `warning:`) never fail the check: they flag spellings the loader still reads but the schema and editors reject - `yes` for a boolean, `40.0` for an integer - and a file without the `# yaml-language-server:` header. A missing file is an error, since the flag exists to check the file a start would use. Values under secret-shaped keys (`api_key`, `auth_token`, `pairing_tokens`) are never echoed in a message.
 
+A file that does not parse at all is placed differently from one whose values are merely wrong. The parser reports the line the block it was reading began on, which in a file with a header of comments is a blank line far above the mistake, so the check re-reads the file to find the line whose arrival stops it parsing and reports that one instead. A start prints the same line, so `coddy -t` and `coddy serve` send you to the same place.
+
+What an editor leaves in the file is not part of the configuration. A file written on Windows ends its lines with a carriage return and a line feed and may carry a byte order mark in front of the first one; both are dropped on the way in, so the `# yaml-language-server:` header behind a mark is still found and a finding still names the line the editor shows, and a save puts the file's own line endings back. The one shape Coddy does not read is UTF-16 - Notepad's "Unicode" - which is reported as such, with UTF-8 as the fix, instead of as a syntax error.
+
 ## Dry run: probing what the file points at
 
 `--dry-run` looks at the world the file describes, after the same check `--test-config` performs. Every command that takes `-t` takes it too: `coddy --dry-run`, `coddy cli --dry-run`, `coddy acp --dry-run`, `coddy serve --dry-run`, with `--config` and `--home` selecting the file as for a start. The static check runs first, and a file with errors stops there - probing what a broken file names would only bury the first mistake under its consequences. When the file is clean, the configuration is loaded without side effects (no `config.yaml.bak` written or restored) and probed:
@@ -1619,7 +1623,7 @@ coddy -t
 coddy serve -t
 ```
 
-Every problem is printed as `file:line:column: what is wrong`, with an indented `fix:` line and, where the schema has one, a `doc:` line. The exit status is 1 on errors; warnings (`yes` for a boolean, a missing `# yaml-language-server:` header) never fail the check, and a missing file is an error. When the file is clean, go one step further:
+Every problem is printed as `file:line:column: what is wrong`, with an indented `fix:` line and, where the schema has one, a `doc:` line. A syntax error names the line whose arrival stops the file parsing, not the line the parser blames, and a start prints the same line. The exit status is 1 on errors; warnings (`yes` for a boolean, a missing `# yaml-language-server:` header) never fail the check, and a missing file is an error. When the file is clean, go one step further:
 
 ```bash
 coddy --dry-run                 # the problems and one status line
@@ -1773,6 +1777,7 @@ A copy under `~/.local/bin` or a build of your own is untouched by any of this a
   ```
 
 - **Updates from scripts.** `coddy update -y --no-restart` installs without starting Coddy again, for a CI step with no console to run in.
+- **Editing `config.yaml`.** Windows line endings and the byte order mark Notepad writes are read and dropped, and a save puts the file's line endings back, so editing the file in any Windows editor is safe. The exception is the encoding: a file saved as **Unicode** (UTF-16) rather than **UTF-8** is refused by name - `the file is UTF-16 LE text, not UTF-8` - and has to be re-saved. Notepad's Save As dialog has the encoding next to the Save button; most other editors call the right one "UTF-8 without BOM".
 - **Editors.** Configure ACP clients with the absolute `coddy.exe` path (see the first section).
 
 ## Collect diagnostics

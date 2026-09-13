@@ -92,6 +92,47 @@ func (s *configTestFlagState) misspelledHTTPServerKey(line int) error {
 	return s.write(body)
 }
 
+// misindentedProviderEntry writes the file the bug report came from: a header of
+// comments, then a provider entry whose last key lost one space of indentation. The
+// parser blames the line its block mapping began on, which lands in the comments.
+func (s *configTestFlagState) misindentedProviderEntry(line int) error {
+	var b strings.Builder
+	b.WriteString("# yaml-language-server: $schema=https://coddy.dev/config.schema.json\n")
+	for i := 2; i <= 17; i++ {
+		b.WriteString("# a comment line an operator keeps in the file\n")
+	}
+	b.WriteString("providers:\n")                                     // 18
+	b.WriteString("  - name: local\n")                                // 19
+	b.WriteString("    type: openai\n")                               // 20
+	b.WriteString("    api_base: \"http://10.10.13.77/ai_api/v1\"\n") // 21
+	b.WriteString("   api_key: \"~\"\n")                              // 22, one space short
+	body := b.String()
+	if got := strings.Count(body, "\n"); got != line {
+		return fmt.Errorf("the fixture is %d lines long, the scenario says the last one is %d", got, line)
+	}
+	return s.write(body)
+}
+
+// windowsValidConfig is the same valid file an editor on Windows leaves behind: CRLF
+// line breaks behind a byte order mark.
+func (s *configTestFlagState) windowsValidConfig() error {
+	if err := s.validConfig(); err != nil {
+		return err
+	}
+	body := "\ufeff" + strings.ReplaceAll(s.written, "\n", "\r\n")
+	return s.write(body)
+}
+
+func (s *configTestFlagState) reportHasNothingElse() error {
+	for _, line := range strings.Split(strings.TrimSpace(s.out.String()), "\n") {
+		if strings.TrimSpace(line) == "" || strings.HasSuffix(line, ": valid") {
+			continue
+		}
+		return fmt.Errorf("the report has more to say than that the file is valid:\n%s", s.out.String())
+	}
+	return nil
+}
+
 func (s *configTestFlagState) loggerLevel(value string) error {
 	return s.write("logger:\n  level: " + value + "\n")
 }
@@ -210,6 +251,8 @@ func initializeConfigTestFlagScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a config\.yaml with one provider and one model$`, s.validConfig)
 	sc.Step(`^a config\.yaml whose httpserver section says "enabled: true" on line (\d+)$`, s.misspelledHTTPServerKey)
 	sc.Step(`^a config\.yaml whose logger\.level is "([^"]*)"$`, s.loggerLevel)
+	sc.Step(`^a config\.yaml whose provider entry loses one space of indentation on line (\d+)$`, s.misindentedProviderEntry)
+	sc.Step(`^a config\.yaml with one provider and one model saved as Windows text$`, s.windowsValidConfig)
 	sc.Step(`^a config\.yaml with a broken value and a valid config\.yaml\.bak beside it$`, s.brokenConfigWithBackup)
 	sc.Step(`^I run coddy serve with --test-config$`, s.runServeTest)
 	sc.Step(`^I run coddy with -t$`, s.runCLITest)
@@ -217,6 +260,7 @@ func initializeConfigTestFlagScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the command succeeds$`, s.commandSucceeds)
 	sc.Step(`^the command fails$`, s.commandFails)
 	sc.Step(`^the report says the config is valid$`, s.reportSaysValid)
+	sc.Step(`^the report has nothing else to say$`, s.reportHasNothingElse)
 	sc.Step(`^nothing was created under the home besides config\.yaml$`, s.nothingElseCreated)
 	sc.Step(`^the report points at line (\d+) of the config file$`, s.reportPointsAtLine)
 	sc.Step(`^the report points at the line of "([^"]*)"$`, s.reportPointsAtLineOf)

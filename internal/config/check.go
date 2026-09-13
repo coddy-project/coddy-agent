@@ -189,6 +189,17 @@ func RunCheck(w io.Writer, cli CLIPaths) error {
 
 // checkConfigBytes runs the stages of the check over the raw file content.
 func checkConfigBytes(data []byte, paths Paths) []Finding {
+	if enc := utf16Encoding(data); enc != "" {
+		return []Finding{{
+			Severity: SeverityError, Line: 1, Column: 1,
+			Message: "the file is " + enc + " text, not UTF-8",
+			Fix:     utf16Fix,
+		}}
+	}
+	// A byte order mark and Windows line endings are the editor's, not the
+	// operator's: they are dropped here so the stages below see one shape and
+	// the modeline behind a mark is still found (see source.go).
+	data = normalizeConfigSource(data)
 	var findings []Finding
 	if !hasSchemaModeline(data) {
 		findings = append(findings, Finding{
@@ -205,7 +216,7 @@ func checkConfigBytes(data []byte, paths Paths) []Finding {
 
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(expanded), &doc); err != nil {
-		return append(findings, syntaxFindings(err)...)
+		return append(findings, syntaxFindings(err, expanded)...)
 	}
 	body := configDocumentRoot(&doc)
 	if body == nil {
@@ -240,7 +251,7 @@ func checkConfigBytes(data []byte, paths Paths) []Finding {
 	var cfg Config
 	if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
 		if schemaErrors == 0 {
-			findings = append(findings, syntaxFindings(err)...)
+			findings = append(findings, syntaxFindings(err, expanded)...)
 		}
 		return sortFindings(findings)
 	}
@@ -289,7 +300,22 @@ var yamlLineRE = regexp.MustCompile(`line (\d+): (.*)`)
 
 // syntaxFindings turns a yaml.v3 error into findings. The library reports
 // either one "yaml: line N: message" or a list of "line N: message" entries.
-func syntaxFindings(err error) []Finding {
+//
+// The line of a single parse error is not the line that broke the document:
+// yaml.v3 reports where the block the parser was inside began, counted from
+// zero, so a file whose first key sits under a header of comments has every
+// syntax mistake blamed on one of those comments ("line 18: did not find
+// expected key", line 18 being blank). The body is re-read to find the line
+// that actually stops it parsing. A type error is left alone: it carries one
+// entry per bad value, each already on its own line.
+func syntaxFindings(err error, body string) []Finding {
+	var typeErr *yaml.TypeError
+	if !errors.As(err, &typeErr) {
+		if line := locateSyntaxError(body); line > 0 {
+			msg := syntaxMessage(err)
+			return []Finding{{Severity: SeverityError, Line: line, Message: msg, Fix: syntaxFix(msg)}}
+		}
+	}
 	var out []Finding
 	for _, m := range yamlLineRE.FindAllStringSubmatch(err.Error(), -1) {
 		line, _ := strconv.Atoi(m[1])
@@ -302,6 +328,79 @@ func syntaxFindings(err error) []Finding {
 	return out
 }
 
+// maxSyntaxScanLines bounds the search below. A config file is a few hundred
+// lines; something long enough for the search to be noticeable is not a file
+// somebody hand-edited into this state, and it keeps the parser's own answer.
+const maxSyntaxScanLines = 2000
+
+// locateSyntaxError returns the 1-based line whose arrival stops the document
+// from parsing, or 0 when there is no such line and the parser's own answer is
+// the best there is.
+//
+// The file is read as prefixes: the first line, the first two, and so on. One
+// of them is the last that still parses and the next one is the line to report,
+// and the boundary between the two is found by halving rather than by walking,
+// so a file of any size costs a handful of parses.
+func locateSyntaxError(body string) int {
+	ends := lineEnds(body)
+	n := len(ends)
+	if n == 0 || n > maxSyntaxScanLines {
+		return 0
+	}
+	parses := func(lines int) bool { return prefixParses(body[:ends[lines-1]]) }
+	if parses(n) {
+		// The whole file parses as far as this goes, so the parser gave up on
+		// something it was still waiting for - an unterminated quote or
+		// bracket - and where it gave up is where it says.
+		return 0
+	}
+	good, bad := 0, n
+	for bad-good > 1 {
+		mid := good + (bad-good)/2
+		if parses(mid) {
+			good = mid
+		} else {
+			bad = mid
+		}
+	}
+	return bad
+}
+
+// lineEnds lists the offset just past the end of every line of body, so a
+// prefix of it is a slice rather than a copy.
+func lineEnds(body string) []int {
+	var ends []int
+	for i := 0; i < len(body); i++ {
+		if body[i] == '\n' {
+			ends = append(ends, i+1)
+		}
+	}
+	if len(body) > 0 && body[len(body)-1] != '\n' {
+		ends = append(ends, len(body))
+	}
+	return ends
+}
+
+// prefixParses reports whether the part of the file read so far is still a
+// document a parser accepts. A prefix cut inside a quoted scalar or a flow
+// collection fails for that reason alone, which is what the cut did rather
+// than what the file says, so it counts as parsing.
+func prefixParses(prefix string) bool {
+	var doc yaml.Node
+	err := yaml.NewDecoder(strings.NewReader(prefix)).Decode(&doc)
+	return err == nil || errors.Is(err, io.EOF) || strings.Contains(err.Error(), "end of stream")
+}
+
+// syntaxMessage is the parser's complaint without the "yaml:" prefix and
+// without the line it decided to blame.
+func syntaxMessage(err error) string {
+	msg := strings.TrimPrefix(err.Error(), "yaml: ")
+	if m := yamlLineRE.FindStringSubmatch(msg); m != nil {
+		return m[2]
+	}
+	return msg
+}
+
 // syntaxFix explains the YAML mistakes people actually make behind the
 // parser's wording.
 func syntaxFix(msg string) string {
@@ -311,7 +410,7 @@ func syntaxFix(msg string) string {
 	case strings.Contains(msg, "mapping values are not allowed"):
 		return "check the indentation of this line against the one above; a value containing \": \" needs quotes"
 	case strings.Contains(msg, "did not find expected"):
-		return "check the indentation and look for an unclosed quote or bracket above this line"
+		return "this line does not belong to the block above it; check its indentation, and that everything after the key is one quoted value"
 	case strings.Contains(msg, "already defined"):
 		return "keep one of the two definitions"
 	case strings.Contains(msg, "cannot unmarshal"):
@@ -587,6 +686,9 @@ func LoadReadOnly(cli CLIPaths) (*Config, []byte, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("read config %s: %w", paths.ConfigPath, err)
 	}
+	if enc := utf16Encoding(data); enc != "" {
+		return nil, nil, fmt.Errorf("read config %s: the file is %s text, not UTF-8; %s", paths.ConfigPath, enc, utf16Fix)
+	}
 	cfg, err := parseValidateYAMLBytes(expandConfigBody(string(data), paths), paths)
 	if err != nil {
 		return nil, nil, fmt.Errorf("config %s: %w", paths.ConfigPath, err)
@@ -610,7 +712,7 @@ type Locator struct {
 // the right one. Unparsable data yields a locator that resolves nothing.
 func NewLocator(data []byte) *Locator {
 	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
+	if err := yaml.Unmarshal(normalizeConfigSource(data), &doc); err != nil {
 		return &Locator{}
 	}
 	body := configDocumentRoot(&doc)
@@ -631,4 +733,21 @@ func (l *Locator) Locate(path string) (line, col int, ok bool) {
 		return 0, 0, false
 	}
 	return n.Line, n.Column, true
+}
+
+// relocateSyntaxError restates a parse error at the line that actually breaks
+// the document, the way the check reports it, so the message a start prints
+// sends the operator to the same line as `coddy -t`. An error that cannot be
+// placed better, and a type error that is already placed, are returned as they
+// came.
+func relocateSyntaxError(err error, body string) error {
+	var typeErr *yaml.TypeError
+	if err == nil || errors.As(err, &typeErr) {
+		return err
+	}
+	line := locateSyntaxError(body)
+	if line <= 0 {
+		return err
+	}
+	return fmt.Errorf("line %d: %s", line, syntaxMessage(err))
 }

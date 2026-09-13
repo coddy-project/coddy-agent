@@ -524,3 +524,81 @@ skills:
 		t.Error("a nil locator resolves nothing")
 	}
 }
+
+// commentedHeader is the block of notes a config carries above its first key: the
+// example file ships seventeen such lines, and the parser blames one of them for a
+// mistake made anywhere below.
+func commentedHeader(lines int) string {
+	var b strings.Builder
+	b.WriteString(SchemaModeline() + "\n")
+	for i := 2; i <= lines; i++ {
+		b.WriteString("# a note the operator keeps in the file\n")
+	}
+	return b.String()
+}
+
+func TestCheckPlacesASyntaxErrorOnTheLineThatBreaksTheFile(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		line int
+		want string
+	}{
+		{
+			// The report this came from: "line 18: did not find expected key",
+			// where line 18 is a note and the stray word sits on line 20.
+			name: "a stray word after a quoted value",
+			body: commentedHeader(17) + "providers:\n  - name: local\n    api_base: \"http://10.10.13.77/ai_api/v1\" oops\n",
+			line: 20,
+			want: "did not find expected key",
+		},
+		{
+			name: "a key that lost one space of indentation",
+			body: commentedHeader(17) + "providers:\n  - name: local\n    type: openai\n   api_key: \"x\"\n",
+			line: 21,
+			want: "did not find expected",
+		},
+		{
+			name: "a key that gained one space",
+			body: commentedHeader(17) + "providers:\n  - name: local\n     type: openai\n",
+			line: 20,
+			want: "mapping values are not allowed",
+		},
+		{
+			name: "a tab where the indentation should be",
+			body: commentedHeader(17) + "providers:\n  - name: local\n\ttype: openai\n",
+			line: 20,
+			want: "tab",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := onlyError(t, checkYAML(t, tc.body))
+			if f.Line != tc.line {
+				t.Errorf("the finding is on line %d, the mistake is on line %d: %+v", f.Line, tc.line, f)
+			}
+			if !strings.Contains(f.Message, tc.want) {
+				t.Errorf("the message no longer says what the parser said (%q): %+v", tc.want, f)
+			}
+			if f.Fix == "" {
+				t.Errorf("a syntax finding without a fix line: %+v", f)
+			}
+		})
+	}
+}
+
+func TestCheckKeepsTheLinesOfEveryDecodeError(t *testing.T) {
+	// A type error carries one entry per bad value, each with its own correct line;
+	// locating the first broken line would collapse them into one.
+	rep := checkYAML(t, withModeline("agent:\n  max_turns: \"many\"\n  max_tokens_per_turn: \"lots\"\n"))
+	if rep.Valid() {
+		t.Fatalf("two values of the wrong shape passed the check: %+v", rep.Findings)
+	}
+	lines := map[int]bool{}
+	for _, f := range errorsOf(rep) {
+		lines[f.Line] = true
+	}
+	if !lines[3] || !lines[4] {
+		t.Fatalf("want a finding on line 3 and on line 4, got %+v", rep.Findings)
+	}
+}

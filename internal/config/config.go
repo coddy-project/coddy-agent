@@ -67,6 +67,10 @@ func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
 		return nil, fmt.Errorf("read config %s: %w", paths.ConfigPath, err)
 	}
 
+	if enc := utf16Encoding(data); enc != "" {
+		return nil, fmt.Errorf("config %s: the file is %s text, not UTF-8; %s", paths.ConfigPath, enc, utf16Fix)
+	}
+
 	originalData := append([]byte(nil), data...)
 	expanded := expandConfigBody(string(data), paths)
 

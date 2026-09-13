@@ -44,6 +44,10 @@ const (
 // a value is left to those consumers as well, as it always was: the previous
 // body-level pass only looked at the first byte of the whole document.
 func expandConfigBody(s string, p Paths) string {
+	// Every path that parses a config file passes through here, so this is where
+	// what an editor left in the bytes - a byte order mark, Windows line endings -
+	// stops travelling any further (see source.go).
+	s = string(normalizeConfigSource([]byte(s)))
 	// "$$" is resolved before ${CODDY_HOME} is substituted so that
 	// "$${CODDY_HOME}" keeps a literal placeholder, like "$${CWD}" does.
 	s = strings.ReplaceAll(s, "$$", escapedDollarSentinel)
