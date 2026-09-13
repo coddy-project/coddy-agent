@@ -125,7 +125,10 @@ func (t *TruncatedText) Render(width int) []string {
 }
 
 // Spacer renders n empty lines.
-type Spacer struct{ n int }
+type Spacer struct {
+	n     int
+	lines []string
+}
 
 // NewSpacer creates a Spacer of n blank lines.
 func NewSpacer(n int) *Spacer { return &Spacer{n: n} }
@@ -133,10 +136,14 @@ func NewSpacer(n int) *Spacer { return &Spacer{n: n} }
 // Invalidate is a no-op.
 func (s *Spacer) Invalidate() {}
 
-// Render returns n empty strings.
+// Render returns n empty strings. The slice is retained: a spacer separates
+// almost every block of the transcript, and handing back a fresh one would
+// make every ancestor recompose on every frame.
 func (s *Spacer) Render(int) []string {
-	lines := make([]string, s.n)
-	return lines
+	if s.lines == nil {
+		s.lines = make([]string, s.n)
+	}
+	return s.lines
 }
 
 // Box applies padding and a background to child components.
@@ -145,6 +152,12 @@ type Box struct {
 	paddingX int
 	paddingY int
 	bgFn     func(string) string
+
+	// Children render at the content width while the background is painted at
+	// the outer width, and max() below collapses several outer widths onto one
+	// content width on a very narrow terminal, so the outer width is part of
+	// the cache key as well.
+	cachedOuterWidth int
 }
 
 // NewBox creates a Box (pi defaults: paddingX=1, paddingY=1).
@@ -153,35 +166,46 @@ func NewBox(paddingX, paddingY int, bgFn func(string) string) *Box {
 }
 
 // SetBgFn replaces the background function.
-func (b *Box) SetBgFn(bgFn func(string) string) { b.bgFn = bgFn }
+func (b *Box) SetBgFn(bgFn func(string) string) { b.bgFn = bgFn; b.cacheValid = false }
 
 // Render pads children left by paddingX and wraps every row in the background.
+// Painting a background is per-line work, so an unchanged box hands back the
+// rows it painted last frame (see Container).
 func (b *Box) Render(width int) []string {
 	if len(b.children) == 0 {
+		// The last child can be removed without Clear, and this path reaches
+		// neither renderChildren nor store, so the release happens here or not
+		// at all.
+		b.childLines, b.cachedLines, b.cacheValid = nil, nil, false
 		return nil
 	}
 	contentWidth := max(1, width-b.paddingX*2)
+	unchanged := !b.renderChildren(contentWidth)
+	if unchanged && b.cachedOuterWidth == width {
+		return b.cachedLines
+	}
+	b.cachedOuterWidth = width
 	leftPad := strings.Repeat(" ", b.paddingX)
-	var childLines []string
-	for _, child := range b.children {
-		for _, line := range child.Render(contentWidth) {
-			childLines = append(childLines, leftPad+line)
+	total := 0
+	for _, cl := range b.childLines {
+		total += len(cl)
+	}
+	if total == 0 {
+		return b.store(nil, contentWidth)
+	}
+	result := make([]string, 0, total+b.paddingY*2)
+	for i := 0; i < b.paddingY; i++ {
+		result = append(result, b.applyBg("", width))
+	}
+	for _, cl := range b.childLines {
+		for _, line := range cl {
+			result = append(result, b.applyBg(leftPad+line, width))
 		}
 	}
-	if len(childLines) == 0 {
-		return nil
-	}
-	var result []string
 	for i := 0; i < b.paddingY; i++ {
 		result = append(result, b.applyBg("", width))
 	}
-	for _, line := range childLines {
-		result = append(result, b.applyBg(line, width))
-	}
-	for i := 0; i < b.paddingY; i++ {
-		result = append(result, b.applyBg("", width))
-	}
-	return result
+	return b.store(result, contentWidth)
 }
 
 func (b *Box) applyBg(line string, width int) string {
@@ -196,6 +220,9 @@ func (b *Box) applyBg(line string, width int) string {
 // DynamicBorder renders one full-width horizontal rule through a color fn.
 type DynamicBorder struct {
 	colorFn func(string) string
+
+	cachedWidth int
+	cachedLines []string
 }
 
 // NewDynamicBorder creates a border line colored by colorFn.
@@ -203,14 +230,18 @@ func NewDynamicBorder(colorFn func(string) string) *DynamicBorder {
 	return &DynamicBorder{colorFn: colorFn}
 }
 
-// Invalidate is a no-op.
-func (d *DynamicBorder) Invalidate() {}
+// Invalidate clears the render cache.
+func (d *DynamicBorder) Invalidate() { d.cachedLines = nil }
 
 // Render emits a single `─` rule across the width.
 func (d *DynamicBorder) Render(width int) []string {
+	if d.cachedLines != nil && d.cachedWidth == width {
+		return d.cachedLines
+	}
 	line := strings.Repeat("─", max(0, width))
 	if d.colorFn != nil {
 		line = d.colorFn(line)
 	}
-	return []string{line}
+	d.cachedWidth, d.cachedLines = width, []string{line}
+	return d.cachedLines
 }

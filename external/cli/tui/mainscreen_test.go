@@ -3,6 +3,7 @@
 package tui
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -268,5 +269,309 @@ func TestSelectListMarksATruncatedLabel(t *testing.T) {
 	}
 	if w := VisibleWidth(lines[0]); w > 24 {
 		t.Fatalf("truncated row is %d wide: %q", w, lines[0])
+	}
+}
+
+// A long console session keeps every past turn in the component tree, so the
+// renderer walks the whole transcript on every frame. The tests below hold the
+// steady-state cost of a frame to what actually changed: a container that sees
+// the same child lines must hand back the composition it already built, and a
+// frame rendered over a long backlog must not cost more than the same frame
+// over a short one.
+
+// discardTerminal is a Terminal that keeps no history, so allocation
+// measurements see the renderer's own work and not the recorder's.
+type discardTerminal struct{ cols, rows int }
+
+func (d *discardTerminal) Write(string) {}
+func (d *discardTerminal) Columns() int { return d.cols }
+func (d *discardTerminal) Rows() int    { return d.rows }
+func (d *discardTerminal) HideCursor()  {}
+func (d *discardTerminal) ShowCursor()  {}
+
+// transcriptTurns appends n turns shaped like the console chat: a user box, an
+// assistant markdown block and a tool box with output.
+func transcriptTurns(root *Container, n int) {
+	bg := func(s string) string { return "\x1b[48;5;236m" + s + "\x1b[0m" }
+	for i := 0; i < n; i++ {
+		root.AddChild(NewSpacer(1))
+		user := NewBox(1, 1, bg)
+		user.AddChild(NewText("user prompt "+strconv.Itoa(i)+" with a reasonably long line of text", 0, 0, nil))
+		root.AddChild(user)
+		root.AddChild(NewMarkdown("Answer "+strconv.Itoa(i)+"\n\nSome **markdown** and `code`:\n\n- alpha\n- beta\n", 1, 0, MarkdownTheme{}))
+		tool := NewBox(1, 1, bg)
+		out := ""
+		for j := 0; j < 10; j++ {
+			out += "tool output line " + strconv.Itoa(j) + "\n"
+		}
+		tool.AddChild(NewText(out, 0, 0, nil))
+		root.AddChild(tool)
+	}
+}
+
+// A container whose children all returned the lines they returned last time
+// has nothing to recompose: it must reuse the slice it already built, so the
+// cost of an unchanged subtree is the walk itself and no per-line work.
+func TestContainerReusesCompositionWhenChildrenUnchanged(t *testing.T) {
+	c := &Container{}
+	c.AddChild(NewText("alpha", 0, 0, nil))
+	c.AddChild(NewText("beta", 0, 0, nil))
+	first := c.Render(40)
+	second := c.Render(40)
+	if !sameLines(first, second) {
+		t.Fatalf("container recomposed unchanged children")
+	}
+}
+
+// The same holds for a Box, which additionally pads and paints every line: an
+// unchanged box must not repaint its background on every frame.
+func TestBoxReusesCompositionWhenChildrenUnchanged(t *testing.T) {
+	b := NewBox(1, 1, func(s string) string { return "[" + s + "]" })
+	b.AddChild(NewText("alpha", 0, 0, nil))
+	first := b.Render(40)
+	second := b.Render(40)
+	if !sameLines(first, second) {
+		t.Fatalf("box repainted unchanged children")
+	}
+}
+
+// A Spacer is the most common child in the transcript; returning a fresh slice
+// every time would make every ancestor recompose.
+func TestSpacerReusesItsLines(t *testing.T) {
+	s := NewSpacer(2)
+	if !sameLines(s.Render(40), s.Render(40)) {
+		t.Fatalf("spacer rebuilt its lines")
+	}
+}
+
+// Reuse must not outlive the content: a change deep in the tree still reaches
+// the top, and so does a width change.
+func TestCachedCompositionStillFollowsContentAndWidth(t *testing.T) {
+	leaf := NewText("alpha", 0, 0, nil)
+	inner := &Container{}
+	inner.AddChild(leaf)
+	outer := &Container{}
+	outer.AddChild(inner)
+
+	outer.Render(40)
+	leaf.SetText("omega")
+	if got := strings.Join(outer.Render(40), " "); !strings.Contains(got, "omega") {
+		t.Fatalf("deep content change did not reach the top: %q", got)
+	}
+	if got := outer.Render(20); VisibleWidth(got[0]) > 20 {
+		t.Fatalf("width change did not reach the top: %q", got[0])
+	}
+
+	outer.AddChild(NewText("added", 0, 0, nil))
+	if got := strings.Join(outer.Render(20), " "); !strings.Contains(got, "added") {
+		t.Fatalf("new child did not reach the top: %q", got)
+	}
+	inner.Clear()
+	if got := strings.Join(outer.Render(20), " "); strings.Contains(got, "omega") {
+		t.Fatalf("cleared child still rendered: %q", got)
+	}
+}
+
+// The renderer post-processes the frame in place (cursor marker, per-line
+// resets). Now that Render can hand back a component's own cached slice, that
+// rewriting must happen on a private copy, or the cache accumulates a reset
+// suffix per frame and the transcript decays into escape sequences.
+func TestRenderDoesNotRewriteTheComponentCache(t *testing.T) {
+	term := newFakeTerminal(40, 10)
+	s := NewMainScreen(term)
+	text := NewText("alpha", 0, 0, nil)
+	s.Root.AddChild(text)
+	for i := 0; i < 3; i++ {
+		s.RenderNow()
+	}
+	cached := text.Render(40)
+	if n := strings.Count(cached[0], segmentReset); n != 0 {
+		t.Fatalf("renderer wrote %d resets back into the component cache: %q", n, cached[0])
+	}
+	if n := strings.Count(s.Snapshot()[0], segmentReset); n != 1 {
+		t.Fatalf("frame line carries %d resets, want 1: %q", n, s.Snapshot()[0])
+	}
+}
+
+// The regression itself: streaming into the tail of a long transcript must
+// cost what streaming into a short one costs. Allocation count stands in for
+// the work, being the part of it that is deterministic across machines.
+func TestSteadyFrameWorkIsIndependentOfTranscriptLength(t *testing.T) {
+	frameAllocs := func(turns int) float64 {
+		s := NewMainScreen(&discardTerminal{cols: 120, rows: 40})
+		backlog := &Container{}
+		transcriptTurns(backlog, turns)
+		s.Root.AddChild(backlog)
+		live := NewMarkdown("", 1, 0, MarkdownTheme{})
+		s.Root.AddChild(live)
+		s.RenderNow()
+		// Alternate between two bodies of equal height so the frame length is
+		// stable and the measurement sees only the steady-state path.
+		bodies := []string{"streaming alpha", "streaming bravo"}
+		i := 0
+		return testing.AllocsPerRun(30, func() {
+			live.SetText(bodies[i%2])
+			i++
+			s.RenderNow()
+		})
+	}
+
+	short := frameAllocs(10)
+	long := frameAllocs(400)
+	t.Logf("allocations per frame: 10 turns=%.0f  400 turns=%.0f", short, long)
+	// The backlog is 40x longer; a frame that re-walks it shows up as a large
+	// multiple. Allow generous headroom for the unchanged-child scan itself.
+	if long > short*2+50 {
+		t.Fatalf("frame over a long transcript allocates %.0f vs %.0f over a short one: the backlog is re-rendered every frame", long, short)
+	}
+}
+
+// A box renders its children at the content width but paints the background
+// across the outer width, and max() maps several narrow outer widths onto one
+// content width. Caching on the content width alone served rows painted for
+// the previous terminal width (found in cross-review).
+func TestBoxCacheFollowsTheOuterWidthNotOnlyTheContentWidth(t *testing.T) {
+	b := NewBox(1, 1, func(s string) string { return "\x1b[48;5;236m" + s + "\x1b[0m" })
+	b.AddChild(NewText("x", 0, 0, nil))
+	for _, width := range []int{2, 3, 4, 3, 2} {
+		lines := b.Render(width)
+		for _, line := range lines {
+			if got := VisibleWidth(StripTerminalSequences(line)); got != width {
+				t.Fatalf("width %d: row is %d wide: %q", width, got, line)
+			}
+		}
+	}
+}
+
+// The cache reads "the child handed back the same slice" as "the child did not
+// change", so a leaf that changed must return a different backing array. Text
+// and Markdown are the leaves the transcript is built from.
+func TestChangedLeavesReturnADifferentBackingArray(t *testing.T) {
+	text := NewText("alpha", 0, 0, nil)
+	before := text.Render(40)
+	text.SetText("omega")
+	if sameLines(before, text.Render(40)) {
+		t.Fatalf("Text reused its backing array after SetText")
+	}
+
+	md := NewMarkdown("alpha", 0, 0, MarkdownTheme{})
+	mdBefore := md.Render(40)
+	md.SetText("omega")
+	if sameLines(mdBefore, md.Render(40)) {
+		t.Fatalf("Markdown reused its backing array after SetText")
+	}
+}
+
+// Clearing a transcript must release the rendered lines: they are the largest
+// thing the console holds, and the scratch array keeps entries past its own
+// length where nothing overwrites them (found in cross-review).
+func TestClearingReleasesTheCachedRenders(t *testing.T) {
+	c := &Container{}
+	for i := 0; i < 4; i++ {
+		c.AddChild(NewText("line "+strconv.Itoa(i), 0, 0, nil))
+	}
+	c.Render(40)
+	c.Clear()
+	if c.childLines != nil || c.cachedLines != nil {
+		t.Fatalf("Clear left renders pinned: childLines=%v cachedLines=%v", c.childLines != nil, c.cachedLines != nil)
+	}
+
+	// Shrinking by removal must release the tail of the scratch array too.
+	d := &Container{}
+	kept := NewText("kept", 0, 0, nil)
+	dropped := NewText("dropped", 0, 0, nil)
+	d.AddChild(kept)
+	d.AddChild(dropped)
+	d.Render(40)
+	d.RemoveChild(dropped)
+	d.Render(40)
+	full := d.childLines[:cap(d.childLines)]
+	for i := len(d.childLines); i < len(full); i++ {
+		if full[i] != nil {
+			t.Fatalf("scratch slot %d still pins a removed child's render", i)
+		}
+	}
+}
+
+// The renderer reuses two frame buffers, and a shorter frame overwrites only
+// their prefix. The garbage collector scans the whole backing array, so a
+// cleared transcript would stay alive in the tails (found in cross-review).
+func TestShrinkingTheFrameReleasesTheBufferTails(t *testing.T) {
+	s := NewMainScreen(&discardTerminal{cols: 80, rows: 24})
+	long := &Container{}
+	for i := 0; i < 40; i++ {
+		long.AddChild(NewText("a long transcript row "+strconv.Itoa(i), 0, 0, nil))
+	}
+	s.Root.AddChild(long)
+	// Two frames fill both slots.
+	s.RenderNow()
+	s.RenderNow()
+
+	long.Clear()
+	long.AddChild(NewText("just one row", 0, 0, nil))
+	s.RenderNow()
+	s.RenderNow()
+
+	for slot := range s.frameBufs {
+		for _, buf := range [][]string{s.frameBufs[slot], s.rawBufs[slot]} {
+			full := buf[:cap(buf)]
+			for i := len(buf); i < len(full); i++ {
+				if strings.Contains(full[i], "a long transcript row") {
+					t.Fatalf("slot %d still pins a dropped row at index %d: %q", slot, i, full[i])
+				}
+			}
+		}
+	}
+}
+
+// Removing a box's last child leaves it rendering nothing, and that early
+// return reaches neither renderChildren nor store, so the release has to
+// happen on that path (found in cross-review).
+func TestEmptyingABoxReleasesItsCachedRender(t *testing.T) {
+	b := NewBox(1, 1, nil)
+	child := NewText("tool output that is worth releasing", 0, 0, nil)
+	b.AddChild(child)
+	b.Render(40)
+	b.RemoveChild(child)
+	if lines := b.Render(40); lines != nil {
+		t.Fatalf("an empty box rendered %q", lines)
+	}
+	if b.childLines != nil || b.cachedLines != nil {
+		t.Fatalf("emptied box still pins its render: childLines=%v cachedLines=%v", b.childLines != nil, b.cachedLines != nil)
+	}
+}
+
+// The frame is composed into two buffers that alternate, and previousLines
+// points at whichever one the last frame used. If a frame were written into
+// the buffer the diff still reads, an unchanged render in between would make
+// the next change compare equal to itself and never reach the terminal, while
+// a snapshot of the frame still looked right. Render the same content twice,
+// then change it (found in cross-review).
+func TestAChangeAfterAnUnchangedFrameStillReachesTheTerminal(t *testing.T) {
+	term := newFakeTerminal(40, 10)
+	s := NewMainScreen(term)
+	text := NewText("alpha", 0, 0, nil)
+	s.Root.AddChild(text)
+
+	s.RenderNow()
+	s.RenderNow() // identical frame: nothing moves
+	term.reset()
+
+	text.SetText("omega")
+	s.RenderNow()
+	if out := term.all(); !strings.Contains(out, "omega") {
+		t.Fatalf("the change never reached the terminal: %q", out)
+	}
+	if snap := strings.Join(s.Snapshot(), " "); !strings.Contains(snap, "omega") {
+		t.Fatalf("the frame does not carry the change: %q", snap)
+	}
+
+	// And once more, so the buffers have alternated a full cycle.
+	s.RenderNow()
+	term.reset()
+	text.SetText("third")
+	s.RenderNow()
+	if out := term.all(); !strings.Contains(out, "third") {
+		t.Fatalf("the second change never reached the terminal: %q", out)
 	}
 }
