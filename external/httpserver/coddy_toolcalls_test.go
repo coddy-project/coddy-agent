@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -75,5 +76,56 @@ func TestToolCallListReturnsTodoPlanSnapshot(t *testing.T) {
 	}
 	if len(body.ToolCalls[0].PlanSnapshot) != len(want) || body.ToolCalls[0].PlanSnapshot[1].Content != "Render preview" {
 		t.Fatalf("planSnapshot = %+v, want %+v", body.ToolCalls[0].PlanSnapshot, want)
+	}
+}
+
+// The toolCallId of GET /coddy/sessions/{id}/tool-calls/{toolCallId} is whatever
+// the caller puts in the path, percent-encoded separators included, and it is
+// resolved inside the session bundle. A traversal must not read the tool call of
+// another session.
+func TestToolCallGetCannotReachAnotherSessionsBundle(t *testing.T) {
+	cfg := &config.Config{}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	}
+	root := t.TempDir()
+	store := &session.FileStore{Root: filepath.Join(root, "sessions")}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), t.TempDir(), store)
+	srv := New(cfg, mgr, slog.Default(), t.TempDir())
+
+	victim, err := mgr.HandleSessionNew(t.Context(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	victimState := mgr.SessionByID(victim.SessionID)
+	if victimState == nil {
+		t.Fatal("victim session missing")
+	}
+	const secret = "SECRET_OF_ANOTHER_SESSION"
+	if err := session.MarkToolCallStarted(victimState.GetPersistedSessionDir(), "call_secret", "read", "tool", "in_progress"); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.WriteToolCallResult(victimState.GetPersistedSessionDir(), "call_secret", secret); err != nil {
+		t.Fatal(err)
+	}
+
+	caller, err := mgr.HandleSessionNew(t.Context(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// tool_calls/ is one segment deep inside the bundle, so two levels up land on
+	// the sessions root and the next name is another bundle. The separators are
+	// percent-encoded, which is how a traversal survives the mux: the pattern
+	// matches one segment and the handler is handed the decoded value.
+	traversal := "..%2F..%2F" + victim.SessionID + "%2Ftool_calls%2Fcall_secret"
+	req := httptest.NewRequest(http.MethodGet, "/coddy/sessions/"+caller.SessionID+"/tool-calls/"+traversal, nil)
+	rec := httptest.NewRecorder()
+	srv.mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), secret) {
+		t.Fatalf("a traversal id read another session's tool call: %s", rec.Body.String())
 	}
 }

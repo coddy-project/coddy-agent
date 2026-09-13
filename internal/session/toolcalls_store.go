@@ -2,6 +2,8 @@ package session
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -25,6 +27,23 @@ type ToolCallMeta struct {
 	PlanSnapshot []acp.PlanEntry `json:"planSnapshot,omitempty"`
 }
 
+// ToolCallDirName maps a tool call id to the name of its folder under
+// tool_calls/. An id that is already a safe single path segment keeps its own
+// name, so every bundle written so far reads back unchanged; anything else - a
+// provider that sends "../x", an id carrying a separator, one longer than a file
+// name may be - is stored under a digest of the id instead of escaping the
+// bundle or losing the record, and meta.json keeps the id itself. A derived name
+// is a safe segment in its turn, so resolving one again is a no-op and a folder
+// name handed back by ListToolCalls addresses the same folder.
+func ToolCallDirName(toolCallID string) string {
+	id := strings.TrimSpace(toolCallID)
+	if ValidateToolCallID(id) == nil {
+		return id
+	}
+	sum := sha256.Sum256([]byte(id))
+	return "tc_" + hex.EncodeToString(sum[:16])
+}
+
 func toolCallDir(sessionDir, toolCallID string) (string, error) {
 	if strings.TrimSpace(sessionDir) == "" {
 		return "", fmt.Errorf("session directory is empty")
@@ -33,7 +52,7 @@ func toolCallDir(sessionDir, toolCallID string) (string, error) {
 	if id == "" {
 		return "", fmt.Errorf("toolCallId is empty")
 	}
-	return filepath.Join(sessionDir, toolCallsDirName, id), nil
+	return filepath.Join(sessionDir, toolCallsDirName, ToolCallDirName(id)), nil
 }
 
 func ensureToolCallDir(sessionDir, toolCallID string) (string, error) {
