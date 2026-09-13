@@ -53,10 +53,16 @@ Top to bottom:
   markdown (headings, bold/italic, inline code, ``` fences with borders,
   `│ ` quotes, lists, box-drawing tables, OSC 8 links); italic gray thinking
   blocks (collapse with `ctrl+t`); tool calls as background-tinted boxes
-  (pending → success green tint / error red tint) with a bold title
-  (`read <path>`, `$ command`), preview capped at 10 lines, and
+  (pending → success green tint / error red tint) with a bold title naming
+  what the call acts on (`read <path>`, `$ command`, `load_skill <skill>`,
+  `spawn_agent <subagent> · <task>`), preview capped at 10 lines, and
   `... (ctrl+o to expand)` reading the full result from
-  `sessions/<id>/tool_calls/`.
+  `sessions/<id>/tool_calls/`. A `spawn_agent` box also carries the
+  delegation itself: a dim line for the options the run was launched with
+  (`background`, `timeout 300s`) and, in dim italic under it, the prompt the
+  child received, cut at the first of 10 written lines or 600 characters with
+  `... (ctrl+o for the whole prompt)`. The child's report lands below it as
+  the box body, so the task and the answer read as one block.
 - **Status**: braille spinner `⠋⠙⠹...` at 80 ms with a live status line naming
   the current step while a turn runs - verb plus target plus elapsed counter
   (`Reading README.md · 12s`, `Running npm test · 3s`, `Thinking… · 2s`,
@@ -326,9 +332,19 @@ process working directory, resolved like `coddy mcp`. Under
 `subagents.project_trust: deny` project files are not listed at all, and under
 `allow` they need no receipt.
 
-In the console a `spawn_agent` call shows as a tool box like any other, and the
-status line reads `Running subagent <name>` with its elapsed counter for as long
-as the child runs. A child's permission request, while its spawning turn is
+In the console a `spawn_agent` call shows as a tool box whose title names the
+subagent that took the task (`spawn_agent explore · find every caller`), with
+the prompt the child received rendered under it and the child's report added as
+the body when it comes back; the status line reads `Running subagent <name>`
+with its elapsed counter for as long as the child runs.
+
+![A delegated run in the console transcript](../assets/cli-tui/13-subagent-delegation.png)
+
+*A loaded skill and a delegated run: the box titles name the skill and the
+subagent, the dim italic block is the prompt the child received, and the
+child's report follows it*
+
+A child's permission request, while its spawning turn is
 still alive, opens the usual modal in the parent chat with the title prefixed
 `[subagent <name>]`. Child sessions (`sub_…` ids) are read-only transcripts:
 `-c` never picks one, and a prompt sent to one is refused with a message naming
@@ -425,6 +441,10 @@ regenerate them when the transcript chrome changes. The four usage states
 a fake hub `GET /limits` behind `CODDY_NEURALDEEP_BASE_URL`, plus one chat
 completion that answers a `429` naming a reset far ahead for the waiting
 turn, so no real key is needed; only their PNGs are kept.
+`13-subagent-delegation` comes from `examples/cli/capture_subagent.py` the
+same way: a local OpenAI-compatible endpoint scripts a `load_skill` call, a
+`spawn_agent` call, the child's report and the parent's answer, so the shot
+needs neither a provider nor a key.
 
 `docs/assets/pi-tui-reference/` holds captures of the pi original for
 comparison, as described under **Visual model**.

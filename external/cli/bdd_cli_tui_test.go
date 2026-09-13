@@ -93,9 +93,12 @@ type stubDirective struct {
 	tool    string
 	argsKey string
 	argsVal string
-	preview string
-	err     error
-	blockCh chan struct{}
+	// argsJSON carries a whole argument object for calls that need more than
+	// one field (spawn_agent), and replaces the argsKey/argsVal pair.
+	argsJSON string
+	preview  string
+	err      error
+	blockCh  chan struct{}
 	// taken is closed by the turn that pops this directive, so a step can wait
 	// for the hand-off instead of guessing at it with a pause.
 	taken   chan struct{}
@@ -298,7 +301,10 @@ func (s *cliTUIState) stubRunner(ctx context.Context, st *session.State, prompt 
 					SessionUpdate: "tool_call", ToolCallID: s.activeToolID,
 					Title: d.tool, Kind: "read", Status: "pending",
 				})
-				args := fmt.Sprintf("{%q: %q}", d.argsKey, d.argsVal)
+				args := d.argsJSON
+				if args == "" {
+					args = fmt.Sprintf("{%q: %q}", d.argsKey, d.argsVal)
+				}
 				_ = snd.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 					SessionUpdate: "tool_call_update", ToolCallID: s.activeToolID,
 					Status:  "in_progress",
@@ -687,8 +693,26 @@ func (s *cliTUIState) stubStartsToolCall(tool, argKey, argVal string) error {
 	return s.waitScreen(tool, 3*time.Second)
 }
 
+// stubStartsSpawnAgent starts a delegation with the three arguments the box
+// reads: which subagent, what it is called, and the prompt the child gets.
+func (s *cliTUIState) stubStartsSpawnAgent(agent, description, prompt string) error {
+	args, err := json.Marshal(map[string]interface{}{
+		"agent": agent, "description": description, "prompt": prompt,
+	})
+	if err != nil {
+		return err
+	}
+	s.directives <- stubDirective{kind: "tool_start", tool: "spawn_agent", argsJSON: string(args)}
+	return s.waitScreen("spawn_agent "+agent, 3*time.Second)
+}
+
 func (s *cliTUIState) transcriptShowsPendingToolBox(tool string) error {
 	return s.waitScreen(tool, 2*time.Second)
+}
+
+// toolBoxShows waits for any text the box renders from the call arguments.
+func (s *cliTUIState) toolBoxShows(text string) error {
+	return s.waitScreen(text, 2*time.Second)
 }
 
 func (s *cliTUIState) stubToolCompletesWithLines(count int) error {
@@ -1233,6 +1257,10 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the stub turn starts a tool call named "([^"]*)" with argument agent "([^"]*)"$`, func(tool, agent string) error {
 		return s.stubStartsToolCall(tool, "agent", agent)
 	})
+	sc.Step(`^the stub turn starts a tool call named "([^"]*)" with argument name "([^"]*)"$`, func(tool, name string) error {
+		return s.stubStartsToolCall(tool, "name", name)
+	})
+	sc.Step(`^the stub turn starts a spawn_agent call for "([^"]*)" described as "([^"]*)" with the prompt "([^"]*)"$`, s.stubStartsSpawnAgent)
 	sc.Step(`^the stub turn starts a tool call named "([^"]*)" with argument command "([^"]*)"$`, func(tool, command string) error {
 		// A run_command box titles itself "$ <command>", not with the tool name,
 		// so readiness is the command string appearing on screen.
@@ -1243,6 +1271,7 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the transcript shows a pending tool box titled "([^"]*)"$`, s.transcriptShowsPendingToolBox)
 	sc.Step(`^the stub tool call completes with a preview of (\d+) lines$`, s.stubToolCompletesWithLines)
 	sc.Step(`^the tool box shows the preview "([^"]*)"$`, s.toolBoxShowsPreview)
+	sc.Step(`^the tool box shows "([^"]*)"$`, s.toolBoxShows)
 	sc.Step(`^the tool box shows the expand hint$`, s.toolBoxShowsExpandHint)
 	sc.Step(`^the stub tool call completes without ending the turn$`, s.stubToolCompletesWithoutEndingTurn)
 	sc.Step(`^the status line shows "([^"]*)"$`, s.statusLineShows)

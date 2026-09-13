@@ -175,12 +175,13 @@ func (t *toolBox) bgRole() string {
 }
 
 // title derives the display title from the tool name and streamed args
-// (read/write show the path, run_command shows `$ command`).
+// (read/write show the path, run_command shows `$ command`, load_skill and
+// spawn_agent name the skill and the subagent they pulled in).
 func (t *toolBox) title() string {
 	var parsed map[string]interface{}
 	arg := func(keys ...string) string {
 		if parsed == nil {
-			if err := json.Unmarshal([]byte(t.args), &parsed); err != nil {
+			if err := json.Unmarshal([]byte(toolArgsBody(t.args)), &parsed); err != nil {
 				parsed = map[string]interface{}{}
 			}
 		}
@@ -200,8 +201,122 @@ func (t *toolBox) title() string {
 		if p := arg("path", "file_path", "filename"); p != "" {
 			return t.theme.Bold(t.name) + " " + t.theme.Fg(roleAccent, tui.SanitizeText(p))
 		}
+	case "load_skill":
+		// The catalog spells a command with a leading slash and a model may
+		// copy it; the skill is the same either way.
+		if name := strings.TrimPrefix(arg("name"), "/"); name != "" {
+			return t.theme.Bold(t.name) + " " + t.theme.Fg(roleAccent, titleField(name))
+		}
+	case "spawn_agent":
+		if details, ok := parseSpawnAgentArgs(t.args); ok {
+			title := t.theme.Bold(t.name) + " " + t.theme.Fg(roleAccent, details.agent)
+			if details.description != "" {
+				title += t.theme.Fg(roleDim, " · "+details.description)
+			}
+			return title
+		}
 	}
 	return t.theme.Bold(t.name)
+}
+
+// Longest name or task label a box title carries. Both come from the model
+// and are bounded by nothing on the way in: an overlong one would push the
+// title over several rows before the call has even run.
+const maxTitleFieldChars = 60
+
+// titleField prepares a model-supplied name for the one row a box title gets:
+// control bytes out (SanitizeText keeps newlines, which would split the row),
+// whitespace folded, length capped.
+func titleField(value string) string {
+	return truncateRunes(collapseSpaces(tui.SanitizeText(value)), maxTitleFieldChars)
+}
+
+// toolArgsBody is the argument JSON with the "Arguments:" label the manager
+// sometimes puts in front of it removed.
+func toolArgsBody(argsJSON string) string {
+	raw := strings.TrimSpace(argsJSON)
+	if rest, ok := cutArgumentsPrefix(raw); ok {
+		raw = rest
+	}
+	return raw
+}
+
+// spawnAgentDetails is what a spawn_agent call says about the run it starts:
+// which subagent took the task, what the task is called, the prompt the child
+// received, and how the parent launched it. The SPA reads the same fields for
+// its agent card (external/ui/src/ui/chat/spawnAgentDisplay.ts).
+type spawnAgentDetails struct {
+	agent       string
+	description string
+	prompt      string
+	background  bool
+	timeout     int
+}
+
+// parseSpawnAgentArgs reads a delegation off the streamed arguments. It
+// answers false for anything that is not yet a complete object naming an
+// agent - arguments arrive in chunks, so most frames of a call are half a
+// JSON document - and the box shows the plain tool name until then rather
+// than a half-filled card. Within a parsed object every field is read
+// leniently: a wrongly typed option must not cost the operator the agent
+// name.
+func parseSpawnAgentArgs(argsJSON string) (spawnAgentDetails, bool) {
+	var args map[string]interface{}
+	if err := json.Unmarshal([]byte(toolArgsBody(argsJSON)), &args); err != nil {
+		return spawnAgentDetails{}, false
+	}
+	agent := strings.TrimSpace(stringArg(args, "agent"))
+	if agent == "" {
+		return spawnAgentDetails{}, false
+	}
+	details := spawnAgentDetails{
+		agent:       titleField(agent),
+		description: titleField(stringArg(args, "description")),
+		prompt:      tui.SanitizeText(strings.TrimRight(stringArg(args, "prompt"), "\n")),
+	}
+	if background, ok := args["background"].(bool); ok {
+		details.background = background
+	}
+	if timeout, ok := args["timeout_seconds"].(float64); ok && timeout > 0 {
+		details.timeout = int(timeout)
+	}
+	return details, true
+}
+
+// launchLine names the options the delegation was started with. A foreground
+// run on the configured timeout sets none of them and gets no line.
+func (d spawnAgentDetails) launchLine() string {
+	var parts []string
+	if d.background {
+		parts = append(parts, "background")
+	}
+	if d.timeout > 0 {
+		parts = append(parts, "timeout "+itoa(d.timeout)+"s")
+	}
+	return strings.Join(parts, " · ")
+}
+
+// Longest delegated prompt a collapsed spawn_agent box shows. The prompt is
+// one argument rather than a result preview, so the ten-line cap alone does
+// not bound it: a single paragraph wraps over the whole transcript.
+const collapsedPromptChars = 600
+
+// truncatePrompt cuts a delegated prompt down to what a collapsed box shows -
+// at most maxLines source lines and maxChars characters, whichever comes
+// first - and reports whether anything was dropped. The line count is of the
+// prompt as written, not of the rows it wraps to; the character cap is what
+// bounds the height of a prompt written as one paragraph.
+func truncatePrompt(prompt string, maxLines, maxChars int) (string, bool) {
+	cut := false
+	lines := strings.Split(prompt, "\n")
+	if len(lines) > maxLines {
+		lines, cut = lines[:maxLines], true
+	}
+	text := strings.Join(lines, "\n")
+	if runes := []rune(text); len(runes) > maxChars {
+		text, cut = strings.TrimRight(string(runes[:maxChars]), " \t\n"), true
+	}
+	return text, cut
 }
 
 func firstLine(s string) string {
@@ -315,6 +430,7 @@ func (t *toolBox) rebuild() {
 	if t.status == "cancelled" {
 		box.AddChild(tui.NewText(t.theme.Fg(roleError, "cancelled"), 0, 0, nil))
 	}
+	t.addDelegation(box)
 	body := t.preview
 	if t.expanded && t.fullText != "" {
 		body = t.fullText
@@ -324,7 +440,9 @@ func (t *toolBox) rebuild() {
 			body = tui.SanitizeText(readout)
 		}
 	}
-	if t.expanded && t.loadFailed {
+	// Only a finished call has a persisted result; a running one has nothing
+	// to fail to load, and expanding it asks for the arguments anyway.
+	if t.expanded && t.loadFailed && t.hasResult {
 		box.AddChild(tui.NewText(t.theme.Fg(roleDim, "full output unavailable (tool_calls result missing)"), 0, 0, nil))
 	}
 	if body != "" {
@@ -347,6 +465,39 @@ func (t *toolBox) rebuild() {
 	}
 	t.box = box
 	t.AddChild(box)
+}
+
+// addDelegation writes what a spawn_agent call handed to its child: how the
+// run was launched, then the prompt itself. A delegated turn happens out of
+// sight, so without this the operator watches a box that says only that some
+// subagent is busy. The child's report arrives later as the box body, which
+// puts the task and the answer in one block. Collapsed, a long prompt is cut
+// and ctrl+o shows the whole of it.
+func (t *toolBox) addDelegation(box *tui.Box) {
+	if t.name != "spawn_agent" {
+		return
+	}
+	details, ok := parseSpawnAgentArgs(t.args)
+	if !ok {
+		return
+	}
+	if line := details.launchLine(); line != "" {
+		box.AddChild(tui.NewText(t.theme.Fg(roleDim, line), 0, 0, nil))
+	}
+	if details.prompt == "" {
+		return
+	}
+	prompt, cut := details.prompt, false
+	if !t.expanded {
+		prompt, cut = truncatePrompt(prompt, collapsedPreviewLines, collapsedPromptChars)
+	}
+	box.AddChild(tui.NewSpacer(1))
+	// Italic dim is what the transcript already uses for text that is not the
+	// answer, so the prompt does not read as the child's report.
+	box.AddChild(tui.NewText(t.theme.Italic(t.theme.Fg(roleDim, prompt)), 0, 0, nil))
+	if cut {
+		box.AddChild(tui.NewText(t.theme.Fg(roleDim, "... (ctrl+o for the whole prompt)"), 0, 0, nil))
+	}
 }
 
 // droppedAmount renders a byte count the way the block reports it: whole

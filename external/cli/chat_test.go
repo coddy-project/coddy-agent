@@ -546,3 +546,203 @@ func TestToolBoxLeavesOtherResultsAlone(t *testing.T) {
 		t.Fatalf("a question error was rewritten:\n%s", text)
 	}
 }
+
+// A delegated run is the one call whose work happens somewhere else: the
+// console shows nothing of the child's turn until it reports back. The box
+// therefore says which subagent took the task and what it was told to do,
+// the way the SPA's agent card does.
+func TestSpawnAgentToolBoxNamesTheAgentAndShowsTheDelegatedPrompt(t *testing.T) {
+	tb := newToolBox(newTheme("dark"), "call-5", "spawn_agent", "other", nil)
+	tb.SetArgs(`{"agent":"general","description":"review the diff",` +
+		`"prompt":"Read internal/agent/react.go\nand report what changed","timeout_seconds":300}`)
+	tb.SetStatus("in_progress", "", 0, 0)
+
+	text := toolBoxText(t, tb, 100)
+	for _, want := range []string{
+		"spawn_agent general",
+		"review the diff",
+		"timeout 300s",
+		"Read internal/agent/react.go",
+		"and report what changed",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("%q missing from the box:\n%s", want, text)
+		}
+	}
+}
+
+// A background run returns a task id at once instead of the report, which is
+// the one thing about a delegation the prompt itself does not say.
+func TestSpawnAgentToolBoxNamesABackgroundRun(t *testing.T) {
+	tb := newToolBox(newTheme("dark"), "call-6", "spawn_agent", "other", nil)
+	tb.SetArgs(`{"agent":"explore","prompt":"Find every caller","background":true}`)
+	tb.SetStatus("in_progress", "", 0, 0)
+
+	text := toolBoxText(t, tb, 100)
+	if !strings.Contains(text, "spawn_agent explore") || !strings.Contains(text, "background") {
+		t.Fatalf("background delegation renders as:\n%s", text)
+	}
+	// Nothing was set, so no timeout is claimed.
+	if strings.Contains(text, "timeout") {
+		t.Fatalf("a timeout the call never passed reached the box:\n%s", text)
+	}
+}
+
+// The prompt is one argument, so the ten-line cap of a result preview does
+// not bound it: a single paragraph would wrap over the whole transcript.
+func TestSpawnAgentToolBoxCutsALongPromptUntilExpanded(t *testing.T) {
+	long := strings.Repeat("delegate this piece of work in detail. ", 60) + "END-OF-BRIEF"
+	tb := newToolBox(newTheme("dark"), "call-7", "spawn_agent", "other", nil)
+	tb.SetArgs(`{"agent":"general","prompt":` + mustJSONString(t, long) + `}`)
+	tb.SetStatus("in_progress", "", 0, 0)
+
+	collapsed := toolBoxText(t, tb, 100)
+	if !strings.Contains(collapsed, "... (ctrl+o for the whole prompt)") {
+		t.Fatalf("a cut prompt must say how to read the rest:\n%s", collapsed)
+	}
+	if strings.Contains(collapsed, "END-OF-BRIEF") {
+		t.Fatalf("the collapsed box still carries the end of the prompt:\n%s", collapsed)
+	}
+
+	tb.SetExpanded(true)
+	expanded := toolBoxText(t, tb, 100)
+	if !strings.Contains(expanded, "END-OF-BRIEF") {
+		t.Fatalf("expanding did not reveal the end of the prompt:\n%s", expanded)
+	}
+	// Nothing has been persisted for a call still in flight, so the box must
+	// not report a missing result when the operator only asked for the prompt.
+	if strings.Contains(expanded, "full output unavailable") {
+		t.Fatalf("expanding a running call claimed a missing result:\n%s", expanded)
+	}
+}
+
+// The two caps are what keeps a delegation from taking the transcript over:
+// a prompt written as a list is cut by lines, one written as a paragraph by
+// characters. Both are asserted on the truncation itself, since the rendered
+// box pads and wraps whatever it is given.
+func TestTruncatePromptCutsOnLinesAndOnCharacters(t *testing.T) {
+	lines := make([]string, 0, 14)
+	for i := 0; i < 14; i++ {
+		lines = append(lines, "step "+itoa(i))
+	}
+	text, cut := truncatePrompt(strings.Join(lines, "\n"), collapsedPreviewLines, collapsedPromptChars)
+	if !cut || strings.Count(text, "\n")+1 != collapsedPreviewLines {
+		t.Fatalf("a %d-line prompt collapsed to %d line(s), cut=%v", len(lines), strings.Count(text, "\n")+1, cut)
+	}
+	if strings.Contains(text, "step 10") {
+		t.Fatalf("a line past the cap survived:\n%s", text)
+	}
+
+	paragraph := strings.Repeat("x", collapsedPromptChars+50)
+	text, cut = truncatePrompt(paragraph, collapsedPreviewLines, collapsedPromptChars)
+	if !cut || len([]rune(text)) != collapsedPromptChars {
+		t.Fatalf("a single long line collapsed to %d runes, cut=%v", len([]rune(text)), cut)
+	}
+
+	// Exactly at the caps nothing is dropped, so a short prompt never claims
+	// there is more to read.
+	fits := strings.Repeat("y", collapsedPromptChars)
+	if text, cut = truncatePrompt(fits, collapsedPreviewLines, collapsedPromptChars); cut || text != fits {
+		t.Fatalf("a prompt at the cap was cut: cut=%v, %d runes", cut, len([]rune(text)))
+	}
+}
+
+// Everything the title carries is model-supplied. SanitizeText keeps newlines
+// and tabs, so a name written with one would split the row the title gets.
+func TestToolBoxTitleKeepsModelNamesOnOneRow(t *testing.T) {
+	tb := newToolBox(newTheme("dark"), "call-13", "spawn_agent", "other", nil)
+	tb.SetArgs(mustJSONObject(t, map[string]string{
+		"agent": "gen\neral", "description": "review\tthe\ndiff", "prompt": "go",
+	}))
+	title := tui.StripTerminalSequences(tb.title())
+	if strings.ContainsAny(title, "\n\t") {
+		t.Fatalf("the title spans more than one row: %q", title)
+	}
+	if !strings.Contains(title, "gen eral") || !strings.Contains(title, "review the diff") {
+		t.Fatalf("folding the name lost it: %q", title)
+	}
+
+	skill := newToolBox(newTheme("dark"), "call-14", "load_skill", "other", nil)
+	skill.SetArgs(mustJSONObject(t, map[string]string{"name": "code\nreview"}))
+	if title := tui.StripTerminalSequences(skill.title()); strings.ContainsAny(title, "\n\t") {
+		t.Fatalf("the skill title spans more than one row: %q", title)
+	}
+}
+
+// Arguments arrive as a stream, so the box renders the plain tool name until
+// the agent field is there, rather than a half-filled card.
+func TestSpawnAgentToolBoxFallsBackWhileArgumentsAreIncomplete(t *testing.T) {
+	tb := newToolBox(newTheme("dark"), "call-8", "spawn_agent", "other", nil)
+	tb.SetArgs(`{"agent":"gen`)
+
+	text := toolBoxText(t, tb, 100)
+	if !strings.Contains(text, "spawn_agent") {
+		t.Fatalf("the tool name is missing:\n%s", text)
+	}
+	if strings.Contains(text, "gen\n") || strings.Contains(text, "spawn_agent gen") {
+		t.Fatalf("a truncated argument reached the title:\n%s", text)
+	}
+}
+
+// load_skill pulls a whole instruction file into the turn. Which file that
+// was is the one thing the operator needs from the row, exactly as an
+// apply_patch box names the file it edits.
+func TestLoadSkillToolBoxNamesTheSkill(t *testing.T) {
+	tb := newToolBox(newTheme("dark"), "call-9", "load_skill", "other", nil)
+	tb.SetArgs(`{"name":"code-review"}`)
+	if text := toolBoxText(t, tb, 100); !strings.Contains(text, "load_skill code-review") {
+		t.Fatalf("the skill name is missing from the box:\n%s", text)
+	}
+
+	// The catalog spells a command with a leading slash and models copy it;
+	// the row names the skill either way, and an "Arguments:" envelope is
+	// stripped like everywhere else the console reads a call's arguments.
+	slashed := newToolBox(newTheme("dark"), "call-10", "load_skill", "other", nil)
+	slashed.SetArgs(`Arguments: {"name":"/rpa-feat"}`)
+	if text := toolBoxText(t, slashed, 100); !strings.Contains(text, "load_skill rpa-feat") {
+		t.Fatalf("a slashed catalog name lost its skill:\n%s", text)
+	}
+}
+
+// Nothing bounds a name or a task label on the way in: the model writes them
+// and the call may not even be valid. An overlong one must not push the title
+// over several rows of the transcript.
+func TestToolBoxTitleCapsModelSuppliedNames(t *testing.T) {
+	long := strings.Repeat("x", 400)
+	spawn := newToolBox(newTheme("dark"), "call-11", "spawn_agent", "other", nil)
+	spawn.SetArgs(`{"agent":` + mustJSONString(t, long) + `,"description":` + mustJSONString(t, long) + `,"prompt":"go"}`)
+	skill := newToolBox(newTheme("dark"), "call-12", "load_skill", "other", nil)
+	skill.SetArgs(`{"name":` + mustJSONString(t, long) + `}`)
+
+	for _, tb := range []*toolBox{spawn, skill} {
+		title := tui.StripTerminalSequences(tb.title())
+		if len(title) > 4*maxTitleFieldChars {
+			t.Fatalf("%s title is %d chars long: %q", tb.name, len(title), title)
+		}
+		if !strings.Contains(title, "…") {
+			t.Fatalf("%s title did not mark the cut: %q", tb.name, title)
+		}
+	}
+}
+
+// mustJSONObject encodes call arguments as the JSON object the console
+// receives, so a test never hand-escapes a payload.
+func mustJSONObject(t *testing.T, args map[string]string) string {
+	t.Helper()
+	encoded, err := json.Marshal(args)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return string(encoded)
+}
+
+// mustJSONString encodes a Go string as a JSON string literal, so a test can
+// build an argument payload without hand-escaping it.
+func mustJSONString(t *testing.T, value string) string {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return string(encoded)
+}
