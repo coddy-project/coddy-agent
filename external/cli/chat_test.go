@@ -782,3 +782,38 @@ func mustJSONString(t *testing.T, value string) string {
 	}
 	return string(encoded)
 }
+
+// A console session keeps every past turn in the component tree, so a
+// keystroke re-renders the whole transcript. The work a frame does must follow
+// what changed and not how long the session has been running: before the
+// render caches this cost 287 ms per keystroke on a real 425-message bundle.
+func TestKeystrokeWorkDoesNotGrowWithTheTranscript(t *testing.T) {
+	frameAllocs := func(turns int) float64 {
+		a := newTestApp(t)
+		for i := 0; i < turns; i++ {
+			a.chat.AddChild(newUserMessage(a.theme, "prompt "+itoa(i)))
+			am := newAssistantMessage(a.theme, a.mdTheme, true)
+			am.AppendText("Answer " + itoa(i) + "\n\nWith **markdown** and `code`.\n")
+			a.chat.AddChild(am)
+			tb := newToolBox(a.theme, "call_"+itoa(i), "run_command", "other", nil)
+			tb.SetArgs(`{"command":"ls -la"}`)
+			tb.SetStatus("completed", "total 0\ndrwxr-xr-x 2 user user 4096 .\n", 0, 0)
+			a.chat.AddChild(tb)
+		}
+		term := &bddTerminal{cols: 120, rows: 40}
+		screen := tui.NewMainScreen(term)
+		screen.Root.AddChild(a.chat)
+		editor := tui.NewEditor(term, tui.EditorTheme{}, 1)
+		screen.Root.AddChild(editor)
+		screen.SetFocus(editor)
+		screen.RenderNow()
+		return testing.AllocsPerRun(20, func() { screen.HandleInput([]byte("a")) })
+	}
+
+	short := frameAllocs(10)
+	long := frameAllocs(200)
+	t.Logf("allocations per keystroke: 10 turns=%.0f  200 turns=%.0f", short, long)
+	if long > short*2+50 {
+		t.Fatalf("keystroke over a long transcript allocates %.0f vs %.0f over a short one: the backlog is re-rendered on every key", long, short)
+	}
+}
