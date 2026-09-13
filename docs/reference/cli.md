@@ -34,6 +34,9 @@ Usage:
   coddy serve -d | --daemon (the same, in the background under a dispatcher
         that starts it again if it dies)
   coddy serve status | stop | restart [--home DIR]
+  coddy serve set-password [--user NAME] [--config PATH] [--home DIR] (write the web
+        UI sign-in account into config.yaml; the password is read from the
+        terminal, or from stdin when it is a pipe)
   coddy sessions list [flags]
   coddy sessions export <id> [--format md|html|json|jsonl] [--out PATH] [--no-tools] [--no-thinking]
   coddy skills list

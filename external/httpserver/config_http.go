@@ -59,7 +59,18 @@ func (s *Server) coddyConfigGet(w http.ResponseWriter, r *http.Request) {
 	dto := config.ConfigToJSONDTO(c)
 	// Report the effective auth state (YAML token or out-of-band --auth-token / CODDY_HTTP_TOKEN),
 	// not just the config-file token, so the UI can reflect that auth is on regardless of source.
-	dto.HTTPServer.AuthConfigured = s.authPolicyNow().enabled
+	pol := s.authPolicyNow()
+	dto.HTTPServer.AuthConfigured = len(pol.tokens) > 0
+	// The sign-in form is reported the same way and for the same reason: the
+	// account may come from the environment, which is nowhere in this document.
+	dto.HTTPServer.LoginConfigured = pol.login.enabled && !pol.login.broken
+	if dto.HTTPServer.LoginConfigured {
+		dto.HTTPServer.LoginSource = pol.login.account.source
+	}
+	// login.user stays whatever the file says, even when the live account came
+	// from the environment: this document is what a save writes back, and an
+	// environment credential must never end up in it. Who is signed in is
+	// GET /coddy/auth/me's answer, not this one's.
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(dto); err != nil {
 		s.log.Error("coddy config get encode", "error", err)

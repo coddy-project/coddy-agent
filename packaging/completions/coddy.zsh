@@ -75,7 +75,8 @@ _coddy() {
                     ;;
                 serve)
                     _arguments \
-                        '1: :((status\:"report the background dispatcher" stop\:"stop the background dispatcher" restart\:"restart the background dispatcher"))' \
+                        '1: :((status\:"report the background dispatcher" stop\:"stop the background dispatcher" restart\:"restart the background dispatcher" set-password\:"write the web UI sign-in account into config.yaml"))' \
+                        '--user[account name for the web UI sign-in form (set-password)]:user:' \
                         '(-d --daemon)'{-d,--daemon}'[run in the background under a dispatcher]' \
                         '(-t --test-config)'{-t,--test-config}'[check config.yaml against the schema and exit]' \
                         '--dry-run[check config.yaml, then probe the paths, servers and credentials it names, and exit]' \

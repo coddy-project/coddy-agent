@@ -70,12 +70,15 @@ A session that finds a held hooks file records a notice, so you learn that hooks
 `coddy serve` binds `127.0.0.1:12345` unless `httpserver.host` or `-H` says otherwise, and it has **no login by default**: with the API reachable, anyone on the network holds every route, the config editor (`PUT /coddy/config`) and the workspace files included. Expose the port only on a network you trust, or:
 
 - set a bearer token - `httpserver.auth_token` (`${ENV}` expanded), `--auth-token`, or `CODDY_HTTP_TOKEN`; every `/v1/*` and `/coddy/*` route then answers `401` without `Authorization: Bearer`, the SPA shell stays public, and `/docs` and `/openapi.*` are protected unless `httpserver.public_docs: true`;
+- close the browser surface with an account - `coddy serve set-password`, or `CODDY_HTTP_USER` / `CODDY_HTTP_PASSWORD` in `$CODDY_HOME/.env`; a browser then signs in at a form and carries an `HttpOnly` cookie, which gates the same routes the token gates. A token is for API clients and the form is for browsers: set **both** when anything other than a browser talks to the server, because a password alone leaves `coddy --remote`, `coddy acp --remote`, a swarm relay and every script without a credential;
 - put a TLS-terminating reverse proxy in front, since the server speaks plain HTTP;
 - enable CORS (`httpserver.cors.enable`, `allowed_origins`) only for the origins that need it; `"*"` still requires the token but lets any page try;
 - prefer the header over `?access_token=`, which only the two SSE routes accept and which reaches proxy access logs;
 - leave `httpserver.allow_insecure` unset: it silences the warning about a non-loopback bind without a token, and nothing else.
 
-The Docker image binds `0.0.0.0` inside the container, so the mapped port is reachable from wherever the host is; treat it like any admin API. Reference: [HTTP API](../reference/http-api.md#authentication-optional), [Remote mode](remote.md).
+The sign-in form stores an argon2id hash, never a plaintext password, and `GET /coddy/config` reports only that an account exists and where it came from. Wrong passwords are answered in constant time and progressively more slowly per source address, counted before they are judged so a burst pays the wait too, with loopback exempt so the machine cannot lock itself out - and behind a reverse proxy, where every request arrives from loopback, the forwarded client address is what the throttle counts. The session cookie is `HttpOnly` and `SameSite=Strict`, so no script reads it and no request another site caused carries it; on top of that a cookie-authenticated request that changes state is refused unless it came from this origin (`Sec-Fetch-Site` or `Origin`), while bearer requests are not subject to that check. Sessions are held in memory only, so restarting the process ends them, and rotating the password ends every session it opened.
+
+The Docker image binds `0.0.0.0` inside the container, so the mapped port is reachable from wherever the host is; treat it like any admin API. Reference: [HTTP API](../reference/http-api.md#authentication-optional), [Web UI sign-in](../reference/http-api.md#web-ui-sign-in-optional), [Remote mode](remote.md).
 
 ## The Telegram gateway
 
@@ -96,6 +99,7 @@ A `PreToolUse` hook runs before the permission prompt on every matching call, wh
 ## Before exposing a server
 
 - a bearer token is set and reaches the process by environment or flag, not as a literal in the file;
+- the browser surface has an account (`coddy serve set-password`, or `CODDY_HTTP_USER` / `CODDY_HTTP_PASSWORD`), so a page that finds the port is asked who it is;
 - TLS terminates in front of the server, or clients come in over a tunnel;
 - `httpserver.cors.allowed_origins` names only the origins that need it;
 - `mcp.project_trust`, `hooks.project_trust` and `subagents.project_trust` are `ask` or `deny` for checkouts you do not control;

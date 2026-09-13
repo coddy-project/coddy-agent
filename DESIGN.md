@@ -683,6 +683,49 @@ The relay serves this SPA from its own address when built with **`-tags "swarm u
 (**`external/swarm/spa_ui.go`**), so a relay is something you open in a browser rather than a
 service you reach through some other node's UI.
 
+### Sign-in screen (`httpserver.login`)
+
+Rendered by **`AuthGate`** (**`ui/auth/AuthGate.tsx`**, wrapping **`<App/>`** in **`main.tsx`**) in place of
+the entire application when **`GET /coddy/auth/me`** answers **`login_required`** without
+**`authenticated`**. Only on the local origin: a remote environment authenticates with the bearer
+token of the environment selector and is never gated here.
+
+- **The whole page, not an overlay.** **`.auth-screen`** is a full-viewport grid centred on
+  **`.auth-card`** over the plain **`--bg`** ground. There is no blurred transcript behind it,
+  because an anonymous browser has nothing to be shown.
+- **Boot.** While the one **`/coddy/auth/me`** round trip is outstanding the gate renders
+  **`.auth-boot`** — a bare **`--bg`** ground, no spinner and no application chrome. Rendering the
+  app and then replacing it with a form reads as a glitch; a spinner for 20 ms reads as a slow page.
+- **The column** (**`.auth-shell`**, **`min(380px, 100%)`**) holds two things with a **22px** gap:
+  the wordmark, then the card. The logo stands **above** the card and outside it, because it names
+  the product while the card asks for one thing.
+- **The card** (**`.auth-card`**, the column's full width) uses the glass panel tokens
+  (**`--coddy-glass-panel-bg`** / **`-border`** / **`-backdrop`** / **`-shadow`** / **`-radius`**),
+  **28px** padding and a **14px** column gap: **`h1`** title, the two fields, the error line, the
+  submit button. Nothing explains the screen in prose - a form with two fields under a title that
+  says Sign in needs no caption.
+- **The wordmark** (**`.auth-logo`**, **`min(240px, 72%)`** of the column, centred) is the
+  rectangular logo with the product name in it, not a text line:
+  **`src/assets/coddy-logo-wordmark.svg`** on the six dark themes and **`-light.svg`** on
+  **`light`** (**`LIGHT_THEMES`**). **`aspect-ratio: 188 / 56`** holds its height, so nothing below
+  it moves while the image decodes. Both files are under Vite's inline limit, so they travel inside
+  the bundle and the one screen a browser sees before it has any credential paints without a second
+  request. Its **`alt`** is a dictionary key (**`auth.signIn.logoAlt`**), because the name in the
+  image is what a screen reader must hear.
+- **Fields** are ordinary **`label`**-wrapped inputs (**`.auth-field`** / **`.auth-label`** /
+  **`.auth-input`**) with **`autocomplete="username"`** and **`"current-password"`** so a password
+  manager fills them. Focus draws the accent ring (**`--accent`** at 55% border, 25% glow), never a
+  browser default outline. The user field takes focus on mount.
+- **The error line** (**`.auth-error`**, **`role="alert"`**) replaces nothing else: the card grows by
+  one line. A refused sign-in clears the password field and leaves the user name alone.
+- **Submit** (**`.auth-submit`**) is accent-filled, disabled while either field is empty and while a
+  request is in flight, and swaps its label for the working one meanwhile.
+- **Colour comes from tokens only**, so all seven themes carry the screen, and every string is a
+  dictionary key (**`auth.signIn.*`**), so both languages do.
+- **Signing out** is the last entry of the nav rail (**`data-testid="nav-sign-out"`**), below
+  Settings, rendered only while a form is configured and this browser has passed it. Narrow rail:
+  icon plus a tooltip naming the account (**`Sign out (pasha)`**); wide rail: icon plus label.
+
 ## States
 
 - Idle composer: bordered textarea.

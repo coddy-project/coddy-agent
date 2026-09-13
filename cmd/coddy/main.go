@@ -192,6 +192,9 @@ func printUsage(w io.Writer) {
   %[1]s serve -d | --daemon (the same, in the background under a dispatcher
         that starts it again if it dies)
   %[1]s serve status | stop | restart [--home DIR]
+  %[1]s serve set-password [--user NAME] [--config PATH] [--home DIR] (write the web
+        UI sign-in account into config.yaml; the password is read from the
+        terminal, or from stdin when it is a pipe)
   %[1]s sessions list [flags]
   %[1]s sessions export <id> [--format md|html|json|jsonl] [--out PATH] [--no-tools] [--no-thinking]
   %[1]s skills list

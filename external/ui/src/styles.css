@@ -10716,3 +10716,135 @@ html:not([data-theme="light"]) .swarm-graph-panel {
     padding: 14px 12px 24px;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Sign-in screen (httpserver.login)
+
+   The whole page, not a dialog: an anonymous browser has nothing behind the
+   form to look at, and floating it over other people's conversations would
+   suggest otherwise. Tokens only, so all seven themes carry it.
+   --------------------------------------------------------------------------- */
+
+.auth-boot {
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+.auth-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg);
+}
+
+/* The logo stands above the card, not inside it: it belongs to the product, and
+   the card belongs to the one thing being asked. */
+.auth-shell {
+  width: min(380px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+}
+
+.auth-card {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 28px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: var(--coddy-glass-panel-radius);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: var(--coddy-glass-panel-shadow);
+}
+
+/* The wordmark is the heading of the page, above the card. The aspect ratio of
+   the 188x56 artwork fixes its height, so nothing below it moves while the
+   image decodes. */
+.auth-logo {
+  width: min(240px, 72%);
+  height: auto;
+  aspect-ratio: 188 / 56;
+}
+
+.auth-title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.auth-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.auth-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  font: inherit;
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 10px;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.auth-input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.auth-input:disabled {
+  opacity: 0.6;
+}
+
+.auth-error {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: #f87171;
+}
+
+.auth-submit {
+  margin-top: 4px;
+  padding: 10px 14px;
+  font: inherit;
+  font-weight: 550;
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  border-radius: 10px;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    transform 80ms ease;
+}
+
+.auth-submit:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 38%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 80%, transparent);
+}
+
+.auth-submit:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.auth-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

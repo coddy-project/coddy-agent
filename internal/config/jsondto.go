@@ -253,15 +253,32 @@ type MemoryJSON struct {
 // HTTPServerJSON mirrors HTTPServerConfig. AuthToken is write-only: ConfigToJSONDTO never
 // populates it (redacted), reporting only whether one is set via AuthConfigured.
 type HTTPServerJSON struct {
-	Enabled        *bool            `json:"enable,omitempty"`
-	Host           string           `json:"host,omitempty"`
-	Port           int              `json:"port,omitempty"`
-	AuthToken      string           `json:"auth_token,omitempty"`
-	AuthConfigured bool             `json:"auth_configured,omitempty"`
-	PublicDocs     bool             `json:"public_docs,omitempty"`
-	AllowInsecure  bool             `json:"allow_insecure,omitempty"`
-	CORS           HTTPCORSJSON     `json:"cors,omitempty"`
-	Remotes        []HTTPRemoteJSON `json:"remotes,omitempty"`
+	Enabled        *bool         `json:"enable,omitempty"`
+	Host           string        `json:"host,omitempty"`
+	Port           int           `json:"port,omitempty"`
+	AuthToken      string        `json:"auth_token,omitempty"`
+	AuthConfigured bool          `json:"auth_configured,omitempty"`
+	Login          HTTPLoginJSON `json:"login,omitempty"`
+	// LoginConfigured and LoginSource report the sign-in form the way
+	// AuthConfigured reports the bearer token: whether an account exists and
+	// where it came from ("config" or "env"), never the credential itself.
+	LoginConfigured bool             `json:"login_configured,omitempty"`
+	LoginSource     string           `json:"login_source,omitempty"`
+	PublicDocs      bool             `json:"public_docs,omitempty"`
+	AllowInsecure   bool             `json:"allow_insecure,omitempty"`
+	CORS            HTTPCORSJSON     `json:"cors,omitempty"`
+	Remotes         []HTTPRemoteJSON `json:"remotes,omitempty"`
+}
+
+// HTTPLoginJSON mirrors HTTPLoginConfig. PasswordHash is write-only: reading
+// the config never returns it, and writing the config back without it keeps the
+// hash that is already on disk.
+type HTTPLoginJSON struct {
+	Enabled         *bool  `json:"enable,omitempty"`
+	Mode            string `json:"mode,omitempty"`
+	User            string `json:"user,omitempty"`
+	PasswordHash    string `json:"password_hash,omitempty"`
+	SessionTTLHours int    `json:"session_ttl_hours,omitempty"`
 }
 
 // HTTPCORSJSON mirrors HTTPCORSConfig.
@@ -483,6 +500,17 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		AllowInsecure: c.HTTPServer.AllowInsecure,
 		// AuthToken is intentionally redacted; report only whether one is configured.
 		AuthConfigured: strings.TrimSpace(c.HTTPServer.AuthToken) != "",
+		Login: HTTPLoginJSON{
+			Enabled: cloneBoolPtr(c.HTTPServer.Login.Enabled),
+			Mode:    c.HTTPServer.Login.Mode,
+			User:    c.HTTPServer.Login.User,
+			// PasswordHash is redacted for the same reason the token is.
+			SessionTTLHours: c.HTTPServer.Login.SessionTTLHours,
+		},
+		// An account behind a switched-off form is not a configured sign-in:
+		// the HTTP layer overrides this with the live policy anyway, and a
+		// reader without that overlay must not be told the opposite.
+		LoginConfigured: c.HTTPServer.Login.HasAccount() && !c.HTTPServer.Login.IsExplicitlyDisabled(),
 		CORS: HTTPCORSJSON{
 			Enabled:        c.HTTPServer.CORS.Enabled,
 			AllowedOrigins: append([]string(nil), c.HTTPServer.CORS.AllowedOrigins...),
@@ -674,10 +702,17 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		CopilotMaxTokens: j.Memory.CopilotMaxTokens, MaxSearchHits: j.Memory.MaxSearchHits,
 	}
 	cfg.HTTPServer = HTTPServerConfig{
-		Enabled:       j.HTTPServer.Enabled,
-		Host:          j.HTTPServer.Host,
-		Port:          j.HTTPServer.Port,
-		AuthToken:     j.HTTPServer.AuthToken,
+		Enabled:   j.HTTPServer.Enabled,
+		Host:      j.HTTPServer.Host,
+		Port:      j.HTTPServer.Port,
+		AuthToken: j.HTTPServer.AuthToken,
+		Login: HTTPLoginConfig{
+			Enabled:         cloneBoolPtr(j.HTTPServer.Login.Enabled),
+			Mode:            j.HTTPServer.Login.Mode,
+			User:            j.HTTPServer.Login.User,
+			PasswordHash:    j.HTTPServer.Login.PasswordHash,
+			SessionTTLHours: j.HTTPServer.Login.SessionTTLHours,
+		},
 		PublicDocs:    j.HTTPServer.PublicDocs,
 		AllowInsecure: j.HTTPServer.AllowInsecure,
 		CORS: HTTPCORSConfig{
@@ -821,6 +856,12 @@ func preserveRedactedSecrets(next, current *Config) {
 	if strings.TrimSpace(next.HTTPServer.AuthToken) == "" && strings.TrimSpace(current.HTTPServer.AuthToken) != "" {
 		next.HTTPServer.AuthToken = current.HTTPServer.AuthToken
 	}
+	// The password hash is write-only like the token, so a settings screen that
+	// read the config and saved it back would otherwise remove the account and
+	// lock the operator out of the page they were saving from.
+	if strings.TrimSpace(next.HTTPServer.Login.PasswordHash) == "" && strings.TrimSpace(current.HTTPServer.Login.PasswordHash) != "" {
+		next.HTTPServer.Login.PasswordHash = current.HTTPServer.Login.PasswordHash
+	}
 	preserveSwarmSecrets(&next.Swarm, &current.Swarm)
 }
 
@@ -890,6 +931,12 @@ func escapeYAMLSecrets(cfg *Config) *Config {
 		}
 	}
 	out.Gateways.Telegram.Proxy = escapeYAMLDollar(cfg.Gateways.Telegram.Proxy)
+	// An argon2id hash is "$argon2id$v=19$m=...", which the load-time expansion
+	// would otherwise read as a row of empty environment references and hand
+	// back as rubble. Doubling the signs here is what makes the hash a literal,
+	// and it is why `coddy serve set-password` exists rather than a line an
+	// operator types into the file by hand.
+	out.HTTPServer.Login.PasswordHash = escapeYAMLDollar(cfg.HTTPServer.Login.PasswordHash)
 	// A swarm proxy URL carries credentials just as a provider's does, so a "$"
 	// in a password would otherwise be read as an environment reference on the
 	// next load and silently expand to nothing.

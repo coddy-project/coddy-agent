@@ -25,6 +25,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/EvilFreelancer/coddy-agent/internal/webauth"
 )
 
 var errSessionNotFound = errors.New("session not found")
@@ -53,6 +54,18 @@ type Server struct {
 	// extraAuthTokens are bearer tokens supplied out-of-band (--auth-token / CODDY_HTTP_TOKEN).
 	// They are never written to config.yaml and survive PUT /coddy/config hot reloads.
 	extraAuthTokens []string
+
+	// envLoginUser and envLoginHash are the web sign-in account supplied out of
+	// band (CODDY_HTTP_USER / CODDY_HTTP_PASSWORD). The password is hashed once
+	// as the server comes up, and neither value is ever written to config.yaml.
+	envLoginUser string
+	envLoginHash string
+	// sessions holds the signed-in browsers. It belongs to the server rather
+	// than to a configuration, so saving settings from the page - which reloads
+	// the config but keeps this process - never signs anybody out.
+	sessions *webauth.SessionStore
+	// loginThrottle slows repeated wrong passwords per source address.
+	loginThrottle *webauth.Throttle
 
 	slashMu    sync.Mutex
 	slashCache map[string]slashListCacheEntry
@@ -125,6 +138,8 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		codexAuthLogins:      make(map[string]*codexAuthLoginAttempt),
 		neuralDeepAuthLogins: make(map[string]*codexAuthLoginAttempt),
 		events:               newServerEventsHub(),
+		sessions:             webauth.NewSessionStore(),
+		loginThrottle:        &webauth.Throttle{},
 	}
 	s.cfgAt.Store(cfg)
 	// Several servers may share one manager (tests do), so each takes its own removable
@@ -145,6 +160,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	s.mux.HandleFunc("POST /v1/chat/completions", s.handleChatCompletions)
 	s.mux.HandleFunc("POST /v1/responses", s.handleResponsesCreate)
 	s.mux.HandleFunc("GET /v1/responses/{id}", s.handleResponsesGetPath)
+	s.registerAuthRoutes()
 	s.registerCoddyRoutes()
 	s.registerConfigRoutes()
 	s.registerProvidersRoutes()

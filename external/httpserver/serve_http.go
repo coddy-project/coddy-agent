@@ -5,6 +5,7 @@ package httpserver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -38,17 +39,42 @@ func Serve(ctx context.Context, opts Options) error {
 
 	s := New(opts.Cfg, opts.Mgr, log, opts.DefaultCWD)
 	s.SetExtraAuthTokens(opts.ExtraAuthTokens)
+	if err := s.SetExtraLogin(opts.ExtraLogin.User, opts.ExtraLogin.Password); err != nil {
+		return fmt.Errorf("httpserver: %s / %s: %w", LoginUserEnvVar, LoginPasswordEnvVar, err)
+	}
+	// A form nobody can pass is refused here, in the terminal that typed the
+	// command, rather than discovered by an operator staring at a sign-in screen
+	// that rejects the password they are sure of.
+	if pol := s.loginPolicyNow(); pol.broken {
+		return errors.New("httpserver.login.enable is true but no account is configured: " +
+			"set httpserver.login.user and password_hash (`coddy serve set-password`), " +
+			"or " + LoginUserEnvVar + " / " + LoginPasswordEnvVar)
+	}
 	if opts.OnServer != nil {
 		opts.OnServer(s)
 		defer opts.OnServer(nil)
 	}
 
-	authOn := len(opts.Cfg.HTTPServer.EffectiveAuthTokens()) > 0 || len(opts.ExtraAuthTokens) > 0
+	tokenOn := len(opts.Cfg.HTTPServer.EffectiveAuthTokens()) > 0 || len(opts.ExtraAuthTokens) > 0
+	loginOn := s.loginPolicyNow().enabled
+	authOn := tokenOn || loginOn
 	effHost, _, _ := net.SplitHostPort(opts.ListenAddr)
 	if !authOn && !opts.Cfg.HTTPServer.AllowInsecure && !isLoopbackHost(effHost) {
 		log.Warn("HTTP API is reachable without authentication",
 			"addr", opts.ListenAddr,
-			"hint", "set httpserver.auth_token / --auth-token / CODDY_HTTP_TOKEN, or httpserver.allow_insecure: true to silence")
+			"hint", "sign-in for the browser: `coddy serve set-password`, or "+LoginUserEnvVar+" / "+LoginPasswordEnvVar+"; "+
+				"a token for API clients: httpserver.auth_token / --auth-token / "+TokenEnvVar+"; "+
+				"httpserver.allow_insecure: true silences this")
+	}
+	// The two credentials are not interchangeable: a browser signs in at the
+	// form, and everything that is not a browser - `coddy --remote`, `coddy acp
+	// --remote`, a swarm relay reaching this node, the Python harnesses - still
+	// presents a bearer token. Closing the door with only a password would lock
+	// those out on the next call they make, so it is said plainly here.
+	if loginOn && !tokenOn {
+		log.Info("web sign-in is on and no bearer token is set",
+			"note", "API clients (coddy --remote, coddy acp --remote, a swarm relay mounting this node, scripts) authenticate with a token, not the form",
+			"hint", "set httpserver.auth_token / --auth-token / "+TokenEnvVar+" if anything but a browser talks to this server")
 	}
 
 	// Joining a relay is what makes this agent reachable from a swarm. It runs

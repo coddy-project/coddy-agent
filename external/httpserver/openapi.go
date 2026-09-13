@@ -33,11 +33,13 @@ func openAPISpec() map[string]interface{} {
 				"description": "Server root (same host/port as the API coddy serve exposes). **`GET /`**, **`/index.html`**, **`/app.js`**, **`/styles.css`**, and favicon paths (**`/coddy-favicon.svg`**, **`/favicon-32.png`**, **`/favicon.ico`**, **`/apple-touch-icon.png`**) set **`Cache-Control: no-cache`**.",
 			},
 		},
-		// Optional bearer auth: an empty requirement plus bearerAuth means requests may be
-		// unauthenticated (default) or carry a token when httpserver.auth_token is configured.
+		// Optional auth: an empty requirement plus the two schemes means requests may be
+		// unauthenticated (default), carry a token when httpserver.auth_token is configured,
+		// or carry the session cookie a browser gets from POST /coddy/auth/login.
 		"security": []interface{}{
 			map[string]interface{}{},
 			map[string]interface{}{"bearerAuth": []interface{}{}},
+			map[string]interface{}{"cookieAuth": []interface{}{}},
 		},
 		"paths": map[string]interface{}{
 			"/v1/models": map[string]interface{}{
@@ -955,6 +957,108 @@ func openAPISpec() map[string]interface{} {
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
 						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/auth/me": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Whether this server wants a sign-in, and whether the caller has one",
+					"description": "Public: this is how the bundled UI decides between the sign-in screen and the app, so it answers without a credential. " +
+						"**login_required** is true when a password account is configured (in `httpserver.login` or in CODDY_HTTP_USER / CODDY_HTTP_PASSWORD) and not switched off with `httpserver.login.enable: false`. " +
+						"**auth_required** is true when any credential gates the API, including a bearer-only server the browser cannot sign in to. " +
+						"**authenticated** reports this request: a live session cookie, or a valid bearer token. **user** and **expires_at** are present only for a signed-in browser. See https://coddy.dev/docs/operate/remote.",
+					"operationId": "getAuthState",
+					"security":    []interface{}{map[string]interface{}{}},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Sign-in state",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"login_required": map[string]string{"type": "boolean", "description": "A password sign-in form is configured."},
+											"auth_required":  map[string]string{"type": "boolean", "description": "Some credential gates /v1/* and /coddy/*."},
+											"authenticated":  map[string]string{"type": "boolean", "description": "This request carries a valid session cookie or bearer token."},
+											"mode":           map[string]interface{}{"type": "string", "enum": []string{"password"}, "description": "How a browser signs in. Absent when no form is configured."},
+											"user":           map[string]string{"type": "string", "description": "Signed-in account; absent otherwise."},
+											"expires_at":     map[string]string{"type": "string", "format": "date-time", "description": "When the session ends; absent otherwise."},
+										},
+										"required": []string{"login_required", "auth_required", "authenticated"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			"/coddy/auth/login": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Sign a browser in with the configured account",
+					"description": "Public: it is the way through the gate. On success sets an HttpOnly, SameSite=Strict `" + sessionCookieBaseName + "_<host digest>` cookie (Secure when the request arrived over TLS or through a proxy sending `X-Forwarded-Proto: https`), valid for `httpserver.login.session_ttl_hours`; when that is 0 the cookie is dropped as the browser closes and the server expires its own record after 30 days. " +
+						"A wrong password and an unknown user get the same **401** and the same body; repeated failures from one non-loopback address are answered progressively more slowly. **400** when no sign-in is configured, **403** for a cross-site attempt, **503** when `httpserver.login.enable` is true with no account behind it. " +
+						"API clients do not use this route: they present `Authorization: Bearer <token>` instead.",
+					"operationId": "authLogin",
+					"security":    []interface{}{map[string]interface{}{}},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"user":     map[string]string{"type": "string"},
+										"password": map[string]string{"type": "string", "format": "password"},
+									},
+									"required": []string{"user", "password"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Signed in; the session cookie is set",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"ok":         map[string]string{"type": "boolean"},
+											"user":       map[string]string{"type": "string"},
+											"expires_at": map[string]string{"type": "string", "format": "date-time"},
+										},
+										"required": []string{"ok", "user"},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"401": errorResponseRef(),
+						"403": errorResponseRef(),
+						"503": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/auth/logout": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "End the browser session on the server",
+					"description": "Drops the session server-side and expires the cookie, so a copy of it taken elsewhere stops working too. Idempotent: a request with no cookie, or with one this server no longer knows, still answers **200**. **403** for a cross-site attempt.",
+					"operationId": "authLogout",
+					"security":    []interface{}{map[string]interface{}{}},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Signed out",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type":       "object",
+										"properties": map[string]interface{}{"ok": map[string]string{"type": "boolean"}},
+										"required":   []string{"ok"},
+									},
+								},
+							},
+						},
+						"403": errorResponseRef(),
 					},
 				},
 			},
@@ -2184,7 +2288,14 @@ func openAPISpec() map[string]interface{} {
 				"bearerAuth": map[string]interface{}{
 					"type":        "http",
 					"scheme":      "bearer",
-					"description": "Optional. When httpserver.auth_token (or --auth-token / CODDY_HTTP_TOKEN) is set, every /v1/* and /coddy/* route requires `Authorization: Bearer <token>` and returns 401 otherwise. Disabled by default. /docs and /openapi.* are also protected unless httpserver.public_docs is true.",
+					"description": "Optional. When httpserver.auth_token (or --auth-token / CODDY_HTTP_TOKEN) is set, every /v1/* and /coddy/* route requires `Authorization: Bearer <token>` and returns 401 otherwise. Disabled by default. /docs and /openapi.* are also protected unless httpserver.public_docs is true. The three /coddy/auth/* routes are always reachable without it.",
+				},
+				"cookieAuth": map[string]interface{}{
+					"type": "apiKey",
+					"in":   "cookie",
+					"name": sessionCookieBaseName + "_<host digest>",
+					"description": "Optional, for browsers. When httpserver.login is configured (or CODDY_HTTP_USER / CODDY_HTTP_PASSWORD are set), `POST /coddy/auth/login` returns an HttpOnly `" + sessionCookieBaseName + "_<digest of the request host>` cookie (the digest keeps two servers on one host from overwriting each other's session, since cookies are not scoped by port) that opens the same routes a bearer token opens, including the SSE streams (no ?access_token= needed, since a same-origin EventSource sends cookies). " +
+						"The cookie is `SameSite=Strict`, so it never travels with a request another site caused. Cookie-authenticated requests that change state are additionally refused with 403 unless `Sec-Fetch-Site` says same-origin (or none) or `Origin` matches the request host - a non-browser client driving this API with a cookie has to send an `Origin` header, or present a bearer token instead. Bearer requests are never subject to that check. Sign-in is off by default. See https://coddy.dev/docs/operate/remote.",
 				},
 			},
 			"schemas": map[string]interface{}{

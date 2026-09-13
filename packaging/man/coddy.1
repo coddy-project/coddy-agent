@@ -112,6 +112,23 @@ Stop the background dispatcher and the worker under it.
 Stop the background dispatcher and start it again with the arguments it was
 started with the first time.
 .TP
+.B "serve set-password"
+Write the web UI sign-in account into
+.IR config.yaml :
+.BI \-\-user " NAME"
+names the account (the one already configured, else
+.IR $USER ),
+and the password is read from the terminal without echo, or from standard input
+when that is a pipe. It is stored as an argon2id hash, never as plaintext. The
+form is for browsers only; API clients keep presenting a bearer token
+.RB ( httpserver.auth_token ", " \-\-auth\-token ", " CODDY_HTTP_TOKEN ).
+The account can also be given entirely in the environment, with
+.I CODDY_HTTP_USER
+and
+.IR CODDY_HTTP_PASSWORD ,
+typically in
+.IR ~/.coddy/.env .
+.TP
 .BI "sessions list"
 List stored sessions.
 .TP
@@ -379,6 +396,13 @@ Serve the API to the network rather than to this machine only:
 .PP
 .RS 4
 .B coddy serve \-H 0.0.0.0 \-\-auth\-token "$TOKEN"
+.RE
+.PP
+Close the web UI with a password, so a browser that finds the port is asked who
+it is:
+.PP
+.RS 4
+.B coddy serve set\-password \-\-user pasha
 .RE
 .PP
 Wire an editor to Coddy over ACP:

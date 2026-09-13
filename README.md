@@ -89,6 +89,8 @@ agent:
 - **Fleets**: a swarm relay lists and reaches many nodes, mounts their sessions into one list, routes across rings and pulls in nodes that can only dial out through a reverse tunnel; `--remote` drives a `coddy serve` on another machine from the console, an editor or the browser ([Swarm](docs/operate/swarm.md), [Remote mode](docs/operate/remote.md)).
 - **In the browser**: seven themes, English and Russian, `@` file mentions and multimodal attachments in the composer, a plan document card, a Tasks drawer, a scheduler editor and a swarm map with the topology ([Web UI](docs/surfaces/web-ui.md)).
 
+- **Closed when it is on a network**: a bearer token gates the API for clients, and an optional password sign-in gates the browser - `coddy serve set-password`, or `CODDY_HTTP_USER` / `CODDY_HTTP_PASSWORD` in `~/.coddy/.env` - so a `coddy serve` on `0.0.0.0` is not readable by whoever finds the port ([Remote mode](docs/operate/remote.md#the-sign-in-form), [Security and trust](docs/operate/security.md)).
+
 Project trust is one decision for MCP servers, hooks and subagents that arrive with a repository: nothing from a checkout runs until you approve that exact file ([Security and trust](docs/operate/security.md)).
 
 ## Documentation

@@ -17,6 +17,23 @@ export const messagesEn: Record<string, string> = {
   "appearance.theme.nord": "Nord",
   "appearance.theme.rosePine": "Rosé Pine",
 
+  // The wordmark says "Coddy agent" in the image; this is what a screen
+  // reader says in its place.
+  "auth.signIn.logoAlt": "Coddy agent",
+  "auth.signIn.title": "Sign in",
+  "auth.signIn.user": "User",
+  "auth.signIn.password": "Password",
+  "auth.signIn.submit": "Sign in",
+  "auth.signIn.working": "Signing in\u2026",
+  "auth.signIn.invalid": "Wrong user or password.",
+  "auth.signIn.unreachable": "The server did not answer. Is it still running?",
+  "auth.signIn.noAccount":
+    "Sign-in is switched on but no account is configured. Run `coddy serve set-password` on the server.",
+  "auth.signIn.crossSite": "That request did not come from this page.",
+  "auth.signIn.failed": "Sign-in failed ({status}).",
+  "auth.signOut.action": "Sign out",
+  "auth.signOut.tooltipUser": "Sign out ({user})",
+
   "common.cancel": "Cancel",
   "common.confirm": "Confirm",
   "common.confirmAction": "Confirm action",
