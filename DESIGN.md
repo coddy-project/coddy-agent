@@ -700,12 +700,14 @@ token of the environment selector and is never gated here.
   (**`--coddy-glass-panel-bg`** / **`-border`** / **`-backdrop`** / **`-shadow`** / **`-radius`**),
   **28px** padding and a **14px** column gap: the wordmark, **`h1`** title, lead paragraph, the two
   fields, the error line, the submit button.
-- **The wordmark** (**`.auth-logo`**, 40px tall, width from the 188x56 artwork) is the rectangular
-  logo with the product name in it, not a text line: **`src/assets/coddy-logo-wordmark.svg`** on the
-  six dark themes and **`-light.svg`** on **`light`** (**`LIGHT_THEMES`**). Both are under Vite's
-  inline limit, so they travel inside the bundle and the one screen a browser sees before it has any
-  credential paints without a second request. Its **`alt`** is a dictionary key
-  (**`auth.signIn.logoAlt`**), because the name in the image is what a screen reader must hear.
+- **The wordmark** (**`.auth-logo`**) is the rectangular logo with the product name in it, not a
+  text line: **`src/assets/coddy-logo-wordmark.svg`** on the six dark themes and **`-light.svg`** on
+  **`light`** (**`LIGHT_THEMES`**). It spans the card's content width with
+  **`aspect-ratio: 188 / 56`** holding the height, so the card does not reflow while the image
+  decodes. Both files are under Vite's inline limit, so they travel inside the bundle and the one
+  screen a browser sees before it has any credential paints without a second request. Its **`alt`**
+  is a dictionary key (**`auth.signIn.logoAlt`**), because the name in the image is what a screen
+  reader must hear.
 - **Fields** are ordinary **`label`**-wrapped inputs (**`.auth-field`** / **`.auth-label`** /
   **`.auth-input`**) with **`autocomplete="username"`** and **`"current-password"`** so a password
   manager fills them. Focus draws the accent ring (**`--accent`** at 55% border, 25% glow), never a

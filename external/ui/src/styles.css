@@ -10752,12 +10752,12 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 }
 
 /* The wordmark carries the product name, so the card needs no text above the
-   title. Height is fixed and width follows the 188x56 artwork, which keeps the
-   card from reflowing while the image decodes. */
+   title. It spans the card's content width; the aspect ratio of the 188x56
+   artwork fixes the height, so nothing reflows while the image decodes. */
 .auth-logo {
-  height: 40px;
-  width: auto;
-  align-self: flex-start;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 188 / 56;
   margin-bottom: 2px;
 }
 
