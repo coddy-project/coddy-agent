@@ -1,6 +1,13 @@
 import { useState } from "react";
 import { useT } from "../i18n/I18nProvider";
+import { LIGHT_THEMES } from "../theme/themeCookie";
+import { readAppliedUiTheme } from "../theme/uiTheme";
 import { signIn } from "./authState";
+// Both wordmarks are small enough that Vite inlines them into the bundle, so
+// the screen paints with no second request - which matters on the one page a
+// browser sees before it has any credential at all.
+import wordmarkDark from "../../assets/coddy-logo-wordmark.svg";
+import wordmarkLight from "../../assets/coddy-logo-wordmark-light.svg";
 
 /**
  * SignInScreen is what an anonymous browser sees instead of the app when
@@ -12,6 +19,12 @@ import { signIn } from "./authState";
  */
 export function SignInScreen(props: { onSignedIn?: () => void }) {
   const { t } = useT();
+  // The theme is stamped on the root element before React renders, and the
+  // picker that could change it is behind this screen, so reading it once is
+  // enough here.
+  const wordmark = LIGHT_THEMES.has(readAppliedUiTheme())
+    ? wordmarkLight
+    : wordmarkDark;
   const [user, setUser] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -54,10 +67,13 @@ export function SignInScreen(props: { onSignedIn?: () => void }) {
   return (
     <div className="auth-screen" data-testid="sign-in-screen">
       <form className="auth-card" onSubmit={submit}>
-        <div className="auth-brand">
-          <span className="auth-brand-title">{t("nav.brandTitle")}</span>
-          <span className="auth-brand-sub">{t("nav.brandSub")}</span>
-        </div>
+        <img
+          className="auth-logo"
+          src={wordmark}
+          alt={t("auth.signIn.logoAlt")}
+          width={188}
+          height={56}
+        />
         <h1 className="auth-title">{t("auth.signIn.title")}</h1>
         <p className="auth-lead">{t("auth.signIn.lead")}</p>
 

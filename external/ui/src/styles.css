@@ -10751,21 +10751,14 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   box-shadow: var(--coddy-glass-panel-shadow);
 }
 
-.auth-brand {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
-
-.auth-brand-title {
-  font-weight: 650;
-  letter-spacing: 0.01em;
-  color: var(--text);
-}
-
-.auth-brand-sub {
-  font-size: 0.8rem;
-  color: var(--muted);
+/* The wordmark carries the product name, so the card needs no text above the
+   title. Height is fixed and width follows the 188x56 artwork, which keeps the
+   card from reflowing while the image decodes. */
+.auth-logo {
+  height: 40px;
+  width: auto;
+  align-self: flex-start;
+  margin-bottom: 2px;
 }
 
 .auth-title {

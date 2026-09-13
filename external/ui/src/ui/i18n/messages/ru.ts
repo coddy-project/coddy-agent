@@ -15,6 +15,7 @@ export const messagesRu: Record<string, string> = {
   "appearance.theme.nord": "Nord",
   "appearance.theme.rosePine": "Rosé Pine",
 
+  "auth.signIn.logoAlt": "Coddy агент",
   "auth.signIn.title": "Вход",
   "auth.signIn.lead":
     "Этот сервер Coddy спрашивает, кто вы, прежде чем что-то показать.",

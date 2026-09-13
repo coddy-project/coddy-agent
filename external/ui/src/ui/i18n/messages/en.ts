@@ -17,6 +17,9 @@ export const messagesEn: Record<string, string> = {
   "appearance.theme.nord": "Nord",
   "appearance.theme.rosePine": "Rosé Pine",
 
+  // The wordmark says "Coddy agent" in the image; this is what a screen
+  // reader says in its place.
+  "auth.signIn.logoAlt": "Coddy agent",
   "auth.signIn.title": "Sign in",
   "auth.signIn.lead":
     "This Coddy server asks who you are before it shows anything.",

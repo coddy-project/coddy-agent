@@ -59,6 +59,7 @@ function renderGate() {
 
 beforeEach(() => {
   initLocale("en");
+  document.documentElement.dataset.theme = "dark";
   resetAuthStateForTests();
   seen.length = 0;
   envMode = "local";
@@ -197,6 +198,37 @@ describe("SignInScreen", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("set-password");
+  });
+
+  it("shows the wordmark, which is where the product name now lives", async () => {
+    respond = () =>
+      jsonResponse(200, { login_required: true, authenticated: false });
+    renderGate();
+    await screen.findByTestId("sign-in-screen");
+    const logo = screen.getByRole("img", { name: "Coddy agent" });
+    // Vite inlines both wordmarks, so the one screen a browser sees before it
+    // has any credential paints without a second request.
+    expect(logo.getAttribute("src") ?? "").toMatch(/^data:image\/svg\+xml/);
+  });
+
+  it("takes the light wordmark on the light theme", async () => {
+    document.documentElement.dataset.theme = "light";
+    respond = () =>
+      jsonResponse(200, { login_required: true, authenticated: false });
+    renderGate();
+    await screen.findByTestId("sign-in-screen");
+    const light = screen.getByRole("img", { name: "Coddy agent" });
+    const lightSrc = light.getAttribute("src") ?? "";
+    cleanup();
+
+    document.documentElement.dataset.theme = "dark";
+    resetAuthStateForTests();
+    renderGate();
+    await screen.findByTestId("sign-in-screen");
+    const darkSrc =
+      screen.getByRole("img", { name: "Coddy agent" }).getAttribute("src") ??
+      "";
+    expect(lightSrc).not.toBe(darkSrc);
   });
 
   it("will not submit an empty form", async () => {
