@@ -74,7 +74,7 @@ def main() -> int:
     examples_dir = Path(__file__).resolve().parent.parent
     v1 = openai_v1_base()
     origin = coddy_http_origin(v1)
-    yaml_model = os.environ.get("MODEL", "rpa/gpt-oss:120b").strip()
+    yaml_model = os.environ.get("MODEL", "rpa/qwen3.6-35b-a3b").strip()
     profile = os.environ.get("CODDY_CHAT_PROFILE", "agent").strip()
     work = os.environ.get("WORK_DIR", "").strip()
     if not work:

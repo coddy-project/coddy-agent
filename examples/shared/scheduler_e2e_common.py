@@ -365,7 +365,7 @@ STEP 3 - Reply single line OK when both steps succeeded.
 def model_from_demo() -> str:
     raw = CONFIG_DEMO.read_text(encoding="utf-8")
     am = re.search(r"^\s*model:\s*\"([^\"]+)\"\s*$", raw, re.M)
-    return am.group(1).strip() if am else os.environ.get("MODEL", "rpa/gpt-oss:120b").strip()
+    return am.group(1).strip() if am else os.environ.get("MODEL", "rpa/qwen3.6-35b-a3b").strip()
 
 
 def resolve_scheduler_global_log(home: Path, work: Path) -> Path:

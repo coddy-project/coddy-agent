@@ -117,10 +117,10 @@ def _render_config_into(home: Path, model: str) -> None:
     template = (REPO_ROOT / "examples" / "config.demo.yaml").read_text()
     resolved = template.replace("__E2E_LOG_PATH__", str(home / "e2e.log"))
     resolved = resolved.replace(
-        'model: "rpa/gpt-oss:120b"\n  max_turns', f'model: "{model}"\n  max_turns'
+        'model: "rpa/qwen3.6-35b-a3b"\n  max_turns', f'model: "{model}"\n  max_turns'
     )
     resolved = resolved.replace(
-        'memory:\n  enable: true\n  model: "rpa/gpt-oss:120b"',
+        'memory:\n  enable: true\n  model: "rpa/qwen3.6-35b-a3b"',
         f'memory:\n  enable: true\n  model: "{model}"',
     )
     (home / "config.yaml").write_text(resolved)

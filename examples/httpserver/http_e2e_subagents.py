@@ -14,7 +14,7 @@ Environment:
 
 - ``BASE_URL`` - OpenAI-compatible base (default ``http://127.0.0.1:19876/v1``),
   same as the other HTTP harnesses.
-- ``MODEL`` - YAML ``models[].model`` id (default ``rpa/gpt-oss:120b``).
+- ``MODEL`` - YAML ``models[].model`` id (default ``rpa/qwen3.6-35b-a3b``).
 - ``CODDY_CHAT_PROFILE`` - session profile (default ``agent``).
 - ``WORK_DIR`` - the workspace the server was started with (``--cwd``); the
   definition and the marker file are placed there.
@@ -149,10 +149,15 @@ def check_on_disk(home: str, task_id: str, child_id: str) -> bool:
         print(f"persisted task record is not the agent run: {snap}", file=sys.stderr)
         return False
 
-    child_dir = root / child_id
+    # A session spawned by another one is stored inside it, so the bundle is
+    # under the parent's own folder rather than beside it in the sessions root.
+    child_dir = root / SESSION_ID / "subagents" / child_id
     session_json = child_dir / "session.json"
     if not session_json.is_file():
         print(f"child session bundle missing at {child_dir}", file=sys.stderr)
+        return False
+    if (root / child_id).exists():
+        print(f"the sessions root holds a folder of its own for the child: {root / child_id}", file=sys.stderr)
         return False
     meta = json.loads(session_json.read_text(encoding="utf-8"))
     if meta.get("subagentRun") is not True or meta.get("parentSessionId") != SESSION_ID:
@@ -167,7 +172,7 @@ def check_on_disk(home: str, task_id: str, child_id: str) -> bool:
 def main() -> int:
     base = os.environ.get("BASE_URL", "http://127.0.0.1:19876/v1").rstrip("/")
     coddy = coddy_base(base)
-    yaml_model = os.environ.get("MODEL", "rpa/gpt-oss:120b").strip()
+    yaml_model = os.environ.get("MODEL", "rpa/qwen3.6-35b-a3b").strip()
     profile = os.environ.get("CODDY_CHAT_PROFILE", "agent").strip()
     work = os.environ.get("WORK_DIR", "").strip()
     home = os.environ.get("CODDY_HOME", "").strip()

@@ -14,7 +14,7 @@ Verifies:
 - the run was persisted as a task of kind ``agent`` under
   ``<parent session>/background/<task_id>/`` whose ``agent.session_id`` names
   a child session inside the parent's bundle, and the task ended ``succeeded``
-- the child session bundle exists under the sessions root with
+- the child session bundle exists inside the parent's bundle with
   ``subagentRun: true`` and ``parentSessionId`` equal to the parent id
 - the child's ``messages.json`` and the task's ``output.log`` report block
   carry the marker
@@ -407,7 +407,9 @@ Do not read notes.txt yourself. Do not call any other tool. Do not call spawn_ag
             )
             exit_code = 17
 
-        child_dir = Path(session_root) / child_id
+        # A session spawned by another one is stored inside it, so the bundle
+        # is under the parent's own folder, not beside it in the sessions root.
+        child_dir = Path(session_root) / session_id / "subagents" / child_id
         meta_path = child_dir / "session.json"
         if not meta_path.is_file():
             print(f"FAIL: child session bundle missing at {child_dir}", file=sys.stderr)

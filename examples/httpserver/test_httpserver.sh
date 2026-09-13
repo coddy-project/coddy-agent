@@ -29,13 +29,27 @@ WORK_DIR="$(mktemp -d -t coddy-http-work-XXXXXX)"
 export CODDY_HOME="$HOME_DIR"
 export WORK_DIR
 export BASE_URL="http://127.0.0.1:$PORT/v1"
-export MODEL="${MODEL:-rpa/gpt-oss:120b}"
+# http_e2e_login boots servers of its own; keep them off the port this suite is
+# already listening on, or its probe reaches this server and reads it as a
+# login screen that never turned on.
+export LOGIN_PORT="${LOGIN_PORT:-$((PORT + 41))}"
+export MODEL="${MODEL:-rpa/qwen3.6-35b-a3b}"
 
 LOG_F="$HOME_DIR/e2e.log"
 CFG="$HOME_DIR/config.resolved.yaml"
 sed "s|__E2E_LOG_PATH__|$LOG_F|g" "$CODDY_CFG_SRC" >"$CFG"
 export CODDY_CONFIG="$CFG"
 : >"$LOG_F"
+
+# The demo config declares two providers, and the model harness switches to a
+# row of the second one. Seed its key into the temp home the way the console
+# runner does (examples/cli/cli_tui_driver.py: _seed_env_into), or that switch
+# comes back as a 401 that looks like a coddy bug.
+if [[ -n "${NEURALDEEP_API_KEY:-}" ]]; then
+  printf 'NEURALDEEP_API_KEY=%s\n' "$NEURALDEEP_API_KEY" >"$HOME_DIR/.env"
+elif [[ -f "$HOME/.coddy/.env" ]]; then
+  grep '^NEURALDEEP_API_KEY=' "$HOME/.coddy/.env" >"$HOME_DIR/.env" || true
+fi
 
 mkdir -p "$HOME_DIR/skills_fixture"
 cp -a "$ROOT/examples/skills_fixture/coddy_slash_demo" "$HOME_DIR/skills_fixture/"
@@ -45,7 +59,7 @@ echo 'package main
 
 func main() {}' >"$WORK_DIR/main.go"
 
-"$BIN" http --config "$CODDY_CONFIG" --home "$HOME_DIR" --cwd "$WORK_DIR" --scheduler -H 127.0.0.1 -P "$PORT" &
+"$BIN" serve --config "$CODDY_CONFIG" --home "$HOME_DIR" --cwd "$WORK_DIR" --scheduler -H 127.0.0.1 -P "$PORT" &
 HTTP_PID=$!
 if ! kill -0 "$HTTP_PID" 2>/dev/null; then
   echo "http server failed to start" >&2
