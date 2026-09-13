@@ -141,9 +141,9 @@ func TestCheckout(t *testing.T) {
 
 func TestEnsureWorktree(t *testing.T) {
 	dir := initRepo(t)
-	root := t.TempDir()
+	root := WorktreesRoot(dir)
 
-	path, created, err := EnsureWorktree(dir, "feature/login", root)
+	path, created, err := EnsureWorktree(dir, "feature/login")
 	if err != nil {
 		t.Fatalf("ensure worktree: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestEnsureWorktree(t *testing.T) {
 		t.Fatalf("worktree repo root = %q, want main root %q", info.RepoRoot, dir)
 	}
 
-	again, createdAgain, err := EnsureWorktree(dir, "feature/login", root)
+	again, createdAgain, err := EnsureWorktree(dir, "feature/login")
 	if err != nil {
 		t.Fatalf("ensure worktree twice: %v", err)
 	}
@@ -185,6 +185,167 @@ func TestEnsureWorktree(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("main repo worktree list misses the branch: %+v", mainInfo.Worktrees)
+	}
+}
+
+// The worktrees root is a fixed spot inside the repository, the way Claude Code
+// and Codex keep theirs, so nothing lands next to the project's own folders.
+func TestWorktreesRoot(t *testing.T) {
+	want := filepath.Join("/repo", ".coddy", "worktrees")
+	if got := WorktreesRoot("/repo"); got != want {
+		t.Fatalf("WorktreesRoot = %q, want %q", got, want)
+	}
+}
+
+// A worktree inside the repository must not turn up as an untracked folder:
+// the root carries its own ignore file, so no operator has to add one.
+func TestEnsureWorktreeIsIgnoredByGit(t *testing.T) {
+	dir := initRepo(t)
+
+	if _, _, err := EnsureWorktree(dir, "feature/login"); err != nil {
+		t.Fatalf("ensure worktree: %v", err)
+	}
+	if dirty := mustGit(t, dir, "status", "--porcelain"); dirty != "" {
+		t.Fatalf("repository is not clean after adding a worktree:\n%s", dirty)
+	}
+	ignore := filepath.Join(WorktreesRoot(dir), ".gitignore")
+	body, err := os.ReadFile(ignore)
+	if err != nil {
+		t.Fatalf("read %s: %v", ignore, err)
+	}
+	if strings.TrimSpace(string(body)) != "*" {
+		t.Fatalf("ignore file = %q, want \"*\"", string(body))
+	}
+}
+
+// `git clean -xdf` in the main checkout deletes the ignore file and keeps the
+// worktrees (measured on git 2.47), so a worktree that is only ever reused
+// would stay visible in git status forever. Reuse restores the file.
+func TestEnsureWorktreeRestoresIgnoreFileOnReuse(t *testing.T) {
+	dir := initRepo(t)
+	if _, _, err := EnsureWorktree(dir, "feature/login"); err != nil {
+		t.Fatalf("ensure worktree: %v", err)
+	}
+	ignore := filepath.Join(WorktreesRoot(dir), ".gitignore")
+	if err := os.Remove(ignore); err != nil {
+		t.Fatalf("remove ignore: %v", err)
+	}
+	if dirty := mustGit(t, dir, "status", "--porcelain"); dirty == "" {
+		t.Fatal("removing the ignore file should have exposed the worktree")
+	}
+
+	if _, created, err := EnsureWorktree(dir, "feature/login"); err != nil {
+		t.Fatalf("ensure worktree again: %v", err)
+	} else if created {
+		t.Fatal("the second call must reuse the worktree, not create one")
+	}
+	if _, err := os.Stat(ignore); err != nil {
+		t.Fatalf("ignore file was not restored: %v", err)
+	}
+	if dirty := mustGit(t, dir, "status", "--porcelain"); dirty != "" {
+		t.Fatalf("repository is not clean after reuse:\n%s", dirty)
+	}
+}
+
+// `.coddy` is repository content, so a checkout can ship it as a symlink
+// pointing anywhere. A worktree must never be written through it.
+func TestEnsureWorktreeRefusesRootOutsideTheCheckout(t *testing.T) {
+	dir := initRepo(t)
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(dir, ".coddy")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	if _, _, err := EnsureWorktree(dir, "feature/login"); err == nil {
+		t.Fatal("expected a worktrees root outside the checkout to be refused")
+	}
+	if entries, err := os.ReadDir(filepath.Join(outside, "worktrees")); err == nil && len(entries) > 0 {
+		t.Fatalf("wrote through the symlink: %v", entries)
+	}
+	for _, wt := range listWorktrees(dir) {
+		if !wt.Main {
+			t.Fatalf("a worktree was created at %q", wt.Path)
+		}
+	}
+}
+
+// A branch name that looks like an option must never reach git as one:
+// `git worktree add <path> --detach` is accepted by git and quietly builds a
+// detached worktree nobody asked for.
+func TestEnsureWorktreeRejectsOptionLikeBranch(t *testing.T) {
+	dir := initRepo(t)
+
+	if _, _, err := EnsureWorktree(dir, "--detach"); err == nil {
+		t.Fatal("expected rejection of an option-like branch name")
+	}
+	for _, wt := range listWorktrees(dir) {
+		if !wt.Main {
+			t.Fatalf("an option-like branch created a worktree at %q", wt.Path)
+		}
+	}
+}
+
+// A name that sanitises down to nothing would put the worktree at the root
+// itself; refuse it rather than let git explain it.
+func TestEnsureWorktreeRejectsUnusableBranchName(t *testing.T) {
+	dir := initRepo(t)
+
+	if _, _, err := EnsureWorktree(dir, "..."); err == nil {
+		t.Fatal("expected rejection of a branch name with no usable directory name")
+	}
+	if entries, err := os.ReadDir(WorktreesRoot(dir)); err == nil && len(entries) > 0 {
+		t.Fatalf("worktrees root was populated: %v", entries)
+	}
+}
+
+// An ignore file the operator wrote is theirs; ensuring a worktree must not
+// rewrite it, even when what it says is not what Coddy would have written.
+func TestEnsureWorktreeKeepsExistingIgnoreFile(t *testing.T) {
+	dir := initRepo(t)
+	root := WorktreesRoot(dir)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("mkdir root: %v", err)
+	}
+	ignore := filepath.Join(root, ".gitignore")
+	const operatorRule = "# mine\nbuild/\n"
+	if err := os.WriteFile(ignore, []byte(operatorRule), 0o644); err != nil {
+		t.Fatalf("write ignore: %v", err)
+	}
+
+	if _, _, err := EnsureWorktree(dir, "feature/login"); err != nil {
+		t.Fatalf("ensure worktree: %v", err)
+	}
+	body, err := os.ReadFile(ignore)
+	if err != nil {
+		t.Fatalf("read ignore: %v", err)
+	}
+	if string(body) != operatorRule {
+		t.Fatalf("ignore file was rewritten: %q", string(body))
+	}
+	// The trade-off of leaving it alone: a file that does not ignore the
+	// worktrees leaves them visible, and that is the operator's call.
+	if dirty := mustGit(t, dir, "status", "--porcelain"); dirty == "" {
+		t.Fatal("an ignore file that ignores nothing should leave the worktree visible")
+	}
+}
+
+// A worktree asked for from inside a linked worktree belongs to the main
+// checkout's root, not to a nested one below the linked tree.
+func TestEnsureWorktreeFromLinkedWorktree(t *testing.T) {
+	dir := initRepo(t)
+	first, _, err := EnsureWorktree(dir, "feature/login")
+	if err != nil {
+		t.Fatalf("ensure first worktree: %v", err)
+	}
+	mustGit(t, dir, "branch", "feature/logout")
+
+	second, _, err := EnsureWorktree(first, "feature/logout")
+	if err != nil {
+		t.Fatalf("ensure second worktree: %v", err)
+	}
+	want := filepath.Join(WorktreesRoot(dir), "feature-logout")
+	if normPath(t, second) != normPath(t, want) {
+		t.Fatalf("second worktree = %q, want %q", second, want)
 	}
 }
 
