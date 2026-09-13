@@ -69,12 +69,16 @@ func TestDefaultHashParamsVerify(t *testing.T) {
 func TestVerifyPasswordRejectsMalformedHash(t *testing.T) {
 	good := mustHash(t, "pw")
 	cases := map[string]string{
-		"empty":              "",
-		"plaintext":          "hunter2",
-		"bcrypt":             "$2y$10$abcdefghijklmnopqrstuv",
-		"wrong algorithm":    "$argon2i$v=19$m=64,t=1,p=1$c2FsdHNhbHQ$aGFzaGhhc2hoYXNoaGFzaA",
-		"wrong version":      "$argon2id$v=16$m=64,t=1,p=1$c2FsdHNhbHQ$aGFzaGhhc2hoYXNoaGFzaA",
-		"truncated":          good[:len(good)-4],
+		"empty":           "",
+		"plaintext":       "hunter2",
+		"bcrypt":          "$2y$10$abcdefghijklmnopqrstuv",
+		"wrong algorithm": "$argon2i$v=19$m=64,t=1,p=1$c2FsdHNhbHQ$aGFzaGhhc2hoYXNoaGFzaA",
+		"wrong version":   "$argon2id$v=16$m=64,t=1,p=1$c2FsdHNhbHQ$aGFzaGhhc2hoYXNoaGFzaA",
+		// One character short is never valid base64 (a length of 4n+1), where
+		// four characters short usually decodes to a shorter key and is then a
+		// structurally valid hash that simply does not match - which is the
+		// case below, and not this one.
+		"truncated":          good[:len(good)-1],
 		"no params":          "$argon2id$v=19$$c2FsdHNhbHQ$aGFzaGhhc2hoYXNoaGFzaA",
 		"zero memory":        "$argon2id$v=19$m=0,t=1,p=1$c2FsdHNhbHQ$aGFzaGhhc2hoYXNoaGFzaA",
 		"bad base64 salt":    "$argon2id$v=19$m=64,t=1,p=1$!!!!$aGFzaGhhc2hoYXNoaGFzaA",
@@ -96,6 +100,28 @@ func TestVerifyPasswordRejectsMalformedHash(t *testing.T) {
 	}
 	if !IsHash(good) {
 		t.Fatal("IsHash rejected a hash it produced")
+	}
+}
+
+func TestAStructurallyValidHashWithAnotherKeySimplyDoesNotMatch(t *testing.T) {
+	// PHC carries the key length in the value, so a hash with a different one is
+	// a hash of something else, not a malformed string. It answers "wrong
+	// password", which is what a visitor should see; only a hash this build
+	// cannot read at all is reported as the operator's problem.
+	h, err := HashPasswordWith("pw", HashParams{Memory: 64, Time: 1, Threads: 1, SaltLen: 8, KeyLen: 32})
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	if !IsHash(h) {
+		t.Fatalf("a 32-byte key is not readable: %q", h)
+	}
+	ok, err := VerifyPassword(h, "pw")
+	if err != nil || !ok {
+		t.Fatalf("its own password does not verify: ok=%v err=%v", ok, err)
+	}
+	other := mustHash(t, "pw") // the same password, a 16-byte key
+	if h == other {
+		t.Fatal("two key lengths produced the same hash")
 	}
 }
 
