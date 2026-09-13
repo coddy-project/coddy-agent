@@ -188,7 +188,7 @@ func (h *Handler) ensureModels(ctx context.Context) error {
 		if row.OwnedBy == "coddy" {
 			continue // "agent"/"plan"/"ask" profiles, not selectable backends
 		}
-		models = append(models, remoteModel{ID: row.ID, OwnedBy: row.OwnedBy, Multimodal: row.Multimodal})
+		models = append(models, remoteModel(row))
 	}
 	h.mu.Lock()
 	h.models = models
@@ -245,10 +245,11 @@ type messageRow struct {
 }
 
 type messagesResponse struct {
-	Messages        []messageRow `json:"messages"`
-	SelectedModelID string       `json:"selectedModelId,omitempty"`
-	Model           string       `json:"model,omitempty"`
-	Mode            string       `json:"mode,omitempty"`
+	Messages          []messageRow `json:"messages"`
+	SelectedModelID   string       `json:"selectedModelId,omitempty"`
+	SelectedReasoning string       `json:"selectedReasoning,omitempty"`
+	Model             string       `json:"model,omitempty"`
+	Mode              string       `json:"mode,omitempty"`
 }
 
 func (h *Handler) sessionMessages(ctx context.Context, id string) (*messagesResponse, error) {
@@ -266,6 +267,12 @@ func (h *Handler) cancelSession(ctx context.Context, id string) error {
 func (h *Handler) patchSelectedModel(ctx context.Context, id, model string) error {
 	return h.patchJSON(ctx, "/coddy/sessions/"+url.PathEscape(id), map[string]interface{}{
 		"selectedModelId": model,
+	})
+}
+
+func (h *Handler) patchSelectedReasoning(ctx context.Context, id, reasoning string) error {
+	return h.patchJSON(ctx, "/coddy/sessions/"+url.PathEscape(id), map[string]interface{}{
+		"selectedReasoning": reasoning,
 	})
 }
 

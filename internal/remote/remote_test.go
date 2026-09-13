@@ -512,6 +512,146 @@ func TestSetConfigOptionValidatesModelsAndRefusesPermissionMode(t *testing.T) {
 	}
 }
 
+func TestRemoteReasoningConfigOptionPersistsAndRestores(t *testing.T) {
+	const sessionID = "sess_x"
+	var patches []map[string]string
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"object":"list","default_agent_model":"remote/terra","data":[
+			{"id":"agent","owned_by":"coddy"},
+			{"id":"remote/terra","owned_by":"remote","reasoning_levels":["minimal","low","medium","high"],"reasoning_default":"medium"}]}`))
+	})
+	mux.HandleFunc("GET /coddy/sessions/{id}/messages", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"messages":[],"selectedModelId":"remote/terra","selectedReasoning":"low"}`))
+	})
+	mux.HandleFunc("PATCH /coddy/sessions/{id}", func(w http.ResponseWriter, r *http.Request) {
+		var patch map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+			t.Errorf("decode patch: %v", err)
+		}
+		patches = append(patches, patch)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	h, err := NewHandler(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetServer(&collectSender{})
+	h.SetPreferredSessionID(sessionID)
+	newResult, err := h.HandleSessionNew(context.Background(), acp.SessionNewParams{})
+	if err != nil {
+		t.Fatalf("HandleSessionNew: %v", err)
+	}
+	assertRemoteReasoningOption(t, newResult.ConfigOptions, "low")
+
+	setResult, err := h.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
+		SessionID: sessionID, ConfigID: "reasoning", Value: " high ",
+	})
+	if err != nil {
+		t.Fatalf("set reasoning: %v", err)
+	}
+	assertRemoteReasoningOption(t, setResult.ConfigOptions, "high")
+	if len(patches) != 1 || patches[0]["selectedReasoning"] != "high" || len(patches[0]) != 1 {
+		t.Fatalf("patches = %#v, want selectedReasoning high only", patches)
+	}
+	cleared, err := h.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
+		SessionID: sessionID, ConfigID: "reasoning", Value: "  ",
+	})
+	if err != nil {
+		t.Fatalf("clear reasoning: %v", err)
+	}
+	assertRemoteReasoningOption(t, cleared.ConfigOptions, "medium")
+	if len(patches) != 2 || patches[1]["selectedReasoning"] != "" || len(patches[1]) != 1 {
+		t.Fatalf("clear patches = %#v, want selectedReasoning empty only", patches)
+	}
+
+	if _, err := h.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
+		SessionID: sessionID, ConfigID: "reasoning", Value: "ultra",
+	}); err == nil || !strings.Contains(err.Error(), "unknown reasoning value") {
+		t.Fatalf("invalid reasoning error = %v", err)
+	}
+	if len(patches) != 2 {
+		t.Fatalf("invalid reasoning PATCHed: %#v", patches)
+	}
+
+	loaded, err := h.HandleSessionLoad(context.Background(), acp.SessionLoadParams{SessionID: sessionID})
+	if err != nil {
+		t.Fatalf("HandleSessionLoad: %v", err)
+	}
+	assertRemoteReasoningOption(t, loaded.ConfigOptions, "low")
+}
+
+func assertRemoteReasoningOption(t *testing.T, options []acp.ConfigOption, current string) {
+	t.Helper()
+	for _, option := range options {
+		if option.ID != "reasoning" {
+			continue
+		}
+		if option.Type != "select" || option.CurrentValue != current {
+			t.Fatalf("reasoning option = %+v, want select with current %q", option, current)
+		}
+		want := []string{"minimal", "low", "medium", "high"}
+		if len(option.Options) != len(want) {
+			t.Fatalf("reasoning options = %+v, want %v", option.Options, want)
+		}
+		for i, value := range want {
+			if option.Options[i].Value != value {
+				t.Fatalf("reasoning option %d = %q, want %q", i, option.Options[i].Value, value)
+			}
+		}
+		return
+	}
+	t.Fatalf("reasoning config option missing: %+v", options)
+}
+
+func TestRemoteReasoningPatchFailureDoesNotUpdateLocalState(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"object":"list","default_agent_model":"remote/terra","data":[{"id":"remote/terra","owned_by":"remote","reasoning_levels":["low","high"],"reasoning_default":"low"}]}`))
+	})
+	mux.HandleFunc("PATCH /coddy/sessions/{id}", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":{"message":"disk on fire"}}`, http.StatusInternalServerError)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	h, err := NewHandler(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
+		SessionID: "sess_x", ConfigID: "reasoning", Value: "high",
+	}); err == nil || !strings.Contains(err.Error(), "disk on fire") {
+		t.Fatalf("reasoning PATCH error = %v", err)
+	}
+	assertRemoteReasoningOptionLevels(t, h.configOptions(h.session("sess_x")), "low", []string{"low", "high"})
+}
+
+func assertRemoteReasoningOptionLevels(t *testing.T, options []acp.ConfigOption, current string, levels []string) {
+	t.Helper()
+	for _, option := range options {
+		if option.ID != "reasoning" {
+			continue
+		}
+		if option.CurrentValue != current {
+			t.Fatalf("reasoning current = %q, want %q", option.CurrentValue, current)
+		}
+		if len(option.Options) != len(levels) {
+			t.Fatalf("reasoning options = %+v, want %v", option.Options, levels)
+		}
+		for i, level := range levels {
+			if option.Options[i].Value != level {
+				t.Fatalf("reasoning option %d = %q, want %q", i, option.Options[i].Value, level)
+			}
+		}
+		return
+	}
+	t.Fatalf("reasoning config option missing: %+v", options)
+}
+
 func TestHandleSessionNewFailsFastWhenTheRemoteIsUnreachable(t *testing.T) {
 	h, err := NewHandler(Options{BaseURL: "http://127.0.0.1:1"})
 	if err != nil {
