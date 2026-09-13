@@ -1,7 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
   allRowsSelected,
-  bulkDeleteBody,
   formatRowTimestamp,
   formatTokenCount,
   rowTotalTokens,
@@ -18,25 +17,6 @@ const rows: SessionManagerRow[] = [
   { id: "sess_b" },
   { id: "sess_c" },
 ];
-
-describe("bulkDeleteBody", () => {
-  test("an explicit tick list travels as ids", () => {
-    expect(bulkDeleteBody({ kind: "ids", ids: ["sess_a", "sess_c"] })).toEqual({
-      ids: ["sess_a", "sess_c"],
-    });
-  });
-
-  test("delete all is resolved by the server, not by the loaded page", () => {
-    expect(bulkDeleteBody({ kind: "all" })).toEqual({ scope: "all" });
-  });
-
-  test("keeping the open conversation names it as an exception", () => {
-    expect(bulkDeleteBody({ kind: "allExcept", keep: "sess_b" })).toEqual({
-      scope: "all",
-      except: ["sess_b"],
-    });
-  });
-});
 
 describe("selection", () => {
   test("toggling one id leaves the original set alone", () => {

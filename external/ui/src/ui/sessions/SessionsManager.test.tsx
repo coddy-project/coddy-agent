@@ -183,68 +183,84 @@ test("the header checkbox selects and clears every rendered row", async () => {
   expect(screen.queryByTestId("sessions-manager-selected-count")).toBeNull();
 });
 
-test("delete all asks the server for the whole history, not the loaded page", async () => {
+test("deleting is the one action, and only the ticked rows travel", async () => {
   const calls = stubFetch(["sess_one", "sess_two"]);
   renderTable();
   await screen.findByTestId("sessions-manager-row-sess_one");
 
-  fireEvent.click(screen.getByTestId("sessions-manager-delete-all"));
-  await confirmDialog();
+  // There is no second or third destructive button to reach past the ticks.
+  expect(screen.queryByTestId("sessions-manager-delete-others")).toBeNull();
+  expect(screen.queryByTestId("sessions-manager-delete-all")).toBeNull();
 
-  await waitFor(() => {
-    const post = calls.find((c) => c.init?.method === "POST");
-    expect(JSON.parse(String(post?.init?.body))).toEqual({ scope: "all" });
-  });
-});
-
-test("delete all but the open one names it as the exception", async () => {
-  const calls = stubFetch(["sess_two"]);
-  renderTable({ activeSessionId: "sess_one" });
-  await screen.findByTestId("sessions-manager-row-sess_one");
-
-  fireEvent.click(screen.getByTestId("sessions-manager-delete-others"));
+  fireEvent.click(screen.getByTestId("sessions-manager-select-all"));
+  fireEvent.click(screen.getByTestId("sessions-manager-delete-selected"));
   await confirmDialog();
 
   await waitFor(() => {
     const post = calls.find((c) => c.init?.method === "POST");
     expect(JSON.parse(String(post?.init?.body))).toEqual({
-      scope: "all",
-      except: ["sess_one"],
+      ids: ["sess_one", "sess_two"],
     });
   });
 });
 
-test("without an open conversation there is nothing to spare", async () => {
+test("the delete button is named by its tooltip, not by a label", async () => {
   stubFetch();
   renderTable();
   await screen.findByTestId("sessions-manager-row-sess_one");
-  const others = screen.getByTestId("sessions-manager-delete-others");
-  expect(others).toBeDisabled();
-  // Disabled for a reason, and the tooltip says which one.
-  expect(others).toHaveAttribute("title", "No conversation is open to keep");
+
+  const button = screen.getByTestId("sessions-manager-delete-selected");
+  expect(button).toHaveAccessibleName("Delete selected (0)");
+  expect(button).toHaveAttribute("title", "Delete selected (0)");
+  expect(button.textContent).toBe("");
 });
 
-test("the bulk actions are named by their tooltip, not by a label", async () => {
-  stubFetch();
+// The conversation on screen behind the panel cannot be taken out from under
+// the operator: it has no tick, no row trash, and the header passes over it.
+test("the open conversation is protected from every delete in the table", async () => {
+  const calls = stubFetch(["sess_two"]);
   renderTable({ activeSessionId: "sess_one" });
   await screen.findByTestId("sessions-manager-row-sess_one");
 
-  for (const [testid, label] of [
-    ["sessions-manager-delete-others", "Delete all but the open one"],
-    ["sessions-manager-delete-all", "Delete all"],
-  ] as const) {
-    const button = screen.getByTestId(testid);
-    expect(button).toHaveAccessibleName(label);
-    expect(button).toHaveAttribute("title", label);
-    expect(button.textContent).toBe("");
-  }
+  const protectedPick = screen.getByTestId(
+    "sessions-manager-pick-sess_one",
+  ) as HTMLInputElement;
+  expect(protectedPick).toBeDisabled();
+  expect(screen.getByTestId("sessions-manager-delete-sess_one")).toBeDisabled();
+  expect(protectedPick).toHaveAccessibleName(
+    "The conversation that is open cannot be deleted here. Switch to another one first.",
+  );
+
+  // Ticking the header takes the page apart from the protected row.
+  fireEvent.click(screen.getByTestId("sessions-manager-select-all"));
+  expect(protectedPick.checked).toBe(false);
+  expect(
+    (screen.getByTestId("sessions-manager-pick-sess_two") as HTMLInputElement)
+      .checked,
+  ).toBe(true);
+  expect(
+    screen.getByTestId("sessions-manager-selected-count"),
+  ).toHaveTextContent("1");
+
+  fireEvent.click(screen.getByTestId("sessions-manager-delete-selected"));
+  await confirmDialog();
+  await waitFor(() => {
+    const post = calls.find((c) => c.init?.method === "POST");
+    expect(JSON.parse(String(post?.init?.body))).toEqual({ ids: ["sess_two"] });
+  });
 });
 
-test("a client-only draft is not a session the server can spare", async () => {
+// A client-only draft has no bundle, so no row of the table is its own and
+// nothing is protected - the whole page stays selectable.
+test("a client-only draft protects no row", async () => {
   stubFetch();
   renderTable({ activeSessionId: "draft_local_1" });
   await screen.findByTestId("sessions-manager-row-sess_one");
-  expect(screen.getByTestId("sessions-manager-delete-others")).toBeDisabled();
+
+  fireEvent.click(screen.getByTestId("sessions-manager-select-all"));
+  expect(
+    screen.getByTestId("sessions-manager-selected-count"),
+  ).toHaveTextContent("2");
 });
 
 test("the deleted ids are reported to the shell and the list re-reads", async () => {

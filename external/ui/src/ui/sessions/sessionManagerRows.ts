@@ -12,30 +12,6 @@ export type SessionManagerRow = SessionRow & {
   };
 };
 
-/** What POST /coddy/sessions/bulk-delete is asked to remove. */
-export type BulkDeleteScope =
-  | { kind: "ids"; ids: readonly string[] }
-  | { kind: "all" }
-  | { kind: "allExcept"; keep: string };
-
-/**
- * bulkDeleteBody turns a scope into the request body. "all" is resolved by the
- * server against the whole history rather than client side, because the table
- * holds one page and "delete everything" must not mean "delete what I scrolled
- * past".
- */
-export function bulkDeleteBody(
-  scope: BulkDeleteScope,
-): Record<string, unknown> {
-  if (scope.kind === "ids") {
-    return { ids: [...scope.ids] };
-  }
-  if (scope.kind === "allExcept") {
-    return { scope: "all", except: [scope.keep] };
-  }
-  return { scope: "all" };
-}
-
 /** Adds or removes one id, leaving the original set untouched. */
 export function toggleSelected(
   selected: ReadonlySet<string>,

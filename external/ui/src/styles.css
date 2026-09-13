@@ -10863,21 +10863,24 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   min-width: 0;
 }
 
+/* The search field and the delete button share one row at every width: with a
+   single 40px action there is always room, and wrapping it onto a line of its
+   own made the narrow shell look unlike the desktop for no gain. */
 .sessions-manager-toolbar {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
 }
 
 .sessions-manager-search {
-  flex: 1 1 220px;
+  flex: 1 1 auto;
   min-width: 0;
 }
 
 .sessions-manager-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex: 0 0 auto;
   gap: 8px;
 }
 
@@ -10978,7 +10981,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 .sessions-manager-col-model > span,
 .sessions-manager-cwd {
   display: inline-block;
-  max-width: 20ch;
+  max-width: 18ch;
   overflow: hidden;
   text-overflow: ellipsis;
   vertical-align: bottom;
@@ -11002,11 +11005,20 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   color: var(--muted);
 }
 
+/* Workspace and the "open" mark share the second line of the title cell. */
+.sessions-manager-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .sessions-manager-badge {
-  margin-left: 6px;
-  padding: 1px 6px;
+  flex: 0 0 auto;
+  padding: 0 6px;
   border-radius: 999px;
-  font-size: 0.7rem;
+  font-size: 0.68rem;
+  line-height: 1.5;
   color: var(--text);
   background: color-mix(in srgb, var(--accent) 26%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);

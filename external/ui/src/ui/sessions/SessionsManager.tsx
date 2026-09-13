@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConfirm } from "../components/useConfirm";
 import { useT } from "../i18n/I18nProvider";
 import { isClientDraftSessionId } from "./draftSessions";
 import {
   allRowsSelected,
-  bulkDeleteBody,
   formatRowTimestamp,
   formatRowTimestampFull,
   formatTokenCount,
@@ -14,7 +13,6 @@ import {
   toggleAllRows,
   toggleSelected,
   workspaceBasename,
-  type BulkDeleteScope,
   type SessionManagerRow,
 } from "./sessionManagerRows";
 
@@ -22,14 +20,11 @@ const PAGE_SIZE = 50;
 const SEARCH_DEBOUNCE_MS = 250;
 
 /**
- * One trash can drawn with a scope mark inside its body, so the three bulk
- * actions share a verb and differ only in what they reach: a check for the
- * ticked rows, a minus for "everything but the one I am in", a cross for the
- * whole history. The plain can (no mark) is the per-row delete. What each
+ * The trash can. With a check inside its body it is the toolbar action that
+ * removes the ticked rows; plain, it is the per-row delete. What the toolbar
  * button means in words lives in its tooltip, not on its face.
  */
-function IconTrash(props: { mark?: "check" | "minus" | "cross" }) {
-  const mark = props.mark;
+function IconTrash(props: { mark?: "check" }) {
   return (
     <svg
       width="18"
@@ -45,15 +40,14 @@ function IconTrash(props: { mark?: "check" | "minus" | "cross" }) {
       <path d="M3 6h18" />
       <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
       <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-      {mark === "check" ? <path d="M9 14.5l2 2 4-4" /> : null}
-      {mark === "minus" ? <path d="M9 15h6" /> : null}
-      {mark === "cross" ? <path d="M9.5 12.5l5 5m0-5l-5 5" /> : null}
-      {mark === undefined ? (
+      {props.mark === "check" ? (
+        <path d="M9 14.5l2 2 4-4" />
+      ) : (
         <>
           <path d="M10 11v6" />
           <path d="M14 11v6" />
         </>
-      ) : null}
+      )}
     </svg>
   );
 }
@@ -103,6 +97,16 @@ export function SessionsManager(props: {
   // and cannot be the session an "except" list protects.
   const activeStoredId =
     activeId && !isClientDraftSessionId(activeId) ? activeId : "";
+
+  // The conversation open behind the panel is protected: it cannot be ticked,
+  // the header checkbox passes over it, and its row has no trash. Everything
+  // else is fair game, so ticking the header and pressing delete is how the
+  // whole visible history goes - without ever taking the chat out from under
+  // the operator.
+  const selectableRows = useMemo(
+    () => rows.filter((row) => row.id !== activeStoredId),
+    [rows, activeStoredId],
+  );
 
   const load = useCallback(
     async (reset: boolean, at: string | null) => {
@@ -176,7 +180,7 @@ export function SessionsManager(props: {
       if (prev.size === 0) {
         return prev;
       }
-      const visible = new Set(rows.map((row) => row.id));
+      const visible = new Set(selectableRows.map((row) => row.id));
       const next = new Set<string>();
       for (const id of prev) {
         if (visible.has(id)) {
@@ -185,7 +189,7 @@ export function SessionsManager(props: {
       }
       return next.size === prev.size ? prev : next;
     });
-  }, [rows]);
+  }, [selectableRows]);
 
   // Debounce typing into the search box the way the History drawer does.
   useEffect(() => {
@@ -196,10 +200,12 @@ export function SessionsManager(props: {
     return () => window.clearTimeout(handle);
   }, [searchDraft]);
 
-  const selectedIds = rows.filter((r) => selected.has(r.id)).map((r) => r.id);
+  const selectedIds = selectableRows
+    .filter((row) => selected.has(row.id))
+    .map((row) => row.id);
 
   const runDelete = useCallback(
-    async (scope: BulkDeleteScope) => {
+    async (ids: readonly string[]) => {
       setBusy(true);
       setError(null);
       // Reported after the refresh below: re-reading the listing clears the
@@ -209,7 +215,7 @@ export function SessionsManager(props: {
         const res = await fetch("/coddy/sessions/bulk-delete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(bulkDeleteBody(scope)),
+          body: JSON.stringify({ ids: [...ids] }),
         });
         const data = (await res.json().catch(() => ({}))) as BulkDeleteResponse;
         if (!res.ok) {
@@ -245,7 +251,10 @@ export function SessionsManager(props: {
   );
 
   const confirmAndDelete = useCallback(
-    async (scope: BulkDeleteScope, title: string, message: string) => {
+    async (ids: readonly string[], title: string, message: string) => {
+      if (ids.length === 0) {
+        return;
+      }
       const ok = await confirm({
         title,
         message,
@@ -255,7 +264,7 @@ export function SessionsManager(props: {
       if (!ok) {
         return;
       }
-      await runDelete(scope);
+      await runDelete(ids);
     },
     [confirm, runDelete, t],
   );
@@ -263,11 +272,8 @@ export function SessionsManager(props: {
   const deleteSelectedLabel = t("sessions.manage.deleteSelected", {
     count: selectedIds.length,
   });
-  const deleteOthersLabel = activeStoredId
-    ? t("sessions.manage.deleteOthers")
-    : t("sessions.manage.noActiveSession");
-  const headerChecked = allRowsSelected(rows, selected);
-  const headerPartial = someRowsSelected(rows, selected);
+  const headerChecked = allRowsSelected(selectableRows, selected);
+  const headerPartial = someRowsSelected(selectableRows, selected);
 
   return (
     <div className="sessions-manager" data-testid="sessions-manager">
@@ -283,9 +289,10 @@ export function SessionsManager(props: {
           value={searchDraft}
           onChange={(ev) => setSearchDraft(ev.target.value)}
         />
-        {/* Icon buttons: the label of each action is its tooltip and its
-            accessible name, so three destructive scopes fit beside the search
-            field instead of pushing it onto its own line. */}
+        {/* One action, and its words are its tooltip and its accessible name:
+            the table has a tick per row and a tick for the whole page, so the
+            scope of a delete is what the operator can see ticked rather than a
+            button label they have to read carefully. */}
         <div className="sessions-manager-actions">
           <button
             type="button"
@@ -296,7 +303,7 @@ export function SessionsManager(props: {
             aria-label={deleteSelectedLabel}
             onClick={() =>
               void confirmAndDelete(
-                { kind: "ids", ids: selectedIds },
+                selectedIds,
                 tp(
                   "sessions.manage.confirm.selected.title",
                   selectedIds.length,
@@ -316,42 +323,6 @@ export function SessionsManager(props: {
                 {selectedIds.length}
               </span>
             ) : null}
-          </button>
-          <button
-            type="button"
-            className="settings-btn settings-btn-danger settings-btn-icon sessions-manager-action"
-            data-testid="sessions-manager-delete-others"
-            disabled={busy || !activeStoredId}
-            // A disabled button's title is often not announced, so the reason
-            // it is disabled is the accessible name too, not only the tooltip.
-            title={deleteOthersLabel}
-            aria-label={deleteOthersLabel}
-            onClick={() =>
-              void confirmAndDelete(
-                { kind: "allExcept", keep: activeStoredId },
-                t("sessions.manage.confirm.others.title"),
-                t("sessions.manage.confirm.others.message"),
-              )
-            }
-          >
-            <IconTrash mark="minus" />
-          </button>
-          <button
-            type="button"
-            className="settings-btn settings-btn-danger settings-btn-icon sessions-manager-action"
-            data-testid="sessions-manager-delete-all"
-            disabled={busy}
-            title={t("sessions.manage.deleteAll")}
-            aria-label={t("sessions.manage.deleteAll")}
-            onClick={() =>
-              void confirmAndDelete(
-                { kind: "all" },
-                t("sessions.manage.confirm.all.title"),
-                t("sessions.manage.confirm.all.message"),
-              )
-            }
-          >
-            <IconTrash mark="cross" />
           </button>
         </div>
       </div>
@@ -379,7 +350,7 @@ export function SessionsManager(props: {
                   }}
                   onChange={(ev) =>
                     setSelected((prev) =>
-                      toggleAllRows(rows, prev, ev.target.checked),
+                      toggleAllRows(selectableRows, prev, ev.target.checked),
                     )
                   }
                 />
@@ -405,21 +376,28 @@ export function SessionsManager(props: {
             {rows.map((row) => {
               const usage = row.tokenUsage ?? {};
               const total = rowTotalTokens(row);
+              const protectedRow = row.id === activeStoredId;
               return (
                 <tr
                   key={row.id}
-                  className={
-                    row.id === activeStoredId ? "is-active-session" : undefined
-                  }
+                  className={protectedRow ? "is-active-session" : undefined}
                   data-testid={`sessions-manager-row-${row.id}`}
                 >
                   <td className="sessions-manager-col-pick">
                     <input
                       type="checkbox"
-                      aria-label={t("sessions.manage.selectRow", {
-                        title: row.title || t("sessions.newChatFallback"),
-                      })}
+                      aria-label={
+                        protectedRow
+                          ? t("sessions.manage.protectedRow")
+                          : t("sessions.manage.selectRow", {
+                              title: row.title || t("sessions.newChatFallback"),
+                            })
+                      }
+                      {...(protectedRow
+                        ? { title: t("sessions.manage.protectedRow") }
+                        : {})}
                       data-testid={`sessions-manager-pick-${row.id}`}
+                      disabled={protectedRow}
                       checked={selected.has(row.id)}
                       onChange={(ev) =>
                         setSelected((prev) =>
@@ -433,20 +411,26 @@ export function SessionsManager(props: {
                       <span title={row.title || row.id}>
                         {row.title || t("sessions.newChatFallback")}
                       </span>
-                      {row.id === activeStoredId ? (
-                        <span className="sessions-manager-badge">
+                    </span>
+                    {/* The workspace, and the "open" mark of the protected
+                        row, are a second line rather than columns of their
+                        own: both are context for the title, and the table has
+                        a drawer to fit into. */}
+                    <span className="sessions-manager-sub">
+                      <span
+                        className="sessions-manager-cwd"
+                        title={row.cwd || ""}
+                      >
+                        {workspaceBasename(row.cwd) || "—"}
+                      </span>
+                      {protectedRow ? (
+                        <span
+                          className="sessions-manager-badge"
+                          title={t("sessions.manage.protectedRow")}
+                        >
                           {t("sessions.manage.openBadge")}
                         </span>
                       ) : null}
-                    </span>
-                    {/* The workspace is a second line rather than a column of
-                        its own: it is context for the title, and the table has
-                        a drawer to fit into. */}
-                    <span
-                      className="sessions-manager-cwd"
-                      title={row.cwd || ""}
-                    >
-                      {workspaceBasename(row.cwd) || "—"}
                     </span>
                   </td>
                   <td className="sessions-manager-col-model">
@@ -479,13 +463,21 @@ export function SessionsManager(props: {
                     <button
                       type="button"
                       className="session-trash"
-                      aria-label={t("sessions.deleteConversation")}
-                      title={t("sessions.delete")}
+                      aria-label={
+                        protectedRow
+                          ? t("sessions.manage.protectedRow")
+                          : t("sessions.deleteConversation")
+                      }
+                      title={
+                        protectedRow
+                          ? t("sessions.manage.protectedRow")
+                          : t("sessions.delete")
+                      }
                       data-testid={`sessions-manager-delete-${row.id}`}
-                      disabled={busy}
+                      disabled={busy || protectedRow}
                       onClick={() =>
                         void confirmAndDelete(
-                          { kind: "ids", ids: [row.id] },
+                          [row.id],
                           t("confirm.session.deleteChat.title"),
                           t("confirm.session.deleteChat.message"),
                         )

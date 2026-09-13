@@ -751,28 +751,18 @@ export const messagesRu: Record<string, string> = {
   "sessions.loadingMore": "Загрузка…",
 
   "sessions.manage.lead":
-    "Все сохранённые диалоги и во что они обошлись. Отметьте ненужные строки или очистите историю целиком.",
+    "Все сохранённые диалоги и во что они обошлись. Отметьте ненужные строки или галочку в шапке, чтобы взять всю страницу; открытый диалог защищён.",
   "sessions.manage.loadFailed": "Не удалось загрузить сессии, {error}",
   "sessions.manage.deleteFailed": "Не удалось удалить, {error}",
   "sessions.manage.partialFailure":
     "Сессий оставлено {count}, они ещё заняты. Первая причина, {reason}",
   "sessions.manage.deleteSelected": "Удалить выбранные ({count})",
-  "sessions.manage.deleteOthers": "Удалить все, кроме открытой",
-  "sessions.manage.deleteAll": "Удалить все",
-  "sessions.manage.noActiveSession":
-    "Нет открытого диалога, который стоит сохранить",
   "sessions.manage.confirm.selected.title.one": "Удалить {count} диалог?",
   "sessions.manage.confirm.selected.title.few": "Удалить {count} диалога?",
   "sessions.manage.confirm.selected.title.many": "Удалить {count} диалогов?",
   "sessions.manage.confirm.selected.title.other": "Удалить {count} диалога?",
   "sessions.manage.confirm.selected.message":
     "Их переписка, вызовы инструментов и загруженные файлы будут стёрты с диска. Отменить это нельзя.",
-  "sessions.manage.confirm.others.title": "Удалить все остальные диалоги?",
-  "sessions.manage.confirm.others.message":
-    "С диска будет стёрто всё, кроме открытого сейчас диалога, включая чаты, которые не подгружены в эту таблицу. Отменить это нельзя.",
-  "sessions.manage.confirm.all.title": "Удалить всю историю?",
-  "sessions.manage.confirm.all.message":
-    "С диска будут стёрты все сохранённые диалоги, включая те, что не подгружены в эту таблицу. Отменить это нельзя.",
   "sessions.manage.selectAll": "Выбрать все показанные диалоги",
   "sessions.manage.selectRow": "Выбрать {title}",
   "sessions.manage.column.conversation": "Диалог",
@@ -783,6 +773,8 @@ export const messagesRu: Record<string, string> = {
   "sessions.manage.column.updated": "Изменён",
   "sessions.manage.column.actions": "Действия",
   "sessions.manage.openBadge": "открыт",
+  "sessions.manage.protectedRow":
+    "Открытый диалог отсюда не удаляется. Сначала переключитесь на другой.",
   "sessions.manage.modelDefault": "по умолчанию",
   "sessions.manage.tokensBreakdown":
     "{input} на вход, {output} на выход, {total} всего",
