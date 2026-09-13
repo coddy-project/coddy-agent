@@ -354,15 +354,18 @@ test("restored edit recovers the diff from truncated list arguments", async () =
     );
   }
 
-  render(<Harness />);
+  const { container } = render(<Harness />);
   openToolDetails();
 
   // Truncated args parse to nothing, so the card starts with an empty "+0 −0" preview.
   await waitFor(() =>
     expect(fetchSpy).toHaveBeenCalledWith("tc-edit-restored"),
   );
+  // The path is on both the summary row and the preview bar; assert the bar.
   await waitFor(() =>
-    expect(screen.getByTitle("src/edited.ts")).toBeInTheDocument(),
+    expect(
+      container.querySelector(".permission-preview-location"),
+    ).toHaveTextContent("src/edited.ts"),
   );
   expect(screen.getByText(/const after30/)).toBeInTheDocument();
 });
@@ -399,7 +402,7 @@ test("summary matches thinking-row pattern: chevron, tool name, duration", () =>
       ".thinking-row.coddy-tool-call-row .thinking-chevron",
     ),
   ).toBeTruthy();
-  expect(screen.getByText("glob")).toBeInTheDocument();
+  expect(screen.getByText("looking for files")).toBeInTheDocument();
   expect(container.querySelector(".thinking-dur")?.textContent).toBe("125ms");
 });
 
@@ -1000,7 +1003,7 @@ test("preview and result toggles expose distinct test ids", () => {
 });
 
 test("write_file cards render the shared write preview", () => {
-  render(
+  const { container } = render(
     <ToolCallMessage
       toolCallId="tc-write-file"
       title="write_file"
@@ -1010,7 +1013,9 @@ test("write_file cards render the shared write preview", () => {
     />,
   );
   openToolDetails();
-  expect(screen.getByTitle("src/wf.ts")).toBeInTheDocument();
+  expect(
+    container.querySelector(".permission-preview-location"),
+  ).toHaveTextContent("src/wf.ts");
   expect(screen.getByText("hello")).toBeInTheDocument();
 });
 
@@ -1027,4 +1032,256 @@ test("short write previews never offer overflow controls without real overflow",
   openToolDetails();
   expect(screen.queryByTestId("tool-preview-more")).toBeNull();
   expect(screen.queryByText("More…")).toBeNull();
+});
+
+test("the summary row names the action, not the tool id", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-name"
+      title="run_command"
+      kind="execute"
+      status="completed"
+      argsText={JSON.stringify({ command: "ls" })}
+      resultText="a.ts"
+      durationMs={4}
+    />,
+  );
+  expect(screen.getByText("running a command")).toHaveClass("thinking-label");
+  expect(screen.queryByText("run_command")).toBeNull();
+});
+
+test("a tool outside the catalogue keeps its own id in the summary row", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-mcp"
+      title="mcp__github__create_issue"
+      status="completed"
+      argsText={JSON.stringify({ title: "x" })}
+      resultText="ok"
+      durationMs={4}
+    />,
+  );
+  expect(screen.getByText("mcp__github__create_issue")).toHaveClass(
+    "thinking-label",
+  );
+});
+
+test("a call with no arguments shows an action card instead of an empty JSON object", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-empty"
+      title="coddy_todo_plan_archive"
+      status="completed"
+      argsText="{}"
+      resultText="archived plan (3 items)"
+      durationMs={0}
+    />,
+  );
+  openToolDetails();
+
+  // Same bar chrome and same status mark as the other plan tools.
+  const card = screen.getByTestId("tool-action-preview");
+  expect(card).toHaveClass("permission-preview-bar--standalone");
+  expect(card).toHaveTextContent("archiving the plan");
+  expect(card).toHaveTextContent("Done");
+  expect(
+    card.querySelector(".todo-tool-preview-mark--completed"),
+  ).not.toBeNull();
+  expect(container.textContent).not.toContain("{}");
+  expect(container.querySelector(".permission-preview-code")).toBeNull();
+  // The returned output still gets its own panel.
+  expect(screen.getByText("archived plan (3 items)")).toBeTruthy();
+});
+
+test("the action card tracks the call it belongs to", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-empty-run"
+      title="coddy_todo_plan_read"
+      status="in_progress"
+      argsText="{}"
+      startedAtMs={Date.now()}
+    />,
+  );
+  openToolDetails();
+  expect(screen.getByTestId("tool-action-preview")).toHaveTextContent(
+    "Running…",
+  );
+});
+
+test("run_command puts the command in a shell block with a prompt and a copy control", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-shell"
+      title="run_command"
+      kind="execute"
+      status="completed"
+      argsText={JSON.stringify({ command: "make lint", timeout_seconds: 30 })}
+      resultText="ok"
+      durationMs={1200}
+    />,
+  );
+  openToolDetails();
+
+  const block = container.querySelector(".permission-preview-shell");
+  expect(block).not.toBeNull();
+  expect(
+    block!.querySelector(".permission-preview-shell-prompt"),
+  ).toHaveTextContent("$");
+  expect(
+    block!.querySelector(".permission-preview-shell-code"),
+  ).toHaveTextContent("make lint");
+  // The copy control lives on the command line, not in the card header above it.
+  const copy = screen.getByTestId("tool-preview-copy");
+  expect(block!.contains(copy)).toBe(true);
+  expect(copy).toHaveAttribute("title", "Copy");
+  expect(copy.textContent).toBe("");
+  expect(
+    container.querySelector(".permission-preview-bar .md-copy"),
+  ).toBeNull();
+});
+
+test("previews that are not a shell command keep the transcript free of copy controls", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-write-no-copy"
+      title="write"
+      kind="write"
+      status="completed"
+      argsText={JSON.stringify({ path: "src/a.ts", content: "hello" })}
+      resultText="Wrote src/a.ts"
+      durationMs={3}
+    />,
+  );
+  openToolDetails();
+  expect(container.querySelector(".permission-preview .md-copy")).toBeNull();
+});
+
+test("load_skill names the skill next to the label and renders its markdown body", () => {
+  const body = "# Subagent-Driven Development\n\nExecute the plan per task.";
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-skill"
+      title="load_skill"
+      status="completed"
+      argsText={JSON.stringify({ name: "subagent-driven-development" })}
+      resultText={body}
+      durationMs={0}
+    />,
+  );
+  expect(screen.getByText("loading a skill")).toHaveClass("thinking-label");
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent(
+    "subagent-driven-development",
+  );
+
+  openToolDetails();
+  // The skill name is already on the summary row, so the call needs no argument card,
+  // and the instructions are the card - no section strip above them.
+  expect(container.querySelector(".permission-preview")).toBeNull();
+  expect(container.querySelector(".tool-call-result-head")).toBeNull();
+  expect(screen.queryByText("Result")).toBeNull();
+  const heading = container.querySelector(".tool-call-result-content h1");
+  expect(heading).toHaveTextContent("Subagent-Driven Development");
+  expect(container.querySelector(".tool-result-pre")).toBeNull();
+});
+
+test("a skill body renders its markdown lists, not raw dashes", () => {
+  const body = "# Loop\n\n- first step;\n- second step.\n\n1. one\n2. two\n";
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-skill-lists"
+      title="load_skill"
+      status="completed"
+      argsText={JSON.stringify({ name: "executing-plans" })}
+      resultText={body}
+      durationMs={0}
+    />,
+  );
+  openToolDetails();
+  const card = container.querySelector(".tool-call-result-content--markdown")!;
+  expect(card.querySelectorAll("ul > li")).toHaveLength(2);
+  expect(card.querySelectorAll("ol > li")).toHaveLength(2);
+  expect(card.textContent).not.toContain("- first step");
+});
+
+test("load_skill without parseable arguments still renders the body", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-skill-raw"
+      title="load_skill"
+      status="completed"
+      argsText='{"name":"code-rev'
+      resultText="# Code review"
+      durationMs={0}
+    />,
+  );
+  expect(screen.queryByTestId("tool-summary-target")).toBeNull();
+  openToolDetails();
+  expect(container.querySelector(".tool-call-result-content h1")).toHaveTextContent(
+    "Code review",
+  );
+});
+
+test("the row names what the call acts on, clipped rather than wrapped", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-target"
+      title="read"
+      kind="read"
+      status="completed"
+      argsText={JSON.stringify({ path: "external/ui/src/ui/messages/Tool.tsx" })}
+      resultText="ok"
+      durationMs={3}
+    />,
+  );
+  const target = screen.getByTestId("tool-summary-target");
+  expect(target).toHaveTextContent("external/ui/src/ui/messages/Tool.tsx");
+  // The full value stays reachable as the native tooltip when the row clips it.
+  expect(target).toHaveAttribute(
+    "title",
+    "external/ui/src/ui/messages/Tool.tsx",
+  );
+  expect(screen.getByText("reading a file")).toHaveClass("thinking-label");
+});
+
+test("read tells a directory listing apart from a file when its arguments say so", () => {
+  const { rerender } = render(
+    <ToolCallMessage
+      toolCallId="tc-dir"
+      title="read"
+      kind="read"
+      status="completed"
+      argsText={JSON.stringify({ path: "external/ui/src/", recursive: true })}
+      resultText="ui/"
+      durationMs={1}
+    />,
+  );
+  expect(screen.getByText("browsing a directory")).toBeInTheDocument();
+
+  rerender(
+    <ToolCallMessage
+      toolCallId="tc-dir"
+      title="read"
+      kind="read"
+      status="completed"
+      argsText={JSON.stringify({ path: "external/ui/src/main.tsx" })}
+      resultText="import"
+      durationMs={1}
+    />,
+  );
+  expect(screen.getByText("reading a file")).toBeInTheDocument();
+});
+
+test("a question row stays a bare label, with no target beside it", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-q"
+      title="question"
+      kind="question"
+      status="completed"
+      argsText={JSON.stringify({ questions: [{ question: "which?" }] })}
+      resultText=""
+    />,
+  );
+  expect(screen.queryByTestId("tool-summary-target")).toBeNull();
 });

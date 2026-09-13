@@ -40,7 +40,9 @@ test("shows a human question, one technical tool badge, and the original buttons
   expect(screen.getAllByText("run_command")).toHaveLength(1);
   expect(screen.getByText("ls -la")).toBeTruthy();
   expect(screen.queryByText(/Arguments:/)).toBeNull();
-  expect(screen.getByTestId("permission-prompt-copy")).toHaveTextContent(
+  // The control is an icon; the word it used to show is its tooltip.
+  expect(screen.getByTestId("permission-prompt-copy")).toHaveAttribute(
+    "title",
     "Copy",
   );
   expect(screen.getByRole("button", { name: "Allow" })).toBeTruthy();

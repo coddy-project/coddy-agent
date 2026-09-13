@@ -76,3 +76,46 @@ test("plan exit uses themed progress and semantic completion colors", () => {
   expect(preview?.[0]).toMatch(/var\(--accent\)/);
   expect(completed?.[0]).toMatch(/var\(--coddy-todo-completed\)/);
 });
+
+test("the shell block is an inset panel with its own prompt column", () => {
+  const css = cssText();
+  const block = css.match(/\.permission-preview-shell\s*\{[^}]*\}/s);
+  const prompt = css.match(/\.permission-preview-shell-prompt\s*\{[^}]*\}/s);
+  const code = css.match(/\.permission-preview-shell-code\s*\{[^}]*\}/s);
+
+  // Nested inside the card, so the command reads as input rather than as body text.
+  expect(block?.[0]).toMatch(/border:/);
+  expect(block?.[0]).toMatch(/border-radius:/);
+  expect(block?.[0]).toMatch(/display:\s*grid/);
+  // Prompt, command, copy: the control is the block's own last column.
+  expect(block?.[0]).toMatch(
+    /grid-template-columns:\s*auto\s+minmax\(0,\s*1fr\)\s+auto/,
+  );
+  expect(prompt?.[0]).toMatch(/var\(--accent\)/);
+  expect(code?.[0]).toMatch(/white-space:\s*pre-wrap/);
+  const copy = css.match(/\.permission-preview-shell\s+\.md-copy\s*\{[^}]*\}/s);
+  expect(copy?.[0]).toMatch(/position:\s*static/);
+});
+
+test("the no-argument action bar reuses the todo status mark", () => {
+  const css = cssText();
+  const inBar = css.match(
+    /\.permission-preview-bar\s*>\s*\.todo-tool-preview-mark\s*\{[^}]*\}/s,
+  );
+  const completed = css.match(
+    /\.todo-tool-preview-row--completed\s+\.todo-tool-preview-mark,\s*\n\.todo-tool-preview-mark--completed\s*\{[^}]*\}/s,
+  );
+
+  // The standalone mark shares every state rule with the rows of the plan cards.
+  expect(inBar).not.toBeNull();
+  expect(completed?.[0]).toMatch(/var\(--coddy-todo-completed\)/);
+});
+
+test("the copy control is an icon, sized for its glyph on both surfaces", () => {
+  const css = cssText();
+  const base = css.match(/^\.md-copy\s*\{[^}]+\}/m);
+  const glyph = css.match(/\.md-copy__glyph\s*\{[^}]*\}/s);
+
+  expect(base?.[0]).toMatch(/line-height:\s*0/);
+  expect(glyph?.[0]).toMatch(/display:\s*block/);
+});

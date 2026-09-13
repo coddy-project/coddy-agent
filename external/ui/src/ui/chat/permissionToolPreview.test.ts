@@ -51,7 +51,7 @@ test("builds a command preview", () => {
     title: "Run this command?",
     header: "Shell",
     meta: ["timeout 45s"],
-    kind: "code",
+    kind: "shell",
     text: "npm test",
   });
 });
@@ -300,4 +300,72 @@ test("toolCallTargetText accepts the Run: prefix and the Arguments: envelope", (
       argsText: 'Arguments: {"command":"make lint"}',
     }),
   ).toBe("make lint");
+});
+
+test("a call with no arguments renders as an action card, never as `{}`", () => {
+  const preview = buildToolCallPreview(
+    { title: "coddy_todo_plan_archive", argsText: "{}" },
+    "{}",
+  );
+  expect(preview).toMatchObject({
+    toolName: "coddy_todo_plan_archive",
+    header: "archiving the plan",
+    meta: [],
+    copyText: "",
+    kind: "action",
+  });
+});
+
+test("the action card names an uncatalogued no-argument tool by its own id", () => {
+  expect(
+    buildToolCallPreview({ title: "mcp__github__list_repos" }, ""),
+  ).toMatchObject({ header: "mcp__github__list_repos", kind: "action" });
+});
+
+test("localizes the action card", () => {
+  setLocale("ru");
+  expect(
+    buildToolCallPreview({ title: "coddy_todo_plan_archive" }, "{}"),
+  ).toMatchObject({ header: "архивирую план", kind: "action" });
+});
+
+test("arguments that are not an empty object keep the readable fallback", () => {
+  expect(
+    buildToolCallPreview({ title: "keep_result" }, "raw tool detail"),
+  ).toMatchObject({ kind: "code", text: "raw tool detail" });
+});
+
+test("a shell call is its own preview kind so the command can carry a prompt", () => {
+  expect(
+    buildToolCallPreview({
+      title: "run_command",
+      argsText: JSON.stringify({ command: "npm test", timeout_seconds: 45 }),
+    }),
+  ).toMatchObject({
+    header: "Shell",
+    meta: ["timeout 45s"],
+    copyText: "npm test",
+    kind: "shell",
+    text: "npm test",
+  });
+  expect(
+    buildToolCallPreview({
+      title: "ssh_run_command",
+      argsText: JSON.stringify({ command: "uptime" }),
+    }),
+  ).toMatchObject({ header: "SSH shell", kind: "shell", text: "uptime" });
+});
+
+test("load_skill previews the skill it pulls in, not its JSON arguments", () => {
+  expect(
+    buildToolCallPreview({
+      title: "load_skill",
+      argsText: JSON.stringify({ name: "/code-review" }),
+    }),
+  ).toMatchObject({
+    toolName: "load_skill",
+    header: "code-review",
+    copyText: "code-review",
+    kind: "path",
+  });
 });

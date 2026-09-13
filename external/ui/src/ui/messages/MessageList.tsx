@@ -93,6 +93,17 @@ export function MessageList(props: {
     return m;
   }, [props.items]);
 
+  // The answer that closes the turn. It is the only one with an action row: the answers
+  // between tool calls would otherwise stack the same copy button and the same minute
+  // down the transcript.
+  const lastAssistantId = useMemo(() => {
+    for (let i = props.items.length - 1; i >= 0; i--) {
+      const item = props.items[i];
+      if (item && item.type === "assistant_message") return item.id;
+    }
+    return "";
+  }, [props.items]);
+
   // What the running turn is doing right now, for the label next to the typing dots.
   const liveStatus = useMemo(
     () => (props.generating === true ? deriveLiveStatus(props.items) : null),
@@ -205,6 +216,7 @@ export function MessageList(props: {
             <AssistantMessage
               key={it.id}
               content={it.content}
+              showFoot={it.id === lastAssistantId && props.generating !== true}
               {...(typeof it.streaming === "boolean"
                 ? { streaming: it.streaming }
                 : {})}
