@@ -152,6 +152,41 @@ export function toolCallTargetText(context: PermissionToolCallContext): string {
   }
 }
 
+/** Argument names whose value is a filesystem path rather than a url or a name. */
+const PATH_ARGS = ["path", "filePath", "file_path", "src"];
+
+/**
+ * Whether the target of this call is a filesystem path, so a row may spell it
+ * relative to the session's directory (see `relativeToolTarget`). A command, a
+ * search pattern, a url, a skill or an agent name is not one, and rewriting it
+ * against a directory would say something the call never meant.
+ */
+export function toolCallTargetIsPath(
+  context: PermissionToolCallContext,
+): boolean {
+  const toolName = (
+    normalizedToolName(context.title) ||
+    normalizedToolName(context.kind) ||
+    ""
+  ).toLowerCase();
+  switch (toolName) {
+    case "run_command":
+    case "ssh_run_command":
+    case "grep":
+    case "glob":
+    case "websearch":
+    case "webfetch":
+    case "spawn_agent":
+    case "load_skill":
+    case "question":
+      return false;
+    default: {
+      const args = parseArgsText(context.argsText || "");
+      return !!args && stringArg(args, ...PATH_ARGS) !== "";
+    }
+  }
+}
+
 function questionForTool(
   toolName: string,
   args: Record<string, unknown>,

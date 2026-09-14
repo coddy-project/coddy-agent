@@ -1249,6 +1249,56 @@ test("the row names what the call acts on, clipped rather than wrapped", () => {
   expect(screen.getByText("reading a file")).toHaveClass("thinking-label");
 });
 
+test("the row spells a path against the session directory, the tooltip keeps it whole", () => {
+  // A worktree session repeats the same long prefix on every row, which pushes the
+  // file name past the ellipsis. The row shows what tells the files apart; the
+  // absolute path stays one hover (and one click) away.
+  render(
+    <ToolCallMessage
+      toolCallId="tc-relative"
+      title="read"
+      kind="read"
+      status="completed"
+      sessionCwd="/storage/Repository/coddy/coddy-agent"
+      argsText={JSON.stringify({
+        path: "/storage/Repository/coddy/coddy-agent/.coddy/worktrees/fix-session-stop-queue/DESIGN.md",
+      })}
+      resultText="ok"
+      durationMs={3}
+    />,
+  );
+  const target = screen.getByTestId("tool-summary-target");
+  // Exact: the absolute path contains the relative one, so a substring match
+  // would pass without the rewrite ever happening.
+  expect(target.textContent).toBe(
+    ".coddy/worktrees/fix-session-stop-queue/DESIGN.md",
+  );
+  expect(target).toHaveAttribute(
+    "title",
+    "/storage/Repository/coddy/coddy-agent/.coddy/worktrees/fix-session-stop-queue/DESIGN.md",
+  );
+});
+
+test("a command is never respelt against the session directory", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-command"
+      title="run_command"
+      kind="run_command"
+      status="completed"
+      sessionCwd="/storage/Repository/coddy/coddy-agent"
+      argsText={JSON.stringify({
+        command: "/storage/Repository/coddy/coddy-agent/scripts/checks.sh",
+      })}
+      resultText="ok"
+      durationMs={3}
+    />,
+  );
+  expect(screen.getByTestId("tool-summary-target").textContent).toBe(
+    "/storage/Repository/coddy/coddy-agent/scripts/checks.sh",
+  );
+});
+
 test("read tells a directory listing apart from a file when its arguments say so", () => {
   const { rerender } = render(
     <ToolCallMessage

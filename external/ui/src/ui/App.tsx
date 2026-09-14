@@ -4458,6 +4458,7 @@ export function App() {
             onStopBackgroundTask={handleStopBackgroundTask}
             subagentTranscript={subagentTranscript}
             onOpenSession={openSessionInPlace}
+            sessionCwd={currentSessionCwd}
             workspaceCtx={workspaceCtx}
             worktreePref={worktreePref}
             workspaceLocked={items.length > 0}
