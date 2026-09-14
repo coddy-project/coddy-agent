@@ -11,6 +11,7 @@ import {
 import { ToolCallMessage } from "./ToolCallMessage";
 import type { BackgroundTask } from "../tasks/types";
 import { setLocale } from "../i18n/i18n";
+import { setHostShell } from "../chat/hostShell";
 
 afterEach(() => {
   cleanup();
@@ -1385,4 +1386,69 @@ test("the failure marker is localized and absent when the call succeeded", () =>
   );
   expect(screen.getByTestId("tool-failed-marker")).toHaveTextContent("(ошибка)");
   setLocale("en");
+});
+
+test("the shell card names the interpreter the server actually runs", () => {
+  setHostShell("/usr/bin/bash");
+  try {
+    const { container } = render(
+      <ToolCallMessage
+        toolCallId="tc-shell-name"
+        title="run_command"
+        kind="execute"
+        status="completed"
+        argsText={JSON.stringify({ command: "ls" })}
+        resultText="a.ts"
+        durationMs={4}
+      />,
+    );
+    openToolDetails();
+    expect(
+      container.querySelector(".permission-preview-location"),
+    ).toHaveTextContent("/usr/bin/bash");
+    expect(screen.queryByText("Shell")).toBeNull();
+  } finally {
+    setHostShell("");
+  }
+});
+
+test("without a reported interpreter the shell card keeps the generic label", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-shell-fallback"
+      title="run_command"
+      kind="execute"
+      status="completed"
+      argsText={JSON.stringify({ command: "ls" })}
+      resultText="a.ts"
+      durationMs={4}
+    />,
+  );
+  openToolDetails();
+  expect(
+    container.querySelector(".permission-preview-location"),
+  ).toHaveTextContent("Shell");
+});
+
+test("a remote shell is not the local interpreter", () => {
+  setHostShell("/usr/bin/bash");
+  try {
+    const { container } = render(
+      <ToolCallMessage
+        toolCallId="tc-ssh"
+        title="ssh_run_command"
+        kind="execute"
+        status="completed"
+        argsText={JSON.stringify({ command: "uptime" })}
+        resultText="up 3 days"
+        durationMs={4}
+      />,
+    );
+    openToolDetails();
+    expect(
+      container.querySelector(".permission-preview-location"),
+    ).toHaveTextContent("SSH shell");
+  } finally {
+    setHostShell("");
+  }
 });

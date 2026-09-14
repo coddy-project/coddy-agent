@@ -1,8 +1,20 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
 import type { ParsedDiffLine } from "../messages/parseDiff";
 import type { PermissionToolPreview as Preview } from "./permissionToolPreview";
+import {
+  serverSnapshotHostShell,
+  snapshotHostShell,
+  subscribeHostShell,
+} from "./hostShell";
 import { useT } from "../i18n/I18nProvider";
 
 function DiffLineRow({ line }: { line: ParsedDiffLine }) {
@@ -274,6 +286,18 @@ export function PermissionToolPreview({
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
   const status = (toolStatus || "").toLowerCase();
+  // A local shell card names the interpreter the server actually runs (/usr/bin/bash)
+  // rather than the word "Shell". A remote one runs somebody else's shell, and a server
+  // that reports none keeps the generic label.
+  const hostShell = useSyncExternalStore(
+    subscribeHostShell,
+    snapshotHostShell,
+    serverSnapshotHostShell,
+  );
+  const barHeader =
+    preview.kind === "shell" && preview.toolName.toLowerCase() === "run_command"
+      ? hostShell || preview.header
+      : preview.header;
   // A shell command carries its own copy control inside the command block, so the
   // header never gets a second one.
   const copyTestId = interactive ? "permission-prompt-copy" : "tool-preview-copy";
@@ -343,8 +367,8 @@ export function PermissionToolPreview({
           (hasBody ? "" : " permission-preview-bar--standalone")
         }
       >
-        <div className="permission-preview-location" title={preview.header}>
-          {preview.header}
+        <div className="permission-preview-location" title={barHeader}>
+          {barHeader}
         </div>
         {preview.meta.length > 0 ? (
           <div className="permission-preview-meta">

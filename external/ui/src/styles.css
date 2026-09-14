@@ -2973,6 +2973,8 @@ a.rail-brand {
   > .permission-preview
   .permission-preview-viewport {
   border-radius: 0;
+  /* The output continues the same panel, so the viewport draws no closing edge. */
+  border-bottom: 0;
 }
 
 /* Output needs no label: it is the only thing under the call. A failure is said once,

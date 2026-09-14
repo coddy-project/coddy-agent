@@ -15,6 +15,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
 
 func TestDrivesListingPayload(t *testing.T) {
@@ -233,5 +235,18 @@ func TestWorkspaceFolderCreateRejectsTheDriveLevel(t *testing.T) {
 	status, body := postFolderJSON(t, ts, workspaceDrivesPath, "child")
 	if status != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400 (body %v)", status, body)
+	}
+}
+
+// The tool card names the interpreter a run_command call actually goes through, so
+// the workspace context carries the server's shell alongside the folder facts.
+func TestWorkspaceContextPayloadCarriesTheHostShell(t *testing.T) {
+	payload := workspaceContextPayload(t.TempDir())
+	shell, ok := payload["shell"].(string)
+	if !ok || shell == "" {
+		t.Fatalf("shell = %v, want the resolved interpreter path", payload["shell"])
+	}
+	if shell != platform.CurrentShell().Path {
+		t.Errorf("shell = %q, want %q", shell, platform.CurrentShell().Path)
 	}
 }
