@@ -34,16 +34,22 @@ var referenceDirs = []string{"docs", "examples", "external/ui/src"}
 func AssetInventory(root string) ([]Asset, error) {
 	var assets []Asset
 	base := filepath.Join(root, AssetsDir)
+	ignored := gitIgnored(root, AssetsDir)
 	err := filepath.WalkDir(base, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
+		repoRel, _ := filepath.Rel(root, path)
+		repoRel = filepath.ToSlash(repoRel)
 		if d.IsDir() {
+			if ignored.has(repoRel) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		rel, _ := filepath.Rel(base, path)
 		rel = filepath.ToSlash(rel)
-		if assetIndexFiles[rel] {
+		if assetIndexFiles[rel] || ignored.has(repoRel) {
 			return nil
 		}
 		info, err := d.Info()
@@ -94,19 +100,23 @@ func referenceFiles(root string) ([]string, error) {
 			out = append(out, f)
 		}
 	}
+	ignored := gitIgnored(root, referenceDirs...)
 	for _, dir := range referenceDirs {
 		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, d os.DirEntry, err error) error {
 			if err != nil {
 				return nil // a missing optional directory is fine
 			}
+			rel, _ := filepath.Rel(root, path)
+			rel = filepath.ToSlash(rel)
 			if d.IsDir() {
-				if d.Name() == "node_modules" || d.Name() == "dist" {
+				if d.Name() == "node_modules" || d.Name() == "dist" || ignored.has(rel) {
 					return filepath.SkipDir
 				}
 				return nil
 			}
-			rel, _ := filepath.Rel(root, path)
-			rel = filepath.ToSlash(rel)
+			if ignored.has(rel) {
+				return nil
+			}
 			if strings.HasPrefix(rel, AssetsDir+"/") && !assetIndexFiles[strings.TrimPrefix(rel, AssetsDir+"/")] {
 				return nil
 			}
