@@ -394,6 +394,9 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
         toolPreview.destinationPath.trim() !== ""));
   const backgroundTask = props.backgroundTask;
   const backgroundNowMs = props.backgroundNowMs ?? nowMs;
+  // A completed load_skill returned a skill's markdown; a failed one returned an error,
+  // which stays raw text under the ordinary Result strip.
+  const showSkillBody = isLoadSkillTool && status === "completed";
   // load_skill already names the skill on the summary row; its body is the skill itself.
   const showToolPreview =
     !isQuestionTool && !spawnAgent && !isLoadSkillTool && toolPreviewHasContent;
@@ -507,15 +510,16 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                 className={[
                   "tool-call-result-card",
                   // A skill body is the card: the instructions speak for themselves and
-                  // a "Result" strip above them is chrome with nothing to say.
-                  isLoadSkillTool && "tool-call-result-card--plain",
+                  // a "Result" strip above them is chrome with nothing to say. A call
+                  // that failed returned an error, not a skill, and keeps the strip.
+                  showSkillBody && "tool-call-result-card--plain",
                   status === "failed" && "tool-call-result-card--failed",
                 ]
                   .filter(Boolean)
                   .join(" ")}
                 aria-label={t("messages.toolResultAriaLabel")}
               >
-                {isLoadSkillTool ? null : (
+                {showSkillBody ? null : (
                   <div className="tool-call-result-head">
                     <span className="tool-call-result-dot" aria-hidden />
                     <span>{t("messages.toolResultSection")}</span>
@@ -524,14 +528,14 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                 <div
                   className={[
                     "tool-call-result-content",
-                    isLoadSkillTool && "tool-call-result-content--markdown",
+                    showSkillBody && "tool-call-result-content--markdown",
                     useTallViewport &&
                       `tool-result-viewport tool-result-viewport--tall tool-result-viewport--${viewportMode}`,
                   ]
                     .filter(Boolean)
                     .join(" ")}
                 >
-                  {isLoadSkillTool ? (
+                  {showSkillBody ? (
                     <Markdown text={resultBody} />
                   ) : (
                     <pre className="tool-result-pre">{resultBody}</pre>

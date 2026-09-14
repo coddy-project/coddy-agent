@@ -175,6 +175,9 @@ function ActionPreview({
         : settled === "cancelled"
           ? "toolAction.cancelled"
           : "toolAction.running";
+  // A permission gate has no status to report: the call has not started, and claiming
+  // it is running would be the opposite of what the operator is being asked.
+  const showState = status !== "";
   return (
     <div
       className="permission-preview-bar permission-preview-bar--standalone"
@@ -191,9 +194,11 @@ function ActionPreview({
       <div className="permission-preview-location" title={preview.header}>
         {preview.header}
       </div>
-      <div className="permission-preview-meta">
-        <span>{t(detailKey)}</span>
-      </div>
+      {showState ? (
+        <div className="permission-preview-meta">
+          <span>{t(detailKey)}</span>
+        </div>
+      ) : null}
     </div>
   );
 }

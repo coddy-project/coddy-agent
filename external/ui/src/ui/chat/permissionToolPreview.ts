@@ -251,10 +251,17 @@ function diffMeta(lines: ParsedDiffLine[]): string[] {
   return ["+" + additions, "−" + deletions];
 }
 
-/** Whether a preview body carries nothing but an empty argument object. */
+/**
+ * Whether a preview body carries nothing but an empty argument object. Decided on the
+ * parsed value, so `{ }` and a pretty-printed `{\n}` count as empty too, while text that
+ * does not parse - a truncated history preview, an ACP rationale - stays a body worth
+ * showing rather than being mistaken for a call without arguments.
+ */
 function isEmptyArgsText(text: string): boolean {
   const raw = text.trim();
-  return raw === "" || raw === "{}";
+  if (raw === "") return true;
+  const parsed = parseArgsText(raw);
+  return parsed !== null && Object.keys(parsed).length === 0;
 }
 
 /** Tool-specific, render-ready preview shared by permission gates and transcript foldouts. */

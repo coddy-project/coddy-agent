@@ -347,3 +347,51 @@ test("a turn still in flight offers no copy control on its last answer", () => {
   expect(screen.queryByTestId("assistant-message-copy")).toBeNull();
   expect(container.querySelector(".msg-assistant-foot")).toBeNull();
 });
+
+test("every finished turn keeps the action row on the answer that closed it", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "First" },
+    { id: "a1", type: "assistant_message", content: "Looking." },
+    {
+      id: "t1",
+      type: "tool_call",
+      toolCallId: "call_1",
+      title: "read",
+      kind: "read",
+      status: "completed",
+      argsText: '{"path":"a.txt"}',
+      resultText: "OK",
+    },
+    { id: "a2", type: "assistant_message", content: "First answer." },
+    { id: "u2", type: "user_message", content: "Second" },
+    { id: "a3", type: "assistant_message", content: "Second answer." },
+  ];
+
+  render(<MessageList items={items} />);
+
+  // One per turn: the older answer stays copyable, the mid-turn one does not.
+  expect(screen.getAllByTestId("assistant-message-copy")).toHaveLength(2);
+  expect(
+    screen.getByText("First answer.").closest(".msg-assistant")!
+      .querySelector(".msg-assistant-foot"),
+  ).not.toBeNull();
+  expect(
+    screen.getByText("Looking.").closest(".msg-assistant")!
+      .querySelector(".msg-assistant-foot"),
+  ).toBeNull();
+});
+
+test("a new turn does not strip the action row off the previous answer", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "First" },
+    { id: "a1", type: "assistant_message", content: "First answer." },
+    { id: "u2", type: "user_message", content: "Second" },
+  ];
+
+  render(<MessageList items={items} generating />);
+
+  expect(
+    screen.getByText("First answer.").closest(".msg-assistant")!
+      .querySelector(".msg-assistant-foot"),
+  ).not.toBeNull();
+});

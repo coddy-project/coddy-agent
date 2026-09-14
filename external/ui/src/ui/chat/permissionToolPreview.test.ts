@@ -369,3 +369,28 @@ test("load_skill previews the skill it pulls in, not its JSON arguments", () => 
     kind: "path",
   });
 });
+
+test("the `Arguments:` envelope of an empty object is still an action card", () => {
+  expect(
+    buildToolCallPreview(
+      { title: "coddy_todo_plan_read", argsText: "Arguments: {}" },
+      "Arguments: {}",
+    ),
+  ).toMatchObject({ header: "reading the plan", kind: "action" });
+});
+
+test("an empty object is empty however it is spelled, but broken JSON is not", () => {
+  expect(
+    buildToolCallPreview({ title: "plan_list", argsText: "{ }" }, "{ }"),
+  ).toMatchObject({ kind: "action" });
+  expect(
+    buildToolCallPreview({ title: "plan_list", argsText: "{\n}" }, "{\n}"),
+  ).toMatchObject({ kind: "action" });
+  // A truncated history preview still has something to show, so it stays a body.
+  expect(
+    buildToolCallPreview(
+      { title: "mcp__ops__deploy", argsText: '{"target":"pro' },
+      '{"target":"pro',
+    ),
+  ).toMatchObject({ kind: "code", text: '{"target":"pro' });
+});

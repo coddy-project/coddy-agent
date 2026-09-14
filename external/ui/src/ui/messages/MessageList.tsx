@@ -93,16 +93,32 @@ export function MessageList(props: {
     return m;
   }, [props.items]);
 
-  // The answer that closes the turn. It is the only one with an action row: the answers
-  // between tool calls would otherwise stack the same copy button and the same minute
-  // down the transcript.
-  const lastAssistantId = useMemo(() => {
+  // The answer that closes each turn is the only one with an action row: the answers a
+  // turn leaves behind between tool calls would otherwise stack the same copy button and
+  // the same minute down the transcript. Every finished turn keeps its own, so an older
+  // answer stays copyable; the turn still running does not, because its last answer is
+  // not yet the answer.
+  const turnClosingAssistantIds = useMemo(() => {
+    const ids = new Set<string>();
+    let seenInTurn = false;
+    // Walking back, everything after the last user message belongs to the turn in
+    // flight; its answers are not final yet, however many of them have arrived.
+    let inRunningTurn = props.generating === true;
     for (let i = props.items.length - 1; i >= 0; i--) {
       const item = props.items[i];
-      if (item && item.type === "assistant_message") return item.id;
+      if (!item) continue;
+      if (item.type === "user_message") {
+        seenInTurn = false;
+        inRunningTurn = false;
+        continue;
+      }
+      if (item.type !== "assistant_message") continue;
+      if (seenInTurn) continue;
+      seenInTurn = true;
+      if (!inRunningTurn) ids.add(item.id);
     }
-    return "";
-  }, [props.items]);
+    return ids;
+  }, [props.generating, props.items]);
 
   // What the running turn is doing right now, for the label next to the typing dots.
   const liveStatus = useMemo(
@@ -216,7 +232,7 @@ export function MessageList(props: {
             <AssistantMessage
               key={it.id}
               content={it.content}
-              showFoot={it.id === lastAssistantId && props.generating !== true}
+              showFoot={turnClosingAssistantIds.has(it.id)}
               {...(typeof it.streaming === "boolean"
                 ? { streaming: it.streaming }
                 : {})}

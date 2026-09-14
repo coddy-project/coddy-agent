@@ -35,8 +35,9 @@ export function CodeBlockCopyButton(props: {
   const [copied, setCopied] = useState(false);
 
   const onCopy = useCallback(async () => {
-    const text = props.textToCopy.trim();
-    if (!text) {
+    // Copy the block verbatim; only the decision to copy at all looks at the trim.
+    const text = props.textToCopy;
+    if (!text.trim()) {
       return;
     }
     try {

@@ -1285,3 +1285,24 @@ test("a question row stays a bare label, with no target beside it", () => {
   );
   expect(screen.queryByTestId("tool-summary-target")).toBeNull();
 });
+
+test("a failed load_skill keeps the Result strip and its raw error text", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-skill-failed"
+      title="load_skill"
+      status="failed"
+      argsText={JSON.stringify({ name: "nope" })}
+      resultText={'# load_skill: unknown skill "nope"'}
+      durationMs={1}
+    />,
+  );
+  openToolDetails();
+
+  // An error is not a skill: no markdown heading, and the failure strip stays.
+  expect(screen.getByText("Result")).toBeTruthy();
+  expect(container.querySelector(".tool-call-result-content h1")).toBeNull();
+  expect(container.querySelector(".tool-result-pre")).toHaveTextContent(
+    'load_skill: unknown skill "nope"',
+  );
+});
