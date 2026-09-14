@@ -705,6 +705,7 @@ export const messagesEn: Record<string, string> = {
   "skills.update.aria": "Download update for {name} to version {version}",
   "skills.badge.syncedFrom": "Synced from {source}",
   "app.chatBusy": "This chat is busy in another client. Try again in a moment.",
+  "app.stopFailed": "Could not stop generation. Try again.",
   "app.emptyResponseBody": "Empty response body",
   "app.branchCreationNoSessionId": "Branch creation returned no session ID",
 

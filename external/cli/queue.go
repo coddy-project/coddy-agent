@@ -8,6 +8,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/remote"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -29,6 +30,9 @@ type queueWidget struct {
 	// which are separate connections: without this an older frame could put a
 	// message the operator took back on screen again.
 	version uint64
+	// Remote recovery is ordered by the handler, not by server versions alone.
+	remoteEpoch    uint64
+	remoteRevision uint64
 }
 
 func newQueueWidget(theme *tui.Theme) *queueWidget { return &queueWidget{theme: theme} }
@@ -38,22 +42,39 @@ func newQueueWidget(theme *tui.Theme) *queueWidget { return &queueWidget{theme: 
 // A nil receiver is a no-op: an App built without the widget tree (the unit
 // tests that drive applyLoopMessage directly) still has to be able to apply an
 // update without reaching through a field it never built.
-func (q *queueWidget) SetRows(rows []acp.QueuedMessage) {
-	q.Apply(rows, 0)
+// Apply renders a queue stamped with version, ignoring an update older than
+// what is already on screen. Zero is also a snapshot version, not a reset.
+func (q *queueWidget) Apply(rows []acp.QueuedMessage, version uint64) {
+	if q == nil || version < q.version {
+		return
+	}
+	q.version = version
+	q.SetRows(rows)
 }
 
-// Apply renders a queue stamped with version, ignoring an update older than
-// what is already on screen. A version of 0 means the caller has none to offer
-// (a local reset), and is always applied.
-func (q *queueWidget) Apply(rows []acp.QueuedMessage, version uint64) {
+// ApplyControl adopts a handler-fenced view atomically. A newer notification
+// can overtake the recovery snapshot, so rows and version must travel together.
+func (q *queueWidget) ApplyControl(update remote.QueueControlUpdate) {
+	if q == nil || update.Epoch < q.remoteEpoch || update.Revision < q.remoteRevision {
+		return
+	}
+	q.remoteEpoch, q.remoteRevision = update.Epoch, update.Revision
+	q.version = update.Version
+	q.SetRows(update.Messages)
+}
+
+// Reset starts the version history of a newly selected session.
+func (q *queueWidget) Reset() {
+	if q != nil {
+		q.version = 0
+		q.remoteEpoch, q.remoteRevision = 0, 0
+		q.SetRows(nil)
+	}
+}
+
+func (q *queueWidget) SetRows(rows []acp.QueuedMessage) {
 	if q == nil {
 		return
-	}
-	if version > 0 && version < q.version {
-		return
-	}
-	if version > q.version {
-		q.version = version
 	}
 	q.rows = rows
 	q.Clear()
@@ -94,33 +115,24 @@ func queuePreview(text string) string {
 // queue, so the running turn reads it at its next step instead of the console
 // refusing a second prompt.
 //
-// A turn that ended between the keystroke and this call answers ErrNoActiveTurn,
-// and the text is submitted as an ordinary prompt: what was typed is never lost
-// to a race.
+// Refusal restores the draft. In particular, queue admission can close before
+// the owned prompt returns: that is not permission to start another worker.
 func (a *App) enqueuePrompt(text string) {
 	body := strings.TrimSpace(text)
 	if body == "" {
 		return
 	}
-	sessionID := a.turnSessionID
-	if sessionID == "" {
-		sessionID = a.sessionID
-	}
-	_, queue, err := a.mgr.EnqueueTurnMessage(sessionID, body)
-	switch {
-	case err == nil:
-		a.setQueueRows(session.QueuedMessagesWire(queue))
-	case isNoActiveTurn(err):
-		a.turnActive = false
-		a.submitPrompt(body)
-	default:
-		a.appendStatus(roleWarning, "Could not queue the message: "+err.Error())
-	}
+	sessionID, mgr := a.sessionID, a.mgr
+	a.runQueueRequest(sessionID, func() queueResult {
+		_, rows, err := mgr.EnqueueTurnMessage(sessionID, body)
+		if err != nil {
+			err = fmt.Errorf("could not queue the message: %w", err)
+		}
+		return queueResult{action: "enqueue", text: body, rows: rows, err: err}
+	})
 }
 
-// isNoActiveTurn reports the one refusal the console answers by sending the
-// text as a fresh prompt. The remote backend reports it as text over HTTP, so
-// the code is matched as well as the sentinel error.
+// isNoActiveTurn identifies the refusal that needs activity reconciliation.
 func isNoActiveTurn(err error) bool {
 	if err == nil {
 		return false
@@ -143,52 +155,100 @@ func (a *App) setQueueRows(rows []acp.QueuedMessage) {
 // what is waiting. The web composer has a cross on every card; a terminal has a
 // command, and the same three actions.
 func (a *App) dispatchQueueCommand(args string) {
-	sessionID := a.turnSessionID
-	if sessionID == "" {
-		sessionID = a.sessionID
-	}
+	sessionID, mgr := a.sessionID, a.mgr
 	arg := strings.TrimSpace(args)
+	a.runQueueRequest(sessionID, func() queueResult { return runQueueCommand(mgr, sessionID, arg) })
+}
+
+type queueResult struct {
+	action string
+	text   string
+	rows   []session.QueuedMessage
+	err    error
+}
+
+// Only remote queue operations involve network I/O. Their rows arrive as
+// versioned backend updates; the worker result carries receipts and errors.
+func (a *App) runQueueRequest(sessionID string, work func() queueResult) {
+	if a.remoteURL == "" {
+		a.applyQueueResult(work())
+		return
+	}
+	a.workers.Add(1)
+	go func() {
+		defer a.workers.Done()
+		_ = a.Sender().SendSessionUpdate(sessionID, work())
+	}()
+}
+
+func (a *App) refreshRemoteControls() {
+	if refresher, ok := a.mgr.(interface{ RefreshSessionState(string) }); ok {
+		refresher.RefreshSessionState(a.sessionID)
+	}
+}
+
+func (a *App) applyQueueResult(u queueResult) {
+	if u.err != nil {
+		if u.action == "enqueue" {
+			text := u.text
+			if draft := a.editor.PendingText(); draft != "" {
+				text += "\n" + draft
+			}
+			a.editor.SetText(text)
+			if isNoActiveTurn(u.err) {
+				a.refreshRemoteControls()
+			}
+		}
+		a.appendStatus(roleWarning, u.err.Error())
+		return
+	}
+	if a.remoteURL == "" && u.action != "list" {
+		a.setQueueRows(session.QueuedMessagesWire(u.rows))
+	}
+	switch u.action {
+	case "list":
+		if len(u.rows) == 0 {
+			a.appendStatus(roleDim, "Nothing is queued.")
+		}
+		for i, row := range u.rows {
+			a.appendStatus(roleDim, fmt.Sprintf("%d. %s", i+1, queuePreview(row.Text)))
+		}
+	case "clear":
+		a.appendStatus(roleDim, "The queue is empty.")
+	case "drop":
+		a.appendStatus(roleDim, "Dropped from the queue: "+queuePreview(u.text))
+	}
+}
+
+func runQueueCommand(mgr backend, sessionID, arg string) queueResult {
 	switch {
 	case arg == "" || arg == "list":
-		rows, err := a.mgr.QueuedTurnMessages(sessionID)
+		rows, err := mgr.QueuedTurnMessages(sessionID)
 		if err != nil {
-			a.appendStatus(roleWarning, "Could not read the queue: "+err.Error())
-			return
+			err = fmt.Errorf("could not read the queue: %w", err)
 		}
-		if len(rows) == 0 {
-			a.appendStatus(roleDim, "Nothing is queued.")
-			return
-		}
-		for i, r := range rows {
-			a.appendStatus(roleDim, fmt.Sprintf("%d. %s", i+1, queuePreview(r.Text)))
-		}
+		return queueResult{action: "list", rows: rows, err: err}
 	case arg == "clear":
-		if err := a.mgr.ClearQueuedTurnMessages(sessionID); err != nil {
-			a.appendStatus(roleWarning, "Could not clear the queue: "+err.Error())
-			return
+		if err := mgr.ClearQueuedTurnMessages(sessionID); err != nil {
+			return queueResult{err: fmt.Errorf("could not clear the queue: %w", err)}
 		}
-		a.setQueueRows(nil)
-		a.appendStatus(roleDim, "The queue is empty.")
+		return queueResult{action: "clear"}
 	case strings.HasPrefix(arg, "drop"):
 		rest := strings.TrimSpace(strings.TrimPrefix(arg, "drop"))
-		rows, err := a.mgr.QueuedTurnMessages(sessionID)
+		rows, err := mgr.QueuedTurnMessages(sessionID)
 		if err != nil {
-			a.appendStatus(roleWarning, "Could not read the queue: "+err.Error())
-			return
+			return queueResult{err: fmt.Errorf("could not read the queue: %w", err)}
 		}
 		idx := 0
 		if _, err := fmt.Sscanf(rest, "%d", &idx); err != nil || idx < 1 || idx > len(rows) {
-			a.appendStatus(roleWarning, fmt.Sprintf("Usage: /queue drop <1..%d>", len(rows)))
-			return
+			return queueResult{err: fmt.Errorf("Usage: /queue drop <1..%d>", len(rows))}
 		}
-		left, err := a.mgr.CancelQueuedTurnMessage(sessionID, rows[idx-1].ID)
+		left, err := mgr.CancelQueuedTurnMessage(sessionID, rows[idx-1].ID)
 		if err != nil {
-			a.appendStatus(roleWarning, "Could not drop that message: "+err.Error())
-			return
+			return queueResult{err: fmt.Errorf("could not drop that message: %w", err)}
 		}
-		a.setQueueRows(session.QueuedMessagesWire(left))
-		a.appendStatus(roleDim, "Dropped from the queue: "+queuePreview(rows[idx-1].Text))
+		return queueResult{action: "drop", rows: left, text: rows[idx-1].Text}
 	default:
-		a.appendStatus(roleWarning, "Usage: /queue [list|drop <n>|clear]")
+		return queueResult{err: fmt.Errorf("Usage: /queue [list|drop <n>|clear]")}
 	}
 }

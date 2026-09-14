@@ -40,12 +40,15 @@ type Handler struct {
 	hc   *http.Client
 	log  *slog.Logger
 
-	mu        sync.Mutex
-	sender    acp.UpdateSender
-	sessions  map[string]*sessionState
-	preferred string
-	models    []remoteModel
-	defModel  string
+	mu          sync.Mutex
+	sender      acp.UpdateSender
+	sessions    map[string]*sessionState
+	preferred   string
+	models      []remoteModel
+	defModel    string
+	controlCtx  context.Context
+	controlStop context.CancelFunc
+	activitySeq uint64
 
 	// cancelWG tracks server-side cancels posted from HandleSessionCancel.
 	cancelWG sync.WaitGroup
@@ -60,14 +63,21 @@ type Handler struct {
 }
 
 type sessionState struct {
-	mode          string
-	modelID       string
-	reasoning     string
-	pendingReplay []messageRow
-	// turnCancel aborts the in-flight turn's stream; turnCancelled records
-	// that the cancel targeted that turn (never a later one).
-	turnCancel    context.CancelFunc
-	turnCancelled bool
+	mode             string
+	modelID          string
+	reasoning        string
+	pendingReplay    []messageRow
+	turn             *remoteTurn
+	activityRevision uint64
+	queue            queueOrder
+}
+
+// remoteTurn is the identity of one locally admitted request, not the server's
+// activity: a browser-owned turn has no local request or cancellation hook.
+type remoteTurn struct {
+	cancel    context.CancelFunc
+	cancelled bool
+	sender    acp.UpdateSender
 }
 
 type remoteModel struct {
@@ -94,11 +104,14 @@ func NewHandler(opts Options) (*Handler, error) {
 	if hc == nil {
 		hc = &http.Client{}
 	}
+	controlCtx, controlStop := context.WithCancel(context.Background())
 	return &Handler{
-		opts:     opts,
-		hc:       hc,
-		log:      log,
-		sessions: map[string]*sessionState{},
+		opts:        opts,
+		hc:          hc,
+		log:         log,
+		sessions:    map[string]*sessionState{},
+		controlCtx:  controlCtx,
+		controlStop: controlStop,
 	}, nil
 }
 
@@ -126,19 +139,25 @@ func (h *Handler) session(id string) *sessionState {
 }
 
 // beginTurn registers the cancel hook for one in-flight turn.
-func (h *Handler) beginTurn(st *sessionState, cancel context.CancelFunc) {
+func (h *Handler) beginTurn(st *sessionState, cancel context.CancelFunc, sender acp.UpdateSender) (*remoteTurn, error) {
 	h.mu.Lock()
-	st.turnCancel = cancel
-	st.turnCancelled = false
-	h.mu.Unlock()
+	defer h.mu.Unlock()
+	if st.turn != nil {
+		return nil, fmt.Errorf("remote coddy: the session is busy (another local request is running)")
+	}
+	turn := &remoteTurn{cancel: cancel, sender: sender}
+	st.turn = turn
+	return turn, nil
 }
 
 // endTurn drops the cancel hook and reports whether the turn was cancelled.
-func (h *Handler) endTurn(st *sessionState) bool {
+func (h *Handler) endTurn(st *sessionState, turn *remoteTurn) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	st.turnCancel = nil
-	return st.turnCancelled
+	if st.turn == turn {
+		st.turn = nil
+	}
+	return turn.cancelled
 }
 
 // rememberEffectiveModel records the model the server reports for a turn so
@@ -418,30 +437,42 @@ func (h *Handler) HandleSessionSetConfigOption(ctx context.Context, params acp.S
 	}
 }
 
-// HandleSessionCancel cancels the in-flight turn: it aborts the local stream
-// (which also unblocks a pending permission or question modal) and asks the
-// remote server to stop the detached turn. A cancel with no turn running is
-// forwarded to the server only, so it can never poison a later turn.
+// HandleSessionCancel asks the server to stop, then aborts only the matching
+// local request after acknowledgement. A failure leaves that request readable
+// and reports an error to the surface so Stop remains retryable.
 func (h *Handler) HandleSessionCancel(params acp.SessionCancelParams) {
 	st := h.session(params.SessionID)
 	h.mu.Lock()
-	cancel := st.turnCancel
-	if cancel != nil {
-		st.turnCancelled = true
+	turn := st.turn
+	sender := h.sender
+	if turn != nil {
+		sender = turn.sender
 	}
 	h.mu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
 	// The server-side cancel is posted off the caller's goroutine (a key
 	// handler must not wait on the network), but tracked, so a surface that
 	// is about to exit can wait for it with WaitCancels.
 	h.cancelWG.Add(1)
 	go func() {
 		defer h.cancelWG.Done()
-		if err := h.cancelSession(context.Background(), params.SessionID); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := h.cancelSession(ctx, params.SessionID); err != nil {
 			h.log.Warn("remote cancel", "session", params.SessionID, "error", err)
+			sendCancelUpdate(sender, params.SessionID, CancelUpdate{Error: err.Error()})
+			return
 		}
+		h.mu.Lock()
+		matching := turn != nil && st.turn == turn
+		if matching {
+			turn.cancelled = true
+		}
+		h.mu.Unlock()
+		if matching {
+			turn.cancel()
+		}
+		sendCancelUpdate(sender, params.SessionID, CancelUpdate{})
+		h.RefreshSessionState(params.SessionID)
 	}()
 }
 
@@ -468,6 +499,7 @@ func (h *Handler) WaitCancels(d time.Duration) {
 // remote slash command catalog.
 func (h *Handler) HandleSessionReady(sessionID string) {
 	st := h.session(sessionID)
+	h.RefreshSessionState(sessionID)
 	h.mu.Lock()
 	replay := st.pendingReplay
 	st.pendingReplay = nil

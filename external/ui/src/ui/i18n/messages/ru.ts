@@ -718,6 +718,7 @@ export const messagesRu: Record<string, string> = {
   "skills.badge.syncedFrom": "Синхронизировано из {source}",
   "app.chatBusy":
     "Этот чат занят в другом клиенте. Попробуйте снова через момент.",
+  "app.stopFailed": "Не удалось остановить генерацию. Попробуйте ещё раз.",
   "app.emptyResponseBody": "Пустое тело ответа",
   "app.branchCreationNoSessionId": "Создание ветки не вернуло ID сессии",
 
