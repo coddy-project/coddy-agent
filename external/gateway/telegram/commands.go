@@ -228,6 +228,12 @@ func (b *Bot) handleCallback(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgb
 	}
 
 	action, payload, split := strings.Cut(cbq.Data, ":")
+	if split && action == callbackActionPermission {
+		// A permission button answers a request that is already waiting; it
+		// configures nothing, so no session is loaded for it.
+		b.answerPermissionTap(bot, cbq, payload)
+		return
+	}
 	if !split || payload == "" || (action != callbackActionMode && action != callbackActionModel) {
 		b.log.Debug("telegram: callback ignored", "reason", "unrecognised payload",
 			"data", cbq.Data, "user", userID, "chat", chatID)
