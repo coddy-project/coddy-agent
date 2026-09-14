@@ -56,10 +56,12 @@ type App struct {
 	screen *tui.MainScreen
 
 	// UI tree.
-	header     *header
-	chat       *tui.Container
-	status     *tui.Container
-	plan       *planWidget
+	header *header
+	chat   *tui.Container
+	status *tui.Container
+	plan   *planWidget
+	// queue shows the follow-ups waiting for the running turn (queue.go).
+	queue      *queueWidget
 	editorWrap *tui.Container
 	editor     *tui.Editor
 	foot       *footer
@@ -204,6 +206,7 @@ func (a *App) buildTree() {
 	a.chat = &tui.Container{}
 	a.status = &tui.Container{}
 	a.plan = newPlanWidget(a.theme)
+	a.queue = newQueueWidget(a.theme)
 	a.editor = tui.NewEditor(a.term, tui.EditorTheme{BorderColor: a.theme.FgFn(roleBorderMuted)}, 0)
 	a.editor.OnSubmit = a.onSubmit
 	a.editor.OnChange = a.onEditorChange
@@ -216,6 +219,7 @@ func (a *App) buildTree() {
 	root.AddChild(a.chat)
 	root.AddChild(a.status)
 	root.AddChild(a.plan)
+	root.AddChild(a.queue)
 	root.AddChild(a.editorWrap)
 	root.AddChild(a.foot)
 	a.screen.SetFocus(a.editor)
@@ -649,7 +653,10 @@ func (a *App) onSubmit(text string) {
 
 func (a *App) submitPrompt(text string) {
 	if a.turnActive {
-		a.appendStatus(roleWarning, "A turn is already running (escape to interrupt)")
+		// The moment an operator knows most about what the agent should do next
+		// is while it is working, so a second prompt joins the queue the turn
+		// reads at its next step instead of being refused (queue.go).
+		a.enqueuePrompt(text)
 		return
 	}
 	if a.shellActive {
@@ -657,6 +664,7 @@ func (a *App) submitPrompt(text string) {
 		return
 	}
 	a.chat.AddChild(newUserMessage(a.theme, text))
+	a.setQueueRows(nil)
 	a.curAssistant = nil
 	a.stepStatus = newWaitingStatus()
 	a.stepBlocked = ""
@@ -1185,6 +1193,7 @@ func (a *App) slashCatalog() []tui.AutocompleteItem {
 		tui.AutocompleteItem{Value: "new", Label: "new", Description: "Start a new session"},
 		tui.AutocompleteItem{Value: "theme", Label: "theme", Description: "Switch color theme"},
 		tui.AutocompleteItem{Value: "hotkeys", Label: "hotkeys", Description: "Show keyboard shortcuts"},
+		tui.AutocompleteItem{Value: "queue", Label: "queue", Description: "List, drop or clear the messages queued for the running turn"},
 		tui.AutocompleteItem{Value: "usage", Label: "usage", Description: "Show the provider's account usage and limits"},
 		tui.AutocompleteItem{Value: "quit", Label: "quit", Description: "Exit coddy"},
 	)

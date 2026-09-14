@@ -15,6 +15,7 @@ import { UsageBanner } from "./UsageBanner";
 import type { ProviderUsage } from "./providerUsage";
 import { ChatHeader } from "./ChatHeader";
 import { Composer } from "./Composer";
+import type { QueuedMessage } from "./Composer";
 import { MessageList } from "../messages/MessageList";
 import type { BackgroundTask } from "../tasks/types";
 import { BackgroundTasksChip } from "../tasks/BackgroundTasksChip";
@@ -63,6 +64,12 @@ export function ChatScreen(props: {
   onContextRingOpen?: () => void;
   generating?: boolean;
   onStop?: () => void;
+  /** Follow-ups waiting for the running turn to read them (the message queue). */
+  queuedMessages?: QueuedMessage[];
+  /** Add the draft to that queue instead of starting a turn. */
+  onQueue?: (text: string) => void;
+  /** Take one queued follow-up back before the agent reads it. */
+  onCancelQueued?: (id: string) => void;
   /** Re-run the last turn; surfaces as a refresh button on the last error notice. */
   onRetryLast?: () => void;
   /** Fetch persisted full tool output; UI keeps preview in resultText. */
@@ -340,6 +347,15 @@ export function ChatScreen(props: {
                 {...(props.generating === true && props.onStop !== undefined
                   ? { generating: true, onStop: props.onStop }
                   : {})}
+                {...(props.onQueue
+                  ? {
+                      queuedMessages: props.queuedMessages ?? [],
+                      onQueue: props.onQueue,
+                      ...(props.onCancelQueued
+                        ? { onCancelQueued: props.onCancelQueued }
+                        : {}),
+                    }
+                  : {})}
                 {...(props.knownSkillNames
                   ? { knownSkillNames: props.knownSkillNames }
                   : {})}
@@ -520,6 +536,15 @@ export function ChatScreen(props: {
                     : {})}
                   {...(props.generating === true && props.onStop !== undefined
                     ? { generating: true, onStop: props.onStop }
+                    : {})}
+                  {...(props.onQueue
+                    ? {
+                        queuedMessages: props.queuedMessages ?? [],
+                        onQueue: props.onQueue,
+                        ...(props.onCancelQueued
+                          ? { onCancelQueued: props.onCancelQueued }
+                          : {}),
+                      }
                     : {})}
                   {...(props.knownSkillNames
                     ? { knownSkillNames: props.knownSkillNames }

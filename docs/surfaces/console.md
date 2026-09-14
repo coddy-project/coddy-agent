@@ -129,7 +129,7 @@ throttle with immediate renders after keystrokes.
 ## Commands and keys
 
 Slash commands: client-side `/model`, `/reasoning [level]`, `/mode`, `/resume`,
-`/new`, `/theme`, `/hotkeys`, `/quit`; server-driven `/compact`, `/export`,
+`/new`, `/theme`, `/hotkeys`, `/queue`, `/quit`; server-driven `/compact`, `/export`,
 `/plugin`, and every loaded skill (from the ACP available-commands catalog).
 Enter on a slash suggestion applies and submits in one stroke. `/export [md|html|json|jsonl]
 [path]` writes the transcript into the workspace (`docs/features/session-export.md`);
@@ -142,6 +142,24 @@ time, the live requests-per-minute, the cooldown, the wallet with the last
 floor deferred the read, and the snapshot's age. Under `--remote` the
 server's own key is read, so a `key rejected` line there is informational
 (sign in on the server).
+
+Submitting while a turn is running does not refuse the prompt: it joins the
+session's message queue, which the running turn reads at its next step
+(`docs/features/message-queue.md`). What is waiting shows directly above the
+input, numbered in reading order:
+
+```
+queued for the next step (2) · /queue to manage
+1. check the Windows path too
+2. and skip the integration suite
+```
+
+`/queue` lists them, `/queue drop <n>` takes one back, `/queue clear` empties
+the queue, and `escape` cancels the turn together with everything queued for
+it. The same works under `--remote`: the console talks to the server's queue
+routes, so a follow-up written here is read by the turn running there, and it
+subscribes to the server's event stream, so a message someone queued in a
+browser on the same session appears above this input as well.
 
 `/reasoning` without an argument opens a selector with the active model's
 available levels; selecting a value persists that level on the session.

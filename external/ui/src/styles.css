@@ -3380,6 +3380,77 @@ a.rail-brand {
   z-index: 1;
 }
 
+/* Message queue: follow-ups written while the turn works, stacked above the
+   composer card in the order the agent will read them. Each row keeps its own
+   remove control, because a queued message is still the operator's until it is
+   read. See docs/features/message-queue.md. */
+.composer-queue {
+  list-style: none;
+  margin: 0 0 6px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.composer-queue-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 8px 7px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.composer-queue-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.composer-queue-remove {
+  flex: 0 0 auto;
+  align-self: flex-end;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.composer-queue-remove:hover,
+.composer-queue-remove:focus-visible {
+  background: color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  color: var(--text);
+}
+
+/* The primary control keeps its circle and swaps only its meaning: a draft
+   written during a turn is queued, an empty one still stops the turn. */
+.composer-run-icon--queue {
+  background: color-mix(in srgb, var(--accent) 82%, var(--coddy-blend-base));
+}
+
+
 .slash-sheet-backdrop {
   position: fixed;
   inset: 0;

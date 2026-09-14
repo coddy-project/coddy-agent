@@ -328,17 +328,29 @@ Shape and glyphs
 - The hit target is a **perfect circle**: equal **width** and **height**, **`border-radius: 50%`**, **`box-sizing: border-box`** (currently **42×42px** in **`styles.css`**). Do **not** ship a rounded square or squircle for this control unless the visual spec explicitly changes again.
 - **Play** (**idle**, draft non-empty): Unicode triangle **`▶`**, enlarged vs body text (**`~22px`** glyph via **`composer-send-glyph`**), slight horizontal nudge for optical centering.
 - **Stop** (**while streaming**): filled square **`.composer-stop-square`** (**14x14px**, centered in the **42px** circle). Stays in **`composer-bar-actions`** on the right, next to the context ring.
+- **Queue** (**while streaming, draft non-empty**): the **play** glyph returns on an accent fill (**`.composer-run-icon--queue`**, **`data-queue="true"`**), because a draft written during a turn is a follow-up rather than a Stop. Emptying the field brings **Stop** back, which is how a turn is still cancelled. See **Composer message queue** below.
 - **Disabled** idle state when textarea is whitespace-only **and no files are attached** (**`:disabled`** on **`composer-send-play`**); an attachment alone unlocks Send (see **Composer file attachments (multimodal)**).
 
 Behavior (unchanged summary)
 
-- **Enter** submits when idle and not generating; **`Shift+Enter`** newline. No submit while **`generating`**.
+- **Enter** submits when idle; **`Shift+Enter`** newline. While **`generating`** it queues the draft for the running turn instead of being swallowed (**Composer message queue**).
 - **Stop**: **`POST /coddy/sessions/{id}/cancel`** + **`fetch`** **`AbortSignal`**. The server may append a **partial** assistant message for that turn. **`GET /coddy/sessions/{id}/messages`** can lag; the bundled UI merges server rows with local shadow or on-screen items (**`transcriptServerSnapshot.ts`**). Details in **`DESIGN.md`** (**Multi-session streaming and Stop**) and **`docs/reference/http-api.md`**.
 - **Improve prompt**: the compact **24×24px** wand button (**`data-testid="composer-enhance-btn"`**) lives at the **right edge** of the workspace-context row, next to the Local / folder / branch / worktree controls — not in the textarea or lower composer bar. At **≤520px**, it is pinned to that row's **top-right corner** above wrapped chips. It has `title` and accessible name **`Improve prompt`**, is disabled for blank drafts and while a request or generation is active, calls **`POST /coddy/enhance-prompt`**, and replaces the draft only on success. **Ctrl+Z** / **⌘Z** restores the pre-improvement draft; a failure leaves it unchanged and displays an inline error.
 
 Regression
 
 - Automated UI checks (**Playwright MCP** or **`@playwright/test`**) MAY assert **`#btn-send`** **`offsetWidth`** **≈** **`offsetHeight`** and computed **`border-radius`** **≥ half** **`min(width,height)`** (within sub-pixel tolerance).
+
+## Composer message queue
+
+The composer stays live while the agent works: what is typed during a turn is queued for that turn to read at its next step, rather than refused by the turn lock. Full behaviour: [Message queue](../features/message-queue.md).
+
+- **Queueing** — **Enter** or the primary control (see above) calls **`POST /coddy/sessions/{id}/queue`** with **`{"text": ...}`** and clears the field. A **409** with code **`no_active_turn`** means the turn ended between the keystroke and the request: the SPA sends the same text through **`POST /v1/responses`** instead, so nothing typed is lost. Any other refusal puts the text back in the field and adds a system notice (**`composer.queueFull`** / **`composer.queueFailed`**).
+- **The list** — queued rows render as **`.composer-queue-item`** (**`data-testid="composer-queue-item"`**) stacked **above** the composer card in reading order, text clamped to 3 lines, each with a round remove control at its right (**`data-testid="composer-queue-remove-<id>"`**, accessible name **`Remove from the queue`**) that calls **`DELETE /coddy/sessions/{id}/queue/{message_id}`**. Nothing waiting renders no list.
+- **Staying in step** — the list is server-owned and a session is shared. Every change arrives as **`event: message_queue`** carrying the whole queue and a **`version`**, down **two** paths: the turn's own stream (**`consumeComposerSse`**) and the server-wide **`GET /coddy/events`** (**`serverEvents.ts`**, **`onMessageQueue`**), so a tab that is not reading any turn stream still sees what someone else queued. They are separate connections: **`App.tsx`** keeps the highest version per session (**`queueVersionBySidRef`**) and drops older frames. A message the agent reads leaves the list as **`event: user_message`** puts it into the transcript where it was read. The queue is emptied when generation ends.
+- **Placeholder** — while generating, the field reads **`composer.placeholderQueue`** instead of the idle placeholder.
+- **Attachments are not queued.** A queued follow-up is text; files attached to the composer stay there for the next prompt.
+- Vitest: **`composerQueue.test.tsx`**.
 
 ## Composer file attachments (multimodal)
 

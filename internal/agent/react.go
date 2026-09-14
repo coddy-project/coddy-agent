@@ -58,6 +58,12 @@ type SessionState interface {
 	TakePendingImageParts() []llm.ImagePart
 	GetPermissionMode() string
 	IsUserCancelledTurn() bool
+	// TakeQueuedMessages drains the follow-ups written while this turn runs
+	// (session/turn_queue.go). The loop reads them between its own steps.
+	TakeQueuedMessages() []session.QueuedMessage
+	// QueuedMessages is what is still waiting after that drain: a message may
+	// have been written while the batch was being read in.
+	QueuedMessages() []session.QueuedMessage
 }
 
 // Agent runs the ReAct loop for a single session turn.
@@ -402,6 +408,13 @@ func (a *Agent) runReActLoop(
 		if ctx.Err() != nil {
 			return string(acp.StopReasonCancelled), nil
 		}
+
+		// A follow-up the operator wrote while the previous step ran is read
+		// here, before the request that answers that step's tool results is
+		// built: that is what puts the correction inside the work instead of
+		// after it. It is appended before the rebuild below, so a compaction
+		// that replays the transcript carries it too.
+		a.readQueuedMessages(&messages)
 
 		// System prompt is rebuilt every turn so conditional sections (e.g. todo checklist) match
 		// state after coddy_todo_* tools in the same user turn.
@@ -793,6 +806,15 @@ func (a *Agent) runReActLoop(
 			if strings.TrimSpace(response.Content) == "" && !turnHadVisibleText {
 				return string(acp.StopReasonRefused), fmt.Errorf("model produced no reply: only internal reasoning, with no answer text or tool call")
 			}
+			// The turn is about to end with an answer. Anything the operator
+			// queued while that answer was being written is read now, so it is
+			// answered by this turn rather than waiting for the next prompt.
+			// One iteration is needed to read it in; on the last one it would
+			// only leave a dangling user message behind.
+			if turn+1 < maxTurns && a.readQueuedMessages(&messages) {
+				continue
+			}
+
 			// A Stop hook may send the agent back to work with a follow-up that
 			// is submitted as the next user message (persisted, so the transcript
 			// explains the continuation), bounded by hooks.stop_loop_limit.

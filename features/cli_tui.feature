@@ -86,6 +86,16 @@ Feature: Interactive console TUI
     When the operator confirms the highlighted permission option
     Then the stub turn observes the permission outcome "selected" with option "allow"
 
+  Scenario: A prompt written during a turn is queued for the agent to read
+    When the console app starts
+    And the operator submits the prompt "read the readme"
+    And the stub turn blocks until cancelled
+    And the operator submits the prompt "check the Windows path too"
+    Then the screen shows the queued message "check the Windows path too"
+    When the operator presses escape
+    Then the stub turn observes cancellation
+    And the screen shows nothing queued
+
   Scenario: Escape cancels the running turn
     When the console app starts
     And the operator submits the prompt "long task"

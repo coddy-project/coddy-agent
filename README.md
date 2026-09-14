@@ -79,6 +79,7 @@ agent:
 - **Subagents**: `spawn_agent` delegates a bounded task to a child with its own context and session, tools and permissions only narrowing ([Subagents](docs/features/subagents.md)).
 - **Hooks**: your own commands at every lifecycle point, in Claude Code's `hooks.json` shape, able to deny, approve or rewrite a tool call ([Hooks](docs/features/hooks.md)).
 - **MCP servers** over stdio, streamable HTTP and SSE, from `config.yaml`, `mcp.json` files or the editor, with a trust gate for what arrives with a checkout ([MCP servers](docs/features/mcp.md)).
+- **Message queue**: a follow-up written while the agent works is read by the running turn at its next step, not after it, and a shared session shows the same queue in every browser and console ([Message queue](docs/features/message-queue.md)).
 - **Background tasks**: detached commands and subagent runs collected later, with a Tasks drawer in the UI ([Background tasks](docs/features/background-tasks.md)).
 - **Context compaction and long-term memory**: `/compact` and automatic summarisation at a threshold, result eviction with `keep_result`, a memory copilot that recalls before a turn and saves after ([Compaction](docs/features/compaction.md), [Memory](docs/features/memory.md)).
 - **Self-configuration**: the agent edits its own YAML through staged `config_*` tools; nothing lands until you approve the commit ([config.yaml reference](docs/reference/config.md)).

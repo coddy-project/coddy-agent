@@ -32,6 +32,12 @@ type backend interface {
 	HandleSessionSetMode(ctx context.Context, params acp.SessionSetModeParams) error
 	HandleSessionSetConfigOption(ctx context.Context, params acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error)
 	HandleSessionPromptWithSender(ctx context.Context, params acp.SessionPromptParams, sender acp.UpdateSender, opts *session.PromptRunOpts) (*acp.SessionPromptResult, error)
+	// Message queue of the running turn: what the operator wrote while the
+	// agent works, read at the turn's next step (session/turn_queue.go).
+	EnqueueTurnMessage(sessionID, text string) (session.QueuedMessage, []session.QueuedMessage, error)
+	QueuedTurnMessages(sessionID string) ([]session.QueuedMessage, error)
+	CancelQueuedTurnMessage(sessionID, messageID string) ([]session.QueuedMessage, error)
+	ClearQueuedTurnMessages(sessionID string) error
 	// ProviderUsageForSession reads the account usage behind a provider row
 	// (the status bar's third line); refresh asks for a fresh read, and a
 	// read the backend defers reports its result to sessionID through the

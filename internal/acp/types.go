@@ -320,7 +320,32 @@ const (
 	UpdateTypeMemoryPhase             = "memory_phase"
 	UpdateTypeMemoryMessageChunk      = "memory_message_chunk"
 	UpdateTypeAvailableCommandsUpdate = "available_commands_update"
+	UpdateTypeMessageQueue            = "message_queue"
 )
+
+// QueuedMessage is one follow-up waiting for the running turn to read it.
+type QueuedMessage struct {
+	ID        string `json:"id"`
+	Text      string `json:"text"`
+	CreatedAt string `json:"createdAt,omitempty"`
+}
+
+// MessageQueueUpdate publishes what the session's message queue holds now.
+//
+// It is sent on every change - a follow-up queued, one taken back, a batch read
+// by the agent - so a client renders the queue from the update rather than
+// polling, and a second client watching the same turn stays in step with the
+// one that is typing.
+type MessageQueueUpdate struct {
+	SessionUpdate string          `json:"sessionUpdate"` // "message_queue"
+	SessionID     string          `json:"sessionId,omitempty"`
+	Messages      []QueuedMessage `json:"messages"`
+	// Version counts the changes of that session's queue. The same change
+	// reaches a client down more than one connection - the turn's own stream
+	// and the server-wide event stream - so frames can arrive out of order;
+	// a client renders the highest version it has seen and drops the rest.
+	Version uint64 `json:"version"`
+}
 
 // AvailableCommand is one slash command advertised to ACP clients.
 type AvailableCommand struct {

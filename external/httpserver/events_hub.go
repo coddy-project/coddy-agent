@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -86,6 +87,43 @@ func (s *Server) publishTurnEvent(ev session.TurnEvent) {
 		return
 	}
 	if frame := turnEventFrame(ev); frame != nil {
+		s.events.publish(frame)
+	}
+}
+
+// messageQueueFrame renders a session's message queue as one SSE frame.
+//
+// Unlike the turn edges, this one carries its payload: the queue is small, it
+// is what every client renders, and a client told only that "something changed"
+// would have to fetch the session it may not even have open.
+func messageQueueFrame(u acp.MessageQueueUpdate) []byte {
+	if u.Messages == nil {
+		u.Messages = []acp.QueuedMessage{}
+	}
+	body, err := json.Marshal(map[string]interface{}{
+		"object":    "coddy.message_queue",
+		"sessionId": u.SessionID,
+		"messages":  u.Messages,
+		"version":   u.Version,
+	})
+	if err != nil {
+		return nil
+	}
+	frame := make([]byte, 0, len(body)+32)
+	frame = append(frame, "event: message_queue\ndata: "...)
+	frame = append(frame, body...)
+	frame = append(frame, "\n\n"...)
+	return frame
+}
+
+// publishMessageQueueEvent is the Manager observer this server registers in New.
+// It is called on the goroutine that changed the queue, so it only renders a
+// frame and hands it to the hub, whose sends are non-blocking.
+func (s *Server) publishMessageQueueEvent(u acp.MessageQueueUpdate) {
+	if s.events == nil {
+		return
+	}
+	if frame := messageQueueFrame(u); frame != nil {
 		s.events.publish(frame)
 	}
 }

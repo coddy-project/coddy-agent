@@ -12,6 +12,7 @@ The built-in commands on each surface and how skills become commands. A slash co
 | `/new` | console | Starts a new session in the same folder. | [Console](../surfaces/console.md#commands-and-keys) |
 | `/theme` | console | Selector between the dark and the light palette. | [Console](../surfaces/console.md#flags) |
 | `/hotkeys` | console | Prints the key list. | [Keyboard](keyboard.md) |
+| `/queue [list\|drop <n>\|clear]` | console | Lists the follow-ups waiting for the running turn, takes one back by its number, or empties the queue. Works against a remote server too. | [Message queue](../features/message-queue.md#in-the-console) |
 | `/usage` | console | Forces a fresh read of the active provider's account usage and prints the breakdown; under `--remote` the server's own key is read. | [Console](../surfaces/console.md#commands-and-keys) |
 | `/quit`, `/exit` | console | Exits. | [Console](../surfaces/console.md#commands-and-keys) |
 | `/compact [instructions]` | console, web UI, ACP editors, `POST /v1/responses` | Summarises the older history and keeps the recent turns verbatim; the words after the command steer the summariser. Listed only while `compaction.enable` is true; a manual compaction is always forced. | [Context compaction](../features/compaction.md#the-compact-command) |

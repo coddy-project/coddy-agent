@@ -57,6 +57,11 @@ type Manager struct {
 	turnObserverMu  sync.Mutex
 	turnObservers   map[int]func(TurnEvent)
 	turnObserverSeq int
+	// queueObservers fan every message queue change out to the surfaces that
+	// have clients of their own (manager_queue.go).
+	queueObserverMu  sync.Mutex
+	queueObservers   map[int]func(acp.MessageQueueUpdate)
+	queueObserverSeq int
 
 	// cfgObservers are told whenever the live configuration is replaced, from
 	// whichever path replaced it (see config_observers.go).
@@ -670,6 +675,10 @@ type turnAdmission struct {
 	// publishUsage says the turn's release refreshes the provider usage of the
 	// session's model, provided the turn reached its runner (MarkTurnRan).
 	publishUsage bool
+	// sender is where this turn publishes its session updates. It is held on
+	// the state for the life of the turn so a message queue change made from
+	// outside the turn's goroutine reaches the clients watching it.
+	sender acp.UpdateSender
 }
 
 // admissionFor derives the admission of a prompt from its options: a
@@ -727,6 +736,11 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 			return nil, nil, err
 		}
 	}
+	// From here the session is running a turn, so a follow-up written while it
+	// works has somewhere to go (turn_queue.go), and the clients watching this
+	// turn are told when it changes.
+	state.OpenMessageQueue()
+	state.SetTurnSender(adm.sender)
 	// The ran marker lives on this admission's context, so a concurrent
 	// admission that loses the lock cannot reset it.
 	markedCtx, ran := withTurnRanMarker(ctx)
@@ -736,6 +750,18 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 	finish := func() {
 		finishOnce.Do(func() {
 			cancel()
+			// Closed before anything else: the turn is over, so a follow-up
+			// arriving now belongs to the next prompt, not to this one. A
+			// cancelled or failed turn drops what it never got to read, which
+			// is what Stop means, and says so rather than losing it quietly.
+			if left := state.CloseMessageQueue(); len(left) > 0 {
+				m.log.Warn("message queue dropped with the turn",
+					"session_id", sessionID, "messages", len(left))
+			}
+			// Published before the sender is let go: the client that was
+			// holding messages has to see the queue empty out.
+			m.PublishMessageQueue(sessionID, state)
+			state.SetTurnSender(nil)
 			// The usage refresh is reserved before the turn is released: a
 			// client that pulls the numbers on turn_ended joins that fetch
 			// instead of reading the pre-turn snapshot.
@@ -808,7 +834,9 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if opts != nil && opts.DetachFromRequest {
 		turnBase = context.WithoutCancel(ctx)
 	}
-	turnCtx, finish, err := m.beginTurn(turnBase, params.SessionID, state, admissionFor(opts))
+	adm := admissionFor(opts)
+	adm.sender = sender
+	turnCtx, finish, err := m.beginTurn(turnBase, params.SessionID, state, adm)
 	if err != nil {
 		return nil, err
 	}
@@ -888,6 +916,28 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 			state.AppendUILogError(CountUserTurns(state.GetMessages()), err.Error())
 		}
 		return nil, err
+	}
+
+	// The ReAct loop reads the queue between its own steps, which is where a
+	// follow-up is meant to land. What it cannot catch is the last moment of
+	// the turn: a message written while the answer was already being returned.
+	// Rather than hand that one to a turn hours later, the same admitted turn
+	// answers it - no second lock, no second admission, and the drain that
+	// finds nothing closes the queue in the same step, so there is no window
+	// where a message is accepted by a turn that is already over.
+	for {
+		queued, more := state.TakeQueuedMessagesOrClose()
+		if !more {
+			break
+		}
+		m.PublishMessageQueue(params.SessionID, state)
+		stopReason, err = m.runner(turnCtx, state, QueuedPromptBlocks(queued), sender)
+		if err != nil {
+			if !errors.Is(err, context.Canceled) {
+				state.AppendUILogError(CountUserTurns(state.GetMessages()), err.Error())
+			}
+			return nil, err
+		}
 	}
 
 	return &acp.SessionPromptResult{StopReason: acp.StopReason(stopReason)}, nil

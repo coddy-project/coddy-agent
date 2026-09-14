@@ -53,6 +53,10 @@ type Handler struct {
 	// usageState caches which providers the server reported as having no
 	// usage source (usage.go).
 	usageState
+
+	// eventsState is the background subscription to the server's event stream
+	// (events.go), which is how this client hears about a shared session.
+	eventsState
 }
 
 type sessionState struct {

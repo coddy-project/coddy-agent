@@ -152,6 +152,17 @@ export type ConsumeComposerSseParams = {
   onPermission?: (payload: Record<string, unknown>) => void;
   /** Coddy extension. The provider account snapshot when the turn stream carries one (`event: provider_usage`). */
   onProviderUsage?: (usage: ProviderUsage) => void;
+  /** Coddy extension. What the session message queue holds now (`event: message_queue`). */
+  onMessageQueue?: (queue: QueuedMessageSnapshot) => void;
+};
+
+/** One follow-up still waiting for the running turn to read it. */
+export type QueuedMessageEvt = { id: string; text: string; createdAt?: string };
+
+/** A whole queue plus the version that orders it against other deliveries. */
+export type QueuedMessageSnapshot = {
+  messages: QueuedMessageEvt[];
+  version: number;
 };
 
 export type ConsumeComposerSseResult = {
@@ -190,6 +201,7 @@ export async function consumeComposerSseReader(
     onQuestion,
     onPermission,
     onProviderUsage,
+    onMessageQueue,
   } = p;
 
       // Streaming assistant segmentation. Text before any tool/thinking stays in
@@ -551,6 +563,55 @@ export async function consumeComposerSseReader(
             continue;
           }
 
+          // A queued follow-up the agent has just read enters the conversation
+          // here, where it was read - not at the end, where a transcript reload
+          // would otherwise be the first place it appears.
+          if (ev.event === "user_message") {
+            try {
+              const raw = JSON.parse(ev.data) as {
+                content?: { text?: string };
+              };
+              const text = String(raw?.content?.text || "");
+              if (text.trim()) {
+                applyStreamItems((prev) => [
+                  ...prev,
+                  {
+                    id: newId("u"),
+                    type: "user_message" as const,
+                    content: text,
+                    createdAtUtc: new Date().toISOString(),
+                  },
+                ]);
+                assistantSegmentDirty = true;
+              }
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "message_queue") {
+            try {
+              const raw = JSON.parse(ev.data) as {
+                messages?: unknown;
+                version?: unknown;
+              };
+              const rows = Array.isArray(raw.messages) ? raw.messages : [];
+              onMessageQueue?.({
+                messages: rows
+                  .map((r) => r as QueuedMessageEvt)
+                  .filter(
+                    (r) =>
+                      r && typeof r.id === "string" && typeof r.text === "string",
+                  ),
+                version: typeof raw.version === "number" ? raw.version : 0,
+              });
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
           if (ev.event === "memory_phase") {
             try {
               const raw = JSON.parse(ev.data) as MemoryPhaseEvt;
@@ -795,6 +856,55 @@ export async function consumeComposerSseReader(
             }
             continue;
           }
+          // A queued follow-up the agent has just read enters the conversation
+          // here, where it was read - not at the end, where a transcript reload
+          // would otherwise be the first place it appears.
+          if (ev.event === "user_message") {
+            try {
+              const raw = JSON.parse(ev.data) as {
+                content?: { text?: string };
+              };
+              const text = String(raw?.content?.text || "");
+              if (text.trim()) {
+                applyStreamItems((prev) => [
+                  ...prev,
+                  {
+                    id: newId("u"),
+                    type: "user_message" as const,
+                    content: text,
+                    createdAtUtc: new Date().toISOString(),
+                  },
+                ]);
+                assistantSegmentDirty = true;
+              }
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "message_queue") {
+            try {
+              const raw = JSON.parse(ev.data) as {
+                messages?: unknown;
+                version?: unknown;
+              };
+              const rows = Array.isArray(raw.messages) ? raw.messages : [];
+              onMessageQueue?.({
+                messages: rows
+                  .map((r) => r as QueuedMessageEvt)
+                  .filter(
+                    (r) =>
+                      r && typeof r.id === "string" && typeof r.text === "string",
+                  ),
+                version: typeof raw.version === "number" ? raw.version : 0,
+              });
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
           if (ev.event === "memory_phase") {
             try {
               const raw = JSON.parse(ev.data) as MemoryPhaseEvt;

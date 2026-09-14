@@ -192,6 +192,7 @@ func (h *Handler) Close() {
 	h.usageMu.Lock()
 	h.usageClosed = true
 	h.usageMu.Unlock()
+	h.StopEvents()
 }
 
 // usageIsClosed reports whether Close ran.

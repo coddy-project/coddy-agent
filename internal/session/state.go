@@ -168,6 +168,23 @@ type State struct {
 	// userCancelledTurn is set when the user explicitly requested cancellation (via Stop or cross-process signal).
 	// Cleared at the start of each new turn via SetCancel. Used to distinguish intentional stop from unexpected interruption.
 	userCancelledTurn bool
+
+	// queue holds the follow-ups written while the current turn runs, read by
+	// the ReAct loop at its next step (turn_queue.go). queueOpen is the turn
+	// boundary: a message is only ever accepted by the turn it belongs to.
+	// Turn-scoped and never persisted - a queued message outliving the process
+	// would be answered by a conversation that has moved on.
+	queueMu   sync.Mutex
+	queue     []QueuedMessage
+	queueOpen bool
+	// queueVersion counts the changes, so a client told about the queue down
+	// two different connections can tell which answer is the newer one.
+	queueVersion uint64
+
+	// turnSender is where the current turn publishes its updates, kept so a
+	// queue change made from outside the turn's goroutine reaches the clients
+	// watching that turn. Turn-scoped, never persisted.
+	turnSender acp.UpdateSender
 }
 
 // GetID returns the session ID.
@@ -714,6 +731,26 @@ func (s *State) GetSurfaceSystemPrompt() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.surfaceSystemPrompt
+}
+
+// SetTurnSender records where the running turn publishes its session updates.
+//
+// Most updates are sent by the turn's own goroutine, which holds the sender
+// already. A message queue change is the exception: it is made by whoever is
+// watching - an HTTP request, a console keystroke - and still has to reach
+// every client attached to that turn's stream. Turn-scoped, cleared when the
+// turn releases, never persisted.
+func (s *State) SetTurnSender(sender acp.UpdateSender) {
+	s.mu.Lock()
+	s.turnSender = sender
+	s.mu.Unlock()
+}
+
+// TurnSender returns that sender, or nil when no turn is running.
+func (s *State) TurnSender() acp.UpdateSender {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.turnSender
 }
 
 // SetPendingImageParts stores image parts to be attached to the next user message.
