@@ -76,6 +76,13 @@ func (s *State) InsertCompactionSummary(idx int, msg llm.Message) {
 		idx = len(s.Messages)
 	}
 	s.Messages = append(s.Messages[:idx], append([]llm.Message{msg}, s.Messages[idx:]...)...)
+	// An insert is an append only when it lands at the end; anywhere else it
+	// rewrites the tail, and persistence must encode the history afresh.
+	if idx == len(s.Messages)-1 {
+		s.markMessagesAppended()
+	} else {
+		s.markMessagesEdited()
+	}
 	s.mu.Unlock()
 	s.touchPersist()
 }
