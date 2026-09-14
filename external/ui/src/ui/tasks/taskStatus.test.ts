@@ -5,10 +5,12 @@ import {
   TASKS_POLL_IDLE_MS,
   agentTaskName,
   agentTranscriptSessionId,
+  awaitingPermissionCount,
   displayElapsedSeconds,
   estimateProgress,
   formatDuration,
   isAgentTask,
+  isAwaitingPermission,
   isOverdue,
   groupTasks,
   sortTasksByStart,
@@ -271,5 +273,47 @@ describe("agent tasks", () => {
         task({ agent: { name: "explore", session_id: "sess_0a1b2c" } }),
       ),
     ).toBeNull();
+  });
+});
+
+// A detached subagent's prompt has nowhere else to be noticed: the panel is
+// closed by default and the prompt is not in any transcript.
+describe("tasks awaiting a permission answer", () => {
+  const prompt = {
+    sessionId: "sess_child",
+    toolCall: { toolCallId: "call_1", title: "[subagent explore] Run: ls" },
+    options: [{ optionId: "allow", name: "Allow once", kind: "allow_once" }],
+  };
+  const agent = (over: Partial<BackgroundTask> = {}) =>
+    task({ kind: "agent", agent: { name: "explore", session_id: "sess_child" }, ...over });
+
+  test("awaiting is decided by a usable prompt, not by the field's presence", () => {
+    expect(isAwaitingPermission(agent({ pending_permission: prompt }))).toBe(true);
+    expect(isAwaitingPermission(agent())).toBe(false);
+    // A prompt missing either id cannot be answered, so it is not one.
+    expect(
+      isAwaitingPermission(agent({ pending_permission: { ...prompt, sessionId: "  " } })),
+    ).toBe(false);
+    expect(
+      isAwaitingPermission(
+        agent({ pending_permission: { ...prompt, toolCall: { toolCallId: "" } } }),
+      ),
+    ).toBe(false);
+    // A finished task is waiting for nothing, whatever a stale row says.
+    expect(
+      isAwaitingPermission(
+        agent({ pending_permission: prompt, running: false, status: "stopped" }),
+      ),
+    ).toBe(false);
+  });
+
+  test("awaiting tasks are counted", () => {
+    expect(
+      awaitingPermissionCount([
+        agent({ id: "bg_1", pending_permission: prompt }),
+        agent({ id: "bg_2" }),
+        agent({ id: "bg_3", pending_permission: prompt }),
+      ]),
+    ).toBe(2);
   });
 });

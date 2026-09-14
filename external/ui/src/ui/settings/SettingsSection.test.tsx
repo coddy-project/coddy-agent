@@ -827,3 +827,50 @@ test("switching type away from NeuralDeep restores the previously entered API ba
   });
   expect(base.value).toBe("https://custom.example/v1");
 });
+
+// The Subagents tab is hybrid: the form edits the config document, and the
+// catalog below it is asked about the workspace of the session on screen.
+test("the subagents tab keeps its form and asks the catalog about the session workspace", async () => {
+  const calls: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation((url: string) => {
+      calls.push(String(url));
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ workspace: "/work/repo", policy: "ask", items: [] }),
+      });
+    }),
+  );
+  const setDoc = vi.fn();
+  render(
+    <SettingsSection
+      section={{
+        id: "subagents",
+        label: "Subagents",
+        kind: "subagents",
+        schemaKey: "subagents",
+      }}
+      schema={{
+        type: "object",
+        properties: {
+          subagents: {
+            type: "object",
+            title: "Subagents",
+            properties: { max_depth: { type: "integer", title: "Max depth" } },
+          },
+        },
+      }}
+      doc={{ subagents: { max_depth: 1 } }}
+      setDoc={setDoc}
+      workspacePath="/work/repo"
+    />,
+  );
+
+  expect(await screen.findByTestId("subagents-catalog")).toBeInTheDocument();
+  expect(calls).toEqual(["/coddy/subagents?cwd=%2Fwork%2Frepo"]);
+  fireEvent.change(screen.getByLabelText("Max depth"), {
+    target: { value: "2" },
+  });
+  expect(setDoc).toHaveBeenCalledWith({ subagents: { max_depth: 2 } });
+});

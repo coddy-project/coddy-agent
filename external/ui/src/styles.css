@@ -2032,6 +2032,53 @@ a.rail-brand {
   background: color-mix(in srgb, var(--accent) 18%, var(--coddy-blend-base));
 }
 
+/* Approval offered under a refused spawn_agent row. It sits outside the row's
+   <details>, which is collapsed by default, because an approval nobody sees is
+   an approval nobody gives. Amber like the approve shield in Settings: this is
+   a gate, not a suggestion. */
+.subagent-approval-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  box-sizing: border-box;
+  max-width: 100%;
+  margin: 6px 0 2px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, #ff9f0a 35%, transparent);
+  background: color-mix(in srgb, #ff9f0a 8%, var(--coddy-blend-base));
+  font-size: 13px;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--text) 82%, var(--coddy-blend-base));
+}
+
+.subagent-approval-text {
+  flex: 1 1 240px;
+  min-width: 0;
+  /* The declaring path can be long and must not stretch the transcript. */
+  overflow-wrap: anywhere;
+}
+
+.subagent-approval-text code {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+
+.subagent-approval-error {
+  display: block;
+  margin-top: 4px;
+  color: color-mix(in srgb, var(--diff-del-no) 82%, var(--text));
+}
+
+.subagent-approval-actions {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .msg {
   border-radius: var(--radius);
   padding: 12px 14px;
@@ -7566,6 +7613,39 @@ html:not([data-theme="light"]) .context-usage-note--error {
   border-color: color-mix(in srgb, #ff9f0a 45%, transparent);
 }
 
+/* Subagents tab: the definition catalog reuses the MCP list chrome, so only
+   what has no MCP counterpart is defined here.
+
+   Everything a receipt covers is long and unbreakable - an absolute definition
+   path, a digest, a comma-separated tool list. A <code> does not wrap on its
+   own, so without these rules one row widens the whole fieldset past the
+   settings panel, the row descriptions lose their ellipsis, and the approve
+   control is pushed out of sight. */
+.settings-subagents-section .subagents-catalog-box,
+.settings-subagents-section .subagents-list,
+.settings-subagents-section .mcp-list-item {
+  min-inline-size: 0;
+  max-width: 100%;
+}
+
+.subagents-workspace code,
+.settings-subagents-section .mcp-trust-note,
+.settings-subagents-section .mcp-trust-note code {
+  overflow-wrap: anywhere;
+}
+
+/* The MCP facts label column is sized for "transport" and "runs"; a subagent
+   declaration's labels are longer ("permissions", "инструменты"), and at 72px
+   they wrap mid-word. */
+.settings-subagents-section .mcp-trust-facts dt {
+  flex: 0 0 104px;
+}
+
+.subagents-badge-pending {
+  color: #ff9f0a;
+  border-color: color-mix(in srgb, #ff9f0a 45%, transparent);
+}
+
 .mcp-command {
   font-family: var(--mono, ui-monospace, monospace);
   font-size: 0.74rem;
@@ -10063,6 +10143,38 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   background: #ff9f0a;
 }
 
+/* A detached subagent blocked on a permission prompt. Its parent turn is over,
+   so this row is the only place the question can be asked - amber, and loud
+   enough that a closed drawer still advertises it through the chip. */
+.bgtask-card.is-awaiting {
+  border-color: color-mix(in srgb, #ff9f0a 45%, var(--coddy-blend-base));
+}
+
+.bgtask-permission {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, #ff9f0a 35%, transparent);
+  background: color-mix(in srgb, #ff9f0a 8%, var(--coddy-blend-base));
+}
+
+.bgtask-permission-head {
+  font-size: 12px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  color: color-mix(in srgb, var(--text) 85%, var(--coddy-blend-base));
+}
+
+.bgtask-permission-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 /* Finished history: one scannable line per task. */
 .bgtask-finished-list {
   display: flex;
@@ -10169,6 +10281,13 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 .bgtask-chip.is-running {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--coddy-blend-base));
   background: color-mix(in srgb, var(--accent) 12%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+}
+
+/* Declared after is-running so a waiting subagent wins over the live tint. */
+.bgtask-chip.is-awaiting {
+  border-color: color-mix(in srgb, #ff9f0a 45%, var(--coddy-blend-base));
+  background: color-mix(in srgb, #ff9f0a 12%, var(--coddy-blend-base));
   color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
 }
 

@@ -5,6 +5,8 @@
  * `external/httpserver/background_http.go`.
  */
 
+import type { CoddyPermissionPayload } from "../chat/permissionTypes";
+
 export type BackgroundTaskStatus =
   | "queued"
   | "running"
@@ -41,6 +43,16 @@ export type BackgroundTask = {
   elapsed_seconds: number;
   overdue: boolean;
   running: boolean;
+  /**
+   * Set while a detached subagent behind this task is blocked on a permission
+   * prompt. The parent turn that spawned it has ended, so the prompt has no
+   * chat stream to appear in and is answered here instead - against
+   * `sessionId`, which is the child session, not the parent.
+   */
+  pending_permission?: CoddyPermissionPayload & {
+    agent_name?: string;
+    asked_at?: string;
+  };
 };
 
 export type BackgroundTaskListResponse = {

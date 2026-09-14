@@ -168,7 +168,10 @@ import {
   listBackgroundTasks,
   stopBackgroundTask,
 } from "./tasks/api";
-import { tasksPollIntervalMs } from "./tasks/taskStatus";
+import {
+  awaitingPermissionCount,
+  tasksPollIntervalMs,
+} from "./tasks/taskStatus";
 import {
   parseSubagentTranscriptMeta,
   type SubagentTranscriptMeta,
@@ -1028,6 +1031,12 @@ export function App() {
   const [tasksSelectedId, setTasksSelectedId] = useState<string | null>(null);
   const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([]);
   const [backgroundRunning, setBackgroundRunning] = useState(0);
+  // Detached subagents blocked on a permission prompt. Kept as a number so the
+  // poll effect below does not restart on every list refresh.
+  const backgroundAwaiting = useMemo(
+    () => awaitingPermissionCount(backgroundTasks),
+    [backgroundTasks],
+  );
   const [backgroundOutput, setBackgroundOutput] = useState("");
   const [backgroundListError, setBackgroundListError] = useState<string | null>(
     null,
@@ -1767,18 +1776,25 @@ export function App() {
     if (!sessionId.trim()) {
       return;
     }
-    const id = window.setInterval(() => {
-      void refreshBackgroundTasks({ silent: true });
-      if (tasksOpen && tasksSelectedId) {
-        void refreshBackgroundTaskOutput(tasksSelectedId);
-      }
-    }, tasksPollIntervalMs(backgroundRunning));
+    const id = window.setInterval(
+      () => {
+        void refreshBackgroundTasks({ silent: true });
+        if (tasksOpen && tasksSelectedId) {
+          void refreshBackgroundTaskOutput(tasksSelectedId);
+        }
+      },
+      // A task waiting for a permission answer keeps the fast cadence even if
+      // the server has stopped counting it as running: the prompt has to reach
+      // the drawer promptly, and has to leave it once answered.
+      tasksPollIntervalMs(backgroundRunning + backgroundAwaiting),
+    );
     return () => window.clearInterval(id);
   }, [
     sessionId,
     tasksOpen,
     tasksSelectedId,
     backgroundRunning,
+    backgroundAwaiting,
     refreshBackgroundTasks,
     refreshBackgroundTaskOutput,
   ]);
@@ -4421,6 +4437,10 @@ export function App() {
               initialSection={settingsSection}
               activeSessionId={sidebarActiveId}
               onSessionsDeleted={onSessionsDeletedInSettings}
+              // Subagent approvals are keyed by workspace, and spawn_agent
+              // checks the session's own cwd: the viewed session's workspace
+              // is the one the Subagents tab must ask about.
+              workspacePath={workspaceCtx?.path || undefined}
             />
           </div>
         ) : null}
@@ -4443,6 +4463,9 @@ export function App() {
               void clearFinishedTasks();
             }}
             onOpenSession={openSessionInPlace}
+            onRefresh={() => {
+              void refreshBackgroundTasks({ silent: true });
+            }}
           />
         ) : null}
 

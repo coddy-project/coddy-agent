@@ -648,6 +648,62 @@ export const messagesRu: Record<string, string> = {
   "mcp.origin.config": "config.yaml",
   "mcp.origin.home": "~/.coddy/mcp.json",
   "mcp.origin.project": "./.coddy/mcp.json",
+  // Настройки -> Субагенты: каталог определений и одобрения
+  "subagents.catalog.legend": "Определения",
+  "subagents.catalog.description":
+    'Определения из .coddy/agents и .claude/agents этого рабочего пространства приходят вместе с чекаутом, поэтому при значении "ask" каждое одобряется здесь один раз для этого рабочего пространства (кнопка-щит в списке ниже); изменение одобренного файла снова потребует одобрения. Встроенные определения и ваши собственные файлы в ~/.coddy/agents никогда не блокируются.',
+  "subagents.catalog.policyAppliesAfterSave":
+    "Политика «Проектные определения» выше применяется после сохранения; одобрение отдельного определения действует сразу.",
+  "subagents.catalog.workspace": "Одобрения записываются для",
+  "subagents.catalog.loading": "Загрузка определений…",
+  "subagents.catalog.empty":
+    "Из этого рабочего пространства не видно ни одного определения субагента.",
+  "subagents.catalog.pendingHint.one":
+    "{count} определение ждёт вашего одобрения.",
+  "subagents.catalog.pendingHint.few":
+    "{count} определения ждут вашего одобрения.",
+  "subagents.catalog.pendingHint.many":
+    "{count} определений ждут вашего одобрения.",
+  "subagents.catalog.pendingHint.other":
+    "{count} определения ждут вашего одобрения.",
+  "subagents.catalog.descriptionWithheld":
+    "Описание скрыто, пока вы не одобрите этот файл.",
+  "subagents.error.load": "Не удалось загрузить каталог субагентов.",
+  "subagents.error.trust": "Не удалось изменить одобрение {name}: {error}",
+  "subagents.error.network": "сервер недоступен",
+  "subagents.scope.builtin": "встроенный",
+  "subagents.scope.user": "ваш",
+  "subagents.scope.project": "из проекта",
+  "subagents.badge.hidden": "скрытый",
+  "subagents.badge.needsApproval": "нужно одобрение",
+  "subagents.trust.approveTitle":
+    "Одобрить запуск «{name}» в этом рабочем пространстве",
+  "subagents.trust.approvedTitle":
+    "Одобрено для этого рабочего пространства (дайджест {digest}) — нажмите, чтобы отозвать",
+  "subagents.trust.approveAria": "Одобрить субагента {name}",
+  "subagents.trust.withdrawAria": "Отозвать одобрение субагента {name}",
+  "subagents.note.declaredBy":
+    "Это определение приходит вместе с чекаутом, поэтому его запуск отклоняется, пока вы его не одобрите. Одобрение привязывается к файлу в его нынешнем виде:",
+  "subagents.note.upperBound":
+    "Это верхняя граница: дочерний агент дополнительно сужается до того, что разрешено запустившей его сессии, и никогда не может задавать вам вопросы, менять конфигурацию или выходить из режима плана. Изменение файла снова потребует одобрения.",
+  "subagents.fact.file": "файл",
+  "subagents.fact.model": "модель",
+  "subagents.fact.modelInherits": "модель родителя",
+  "subagents.fact.mode": "режим",
+  "subagents.fact.modeInherits": "режим родителя",
+  "subagents.fact.permissions": "разрешения",
+  "subagents.fact.permissionsInherits": "наследуются, не шире родительских",
+  "subagents.fact.tools": "инструменты",
+  "subagents.fact.toolsAll": "всё, что доступно запустившей сессии",
+  "subagents.fact.denies": "запрещает",
+  "subagents.fact.timeout": "таймаут",
+  "subagents.fact.timeoutDefault": "значение из конфигурации",
+  "subagents.fact.maxTurns": "максимум итераций",
+  "subagents.fact.inherits": "наследуется",
+  "subagents.fact.background": "в фоне",
+  "subagents.fact.backgroundAlways": "всегда, без ожидания",
+  "subagents.fact.role": "инструкции",
+  "subagents.fact.digest": "дайджест",
   "mcp.validation.nameRequired": "Требуется имя сервера.",
   "mcp.validation.noDoubleUnderscore": "Имя сервера не должно содержать «__».",
   "mcp.validation.noSpacesOrSeparators":
@@ -1162,6 +1218,13 @@ export const messagesRu: Record<string, string> = {
   "messages.spawnAgentPrompt": "Промпт агента",
   "messages.spawnAgentTimeout": "Таймаут {seconds} с",
   "messages.spawnAgentTimeoutHint": "Максимальное время работы агента",
+  "messages.subagentApproval.needed":
+    "Субагент «{name}» описан файлом из этого рабочего пространства, который ещё не одобрен, поэтому он не был запущен. Одобрение привязывается к файлу в его нынешнем виде:",
+  "messages.subagentApproval.approved":
+    "Субагент «{name}» одобрен для этого рабочего пространства. Попросите запустить его снова — сам он не запускался.",
+  "messages.subagentApproval.approve": "Одобрить",
+  "messages.subagentApproval.openSettings": "Открыть настройки субагентов",
+  "messages.subagentApproval.failed": "Не удалось записать одобрение: {error}",
   "messages.toolDetailsAriaLabel": "Детали вызова инструмента",
   "messages.toolResultAriaLabel": "Результат инструмента",
   "messages.toolFailedMarker": "(ошибка)",
@@ -1275,6 +1338,12 @@ export const messagesRu: Record<string, string> = {
   "tasks.chip.total.many": "{count} фоновых задач",
   "tasks.chip.total.other": "{count} фоновой задачи",
   "tasks.chip.openAria": "Открыть фоновые задачи: {label}",
+  "tasks.chip.awaiting.one": "{count} субагент ждёт вашего ответа",
+  "tasks.chip.awaiting.few": "{count} субагента ждут вашего ответа",
+  "tasks.chip.awaiting.many": "{count} субагентов ждут вашего ответа",
+  "tasks.chip.awaiting.other": "{count} субагента ждут вашего ответа",
+  "tasks.permission.head": "Фоновый субагент ждёт вашего разрешения:",
+  "tasks.permission.headNamed": "Субагент «{name}» ждёт вашего разрешения:",
 
   "swarm.title": "Рой",
   "swarm.summary.relays.one": "{count} релей",

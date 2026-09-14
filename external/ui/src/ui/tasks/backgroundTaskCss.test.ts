@@ -66,3 +66,17 @@ test("agent rows are told apart with an accent badge derived from theme tokens",
   expect(badge).toContain("text-transform: uppercase");
   expect(ruleBody(".bgtask-detail-agent-name {")).toContain("var(--text)");
 });
+
+test("a subagent waiting for an answer is amber on its card and on the chip", () => {
+  expect(ruleBody(".bgtask-card.is-awaiting {")).toContain("#ff9f0a");
+  const chip = ruleBody(".bgtask-chip.is-awaiting {");
+  expect(chip).toContain("#ff9f0a");
+  expect(chip).toContain("var(--coddy-blend-base)");
+  // The waiting state has to win over the live tint of a running chip.
+  expect(css.indexOf(".bgtask-chip.is-awaiting {")).toBeGreaterThan(
+    css.indexOf(".bgtask-chip.is-running {"),
+  );
+  const card = ruleBody(".bgtask-permission {");
+  expect(card).toContain("var(--coddy-blend-base)");
+  expect(card).toContain("min-width: 0");
+});

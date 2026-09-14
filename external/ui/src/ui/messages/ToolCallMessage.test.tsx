@@ -1452,3 +1452,82 @@ test("a remote shell is not the local interpreter", () => {
     setHostShell("");
   }
 });
+
+// A refused spawn may be waiting for an approval. The row offers it outside its
+// collapsed <details>, but only once the catalog says so - the error text is
+// never parsed - and a spawn that did not fail asks nothing at all.
+test("a refused spawn_agent row asks the catalog and offers the approval", async () => {
+  const calls: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation((url: string) => {
+      calls.push(String(url));
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          workspace: "/work/repo",
+          policy: "ask",
+          items: [
+            {
+              name: "reviewer",
+              description: "Reviews a diff.",
+              scope: "project",
+              path: "/work/repo/.coddy/agents/reviewer.md",
+              builtin: false,
+              hidden: false,
+              trust: "needs_approval",
+              trusted: false,
+              needs_approval: true,
+            },
+          ],
+        }),
+      });
+    }),
+  );
+  const args = JSON.stringify({ agent: "reviewer", prompt: "Review the diff." });
+  const { rerender } = render(
+    <ToolCallMessage
+      toolCallId="call_spawn"
+      title="spawn_agent"
+      status="completed"
+      argsText={args}
+      resultText="done"
+      workspacePath="/work/repo"
+    />,
+  );
+  expect(screen.queryByTestId("subagent-approval-reviewer")).toBeNull();
+  expect(calls).toEqual([]);
+
+  rerender(
+    <ToolCallMessage
+      toolCallId="call_spawn"
+      title="spawn_agent"
+      status="failed"
+      argsText={args}
+      resultText="subagent is not approved"
+      workspacePath="/work/repo"
+    />,
+  );
+  // Visible without opening the row.
+  expect(
+    await screen.findByTestId("subagent-approval-approve-reviewer"),
+  ).toBeInTheDocument();
+  expect(calls).toEqual(["/coddy/subagents?cwd=%2Fwork%2Frepo"]);
+  vi.unstubAllGlobals();
+});
+
+test("a failed tool that is not spawn_agent offers no approval", () => {
+  const fetchMock = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
+  render(
+    <ToolCallMessage
+      toolCallId="call_cmd"
+      title="run_command"
+      status="failed"
+      argsText={JSON.stringify({ command: "ls", agent: "reviewer" })}
+      resultText="error"
+    />,
+  );
+  expect(fetchMock).not.toHaveBeenCalled();
+  vi.unstubAllGlobals();
+});
