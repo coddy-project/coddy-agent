@@ -92,7 +92,7 @@ compaction:
 | `result_eviction.keep_recent` | `2` | most recent candidates kept as the working window |
 | `result_eviction.min_result_bytes` | `2000` | results at or below this size are left alone |
 
-The field table with types and validation is in the [config.yaml reference](../reference/config.md#compaction); the keys are ordinary settings, editable in the **Context compaction** section of the web UI's Settings. The window the threshold is a percent of belongs to the model entry: its `max_context_tokens`, else what its provider reports, else 128000 ([The context window](#the-context-window)).
+The field table with types and validation is in the [config.yaml reference](../reference/config.md#compaction); the keys are ordinary settings, editable in the web UI's Settings in the **Context compaction** block at the end of the **ReAct agent** tab (compaction decides what the loop sends the model; the YAML key stays `compaction`, and `#/settings/compaction` opens the block). The window the threshold is a percent of belongs to the model entry: its `max_context_tokens`, else what its provider reports, else 128000 ([The context window](#the-context-window)).
 
 ## Testing
 

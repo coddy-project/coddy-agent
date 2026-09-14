@@ -24,7 +24,42 @@ export type SectionDescriptor = {
   labelField?: string | undefined;
   /** For group sections: config keys grouped under this tab. */
   childKeys?: string[] | undefined;
+  /**
+   * For object sections: config keys rendered as blocks below the tab's own
+   * form instead of as tabs of their own (see NESTED_SECTION_KEYS).
+   */
+  extraKeys?: string[] | undefined;
 };
+
+/**
+ * Config keys shown inside another tab rather than as a tab of their own,
+ * keyed by the tab that renders them. Context compaction is part of the ReAct
+ * loop - it decides what the agent sends the model - so its settings sit under
+ * the ReAct agent tab. The YAML keys do not move: `compaction` stays a
+ * top-level key, only where the form shows it changes.
+ */
+export const NESTED_SECTION_KEYS: Record<string, string[]> = {
+  agent: ["compaction"],
+};
+
+/**
+ * findSettingsSection resolves a `#/settings/<id>` deep link to its tab. A key
+ * nested into another tab (`compaction`) resolves to that tab, so links written
+ * before the key moved still open the right form.
+ */
+export function findSettingsSection(
+  sections: SectionDescriptor[],
+  id: string | null | undefined,
+): SectionDescriptor | null {
+  if (!id) {
+    return null;
+  }
+  return (
+    sections.find((s) => s.id === id) ??
+    sections.find((s) => s.extraKeys?.includes(id)) ??
+    null
+  );
+}
 
 /**
  * i18n keys for known section labels and mobile tile blurbs. Unknown schema
@@ -64,7 +99,6 @@ const SECTION_DESC_KEYS: Record<string, string> = {
   skills: "settings.section.skills.desc",
   memory: "settings.section.memory.desc",
   system: "settings.section.system.desc",
-  compaction: "settings.section.compaction.desc",
   subagents: "settings.section.subagents.desc",
   hooks: "settings.section.hooks.desc",
 };
@@ -86,20 +120,27 @@ export const ARRAY_LABEL_FIELDS: Record<string, string> = {
 };
 
 /**
+ * settingsSectionLabel is the localized label of a section or of a block a tab
+ * renders for a nested key; unknown ids keep the schema title.
+ */
+export function settingsSectionLabel(id: string, sub?: JsonSchema): string {
+  const key = SECTION_LABEL_KEYS[id];
+  return key ? translate(key) : sub?.title || id;
+}
+
+/**
  * deriveSettingsSections turns the root config JSON Schema into ordered tab
  * descriptors. Top-level schema properties map 1:1 to tabs (using the schema's
  * `x-coddy-property-order` and each property's `title`), except that the rarely
- * edited tail keys are folded into a single "System" tab and a synthetic
+ * edited tail keys are folded into a single "System" tab, the keys of
+ * NESTED_SECTION_KEYS render inside the tab that owns them, and a synthetic
  * client-side "Appearance" tab is appended. The Appearance tab is present even
  * when no schema is available (theme is purely client-side).
  */
 export function deriveSettingsSections(
   schema: JsonSchema | null | undefined,
 ): SectionDescriptor[] {
-  const labelFor = (id: string, sub?: JsonSchema) => {
-    const key = SECTION_LABEL_KEYS[id];
-    return key ? translate(key) : sub?.title || id;
-  };
+  const labelFor = settingsSectionLabel;
 
   const appearance: SectionDescriptor = {
     id: "appearance",
@@ -133,6 +174,20 @@ export function deriveSettingsSections(
   const seen = new Set<string>();
   let systemEmitted = false;
 
+  // A nested key only leaves the tab list when the tab that renders it exists;
+  // without it the key keeps a tab of its own rather than disappearing.
+  const nestedIn = new Set<string>();
+  for (const [parent, keys] of Object.entries(NESTED_SECTION_KEYS)) {
+    if (props[parent] === undefined) {
+      continue;
+    }
+    for (const k of keys) {
+      if (props[k] !== undefined) {
+        nestedIn.add(k);
+      }
+    }
+  }
+
   const descFor = (id: string, sub?: JsonSchema) => {
     const key = SECTION_DESC_KEYS[id];
     if (key) {
@@ -147,6 +202,9 @@ export function deriveSettingsSections(
       return;
     }
     seen.add(key);
+    if (nestedIn.has(key)) {
+      return;
+    }
     if (SYSTEM_KEYS.includes(key)) {
       if (!systemEmitted) {
         out.push({
@@ -191,12 +249,16 @@ export function deriveSettingsSections(
       });
       return;
     }
+    const extraKeys = (NESTED_SECTION_KEYS[key] ?? []).filter((k) =>
+      nestedIn.has(k),
+    );
     out.push({
       id: key,
       label: labelFor(key, sub),
       description: descFor(key, sub),
       kind: "object",
       schemaKey: key,
+      ...(extraKeys.length > 0 ? { extraKeys } : {}),
     });
   };
 

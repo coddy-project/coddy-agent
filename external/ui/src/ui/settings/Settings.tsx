@@ -2,12 +2,14 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from "react";
 import { type JsonSchema } from "./SchemaForm";
 import {
   deriveSettingsSections,
+  findSettingsSection,
   type SectionDescriptor,
 } from "./settingsSections";
 import { SettingsNav } from "./SettingsNav";
@@ -147,11 +149,33 @@ export function Settings(props: {
     () => deriveSettingsSections(schema),
     [schema, locale],
   );
+  // A deep link may name a key another tab renders (#/settings/compaction
+  // opens ReAct agent), and then lands on that key's block.
   const activeSection =
-    sections.find((s) => s.id === activeTab) ?? sections[0] ?? null;
-  const mobileSection = mobileDetailId
-    ? (sections.find((s) => s.id === mobileDetailId) ?? null)
-    : null;
+    findSettingsSection(sections, activeTab) ?? sections[0] ?? null;
+  const mobileSection = findSettingsSection(sections, mobileDetailId);
+  const blockTarget = [activeTab, mobileDetailId].find(
+    (id) =>
+      !!id &&
+      (activeSection?.extraKeys?.includes(id) ||
+        mobileSection?.extraKeys?.includes(id)),
+  );
+  const scrolledToBlock = useRef("");
+  useEffect(() => {
+    if (!blockTarget) {
+      scrolledToBlock.current = "";
+      return;
+    }
+    if (scrolledToBlock.current === blockTarget) {
+      return;
+    }
+    const el = document.getElementById(`settings-block-${blockTarget}`);
+    if (!el) {
+      return; // not rendered yet: the schema is still loading
+    }
+    el.scrollIntoView({ block: "start" });
+    scrolledToBlock.current = blockTarget;
+  });
 
   // Reflect the `#/settings/<section>` deep link (initial load and browser
   // back/forward) into local tab state; writing the hash below re-enters here
