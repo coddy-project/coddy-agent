@@ -790,21 +790,6 @@ func (f *FileStore) Save(state *State) error {
 			pending = data
 		}
 	}
-	preserveUpdatedAt := messagesUnchanged && newActivitySeq == prevMeta.ActivitySeq
-
-	updatedAt := time.Now().UTC().Format(time.RFC3339Nano)
-	if preserveUpdatedAt && strings.TrimSpace(prevMeta.UpdatedAt) != "" {
-		updatedAt = prevMeta.UpdatedAt
-	}
-
-	// The creation stamp is written once and then carried forward. A bundle that
-	// has a session.json but no createdAt was stored by an older build: leave it
-	// empty rather than backdating it to this save.
-	createdAt := strings.TrimSpace(prevMeta.CreatedAt)
-	if createdAt == "" && !metaExisted {
-		createdAt = updatedAt
-	}
-
 	meta := SessionMeta{
 		Version:           sessionFileLayout,
 		ID:                state.ID,
@@ -816,8 +801,6 @@ func (f *FileStore) Save(state *State) error {
 		AgentMemory:       state.GetAgentMemory(),
 		Title:             title,
 		TitlePinned:       strings.TrimSpace(state.GetTitlePinned()),
-		UpdatedAt:         updatedAt,
-		CreatedAt:         createdAt,
 	}
 	if state.GetSchedulerRun() {
 		meta.SchedulerRun = true
@@ -836,6 +819,29 @@ func (f *FileStore) Save(state *State) error {
 	meta.ActivitySeq = newActivitySeq
 	meta.ReadActivitySeq = newReadSeq
 	meta.PermissionMode = state.GetPermissionMode()
+
+	// The stamp stands only when this save puts nothing new anywhere - not the
+	// history, and not a field of the meta either. Pinning a title or switching
+	// mode is something persisted, and docs/features/sessions.md promises the
+	// listing follows it. SessionMeta is all scalars, so the two compare
+	// directly once the stamps are taken out of the question.
+	sameMeta := meta
+	sameMeta.UpdatedAt, sameMeta.CreatedAt = prevMeta.UpdatedAt, prevMeta.CreatedAt
+	preserveUpdatedAt := messagesUnchanged && metaExisted && sameMeta == prevMeta
+
+	updatedAt := time.Now().UTC().Format(time.RFC3339Nano)
+	if preserveUpdatedAt && strings.TrimSpace(prevMeta.UpdatedAt) != "" {
+		updatedAt = prevMeta.UpdatedAt
+	}
+	// The creation stamp is written once and then carried forward. A bundle that
+	// has a session.json but no createdAt was stored by an older build: leave it
+	// empty rather than backdating it to this save.
+	createdAt := strings.TrimSpace(prevMeta.CreatedAt)
+	if createdAt == "" && !metaExisted {
+		createdAt = updatedAt
+	}
+	meta.UpdatedAt, meta.CreatedAt = updatedAt, createdAt
+
 	if err := writeJSONAtomic(metaPath, meta); err != nil {
 		return err
 	}

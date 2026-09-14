@@ -1306,3 +1306,40 @@ func TestAnEditThatChangesNothingLeavesUpdatedAtAlone(t *testing.T) {
 		t.Fatalf("history came back with %d messages", len(second.Messages))
 	}
 }
+
+// docs/features/sessions.md: the stamp moves when something is persisted - a
+// turn, a pinned title - and listings sort by it. Preserving it must therefore
+// mean "this save wrote nothing new anywhere", not merely "the history did not
+// move": pinning a title changes only the meta, and the session still has to
+// rise in the listing.
+func TestPersistedMetaChangesMoveUpdatedAt(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*State)
+	}{
+		{"a pinned title", func(s *State) { s.SetTitlePinned("pinned by the operator") }},
+		{"the mode", func(s *State) { s.SetMode(string(ModePlan)) }},
+		{"the model override", func(s *State) { s.SetSelectedModelID("some/model") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fs, st := savedState(t, "sess_meta_"+strings.ReplaceAll(tc.name, " ", "_"), 4)
+			before, err := fs.ReadSnapshot(st.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(1100 * time.Millisecond)
+
+			tc.change(st)
+			if err := fs.Save(st); err != nil {
+				t.Fatal(err)
+			}
+			after, err := fs.ReadSnapshot(st.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if after.Meta.UpdatedAt == before.Meta.UpdatedAt {
+				t.Fatalf("%s was persisted but the session did not move in the listing", tc.name)
+			}
+		})
+	}
+}
