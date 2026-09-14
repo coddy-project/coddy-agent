@@ -403,3 +403,120 @@ func TestCodexProviderDefaultsBaseURL(t *testing.T) {
 		t.Errorf("baseURL = %q, want %q", p.baseURL, codexDefaultBaseURL)
 	}
 }
+
+// TestCodexReasoningSummaryPartsKeepTheirBoundary pins the separator between
+// reasoning summary parts. The Responses API sends one part per headed block and
+// each part opens with its own bold title, so concatenating the deltas raw runs
+// the titles into a single paragraph where the markdown of one swallows the
+// next: "Reviewing findings**Checking status**Reading the report". A blank line
+// on the part boundary keeps the blocks the model actually drew.
+func TestCodexReasoningSummaryPartsKeepTheirBoundary(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		sse(w, "response.reasoning_summary_part.added", map[string]any{"summary_index": 0})
+		sse(w, "response.reasoning_summary_text.delta", map[string]any{"delta": "**Reviewing findings**"})
+		sse(w, "response.reasoning_summary_part.added", map[string]any{"summary_index": 1})
+		sse(w, "response.reasoning_summary_text.delta", map[string]any{"delta": "**Checking status**"})
+		sse(w, "response.output_text.delta", map[string]any{"delta": "done"})
+	}))
+	defer srv.Close()
+
+	p := newCodexTestProvider(t, srv.URL)
+	var streamed strings.Builder
+	resp, err := p.Stream(context.Background(),
+		[]Message{{Role: RoleUser, Content: "hi"}}, nil,
+		func(c StreamChunk) { streamed.WriteString(c.ReasoningDelta) })
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+
+	const want = "**Reviewing findings**\n\n**Checking status**"
+	if resp.Reasoning != want {
+		t.Errorf("response reasoning = %q, want %q", resp.Reasoning, want)
+	}
+	// The live stream has to carry the same break, or the body redraws when the
+	// turn is persisted.
+	if streamed.String() != want {
+		t.Errorf("streamed reasoning = %q, want %q", streamed.String(), want)
+	}
+}
+
+// TestCodexReasoningLeadingPartAddsNoBlankLine keeps the first part flush: a
+// separator before any text would open the reasoning body with an empty line.
+func TestCodexReasoningLeadingPartAddsNoBlankLine(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		sse(w, "response.reasoning_summary_part.added", map[string]any{"summary_index": 0})
+		sse(w, "response.reasoning_summary_text.delta", map[string]any{"delta": "**Planning**"})
+	}))
+	defer srv.Close()
+
+	p := newCodexTestProvider(t, srv.URL)
+	resp, err := p.Stream(context.Background(),
+		[]Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	if resp.Reasoning != "**Planning**" {
+		t.Errorf("response reasoning = %q, want %q", resp.Reasoning, "**Planning**")
+	}
+}
+
+// TestCodexAnnouncesToolCallWhenItsNameIsKnown covers the silence the operator
+// sees while the model composes a tool call. The name arrives with
+// response.output_item.added and the arguments stream after it, which can take
+// seconds; announcing only on .done leaves the transcript with nothing to show
+// and a Stop button that looks like a hang.
+func TestCodexAnnouncesToolCallWhenItsNameIsKnown(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		sse(w, "response.output_item.added", map[string]any{
+			"output_index": 0,
+			"item": map[string]any{
+				"type": "function_call", "call_id": "call_1", "name": "run_command", "arguments": "",
+			},
+		})
+		sse(w, "response.function_call_arguments.delta", map[string]any{"delta": `{"command":"ls"}`})
+		sse(w, "response.output_item.done", map[string]any{
+			"item": map[string]any{
+				"type": "function_call", "call_id": "call_1", "name": "run_command", "arguments": `{"command":"ls"}`,
+			},
+		})
+	}))
+	defer srv.Close()
+
+	p := newCodexTestProvider(t, srv.URL)
+	var announced []ToolCall
+	resp, err := p.Stream(context.Background(),
+		[]Message{{Role: RoleUser, Content: "hi"}}, nil,
+		func(c StreamChunk) {
+			if c.ToolCallNamed != nil {
+				announced = append(announced, *c.ToolCallNamed)
+			}
+			if c.ToolCall != nil {
+				announced = append(announced, *c.ToolCall)
+			}
+		})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+
+	if len(announced) < 2 {
+		t.Fatalf("announced %d tool calls, want the name first and the complete call after: %+v", len(announced), announced)
+	}
+	first := announced[0]
+	if first.Name != "run_command" || first.ID != "call_1" {
+		t.Errorf("first announcement = %+v, want the name and id of the call", first)
+	}
+	if first.InputJSON != "" {
+		t.Errorf("first announcement carries arguments %q; they have not streamed yet", first.InputJSON)
+	}
+	// The call is executed from the response, so announcing early must not
+	// duplicate it there.
+	if len(resp.ToolCalls) != 1 {
+		t.Fatalf("response tool calls = %d, want 1: %+v", len(resp.ToolCalls), resp.ToolCalls)
+	}
+	if resp.ToolCalls[0].InputJSON != `{"command":"ls"}` {
+		t.Errorf("response tool call arguments = %q", resp.ToolCalls[0].InputJSON)
+	}
+}

@@ -4,6 +4,7 @@ import {
   buildPermissionToolPreview,
   buildToolCallPreview,
   permissionPromptToolName,
+  toolCallTargetIsPath,
   toolCallTargetText,
 } from "./permissionToolPreview";
 import type { CoddyPermissionPayload } from "./permissionTypes";
@@ -236,6 +237,31 @@ test("localizes the plan-to-agent transition preview", () => {
     header: "Агентный режим",
     kind: "plan_exit",
   });
+});
+
+test("toolCallTargetIsPath tells a path apart from a command, a pattern or a name", () => {
+  // Only a path may be respelt against the session directory; rewriting a command
+  // or a url would change what the row claims the call did.
+  for (const context of [
+    { title: "read", argsText: '{"path":"/repo/a/b.ts"}' },
+    { title: "write", argsText: '{"file_path":"/repo/a/b.ts"}' },
+    { title: "edit", argsText: '{"filePath":"/repo/a/b.ts"}' },
+    { title: "mv", argsText: '{"src":"/repo/a.ts","dst":"/repo/b.ts"}' },
+  ]) {
+    expect(toolCallTargetIsPath(context), context.title).toBe(true);
+  }
+
+  for (const context of [
+    { title: "run_command", argsText: '{"command":"/usr/bin/make docs"}' },
+    { title: "grep", argsText: '{"pattern":"/etc/hosts"}' },
+    { title: "glob", argsText: '{"pattern":"**/*.go"}' },
+    { title: "webfetch", argsText: '{"url":"https://coddy.dev/"}' },
+    { title: "load_skill", argsText: '{"name":"rpa-bugfix"}' },
+    { title: "spawn_agent", argsText: '{"agent":"explore"}' },
+    { title: "read", argsText: "" },
+  ]) {
+    expect(toolCallTargetIsPath(context), context.title).toBe(false);
+  }
 });
 
 test("toolCallTargetText names the one thing each call acts on", () => {

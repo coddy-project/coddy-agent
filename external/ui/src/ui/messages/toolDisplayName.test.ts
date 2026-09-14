@@ -39,3 +39,25 @@ test("an empty name falls back to the generic tool label", () => {
   setLocale("ru");
   expect(toolDisplayName("   ")).toBe("инструмент");
 });
+
+test("a backgrounded command says so on the row", () => {
+  const args = '{"command":"make test","background":true}';
+  expect(toolDisplayName("run_command", args)).toBe(
+    "running a command in the background",
+  );
+  setLocale("ru");
+  expect(toolDisplayName("run_command", args)).toBe("выполняю команду в фоне");
+});
+
+test("background is read from the arguments, not guessed", () => {
+  expect(toolDisplayName("run_command", '{"command":"make test"}')).toBe(
+    "running a command",
+  );
+  expect(
+    toolDisplayName("run_command", '{"command":"x","background":false}'),
+  ).toBe("running a command");
+  // Streaming arguments that have not closed yet must not change the label.
+  expect(toolDisplayName("run_command", '{"command":"x","backgro')).toBe(
+    "running a command",
+  );
+});

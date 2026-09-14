@@ -144,6 +144,7 @@ Mobile layout
 
 - On mobile the left rail becomes a top bar to preserve horizontal space; the top bar is **`position: fixed`** at the viewport top (**`shell-main`** is padded with **`--coddy-mobile-top-inset`**) while **`body`** scrolls the chat.
 - On mobile the brand stays on a single line.
+- On **`max-width: 1199px`** (phones and tablets alike) the **Settings** drawer keeps one inline inset, **14px**, for every band it stacks: the **SETTINGS** head, the lead paragraph, the section tiles, the opened section and the reload / save footer all start and end on the same edge. Check it by measuring `getBoundingClientRect().left` of `.settings-lead`, `.settings-tile` and `.settings-body` against `.settings.drawer` - the three must agree.
 
 Header links
 
@@ -505,6 +506,7 @@ The chat transcript renders a flat list of UI message blocks. Each block has a `
   - A single tool execution row, same disclosure chrome as **thinking** / **memory** (**chevron**, **`thinking-label`**, **`thinking-dur`** for duration or **`-`**).
   - The label is what the agent is doing, not the function it called: the tool id is translated through the **`tool.name.*`** catalogue (**`reading a file`** / **`читаю файл`**, **`running a command`** / **`выполняю команду`**). A tool with no entry - an MCP server's own tools - keeps its raw id. **`read`** serves files and directories from one tool, so it says **`browsing a directory`** / **`просматриваю директорию`** only when the arguments prove it (**`recursive`**, **`show_hidden`**, or a path ending in a separator).
   - Next to the label, **`.tool-summary-target`** names the one thing the call acts on - the path it reads, the command it runs, the skill it loads - from the same **`toolCallTargetText`** the live status line uses. Label, target and duration are one non-wrapping group (**`.thinking-head`**): the target is what gives way, clipped with an ellipsis and carrying the full value as its **`title`**, so a long path never wraps the row onto a second line.
+  - A path is shown **relative to the directory the work is in** when that spelling is shorter (`relativeToolTarget`). The roots are the session's directory and the worktrees of its workspace, deepest match first, so a file inside a worktree reads against that worktree rather than against the checkout it hangs under. Only real paths are rewritten, never a command, a pattern, a url or a name, and the absolute path stays in the row's `title` and in the expanded card. The live status line follows the same rule.
   - While **`pending`** or **`in_progress`**, the summary label uses a **`...`** suffix (for example **`reading a file...`**). **`startedAtMs`** drives a live duration until the tool finishes.
   - When a structured preview and a returned body are both present, they touch and share the outer corners as one continuous execution card; there is no gap, duplicate border, header or divider between them. The body carries no **Result** label: it is the only thing under the call.
   - A **failed** call says so on its summary row - **`.tool-failed-marker`** (**`data-testid="tool-failed-marker"`**) renders **(failed)** / **(ошибка)** in the theme's deletion red between the target and the duration - so the failure reads while the row is still collapsed, instead of being a coloured dot inside the expanded body.
@@ -539,8 +541,8 @@ Authoritative behaviour matches **`DESIGN.md`** tool timeline plus this checklis
 | Concern | Current behaviour |
 | --- | --- |
 | Component | **`ToolCallMessage.tsx`** - **`thinking-row coddy-tool-call-row`**, **`details.thinking-details.coddy-tool-details`**, **`data-testid`**: **`tool-details-{toolCallId}`** |
-| Summary | Same pattern as **thinking** (**`thinking-summary`**, **`thinking-left`**, **`thinking-chevron`**), with **`thinking-label`**, **`.tool-summary-target`**, the failure **`.tool-failed-marker`** and **`thinking-dur`** inside one non-wrapping **`.thinking-head`**; **`aria-label="Tool summary"`** |
-| Label | **`toolDisplayName`** (**`messages/toolDisplayName.ts`**) over the **`tool.name.*`** dictionary entries; unknown ids fall through to themselves |
+| Summary | Same pattern as **thinking** (**`thinking-summary`**, **`thinking-left`**, **`thinking-chevron`**), with **`thinking-label`**, **`.tool-summary-target`**, the failure **`.tool-failed-marker`** and **`thinking-dur`** inside one non-wrapping **`.thinking-head`**; on a backgrounded **`run_command`** that duration is the task's clock (**`data-testid="tool-bgtask-elapsed-<id>"`**); **`aria-label="Tool summary"`** |
+| Label | **`toolDisplayName`** (**`messages/toolDisplayName.ts`**) over the **`tool.name.*`** dictionary entries; unknown ids fall through to themselves. **`background: true`** on a **`run_command`** picks **`tool.name.run_command_background`** (*running a command in the background* / *выполняю команду в фоне*), read only from complete arguments |
 | Args | Shared **`PermissionToolPreview`** (no approval actions; the only copy control is the one inside a shell command block, **`data-testid="tool-preview-copy"`**); large **write** / **write_file**, **apply_patch**, and **edit** bodies keep measured **More…** (**`data-testid="tool-preview-more"`**) / **Less** (**`data-testid="tool-preview-less"`**) overflow controls |
 | Result | **`div.tool-call-result-card`**, **`aria-label="Tool result"`**, with inner **`pre.tool-result-pre`** and no header row; completed structured todo and **`plan_exit`** cards suppress redundant boilerplate results; a completed **`load_skill`** renders the skill's markdown instead (**`.tool-call-result-content--markdown`**) |
 | Markdown | Not used for tool **result** or **user** bubbles; **assistant** still uses Markdown per below |
@@ -595,15 +597,15 @@ Automated checks:
 
 Screenshot: `docs/assets/screenshot-fullhd-tasks.png`.
 
-The panel is docked **inside the session**, to the right of the transcript (`.bgtasks-panel`), not a shell drawer: a task belongs to the chat that started it. Routes are `#/s/<sessionId>/tasks` and `#/s/<sessionId>/tasks/<task_id>`, so a reload restores the chat and the panel together; closing writes `#/s/<sessionId>` back. Backed by `/coddy/sessions/{id}/background-tasks*` (see `docs/features/background-tasks.md`).
+The panel is docked **inside the session**, to the right of the transcript (`.bgtasks-panel`), not a shell drawer: a task belongs to the chat that started it. On `min-width: 1200px` the chat column yields only what the panel actually covers, so opening the panel on a wide window leaves the transcript and composer where they were. Routes are `#/s/<sessionId>/tasks` and `#/s/<sessionId>/tasks/<task_id>`, so a reload restores the chat and the panel together; closing writes `#/s/<sessionId>` back. Backed by `/coddy/sessions/{id}/background-tasks*` (see `docs/features/background-tasks.md`).
 
 - It **polls** rather than listening on SSE, because a background task outlives the turn that started it: every 2.5s while anything runs, every 15s otherwise. A poll against an unreachable server yields a normal error result, never an unhandled rejection.
-- **Running** is a section of cards (status dot, command, elapsed against the estimate, Stop). A progress bar appears only while running **and** when the model supplied `expected_seconds`. A subagent run (`kind: "agent"`, started by `spawn_agent`) is the same card with an `agent` badge after its `agent <name>: <description>` label. Its timing line shows no exit code (the pool's code for an agent run is synthetic; the status already says how it ended), and the same `taskTimingLine` feeds the detail pane and the transcript chip.
+- **Running tasks** are cards at the top of the panel, under no heading of their own (status dot, command, elapsed against the estimate, Stop): everything above the **Finished N** counter is running. A progress bar appears only while running **and** when the model supplied `expected_seconds`. A subagent run (`kind: "agent"`, started by `spawn_agent`) is the same card with an `agent` badge after its `agent <name>: <description>` label. Its timing line shows no exit code (the pool's code for an agent run is synthetic; the status already says how it ended), and the same `taskTimingLine` feeds the detail pane and the transcript chip.
 - **Finished N** is a counter; expanding it lists one line per task, capped at 40 rendered rows with a note naming what stays on disk; agent rows keep the badge. **Clear** drops the finished history for the session.
-- Ordering is purely by start time, newest first, in both sections.
+- Ordering is purely by start time, newest first, among the live cards and inside the finished history alike.
 - The **opener** is a chip at the end of the transcript (under the last message, above the composer), not a nav rail entry: `N running tasks` while work is in flight, `N background tasks` otherwise, and nothing at all in a chat that never ran one.
 - On `max-width: 1199px` the panel takes the screen and finished rows grow to a 40px touch target.
-- A transcript `run_command` row that started a task keeps a live chip in its **collapsed** summary and gains **Open in Tasks** / **Stop** when expanded, driven by the same poll.
+- A transcript `run_command` row that started a task reads like any other command row: the label says it is a background run (*running a command in the background*) and the duration slot carries the task's ticking clock instead of the call's meaningless `0ms`. The outcome is **not** on the row - status, estimate, exit code and error are read in the detail pane of this panel, which **Open in Tasks** opens. Expanding the row gives **Open in Tasks** and, while running, **Stop**: tab buttons attached to the bottom edge of the card above them. Driven by the same poll.
 - The **detail pane** of an agent task shows the subagent name instead of a command and an **Open transcript** button (disabled until the row carries `agent.session_id`) that opens the child session at `#/s/<child id>` the way a History pick does; the output pane keeps the child's live progress log, which ends with the `=== subagent report ===` block.
 
 Automated checks:
@@ -613,7 +615,7 @@ Automated checks:
 - **external/ui/src/ui/tasks/api.test.ts** (paths, headers, offline degradation)
 - **external/ui/src/ui/tasks/BackgroundTasksChip.test.tsx** (counts, singular/plural, history fallback, empty chat)
 - **external/ui/src/ui/tasks/backgroundTaskCss.test.ts** (chip tokens, panel docking, reduced motion, agent badge tokens)
-- **external/ui/src/ui/messages/ToolCallMessage.test.tsx** (transcript ticker chip)
+- **external/ui/src/ui/messages/ToolCallMessage.test.tsx** (the background row: its label, the task clock in the duration slot, and that no outcome leaks onto the row)
 
 ### Hooks
 

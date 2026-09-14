@@ -18,6 +18,20 @@ import (
 	"github.com/openai/openai-go/shared"
 )
 
+// reasoningPartSeparator is what has to be appended before a new summary part so
+// the parts read as the separate blocks they are. Nothing before the first part,
+// and never more than the one blank line a part boundary is worth.
+func reasoningPartSeparator(reasoning string) string {
+	switch {
+	case reasoning == "", strings.HasSuffix(reasoning, "\n\n"):
+		return ""
+	case strings.HasSuffix(reasoning, "\n"):
+		return "\n"
+	default:
+		return "\n\n"
+	}
+}
+
 // codexProvider implements Provider using the OpenAI Responses API served by the
 // Codex backend (backend-api/codex) with ChatGPT (OAuth) credentials read from
 // ~/.codex/auth.json. Credentials are resolved (and refreshed) per request.
@@ -99,10 +113,32 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 				fullContent += d
 				onChunk(StreamChunk{TextDelta: d})
 			}
+		case "response.reasoning_summary_part.added":
+			// Every summary part is a headed block of its own and opens with its
+			// own bold title. Concatenated raw they run into one paragraph where
+			// the markdown of one title swallows the next, so the boundary the
+			// model drew is kept as a blank line - in the stream as well, or the
+			// body redraws once the turn is persisted.
+			if sep := reasoningPartSeparator(reasoning); sep != "" {
+				reasoning += sep
+				onChunk(StreamChunk{ReasoningDelta: sep})
+			}
 		case "response.reasoning_summary_text.delta", "response.reasoning_summary.delta":
 			if d := ev.Delta.OfString; d != "" {
 				reasoning += d
 				onChunk(StreamChunk{ReasoningDelta: d})
+			}
+		case "response.output_item.added":
+			// The name of a tool call is known as soon as the model starts
+			// writing it, while its arguments are still streaming - which can
+			// take seconds. Announcing it here is what keeps the transcript from
+			// standing still with nothing but a Stop button on screen. The call
+			// is collected on .done, so this only names it.
+			if ev.Item.Type == "function_call" && strings.TrimSpace(ev.Item.Name) != "" {
+				onChunk(StreamChunk{ToolCallNamed: &ToolCall{
+					ID:   ev.Item.CallID,
+					Name: ev.Item.Name,
+				}})
 			}
 		case "response.output_item.done":
 			switch ev.Item.Type {

@@ -120,3 +120,12 @@ test("themeLabel resolves every known theme id", () => {
 test("themeLabel returns the id itself for unknown themes", () => {
   expect(themeLabel("nope")).toBe("nope");
 });
+
+test("Russian transcript rows name what the agent is doing, in the first person", () => {
+  setLocale("ru");
+  // The tool rows were written this way in #239; the thinking row is the same
+  // kind of row and must not fall back to a noun ("размышления").
+  expect(translate("messages.thinkingCompleted")).toBe("размышляю");
+  expect(translate("messages.thinkingInProgress")).toBe("размышляю…");
+  expect(translate("tool.name.run_command")).toBe("выполняю команду");
+});
