@@ -167,7 +167,9 @@ deliveries keep the highest observed version. After a server restart, only
 the latest fresh snapshot, with no intervening queue update, may lower that
 version (including to zero). Recovery also fences delayed pre-restart replies
 and notifications, so they cannot bring old rows back. This works even when
-the restarted server is already running a turn. Server activity stays separate
+the restarted server is already running a turn. A failed read or crossed snapshot is re-read, with up to three attempts
+and a short delay; a newer refresh or shutdown stops the old recovery. Queue reads have their own timeout budget, so a slow activity
+read cannot use it up. Server activity stays separate
 from the console's own prompt request: observing another client's turn does
 not start or finish that request. These controls do not subscribe to the
 other client's live transcript or transfer its permission/question dialogs.

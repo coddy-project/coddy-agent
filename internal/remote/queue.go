@@ -74,8 +74,8 @@ func (q *queueOrder) accept(version uint64, fence queueFence) bool {
 // publishQueue preserves the snapshot's version all the way to the console.
 // The legacy manager-shaped return values are receipts, not unversioned UI
 // replacements: the same queue may already have advanced on the event stream.
-func (h *Handler) publishQueue(sessionID string, out queueResponse, fence queueFence) {
-	h.publishQueueUpdate(sessionID, acp.MessageQueueUpdate{
+func (h *Handler) publishQueue(sessionID string, out queueResponse, fence queueFence) bool {
+	return h.publishQueueUpdate(sessionID, acp.MessageQueueUpdate{
 		SessionUpdate: acp.UpdateTypeMessageQueue,
 		SessionID:     sessionID,
 		Messages:      session.QueuedMessagesWire(out.Messages),
@@ -83,30 +83,31 @@ func (h *Handler) publishQueue(sessionID string, out queueResponse, fence queueF
 	}, fence)
 }
 
-func (h *Handler) publishQueueUpdate(sessionID string, update acp.MessageQueueUpdate, fence queueFence) {
+func (h *Handler) publishQueueUpdate(sessionID string, update acp.MessageQueueUpdate, fence queueFence) bool {
 	h.mu.Lock()
 	st, sender := h.sessions[sessionID], h.sender
 	if h.controlCtx.Err() != nil || (fence.state != nil && st != fence.state) {
 		h.mu.Unlock()
-		return
+		return false
 	}
 	control := QueueControlUpdate{MessageQueueUpdate: update}
 	if st != nil {
 		if !st.queue.accept(update.Version, fence) {
 			h.mu.Unlock()
-			return
+			return false
 		}
 		control.Epoch, control.Revision = st.queue.epoch, st.queue.revision
 	}
 	h.mu.Unlock()
 	if sender == nil || h.controlCtx.Err() != nil {
-		return
+		return true
 	}
 	if controls, ok := sender.(controlUpdateSender); ok && st != nil {
 		_ = controls.SendControlUpdate(sessionID, control)
 	} else {
 		_ = sender.SendSessionUpdate(sessionID, update)
 	}
+	return true
 }
 
 // queuePath is the queue of one session on the remote server.

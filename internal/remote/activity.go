@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 )
@@ -63,20 +64,52 @@ func (h *Handler) RefreshSessionState(sessionID string) {
 			}
 		}
 
-		var queue queueResponse
-		if err := h.getJSON(ctx, queuePath(sessionID), &queue); err != nil {
-			if !isNotFound(err) && ctx.Err() == nil {
-				h.log.Warn("remote session queue", "session", sessionID, "error", err)
+		cancel()
+		h.refreshQueue(sessionID, fence)
+	}()
+}
+
+// Recovery has its own timeout: a slow activity read must not consume the
+// queue's entire budget. Retries renew the delivery revision, but keep the
+// owner and epoch fixed so they never supersede a newer refresh.
+func (h *Handler) refreshQueue(sessionID string, fence queueFence) {
+	ctx, cancel := context.WithTimeout(h.controlCtx, restTimeout)
+	defer cancel()
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(100 * time.Millisecond):
 			}
-			return
 		}
 		h.mu.Lock()
-		current := h.sessions[sessionID] == st && ctx.Err() == nil
-		h.mu.Unlock()
-		if current {
-			h.publishQueue(sessionID, queue, fence)
+		st := h.sessions[sessionID]
+		current := st == fence.state && st != nil && ctx.Err() == nil &&
+			st.queue.snapshot == fence.snapshot && st.queue.epoch == fence.epoch
+		if current && attempt > 0 {
+			fence.revision = st.queue.revision
 		}
-	}()
+		h.mu.Unlock()
+		if !current {
+			return
+		}
+		var queue queueResponse
+		err := h.getJSON(ctx, queuePath(sessionID), &queue)
+		if err == nil && h.publishQueue(sessionID, queue, fence) {
+			return
+		}
+		if isNotFound(err) || ctx.Err() != nil {
+			return
+		}
+		if attempt == 2 {
+			if err != nil {
+				h.log.Warn("remote session queue", "session", sessionID, "error", err)
+			} else {
+				h.log.Warn("remote session queue snapshot remained stale", "session", sessionID)
+			}
+		}
+	}
 }
 
 func (h *Handler) sessionActivity(ctx context.Context, sessionID string) (bool, error) {

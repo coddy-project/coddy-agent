@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"testing/synctest"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 )
@@ -18,11 +19,15 @@ func (f queueRecoveryTransport) RoundTrip(r *http.Request) (*http.Response, erro
 
 // Each queue read waits for its own answer channel; synctest.Wait establishes
 // that the hydration goroutine has finished even when a stale answer is dropped.
-func queueRecoveryHandler(t *testing.T) (*Handler, *controlSender, chan chan string) {
+func queueRecoveryHandler(t *testing.T, expireActivity ...bool) (*Handler, *controlSender, chan chan string) {
 	t.Helper()
 	reads := make(chan chan string, 4)
 	transport := queueRecoveryTransport(func(r *http.Request) (*http.Response, error) {
 		body := `{"sessionId":"sess_shared","turnActive":true}`
+		if len(expireActivity) > 0 && expireActivity[0] && strings.HasSuffix(r.URL.Path, "/activity") {
+			<-r.Context().Done()
+			return nil, r.Context().Err()
+		}
 		if strings.HasSuffix(r.URL.Path, "/queue") {
 			answer := make(chan string, 1)
 			reads <- answer
@@ -32,7 +37,11 @@ func queueRecoveryHandler(t *testing.T) (*Handler, *controlSender, chan chan str
 				return nil, r.Context().Err()
 			}
 		}
-		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+		status := http.StatusOK
+		if body == "unavailable" {
+			status, body = http.StatusServiceUnavailable, `{"message":"loading"}`
+		}
+		return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
 	})
 	h, err := NewHandler(Options{BaseURL: "http://remote.invalid", HTTPClient: &http.Client{Transport: transport}, Log: slog.New(slog.DiscardHandler)})
 	if err != nil {
@@ -82,9 +91,11 @@ func TestRemoteQueueRecoverySnapshotCrossedByLive(t *testing.T) {
 		answer := recoveryRead(t, reads)
 		h.applyEventFrame(sseFrame{event: "message_queue", data: `{"sessionId":"sess_shared","messages":[{"id":"q_new"}],"version":101}`})
 		answer <- `{"messages":[],"version":0}`
+		// The old snapshot stays rejected; the new read returns current state.
+		retryRecoveryRead(t, reads) <- `{"messages":[{"id":"q_new"}],"version":101}`
 		synctest.Wait()
 		updates := recoveryQueueUpdates(sender)
-		if len(updates) != 1 || updates[0].Version != 101 {
+		if len(updates) != 2 || updates[0].Version != 101 || updates[1].Version != 101 {
 			t.Fatalf("snapshot crossed by a newer live update was published: %+v", updates)
 		}
 	})
@@ -133,6 +144,129 @@ func TestRemoteQueueRecoveryKeepsACPBoundary(t *testing.T) {
 			if !ok || q.Version != version {
 				t.Fatalf("ACP received %T %+v, want public queue version %d", sender.updates[i], sender.updates[i], version)
 			}
+		}
+	})
+}
+
+func retryRecoveryRead(t *testing.T, reads chan chan string) chan string {
+	t.Helper()
+	select {
+	case answer := <-reads:
+		return answer
+	case <-time.After(time.Second):
+		t.Fatal("queue recovery was not retried")
+		return nil
+	}
+}
+
+func TestRemoteQueueRecoveryRetriesCrossedLowFrame(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h, sender, reads := queueRecoveryHandler(t)
+		h.applyEventFrame(sseFrame{event: "message_queue", data: `{"sessionId":"sess_shared","messages":[{"id":"q_old"}],"version":100}`})
+		recoveryQueueUpdates(sender)
+		h.RefreshSessionState("sess_shared")
+		first := recoveryRead(t, reads)
+		h.applyEventFrame(sseFrame{event: "message_queue", data: `{"sessionId":"sess_shared","messages":[{"id":"q_new"}],"version":1}`})
+		first <- `{"messages":[{"id":"q_new"}],"version":1}`
+		retryRecoveryRead(t, reads) <- `{"messages":[{"id":"q_new"}],"version":1}`
+		synctest.Wait()
+		updates := recoveryQueueUpdates(sender)
+		if len(updates) != 1 || updates[0].Version != 1 || updates[0].Messages[0].ID != "q_new" {
+			t.Fatalf("crossed low frame left old queue state: %+v", updates)
+		}
+	})
+}
+
+func TestRemoteQueueRecoveryRetriesFailedRead(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h, sender, reads := queueRecoveryHandler(t)
+		h.applyEventFrame(sseFrame{event: "message_queue", data: `{"sessionId":"sess_shared","messages":[{"id":"q_old"}],"version":100}`})
+		recoveryQueueUpdates(sender)
+		h.RefreshSessionState("sess_shared")
+		recoveryRead(t, reads) <- "unavailable"
+		retryRecoveryRead(t, reads) <- `{"messages":[],"version":0}`
+		synctest.Wait()
+		updates := recoveryQueueUpdates(sender)
+		if len(updates) != 1 || updates[0].Version != 0 || len(updates[0].Messages) != 0 {
+			t.Fatalf("failed read left old queue state: %+v", updates)
+		}
+	})
+}
+
+func TestRemoteQueueRecoveryRetryStopsOnCloseOrNewRead(t *testing.T) {
+	for _, closeHandler := range []bool{false, true} {
+		t.Run(map[bool]string{false: "superseded", true: "closed"}[closeHandler], func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				h, _, reads := queueRecoveryHandler(t)
+				h.RefreshSessionState("sess_shared")
+				recoveryRead(t, reads) <- "unavailable"
+				synctest.Wait()
+				if closeHandler {
+					h.Close()
+				} else {
+					h.RefreshSessionState("sess_shared")
+					recoveryRead(t, reads) <- `{"messages":[],"version":0}`
+				}
+				// Advance the virtual clock past the retry delay.
+				time.Sleep(time.Second)
+				synctest.Wait()
+				if len(reads) != 0 {
+					t.Fatal("superseded or closed recovery issued another request")
+				}
+			})
+		})
+	}
+}
+
+func TestRemoteQueueRecoveryFailedReadsAreBounded(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h, _, reads := queueRecoveryHandler(t)
+		h.RefreshSessionState("sess_shared")
+		recoveryRead(t, reads) <- "unavailable"
+		for range 2 {
+			retryRecoveryRead(t, reads) <- "unavailable"
+		}
+		time.Sleep(time.Second)
+		synctest.Wait()
+		if len(reads) != 0 {
+			t.Fatal("failed queue reads exceeded the retry budget")
+		}
+	})
+}
+
+func TestRemoteQueueRecoveryLowFrameAndOldMutationStillRetry(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h, sender, reads := queueRecoveryHandler(t)
+		h.applyEventFrame(sseFrame{event: "message_queue", data: `{"sessionId":"sess_shared","messages":[{"id":"q_old"}],"version":100}`})
+		old := h.queueRequestFence("sess_shared")
+		recoveryQueueUpdates(sender)
+		h.RefreshSessionState("sess_shared")
+		answer := recoveryRead(t, reads)
+		h.applyEventFrame(sseFrame{event: "message_queue", data: `{"sessionId":"sess_shared","messages":[{"id":"q_new"}],"version":1}`})
+		h.publishQueue("sess_shared", queueResponse{Version: 101}, old)
+		answer <- `{"messages":[{"id":"q_new"}],"version":1}`
+		retryRecoveryRead(t, reads) <- `{"messages":[{"id":"q_new"}],"version":1}`
+		synctest.Wait()
+		updates := recoveryQueueUpdates(sender)
+		if len(updates) == 0 || updates[len(updates)-1].Version != 1 {
+			t.Fatalf("old mutation suppressed restart recovery: %+v", updates)
+		}
+	})
+}
+
+func TestRemoteQueueRecoveryHasItsOwnTimeoutBudget(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h, sender, reads := queueRecoveryHandler(t, true)
+		h.RefreshSessionState("sess_shared")
+		select {
+		case answer := <-reads:
+			answer <- `{"messages":[],"version":0}`
+		case <-time.After(restTimeout + time.Second):
+			t.Fatal("activity timeout prevented queue hydration")
+		}
+		synctest.Wait()
+		if updates := recoveryQueueUpdates(sender); len(updates) != 1 {
+			t.Fatalf("queue inherited the expired activity context: %+v", updates)
 		}
 	})
 }

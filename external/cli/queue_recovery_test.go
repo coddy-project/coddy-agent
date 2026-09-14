@@ -4,11 +4,13 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/remote"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -195,4 +197,30 @@ func TestRemoteControlsQueueRepeatedReadyKeepsHighWater(t *testing.T) {
 	}
 	f.syncEvents(t, controlQueueFrame(sharedControlSession, []session.QueuedMessage{{ID: "q_stale"}}, 99))
 	assertRecoveryQueue(t, f, 100, "q_old")
+}
+
+func TestRemoteControlsQueueRecoveryCrossedByLowFrame(t *testing.T) {
+	f := restartControlStand(t)
+	f.mu.Lock()
+	locked := true
+	defer func() {
+		if locked {
+			f.mu.Unlock()
+		}
+	}()
+	f.rows = []session.QueuedMessage{{ID: "q_after_restart", Text: "new server"}}
+	f.version = 1
+	previous := f.app.remoteActivityRevision
+	f.h.RefreshSessionState(sharedControlSession)
+	// REST is held by the stand mutex; the event reader is independent.
+	f.events <- controlQueueFrame(sharedControlSession, f.rows, 1)
+	f.events <- controlFrame("turn_started", fmt.Sprintf(`{"sessionId":%q}`, sharedControlSession))
+	pumpControls(t, f.app, func(msg updateMsg) bool {
+		update, ok := msg.update.(remote.ActivityUpdate)
+		return ok && update.Revision > previous
+	})
+	f.mu.Unlock()
+	locked = false
+	awaitRecoveryQueue(t, f, 1)
+	assertRecoveryQueue(t, f, 1, "q_after_restart")
 }

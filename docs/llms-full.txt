@@ -3508,7 +3508,9 @@ deliveries keep the highest observed version. After a server restart, only
 the latest fresh snapshot, with no intervening queue update, may lower that
 version (including to zero). Recovery also fences delayed pre-restart replies
 and notifications, so they cannot bring old rows back. This works even when
-the restarted server is already running a turn. Server activity stays separate
+the restarted server is already running a turn. A failed read or crossed snapshot is re-read, with up to three attempts
+and a short delay; a newer refresh or shutdown stops the old recovery. Queue reads have their own timeout budget, so a slow activity
+read cannot use it up. Server activity stays separate
 from the console's own prompt request: observing another client's turn does
 not start or finish that request. These controls do not subscribe to the
 other client's live transcript or transfer its permission/question dialogs.
@@ -8263,7 +8265,7 @@ queued for the next step (2) · /queue to manage
 
 `/queue` lists them, `/queue drop <n>` takes one back, `/queue clear` empties the queue. Pressing **escape** cancels the turn, and with it everything that was waiting. The same works against a remote server (`--remote`): the console talks to the queue routes below, and subscribes to the server's event stream, so a follow-up someone queued in a browser shows up above the console's input too.
 
-In a remote console, a turn started by another client also accepts queued input and Escape cancellation. The console tracks that server activity separately from its own prompt request. After a server restart, the latest fresh queue snapshot can recover a lower version (including zero) only if no queue update crosses the read; delayed pre-recovery replies and notifications cannot restore old rows. Recovery does not require an idle turn. This control support does not attach the console to the other client's live transcript or share its permission and question dialogs.
+In a remote console, a turn started by another client also accepts queued input and Escape cancellation. The console tracks that server activity separately from its own prompt request. After a server restart, the latest fresh queue snapshot can recover a lower version (including zero) only if no queue update crosses the read; delayed pre-recovery replies and notifications cannot restore old rows. Recovery does not require an idle turn. A failed read or crossed snapshot is re-read (up to three attempts, with a short delay); a newer refresh or client shutdown stops the old recovery. Queue reads have a separate timeout budget from activity reads. This control support does not attach the console to the other client's live transcript or share its permission and question dialogs.
 
 ## Over HTTP
 
