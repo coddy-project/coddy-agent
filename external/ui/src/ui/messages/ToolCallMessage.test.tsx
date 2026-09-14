@@ -1249,17 +1249,20 @@ test("the row names what the call acts on, clipped rather than wrapped", () => {
   expect(screen.getByText("reading a file")).toHaveClass("thinking-label");
 });
 
-test("the row spells a path against the session directory, the tooltip keeps it whole", () => {
-  // A worktree session repeats the same long prefix on every row, which pushes the
-  // file name past the ellipsis. The row shows what tells the files apart; the
-  // absolute path stays one hover (and one click) away.
+test("the row spells a path against the worktree it lives in, the tooltip keeps it whole", () => {
+  // Work inside a worktree repeats the path to that worktree on every row, which
+  // pushes the file name past the ellipsis. The row shows what tells the files
+  // apart; the absolute path stays one hover (and one click) away.
   render(
     <ToolCallMessage
       toolCallId="tc-relative"
       title="read"
       kind="read"
       status="completed"
-      sessionCwd="/storage/Repository/coddy/coddy-agent"
+      pathRoots={[
+        "/storage/Repository/coddy/coddy-agent",
+        "/storage/Repository/coddy/coddy-agent/.coddy/worktrees/fix-session-stop-queue",
+      ]}
       argsText={JSON.stringify({
         path: "/storage/Repository/coddy/coddy-agent/.coddy/worktrees/fix-session-stop-queue/DESIGN.md",
       })}
@@ -1270,9 +1273,7 @@ test("the row spells a path against the session directory, the tooltip keeps it 
   const target = screen.getByTestId("tool-summary-target");
   // Exact: the absolute path contains the relative one, so a substring match
   // would pass without the rewrite ever happening.
-  expect(target.textContent).toBe(
-    ".coddy/worktrees/fix-session-stop-queue/DESIGN.md",
-  );
+  expect(target.textContent).toBe("DESIGN.md");
   expect(target).toHaveAttribute(
     "title",
     "/storage/Repository/coddy/coddy-agent/.coddy/worktrees/fix-session-stop-queue/DESIGN.md",
@@ -1286,7 +1287,7 @@ test("a command is never respelt against the session directory", () => {
       title="run_command"
       kind="run_command"
       status="completed"
-      sessionCwd="/storage/Repository/coddy/coddy-agent"
+      pathRoots={["/storage/Repository/coddy/coddy-agent"]}
       argsText={JSON.stringify({
         command: "/storage/Repository/coddy/coddy-agent/scripts/checks.sh",
       })}

@@ -101,8 +101,9 @@ export function ChatScreen(props: {
   onOpenBackgroundTasks?: () => void;
   onOpenBackgroundTask?: (taskId: string) => void;
   onStopBackgroundTask?: (taskId: string) => void;
-  /** Directory this session works in; tool rows spell paths against it. */
-  sessionCwd?: string;
+  /** Roots this session works in - its own directory, then its worktrees -
+   *  which tool rows spell paths against. */
+  pathRoots?: readonly string[];
   /** Workspace context chips (folder / branch / worktree) above the composer field. */
   workspaceCtx?: import("./workspaceContext").WorkspaceContext | null;
   worktreePref?: boolean;
@@ -419,8 +420,8 @@ export function ChatScreen(props: {
                 items={props.items}
                 sessionId={props.sessionId}
                 generating={props.generating === true}
-                {...(props.sessionCwd !== undefined
-                  ? { sessionCwd: props.sessionCwd }
+                {...(props.pathRoots !== undefined
+                  ? { pathRoots: props.pathRoots }
                   : {})}
                 {...(props.onRetryLast
                   ? { onRetryLast: props.onRetryLast }

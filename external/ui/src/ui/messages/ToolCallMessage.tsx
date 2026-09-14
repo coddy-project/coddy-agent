@@ -113,8 +113,9 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   backgroundNowMs?: number | undefined;
   onOpenBackgroundTask?: ((taskId: string) => void) | undefined;
   onStopBackgroundTask?: ((taskId: string) => void) | undefined;
-  /** Directory this session works in; the row spells paths against it. */
-  sessionCwd?: string | undefined;
+  /** Roots this session works in - its own directory, then its worktrees -
+   *  deepest match first when the row spells a path. */
+  pathRoots?: readonly string[] | undefined;
 }) {
   const { t } = useT();
   const preview = useMemo(
@@ -178,9 +179,9 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   const summaryTarget = useMemo(
     () =>
       summaryTargetFull && toolCallTargetIsPath(targetContext)
-        ? relativeToolTarget(summaryTargetFull, props.sessionCwd || "")
+        ? relativeToolTarget(summaryTargetFull, props.pathRoots || [])
         : summaryTargetFull,
-    [props.sessionCwd, summaryTargetFull, targetContext],
+    [props.pathRoots, summaryTargetFull, targetContext],
   );
   const isPatchTool = rawNameLower === "apply_patch";
   const isWriteTool =

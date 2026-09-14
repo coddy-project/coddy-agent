@@ -243,7 +243,7 @@ type MemoryItem = Extract<TranscriptItem, { type: "memory_copilot" }>;
  */
 export function deriveLiveStatus(
   items: readonly TranscriptItem[],
-  sessionCwd: string = "",
+  pathRoots: readonly string[] = [],
 ): LiveStatus {
   let permissionPending = false;
   let questionPending = false;
@@ -338,7 +338,7 @@ export function deriveLiveStatus(
     // directory, so the line spends its width on what tells files apart.
     const target =
       (named && toolCallTargetIsPath(context)
-        ? relativeToolTarget(named, sessionCwd)
+        ? relativeToolTarget(named, pathRoots)
         : named) || (key === "status.tool" ? rawName : "");
     return {
       kind: "tool",
