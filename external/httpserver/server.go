@@ -565,6 +565,8 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer unlock()
+		profileCtx, cancelProfile := profileTurnContext(ctx, st, req.Stream)
+		defer cancelProfile()
 		rel := s.beginComposerRelay(sessionID)
 		defer s.endComposerRelay(sessionID, rel)
 		if req.Stream {
@@ -577,13 +579,13 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			bridge = NewRelaySender(s.activeCfg(), rel, model)
 		}
 		wireBridgeSession(bridge, st)
-		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, DetachFromRequest: req.Stream}
+		promptOpts := &session.PromptRunOpts{SkipTurnLock: true}
 		beforeSnap := session.TakeWorkspaceSnapshot(st.GetCWD())
 		// A model configured with stream: false emits nothing until its whole answer is
 		// generated, so the stream has to announce it is still alive by itself.
 		stopKeepalive := bridge.StartIdleKeepalive()
 		defer stopKeepalive()
-		promptRes, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
+		promptRes, err := s.mgr.HandleSessionPromptWithSender(profileCtx, acp.SessionPromptParams{
 			SessionID:  sessionID,
 			Prompt:     prompt,
 			ImageParts: promptImages,
@@ -718,6 +720,18 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// profileTurnContext makes Stop effective as soon as HTTP owns the turn lock,
+// before headers, workspace preparation and manager admission. Streaming calls
+// detach exactly once here; detaching again in the manager would lose an early Stop.
+func profileTurnContext(ctx context.Context, st *session.State, stream bool) (context.Context, context.CancelFunc) {
+	if stream {
+		ctx = context.WithoutCancel(ctx)
+	}
+	turnCtx, cancel := context.WithCancel(ctx)
+	st.SetCancel(cancel)
+	return turnCtx, cancel
 }
 
 func (s *Server) resolveSession(ctx context.Context, r *http.Request) (st *session.State, id string, createdNew bool, err error) {
@@ -1117,6 +1131,8 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer unlock()
+		profileCtx, cancelProfile := profileTurnContext(ctx, st, body.Stream)
+		defer cancelProfile()
 		rel := s.beginComposerRelay(sid)
 		defer s.endComposerRelay(sid, rel)
 		if body.Stream {
@@ -1126,7 +1142,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			bridge = NewRelaySender(s.activeCfg(), rel, model)
 		}
 		wireBridgeSession(bridge, st)
-		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, DetachFromRequest: body.Stream}
+		promptOpts := &session.PromptRunOpts{SkipTurnLock: true}
 		beforeSnap2 := session.TakeWorkspaceSnapshot(st.GetCWD())
 		promptParams := acp.SessionPromptParams{
 			SessionID: sid,
@@ -1143,7 +1159,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		// wire until it finishes, and idle proxies drop a stream that says nothing.
 		stopKeepalive := bridge.StartIdleKeepalive()
 		defer stopKeepalive()
-		promptRes, err := s.mgr.HandleSessionPromptWithSender(ctx, promptParams, bridge, promptOpts)
+		promptRes, err := s.mgr.HandleSessionPromptWithSender(profileCtx, promptParams, bridge, promptOpts)
 		stopKeepalive()
 		if err != nil {
 			s.log.Error("responses prompt", "error", err)

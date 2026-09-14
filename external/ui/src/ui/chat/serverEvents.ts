@@ -17,6 +17,8 @@ export type ServerEventsHandlers = {
    *  follow-up onto the turn it is watching. Carries the whole queue and its
    *  version; the caller keeps the highest version it has seen. */
   onMessageQueue?: (sessionId: string, queue: QueuedMessageEvent) => void;
+  /** The connect/reconnect replay is complete; reconcile activity and queues over REST. */
+  onReady?: () => void;
   /** Called whenever the subscription goes up or down, so callers can fall back to polling. */
   onConnectedChange?: (connected: boolean) => void;
   signal: AbortSignal;
@@ -133,6 +135,10 @@ export async function subscribeServerEvents(
           carry,
         );
         for (const ev of events) {
+          if (ev.event === "ready") {
+            p.onReady?.();
+            continue;
+          }
           if (ev.event === "provider_usage") {
             const parsed = providerUsageOf(ev.data);
             if (parsed) p.onProviderUsage?.(parsed.sessionId, parsed.usage);

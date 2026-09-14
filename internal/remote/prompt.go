@@ -84,8 +84,11 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	// question round-trip.
 	turnCtx, cancelTurn := context.WithCancel(ctx)
 	defer cancelTurn()
-	h.beginTurn(st, cancelTurn)
-	defer h.endTurn(st)
+	owned, err := h.beginTurn(st, cancelTurn, sender)
+	if err != nil {
+		return nil, err
+	}
+	defer h.endTurn(st, owned)
 
 	body := responsesRequest{Model: mode, Input: promptInput(params.Prompt), Stream: true}
 	if selected != "" {
@@ -126,7 +129,7 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 
 	res, err := h.hc.Do(req)
 	if err != nil {
-		if h.endTurn(st) || ctx.Err() != nil {
+		if h.endTurn(st, owned) || ctx.Err() != nil {
 			return &acp.SessionPromptResult{StopReason: acp.StopReasonCancelled}, nil
 		}
 		return nil, fmt.Errorf("remote coddy %s: %w", h.opts.BaseURL, err)
@@ -143,7 +146,7 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 
 	turn := &turnStream{h: h, ctx: turnCtx, sessionID: sid, sender: sender}
 	streamErr := readSSE(res.Body, turn.onFrame)
-	cancelled := h.endTurn(st)
+	cancelled := h.endTurn(st, owned)
 	// The turn spent quota; the server refreshed its snapshot when the turn
 	// released, so a pull now joins that fetch (or learns it was deferred).
 	// It runs aside: the turn's result never waits for the hub.

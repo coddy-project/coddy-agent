@@ -156,10 +156,35 @@ queued for the next step (2) · /queue to manage
 
 `/queue` lists them, `/queue drop <n>` takes one back, `/queue clear` empties
 the queue, and `escape` cancels the turn together with everything queued for
-it. The same works under `--remote`: the console talks to the server's queue
-routes, so a follow-up written here is read by the turn running there, and it
-subscribes to the server's event stream, so a message someone queued in a
-browser on the same session appears above this input as well.
+it. Under `--remote`, these controls also work for a turn another client
+started on the same `coddy serve`: **Enter** queues text for that turn and
+**Escape** requests cancellation. A successful cancel response acknowledges
+the request; the server can still be releasing the turn.
+
+The remote console reads the session's activity and queue on open and
+reconnect, and receives changes through `GET /coddy/events`. Ordinary queue
+deliveries keep the highest observed version. After a server restart, only
+the latest fresh snapshot, with no intervening queue update, may lower that
+version (including to zero). Recovery also fences delayed pre-restart replies
+and notifications, so they cannot bring old rows back. This works even when
+the restarted server is already running a turn. Server activity stays separate
+from the console's own prompt request: observing another client's turn does
+not start or finish that request. These controls do not subscribe to the
+other client's live transcript or transfer its permission/question dialogs.
+
+If a turn ends between Enter and queue admission, the console restores the
+submitted text alongside any newer draft rather than automatically starting
+another prompt. Send it again once the session is idle.
+
+![A remote console with Stop and queue controls for an externally started turn](../assets/message-queue/stop-queue-remote-tui-dark-1280.png)
+
+*A remote console controlling an externally started turn: Enter queues a follow-up and Escape requests cancellation.*
+
+This shared queue requires clients of the same server process. A bare local
+console or local ACP process that shares only the sessions directory has its
+own queue and answer channels; cross-process cancellation uses the bundle's
+cancel marker. One-shot `-p/--prompt` callers retain their existing prompt
+and non-interactive permission/question behavior.
 
 `/reasoning` without an argument opens a selector with the active model's
 available levels; selecting a value persists that level on the session.
@@ -304,8 +329,9 @@ token comes from `--remote-token` or `CODDY_REMOTE_TOKEN`; tokens are
 deliberately never read from config.yaml. The same pair of flags works on
 `coddy acp`, so an ACP editor can drive a remote coddy too.
 
-Remotely, turns execute on the server in its workspace: the transcript, tool
-boxes, thinking, plan updates, token and context stats stream back over SSE;
+Turns execute on the server in its workspace. For a turn this console starts,
+the transcript, tool boxes, thinking, plan updates, token and context stats
+stream back over SSE;
 permission and question modals answer through the server's REST endpoints;
 `ctrl+o` fetches full tool output from the server. The model selector lists
 the remote catalog (`GET /v1/models`), `/mode` picks the agent, plan, or ask
@@ -496,6 +522,17 @@ comparison, as described under **Visual model**.
 - Live e2e: `./examples/test_cli.sh` drives the real binary in a pty
   (pexpect + pyte, Linux-only) against `neuraldeep/qwen3.8-27b` by default —
   see `examples/README.md`.
+
+Stop/queue regression checklist for the interactive `--remote` console:
+
+- Open a session whose turn another client started: Enter queues the text
+  instead of attempting a second prompt; Escape sends cancellation.
+- Reconnect while follow-ups are waiting: the queue read restores them
+  without another mutation, and older HTTP/SSE versions do not replace newer ones.
+- Observe an external turn starting or ending: its activity does not complete
+  the console's own prompt request or attach a foreign transcript reader.
+- Confirm that one-shot `-p` calls and permission/question modals retain their
+  existing ownership and handling.
 
 ## Known v1 divergences from pi
 

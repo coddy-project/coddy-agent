@@ -47,6 +47,12 @@ func (s *sender) SendSessionUpdate(sessionID string, update interface{}) error {
 	return nil
 }
 
+// SendControlUpdate opts the console into backend-local control notifications.
+// These share the UI loop's channel but are not part of acp.UpdateSender.
+func (s *sender) SendControlUpdate(sessionID string, update any) error {
+	return s.SendSessionUpdate(sessionID, update)
+}
+
 // RequestPermission blocks the calling turn worker until the operator picks
 // an option in the modal (or bypass mode short-circuits). The session-level
 // permission override wins over the YAML default, mirroring the agent's own

@@ -4,6 +4,7 @@ package cli
 
 import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/remote"
 )
 
 // applyLoopMessage applies one queued update to the UI tree. Runs on the UI
@@ -18,9 +19,15 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		if u.sessionID == a.turnSessionID {
 			a.turnActive = false
 			a.stopSpinner()
-			// The queue belonged to that turn: nothing is waiting any more,
-			// whether it was read, dropped with a Stop, or lost to an error.
-			a.queue.SetRows(nil)
+			// A remote EOF/error only ends our request. The server may still
+			// own a turn and queue (or already have admitted another client).
+			if u.sessionID == a.sessionID {
+				if a.remoteURL != "" {
+					a.refreshRemoteControls()
+				} else {
+					a.queue.SetRows(nil)
+				}
+			}
 			a.stopUsageResume()
 			// A permission or question modal belonging to this turn is now
 			// orphaned (the worker already unblocked via ctx cancellation).
@@ -131,6 +138,21 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 	}
 
 	switch u := msg.update.(type) {
+	case remote.QueueControlUpdate:
+		a.queue.ApplyControl(u)
+	case remote.ActivityUpdate:
+		if u.Revision >= a.remoteActivityRevision {
+			a.remoteActivityRevision = u.Revision
+			a.remoteTurnActive = u.TurnActive
+		}
+	case remote.CancelUpdate:
+		if u.Error != "" {
+			a.appendStatus(roleWarning, "Could not stop the turn: "+u.Error+" (escape to retry)")
+		} else {
+			a.appendStatus(roleDim, "Stop requested")
+		}
+	case queueResult:
+		a.applyQueueResult(u)
 	case acp.MessageChunkUpdate:
 		a.applyMessageChunk(u)
 	case acp.ToolCallUpdate:
