@@ -38,7 +38,8 @@ Environment:
 - ``COMPACT_MODEL`` - ``provider/api-model-id`` (default ``neuraldeep/qwen3.8-27b``).
 - ``COMPACT_API_BASE`` - the provider's OpenAI-compatible base (default ``https://api.neuraldeep.ru/v1``).
 - ``COMPACT_TURNS`` - most turns to wait for the compaction (default 4).
-- ``COMPACT_AUTO_PORT`` - loopback port (default 19917).
+- ``COMPACT_AUTO_PORT`` - loopback port (default 19913, clear of the ports the other
+  self-booting harnesses and ``test_httpserver.sh`` take).
 """
 
 from __future__ import annotations
@@ -183,7 +184,7 @@ def main() -> int:
     model = os.environ.get("COMPACT_MODEL", "neuraldeep/qwen3.8-27b").strip()
     api_base = os.environ.get("COMPACT_API_BASE", "https://api.neuraldeep.ru/v1").strip()
     turns = int(os.environ.get("COMPACT_TURNS", "4"))
-    port = int(os.environ.get("COMPACT_AUTO_PORT", "19917"))
+    port = int(os.environ.get("COMPACT_AUTO_PORT", "19913"))
     provider, _, api_model = model.partition("/")
     if not provider or not api_model:
         fail(f"COMPACT_MODEL {model!r} is not provider/api-model-id")
