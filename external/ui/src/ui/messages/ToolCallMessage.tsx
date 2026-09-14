@@ -395,7 +395,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   const backgroundTask = props.backgroundTask;
   const backgroundNowMs = props.backgroundNowMs ?? nowMs;
   // A completed load_skill returned a skill's markdown; a failed one returned an error,
-  // which stays raw text under the ordinary Result strip.
+  // which stays raw monospace text.
   const showSkillBody = isLoadSkillTool && status === "completed";
   // load_skill already names the skill on the summary row; its body is the skill itself.
   const showToolPreview =
@@ -447,6 +447,14 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                   title={summaryTarget}
                 >
                   {summaryTarget}
+                </span>
+              ) : null}
+              {status === "failed" ? (
+                <span
+                  className="tool-failed-marker"
+                  data-testid="tool-failed-marker"
+                >
+                  {t("messages.toolFailedMarker")}
                 </span>
               ) : null}
               {durationLabel.trim() !== "" ? (
@@ -509,22 +517,12 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
               <div
                 className={[
                   "tool-call-result-card",
-                  // A skill body is the card: the instructions speak for themselves and
-                  // a "Result" strip above them is chrome with nothing to say. A call
-                  // that failed returned an error, not a skill, and keeps the strip.
-                  showSkillBody && "tool-call-result-card--plain",
                   status === "failed" && "tool-call-result-card--failed",
                 ]
                   .filter(Boolean)
                   .join(" ")}
                 aria-label={t("messages.toolResultAriaLabel")}
               >
-                {showSkillBody ? null : (
-                  <div className="tool-call-result-head">
-                    <span className="tool-call-result-dot" aria-hidden />
-                    <span>{t("messages.toolResultSection")}</span>
-                  </div>
-                )}
                 <div
                   className={[
                     "tool-call-result-content",

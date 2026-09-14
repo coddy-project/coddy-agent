@@ -2975,34 +2975,12 @@ a.rail-brand {
   border-radius: 0;
 }
 
-.tool-call-result-head {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 34px;
-  padding: 6px 10px;
-  box-sizing: border-box;
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 5%, var(--coddy-surface-inset));
-  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.tool-call-result-dot {
-  width: 6px;
-  height: 6px;
+/* Output needs no label: it is the only thing under the call. A failure is said once,
+   on the summary row, where it is readable without expanding the card. */
+.tool-failed-marker {
   flex: 0 0 auto;
-  border-radius: 999px;
-  background: color-mix(in srgb, #5fcf84 72%, var(--text));
-  box-shadow: 0 0 0 3px color-mix(in srgb, #5fcf84 11%, transparent);
-}
-
-.tool-call-result-card--failed .tool-call-result-dot {
-  background: color-mix(in srgb, #ff6b6b 78%, var(--text));
-  box-shadow: 0 0 0 3px color-mix(in srgb, #ff6b6b 11%, transparent);
+  color: color-mix(in srgb, var(--diff-del-no) 82%, var(--text));
+  font-size: 12px;
 }
 
 .tool-call-result-content {
@@ -8249,12 +8227,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
 }
 
 /* A rendered skill body replaces the monospace result panel with prose: the panel's
-   own mono stack would keep the markdown looking like raw tool output. Without the
-   section strip above it, the body owns the card's full padding. */
-.tool-call-result-card--plain {
-  padding: 2px 0;
-}
-
+   own mono stack would keep the markdown looking like raw tool output. */
 .tool-call-result-content--markdown {
   padding: 10px 14px;
   font-family:

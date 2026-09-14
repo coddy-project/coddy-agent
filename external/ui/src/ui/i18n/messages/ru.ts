@@ -1158,7 +1158,7 @@ export const messagesRu: Record<string, string> = {
   "messages.spawnAgentTimeoutHint": "Максимальное время работы агента",
   "messages.toolDetailsAriaLabel": "Детали вызова инструмента",
   "messages.toolResultAriaLabel": "Результат инструмента",
-  "messages.toolResultSection": "Результат",
+  "messages.toolFailedMarker": "(ошибка)",
   "messages.toolLoading": "Загрузка…",
   "messages.toolMore": "Ещё…",
   "todo.preview.updatedItem": "Обновлённый пункт",

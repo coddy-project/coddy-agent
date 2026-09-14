@@ -10,8 +10,12 @@ import {
 } from "@testing-library/react";
 import { ToolCallMessage } from "./ToolCallMessage";
 import type { BackgroundTask } from "../tasks/types";
+import { setLocale } from "../i18n/i18n";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  setLocale("en");
+});
 
 function openToolDetails() {
   fireEvent.click(screen.getByLabelText("Tool summary"));
@@ -1286,7 +1290,7 @@ test("a question row stays a bare label, with no target beside it", () => {
   expect(screen.queryByTestId("tool-summary-target")).toBeNull();
 });
 
-test("a failed load_skill keeps the Result strip and its raw error text", () => {
+test("a failed load_skill stays raw text and says so on its row", () => {
   const { container } = render(
     <ToolCallMessage
       toolCallId="tc-skill-failed"
@@ -1297,12 +1301,88 @@ test("a failed load_skill keeps the Result strip and its raw error text", () => 
       durationMs={1}
     />,
   );
+  expect(screen.getByTestId("tool-failed-marker")).toHaveTextContent(
+    "(failed)",
+  );
   openToolDetails();
 
-  // An error is not a skill: no markdown heading, and the failure strip stays.
-  expect(screen.getByText("Result")).toBeTruthy();
+  // An error is not a skill: it keeps the monospace panel, not a markdown heading.
   expect(container.querySelector(".tool-call-result-content h1")).toBeNull();
   expect(container.querySelector(".tool-result-pre")).toHaveTextContent(
     'load_skill: unknown skill "nope"',
   );
+});
+
+test("output attaches straight under the call, with no Result strip anywhere", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-no-strip"
+      title="run_command"
+      kind="execute"
+      status="completed"
+      argsText={JSON.stringify({ command: "git status" })}
+      resultText="nothing to commit"
+      durationMs={40}
+    />,
+  );
+  openToolDetails();
+
+  expect(container.querySelector(".tool-call-result-head")).toBeNull();
+  expect(container.querySelector(".tool-call-result-dot")).toBeNull();
+  expect(screen.queryByText("Result")).toBeNull();
+  // The output is still its own panel, right below the command block.
+  expect(container.querySelector(".tool-result-pre")).toHaveTextContent(
+    "nothing to commit",
+  );
+});
+
+test("a failed call says so next to its label instead of in the output panel", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-failed"
+      title="run_command"
+      kind="execute"
+      status="failed"
+      argsText={JSON.stringify({ command: "make lint" })}
+      resultText="exit status 1"
+      durationMs={900}
+    />,
+  );
+
+  const marker = screen.getByTestId("tool-failed-marker");
+  expect(marker).toHaveTextContent("(failed)");
+  // It belongs to the summary row, so a collapsed call already reads as failed.
+  expect(marker.closest(".thinking-head")).not.toBeNull();
+  openToolDetails();
+  expect(container.querySelector(".tool-call-result-head")).toBeNull();
+});
+
+test("the failure marker is localized and absent when the call succeeded", () => {
+  const { rerender } = render(
+    <ToolCallMessage
+      toolCallId="tc-ok"
+      title="run_command"
+      kind="execute"
+      status="completed"
+      argsText={JSON.stringify({ command: "make lint" })}
+      resultText="ok"
+      durationMs={5}
+    />,
+  );
+  expect(screen.queryByTestId("tool-failed-marker")).toBeNull();
+
+  setLocale("ru");
+  rerender(
+    <ToolCallMessage
+      toolCallId="tc-ok"
+      title="run_command"
+      kind="execute"
+      status="failed"
+      argsText={JSON.stringify({ command: "make lint" })}
+      resultText="ошибка"
+      durationMs={5}
+    />,
+  );
+  expect(screen.getByTestId("tool-failed-marker")).toHaveTextContent("(ошибка)");
+  setLocale("en");
 });

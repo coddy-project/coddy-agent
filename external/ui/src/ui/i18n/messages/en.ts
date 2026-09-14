@@ -1140,7 +1140,7 @@ export const messagesEn: Record<string, string> = {
   "messages.spawnAgentTimeoutHint": "Maximum agent execution time",
   "messages.toolDetailsAriaLabel": "Tool call details",
   "messages.toolResultAriaLabel": "Tool result",
-  "messages.toolResultSection": "Result",
+  "messages.toolFailedMarker": "(failed)",
   "messages.toolLoading": "Loading…",
   "messages.toolMore": "More…",
   "todo.preview.updatedItem": "Updated item",
