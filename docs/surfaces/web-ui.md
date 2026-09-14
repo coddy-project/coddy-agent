@@ -603,42 +603,44 @@ The panel is docked **inside the session**, to the right of the transcript (`.bg
 - **Running tasks** are cards at the top of the panel, under no heading of their own (status dot, command, elapsed against the estimate, Stop): everything above the **Finished N** counter is running. A progress bar appears only while running **and** when the model supplied `expected_seconds`. A subagent run (`kind: "agent"`, started by `spawn_agent`) is the same card with an `agent` badge after its `agent <name>: <description>` label. Its timing line shows no exit code (the pool's code for an agent run is synthetic; the status already says how it ended), and the same `taskTimingLine` feeds the detail pane and the transcript chip.
 - **Finished N** is a counter; expanding it lists one line per task, capped at 40 rendered rows with a note naming what stays on disk; agent rows keep the badge. **Clear** drops the finished history for the session.
 - Ordering is purely by start time, newest first, among the live cards and inside the finished history alike.
-- The **opener** is a chip at the end of the transcript (under the last message, above the composer), not a nav rail entry: `N running tasks` while work is in flight, `N background tasks` otherwise, and nothing at all in a chat that never ran one. While a detached subagent waits for a permission answer the chip turns amber (`is-awaiting`, warning dot) and reads `N subagents need your answer` before anything else, because the panel is closed by default and that prompt is in no transcript.
-- A **detached subagent's permission prompt** (`pending_permission` on its running agent row, raised after the turn that spawned it ended) is rendered on its task card (`is-awaiting`, amber border) and in its detail pane by `SubagentPermissionCard`: a head naming the subagent, the prompt's tool preview built like an inline prompt (the relay's `[subagent <name>]` title prefix is dropped, the head already says whose prompt it is) and one button per offered option. The answer is posted against the **child** session through the shared `submitPermissionChoice` (`chat/permissionSubmit.ts`, also used by the inline permission card), then the list is re-read. The poll keeps its 2.5s cadence while any task waits.
+- The **opener** is a chip at the end of the transcript (under the last message, above the composer), not a nav rail entry: `N running tasks` while work is in flight, `N background tasks` otherwise, and nothing at all in a chat that never ran one.
 - On `max-width: 1199px` the panel takes the screen and finished rows grow to a 40px touch target.
 - A transcript `run_command` row that started a task reads like any other command row: the label says it is a background run (*running a command in the background*) and the duration slot carries the task's ticking clock instead of the call's meaningless `0ms`. The outcome is **not** on the row - status, estimate, exit code and error are read in the detail pane of this panel, which **Open in Tasks** opens. Expanding the row gives **Open in Tasks** and, while running, **Stop**: tab buttons attached to the bottom edge of the card above them. Driven by the same poll.
 - The **detail pane** of an agent task shows the subagent name instead of a command and an **Open transcript** button (disabled until the row carries `agent.session_id`) that opens the child session at `#/s/<child id>` the way a History pick does; the output pane keeps the child's live progress log, which ends with the `=== subagent report ===` block.
 
 Automated checks:
 
-- **external/ui/src/ui/tasks/taskStatus.test.ts** (timing, progress, overdue, poll cadence, start-time ordering, grouping, agent task helpers, awaiting a permission answer)
-- **external/ui/src/ui/tasks/BackgroundTasksPanel.test.tsx** (sections, finished counter, Clear, detail pane, agent badge and Open transcript, empty and error states, a detached prompt answered on its card against the child session, the title prefix dropped)
+- **external/ui/src/ui/tasks/taskStatus.test.ts** (timing, progress, overdue, poll cadence, start-time ordering, grouping, agent task helpers)
+- **external/ui/src/ui/tasks/BackgroundTasksPanel.test.tsx** (sections, finished counter, Clear, detail pane, agent badge and Open transcript, empty and error states)
 - **external/ui/src/ui/tasks/api.test.ts** (paths, headers, offline degradation)
-- **external/ui/src/ui/tasks/BackgroundTasksChip.test.tsx** (counts, singular/plural, history fallback, empty chat, the waiting state taking over the chip)
-- **external/ui/src/ui/tasks/backgroundTaskCss.test.ts** (chip tokens, panel docking, reduced motion, agent badge tokens, amber awaiting card and chip)
+- **external/ui/src/ui/tasks/BackgroundTasksChip.test.tsx** (counts, singular/plural, history fallback, empty chat)
+- **external/ui/src/ui/tasks/backgroundTaskCss.test.ts** (chip tokens, panel docking, reduced motion, agent badge tokens)
 - **external/ui/src/ui/messages/ToolCallMessage.test.tsx** (the background row: its label, the task clock in the duration slot, and that no outcome leaks onto the row)
 
-### Subagent definitions and approvals
+### Subagent definitions
 
-**Settings > Subagents** is a hybrid tab like Skills (section kind `subagents` in `settingsSections.ts`, `SubagentsSection.tsx`): the schema-driven form of the `subagents` config section (`enable`, `dirs`, `project_trust`, `max_concurrent`, `max_depth`, `default_timeout_seconds`, `max_turns`; labels from `settings.schema.subagents.*`) is saved with the rest of the document, and below it a **Definitions** fieldset lists the catalog of `GET /coddy/subagents` for the workspace of the session on screen (`workspaceCtx.path` from `App.tsx`; without one the server answers for its default workspace). The tab says which workspace approvals are recorded for, how many definitions wait, and that the policy applies on save while an approval takes effect at once.
+**Settings > Subagents** is a hybrid tab like Skills (section kind `subagents` in `settingsSections.ts`, `SubagentsSection.tsx`): the schema-driven form of the `subagents` config section (`enable`, `dirs`, `project_trust`, `max_concurrent`, `max_depth`, `default_timeout_seconds`, `max_turns`; labels from `settings.schema.subagents.*`) is saved with the rest of the document, and below it a **Definitions** fieldset lists the catalog of `GET /coddy/subagents` for the workspace of the session on screen (`workspaceCtx.path` from `App.tsx`; without one the server answers for its default workspace), with that workspace printed above the list.
 
-- Each row reuses the MCP list chrome: the name, a scope badge (`built in` / `yours` / `from the project`), `hidden` and an amber `needs approval` badge, and the description as plain text. An unapproved row shows `Description withheld until you approve this file.` instead of the file's own text.
-- A project-scope row under `project_trust: ask` carries the MCP tab's shield (`data-testid="subagent-trust-<name>"`, amber while unapproved) posting `POST /coddy/subagents/{name}/trust` or `untrust` with the workspace as `cwd`, then re-reading the catalog without collapsing the list. Under `allow` and `deny`, and on built-in and user rows, there is no shield (`showsSubagentTrustControl`).
-- An unapproved row expands the declaration the receipt would cover (`.mcp-trust-note`, `subagentApprovalFacts` in `settings/subagentCatalog.ts`): file, model, mode, permissions, tools, denies, timeout, max turns, runs detached, instructions size and digest, with every undeclared bound shown as inherited. Long paths, digests and tool lists wrap inside the panel (`.settings-subagents-section` rules) instead of widening it.
-- A failed `spawn_agent` row in the transcript gains `SubagentApprovalNotice` outside its collapsed `<details>` when the catalog says the named definition is awaiting approval: **Approve** posts the receipt and says to ask again (the spawn is never retried), **Open Subagents settings** routes to `#/settings/subagents`. A spawn that failed for another reason, or a catalog that cannot be reached, renders nothing.
+- The list only reads. Each row reuses the MCP list chrome: the name, a scope badge (`built in` / `yours` / `from the project`), `hidden`, the description as plain text and the file.
+- A project definition still awaiting a receipt under `project_trust: ask` carries an amber `needs approval` badge and nothing to click: its tooltip names `coddy agents trust <name>`, which records the receipt on the machine running coddy (or `POST /coddy/subagents/{name}/trust`).
+- **Declared bounds**, collapsed on every row (`subagentDeclaredFacts` in `settings/subagentCatalog.ts`): model, mode, permissions, tools, denies, timeout, max turns, runs detached and instructions size, with every undeclared bound shown as inherited. Long paths and tool lists wrap inside the panel (`.settings-subagents-section` rules) instead of widening it.
 
 ![Settings Subagents catalog](../assets/subagents/settings-subagents-catalog-dark-1280.png)
 
+A background subagent that needs a permission after the turn that spawned it has ended asks in the chat of its parent session: the prompt waits at the end of the conversation in the same card an inline prompt uses, the subagent named in its head (`SubagentPermissionCards`, `chat/SubagentPermissionCard.tsx`). The chat reads it from `pending_permission` on the session's background task rows, re-reads those rows on the `subagent_permission` event of `GET /coddy/events` (the task poll is the fallback), and answers against the **child** session with `POST /coddy/sessions/{child}/permission`. A prompt answered elsewhere first - a console attached over `--remote`, a Telegram chat - leaves the chat on the next read. See `docs/features/subagents.md` (Detached runs).
+
+![A background subagent asking for permission in its parent chat](../assets/subagents/chat-subagent-permission-dark-1280.png)
+
 Automated checks:
 
-- **external/ui/src/ui/settings/subagentCatalog.test.ts** (shield only for a project file under ask, inherited and declared facts, formatting, pending count)
-- **external/ui/src/ui/settings/subagentsApi.test.ts** (workspace in the query and the body, normalised catalog, server error messages, offline)
-- **external/ui/src/ui/settings/SubagentsSection.test.tsx** (rows and shield, withheld description, approval round trip, no shield under allow, failed approval and failed load, Russian copy)
+- **external/ui/src/ui/settings/subagentCatalog.test.ts** (inherited and declared facts, formatting, scope badge keys)
+- **external/ui/src/ui/settings/subagentsApi.test.ts** (workspace in the query, normalised catalog, server error messages, offline)
+- **external/ui/src/ui/settings/SubagentsSection.test.tsx** (rows with scope, description and file, no control on any row, the passive needs-approval badge, declared bounds behind a disclosure, failed load, Russian copy)
 - **external/ui/src/ui/settings/subagentsCatalogCss.test.ts** (the catalog cannot outgrow the panel, facts label column, amber badge)
 - **external/ui/src/ui/settings/SettingsSection.test.tsx** (the subagents kind keeps its form and asks about the session workspace)
-- **external/ui/src/ui/messages/SubagentApprovalNotice.test.tsx** (offered only when the catalog confirms, approve without retry, failed approval)
-- **external/ui/src/ui/messages/ToolCallMessage.test.tsx** (a failed spawn_agent row asks the catalog; other failures ask nothing)
-- **external/ui/src/ui/chat/subagentReadOnlyCss.test.ts** (the notice wraps its path and blends with the theme)
+- **external/ui/src/ui/chat/SubagentPermissionCard.test.tsx** (answered against the child session, only waiting tasks and oldest first, nothing while none waits, title prefix, Russian copy)
+- **external/ui/src/ui/chat/ChatScreen.test.tsx** (the prompt waits at the end of the parent chat and answering re-reads the tasks)
+- **external/ui/src/ui/chat/serverEvents.test.ts** (a `subagent_permission` frame names the chat it belongs to)
 
 ### Hooks
 
