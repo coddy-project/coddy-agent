@@ -9986,7 +9986,14 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 14px 2px 4px;
+  /* Same 10px step the first live card keeps from the panel head, so with no
+     live task the counter sits exactly where that card would have. */
+  padding: 10px 2px 4px;
+}
+
+/* Following a card, 8px of that step is already under it. */
+.bgtask-card + .bgtask-section-row {
+  padding-top: 2px;
 }
 
 .bgtask-section-toggle,

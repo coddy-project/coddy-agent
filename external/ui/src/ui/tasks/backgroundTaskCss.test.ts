@@ -169,11 +169,32 @@ test("the composer stays on the transcript centre line", () => {
   }
 });
 
-test("the first live card keeps the air the running heading used to hold", () => {
-  // Dropping the heading left the top card flush against the panel title.
+test("one step separates the panel head, the live cards and the counter", () => {
+  // Dropping the heading left the top card flush against the panel title, and
+  // the counter keeping its own padding left it adrift under the last card.
+  // Every seam is the same 10px now: head to first card, last card to counter,
+  // and head to counter when nothing is running.
+  const step = 10;
   expect(
     ruleBody(".bgtasks-panel .bgtask-list > .bgtask-card:first-child {"),
-  ).toMatch(/margin-top:\s*10px/);
+  ).toMatch(new RegExp(`margin-top:\\s*${step}px`));
+
+  const cardBelow = Number(
+    capture(/margin-bottom:\s*([0-9.]+)px/, ruleBody(".bgtask-card {"), "card margin"),
+  );
+  const counterAlone = Number(
+    capture(/padding:\s*([0-9.]+)px/, ruleBody(".bgtask-section-row {"), "counter padding"),
+  );
+  const counterAfterCard = Number(
+    capture(
+      /padding-top:\s*([0-9.]+)px/,
+      ruleBody(".bgtask-card + .bgtask-section-row {"),
+      "counter padding after a card",
+    ),
+  );
+
+  expect(counterAlone).toBe(step);
+  expect(cardBelow + counterAfterCard).toBe(step);
 });
 
 test("agent rows are told apart with an accent badge derived from theme tokens", () => {
