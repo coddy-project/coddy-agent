@@ -14,6 +14,7 @@ import {
   type ReactNode,
 } from "react";
 import { useT } from "../i18n/I18nProvider";
+import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
 
 type CodeProps = {
   className?: string | undefined;
@@ -56,32 +57,6 @@ function copyTextToClipboard(text: string): Promise<void> {
     document.execCommand("copy");
     document.body.removeChild(ta);
   });
-}
-
-function CopyButton(props: { text: string }) {
-  const { t } = useT();
-  const [copied, setCopied] = useState(false);
-
-  const onCopy = useCallback(async () => {
-    try {
-      await copyTextToClipboard(props.text);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 900);
-    } catch {
-      setCopied(false);
-    }
-  }, [props.text]);
-
-  return (
-    <button
-      type="button"
-      className="md-copy"
-      onClick={() => void onCopy()}
-      aria-label={t("messages.copyCode")}
-    >
-      {copied ? t("messages.copied") : t("messages.copy")}
-    </button>
-  );
 }
 
 function InlineCode(props: { className?: string; children?: unknown }) {
@@ -150,7 +125,7 @@ function MarkdownPre(props: PreProps) {
   return (
     <MarkdownPreContext.Provider value={true}>
       <div className="md-code">
-        <CopyButton text={txt.replace(/\n$/, "")} />
+        <CodeBlockCopyButton textToCopy={txt.replace(/\n$/, "")} />
         <pre>{props.children as any}</pre>
       </div>
     </MarkdownPreContext.Provider>

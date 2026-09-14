@@ -12,6 +12,8 @@ export type WorkspaceContext = {
   name: string;
   is_git_repo: boolean;
   is_worktree: boolean;
+  /** Interpreter run_command goes through on the server host; absent on older servers. */
+  shell?: string;
   repo_root?: string;
   branch?: string;
   branches?: string[];

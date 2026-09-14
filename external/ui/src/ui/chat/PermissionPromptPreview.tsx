@@ -1,8 +1,20 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
 import type { ParsedDiffLine } from "../messages/parseDiff";
 import type { PermissionToolPreview as Preview } from "./permissionToolPreview";
+import {
+  serverSnapshotHostShell,
+  snapshotHostShell,
+  subscribeHostShell,
+} from "./hostShell";
 import { useT } from "../i18n/I18nProvider";
 
 function DiffLineRow({ line }: { line: ParsedDiffLine }) {
@@ -153,15 +165,90 @@ function PlanExitPreview({ completed }: { completed: boolean }) {
   );
 }
 
+/** A call that takes no input. It has nothing to preview, so it states the action and
+ *  where that action stands, in the same bar every other tool card opens with and with
+ *  the status mark the todo rows use - one family, one shape. */
+function ActionPreview({
+  preview,
+  status,
+}: {
+  preview: Extract<Preview, { kind: "action" }>;
+  status: string;
+}) {
+  const { t } = useT();
+  const settled = ["completed", "failed", "cancelled"].includes(status)
+    ? status
+    : "in_progress";
+  const detailKey =
+    settled === "completed"
+      ? "toolAction.done"
+      : settled === "failed"
+        ? "toolAction.failed"
+        : settled === "cancelled"
+          ? "toolAction.cancelled"
+          : "toolAction.running";
+  // A permission gate has no status to report: the call has not started, and claiming
+  // it is running would be the opposite of what the operator is being asked.
+  const showState = status !== "";
+  return (
+    <div
+      className="permission-preview-bar permission-preview-bar--standalone"
+      data-testid="tool-action-preview"
+      role="status"
+      aria-label={t("toolAction.ariaLabel")}
+    >
+      <span
+        className={`todo-tool-preview-mark todo-tool-preview-mark--${settled}`}
+        aria-hidden="true"
+      >
+        {todoStatusMark(settled)}
+      </span>
+      <div className="permission-preview-location" title={preview.header}>
+        {preview.header}
+      </div>
+      {showState ? (
+        <div className="permission-preview-meta">
+          <span>{t(detailKey)}</span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** The command as an input line: prompt, the command itself, and the control that
+ *  copies it, all inside the one block - not in the card header above it. */
+function ShellPreview({
+  preview,
+  copyTestId,
+}: {
+  preview: Extract<Preview, { kind: "shell" }>;
+  copyTestId: string;
+}) {
+  return (
+    <div className="permission-preview-shell">
+      <span className="permission-preview-shell-prompt" aria-hidden="true">
+        $
+      </span>
+      <pre className="permission-preview-shell-code">{preview.text}</pre>
+      <CodeBlockCopyButton textToCopy={preview.text} dataTestId={copyTestId} />
+    </div>
+  );
+}
+
 function PreviewBody({
   preview,
   completed = false,
+  copyTestId,
 }: {
   preview: Preview;
   completed?: boolean;
+  copyTestId: string;
 }) {
   if (preview.kind === "diff") return <DiffPreview preview={preview} />;
   if (preview.kind === "todo") return <TodoPreview preview={preview} />;
+  if (preview.kind === "shell") {
+    return <ShellPreview preview={preview} copyTestId={copyTestId} />;
+  }
   if (preview.kind === "plan_exit") {
     return <PlanExitPreview completed={completed} />;
   }
@@ -198,6 +285,22 @@ export function PermissionToolPreview({
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
+  const status = (toolStatus || "").toLowerCase();
+  // A local shell card names the interpreter the server actually runs (/usr/bin/bash)
+  // rather than the word "Shell". A remote one runs somebody else's shell, and a server
+  // that reports none keeps the generic label.
+  const hostShell = useSyncExternalStore(
+    subscribeHostShell,
+    snapshotHostShell,
+    serverSnapshotHostShell,
+  );
+  const barHeader =
+    preview.kind === "shell" && preview.toolName.toLowerCase() === "run_command"
+      ? hostShell || preview.header
+      : preview.header;
+  // A shell command carries its own copy control inside the command block, so the
+  // header never gets a second one.
+  const copyTestId = interactive ? "permission-prompt-copy" : "tool-preview-copy";
   const hasBody =
     preview.kind !== "path" &&
     !(preview.kind === "diff" && preview.lines.length === 0);
@@ -248,6 +351,14 @@ export function PermissionToolPreview({
       ? "scroll"
       : "clip";
 
+  if (preview.kind === "action") {
+    return (
+      <div className="permission-preview">
+        <ActionPreview preview={preview} status={status} />
+      </div>
+    );
+  }
+
   return (
     <div className="permission-preview">
       <div
@@ -256,8 +367,8 @@ export function PermissionToolPreview({
           (hasBody ? "" : " permission-preview-bar--standalone")
         }
       >
-        <div className="permission-preview-location" title={preview.header}>
-          {preview.header}
+        <div className="permission-preview-location" title={barHeader}>
+          {barHeader}
         </div>
         {preview.meta.length > 0 ? (
           <div className="permission-preview-meta">
@@ -266,10 +377,10 @@ export function PermissionToolPreview({
             ))}
           </div>
         ) : null}
-        {interactive && preview.copyText ? (
+        {interactive && preview.copyText && preview.kind !== "shell" ? (
           <CodeBlockCopyButton
             textToCopy={preview.copyText}
-            dataTestId="permission-prompt-copy"
+            dataTestId={copyTestId}
           />
         ) : null}
       </div>
@@ -287,7 +398,8 @@ export function PermissionToolPreview({
           >
             <PreviewBody
               preview={preview}
-              completed={toolStatus?.toLowerCase() === "completed"}
+              completed={status === "completed"}
+              copyTestId={copyTestId}
             />
             {canToggleOverflow && overflows && !expanded ? (
               <span className="permission-preview-fade" aria-hidden />

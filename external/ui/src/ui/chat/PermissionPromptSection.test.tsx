@@ -40,7 +40,9 @@ test("shows a human question, one technical tool badge, and the original buttons
   expect(screen.getAllByText("run_command")).toHaveLength(1);
   expect(screen.getByText("ls -la")).toBeTruthy();
   expect(screen.queryByText(/Arguments:/)).toBeNull();
-  expect(screen.getByTestId("permission-prompt-copy")).toHaveTextContent(
+  // The control is an icon; the word it used to show is its tooltip.
+  expect(screen.getByTestId("permission-prompt-copy")).toHaveAttribute(
+    "title",
     "Copy",
   );
   expect(screen.getByRole("button", { name: "Allow" })).toBeTruthy();
@@ -203,4 +205,31 @@ test("Allow calls onResolved", async () => {
   );
   fireEvent.click(screen.getByRole("button", { name: "Allow" }));
   await vi.waitFor(() => expect(onResolved).toHaveBeenCalled());
+});
+
+test("a no-argument tool asks for approval without claiming it is already running", () => {
+  render(
+    <PermissionPromptSection
+      itemId="pp_action"
+      payload={{
+        ...payload,
+        toolCall: {
+          ...payload.toolCall,
+          title: "Run: mcp__ops__drain_queue",
+          kind: "other",
+          content: [
+            {
+              type: "content",
+              content: { type: "text", text: "Arguments: {}" },
+            },
+          ],
+        },
+      }}
+      onResolved={() => {}}
+    />,
+  );
+  const card = screen.getByTestId("tool-action-preview");
+  expect(card).toHaveTextContent("mcp__ops__drain_queue");
+  expect(card).not.toHaveTextContent("Running");
+  expect(card).not.toHaveTextContent("Done");
 });

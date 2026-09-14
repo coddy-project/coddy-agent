@@ -15,11 +15,16 @@ import {
 import { PermissionToolPreview } from "../chat/PermissionPromptPreview";
 import { taskStatusLabel, taskTimingLine, taskTone } from "../tasks/taskStatus";
 import type { BackgroundTask } from "../tasks/types";
-import { buildToolCallPreview } from "../chat/permissionToolPreview";
+import {
+  buildToolCallPreview,
+  toolCallTargetText,
+} from "../chat/permissionToolPreview";
 import type { TodoPlanEntry } from "../chat/todoToolPreview";
 import { useT } from "../i18n/I18nProvider";
 import { parseSpawnAgentArgs } from "../chat/spawnAgentDisplay";
 import { SpawnAgentCard } from "./SpawnAgentCard";
+import { toolDisplayName } from "./toolDisplayName";
+import { Markdown } from "../markdown/Markdown";
 
 function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "";
@@ -147,6 +152,22 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     () => (isSpawnAgentTool ? parseSpawnAgentArgs(props.argsText) : null),
     [isSpawnAgentTool, props.argsText],
   );
+  const isLoadSkillTool = rawNameLower === "load_skill";
+  // The one thing this call acts on - the path it reads, the command it runs, the skill
+  // it pulls in - next to the label, so a collapsed row still says what it touched.
+  const summaryTarget = useMemo(
+    () =>
+      isQuestionTool
+        ? ""
+        : toolCallTargetText({
+            ...(props.title !== undefined ? { title: props.title } : {}),
+            ...(props.kind !== undefined ? { kind: props.kind } : {}),
+            ...(props.argsText !== undefined
+              ? { argsText: props.argsText }
+              : {}),
+          }).trim(),
+    [isQuestionTool, props.argsText, props.kind, props.title],
+  );
   const isPatchTool = rawNameLower === "apply_patch";
   const isWriteTool =
     !isPatchTool &&
@@ -184,11 +205,9 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     if (isQuestionTool) {
       return t("messages.toolQuestionLabel");
     }
-    const fallback = t("messages.toolDefaultName");
-    return pendingLike
-      ? `${rawName || fallback}${t("messages.toolPendingSuffix")}`
-      : rawName || fallback;
-  }, [isQuestionTool, pendingLike, rawName, t]);
+    const label = toolDisplayName(rawName, props.argsText);
+    return pendingLike ? `${label}${t("messages.toolPendingSuffix")}` : label;
+  }, [isQuestionTool, pendingLike, props.argsText, rawName, t]);
 
   const permissionWaiting = props.permissionWaiting === true;
 
@@ -369,12 +388,18 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     (toolPreview.kind === "diff" && toolPreview.lines.length > 0) ||
     (toolPreview.kind === "todo" && toolPreview.entries.length > 0) ||
     toolPreview.kind === "plan_exit" ||
+    toolPreview.kind === "action" ||
     (toolPreview.kind === "move" &&
       (toolPreview.sourcePath.trim() !== "" ||
         toolPreview.destinationPath.trim() !== ""));
   const backgroundTask = props.backgroundTask;
   const backgroundNowMs = props.backgroundNowMs ?? nowMs;
-  const showToolPreview = !isQuestionTool && !spawnAgent && toolPreviewHasContent;
+  // A completed load_skill returned a skill's markdown; a failed one returned an error,
+  // which stays raw monospace text.
+  const showSkillBody = isLoadSkillTool && status === "completed";
+  // load_skill already names the skill on the summary row; its body is the skill itself.
+  const showToolPreview =
+    !isQuestionTool && !spawnAgent && !isLoadSkillTool && toolPreviewHasContent;
   const showPatchResult =
     isPatchTool &&
     !!resultBody &&
@@ -413,12 +438,31 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
         >
           <span className="thinking-left">
             <span className="thinking-chevron" aria-hidden="true" />
-            <span className="thinking-label">{displayLabel}</span>
-            {durationLabel.trim() !== "" ? (
-              <span className="thinking-dur" aria-hidden="true">
-                {durationLabel}
-              </span>
-            ) : null}
+            <span className="thinking-head">
+              <span className="thinking-label">{displayLabel}</span>
+              {summaryTarget ? (
+                <span
+                  className="tool-summary-target"
+                  data-testid="tool-summary-target"
+                  title={summaryTarget}
+                >
+                  {summaryTarget}
+                </span>
+              ) : null}
+              {status === "failed" ? (
+                <span
+                  className="tool-failed-marker"
+                  data-testid="tool-failed-marker"
+                >
+                  {t("messages.toolFailedMarker")}
+                </span>
+              ) : null}
+              {durationLabel.trim() !== "" ? (
+                <span className="thinking-dur" aria-hidden="true">
+                  {durationLabel}
+                </span>
+              ) : null}
+            </span>
             {backgroundTask ? (
               <span
                 className={[
@@ -479,20 +523,21 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                   .join(" ")}
                 aria-label={t("messages.toolResultAriaLabel")}
               >
-                <div className="tool-call-result-head">
-                  <span className="tool-call-result-dot" aria-hidden />
-                  <span>{t("messages.toolResultSection")}</span>
-                </div>
                 <div
                   className={[
                     "tool-call-result-content",
+                    showSkillBody && "tool-call-result-content--markdown",
                     useTallViewport &&
                       `tool-result-viewport tool-result-viewport--tall tool-result-viewport--${viewportMode}`,
                   ]
                     .filter(Boolean)
                     .join(" ")}
                 >
-                  <pre className="tool-result-pre">{resultBody}</pre>
+                  {showSkillBody ? (
+                    <Markdown text={resultBody} />
+                  ) : (
+                    <pre className="tool-result-pre">{resultBody}</pre>
+                  )}
                 </div>
               </div>
             ) : null}
