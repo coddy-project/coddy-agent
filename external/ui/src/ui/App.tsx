@@ -168,10 +168,7 @@ import {
   listBackgroundTasks,
   stopBackgroundTask,
 } from "./tasks/api";
-import {
-  awaitingPermissionCount,
-  tasksPollIntervalMs,
-} from "./tasks/taskStatus";
+import { tasksPollIntervalMs } from "./tasks/taskStatus";
 import {
   parseSubagentTranscriptMeta,
   type SubagentTranscriptMeta,
@@ -1031,12 +1028,6 @@ export function App() {
   const [tasksSelectedId, setTasksSelectedId] = useState<string | null>(null);
   const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([]);
   const [backgroundRunning, setBackgroundRunning] = useState(0);
-  // Detached subagents blocked on a permission prompt. Kept as a number so the
-  // poll effect below does not restart on every list refresh.
-  const backgroundAwaiting = useMemo(
-    () => awaitingPermissionCount(backgroundTasks),
-    [backgroundTasks],
-  );
   const [backgroundOutput, setBackgroundOutput] = useState("");
   const [backgroundListError, setBackgroundListError] = useState<string | null>(
     null,
@@ -1776,25 +1767,21 @@ export function App() {
     if (!sessionId.trim()) {
       return;
     }
-    const id = window.setInterval(
-      () => {
-        void refreshBackgroundTasks({ silent: true });
-        if (tasksOpen && tasksSelectedId) {
-          void refreshBackgroundTaskOutput(tasksSelectedId);
-        }
-      },
-      // A task waiting for a permission answer keeps the fast cadence even if
-      // the server has stopped counting it as running: the prompt has to reach
-      // the drawer promptly, and has to leave it once answered.
-      tasksPollIntervalMs(backgroundRunning + backgroundAwaiting),
-    );
+    // A detached subagent waiting for a permission answer is still a running
+    // task, so the fast cadence also brings its prompt to the chip and the
+    // drawer promptly, and takes it away once answered.
+    const id = window.setInterval(() => {
+      void refreshBackgroundTasks({ silent: true });
+      if (tasksOpen && tasksSelectedId) {
+        void refreshBackgroundTaskOutput(tasksSelectedId);
+      }
+    }, tasksPollIntervalMs(backgroundRunning));
     return () => window.clearInterval(id);
   }, [
     sessionId,
     tasksOpen,
     tasksSelectedId,
     backgroundRunning,
-    backgroundAwaiting,
     refreshBackgroundTasks,
     refreshBackgroundTaskOutput,
   ]);
