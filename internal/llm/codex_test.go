@@ -490,6 +490,9 @@ func TestCodexAnnouncesToolCallWhenItsNameIsKnown(t *testing.T) {
 	resp, err := p.Stream(context.Background(),
 		[]Message{{Role: RoleUser, Content: "hi"}}, nil,
 		func(c StreamChunk) {
+			if c.ToolCallNamed != nil {
+				announced = append(announced, *c.ToolCallNamed)
+			}
 			if c.ToolCall != nil {
 				announced = append(announced, *c.ToolCall)
 			}

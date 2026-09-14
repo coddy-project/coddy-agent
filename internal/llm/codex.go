@@ -135,7 +135,7 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 			// standing still with nothing but a Stop button on screen. The call
 			// is collected on .done, so this only names it.
 			if ev.Item.Type == "function_call" && strings.TrimSpace(ev.Item.Name) != "" {
-				onChunk(StreamChunk{ToolCall: &ToolCall{
+				onChunk(StreamChunk{ToolCallNamed: &ToolCall{
 					ID:   ev.Item.CallID,
 					Name: ev.Item.Name,
 				}})

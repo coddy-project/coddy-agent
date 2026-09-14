@@ -545,24 +545,32 @@ func (a *Agent) runReActLoop(
 			} else if chunk.TextDelta != "" {
 				emitText(chunk.TextDelta, now, false)
 			}
-			if chunk.ToolCall != nil && chunk.ToolCall.Name != "" {
+			// A call the model has only named yet announces the same pending row:
+			// the arguments can take seconds to stream, and without the row the
+			// transcript stands still with nothing but a Stop button. The row is
+			// keyed by the call id, so the complete call updates it in place.
+			announce := chunk.ToolCall
+			if announce == nil {
+				announce = chunk.ToolCallNamed
+			}
+			if announce != nil && announce.Name != "" {
 				streamedAny = true
 				maybeMarkReasonEnd(now)
 				if st := sessionStatePtr(a.state); st != nil {
-					if sd := strings.TrimSpace(st.GetPersistedSessionDir()); sd != "" && strings.TrimSpace(chunk.ToolCall.ID) != "" {
-						_ = session.WriteToolCallMeta(sd, chunk.ToolCall.ID, session.ToolCallMeta{
-							ToolCallID: strings.TrimSpace(chunk.ToolCall.ID),
-							Name:       chunk.ToolCall.Name,
-							Kind:       toolKind(chunk.ToolCall.Name),
+					if sd := strings.TrimSpace(st.GetPersistedSessionDir()); sd != "" && strings.TrimSpace(announce.ID) != "" {
+						_ = session.WriteToolCallMeta(sd, announce.ID, session.ToolCallMeta{
+							ToolCallID: strings.TrimSpace(announce.ID),
+							Name:       announce.Name,
+							Kind:       toolKind(announce.Name),
 							Status:     "pending",
 						})
 					}
 				}
 				_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallUpdate{
 					SessionUpdate: acp.UpdateTypeToolCall,
-					ToolCallID:    chunk.ToolCall.ID,
-					Title:         chunk.ToolCall.Name, // plain name, no "Calling: " prefix
-					Kind:          toolKind(chunk.ToolCall.Name),
+					ToolCallID:    announce.ID,
+					Title:         announce.Name, // plain name, no "Calling: " prefix
+					Kind:          toolKind(announce.Name),
 					Status:        "pending",
 				})
 				stopFirstTokenTimer()

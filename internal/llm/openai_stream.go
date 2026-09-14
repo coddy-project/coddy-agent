@@ -338,7 +338,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 			// the builders when the stream ends.
 			if !b.named && b.name != "" {
 				b.named = true
-				emit(StreamChunk{ToolCall: &ToolCall{ID: b.id, Name: b.name}})
+				emit(StreamChunk{ToolCallNamed: &ToolCall{ID: b.id, Name: b.name}})
 			}
 		}
 
