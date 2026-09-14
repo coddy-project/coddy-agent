@@ -32,6 +32,16 @@ function mainThinkingOverlapsMemory(
   return false;
 }
 
+/**
+ * Whether the live line would only repeat the row it sits under. A reasoning row
+ * is present exactly when the status is "thinking" (that is what derives it),
+ * says the same word and ticks its own duration, so the line below it keeps the
+ * dots and drops the text.
+ */
+function repeatsTheRowAbove(status: { kind: string }): boolean {
+  return status.kind === "thinking";
+}
+
 function hasStreamingAssistant(items: TranscriptItem[]): boolean {
   return items.some(
     (it) => it.type === "assistant_message" && it.streaming === true,
@@ -68,6 +78,9 @@ export function MessageList(props: {
   onStopBackgroundTask?: (taskId: string) => void;
   /** Workspace of this session; a refused spawn offers its approval for it. */
   workspacePath?: string | undefined;
+  /** Roots this session works in - its own directory, then its worktrees -
+   *  which tool rows spell paths against. */
+  pathRoots?: readonly string[];
 }) {
   const permissionWaitingToolCallIds = useMemo(
     () => permissionPendingToolCallIds(props.items),
@@ -124,8 +137,11 @@ export function MessageList(props: {
 
   // What the running turn is doing right now, for the label next to the typing dots.
   const liveStatus = useMemo(
-    () => (props.generating === true ? deriveLiveStatus(props.items) : null),
-    [props.generating, props.items],
+    () =>
+      props.generating === true
+        ? deriveLiveStatus(props.items, props.pathRoots || [])
+        : null,
+    [props.generating, props.items, props.pathRoots],
   );
 
   return (
@@ -334,6 +350,9 @@ export function MessageList(props: {
             {...(props.workspacePath
               ? { workspacePath: props.workspacePath }
               : {})}
+            {...(props.pathRoots !== undefined
+              ? { pathRoots: props.pathRoots }
+              : {})}
             {...(rowBackgroundTask
               ? { backgroundTask: rowBackgroundTask }
               : {})}
@@ -376,7 +395,7 @@ export function MessageList(props: {
       })}
       {props.generating === true && !hasStreamingAssistant(props.items) ? (
         <TypingDotsMessage
-          {...(liveStatus
+          {...(liveStatus && !repeatsTheRowAbove(liveStatus)
             ? { statusKind: liveStatus.kind, statusKey: liveStatus.key }
             : {})}
           {...(liveStatus && liveStatus.target

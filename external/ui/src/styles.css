@@ -3024,6 +3024,16 @@ a.rail-brand {
   border-bottom: 0;
 }
 
+/* A command block carries its own 10px inset inside the card, so the output that
+   continues the panel adds none: one gap at the seam, not two stacked paddings.
+   Previews whose body runs edge to edge (a diff, a code panel) keep theirs. */
+.coddy-tool-call-body--connected-result
+  > .permission-preview:has(.permission-preview-shell)
+  + .tool-call-result-card
+  .tool-call-result-content {
+  padding-top: 0;
+}
+
 /* Output needs no label: it is the only thing under the call. A failure is said once,
    on the summary row, where it is readable without expanding the card. */
 .tool-failed-marker {
@@ -7800,7 +7810,9 @@ html:not([data-theme="light"]) .context-usage-note--error {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
-    padding: 4px 2px 2px;
+    /* Same inline inset as the head and the lead pane above: the drawer has one
+       edge, and the tiles used to hug it while the text stood 14px in. */
+    padding: 4px 14px 12px;
     align-content: start;
     overflow-y: auto;
     /* Fill the stack so the footer (reload/save) stays pinned at the bottom. */
@@ -7857,6 +7869,16 @@ html:not([data-theme="light"]) .context-usage-note--error {
     flex-direction: column;
     min-height: 0;
     flex: 1 1 auto;
+  }
+
+  /* On the wide layout the content panel sits against the section rail, so its
+     own 8px is the seam; on the narrow shell the drawer edge is the reference. */
+  .settings.drawer .settings-scroll {
+    padding-inline: 14px;
+  }
+
+  .settings.drawer .settings-footer-actions {
+    padding-inline: 14px;
   }
 }
 
@@ -8109,6 +8131,13 @@ html:not([data-theme="light"]) .context-usage-note--error {
 
 .permission-preview-viewport--scroll {
   overflow-y: auto;
+}
+
+/* No header bar above it (the call's arguments name nothing), so the body is the
+   whole card and closes its own top edge. */
+.permission-preview-viewport--headless {
+  border-top: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-radius: 12px;
 }
 
 .permission-preview-viewport--static {
@@ -9945,47 +9974,13 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   }
 }
 
-/* Live background-task chip on a transcript tool row. The tool call itself
-   returned immediately, so the chip is what keeps the row honest about the work
-   that is still going on. */
-.tool-bgtask-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  padding: 1px 8px 1px 6px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
-  font-size: 11px;
-  line-height: 1.6;
-  color: color-mix(in srgb, var(--text) 66%, var(--coddy-blend-base));
-}
-
-.tool-bgtask-chip.is-running {
-  background: color-mix(in srgb, var(--accent) 14%, var(--coddy-blend-base));
-  color: color-mix(in srgb, var(--text) 82%, var(--coddy-blend-base));
-}
-
-.tool-bgtask-chip-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
+/* Tab controls hanging off the card above them, like the More / Less row: the
+   body is a flex column with an 8px gap, and these cancel it. */
 .tool-bgtask-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding-top: 6px;
-}
-
-@media (max-width: 1199px) {
-  /* The summary row is already tight on phones; the chip drops the wording and
-     keeps the dot plus timing rather than pushing the duration off screen. */
-  .tool-bgtask-chip {
-    max-width: 46vw;
-  }
+  margin-top: -8px;
 }
 
 /* ── Background tasks panel (docked inside the session) ────────────────────
@@ -10013,12 +10008,39 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   overflow: hidden;
 }
 
-/* The chat column gives up the width the panel takes, so the composer and the
-   transcript stay centred in what is left instead of hiding behind it. */
+/* The chat column gives up only the width the panel actually takes from it.
+   While the centred transcript stripe still clears the panel nothing moves:
+   opening the drawer on a wide window must not slide the text sideways. Once
+   the stripe would run under the panel the reserve grows to exactly that
+   overlap, and it stops at the panel's own band so a narrow window does not
+   leave a dead strip between the column and the panel either. */
 @media (min-width: 1200px) {
-  .shell-main.shell-tasks-open .chat-bottom,
+  .shell-main.shell-tasks-open {
+    /* What the panel takes off the end edge: its width and the inset it keeps
+       from the viewport (see .bgtasks-panel), plus the gap the column keeps
+       from it. */
+    --coddy-tasks-panel-band: calc(min(380px, 100vw - 32px) + 14px + 28px);
+    /* 920px is the transcript stripe (.messages-inner max-width); the stripe is
+       centred in what is left, so covering the band costs twice it. */
+    --coddy-tasks-reserve: clamp(
+      0px,
+      calc(920px + 2 * var(--coddy-tasks-panel-band) - 100%),
+      var(--coddy-tasks-panel-band)
+    );
+  }
+
   .shell-main.shell-tasks-open #messages {
-    padding-right: calc(min(380px, 100vw - 32px) + 28px);
+    padding-right: var(--coddy-tasks-reserve);
+  }
+
+  /* .chat-bottom pads both inline edges by the scrollbar gutter, which the
+     scroller spends on a real scrollbar on both of its own edges. Overriding
+     only the end edge would move the composer off the transcript's centre
+     line, so the gutter is paid back here. */
+  .shell-main.shell-tasks-open .chat-bottom {
+    padding-right: calc(
+      var(--coddy-tasks-reserve) + var(--coddy-chat-scrollbar-gutter)
+    );
   }
 }
 
@@ -10034,20 +10056,26 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   gap: 0;
 }
 
-.bgtask-section-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
-  padding: 10px 2px 6px;
-}
-
 .bgtask-section-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 14px 2px 4px;
+  /* Same 10px step the first live card keeps from the panel head, so with no
+     live task the counter sits exactly where that card would have. */
+  padding: 10px 2px 4px;
+}
+
+/* Following a card, 8px of that step is already under it. */
+.bgtask-card + .bgtask-section-row {
+  padding-top: 2px;
+}
+
+/* The empty note, the loading line and a list error are rows of this list like
+   the cards are: the same step under the head, and the list's own inline
+   padding rather than a second one on top of it. */
+.bgtasks-panel .bgtask-list > .sessions-empty {
+  padding: 10px 2px 4px;
 }
 
 .bgtask-section-toggle,
@@ -10090,6 +10118,13 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   background: var(--coddy-surface-raised);
   padding: 10px 12px;
   margin-bottom: 8px;
+}
+
+/* The live cards carry no heading any more, and the heading is what used to
+   hold them off the panel title. The first card pays that air back so the list
+   does not start flush against the head. */
+.bgtasks-panel .bgtask-list > .bgtask-card:first-child {
+  margin-top: 10px;
 }
 
 .bgtask-card-head {

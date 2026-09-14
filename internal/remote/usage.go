@@ -189,6 +189,7 @@ func (h *Handler) pullProviderUsage(ctx context.Context, sessionID string, refre
 // Close refuses new pulls and marks the ones in flight as not to be
 // delivered: the console is quitting, nothing may fire into a dead sender.
 func (h *Handler) Close() {
+	h.controlStop()
 	h.usageMu.Lock()
 	h.usageClosed = true
 	h.usageMu.Unlock()

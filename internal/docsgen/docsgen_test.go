@@ -1,7 +1,9 @@
 package docsgen
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -92,6 +94,82 @@ func TestCheckNavListsEveryPageOnce(t *testing.T) {
 		if !found {
 			t.Errorf("missing problem %q in %v", w, problems)
 		}
+	}
+}
+
+// initGitRepo makes root a repository, so the walk has someone to ask what is
+// ignored.
+func initGitRepo(root string) error {
+	cmd := exec.Command("git", "init")
+	cmd.Dir = root
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git init: %w\n%s", err, out)
+	}
+	return nil
+}
+
+func gitInit(t *testing.T, root string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	if err := initGitRepo(root); err != nil {
+		t.Skip(err)
+	}
+}
+
+func TestDocsMarkdownSkipsWhatGitIgnores(t *testing.T) {
+	// Neutralise the developer's own git configuration: the answer must come
+	// from the .gitignore written below and from nothing else.
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
+	root := t.TempDir()
+	gitInit(t, root)
+	write(t, root, ".gitignore", "docs/superpowers/\ndocs/scratch.md\n")
+	write(t, root, NavFile, "groups:\n  - id: g\n    title: G\n    pages:\n      - path: one.md\n        title: One\n        summary: s\n")
+	write(t, root, "docs/one.md", "# One\n")
+	write(t, root, "docs/orphan.md", "# Orphan\n")
+	write(t, root, "docs/plans/design.md", "# Design\n")
+	write(t, root, "docs/scratch.md", "# Scratch\n")
+	write(t, root, "docs/superpowers/plans/scratch.md", "# Scratch\n\n[gone](nowhere.md)\n")
+
+	files, err := DocsMarkdown(root, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"docs/one.md", "docs/orphan.md", "docs/plans/design.md"}
+	if strings.Join(files, " ") != strings.Join(want, " ") {
+		t.Fatalf("DocsMarkdown = %v, want %v", files, want)
+	}
+
+	nav, err := LoadNav(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The design records under docs/plans keep leaving the map through their
+	// own rule, and only the page that really is missing from it is reported.
+	problems := CheckNav(root, nav)
+	if len(problems) != 1 || problems[0].File != "docs/orphan.md" {
+		t.Fatalf("problems = %v, want only docs/orphan.md", problems)
+	}
+}
+
+func TestDocsMarkdownWithoutGitListsEverything(t *testing.T) {
+	root := t.TempDir()
+	// Without a repository around it the walk cannot ask anyone what is
+	// ignored, and it must carry on rather than fail.
+	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(root))
+	write(t, root, ".gitignore", "docs/superpowers/\n")
+	write(t, root, "docs/one.md", "# One\n")
+	write(t, root, "docs/superpowers/plans/scratch.md", "# Scratch\n")
+
+	files, err := DocsMarkdown(root, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"docs/one.md", "docs/superpowers/plans/scratch.md"}
+	if strings.Join(files, " ") != strings.Join(want, " ") {
+		t.Fatalf("DocsMarkdown = %v, want %v", files, want)
 	}
 }
 

@@ -194,6 +194,36 @@ test("renders memory copilot foldout", () => {
   expect(screen.getByText(/No durable fact to persist/)).toBeInTheDocument();
 });
 
+test("the live line does not repeat the reasoning row right above it", () => {
+  // The transcript row already says the turn is reasoning and ticks its own
+  // duration; the status line under it said the same word again, one line apart.
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "hi" },
+    {
+      id: "t1",
+      type: "thinking",
+      status: "in_progress",
+      content: "weighing the options",
+      startedAtMs: Date.now() - 4000,
+    },
+  ];
+
+  render(<MessageList items={items} generating />);
+
+  expect(screen.getByTestId("typing-dots")).toBeInTheDocument();
+  expect(screen.queryByTestId("typing-dots-status")).toBeNull();
+});
+
+test("the live line still speaks when the transcript is not already saying it", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "hi" },
+  ];
+
+  render(<MessageList items={items} generating />);
+
+  expect(screen.getByTestId("typing-dots-status")).toBeInTheDocument();
+});
+
 test("tool call message uses thinking-row wrapper next to thinking row", () => {
   const items: TranscriptItem[] = [
     {

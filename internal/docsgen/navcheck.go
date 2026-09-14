@@ -20,9 +20,11 @@ var generatedFiles = map[string]bool{
 const internalDir = "docs/plans/"
 
 // DocsMarkdown lists every markdown file under docs/ (relative to root),
-// assets excluded, the generated files excluded when skipGenerated is set.
+// assets and everything git ignores excluded, the generated files excluded
+// when skipGenerated is set.
 func DocsMarkdown(root string, skipGenerated bool) ([]string, error) {
 	var out []string
+	ignored := gitIgnored(root, "docs")
 	err := filepath.WalkDir(filepath.Join(root, "docs"), func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -30,7 +32,7 @@ func DocsMarkdown(root string, skipGenerated bool) ([]string, error) {
 		rel, _ := filepath.Rel(root, path)
 		rel = filepath.ToSlash(rel)
 		if d.IsDir() {
-			if rel == "docs/assets" {
+			if rel == AssetsDir || ignored.has(rel) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -39,6 +41,9 @@ func DocsMarkdown(root string, skipGenerated bool) ([]string, error) {
 			return nil
 		}
 		if skipGenerated && generatedFiles[rel] {
+			return nil
+		}
+		if ignored.has(rel) {
 			return nil
 		}
 		out = append(out, rel)

@@ -111,6 +111,21 @@ func (h *Handler) readEventsOnce(ctx context.Context) error {
 // applyEventFrame turns one server event into a session update for the console.
 // Unknown events are ignored, so a newer server never breaks an older client.
 func (h *Handler) applyEventFrame(f sseFrame) {
+	switch f.event {
+	case "ready":
+		// A reconnect replays starts only. REST also recovers an end or a
+		// queue change missed while the connection was down.
+		h.refreshKnownSessions()
+		return
+	case "turn_started", "turn_ended":
+		var payload struct {
+			SessionID string `json:"sessionId"`
+		}
+		if json.Unmarshal([]byte(f.data), &payload) == nil && payload.SessionID != "" {
+			h.applyActivityEvent(payload.SessionID, f.event == "turn_started")
+		}
+		return
+	}
 	if f.event != "message_queue" {
 		return
 	}
@@ -122,17 +137,13 @@ func (h *Handler) applyEventFrame(f sseFrame) {
 	if json.Unmarshal([]byte(f.data), &payload) != nil || payload.SessionID == "" {
 		return
 	}
-	sender := h.currentSender()
-	if sender == nil {
-		return
-	}
 	if payload.Messages == nil {
 		payload.Messages = []acp.QueuedMessage{}
 	}
-	_ = sender.SendSessionUpdate(payload.SessionID, acp.MessageQueueUpdate{
+	h.publishQueueUpdate(payload.SessionID, acp.MessageQueueUpdate{
 		SessionUpdate: acp.UpdateTypeMessageQueue,
 		SessionID:     payload.SessionID,
 		Messages:      payload.Messages,
 		Version:       payload.Version,
-	})
+	}, queueFence{})
 }

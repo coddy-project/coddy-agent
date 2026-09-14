@@ -36,12 +36,13 @@ type queueBody struct {
 // The answer carries the same version the SSE frames do, so a client applying
 // both keeps whichever is newer rather than letting a request that finished
 // late overwrite a change it already heard about.
-func writeQueue(w http.ResponseWriter, status int, sessionID string, st *session.State, queue []session.QueuedMessage, added *session.QueuedMessage) {
+func writeQueue(w http.ResponseWriter, status int, sessionID string, st *session.State, added *session.QueuedMessage) {
+	queue, version := st.QueueSnapshot()
 	out := map[string]interface{}{
 		"object":    "coddy.message_queue",
 		"sessionId": sessionID,
 		"messages":  session.QueuedMessagesWire(queue),
-		"version":   st.QueueVersion(),
+		"version":   version,
 	}
 	if added != nil {
 		out["message"] = added.Wire()
@@ -69,7 +70,7 @@ func (s *Server) coddyQueueList(w http.ResponseWriter, r *http.Request) {
 	if st == nil {
 		return
 	}
-	writeQueue(w, http.StatusOK, id, st, st.QueuedMessages(), nil)
+	writeQueue(w, http.StatusOK, id, st, nil)
 }
 
 func (s *Server) coddyQueuePost(w http.ResponseWriter, r *http.Request) {
@@ -82,7 +83,7 @@ func (s *Server) coddyQueuePost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":{"message":"invalid JSON body"}}`, http.StatusBadRequest)
 		return
 	}
-	msg, queue, err := s.mgr.EnqueueTurnMessage(id, body.Text)
+	msg, _, err := s.mgr.EnqueueTurnMessage(id, body.Text)
 	switch {
 	case errors.Is(err, session.ErrNoActiveTurn):
 		// 409 rather than 400: the request is well formed, the session is
@@ -100,7 +101,7 @@ func (s *Server) coddyQueuePost(w http.ResponseWriter, r *http.Request) {
 		s.queueError(w, http.StatusBadRequest, "invalid_request", err)
 		return
 	}
-	writeQueue(w, http.StatusCreated, id, st, queue, &msg)
+	writeQueue(w, http.StatusCreated, id, st, &msg)
 }
 
 func (s *Server) coddyQueueDelete(w http.ResponseWriter, r *http.Request) {
@@ -109,7 +110,7 @@ func (s *Server) coddyQueueDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	messageID := strings.TrimSpace(r.PathValue("message_id"))
-	queue, err := s.mgr.CancelQueuedTurnMessage(id, messageID)
+	_, err := s.mgr.CancelQueuedTurnMessage(id, messageID)
 	switch {
 	case errors.Is(err, session.ErrQueuedMessageNotFound):
 		// Losing the race with the agent is the ordinary way this happens: the
@@ -120,7 +121,7 @@ func (s *Server) coddyQueueDelete(w http.ResponseWriter, r *http.Request) {
 		s.queueError(w, http.StatusBadRequest, "invalid_request", err)
 		return
 	}
-	writeQueue(w, http.StatusOK, id, st, queue, nil)
+	writeQueue(w, http.StatusOK, id, st, nil)
 }
 
 func (s *Server) coddyQueueClear(w http.ResponseWriter, r *http.Request) {
@@ -132,7 +133,7 @@ func (s *Server) coddyQueueClear(w http.ResponseWriter, r *http.Request) {
 		s.queueError(w, http.StatusBadRequest, "invalid_request", err)
 		return
 	}
-	writeQueue(w, http.StatusOK, id, st, st.QueuedMessages(), nil)
+	writeQueue(w, http.StatusOK, id, st, nil)
 }
 
 // queueError answers in the error shape the rest of /coddy uses, with a code a

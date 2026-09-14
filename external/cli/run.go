@@ -318,11 +318,9 @@ func buildRemoteApp(cfg *config.Config, ropts *remote.Options, log *slog.Logger,
 	if err != nil {
 		return nil, err
 	}
-	lateSender := &lateBoundSender{}
-	h.SetServer(lateSender)
 	app := newApp(cfg, h, log, term, themeName, plain)
 	app.remoteURL = h.BaseURL()
-	lateSender.inner = app.Sender()
+	h.SetServer(app.Sender())
 	// A session on the server is shared: this is how the console hears that
 	// someone queued a follow-up onto the turn it is watching from a browser.
 	// The subscription holds a request open, and the run loop's Close hook

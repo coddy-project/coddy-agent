@@ -389,26 +389,19 @@ export function BackgroundTasksPanel(props: {
             </div>
           ) : null}
 
-          {running.length > 0 ? (
-            <>
-              <div
-                className="bgtask-section-label"
-                data-testid="bgtask-section-running"
-              >
-                {t("tasks.sectionRunning")}
-              </div>
-              {running.map((t) => (
-                <RunningCard
-                  key={t.id}
-                  task={t}
-                  nowMs={props.nowMs}
-                  onOpen={props.onOpenTask}
-                  onStop={props.onStopTask}
-                  onPermissionAnswered={onPermissionAnswered}
-                />
-              ))}
-            </>
-          ) : null}
+          {/* No heading over the live cards: a row that is not under the
+              finished counter below is running, and saying so twice only
+              costs a line of the panel. */}
+          {running.map((t) => (
+            <RunningCard
+              key={t.id}
+              task={t}
+              nowMs={props.nowMs}
+              onOpen={props.onOpenTask}
+              onStop={props.onStopTask}
+              onPermissionAnswered={onPermissionAnswered}
+            />
+          ))}
 
           {finished.length > 0 ? (
             <>

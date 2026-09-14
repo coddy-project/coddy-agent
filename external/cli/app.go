@@ -71,14 +71,17 @@ type App struct {
 	stepBlocked   string
 	turnActive    bool
 	turnSessionID string
-	switching     bool
-	pendingSwitch func()
-	readyPending  string
-	lastCtrlC     time.Time
-	expanded      bool
-	hideThink     bool
-	themeName     string
-	plain         bool
+	// Remote activity drives Stop/queue but never owns or releases our worker.
+	remoteTurnActive       bool
+	remoteActivityRevision uint64
+	switching              bool
+	pendingSwitch          func()
+	readyPending           string
+	lastCtrlC              time.Time
+	expanded               bool
+	hideThink              bool
+	themeName              string
+	plain                  bool
 
 	// Streaming state.
 	curAssistant *assistantMessage
@@ -286,6 +289,10 @@ func (a *App) ApplyStartupOptions(ctx context.Context, model, mode, permMode str
 }
 
 func (a *App) adoptSession(id string, modes *acp.ModeState, opts []acp.ConfigOption) {
+	if id != a.sessionID {
+		a.remoteTurnActive, a.remoteActivityRevision = false, 0
+		a.queue.Reset()
+	}
 	a.sessionID = id
 	a.reasoning = ""
 	if modes != nil {
@@ -521,9 +528,13 @@ func (a *App) handleGlobalKey(data []byte) bool {
 			a.stopLocalShell()
 			return true
 		}
-		if a.turnActive {
+		if a.remoteTurnActive || (a.turnActive && a.turnSessionID == a.sessionID) {
 			a.mgr.HandleSessionCancel(acp.SessionCancelParams{SessionID: a.sessionID})
-			a.appendStatus(roleWarning, "Interrupted by escape")
+			if a.remoteURL != "" {
+				a.appendStatus(roleDim, "Requesting stop…")
+			} else {
+				a.appendStatus(roleWarning, "Interrupted by escape")
+			}
 			return true
 		}
 		return false
@@ -652,7 +663,7 @@ func (a *App) onSubmit(text string) {
 }
 
 func (a *App) submitPrompt(text string) {
-	if a.turnActive {
+	if a.turnActive || a.remoteTurnActive {
 		// The moment an operator knows most about what the agent should do next
 		// is while it is working, so a second prompt joins the queue the turn
 		// reads at its next step instead of being refused (queue.go).
@@ -664,7 +675,9 @@ func (a *App) submitPrompt(text string) {
 		return
 	}
 	a.chat.AddChild(newUserMessage(a.theme, text))
-	a.setQueueRows(nil)
+	if a.remoteURL == "" {
+		a.setQueueRows(nil)
+	}
 	a.curAssistant = nil
 	a.stepStatus = newWaitingStatus()
 	a.stepBlocked = ""
@@ -1118,6 +1131,8 @@ func (a *App) onEditorChange(string) {
 }
 
 func (a *App) resetTranscript() {
+	a.remoteTurnActive, a.remoteActivityRevision = false, 0
+	a.queue.Reset()
 	a.chat.Clear()
 	a.plan.SetEntries(nil)
 	a.toolBoxes = map[string]*toolBox{}

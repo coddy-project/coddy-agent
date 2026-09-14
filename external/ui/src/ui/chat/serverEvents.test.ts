@@ -50,8 +50,9 @@ test("turn events are reported per session", async () => {
   expect(ended).toEqual(["sess_a"]);
 });
 
-test("the ready and keepalive frames are ignored", async () => {
+test("ready requests reconciliation while keepalive frames remain ignored", async () => {
   const seen: string[] = [];
+  const ready = vi.fn();
   const ctl = new AbortController();
   const fetchImpl = vi.fn(async () => {
     ctl.abort();
@@ -63,12 +64,14 @@ test("the ready and keepalive frames are ignored", async () => {
   await subscribeServerEvents({
     onTurnStarted: (sid) => seen.push(sid),
     onTurnEnded: (sid) => seen.push(sid),
+    onReady: ready,
     signal: ctl.signal,
     fetchImpl: fetchImpl as unknown as typeof fetch,
     sleep: async () => {},
   });
 
   expect(seen).toEqual([]);
+  expect(ready).toHaveBeenCalledTimes(1);
 });
 
 // The stream is an optimisation: the caller keeps a poll running while it is down, so it

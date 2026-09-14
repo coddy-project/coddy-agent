@@ -774,6 +774,7 @@ export const messagesRu: Record<string, string> = {
   "skills.badge.syncedFrom": "Синхронизировано из {source}",
   "app.chatBusy":
     "Этот чат занят в другом клиенте. Попробуйте снова через момент.",
+  "app.stopFailed": "Не удалось остановить генерацию. Попробуйте ещё раз.",
   "app.emptyResponseBody": "Пустое тело ответа",
   "app.branchCreationNoSessionId": "Создание ветки не вернуло ID сессии",
 
@@ -1085,7 +1086,6 @@ export const messagesRu: Record<string, string> = {
   "tasks.loading": "Загрузка…",
   "tasks.empty":
     "В этом чате ещё нет фоновых задач. Агент запускает их, когда команда достаточно долгая, чтобы выполнять её отдельно.",
-  "tasks.sectionRunning": "Выполняются",
   "tasks.sectionFinished": "Завершённых: {count}",
   "tasks.clearFinished": "Очистить",
   "tasks.backToList": "← К списку задач",
@@ -1124,8 +1124,8 @@ export const messagesRu: Record<string, string> = {
   "messages.systemLabel": "Система",
   "messages.refresh": "Обновить",
   "messages.retryLastMessage": "Повторить последнее сообщение",
-  "messages.thinkingInProgress": "думаю…",
-  "messages.thinkingCompleted": "размышления",
+  "messages.thinkingInProgress": "размышляю…",
+  "messages.thinkingCompleted": "размышляю",
   "messages.thinkingSummaryAriaLabel": "Сводка размышления",
   "messages.thinkingContentAriaLabel": "Содержимое размышления",
   "messages.compactionLabel": "контекст сжат",
@@ -1143,6 +1143,7 @@ export const messagesRu: Record<string, string> = {
   // имя функции. Инструмент без записи (свои инструменты MCP-серверов) остаётся с
   // исходным идентификатором.
   "tool.name.run_command": "выполняю команду",
+  "tool.name.run_command_background": "выполняю команду в фоне",
   "tool.name.ssh_run_command": "выполняю команду по ssh",
   "tool.name.read": "читаю файл",
   "tool.name.read_directory": "просматриваю директорию",
@@ -1444,7 +1445,7 @@ export const messagesRu: Record<string, string> = {
   "status.backgroundStop": "Останавливаю фоновую задачу",
   "status.backgroundReap": "Убираю фоновые задачи",
   "status.tool": "Работаю с инструментом",
-  "status.thinking": "Думаю…",
+  "status.thinking": "Размышляю…",
   "status.memory": "Работаю с памятью",
   "status.awaitingPermission": "Жду разрешения",
   "status.awaitingAnswer": "Жду ответа",

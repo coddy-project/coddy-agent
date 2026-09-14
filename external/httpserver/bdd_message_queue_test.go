@@ -120,9 +120,13 @@ func (s *queueHTTPState) startServer() error {
 		}
 	}
 	var started sync.Once
-	runner := func(_ context.Context, st *session.State, _ []acp.ContentBlock, sender acp.UpdateSender) (string, error) {
+	runner := func(ctx context.Context, st *session.State, _ []acp.ContentBlock, sender acp.UpdateSender) (string, error) {
 		started.Do(func() { close(s.turnStarted) })
-		<-s.releaseTurn
+		select {
+		case <-ctx.Done():
+			return string(acp.StopReasonCancelled), nil
+		case <-s.releaseTurn:
+		}
 		_ = sender.SendSessionUpdate(st.GetID(), acp.MessageChunkUpdate{
 			SessionUpdate: acp.UpdateTypeAgentMessageChunk,
 			Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: queueFeatureReply},
@@ -183,6 +187,56 @@ func (s *queueHTTPState) turnIsRunning() error {
 
 func (s *queueHTTPState) queueURL(suffix string) string {
 	return s.ts.URL + "/coddy/sessions/" + url.PathEscape(s.sessionID) + "/queue" + suffix
+}
+
+func (s *queueHTTPState) secondClientStopsTurn() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		s.ts.URL+"/coddy/sessions/"+url.PathEscape(s.sessionID)+"/cancel", nil)
+	if err != nil {
+		return err
+	}
+	res, err := s.ts.Client().Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("cancel answered %d", res.StatusCode)
+	}
+	select {
+	case <-s.turnDone:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("the cancelled turn did not finish: %w", ctx.Err())
+	}
+}
+
+func (s *queueHTTPState) nextPromptIsAccepted() error {
+	s.release()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.ts.URL+"/v1/responses",
+		strings.NewReader(`{"model":"agent","input":"continue after Stop","stream":false}`))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Coddy-Session-ID", s.sessionID)
+	res, err := s.ts.Client().Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+	if res.StatusCode != http.StatusOK || !strings.Contains(string(body), queueFeatureReply) {
+		return fmt.Errorf("the next prompt answered %d: %s", res.StatusCode, body)
+	}
+	return nil
 }
 
 func (s *queueHTTPState) call(method, suffix string, body []byte) error {
@@ -475,6 +529,11 @@ func initializeMessageQueueHTTPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the subscribed client is told the queue is empty$`, func() error {
 		return s.awaitEvents("event: message_queue", `"messages":[]`)
 	})
+	sc.Step(`^a second client stops the session turn$`, s.secondClientStopsTurn)
+	sc.Step(`^the subscribed client is told the turn ended$`, func() error {
+		return s.awaitEvents("event: turn_ended", s.sessionID)
+	})
+	sc.Step(`^the session accepts the next ordinary prompt$`, s.nextPromptIsAccepted)
 }
 
 func TestMessageQueueHTTPFeature(t *testing.T) {

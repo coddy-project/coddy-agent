@@ -13,10 +13,14 @@ import {
   parseQuestionToolQuestionsFromArgs,
 } from "../chat/questionToolDisplay";
 import { PermissionToolPreview } from "../chat/PermissionPromptPreview";
-import { taskStatusLabel, taskTimingLine, taskTone } from "../tasks/taskStatus";
+import {
+  displayElapsedSeconds,
+  formatDuration as formatTaskDuration,
+} from "../tasks/taskStatus";
 import type { BackgroundTask } from "../tasks/types";
 import {
   buildToolCallPreview,
+  toolCallTargetIsPath,
   toolCallTargetText,
 } from "../chat/permissionToolPreview";
 import type { TodoPlanEntry } from "../chat/todoToolPreview";
@@ -24,6 +28,7 @@ import { useT } from "../i18n/I18nProvider";
 import { parseSpawnAgentArgs } from "../chat/spawnAgentDisplay";
 import { SpawnAgentCard } from "./SpawnAgentCard";
 import { SubagentApprovalNotice } from "./SubagentApprovalNotice";
+import { relativeToolTarget } from "../chat/toolTargetPath";
 import { toolDisplayName } from "./toolDisplayName";
 import { Markdown } from "../markdown/Markdown";
 
@@ -114,6 +119,9 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   onStopBackgroundTask?: ((taskId: string) => void) | undefined;
   /** Workspace of this session, for the approval offered on a refused spawn. */
   workspacePath?: string | undefined;
+  /** Roots this session works in - its own directory, then its worktrees -
+   *  deepest match first when the row spells a path. */
+  pathRoots?: readonly string[] | undefined;
 }) {
   const { t } = useT();
   const preview = useMemo(
@@ -161,18 +169,28 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   const isLoadSkillTool = rawNameLower === "load_skill";
   // The one thing this call acts on - the path it reads, the command it runs, the skill
   // it pulls in - next to the label, so a collapsed row still says what it touched.
+  const targetContext = useMemo(
+    () => ({
+      ...(props.title !== undefined ? { title: props.title } : {}),
+      ...(props.kind !== undefined ? { kind: props.kind } : {}),
+      ...(props.argsText !== undefined ? { argsText: props.argsText } : {}),
+    }),
+    [props.argsText, props.kind, props.title],
+  );
+  const summaryTargetFull = useMemo(
+    () => (isQuestionTool ? "" : toolCallTargetText(targetContext).trim()),
+    [isQuestionTool, targetContext],
+  );
+  // The row is one line and clips its end, which is where a path carries the file
+  // name. Against the session's own directory the same file is a few segments, so
+  // that is what the row shows; the tooltip and the expanded card keep the path
+  // the call was actually given.
   const summaryTarget = useMemo(
     () =>
-      isQuestionTool
-        ? ""
-        : toolCallTargetText({
-            ...(props.title !== undefined ? { title: props.title } : {}),
-            ...(props.kind !== undefined ? { kind: props.kind } : {}),
-            ...(props.argsText !== undefined
-              ? { argsText: props.argsText }
-              : {}),
-          }).trim(),
-    [isQuestionTool, props.argsText, props.kind, props.title],
+      summaryTargetFull && toolCallTargetIsPath(targetContext)
+        ? relativeToolTarget(summaryTargetFull, props.pathRoots || [])
+        : summaryTargetFull,
+    [props.pathRoots, summaryTargetFull, targetContext],
   );
   const isPatchTool = rawNameLower === "apply_patch";
   const isWriteTool =
@@ -400,6 +418,13 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
         toolPreview.destinationPath.trim() !== ""));
   const backgroundTask = props.backgroundTask;
   const backgroundNowMs = props.backgroundNowMs ?? nowMs;
+  // A backgrounded call returned the instant the task started, so the call's own
+  // 0ms is not the duration of anything. The task's clock takes that slot; how it
+  // ended - the status, the estimate, the exit code - belongs to the task, and is
+  // read in the Tasks panel rather than on a transcript row.
+  const backgroundElapsed = backgroundTask
+    ? formatTaskDuration(displayElapsedSeconds(backgroundTask, backgroundNowMs))
+    : "";
   // A completed load_skill returned a skill's markdown; a failed one returned an error,
   // which stays raw monospace text.
   const showSkillBody = isLoadSkillTool && status === "completed";
@@ -450,7 +475,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                 <span
                   className="tool-summary-target"
                   data-testid="tool-summary-target"
-                  title={summaryTarget}
+                  title={summaryTargetFull}
                 >
                   {summaryTarget}
                 </span>
@@ -463,33 +488,21 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                   {t("messages.toolFailedMarker")}
                 </span>
               ) : null}
-              {durationLabel.trim() !== "" ? (
+              {backgroundTask ? (
+                backgroundElapsed ? (
+                  <span
+                    className="thinking-dur"
+                    data-testid={`tool-bgtask-elapsed-${backgroundTask.id}`}
+                  >
+                    {backgroundElapsed}
+                  </span>
+                ) : null
+              ) : durationLabel.trim() !== "" ? (
                 <span className="thinking-dur" aria-hidden="true">
                   {durationLabel}
                 </span>
               ) : null}
             </span>
-            {backgroundTask ? (
-              <span
-                className={[
-                  "tool-bgtask-chip",
-                  backgroundTask.running ? "is-running" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                data-testid={`tool-bgtask-chip-${backgroundTask.id}`}
-                title={backgroundTask.command || backgroundTask.label}
-              >
-                <span
-                  className={`bgtask-dot bgtask-dot--${taskTone(backgroundTask.status)}`}
-                  aria-hidden="true"
-                />
-                <span className="tool-bgtask-chip-text">
-                  {taskStatusLabel(backgroundTask.status)} ·{" "}
-                  {taskTimingLine(backgroundTask, backgroundNowMs)}
-                </span>
-              </span>
-            ) : null}
           </span>
         </summary>
         {hasBody ? (

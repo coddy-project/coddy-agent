@@ -99,6 +99,8 @@ make docs-changelog  # also refresh the changelog from GitHub Releases (needs gh
 
 `make docs-check` runs in CI as the job **Documentation** and in the pre-commit hook for commits that touch `docs/`, the README, `AGENTS.md`, `DESIGN.md`, `CONTRIBUTING.md` or the config schema (there without the CLI build: `go run ./cmd/docsgen -skip-cli`). The link check resolves every relative link and image and every `#anchor` against the headings of the target page, GitHub style; fenced code blocks are ignored.
 
+The walk over `docs/` asks git what it excludes and skips it, so a folder `.gitignore` keeps out of the repository is neither a page missing from the map nor a source of broken links - local scratch under `docs/` costs nothing. Only untracked files count, so a tracked page an exclude rule happens to match stays a page, and `docs/plans/` keeps leaving the map through its own rule rather than this one. Without git, or outside a repository, nothing is filtered and the whole tree is walked as before.
+
 ## The site
 
 Every page of the map has a stable address on coddy.dev, so the binary, the schema, the bundled skill, posts and other people's links can name a page without naming a path in this repository, and nothing is duplicated there:

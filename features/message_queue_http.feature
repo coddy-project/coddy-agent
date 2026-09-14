@@ -38,3 +38,14 @@ Feature: The message queue over HTTP
     And the subscribed client is told what the queue holds
     When the operator deletes that queued message
     Then the subscribed client is told the queue is empty
+
+  Scenario: A second client stops the turn and its waiting follow-ups
+    Given a turn is running for that session
+    And a third client is subscribed to the server event stream
+    And the operator posted "check the Windows path too" to the session queue
+    And the queue answers with that message and an identifier
+    When a second client stops the session turn
+    Then the subscribed client is told the queue is empty
+    And the subscribed client is told the turn ended
+    And reading the queue lists no messages
+    And the session accepts the next ordinary prompt

@@ -548,6 +548,56 @@ func TestOpenAIStreamTruncatedDropsUnfinishedToolCalls(t *testing.T) {
 	}
 }
 
+// TestOpenAIStreamNamesAToolCallBeforeItsArguments covers the silence the
+// operator sees while the model composes a tool call: the name is in the first
+// delta, the arguments stream after it, and collecting the call only when the
+// stream ends leaves the transcript with nothing to show and a Stop button that
+// looks like a hang.
+func TestOpenAIStreamNamesAToolCallBeforeItsArguments(t *testing.T) {
+	p, done := streamStubProvider(t,
+		"data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"run_command\",\"arguments\":\"\"}}]}}],\"id\":\"chatcmpl-t9\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n"+
+			"data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"command\\\":\\\"ls\\\"}\"}}]}}],\"id\":\"chatcmpl-t9\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n"+
+			"data: {\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"delta\":{}}],\"id\":\"chatcmpl-t9\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n"+
+			"data: [DONE]\n\n")
+	defer done()
+
+	var announced []ToolCall
+	resp, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil,
+		func(c StreamChunk) {
+			if c.ToolCallNamed != nil {
+				announced = append(announced, *c.ToolCallNamed)
+			}
+			if c.ToolCall != nil {
+				announced = append(announced, *c.ToolCall)
+			}
+		})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	if len(announced) < 2 {
+		t.Fatalf("announced %d tool calls, want the name first and the complete call after: %+v", len(announced), announced)
+	}
+	if announced[0].Name != "run_command" || announced[0].ID != "call_1" {
+		t.Errorf("first announcement = %+v, want the name and id of the call", announced[0])
+	}
+	if announced[0].InputJSON != "" {
+		t.Errorf("first announcement carries arguments %q; they have not streamed yet", announced[0].InputJSON)
+	}
+	// One name, however many argument deltas follow it.
+	named := 0
+	for _, tc := range announced {
+		if tc.InputJSON == "" {
+			named++
+		}
+	}
+	if named != 1 {
+		t.Errorf("announced the name %d times, want once", named)
+	}
+	if len(resp.ToolCalls) != 1 || resp.ToolCalls[0].InputJSON != `{"command":"ls"}` {
+		t.Fatalf("response tool calls = %+v, want one complete call", resp.ToolCalls)
+	}
+}
+
 // anthropicStreamStub serves a verbatim Anthropic SSE payload and returns an
 // unwrapped provider pointed at it.
 func anthropicStreamStub(t *testing.T, sse string) (*anthropicProvider, func()) {

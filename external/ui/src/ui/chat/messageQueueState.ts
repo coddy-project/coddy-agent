@@ -41,9 +41,8 @@ export function acceptQueueVersion(
 /**
  * Forget what was applied for a session.
  *
- * A turn that is starting has an empty queue, and a server that restarted
- * numbers its changes from the beginning again: a client still holding the old
- * high-water mark would drop every frame of the new turn as stale.
+ * Only a fenced authoritative snapshot may establish a lower high-water mark
+ * after a restart. A replayed turn-start event does not prove a restart.
  */
 export function resetQueueVersion(
   versions: QueueVersions,
@@ -51,4 +50,51 @@ export function resetQueueVersion(
 ): void {
   const key = sessionId.trim();
   if (key) versions.delete(key);
+}
+
+type QueueReadFence = { revision: number; epoch: number };
+
+/** Orders deliveries within one server lifetime and fences local sources from
+ * an earlier lifetime when a fresh REST snapshot proves versions restarted. */
+export class QueueDeliveryOrder {
+  private readonly versions: QueueVersions = new Map();
+  private readonly fences = new Map<string, QueueReadFence>();
+
+  capture(sessionId: string): QueueReadFence {
+    return this.fences.get(sessionId.trim()) ?? { revision: 0, epoch: 0 };
+  }
+
+  accept(sessionId: string, version: number, epoch?: number): boolean {
+    const key = sessionId.trim();
+    const current = this.capture(key);
+    if (!key || (epoch !== undefined && epoch !== current.epoch)) return false;
+    // Even a lower frame may belong to a restarted server. It cannot reset the
+    // mark, but it does make a snapshot already in flight too old to reset it.
+    this.fences.set(key, { ...current, revision: current.revision + 1 });
+    return acceptQueueVersion(this.versions, key, version);
+  }
+
+  acceptSnapshot(
+    sessionId: string,
+    version: number,
+    fence: QueueReadFence,
+  ): boolean {
+    const key = sessionId.trim();
+    const current = this.capture(key);
+    if (
+      !key ||
+      fence.revision !== current.revision ||
+      fence.epoch !== current.epoch
+    )
+      return false;
+    if (
+      Number.isFinite(version) &&
+      version >= 0 &&
+      version < (this.versions.get(key) ?? 0)
+    ) {
+      resetQueueVersion(this.versions, key);
+      this.fences.set(key, { ...current, epoch: current.epoch + 1 });
+    }
+    return this.accept(key, version);
+  }
 }

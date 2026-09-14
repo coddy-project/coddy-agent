@@ -756,6 +756,7 @@ export const messagesEn: Record<string, string> = {
   "skills.update.aria": "Download update for {name} to version {version}",
   "skills.badge.syncedFrom": "Synced from {source}",
   "app.chatBusy": "This chat is busy in another client. Try again in a moment.",
+  "app.stopFailed": "Could not stop generation. Try again.",
   "app.emptyResponseBody": "Empty response body",
   "app.branchCreationNoSessionId": "Branch creation returned no session ID",
 
@@ -1061,7 +1062,6 @@ export const messagesEn: Record<string, string> = {
   "tasks.loading": "Loading…",
   "tasks.empty":
     "No background tasks in this chat yet. The agent starts one when a command is slow enough to be worth running detached.",
-  "tasks.sectionRunning": "Running",
   "tasks.sectionFinished": "Finished {count}",
   "tasks.clearFinished": "Clear",
   "tasks.backToList": "← Back to tasks",
@@ -1120,6 +1120,7 @@ export const messagesEn: Record<string, string> = {
   // what the agent is doing rather than as the function it called; a tool without an
   // entry (an MCP server's own tools) keeps its raw id.
   "tool.name.run_command": "running a command",
+  "tool.name.run_command_background": "running a command in the background",
   "tool.name.ssh_run_command": "running a command over ssh",
   "tool.name.read": "reading a file",
   "tool.name.read_directory": "browsing a directory",
