@@ -221,6 +221,9 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 		id   string
 		name string
 		args string
+		// Set once the name has been announced, so the arguments streaming in
+		// after it do not repeat the announcement on every delta.
+		named bool
 	}
 	builders := make(map[int]*tcBuilder)
 
@@ -328,6 +331,15 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 				b.name = tc.Function.Name
 			}
 			b.args += tc.Function.Arguments
+			// The name arrives in the first delta of the call and the arguments
+			// stream after it, which can take seconds on a long command. Naming
+			// the call here is what keeps the transcript from standing still with
+			// nothing but a Stop button; the call itself is still collected from
+			// the builders when the stream ends.
+			if !b.named && b.name != "" {
+				b.named = true
+				emit(StreamChunk{ToolCall: &ToolCall{ID: b.id, Name: b.name}})
+			}
 		}
 
 		if chunk.Usage.TotalTokens > 0 {
