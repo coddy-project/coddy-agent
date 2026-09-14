@@ -31,17 +31,17 @@ func TestSubagentsWebUIFeature(t *testing.T) {
 	suite := godog.TestSuite{
 		Name: "subagents_web_ui",
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
-			sc.Step(`^the Subagents settings tab approves a definition for the session workspace and shows it as trusted$`, func() error {
+			sc.Step(`^the Subagents settings tab lists the definitions of the session workspace with their scope, description and file$`, func() error {
 				return runVitestScenario("src/ui/settings/SubagentsSection.test.tsx",
-					"approving posts the workspace and reloads the catalog")
+					"lists every definition of the session workspace with its scope, description and file")
 			})
-			sc.Step(`^the refused spawn_agent notice approves the definition without starting it again$`, func() error {
-				return runVitestScenario("src/ui/messages/SubagentApprovalNotice.test.tsx",
-					"approving posts the workspace and never retries the spawn")
+			sc.Step(`^a background subagent's prompt waits at the end of its parent chat$`, func() error {
+				return runVitestScenario("src/ui/chat/ChatScreen.test.tsx",
+					"a background subagent's prompt waits at the end of its parent chat")
 			})
-			sc.Step(`^the Tasks panel answers a detached subagent's prompt against the child session$`, func() error {
-				return runVitestScenario("src/ui/tasks/BackgroundTasksPanel.test.tsx",
-					"a detached subagent's prompt is answered on its task card")
+			sc.Step(`^the parent chat answers that prompt against the child session$`, func() error {
+				return runVitestScenario("src/ui/chat/SubagentPermissionCard.test.tsx",
+					"a background subagent's prompt is answered in the parent chat against the child session")
 			})
 		},
 		Options: &godog.Options{

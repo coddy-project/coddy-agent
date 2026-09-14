@@ -270,3 +270,43 @@ test("a config reload without a handler is not an error", async () => {
 
   expect(ended).toEqual(["sess_z"]);
 });
+
+// A background subagent asks after its parent turn ended, so nothing streams the
+// prompt into the chat: the event names the parent session, and the chat that is
+// that session re-reads its task rows, where the prompt waits.
+test("a background subagent's prompt names the chat it belongs to", async () => {
+  const parents: string[] = [];
+  const ctl = new AbortController();
+  const frame = (phase: string, extra: Record<string, unknown> = {}) =>
+    `event: subagent_permission
+data: ${JSON.stringify({
+      object: "coddy.subagent_permission",
+      phase,
+      childSessionId: "sess_child",
+      toolCallId: "call_1",
+      ...extra,
+    })}
+
+`;
+  const fetchImpl = vi.fn(async () => {
+    ctl.abort();
+    return responseOf(
+      frame("asked", { parentSessionId: "sess_parent" }) +
+        frame("settled", { parentSessionId: "sess_parent" }) +
+        frame("asked"),
+    );
+  });
+
+  await subscribeServerEvents({
+    onTurnStarted: () => {},
+    onTurnEnded: () => {},
+    onSubagentPermission: (sid) => parents.push(sid),
+    signal: ctl.signal,
+    fetchImpl: fetchImpl as unknown as typeof fetch,
+    sleep: async () => {},
+  });
+
+  // Asked and settled both change what the chat shows; a frame naming no parent
+  // belongs to no chat.
+  expect(parents).toEqual(["sess_parent", "sess_parent"]);
+});

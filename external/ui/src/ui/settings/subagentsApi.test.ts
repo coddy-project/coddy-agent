@@ -1,10 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { initLocale } from "../i18n/i18n";
-import {
-  fetchSubagentCatalog,
-  trustSubagent,
-  untrustSubagent,
-} from "./subagentsApi";
+import { fetchSubagentCatalog } from "./subagentsApi";
 
 beforeEach(() => {
   initLocale("en");
@@ -77,27 +73,8 @@ test("the server's error message is what the caller gets", async () => {
 
 test("an unreachable server is reported in words", async () => {
   stubFetch({ ok: false, reject: true });
-  expect(await trustSubagent("reviewer", "/work/repo")).toEqual({
+  expect(await fetchSubagentCatalog("/work/repo")).toEqual({
     ok: false,
     error: "the server could not be reached",
   });
-});
-
-test("trust and untrust post the workspace and return the refreshed row", async () => {
-  const item = { name: "reviewer", trusted: true };
-  const calls = stubFetch({
-    ok: true,
-    body: { object: "coddy.subagent", item },
-  });
-
-  const trusted = await trustSubagent("reviewer", "/work/repo");
-  expect(trusted).toEqual({ ok: true, data: item });
-  expect(calls[0]?.url).toBe("/coddy/subagents/reviewer/trust");
-  expect(calls[0]?.init?.method).toBe("POST");
-  expect(calls[0]?.init?.body).toBe(JSON.stringify({ cwd: "/work/repo" }));
-
-  await untrustSubagent("reviewer", "");
-  expect(calls[1]?.url).toBe("/coddy/subagents/reviewer/untrust");
-  // Without a workspace the server answers for its own default.
-  expect(calls[1]?.init?.body).toBe("{}");
 });

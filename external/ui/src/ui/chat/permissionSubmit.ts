@@ -2,8 +2,9 @@ const HDR = "X-Coddy-Session-ID";
 
 /**
  * POST a permission choice to /coddy/sessions/{id}/permission. Shared by the
- * inline permission card in the transcript and the card a detached subagent's
- * prompt gets on its task row, so both resolve a prompt the same way. Network
+ * inline permission card in the transcript and the card a background
+ * subagent's prompt gets at the end of its parent chat, so both resolve a
+ * prompt the same way. Network
  * errors propagate; each caller decides what an unreachable server means for
  * its own surface.
  */

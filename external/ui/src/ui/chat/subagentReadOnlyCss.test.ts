@@ -25,15 +25,3 @@ test("the read-only notice reuses the composer's glass card tokens", () => {
 test("the parent link is accent-tinted from theme tokens", () => {
   expect(ruleBody(".subagent-readonly-link {")).toContain("var(--accent)");
 });
-
-// The approval under a refused spawn carries an absolute path: it has to wrap
-// inside the transcript column instead of stretching it, and it blends into the
-// theme through the shared base rather than a fixed background.
-test("the refused-spawn approval wraps its path and blends with the theme", () => {
-  const notice = ruleBody(".subagent-approval-notice {");
-  expect(notice).toContain("var(--coddy-blend-base)");
-  expect(notice).toContain("max-width: 100%");
-  const text = ruleBody(".subagent-approval-text {");
-  expect(text).toContain("overflow-wrap: anywhere");
-  expect(text).toContain("min-width: 0");
-});

@@ -19,6 +19,7 @@ import type { QueuedMessage } from "./Composer";
 import { MessageList } from "../messages/MessageList";
 import type { BackgroundTask } from "../tasks/types";
 import { BackgroundTasksChip } from "../tasks/BackgroundTasksChip";
+import { SubagentPermissionCards } from "./SubagentPermissionCard";
 import { SubagentReadOnlyNotice } from "./SubagentReadOnlyNotice";
 import type { SubagentTranscriptMeta } from "./subagentTranscript";
 import {
@@ -99,6 +100,8 @@ export function ChatScreen(props: {
   /** Every background task of this chat, for the opener under the transcript. */
   backgroundTasks?: BackgroundTask[];
   onOpenBackgroundTasks?: () => void;
+  /** Re-read the task rows: a background subagent's prompt was answered here. */
+  onBackgroundTasksChanged?: () => void;
   onOpenBackgroundTask?: (taskId: string) => void;
   onStopBackgroundTask?: (taskId: string) => void;
   /** Roots this session works in - its own directory, then its worktrees -
@@ -420,9 +423,6 @@ export function ChatScreen(props: {
                 items={props.items}
                 sessionId={props.sessionId}
                 generating={props.generating === true}
-                {...(props.workspaceCtx?.path
-                  ? { workspacePath: props.workspaceCtx.path }
-                  : {})}
                 {...(props.pathRoots !== undefined
                   ? { pathRoots: props.pathRoots }
                   : {})}
@@ -473,6 +473,12 @@ export function ChatScreen(props: {
                   ? { onStopBackgroundTask: props.onStopBackgroundTask }
                   : {})}
               />
+              {props.backgroundTasks ? (
+                <SubagentPermissionCards
+                  tasks={props.backgroundTasks}
+                  onAnswered={() => props.onBackgroundTasksChanged?.()}
+                />
+              ) : null}
               {props.backgroundTasks && props.onOpenBackgroundTasks ? (
                 <BackgroundTasksChip
                   tasks={props.backgroundTasks}

@@ -76,8 +76,6 @@ export function MessageList(props: {
   backgroundNowMs?: number;
   onOpenBackgroundTask?: (taskId: string) => void;
   onStopBackgroundTask?: (taskId: string) => void;
-  /** Workspace of this session; a refused spawn offers its approval for it. */
-  workspacePath?: string | undefined;
   /** Roots this session works in - its own directory, then its worktrees -
    *  which tool rows spell paths against. */
   pathRoots?: readonly string[];
@@ -347,9 +345,6 @@ export function MessageList(props: {
             key={it.id}
             toolCallId={it.toolCallId}
             status={it.status}
-            {...(props.workspacePath
-              ? { workspacePath: props.workspacePath }
-              : {})}
             {...(props.pathRoots !== undefined
               ? { pathRoots: props.pathRoots }
               : {})}

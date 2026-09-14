@@ -639,46 +639,32 @@ export const messagesEn: Record<string, string> = {
   "mcp.origin.config": "config.yaml",
   "mcp.origin.home": "~/.coddy/mcp.json",
   "mcp.origin.project": "./.coddy/mcp.json",
-  // Settings -> Subagents: the definition catalog and its approvals
+  // Settings -> Subagents: the definition catalog
   "subagents.catalog.legend": "Definitions",
   "subagents.catalog.description":
-    'Definitions found in this workspace\'s .coddy/agents and .claude/agents travel with the checkout, so under "ask" each one is approved here once for this workspace (the shield in the list below); rewriting an approved file asks again. Built-ins and your own files under ~/.coddy/agents are never gated.',
-  "subagents.catalog.policyAppliesAfterSave":
-    "The Project definitions policy above applies once you save; approving a single definition takes effect at once.",
-  "subagents.catalog.workspace": "Approvals are recorded for",
+    'Every definition a session in this workspace can spawn: the built-ins, your own files under ~/.coddy/agents, and the .coddy/agents and .claude/agents files that came with the checkout. Under "ask" a project file runs only once it is approved for this workspace, from a terminal on the machine running coddy: coddy agents trust <name>.',
+  "subagents.catalog.workspace": "Workspace",
   "subagents.catalog.loading": "Loading definitions…",
   "subagents.catalog.empty":
     "No subagent definitions are visible from this workspace.",
-  "subagents.catalog.pendingHint.one":
-    "{count} definition is waiting for your approval.",
-  "subagents.catalog.pendingHint.other":
-    "{count} definitions are waiting for your approval.",
-  "subagents.catalog.descriptionWithheld":
-    "Description withheld until you approve this file.",
+  "subagents.catalog.declared": "Declared bounds",
   "subagents.error.load": "Could not load the subagent catalog.",
-  "subagents.error.trust": "Could not change the approval of {name}: {error}",
   "subagents.error.network": "the server could not be reached",
   "subagents.scope.builtin": "built in",
   "subagents.scope.user": "yours",
   "subagents.scope.project": "from the project",
   "subagents.badge.hidden": "hidden",
   "subagents.badge.needsApproval": "needs approval",
-  "subagents.trust.approveTitle": 'Approve spawning "{name}" in this workspace',
-  "subagents.trust.approvedTitle":
-    "Approved for this workspace (digest {digest}) — click to withdraw",
-  "subagents.trust.approveAria": "Approve subagent {name}",
-  "subagents.trust.withdrawAria": "Withdraw approval of subagent {name}",
-  "subagents.note.declaredBy":
-    "This definition travels with the checkout, so spawning it is refused until you approve it. Approving binds to the file as it stands now:",
-  "subagents.note.upperBound":
-    "This is an upper bound: a child is also narrowed to what the session spawning it may do, and can never ask you questions, edit the configuration or exit plan mode. Rewriting the file asks again.",
+  "subagents.badge.needsApprovalTitle":
+    "Spawning it is refused until it is approved for this workspace: coddy agents trust {name}",
   "subagents.fact.file": "file",
   "subagents.fact.model": "model",
   "subagents.fact.modelInherits": "the parent's model",
   "subagents.fact.mode": "mode",
   "subagents.fact.modeInherits": "the parent's mode",
   "subagents.fact.permissions": "permissions",
-  "subagents.fact.permissionsInherits": "inherited, never wider than the parent",
+  "subagents.fact.permissionsInherits":
+    "inherited, never wider than the parent",
   "subagents.fact.tools": "tools",
   "subagents.fact.toolsAll": "everything the spawning session can call",
   "subagents.fact.denies": "denies",
@@ -689,7 +675,6 @@ export const messagesEn: Record<string, string> = {
   "subagents.fact.background": "runs detached",
   "subagents.fact.backgroundAlways": "always, without waiting",
   "subagents.fact.role": "instructions",
-  "subagents.fact.digest": "digest",
   "mcp.validation.nameRequired": "Server name is required.",
   "mcp.validation.noDoubleUnderscore": 'Server name must not contain "__".',
   "mcp.validation.noSpacesOrSeparators":
@@ -832,6 +817,9 @@ export const messagesEn: Record<string, string> = {
   "chat.subagentReadOnly.openParent": "Open parent chat",
   "chat.subagentTitle": "Subagent {name}",
   "chat.subagentTitleUnnamed": "Subagent transcript",
+  "chat.subagentPermission.head": "A background subagent asks for permission",
+  "chat.subagentPermission.headNamed":
+    'The subagent "{name}" asks for permission',
   "chat.heroTitle": "What do you want to {verb}?",
   "chat.heroVerb.know": "know",
   "chat.heroVerb.build": "build",
@@ -1196,13 +1184,6 @@ export const messagesEn: Record<string, string> = {
   "messages.spawnAgentPrompt": "Agent prompt",
   "messages.spawnAgentTimeout": "Timeout {seconds}s",
   "messages.spawnAgentTimeoutHint": "Maximum agent execution time",
-  "messages.subagentApproval.needed":
-    'The subagent "{name}" comes from a file in this workspace that is not approved yet, so it was not started. Approving binds to the file as it stands now:',
-  "messages.subagentApproval.approved":
-    'Approved "{name}" for this workspace. Ask again to run it — nothing was started automatically.',
-  "messages.subagentApproval.approve": "Approve",
-  "messages.subagentApproval.openSettings": "Open Subagents settings",
-  "messages.subagentApproval.failed": "Could not record the approval: {error}",
   "messages.toolDetailsAriaLabel": "Tool call details",
   "messages.toolResultAriaLabel": "Tool result",
   "messages.toolFailedMarker": "(failed)",
@@ -1301,11 +1282,6 @@ export const messagesEn: Record<string, string> = {
   "tasks.chip.total.one": "{count} background task",
   "tasks.chip.total.other": "{count} background tasks",
   "tasks.chip.openAria": "Open background tasks: {label}",
-  "tasks.chip.awaiting.one": "{count} subagent needs your answer",
-  "tasks.chip.awaiting.other": "{count} subagents need your answer",
-  "tasks.permission.head": "A background subagent is waiting for your approval:",
-  "tasks.permission.headNamed":
-    'The subagent "{name}" is waiting for your approval:',
 
   "swarm.title": "Swarm",
   "swarm.summary.relays.one": "{count} relay",

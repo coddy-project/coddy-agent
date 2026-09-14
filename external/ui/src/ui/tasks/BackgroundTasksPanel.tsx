@@ -1,14 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 import type { BackgroundTask } from "./types";
-import { SubagentPermissionCard } from "./SubagentPermissionCard";
 import {
   agentTaskName,
   agentTranscriptSessionId,
   estimateProgress,
   groupTasks,
   isAgentTask,
-  isAwaitingPermission,
   isOverdue,
   taskStatusLabel,
   taskTimingLine,
@@ -49,24 +47,15 @@ function RunningCard(props: {
   nowMs: number;
   onOpen: (taskId: string) => void;
   onStop: (taskId: string) => void;
-  onPermissionAnswered: () => void;
 }) {
   const { t } = useT();
   const task = props.task;
   const progress = estimateProgress(task, props.nowMs);
   const overdue = isOverdue(task, props.nowMs);
-  // A detached child blocked on a prompt is still running - and still burning
-  // its timeout - so the waiting state sits on top of the running card rather
-  // than replacing it.
-  const awaiting = isAwaitingPermission(task);
 
   return (
     <div
-      className={[
-        "bgtask-card",
-        overdue ? "is-overdue" : "",
-        awaiting ? "is-awaiting" : "",
-      ]
+      className={["bgtask-card", overdue ? "is-overdue" : ""]
         .filter(Boolean)
         .join(" ")}
       data-testid={`bgtask-card-${task.id}`}
@@ -118,12 +107,6 @@ function RunningCard(props: {
           />
         </div>
       ) : null}
-      {awaiting ? (
-        <SubagentPermissionCard
-          task={task}
-          onAnswered={props.onPermissionAnswered}
-        />
-      ) : null}
     </div>
   );
 }
@@ -174,7 +157,6 @@ function TaskDetail(props: {
   onBack: () => void;
   onStop: (taskId: string) => void;
   onOpenSession: (sessionId: string) => void;
-  onPermissionAnswered: () => void;
 }) {
   const { t } = useT();
   const task = props.task;
@@ -265,12 +247,6 @@ function TaskDetail(props: {
         {task.error ? (
           <div className="bgtask-detail-error">{task.error}</div>
         ) : null}
-        {isAwaitingPermission(task) ? (
-          <SubagentPermissionCard
-            task={task}
-            onAnswered={props.onPermissionAnswered}
-          />
-        ) : null}
       </div>
 
       <div className="bgtask-detail-output-head">
@@ -321,13 +297,9 @@ export function BackgroundTasksPanel(props: {
   onClearFinished: () => void;
   /** Routes to another session: the child transcript behind an agent task. */
   onOpenSession: (sessionId: string) => void;
-  /** Re-read the list after a detached subagent's prompt was answered. */
-  onRefresh?: (() => void) | undefined;
 }) {
   const { t } = useT();
   const [finishedOpen, setFinishedOpen] = useState(false);
-  const onRefresh = props.onRefresh;
-  const onPermissionAnswered = useCallback(() => onRefresh?.(), [onRefresh]);
 
   if (!props.open) {
     return null;
@@ -367,7 +339,6 @@ export function BackgroundTasksPanel(props: {
           onBack={props.onBackToList}
           onStop={props.onStopTask}
           onOpenSession={props.onOpenSession}
-          onPermissionAnswered={onPermissionAnswered}
         />
       ) : (
         <div className="bgtask-list">
@@ -399,7 +370,6 @@ export function BackgroundTasksPanel(props: {
               nowMs={props.nowMs}
               onOpen={props.onOpenTask}
               onStop={props.onStopTask}
-              onPermissionAnswered={onPermissionAnswered}
             />
           ))}
 

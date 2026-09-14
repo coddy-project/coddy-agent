@@ -124,9 +124,8 @@ function IconPencil() {
   );
 }
 
-// Shield glyph for the workspace trust control on project-local rows. The
-// Subagents tab reuses it, so the two approvals read as the same gesture.
-export function IconShield() {
+// Shield glyph for the workspace trust control on project-local rows.
+function IconShield() {
   return (
     <svg
       width="15"

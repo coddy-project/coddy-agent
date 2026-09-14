@@ -150,11 +150,11 @@ export function tasksPollIntervalMs(runningCount: number): number {
 }
 
 /**
- * A detached subagent is blocked on a permission prompt this row can answer.
- * The task keeps reporting itself as running while it waits - it is, and its
- * timeout still applies - so "waiting" is a state on top of running, not
- * instead of it. A prompt missing either id cannot be answered, so it is not
- * one.
+ * A background subagent is blocked on a permission prompt its parent chat can
+ * answer. The task keeps reporting itself as running while it waits - it is,
+ * and its timeout still applies - so "waiting" is a state on top of running,
+ * not instead of it. A prompt missing either id cannot be answered, so it is
+ * not one.
  */
 export function isAwaitingPermission(task: BackgroundTask): boolean {
   const pending = task.pending_permission;
@@ -164,11 +164,6 @@ export function isAwaitingPermission(task: BackgroundTask): boolean {
     !!(pending.sessionId || "").trim() &&
     !!(pending.toolCall?.toolCallId || "").trim()
   );
-}
-
-/** How many of these tasks are waiting for an answer. */
-export function awaitingPermissionCount(tasks: BackgroundTask[]): number {
-  return tasks.filter(isAwaitingPermission).length;
 }
 
 /**

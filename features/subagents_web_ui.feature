@@ -1,16 +1,18 @@
 Feature: Subagents in the web UI
-  A project subagent definition travels with the checkout, so under
-  subagents.project_trust ask it is refused until the operator approves it for
-  the workspace. The web UI offers that approval where the operator already is:
-  in Settings next to the catalog, and under the spawn_agent call that was
-  refused. A detached subagent whose parent turn has ended asks for permission
-  on its own task in the Tasks panel, because no chat stream is left to ask in.
+  Settings -> Subagents lists the definitions a session in this workspace can
+  spawn and what each one declares. The list only reads: a project definition
+  still awaiting approval says so, and names the command that approves it on the
+  machine running coddy.
 
-  Scenario: Approve a project definition from the Subagents settings
-    Then the Subagents settings tab approves a definition for the session workspace and shows it as trusted
+  A background subagent outlives the turn that spawned it, so when it needs a
+  permission there is no chat stream left to carry the prompt. The chat of its
+  parent session - the conversation the person is reading - shows the prompt at
+  the end, naming the subagent, and the answer goes to the child session that is
+  waiting. Denying refuses that one call; the subagent carries on.
 
-  Scenario: Approve a refused spawn from the transcript
-    Then the refused spawn_agent notice approves the definition without starting it again
+  Scenario: The Subagents settings tab lists the workspace's definitions
+    Then the Subagents settings tab lists the definitions of the session workspace with their scope, description and file
 
-  Scenario: Answer a detached subagent's permission prompt from the Tasks panel
-    Then the Tasks panel answers a detached subagent's prompt against the child session
+  Scenario: A background subagent's prompt is answered in its parent chat
+    Then a background subagent's prompt waits at the end of its parent chat
+    And the parent chat answers that prompt against the child session

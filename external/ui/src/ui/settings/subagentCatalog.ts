@@ -1,7 +1,7 @@
-// Pure shapes and decisions for the subagent catalog in Settings -> Subagents,
+// Pure shapes and formatting for the subagent catalog in Settings -> Subagents,
 // kept out of SubagentsSection.tsx the way mcpServerJson.ts is kept out of
-// MCPSection.tsx: the rules about what may be approved and what an approval
-// covers are the part worth testing on their own.
+// MCPSection.tsx: what a definition declares, and how an absent bound reads,
+// is the part worth testing on its own.
 
 import { translate } from "../i18n/i18n";
 import type { ProjectTrust } from "./mcpServerJson";
@@ -35,35 +35,19 @@ export type SubagentCatalogEntry = {
 
 export type SubagentCatalog = {
   items: SubagentCatalogEntry[];
-  /** Canonical workspace the receipts are keyed by, as the server resolved it. */
+  /** Canonical workspace the catalog was resolved for. */
   workspace: string;
   /** `subagents.project_trust`, the same vocabulary as `mcp.project_trust`. */
   policy: ProjectTrust;
 };
 
 /**
- * showsSubagentTrustControl reports whether a row gets the shield.
- *
- * Only a project-scope file under `ask` leaves a decision to make: built-ins
- * and user-scope files are the operator's own and always trusted, `deny` never
- * reads project directories at all, and under `allow` every project file runs
- * anyway. Same reasoning as `showsTrustControl` on the MCP side.
+ * subagentDeclaredFacts lists what a definition declares: every bound, in the
+ * order a reader weighs them. A bound the file leaves out is shown as inherited
+ * rather than omitted, because "this file restricts nothing" is a fact too. The
+ * file itself is shown on the row, outside this list.
  */
-export function showsSubagentTrustControl(
-  entry: SubagentCatalogEntry,
-  policy: ProjectTrust,
-): boolean {
-  return entry.scope === "project" && !entry.builtin && policy === "ask";
-}
-
-/**
- * subagentApprovalFacts renders the declaration a receipt would cover: the
- * file, then every bound. A bound the definition leaves out is shown as
- * inherited rather than omitted: "this file restricts nothing" is the fact that
- * matters most when deciding whether to approve it. The digest is not listed
- * here; the note shows it with its full value in a tooltip.
- */
-export function subagentApprovalFacts(
+export function subagentDeclaredFacts(
   entry: SubagentCatalogEntry,
 ): Array<{ label: string; value: string }> {
   const out: Array<{ label: string; value: string }> = [];
@@ -72,9 +56,6 @@ export function subagentApprovalFacts(
   const orInherited = (value: string | undefined, fallbackKey: string) =>
     value !== undefined && value.trim() !== "" ? value : translate(fallbackKey);
 
-  if (entry.path && entry.path.trim() !== "") {
-    push("subagents.fact.file", entry.path);
-  }
   push(
     "subagents.fact.model",
     orInherited(entry.model, "subagents.fact.modelInherits"),
@@ -143,15 +124,4 @@ function formatBytes(bytes: number): string {
 /** i18n key of the scope badge. */
 export function scopeBadgeKey(scope: SubagentScope): string {
   return `subagents.scope.${scope}`;
-}
-
-/** Shortened digest for display; the full value goes in a title attribute. */
-export function shortDigest(digest: string | undefined): string {
-  const d = (digest ?? "").trim();
-  return d.length > 12 ? d.slice(0, 12) : d;
-}
-
-/** Definitions still awaiting a receipt, for the pending-approval hint. */
-export function pendingApprovalCount(items: SubagentCatalogEntry[]): number {
-  return items.filter((e) => e.needs_approval).length;
 }

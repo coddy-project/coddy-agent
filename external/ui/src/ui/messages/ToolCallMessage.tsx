@@ -27,7 +27,6 @@ import type { TodoPlanEntry } from "../chat/todoToolPreview";
 import { useT } from "../i18n/I18nProvider";
 import { parseSpawnAgentArgs } from "../chat/spawnAgentDisplay";
 import { SpawnAgentCard } from "./SpawnAgentCard";
-import { SubagentApprovalNotice } from "./SubagentApprovalNotice";
 import { relativeToolTarget } from "../chat/toolTargetPath";
 import { toolDisplayName } from "./toolDisplayName";
 import { Markdown } from "../markdown/Markdown";
@@ -117,8 +116,6 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   backgroundNowMs?: number | undefined;
   onOpenBackgroundTask?: ((taskId: string) => void) | undefined;
   onStopBackgroundTask?: ((taskId: string) => void) | undefined;
-  /** Workspace of this session, for the approval offered on a refused spawn. */
-  workspacePath?: string | undefined;
   /** Roots this session works in - its own directory, then its worktrees -
    *  deepest match first when the row spells a path. */
   pathRoots?: readonly string[] | undefined;
@@ -163,9 +160,6 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     () => (isSpawnAgentTool ? parseSpawnAgentArgs(props.argsText) : null),
     [isSpawnAgentTool, props.argsText],
   );
-  // A spawn the runtime refused may have been refused for want of an approval;
-  // the notice decides that against the catalog, never against the error text.
-  const refusedAgentName = status === "failed" ? (spawnAgent?.agent ?? "") : "";
   const isLoadSkillTool = rawNameLower === "load_skill";
   // The one thing this call acts on - the path it reads, the command it runs, the skill
   // it pulls in - next to the label, so a collapsed row still says what it touched.
@@ -599,18 +593,6 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
           </div>
         ) : null}
       </details>
-      {/*
-        Outside the <details>: a refused spawn is only actionable if the user
-        sees it, and the row is collapsed by default. The notice renders
-        nothing unless the catalog confirms the definition is awaiting approval,
-        so an unrelated spawn failure adds no chrome.
-      */}
-      {refusedAgentName ? (
-        <SubagentApprovalNotice
-          agentName={refusedAgentName}
-          workspacePath={props.workspacePath}
-        />
-      ) : null}
     </div>
   );
 });

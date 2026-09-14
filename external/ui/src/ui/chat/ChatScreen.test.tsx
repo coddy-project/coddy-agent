@@ -163,3 +163,71 @@ test("the notice also takes the hero composer's slot on an empty child transcrip
   expect(container.querySelector(".composer-card")).toBeNull();
   expect(screen.getByTestId("subagent-readonly-notice")).toBeInTheDocument();
 });
+
+// A background subagent asks after its parent turn ended. The chat of that parent
+// session is where the person reads the conversation, so the prompt waits at the
+// end of it, inside the transcript column - not in a panel that is closed by
+// default - and answering it re-reads the task rows.
+test("a background subagent's prompt waits at the end of its parent chat", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockImplementation(() => Promise.resolve({ ok: true, status: 204 })),
+  );
+  const refreshed = vi.fn();
+  const { container } = render(
+    <ChatScreen
+      title="Audit"
+      sessionId="sess_parent"
+      heroAccentVerb="know"
+      heroComposerFocusEpoch={0}
+      onTitleSave={() => {}}
+      items={[{ type: "user_message", id: "1", content: "audit it" }]}
+      draft=""
+      tokenUsage={null}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onDraftChange={() => {}}
+      onSend={() => {}}
+      backgroundTasks={[
+        {
+          id: "bg_1",
+          session_id: "sess_parent",
+          kind: "agent",
+          label: "agent writer: audit",
+          status: "running",
+          started_at: "2026-09-14T10:00:00Z",
+          timeout_seconds: 900,
+          output_bytes: 0,
+          output_truncated: false,
+          elapsed_seconds: 5,
+          overdue: false,
+          running: true,
+          agent: { name: "writer", session_id: "sess_child" },
+          pending_permission: {
+            sessionId: "sess_child",
+            toolCall: {
+              toolCallId: "call_7",
+              title: "[subagent writer] Run: run_command",
+            },
+            options: [
+              { optionId: "allow", name: "Allow once", kind: "allow_once" },
+              { optionId: "reject", name: "Reject", kind: "reject_once" },
+            ],
+            agent_name: "writer",
+          },
+        },
+      ]}
+      onOpenBackgroundTasks={() => {}}
+      onBackgroundTasksChanged={refreshed}
+    />,
+  );
+
+  const card = screen.getByTestId("subagent-permission-bg_1");
+  expect(container.querySelector(".messages-inner")?.contains(card)).toBe(true);
+  fireEvent.click(screen.getByTestId("subagent-permission-reject-bg_1"));
+  await waitFor(() => expect(refreshed).toHaveBeenCalledTimes(1));
+  vi.unstubAllGlobals();
+});
