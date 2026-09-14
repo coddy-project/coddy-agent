@@ -23,6 +23,15 @@ const minRenderInterval = 16 * time.Millisecond
 // Component is one renderable block. Render returns one string per line; the
 // visible width of every line must not exceed width. Components that consume
 // keyboard input additionally implement InputHandler.
+//
+// A slice a component has returned belongs to the caller until that component
+// renders again: an implementation must never write through it. Containers
+// rely on this, because returning the identical slice is how a component says
+// "nothing changed" and an in-place edit would sit behind a parent's cached
+// composition instead of reaching the screen. A component whose output changed
+// therefore returns a newly built slice, as Text and Markdown do, and one
+// whose output depends on state the tree cannot see - a theme closure, say -
+// drops its cache in Invalidate.
 type Component interface {
 	Render(width int) []string
 	Invalidate()
@@ -40,40 +49,113 @@ type Focusable interface {
 }
 
 // Container groups child components vertically.
+//
+// A console transcript keeps every past turn in the tree, so the renderer
+// walks thousands of components per frame while only the tail changes. The
+// composition below is therefore cached: children that hand back the very
+// lines they handed back last frame cost the walk and nothing more. Box reuses
+// these same fields, since a component is rendered by one of the two methods.
 type Container struct {
 	children []Component
+
+	childLines  [][]string
+	cachedLines []string
+	cachedWidth int
+	cacheValid  bool
 }
 
 // AddChild appends a component.
-func (c *Container) AddChild(child Component) { c.children = append(c.children, child) }
+func (c *Container) AddChild(child Component) {
+	c.children = append(c.children, child)
+	c.cacheValid = false
+}
 
 // RemoveChild removes a component if present.
 func (c *Container) RemoveChild(child Component) {
 	for i, ch := range c.children {
 		if ch == child {
 			c.children = append(c.children[:i], c.children[i+1:]...)
+			c.cacheValid = false
 			return
 		}
 	}
 }
 
-// Clear removes all children.
-func (c *Container) Clear() { c.children = nil }
+// Clear removes all children and releases what their renders pinned: a
+// cleared transcript can otherwise hold megabytes of tool output alive.
+func (c *Container) Clear() {
+	c.children = nil
+	c.cacheValid = false
+	c.childLines = nil
+	c.cachedLines = nil
+}
 
 // Children returns the current child list.
 func (c *Container) Children() []Component { return c.children }
 
+// sameLines reports whether a and b share a backing array and length, which is
+// how a component says "my render is unchanged": the cached slice comes back
+// by identity, so the comparison stays O(1) however long the lines are.
+func sameLines(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	if len(a) == 0 {
+		return true
+	}
+	return &a[0] == &b[0]
+}
+
+// renderChildren renders every child into the retained scratch slice and
+// reports whether anything moved since the previous call at this width.
+func (c *Container) renderChildren(width int) bool {
+	n := len(c.children)
+	changed := !c.cacheValid || c.cachedWidth != width || len(c.childLines) != n
+	if cap(c.childLines) < n {
+		c.childLines = make([][]string, n)
+	} else if len(c.childLines) > n {
+		// Reslicing alone would leave the departed children's lines pinned by
+		// the scratch array, past its length where nothing will overwrite them.
+		clear(c.childLines[n:])
+	}
+	c.childLines = c.childLines[:n]
+	for i, ch := range c.children {
+		lines := ch.Render(width)
+		if !changed && !sameLines(c.childLines[i], lines) {
+			changed = true
+		}
+		c.childLines[i] = lines
+	}
+	return changed
+}
+
+// store records the composed frame as this container's cache.
+func (c *Container) store(lines []string, width int) []string {
+	c.cachedLines = lines
+	c.cachedWidth = width
+	c.cacheValid = true
+	return lines
+}
+
 // Render concatenates all child lines.
 func (c *Container) Render(width int) []string {
-	var lines []string
-	for _, ch := range c.children {
-		lines = append(lines, ch.Render(width)...)
+	if !c.renderChildren(width) {
+		return c.cachedLines
 	}
-	return lines
+	total := 0
+	for _, cl := range c.childLines {
+		total += len(cl)
+	}
+	lines := make([]string, 0, total)
+	for _, cl := range c.childLines {
+		lines = append(lines, cl...)
+	}
+	return c.store(lines, width)
 }
 
 // Invalidate clears every child's cached render state.
 func (c *Container) Invalidate() {
+	c.cacheValid = false
 	for _, ch := range c.children {
 		ch.Invalidate()
 	}
@@ -100,6 +182,10 @@ type MainScreen struct {
 	focused  Component
 
 	previousLines       []string
+	previousRaw         []string
+	frameBufs           [2][]string
+	rawBufs             [2][]string
+	frameIdx            int
 	previousWidth       int
 	previousHeight      int
 	cursorRow           int
@@ -255,9 +341,7 @@ func (m *MainScreen) doRender() {
 		return targetScreenRow - currentScreenRow
 	}
 
-	newLines := m.Root.Render(width)
-	cursor := extractCursorPosition(newLines, height)
-	applyLineResets(newLines)
+	newLines, cursor := m.composeFrame(width, height)
 
 	fullRender := func(clear bool) {
 		var b strings.Builder
@@ -340,6 +424,10 @@ func (m *MainScreen) doRender() {
 		m.positionHardwareCursor(cursor, len(newLines))
 		m.previousViewportTop = prevViewportTop
 		m.previousHeight = height
+		// Adopt the frame even though nothing moved: composeFrame alternates
+		// the two buffers, so the one this frame wrote must become the
+		// previous frame or the next render overwrites it underneath.
+		m.previousLines = newLines
 		return
 	}
 
@@ -512,12 +600,48 @@ func extractCursorPosition(lines []string, height int) *cursorPos {
 	return nil
 }
 
-// applyLineResets appends the SGR + OSC 8 reset to every line so styling can
-// never bleed across lines.
-func applyLineResets(lines []string) {
-	for i, line := range lines {
-		lines[i] = normalizeTerminalOutput(line) + segmentReset
+// composeFrame renders the tree and returns the frame to draw, with the cursor
+// marker stripped and the SGR + OSC 8 reset appended to every line so styling
+// can never bleed across lines.
+//
+// Render hands back components' own cached slices, so the post-processing may
+// not write through them; the frame is built in one of two buffers that
+// alternate, the other being the previous frame the diff still reads. Lines
+// whose source did not move are carried over already processed, which is what
+// keeps a frame proportional to the change rather than to the transcript.
+func (m *MainScreen) composeFrame(width, height int) ([]string, *cursorPos) {
+	rendered := m.Root.Render(width)
+
+	m.frameIdx ^= 1
+	// A shorter frame leaves the tail of the buffer untouched, and the garbage
+	// collector scans the whole backing array, so a cleared transcript would
+	// stay alive here. Only this frame's slot is released; the other one still
+	// holds the previous frame.
+	rawDst := m.rawBufs[m.frameIdx]
+	if len(rawDst) > len(rendered) {
+		clear(rawDst[len(rendered):])
 	}
+	raw := append(rawDst[:0], rendered...)
+	m.rawBufs[m.frameIdx] = raw
+	cursor := extractCursorPosition(raw, height)
+
+	prevRaw, prevOut := m.previousRaw, m.previousLines
+	reuse := min(len(prevRaw), len(prevOut))
+	outDst := m.frameBufs[m.frameIdx]
+	if len(outDst) > len(raw) {
+		clear(outDst[len(raw):])
+	}
+	out := outDst[:0]
+	for i, line := range raw {
+		if i < reuse && prevRaw[i] == line {
+			out = append(out, prevOut[i])
+			continue
+		}
+		out = append(out, normalizeTerminalOutput(line)+segmentReset)
+	}
+	m.frameBufs[m.frameIdx] = out
+	m.previousRaw = raw
+	return out, cursor
 }
 
 // normalizeTerminalOutput expands visible tabs to the fixed 3-space layout

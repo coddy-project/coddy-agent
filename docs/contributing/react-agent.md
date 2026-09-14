@@ -172,7 +172,7 @@ messages: [
 
 ### Agent Mode
 
-Embedded **`agent.md`** describes agent behavior (quality, shells, todos). Todo-related instructions reference **`coddy_todo_plan_*`** and **`coddy_todo_item_*`** tools surfaced in **`Tools`**.
+Embedded **`agent.md`** describes agent behavior (quality, shells, todos, git worktrees). Todo-related instructions reference **`coddy_todo_plan_*`** and **`coddy_todo_item_*`** tools surfaced in **`Tools`**. The **Git worktrees** block names **`.coddy/worktrees/<branch>`** as the place a worktree goes, the same directory the workspace switch of the HTTP surface uses ([Sessions](../features/sessions.md#git-worktrees)); without it the model picks a spot of its own and leaves an untracked folder at the repository root.
 
 Representative builtins (excluding MCP-namespaced tools):
 

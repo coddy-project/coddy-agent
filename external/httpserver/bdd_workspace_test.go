@@ -71,14 +71,20 @@ func (s *wsFeatureState) close() {
 	}
 }
 
-func bddGit(dir string, args ...string) error {
+// bddGitCmd builds a git invocation that ignores the machine's own git
+// configuration, so a scenario behaves the same on every developer's box.
+func bddGitCmd(dir string, args ...string) *exec.Cmd {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
-		"GIT_CONFIG_GLOBAL=/dev/null",
-		"GIT_CONFIG_SYSTEM=/dev/null",
+		"GIT_CONFIG_GLOBAL="+os.DevNull,
+		"GIT_CONFIG_SYSTEM="+os.DevNull,
 	)
-	out, err := cmd.CombinedOutput()
+	return cmd
+}
+
+func bddGit(dir string, args ...string) error {
+	out, err := bddGitCmd(dir, args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git %v: %w\n%s", args, err, out)
 	}
@@ -494,6 +500,45 @@ func (s *wsFeatureState) worktreePathDiffersFromRoot() error {
 	return nil
 }
 
+// worktreePathInsideRepo asserts the session landed on rel (a slash-separated
+// path) below the repository folder, which is where Coddy keeps its worktrees.
+func (s *wsFeatureState) worktreePathInsideRepo(rel, name string) error {
+	dir, ok := s.folders[name]
+	if !ok {
+		return fmt.Errorf("unknown folder %q", name)
+	}
+	ctxBody, err := s.freshContext()
+	if err != nil {
+		return err
+	}
+	path, _ := ctxBody["path"].(string)
+	if path == "" {
+		return fmt.Errorf("context misses path: %v", ctxBody)
+	}
+	want := filepath.Join(append([]string{dir}, strings.Split(rel, "/")...)...)
+	if bddNormPath(path) != bddNormPath(want) {
+		return fmt.Errorf("worktree path = %q, want %q", path, want)
+	}
+	return nil
+}
+
+// repoHasNoUntrackedFiles is the reason the worktrees live where they do: the
+// operator should not have to add an ignore rule of their own.
+func (s *wsFeatureState) repoHasNoUntrackedFiles(name string) error {
+	dir, ok := s.folders[name]
+	if !ok {
+		return fmt.Errorf("unknown folder %q", name)
+	}
+	out, err := bddGitCmd(dir, "status", "--porcelain").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git status: %w\n%s", err, out)
+	}
+	if dirty := strings.TrimSpace(string(out)); dirty != "" {
+		return fmt.Errorf("repository %q is not clean:\n%s", name, dirty)
+	}
+	return nil
+}
+
 func (s *wsFeatureState) sessionCwdPersistedAs(name string) error {
 	dir, ok := s.folders[name]
 	if !ok {
@@ -578,6 +623,8 @@ func initializeWorkspaceScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the context lists branches "([^"]+)"$`, s.contextListsBranches)
 	sc.Step(`^the context reports the session is (not )?in a worktree$`, s.contextWorktreeFlag)
 	sc.Step(`^the worktree path differs from the repository root$`, s.worktreePathDiffersFromRoot)
+	sc.Step(`^the worktree path is "([^"]+)" inside repository "([^"]+)"$`, s.worktreePathInsideRepo)
+	sc.Step(`^repository "([^"]+)" reports no untracked files$`, s.repoHasNoUntrackedFiles)
 	sc.Step(`^the session cwd is persisted as folder "([^"]+)"$`, s.sessionCwdPersistedAs)
 	sc.Step(`^the workspace request fails with status (\d+)$`, s.requestFailsWithStatus)
 	sc.Step(`^the folder listing contains "([^"]+)"$`, s.folderListingContains)
