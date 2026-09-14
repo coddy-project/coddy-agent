@@ -9996,6 +9996,13 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   padding-top: 2px;
 }
 
+/* The empty note, the loading line and a list error are rows of this list like
+   the cards are: the same step under the head, and the list's own inline
+   padding rather than a second one on top of it. */
+.bgtasks-panel .bgtask-list > .sessions-empty {
+  padding: 10px 2px 4px;
+}
+
 .bgtask-section-toggle,
 .bgtask-section-action {
   border: none;

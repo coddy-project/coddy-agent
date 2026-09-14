@@ -197,6 +197,35 @@ test("one step separates the panel head, the live cards and the counter", () => 
   expect(cardBelow + counterAfterCard).toBe(step);
 });
 
+test("the empty note starts on the same step as a card would", () => {
+  // It reuses .sessions-empty from the History drawer, whose own 12px padding
+  // put it deeper into the panel than any row around it.
+  const step = Number(
+    capture(
+      /padding:\s*([0-9.]+)px/,
+      ruleBody(".bgtasks-panel .bgtask-list > .sessions-empty {"),
+      "empty note padding",
+    ),
+  );
+  expect(step).toBe(10);
+});
+
+test("the stop glyph is centred in its circle by the rule, not by luck", () => {
+  // The 14px square is the only thing in the button, so it is centred when the
+  // glyph box fills the circle and carries no text metrics of its own. The
+  // composer and the background task cards share this one rule.
+  const glyph = ruleBody(".composer-run-icon--stop .composer-send-glyph {");
+  expect(glyph).toMatch(/width:\s*100%/);
+  expect(glyph).toMatch(/height:\s*100%/);
+  expect(glyph).toMatch(/align-items:\s*center/);
+  expect(glyph).toMatch(/justify-content:\s*center/);
+  // A leftover font-size or line-height gives the inline box a baseline and
+  // pushes the square off the centre.
+  expect(glyph).toMatch(/font-size:\s*0/);
+  expect(glyph).toMatch(/line-height:\s*0/);
+  expect(ruleBody(".composer-icon {")).toMatch(/justify-content:\s*center/);
+});
+
 test("agent rows are told apart with an accent badge derived from theme tokens", () => {
   const badge = ruleBody(".bgtask-kind-badge {");
   expect(badge).toContain("var(--accent)");
