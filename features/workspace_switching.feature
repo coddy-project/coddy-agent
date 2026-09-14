@@ -42,6 +42,13 @@ Feature: Workspace switching
     And the context reports the session is in a worktree
     And the worktree path differs from the repository root
 
+  Scenario: The dedicated worktree lives inside the repository
+    Given a workspace git repository "repo" with branches "main, feature/login"
+    And a session rooted at folder "repo"
+    When I switch the session to branch "feature/login" in a worktree
+    Then the worktree path is ".coddy/worktrees/feature-login" inside repository "repo"
+    And repository "repo" reports no untracked files
+
   Scenario: Returning to the default branch leaves the worktree
     Given a workspace git repository "repo" with branches "main, feature/login"
     And a session rooted at folder "repo"
