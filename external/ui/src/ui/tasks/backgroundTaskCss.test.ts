@@ -169,6 +169,13 @@ test("the composer stays on the transcript centre line", () => {
   }
 });
 
+test("the first live card keeps the air the running heading used to hold", () => {
+  // Dropping the heading left the top card flush against the panel title.
+  expect(
+    ruleBody(".bgtasks-panel .bgtask-list > .bgtask-card:first-child {"),
+  ).toMatch(/margin-top:\s*10px/);
+});
+
 test("agent rows are told apart with an accent badge derived from theme tokens", () => {
   const badge = ruleBody(".bgtask-kind-badge {");
   expect(badge).toContain("var(--accent)");

@@ -10031,6 +10031,13 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   margin-bottom: 8px;
 }
 
+/* The live cards carry no heading any more, and the heading is what used to
+   hold them off the panel title. The first card pays that air back so the list
+   does not start flush against the head. */
+.bgtasks-panel .bgtask-list > .bgtask-card:first-child {
+  margin-top: 10px;
+}
+
 .bgtask-card-head {
   display: flex;
   align-items: center;
