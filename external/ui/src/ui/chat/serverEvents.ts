@@ -12,6 +12,11 @@ export type ServerEventsHandlers = {
    *  a skill install). The event carries nothing but the fact, so a caller re-reads
    *  whatever config-derived list it renders - the model picker, the slash commands. */
   onConfigReloaded?: () => void;
+  /** The message queue of a session changed - anywhere, by anyone. A session is
+   *  shared, so this is how a second browser learns that someone else queued a
+   *  follow-up onto the turn it is watching. Carries the whole queue and its
+   *  version; the caller keeps the highest version it has seen. */
+  onMessageQueue?: (sessionId: string, queue: QueuedMessageEvent) => void;
   /** Called whenever the subscription goes up or down, so callers can fall back to polling. */
   onConnectedChange?: (connected: boolean) => void;
   signal: AbortSignal;
@@ -20,6 +25,41 @@ export type ServerEventsHandlers = {
   /** Injectable for tests; defaults to window.setTimeout semantics. */
   sleep?: (ms: number) => Promise<void>;
 };
+
+/** One session's message queue as the server event carries it. */
+export type QueuedMessageEvent = {
+  messages: { id: string; text: string; createdAt?: string }[];
+  version: number;
+};
+
+function messageQueueOf(
+  data: string,
+): { sessionId: string; queue: QueuedMessageEvent } | null {
+  try {
+    const parsed = JSON.parse(data) as {
+      sessionId?: unknown;
+      messages?: unknown;
+      version?: unknown;
+    };
+    const sid =
+      typeof parsed.sessionId === "string" ? parsed.sessionId.trim() : "";
+    if (!sid) return null;
+    const rows = Array.isArray(parsed.messages) ? parsed.messages : [];
+    return {
+      sessionId: sid,
+      queue: {
+        messages: rows
+          .map((r) => r as { id: string; text: string; createdAt?: string })
+          .filter(
+            (r) => r && typeof r.id === "string" && typeof r.text === "string",
+          ),
+        version: typeof parsed.version === "number" ? parsed.version : 0,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
 
 const BACKOFF_START_MS = 1000;
 const BACKOFF_MAX_MS = 10000;
@@ -96,6 +136,11 @@ export async function subscribeServerEvents(
           if (ev.event === "provider_usage") {
             const parsed = providerUsageOf(ev.data);
             if (parsed) p.onProviderUsage?.(parsed.sessionId, parsed.usage);
+            continue;
+          }
+          if (ev.event === "message_queue") {
+            const parsed = messageQueueOf(ev.data);
+            if (parsed) p.onMessageQueue?.(parsed.sessionId, parsed.queue);
             continue;
           }
           if (ev.event === "config_reloaded") {

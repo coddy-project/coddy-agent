@@ -1,0 +1,45 @@
+package agent
+
+import (
+	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+)
+
+// readQueuedMessages folds the follow-ups written during this turn into the
+// conversation and reports whether there were any.
+//
+// A queued message becomes an ordinary user message: appended to the slice the
+// next request is built from, added to the transcript (so the answer that
+// follows has a visible cause, and a compaction rebuild keeps it), and sent to
+// the clients watching as the message itself, so it appears in the conversation
+// where it was read.
+//
+// The shorter queue is not announced from here. The drain is a change like any
+// other, and the session announces it through the notifier the manager
+// installed, so every client of a shared session hears about it with the same
+// payload and the same version - not only whoever is reading this turn.
+func (a *Agent) readQueuedMessages(messages *[]llm.Message) bool {
+	queued := a.state.TakeQueuedMessages()
+	if len(queued) == 0 {
+		return false
+	}
+	sessionID := a.state.GetID()
+	for _, q := range queued {
+		msg := llm.Message{
+			Role:      llm.RoleUser,
+			Content:   q.Text,
+			CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		}
+		*messages = append(*messages, msg)
+		a.state.AddMessage(msg)
+		_ = a.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
+			SessionUpdate: acp.UpdateTypeUserMessageChunk,
+			Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: q.Text},
+		})
+	}
+	a.log.Info("read queued messages", "session_id", sessionID, "messages", len(queued))
+	a.refreshConversationContextUsage(true)
+	return true
+}

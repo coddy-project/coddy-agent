@@ -6,7 +6,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"strconv"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 	"gopkg.in/yaml.v3"
 )
@@ -886,6 +888,94 @@ func openAPISpec() map[string]interface{} {
 						"200": map[string]interface{}{"description": "Activity payload"},
 						"404": errorResponseRef(),
 						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions/{id}/queue": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Follow-ups queued for the running turn",
+					"description": "Lists what the operator wrote while the session's current turn is working: each row carries **id**, **text** and **createdAt**, and the answer carries the **version** the SSE frames carry, so a client applying both keeps whichever is newer. The queue belongs to the turn, not to the session bundle - it opens when a turn is admitted and is gone when that turn releases - so a session that is not working answers with an empty list. The running turn reads the queue at its next step (between the tool calls it just made and the request that follows them) and publishes the change as the **message_queue** SSE event on the composer stream.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "The queue as it stands"},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+					},
+				},
+				"post": map[string]interface{}{
+					"summary":     "Queue a follow-up for the running turn",
+					"description": "Adds **text** to the queue of the turn in flight and answers **201** with the stored **message** (its **id** is what a later **DELETE** names) and the whole **messages** list. A session with no turn running answers **409** with code **no_active_turn**: the caller sends that text as an ordinary prompt through **POST /v1/responses** instead. Past " + strconv.Itoa(session.MaxQueuedMessages) + " waiting messages the answer is **409** with code **queue_full**; a child (subagent) session answers **409** with code **subagent_read_only**. Nothing is persisted: a queued message the turn never read is dropped when the turn ends.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []interface{}{"text"},
+									"properties": map[string]interface{}{
+										"text": map[string]interface{}{"type": "string", "description": "What the operator wrote. Trimmed; empty is a **400**."},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"201": map[string]interface{}{"description": "The queued message and the queue"},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
+					},
+				},
+				"delete": map[string]interface{}{
+					"summary":     "Drop every queued follow-up",
+					"description": "Empties the queue of the running turn and answers with the (now empty) **messages** list.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "The empty queue"},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions/{id}/queue/{message_id}": map[string]interface{}{
+				"delete": map[string]interface{}{
+					"summary":     "Take one queued follow-up back",
+					"description": "Removes a message the agent has not read yet and answers with the rest of the queue. A message the turn read a moment ago is gone from the queue and answers **404** with code **not_found** - losing that race is ordinary, and the message is already part of the conversation.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+						map[string]interface{}{
+							"name": "message_id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Queued message id (for example **q_3**).",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "The queue without that message"},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
 					},
 				},
 			},

@@ -87,6 +87,10 @@ type Server struct {
 	// removeUsageObserver detaches the provider usage observer that feeds
 	// provider_usage frames to the events stream.
 	removeUsageObserver func()
+	// removeQueueObserver detaches the message queue observer that feeds
+	// message_queue frames to the events stream, so every client of this
+	// server sees what anyone queued on a shared session.
+	removeQueueObserver func()
 
 	codexAuthIssuer string
 	// codexAuthMu guards both browser-login attempt maps; the attempts share
@@ -107,6 +111,9 @@ func (s *Server) Drain() {
 	}
 	if s.removeTurnObserver != nil {
 		s.removeTurnObserver()
+	}
+	if s.removeQueueObserver != nil {
+		s.removeQueueObserver()
 	}
 	if s.removeConfigObserver != nil {
 		s.removeConfigObserver()
@@ -147,6 +154,10 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	if mgr != nil {
 		s.removeTurnObserver = mgr.AddTurnObserver(s.publishTurnEvent)
 		s.removeUsageObserver = mgr.AddUsageObserver(s.publishProviderUsageEvent)
+		// A session is shared: a follow-up queued in one browser has to appear
+		// in the others and in a console attached over --remote, none of which
+		// may be reading the stream of the turn that is running.
+		s.removeQueueObserver = mgr.AddMessageQueueObserver(s.publishMessageQueueEvent)
 		// The manager is the one place every reload path passes through - the
 		// settings screen, the agent's config_commit tool, the console - so
 		// following it is how the handlers see an edit no matter who made it.

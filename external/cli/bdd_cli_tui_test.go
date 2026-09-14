@@ -694,6 +694,27 @@ func (s *cliTUIState) stubStreamsText(text string) error {
 	return s.waitTurnEnd(2 * time.Second)
 }
 
+// screenShowsQueuedMessage asserts the queue widget above the input is showing
+// that follow-up, under the header naming how many are waiting.
+func (s *cliTUIState) screenShowsQueuedMessage(text string) error {
+	if err := s.waitScreen("queued for the next step", 2*time.Second); err != nil {
+		return err
+	}
+	return s.waitScreen(text, 2*time.Second)
+}
+
+// screenShowsNothingQueued asserts the widget is gone once the turn is over.
+func (s *cliTUIState) screenShowsNothingQueued() error {
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if !strings.Contains(s.screenText(), "queued for the next step") {
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("the queue is still on screen; last frame:\n%s", s.screenText())
+}
+
 func (s *cliTUIState) transcriptShowsUserBlock(text string) error {
 	return s.waitScreen(text, 2*time.Second)
 }
@@ -1332,6 +1353,8 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the operator confirms the highlighted permission option$`, s.operatorConfirmsPermissionOption)
 	sc.Step(`^the stub turn observes the permission outcome "([^"]*)" with option "([^"]*)"$`, s.stubObservesPermissionOutcome)
 	sc.Step(`^the stub turn blocks until cancelled$`, s.stubBlocksUntilCancelled)
+	sc.Step(`^the screen shows the queued message "([^"]*)"$`, s.screenShowsQueuedMessage)
+	sc.Step(`^the screen shows nothing queued$`, s.screenShowsNothingQueued)
 	sc.Step(`^the operator presses escape$`, s.operatorPressesEscape)
 	sc.Step(`^the stub turn observes cancellation$`, s.stubObservesCancellation)
 	sc.Step(`^the transcript shows an interrupt notice$`, s.transcriptShowsInterruptNotice)

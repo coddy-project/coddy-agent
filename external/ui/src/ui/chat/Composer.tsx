@@ -217,6 +217,9 @@ function AttachedFileChip({
   );
 }
 
+/** One follow-up waiting for the running turn to read it. */
+export type QueuedMessage = { id: string; text: string };
+
 type SlashRow = { name: string; description: string };
 
 type WorkspaceFileRow = { name: string; path_rel: string; kind: string };
@@ -281,6 +284,12 @@ export function Composer(props: {
   onSend: (text: string, files?: File[]) => void;
   generating?: boolean;
   onStop?: () => void;
+  /** Follow-ups waiting for the running turn to read them (the message queue). */
+  queuedMessages?: QueuedMessage[];
+  /** Add the draft to that queue instead of starting a turn. Only while generating. */
+  onQueue?: (text: string) => void;
+  /** Take one queued follow-up back before the agent reads it. */
+  onCancelQueued?: (id: string) => void;
   /** Workspace context chips (folder / branch / worktree) above the field. */
   workspaceCtx?: WorkspaceContext | null;
   worktreePref?: boolean;
@@ -326,6 +335,24 @@ export function Composer(props: {
   const pastedSeqRef = useRef(0);
   const attachmentSendingEnabled = props.llmModelMultimodal === true;
   const sendableAttachedFiles = attachmentSendingEnabled ? attachedFiles : [];
+  const queuedMessages = props.queuedMessages ?? [];
+  /**
+   * While a turn runs, a draft with text in it is a follow-up, not a Stop: the
+   * primary action queues it for the turn to read at its next step. An empty
+   * draft leaves the button as Stop, which is how the turn is still cancelled.
+   * Attachments are not queued - they stay in the composer for the next prompt.
+   */
+  const queueArmed =
+    props.generating === true &&
+    typeof props.onQueue === "function" &&
+    props.value.trim().length > 0;
+  const queueDraft = () => {
+    const txt = props.value.trim();
+    if (!txt || !props.onQueue) {
+      return;
+    }
+    props.onQueue(txt);
+  };
   /** Attachment-only send is valid only while the selected model accepts it. */
   const idleSendDisabled =
     props.value.trim() === "" && sendableAttachedFiles.length === 0;
@@ -1850,6 +1877,40 @@ export function Composer(props: {
         <label className="sr-only" htmlFor="composer">
           {t("composer.messageLabel")}
         </label>
+        {queuedMessages.length > 0 ? (
+          <ul
+            className="composer-queue"
+            data-testid="composer-queue"
+            aria-label={t("composer.queueLabel")}
+          >
+            {queuedMessages.map((q) => (
+              <li
+                key={q.id}
+                className="composer-queue-item"
+                data-testid="composer-queue-item"
+              >
+                <span className="composer-queue-text">{q.text}</span>
+                <button
+                  type="button"
+                  className="composer-queue-remove"
+                  data-testid={`composer-queue-remove-${q.id}`}
+                  aria-label={t("composer.queueRemove")}
+                  title={t("composer.queueRemove")}
+                  onClick={() => props.onCancelQueued?.(q.id)}
+                >
+                  <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true">
+                    <path
+                      d="M2 2 L10 10 M10 2 L2 10"
+                      stroke="currentColor"
+                      strokeWidth="1.6"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         <div
           className={`composer-card${dragOverCard ? " composer-card--dragover" : ""}`}
           ref={composerCardRef}
@@ -2010,9 +2071,11 @@ export function Composer(props: {
                 className={maskComposerText ? "composer-ta-masked" : undefined}
                 rows={props.isEmpty ? 5 : 2}
                 placeholder={
-                  props.isEmpty
-                    ? t("composer.placeholderEmpty")
-                    : t("composer.placeholderFollowUp")
+                  props.generating
+                    ? t("composer.placeholderQueue")
+                    : props.isEmpty
+                      ? t("composer.placeholderEmpty")
+                      : t("composer.placeholderFollowUp")
                 }
                 autoComplete="off"
                 value={props.value}
@@ -2181,6 +2244,9 @@ export function Composer(props: {
                     // Desktop: Enter or Ctrl+Enter = send.
                     ev.preventDefault();
                     if (props.generating) {
+                      // A turn is running: the draft joins the queue the turn
+                      // reads at its next step instead of being refused.
+                      queueDraft();
                       return;
                     }
                     const txt = props.value.trim();
@@ -2356,18 +2422,28 @@ export function Composer(props: {
                 type="button"
                 className={[
                   "composer-icon composer-run-icon",
-                  props.generating
+                  props.generating && !queueArmed
                     ? "composer-send-stop composer-run-icon--stop"
                     : "composer-send-play composer-run-icon--play",
-                ].join(" ")}
+                  queueArmed ? "composer-run-icon--queue" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
                 id="btn-send"
+                data-queue={queueArmed ? "true" : undefined}
                 aria-label={
-                  props.generating
-                    ? t("composer.stopGeneration")
-                    : t("composer.send")
+                  queueArmed
+                    ? t("composer.queueSend")
+                    : props.generating
+                      ? t("composer.stopGeneration")
+                      : t("composer.send")
                 }
                 disabled={!props.generating && idleSendDisabled}
                 onClick={() => {
+                  if (queueArmed) {
+                    queueDraft();
+                    return;
+                  }
                   if (props.generating) {
                     props.onStop?.();
                     return;
@@ -2385,7 +2461,7 @@ export function Composer(props: {
                   }
                 }}
               >
-                {props.generating ? (
+                {props.generating && !queueArmed ? (
                   <span className="composer-send-glyph" aria-hidden="true">
                     <span className="composer-stop-square" />
                   </span>

@@ -3470,7 +3470,7 @@ throttle with immediate renders after keystrokes.
 ## Commands and keys
 
 Slash commands: client-side `/model`, `/reasoning [level]`, `/mode`, `/resume`,
-`/new`, `/theme`, `/hotkeys`, `/quit`; server-driven `/compact`, `/export`,
+`/new`, `/theme`, `/hotkeys`, `/queue`, `/quit`; server-driven `/compact`, `/export`,
 `/plugin`, and every loaded skill (from the ACP available-commands catalog).
 Enter on a slash suggestion applies and submits in one stroke. `/export [md|html|json|jsonl]
 [path]` writes the transcript into the workspace (`docs/features/session-export.md`);
@@ -3483,6 +3483,24 @@ time, the live requests-per-minute, the cooldown, the wallet with the last
 floor deferred the read, and the snapshot's age. Under `--remote` the
 server's own key is read, so a `key rejected` line there is informational
 (sign in on the server).
+
+Submitting while a turn is running does not refuse the prompt: it joins the
+session's message queue, which the running turn reads at its next step
+(`docs/features/message-queue.md`). What is waiting shows directly above the
+input, numbered in reading order:
+
+```
+queued for the next step (2) · /queue to manage
+1. check the Windows path too
+2. and skip the integration suite
+```
+
+`/queue` lists them, `/queue drop <n>` takes one back, `/queue clear` empties
+the queue, and `escape` cancels the turn together with everything queued for
+it. The same works under `--remote`: the console talks to the server's queue
+routes, so a follow-up written here is read by the turn running there, and it
+subscribes to the server's event stream, so a message someone queued in a
+browser on the same session appears above this input as well.
 
 `/reasoning` without an argument opens a selector with the active model's
 available levels; selecting a value persists that level on the session.
@@ -4172,17 +4190,29 @@ Shape and glyphs
 - The hit target is a **perfect circle**: equal **width** and **height**, **`border-radius: 50%`**, **`box-sizing: border-box`** (currently **42×42px** in **`styles.css`**). Do **not** ship a rounded square or squircle for this control unless the visual spec explicitly changes again.
 - **Play** (**idle**, draft non-empty): Unicode triangle **`▶`**, enlarged vs body text (**`~22px`** glyph via **`composer-send-glyph`**), slight horizontal nudge for optical centering.
 - **Stop** (**while streaming**): filled square **`.composer-stop-square`** (**14x14px**, centered in the **42px** circle). Stays in **`composer-bar-actions`** on the right, next to the context ring.
+- **Queue** (**while streaming, draft non-empty**): the **play** glyph returns on an accent fill (**`.composer-run-icon--queue`**, **`data-queue="true"`**), because a draft written during a turn is a follow-up rather than a Stop. Emptying the field brings **Stop** back, which is how a turn is still cancelled. See **Composer message queue** below.
 - **Disabled** idle state when textarea is whitespace-only **and no files are attached** (**`:disabled`** on **`composer-send-play`**); an attachment alone unlocks Send (see **Composer file attachments (multimodal)**).
 
 Behavior (unchanged summary)
 
-- **Enter** submits when idle and not generating; **`Shift+Enter`** newline. No submit while **`generating`**.
+- **Enter** submits when idle; **`Shift+Enter`** newline. While **`generating`** it queues the draft for the running turn instead of being swallowed (**Composer message queue**).
 - **Stop**: **`POST /coddy/sessions/{id}/cancel`** + **`fetch`** **`AbortSignal`**. The server may append a **partial** assistant message for that turn. **`GET /coddy/sessions/{id}/messages`** can lag; the bundled UI merges server rows with local shadow or on-screen items (**`transcriptServerSnapshot.ts`**). Details in **`DESIGN.md`** (**Multi-session streaming and Stop**) and **`docs/reference/http-api.md`**.
 - **Improve prompt**: the compact **24×24px** wand button (**`data-testid="composer-enhance-btn"`**) lives at the **right edge** of the workspace-context row, next to the Local / folder / branch / worktree controls — not in the textarea or lower composer bar. At **≤520px**, it is pinned to that row's **top-right corner** above wrapped chips. It has `title` and accessible name **`Improve prompt`**, is disabled for blank drafts and while a request or generation is active, calls **`POST /coddy/enhance-prompt`**, and replaces the draft only on success. **Ctrl+Z** / **⌘Z** restores the pre-improvement draft; a failure leaves it unchanged and displays an inline error.
 
 Regression
 
 - Automated UI checks (**Playwright MCP** or **`@playwright/test`**) MAY assert **`#btn-send`** **`offsetWidth`** **≈** **`offsetHeight`** and computed **`border-radius`** **≥ half** **`min(width,height)`** (within sub-pixel tolerance).
+
+## Composer message queue
+
+The composer stays live while the agent works: what is typed during a turn is queued for that turn to read at its next step, rather than refused by the turn lock. Full behaviour: [Message queue](../features/message-queue.md).
+
+- **Queueing** — **Enter** or the primary control (see above) calls **`POST /coddy/sessions/{id}/queue`** with **`{"text": ...}`** and clears the field. A **409** with code **`no_active_turn`** means the turn ended between the keystroke and the request: the SPA sends the same text through **`POST /v1/responses`** instead, so nothing typed is lost. Any other refusal puts the text back in the field and adds a system notice (**`composer.queueFull`** / **`composer.queueFailed`**).
+- **The list** — queued rows render as **`.composer-queue-item`** (**`data-testid="composer-queue-item"`**) stacked **above** the composer card in reading order, text clamped to 3 lines, each with a round remove control at its right (**`data-testid="composer-queue-remove-<id>"`**, accessible name **`Remove from the queue`**) that calls **`DELETE /coddy/sessions/{id}/queue/{message_id}`**. Nothing waiting renders no list.
+- **Staying in step** — the list is server-owned and a session is shared. Every change arrives as **`event: message_queue`** carrying the whole queue and a **`version`**, down **two** paths: the turn's own stream (**`consumeComposerSse`**) and the server-wide **`GET /coddy/events`** (**`serverEvents.ts`**, **`onMessageQueue`**), so a tab that is not reading any turn stream still sees what someone else queued. They are separate connections: **`App.tsx`** keeps the highest version per session (**`queueVersionBySidRef`**) and drops older frames. A message the agent reads leaves the list as **`event: user_message`** puts it into the transcript where it was read. The queue is emptied when generation ends.
+- **Placeholder** — while generating, the field reads **`composer.placeholderQueue`** instead of the idle placeholder.
+- **Attachments are not queued.** A queued follow-up is text; files attached to the composer stay there for the next prompt.
+- Vitest: **`composerQueue.test.tsx`**.
 
 ## Composer file attachments (multimodal)
 
@@ -8095,6 +8125,104 @@ confirm-then-commit workflow, and discovery safety checks.
 - The LLM can decide to retry, use alternative tools, or inform the user
 
 
+# Features / Message queue
+
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/features/message-queue.md
+
+# Message queue
+
+The moment an operator knows most about what the agent should do next is while it is working — the tool call that read the wrong file, the platform nobody mentioned, the constraint that only becomes obvious once the plan is on screen. Until now that was the one moment nothing could be said: the composer turn lock refuses a second prompt, so the correction had to wait for the answer or cost a Stop.
+
+A message written **during** a turn is therefore queued on the session instead of refused, and the running turn reads it **at its next step** — between the tool calls the model just made and the request that follows them. The correction lands while the work is still happening rather than after it is finished. Until the agent reads it, a queued message is still yours: it can be taken back.
+
+## What the agent sees
+
+A queued message becomes an ordinary user message in the conversation, at the point where it was read. Nothing marks it as special in the transcript, and nothing tells the model it was queued: it is a person talking in the middle of the work, which is what it is. Several messages written during the same step are read together, in the order they were written.
+
+The read happens at two places in the turn, and both are the same idea — the earliest moment the model can act on it:
+
+- **Between steps.** The ReAct loop drains the queue at the top of every iteration, before it builds the request that answers the tool results it just collected. This is the mid-turn read, and it is what the feature is for.
+- **At the end.** A message written while the answer was already being composed would otherwise have to wait for the next prompt. Instead the same turn reads it and keeps going, so it is answered by the turn it was written into. This read happens **after** the `Stop` hooks have had their say, so a hook still fires on every answer that ends a turn.
+
+The continuation belongs to the ordinary prompt path. A turn that is not one — a permission resume, a saved plan being run — still opens a queue and still reads it between its own steps, but what arrives in its final moments is dropped with a warning rather than answered.
+
+Only a turn that ended with an **answer** continues this way. A cancelled turn is a **Stop**, and a Stop drops what was waiting rather than answering it; a turn that stopped for any other reason — its turn cap, a refusal, a hook — has already said why, and running it again would bury that. The continuations are also capped (8 per admitted turn): each one is a fresh run with its own `agent.max_turns` budget, so without a bound one admission could hold the session's turn lock for as long as somebody keeps typing. Past the cap the queue is closed and what is left is dropped with a warning, exactly as a Stop drops it.
+
+## The lifetime of the queue
+
+The queue belongs to the **turn**, not to the session bundle:
+
+- it opens when a turn is admitted and is gone when that turn releases;
+- a session that is not working holds nothing, and a message cannot be queued onto it — the surface sends that text as an ordinary prompt instead;
+- nothing is persisted. A queued message the turn never read is dropped when the turn ends, which is also what **Stop** means: cancelling a turn cancels what was waiting for it.
+
+At most **20** messages wait at once. The queue is a composer affordance, not a batch runner: beyond that the surface says so rather than growing a slice that the next step would paste into the model's context in one go.
+
+A **child (subagent) session** takes nothing. Its only turn is the task its parent wrote, and it is read-only everywhere else for the same reason.
+
+## In the browser
+
+![Two follow-ups waiting above the composer while the agent works](../assets/message-queue/message-queue-two-waiting-dark-1280.png)
+
+*Two follow-ups waiting above the composer while the agent works; each card has its own cross*
+
+The composer stays live while the agent works. With text in the field, the round control at its right queues that text for the running turn instead of stopping it; with the field empty it is still **Stop**, which is how a turn is cancelled. **Enter** does the same as the control.
+
+Queued messages stack above the composer in the order the agent will read them, each with a cross that takes it back. A message the agent has just read leaves the stack and appears in the conversation in the same breath.
+
+![The primary control with a draft written during a turn](../assets/message-queue/message-queue-draft-armed-dark-1280.png)
+
+*With a draft in the field mid-turn the primary control queues it; emptying the field brings Stop back*
+
+## A shared session has a shared queue
+
+A session is not owned by the tab that opened it. Two browsers, a third window on a phone and a console attached over `--remote` can all be looking at the same session, and the queue belongs to the session rather than to any one of them: what anyone queues appears for everyone, and a message one person takes back disappears for everyone.
+
+That works whether or not a client is reading the stream of the turn that is running. Every change travels down two paths:
+
+- the **turn's own stream**, so the client driving the turn and anyone teed onto it (`GET /coddy/sessions/{id}/composer-stream`) has it immediately;
+- **`GET /coddy/events`**, the server-wide stream every browser holds open and the console subscribes to under `--remote`, which carries `event: message_queue` with the session id, the whole queue and its version.
+
+The answer to whichever request made the change carries the same list and version, so it is a third delivery of the same fact rather than a separate truth.
+
+Those are separate connections, so deliveries can arrive in either order. Each carries a **version** that counts the changes of that session's queue; a client renders the highest version it has seen and drops anything older. Without it a stale frame could put a cancelled message back on screen. The list and the version are read under one lock, so a version never names content other than its own, and the counter is process-wide rather than per session — a session whose live state is rebuilt must not start publishing numbers a client has already applied and would now ignore. A client forgets a session's high-water mark when a turn starts on it, so a restarted server counting from the beginning is not mistaken for stale frames.
+
+## In the console
+
+![The console showing two queued follow-ups above the input](../assets/message-queue/message-queue-console-dark.png)
+
+*The console shows what the turn will read next, numbered in reading order*
+
+Submitting while a turn runs queues the prompt; the console shows what is waiting directly above the input, numbered in reading order:
+
+```
+queued for the next step (2) · /queue to manage
+1. check the Windows path too
+2. and skip the integration suite
+```
+
+`/queue` lists them, `/queue drop <n>` takes one back, `/queue clear` empties the queue. Pressing **escape** cancels the turn, and with it everything that was waiting. The same works against a remote server (`--remote`): the console talks to the queue routes below, and subscribes to the server's event stream, so a follow-up someone queued in a browser shows up above the console's input too.
+
+## Over HTTP
+
+| Route | What it does |
+|---|---|
+| `GET /coddy/sessions/{id}/queue` | What is waiting: `id`, `text`, `createdAt` per row. |
+| `POST /coddy/sessions/{id}/queue` | Queue `{"text": "..."}`. **201** with the stored message and the whole queue. |
+| `DELETE /coddy/sessions/{id}/queue/{message_id}` | Take one back; **404** with code `not_found` when the agent read it first. |
+| `DELETE /coddy/sessions/{id}/queue` | Drop everything waiting. |
+
+A session with no turn running answers **409** with code `no_active_turn`; a full queue answers **409** with `queue_full`; a child session answers **409** with `subagent_read_only`. The refusal codes are what a client branches on — the SPA turns `no_active_turn` into an ordinary `POST /v1/responses`, so a turn that ends between the keystroke and the request never loses what was typed.
+
+Every change is published as `event: message_queue` with the full list and its version, on the turn's stream and on `GET /coddy/events` alike; a message the agent reads arrives on the turn's stream as `event: user_message`, at the point it entered the conversation. Full shapes: [HTTP API](../reference/http-api.md).
+
+## What it is not
+
+- **Not a scheduler.** Nothing is held for a session that is idle, and nothing survives a restart.
+- **Not attachments.** A queued follow-up is text. Files attached in the browser stay in the composer for the next prompt.
+- **Not a second turn.** Queued messages are read inside the turn that was running, so they share its context, its tool results and its budget — including `agent.max_turns`, which still bounds the whole thing.
+
+
 # Features / Background tasks
 
 Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/features/background-tasks.md
@@ -9686,6 +9814,7 @@ The built-in commands on each surface and how skills become commands. A slash co
 | `/new` | console | Starts a new session in the same folder. | [Console](../surfaces/console.md#commands-and-keys) |
 | `/theme` | console | Selector between the dark and the light palette. | [Console](../surfaces/console.md#flags) |
 | `/hotkeys` | console | Prints the key list. | [Keyboard](keyboard.md) |
+| `/queue [list\|drop <n>\|clear]` | console | Lists the follow-ups waiting for the running turn, takes one back by its number, or empties the queue. Works against a remote server too. | [Message queue](../features/message-queue.md#in-the-console) |
 | `/usage` | console | Forces a fresh read of the active provider's account usage and prints the breakdown; under `--remote` the server's own key is read. | [Console](../surfaces/console.md#commands-and-keys) |
 | `/quit`, `/exit` | console | Exits. | [Console](../surfaces/console.md#commands-and-keys) |
 | `/compact [instructions]` | console, web UI, ACP editors, `POST /v1/responses` | Summarises the older history and keeps the recent turns verbatim; the words after the command steer the summariser. Listed only while `compaction.enable` is true; a manual compaction is always forced. | [Context compaction](../features/compaction.md#the-compact-command) |
@@ -10135,7 +10264,7 @@ header where the client can set one, since a query token reaches proxy access lo
 - **API-only mode**: set **`ui.enable: false`** in config to run the server without the SPA even when the **`ui`** tag is compiled in. **`GET /`** then returns a short plaintext notice (HTTP 404) instead of the UI; every **`/v1/*`** and **`/coddy/*`** route keeps working and keeps requiring **`httpserver.auth_token`** when set. Useful for a headless remote box other UIs connect to.
 - Recommended session URL pattern: **`#/s/<sessionId>`** (client-only history). For **`POST /v1/responses`** and **`POST /v1/chat/completions`**, send **`X-Coddy-Session-ID`** with a **`sess_<hex>`** id that satisfies server-side validation (`internal/session/validate.go`).
 - **`GET /coddy/sessions`**, **`PATCH /coddy/sessions/{id}`**, and other **`/coddy/sessions/{id}/...`** routes identify the session **only** by the **`{id}`** path segment (no duplicate header in OpenAPI; clients may still send **`X-Coddy-Session-ID`**, it is not used to pick the resource for those URLs).
-- The bundled UI calls **`POST /v1/responses`** with **`stream: true`**. If **`GET /coddy/sessions`** reports **`turnActive`** for the open session (for example after a full tab reload while another client or the same server process still runs the turn), the UI subscribes to **`GET /coddy/sessions/{id}/composer-stream`** (SSE) to replay bytes already emitted for that turn and continue receiving live chunks until **`data: [DONE]`** or an error event. Starting a new **`POST /v1/responses`** cancels that relay subscription client-side. For ReAct (**`model`** **`agent`**, **`plan`**, or **`ask`**), it sends optional **`metadata.model`** with the selected YAML **`models[].model`** **`id`** and optional **`metadata.runPlanSlug`** to implement a saved design plan (**`coddy.dev/runPlanSlug`** on ACP **`session/prompt`**; answered with **`409`** before the turn starts when **`model`** is **`ask`**) (from **`GET /v1/models`**, **`owned_by`** not **`coddy`**); default follows **`default_agent_model`**, persisted choice in **`coddy_llm_model`**. When the selected model exposes **`reasoning_levels`**, it also sends optional **`metadata.reasoning`** with the chosen level; default follows the model's **`reasoning_default`**, persisted choice in **`coddy_llm_reasoning`**. It derives **`attachments`** from **`@path`** mentions in **`input`** (files only); a mention may narrow a file to a line range (**`@Dockerfile:21-31`**), which travels as **`attachments[].source.startLine`** / **`endLine`** and reaches the model as **`<coddy_attachment ... lines="21-31">`** holding only those lines. **`GET /coddy/workspace/files`** powers the **`@`** picker and **`GET /coddy/workspace/file`** powers the line-range picker that opens after the **`:`**. SSE **default** chunks follow **`chat.completion.chunk`** deltas (**`delta.content`** for assistant text, **`delta.reasoning_content`** for streamed model reasoning so the UI can keep the **thinking** foldout separate). Named **`event:`** lines (**`tool_call`**, **`tool_call_update`**, **`plan`**, **`token_usage`**, **`available_commands`**) expose tool progress and incremental token totals between LLM rounds; the turn stream reserves **`provider_usage`** for a snapshot emitted mid-turn (nothing emits one today; the account usage of a finished turn is read from **`GET /coddy/providers/{name}/usage`** or arrives on **`GET /coddy/events`**); when **`memory.enable`** is **true**, the server also emits **`memory_phase`** (**`sessionUpdate`** **`memory_phase`**) and **`memory_chunk`** (**`memory_message_chunk`**) for the unified memory copilot (**one pass before the main model**, recall-or-persist), streamed model text deltas only, without adding rows to **`messages.json`**. **`GET /coddy/sessions/{id}/messages`** may include **`memoryTurns`** (array of persisted per-turn summaries for the bundled UI transcript). **`coddy_meta`** JSON follows the usual rule immediately before **`data: [DONE]`**; for agent/plan/ask turns it also carries **`stop_reason`** (`end_turn`, `cancelled`, `max_turns`, ...) so remote clients recover the ACP stop reason. **Stop generation** in the composer calls **`POST /coddy/sessions/{id}/cancel`** with **`X-Coddy-Session-ID`** matching **`{id}`**, then **`AbortSignal`** tears down the streamed **`fetch`**. That maps to ACP **`session/cancel`** for the agent turn (**`TurnCtx`** propagation for direct **`models[].model`** completions uses the same cancel hook). Cancel mid-stream still **persists** accumulated assistant **`content`** for that turn; **`GET /coddy/sessions/{id}/messages`** can briefly trail that write, so the SPA **merges** fetched rows with its per-session shadow or on-screen transcript (**`mergeTranscriptPreferLocalSuffix`** in **`external/ui/src/ui/chat/transcriptServerSnapshot.ts`**). More than one session may stream in parallel (**`pickStreamMutationBase`** in **`streamMutationBase.ts`** keeps SSE mutations scoped per **`X-Coddy-Session-ID`**).
+- The bundled UI calls **`POST /v1/responses`** with **`stream: true`**. If **`GET /coddy/sessions`** reports **`turnActive`** for the open session (for example after a full tab reload while another client or the same server process still runs the turn), the UI subscribes to **`GET /coddy/sessions/{id}/composer-stream`** (SSE) to replay bytes already emitted for that turn and continue receiving live chunks until **`data: [DONE]`** or an error event. Starting a new **`POST /v1/responses`** cancels that relay subscription client-side. For ReAct (**`model`** **`agent`**, **`plan`**, or **`ask`**), it sends optional **`metadata.model`** with the selected YAML **`models[].model`** **`id`** and optional **`metadata.runPlanSlug`** to implement a saved design plan (**`coddy.dev/runPlanSlug`** on ACP **`session/prompt`**; answered with **`409`** before the turn starts when **`model`** is **`ask`**) (from **`GET /v1/models`**, **`owned_by`** not **`coddy`**); default follows **`default_agent_model`**, persisted choice in **`coddy_llm_model`**. When the selected model exposes **`reasoning_levels`**, it also sends optional **`metadata.reasoning`** with the chosen level; default follows the model's **`reasoning_default`**, persisted choice in **`coddy_llm_reasoning`**. It derives **`attachments`** from **`@path`** mentions in **`input`** (files only); a mention may narrow a file to a line range (**`@Dockerfile:21-31`**), which travels as **`attachments[].source.startLine`** / **`endLine`** and reaches the model as **`<coddy_attachment ... lines="21-31">`** holding only those lines. **`GET /coddy/workspace/files`** powers the **`@`** picker and **`GET /coddy/workspace/file`** powers the line-range picker that opens after the **`:`**. SSE **default** chunks follow **`chat.completion.chunk`** deltas (**`delta.content`** for assistant text, **`delta.reasoning_content`** for streamed model reasoning so the UI can keep the **thinking** foldout separate). Named **`event:`** lines (**`tool_call`**, **`tool_call_update`**, **`plan`**, **`token_usage`**, **`available_commands`**, **`message_queue`**, **`user_message`**) expose tool progress and incremental token totals between LLM rounds; **`message_queue`** carries the whole message queue of the session on every change and **`user_message`** carries a queued follow-up the agent has just read, at the point it entered the conversation (see **`docs/features/message-queue.md`**); the turn stream reserves **`provider_usage`** for a snapshot emitted mid-turn (nothing emits one today; the account usage of a finished turn is read from **`GET /coddy/providers/{name}/usage`** or arrives on **`GET /coddy/events`**); when **`memory.enable`** is **true**, the server also emits **`memory_phase`** (**`sessionUpdate`** **`memory_phase`**) and **`memory_chunk`** (**`memory_message_chunk`**) for the unified memory copilot (**one pass before the main model**, recall-or-persist), streamed model text deltas only, without adding rows to **`messages.json`**. **`GET /coddy/sessions/{id}/messages`** may include **`memoryTurns`** (array of persisted per-turn summaries for the bundled UI transcript). **`coddy_meta`** JSON follows the usual rule immediately before **`data: [DONE]`**; for agent/plan/ask turns it also carries **`stop_reason`** (`end_turn`, `cancelled`, `max_turns`, ...) so remote clients recover the ACP stop reason. **Stop generation** in the composer calls **`POST /coddy/sessions/{id}/cancel`** with **`X-Coddy-Session-ID`** matching **`{id}`**, then **`AbortSignal`** tears down the streamed **`fetch`**. That maps to ACP **`session/cancel`** for the agent turn (**`TurnCtx`** propagation for direct **`models[].model`** completions uses the same cancel hook). Cancel mid-stream still **persists** accumulated assistant **`content`** for that turn; **`GET /coddy/sessions/{id}/messages`** can briefly trail that write, so the SPA **merges** fetched rows with its per-session shadow or on-screen transcript (**`mergeTranscriptPreferLocalSuffix`** in **`external/ui/src/ui/chat/transcriptServerSnapshot.ts`**). More than one session may stream in parallel (**`pickStreamMutationBase`** in **`streamMutationBase.ts`** keeps SSE mutations scoped per **`X-Coddy-Session-ID`**).
 - On the first user message of a brand-new chat (no session in the rail yet), the UI **`POST`**s **`/coddy/describe`** in parallel with **`/v1/responses`**. When **`short`** arrives, the header and session list titles update **immediately**; **`PATCH /coddy/sessions/{id}`** still runs once headers expose the canonical session id (**retries PATCH** briefly if persistence lags describe).
 - The bundled UI exposes **Settings** at **`#/settings`**. It loads **`GET /coddy/config/schema`** (JSON Schema for the editor) and **`GET /coddy/config`** (current values, including **API keys**, optional per-provider **`proxy`** URLs, and the **`gateways.telegram.token`** bot token), then **`POST /coddy/config/validate`** and **`PUT /coddy/config`** on save. The logical-model form additionally calls **`GET /coddy/providers/{name}/models`** behind **Fetch models** and **`GET /coddy/config/reasoning-levels`** behind **Fetch reasoning levels**, which fills **`models[].reasoning_levels`** with the tiers detected for the model id being edited (the type of the provider row it points at is sent as **`provider_type`**, so an unsaved provider is honoured). The **`gateways`** block round-trips through this API, so editing settings in the UI no longer drops the Telegram configuration. There is no separate auth on these routes - expose **`coddy serve`** only on trusted networks.
 
@@ -10208,6 +10337,10 @@ header where the client can set one, since a query token reaches proxy access lo
 | GET | **`/coddy/sessions/{id}/activity`** | Composer activity snapshot **`turnActive`** (a turn running in this server process, or the exclusive turn lock held by another one), **`activitySeq`**, **`readActivitySeq`**, **`unreadComplete`**. |
 | GET | **`/coddy/sessions/{id}/tool-calls`** | Tool calls timeline; each **`resultPreview`** is capped at **19** content lines plus a final **`...`** row when truncated (20 visible preview rows total; see **`resultPreviewTruncated`**, **`resultTotalLines`**). Todo mutations (`coddy_todo_item_update`, `coddy_todo_plan_replace`) also include their final **`planSnapshot`** so historical cards retain the state they produced. |
 | GET | **`/coddy/sessions/{id}/tool-calls/{toolCallId}`** | Always full persisted **`result`** plus **`meta`** and **`args`**. The bundled SPA requests this when the user activates **Load more results** after the streamed or list preview was truncated (not when merely expanding the disclosure). |
+| GET | **`/coddy/sessions/{id}/queue`** | What the session is holding for the turn it is running: **`id`**, **`text`** and **`createdAt`** per row, plus the **`version`** the SSE frames carry, so a client applying both keeps whichever is newer. The queue belongs to the turn, not to the bundle - it opens when a turn is admitted and is gone when that turn releases - so an idle session answers with an empty list. See **`docs/features/message-queue.md`**. |
+| POST | **`/coddy/sessions/{id}/queue`** | Queues **`{"text": "..."}`** for the running turn to read at its next step; **`201`** with the stored **`message`** and the whole **`messages`** list. A session with no turn running answers **`409`** with code **`no_active_turn`** (the caller sends that text through **`POST /v1/responses`** instead); a queue already holding 20 messages answers **`409`** with **`queue_full`**; a child (subagent) session answers **`409`** with **`subagent_read_only`**. Nothing is persisted: a message the turn never read is dropped when the turn ends, which is also what **Stop** does. |
+| DELETE | **`/coddy/sessions/{id}/queue/{message_id}`** | Takes one queued message back and answers with the rest. **`404`** with code **`not_found`** when the agent read it first - losing that race is ordinary, and the message is already in the conversation. |
+| DELETE | **`/coddy/sessions/{id}/queue`** | Drops everything waiting and answers with the empty list. |
 | GET | **`/coddy/sessions/{id}/background-tasks`** | The session's tasks: commands the agent started with **run_command** **`background: true`** (**`kind`** **`command`**) and subagent runs started with **`spawn_agent`** (**`kind`** **`agent`**; such rows carry **`agent`** **`{name, session_id}`**, the definition name and the child session whose transcript **`GET /coddy/sessions/{session_id}/messages`** serves). Each row carries **`id`**, **`kind`**, **`label`**, **`command`**, **`status`** (**`queued`**, **`running`**, **`succeeded`**, **`failed`**, **`timed_out`**, **`stopped`**, **`orphaned`**), **`started_at`**, **`finished_at`**, **`exit_code`**, **`expected_seconds`** (the model's own estimate), **`timeout_seconds`** (the hard limit), **`notify_on_finish`** (the task wakes the agent when it ends), plus server-computed **`elapsed_seconds`**, **`overdue`**, **`running`**; the payload also has a **`running`** count. Tasks recorded by an earlier **`coddy`** process are merged in from the session bundle as **`orphaned`**. **Poll** this for status: a background task outlives the SSE stream of the turn that started it. See **`docs/features/background-tasks.md`**. |
 | DELETE | **`/coddy/sessions/{id}/background-tasks`** | Clears the **finished** tasks of the session, in memory and from the session bundle, and answers with **`cleared`**. Running tasks are untouched. History is deleted with the session anyway; this is the operator's way to throw it away early. |
 | GET | **`/coddy/sessions/{id}/background-tasks/{task_id}`** | One task plus **`output`**, the combined stdout and stderr captured so far (works while it still runs). Optional **`?tail=N`** returns only the last N lines; a non-integer or negative value is a **`400`**. A task the pool no longer holds is answered from the session bundle log, capped at its last 256 KiB with **`output_truncated`** set. **`404`** when the id is unknown. |
@@ -10215,7 +10348,7 @@ header where the client can set one, since a query token reaches proxy access lo
 | GET | **`/coddy/sessions/{id}/stats`** | Session stats: completed model-call token totals (and optional per-turn list) plus the current **`contextBreakdown`**. Compaction rewrites the conversation category and estimated total immediately while preserving provider counters. |
 | GET | **`/coddy/sessions/{id}/messages`** | OpenAI-shaped **`messages`**, optional **`memoryTurns`**, **`uiLog`**. For a child session spawned by **`spawn_agent`** the payload also carries **`readOnly: true`** and **`subagent`** **`{parentSessionId, name, taskId}`**: the transcript is served from the live child while it runs and from its bundle afterwards, and no route accepts a prompt for it (**`409`**), so the bundled UI replaces the composer with a notice linking to the parent chat. User rows with uploaded files include **`files: [{name, mime_type, preview_url?}]`**. A persisted decodable image receives a session-scoped **`preview_url`**; original data URLs and absolute asset paths are not returned. After **`POST .../cancel`**, the last assistant row may appear on disk one persistence step later than the in-flight stream; clients that already showed partial text should merge with local state (bundled UI uses **`mergeTranscriptPreferLocalSuffix`** in **`external/ui/src/ui/chat/transcriptServerSnapshot.ts`**). |
 | GET | **`/coddy/sessions/{id}/assets/{name}/thumbnail`** | Bounded PNG preview persisted for an uploaded session image. The URL is supplied by **`messages[].files[].preview_url`**. Original asset bytes are not served by this route. |
-| GET | **`/coddy/events`** | **`text/event-stream`** of activity that is not tied to one session: **`event: turn_started`** and **`event: turn_ended`** with **`{object, sessionId, phase, at}`**, for every turn in this server process whichever surface started it; **`event: provider_usage`** with **`{object:"coddy.provider_usage", sessionId, usage}`** whenever the manager built a fresh account-usage snapshot outside a request (a finished turn, a deferred refresh; **`sessionId`** names the turn that caused it, the snapshot itself is account-wide); and **`event: config_reloaded`** with **`{object:"coddy.config_reloaded", at}`** after every swap of the live configuration - a **`PUT /coddy/config`** save, the agent's **`config_commit`** or **`config_rollback`**, a skill install. The reload event carries nothing but the fact: what moved is already behind **`GET /v1/models`** and **`GET /coddy/slash-commands`**, so a client re-reads whichever of those it renders. It is published only once the new configuration is live, so that re-read cannot catch the outgoing one. On connect it replays one **`turn_started`** per turn already running, then **`event: ready`**; an idle stream sends SSE comment keepalives. Lets a client attach to a turn it did not start, and keep a model picker honest, without polling **`GET /coddy/sessions`**. |
+| GET | **`/coddy/events`** | **`text/event-stream`** of activity that is not tied to one session: **`event: turn_started`** and **`event: turn_ended`** with **`{object, sessionId, phase, at}`**, for every turn in this server process whichever surface started it; **`event: provider_usage`** with **`{object:"coddy.provider_usage", sessionId, usage}`** whenever the manager built a fresh account-usage snapshot outside a request (a finished turn, a deferred refresh; **`sessionId`** names the turn that caused it, the snapshot itself is account-wide); **`event: message_queue`** with **`{object:"coddy.message_queue", sessionId, messages, version}`** on every change of a session's message queue, whoever made it and whichever client is watching - a session is shared, so what one browser queues onto the running turn appears in the others and in a console attached over **`--remote`** (the same change also travels down that turn's own stream, so a client reached twice keeps the higher **`version`**); and **`event: config_reloaded`** with **`{object:"coddy.config_reloaded", at}`** after every swap of the live configuration - a **`PUT /coddy/config`** save, the agent's **`config_commit`** or **`config_rollback`**, a skill install. The reload event carries nothing but the fact: what moved is already behind **`GET /v1/models`** and **`GET /coddy/slash-commands`**, so a client re-reads whichever of those it renders. It is published only once the new configuration is live, so that re-read cannot catch the outgoing one. On connect it replays one **`turn_started`** per turn already running, then **`event: ready`**; an idle stream sends SSE comment keepalives. Lets a client attach to a turn it did not start, and keep a model picker honest, without polling **`GET /coddy/sessions`**. |
 | GET | **`/coddy/sessions/{id}/composer-stream`** | **`text/event-stream`** relay of the live **agent**/**plan**/**ask** turn (same SSE as **`POST /v1/responses`** with **`stream: true`**). Replays bytes captured so far, then live tail until the turn ends. With **no turn running**, answers at once with **`event: error`** and **`error.code`** **`no_active_stream`** so the client can fall back to **`GET .../messages`**. While a turn runs but has not attached its relay yet, emits the SSE comment **`: composer stream pending`** (about 30s max), then the same error event if none appears. Replayed frames carry an **`id:`** sequence; a reconnecting client sends it back as **`Last-Event-ID`** (or **`?last_event_id=`**) to resume after that frame. If those frames were already trimmed from the buffer, the stream leads with **`event: desync`** (**`{object, lastEventId, resumedAt}`**) so the client reloads **`GET .../messages`** rather than rendering a gap. The bytes of the primary **`POST /v1/responses`** stream are unchanged. |
 | POST | **`/coddy/sessions/{id}/permission`** | Resolves a tool permission prompt while a streamed ReAct turn is blocked. Body **`{"toolCallId","optionId"}`** where **`toolCallId`** matches **`event: permission`** on the composer SSE (**`toolCall.toolCallId`**). **`optionId`** is **`allow`**, **`allow_always`** (remembers this exact command), **`allow_always_program`** (offered for **run_command** only, and only when the command is a single plain invocation; remembers the program, or the program plus its subcommand for multiplexers like **git**), or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). **`204`** when accepted. **`404`** when nothing is waiting. **`409`** for a child session spawned by **`spawn_agent`**: its prompts are relayed to the parent chat, so it never holds one of its own and nothing may resume a turn on it. Optional **`X-Coddy-Session-ID`** must match **`{id}`** when set. |
 | POST | **`/coddy/sessions/{id}/question`** | Answers the interactive **`question`** tool while a streamed ReAct turn is blocked. Body **`{"requestId","answers"}`** where **`answers`** is an array of string arrays (one row per question, entries are option labels or custom text). **`requestId`** must match **`event: question`** on the composer SSE. **`204`** when accepted. **`404`** when nothing is waiting. Optional **`X-Coddy-Session-ID`** must match **`{id}`** when set. |
@@ -14098,6 +14231,17 @@ popover, and a banner speaks up only when something needs the user.
 - **Circular button** (**not** pill or squircle): fixed equal **width** and **height**, **`border-radius: 50%`**, **`box-sizing: border-box`**. Intended diameter **42px** in production CSS (**may track token scale**, but stays a **circle**).
 - **Glyphs** live in **`composer-send-glyph`**. **Play** state uses **`~22px`** **▶**; **stop** uses **`.composer-stop-square`** (**14×14px** filled block, centered in the circle). Ring + stop stay **right-aligned** in **`composer-bar-actions`** (same row as mode tabs). Keep contrast high (**`composer-send-play`** vs **`composer-send-stop`**).
 - Idle **disabled** when the message field is empty **and no sendable files are attached** (a disabled attachment under a non-multimodal model does not unlock Send); streaming shows **stop** affordance (see **`docs/surfaces/web-ui.md`**, section **Composer primary action**).
+
+### Composer message queue
+
+A turn in flight no longer locks the composer. What is typed during it is queued for that turn to read at its next step, so the queue needs a place on screen and every card needs a way out of it. Behaviour and the wire contract: **`docs/features/message-queue.md`**, functional checklist: **`docs/surfaces/web-ui.md`** (**Composer message queue**).
+
+- **Placement** — the queue is a **`ul.composer-queue`** (**`data-testid="composer-queue"`**) inside **`composer-wrap`**, directly **above** **`.composer-card`** and below the transcript, with **`6px`** between it and the card. It renders only when something is waiting; an empty queue draws nothing at all (no header, no placeholder).
+- **A card** — **`li.composer-queue-item`** (**`data-testid="composer-queue-item"`**): **`12px`** radius, a **6%** text tint over **`--coddy-blend-base`** with a **12%** border, **`12px`** of text-side padding, **12px** type at **1.45** line height in a **72%** text tint. The rows stack in **reading order** with a **`4px`** gap: the top card is the one the agent reads first.
+- **The text** clamps to **3 lines** (**`-webkit-line-clamp`**) and wraps on anything (**`overflow-wrap: anywhere`**), so a pasted path cannot widen the composer.
+- **The cross** — **`button.composer-queue-remove`** (**`data-testid="composer-queue-remove-<id>"`**, accessible name **`Remove from the queue`**) is a **20×20px** circle carrying a **11px** stroked **×**, aligned to the card's **bottom-right** (**`align-self: flex-end`**), transparent until hover or focus, where it takes a **12%** text tint. It is the only control on the card; the text itself is not clickable.
+- **The primary control** (**`#btn-send`**) keeps its circle and swaps only its meaning. While generating with a **non-empty** draft it carries the **play** glyph on an accent fill (**`.composer-run-icon--queue`**, **`data-queue="true"`**, accessible name **`Queue this message`**); with an **empty** draft it is the **stop** square exactly as before. Never render a third glyph for this, and never remove Stop: emptying the field is how a turn is cancelled.
+- **The field** keeps focus and its content rules while generating; only the placeholder changes (**`composer.placeholderQueue`**).
 
 ### Prompt improvement control
 

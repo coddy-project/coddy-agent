@@ -18,6 +18,9 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		if u.sessionID == a.turnSessionID {
 			a.turnActive = false
 			a.stopSpinner()
+			// The queue belonged to that turn: nothing is waiting any more,
+			// whether it was read, dropped with a Stop, or lost to an error.
+			a.queue.SetRows(nil)
 			a.stopUsageResume()
 			// A permission or question modal belonging to this turn is now
 			// orphaned (the worker already unblocked via ctx cancellation).
@@ -193,6 +196,12 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		} else if a.turnActive {
 			a.setStatus(newWaitingStatus())
 		}
+	case acp.MessageQueueUpdate:
+		// The queue changes from outside this goroutine - another surface, or
+		// the agent reading a batch - so the widget follows the update rather
+		// than what this console last sent. The version orders the two streams
+		// the same update can arrive down.
+		a.queue.Apply(u.Messages, u.Version)
 	case acp.MemoryMessageChunkUpdate:
 		// Memory copilot deltas render as a dim italic stream under the
 		// phase status line (collapses with ctrl+t like thinking).

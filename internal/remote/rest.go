@@ -23,11 +23,16 @@ const restTimeout = 30 * time.Second
 type errorEnvelope struct {
 	Error struct {
 		Message string `json:"message"`
+		// Code is the machine-readable reason some routes carry (the message
+		// queue does), so a client branches on it instead of on prose.
+		Code string `json:"code"`
 	} `json:"error"`
 }
 
 // apiError carries the HTTP status so callers can branch on 404 vs failure.
 type apiError struct {
+	// code is the error envelope's machine-readable reason, when it had one.
+	code    string
 	status  int
 	message string
 }
@@ -65,7 +70,7 @@ func (h *Handler) remoteError(res *http.Response, body []byte) error {
 	}
 	var env errorEnvelope
 	if json.Unmarshal(body, &env) == nil && strings.TrimSpace(env.Error.Message) != "" {
-		return &apiError{status: res.StatusCode, message: "remote coddy: " + env.Error.Message}
+		return &apiError{status: res.StatusCode, code: strings.TrimSpace(env.Error.Code), message: "remote coddy: " + env.Error.Message}
 	}
 	msg := strings.TrimSpace(string(body))
 	if len(msg) > 200 {
@@ -129,6 +134,38 @@ func (h *Handler) postJSON(ctx context.Context, path string, in interface{}, out
 		return nil
 	}
 	return json.Unmarshal(body, out)
+}
+
+// deleteJSON performs DELETE path and decodes the answer into out (may be nil).
+func (h *Handler) deleteJSON(ctx context.Context, path string, out interface{}) error {
+	ctx, cancel := context.WithTimeout(ctx, restTimeout)
+	defer cancel()
+	req, err := h.newRequest(ctx, http.MethodDelete, path, nil)
+	if err != nil {
+		return err
+	}
+	res, err := h.hc.Do(req)
+	if err != nil {
+		return fmt.Errorf("remote coddy %s: %w", h.opts.BaseURL, err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	body, _ := io.ReadAll(io.LimitReader(res.Body, 4<<20))
+	if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusNoContent {
+		return h.remoteError(res, body)
+	}
+	if out == nil || len(body) == 0 {
+		return nil
+	}
+	return json.Unmarshal(body, out)
+}
+
+// queueErrorCode returns the machine-readable reason a remote refusal carried.
+func queueErrorCode(err error) string {
+	var ae *apiError
+	if errors.As(err, &ae) {
+		return ae.code
+	}
+	return ""
 }
 
 // patchJSON performs PATCH path with the given body.
