@@ -127,16 +127,25 @@ func (s *State) OpenMessageQueue() {
 }
 
 // CloseMessageQueue refuses further follow-ups and returns whatever was still
-// waiting. It is idempotent, so a turn that both defers it and calls it
-// explicitly closes the queue once.
+// waiting.
+//
+// It is idempotent, and a close that finds the queue already closed and empty
+// changes nothing: the boundary drain closes it first on the ordinary path, and
+// the turn's own release must not then spend a version and a frame on saying so
+// a second time.
 func (s *State) CloseMessageQueue() []QueuedMessage {
 	s.queueMu.Lock()
 	left := s.queue
+	changed := s.queueOpen || len(left) > 0
 	s.queue = nil
 	s.queueOpen = false
-	s.bumpQueueLocked()
+	if changed {
+		s.bumpQueueLocked()
+	}
 	s.queueMu.Unlock()
-	s.notifyQueue()
+	if changed {
+		s.notifyQueue()
+	}
 	return left
 }
 

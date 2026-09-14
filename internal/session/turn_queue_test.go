@@ -164,6 +164,31 @@ func TestCloseMessageQueueReturnsLeftoversOnce(t *testing.T) {
 	}
 }
 
+// The ordinary path closes the queue twice - the boundary drain finds nothing,
+// then the turn releases - and the second close must say nothing: a version and
+// a frame spent on "still empty" is noise every client has to apply.
+func TestASecondCloseChangesNothing(t *testing.T) {
+	st := &State{ID: "sess_queue_close_twice"}
+	notifications := 0
+	st.SetQueueNotifier(func() { notifications++ })
+	st.OpenMessageQueue()
+
+	_, closed := st.TakeQueuedMessagesOrClose()
+	if closed {
+		t.Fatal("an empty queue reported work to do")
+	}
+	afterFirst := notifications
+	_, version := st.QueueSnapshot()
+
+	st.CloseMessageQueue()
+	if notifications != afterFirst {
+		t.Fatalf("the second close announced itself (%d notifications, want %d)", notifications, afterFirst)
+	}
+	if _, v := st.QueueSnapshot(); v != version {
+		t.Fatalf("the second close spent a version: %d then %d", version, v)
+	}
+}
+
 func TestQueuedPromptBlocksJoinsInOrder(t *testing.T) {
 	blocks := QueuedPromptBlocks([]QueuedMessage{{Text: "first"}, {Text: "second"}})
 	if len(blocks) != 1 {
