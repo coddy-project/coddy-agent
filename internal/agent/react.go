@@ -101,6 +101,9 @@ type Agent struct {
 	// turnHookContext is what UserPromptSubmit hooks handed over for this
 	// turn's system prompt (hooks.go).
 	turnHookContext string
+	// autoCompactSkipLogged records that this turn already logged an
+	// automatic compaction with nothing to fold (compact.go).
+	autoCompactSkipLogged bool
 }
 
 // NewAgent creates an Agent for a prompt turn.

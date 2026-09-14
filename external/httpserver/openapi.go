@@ -2861,12 +2861,15 @@ func openAPISpec() map[string]interface{} {
 							"items": map[string]interface{}{
 								"type": "object",
 								"properties": map[string]interface{}{
-									"id":                 map[string]string{"type": "string"},
-									"object":             map[string]string{"type": "string", "example": "model"},
-									"created":            map[string]string{"type": "integer", "format": "int64"},
-									"owned_by":           map[string]string{"type": "string", "example": "coddy"},
-									"max_context_tokens": map[string]string{"type": "integer"},
-									"multimodal":         map[string]string{"type": "boolean"},
+									"id":       map[string]string{"type": "string"},
+									"object":   map[string]string{"type": "string", "example": "model"},
+									"created":  map[string]string{"type": "integer", "format": "int64"},
+									"owned_by": map[string]string{"type": "string", "example": "coddy"},
+									"max_context_tokens": map[string]string{
+										"type":        "integer",
+										"description": "Context window a session on this model measures its context usage and its automatic compaction threshold against: `models[].max_context_tokens`, else the window the provider's model listing reports, else 128000. The `agent`, `plan` and `ask` rows carry the window of `agent.model`.",
+									},
+									"multimodal": map[string]string{"type": "boolean"},
 									"reasoning_levels": map[string]interface{}{
 										"type":        "array",
 										"items":       map[string]string{"type": "string"},

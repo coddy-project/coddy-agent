@@ -13,3 +13,15 @@ Feature: Automatic context compaction
     And the session transcript contains a compaction summary row
     And the session transcript still contains all 4 original exchanges
     And HTTP session stats match the compacted LLM context
+
+  # coddy-project/coddy-agent#245: a model entry without max_context_tokens.
+  # The web UI draws its context ring against the window GET /v1/models
+  # reports, so the trigger has to measure against that same window.
+  Scenario: A model without max_context_tokens compacts at the window its provider reports
+    Given a running coddy HTTP server whose model has no max_context_tokens and whose provider reports a tiny context window
+    And an HTTP session with 4 completed exchanges
+    When the user sends a regular prompt
+    Then the agent reply arrives over HTTP
+    And the session transcript contains a compaction summary row
+    And the session transcript still contains all 4 original exchanges
+    And the model list reports the provider's context window for the model

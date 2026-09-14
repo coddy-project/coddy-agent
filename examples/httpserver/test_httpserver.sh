@@ -90,6 +90,10 @@ python3 "$HTTP_DIR/http_e2e_subagents.py"
 python3 "$HTTP_DIR/http_e2e_hooks.py"
 python3 "$HTTP_DIR/http_e2e_toolcalls_persist.py"
 python3 "$HTTP_DIR/http_e2e_compact.py"
+# Self-contained: boots its own coddy with a model that has no max_context_tokens,
+# checks the web UI window, usage_update and the auto-compaction trigger agree
+# (issue #245). Uses NEURALDEEP_API_KEY (or the .env seeded above); SKIP without it.
+python3 "$HTTP_DIR/http_e2e_compact_auto.py"
 python3 "$HTTP_DIR/http_e2e_scheduler_agent.py"
 python3 "$HTTP_DIR/http_e2e_plan_files.py"
 # Ask profile reads but never writes; agent on the same session still writes.

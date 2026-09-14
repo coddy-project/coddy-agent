@@ -1085,15 +1085,45 @@ func TestCompactSessionPrunesHeadUsingWritesFromKeptTail(t *testing.T) {
 }
 
 func TestCompactSessionNothingToCompact(t *testing.T) {
-	st := seededCompactState(t, 2)
+	// One user turn: the prompt being answered, which an automatic compaction
+	// never folds, whatever keep_recent_turns says.
+	st := seededCompactState(t, 1)
 	keep := 2
 	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, &compactCannedProvider{t: t, summary: "s"})
 
 	if _, err := ag.CompactSession(context.Background(), "", false); !errors.Is(err, ErrNothingToCompact) {
 		t.Fatalf("err = %v, want ErrNothingToCompact", err)
 	}
-	if len(st.GetMessages()) != 4 {
+	if len(st.GetMessages()) != 2 {
 		t.Fatal("history must stay untouched")
+	}
+}
+
+func TestCompactSessionAutoKeepsFewerTurnsWhenTheTailCoversEveryTurn(t *testing.T) {
+	// keep_recent_turns 2 over a window of exactly 2 user turns: a long session
+	// of a few big agent turns. The automatic trigger folds the older turn and
+	// keeps the latest one verbatim instead of skipping.
+	st := seededCompactState(t, 2)
+	keep := 2
+	provider := &compactCannedProvider{t: t, summary: "folded first turn"}
+	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
+
+	res, err := ag.CompactSession(context.Background(), "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.CompactedMessages != 2 || res.KeptMessages != 2 {
+		t.Fatalf("counts = %d/%d, want 2/2", res.CompactedMessages, res.KeptMessages)
+	}
+	msgs := st.GetMessages()
+	if len(msgs) != 5 || !msgs[2].CompactionSummary {
+		t.Fatalf("summary not inserted before the latest turn: %+v", msgs)
+	}
+	if msgs[3].Role != llm.RoleUser || msgs[3].Content != "question 2" {
+		t.Fatalf("latest prompt not kept verbatim after the summary: %+v", msgs[3])
+	}
+	if req := transcriptText(provider.requests[0]); strings.Contains(req, "question 2") {
+		t.Fatalf("the latest prompt leaked into the summarization request:\n%s", req)
 	}
 }
 
@@ -1277,7 +1307,10 @@ func TestMaybeAutoCompactThresholdBoundary(t *testing.T) {
 		{name: "exactly at threshold", est: 80, maxContext: 100, enabled: true, wantCompact: true},
 		{name: "below threshold", est: 79, maxContext: 100, enabled: true, wantCompact: false},
 		{name: "above threshold", est: 95, maxContext: 100, enabled: true, wantCompact: true},
-		{name: "no context window", est: 1000, maxContext: 0, enabled: true, wantCompact: false},
+		// A model without max_context_tokens measures against the default
+		// window, the one GET /v1/models hands the web UI ring (#245).
+		{name: "no max_context_tokens at the default window threshold", est: 102400, maxContext: 0, enabled: true, wantCompact: true},
+		{name: "no max_context_tokens below the default window threshold", est: 102399, maxContext: 0, enabled: true, wantCompact: false},
 		{name: "disabled", est: 1000, maxContext: 100, enabled: false, wantCompact: false},
 	}
 	for _, tc := range cases {
@@ -1324,6 +1357,114 @@ func TestMaybeAutoCompactFailOpen(t *testing.T) {
 	}
 	if len(st.GetMessages()) != 6 {
 		t.Fatal("history must stay untouched on failure")
+	}
+}
+
+// windowedState is a session whose manager resolved a context window from the
+// provider's model listing (session.State.ContextWindow).
+type windowedState struct {
+	*session.State
+	window int
+}
+
+func (w windowedState) ContextWindow(*config.Config) (int, string) {
+	return w.window, session.ContextWindowFromProvider
+}
+
+func TestMaybeAutoCompactMeasuresAgainstTheSessionWindow(t *testing.T) {
+	st := seededCompactState(t, 3)
+	keep := 1
+	provider := &compactCannedProvider{t: t, summary: "auto summary"}
+	// max_context_tokens stays unset: the window comes from the session, which
+	// read it from the provider's listing.
+	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
+	ag.state = windowedState{State: st, window: 1000}
+	st.SetLastContextBreakdown(&session.ContextBreakdown{EstimatedTotal: 800})
+
+	if !ag.maybeAutoCompact(context.Background()) {
+		t.Fatal("80% of the session's 1000-token window must compact")
+	}
+	if len(provider.requests) != 1 {
+		t.Fatalf("summarizer called %d times, want 1", len(provider.requests))
+	}
+}
+
+func TestMaybeAutoCompactLogsOnceWhenNothingCanBeFolded(t *testing.T) {
+	st := &session.State{ID: "sess_compact_one_turn", CWD: t.TempDir(), Mode: session.ModeAgent}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "the only prompt, still being answered"})
+	var logs bytes.Buffer
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100, MaxContextTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}, st, resumePermissionSender{}, slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {
+		return &compactCannedProvider{t: t, summary: "must not be asked"}, nil
+	}
+	st.SetLastContextBreakdown(&session.ContextBreakdown{EstimatedTotal: 95})
+
+	for i := 0; i < 3; i++ {
+		if ag.maybeAutoCompact(context.Background()) {
+			t.Fatal("the prompt being answered must never be folded")
+		}
+	}
+	if got := strings.Count(logs.String(), "auto-compaction skipped"); got != 1 {
+		t.Fatalf("skip logged %d times in one turn, want once:\n%s", got, logs.String())
+	}
+	for _, m := range st.GetMessages() {
+		if m.CompactionSummary {
+			t.Fatal("no summary row expected")
+		}
+	}
+}
+
+func TestResumeAfterPermissionAutoCompactsBeforeFirstLLMCall(t *testing.T) {
+	st := seededCompactState(t, 3)
+	st.SessionDir = t.TempDir()
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "run the blocked command"})
+	st.AddMessage(llm.Message{
+		Role: llm.RoleAssistant,
+		ToolCalls: []llm.ToolCall{{
+			ID:        "call_blocked_compact",
+			Name:      "run_command",
+			InputJSON: `{"command":"printf SHOULD_NOT_RUN"}`,
+		}},
+	})
+	provider := &autoCompactRunProvider{}
+	keep := 1
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		// Tiny window: the system prompt alone exceeds 80% of 50 tokens.
+		Models:     []config.ModelEntry{{Model: "fake/model", MaxTokens: 100, MaxContextTokens: 50}},
+		Agent:      config.Agent{Model: "fake/model"},
+		Compaction: config.Compaction{KeepRecentTurns: &keep},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {
+		return provider, nil
+	}
+
+	if _, err := ag.ResumeAfterPermission(context.Background(), "call_blocked_compact", &acp.PermissionResult{
+		Outcome:  "cancelled",
+		OptionID: "reject",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(provider.streamSeen) == 0 {
+		t.Fatal("no stream request recorded")
+	}
+	sawSummary := false
+	for _, m := range provider.streamSeen[0] {
+		if m.Role == llm.RoleSystem {
+			continue
+		}
+		if !m.CompactionSummary {
+			t.Fatalf("first LLM request after the resume does not start from the summary: %+v", m)
+		}
+		sawSummary = true
+		break
+	}
+	if !sawSummary {
+		t.Fatal("summary missing from the first LLM request after the resume")
 	}
 }
 

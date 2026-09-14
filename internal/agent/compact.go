@@ -61,11 +61,13 @@ Output plain markdown, no preamble and no closing remarks. Do not invent facts t
 // inserts the summary row at that boundary. instructions optionally augments
 // the summarization request (from the manual compact command arguments).
 //
-// When force is set (manual /compact), compaction always folds whatever exists:
-// if the configured keep-recent window leaves nothing to summarize, it retries
-// with progressively fewer kept turns (down to zero) so even a very short
-// conversation compacts. Auto-compaction passes force=false and only runs at the
-// normal boundary.
+// When the configured keep-recent window covers every user turn there is, it
+// retries with progressively fewer kept turns. force (manual /compact) goes
+// down to zero, so even a very short conversation compacts. Auto-compaction
+// passes force=false and stops at one: the prompt being answered always stays
+// verbatim, and with a single user turn there is nothing to fold. A session of
+// a few long agent turns is what that fallback is for: without it, a window of
+// keep_recent_turns turns would grow past the threshold and never compact.
 func (a *Agent) CompactSession(ctx context.Context, instructions string, force bool) (*CompactionResult, error) {
 	if !a.cfg.Compaction.IsEnabled() {
 		return nil, ErrCompactionDisabled
@@ -84,10 +86,12 @@ func (a *Agent) CompactSession(ctx context.Context, instructions string, force b
 	msgs := a.state.GetMessages()
 	keep := a.cfg.Compaction.EffectiveKeepRecentTurns()
 	splitIdx, ok := session.CompactionSplitIndex(msgs, keep)
-	if !ok && force {
-		for k := keep - 1; k >= 0 && !ok; k-- {
-			splitIdx, ok = session.CompactionSplitIndex(msgs, k)
-		}
+	minKeep := 1
+	if force {
+		minKeep = 0
+	}
+	for k := keep - 1; !ok && k >= minKeep; k-- {
+		splitIdx, ok = session.CompactionSplitIndex(msgs, k)
 	}
 	if !ok {
 		return nil, ErrNothingToCompact
@@ -199,17 +203,19 @@ func (a *Agent) addUserCommandMessage(text string) {
 }
 
 // maybeAutoCompact runs compaction when the estimated context usage reached
-// compaction.threshold_percent of the effective model's max_context_tokens.
-// It is fail-open: any error (including nothing-to-compact right after a
-// previous compaction) leaves the turn running uncompacted. Returns true when
-// history was compacted and the outgoing message slice must be rebuilt.
+// compaction.threshold_percent of the session's context window (contextWindow:
+// max_context_tokens, the provider's reported window, or the default - the
+// window the web UI ring shows). It is fail-open: any error (including
+// nothing-to-compact right after a previous compaction) leaves the turn
+// running uncompacted. Returns true when history was compacted and the
+// outgoing message slice must be rebuilt.
 func (a *Agent) maybeAutoCompact(ctx context.Context) bool {
 	comp := &a.cfg.Compaction
 	if !comp.IsEnabled() {
 		return false
 	}
-	ent := a.cfg.FindModelEntry(a.state.EffectiveModelID(a.cfg))
-	if ent == nil || ent.MaxContextTokens <= 0 {
+	window, source := a.contextWindow()
+	if window <= 0 {
 		return false
 	}
 	rs, ok := a.state.(rulesState)
@@ -220,13 +226,23 @@ func (a *Agent) maybeAutoCompact(ctx context.Context) bool {
 	if b == nil || b.EstimatedTotal <= 0 {
 		return false
 	}
-	if b.EstimatedTotal*100 < comp.EffectiveThresholdPercent()*ent.MaxContextTokens {
+	if b.EstimatedTotal*100 < comp.EffectiveThresholdPercent()*window {
 		return false
 	}
 	res, err := a.CompactSession(ctx, "", false)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrNothingToCompact):
+			// Over the threshold with only the prompt being answered in the
+			// window: said once per turn, not before every step of it.
+			if !a.autoCompactSkipLogged {
+				a.autoCompactSkipLogged = true
+				a.log.Info("auto-compaction skipped: no earlier turn to fold, the prompt being answered stays verbatim",
+					"estimatedTokens", b.EstimatedTotal,
+					"contextWindow", window,
+					"contextWindowSource", source,
+					"thresholdPercent", comp.EffectiveThresholdPercent())
+			}
 		case errors.Is(err, ErrCompactionBlocked):
 			a.log.Info("auto-compaction vetoed by a hook; continuing uncompacted", "error", err)
 		default:
@@ -236,7 +252,8 @@ func (a *Agent) maybeAutoCompact(ctx context.Context) bool {
 	}
 	a.log.Info("auto-compacted session context",
 		"estimatedTokens", b.EstimatedTotal,
-		"maxContextTokens", ent.MaxContextTokens,
+		"contextWindow", window,
+		"contextWindowSource", source,
 		"thresholdPercent", comp.EffectiveThresholdPercent(),
 		"compactedMessages", res.CompactedMessages,
 		"keptMessages", res.KeptMessages)

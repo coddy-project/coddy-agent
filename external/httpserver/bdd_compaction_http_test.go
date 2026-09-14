@@ -43,8 +43,11 @@ func (cannedSummaryProvider) Stream(_ context.Context, _ []llm.Message, _ []llm.
 }
 
 type compactHTTPFeatureState struct {
-	root        string
-	ts          *httptest.Server
+	root string
+	ts   *httptest.Server
+	// listing stands in for the provider's model listing (GET /models) when a
+	// scenario needs the provider to report a context window.
+	listing     *httptest.Server
 	mgr         *session.Manager
 	srv         *Server
 	sessionID   string
@@ -82,6 +85,10 @@ func (s *compactHTTPFeatureState) close() {
 		s.srv.Drain()
 		s.srv = nil
 	}
+	if s.listing != nil {
+		s.listing.Close()
+		s.listing = nil
+	}
 	if s.root != "" {
 		_ = os.RemoveAll(s.root)
 		s.root = ""
@@ -92,16 +99,24 @@ func (s *compactHTTPFeatureState) startServer() error {
 	return s.startServerWithContextWindow(128000)
 }
 
-// startServerWithContextWindow boots the test server; maxContextTokens > 0
-// arms auto-compaction against that model context window.
+// startServerWithContextWindow boots the test server with a model whose
+// max_context_tokens is maxContextTokens (the window auto-compaction measures
+// against).
 func (s *compactHTTPFeatureState) startServerWithContextWindow(maxContextTokens int) error {
+	return s.startServerWithProvider(config.ProviderConfig{Name: "fake", Type: "openai", APIKey: "test"}, maxContextTokens)
+}
+
+// startServerWithProvider boots the test server with provider serving
+// fake/model. Completions always come from the canned provider; the row only
+// decides where the model listing is read from.
+func (s *compactHTTPFeatureState) startServerWithProvider(provider config.ProviderConfig, maxContextTokens int) error {
 	sessRoot := filepath.Join(s.root, "sessions")
 	if err := os.MkdirAll(sessRoot, 0o755); err != nil {
 		return err
 	}
 	cfg := &config.Config{
 		Paths:     config.Paths{Home: filepath.Join(s.root, "home"), CWD: s.root},
-		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Providers: []config.ProviderConfig{provider},
 		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100, Temperature: 0.2, MaxContextTokens: maxContextTokens}},
 		Agent:     config.Agent{Model: "fake/model"},
 	}

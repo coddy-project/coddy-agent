@@ -110,6 +110,80 @@ func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 	}
 }
 
+// Each model row carries the context window a session on that model measures
+// its compaction threshold against: its own max_context_tokens, the window its
+// provider's listing reports, or the default - never the default agent
+// model's number borrowed for a model that has none (#245).
+func TestGETModelsReportsEachModelsOwnContextWindow(t *testing.T) {
+	listing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/models" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":[{"id":"qwen3.8-27b","limit":{"context":262144}},{"id":"no-window"}]}`)
+	}))
+	defer listing.Close()
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{
+			{Name: "openai", Type: "openai", APIKey: "k"},
+			{Name: "hub", Type: "openai", APIKey: "k", APIBase: listing.URL},
+		},
+		Agent: config.Agent{Model: "openai/gpt-4o"},
+		Models: []config.ModelEntry{
+			{Model: "openai/gpt-4o", MaxContextTokens: 32000},
+			{Model: "openai/gpt-4o-mini"},
+			{Model: "hub/qwen3.8-27b"},
+			{Model: "hub/no-window"},
+		},
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
+	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, err := http.Get(ts.URL + "/v1/models")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var body struct {
+		Data []struct {
+			ID               string `json:"id"`
+			MaxContextTokens int    `json:"max_context_tokens"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]int{
+		string(session.ModeAgent): 32000,
+		string(session.ModePlan):  32000,
+		string(session.ModeAsk):   32000,
+		"openai/gpt-4o":           32000,
+		"openai/gpt-4o-mini":      config.DefaultContextWindowTokens,
+		"hub/qwen3.8-27b":         262144,
+		"hub/no-window":           config.DefaultContextWindowTokens,
+	}
+	if len(body.Data) != len(want) {
+		t.Fatalf("want %d rows, got %+v", len(want), body.Data)
+	}
+	for _, row := range body.Data {
+		if row.MaxContextTokens != want[row.ID] {
+			t.Errorf("%s: max_context_tokens = %d, want %d", row.ID, row.MaxContextTokens, want[row.ID])
+		}
+		if httpModelIsCoddyProfile(row.ID) {
+			continue
+		}
+		if tokens, _ := mgr.ContextWindow(cfg, row.ID); tokens != row.MaxContextTokens {
+			t.Errorf("%s: the model list says %d, a session on it measures against %d", row.ID, row.MaxContextTokens, tokens)
+		}
+	}
+}
+
 func TestGETModelsMultimodalField(t *testing.T) {
 	cfg := &config.Config{
 		Agent: config.Agent{Model: "openai/gpt-4o"},

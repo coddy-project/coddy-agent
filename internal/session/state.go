@@ -121,6 +121,10 @@ type State struct {
 	ActiveAutoRules []*rules.Rule
 	// LastContextBreakdown is the latest per-category token estimate for the UI.
 	LastContextBreakdown *ContextBreakdown
+	// contextWindows reads the provider-reported context windows cached by
+	// the manager that registered this session; nil for a state no manager
+	// built. Set at construction and never changed (context_window.go).
+	contextWindows providerContextWindows
 
 	// Plan holds the current todo list entries.
 	Plan []acp.PlanEntry
@@ -610,6 +614,18 @@ func (s *State) EffectiveReasoning(cfg *config.Config) string {
 		}
 	}
 	return cfg.DefaultReasoningLevelFor(ent)
+}
+
+// ContextWindow resolves the context window of the session's effective model:
+// its max_context_tokens, then the window its provider's model listing
+// reported to the manager that owns the session, then
+// config.DefaultContextWindowTokens. It is the window GET /v1/models hands the
+// web UI for the same model. tokens is 0 when the model is not configured.
+func (s *State) ContextWindow(cfg *config.Config) (tokens int, source string) {
+	if s == nil || cfg == nil {
+		return 0, ""
+	}
+	return resolveContextWindow(cfg, s.EffectiveModelID(cfg), s.contextWindows)
 }
 
 // EffectiveModelID returns the model id used for LLM calls for this session.

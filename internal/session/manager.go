@@ -80,6 +80,10 @@ type Manager struct {
 	// usage is the provider usage cache and schedule (provider_usage.go).
 	usage providerUsageState
 
+	// windows caches the context windows provider listings report
+	// (context_window.go).
+	windows contextWindowState
+
 	// testHooks pause the manager at points a test needs to observe; every
 	// field is nil outside tests (see export_test.go).
 	testHooks struct {
@@ -388,11 +392,12 @@ func (m *Manager) buildFreshState(ctx context.Context, id, cwd, sessionDir strin
 	}
 
 	state := &State{
-		ID:         id,
-		CWD:        cwd,
-		Mode:       ModeAgent,
-		Skills:     loadedSkills,
-		SessionDir: sessionDir,
+		ID:             id,
+		CWD:            cwd,
+		Mode:           ModeAgent,
+		Skills:         loadedSkills,
+		SessionDir:     sessionDir,
+		contextWindows: m,
 	}
 	state.ReplaceRulesCatalog(DiscoverRules(m.activeCfg(), cwd))
 
@@ -450,9 +455,10 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	m.mu.Unlock()
 
 	st := &State{
-		ID:         params.SessionID,
-		CWD:        cwd,
-		SessionDir: snap.Dir,
+		ID:             params.SessionID,
+		CWD:            cwd,
+		SessionDir:     snap.Dir,
+		contextWindows: m,
 	}
 
 	mode := Mode(snap.Meta.Mode)
@@ -781,6 +787,13 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 	if err := m.admissible(sessionID, state); err != nil {
 		finish()
 		return nil, nil, err
+	}
+	// The window this turn's compaction trigger and usage_update measure
+	// against: a model without max_context_tokens reads its provider's model
+	// listing, fetched here the first time (bounded) so the first turn of a
+	// session already measures what GET /v1/models reports to the web UI.
+	if cfg := m.activeCfg(); cfg != nil {
+		m.AwaitContextWindows(turnCtx, cfg, []string{state.EffectiveModelID(cfg)}, ContextWindowWait)
 	}
 	return turnCtx, finish, nil
 }

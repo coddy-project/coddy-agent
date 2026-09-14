@@ -222,6 +222,12 @@ func (a *Agent) continueReAct(ctx context.Context, mode string, toolEnv *tools.E
 		return string(acp.StopReasonRefused), fmt.Errorf("no LLM configured: %w", err)
 	}
 	messages := a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
+	// The same check Run makes before its first call: runReActLoop only checks
+	// between steps, and the result just approved may be what crossed the
+	// threshold.
+	if a.maybeAutoCompact(ctx) {
+		messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
+	}
 	maxTurns := a.cfg.Agent.MaxTurns
 	if maxTurns <= 0 {
 		maxTurns = 30

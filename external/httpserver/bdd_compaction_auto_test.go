@@ -3,8 +3,10 @@
 package httpserver
 
 // Godog harness for features/context_compaction_auto.feature: a model with a
-// tiny max_context_tokens makes any prompt exceed the auto-compaction
-// threshold, so a regular /v1/responses turn compacts history first.
+// tiny context window - its own max_context_tokens, or the window its
+// provider's model listing reports - makes any prompt exceed the
+// auto-compaction threshold, so a regular /v1/responses turn compacts history
+// first.
 
 import (
 	"bytes"
@@ -12,15 +14,66 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/cucumber/godog"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
 func (s *compactHTTPFeatureState) startServerTinyWindow() error {
 	// 50 tokens: even a short conversation plus the system prompt exceeds 80%.
 	return s.startServerWithContextWindow(50)
+}
+
+// providerReportedWindow is the context window the stand-in model listing
+// reports for fake/model: small enough that any prompt crosses 80% of it,
+// while the 128000 default would never be crossed by this conversation.
+const providerReportedWindow = 50
+
+func (s *compactHTTPFeatureState) startServerProviderReportsTinyWindow() error {
+	s.listing = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/models" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"object":"list","data":[{"id":"model","limit":{"context":%d}}]}`, providerReportedWindow)
+	}))
+	return s.startServerWithProvider(config.ProviderConfig{
+		Name: "fake", Type: "openai", APIKey: "test", APIBase: s.listing.URL,
+	}, 0)
+}
+
+// modelListReportsProviderWindow checks the number the web UI draws its
+// context ring against: GET /v1/models must carry the provider's window for
+// the model, the same window the trigger measured against.
+func (s *compactHTTPFeatureState) modelListReportsProviderWindow() error {
+	res, err := http.Get(s.ts.URL + "/v1/models")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	var body struct {
+		Data []struct {
+			ID               string `json:"id"`
+			MaxContextTokens int    `json:"max_context_tokens"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		return fmt.Errorf("decode /v1/models: %w", err)
+	}
+	for _, m := range body.Data {
+		if m.ID == "fake/model" {
+			if m.MaxContextTokens != providerReportedWindow {
+				return fmt.Errorf("GET /v1/models max_context_tokens for fake/model = %d, want the provider's %d", m.MaxContextTokens, providerReportedWindow)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("GET /v1/models has no fake/model row: %+v", body.Data)
 }
 
 func (s *compactHTTPFeatureState) sendRegularPrompt() error {
@@ -81,6 +134,8 @@ func initializeCompactionAutoScenario(sc *godog.ScenarioContext) {
 	})
 
 	sc.Step(`^a running coddy HTTP server with a summarizing agent and a tiny context window$`, s.startServerTinyWindow)
+	sc.Step(`^a running coddy HTTP server whose model has no max_context_tokens and whose provider reports a tiny context window$`, s.startServerProviderReportsTinyWindow)
+	sc.Step(`^the model list reports the provider's context window for the model$`, s.modelListReportsProviderWindow)
 	sc.Step(`^an HTTP session with (\d+) completed exchanges$`, s.sessionWithExchanges)
 	sc.Step(`^the user sends a regular prompt$`, s.sendRegularPrompt)
 	sc.Step(`^the agent reply arrives over HTTP$`, s.agentReplyArrives)

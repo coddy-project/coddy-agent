@@ -306,41 +306,52 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		Object: "list",
 		Data:   nil,
 	}
-	if s.activeCfg() != nil {
-		if dm := strings.TrimSpace(s.activeCfg().Agent.Model); dm != "" {
+	cfg := s.activeCfg()
+	if cfg != nil {
+		if dm := strings.TrimSpace(cfg.Agent.Model); dm != "" {
 			out.DefaultAgentModel = dm
 		}
+		// max_context_tokens is the window the composer ring draws against,
+		// so it is the one the session's compaction trigger measures against
+		// (session.Manager.ContextWindow). A model without the key reads its
+		// provider's listing: wait a bounded moment for one never read.
+		refs := make([]string, 0, len(cfg.Models))
+		for i := range cfg.Models {
+			refs = append(refs, cfg.Models[i].Model)
+		}
+		if s.mgr != nil {
+			s.mgr.AwaitContextWindows(r.Context(), cfg, refs, session.ContextWindowWait)
+		}
 	}
-	maxCtx := maxContextDefault(s)
+	profileWindow := config.DefaultContextWindowTokens
+	if cfg != nil {
+		profileWindow = s.contextWindowFor(cfg, cfg.Agent.Model)
+	}
 	for _, mode := range []session.Mode{session.ModeAgent, session.ModePlan, session.ModeAsk} {
 		out.Data = append(out.Data, modelObj{
 			ID:               string(mode),
 			Object:           "model",
 			Created:          0,
 			OwnedBy:          ownedByCoddySession,
-			MaxContextTokens: maxCtx,
+			MaxContextTokens: profileWindow,
 		})
 	}
-	if s.activeCfg() != nil {
-		for i := range s.activeCfg().Models {
-			ent := &s.activeCfg().Models[i]
+	if cfg != nil {
+		for i := range cfg.Models {
+			ent := &cfg.Models[i]
 			mid := strings.TrimSpace(ent.Model)
 			if mid == "" {
 				continue
-			}
-			mc := maxCtx
-			if ent.MaxContextTokens > 0 {
-				mc = ent.MaxContextTokens
 			}
 			out.Data = append(out.Data, modelObj{
 				ID:               mid,
 				Object:           "model",
 				Created:          0,
 				OwnedBy:          ent.ProviderName(),
-				MaxContextTokens: mc,
+				MaxContextTokens: s.contextWindowFor(cfg, mid),
 				Multimodal:       ent.Multimodal,
-				ReasoningLevels:  s.activeCfg().ReasoningLevelsFor(ent),
-				ReasoningDefault: s.activeCfg().DefaultReasoningLevelFor(ent),
+				ReasoningLevels:  cfg.ReasoningLevelsFor(ent),
+				ReasoningDefault: cfg.DefaultReasoningLevelFor(ent),
 			})
 		}
 	}
