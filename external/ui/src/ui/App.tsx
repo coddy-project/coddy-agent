@@ -1267,6 +1267,18 @@ export function App() {
     return (sessions.find((s) => s.id === sid)?.cwd || "").trim();
   }, [sessionId, sessions]);
 
+  // What a transcript row spells a path against: the session's own directory,
+  // then the worktrees of its workspace. Work inside a worktree reads against
+  // that worktree, so the deepest match wins (relativeToolTarget).
+  const transcriptPathRoots = useMemo(() => {
+    const roots = [currentSessionCwd];
+    for (const worktree of workspaceCtx?.worktrees || []) {
+      const path = (worktree.path || "").trim();
+      if (path) roots.push(path);
+    }
+    return roots.filter((root) => root !== "");
+  }, [currentSessionCwd, workspaceCtx]);
+
   async function saveSessionTitle(id: string, title: string) {
     const t = title.trim();
     if (!t) {
@@ -4458,6 +4470,7 @@ export function App() {
             onStopBackgroundTask={handleStopBackgroundTask}
             subagentTranscript={subagentTranscript}
             onOpenSession={openSessionInPlace}
+            pathRoots={transcriptPathRoots}
             workspaceCtx={workspaceCtx}
             worktreePref={worktreePref}
             workspaceLocked={items.length > 0}

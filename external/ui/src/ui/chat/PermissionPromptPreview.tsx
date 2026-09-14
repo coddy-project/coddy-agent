@@ -304,6 +304,14 @@ export function PermissionToolPreview({
   const hasBody =
     preview.kind !== "path" &&
     !(preview.kind === "diff" && preview.lines.length === 0);
+  // A call whose arguments name nothing - background_output takes a task id and
+  // a line count, no path and no command - leaves the header bar with no text,
+  // no meta and no copy control, and an empty bar is a 34px strip of border
+  // above the body. The body then carries the whole card on its own.
+  const barHasContent =
+    barHeader.trim() !== "" ||
+    preview.meta.length > 0 ||
+    (interactive && !!preview.copyText && preview.kind !== "shell");
   const canToggleOverflow = interactive || overflowControls;
   const previewIdentity = [
     preview.toolName,
@@ -359,31 +367,37 @@ export function PermissionToolPreview({
     );
   }
 
+  if (!barHasContent && !hasBody) {
+    return null;
+  }
+
   return (
     <div className="permission-preview">
-      <div
-        className={
-          "permission-preview-bar" +
-          (hasBody ? "" : " permission-preview-bar--standalone")
-        }
-      >
-        <div className="permission-preview-location" title={barHeader}>
-          {barHeader}
-        </div>
-        {preview.meta.length > 0 ? (
-          <div className="permission-preview-meta">
-            {preview.meta.map((item) => (
-              <span key={item}>{item}</span>
-            ))}
+      {barHasContent ? (
+        <div
+          className={
+            "permission-preview-bar" +
+            (hasBody ? "" : " permission-preview-bar--standalone")
+          }
+        >
+          <div className="permission-preview-location" title={barHeader}>
+            {barHeader}
           </div>
-        ) : null}
-        {interactive && preview.copyText && preview.kind !== "shell" ? (
-          <CodeBlockCopyButton
-            textToCopy={preview.copyText}
-            dataTestId={copyTestId}
-          />
-        ) : null}
-      </div>
+          {preview.meta.length > 0 ? (
+            <div className="permission-preview-meta">
+              {preview.meta.map((item) => (
+                <span key={item}>{item}</span>
+              ))}
+            </div>
+          ) : null}
+          {interactive && preview.copyText && preview.kind !== "shell" ? (
+            <CodeBlockCopyButton
+              textToCopy={preview.copyText}
+              dataTestId={copyTestId}
+            />
+          ) : null}
+        </div>
+      ) : null}
       {hasBody ? (
         <>
           <div
@@ -391,6 +405,7 @@ export function PermissionToolPreview({
             className={[
               "permission-preview-viewport",
               `permission-preview-viewport--${viewportMode}`,
+              barHasContent ? "" : "permission-preview-viewport--headless",
             ]
               .filter(Boolean)
               .join(" ")}

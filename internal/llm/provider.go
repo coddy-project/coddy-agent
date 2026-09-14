@@ -110,9 +110,15 @@ type StreamChunk struct {
 	TextDelta      string
 	ReasoningDelta string
 	ToolCall       *ToolCall
-	StopReason     string
-	InputTokens    int
-	OutputTokens   int
+	// ToolCallNamed carries a call the model has only begun to write: the name
+	// is known, the arguments are still streaming. It exists so a surface can
+	// say what is happening while that takes seconds, and it is never the call
+	// itself - anything that executes a call, forwards it to a client or
+	// persists it waits for ToolCall.
+	ToolCallNamed *ToolCall
+	StopReason    string
+	InputTokens   int
+	OutputTokens  int
 }
 
 // Provider is the interface all LLM backends must implement.
