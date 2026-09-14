@@ -98,15 +98,23 @@ type backgroundTaskRow struct {
 	ElapsedSeconds int  `json:"elapsed_seconds"`
 	Overdue        bool `json:"overdue"`
 	Running        bool `json:"running"`
+	// PendingPermission is set while a detached subagent behind this task is
+	// blocked on a permission prompt. The join happens here rather than in
+	// bgtask, which must not learn about the ACP types.
+	PendingPermission *detachedPermissionDTO `json:"pending_permission,omitempty"`
 }
 
 func newBackgroundTaskRow(snap bgtask.Snapshot, now time.Time) backgroundTaskRow {
-	return backgroundTaskRow{
+	row := backgroundTaskRow{
 		Snapshot:       snap,
 		ElapsedSeconds: int(snap.Elapsed(now) / time.Second),
 		Overdue:        snap.Overdue(now),
 		Running:        !snap.Status.Finished(),
 	}
+	if snap.Agent != nil && row.Running {
+		row.PendingPermission = pendingDetachedPermission(snap.Agent.SessionID)
+	}
+	return row
 }
 
 // backgroundRowsForSession merges the live pool with what the session bundle

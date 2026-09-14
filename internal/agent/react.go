@@ -79,6 +79,9 @@ type Agent struct {
 
 	// subagentRuntime owns child sessions; nil when this surface cannot spawn.
 	subagentRuntime SubagentRuntime
+	// detachedPermissions answers a child's prompt after the parent turn that
+	// spawned it has ended; nil on surfaces with nowhere to put one.
+	detachedPermissions DetachedPermissionBroker
 	// subagent is set when this session is itself a child run (see subagent.go).
 	subagent *session.SubagentMeta
 	// limitWaitHeartbeat overrides how often a waiting turn re-sends its
@@ -344,7 +347,30 @@ const (
 	toolLoopNudge = "You have requested the same tool call with identical arguments several times in a row, so it was not executed again. Repeating it will not produce a different result. Use what you already have: try a different tool or different arguments, or answer the user with the information you have."
 
 	toolLoopSkippedResult = "not executed: the loop guard stopped this turn after repeated identical tool calls"
+
+	// permissionDeniedByUser is what a tool call gets when the gate was
+	// answered with a refusal. It is matched verbatim elsewhere (the
+	// context-eviction pass reads it as "this write never happened"), so it
+	// stays a constant rather than a literal repeated per call site.
+	permissionDeniedByUser = "permission denied by user"
+
+	// permissionNotGrantedPrefix opens the refusals nobody actually answered -
+	// a detached subagent's prompt that reached no client, say. The model must
+	// not read those as a user saying no, and the eviction pass must still
+	// treat the write as not done, so both share this prefix.
+	permissionNotGrantedPrefix = "permission not granted: "
 )
+
+// permissionDeniedResult renders a refused gate for the model, naming the
+// reason when the refusal came from something other than a user's answer.
+func permissionDeniedResult(res *acp.PermissionResult) string {
+	if res != nil {
+		if reason := strings.TrimSpace(res.Reason); reason != "" {
+			return permissionNotGrantedPrefix + reason
+		}
+	}
+	return permissionDeniedByUser
+}
 
 // loopAbortChannel names the streamed channel that degenerated into a loop.
 type loopAbortChannel int
@@ -1245,7 +1271,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 				ToolCallID:    tc.ID,
 				Status:        "cancelled",
 			})
-			return "permission denied by user", nil
+			return permissionDeniedResult(permResult), nil
 		}
 		if st := sessionStatePtr(a.state); st != nil {
 			permission.RecordAllowAlways(st, tc.Name, tc.InputJSON, env.CWD, permResult)

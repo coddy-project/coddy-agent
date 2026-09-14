@@ -191,11 +191,17 @@ func pruneToolResults(history []llm.Message, opt resultEvictionOptions) []llm.Me
 }
 
 func writeResultSucceeded(content string) bool {
-	switch strings.TrimSpace(content) {
-	case "", "permission denied by user", toolLoopNudge, toolLoopSkippedResult:
+	trimmed := strings.TrimSpace(content)
+	switch trimmed {
+	case "", permissionDeniedByUser, toolLoopNudge, toolLoopSkippedResult:
 		return false
 	}
-	return !strings.HasPrefix(strings.TrimSpace(content), "error:")
+	// A gate refused for any other reason - a detached subagent's prompt that
+	// reached nobody - is still a write that never happened.
+	if strings.HasPrefix(trimmed, permissionNotGrantedPrefix) {
+		return false
+	}
+	return !strings.HasPrefix(trimmed, "error:")
 }
 
 func parseReadResult(msgIdx int, argsJSON, cwd string) evReadResult {

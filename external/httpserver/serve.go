@@ -50,8 +50,9 @@ type Options struct {
 	// write the operator's password into config.yaml.
 	ExtraLogin LoginCredentials
 	// OnServer, when set, is handed the live server as it comes up and nil as
-	// it goes down. It is how the process installs the turn mirror, and how it
-	// drops the mirror again when this subsystem restarts.
+	// it goes down. It is how the process installs the turn mirror and the
+	// detached subagent permission broker, and how it drops both again when
+	// this subsystem restarts.
 	OnServer func(*Server)
 }
 

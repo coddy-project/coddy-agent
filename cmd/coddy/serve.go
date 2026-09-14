@@ -422,9 +422,13 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 					OnServer: func(s *httpserver.Server) {
 						if s == nil {
 							rt.SetTurnMirror(nil)
+							rt.SetDetachedPermissionBroker(nil)
 							return
 						}
 						rt.SetTurnMirror(s)
+						// A detached subagent's prompt hangs on its task row in
+						// the web UI; without this server nobody can be asked.
+						rt.SetDetachedPermissionBroker(s)
 					},
 				})
 			},

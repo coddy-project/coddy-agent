@@ -257,6 +257,30 @@ func (c *recordingClient) permissions() []acp.PermissionRequestParams {
 	return append([]acp.PermissionRequestParams(nil), c.perms...)
 }
 
+// ---- detached permission surface ----
+
+// featureDetachedBroker stands in for the HTTP server's task-row prompt: it
+// records what a detached child asked and answers allow, so the scenario can
+// assert both that the prompt was published and that the child went on to run
+// the tool it was blocked on.
+type featureDetachedBroker struct {
+	mu       sync.Mutex
+	requests []DetachedPermissionRequest
+}
+
+func (b *featureDetachedBroker) RequestDetachedPermission(_ context.Context, req DetachedPermissionRequest) (*acp.PermissionResult, error) {
+	b.mu.Lock()
+	b.requests = append(b.requests, req)
+	b.mu.Unlock()
+	return &acp.PermissionResult{Outcome: "selected", OptionID: "allow"}, nil
+}
+
+func (b *featureDetachedBroker) seen() []DetachedPermissionRequest {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]DetachedPermissionRequest(nil), b.requests...)
+}
+
 // ---- feature state ----
 
 type subagentsFeatureState struct {
@@ -282,6 +306,11 @@ type subagentsFeatureState struct {
 	waitResults  []string
 	lastChildID  string
 	lastTaskID   string
+
+	// broker stands in for a surface that can still show a prompt after the
+	// parent turn ended; nil means no such surface, which is the console and
+	// ACP case.
+	broker *featureDetachedBroker
 }
 
 func (s *subagentsFeatureState) reset() error {
@@ -310,6 +339,7 @@ func (s *subagentsFeatureState) reset() error {
 	s.waitResults = nil
 	s.lastChildID = ""
 	s.lastTaskID = ""
+	s.broker = nil
 	s.parent = nil
 	s.client = &recordingClient{answer: "allow"}
 	return nil
@@ -410,6 +440,11 @@ func (s *subagentsFeatureState) parentSessionWithPermission(mode string) error {
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
 		loop := NewAgent(s.cfg, st, snd, slog.Default())
 		loop.SetSubagentRuntime(s.mgr)
+		// Read at turn time, so the surface may be declared by a Given that
+		// runs after the session is created.
+		if s.broker != nil {
+			loop.SetDetachedPermissionBroker(s.broker)
+		}
 		loop.SetProviderFactory(func(llm.ProviderInput) (llm.Provider, error) { return s.providerFor(st), nil })
 		return loop.Run(ctx, prompt)
 	}
@@ -1029,6 +1064,65 @@ func (s *subagentsFeatureState) childCommandRefused(text string) error {
 	return fmt.Errorf("the child transcript holds no tool result containing %q", text)
 }
 
+func (s *subagentsFeatureState) detachedSurfaceAvailable() error {
+	s.broker = &featureDetachedBroker{}
+	return nil
+}
+
+func (s *subagentsFeatureState) detachedPromptPublished() error {
+	if s.broker == nil {
+		return fmt.Errorf("no detached surface was declared")
+	}
+	seen := s.broker.seen()
+	if len(seen) == 0 {
+		return fmt.Errorf("the detached surface was never asked")
+	}
+	for _, req := range seen {
+		if req.ChildSessionID == s.lastChildID && req.Params.SessionID == s.lastChildID {
+			if strings.TrimSpace(req.TaskID) == "" {
+				return fmt.Errorf("the detached prompt names no task: %+v", req)
+			}
+			if req.ParentSessionID != s.parent.ID {
+				return fmt.Errorf("the detached prompt names parent %q, want %q", req.ParentSessionID, s.parent.ID)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("no detached prompt for child %q: %+v", s.lastChildID, seen)
+}
+
+func (s *subagentsFeatureState) detachedPromptTitled(name string) error {
+	if s.broker == nil {
+		return fmt.Errorf("no detached surface was declared")
+	}
+	want := "[subagent " + name + "]"
+	for _, req := range s.broker.seen() {
+		if strings.HasPrefix(req.Params.ToolCall.Title, want) {
+			return nil
+		}
+	}
+	return fmt.Errorf("no detached prompt titled %q", want)
+}
+
+func (s *subagentsFeatureState) childCommandRanAfterApproval() error {
+	snap, err := s.childSnapshot()
+	if err != nil {
+		return err
+	}
+	for _, m := range snap.Messages {
+		if m.Role != llm.RoleTool {
+			continue
+		}
+		if strings.Contains(m.Content, permissionNotGrantedPrefix) || strings.Contains(m.Content, permissionDeniedByUser) {
+			return fmt.Errorf("the command was refused after the prompt was allowed: %q", m.Content)
+		}
+		if strings.Contains(m.Content, "bdd-subagent-command") {
+			return nil
+		}
+	}
+	return fmt.Errorf("the child transcript holds no result of the approved command")
+}
+
 func (s *subagentsFeatureState) neverTwoPromptsInFlight() error {
 	s.client.mu.Lock()
 	defer s.client.mu.Unlock()
@@ -1147,6 +1241,10 @@ func initializeSubagentsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the parent's client was asked to approve the command on behalf of subagent "([^"]*)"$`, s.clientAskedForCommandOnBehalfOf)
 	sc.Step(`^the parent's client was not asked about the command$`, s.clientNotAsked)
 	sc.Step(`^the child's command was refused as "([^"]*)"$`, s.childCommandRefused)
+	sc.Step(`^a surface that can answer a detached subagent's prompt$`, s.detachedSurfaceAvailable)
+	sc.Step(`^the detached prompt was published for the child session$`, s.detachedPromptPublished)
+	sc.Step(`^the detached prompt is titled for subagent "([^"]*)"$`, s.detachedPromptTitled)
+	sc.Step(`^the child's command ran after the detached prompt was allowed$`, s.childCommandRanAfterApproval)
 	sc.Step(`^the parent's client never saw two permission prompts in flight at once$`, s.neverTwoPromptsInFlight)
 	sc.Step(`^both spawn_agent tool results contain "([^"]*)"$`, s.bothResultsContain)
 	sc.Step(`^the child session owns no running task$`, s.childOwnsNoRunningTask)

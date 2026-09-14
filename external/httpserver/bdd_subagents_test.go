@@ -26,6 +26,7 @@ import (
 	"github.com/cucumber/godog"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
@@ -78,6 +79,11 @@ type subagentsHTTPState struct {
 	body   map[string]interface{}
 	// taskRow is the row the last kind lookup matched.
 	taskRow map[string]interface{}
+	// detachedAnswers carries what a detached subagent's permission wait
+	// returned, keyed by child session id; detachedStops end the waits a
+	// scenario left open.
+	detachedAnswers map[string]chan *acp.PermissionResult
+	detachedStops   []context.CancelFunc
 }
 
 func (s *subagentsHTTPState) reset() error {
@@ -95,10 +101,15 @@ func (s *subagentsHTTPState) reset() error {
 	s.status = 0
 	s.body = nil
 	s.taskRow = nil
+	s.detachedAnswers = map[string]chan *acp.PermissionResult{}
 	return nil
 }
 
 func (s *subagentsHTTPState) close() {
+	for _, stop := range s.detachedStops {
+		stop()
+	}
+	s.detachedStops = nil
 	pool := bgtask.Default()
 	for _, id := range s.children {
 		pool.StopSession(id)
@@ -283,7 +294,82 @@ func (s *subagentsHTTPState) workspaceDefinition(name string) error {
 	return os.WriteFile(filepath.Join(dir, name+".md"), []byte(body), 0o644)
 }
 
+// workspaceBoundedDefinition writes a definition that declares its own
+// bounds, so the catalog has something to report to the surface the operator
+// approves it from.
+func (s *subagentsHTTPState) workspaceBoundedDefinition(name string) error {
+	dir := filepath.Join(s.root, ".coddy", "agents")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	body := fmt.Sprintf("---\nname: %s\ndescription: BDD helper %s that reviews what it is given.\n"+
+		"tools: read, grep\npermission_mode: ask\ntimeout_seconds: 120\n---\nYou are the bdd subagent %s.\n", name, name, name)
+	return os.WriteFile(filepath.Join(dir, name+".md"), []byte(body), 0o644)
+}
+
+// detachedPromptWaiting stands in for the agent runtime's relay once the parent
+// turn is over: it hands the child's prompt to the server's broker, on the
+// run's own context, and keeps the answer for a later step. The step returns
+// only once the prompt is published, so the next request sees it.
+func (s *subagentsHTTPState) detachedPromptWaiting(childID string) error {
+	ref, ok := s.tasks[childID]
+	if !ok {
+		return fmt.Errorf("no task was started for %q", childID)
+	}
+	answers := make(chan *acp.PermissionResult, 1)
+	s.detachedAnswers[childID] = answers
+	srv := s.srv
+	req := agent.DetachedPermissionRequest{
+		ParentSessionID: ref.parentID,
+		ChildSessionID:  childID,
+		TaskID:          ref.taskID,
+		AgentName:       "worker",
+		Params: acp.PermissionRequestParams{
+			SessionID: childID,
+			ToolCall: acp.PermissionToolCall{
+				ToolCallID: "call_bdd_detached",
+				Title:      "[subagent worker] Run: run_command",
+				Kind:       "execute",
+				Status:     "pending",
+				Content: []acp.ToolCallResultItem{
+					{Type: "content", Content: acp.ContentBlock{Type: acp.ContentTypeText, Text: "npm test"}},
+				},
+			},
+			Options: []acp.PermissionOption{
+				{OptionID: "allow", Name: "Allow once", Kind: "allow_once"},
+				{OptionID: "reject", Name: "Reject", Kind: "reject_once"},
+			},
+			EffectivePermissionMode: config.PermModeAsk,
+		},
+	}
+	runCtx, stop := context.WithCancel(context.Background())
+	s.detachedStops = append(s.detachedStops, stop)
+	go func() {
+		res, _ := srv.RequestDetachedPermission(runCtx, req)
+		answers <- res
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for pendingDetachedPermission(childID) == nil {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("the prompt of %q was never published", childID)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return nil
+}
+
 // ---- HTTP calls ----
+
+func (s *subagentsHTTPState) answerDetachedPrompt(optionID, childID string) error {
+	body := fmt.Sprintf(`{"toolCallId":"call_bdd_detached","optionId":%q}`, optionID)
+	if err := s.do(http.MethodPost, "/coddy/sessions/"+childID+"/permission", body); err != nil {
+		return err
+	}
+	if s.status != http.StatusNoContent {
+		return fmt.Errorf("the answer got %d: %v", s.status, s.body)
+	}
+	return nil
+}
 
 func (s *subagentsHTTPState) do(method, path, body string) error {
 	var reader io.Reader
@@ -402,6 +488,59 @@ func (s *subagentsHTTPState) taskRowNames(agent, childID string) error {
 	return nil
 }
 
+func (s *subagentsHTTPState) taskRowCarriesPendingPermission(childID string) error {
+	if s.taskRow == nil {
+		return fmt.Errorf("no task row matched yet")
+	}
+	pending, ok := s.taskRow["pending_permission"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("task row carries no pending permission: %v", s.taskRow)
+	}
+	// Addressed to the child - the session that is waiting - not the parent the
+	// row belongs to.
+	if pending["sessionId"] != childID {
+		return fmt.Errorf("pending permission is addressed to %v, want %q", pending["sessionId"], childID)
+	}
+	call, _ := pending["toolCall"].(map[string]interface{})
+	if call["toolCallId"] != "call_bdd_detached" {
+		return fmt.Errorf("pending permission names tool call %v", call)
+	}
+	if pending["agent_name"] != "worker" || fmt.Sprint(pending["asked_at"]) == "" {
+		return fmt.Errorf("pending permission lacks the agent or the time it asked: %v", pending)
+	}
+	options, _ := pending["options"].([]interface{})
+	if len(options) == 0 {
+		return fmt.Errorf("pending permission offers no options: %v", pending)
+	}
+	return nil
+}
+
+func (s *subagentsHTTPState) taskRowCarriesNoPendingPermission() error {
+	if s.taskRow == nil {
+		return fmt.Errorf("no task row matched yet")
+	}
+	if pending, ok := s.taskRow["pending_permission"]; ok {
+		return fmt.Errorf("the answered prompt is still on the row: %v", pending)
+	}
+	return nil
+}
+
+func (s *subagentsHTTPState) detachedSubagentReceived(childID, optionID string) error {
+	answers, ok := s.detachedAnswers[childID]
+	if !ok {
+		return fmt.Errorf("no subagent in %q was waiting", childID)
+	}
+	select {
+	case res := <-answers:
+		if res == nil || res.OptionID != optionID {
+			return fmt.Errorf("the subagent received %+v, want %q", res, optionID)
+		}
+		return nil
+	case <-time.After(5 * time.Second):
+		return fmt.Errorf("the answer never reached the subagent in %q", childID)
+	}
+}
+
 func (s *subagentsHTTPState) sessionRow(id string) (map[string]interface{}, error) {
 	rows, err := s.rows("sessions")
 	if err != nil {
@@ -515,6 +654,37 @@ func (s *subagentsHTTPState) catalogNamesTrusted(name string) error {
 	return nil
 }
 
+// catalogReportsBounds checks the approval surface gets the bounds it decides
+// on - and never the role body, which a client would render before anyone
+// approved the file.
+func (s *subagentsHTTPState) catalogReportsBounds(name string) error {
+	item, err := s.catalogItem(name)
+	if err != nil {
+		return err
+	}
+	tools, _ := item["tools"].([]interface{})
+	if len(tools) != 2 || tools[0] != "read" || tools[1] != "grep" {
+		return fmt.Errorf("%q reports tools %v", name, item["tools"])
+	}
+	if item["permission_mode"] != "ask" {
+		return fmt.Errorf("%q reports permission_mode %v", name, item["permission_mode"])
+	}
+	if secs, _ := item["timeout_seconds"].(float64); secs != 120 {
+		return fmt.Errorf("%q reports timeout_seconds %v", name, item["timeout_seconds"])
+	}
+	if size, _ := item["role_bytes"].(float64); size == 0 {
+		return fmt.Errorf("%q reports no role size: %v", name, item)
+	}
+	encoded, err := json.Marshal(item)
+	if err != nil {
+		return err
+	}
+	if strings.Contains(string(encoded), "You are the bdd subagent") {
+		return fmt.Errorf("the role body reached the client: %s", encoded)
+	}
+	return nil
+}
+
 func (s *subagentsHTTPState) taskNoLongerRunning(childID string) error {
 	ref, ok := s.tasks[childID]
 	if !ok {
@@ -574,6 +744,12 @@ func initializeSubagentsHTTPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a live child session "([^"]*)" of that session backed by a running subagent task$`, s.liveChildWithTask)
 	sc.Step(`^a live child session "([^"]*)" of "([^"]*)" backed by a running subagent task$`, s.liveChildOfWithTask)
 	sc.Step(`^the server workspace has a subagent definition "([^"]*)" under \.coddy/agents$`, s.workspaceDefinition)
+	sc.Step(`^the server workspace has a bounded subagent definition "([^"]*)" under \.coddy/agents$`, s.workspaceBoundedDefinition)
+	sc.Step(`^the subagent in "([^"]*)" waits for permission to run a command after its parent turn ended$`, s.detachedPromptWaiting)
+	sc.Step(`^I answer "([^"]*)" to that prompt against the child session "([^"]*)"$`, s.answerDetachedPrompt)
+	sc.Step(`^that task row carries the pending permission of child session "([^"]*)"$`, s.taskRowCarriesPendingPermission)
+	sc.Step(`^that task row carries no pending permission$`, s.taskRowCarriesNoPendingPermission)
+	sc.Step(`^the waiting subagent in "([^"]*)" receives "([^"]*)"$`, s.detachedSubagentReceived)
 
 	sc.Step(`^I GET the background tasks of that session$`, s.listTasks)
 	sc.Step(`^I GET the sessions list$`, s.listSessions)
@@ -592,6 +768,7 @@ func initializeSubagentsHTTPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the catalog names the built-in "([^"]*)"$`, s.catalogNamesBuiltin)
 	sc.Step(`^the catalog names "([^"]*)" with scope "([^"]*)" needing approval$`, s.catalogNamesNeedingApproval)
 	sc.Step(`^the catalog names "([^"]*)" as trusted$`, s.catalogNamesTrusted)
+	sc.Step(`^the catalog reports the bounds "([^"]*)" declares$`, s.catalogReportsBounds)
 	sc.Step(`^the subagent task of "([^"]*)" is no longer running$`, s.taskNoLongerRunning)
 	sc.Step(`^the session bundle "([^"]*)" is gone$`, s.bundleGone)
 	sc.Step(`^the session bundles "([^"]*)" and "([^"]*)" are gone$`, s.twoBundlesGone)

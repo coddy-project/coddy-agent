@@ -33,6 +33,9 @@ type Runtime struct {
 	mirrorMu sync.RWMutex
 	mirror   session.TurnMirror
 
+	brokerMu sync.RWMutex
+	broker   agent.DetachedPermissionBroker
+
 	// cfg is what the process loaded. Once a manager exists it owns the live
 	// pointer, because every reload path replaces it there.
 	cfg *config.Config
@@ -73,6 +76,35 @@ func (r *Runtime) MirrorTurn(sessionID string, primary acp.UpdateSender) (acp.Up
 }
 
 var _ session.TurnMirror = (*Runtime)(nil)
+
+// SetDetachedPermissionBroker installs (or with nil clears) the surface that
+// shows the permission prompt of a subagent whose parent turn has ended.
+//
+// A slot for the same reason as SetTurnMirror: every turn on the shared manager
+// is handed the runtime as its broker when it starts, while the HTTP surface
+// that can actually show the prompt comes up - or is restarted - on its own
+// schedule. A detached child asks at whatever moment it needs to, so the
+// question is settled then, not when its parent's turn began.
+func (r *Runtime) SetDetachedPermissionBroker(b agent.DetachedPermissionBroker) {
+	r.brokerMu.Lock()
+	r.broker = b
+	r.brokerMu.Unlock()
+}
+
+// RequestDetachedPermission implements agent.DetachedPermissionBroker by
+// delegating to the installed broker. With none installed nobody can be asked,
+// and the relay turns agent.ErrNoDetachedApprover into a refusal that says so.
+func (r *Runtime) RequestDetachedPermission(ctx context.Context, req agent.DetachedPermissionRequest) (*acp.PermissionResult, error) {
+	r.brokerMu.RLock()
+	b := r.broker
+	r.brokerMu.RUnlock()
+	if b == nil {
+		return nil, agent.ErrNoDetachedApprover
+	}
+	return b.RequestDetachedPermission(ctx, req)
+}
+
+var _ agent.DetachedPermissionBroker = (*Runtime)(nil)
 
 // Options are the process-level inputs a `coddy serve` invocation resolved from
 // its flags and environment.
@@ -138,6 +170,10 @@ func (r *Runtime) Init(opts Options) error {
 			return mgr.ReloadConfigForSession(ctx, st)
 		})
 		loop.SetSubagentRuntime(mgr)
+		// A detached child outlives this turn, so its permission prompts need
+		// somewhere to go once the turn's stream is gone: the runtime hands
+		// them to whichever surface installed a broker by then.
+		loop.SetDetachedPermissionBroker(r)
 		return loop.Run(ctx, prompt)
 	}
 	mgr = session.NewManager(opts.Cfg, &defaultSender{live: live}, runner, log, paths.CWD, store)

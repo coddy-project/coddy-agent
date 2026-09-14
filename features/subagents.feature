@@ -107,13 +107,25 @@ Feature: The agent delegates bounded work to subagents
     Then the parent's client was asked to approve the command on behalf of subagent "writer"
     And the spawn_agent tool result contains "REPORT: ran"
 
-  Scenario: A child's permission request is denied once the parent turn ended
+  Scenario: A detached child's request is refused with a reason when no surface can show it
     Given a workspace with a subagent definition "writer" under .coddy/agents
     And a parent agent session in that workspace with permission mode "ask"
     And the workspace definition "writer" is approved for that workspace
     When the parent model spawns "writer" in the background and the child runs a command before answering "REPORT: late"
     And the parent turn ends before the child asks
-    Then the child's command was refused as "permission denied by user"
+    Then the child's command was refused as "permission not granted: this subagent is running detached"
+    And the parent's client was not asked about the command
+
+  Scenario: A detached child's request reaches the surface that can still ask the user
+    Given a workspace with a subagent definition "writer" under .coddy/agents
+    And a parent agent session in that workspace with permission mode "ask"
+    And the workspace definition "writer" is approved for that workspace
+    And a surface that can answer a detached subagent's prompt
+    When the parent model spawns "writer" in the background and the child runs a command before answering "REPORT: late"
+    And the parent turn ends before the child asks
+    Then the detached prompt was published for the child session
+    And the detached prompt is titled for subagent "writer"
+    And the child's command ran after the detached prompt was allowed
     And the parent's client was not asked about the command
 
   Scenario: Two children asking at once are prompted one after the other
