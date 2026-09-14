@@ -894,7 +894,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/queue": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Follow-ups queued for the running turn",
-					"description": "Lists what the operator wrote while the session's current turn is working: each row carries **id**, **text** and **createdAt**. The queue belongs to the turn, not to the session bundle - it opens when a turn is admitted and is gone when that turn releases - so a session that is not working answers with an empty list. The running turn reads the queue at its next step (between the tool calls it just made and the request that follows them) and publishes the change as the **message_queue** SSE event on the composer stream.",
+					"description": "Lists what the operator wrote while the session's current turn is working: each row carries **id**, **text** and **createdAt**, and the answer carries the **version** the SSE frames carry, so a client applying both keeps whichever is newer. The queue belongs to the turn, not to the session bundle - it opens when a turn is admitted and is gone when that turn releases - so a session that is not working answers with an empty list. The running turn reads the queue at its next step (between the tool calls it just made and the request that follows them) and publishes the change as the **message_queue** SSE event on the composer stream.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -904,6 +904,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "The queue as it stands"},
+						"400": errorResponseRef(),
 						"404": errorResponseRef(),
 					},
 				},
@@ -950,6 +951,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "The empty queue"},
+						"400": errorResponseRef(),
 						"404": errorResponseRef(),
 					},
 				},
@@ -972,6 +974,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "The queue without that message"},
+						"400": errorResponseRef(),
 						"404": errorResponseRef(),
 					},
 				},

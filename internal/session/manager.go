@@ -738,9 +738,12 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 	}
 	// From here the session is running a turn, so a follow-up written while it
 	// works has somewhere to go (turn_queue.go), and the clients watching this
-	// turn are told when it changes.
-	state.OpenMessageQueue()
+	// turn are told when it changes. The notifier is installed before the queue
+	// opens, so every change of this turn's queue announces itself from one
+	// place - whoever made it, including the turn's own drain.
 	state.SetTurnSender(adm.sender)
+	state.SetQueueNotifier(func() { m.PublishMessageQueue(sessionID, state) })
+	state.OpenMessageQueue()
 	// The ran marker lives on this admission's context, so a concurrent
 	// admission that loses the lock cannot reset it.
 	markedCtx, ran := withTurnRanMarker(ctx)
@@ -754,13 +757,13 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 			// arriving now belongs to the next prompt, not to this one. A
 			// cancelled or failed turn drops what it never got to read, which
 			// is what Stop means, and says so rather than losing it quietly.
+			// The close announces the empty queue through the notifier, which
+			// is why both it and the sender are let go only afterwards.
 			if left := state.CloseMessageQueue(); len(left) > 0 {
 				m.log.Warn("message queue dropped with the turn",
 					"session_id", sessionID, "messages", len(left))
 			}
-			// Published before the sender is let go: the client that was
-			// holding messages has to see the queue empty out.
-			m.PublishMessageQueue(sessionID, state)
+			state.SetQueueNotifier(nil)
 			state.SetTurnSender(nil)
 			// The usage refresh is reserved before the turn is released: a
 			// client that pulls the numbers on turn_ended joins that fetch
@@ -925,12 +928,25 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	// answers it - no second lock, no second admission, and the drain that
 	// finds nothing closes the queue in the same step, so there is no window
 	// where a message is accepted by a turn that is already over.
-	for {
+	//
+	// Only a turn that ended with an answer continues. A cancelled turn is a
+	// Stop, and a Stop drops what was waiting rather than answering it; a turn
+	// that stopped for any other reason (its turn cap, a refusal, a hook) has
+	// already said why, and running it again would bury that. The run count is
+	// bounded for the same reason the ReAct loop is: each continuation is a
+	// fresh Agent.Run with its own budget, so without a cap one admission
+	// could hold the session's turn lock indefinitely.
+	for runs := 0; stopReason == string(acp.StopReasonEndTurn) && turnCtx.Err() == nil; runs++ {
+		if runs >= maxQueuedFollowUpRuns {
+			left := state.CloseMessageQueue()
+			m.log.Warn("message queue follow-ups capped; the rest is dropped",
+				"session_id", params.SessionID, "runs", runs, "dropped", len(left))
+			break
+		}
 		queued, more := state.TakeQueuedMessagesOrClose()
 		if !more {
 			break
 		}
-		m.PublishMessageQueue(params.SessionID, state)
 		stopReason, err = m.runner(turnCtx, state, QueuedPromptBlocks(queued), sender)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) {
@@ -942,6 +958,16 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 
 	return &acp.SessionPromptResult{StopReason: acp.StopReason(stopReason)}, nil
 }
+
+// maxQueuedFollowUpRuns bounds how many times one admitted turn is continued by
+// what arrived in its final moments.
+//
+// Each continuation is a full Agent.Run with its own agent.max_turns budget, so
+// an operator (or a script) writing one follow-up per boundary could otherwise
+// hold the session's turn lock for as long as they keep typing. Past the cap
+// the queue is closed and what is left is dropped with a warning, exactly as a
+// Stop drops it: the alternative is a session no other surface can ever enter.
+const maxQueuedFollowUpRuns = 8
 
 func (m *Manager) HandleSessionSetMode(_ context.Context, params acp.SessionSetModeParams) error {
 	state := m.getSession(params.SessionID)

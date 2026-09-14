@@ -11,7 +11,11 @@ A queued message becomes an ordinary user message in the conversation, at the po
 The read happens at two places in the turn, and both are the same idea — the earliest moment the model can act on it:
 
 - **Between steps.** The ReAct loop drains the queue at the top of every iteration, before it builds the request that answers the tool results it just collected. This is the mid-turn read, and it is what the feature is for.
-- **At the end.** A message written while the answer was already being composed would otherwise have to wait for the next prompt. Instead the same turn reads it and keeps going, so it is answered by the turn it was written into.
+- **At the end.** A message written while the answer was already being composed would otherwise have to wait for the next prompt. Instead the same turn reads it and keeps going, so it is answered by the turn it was written into. This read happens **after** the `Stop` hooks have had their say, so a hook still fires on every answer that ends a turn.
+
+The continuation belongs to the ordinary prompt path. A turn that is not one — a permission resume, a saved plan being run — still opens a queue and still reads it between its own steps, but what arrives in its final moments is dropped with a warning rather than answered.
+
+Only a turn that ended with an **answer** continues this way. A cancelled turn is a **Stop**, and a Stop drops what was waiting rather than answering it; a turn that stopped for any other reason — its turn cap, a refusal, a hook — has already said why, and running it again would bury that. The continuations are also capped (8 per admitted turn): each one is a fresh run with its own `agent.max_turns` budget, so without a bound one admission could hold the session's turn lock for as long as somebody keeps typing. Past the cap the queue is closed and what is left is dropped with a warning, exactly as a Stop drops it.
 
 ## The lifetime of the queue
 
@@ -48,7 +52,9 @@ That works whether or not a client is reading the stream of the turn that is run
 - the **turn's own stream**, so the client driving the turn and anyone teed onto it (`GET /coddy/sessions/{id}/composer-stream`) has it immediately;
 - **`GET /coddy/events`**, the server-wide stream every browser holds open and the console subscribes to under `--remote`, which carries `event: message_queue` with the session id, the whole queue and its version.
 
-The two are separate connections, so frames can arrive in either order. Each carries a **version** that counts the changes of that session's queue; a client renders the highest version it has seen and drops anything older. Without it a stale frame could put a cancelled message back on screen.
+The answer to whichever request made the change carries the same list and version, so it is a third delivery of the same fact rather than a separate truth.
+
+Those are separate connections, so deliveries can arrive in either order. Each carries a **version** that counts the changes of that session's queue; a client renders the highest version it has seen and drops anything older. Without it a stale frame could put a cancelled message back on screen. The list and the version are read under one lock, so a version never names content other than its own, and the counter is process-wide rather than per session — a session whose live state is rebuilt must not start publishing numbers a client has already applied and would now ignore. A client forgets a session's high-water mark when a turn starts on it, so a restarted server counting from the beginning is not mistaken for stale frames.
 
 ## In the console
 

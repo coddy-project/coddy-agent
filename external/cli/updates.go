@@ -199,8 +199,9 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 	case acp.MessageQueueUpdate:
 		// The queue changes from outside this goroutine - another surface, or
 		// the agent reading a batch - so the widget follows the update rather
-		// than what this console last sent.
-		a.queue.SetRows(u.Messages)
+		// than what this console last sent. The version orders the two streams
+		// the same update can arrive down.
+		a.queue.Apply(u.Messages, u.Version)
 	case acp.MemoryMessageChunkUpdate:
 		// Memory copilot deltas render as a dim italic stream under the
 		// phase status line (collapses with ctrl+t like thinking).

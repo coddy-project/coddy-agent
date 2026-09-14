@@ -49,6 +49,15 @@ type QueuedMessage struct {
 // rather than per session, so an id is never ambiguous in a log line.
 var queuedMessageSeq atomic.Uint64
 
+// queueVersionSeq numbers queue changes.
+//
+// Process-wide rather than per session on purpose. A client keeps the highest
+// version it has applied for a session; a counter that started again from zero
+// whenever the session's live state was rebuilt (evicted and loaded again)
+// would publish versions below what that client had already seen, and every
+// frame of the new turn would be dropped as stale.
+var queueVersionSeq atomic.Uint64
+
 // Wire converts the message to the shape published over ACP and HTTP.
 func (q QueuedMessage) Wire() acp.QueuedMessage {
 	return acp.QueuedMessage{ID: q.ID, Text: q.Text, CreatedAt: q.CreatedAt}
@@ -70,8 +79,29 @@ func QueuedMessagesWire(msgs []QueuedMessage) []acp.QueuedMessage {
 // connections, so the frames can arrive out of order. The version is what lets
 // a client drop the older of two answers instead of rendering it.
 func (s *State) bumpQueueLocked() uint64 {
-	s.queueVersion++
+	s.queueVersion = queueVersionSeq.Add(1)
 	return s.queueVersion
+}
+
+// SetQueueNotifier registers what to run after every change of this session's
+// queue. The manager installs its publisher here, so a change announces itself
+// from one place - whoever made it, and whether it came from a request, a
+// console keystroke or the turn's own drain.
+func (s *State) SetQueueNotifier(fn func()) {
+	s.queueMu.Lock()
+	s.queueNotify = fn
+	s.queueMu.Unlock()
+}
+
+// notifyQueue runs the registered notifier. It is called with queueMu released,
+// because the notifier reads the queue back through QueueSnapshot.
+func (s *State) notifyQueue() {
+	s.queueMu.Lock()
+	fn := s.queueNotify
+	s.queueMu.Unlock()
+	if fn != nil {
+		fn()
+	}
 }
 
 // QueueVersion is the version of the queue as it now stands.
@@ -93,6 +123,7 @@ func (s *State) OpenMessageQueue() {
 	s.queueOpen = true
 	s.bumpQueueLocked()
 	s.queueMu.Unlock()
+	s.notifyQueue()
 }
 
 // CloseMessageQueue refuses further follow-ups and returns whatever was still
@@ -100,11 +131,12 @@ func (s *State) OpenMessageQueue() {
 // explicitly closes the queue once.
 func (s *State) CloseMessageQueue() []QueuedMessage {
 	s.queueMu.Lock()
-	defer s.queueMu.Unlock()
 	left := s.queue
 	s.queue = nil
 	s.queueOpen = false
 	s.bumpQueueLocked()
+	s.queueMu.Unlock()
+	s.notifyQueue()
 	return left
 }
 
@@ -117,34 +149,53 @@ func (s *State) MessageQueueOpen() bool {
 }
 
 // EnqueueMessage adds a follow-up for the running turn to read at its next step.
-func (s *State) EnqueueMessage(text string) (QueuedMessage, error) {
+func (s *State) EnqueueMessage(text string) (msg QueuedMessage, err error) {
 	body := strings.TrimSpace(text)
 	if body == "" {
 		return QueuedMessage{}, fmt.Errorf("queued message is empty")
 	}
 	s.queueMu.Lock()
-	defer s.queueMu.Unlock()
+	queued := false
+	defer func() {
+		s.queueMu.Unlock()
+		if queued {
+			s.notifyQueue()
+		}
+	}()
 	if !s.queueOpen {
 		return QueuedMessage{}, ErrNoActiveTurn
 	}
 	if len(s.queue) >= MaxQueuedMessages {
 		return QueuedMessage{}, ErrQueueFull
 	}
-	msg := QueuedMessage{
+	msg = QueuedMessage{
 		ID:        fmt.Sprintf("q_%d", queuedMessageSeq.Add(1)),
 		Text:      body,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 	}
 	s.queue = append(s.queue, msg)
 	s.bumpQueueLocked()
+	queued = true
 	return msg, nil
 }
 
 // QueuedMessages returns a copy of what is waiting.
 func (s *State) QueuedMessages() []QueuedMessage {
+	msgs, _ := s.QueueSnapshot()
+	return msgs
+}
+
+// QueueSnapshot returns what is waiting together with the version that names
+// exactly that content, read under one lock.
+//
+// Reading the two separately is not equivalent: a drain landing between the
+// reads would pair a stale list with a newer version, and a client that keeps
+// the highest version it has seen would then accept the stale list and refuse
+// the correction that followed it.
+func (s *State) QueueSnapshot() ([]QueuedMessage, uint64) {
 	s.queueMu.Lock()
 	defer s.queueMu.Unlock()
-	return append([]QueuedMessage(nil), s.queue...)
+	return append([]QueuedMessage(nil), s.queue...), s.queueVersion
 }
 
 // CancelQueuedMessage removes a message the agent has not read yet and reports
@@ -155,25 +206,33 @@ func (s *State) CancelQueuedMessage(id string) bool {
 		return false
 	}
 	s.queueMu.Lock()
-	defer s.queueMu.Unlock()
+	found := false
 	for i, m := range s.queue {
 		if m.ID != want {
 			continue
 		}
 		s.queue = append(s.queue[:i:i], s.queue[i+1:]...)
 		s.bumpQueueLocked()
-		return true
+		found = true
+		break
 	}
-	return false
+	s.queueMu.Unlock()
+	if found {
+		s.notifyQueue()
+	}
+	return found
 }
 
 // ClearQueuedMessages drops everything waiting and returns what was dropped.
 func (s *State) ClearQueuedMessages() []QueuedMessage {
 	s.queueMu.Lock()
-	defer s.queueMu.Unlock()
 	dropped := s.queue
 	s.queue = nil
 	s.bumpQueueLocked()
+	s.queueMu.Unlock()
+	if len(dropped) > 0 {
+		s.notifyQueue()
+	}
 	return dropped
 }
 
@@ -183,10 +242,15 @@ func (s *State) ClearQueuedMessages() []QueuedMessage {
 // that follows them.
 func (s *State) TakeQueuedMessages() []QueuedMessage {
 	s.queueMu.Lock()
-	defer s.queueMu.Unlock()
 	taken := s.queue
 	s.queue = nil
 	s.bumpQueueLocked()
+	s.queueMu.Unlock()
+	// The read is a change like any other: the composer holding those cards
+	// has to stop showing them the moment the agent takes them.
+	if len(taken) > 0 {
+		s.notifyQueue()
+	}
 	return taken
 }
 
@@ -200,15 +264,17 @@ func (s *State) TakeQueuedMessages() []QueuedMessage {
 // queued message could be silently lost.
 func (s *State) TakeQueuedMessagesOrClose() ([]QueuedMessage, bool) {
 	s.queueMu.Lock()
-	defer s.queueMu.Unlock()
 	if len(s.queue) == 0 {
 		s.queueOpen = false
 		s.bumpQueueLocked()
+		s.queueMu.Unlock()
 		return nil, false
 	}
 	taken := s.queue
 	s.queue = nil
 	s.bumpQueueLocked()
+	s.queueMu.Unlock()
+	s.notifyQueue()
 	return taken, true
 }
 

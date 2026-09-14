@@ -183,14 +183,22 @@ func TestQueueIsSafeUnderConcurrentWritersAndDrains(t *testing.T) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	read := map[string]bool{}
+	accepted := map[string]bool{}
 
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 200; i++ {
 			// The cap is small on purpose, so a full queue is an ordinary
-			// answer here rather than a failure.
-			_, _ = st.EnqueueMessage(fmt.Sprintf("m%d", i))
+			// answer here rather than a failure. Only what the queue accepted
+			// is something it then owes the turn.
+			msg, err := st.EnqueueMessage(fmt.Sprintf("m%d", i))
+			if err != nil {
+				continue
+			}
+			mu.Lock()
+			accepted[msg.ID] = true
+			mu.Unlock()
 		}
 	}()
 	go func() {
@@ -210,10 +218,25 @@ func TestQueueIsSafeUnderConcurrentWritersAndDrains(t *testing.T) {
 	}()
 	wg.Wait()
 
+	left := map[string]bool{}
 	for _, m := range st.CloseMessageQueue() {
 		if read[m.ID] {
 			t.Fatalf("message %s was both read and left in the queue", m.ID)
 		}
+		left[m.ID] = true
+	}
+	// Accepting a message is a promise: it is either read by the turn or still
+	// waiting when the turn ends. Anything in neither set was dropped in the
+	// middle, which is the failure this test exists to catch.
+	mu.Lock()
+	defer mu.Unlock()
+	for id := range accepted {
+		if !read[id] && !left[id] {
+			t.Fatalf("message %s was accepted and then lost: neither read nor left in the queue", id)
+		}
+	}
+	if len(accepted) == 0 {
+		t.Fatal("the queue accepted nothing; the test proved nothing")
 	}
 }
 
@@ -225,5 +248,109 @@ func TestManagerQueueRefusesUnknownSession(t *testing.T) {
 	}
 	if _, _, err := m.EnqueueTurnMessage("  ", "text"); err == nil {
 		t.Fatal("enqueue accepted an empty session id")
+	}
+}
+
+// Every change announces itself once through the notifier the manager installs,
+// and the snapshot it reads back names the version of exactly that content.
+func TestQueueNotifierFiresOnEveryChangeWithAMatchingSnapshot(t *testing.T) {
+	st := &State{ID: "sess_queue_notify"}
+	type seen struct {
+		texts   []string
+		version uint64
+	}
+	var mu sync.Mutex
+	var got []seen
+	st.SetQueueNotifier(func() {
+		msgs, v := st.QueueSnapshot()
+		texts := make([]string, 0, len(msgs))
+		for _, m := range msgs {
+			texts = append(texts, m.Text)
+		}
+		mu.Lock()
+		got = append(got, seen{texts: texts, version: v})
+		mu.Unlock()
+	})
+
+	st.OpenMessageQueue()
+	first, err := st.EnqueueMessage("first")
+	if err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	if _, err := st.EnqueueMessage("second"); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	if !st.CancelQueuedMessage(first.ID) {
+		t.Fatal("cancel reported the message missing")
+	}
+	st.TakeQueuedMessages()
+	st.CloseMessageQueue()
+
+	mu.Lock()
+	defer mu.Unlock()
+	wantTexts := [][]string{
+		{},                  // open
+		{"first"},           // enqueue
+		{"first", "second"}, // enqueue
+		{"second"},          // cancel
+		{},                  // drain
+		{},                  // close
+	}
+	if len(got) != len(wantTexts) {
+		t.Fatalf("notifier fired %d times, want %d: %+v", len(got), len(wantTexts), got)
+	}
+	for i, want := range wantTexts {
+		if len(got[i].texts) != len(want) {
+			t.Fatalf("notification %d carried %v, want %v", i, got[i].texts, want)
+		}
+		for j := range want {
+			if got[i].texts[j] != want[j] {
+				t.Fatalf("notification %d carried %v, want %v", i, got[i].texts, want)
+			}
+		}
+		if i > 0 && got[i].version <= got[i-1].version {
+			t.Fatalf("version did not advance at notification %d: %d then %d",
+				i, got[i-1].version, got[i].version)
+		}
+	}
+}
+
+// A cancel that takes the last message and a drain that takes it first must not
+// be able to hand a watcher a stale list under a fresh version: the snapshot is
+// read under the same lock the change was made under.
+func TestQueueSnapshotPairsContentWithItsOwnVersion(t *testing.T) {
+	st := &State{ID: "sess_queue_snapshot"}
+	st.OpenMessageQueue()
+	if _, err := st.EnqueueMessage("only"); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	msgs, v1 := st.QueueSnapshot()
+	if len(msgs) != 1 {
+		t.Fatalf("snapshot holds %d messages, want 1", len(msgs))
+	}
+	st.TakeQueuedMessages()
+	empty, v2 := st.QueueSnapshot()
+	if len(empty) != 0 {
+		t.Fatalf("snapshot after the drain holds %d messages", len(empty))
+	}
+	if v2 <= v1 {
+		t.Fatalf("version did not advance across the drain: %d then %d", v1, v2)
+	}
+}
+
+// The version is process-wide, so a session whose live state is rebuilt does
+// not publish numbers a client has already applied and would now ignore.
+func TestQueueVersionDoesNotRestartWithTheState(t *testing.T) {
+	first := &State{ID: "sess_queue_epoch"}
+	first.OpenMessageQueue()
+	if _, err := first.EnqueueMessage("before"); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	_, highWater := first.QueueSnapshot()
+
+	rebuilt := &State{ID: "sess_queue_epoch"}
+	rebuilt.OpenMessageQueue()
+	if _, v := rebuilt.QueueSnapshot(); v <= highWater {
+		t.Fatalf("the rebuilt session published version %d, at or below the %d a client already applied", v, highWater)
 	}
 }

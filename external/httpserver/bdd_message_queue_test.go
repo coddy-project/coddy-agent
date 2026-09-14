@@ -50,13 +50,13 @@ type queueHTTPState struct {
 	lastBody   map[string]interface{}
 	lastRaw    string
 
-	watchBody  *bufio.Reader
+	watchBody  *sseStream
 	closeWatch func()
 
 	// eventsBody is a client that holds GET /coddy/events without reading any
 	// turn's stream - the shape of a second browser tab, or a console attached
 	// over --remote, that is merely looking at the session.
-	eventsBody  *bufio.Reader
+	eventsBody  *sseStream
 	closeEvents func()
 }
 
@@ -128,9 +128,10 @@ func (s *queueHTTPState) startServer() error {
 			Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: queueFeatureReply},
 		})
 		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: queueFeatureReply})
-		// The stub is not the ReAct loop, so it reads the queue itself: without
-		// that the manager's boundary drain would run it again forever.
-		st.TakeQueuedMessages()
+		// The stub is not the ReAct loop and deliberately does NOT read the
+		// queue: what is left is picked up by the manager's turn boundary,
+		// which is the path these scenarios have to exercise. The boundary
+		// caps its continuations, so this cannot run forever.
 		return string(acp.StopReasonEndTurn), nil
 	}
 	cfg := &config.Config{
@@ -330,7 +331,7 @@ func (s *queueHTTPState) watchTurn() error {
 		res.Body.Close()
 		return fmt.Errorf("composer stream answered %d", res.StatusCode)
 	}
-	s.watchBody = bufio.NewReader(res.Body)
+	s.watchBody = newSSEStream(bufio.NewReader(res.Body), "the composer stream")
 	s.closeWatch = func() {
 		cancel()
 		res.Body.Close()
@@ -339,22 +340,10 @@ func (s *queueHTTPState) watchTurn() error {
 }
 
 func (s *queueHTTPState) watcherToldQueueHolds(text string) error {
-	deadline := time.Now().Add(10 * time.Second)
-	var seen strings.Builder
 	if s.watchBody == nil {
 		return fmt.Errorf("no client is watching the turn")
 	}
-	for time.Now().Before(deadline) {
-		line, err := s.watchBody.ReadString('\n')
-		if err != nil {
-			return fmt.Errorf("read composer stream (seen %q): %w", seen.String(), err)
-		}
-		seen.WriteString(line)
-		if strings.Contains(seen.String(), "event: message_queue") && strings.Contains(seen.String(), text) {
-			return nil
-		}
-	}
-	return fmt.Errorf("the watching client was never told about the queue, seen %q", seen.String())
+	return s.watchBody.await("event: message_queue", text)
 }
 
 // subscribeEvents attaches a client to the server-wide event stream and drains
@@ -376,7 +365,7 @@ func (s *queueHTTPState) subscribeEvents() error {
 		res.Body.Close()
 		return fmt.Errorf("events stream answered %d", res.StatusCode)
 	}
-	s.eventsBody = bufio.NewReader(res.Body)
+	s.eventsBody = newSSEStream(bufio.NewReader(res.Body), "the event stream")
 	s.closeEvents = func() {
 		cancel()
 		res.Body.Close()
@@ -390,24 +379,64 @@ func (s *queueHTTPState) awaitEvents(want, body string) error {
 	if s.eventsBody == nil {
 		return fmt.Errorf("no client is subscribed to the event stream")
 	}
-	deadline := time.Now().Add(10 * time.Second)
-	var frame strings.Builder
-	for time.Now().Before(deadline) {
-		line, err := s.eventsBody.ReadString('\n')
-		if err != nil {
-			return fmt.Errorf("read events (seen %q): %w", frame.String(), err)
+	return s.eventsBody.await(want, body)
+}
+
+// sseStream reads one SSE body on its own goroutine, so a scenario waiting for
+// a frame can time out instead of blocking forever inside ReadString.
+//
+// One goroutine per stream, created with the subscription: spawning a reader
+// per wait would let two of them race for the same lines, and a frame consumed
+// by the one that has already returned would never reach the one still looking
+// for it.
+type sseStream struct {
+	what  string
+	lines chan sseLine
+	// frame accumulates the current frame across waits.
+	frame strings.Builder
+}
+
+type sseLine struct {
+	text string
+	err  error
+}
+
+func newSSEStream(r *bufio.Reader, what string) *sseStream {
+	st := &sseStream{what: what, lines: make(chan sseLine, 64)}
+	go func() {
+		for {
+			line, err := r.ReadString('\n')
+			st.lines <- sseLine{text: line, err: err}
+			if err != nil {
+				return
+			}
 		}
-		frame.WriteString(line)
-		if !strings.HasSuffix(frame.String(), "\n\n") {
-			continue
-		}
-		got := frame.String()
-		frame.Reset()
-		if strings.Contains(got, want) && (body == "" || strings.Contains(got, body)) {
-			return nil
+	}()
+	return st
+}
+
+// await reads whole frames until one contains want (and body, when given).
+func (st *sseStream) await(want, body string) error {
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case got := <-st.lines:
+			if got.err != nil {
+				return fmt.Errorf("read %s (seen %q): %w", st.what, st.frame.String(), got.err)
+			}
+			st.frame.WriteString(got.text)
+			if !strings.HasSuffix(st.frame.String(), "\n\n") {
+				continue
+			}
+			whole := st.frame.String()
+			st.frame.Reset()
+			if strings.Contains(whole, want) && (body == "" || strings.Contains(whole, body)) {
+				return nil
+			}
+		case <-deadline:
+			return fmt.Errorf("timed out waiting for %q on %s", want, st.what)
 		}
 	}
-	return fmt.Errorf("timed out waiting for %q in the event stream", want)
 }
 
 func initializeMessageQueueHTTPScenario(sc *godog.ScenarioContext) {

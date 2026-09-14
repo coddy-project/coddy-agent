@@ -32,11 +32,16 @@ type queueBody struct {
 }
 
 // writeQueue answers with the queue as it now stands.
-func writeQueue(w http.ResponseWriter, status int, sessionID string, queue []session.QueuedMessage, added *session.QueuedMessage) {
+//
+// The answer carries the same version the SSE frames do, so a client applying
+// both keeps whichever is newer rather than letting a request that finished
+// late overwrite a change it already heard about.
+func writeQueue(w http.ResponseWriter, status int, sessionID string, st *session.State, queue []session.QueuedMessage, added *session.QueuedMessage) {
 	out := map[string]interface{}{
 		"object":    "coddy.message_queue",
 		"sessionId": sessionID,
 		"messages":  session.QueuedMessagesWire(queue),
+		"version":   st.QueueVersion(),
 	}
 	if added != nil {
 		out["message"] = added.Wire()
@@ -64,7 +69,7 @@ func (s *Server) coddyQueueList(w http.ResponseWriter, r *http.Request) {
 	if st == nil {
 		return
 	}
-	writeQueue(w, http.StatusOK, id, st.QueuedMessages(), nil)
+	writeQueue(w, http.StatusOK, id, st, st.QueuedMessages(), nil)
 }
 
 func (s *Server) coddyQueuePost(w http.ResponseWriter, r *http.Request) {
@@ -95,7 +100,7 @@ func (s *Server) coddyQueuePost(w http.ResponseWriter, r *http.Request) {
 		s.queueError(w, http.StatusBadRequest, "invalid_request", err)
 		return
 	}
-	writeQueue(w, http.StatusCreated, id, queue, &msg)
+	writeQueue(w, http.StatusCreated, id, st, queue, &msg)
 }
 
 func (s *Server) coddyQueueDelete(w http.ResponseWriter, r *http.Request) {
@@ -115,7 +120,7 @@ func (s *Server) coddyQueueDelete(w http.ResponseWriter, r *http.Request) {
 		s.queueError(w, http.StatusBadRequest, "invalid_request", err)
 		return
 	}
-	writeQueue(w, http.StatusOK, id, queue, nil)
+	writeQueue(w, http.StatusOK, id, st, queue, nil)
 }
 
 func (s *Server) coddyQueueClear(w http.ResponseWriter, r *http.Request) {
@@ -127,7 +132,7 @@ func (s *Server) coddyQueueClear(w http.ResponseWriter, r *http.Request) {
 		s.queueError(w, http.StatusBadRequest, "invalid_request", err)
 		return
 	}
-	writeQueue(w, http.StatusOK, id, st.QueuedMessages(), nil)
+	writeQueue(w, http.StatusOK, id, st, st.QueuedMessages(), nil)
 }
 
 // queueError answers in the error shape the rest of /coddy uses, with a code a

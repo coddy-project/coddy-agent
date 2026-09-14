@@ -5,7 +5,6 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
-	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 // readQueuedMessages folds the follow-ups written during this turn into the
@@ -13,10 +12,14 @@ import (
 //
 // A queued message becomes an ordinary user message: appended to the slice the
 // next request is built from, added to the transcript (so the answer that
-// follows has a visible cause, and a compaction rebuild keeps it), and
-// published to the clients watching - as the message itself, so it appears in
-// the conversation where it was read, and as the shorter queue, so the composer
-// that is holding it stops showing it as pending.
+// follows has a visible cause, and a compaction rebuild keeps it), and sent to
+// the clients watching as the message itself, so it appears in the conversation
+// where it was read.
+//
+// The shorter queue is not announced from here. The drain is a change like any
+// other, and the session announces it through the notifier the manager
+// installed, so every client of a shared session hears about it with the same
+// payload and the same version - not only whoever is reading this turn.
 func (a *Agent) readQueuedMessages(messages *[]llm.Message) bool {
 	queued := a.state.TakeQueuedMessages()
 	if len(queued) == 0 {
@@ -37,10 +40,6 @@ func (a *Agent) readQueuedMessages(messages *[]llm.Message) bool {
 		})
 	}
 	a.log.Info("read queued messages", "session_id", sessionID, "messages", len(queued))
-	_ = a.server.SendSessionUpdate(sessionID, acp.MessageQueueUpdate{
-		SessionUpdate: acp.UpdateTypeMessageQueue,
-		Messages:      session.QueuedMessagesWire(a.state.QueuedMessages()),
-	})
 	a.refreshConversationContextUsage(true)
 	return true
 }

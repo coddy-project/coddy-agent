@@ -180,6 +180,9 @@ type State struct {
 	// queueVersion counts the changes, so a client told about the queue down
 	// two different connections can tell which answer is the newer one.
 	queueVersion uint64
+	// queueNotify is what the manager installed to announce a change; it runs
+	// after every mutation, with queueMu released.
+	queueNotify func()
 
 	// turnSender is where the current turn publishes its updates, kept so a
 	// queue change made from outside the turn's goroutine reaches the clients

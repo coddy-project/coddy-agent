@@ -24,6 +24,11 @@ type queueWidget struct {
 	tui.Container
 	theme *tui.Theme
 	rows  []acp.QueuedMessage
+	// version is the highest queue version rendered. The same change reaches
+	// this console down the turn's stream and down the server's event stream,
+	// which are separate connections: without this an older frame could put a
+	// message the operator took back on screen again.
+	version uint64
 }
 
 func newQueueWidget(theme *tui.Theme) *queueWidget { return &queueWidget{theme: theme} }
@@ -34,8 +39,21 @@ func newQueueWidget(theme *tui.Theme) *queueWidget { return &queueWidget{theme: 
 // tests that drive applyLoopMessage directly) still has to be able to apply an
 // update without reaching through a field it never built.
 func (q *queueWidget) SetRows(rows []acp.QueuedMessage) {
+	q.Apply(rows, 0)
+}
+
+// Apply renders a queue stamped with version, ignoring an update older than
+// what is already on screen. A version of 0 means the caller has none to offer
+// (a local reset), and is always applied.
+func (q *queueWidget) Apply(rows []acp.QueuedMessage, version uint64) {
 	if q == nil {
 		return
+	}
+	if version > 0 && version < q.version {
+		return
+	}
+	if version > q.version {
+		q.version = version
 	}
 	q.rows = rows
 	q.Clear()

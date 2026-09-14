@@ -806,15 +806,6 @@ func (a *Agent) runReActLoop(
 			if strings.TrimSpace(response.Content) == "" && !turnHadVisibleText {
 				return string(acp.StopReasonRefused), fmt.Errorf("model produced no reply: only internal reasoning, with no answer text or tool call")
 			}
-			// The turn is about to end with an answer. Anything the operator
-			// queued while that answer was being written is read now, so it is
-			// answered by this turn rather than waiting for the next prompt.
-			// One iteration is needed to read it in; on the last one it would
-			// only leave a dangling user message behind.
-			if turn+1 < maxTurns && a.readQueuedMessages(&messages) {
-				continue
-			}
-
 			// A Stop hook may send the agent back to work with a follow-up that
 			// is submitted as the next user message (persisted, so the transcript
 			// explains the continuation), bounded by hooks.stop_loop_limit.
@@ -840,6 +831,16 @@ func (a *Agent) runReActLoop(
 				messages = append(messages, follow)
 				a.state.AddMessage(follow)
 				a.refreshConversationContextUsage(true)
+				continue
+			}
+
+			// The turn is about to end with an answer, and the Stop hooks have
+			// had their say. Anything the operator queued while that answer was
+			// being written is read now, so it is answered by this turn rather
+			// than waiting for the next prompt. One iteration is needed to read
+			// it in; on the last one it would only leave a dangling user
+			// message behind, and the manager's boundary drain takes it.
+			if turn+1 < maxTurns && a.readQueuedMessages(&messages) {
 				continue
 			}
 			return string(acp.StopReasonEndTurn), nil

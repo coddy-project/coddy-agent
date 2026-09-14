@@ -29,6 +29,11 @@ import { EnvHealthBanner } from "./env/EnvHealthBanner";
 import { isNoLiveTurnRelayError } from "./chat/composerStreamError";
 import { subscribeServerEvents } from "./chat/serverEvents";
 import type { QueuedMessageEvent } from "./chat/serverEvents";
+import {
+  acceptQueueVersion,
+  resetQueueVersion,
+  type QueueVersions,
+} from "./chat/messageQueueState";
 import { useProviderUsage } from "./chat/useProviderUsage";
 import { parseSSEBlocks } from "./chat/sse";
 import {
@@ -793,11 +798,13 @@ export function App() {
     turnEnded: (sid: string) => void;
     providerUsage: (usage: ProviderUsage) => void;
     configReloaded: () => void;
+    messageQueue: (sid: string, queue: QueuedMessageEvent) => void;
   }>({
     turnStarted: () => {},
     turnEnded: () => {},
     providerUsage: () => {},
     configReloaded: () => {},
+    messageQueue: () => {},
   });
   // Provider account usage for the composer pill and banner: read over REST
   // at session open, model change and after each viewed turn, pushed by the
@@ -904,14 +911,16 @@ export function App() {
    * frames can arrive in either order. The version decides; without it a stale
    * frame would put a cancelled message back on screen.
    */
-  const queueVersionBySidRef = useRef<Map<string, number>>(new Map());
+  const queueVersionBySidRef = useRef<QueueVersions>(new Map());
+  const forgetQueueVersion = useCallback((sid: string) => {
+    resetQueueVersion(queueVersionBySidRef.current, sid);
+  }, []);
   const applyQueue = useCallback(
     (sid: string, rows: QueuedMessage[], version: number) => {
       const key = sid.trim();
-      if (!key) return;
-      const seen = queueVersionBySidRef.current.get(key) ?? 0;
-      if (version > 0 && version < seen) return;
-      queueVersionBySidRef.current.set(key, Math.max(seen, version));
+      if (!acceptQueueVersion(queueVersionBySidRef.current, key, version)) {
+        return;
+      }
       setQueueBySid((prev) => ({ ...prev, [key]: rows }));
     },
     [],
@@ -2132,6 +2141,10 @@ export function App() {
   serverEventHandlersRef.current = {
     turnStarted: (sid: string) => {
       void loadSessionsList(true);
+      // The queue of the previous turn is gone, and a server that restarted
+      // numbers its changes from the beginning: start this session's
+      // high-water mark again rather than dropping the new turn's frames.
+      forgetQueueVersion(sid);
       const key = sid.trim();
       if (!key || key !== viewedSessionIdRef.current.trim()) return;
       if (activeComposerSidRef.current.has(key)) return;
@@ -3272,7 +3285,19 @@ export function App() {
 
   async function streamResponses(
     text: string,
-    opts?: { modeOverride?: string; runPlanSlug?: string; files?: File[] },
+    opts?: {
+      modeOverride?: string;
+      runPlanSlug?: string;
+      files?: File[];
+      /**
+       * Put the text back in the composer if the server refuses this send as
+       * busy. Set by the message queue's fallback: the queue closes a moment
+       * before the turn releases its admission, so a follow-up written in that
+       * gap is told "no turn is running" and then refused as busy - and what
+       * the operator wrote must not vanish between the two answers.
+       */
+      restoreDraftOnBusy?: boolean;
+    },
   ) {
     const abortCtl = new AbortController();
     let postSessionKey = "";
@@ -3472,6 +3497,9 @@ export function App() {
             createdAtUtc: new Date().toISOString(),
           },
         ]);
+        if (opts?.restoreDraftOnBusy) {
+          setDraft(text);
+        }
         postAbortBySidRef.current.delete(postSessionKey);
         streamingAssistantBySidRef.current.delete(postSessionKey);
         completedNormally = true;
@@ -4137,10 +4165,12 @@ export function App() {
     if (!sid || !body) return;
     setDraft("");
     void (async () => {
-      let payload: {
+      type QueueAnswer = {
         messages?: QueuedMessage[];
+        version?: number;
         error?: { code?: string; message?: string };
-      } | null = null;
+      };
+      let payload: QueueAnswer | null = null;
       let status = 0;
       try {
         const res = await fetch(
@@ -4152,16 +4182,20 @@ export function App() {
           },
         );
         status = res.status;
-        payload = (await res.json().catch(() => null)) as typeof payload;
+        payload = (await res.json().catch(() => null)) as QueueAnswer | null;
       } catch {
         // Network failure: treated as a refusal below.
       }
       if (status === 201 && Array.isArray(payload?.messages)) {
-        applyQueue(sid, payload.messages);
+        applyQueue(sid, payload.messages, payload.version ?? 0);
         return;
       }
       if (payload?.error?.code === "no_active_turn") {
-        void streamResponses(body);
+        // The turn ended between the keystroke and the request. Send it as an
+        // ordinary prompt; if the admission has not been released yet and that
+        // is refused too, the text comes back to the composer rather than
+        // being lost between the two answers.
+        void streamResponses(body, { restoreDraftOnBusy: true });
         return;
       }
       setDraft(body);
@@ -4202,9 +4236,10 @@ export function App() {
         );
         const data = (await res.json().catch(() => null)) as {
           messages?: QueuedMessage[];
+          version?: number;
         } | null;
         if (Array.isArray(data?.messages)) {
-          applyQueue(sid, data.messages);
+          applyQueue(sid, data.messages, data.version ?? 0);
         }
       } catch {
         // The next message_queue frame corrects the list.

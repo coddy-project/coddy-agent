@@ -75,6 +75,8 @@ func translateQueueError(err error) error {
 		return session.ErrQueueFull
 	case "not_found":
 		return session.ErrQueuedMessageNotFound
+	case "subagent_read_only":
+		return fmt.Errorf("%w: the remote session is a subagent run", session.ErrSubagentReadOnly)
 	}
 	return err
 }

@@ -24,9 +24,9 @@ func (m *Manager) EnqueueTurnMessage(sessionID, text string) (QueuedMessage, []Q
 	if err != nil {
 		return QueuedMessage{}, st.QueuedMessages(), err
 	}
-	queue := st.QueuedMessages()
-	m.PublishMessageQueue(sessionID, st)
-	return msg, queue, nil
+	// The change announced itself through the notifier the manager installed;
+	// nothing here publishes a second time.
+	return msg, st.QueuedMessages(), nil
 }
 
 // QueuedTurnMessages lists what the session is holding for its running turn.
@@ -47,9 +47,7 @@ func (m *Manager) CancelQueuedTurnMessage(sessionID, messageID string) ([]Queued
 	if !st.CancelQueuedMessage(messageID) {
 		return st.QueuedMessages(), ErrQueuedMessageNotFound
 	}
-	queue := st.QueuedMessages()
-	m.PublishMessageQueue(sessionID, st)
-	return queue, nil
+	return st.QueuedMessages(), nil
 }
 
 // ClearQueuedTurnMessages drops everything the session is holding.
@@ -58,9 +56,7 @@ func (m *Manager) ClearQueuedTurnMessages(sessionID string) error {
 	if err != nil {
 		return err
 	}
-	if len(st.ClearQueuedMessages()) > 0 {
-		m.PublishMessageQueue(sessionID, st)
-	}
+	st.ClearQueuedMessages()
 	return nil
 }
 
@@ -127,11 +123,12 @@ func (m *Manager) PublishMessageQueue(sessionID string, st *State) {
 	if st == nil {
 		return
 	}
+	msgs, version := st.QueueSnapshot()
 	update := acp.MessageQueueUpdate{
 		SessionUpdate: acp.UpdateTypeMessageQueue,
 		SessionID:     sessionID,
-		Messages:      QueuedMessagesWire(st.QueuedMessages()),
-		Version:       st.QueueVersion(),
+		Messages:      QueuedMessagesWire(msgs),
+		Version:       version,
 	}
 	sender := st.TurnSender()
 	if sender == nil {
