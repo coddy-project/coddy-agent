@@ -94,6 +94,10 @@ python3 "$HTTP_DIR/http_e2e_compact.py"
 # checks the web UI window, usage_update and the auto-compaction trigger agree
 # (issue #245). Uses NEURALDEEP_API_KEY (or the .env seeded above); SKIP without it.
 python3 "$HTTP_DIR/http_e2e_compact_auto.py"
+# Self-contained: three clients of one session (sender, a tab on the composer stream,
+# an idle viewer) read the context usage fall after /compact, REST compact and an
+# automatic compaction. Uses NEURALDEEP_API_KEY (or the .env seeded above); SKIP without it.
+python3 "$HTTP_DIR/http_e2e_compact_clients.py"
 python3 "$HTTP_DIR/http_e2e_scheduler_agent.py"
 python3 "$HTTP_DIR/http_e2e_plan_files.py"
 # Ask profile reads but never writes; agent on the same session still writes.
