@@ -2977,6 +2977,16 @@ a.rail-brand {
   border-bottom: 0;
 }
 
+/* A command block carries its own 10px inset inside the card, so the output that
+   continues the panel adds none: one gap at the seam, not two stacked paddings.
+   Previews whose body runs edge to edge (a diff, a code panel) keep theirs. */
+.coddy-tool-call-body--connected-result
+  > .permission-preview:has(.permission-preview-shell)
+  + .tool-call-result-card
+  .tool-call-result-content {
+  padding-top: 0;
+}
+
 /* Output needs no label: it is the only thing under the call. A failure is said once,
    on the summary row, where it is readable without expanding the card. */
 .tool-failed-marker {
@@ -7720,7 +7730,9 @@ html:not([data-theme="light"]) .context-usage-note--error {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
-    padding: 4px 2px 2px;
+    /* Same inline inset as the head and the lead pane above: the drawer has one
+       edge, and the tiles used to hug it while the text stood 14px in. */
+    padding: 4px 14px 12px;
     align-content: start;
     overflow-y: auto;
     /* Fill the stack so the footer (reload/save) stays pinned at the bottom. */
@@ -7777,6 +7789,16 @@ html:not([data-theme="light"]) .context-usage-note--error {
     flex-direction: column;
     min-height: 0;
     flex: 1 1 auto;
+  }
+
+  /* On the wide layout the content panel sits against the section rail, so its
+     own 8px is the seam; on the narrow shell the drawer edge is the reference. */
+  .settings.drawer .settings-scroll {
+    padding-inline: 14px;
+  }
+
+  .settings.drawer .settings-footer-actions {
+    padding-inline: 14px;
   }
 }
 
@@ -9872,47 +9894,13 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   }
 }
 
-/* Live background-task chip on a transcript tool row. The tool call itself
-   returned immediately, so the chip is what keeps the row honest about the work
-   that is still going on. */
-.tool-bgtask-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  padding: 1px 8px 1px 6px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
-  font-size: 11px;
-  line-height: 1.6;
-  color: color-mix(in srgb, var(--text) 66%, var(--coddy-blend-base));
-}
-
-.tool-bgtask-chip.is-running {
-  background: color-mix(in srgb, var(--accent) 14%, var(--coddy-blend-base));
-  color: color-mix(in srgb, var(--text) 82%, var(--coddy-blend-base));
-}
-
-.tool-bgtask-chip-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
+/* Tab controls hanging off the card above them, like the More / Less row: the
+   body is a flex column with an 8px gap, and these cancel it. */
 .tool-bgtask-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding-top: 6px;
-}
-
-@media (max-width: 1199px) {
-  /* The summary row is already tight on phones; the chip drops the wording and
-     keeps the dot plus timing rather than pushing the duration off screen. */
-  .tool-bgtask-chip {
-    max-width: 46vw;
-  }
+  margin-top: -8px;
 }
 
 /* ── Background tasks panel (docked inside the session) ────────────────────

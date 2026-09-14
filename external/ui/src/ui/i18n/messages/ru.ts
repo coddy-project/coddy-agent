@@ -1086,6 +1086,7 @@ export const messagesRu: Record<string, string> = {
   // имя функции. Инструмент без записи (свои инструменты MCP-серверов) остаётся с
   // исходным идентификатором.
   "tool.name.run_command": "выполняю команду",
+  "tool.name.run_command_background": "выполняю команду в фоне",
   "tool.name.ssh_run_command": "выполняю команду по ssh",
   "tool.name.read": "читаю файл",
   "tool.name.read_directory": "просматриваю директорию",

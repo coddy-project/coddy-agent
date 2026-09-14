@@ -1068,6 +1068,7 @@ export const messagesEn: Record<string, string> = {
   // what the agent is doing rather than as the function it called; a tool without an
   // entry (an MCP server's own tools) keeps its raw id.
   "tool.name.run_command": "running a command",
+  "tool.name.run_command_background": "running a command in the background",
   "tool.name.ssh_run_command": "running a command over ssh",
   "tool.name.read": "reading a file",
   "tool.name.read_directory": "browsing a directory",

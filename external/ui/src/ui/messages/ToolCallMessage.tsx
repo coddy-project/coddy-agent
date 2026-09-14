@@ -13,7 +13,10 @@ import {
   parseQuestionToolQuestionsFromArgs,
 } from "../chat/questionToolDisplay";
 import { PermissionToolPreview } from "../chat/PermissionPromptPreview";
-import { taskStatusLabel, taskTimingLine, taskTone } from "../tasks/taskStatus";
+import {
+  displayElapsedSeconds,
+  formatDuration as formatTaskDuration,
+} from "../tasks/taskStatus";
 import type { BackgroundTask } from "../tasks/types";
 import {
   buildToolCallPreview,
@@ -409,6 +412,13 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
         toolPreview.destinationPath.trim() !== ""));
   const backgroundTask = props.backgroundTask;
   const backgroundNowMs = props.backgroundNowMs ?? nowMs;
+  // A backgrounded call returned the instant the task started, so the call's own
+  // 0ms is not the duration of anything. The task's clock takes that slot; how it
+  // ended - the status, the estimate, the exit code - belongs to the task, and is
+  // read in the Tasks panel rather than on a transcript row.
+  const backgroundElapsed = backgroundTask
+    ? formatTaskDuration(displayElapsedSeconds(backgroundTask, backgroundNowMs))
+    : "";
   // A completed load_skill returned a skill's markdown; a failed one returned an error,
   // which stays raw monospace text.
   const showSkillBody = isLoadSkillTool && status === "completed";
@@ -472,33 +482,21 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                   {t("messages.toolFailedMarker")}
                 </span>
               ) : null}
-              {durationLabel.trim() !== "" ? (
+              {backgroundTask ? (
+                backgroundElapsed ? (
+                  <span
+                    className="thinking-dur"
+                    data-testid={`tool-bgtask-elapsed-${backgroundTask.id}`}
+                  >
+                    {backgroundElapsed}
+                  </span>
+                ) : null
+              ) : durationLabel.trim() !== "" ? (
                 <span className="thinking-dur" aria-hidden="true">
                   {durationLabel}
                 </span>
               ) : null}
             </span>
-            {backgroundTask ? (
-              <span
-                className={[
-                  "tool-bgtask-chip",
-                  backgroundTask.running ? "is-running" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                data-testid={`tool-bgtask-chip-${backgroundTask.id}`}
-                title={backgroundTask.command || backgroundTask.label}
-              >
-                <span
-                  className={`bgtask-dot bgtask-dot--${taskTone(backgroundTask.status)}`}
-                  aria-hidden="true"
-                />
-                <span className="tool-bgtask-chip-text">
-                  {taskStatusLabel(backgroundTask.status)} ·{" "}
-                  {taskTimingLine(backgroundTask, backgroundNowMs)}
-                </span>
-              </span>
-            ) : null}
           </span>
         </summary>
         {hasBody ? (

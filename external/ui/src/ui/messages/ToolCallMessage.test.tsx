@@ -766,27 +766,40 @@ function backgroundTask(over: Partial<BackgroundTask> = {}): BackgroundTask {
   };
 }
 
-test("a backgrounded run_command keeps a live status chip on the collapsed row", () => {
-  render(
+test("a backgrounded run_command reads like any command row, in the background", () => {
+  const { container } = render(
     <ToolCallMessage
       toolCallId="tc-bg"
       title="run_command"
       status="completed"
       argsText='{"command":"make test","background":true,"expected_seconds":120}'
       resultText="Started background task bg_1: make test"
+      durationMs={0}
       backgroundTask={backgroundTask({ expected_seconds: 120 })}
       backgroundNowMs={BG_START_MS + 30_000}
     />,
   );
 
-  const chip = screen.getByTestId("tool-bgtask-chip-bg_1");
-  expect(chip).toHaveTextContent("Running");
-  expect(chip).toHaveTextContent("30s");
-  expect(chip).toHaveTextContent("est. 2m");
+  expect(screen.getByText("running a command in the background")).toBeInTheDocument();
+
+  // The call returned the instant the task started, so its own 0ms is replaced
+  // by the task's clock - in the duration slot every other row uses.
+  const duration = container.querySelector(".thinking-dur");
+  expect(duration).toHaveTextContent("30s");
+  expect(duration?.closest(".thinking-head")).not.toBeNull();
+
+  // How the run is going belongs to the task, and is read in the Tasks panel:
+  // the transcript row carries no status, estimate or exit code.
+  const row = container.querySelector(".coddy-tool-call-row") as HTMLElement;
+  expect(container.querySelector(".tool-bgtask-state")).toBeNull();
+  expect(container.querySelector(".tool-bgtask-chip")).toBeNull();
+  expect(row.querySelector(".thinking-summary")?.textContent).not.toMatch(
+    /Running|est\.|exit/,
+  );
 });
 
-test("the background chip reports the final state once the task ends", () => {
-  render(
+test("a finished background task shows its total time and nothing about how it ended", () => {
+  const { container } = render(
     <ToolCallMessage
       toolCallId="tc-bg"
       title="run_command"
@@ -795,13 +808,14 @@ test("the background chip reports the final state once the task ends", () => {
         running: false,
         status: "timed_out",
         elapsed_seconds: 900,
+        exit_code: 2,
       })}
       backgroundNowMs={BG_START_MS + 9_000_000}
     />,
   );
-  expect(screen.getByTestId("tool-bgtask-chip-bg_1")).toHaveTextContent(
-    "Timed out",
-  );
+  const summary = container.querySelector(".thinking-summary") as HTMLElement;
+  expect(container.querySelector(".thinking-dur")).toHaveTextContent("15m");
+  expect(summary.textContent).not.toMatch(/Timed out|exit 2/);
 });
 
 test("expanded background row offers Open in Tasks, and Stop only while running", () => {
@@ -844,16 +858,18 @@ test("expanded background row offers Open in Tasks, and Stop only while running"
   expect(screen.getByTestId("tool-bgtask-open-bg_1")).toBeInTheDocument();
 });
 
-test("an ordinary tool row carries no background chip", () => {
-  render(
+test("an ordinary tool row keeps its own duration", () => {
+  const { container } = render(
     <ToolCallMessage
       toolCallId="tc-plain"
       title="read"
       status="completed"
       resultText="file contents"
+      durationMs={12}
     />,
   );
-  expect(screen.queryByTestId(/^tool-bgtask-chip-/)).toBeNull();
+  expect(screen.queryByTestId(/^tool-bgtask-elapsed-/)).toBeNull();
+  expect(container.querySelector(".thinking-dur")).toHaveTextContent("12ms");
 });
 
 test("restored in_progress write still fetches full arguments", async () => {

@@ -157,9 +157,9 @@ The panel is **docked inside the session**, to the right of the transcript, at `
 - **Clear** drops the finished history for this session (`DELETE /coddy/sessions/{id}/background-tasks`). Running tasks are untouched.
 - Ordering is **purely by start time**, newest first, among the live cards and inside the finished history alike. Running tasks are not floated to the top of the history: they stand above the counter already, and mixing two orderings makes a list that never sits still to read.
 - The **opener** is a chip at the end of the transcript, under the last message: `N running tasks` while work is in flight, `N background tasks` once everything has finished, and nothing in a chat that never ran one. It is deliberately not in the nav rail — background tasks belong to one chat.
-- A transcript tool row that started a task keeps a live chip in its collapsed summary, plus **Open in Tasks** and **Stop** when expanded.
+- A transcript tool row that started a task names itself a background run and shows the task's clock where an ordinary row shows its duration, plus **Open in Tasks** and **Stop** when expanded. It says nothing about how the run ended: the status, the estimate, the exit code and the error are read in the panel's detail pane, which is what **Open in Tasks** opens.
 
-Layout, colour, and mobile contracts are in `DESIGN.md` (**Background tasks panel**, **Background task ticker card**).
+Layout, colour, and mobile contracts are in `DESIGN.md` (**Background tasks panel**, **Background task on a transcript row**).
 
 ## Configuration
 

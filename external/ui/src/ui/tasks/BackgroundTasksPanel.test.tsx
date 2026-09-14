@@ -172,6 +172,33 @@ test("selecting a task shows its command and captured output", () => {
   expect(screen.getByText("make build TAGS=http")).toBeInTheDocument();
 });
 
+test("the detail pane is where a run's outcome is read", () => {
+  // The transcript row deliberately says none of this: it names the command and
+  // the time it took, and the state of the run lives here.
+  renderPanel({
+    selectedTaskId: "bg_1",
+    tasks: [
+      task({
+        running: false,
+        status: "failed",
+        exit_code: 2,
+        elapsed_seconds: 90,
+        expected_seconds: 45,
+        error: "make: *** [site-docs-check] Error 2",
+      }),
+    ],
+  });
+
+  expect(screen.getByText("Failed")).toBeInTheDocument();
+  const timing = document.querySelector(".bgtask-detail-timing");
+  expect(timing).toHaveTextContent("1m30s");
+  expect(timing).toHaveTextContent("est. 45s");
+  expect(timing).toHaveTextContent("exit 2");
+  expect(
+    screen.getByText("make: *** [site-docs-check] Error 2"),
+  ).toBeInTheDocument();
+});
+
 test("a task with no output yet says so", () => {
   renderPanel({ selectedTaskId: "bg_1", selectedOutput: "   " });
   expect(screen.getByTestId("bgtask-output")).toHaveTextContent(
