@@ -151,7 +151,7 @@ sessions:
 # model context window. Manual /compact command plus automatic trigger.
 # compaction:
 #   enable: true             # master switch (manual command and automation)
-#   threshold_percent: 80    # auto-compact at this percent of models[].max_context_tokens (1..100)
+#   threshold_percent: 80    # auto-compact at this percent of the model's context window (1..100)
 #   keep_recent_turns: 2     # last N user turns stay verbatim; 0 summarizes everything
 #   model: ""                # optional models[].model for the summarizer; empty = session model
 #   # Collapse superseded read/grep results to placeholders in the LLM request

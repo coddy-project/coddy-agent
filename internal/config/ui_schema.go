@@ -224,8 +224,8 @@ func UISchemaMap() map[string]interface{} {
 			"Upper bound on completion tokens the model may emit for one assistant message. Ignored by Codex because its backend does not accept max_output_tokens."),
 		"temperature": numProp("Temperature",
 			"Sampling temperature for this logical model (0 = deterministic, higher = more random)."),
-		"max_context_tokens": intProp("Max context tokens (UI hint)",
-			"Optional UI hint for composer context bar; 0 means derive from provider metadata when available."),
+		"max_context_tokens": intProp("Context window (tokens)",
+			"The model's context window: what the composer context ring and automatic compaction measure against. 0 reads it from the provider's model listing when it reports one, else 128000."),
 		"multimodal": boolProp("Multimodal",
 			"When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model."),
 		"reasoning_levels": map[string]interface{}{
@@ -641,8 +641,8 @@ func UISchemaMap() map[string]interface{} {
 		"compaction": objectSchema("Context compaction", "Summarize older conversation history so long sessions keep fitting the model context window.",
 			map[string]interface{}{
 				"enable":            boolProp("Enabled", "Master switch for compaction (manual command and automatic trigger). Defaults to true."),
-				"threshold_percent": intProp("Auto threshold (%)", "Auto-compact when the estimated context reaches this percent of the model's max_context_tokens (1..100, default 80). Models without max_context_tokens skip auto-compaction."),
-				"keep_recent_turns": intProp("Keep recent turns", "How many most recent user turns stay verbatim after compaction (default 2; 0 summarizes everything)."),
+				"threshold_percent": intProp("Auto threshold (%)", "Auto-compact when the estimated context reaches this percent of the model's context window (1..100, default 80): its max_context_tokens, else the window its provider reports, else 128000."),
+				"keep_recent_turns": intProp("Keep recent turns", "How many most recent user turns stay verbatim after compaction (default 2; 0 summarizes everything). With no more turns than that, automatic compaction still folds the older ones and keeps the prompt being answered."),
 				"model":             strProp("Summarizer model", "Optional models[].model for the summarization call; empty uses the session model."),
 				"result_eviction": objectSchema("Read/grep result eviction",
 					"Collapse superseded read/grep results to placeholders when building the LLM request; the persisted transcript is untouched. Only marked (keep_result / keep:true) or most-recent results survive.",

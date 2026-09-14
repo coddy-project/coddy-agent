@@ -22,7 +22,21 @@ Over HTTP the same action is `POST /coddy/sessions/{id}/compact` with an optiona
 
 ## Automatic compaction
 
-The agent estimates the context it is about to send - system prompt, tool definitions, rules, skills, MCP and the conversation - and compares it with the model's `max_context_tokens`. When the estimate reaches `compaction.threshold_percent` of it (80 by default) the history is compacted before the call: once before the first model call of a turn, and again between rounds when tool results grew the context past the threshold mid-turn. A model entry without `max_context_tokens` in `config.yaml` never compacts automatically; `/compact` still works. Automatic compaction is not forced: it needs more user turns than `keep_recent_turns` in the visible window, and any failure - nothing to compact, a summariser error, a hook veto - is logged and the turn continues uncompacted.
+The agent estimates the context it is about to send - system prompt, tool definitions, rules, skills, MCP and the conversation - and compares it with the context window of the session's model. When the estimate reaches `compaction.threshold_percent` of the window (80 by default) the history is compacted before the call: once before the first model call of a turn, a turn resumed after a permission answer included, and again between rounds when tool results grew the context past the threshold mid-turn. Any failure - a summariser error, a hook veto - is logged and the turn continues uncompacted.
+
+### The context window
+
+Every reader resolves the window the same way - the trigger, the `usage_update` behind the console's context percentage, and the `max_context_tokens` of `GET /v1/models` that the web UI draws its context ring against - so what the ring shows is what the trigger measures:
+
+1. the model entry's `max_context_tokens`;
+2. the window the provider's model listing reports for the model: `limit.context` (the NeuralDeep hub), `context_length` (OpenRouter), `max_model_len` (vLLM), `max_context_length` (LM Studio) or `context_window`. The listing is read for `neuraldeep` providers and for `openai` providers with an explicit `api_base`, never for api.openai.com, Anthropic or Codex, whose listings carry no window. It is read when a turn starts or the model list is served, with a turn waiting at most three seconds for a listing that has never answered, and it is trusted for an hour; a failed read is retried after five minutes;
+3. 128000.
+
+Set `max_context_tokens` when the provider reports no window, or a larger one than the deployment actually serves (a local server started with a smaller context).
+
+### Few long turns
+
+Automatic compaction keeps `keep_recent_turns` user turns verbatim when the window holds more than that. When it does not - a session of a few long agent turns, where the context outgrows the window without many prompts - it keeps fewer, down to the prompt being answered, which it never folds. With only that prompt in the window there is nothing to compact: the turn logs it once and continues.
 
 ## What is kept and what is summarised
 
@@ -59,7 +73,7 @@ Eviction is the second projection over the same history: the persisted transcrip
 ```yaml
 compaction:
   enable: true             # master switch: the command and the automatic trigger
-  threshold_percent: 80    # auto-compact at this percent of models[].max_context_tokens (1..100)
+  threshold_percent: 80    # auto-compact at this percent of the model's context window (1..100)
   keep_recent_turns: 2     # user turns kept verbatim; 0 summarises everything
   model: ""                # models[].model for the summariser; empty = the session's model
   result_eviction:
@@ -71,16 +85,17 @@ compaction:
 | Key | Default | Meaning |
 |---|---|---|
 | `enable` | `true` | compaction at all: the command, the REST route and the automatic trigger |
-| `threshold_percent` | `80` | the automatic trigger, as a percent of the model's `max_context_tokens` |
+| `threshold_percent` | `80` | the automatic trigger, as a percent of the model's [context window](#the-context-window) |
 | `keep_recent_turns` | `2` | user turns (with the activity after each) that stay verbatim |
 | `model` | `""` | a `models[].model` for the summariser when the session's model should not summarise its own history |
 | `result_eviction.enable` | `true` | collapse superseded `read` and `grep` results |
 | `result_eviction.keep_recent` | `2` | most recent candidates kept as the working window |
 | `result_eviction.min_result_bytes` | `2000` | results at or below this size are left alone |
 
-The field table with types and validation is in the [config.yaml reference](../reference/config.md#compaction); the keys are ordinary settings, editable in the **Context compaction** section of the web UI's Settings. The one thing a model entry needs for the automatic trigger is `max_context_tokens`: without it the threshold has nothing to compare against.
+The field table with types and validation is in the [config.yaml reference](../reference/config.md#compaction); the keys are ordinary settings, editable in the **Context compaction** section of the web UI's Settings. The window the threshold is a percent of belongs to the model entry: its `max_context_tokens`, else what its provider reports, else 128000 ([The context window](#the-context-window)).
 
 ## Testing
 
-- Executable specs in `features/`: `context_compaction.feature` (the kept turns, the summary in the next request, the smaller context over ACP; harness `internal/agent/bdd_compaction_test.go`), `context_compaction_command.feature` (`/compact` over the prompt surface and the REST endpoint; `external/httpserver/bdd_compaction_http_test.go`), `context_compaction_auto.feature` (a prompt over the threshold compacts before the reply; `external/httpserver/bdd_compaction_auto_test.go`), `context_result_eviction.feature` (marked pages and searches survive, unmarked ones collapse, the output limit; `internal/agent/bdd_result_eviction_test.go`).
-- Unit tests: `internal/session/compaction_test.go` (the split index and the visible window), `internal/agent/result_eviction_test.go` (pins, staleness, placeholders), `internal/config/compaction_test.go` (defaults and validation).
+- Executable specs in `features/`: `context_compaction.feature` (the kept turns, the summary in the next request, the smaller context over ACP; harness `internal/agent/bdd_compaction_test.go`), `context_compaction_command.feature` (`/compact` over the prompt surface and the REST endpoint; `external/httpserver/bdd_compaction_http_test.go`), `context_compaction_auto.feature` (a prompt over the threshold compacts before the reply, and a model without `max_context_tokens` compacts at the window its provider reports, the one `GET /v1/models` shows; `external/httpserver/bdd_compaction_auto_test.go`), `context_result_eviction.feature` (marked pages and searches survive, unmarked ones collapse, the output limit; `internal/agent/bdd_result_eviction_test.go`).
+- Unit tests: `internal/session/compaction_test.go` (the split index and the visible window), `internal/session/context_window_test.go` (the resolution order, which providers are asked, the listing cache and its bounded wait), `internal/llm/model_list_test.go` (the window fields of a listing), `internal/agent/react_test.go` (the threshold, the fewer kept turns, the resumed turn), `internal/agent/result_eviction_test.go` (pins, staleness, placeholders), `internal/config/compaction_test.go` (defaults and validation).
+- Live: `examples/httpserver/http_e2e_compact_auto.py` boots its own `coddy serve` on a real provider with a model that has no `max_context_tokens` and checks that the web UI's window, the stream's `usage_update` and the trigger agree and that the session compacts without `/compact`.

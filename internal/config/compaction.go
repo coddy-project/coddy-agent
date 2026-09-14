@@ -8,7 +8,7 @@ import (
 // Defaults for the compaction section when YAML omits values.
 const (
 	// CompactionDefaultThresholdPercent triggers auto-compaction when the estimated
-	// context reaches this percent of the model's max_context_tokens.
+	// context reaches this percent of the model's context window.
 	CompactionDefaultThresholdPercent = 80
 	// CompactionDefaultKeepRecentTurns is how many recent user turns stay verbatim.
 	CompactionDefaultKeepRecentTurns = 2
@@ -35,14 +35,16 @@ type Compaction struct {
 	// A nil pointer means the default (true).
 	Enabled *bool `yaml:"enable"`
 	// ThresholdPercent fires auto-compaction when the estimated context usage
-	// reaches this percent of the effective model's max_context_tokens
-	// (default 80, valid 1..100). Models without max_context_tokens skip
-	// auto-compaction; the manual command still works.
+	// reaches this percent of the effective model's context window (default
+	// 80, valid 1..100): its max_context_tokens, else the window its
+	// provider's model listing reports, else DefaultContextWindowTokens.
 	ThresholdPercent int `yaml:"threshold_percent"`
 	// KeepRecentTurns is how many most recent user turns (each with the agent
 	// replies and tool activity after it) stay verbatim; only history before
 	// that boundary is summarized. A nil pointer means the default (2); an
-	// explicit 0 summarizes the whole window.
+	// explicit 0 summarizes the whole window. When the window holds no more
+	// user turns than this, a compaction keeps fewer: the automatic trigger
+	// down to the prompt being answered, the manual command down to none.
 	KeepRecentTurns *int `yaml:"keep_recent_turns"`
 	// Model optionally selects the models[].model used for the summarization
 	// call. Empty means the session's effective model.
