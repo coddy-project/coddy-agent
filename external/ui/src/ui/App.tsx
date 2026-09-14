@@ -90,6 +90,7 @@ import { stableMemoryCopilotItemId } from "./chat/memoryStableId";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
 import type { ProviderUsage } from "./chat/providerUsage";
 import type { WorkspaceContext } from "./chat/workspaceContext";
+import { setHostShell } from "./chat/hostShell";
 import {
   injectBranchNavItems,
   deduplicateBranchNavs,
@@ -1292,7 +1293,10 @@ export function App() {
         headers: sid ? { [HDR]: sid } : {},
       });
       if (res.ok) {
-        setWorkspaceCtx((await res.json()) as WorkspaceContext);
+        const ctx = (await res.json()) as WorkspaceContext;
+        setWorkspaceCtx(ctx);
+        // Host fact, not a workspace one: the tool cards name the interpreter.
+        setHostShell(ctx.shell);
       }
     } catch {
       // ignore: chips keep the previous context

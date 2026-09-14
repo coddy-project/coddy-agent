@@ -596,7 +596,7 @@ func openAPISpec() map[string]interface{} {
 					"summary": "Workspace context for the composer chips (folder, git branch, worktree)",
 					"description": "Describes the workspace of the session in **`X-Coddy-Session-ID`** (or the server default cwd without the header). " +
 						"With **`path`** the given folder is described instead (pre-session preview); a missing folder yields **400**. " +
-						"Inside a git repository the payload adds **`repo_root`**, **`branch`**, **`branches`**, and **`worktrees`** (from `git worktree list`); **`is_worktree`** is true when the workspace is a linked (non-main) worktree.",
+						"Inside a git repository the payload adds **`repo_root`**, **`branch`**, **`branches`**, and **`worktrees`** (from `git worktree list`); **`is_worktree`** is true when the workspace is a linked (non-main) worktree. **`shell`** is the interpreter `run_command` executes through on the server host.",
 					"operationId": "coddyWorkspaceContextGet",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -3211,7 +3211,12 @@ func openAPISpec() map[string]interface{} {
 						"name":        map[string]string{"type": "string"},
 						"is_git_repo": map[string]string{"type": "boolean"},
 						"is_worktree": map[string]string{"type": "boolean"},
-						"repo_root":   map[string]string{"type": "string"},
+						"shell": map[string]string{
+							"type":        "string",
+							"description": "Path of the interpreter run_command executes through on the server host.",
+							"example":     "/usr/bin/bash",
+						},
+						"repo_root": map[string]string{"type": "string"},
 						"branch":      map[string]string{"type": "string"},
 						"branches": map[string]interface{}{
 							"type":  "array",
@@ -3233,7 +3238,7 @@ func openAPISpec() map[string]interface{} {
 							"description": "Session id (present on POST /coddy/sessions/{id}/workspace responses).",
 						},
 					},
-					"required": []string{"object", "path", "name", "is_git_repo", "is_worktree"},
+					"required": []string{"object", "path", "name", "is_git_repo", "is_worktree", "shell"},
 				},
 			},
 		},

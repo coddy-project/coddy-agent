@@ -2973,36 +2973,16 @@ a.rail-brand {
   > .permission-preview
   .permission-preview-viewport {
   border-radius: 0;
+  /* The output continues the same panel, so the viewport draws no closing edge. */
+  border-bottom: 0;
 }
 
-.tool-call-result-head {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 34px;
-  padding: 6px 10px;
-  box-sizing: border-box;
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 5%, var(--coddy-surface-inset));
-  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.tool-call-result-dot {
-  width: 6px;
-  height: 6px;
+/* Output needs no label: it is the only thing under the call. A failure is said once,
+   on the summary row, where it is readable without expanding the card. */
+.tool-failed-marker {
   flex: 0 0 auto;
-  border-radius: 999px;
-  background: color-mix(in srgb, #5fcf84 72%, var(--text));
-  box-shadow: 0 0 0 3px color-mix(in srgb, #5fcf84 11%, transparent);
-}
-
-.tool-call-result-card--failed .tool-call-result-dot {
-  background: color-mix(in srgb, #ff6b6b 78%, var(--text));
-  box-shadow: 0 0 0 3px color-mix(in srgb, #ff6b6b 11%, transparent);
+  color: color-mix(in srgb, var(--diff-del-no) 82%, var(--text));
+  font-size: 12px;
 }
 
 .tool-call-result-content {
@@ -3320,19 +3300,39 @@ a.rail-brand {
   position: absolute;
   top: 4px;
   right: 5px;
-  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
   border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
   /* Theme-aware glass: dark frosted on dark themes, frosted white on light
      (was hardcoded dark rgba, which read as a dark blob on the light theme). */
   background: var(--coddy-glass-panel-bg);
-  color: color-mix(in srgb, var(--text) 85%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
   cursor: pointer;
   font-size: 12px;
-  padding: 6px 10px;
+  line-height: 0;
+  padding: 5px;
 }
 
 .md-copy:hover {
   background: color-mix(in srgb, var(--text) 8%, var(--coddy-glass-panel-bg));
+  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
+}
+
+.md-copy:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 2px;
+}
+
+.md-copy:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.md-copy__glyph {
+  display: block;
+  flex-shrink: 0;
 }
 
 .token-bar {
@@ -7958,10 +7958,62 @@ html:not([data-theme="light"]) .context-usage-note--error {
   position: static;
   flex: 0 0 auto;
   border-radius: 8px;
-  padding: 3px 7px;
+  padding: 4px;
   font-size: 10px;
   color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
   background: transparent;
+}
+
+/* run_command reads as input: the command sits in its own inset panel inside the
+   card, behind a shell prompt, rather than as loose body text under the header. */
+.permission-preview-shell {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  margin: 10px 12px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--text) 11%, var(--coddy-blend-base));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+}
+
+/* The copy control belongs to the command line itself, so it sits in the block's
+   last column instead of floating over the card header. */
+.permission-preview-shell .md-copy {
+  position: static;
+  align-self: start;
+  flex: 0 0 auto;
+  margin: -2px -2px 0 0;
+  padding: 4px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.permission-preview-shell .md-copy:hover {
+  border-color: color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 8%, var(--coddy-glass-panel-bg));
+}
+
+.permission-preview-shell-prompt {
+  color: var(--accent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+  user-select: none;
+}
+
+.permission-preview-shell-code {
+  margin: 0;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
 }
 
 .permission-preview-viewport {
@@ -8099,7 +8151,8 @@ html:not([data-theme="light"]) .context-usage-note--error {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
-.todo-tool-preview-row--in_progress .todo-tool-preview-mark {
+.todo-tool-preview-row--in_progress .todo-tool-preview-mark,
+.todo-tool-preview-mark--in_progress {
   border-color: var(--accent);
   border-radius: 50%;
   background: linear-gradient(
@@ -8109,7 +8162,8 @@ html:not([data-theme="light"]) .context-usage-note--error {
   );
 }
 
-.todo-tool-preview-row--completed .todo-tool-preview-mark {
+.todo-tool-preview-row--completed .todo-tool-preview-mark,
+.todo-tool-preview-mark--completed {
   border-color: var(--coddy-todo-completed);
   background: var(--coddy-todo-completed);
 }
@@ -8118,13 +8172,15 @@ html:not([data-theme="light"]) .context-usage-note--error {
   color: color-mix(in srgb, var(--text) 57%, var(--coddy-blend-base));
 }
 
-.todo-tool-preview-row--failed .todo-tool-preview-mark {
+.todo-tool-preview-row--failed .todo-tool-preview-mark,
+.todo-tool-preview-mark--failed {
   border-color: var(--diff-del-no);
   background: color-mix(in srgb, var(--diff-del-no) 14%, transparent);
   color: var(--diff-del-no);
 }
 
-.todo-tool-preview-row--cancelled .todo-tool-preview-mark {
+.todo-tool-preview-row--cancelled .todo-tool-preview-mark,
+.todo-tool-preview-mark--cancelled {
   color: color-mix(in srgb, var(--text) 46%, var(--coddy-blend-base));
 }
 
@@ -8201,6 +8257,87 @@ html:not([data-theme="light"]) .context-usage-note--error {
 .plan-exit-preview-mode--agent {
   color: var(--accent);
   font-weight: 650;
+}
+
+/* A call that takes no arguments has no input to preview, so its card is the shared
+   bar alone: the action on the left, its state on the right, and the same status mark
+   the todo rows use, so the plan tools and this one read as one family. */
+.permission-preview-bar > .todo-tool-preview-mark {
+  margin-top: 0;
+}
+
+.permission-preview-bar > .todo-tool-preview-mark + .permission-preview-location {
+  font-family: inherit;
+  font-size: 12px;
+}
+
+/* Label, target and duration are one non-wrapping unit: the row stays a single line and
+   the target is what gives way, clipped with an ellipsis. A background-task chip is left
+   outside the unit, so it can still wrap below on a phone. */
+.thinking-head {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 auto;
+  gap: 0 6px;
+  min-width: 0;
+}
+
+.thinking-head .thinking-label,
+.thinking-head .thinking-dur {
+  flex: 0 0 auto;
+}
+
+/* The path, command or skill a call names, one shade lighter than the tool label. */
+.tool-summary-target {
+  flex: 0 1 auto;
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--text) 40%, var(--coddy-blend-base));
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+/* A rendered skill body replaces the monospace result panel with prose: the panel's
+   own mono stack would keep the markdown looking like raw tool output. */
+.tool-call-result-content--markdown {
+  padding: 10px 14px;
+  font-family:
+    system-ui,
+    -apple-system,
+    Segoe UI,
+    sans-serif;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.tool-call-result-content--markdown .md-code {
+  margin: 8px 0;
+}
+
+/* The card is narrower than the transcript column, so the list indent that works in an
+   assistant answer would push the text under the marker here. */
+.tool-call-result-content--markdown :where(ul, ol) {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.tool-call-result-content--markdown :where(li) {
+  margin: 4px 0;
+  padding-left: 2px;
+}
+
+.tool-call-result-content--markdown :where(li)::marker {
+  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+}
+
+.tool-call-result-content--markdown :where(h1, h2, h3, h4) {
+  margin: 14px 0 6px;
+}
+
+.tool-call-result-content--markdown > :where(h1, h2, h3, h4):first-child {
+  margin-top: 0;
 }
 
 .plan-exit-preview-message {

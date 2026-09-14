@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/gitws"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -29,6 +30,10 @@ func workspaceContextPayload(cwd string) map[string]interface{} {
 		"name":        filepath.Base(info.Path),
 		"is_git_repo": info.IsGitRepo,
 		"is_worktree": info.IsWorktree,
+		// The interpreter run_command goes through. It belongs to the machine, not to
+		// the folder, but this is the host fact the SPA already asks for, and the tool
+		// card names the shell rather than calling everything "Shell".
+		"shell": platform.CurrentShell().Path,
 	}
 	if info.IsGitRepo {
 		payload["repo_root"] = info.RepoRoot

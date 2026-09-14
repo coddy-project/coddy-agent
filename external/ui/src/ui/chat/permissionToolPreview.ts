@@ -10,6 +10,8 @@ import {
 import { permissionPromptDetail } from "./permissionPromptDisplay";
 import type { CoddyPermissionPayload } from "./permissionTypes";
 import { permissionBodyText } from "./permissionTypes";
+import { parseLoadSkillName } from "./loadSkillDisplay";
+import { toolDisplayName } from "../messages/toolDisplayName";
 import { t, tp } from "../i18n/i18n";
 
 export type PermissionToolCallContext = {
@@ -30,6 +32,8 @@ type PermissionPreviewBase = {
 
 export type PermissionToolPreview =
   | (PermissionPreviewBase & { kind: "code"; text: string })
+  | (PermissionPreviewBase & { kind: "shell"; text: string })
+  | (PermissionPreviewBase & { kind: "action" })
   | (PermissionPreviewBase & { kind: "path" })
   | (PermissionPreviewBase & {
       kind: "move";
@@ -136,6 +140,9 @@ export function toolCallTargetText(context: PermissionToolCallContext): string {
       return stringArg(args, "src");
     case "spawn_agent":
       return stringArg(args, "agent");
+    case "load_skill":
+      // Same spelling as the preview header: no leading slash, however it was called.
+      return parseLoadSkillName(context.argsText);
     case "question":
       return "";
     default:
@@ -244,6 +251,19 @@ function diffMeta(lines: ParsedDiffLine[]): string[] {
   return ["+" + additions, "−" + deletions];
 }
 
+/**
+ * Whether a preview body carries nothing but an empty argument object. Decided on the
+ * parsed value, so `{ }` and a pretty-printed `{\n}` count as empty too, while text that
+ * does not parse - a truncated history preview, an ACP rationale - stays a body worth
+ * showing rather than being mistaken for a call without arguments.
+ */
+function isEmptyArgsText(text: string): boolean {
+  const raw = text.trim();
+  if (raw === "") return true;
+  const parsed = parseArgsText(raw);
+  return parsed !== null && Object.keys(parsed).length === 0;
+}
+
 /** Tool-specific, render-ready preview shared by permission gates and transcript foldouts. */
 export function buildToolCallPreview(
   context: PermissionToolCallContext,
@@ -297,8 +317,22 @@ export function buildToolCallPreview(
           : t("permission.header.shell"),
       meta: [t("permission.meta.timeout", { seconds: timeout })],
       copyText: command,
-      kind: "code",
+      kind: "shell",
       text: command,
+    };
+  }
+
+  if (normalized === "load_skill") {
+    // The skill is what the call is about, and the transcript row already names it next
+    // to the label; a `{"name": "..."}` code block would only repeat it.
+    const skill = parseLoadSkillName(context.argsText);
+    return {
+      toolName,
+      title,
+      header: skill,
+      meta: [],
+      copyText: skill,
+      kind: "path",
     };
   }
 
@@ -486,6 +520,18 @@ export function buildToolCallPreview(
   const text =
     fallback ||
     (Object.keys(args).length > 0 ? JSON.stringify(args, null, 2) : "");
+  // A call that takes no input has nothing to preview, and an empty JSON object is not
+  // information. Name the action instead, the way plan_exit names its transition.
+  if (Object.keys(args).length === 0 && isEmptyArgsText(text)) {
+    return {
+      toolName,
+      title,
+      header: toolDisplayName(toolName),
+      meta: [],
+      copyText: "",
+      kind: "action",
+    };
+  }
   return {
     toolName,
     title,

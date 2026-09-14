@@ -27,7 +27,11 @@ test("spawn_agent displays agent identity, description, prompt and timeout", () 
     />,
   );
   expect(screen.getByLabelText("Agent details")).toBeInTheDocument();
-  expect(screen.getByText("explore")).toBeInTheDocument();
+  // The agent is named twice on purpose: on the collapsed summary row and on the card.
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent("explore");
+  expect(
+    screen.getByLabelText("Agent details").querySelector(".spawn-agent-name"),
+  ).toHaveTextContent("explore");
   expect(screen.getByText("Investigate tests and agents")).toBeInTheDocument();
   expect(screen.getByLabelText("Agent prompt").textContent).toBe(
     JSON.parse(args).prompt,

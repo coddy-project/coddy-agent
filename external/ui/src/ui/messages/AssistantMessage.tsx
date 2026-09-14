@@ -12,9 +12,14 @@ export const AssistantMessage = memo(function AssistantMessage(props: {
   content: string;
   streaming?: boolean;
   createdAtUtc?: string;
+  /** Only the answer that hands the turn back carries the action row. The answers a
+   *  turn leaves behind between tool calls would stack the same copy button and the
+   *  same minute over and over, which reads as chrome rather than as information. */
+  showFoot?: boolean;
 }) {
   const { t } = useT();
   const showFoot =
+    props.showFoot !== false &&
     !props.streaming &&
     (props.content.trim() !== "" || Boolean(props.createdAtUtc));
   const timeHM = props.createdAtUtc

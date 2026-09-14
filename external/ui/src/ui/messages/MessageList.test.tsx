@@ -217,7 +217,7 @@ test("tool call message uses thinking-row wrapper next to thinking row", () => {
 
   render(<MessageList items={items} />);
 
-  const wrapper = screen.getByText("write_file").closest(".thinking-row");
+  const wrapper = screen.getByText("writing a file").closest(".thinking-row");
   expect(wrapper).toBeTruthy();
   expect(wrapper).toHaveClass("coddy-tool-call-row");
 
@@ -284,4 +284,114 @@ test("compaction summary renders as a foldout, not a user bubble", () => {
     screen.getByLabelText("Context compacted summary"),
   ).toBeInTheDocument();
   expect(screen.getByText(/Key facts preserved here/)).toBeInTheDocument();
+});
+
+test("only the answer that hands the turn back carries an action row", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "Go" },
+    {
+      id: "a1",
+      type: "assistant_message",
+      content: "Reading the file.",
+      createdAtUtc: "2026-01-01T10:00:00.000Z",
+    },
+    {
+      id: "t1",
+      type: "tool_call",
+      toolCallId: "call_1",
+      title: "read",
+      kind: "read",
+      status: "completed",
+      argsText: '{"path":"a.txt"}',
+      resultText: "OK",
+    },
+    {
+      id: "a2",
+      type: "assistant_message",
+      content: "Done.",
+      createdAtUtc: "2026-01-01T10:00:04.000Z",
+    },
+  ];
+
+  const { container } = render(<MessageList items={items} />);
+
+  expect(screen.getAllByTestId("assistant-message-copy")).toHaveLength(1);
+  expect(container.querySelectorAll(".msg-assistant-foot")).toHaveLength(1);
+  // The copy button and the minute both belong to the closing answer, not to the
+  // answers the turn left behind between tool calls.
+  const closing = screen.getByText("Done.").closest(".msg-assistant")!;
+  expect(within(closing).getByTestId("assistant-message-copy")).toBeTruthy();
+  const intermediate = screen
+    .getByText("Reading the file.")
+    .closest(".msg-assistant")!;
+  expect(intermediate.querySelector(".msg-assistant-foot")).toBeNull();
+});
+
+test("a turn still in flight offers no copy control on its last answer", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "Go" },
+    { id: "a1", type: "assistant_message", content: "Working on it." },
+    {
+      id: "t1",
+      type: "tool_call",
+      toolCallId: "call_1",
+      title: "read",
+      kind: "read",
+      status: "in_progress",
+      argsText: '{"path":"a.txt"}',
+    },
+  ];
+
+  const { container } = render(<MessageList items={items} generating />);
+
+  expect(screen.queryByTestId("assistant-message-copy")).toBeNull();
+  expect(container.querySelector(".msg-assistant-foot")).toBeNull();
+});
+
+test("every finished turn keeps the action row on the answer that closed it", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "First" },
+    { id: "a1", type: "assistant_message", content: "Looking." },
+    {
+      id: "t1",
+      type: "tool_call",
+      toolCallId: "call_1",
+      title: "read",
+      kind: "read",
+      status: "completed",
+      argsText: '{"path":"a.txt"}',
+      resultText: "OK",
+    },
+    { id: "a2", type: "assistant_message", content: "First answer." },
+    { id: "u2", type: "user_message", content: "Second" },
+    { id: "a3", type: "assistant_message", content: "Second answer." },
+  ];
+
+  render(<MessageList items={items} />);
+
+  // One per turn: the older answer stays copyable, the mid-turn one does not.
+  expect(screen.getAllByTestId("assistant-message-copy")).toHaveLength(2);
+  expect(
+    screen.getByText("First answer.").closest(".msg-assistant")!
+      .querySelector(".msg-assistant-foot"),
+  ).not.toBeNull();
+  expect(
+    screen.getByText("Looking.").closest(".msg-assistant")!
+      .querySelector(".msg-assistant-foot"),
+  ).toBeNull();
+});
+
+test("a new turn does not strip the action row off the previous answer", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "First" },
+    { id: "a1", type: "assistant_message", content: "First answer." },
+    { id: "u2", type: "user_message", content: "Second" },
+  ];
+
+  render(<MessageList items={items} generating />);
+
+  expect(
+    screen.getByText("First answer.").closest(".msg-assistant")!
+      .querySelector(".msg-assistant-foot"),
+  ).not.toBeNull();
 });
