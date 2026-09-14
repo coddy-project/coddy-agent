@@ -211,6 +211,91 @@ func TestDetachedPermissionShortCircuitsUnderBypass(t *testing.T) {
 	}
 }
 
+// A console attached over --remote shows no task rows, so the prompt is also
+// announced on the server's events stream: once when it is asked, with what the
+// client needs to render and answer it, and once when it is settled, so a
+// client that did not answer takes its copy down.
+func TestDetachedPermissionIsAnnouncedOnTheEventsStream(t *testing.T) {
+	srv, ts := newDetachedPermissionServer(t)
+	body, closeEvents := subscribeEvents(t, ts, "")
+	defer closeEvents()
+	readEventFrames(t, body, "event: ready")
+
+	childID := session.NewSessionID()
+	const toolCallID = "call_announced"
+	answered := make(chan *acp.PermissionResult, 1)
+	go func() {
+		res, _ := srv.RequestDetachedPermission(context.Background(), detachedRequest(childID, toolCallID))
+		answered <- res
+	}()
+
+	asked := readEventFrames(t, body, `"phase":"asked"`)
+	for _, want := range []string{
+		"event: subagent_permission",
+		`"object":"coddy.subagent_permission"`,
+		`"parentSessionId":"sess_parent"`,
+		`"childSessionId":"` + childID + `"`,
+		`"taskId":"bg_detached"`,
+		`"agentName":"reviewer"`,
+		`"toolCallId":"` + toolCallID + `"`,
+		`"optionId":"allow"`,
+	} {
+		if !strings.Contains(asked, want) {
+			t.Fatalf("asked frame lacks %s: %s", want, asked)
+		}
+	}
+
+	status, _ := httpJSON(t, ts, http.MethodPost, "/coddy/sessions/"+childID+"/permission",
+		`{"toolCallId":"`+toolCallID+`","optionId":"allow"}`, nil)
+	if status != http.StatusNoContent {
+		t.Fatalf("answer status = %d, want 204", status)
+	}
+	<-answered
+	settled := readEventFrames(t, body, `"phase":"settled"`)
+	if !strings.Contains(settled, `"childSessionId":"`+childID+`"`) || !strings.Contains(settled, `"toolCallId":"`+toolCallID+`"`) {
+		t.Fatalf("settled frame does not name the prompt: %s", settled)
+	}
+}
+
+// A client that connects while a subagent is already waiting would otherwise
+// never hear about that prompt, so the connect-time snapshot repeats it.
+func TestEventsStreamReplaysAWaitingDetachedPrompt(t *testing.T) {
+	srv, ts := newDetachedPermissionServer(t)
+	childID := session.NewSessionID()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _, _ = srv.RequestDetachedPermission(ctx, detachedRequest(childID, "call_replayed")) }()
+	waitForDetachedPrompt(t, childID)
+
+	body, closeEvents := subscribeEvents(t, ts, "")
+	defer closeEvents()
+	snapshot := readEventFrames(t, body, "event: ready")
+	if !strings.Contains(snapshot, "event: subagent_permission") || !strings.Contains(snapshot, `"childSessionId":"`+childID+`"`) {
+		t.Fatalf("connect-time snapshot missed the waiting prompt: %s", snapshot)
+	}
+}
+
+// A turn this server builds itself hands its detached subagents the broker it
+// was given, so their prompts reach every surface of the process.
+func TestServerHandsItsTurnsTheProcessBroker(t *testing.T) {
+	srv, _ := newDetachedPermissionServer(t)
+	if srv.detachedPromptBroker() != srv {
+		t.Fatal("a server with no process broker must ask through itself")
+	}
+	process := &countingBroker{}
+	srv.SetDetachedPrompts(process)
+	if srv.detachedPromptBroker() != process {
+		t.Fatal("the process broker was not used")
+	}
+}
+
+type countingBroker struct{ calls int }
+
+func (b *countingBroker) RequestDetachedPermission(context.Context, agent.DetachedPermissionRequest) (*acp.PermissionResult, error) {
+	b.calls++
+	return nil, agent.ErrNoDetachedApprover
+}
+
 // A request that names no child or no tool call cannot be answered by anyone,
 // so it is not published as if it could.
 func TestDetachedPermissionWithoutIdsIsNotPublished(t *testing.T) {

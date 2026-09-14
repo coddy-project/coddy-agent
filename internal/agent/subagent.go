@@ -53,24 +53,27 @@ type DetachedPermissionRequest struct {
 	Params acp.PermissionRequestParams
 }
 
-// DetachedPermissionBroker publishes a detached child's permission prompt to a
-// surface that can still reach the user, and blocks until it is answered or
+// DetachedPermissionBroker shows a detached child's permission prompt where the
+// person reading the parent conversation is, and blocks until it is answered or
 // ctx - the run's own context - ends.
 //
 // Same shape as SubagentRuntime: the agent declares what it needs, the surface
-// implements it. Only a surface with somewhere to put a prompt that outlives a
-// turn provides one - the HTTP server hangs it on the background task row. A
-// surface that does not (the console, ACP) leaves it unset, and the relay
-// refuses with a reason the child can report instead of silently reading as
-// "the user said no".
+// implements it. Only a surface that can ask somebody after a turn has ended
+// provides one: the interactive console asks through its modal, and coddy serve
+// offers the prompt to every surface of the process at once (the web chat of
+// the parent session, a console attached over --remote, the Telegram chat that
+// owns the session), the first answer winning. A surface that cannot (ACP,
+// print mode, a scheduled run) leaves it unset, and the relay refuses with a
+// reason the child can report instead of silently reading as "the user said
+// no".
 type DetachedPermissionBroker interface {
 	RequestDetachedPermission(ctx context.Context, req DetachedPermissionRequest) (*acp.PermissionResult, error)
 }
 
 // ErrNoDetachedApprover is what a broker answers when nothing that could show
-// the prompt is attached right now - coddy serve installs its broker through a
-// slot that stays empty until the HTTP surface is up. The relay reads it
-// exactly like a missing broker.
+// the prompt is attached right now - in coddy serve, no surface is up, or none
+// of them owns the parent conversation. The relay reads it exactly like a
+// missing broker.
 var ErrNoDetachedApprover = errors.New("no surface can show a detached subagent's permission prompt")
 
 // SetDetachedPermissionBroker wires the surface that can answer a detached
@@ -291,14 +294,14 @@ func (r *permissionRelay) Request(ctx context.Context, params acp.PermissionRequ
 	}
 }
 
-// requestDetached publishes the prompt to the surface that can still reach the
-// user - the background task row the run belongs to - and blocks until it is
-// answered, the child is stopped, or the run's own deadline passes.
+// requestDetached hands the prompt to the broker, which shows it where the
+// parent conversation is read, and blocks until it is answered, the child is
+// stopped, or the run's own deadline passes.
 //
 // It deliberately does not take the arbiter slot. The arbiter serialises
 // prompts inside one parent chat because the parent holds a single pending
-// record; a detached prompt hangs on its own task instead, and a wait that can
-// last minutes must not block a sibling's live prompt.
+// record; a detached prompt is keyed by its own child session instead, and a
+// wait that can last minutes must not block a sibling's live prompt.
 func (r *permissionRelay) requestDetached(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
 	if r.broker == nil {
 		return deniedPermission(permissionReasonNoApprover), nil

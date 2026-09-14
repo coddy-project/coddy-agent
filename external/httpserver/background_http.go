@@ -99,8 +99,9 @@ type backgroundTaskRow struct {
 	Overdue        bool `json:"overdue"`
 	Running        bool `json:"running"`
 	// PendingPermission is set while a detached subagent behind this task is
-	// blocked on a permission prompt. The join happens here rather than in
-	// bgtask, which must not learn about the ACP types.
+	// blocked on a permission prompt; the web UI shows it in the parent chat.
+	// The join happens here rather than in bgtask, which must not learn about
+	// the ACP types.
 	PendingPermission *detachedPermissionDTO `json:"pending_permission,omitempty"`
 }
 

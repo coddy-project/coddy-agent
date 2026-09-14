@@ -9,6 +9,7 @@ package httpserver
 import (
 	"log/slog"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
@@ -50,10 +51,15 @@ type Options struct {
 	// write the operator's password into config.yaml.
 	ExtraLogin LoginCredentials
 	// OnServer, when set, is handed the live server as it comes up and nil as
-	// it goes down. It is how the process installs the turn mirror and the
-	// detached subagent permission broker, and how it drops both again when
-	// this subsystem restarts.
+	// it goes down. It is how the process installs the turn mirror and offers
+	// this server as a surface for detached subagent permission prompts, and
+	// how it drops both again when this subsystem restarts.
 	OnServer func(*Server)
+	// DetachedPrompts is the broker a turn this server builds itself (a turn
+	// resumed after a permission answer) hands its detached subagents, so their
+	// prompts reach every surface of the process and not only this server. Nil
+	// means this server alone.
+	DetachedPrompts agent.DetachedPermissionBroker
 }
 
 // LoginCredentials is one web-UI account in plaintext, as the environment

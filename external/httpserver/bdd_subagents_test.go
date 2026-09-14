@@ -9,6 +9,7 @@ package httpserver
 // the pool stops it, so the scenarios observe the REST surface without an LLM.
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -84,6 +85,9 @@ type subagentsHTTPState struct {
 	// scenario left open.
 	detachedAnswers map[string]chan *acp.PermissionResult
 	detachedStops   []context.CancelFunc
+	// eventFrames carries the frames of the scenario's GET /coddy/events
+	// subscription, read by a goroutine so a step can wait with a deadline.
+	eventFrames chan string
 }
 
 func (s *subagentsHTTPState) reset() error {
@@ -102,6 +106,7 @@ func (s *subagentsHTTPState) reset() error {
 	s.body = nil
 	s.taskRow = nil
 	s.detachedAnswers = map[string]chan *acp.PermissionResult{}
+	s.eventFrames = nil
 	return nil
 }
 
@@ -359,6 +364,89 @@ func (s *subagentsHTTPState) detachedPromptWaiting(childID string) error {
 }
 
 // ---- HTTP calls ----
+
+func (s *subagentsHTTPState) subscribeToEvents() error {
+	ctx, cancel := context.WithCancel(context.Background())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.ts.URL+"/coddy/events", nil)
+	if err != nil {
+		cancel()
+		return err
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		cancel()
+		return err
+	}
+	if res.StatusCode != http.StatusOK {
+		cancel()
+		_ = res.Body.Close()
+		return fmt.Errorf("events status %d", res.StatusCode)
+	}
+	frames := make(chan string, 64)
+	go func() {
+		defer close(frames)
+		defer func() { _ = res.Body.Close() }()
+		r := bufio.NewReader(res.Body)
+		var frame strings.Builder
+		for {
+			line, err := r.ReadString('\n')
+			if err != nil {
+				return
+			}
+			if line != "\n" {
+				frame.WriteString(line)
+				continue
+			}
+			select {
+			case frames <- frame.String():
+			case <-ctx.Done():
+				return
+			}
+			frame.Reset()
+		}
+	}()
+	s.eventFrames = frames
+	s.detachedStops = append(s.detachedStops, cancel)
+	return s.awaitEvent("the ready event", func(f string) bool { return strings.Contains(f, "event: ready") })
+}
+
+func (s *subagentsHTTPState) awaitEvent(what string, match func(string) bool) error {
+	if s.eventFrames == nil {
+		return fmt.Errorf("no client is subscribed to the server events")
+	}
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case f, open := <-s.eventFrames:
+			if !open {
+				return fmt.Errorf("the events stream closed before %s", what)
+			}
+			if match(f) {
+				return nil
+			}
+		case <-deadline:
+			return fmt.Errorf("the events stream never carried %s", what)
+		}
+	}
+}
+
+func (s *subagentsHTTPState) eventsAnnouncePrompt(childID string) error {
+	return s.awaitEvent("the prompt of "+childID, func(f string) bool {
+		return strings.Contains(f, "event: subagent_permission") &&
+			strings.Contains(f, `"phase":"asked"`) &&
+			strings.Contains(f, `"childSessionId":"`+childID+`"`) &&
+			strings.Contains(f, `"parentSessionId":"`+s.sessionID+`"`) &&
+			strings.Contains(f, `"agentName":"worker"`)
+	})
+}
+
+func (s *subagentsHTTPState) eventsAnnounceSettled(childID string) error {
+	return s.awaitEvent("the settled prompt of "+childID, func(f string) bool {
+		return strings.Contains(f, "event: subagent_permission") &&
+			strings.Contains(f, `"phase":"settled"`) &&
+			strings.Contains(f, `"childSessionId":"`+childID+`"`)
+	})
+}
 
 func (s *subagentsHTTPState) answerDetachedPrompt(optionID, childID string) error {
 	body := fmt.Sprintf(`{"toolCallId":"call_bdd_detached","optionId":%q}`, optionID)
@@ -746,6 +834,9 @@ func initializeSubagentsHTTPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the server workspace has a subagent definition "([^"]*)" under \.coddy/agents$`, s.workspaceDefinition)
 	sc.Step(`^the server workspace has a bounded subagent definition "([^"]*)" under \.coddy/agents$`, s.workspaceBoundedDefinition)
 	sc.Step(`^the subagent in "([^"]*)" waits for permission to run a command after its parent turn ended$`, s.detachedPromptWaiting)
+	sc.Step(`^a client is subscribed to the server events$`, s.subscribeToEvents)
+	sc.Step(`^the events stream announces the prompt of child session "([^"]*)" for that session$`, s.eventsAnnouncePrompt)
+	sc.Step(`^the events stream announces that the prompt of "([^"]*)" is settled$`, s.eventsAnnounceSettled)
 	sc.Step(`^I answer "([^"]*)" to that prompt against the child session "([^"]*)"$`, s.answerDetachedPrompt)
 	sc.Step(`^that task row carries the pending permission of child session "([^"]*)"$`, s.taskRowCarriesPendingPermission)
 	sc.Step(`^that task row carries no pending permission$`, s.taskRowCarriesNoPendingPermission)

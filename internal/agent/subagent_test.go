@@ -463,11 +463,11 @@ func TestPermissionRelayDenialNamesWhyNobodyWasAsked(t *testing.T) {
 	}
 }
 
-// coddy serve installs the broker through a slot that is empty until the HTTP
-// surface is up. An empty slot is the same situation as no broker at all, and
-// a run stopped while it waits is told it was stopped, not that nobody answered.
+// In coddy serve the broker can find no surface up, or none that owns the
+// parent conversation. That is the same situation as no broker at all, and a
+// run stopped while it waits is told it was stopped, not that nobody answered.
 func TestPermissionRelayDetachedRefusalReasons(t *testing.T) {
-	t.Run("empty broker slot", func(t *testing.T) {
+	t.Run("no surface can show it", func(t *testing.T) {
 		const parentID = "sess_relay_empty_slot"
 		broker := newStubBroker()
 		broker.err = ErrNoDetachedApprover

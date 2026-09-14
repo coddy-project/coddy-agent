@@ -24,8 +24,8 @@ func (*Server) MirrorTurn(_ string, primary acp.UpdateSender) (acp.UpdateSender,
 }
 
 // RequestDetachedPermission satisfies agent.DetachedPermissionBroker without
-// showing anything: a build with no HTTP API has no task row to put a detached
-// subagent's prompt on, so nobody can be asked.
+// showing anything: a build with no HTTP API has no web chat and no remote
+// console to put a detached subagent's prompt in front of.
 func (*Server) RequestDetachedPermission(context.Context, agent.DetachedPermissionRequest) (*acp.PermissionResult, error) {
 	return nil, agent.ErrNoDetachedApprover
 }

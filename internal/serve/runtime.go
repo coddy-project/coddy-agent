@@ -33,8 +33,12 @@ type Runtime struct {
 	mirrorMu sync.RWMutex
 	mirror   session.TurnMirror
 
-	brokerMu sync.RWMutex
-	broker   agent.DetachedPermissionBroker
+	// approvers are the surfaces that offered to show a detached subagent's
+	// permission prompt, keyed by the offer so withdrawing one never takes
+	// another with it.
+	approversMu sync.RWMutex
+	approvers   map[uint64]agent.DetachedPermissionBroker
+	approverSeq uint64
 
 	// cfg is what the process loaded. Once a manager exists it owns the live
 	// pointer, because every reload path replaces it there.
@@ -77,31 +81,98 @@ func (r *Runtime) MirrorTurn(sessionID string, primary acp.UpdateSender) (acp.Up
 
 var _ session.TurnMirror = (*Runtime)(nil)
 
-// SetDetachedPermissionBroker installs (or with nil clears) the surface that
-// shows the permission prompt of a subagent whose parent turn has ended.
+// AddDetachedPermissionApprover offers a surface that can show the permission
+// prompt of a subagent whose parent turn has ended, and returns the function
+// that withdraws exactly this offer.
 //
-// A slot for the same reason as SetTurnMirror: every turn on the shared manager
-// is handed the runtime as its broker when it starts, while the HTTP surface
-// that can actually show the prompt comes up - or is restarted - on its own
+// An offer rather than a constructor argument for the same reason as
+// SetTurnMirror: every turn on the shared manager is handed the runtime as its
+// broker when it starts, while the surfaces that can actually show the prompt -
+// the HTTP server, a messenger bot - come up, or are restarted, on their own
 // schedule. A detached child asks at whatever moment it needs to, so the
-// question is settled then, not when its parent's turn began.
-func (r *Runtime) SetDetachedPermissionBroker(b agent.DetachedPermissionBroker) {
-	r.brokerMu.Lock()
-	r.broker = b
-	r.brokerMu.Unlock()
+// question is settled then, not when its parent's turn began. Withdrawing is
+// keyed by the offer because a restarted surface can come up before the old one
+// has finished stopping.
+func (r *Runtime) AddDetachedPermissionApprover(b agent.DetachedPermissionBroker) (withdraw func()) {
+	if b == nil {
+		return func() {}
+	}
+	r.approversMu.Lock()
+	r.approverSeq++
+	id := r.approverSeq
+	if r.approvers == nil {
+		r.approvers = make(map[uint64]agent.DetachedPermissionBroker)
+	}
+	r.approvers[id] = b
+	r.approversMu.Unlock()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			r.approversMu.Lock()
+			delete(r.approvers, id)
+			r.approversMu.Unlock()
+		})
+	}
 }
 
 // RequestDetachedPermission implements agent.DetachedPermissionBroker by
-// delegating to the installed broker. With none installed nobody can be asked,
-// and the relay turns agent.ErrNoDetachedApprover into a refusal that says so.
+// offering the prompt to every surface at once: the person reading that
+// conversation may be in a browser, in a console attached to this server or in
+// a messenger chat, and the runtime cannot tell which. The first answer settles
+// it; the context of every other surface is cancelled, so each takes its copy
+// of the prompt down, and the call returns only once they all have.
+//
+// A surface that cannot show this prompt answers agent.ErrNoDetachedApprover (a
+// failure to deliver it counts the same). When every surface did - or none was
+// offered - nobody could be asked, and the relay turns that into a refusal that
+// says so.
 func (r *Runtime) RequestDetachedPermission(ctx context.Context, req agent.DetachedPermissionRequest) (*acp.PermissionResult, error) {
-	r.brokerMu.RLock()
-	b := r.broker
-	r.brokerMu.RUnlock()
-	if b == nil {
+	r.approversMu.RLock()
+	surfaces := make([]agent.DetachedPermissionBroker, 0, len(r.approvers))
+	for _, b := range r.approvers {
+		surfaces = append(surfaces, b)
+	}
+	r.approversMu.RUnlock()
+	if len(surfaces) == 0 {
 		return nil, agent.ErrNoDetachedApprover
 	}
-	return b.RequestDetachedPermission(ctx, req)
+
+	askCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	type answer struct {
+		res *acp.PermissionResult
+		err error
+	}
+	answers := make(chan answer, len(surfaces))
+	for _, b := range surfaces {
+		go func() {
+			res, err := b.RequestDetachedPermission(askCtx, req)
+			answers <- answer{res: res, err: err}
+		}()
+	}
+
+	var settled *acp.PermissionResult
+	cannotShow := 0
+	for range surfaces {
+		a := <-answers
+		switch {
+		case settled != nil:
+			// Answered elsewhere first; this surface was only taking its copy down.
+		case a.err == nil && a.res != nil:
+			settled = a.res
+			cancel()
+		case a.err != nil:
+			cannotShow++
+		}
+	}
+	if settled != nil {
+		return settled, nil
+	}
+	if cannotShow == len(surfaces) {
+		return nil, agent.ErrNoDetachedApprover
+	}
+	return nil, nil
 }
 
 var _ agent.DetachedPermissionBroker = (*Runtime)(nil)
@@ -171,8 +242,8 @@ func (r *Runtime) Init(opts Options) error {
 		})
 		loop.SetSubagentRuntime(mgr)
 		// A detached child outlives this turn, so its permission prompts need
-		// somewhere to go once the turn's stream is gone: the runtime hands
-		// them to whichever surface installed a broker by then.
+		// somewhere to go once the turn's stream is gone: the runtime offers
+		// them to every surface that is up when the child asks.
 		loop.SetDetachedPermissionBroker(r)
 		return loop.Run(ctx, prompt)
 	}
