@@ -8,7 +8,11 @@ WORKDIR /ui
 COPY external/ui/package.json external/ui/package-lock.json ./
 RUN npm ci --no-fund --no-audit
 COPY external/ui/ ./
-COPY docs/assets/coddy-logo-mark-flat.svg docs/assets/favicon-32.png docs/assets/favicon.ico docs/assets/apple-touch-icon.png /docs/assets/
+# The SPA's src/assets entries are symlinks into docs/assets, and COPY brings
+# them over as links, so their targets have to exist at the same path inside
+# the image or the bundler cannot resolve the imports. The glob covers every
+# logo the SPA links today and the next one nobody remembers to add here.
+COPY docs/assets/coddy-logo-*.svg docs/assets/favicon-32.png docs/assets/favicon.ico docs/assets/apple-touch-icon.png /docs/assets/
 RUN npm run build:go
 
 
