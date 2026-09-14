@@ -9933,12 +9933,39 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   overflow: hidden;
 }
 
-/* The chat column gives up the width the panel takes, so the composer and the
-   transcript stay centred in what is left instead of hiding behind it. */
+/* The chat column gives up only the width the panel actually takes from it.
+   While the centred transcript stripe still clears the panel nothing moves:
+   opening the drawer on a wide window must not slide the text sideways. Once
+   the stripe would run under the panel the reserve grows to exactly that
+   overlap, and it stops at the panel's own band so a narrow window does not
+   leave a dead strip between the column and the panel either. */
 @media (min-width: 1200px) {
-  .shell-main.shell-tasks-open .chat-bottom,
+  .shell-main.shell-tasks-open {
+    /* What the panel takes off the end edge: its width and the inset it keeps
+       from the viewport (see .bgtasks-panel), plus the gap the column keeps
+       from it. */
+    --coddy-tasks-panel-band: calc(min(380px, 100vw - 32px) + 14px + 28px);
+    /* 920px is the transcript stripe (.messages-inner max-width); the stripe is
+       centred in what is left, so covering the band costs twice it. */
+    --coddy-tasks-reserve: clamp(
+      0px,
+      calc(920px + 2 * var(--coddy-tasks-panel-band) - 100%),
+      var(--coddy-tasks-panel-band)
+    );
+  }
+
   .shell-main.shell-tasks-open #messages {
-    padding-right: calc(min(380px, 100vw - 32px) + 28px);
+    padding-right: var(--coddy-tasks-reserve);
+  }
+
+  /* .chat-bottom pads both inline edges by the scrollbar gutter, which the
+     scroller spends on a real scrollbar on both of its own edges. Overriding
+     only the end edge would move the composer off the transcript's centre
+     line, so the gutter is paid back here. */
+  .shell-main.shell-tasks-open .chat-bottom {
+    padding-right: calc(
+      var(--coddy-tasks-reserve) + var(--coddy-chat-scrollbar-gutter)
+    );
   }
 }
 
@@ -9952,14 +9979,6 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   min-height: 0;
   padding: 0 12px 12px;
   gap: 0;
-}
-
-.bgtask-section-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
-  padding: 10px 2px 6px;
 }
 
 .bgtask-section-row {

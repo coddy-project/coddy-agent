@@ -69,8 +69,10 @@ test("a closed panel renders nothing", () => {
 test("running tasks get a card, finished ones stay behind a counter", () => {
   renderPanel({ tasks: [task(), done("bg_2"), done("bg_3")] });
 
-  expect(screen.getByTestId("bgtask-section-running")).toBeInTheDocument();
   expect(screen.getByTestId("bgtask-card-bg_1")).toBeInTheDocument();
+  // Anything above the finished counter is running, so the live cards carry no
+  // heading of their own.
+  expect(screen.queryByTestId("bgtask-section-running")).toBeNull();
 
   // History is counted, not listed: that is what keeps the panel cheap when a
   // session has hundreds of finished tasks.

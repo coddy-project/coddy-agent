@@ -1010,7 +1010,6 @@ export const messagesEn: Record<string, string> = {
   "tasks.loading": "Loading…",
   "tasks.empty":
     "No background tasks in this chat yet. The agent starts one when a command is slow enough to be worth running detached.",
-  "tasks.sectionRunning": "Running",
   "tasks.sectionFinished": "Finished {count}",
   "tasks.clearFinished": "Clear",
   "tasks.backToList": "← Back to tasks",

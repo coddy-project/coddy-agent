@@ -152,10 +152,10 @@ The SPA **polls** these endpoints rather than listening on SSE: a background tas
 
 The panel is **docked inside the session**, to the right of the transcript, at `#/s/<sessionId>/tasks` (and `#/s/<sessionId>/tasks/<task_id>` for one task). The route carries the chat, so a reload restores both the conversation and the panel. That placement is the answer to "which session spawned this process": the panel is part of the conversation that started the tasks, so there is nothing to label.
 
-- **Running** is a section of cards: status dot, command, elapsed against the estimate, a progress bar drawn **only** when the model supplied one, and a Stop control.
+- **Running tasks** are cards at the top of the panel, under no heading: status dot, command, elapsed against the estimate, a progress bar drawn **only** when the model supplied one, and a Stop control. Anything above the **Finished N** counter is running, so there is nothing to label.
 - **Finished N** is a counter, not a list. Expanding it shows one scannable line per task (dot, command, outcome, clock); the rest stay on disk. That is how "keep every log" and "do not load the app" hold at once: the list is counted, the rows render on demand, and a task's output is fetched only when it is opened.
 - **Clear** drops the finished history for this session (`DELETE /coddy/sessions/{id}/background-tasks`). Running tasks are untouched.
-- Ordering is **purely by start time**, newest first, in both sections. Running tasks are not floated to the top: they already have their own section, and mixing two orderings makes a list that never sits still to read.
+- Ordering is **purely by start time**, newest first, among the live cards and inside the finished history alike. Running tasks are not floated to the top of the history: they stand above the counter already, and mixing two orderings makes a list that never sits still to read.
 - The **opener** is a chip at the end of the transcript, under the last message: `N running tasks` while work is in flight, `N background tasks` once everything has finished, and nothing in a chat that never ran one. It is deliberately not in the nav rail — background tasks belong to one chat.
 - A transcript tool row that started a task keeps a live chip in its collapsed summary, plus **Open in Tasks** and **Stop** when expanded.
 
