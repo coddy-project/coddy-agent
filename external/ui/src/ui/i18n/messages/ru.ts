@@ -698,7 +698,7 @@ export const messagesRu: Record<string, string> = {
   "subagents.fact.denies": "запрещает",
   "subagents.fact.timeout": "таймаут",
   "subagents.fact.timeoutDefault": "значение из конфигурации",
-  "subagents.fact.maxTurns": "максимум итераций",
+  "subagents.fact.maxTurns": "макс. итераций",
   "subagents.fact.inherits": "наследуется",
   "subagents.fact.background": "в фоне",
   "subagents.fact.backgroundAlways": "всегда, без ожидания",
