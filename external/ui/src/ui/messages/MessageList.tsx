@@ -66,6 +66,9 @@ export function MessageList(props: {
   backgroundNowMs?: number;
   onOpenBackgroundTask?: (taskId: string) => void;
   onStopBackgroundTask?: (taskId: string) => void;
+  /** Roots this session works in - its own directory, then its worktrees -
+   *  which tool rows spell paths against. */
+  pathRoots?: readonly string[];
 }) {
   const permissionWaitingToolCallIds = useMemo(
     () => permissionPendingToolCallIds(props.items),
@@ -122,8 +125,11 @@ export function MessageList(props: {
 
   // What the running turn is doing right now, for the label next to the typing dots.
   const liveStatus = useMemo(
-    () => (props.generating === true ? deriveLiveStatus(props.items) : null),
-    [props.generating, props.items],
+    () =>
+      props.generating === true
+        ? deriveLiveStatus(props.items, props.pathRoots || [])
+        : null,
+    [props.generating, props.items, props.pathRoots],
   );
 
   return (
@@ -329,6 +335,9 @@ export function MessageList(props: {
             key={it.id}
             toolCallId={it.toolCallId}
             status={it.status}
+            {...(props.pathRoots !== undefined
+              ? { pathRoots: props.pathRoots }
+              : {})}
             {...(rowBackgroundTask
               ? { backgroundTask: rowBackgroundTask }
               : {})}

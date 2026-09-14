@@ -12,7 +12,11 @@
  * other as well.
  */
 
-import { toolCallTargetText } from "./permissionToolPreview";
+import {
+  toolCallTargetIsPath,
+  toolCallTargetText,
+} from "./permissionToolPreview";
+import { relativeToolTarget } from "./toolTargetPath";
 import type { TranscriptItem } from "./types";
 
 export type LiveStatusKind =
@@ -237,7 +241,10 @@ type MemoryItem = Extract<TranscriptItem, { type: "memory_copilot" }>;
  * user_message: rows above it belong to a finished turn, and a stale in_progress tool up
  * there would otherwise drive the label forever (branch switches, reloads).
  */
-export function deriveLiveStatus(items: readonly TranscriptItem[]): LiveStatus {
+export function deriveLiveStatus(
+  items: readonly TranscriptItem[],
+  pathRoots: readonly string[] = [],
+): LiveStatus {
   let permissionPending = false;
   let questionPending = false;
   let toolRunning: ToolItem | null = null;
@@ -321,12 +328,18 @@ export function deriveLiveStatus(items: readonly TranscriptItem[]): LiveStatus {
   if (tool) {
     const rawName = (tool.title || tool.kind || "").trim();
     const key = statusKeyForTool(rawName);
+    const context = {
+      ...(tool.title !== undefined ? { title: tool.title } : {}),
+      ...(tool.kind !== undefined ? { kind: tool.kind } : {}),
+      ...(tool.argsText !== undefined ? { argsText: tool.argsText } : {}),
+    };
+    const named = toolCallTargetText(context);
+    // Same rule as the transcript row: a path reads against the session's own
+    // directory, so the line spends its width on what tells files apart.
     const target =
-      toolCallTargetText({
-        ...(tool.title !== undefined ? { title: tool.title } : {}),
-        ...(tool.kind !== undefined ? { kind: tool.kind } : {}),
-        ...(tool.argsText !== undefined ? { argsText: tool.argsText } : {}),
-      }) || (key === "status.tool" ? rawName : "");
+      (named && toolCallTargetIsPath(context)
+        ? relativeToolTarget(named, pathRoots)
+        : named) || (key === "status.tool" ? rawName : "");
     return {
       kind: "tool",
       key,
