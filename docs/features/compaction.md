@@ -18,7 +18,7 @@ Nothing to compact: there is no earlier conversation to summarize yet.
 Compaction is disabled in the configuration (compaction.enable: false).
 ```
 
-Over HTTP the same action is `POST /coddy/sessions/{id}/compact` with an optional body `{"instructions": "..."}`; it answers with the summary and the message counts, `400` when compaction is disabled, `409` while a turn holds the session and for a read-only child session ([HTTP API](../reference/http-api.md)).
+Over HTTP the same action is `POST /coddy/sessions/{id}/compact` with an optional body `{"instructions": "..."}`; it answers with the summary and the message counts, `400` when compaction is disabled, `409` while a turn holds the session, while it is being deleted and for a read-only child session ([HTTP API](../reference/http-api.md)). It runs as a turn of the session, so `GET /coddy/events` announces its start and end and a browser tab viewing the session reloads what changed.
 
 ## Automatic compaction
 
@@ -48,7 +48,7 @@ The summary is requested from `compaction.model` when set, otherwise from the se
 
 The summary row is a user-role message flagged `compaction_summary` that starts with `The earlier conversation was compacted. Summary of the compacted part:`; the model's window begins at the latest such row, and the rows before it stay in `messages.json` for the transcript only. `PreCompact` hooks run before either trigger and may veto it, `PostCompact` hooks receive the summary ([Hooks](hooks.md#events)).
 
-After a compaction the context estimate is recomputed and published as a `usage_update` with `used` and `size`, which is what the composer's context ring and the console footer's context percentage show; `GET /coddy/sessions/{id}/stats` returns the same breakdown by category.
+After a compaction the context estimate is recomputed and published as a `usage_update` with `used` and `size`, which is what the composer's context ring and the console footer's context percentage show; `GET /coddy/sessions/{id}/stats` returns the same breakdown by category. Every client of a shared session reads the smaller number: the tab that sent the turn from its own stream, another tab watching the turn from `GET /coddy/sessions/{id}/composer-stream` (the same frames), and a tab that only views the session from the stats it reloads when `turn_ended` arrives. A compaction folds the turns before the kept tail, so the numbers fall when the bulk of the context sits in older turns; a large last message stays verbatim until newer turns push it past `keep_recent_turns`.
 
 ## What the transcript shows
 

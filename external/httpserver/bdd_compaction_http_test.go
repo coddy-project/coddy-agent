@@ -18,7 +18,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/cucumber/godog"
 
@@ -57,6 +59,11 @@ type compactHTTPFeatureState struct {
 	respText    string
 	beforeUsed  int
 	streamUsage *acp.UsageUpdate
+	// turnEdges are the turn_started / turn_ended events of this session a
+	// second client read from the server events hub.
+	eventsMu   sync.Mutex
+	turnEdges  []string
+	stopEvents func()
 }
 
 func (s *compactHTTPFeatureState) reset() error {
@@ -77,6 +84,10 @@ func (s *compactHTTPFeatureState) reset() error {
 }
 
 func (s *compactHTTPFeatureState) close() {
+	if s.stopEvents != nil {
+		s.stopEvents()
+		s.stopEvents = nil
+	}
 	if s.ts != nil {
 		s.ts.Close()
 		s.ts = nil
@@ -421,6 +432,60 @@ func (s *compactHTTPFeatureState) statsMatchCompactedContext() error {
 	return nil
 }
 
+// watchServerEvents subscribes the way a second browser tab does, to what
+// GET /coddy/events publishes, and keeps the turn edges of this session: an
+// idle tab reloads the transcript and the context stats when a turn it did not
+// start ends.
+func (s *compactHTTPFeatureState) watchServerEvents() error {
+	frames, unsubscribe := s.srv.events.subscribe()
+	s.eventsMu.Lock()
+	s.turnEdges = nil
+	s.eventsMu.Unlock()
+	done := make(chan struct{})
+	s.stopEvents = func() {
+		unsubscribe()
+		close(done)
+	}
+	go func() {
+		for {
+			var frame []byte
+			select {
+			case <-done:
+				return
+			case frame = <-frames:
+			}
+			text := string(frame)
+			if !strings.Contains(text, `"sessionId":"`+s.sessionID+`"`) {
+				continue
+			}
+			for _, edge := range []string{"turn_started", "turn_ended"} {
+				if strings.HasPrefix(text, "event: "+edge+"\n") {
+					s.eventsMu.Lock()
+					s.turnEdges = append(s.turnEdges, edge)
+					s.eventsMu.Unlock()
+				}
+			}
+		}
+	}()
+	return nil
+}
+
+func (s *compactHTTPFeatureState) watcherToldStartAndFinish() error {
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		s.eventsMu.Lock()
+		edges := append([]string(nil), s.turnEdges...)
+		s.eventsMu.Unlock()
+		if len(edges) >= 2 && edges[0] == "turn_started" && edges[len(edges)-1] == "turn_ended" {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("server events for the session = %v, want turn_started then turn_ended", edges)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func initializeCompactionHTTPScenario(sc *godog.ScenarioContext) {
 	s := &compactHTTPFeatureState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -443,6 +508,8 @@ func initializeCompactionHTTPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the "/compact" command is part of the transcript$`, s.transcriptShowsCompactCommand)
 	sc.Step(`^the HTTP stream reports the smaller context usage$`, s.streamReportsSmallerContextUsage)
 	sc.Step(`^HTTP session stats match the compacted LLM context$`, s.statsMatchCompactedContext)
+	sc.Step(`^another client watches the server events$`, s.watchServerEvents)
+	sc.Step(`^the watching client was told the session started and finished working$`, s.watcherToldStartAndFinish)
 }
 
 func TestContextCompactionCommandFeature(t *testing.T) {
