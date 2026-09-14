@@ -8031,6 +8031,13 @@ html:not([data-theme="light"]) .context-usage-note--error {
   overflow-y: auto;
 }
 
+/* No header bar above it (the call's arguments name nothing), so the body is the
+   whole card and closes its own top edge. */
+.permission-preview-viewport--headless {
+  border-top: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-radius: 12px;
+}
+
 .permission-preview-viewport--static {
   max-height: none;
   overflow: visible;

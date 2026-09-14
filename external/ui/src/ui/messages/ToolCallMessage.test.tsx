@@ -1249,6 +1249,37 @@ test("the row names what the call acts on, clipped rather than wrapped", () => {
   expect(screen.getByText("reading a file")).toHaveClass("thinking-label");
 });
 
+test("a call whose arguments name nothing opens with its body, not an empty strip", () => {
+  // background_output takes a task id and a line count: no path, no command,
+  // nothing for the header bar to say. The bar was rendered anyway, so the card
+  // opened with a 34px empty strip above the arguments.
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-bgout"
+      title="background_output"
+      kind="background_output"
+      status="completed"
+      argsText={JSON.stringify({ task_id: "bg_3", tail_lines: 60 })}
+      resultText="bg_3 [running] go test ./..."
+      durationMs={4}
+    />,
+  );
+  openToolDetails();
+
+  expect(
+    container.querySelector(".permission-preview-bar"),
+    "a header bar with nothing in it is a strip of empty border",
+  ).toBeNull();
+  // With no bar the body carries the whole card, top corners included.
+  expect(container.querySelector(".permission-preview-viewport")).toHaveClass(
+    "permission-preview-viewport--headless",
+  );
+  // The arguments themselves still show.
+  expect(
+    container.querySelector(".permission-preview-code")?.textContent,
+  ).toContain("bg_3");
+});
+
 test("read tells a directory listing apart from a file when its arguments say so", () => {
   const { rerender } = render(
     <ToolCallMessage
