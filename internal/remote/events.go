@@ -125,6 +125,9 @@ func (h *Handler) applyEventFrame(f sseFrame) {
 			h.applyActivityEvent(payload.SessionID, f.event == "turn_started")
 		}
 		return
+	case "subagent_permission":
+		h.applyDetachedPromptEvent(f.data)
+		return
 	}
 	if f.event != "message_queue" {
 		return
