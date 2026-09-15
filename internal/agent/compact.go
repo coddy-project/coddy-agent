@@ -43,6 +43,10 @@ type CompactionResult struct {
 	KeptMessages int
 	// Model is the models[].model that produced the summary.
 	Model string
+	// Steps is how many summarization calls the fold took: one while the
+	// history fits a single request, more when it had to be folded in passes
+	// (compact_fold.go).
+	Steps int
 }
 
 // compactionSystemPrompt instructs the summarizer model.
@@ -85,11 +89,19 @@ func (a *Agent) CompactSession(ctx context.Context, instructions string, force b
 
 	msgs := a.state.GetMessages()
 	keep := a.cfg.Compaction.EffectiveKeepRecentTurns()
-	splitIdx, ok := session.CompactionSplitIndex(msgs, keep)
+	// The floor holds for the configured value too, not only for the retries
+	// below it: keep_recent_turns: 0 means "summarize everything", which is a
+	// thing to ask of /compact and never of the automatic trigger - folding
+	// the prompt being answered would send the model a turn with no prompt in
+	// it.
 	minKeep := 1
 	if force {
 		minKeep = 0
 	}
+	if keep < minKeep {
+		keep = minKeep
+	}
+	splitIdx, ok := session.CompactionSplitIndex(msgs, keep)
 	for k := keep - 1; !ok && k >= minKeep; k-- {
 		splitIdx, ok = session.CompactionSplitIndex(msgs, k)
 	}
@@ -112,25 +124,62 @@ func (a *Agent) CompactSession(ctx context.Context, instructions string, force b
 		return nil, fmt.Errorf("compaction model: %w", err)
 	}
 
-	resp, err := provider.Complete(ctx, buildCompactionRequest(head, instructions), nil)
+	// The fold is sized against the summarizer's own window, not the session's:
+	// compaction.model may name a smaller or larger model than the turn runs on.
+	window, _ := a.contextWindowFor(modelID)
+	budget := compactionInputBudget(window, session.EstimateTokens(instructions))
+
+	row := a.newCompactionRow()
+	summary, steps, err := a.foldCompactionHead(ctx, provider, head, instructions, budget, row.step)
 	if err != nil {
-		return nil, fmt.Errorf("compaction LLM call: %w", err)
-	}
-	summary := strings.TrimSpace(resp.Content)
-	if summary == "" {
-		return nil, fmt.Errorf("compaction produced an empty summary")
+		row.failed(err)
+		return nil, err
 	}
 
 	a.state.InsertCompactionSummary(splitIdx, session.NewCompactionSummaryMessage(summary, modelID))
 	a.refreshConversationContextUsage(true)
 	a.runPostCompactHooks(ctx, mode, trigger, summary)
 
-	return &CompactionResult{
+	res := &CompactionResult{
 		Summary:           summary,
 		CompactedMessages: len(head),
 		KeptMessages:      len(msgs) - splitIdx,
 		Model:             modelID,
-	}, nil
+		Steps:             steps,
+	}
+	row.done(compactionOutcomeText(res))
+	return res, nil
+}
+
+// compactionOutcomeText is the one line every surface says about a finished
+// compaction: the transcript row, the /compact answer and the compact_context
+// tool result.
+func compactionOutcomeText(res *CompactionResult) string {
+	if res == nil {
+		return ""
+	}
+	text := fmt.Sprintf("Context compacted: %d message(s) summarized, %d kept verbatim.",
+		res.CompactedMessages, res.KeptMessages)
+	if res.Steps > 1 {
+		text += fmt.Sprintf(" The history did not fit one summarization request, so it was folded in %d passes.", res.Steps)
+	}
+	return text
+}
+
+// compactFromTool is the Env.CompactSession hook behind the compact_context
+// tool. The model asking for a compaction is a manual one: it asked for the
+// history it can see to be folded, so the fold goes as far as /compact does.
+func (a *Agent) compactFromTool(ctx context.Context, instructions string) (string, error) {
+	res, err := a.CompactSession(ctx, instructions, true)
+	switch {
+	case errors.Is(err, ErrNothingToCompact):
+		return "Nothing to compact: there is no earlier conversation to summarize yet.", nil
+	case errors.Is(err, ErrCompactionDisabled):
+		return "", err
+	case err != nil:
+		return "", err
+	}
+	return compactionOutcomeText(res), nil
 }
 
 // CompactCommandName is the built-in slash command that triggers compaction.
@@ -174,7 +223,7 @@ func (a *Agent) runCompactCommand(ctx context.Context, instructions, rawCommand 
 	case err != nil:
 		return string(acp.StopReasonRefused), err
 	default:
-		text = fmt.Sprintf("Context compacted: %d message(s) summarized, %d kept verbatim.", res.CompactedMessages, res.KeptMessages)
+		text = compactionOutcomeText(res)
 	}
 	_ = a.server.SendSessionUpdate(a.state.GetID(), acp.MessageChunkUpdate{
 		SessionUpdate: acp.UpdateTypeAgentMessageChunk,
@@ -285,30 +334,64 @@ func (a *Agent) compactionProvider() (llm.Provider, string, error) {
 	return provider, modelID, nil
 }
 
-// buildCompactionRequest flattens the head of the conversation into a single
-// summarization request. Tool calls and results are rendered as labeled lines
-// so the summarizer sees what happened without replaying structured calls.
-func buildCompactionRequest(head []llm.Message, instructions string) []llm.Message {
+// renderCompactionMessage is one transcript entry as the summarizer reads it.
+// Tool calls are rendered as labeled lines so it sees what happened without
+// replaying structured calls. The empty string is an entry that carries
+// nothing to summarize.
+func renderCompactionMessage(m llm.Message) string {
+	if m.PlanDocument != nil && strings.TrimSpace(m.Content) == "" && len(m.ToolCalls) == 0 {
+		return ""
+	}
 	var b strings.Builder
-	b.WriteString("Summarize the following conversation transcript.\n\n<transcript>\n")
-	for _, m := range head {
-		if m.PlanDocument != nil && strings.TrimSpace(m.Content) == "" && len(m.ToolCalls) == 0 {
-			continue
-		}
-		b.WriteString(string(m.Role))
-		if m.CompactionSummary {
-			b.WriteString(" (earlier summary)")
-		}
-		b.WriteString(":\n")
-		if strings.TrimSpace(m.Content) != "" {
-			b.WriteString(m.Content)
-			b.WriteString("\n")
-		}
-		for _, tc := range m.ToolCalls {
-			fmt.Fprintf(&b, "[tool call] %s %s\n", tc.Name, tc.InputJSON)
-		}
+	b.WriteString(string(m.Role))
+	if m.CompactionSummary {
+		b.WriteString(" (earlier summary)")
+	}
+	b.WriteString(":\n")
+	if strings.TrimSpace(m.Content) != "" {
+		b.WriteString(m.Content)
 		b.WriteString("\n")
 	}
+	for _, tc := range m.ToolCalls {
+		fmt.Fprintf(&b, "[tool call] %s %s\n", tc.Name, tc.InputJSON)
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+// renderCompactionTranscript is the whole run of messages the summarizer reads
+// in one call.
+func renderCompactionTranscript(msgs []llm.Message) string {
+	var b strings.Builder
+	for _, m := range msgs {
+		b.WriteString(renderCompactionMessage(m))
+	}
+	return b.String()
+}
+
+// buildCompactionRequest flattens the head of the conversation into a single
+// summarization request.
+func buildCompactionRequest(head []llm.Message, instructions string) []llm.Message {
+	return compactionRequest("", renderCompactionTranscript(head), instructions)
+}
+
+// compactionRequest is one summarization call: the summary of everything
+// folded so far (empty on a single-pass compaction and on the first pass of a
+// multi-step one) followed by the next run of transcript. carry travels as
+// part of the same user message so a provider that caches by prefix is not
+// asked to keep a message that changes every pass.
+func compactionRequest(carry, body, instructions string) []llm.Message {
+	var b strings.Builder
+	if strings.TrimSpace(carry) != "" {
+		b.WriteString("This conversation is being summarized in several passes because it does not fit one request. ")
+		b.WriteString("Below is the summary of everything before this point, then the next part of the transcript. ")
+		b.WriteString("Answer with one summary that covers both, in the same format.\n\n<summary-so-far>\n")
+		b.WriteString(carry)
+		b.WriteString("\n</summary-so-far>\n\n<transcript>\n")
+	} else {
+		b.WriteString("Summarize the following conversation transcript.\n\n<transcript>\n")
+	}
+	b.WriteString(body)
 	b.WriteString("</transcript>")
 	if s := strings.TrimSpace(instructions); s != "" {
 		b.WriteString("\n\nAdditional instructions from the user for this summary:\n")

@@ -18,6 +18,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/EvilFreelancer/coddy-agent/internal/tools"
 )
 
 // bddCompactionProvider returns a canned summary for Complete (the compaction
@@ -25,6 +26,9 @@ import (
 type bddCompactionProvider struct {
 	completeSeen [][]llm.Message
 	streamSeen   [][]llm.Message
+	// toolCall, when set, is what the first Stream answers with; the second
+	// answers with plain text, so a turn that calls a tool still ends.
+	toolCall *llm.ToolCall
 }
 
 func (p *bddCompactionProvider) Complete(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition) (*llm.Response, error) {
@@ -34,6 +38,12 @@ func (p *bddCompactionProvider) Complete(_ context.Context, messages []llm.Messa
 
 func (p *bddCompactionProvider) Stream(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
 	p.streamSeen = append(p.streamSeen, append([]llm.Message(nil), messages...))
+	if p.toolCall != nil {
+		tc := *p.toolCall
+		p.toolCall = nil
+		onChunk(llm.StreamChunk{ToolCall: &tc})
+		return &llm.Response{ToolCalls: []llm.ToolCall{tc}, StopReason: "tool_calls"}, nil
+	}
 	onChunk(llm.StreamChunk{TextDelta: "post-compaction answer"})
 	return &llm.Response{Content: "post-compaction answer", StopReason: "end_turn"}, nil
 }
@@ -56,6 +66,9 @@ type compactionFeatureState struct {
 	sender     *compactionUsageSender
 	exchanges  int
 	beforeUsed int
+	// filler pads every answer, so a scenario can build a history no single
+	// summarization request can hold.
+	filler string
 }
 
 func (s *compactionFeatureState) reset() error {
@@ -64,6 +77,7 @@ func (s *compactionFeatureState) reset() error {
 	s.sender = &compactionUsageSender{}
 	s.exchanges = 0
 	s.beforeUsed = 0
+	s.filler = ""
 	return nil
 }
 
@@ -102,7 +116,7 @@ func (s *compactionFeatureState) sessionWithExchanges(n int) error {
 	}
 	for i := 1; i <= n; i++ {
 		s.st.AddMessage(llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("question %d", i)})
-		s.st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("answer %d", i)})
+		s.st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("answer %d%s", i, s.filler)})
 	}
 	s.exchanges = n
 
@@ -314,6 +328,139 @@ func (s *compactionFeatureState) reportedACPUsageMatchesContext() error {
 	return nil
 }
 
+// summarizerFitsPartOfTheHistory shrinks the summarizer's window so the fold
+// cannot send the whole head in one request, the situation a session that ran
+// far past its window arrives at /compact in.
+func (s *compactionFeatureState) summarizerFitsPartOfTheHistory() error {
+	if s.ag == nil {
+		return fmt.Errorf("no session prepared")
+	}
+	// The same exchanges, each long enough that a pass bounded by the floor
+	// (compactionMinChunkTokens) holds at most one of them.
+	s.filler = "\n" + strings.Repeat("a line of the log this turn pasted into the session. ", 120)
+	if err := s.sessionWithExchanges(s.exchanges); err != nil {
+		return err
+	}
+	// A window this small resolves the pass budget down to the floor.
+	s.ag.cfg.Models[0].MaxContextTokens = 1
+	return nil
+}
+
+func (s *compactionFeatureState) summarizerCalledMoreThanOnce() error {
+	if len(s.provider.completeSeen) < 2 {
+		return fmt.Errorf("summarizer called %d time(s), want more than one pass", len(s.provider.completeSeen))
+	}
+	return nil
+}
+
+func (s *compactionFeatureState) laterRequestsCarryTheSummarySoFar() error {
+	if len(s.provider.completeSeen) < 2 {
+		return fmt.Errorf("only %d summarization request(s)", len(s.provider.completeSeen))
+	}
+	for i, req := range s.provider.completeSeen[1:] {
+		text := transcriptText(req)
+		if !strings.Contains(text, "<summary-so-far>") || !strings.Contains(text, "CANNED-SUMMARY") {
+			return fmt.Errorf("pass %d did not carry the summary so far: %q", i+2, text)
+		}
+	}
+	return nil
+}
+
+// toolCallRowStatuses collects the tool-call rows the client was sent, keyed by
+// the id the row carries.
+func (s *compactionFeatureState) toolCallRows() ([]map[string]interface{}, error) {
+	var out []map[string]interface{}
+	for _, u := range s.sender.updates {
+		raw, err := json.Marshal(u)
+		if err != nil {
+			return nil, err
+		}
+		var row map[string]interface{}
+		if err := json.Unmarshal(raw, &row); err != nil {
+			return nil, err
+		}
+		switch row["sessionUpdate"] {
+		case "tool_call", "tool_call_update":
+			out = append(out, row)
+		}
+	}
+	return out, nil
+}
+
+func (s *compactionFeatureState) clientToldCompactionWasRunning() error {
+	rows, err := s.toolCallRows()
+	if err != nil {
+		return err
+	}
+	announced := false
+	progressed := false
+	for _, row := range rows {
+		if row["title"] == tools.ToolCompactContext {
+			announced = true
+		}
+		if content, ok := row["content"].([]interface{}); ok {
+			for _, item := range content {
+				m, _ := item.(map[string]interface{})
+				block, _ := m["content"].(map[string]interface{})
+				if text, _ := block["text"].(string); strings.Contains(text, "compacting context: pass ") {
+					progressed = true
+				}
+			}
+		}
+	}
+	if !announced {
+		return fmt.Errorf("no %s row announced to the client: %#v", tools.ToolCompactContext, rows)
+	}
+	if !progressed {
+		return fmt.Errorf("client never saw a pass of the fold: %#v", rows)
+	}
+	return nil
+}
+
+// modelCallsCompactContext runs a turn whose first step is the model asking for
+// a compaction, so the fold goes through the tool the way the model reaches it.
+func (s *compactionFeatureState) modelCallsCompactContext() error {
+	if s.ag == nil {
+		return fmt.Errorf("no session prepared")
+	}
+	s.provider.toolCall = &llm.ToolCall{
+		ID:        "call_compact_1",
+		Name:      tools.ToolCompactContext,
+		InputJSON: `{"instructions":"keep the file paths"}`,
+	}
+	_, err := s.ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "probe prompt"}})
+	return err
+}
+
+func (s *compactionFeatureState) toolResultSaysWhatWasCompacted() error {
+	for _, m := range s.st.GetMessages() {
+		if m.Role == llm.RoleTool && strings.Contains(m.Content, "Context compacted:") {
+			return nil
+		}
+	}
+	return fmt.Errorf("no compact_context tool result in the transcript: %s", transcriptText(s.st.GetMessages()))
+}
+
+// requestAfterToolCallStartsFromSummary reads the request the loop sent after
+// the tool folded the history: it must replay the summary, not the exchanges
+// the fold replaced.
+func (s *compactionFeatureState) requestAfterToolCallStartsFromSummary() error {
+	if len(s.provider.streamSeen) < 2 {
+		return fmt.Errorf("the loop made %d model call(s); expected one after the tool", len(s.provider.streamSeen))
+	}
+	req := s.provider.streamSeen[len(s.provider.streamSeen)-1]
+	for _, m := range req {
+		if m.Role == llm.RoleSystem {
+			continue
+		}
+		if !m.CompactionSummary || !strings.Contains(m.Content, "CANNED-SUMMARY") {
+			return fmt.Errorf("first history message after the tool call is not the summary: %+v", m)
+		}
+		return nil
+	}
+	return fmt.Errorf("request had no history messages")
+}
+
 func initializeCompactionScenario(sc *godog.ScenarioContext) {
 	s := &compactionFeatureState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -337,6 +484,13 @@ func initializeCompactionScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the ACP client has observed the context usage before compaction$`, s.clientObservedContextUsageBeforeCompaction)
 	sc.Step(`^the ACP client receives a smaller context usage update$`, s.clientReceivesSmallerContextUsage)
 	sc.Step(`^the reported ACP usage matches the compacted LLM context$`, s.reportedACPUsageMatchesContext)
+	sc.Step(`^the summarizer model has room for only part of the history per request$`, s.summarizerFitsPartOfTheHistory)
+	sc.Step(`^the summarizer was called more than once$`, s.summarizerCalledMoreThanOnce)
+	sc.Step(`^every summarization request after the first carries the summary so far$`, s.laterRequestsCarryTheSummarySoFar)
+	sc.Step(`^the client was told the compaction was running$`, s.clientToldCompactionWasRunning)
+	sc.Step(`^the model calls the compact_context tool$`, s.modelCallsCompactContext)
+	sc.Step(`^the tool result says what was compacted$`, s.toolResultSaysWhatWasCompacted)
+	sc.Step(`^the LLM request after the tool call starts from the summary$`, s.requestAfterToolCallStartsFromSummary)
 }
 
 func TestContextCompactionFeature(t *testing.T) {

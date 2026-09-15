@@ -48,6 +48,11 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 	r.Register(ConfigRevertTool())
 	r.Register(ConfigRollbackTool())
 	r.Register(PlanExitTool())
+	// Compaction is a capability of the loop, so the model may reach for it
+	// like any other tool; the operator turns it off with compaction.enable.
+	if cfg == nil || cfg.Compaction.IsEnabled() {
+		r.Register(CompactContextTool())
+	}
 	r.Register(PlanWriteTool())
 	r.Register(PlanListTool())
 	r.Register(PlanReadTool())

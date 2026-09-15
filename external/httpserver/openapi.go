@@ -2413,7 +2413,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/compact": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Compact (summarize) older session history",
-					"description": "Summarizes conversation history into a single summary row inserted into the transcript. As a manual trigger it forces compaction, folding whatever exists even below the keep-recent boundary (**compaction.keep_recent_turns**, default 2 user turns) by reducing the kept tail as needed; nothing_to_compact is returned only when there is no prior conversation. Later LLM prompts replay only the summary plus the kept tail; the persisted transcript keeps every original message. Equivalent to the built-in **/compact** prompt command. It runs as a turn of the session: **GET /coddy/events** publishes **turn_started** and **turn_ended** for it, so a client watching the session reloads the smaller context usage, and a second turn meanwhile is refused. **409** when another agent turn is running or the session is being deleted; a child session spawned by **spawn_agent** is a read-only transcript and answers **409** as well.",
+					"description": "Summarizes conversation history into a single summary row inserted into the transcript. As a manual trigger it forces compaction, folding whatever exists even below the keep-recent boundary (**compaction.keep_recent_turns**, default 2 user turns) by reducing the kept tail as needed; nothing_to_compact is returned only when there is no prior conversation. Later LLM prompts replay only the summary plus the kept tail; the persisted transcript keeps every original message. Equivalent to the built-in **/compact** prompt command. It runs as a turn of the session: **GET /coddy/events** publishes **turn_started** and **turn_ended** for it, so a client watching the session reloads the smaller context usage, and a second turn meanwhile is refused. **409** when another agent turn is running or the session is being deleted; a child session spawned by **spawn_agent** is a read-only transcript and answers **409** as well. A history larger than the summarizer's own context window is folded in several passes rather than refused, each pass carrying the summary so far; **steps** reports how many it took, and the progress is published as a **compact_context** tool-call row on the session stream.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -2550,6 +2550,10 @@ func openAPISpec() map[string]interface{} {
 							"type": "integer", "description": "How many messages after the summary stayed verbatim.",
 						},
 						"model": map[string]string{"type": "string", "description": "models[].model that produced the summary."},
+						"steps": map[string]interface{}{
+							"type":        "integer",
+							"description": "How many summarization calls the fold took: 1 while the history fits one request, more when it was folded in passes because it did not.",
+						},
 					},
 				},
 				"SkillRow": map[string]interface{}{
@@ -3220,7 +3224,7 @@ func openAPISpec() map[string]interface{} {
 							"example":     "/usr/bin/bash",
 						},
 						"repo_root": map[string]string{"type": "string"},
-						"branch":      map[string]string{"type": "string"},
+						"branch":    map[string]string{"type": "string"},
 						"branches": map[string]interface{}{
 							"type":  "array",
 							"items": map[string]string{"type": "string"},
