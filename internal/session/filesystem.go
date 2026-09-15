@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -365,7 +366,18 @@ type SessionMeta struct {
 	HookContext string `json:"hookContext,omitempty"`
 	Title       string `json:"title,omitempty"`
 	TitlePinned string `json:"titlePinned,omitempty"`
-	UpdatedAt   string `json:"updatedAt,omitempty"`
+	// Tags are the flat labels the listing filters and groups by, normalized
+	// by NormalizeTags before they reach this struct.
+	Tags []string `json:"tags,omitempty"`
+	// Archived takes a session out of the working list without taking it off
+	// disk; ArchivedAt records when that happened.
+	Archived   bool   `json:"archived,omitempty"`
+	ArchivedAt string `json:"archivedAt,omitempty"`
+	// Origin names the surface that started the session: empty for one a
+	// person opened on this host, "gateway:<messenger>" for a conversation a
+	// messenger gateway is holding.
+	Origin    string `json:"origin,omitempty"`
+	UpdatedAt string `json:"updatedAt,omitempty"`
 	// CreatedAt is stamped when the bundle directory is first written and never
 	// moves again. A bundle stored before this field existed carries none: the
 	// moment it was started is not recoverable, so it stays empty rather than
@@ -544,6 +556,13 @@ type SessionListEntry struct {
 	// Model is the session's own backend override (session.json
 	// selectedModelId); empty when the session ran on the configured default.
 	Model string
+	// Tags are the session's labels, already normalized on the way to disk.
+	Tags []string
+	// Archived marks a session the operator put aside; ArchivedAt says when.
+	Archived   bool
+	ArchivedAt string
+	// Origin is the surface that started the session (see SessionMeta.Origin).
+	Origin string
 	// MessageCount counts the persisted transcript rows of every role. The
 	// snapshot behind this listing is already parsed, so it costs no extra read.
 	MessageCount int
@@ -565,6 +584,15 @@ type ListOptions struct {
 	// IncludeSubagents descends into the sessions spawned by spawn_agent,
 	// which are stored inside the bundle of the session that spawned them.
 	IncludeSubagents bool
+	// Archived selects which side of the archive is listed. The zero value is
+	// ArchiveExclude, so every caller written before the archive existed keeps
+	// getting the working list.
+	Archived ArchiveFilter
+	// Tags keeps the sessions carrying any of these labels when non-empty.
+	Tags []string
+	// Origin selects sessions by the surface that started them; the zero value
+	// is every surface.
+	Origin OriginFilter
 }
 
 // ListSnapshots scans Root for persisted sessions (requires session.json).
@@ -635,19 +663,33 @@ func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter s
 	if cwdFilter != "" && !matchesWorkspace(cwdFilter, snap.Meta.CWD) {
 		return out
 	}
-	return append(out, SessionListEntry{
+	if !opts.Archived.Keeps(snap.Meta.Archived) {
+		return out
+	}
+	if !opts.Origin.Keeps(snap.Meta.Origin) {
+		return out
+	}
+	row := SessionListEntry{
 		SessionID:       snap.Meta.ID,
 		CWD:             snap.Meta.CWD,
 		Title:           snap.Meta.Title,
 		UpdatedAt:       snap.Meta.UpdatedAt,
 		CreatedAt:       snap.Meta.CreatedAt,
 		Model:           snap.Meta.SelectedModelID,
+		Tags:            NormalizeTags(snap.Meta.Tags),
+		Archived:        snap.Meta.Archived,
+		ArchivedAt:      snap.Meta.ArchivedAt,
+		Origin:          snap.Meta.Origin,
 		MessageCount:    len(snap.Messages),
 		SubagentRun:     snap.Meta.SubagentRun,
 		ParentSessionID: snap.Meta.ParentSessionID,
 		SubagentName:    snap.Meta.SubagentName,
 		SubagentTaskID:  snap.Meta.SubagentTaskID,
-	})
+	}
+	if !SessionMatchesAnyTag(row, opts.Tags) {
+		return out
+	}
+	return append(out, row)
 }
 
 // appendChildRows adds the sessions nested inside dir, and their own children,
@@ -690,9 +732,20 @@ func (f *FileStore) FirstUserMessageContent(sessionID string) (content string, f
 	return "", false, nil
 }
 
-// FilterSnapshotListForSearch keeps sessions where the title, the working directory, or the
-// first role-user message content matches needle (case-insensitive substring), checked in
-// that order because the first two are already in hand and the last needs a file read.
+// matchesAnyTagSubstring reports whether one of the session's tags contains the
+// (already lower-cased) needle. Tags are stored normalized, so no folding here.
+func matchesAnyTagSubstring(tags []string, needle string) bool {
+	for _, tag := range tags {
+		if strings.Contains(tag, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+// FilterSnapshotListForSearch keeps sessions where the title, the working directory, a tag,
+// or the first role-user message content matches needle (case-insensitive substring), checked
+// in that order because the first three are already in hand and the last needs a file read.
 //
 // The working directory is part of the search because it is often how someone remembers a
 // session: not by what they called it, but by which checkout it was about.
@@ -709,6 +762,10 @@ func (f *FileStore) FilterSnapshotListForSearch(entries []SessionListEntry, q st
 			continue
 		}
 		if cwd := strings.ToLower(strings.TrimSpace(row.CWD)); cwd != "" && strings.Contains(cwd, needle) {
+			out = append(out, row)
+			continue
+		}
+		if matchesAnyTagSubstring(row.Tags, needle) {
 			out = append(out, row)
 			continue
 		}
@@ -801,6 +858,10 @@ func (f *FileStore) Save(state *State) error {
 		AgentMemory:       state.GetAgentMemory(),
 		Title:             title,
 		TitlePinned:       strings.TrimSpace(state.GetTitlePinned()),
+		Tags:              state.GetTags(),
+		Archived:          state.GetArchived(),
+		ArchivedAt:        strings.TrimSpace(state.GetArchivedAt()),
+		Origin:            strings.TrimSpace(state.GetOrigin()),
 	}
 	if state.GetSchedulerRun() {
 		meta.SchedulerRun = true
@@ -821,13 +882,15 @@ func (f *FileStore) Save(state *State) error {
 	meta.PermissionMode = state.GetPermissionMode()
 
 	// The stamp stands only when this save puts nothing new anywhere - not the
-	// history, and not a field of the meta either. Pinning a title or switching
-	// mode is something persisted, and docs/features/sessions.md promises the
-	// listing follows it. SessionMeta is all scalars, so the two compare
-	// directly once the stamps are taken out of the question.
+	// history, and not a field of the meta either. Pinning a title, tagging or
+	// archiving is something persisted, and docs/features/sessions.md promises
+	// the listing follows it. The tag slice makes SessionMeta uncomparable with
+	// ==, so the two are compared field by field: a reflective compare is
+	// nothing next to the encoding this save already paid for, and it cannot be
+	// left stale by a field somebody adds later.
 	sameMeta := meta
 	sameMeta.UpdatedAt, sameMeta.CreatedAt = prevMeta.UpdatedAt, prevMeta.CreatedAt
-	preserveUpdatedAt := messagesUnchanged && metaExisted && sameMeta == prevMeta
+	preserveUpdatedAt := messagesUnchanged && metaExisted && reflect.DeepEqual(sameMeta, prevMeta)
 
 	updatedAt := time.Now().UTC().Format(time.RFC3339Nano)
 	if preserveUpdatedAt && strings.TrimSpace(prevMeta.UpdatedAt) != "" {

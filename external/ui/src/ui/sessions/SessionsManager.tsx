@@ -3,6 +3,12 @@ import { useConfirm } from "../components/useConfirm";
 import { useT } from "../i18n/I18nProvider";
 import { isClientDraftSessionId } from "./draftSessions";
 import {
+  defaultSortOrder,
+  type SessionArchiveFilter,
+  type SessionSortKey,
+  type SessionSortOrder,
+} from "./sessionQuery";
+import {
   allRowsSelected,
   formatRowTimestamp,
   formatRowTimestampFull,
@@ -52,6 +58,39 @@ function IconTrash(props: { mark?: "check" }) {
   );
 }
 
+/**
+ * The archive box. It marks the action that empties the archive, which is a
+ * different scope from the ticked rows and so needs a face of its own.
+ */
+function IconArchive() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M3 7h18v3H3z" />
+      <path d="M5 10v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-9" />
+      <path d="M10 14h4" />
+    </svg>
+  );
+}
+
+/** Which way a sorted column points, drawn next to its name. */
+function SortCaret(props: { order: SessionSortOrder }) {
+  return (
+    <span className="sessions-manager-sort-caret" aria-hidden>
+      {props.order === "asc" ? "\u25b2" : "\u25bc"}
+    </span>
+  );
+}
+
 type ListResponse = {
   sessions?: SessionManagerRow[];
   nextCursor?: string | null;
@@ -88,6 +127,11 @@ export function SessionsManager(props: {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [archiveFilter, setArchiveFilter] =
+    useState<SessionArchiveFilter>("exclude");
+  const [tagFilter, setTagFilter] = useState("");
+  const [sortKey, setSortKey] = useState<SessionSortKey>("updated");
+  const [sortOrder, setSortOrder] = useState<SessionSortOrder>("desc");
   // Every fetch carries a ticket; an answer that arrives after the search moved
   // on is dropped instead of overwriting the newer listing.
   const ticketRef = useRef(0);
@@ -116,8 +160,17 @@ export function SessionsManager(props: {
       ps.set("limit", String(PAGE_SIZE));
       ps.set("include_stats", "true");
       ps.set("include_activity", "true");
+      ps.set("archived", archiveFilter);
+      // Order and direction go to the server, not to the rendered page: paging
+      // is an offset into the sorted listing, so sorting a page client side
+      // would reorder 50 rows out of a history of hundreds.
+      ps.set("sort", sortKey);
+      ps.set("order", sortOrder);
       if (query) {
         ps.set("q", query);
+      }
+      if (tagFilter) {
+        ps.set("tags", tagFilter);
       }
       if (!reset && at) {
         ps.set("cursor", at);
@@ -157,7 +210,7 @@ export function SessionsManager(props: {
         }
       }
     },
-    [query, t],
+    [query, archiveFilter, tagFilter, sortKey, sortOrder, t],
   );
 
   // The refresh after a delete must use the search the field shows now, not the
@@ -269,11 +322,107 @@ export function SessionsManager(props: {
     [confirm, runDelete, t],
   );
 
+  // Emptying the archive is a scope the server resolves, not a list of ticks:
+  // the table holds one page and the archive may be larger than it, so the
+  // request names the scope and the confirmation says as much.
+  const emptyArchive = useCallback(async () => {
+    const ok = await confirm({
+      title: t("sessions.manage.confirm.archived.title"),
+      message: t("sessions.manage.confirm.archived.message"),
+      confirmLabel: t("common.delete"),
+      variant: "danger",
+    });
+    if (!ok) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    let failure: string | null = null;
+    try {
+      const res = await fetch("/coddy/sessions/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope: "archived" }),
+      });
+      const data = (await res.json().catch(() => ({}))) as BulkDeleteResponse;
+      if (!res.ok) {
+        throw new Error(String(res.status));
+      }
+      const deleted = data.deleted ?? [];
+      setSelected((prev) => selectionWithout(prev, deleted));
+      if (deleted.length > 0) {
+        onSessionsDeleted?.(deleted);
+      }
+      const failed = data.failed ?? [];
+      if (failed.length > 0) {
+        failure = t("sessions.manage.partialFailure", {
+          count: failed.length,
+          reason: String(failed[0]?.error ?? ""),
+        });
+      }
+    } catch (e) {
+      failure = t("sessions.manage.deleteFailed", {
+        error: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setBusy(false);
+      await loadRef.current(true, null);
+      if (failure) {
+        setError(failure);
+      }
+    }
+  }, [confirm, onSessionsDeleted, t]);
+
+  // Clicking the column that is already sorted flips it; a different column
+  // starts from the direction that reads naturally for its kind of value.
+  const sortBy = useCallback((key: SessionSortKey) => {
+    setSortKey((prevKey) => {
+      setSortOrder((prevOrder) =>
+        prevKey === key
+          ? prevOrder === "asc"
+            ? "desc"
+            : "asc"
+          : defaultSortOrder(key),
+      );
+      return key;
+    });
+  }, []);
+
   const deleteSelectedLabel = t("sessions.manage.deleteSelected", {
     count: selectedIds.length,
   });
   const headerChecked = allRowsSelected(selectableRows, selected);
   const headerPartial = someRowsSelected(selectableRows, selected);
+
+  /** One sortable column head: a button that carries the caret when active. */
+  const sortableHead = (
+    key: SessionSortKey,
+    label: string,
+    className?: string,
+  ) => (
+    <th
+      className={className}
+      scope="col"
+      aria-sort={
+        sortKey === key
+          ? sortOrder === "asc"
+            ? "ascending"
+            : "descending"
+          : "none"
+      }
+    >
+      <button
+        type="button"
+        className="sessions-manager-sort"
+        data-testid={`sessions-manager-sort-${key}`}
+        title={t("sessions.manage.sortBy", { column: label })}
+        onClick={() => sortBy(key)}
+      >
+        <span>{label}</span>
+        {sortKey === key ? <SortCaret order={sortOrder} /> : null}
+      </button>
+    </th>
+  );
 
   return (
     <div className="sessions-manager" data-testid="sessions-manager">
@@ -293,7 +442,39 @@ export function SessionsManager(props: {
             the table has a tick per row and a tick for the whole page, so the
             scope of a delete is what the operator can see ticked rather than a
             button label they have to read carefully. */}
+        <label className="sessions-manager-archive">
+          <span className="sr-only">{t("sessions.manage.archive.label")}</span>
+          <select
+            className="settings-input sessions-manager-archive-select"
+            data-testid="sessions-manager-archive-filter"
+            aria-label={t("sessions.manage.archive.label")}
+            value={archiveFilter}
+            onChange={(ev) =>
+              setArchiveFilter(ev.target.value as SessionArchiveFilter)
+            }
+          >
+            <option value="exclude">
+              {t("sessions.manage.archive.exclude")}
+            </option>
+            <option value="only">{t("sessions.manage.archive.only")}</option>
+            <option value="all">{t("sessions.manage.archive.all")}</option>
+          </select>
+        </label>
         <div className="sessions-manager-actions">
+          {/* The second action is a different scope, not a second reach past
+              the ticks: it empties the archive, which the operator filled one
+              conversation at a time and can look at with the filter beside it. */}
+          <button
+            type="button"
+            className="settings-btn settings-btn-danger settings-btn-icon sessions-manager-action"
+            data-testid="sessions-manager-delete-archived"
+            disabled={busy}
+            title={t("sessions.manage.deleteArchived")}
+            aria-label={t("sessions.manage.deleteArchived")}
+            onClick={() => void emptyArchive()}
+          >
+            <IconArchive />
+          </button>
           <button
             type="button"
             className="settings-btn settings-btn-danger settings-btn-icon sessions-manager-action"
@@ -327,6 +508,23 @@ export function SessionsManager(props: {
         </div>
       </div>
 
+      {tagFilter ? (
+        <p
+          className="settings-muted sessions-manager-tag-filter"
+          data-testid="sessions-manager-tag-filter"
+        >
+          {t("sessions.manage.tagFilter", { tag: tagFilter })}{" "}
+          <button
+            type="button"
+            className="sessions-manager-tag-clear"
+            data-testid="sessions-manager-tag-filter-clear"
+            onClick={() => setTagFilter("")}
+          >
+            {t("sessions.manage.tagFilterClear")}
+          </button>
+        </p>
+      ) : null}
+
       {error ? (
         <p className="settings-error" data-testid="sessions-manager-error">
           {error}
@@ -355,21 +553,20 @@ export function SessionsManager(props: {
                   }
                 />
               </th>
-              <th scope="col">{t("sessions.manage.column.conversation")}</th>
+              {sortableHead("title", t("sessions.manage.column.conversation"))}
               <th scope="col">{t("sessions.manage.column.model")}</th>
-              <th className="sessions-manager-col-num" scope="col">
-                {t("sessions.manage.column.messages")}
-              </th>
-              <th className="sessions-manager-col-num" scope="col">
-                {t("sessions.manage.column.tokens")}
-              </th>
-              <th scope="col">{t("sessions.manage.column.created")}</th>
-              <th scope="col">{t("sessions.manage.column.updated")}</th>
-              <th className="sessions-manager-col-act" scope="col">
-                <span className="sr-only">
-                  {t("sessions.manage.column.actions")}
-                </span>
-              </th>
+              {sortableHead(
+                "messages",
+                t("sessions.manage.column.messages"),
+                "sessions-manager-col-num",
+              )}
+              {sortableHead(
+                "tokens",
+                t("sessions.manage.column.tokens"),
+                "sessions-manager-col-num",
+              )}
+              {sortableHead("created", t("sessions.manage.column.created"))}
+              {sortableHead("updated", t("sessions.manage.column.updated"))}
             </tr>
           </thead>
           <tbody>
@@ -431,6 +628,35 @@ export function SessionsManager(props: {
                           {t("sessions.manage.openBadge")}
                         </span>
                       ) : null}
+                      {row.archived ? (
+                        <span
+                          className="sessions-manager-badge sessions-manager-badge-archived"
+                          data-testid={`sessions-manager-archived-${row.id}`}
+                          title={
+                            row.archivedAt
+                              ? t("sessions.manage.archivedOn", {
+                                  date: formatRowTimestampFull(row.archivedAt),
+                                })
+                              : t("sessions.manage.archivedBadge")
+                          }
+                        >
+                          {t("sessions.manage.archivedBadge")}
+                        </span>
+                      ) : null}
+                      {/* A tag is a filter you can reach: clicking one narrows
+                          the table to the conversations filed under it. */}
+                      {(row.tags ?? []).map((tag) => (
+                        <button
+                          key={tag}
+                          type="button"
+                          className="sessions-manager-tag"
+                          data-testid={`sessions-manager-tag-${tag}`}
+                          title={t("sessions.manage.filterByTag", { tag })}
+                          onClick={() => setTagFilter(tag)}
+                        >
+                          {tag}
+                        </button>
+                      ))}
                     </span>
                   </td>
                   <td className="sessions-manager-col-model">
@@ -459,33 +685,6 @@ export function SessionsManager(props: {
                   <td title={formatRowTimestampFull(row.updatedAt)}>
                     {formatRowTimestamp(row.updatedAt)}
                   </td>
-                  <td className="sessions-manager-col-act">
-                    <button
-                      type="button"
-                      className="session-trash"
-                      aria-label={
-                        protectedRow
-                          ? t("sessions.manage.protectedRow")
-                          : t("sessions.deleteConversation")
-                      }
-                      title={
-                        protectedRow
-                          ? t("sessions.manage.protectedRow")
-                          : t("sessions.delete")
-                      }
-                      data-testid={`sessions-manager-delete-${row.id}`}
-                      disabled={busy || protectedRow}
-                      onClick={() =>
-                        void confirmAndDelete(
-                          [row.id],
-                          t("confirm.session.deleteChat.title"),
-                          t("confirm.session.deleteChat.message"),
-                        )
-                      }
-                    >
-                      <IconTrash />
-                    </button>
-                  </td>
                 </tr>
               );
             })}
@@ -496,7 +695,11 @@ export function SessionsManager(props: {
             className="settings-muted sessions-manager-empty"
             data-testid="sessions-manager-empty"
           >
-            {query ? t("sessions.manage.noMatches") : t("sessions.empty")}
+            {query || tagFilter
+              ? t("sessions.manage.noMatches")
+              : archiveFilter === "only"
+                ? t("sessions.manage.noArchivedMatches")
+                : t("sessions.empty")}
           </p>
         ) : null}
       </div>

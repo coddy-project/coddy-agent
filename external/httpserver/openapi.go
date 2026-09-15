@@ -203,7 +203,9 @@ func openAPISpec() map[string]interface{} {
 					"description": "Rows are ordered by **session.json** **updatedAt** (newest first), then **id** when timestamps tie. " +
 						"**updatedAt** advances when session state is persisted (messages, titles, etc.); loading a snapshot into memory for HTTP does not rewrite it. " +
 						"Bundles created for **scheduler runs** (cron or manual) carry **schedulerRun** metadata and are **hidden** from this list unless **include_scheduler=true**. " +
-						"Child sessions of subagent runs (**subagentRun** metadata, stored inside the parent's bundle) are hidden unless **include_subagents=true**; an included child row carries **subagent** **`{parentSessionId, name, taskId}`** so a client can route back to the parent chat and to the task in its drawer.",
+						"Child sessions of subagent runs (**subagentRun** metadata, stored inside the parent's bundle) are hidden unless **include_subagents=true**; an included child row carries **subagent** **`{parentSessionId, name, taskId}`** so a client can route back to the parent chat and to the task in its drawer. " +
+						"Sessions the operator **archived** are hidden unless **archived** says otherwise, and a row carries **tags**, **archived** / **archivedAt** and **origin** when it has them. " +
+						"**sort** and **order** replace the default ordering; they are applied to the whole filtered listing before paging, so page two of a sorted listing continues page one.",
 					"parameters": append(coddyPagingParams(), map[string]interface{}{
 						"name":   "cwd",
 						"in":     "query",
@@ -220,6 +222,34 @@ func openAPISpec() map[string]interface{} {
 						"in":          "query",
 						"schema":      map[string]string{"type": "boolean"},
 						"description": "When true, include child sessions spawned by **spawn_agent**; each such row carries **subagent** **`{parentSessionId, name, taskId}`** read from its bundle. The default listing hides them and opens no child bundle.",
+					}, map[string]interface{}{
+						"name":        "archived",
+						"in":          "query",
+						"schema":      map[string]interface{}{"type": "string", "enum": []string{"exclude", "only", "all"}},
+						"description": "Which side of the archive to list: **`exclude`** (the default, the working list), **`only`** (the archive) or **`all`**. An unknown value is a **400** rather than a silent default.",
+					}, map[string]interface{}{
+						"name":   "tags",
+						"in":     "query",
+						"schema": map[string]string{"type": "string"},
+						"description": "Comma separated tags; a session is kept when it carries **any** of them. Values are normalized the same way stored tags are (lower case, inner whitespace as a hyphen), " +
+							"so **`Backend`** finds what was stored as **`backend`**.",
+					}, map[string]interface{}{
+						"name":   "origin",
+						"in":     "query",
+						"schema": map[string]interface{}{"type": "string", "enum": []string{"local", "gateway"}},
+						"description": "Keeps the sessions of one surface: **`local`** for the ones opened on this host, **`gateway`** for the chats a messenger gateway is holding. " +
+							"Omit it for every surface. A row a gateway started carries **`origin`** (**`gateway:telegram`**), written once by the surface that created the session. An unknown value is a **400**.",
+					}, map[string]interface{}{
+						"name":   "sort",
+						"in":     "query",
+						"schema": map[string]interface{}{"type": "string", "enum": []string{"updated", "created", "title", "messages", "tokens"}},
+						"description": "The column the listing is ordered by; **`updated`** by default. A session the column says nothing about (no creation stamp, no title) sorts **last in both directions**, and ties break by id so paging is stable. " +
+							"**`tokens`** reads each bundle's **stats.json**, so it costs one extra small file read per session and only when it is the column asked for. An unknown key is a **400**.",
+					}, map[string]interface{}{
+						"name":        "order",
+						"in":          "query",
+						"schema":      map[string]interface{}{"type": "string", "enum": []string{"desc", "asc"}},
+						"description": "Direction of **sort**; **`desc`** by default. An unknown value is a **400**.",
 					}, map[string]interface{}{
 						"name":        "include_activity",
 						"in":          "query",
@@ -244,8 +274,9 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary": "Delete many sessions in one request",
 					"description": "Removes several session trees with the same semantics as **DELETE /coddy/sessions/{id}** applied to each id: branch references retracted, background tasks and subagent children stopped, bundles removed deepest first. " +
-						"The body names either an explicit **ids** list, or **scope** **`all`** with an optional **except** list of ids to keep. **`all`** is resolved on the server against the default session listing " +
-						"(scheduler runs excluded, subagent children going with their parents), so it means the whole stored history rather than the page a client happens to have loaded. " +
+						"The body names either an explicit **ids** list, **scope** **`all`**, or **scope** **`archived`**, either of the two scopes with an optional **except** list of ids to keep. The scopes are resolved on the server against the session listing " +
+						"(scheduler runs excluded, subagent children going with their parents), so they mean the whole stored history rather than the page a client happens to have loaded. " +
+						"**`all`** reaches into the archive as well - a scope that left sessions behind because they were put aside would not be the whole history - while **`archived`** empties the archive and touches nothing else. " +
 						"An **except** entry is a promise that the session survives, so it is checked before anything is removed: a malformed id, or one with no bundle on disk, is a **400** and nothing is deleted - a misspelt exception would otherwise turn *keep this one* into *delete everything*. " +
 						"Sparing a session spares its **ancestors** too, because the delete takes a whole tree: excepting a child keeps the parent it hangs from, which the listing names and the child does not. **except** is refused beside an **ids** list, where nothing would consult it. " +
 						"One id that cannot be removed does not abandon the rest: every id is attempted and the answer lists **deleted** and **failed** separately, so a table can drop the rows that went and keep the others with their reason. " +
@@ -261,18 +292,19 @@ func openAPISpec() map[string]interface{} {
 									"properties": map[string]interface{}{
 										"scope": map[string]interface{}{
 											"type":        "string",
-											"enum":        []string{"ids", "all"},
-											"description": "**`ids`** (the default) deletes exactly the **ids** list; **`all`** deletes every listed session minus **except**.",
+											"enum":        []string{"ids", "all", "archived"},
+											"description": "**`ids`** (the default) deletes exactly the **ids** list; **`all`** deletes every stored session minus **except**, the archive included; **`archived`** deletes only the sessions in the archive.",
 										},
+
 										"ids": map[string]interface{}{
 											"type":        "array",
 											"items":       map[string]string{"type": "string"},
-											"description": "Session ids to remove. Required and non-empty for scope **`ids`**; rejected together with scope **`all`**.",
+											"description": "Session ids to remove. Required and non-empty for scope **`ids`**; rejected together with scope **`all`** or **`archived`**.",
 										},
 										"except": map[string]interface{}{
 											"type":        "array",
 											"items":       map[string]string{"type": "string"},
-											"description": "Session ids to keep, for scope **`all`** only (a **400** beside an **ids** list). Each one must be a valid id **and** name a stored bundle, or the whole request is a **400** and nothing is removed. Keeping a session keeps its ancestors as well.",
+											"description": "Session ids to keep, for the **`all`** and **`archived`** scopes only (a **400** beside an **ids** list). Each one must be a valid id **and** name a stored bundle, or the whole request is a **400** and nothing is removed. Keeping a session keeps its ancestors as well.",
 										},
 									},
 								},
@@ -316,8 +348,10 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/coddy/describe": map[string]interface{}{
 				"post": map[string]interface{}{
-					"summary":     "Generate a short text description",
-					"description": "Accepts arbitrary text and returns a short phrase describing what it is about. If the input is 3 words or fewer, the response echoes them.",
+					"summary": "Generate a short text description",
+					"description": "Accepts arbitrary text and returns a short phrase describing what it is about, plus the **tags** the model proposed for filing the conversation. " +
+						"The tags ride on the call that already names a new chat, so a session is filed without a second request to the model; a model that ignores the instruction answers the phrase alone and **tags** is empty. " +
+						"If the input is 3 words or fewer, the response echoes them and proposes nothing.",
 					"operationId": "coddyDescribe",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -343,6 +377,11 @@ func openAPISpec() map[string]interface{} {
 										"properties": map[string]interface{}{
 											"object": map[string]string{"type": "string", "example": "coddy.describe"},
 											"short":  map[string]string{"type": "string"},
+											"tags": map[string]interface{}{
+												"type":        "array",
+												"items":       map[string]string{"type": "string"},
+												"description": "Normalized topic labels, empty when the model proposed none.",
+											},
 										},
 										"required": []string{"object", "short"},
 									},
@@ -1304,8 +1343,10 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/coddy/sessions/{id}": map[string]interface{}{
 				"patch": map[string]interface{}{
-					"summary":     "Patch session composer metadata",
-					"description": "Set **title** (pinned title), **selectedModelId** (YAML **`models[].model`** selector for this session), **selectedReasoning** (reasoning level; must be one of the effective model's **`reasoning_levels`**, empty to clear), and/or **markActivityRead** (boolean) to advance the read cursor for **activitySeq**. **markActivityRead** updates only activity counters in **session.json** and does not change **updatedAt** (history order stays stable until new chat content is saved).",
+					"summary": "Patch session composer metadata",
+					"description": "Set **title** (pinned title), **tags** (the session's labels), **archived** (put the session aside or take it back), **selectedModelId** (YAML **`models[].model`** selector for this session), **selectedReasoning** (reasoning level; must be one of the effective model's **`reasoning_levels`**, empty to clear), and/or **markActivityRead** (boolean) to advance the read cursor for **activitySeq**. " +
+						"**tags** replaces the whole set rather than merging into it, so an empty array clears them; omitting the field leaves them alone. Values are normalized (lower case, inner whitespace as a hyphen, duplicates dropped, at most 8 of at most 32 characters). " +
+						"**markActivityRead** updates only activity counters in **session.json** and does not change **updatedAt** (history order stays stable until new chat content is saved).",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -1320,7 +1361,12 @@ func openAPISpec() map[string]interface{} {
 								"schema": map[string]interface{}{
 									"type": "object",
 									"properties": map[string]interface{}{
-										"title":             map[string]string{"type": "string"},
+										"title": map[string]string{"type": "string"},
+										"tags": map[string]interface{}{
+											"type":  "array",
+											"items": map[string]string{"type": "string"},
+										},
+										"archived":          map[string]string{"type": "boolean"},
 										"selectedModelId":   map[string]string{"type": "string"},
 										"selectedReasoning": map[string]string{"type": "string"},
 										"markActivityRead":  map[string]string{"type": "boolean"},
@@ -3217,7 +3263,7 @@ func openAPISpec() map[string]interface{} {
 							"example":     "/usr/bin/bash",
 						},
 						"repo_root": map[string]string{"type": "string"},
-						"branch":      map[string]string{"type": "string"},
+						"branch":    map[string]string{"type": "string"},
 						"branches": map[string]interface{}{
 							"type":  "array",
 							"items": map[string]string{"type": "string"},

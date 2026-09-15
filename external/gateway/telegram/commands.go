@@ -328,7 +328,17 @@ func (b *Bot) applyModel(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgbotap
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 // ensureSession gets or creates the session for this key.
+//
+// The session is stamped with where it came from, so a listing can tell a chat
+// somebody is holding in Telegram from one opened on this host. The stamp is
+// written once and ignored afterwards (State.SetOrigin), so reopening a
+// conversation does not rewrite its history.
 func (b *Bot) ensureSession(ctx context.Context, key string) (*session.State, error) {
 	sessionID := b.store.Get(key)
-	return b.runner.EnsureHTTPSession(ctx, sessionID, b.cwd)
+	st, err := b.runner.EnsureHTTPSession(ctx, sessionID, b.cwd)
+	if err != nil {
+		return nil, err
+	}
+	st.SetOrigin(session.GatewayOrigin("telegram"))
+	return st, nil
 }

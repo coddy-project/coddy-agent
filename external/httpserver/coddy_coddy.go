@@ -55,6 +55,40 @@ func describeStripLineNoise(s string) string {
 	return strings.TrimSpace(s)
 }
 
+// jsonTagList renders a tag set for a JSON body: an empty set is an empty array
+// rather than null, so a client can assign it without a nil check.
+func jsonTagList(tags []string) []string {
+	if tags == nil {
+		return []string{}
+	}
+	return tags
+}
+
+// describeTagsPrefix is how the title prompt asks for the labels. The tags ride
+// on the request that already names the conversation, so a session is filed
+// without a second call to the model.
+const describeTagsPrefix = "tags:"
+
+// describeSplitTagsLine takes the tag line out of the model answer and returns
+// what is left for the phrase. A model that ignored the instruction leaves no
+// such line and gets exactly the behaviour it had before tags existed: the
+// title is what matters, the tags are a bonus.
+func describeSplitTagsLine(raw string) (rest string, tags []string) {
+	kept := make([]string, 0, 4)
+	for _, line := range strings.Split(raw, "\n") {
+		trimmed := describeStripLineNoise(line)
+		lowered := strings.ToLower(trimmed)
+		if after, found := strings.CutPrefix(lowered, describeTagsPrefix); found {
+			// Cut from the original line, not the lowered copy: a tag written
+			// in another script keeps its own letters until NormalizeTag folds it.
+			tags = append(tags, session.ParseTagList(trimmed[len(trimmed)-len(after):])...)
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, "\n"), session.NormalizeTags(tags)
+}
+
 // describePickPhraseFromLLM picks a usable title from model output. Some models emit a junk first line (e.g. "Po") then the real phrase.
 func describePickPhraseFromLLM(llmRaw string, userWords []string) string {
 	trimmed := strings.TrimSpace(llmRaw)
@@ -356,7 +390,9 @@ func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
 				"You generate short descriptions for chat titles and command labels. " +
 					"Return exactly one short phrase (3 to 8 words) describing what the user's text is about. " +
 					"Match the user's language when possible. " +
-					"No quotes, no preamble, no headings, no line breaks, no numbering. Output only the phrase."),
+					"No quotes, no preamble, no headings, no numbering. " +
+					"Then, on a second line, write " + describeTagsPrefix + " followed by 1 to 3 comma separated topic labels " +
+					"for filing the conversation - one or two words each, lower case, in English. Output nothing else."),
 		},
 		{Role: llm.RoleUser, Content: raw},
 	}, nil)
@@ -366,7 +402,8 @@ func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	short := describePickPhraseFromLLM(resp.Content, words)
+	phraseLines, tags := describeSplitTagsLine(resp.Content)
+	short := describePickPhraseFromLLM(phraseLines, words)
 	if short == "" {
 		short = strings.Join(words[:min(3, len(words))], " ")
 	}
@@ -375,6 +412,7 @@ func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"object": "coddy.describe",
 		"short":  short,
+		"tags":   jsonTagList(tags),
 	})
 }
 
@@ -719,10 +757,33 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 	}
 	includeScheduler := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_scheduler")), "true")
 	includeSubagents := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_subagents")), "true")
+	archived, ok := session.ParseArchiveFilter(r.URL.Query().Get("archived"))
+	if !ok {
+		http.Error(w, `{"error":{"message":"archived must be \"exclude\", \"only\" or \"all\""}}`, http.StatusBadRequest)
+		return
+	}
+	origin, ok := session.ParseOriginFilter(r.URL.Query().Get("origin"))
+	if !ok {
+		http.Error(w, `{"error":{"message":"origin must be \"local\" or \"gateway\""}}`, http.StatusBadRequest)
+		return
+	}
+	sortKey, ok := session.ParseSortKey(r.URL.Query().Get("sort"))
+	if !ok {
+		http.Error(w, `{"error":{"message":"sort must be \"updated\", \"created\", \"title\", \"messages\" or \"tokens\""}}`, http.StatusBadRequest)
+		return
+	}
+	sortOrder, ok := session.ParseSortOrder(r.URL.Query().Get("order"))
+	if !ok {
+		http.Error(w, `{"error":{"message":"order must be \"asc\" or \"desc\""}}`, http.StatusBadRequest)
+		return
+	}
 	rows, err := fs.ListSnapshotsWith(session.ListOptions{
 		CWD:                  strings.TrimSpace(r.URL.Query().Get("cwd")),
 		IncludeSchedulerRuns: includeScheduler,
 		IncludeSubagents:     includeSubagents,
+		Archived:             archived,
+		Tags:                 session.ParseTagList(r.URL.Query().Get("tags")),
+		Origin:               origin,
 	})
 	if err != nil {
 		s.log.Error("coddy sessions list", "error", err)
@@ -737,6 +798,25 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// The order is applied to the whole filtered listing, never to the page:
+	// paging is an offset into the sorted result, so a client that asks for
+	// page two of a title sort gets the titles that follow page one.
+	// The token totals live in a file of their own, so they are read only when
+	// that is the column being sorted by, and memoized for the rows that repeat.
+	var tokensOf func(string) int
+	if sortKey == session.SortTokens {
+		cache := make(map[string]int, len(rows))
+		tokensOf = func(id string) int {
+			if total, seen := cache[id]; seen {
+				return total
+			}
+			total := coddySessionTokenUsage(fs, id)["totalTokens"]
+			cache[id] = total
+			return total
+		}
+	}
+	session.SortSessionList(rows, sortKey, sortOrder, tokensOf)
+
 	limit, offset := parseLimitCursor(r.URL.Query())
 	start := offset
 	if start >= len(rows) {
@@ -770,6 +850,18 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 		}
 		if row.CWD != "" {
 			ent["cwd"] = row.CWD
+		}
+		if len(row.Tags) > 0 {
+			ent["tags"] = row.Tags
+		}
+		if row.Archived {
+			ent["archived"] = true
+			if row.ArchivedAt != "" {
+				ent["archivedAt"] = row.ArchivedAt
+			}
+		}
+		if row.Origin != "" {
+			ent["origin"] = row.Origin
 		}
 		if includeSubagents {
 			if link := subagentRowLink(row); link != nil {
@@ -1070,10 +1162,12 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
 	var body struct {
-		Title             string  `json:"title"`
-		MarkActivityRead  bool    `json:"markActivityRead"`
-		SelectedModelID   *string `json:"selectedModelId"`
-		SelectedReasoning *string `json:"selectedReasoning"`
+		Title             string    `json:"title"`
+		MarkActivityRead  bool      `json:"markActivityRead"`
+		SelectedModelID   *string   `json:"selectedModelId"`
+		SelectedReasoning *string   `json:"selectedReasoning"`
+		Tags              *[]string `json:"tags"`
+		Archived          *bool     `json:"archived"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
@@ -1129,8 +1223,25 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 		did = true
 		resp["title"] = t
 	}
+	// Tags are replaced wholesale rather than merged: the client holds the set
+	// it is editing, and a merge would make removing the last tag impossible.
+	// An empty array is therefore "no tags", not "leave them alone" - that is
+	// what omitting the field means.
+	if body.Tags != nil {
+		st.SetTags(*body.Tags)
+		did = true
+		resp["tags"] = jsonTagList(st.GetTags())
+	}
+	if body.Archived != nil {
+		st.SetArchived(*body.Archived)
+		did = true
+		resp["archived"] = st.GetArchived()
+		if at := strings.TrimSpace(st.GetArchivedAt()); at != "" {
+			resp["archivedAt"] = at
+		}
+	}
 	if !did {
-		http.Error(w, `{"error":{"message":"title, markActivityRead, selectedModelId, or selectedReasoning required"}}`, http.StatusBadRequest)
+		http.Error(w, `{"error":{"message":"title, tags, archived, markActivityRead, selectedModelId, or selectedReasoning required"}}`, http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -1226,6 +1337,10 @@ func (s *Server) coddySessionsBulkDelete(w http.ResponseWriter, r *http.Request)
 	if scope == "" {
 		scope = "ids"
 	}
+	if scope == "archived" && len(req.IDs) > 0 {
+		http.Error(w, `{"error":{"message":"ids and scope \"archived\" are mutually exclusive"}}`, http.StatusBadRequest)
+		return
+	}
 	var targets []string
 	switch scope {
 	case "ids":
@@ -1247,7 +1362,7 @@ func (s *Server) coddySessionsBulkDelete(w http.ResponseWriter, r *http.Request)
 			}
 			targets = append(targets, id)
 		}
-	case "all":
+	case "all", "archived":
 		if len(req.IDs) > 0 {
 			http.Error(w, `{"error":{"message":"ids and scope \"all\" are mutually exclusive"}}`, http.StatusBadRequest)
 			return
@@ -1277,8 +1392,14 @@ func (s *Server) coddySessionsBulkDelete(w http.ResponseWriter, r *http.Request)
 		// "all" is resolved server side against the same listing the table
 		// renders, so it means the whole history rather than the page the
 		// client happens to have loaded. Scheduler runs stay out of it, and
-		// subagent children go with the parent they belong to.
-		rows, err := fs.ListSnapshotsWith(session.ListOptions{})
+		// subagent children go with the parent they belong to. "all" reaches
+		// into the archive as well: a scope that left sessions behind because
+		// they were put aside would not be the whole history.
+		archived := session.ArchiveAll
+		if scope == "archived" {
+			archived = session.ArchiveOnly
+		}
+		rows, err := fs.ListSnapshotsWith(session.ListOptions{Archived: archived})
 		if err != nil {
 			s.log.Error("coddy sessions bulk delete list", "error", err)
 			http.Error(w, `{"error":{"message":"list failed"}}`, http.StatusInternalServerError)
@@ -1291,7 +1412,7 @@ func (s *Server) coddySessionsBulkDelete(w http.ResponseWriter, r *http.Request)
 			targets = append(targets, row.SessionID)
 		}
 	default:
-		http.Error(w, `{"error":{"message":"scope must be \"ids\" or \"all\""}}`, http.StatusBadRequest)
+		http.Error(w, `{"error":{"message":"scope must be \"ids\", \"all\" or \"archived\""}}`, http.StatusBadRequest)
 		return
 	}
 

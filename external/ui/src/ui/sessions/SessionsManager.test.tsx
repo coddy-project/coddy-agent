@@ -216,7 +216,7 @@ test("the delete button is named by its tooltip, not by a label", async () => {
 });
 
 // The conversation on screen behind the panel cannot be taken out from under
-// the operator: it has no tick, no row trash, and the header passes over it.
+// the operator: it has no tick, and the header passes over it.
 test("the open conversation is protected from every delete in the table", async () => {
   const calls = stubFetch(["sess_two"]);
   renderTable({ activeSessionId: "sess_one" });
@@ -226,7 +226,6 @@ test("the open conversation is protected from every delete in the table", async 
     "sessions-manager-pick-sess_one",
   ) as HTMLInputElement;
   expect(protectedPick).toBeDisabled();
-  expect(screen.getByTestId("sessions-manager-delete-sess_one")).toBeDisabled();
   expect(protectedPick).toHaveAccessibleName(
     "The conversation that is open cannot be deleted here. Switch to another one first.",
   );
@@ -431,4 +430,188 @@ test("the refresh after a delete uses the current search", async () => {
       .find((u) => u.startsWith("/coddy/sessions?"));
     expect(lastList).toContain("q=release");
   });
+});
+
+// --- tags, the archive, and ordering ---
+
+const archiveRows: SessionManagerRow[] = [
+  {
+    id: "sess_live",
+    title: "Refactor the parser",
+    cwd: "/home/u/projects/coddy",
+    updatedAt: "2026-09-02T10:00:00Z",
+    tags: ["backend", "parser"],
+  },
+  {
+    id: "sess_filed",
+    title: "Old experiment",
+    cwd: "/home/u/projects/site",
+    updatedAt: "2026-08-02T10:00:00Z",
+    archived: true,
+    archivedAt: "2026-09-01T10:00:00Z",
+  },
+];
+
+/**
+ * stubArchiveFetch answers the listing according to the query it is given, so a
+ * test can assert that a control actually reached the server rather than only
+ * that it re-rendered.
+ */
+function stubArchiveFetch() {
+  const calls: Call[] = [];
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    calls.push({ url, ...(init ? { init } : {}) });
+    if (url.startsWith("/coddy/sessions/bulk-delete")) {
+      return {
+        ok: true,
+        json: async () => ({ deleted: [], failed: [] }),
+      } as unknown as Response;
+    }
+    const query = new URLSearchParams(url.split("?")[1] ?? "");
+    const archived = query.get("archived") ?? "exclude";
+    const tags = (query.get("tags") ?? "").trim();
+    let body = archiveRows.filter((r) => {
+      if (archived === "only") {
+        return !!r.archived;
+      }
+      if (archived === "all") {
+        return true;
+      }
+      return !r.archived;
+    });
+    if (tags) {
+      const wanted = tags.split(",");
+      body = body.filter((r) => (r.tags ?? []).some((t) => wanted.includes(t)));
+    }
+    return {
+      ok: true,
+      json: async () => ({ sessions: body, hasMore: false, nextCursor: null }),
+    } as unknown as Response;
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return calls;
+}
+
+test("a row has no delete of its own: the tick and the one button are the whole surface", async () => {
+  stubArchiveFetch();
+  renderTable();
+  await screen.findByTestId("sessions-manager-row-sess_live");
+
+  expect(screen.queryByTestId("sessions-manager-delete-sess_live")).toBeNull();
+  expect(screen.getByTestId("sessions-manager-pick-sess_live")).toBeEnabled();
+});
+
+test("the listing starts on the working list and the archive is one control away", async () => {
+  const calls = stubArchiveFetch();
+  renderTable();
+  await screen.findByTestId("sessions-manager-row-sess_live");
+
+  expect(calls[0]?.url).toContain("archived=exclude");
+  expect(screen.queryByTestId("sessions-manager-row-sess_filed")).toBeNull();
+
+  fireEvent.change(screen.getByTestId("sessions-manager-archive-filter"), {
+    target: { value: "only" },
+  });
+  await screen.findByTestId("sessions-manager-row-sess_filed");
+  expect(screen.queryByTestId("sessions-manager-row-sess_live")).toBeNull();
+
+  fireEvent.change(screen.getByTestId("sessions-manager-archive-filter"), {
+    target: { value: "all" },
+  });
+  await screen.findByTestId("sessions-manager-row-sess_live");
+  expect(
+    screen.getByTestId("sessions-manager-row-sess_filed"),
+  ).toBeInTheDocument();
+});
+
+test("an archived row says so", async () => {
+  stubArchiveFetch();
+  renderTable();
+  await screen.findByTestId("sessions-manager-row-sess_live");
+
+  fireEvent.change(screen.getByTestId("sessions-manager-archive-filter"), {
+    target: { value: "all" },
+  });
+  const filed = await screen.findByTestId("sessions-manager-row-sess_filed");
+  expect(
+    within(filed).getByTestId("sessions-manager-archived-sess_filed"),
+  ).toHaveTextContent("archived");
+  expect(
+    screen.queryByTestId("sessions-manager-archived-sess_live"),
+  ).toBeNull();
+});
+
+test("emptying the archive is one request with the archived scope", async () => {
+  const calls = stubArchiveFetch();
+  renderTable();
+  await screen.findByTestId("sessions-manager-row-sess_live");
+
+  fireEvent.click(screen.getByTestId("sessions-manager-delete-archived"));
+  await confirmDialog();
+
+  await waitFor(() => {
+    const post = calls.find((c) => c.init?.method === "POST");
+    expect(post?.url).toBe("/coddy/sessions/bulk-delete");
+    expect(JSON.parse(String(post?.init?.body))).toEqual({ scope: "archived" });
+  });
+});
+
+test("cancelling keeps the archive", async () => {
+  const calls = stubArchiveFetch();
+  renderTable();
+  await screen.findByTestId("sessions-manager-row-sess_live");
+
+  fireEvent.click(screen.getByTestId("sessions-manager-delete-archived"));
+  await cancelDialog();
+  await waitFor(() =>
+    expect(calls.some((c) => c.init?.method === "POST")).toBe(false),
+  );
+});
+
+test("a column header orders the whole listing and toggles direction", async () => {
+  const calls = stubArchiveFetch();
+  renderTable();
+  await screen.findByTestId("sessions-manager-row-sess_live");
+
+  fireEvent.click(screen.getByTestId("sessions-manager-sort-title"));
+  await waitFor(() =>
+    expect(calls.at(-1)?.url).toContain("sort=title&order=asc"),
+  );
+
+  fireEvent.click(screen.getByTestId("sessions-manager-sort-title"));
+  await waitFor(() =>
+    expect(calls.at(-1)?.url).toContain("sort=title&order=desc"),
+  );
+
+  // A different column starts from its own natural direction rather than
+  // inheriting the one before it: dates read newest first.
+  fireEvent.click(screen.getByTestId("sessions-manager-sort-updated"));
+  await waitFor(() =>
+    expect(calls.at(-1)?.url).toContain("sort=updated&order=desc"),
+  );
+});
+
+test("the sorted column says which way it points", async () => {
+  stubArchiveFetch();
+  renderTable();
+  await screen.findByTestId("sessions-manager-row-sess_live");
+
+  const updated = screen.getByTestId("sessions-manager-sort-updated");
+  expect(updated.closest("th")).toHaveAttribute("aria-sort", "descending");
+  fireEvent.click(updated);
+  await waitFor(() =>
+    expect(updated.closest("th")).toHaveAttribute("aria-sort", "ascending"),
+  );
+});
+
+test("a tag on a row filters the listing when clicked, and clears again", async () => {
+  const calls = stubArchiveFetch();
+  renderTable();
+  const live = await screen.findByTestId("sessions-manager-row-sess_live");
+
+  fireEvent.click(within(live).getByTestId("sessions-manager-tag-backend"));
+  await waitFor(() => expect(calls.at(-1)?.url).toContain("tags=backend"));
+
+  fireEvent.click(screen.getByTestId("sessions-manager-tag-filter-clear"));
+  await waitFor(() => expect(calls.at(-1)?.url).not.toContain("tags="));
 });

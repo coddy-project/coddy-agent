@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
@@ -98,7 +99,17 @@ import { NavRail } from "./nav/NavRail";
 import { SwarmView } from "./swarm/SwarmView";
 import { EnvironmentChip } from "./chat/EnvironmentChip";
 import { probeSwarm } from "./swarm/api";
-import { connectSwarmNode, returnToSwarm } from "./env/remoteEnv";
+import {
+  connectLocal,
+  connectRemote,
+  connectSwarmNode,
+  getRemoteToken,
+  localFetch,
+  returnToSwarm,
+  snapshotEnv,
+  subscribeEnv,
+} from "./env/remoteEnv";
+import type { SessionsEnvironmentOption } from "./sessions/SessionsFilterMenu";
 import { readNavRailCookie, writeNavRailCookie } from "./nav/navRailCookie";
 import { readLlmModelCookie, writeLlmModelCookie } from "./chat/llmModelCookie";
 import {
@@ -114,6 +125,17 @@ import { SessionsSidebar } from "./sessions/SessionsSidebar";
 import { useConfirm } from "./components/useConfirm";
 import { useT } from "./i18n/I18nProvider";
 import type { SessionRow } from "./sessions/types";
+import {
+  readSessionGroupCookie,
+  writeSessionGroupCookie,
+  type SessionGroupMode,
+} from "./sessions/sessionGroups";
+import {
+  defaultSortOrder,
+  type SessionArchiveFilter,
+  type SessionOriginFilter,
+  type SessionSortKey,
+} from "./sessions/sessionQuery";
 import {
   isClientDraftSessionId,
   mergeSessionsWithDrafts,
@@ -784,7 +806,9 @@ export function App() {
   const pendingPostBySidRef = useRef(new Map<string, AbortController>());
   const streamGenerationBySidRef = useRef(new Map<string, number>());
   const relayAttachPendingRef = useRef(new Set<string>());
-  const stopPendingBySidRef = useRef(new Map<string, { superseded: boolean }>());
+  const stopPendingBySidRef = useRef(
+    new Map<string, { superseded: boolean }>(),
+  );
   const stoppedTurnBySidRef = useRef(new Map<string, number>());
   /** Last composer relay frame id seen per session, so a re-attach can resume from it. */
   const relayLastEventIdBySidRef = useRef<Map<string, string>>(new Map());
@@ -938,13 +962,19 @@ export function App() {
       else if (wasActive) reconcileEndedTurn(sid);
     },
   });
-  const generating = sessionId.trim() !== "" &&
-    (turnActivity.get(sessionId) ?? activeComposerSidRef.current.has(sessionId.trim()));
-  const queuedMessages = generating ? queueBySid[sessionId.trim()] ?? [] : [];
+  const generating =
+    sessionId.trim() !== "" &&
+    (turnActivity.get(sessionId) ??
+      activeComposerSidRef.current.has(sessionId.trim()));
+  const queuedMessages = generating ? (queueBySid[sessionId.trim()] ?? []) : [];
 
   function reconcileEndedTurn(sid: string) {
     removeActiveComposer(sid);
-    if (sid !== viewedSessionIdRef.current.trim() && !streamShadowBySidRef.current.has(sid)) return;
+    if (
+      sid !== viewedSessionIdRef.current.trim() &&
+      !streamShadowBySidRef.current.has(sid)
+    )
+      return;
     noteUsageTurnEnded(sid);
     void loadMessages(sid, {
       preserveOnError: true,
@@ -954,8 +984,10 @@ export function App() {
   }
 
   async function attachViewedComposer(sid: string) {
-    const canAttach = () => viewedSessionIdRef.current.trim() === sid &&
-      turnActivity.get(sid) === true && !postAbortBySidRef.current.has(sid) &&
+    const canAttach = () =>
+      viewedSessionIdRef.current.trim() === sid &&
+      turnActivity.get(sid) === true &&
+      !postAbortBySidRef.current.has(sid) &&
       !relayAbortBySidRef.current.has(sid) &&
       stoppedTurnBySidRef.current.get(sid) !== turnActivity.generation(sid);
     if (!canAttach() || relayAttachPendingRef.current.has(sid)) return;
@@ -966,7 +998,11 @@ export function App() {
         preserveOnError: true,
         freshLoad: !streamShadowBySidRef.current.has(sid),
       });
-      if (loaded && canAttach() && turnActivity.generation(sid) === generation) {
+      if (
+        loaded &&
+        canAttach() &&
+        turnActivity.generation(sid) === generation
+      ) {
         void rejoinComposerLiveStream(sid, loaded);
       }
     } catch {
@@ -1079,6 +1115,25 @@ export function App() {
   const [schedDockClusterWidthPx, setSchedDockClusterWidthPx] = useState(0);
   const [sessionFilterDraft, setSessionFilterDraft] = useState("");
   const [sessionFilterQ, setSessionFilterQ] = useState("");
+  // How History divides the list, remembered across visits; the archive stays
+  // hidden until it is asked for, so a conversation put aside is out of the way
+  // on the next open too.
+  const [sessionGroupMode, setSessionGroupMode] = useState<SessionGroupMode>(
+    () => readSessionGroupCookie() ?? "time",
+  );
+  const [sessionsArchiveFilter, setSessionsArchiveFilter] =
+    useState<SessionArchiveFilter>("exclude");
+  const [sessionsSortKey, setSessionsSortKey] =
+    useState<SessionSortKey>("updated");
+  // Which surface's conversations History shows: every one, the ones opened on
+  // this host, or the chats a messenger gateway is holding.
+  const [sessionsOrigin, setSessionsOrigin] = useState<SessionOriginFilter>("");
+  // The remotes this server offers as environments, read from the local config
+  // rather than the active one - the list of places to go must not travel with
+  // the place you are.
+  const [configuredRemotes, setConfiguredRemotes] = useState<
+    { name: string; url: string }[]
+  >([]);
   const [sessionsHasMore, setSessionsHasMore] = useState(false);
   const [sessionsLoadingMore, setSessionsLoadingMore] = useState(false);
   const sessionsHasMoreRef = useRef(false);
@@ -2067,6 +2122,12 @@ export function App() {
       if (sessionFilterQ) {
         ps.set("q", sessionFilterQ);
       }
+      ps.set("archived", sessionsArchiveFilter);
+      if (sessionsOrigin) {
+        ps.set("origin", sessionsOrigin);
+      }
+      ps.set("sort", sessionsSortKey);
+      ps.set("order", defaultSortOrder(sessionsSortKey));
       ps.set("include_activity", "true");
       const res = await fetchJSON<{
         sessions: SessionRow[];
@@ -2100,7 +2161,14 @@ export function App() {
       sessionsHasMoreRef.current = hm;
       return next;
     },
-    [sessionFilterQ, headers, t],
+    [
+      sessionFilterQ,
+      sessionsArchiveFilter,
+      sessionsOrigin,
+      sessionsSortKey,
+      headers,
+      t,
+    ],
   );
 
   useEffect(() => {
@@ -2192,7 +2260,11 @@ export function App() {
     turnStarted: (sid: string) => {
       void loadSessionsList(true);
       const key = sid.trim();
-      if (key !== viewedSessionIdRef.current.trim() && turnActivity.get(key) === undefined) return;
+      if (
+        key !== viewedSessionIdRef.current.trim() &&
+        turnActivity.get(key) === undefined
+      )
+        return;
       stoppedTurnBySidRef.current.delete(key);
       const pendingStop = stopPendingBySidRef.current.get(key);
       if (pendingStop) pendingStop.superseded = true;
@@ -2203,7 +2275,11 @@ export function App() {
       void loadSessionsList(true);
       const key = sid.trim();
       if (!key) return;
-      if (key !== viewedSessionIdRef.current.trim() && turnActivity.get(key) === undefined) return;
+      if (
+        key !== viewedSessionIdRef.current.trim() &&
+        turnActivity.get(key) === undefined
+      )
+        return;
       // The event has no turn identity: an owned or observed successor may
       // already be active. Keep polling until REST confirms admission is idle.
       void turnActivity.refresh(key);
@@ -2218,7 +2294,8 @@ export function App() {
       // Recovery can miss the idle edge. Retire pending acknowledgements too,
       // so an old Stop cannot re-establish the fence after this reconnect.
       stoppedTurnBySidRef.current.clear();
-      for (const request of stopPendingBySidRef.current.values()) request.superseded = true;
+      for (const request of stopPendingBySidRef.current.values())
+        request.superseded = true;
       turnActivity.ready();
     },
   };
@@ -2261,7 +2338,8 @@ export function App() {
       return null;
     }
     const streamGeneration = streamGenerationBySidRef.current.get(sid);
-    const sameStream = () => streamGenerationBySidRef.current.get(sid) === streamGeneration;
+    const sameStream = () =>
+      streamGenerationBySidRef.current.get(sid) === streamGeneration;
     const res = await fetchJSON<{
       messages: Array<any>;
       model?: string;
@@ -2656,7 +2734,8 @@ export function App() {
     if (!sameStream()) return null;
     // Frames may have arrived while the optional branches request was in flight.
     withBranches = mergeTranscriptPreferLocalSuffix(
-      withBranches, streamShadowBySidRef.current.get(sid),
+      withBranches,
+      streamShadowBySidRef.current.get(sid),
     );
     streamShadowBySidRef.current.set(sid, withBranches);
     evictStaleSessionCaches(viewedSessionIdRef.current);
@@ -2813,6 +2892,32 @@ export function App() {
       setSessionsOpen(false);
       goHome();
       return;
+    }
+    await loadSessionsList(true);
+  }
+
+  /**
+   * Puts a conversation in the archive, or takes it back out. The row moves
+   * right away rather than waiting for the refresh - with the archive hidden it
+   * has to leave the list at once, or the drawer would show a session it says
+   * it is not showing - and the listing is re-read behind it.
+   */
+  async function archiveSession(id: string, archived: boolean) {
+    const rowStays =
+      sessionsArchiveFilter === "all" ||
+      (sessionsArchiveFilter === "only") === archived;
+    setSessions((prev) =>
+      rowStays
+        ? prev.map((s) => (s.id === id ? { ...s, archived } : s))
+        : prev.filter((s) => s.id !== id),
+    );
+    const res = await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ archived }),
+    });
+    if (!res.ok) {
+      setSessionsError(t("app.backendUnavailable", { status: res.status }));
     }
     await loadSessionsList(true);
   }
@@ -3035,9 +3140,7 @@ export function App() {
               setSessionLoading(false);
             }
           }
-          if (
-            loaded && turnActivity.get(sessionId) === true
-          ) {
+          if (loaded && turnActivity.get(sessionId) === true) {
             void attachViewedComposer(sessionId);
           }
         }
@@ -3128,10 +3231,17 @@ export function App() {
   ): Promise<void> {
     const key = sid.trim();
     if (!key) return;
-    if (postAbortBySidRef.current.has(key) || relayAbortBySidRef.current.has(key)) return;
+    if (
+      postAbortBySidRef.current.has(key) ||
+      relayAbortBySidRef.current.has(key)
+    )
+      return;
     const fetchCtl = new AbortController();
     relayAbortBySidRef.current.set(key, fetchCtl);
-    streamGenerationBySidRef.current.set(key, (streamGenerationBySidRef.current.get(key) ?? 0) + 1);
+    streamGenerationBySidRef.current.set(
+      key,
+      (streamGenerationBySidRef.current.get(key) ?? 0) + 1,
+    );
     const ownsRelay = () => relayAbortBySidRef.current.get(key) === fetchCtl;
     const queueEpoch = queueOrderRef.current.capture(key).epoch;
 
@@ -3146,7 +3256,8 @@ export function App() {
     const applyStreamItems = (
       fn: (prev: TranscriptItem[]) => TranscriptItem[],
     ) => {
-      if (ownsRelay() && !fetchCtl.signal.aborted) applyStreamItemsForSession(key, fn);
+      if (ownsRelay() && !fetchCtl.signal.aborted)
+        applyStreamItemsForSession(key, fn);
     };
 
     const branchTokenUsage = (u: TokenUsage | null) => {
@@ -3221,7 +3332,13 @@ export function App() {
             `/coddy/sessions/${encodeURIComponent(key)}/messages`,
             { headers: { [HDR]: key } },
           );
-          if (!ownsRelay() || fetchCtl.signal.aborted || !res2.ok || !res2.data?.messages) return false;
+          if (
+            !ownsRelay() ||
+            fetchCtl.signal.aborted ||
+            !res2.ok ||
+            !res2.data?.messages
+          )
+            return false;
           let last = "";
           let lastCreated: string | undefined;
           for (const m of res2.data.messages) {
@@ -3322,7 +3439,8 @@ export function App() {
 
       void loadSessionsList(true);
       let ok = transcriptHasFilledAssistant(
-        streamShadowBySidRef.current.get(key) ?? [], lastAssistantId,
+        streamShadowBySidRef.current.get(key) ?? [],
+        lastAssistantId,
       );
       if (!ok) ok = await syncAssistantFromServer();
       for (let i = 0; i < 10 && !ok; i++) {
@@ -3387,7 +3505,8 @@ export function App() {
       : null;
 
     let sidEffective = "";
-    const ownsPost = () => postAbortBySidRef.current.get(postSessionKey) === abortCtl;
+    const ownsPost = () =>
+      postAbortBySidRef.current.get(postSessionKey) === abortCtl;
 
     try {
       let sid = sessionId;
@@ -3408,7 +3527,10 @@ export function App() {
       postSessionKey = sid.trim();
       postAbortBySidRef.current.set(postSessionKey, abortCtl);
       pendingPostBySidRef.current.set(postSessionKey, abortCtl);
-      streamGenerationBySidRef.current.set(postSessionKey, (streamGenerationBySidRef.current.get(postSessionKey) ?? 0) + 1);
+      streamGenerationBySidRef.current.set(
+        postSessionKey,
+        (streamGenerationBySidRef.current.get(postSessionKey) ?? 0) + 1,
+      );
       stoppedTurnBySidRef.current.delete(postSessionKey);
       turnActivity.observe(postSessionKey, true);
       addActiveComposer(postSessionKey);
@@ -3420,7 +3542,8 @@ export function App() {
       const applyStreamItems = (
         fn: (prev: TranscriptItem[]) => TranscriptItem[],
       ) => {
-        if (ownsPost() && !abortCtl.signal.aborted) applyStreamItemsForSession(streamKey, fn);
+        if (ownsPost() && !abortCtl.signal.aborted)
+          applyStreamItemsForSession(streamKey, fn);
       };
 
       const branchTokenUsage = (u: TokenUsage | null) => {
@@ -3583,7 +3706,10 @@ export function App() {
             createdAtUtc: new Date().toISOString(),
           },
         ]);
-        if (opts?.restoreDraftOnBusy && viewedSessionIdRef.current.trim() === postSessionKey) {
+        if (
+          opts?.restoreDraftOnBusy &&
+          viewedSessionIdRef.current.trim() === postSessionKey
+        ) {
           setDraft((current) => current || text);
         }
         completedNormally = true;
@@ -3600,7 +3726,10 @@ export function App() {
         queueEpoch = queueOrderRef.current.capture(streamKey).epoch;
         postAbortBySidRef.current.delete(oldKey);
         postAbortBySidRef.current.set(postSessionKey, abortCtl);
-        streamGenerationBySidRef.current.set(postSessionKey, (streamGenerationBySidRef.current.get(postSessionKey) ?? 0) + 1);
+        streamGenerationBySidRef.current.set(
+          postSessionKey,
+          (streamGenerationBySidRef.current.get(postSessionKey) ?? 0) + 1,
+        );
         turnActivity.observe(oldKey, false);
         turnActivity.observe(postSessionKey, true);
         relayAbortBySidRef.current.get(oldKey)?.abort();
@@ -3613,7 +3742,8 @@ export function App() {
         }
         streamingAssistantBySidRef.current.delete(oldKey);
         streamingAssistantBySidRef.current.set(postSessionKey, assistantId);
-        if (viewedSessionIdRef.current.trim() === oldKey) openSessionFromRoute(sidHdr);
+        if (viewedSessionIdRef.current.trim() === oldKey)
+          openSessionFromRoute(sidHdr);
         setDescribePreview((p) =>
           p?.sessionId === sid ? { ...p, sessionId: sidHdr } : p,
         );
@@ -3688,7 +3818,13 @@ export function App() {
             `/coddy/sessions/${encodeURIComponent(sidEffective)}/messages`,
             { headers: { [HDR]: sidEffective } },
           );
-          if (!ownsPost() || abortCtl.signal.aborted || !res2.ok || !res2.data?.messages) return false;
+          if (
+            !ownsPost() ||
+            abortCtl.signal.aborted ||
+            !res2.ok ||
+            !res2.data?.messages
+          )
+            return false;
           let last = "";
           let lastCreated: string | undefined;
           for (const m of res2.data.messages) {
@@ -3882,17 +4018,24 @@ export function App() {
     const cancelCtl = new AbortController();
     const timer = window.setTimeout(() => cancelCtl.abort(), 5000);
     const errorId = `stop_error_${sid}`;
-    applyStreamItemsForSession(sid, (prev) => prev.filter((it) => it.id !== errorId));
+    applyStreamItemsForSession(sid, (prev) =>
+      prev.filter((it) => it.id !== errorId),
+    );
     try {
-      const res = await fetch(`/coddy/sessions/${encodeURIComponent(sid)}/cancel`, {
-        method: "POST",
-        headers: { [HDR]: sid },
-        signal: cancelCtl.signal,
-      });
+      const res = await fetch(
+        `/coddy/sessions/${encodeURIComponent(sid)}/cancel`,
+        {
+          method: "POST",
+          headers: { [HDR]: sid },
+          signal: cancelCtl.signal,
+        },
+      );
       if (!res.ok) throw new Error(`cancel failed (${res.status})`);
       // Abort only the captured connections. The acknowledgement neither proves
       // idle nor gives an old Stop ownership of a newer turn in this session.
-      const current = !request.superseded && turnActivity.generation(sid) === generation &&
+      const current =
+        !request.superseded &&
+        turnActivity.generation(sid) === generation &&
         streamGenerationBySidRef.current.get(sid) === streamGeneration;
       if (current) {
         stoppedTurnBySidRef.current.set(sid, generation);
@@ -3903,11 +4046,18 @@ export function App() {
     } catch {
       applyStreamItemsForSession(sid, (prev) => [
         ...prev.filter((it) => it.id !== errorId),
-        { id: errorId, type: "system_notice", level: "error", message: t("app.stopFailed"), createdAtUtc: new Date().toISOString() },
+        {
+          id: errorId,
+          type: "system_notice",
+          level: "error",
+          message: t("app.stopFailed"),
+          createdAtUtc: new Date().toISOString(),
+        },
       ]);
     } finally {
       window.clearTimeout(timer);
-      if (stopPendingBySidRef.current.get(sid) === request) stopPendingBySidRef.current.delete(sid);
+      if (stopPendingBySidRef.current.get(sid) === request)
+        stopPendingBySidRef.current.delete(sid);
     }
   }
 
@@ -4222,6 +4372,97 @@ export function App() {
     });
   }, [schedulerJobs, schedulerFilterQ]);
 
+  // Read the environments this server offers once: the list lives in the local
+  // config, so it is fetched off the origin rather than through the shim.
+  useEffect(() => {
+    let alive = true;
+    localFetch("/coddy/config")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((cfg) => {
+        if (!alive || !cfg) {
+          return;
+        }
+        const list = (cfg as Record<string, unknown>)?.httpserver as
+          | Record<string, unknown>
+          | undefined;
+        const raw = list?.remotes;
+        if (!Array.isArray(raw)) {
+          return;
+        }
+        setConfiguredRemotes(
+          raw
+            .map((item) => {
+              const o = (item ?? {}) as Record<string, unknown>;
+              return { name: String(o.name ?? ""), url: String(o.url ?? "") };
+            })
+            .filter((r) => r.url.trim() !== ""),
+        );
+      })
+      .catch(() => {
+        /* configured remotes are optional */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const activeEnv = useSyncExternalStore(
+    subscribeEnv,
+    snapshotEnv,
+    snapshotEnv,
+  );
+
+  /**
+   * The environments the History filter offers. Two kinds share the list,
+   * because to an operator they are one question - where is this conversation:
+   * the origin rows narrow the listing of whichever server is being read, and a
+   * remote row points the whole app at another server, the way the composer's
+   * environment chip does.
+   */
+  const sessionEnvironments = useMemo<SessionsEnvironmentOption[]>(() => {
+    const onRemote = activeEnv.mode === "remote";
+    const rows: SessionsEnvironmentOption[] = [
+      {
+        key: "all",
+        label: t("sessions.filter.env.all"),
+        active: !onRemote && sessionsOrigin === "",
+        onPick: () => {
+          connectLocal();
+          setSessionsOrigin("");
+        },
+      },
+      {
+        key: "local",
+        label: t("sessions.filter.env.local"),
+        active: !onRemote && sessionsOrigin === "local",
+        onPick: () => {
+          connectLocal();
+          setSessionsOrigin("local");
+        },
+      },
+      {
+        key: "gateway",
+        label: t("sessions.filter.env.gateway"),
+        active: !onRemote && sessionsOrigin === "gateway",
+        onPick: () => {
+          connectLocal();
+          setSessionsOrigin("gateway");
+        },
+      },
+    ];
+    for (const remote of configuredRemotes) {
+      rows.push({
+        key: remote.url,
+        label: remote.name.trim() || remote.url,
+        active:
+          onRemote && activeEnv.baseUrl === remote.url.replace(/\/+$/, ""),
+        onPick: () =>
+          connectRemote(remote.url, getRemoteToken(remote.url), remote.name),
+      });
+    }
+    return rows;
+  }, [activeEnv, configuredRemotes, sessionsOrigin, t]);
+
   const sessionPanelShared = {
     sessionId: sidebarActiveId,
     permissionPendingSessionIds: permissionPendingSids,
@@ -4253,6 +4494,24 @@ export function App() {
     onPick: pickSession,
     onTitleSave: saveSessionTitle as (id: string, title: string) => void,
     onDelete: deleteSession as (id: string) => void | Promise<void>,
+    onArchive: (id: string, archived: boolean) =>
+      void archiveSession(id, archived),
+    groupMode: sessionGroupMode,
+    onGroupModeChange: (mode: SessionGroupMode) => {
+      setSessionGroupMode(mode);
+      writeSessionGroupCookie(mode);
+    },
+    archiveFilter: sessionsArchiveFilter,
+    onArchiveFilterChange: setSessionsArchiveFilter,
+    environments: sessionEnvironments,
+    sortKey: sessionsSortKey,
+    onSortKeyChange: setSessionsSortKey,
+    onNewChatInWorkspace: (cwd: string) => {
+      // A new chat, then the folder: goHome clears any pending workspace
+      // choice, so the pick has to land after it or it would be thrown away.
+      goHome();
+      void switchWorkspace({ path: cwd });
+    },
     searchDraft: sessionFilterDraft,
     onSearchDraftChange: setSessionFilterDraft,
     onSearchClear: () => setSessionFilterDraft(""),
@@ -4325,9 +4584,12 @@ export function App() {
         applyQueue(sid, payload.messages, payload.version ?? 0, queueEpoch);
         return;
       }
-      if (payload?.error?.code === "no_active_turn" &&
-          queueOrderRef.current.capture(sid).epoch === queueEpoch &&
-          turnActivity.generation(sid) === generation && viewedSessionIdRef.current.trim() === sid) {
+      if (
+        payload?.error?.code === "no_active_turn" &&
+        queueOrderRef.current.capture(sid).epoch === queueEpoch &&
+        turnActivity.generation(sid) === generation &&
+        viewedSessionIdRef.current.trim() === sid
+      ) {
         // The turn ended between the keystroke and the request. Send it as an
         // ordinary prompt; if the admission has not been released yet and that
         // is refused too, the text comes back to the composer rather than
@@ -4335,7 +4597,8 @@ export function App() {
         void streamResponses(body, { restoreDraftOnBusy: true });
         return;
       }
-      if (viewedSessionIdRef.current.trim() === sid) setDraft((current) => current || body);
+      if (viewedSessionIdRef.current.trim() === sid)
+        setDraft((current) => current || body);
       applyStreamItemsForSession(sid, (prev) => [
         ...prev,
         {
@@ -4674,7 +4937,8 @@ export function App() {
                   onPlanDocumentRun: (slug: string) => {
                     if (
                       sessionId.trim() &&
-                      (turnActivity.get(sessionId) ?? activeComposerSidRef.current.has(sessionId.trim()))
+                      (turnActivity.get(sessionId) ??
+                        activeComposerSidRef.current.has(sessionId.trim()))
                     ) {
                       return;
                     }
@@ -4720,7 +4984,8 @@ export function App() {
               }
               if (
                 sessionId.trim() &&
-                (turnActivity.get(sessionId) ?? activeComposerSidRef.current.has(sessionId.trim()))
+                (turnActivity.get(sessionId) ??
+                  activeComposerSidRef.current.has(sessionId.trim()))
               ) {
                 return;
               }

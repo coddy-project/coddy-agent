@@ -131,6 +131,18 @@ type State struct {
 	// TitlePinned, when set, is written to session.json and overrides derived titles from the first user message.
 	TitlePinned string
 
+	// Tags are the session's labels, kept normalized (see NormalizeTags) so
+	// every reader compares the same spelling.
+	Tags []string
+
+	// Archived takes the session out of the working list without removing the
+	// bundle; ArchivedAt records the moment it was put aside.
+	Archived   bool
+	ArchivedAt string
+
+	// Origin names the surface that started the session; see SessionMeta.Origin.
+	Origin string
+
 	// MemoryCopilotBlock is per-turn text from the memory copilot (not persisted to session.json).
 	MemoryCopilotBlock string
 
@@ -737,6 +749,108 @@ func (s *State) SetTitlePinned(text string) {
 func (s *State) SetTitlePinnedWithoutPersist(text string) {
 	s.mu.Lock()
 	s.TitlePinned = strings.TrimSpace(text)
+	s.mu.Unlock()
+}
+
+// GetTags returns a copy of the session tags, so a caller cannot reach back
+// into the state through the slice it was handed.
+func (s *State) GetTags() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.Tags) == 0 {
+		return nil
+	}
+	return append([]string(nil), s.Tags...)
+}
+
+// SetTags replaces the session tags and persists metadata when a store is
+// attached. The values are normalized here, so nothing downstream has to
+// wonder which spelling reached it.
+func (s *State) SetTags(tags []string) {
+	s.mu.Lock()
+	s.Tags = NormalizeTags(tags)
+	s.mu.Unlock()
+	s.touchPersist()
+}
+
+// SetTagsWithoutPersist restores tags from disk without writing.
+func (s *State) SetTagsWithoutPersist(tags []string) {
+	s.mu.Lock()
+	s.Tags = NormalizeTags(tags)
+	s.mu.Unlock()
+}
+
+// GetArchived reports whether the session was put aside.
+func (s *State) GetArchived() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Archived
+}
+
+// GetArchivedAt returns when the session was archived, empty while it is not.
+func (s *State) GetArchivedAt() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.ArchivedAt
+}
+
+// SetArchived moves the session in or out of the archive and persists metadata
+// when a store is attached. The stamp is taken on the way in and cleared on the
+// way out; archiving a session that is already archived leaves the original
+// stamp standing, because that is when it was put aside.
+func (s *State) SetArchived(archived bool) {
+	s.mu.Lock()
+	switch {
+	case !archived:
+		s.Archived, s.ArchivedAt = false, ""
+	case !s.Archived:
+		s.Archived = true
+		s.ArchivedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	s.mu.Unlock()
+	s.touchPersist()
+}
+
+// SetArchivedWithoutPersist restores the archive flag and its stamp from disk
+// without writing.
+func (s *State) SetArchivedWithoutPersist(archived bool, at string) {
+	s.mu.Lock()
+	s.Archived = archived
+	if archived {
+		s.ArchivedAt = strings.TrimSpace(at)
+	} else {
+		s.ArchivedAt = ""
+	}
+	s.mu.Unlock()
+}
+
+// GetOrigin returns the surface that started the session, empty for a session
+// a person opened on this host.
+func (s *State) GetOrigin() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Origin
+}
+
+// SetOrigin records the surface that started the session and persists metadata
+// when a store is attached. It is written once, by the surface that created the
+// session: a conversation does not change where it came from, and a later
+// writer must not relabel somebody else's chat.
+func (s *State) SetOrigin(origin string) {
+	s.mu.Lock()
+	if strings.TrimSpace(s.Origin) != "" {
+		s.mu.Unlock()
+		return
+	}
+	s.Origin = strings.TrimSpace(origin)
+	s.mu.Unlock()
+	s.touchPersist()
+}
+
+// SetOriginWithoutPersist restores the origin from disk without writing.
+func (s *State) SetOriginWithoutPersist(origin string) {
+	s.mu.Lock()
+	s.Origin = strings.TrimSpace(origin)
 	s.mu.Unlock()
 }
 

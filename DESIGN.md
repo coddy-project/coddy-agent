@@ -265,6 +265,54 @@ Single implementation: **`MarkdownLineEditor`** in **`external/ui/src/ui/markdow
 - **Measured track width**: SPA sets **`--rail-shell-track-width`** on **`.shell`** to **`rail-column.offsetWidth`** (ResizeObserver in **`NavRail`**) before computing drawer **`left`** and **`width`** so narrow and labeled-wide rails stay flush with **`--nav-floating-gutter`** after the nav column.
 - **CSS fallback**: When the variable is not yet set inline, **`--rail-shell-track-width`** defaults on **`.shell`** to **`calc(var(--rail-pill-track) + var(--rail-column-pad-end))`**.
 
+### History grouping, tags and the archive
+
+- **One control, not a row of them.** A sliders button (**`.sessions-filter-trigger`**, 26px) sits in the
+  drawer **head** beside the close button, and everything that decides what the list shows lives in the
+  menu it opens (**`.sessions-filter-menu`**): Status, Environment, Group by, Sort by - status first,
+  because "am I looking at the archive" is the question asked most often. The head is the
+  menu's positioning context (**`position: relative`**), and the menu hangs under it at **`right: 8px`**.
+- **The menu is opaque.** It uses the **tooltip** surface (**`--coddy-tip-bg`** / **`--coddy-tip-shadow`**),
+  not the glass panel: it sits directly over the list it filters, and a translucent panel there is read
+  through. Sections are flat, separated by a hairline and labelled in 10px uppercase
+  (**`.sessions-filter-section-label`**); rows are **`.sessions-filter-item`** with the value on the left
+  and an accent tick on the right. A section with only one row to choose from is not rendered at all.
+- **Group heading** (**`.session-group-head`**) is a **button across the full width** of the list, so
+  the whole line folds the group rather than a caret the size of a full stop. Uppercase **12px**,
+  weight **600**, muted until hover; a caret on the left (**▸** collapsed, **▾** open), the label in
+  the middle with ellipsis, the **row count** on the right at weight 500 and 70% opacity. The label is
+  translated for a fixed bucket (dates, *No workspace*, *No tags*) and is the operator's own text for a
+  folder name or a tag - never translated.
+- **Buckets** that hold nothing are not drawn. Collapse state lives in the drawer, keyed by group, so a
+  heading that comes and goes with a search keeps its state while it is on screen.
+- **A folder heading carries a `+`** (**`.session-group-new`**, 22px, revealed on hover of
+  **`.session-group-bar`**) that starts a new chat in that workspace. Only a heading that *stands for a
+  folder* has one - a date bucket is not a place to put a session - which is why **`SessionGroup`**
+  carries **`workspacePath`** (the full path) next to the name it shows.
+- **Row tags** (**`.session-row-tags`**) go **under** the title, not beside it: the title is what the row
+  is for and must not be pushed out of view by labels. Chips are **10px**, pill-shaped, on a 6% text
+  wash. The **archived badge** (**`.session-archived-badge`**) is the same size and wash but uppercase,
+  and sits **inline after the title**, because it qualifies the title rather than the row.
+- **Row actions** are the archive tray then the trash, both **`.session-trash`** (26px, 0.38 opacity
+  until the row is hovered). The tray glyph points **down into** the box to archive and **up out of** it
+  to restore, so the direction is the affordance.
+
+### Session table: sorting, the archive and tags
+
+- **Sortable column head** is a **`button`** inside the **`th`** (**`.sessions-manager-sort`**),
+  carrying the caret (**▲** / **▼**, 0.6rem, 75% opacity) only while it is the sorted column; the
+  **`th`** carries **`aria-sort`**. The header keeps the column's own typography - a sortable column
+  must not look like a control bolted onto the table.
+- **Toolbar order** is search, archive **`select`**, then the two icon actions: empty the **archive**
+  (archive box), then delete the **ticked** rows (trash with a check). The destructive pair sits
+  together at the trailing edge at every width.
+- **Archived badge** (**`.sessions-manager-badge-archived`**) is the **neutral twin** of the accent
+  **open** badge: a text-wash pill, because it says where a row sits, not that anything is wrong.
+- **Tag chip** (**`.sessions-manager-tag`**) is a **button**: pressing one filters the table. An active
+  tag filter is a muted line under the toolbar with an underlined accent link that clears it.
+- **No per-row delete.** The row's only destructive surface is its tick; the scope of a delete is
+  always what the operator can see ticked, or the archive scope named on its own button.
+
 ### Narrow-rail hover tooltips
 
 - Shown **only** when the rail is **narrow** (no wide labels column). Labels visible in wide rail substitute for tooltips; do not show floating tip rows there.

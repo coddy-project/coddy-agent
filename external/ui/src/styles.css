@@ -1497,6 +1497,225 @@ a.rail-brand {
   color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
 }
 
+/* The head holds the title, the filter control and the close button; the menu
+   hangs off it, so it is the positioning context. */
+.sessions-head {
+  position: relative;
+}
+
+.sessions-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sessions-filter-trigger {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  cursor: pointer;
+}
+
+.sessions-filter-trigger:hover,
+.sessions-filter-trigger.is-open {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+}
+
+/* The backdrop only catches the click that dismisses the menu; it draws
+   nothing, because the drawer behind it must stay readable while choosing. */
+.sessions-filter-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+.sessions-filter-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 8px;
+  z-index: 41;
+  min-width: 208px;
+  padding: 6px;
+  border-radius: 14px;
+  /* The tooltip surface, not the glass one: this menu sits directly over the
+     list it filters, and a translucent panel would be read through. Every
+     theme defines the pair, so it follows the palette like everything else. */
+  background: var(--coddy-tip-bg);
+  border: 1px solid var(--coddy-glass-panel-border);
+  box-shadow: var(--coddy-tip-shadow);
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
+}
+
+.sessions-filter-menu:focus {
+  outline: none;
+}
+
+/* Sections are flat and labelled rather than nested submenus: a drawer is
+   narrow, and a hover-to-open submenu in it is a worse target than a heading. */
+.sessions-filter-section + .sessions-filter-section {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid
+    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+}
+
+.sessions-filter-section-label {
+  padding: 5px 8px 3px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+}
+
+.sessions-filter-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sessions-filter-item:hover {
+  background: color-mix(in srgb, var(--text) 7%, var(--coddy-blend-base));
+}
+
+.sessions-filter-check {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+/* A heading and the control that starts a chat in it share one line. */
+.session-group-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.session-group-new {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  margin-right: 6px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.session-group-bar:hover .session-group-new,
+.session-group-new:focus-visible {
+  opacity: 1;
+}
+
+.session-group-new:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+}
+
+.session-group {
+  margin-bottom: 4px;
+}
+
+/* A heading is a button across the full width, so the whole line folds the
+   group rather than a caret the size of a full stop. */
+.session-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px 6px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.session-group-head:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+}
+
+.session-group-caret {
+  flex: 0 0 auto;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.session-group-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.session-group-count {
+  flex: 0 0 auto;
+  font-weight: 500;
+  opacity: 0.7;
+}
+
+.session-archived-badge {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1.6;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: color-mix(in srgb, var(--text) 68%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+}
+
+.session-row-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 3px;
+  padding-left: 2px;
+}
+
+.session-tag {
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1.6;
+  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+}
+
 .session-trash {
   opacity: 0.38;
   flex-shrink: 0;
@@ -11213,11 +11432,6 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   font-variant-numeric: tabular-nums;
 }
 
-.sessions-manager-col-act {
-  width: 40px;
-  text-align: center;
-}
-
 /* Long values get a cap and an ellipsis; the full text is in the cell title. */
 .sessions-manager-title-line > span,
 .sessions-manager-col-model > span,
@@ -11266,9 +11480,86 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
-/* The row trash has no .session-item to hover in a table. */
-.sessions-manager-table tbody tr:hover .session-trash {
-  opacity: 1;
+/* A sortable column head is a button that fills its cell, so the whole header
+   is the target rather than the word inside it. */
+.sessions-manager-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  /* A form control does not inherit these on its own, and a sortable column
+     head must read exactly like the ones that are not sortable. */
+  text-transform: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sessions-manager-sort:hover {
+  color: var(--text);
+}
+
+.sessions-manager-sort-caret {
+  font-size: 0.6rem;
+  opacity: 0.75;
+}
+
+.sessions-manager-archive {
+  flex: 0 0 auto;
+}
+
+.sessions-manager-archive-select {
+  width: auto;
+  min-width: 0;
+}
+
+/* The archive badge is the neutral twin of the open badge: it says where a row
+   sits, not that anything is wrong with it. Uppercase keeps it apart from the
+   tag chips beside it, which are the row's own words rather than its state. */
+.sessions-manager-badge-archived {
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  background: transparent;
+  border-color: color-mix(in srgb, var(--text) 26%, var(--coddy-blend-base));
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* A tag under a title is a filter you can press. */
+.sessions-manager-tag {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.68rem;
+  line-height: 1.5;
+  cursor: pointer;
+  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+}
+
+.sessions-manager-tag:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.sessions-manager-tag-filter {
+  margin: 0;
+}
+
+.sessions-manager-tag-clear {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
 }
 
 .sessions-manager-empty {

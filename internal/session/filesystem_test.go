@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -1341,5 +1342,153 @@ func TestPersistedMetaChangesMoveUpdatedAt(t *testing.T) {
 				t.Fatalf("%s was persisted but the session did not move in the listing", tc.name)
 			}
 		})
+	}
+}
+
+// storeTaggedSession writes a bundle carrying tags and an archive flag, so the
+// listing filters below have something to select over.
+func storeTaggedSession(t *testing.T, fs *FileStore, id, title string, tags []string, archived bool) {
+	t.Helper()
+	dir, err := fs.EnsureLayout(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &State{ID: id, CWD: "/tmp", Mode: ModeAgent, SessionDir: dir}
+	st.SetTitlePinned(title)
+	st.SetTags(tags)
+	st.SetArchived(archived)
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hello " + id})
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestListSnapshotsRoundTripsTagsAndArchive(t *testing.T) {
+	fs := &FileStore{Root: t.TempDir()}
+	storeTaggedSession(t, fs, "sess_a", "Alpha", []string{"Backend", "api"}, true)
+
+	rows, err := fs.ListSnapshotsWith(ListOptions{Archived: ArchiveAll})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("want 1 row, got %d", len(rows))
+	}
+	if !reflect.DeepEqual(rows[0].Tags, []string{"backend", "api"}) {
+		t.Fatalf("tags %v were not normalized on the way to disk", rows[0].Tags)
+	}
+	if !rows[0].Archived {
+		t.Fatal("the archive flag did not survive the save")
+	}
+	if strings.TrimSpace(rows[0].ArchivedAt) == "" {
+		t.Fatal("archiving must stamp when it happened")
+	}
+}
+
+func TestListSnapshotsHidesArchivedSessionsByDefault(t *testing.T) {
+	fs := &FileStore{Root: t.TempDir()}
+	storeTaggedSession(t, fs, "sess_a", "Alpha", nil, false)
+	storeTaggedSession(t, fs, "sess_b", "Beta", nil, true)
+
+	visible, err := fs.ListSnapshotsWith(ListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(visible) != 1 || visible[0].SessionID != "sess_a" {
+		t.Fatalf("default listing must skip the archive, got %+v", visible)
+	}
+
+	only, err := fs.ListSnapshotsWith(ListOptions{Archived: ArchiveOnly})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(only) != 1 || only[0].SessionID != "sess_b" {
+		t.Fatalf("archived listing must hold only the archive, got %+v", only)
+	}
+
+	all, err := fs.ListSnapshotsWith(ListOptions{Archived: ArchiveAll})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("full listing must hold both, got %+v", all)
+	}
+}
+
+func TestListSnapshotsKeepsSessionsCarryingAnyRequestedTag(t *testing.T) {
+	fs := &FileStore{Root: t.TempDir()}
+	storeTaggedSession(t, fs, "sess_a", "Alpha", []string{"backend"}, false)
+	storeTaggedSession(t, fs, "sess_b", "Beta", []string{"ui"}, false)
+	storeTaggedSession(t, fs, "sess_c", "Gamma", nil, false)
+
+	rows, err := fs.ListSnapshotsWith(ListOptions{Tags: []string{"Backend", "docs"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].SessionID != "sess_a" {
+		t.Fatalf("want sess_a only, got %+v", rows)
+	}
+}
+
+func TestFilterSnapshotListForSearchMatchesATag(t *testing.T) {
+	fs := &FileStore{Root: t.TempDir()}
+	storeTaggedSession(t, fs, "sess_a", "Alpha", []string{"telegram"}, false)
+	storeTaggedSession(t, fs, "sess_b", "Beta", nil, false)
+
+	rows, err := fs.ListSnapshotsWith(ListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	filtered, err := fs.FilterSnapshotListForSearch(rows, "TELEGRAM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(filtered) != 1 || filtered[0].SessionID != "sess_a" {
+		t.Fatalf("a tag is part of what search looks at, got %+v", filtered)
+	}
+}
+
+func TestSaveKeepsUpdatedAtWhenTagsDidNotMove(t *testing.T) {
+	fs := &FileStore{Root: t.TempDir()}
+	dir, err := fs.EnsureLayout("sess_a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &State{ID: "sess_a", CWD: "/tmp", Mode: ModeAgent, SessionDir: dir}
+	st.SetTitlePinned("Alpha")
+	st.SetTags([]string{"backend"})
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hello"})
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	first, err := fs.ReadSnapshot("sess_a")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The tag slice made SessionMeta uncomparable with ==; a save that moved
+	// nothing must still be recognised as such, or every listing would reorder
+	// itself on any write.
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	again, err := fs.ReadSnapshot("sess_a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Meta.UpdatedAt != first.Meta.UpdatedAt {
+		t.Fatalf("a save that changed nothing moved updatedAt: %q -> %q", first.Meta.UpdatedAt, again.Meta.UpdatedAt)
+	}
+
+	st.SetTags([]string{"backend", "api"})
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	moved, err := fs.ReadSnapshot("sess_a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved.Meta.UpdatedAt == first.Meta.UpdatedAt {
+		t.Fatal("adding a tag is a change and must move updatedAt")
 	}
 }
