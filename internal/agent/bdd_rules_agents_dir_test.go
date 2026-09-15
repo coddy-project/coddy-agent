@@ -229,6 +229,22 @@ func (s *agentsDirRulesFeatureState) systemPrompt(n int) (string, error) {
 	return msgs[0].Content, nil
 }
 
+// wholeRequest returns everything the nth request says to the model. A rule or
+// a nested AGENTS.md a tool call pulled in mid-turn arrives in the turn context
+// block after the history, not in the frozen system message, so what matters
+// here is that the model was told, not where (turn_context.go).
+func (s *agentsDirRulesFeatureState) wholeRequest(n int) (string, error) {
+	if n >= len(s.seen) {
+		return "", fmt.Errorf("request %d was never made (%d total)", n, len(s.seen))
+	}
+	var b strings.Builder
+	for _, m := range s.seen[n] {
+		b.WriteString(m.Content)
+		b.WriteString("\n")
+	}
+	return b.String(), nil
+}
+
 var bddQuotedTokenRE = regexp.MustCompile(`"([^"]+)"`)
 
 // quotedTokens extracts every "TOKEN" from a step tail such as
@@ -285,7 +301,7 @@ func (s *agentsDirRulesFeatureState) requestsAfterReadCarry(tail string) error {
 		return fmt.Errorf("expected a request after the read, got %d request(s)", len(s.seen))
 	}
 	for n := 1; n < len(s.seen); n++ {
-		sp, err := s.systemPrompt(n)
+		sp, err := s.wholeRequest(n)
 		if err != nil {
 			return err
 		}

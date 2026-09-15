@@ -247,8 +247,12 @@ prompts:
   #   {{.Memory}}   - session agent memory plus optional long-term recall when memory.enable is true
   #   {{.UTCNow}}   - date and time in UTC (RFC3339), refreshed whenever the system prompt is rendered
   #
-  # Built-in templates order: Tools, Skills, optional TodoList block, Memory (session notes plus optional recall), trailing Current UTC time.
-  # The checklist section is emitted only when the session plan is non-empty.
+  # Built-in templates order: Tools, Skills, Memory (session notes plus optional recall).
+  # They deliberately render neither {{.TodoList}} nor {{.UTCNow}}: both move between the steps of a
+  # turn, and the system prompt is what the provider's prompt cache keys the whole conversation on.
+  # Coddy sends the clock, the checklist and the rules a tool call activated after the history instead,
+  # in a <turn_context> block. Your own template may still render them, at the cost of that cache.
+  # See docs/contributing/react-agent.md (The turn context block).
   dir: ""
   agent_prompt: "agent.md"     # optional; default agent.md
   plan_prompt: "plan.md"       # optional; default plan.md

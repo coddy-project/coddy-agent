@@ -38,8 +38,10 @@ func TestRenderAgentPrompt(t *testing.T) {
 	if strings.Contains(result, "### Current todo checklist") {
 		t.Error("todo checklist section should be omitted when .TodoList is empty")
 	}
-	if !strings.Contains(result, "## Current UTC time") || !strings.Contains(result, fixtureUTC) {
-		t.Error("agent prompt should end with Current UTC time section")
+	// A wall clock in the system prompt breaks the provider's prefix cache on
+	// every request; the turn context block carries it after the history now.
+	if strings.Contains(result, fixtureUTC) {
+		t.Error("agent prompt must not carry a wall clock reading")
 	}
 }
 
@@ -94,8 +96,10 @@ func TestRenderPlanPrompt(t *testing.T) {
 	if !strings.Contains(result, "MCP") {
 		t.Error("plan prompt should mention MCP servers")
 	}
-	if !strings.Contains(result, "## Current UTC time") || !strings.Contains(result, fixtureUTC) {
-		t.Error("plan prompt should end with Current UTC time section")
+	// A wall clock in the system prompt breaks the provider's prefix cache on
+	// every request; the turn context block carries it after the history now.
+	if strings.Contains(result, fixtureUTC) {
+		t.Error("plan prompt must not carry a wall clock reading")
 	}
 }
 
@@ -125,8 +129,10 @@ func TestRenderAskPrompt(t *testing.T) {
 	if strings.Contains(result, "plan_write") {
 		t.Error("ask prompt should not mention plan_write (plan tools are unavailable)")
 	}
-	if !strings.Contains(result, "## Current UTC time") || !strings.Contains(result, fixtureUTC) {
-		t.Error("ask prompt should end with Current UTC time section")
+	// A wall clock in the system prompt breaks the provider's prefix cache on
+	// every request; the turn context block carries it after the history now.
+	if strings.Contains(result, fixtureUTC) {
+		t.Error("ask prompt must not carry a wall clock reading")
 	}
 }
 
@@ -170,22 +176,36 @@ func TestRenderEmptyOptionalSections(t *testing.T) {
 	}
 }
 
-func TestRenderTodoListWhenNonempty(t *testing.T) {
+// The checklist is rewritten by every coddy_todo_* call, so a built-in template
+// keeps it out of the system prompt: it travels in the turn context block after
+// the history instead. The template field stays, for an operator's own template.
+func TestBuiltinTemplatesKeepTheTodoListOutOfTheSystemPrompt(t *testing.T) {
 	todoMd := "- [ ] alpha\n- [x] beta"
-	a, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", TodoList: todoMd, UTCNow: fixtureUTC})
+	for _, mode := range []string{"agent", "plan", "ask"} {
+		out, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", TodoList: todoMd, UTCNow: fixtureUTC})
+		if err != nil {
+			t.Fatalf("Render %s: %v", mode, err)
+		}
+		if strings.Contains(out, "- [ ] alpha") || strings.Contains(out, "Current todo checklist") {
+			t.Errorf("%s prompt should not carry the session todo checklist", mode)
+		}
+	}
+}
+
+// An operator's own template may still render both fields, at the cost of the
+// provider's prefix cache, so the data stays available to it.
+func TestCustomTemplateStillRendersClockAndTodoList(t *testing.T) {
+	tmp := t.TempDir()
+	body := "{{.UTCNow}}\n{{.TodoList}}\n"
+	if err := os.WriteFile(filepath.Join(tmp, "custom.tpl"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := prompts.Render("agent", tmp, "custom.tpl", defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", TodoList: "- [ ] alpha", UTCNow: fixtureUTC})
 	if err != nil {
 		t.Fatalf("Render agent: %v", err)
 	}
-	if !strings.Contains(a, "### Current todo checklist") || !strings.Contains(a, "- [ ] alpha") || !strings.Contains(a, "- [x] beta") {
-		t.Errorf("expected injected todo markdown in agent prompt, got excerpt: %.200s", a)
-	}
-
-	p, err := prompts.Render("plan", "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", TodoList: todoMd, UTCNow: fixtureUTC})
-	if err != nil {
-		t.Fatalf("Render plan: %v", err)
-	}
-	if strings.Contains(p, "### Current todo checklist") {
-		t.Error("plan prompt should not include session todo checklist section")
+	if !strings.Contains(out, fixtureUTC) || !strings.Contains(out, "- [ ] alpha") {
+		t.Errorf("custom template lost UTCNow or TodoList: %q", out)
 	}
 }
 
@@ -257,11 +277,13 @@ func TestDefaultSource(t *testing.T) {
 	if !strings.Contains(agentSrc, "{{.Skills}}") {
 		t.Error("agent source should contain {{.Skills}}")
 	}
-	if !strings.Contains(agentSrc, "{{if .TodoList}}") {
-		t.Error("agent source should conditionalize TodoList injection")
+	// Neither belongs in a built-in template: both move between the steps of a
+	// turn and would throw away the provider's cached copy of the conversation.
+	if strings.Contains(agentSrc, "{{.TodoList}}") {
+		t.Error("agent source should not render the todo checklist into the system prompt")
 	}
-	if !strings.Contains(agentSrc, "{{.UTCNow}}") {
-		t.Error("agent source should expose UTCNow for clock grounding")
+	if strings.Contains(agentSrc, "{{.UTCNow}}") {
+		t.Error("agent source should not render a wall clock into the system prompt")
 	}
 
 	planSrc := prompts.DefaultSource("plan")

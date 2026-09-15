@@ -26,6 +26,14 @@ const (
 	// ResultEvictionDefaultMinResultBytes is the size at or below which a tool
 	// result is never evicted (too small to be worth a placeholder).
 	ResultEvictionDefaultMinResultBytes = 2000
+	// ResultEvictionDefaultStartPercent is the share of the model's context
+	// window the conversation must reach before eviction starts rewriting it.
+	// Below it the history is sent untouched, because every placeholder that
+	// appears mid-history is a byte the provider's prompt cache keyed the rest
+	// of the conversation on: a sliding window would reprocess the whole
+	// transcript on almost every step to save a few thousand tokens nobody was
+	// short of yet.
+	ResultEvictionDefaultStartPercent = 50
 )
 
 // Compaction is the YAML compaction section (key compaction): summarizing older
@@ -64,6 +72,12 @@ type ResultEviction struct {
 	// MinResultBytes is the size at or below which a result is never evicted.
 	// A nil pointer means the default (2000); 0 makes every result a candidate.
 	MinResultBytes *int `yaml:"min_result_bytes"`
+	// StartPercent is the share of the effective model's max_context_tokens the
+	// estimated context must reach before eviction starts (default 50, valid
+	// 0..100). 0 evicts from the first result, which is what the projection did
+	// before prompt caching was accounted for. A model without
+	// max_context_tokens cannot be measured and evicts from the start.
+	StartPercent *int `yaml:"start_percent"`
 }
 
 // IsEnabled reports whether result eviction is active. Defaults to true when unset.
@@ -87,6 +101,14 @@ func (r *ResultEviction) EffectiveMinResultBytes() int {
 	return *r.MinResultBytes
 }
 
+// EffectiveStartPercent returns start_percent with the default applied.
+func (r *ResultEviction) EffectiveStartPercent() int {
+	if r.StartPercent == nil {
+		return ResultEvictionDefaultStartPercent
+	}
+	return *r.StartPercent
+}
+
 // Validate checks bounds on explicitly set fields.
 func (r *ResultEviction) Validate() error {
 	if r.KeepRecent != nil && *r.KeepRecent < 0 {
@@ -94,6 +116,9 @@ func (r *ResultEviction) Validate() error {
 	}
 	if r.MinResultBytes != nil && *r.MinResultBytes < 0 {
 		return fmt.Errorf("compaction.result_eviction.min_result_bytes: must be >= 0")
+	}
+	if r.StartPercent != nil && (*r.StartPercent < 0 || *r.StartPercent > 100) {
+		return fmt.Errorf("compaction.result_eviction.start_percent: must be between 0 and 100")
 	}
 	return nil
 }

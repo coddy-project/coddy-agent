@@ -83,6 +83,7 @@ type evFeatureState struct {
 	cwd          string
 	sessionDir   string
 	outputLimits config.ToolOutputLimits
+	startPercent int
 	st           *session.State
 	ag           *Agent
 	provider     *evScriptProvider
@@ -92,6 +93,7 @@ func (s *evFeatureState) reset() error {
 	s.close()
 	s.provider = &evScriptProvider{}
 	s.outputLimits = config.ToolOutputLimits{}
+	s.startPercent = 0
 	var err error
 	if s.cwd, err = s.tempDir(); err != nil {
 		return err
@@ -131,12 +133,18 @@ func (s *evFeatureState) buildAgent() {
 	keepRecent := 0
 	minBytes := 20
 	enabled := true
+	// start_percent 0: these scenarios are about what eviction collapses, not
+	// about when it starts. The threshold that holds it off on a short
+	// conversation has a scenario of its own below.
+	startPercent := s.startPercent
 	cfg := &config.Config{
-		Providers:  []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
-		Models:     []config.ModelEntry{{Model: "fake/model", MaxTokens: 100, MaxContextTokens: 128000}},
-		Agent:      config.Agent{Model: "fake/model"},
-		Compaction: config.Compaction{ResultEviction: config.ResultEviction{Enabled: &enabled, KeepRecent: &keepRecent, MinResultBytes: &minBytes}},
-		Tools:      config.Tools{PermissionMode: config.PermModeBypass, OutputLimits: s.outputLimits},
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100, MaxContextTokens: 128000}},
+		Agent:     config.Agent{Model: "fake/model"},
+		Compaction: config.Compaction{ResultEviction: config.ResultEviction{
+			Enabled: &enabled, KeepRecent: &keepRecent, MinResultBytes: &minBytes, StartPercent: &startPercent,
+		}},
+		Tools: config.Tools{PermissionMode: config.PermModeBypass, OutputLimits: s.outputLimits},
 	}
 	s.st = &session.State{ID: "sess_bdd_evict", CWD: s.cwd, Mode: session.ModeAgent, SessionDir: s.sessionDir}
 	s.ag = NewAgent(cfg, s.st, resumePermissionSender{}, nil)
@@ -193,6 +201,29 @@ func (s *evFeatureState) pageThroughMarkingPage2() error {
 		{text: "answer"},
 	}
 	return s.run()
+}
+
+// Below the start threshold nothing is collapsed: the replayed history has to
+// stay byte for byte what the provider already cached.
+func (s *evFeatureState) pageThroughWithoutMarking() error {
+	s.buildAgent()
+	s.provider.steps = []evStep{
+		{calls: []llm.ToolCall{tcRead("r1", "big.go", 1, 10)}},
+		{calls: []llm.ToolCall{tcRead("r2", "big.go", 11, 10)}},
+		{calls: []llm.ToolCall{tcRead("r3", "big.go", 21, 10)}},
+		{text: "answer"},
+	}
+	return s.run()
+}
+
+func (s *evFeatureState) requestKeepsAllThreePages() error {
+	req := s.lastRequest()
+	for id, line := range map[string]string{"r1": "LINE-0001", "r2": "LINE-0011", "r3": "LINE-0021"} {
+		if c := requestToolContent(req, id); !strings.Contains(c, line) {
+			return fmt.Errorf("page %s was collapsed below the eviction threshold: %q", id, c)
+		}
+	}
+	return nil
 }
 
 func (s *evFeatureState) requestKeepsPage2() error {
@@ -367,6 +398,12 @@ func initializeResultEvictionScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a workspace file "([^"]*)" with (\d+) numbered lines$`, func(name string, n int) error {
 		return s.fileWithNumberedLines(name, n)
 	})
+	sc.Step(`^result eviction starts at (\d+) percent of the context window$`, func(p int) error {
+		s.startPercent = p
+		return nil
+	})
+	sc.Step(`^the model reads page 1, reads page 2, reads page 3, then answers$`, s.pageThroughWithoutMarking)
+	sc.Step(`^the next LLM request keeps all three pages verbatim$`, s.requestKeepsAllThreePages)
 	sc.Step(`^the model reads page 1, reads page 2, marks page 2 as useful, reads page 3, then answers$`, s.pageThroughMarkingPage2)
 	sc.Step(`^the next LLM request keeps page 2 verbatim$`, s.requestKeepsPage2)
 	sc.Step(`^the next LLM request replaces page 1 and page 3 with placeholders$`, s.requestEvictsPage1And3)

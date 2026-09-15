@@ -254,6 +254,7 @@ Summarizes older conversation history so long sessions keep fitting the model co
 | `compaction.result_eviction.enable` | boolean or null | true | Master switch for read/grep result eviction. Defaults to true. |
 | `compaction.result_eviction.keep_recent` | integer or null | 2 | How many most recent evictable results (read pages, grep dumps) stay intact as a working window. 0 keeps none. The default of 2 keeps a read and a grep live at the same time; with 1, a model comparing two results keeps re-fetching whichever the other evicted. |
 | `compaction.result_eviction.min_result_bytes` | integer or null | 2000 | Results at or below this size are never evicted (too small to be worth a placeholder). 0 makes every result a candidate. |
+| `compaction.result_eviction.start_percent` | integer or null | 50 | Evict only once the estimated context reaches this percent of the effective model's max_context_tokens. Below it the replayed history is sent untouched, so the provider's prompt cache keeps it; a placeholder appearing mid-history invalidates every cached token behind it. 0 evicts from the first result; a model without max_context_tokens always does. |
 
 ### `memory`
 

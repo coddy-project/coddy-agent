@@ -237,6 +237,7 @@ type ResultEvictionJSON struct {
 	Enabled        *bool `json:"enable,omitempty"`
 	KeepRecent     *int  `json:"keep_recent,omitempty"`
 	MinResultBytes *int  `json:"min_result_bytes,omitempty"`
+	StartPercent   *int  `json:"start_percent,omitempty"`
 }
 
 // MemoryJSON mirrors MemoryConfig.
@@ -485,6 +486,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			Enabled:        cloneBoolPtr(c.Compaction.ResultEviction.Enabled),
 			KeepRecent:     cloneIntPtr(c.Compaction.ResultEviction.KeepRecent),
 			MinResultBytes: cloneIntPtr(c.Compaction.ResultEviction.MinResultBytes),
+			StartPercent:   cloneIntPtr(c.Compaction.ResultEviction.StartPercent),
 		},
 	}
 	out.Memory = MemoryJSON{
@@ -694,6 +696,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			Enabled:        cloneBoolPtr(j.Compaction.ResultEviction.Enabled),
 			KeepRecent:     cloneIntPtr(j.Compaction.ResultEviction.KeepRecent),
 			MinResultBytes: cloneIntPtr(j.Compaction.ResultEviction.MinResultBytes),
+			StartPercent:   cloneIntPtr(j.Compaction.ResultEviction.StartPercent),
 		},
 	}
 	cfg.Memory = MemoryConfig{

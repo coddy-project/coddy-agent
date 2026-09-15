@@ -102,12 +102,6 @@ A foreground command blocks the whole turn until it exits, so anything slower th
 {{.PlanContext}}
 
 {{end}}
-{{if .TodoList}}
-### Current todo checklist
-
-{{.TodoList}}
-
-{{end}}
 {{if .Rules}}
 {{.Rules}}
 
@@ -124,7 +118,3 @@ A foreground command blocks the whole turn until it exits, so anything slower th
 {{.Memory}}
 
 {{end}}
-
-## Current UTC time
-
-{{.UTCNow}}

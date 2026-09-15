@@ -24,6 +24,7 @@ A session spawned by another one is stored inside it, at `<parent>/subagents/<ch
 | `background/<task_id>/` | the record and output log of every background task and subagent run |
 | `memory_trace.json` | what the memory copilot did on each turn ([Long-term memory](memory.md)) |
 | `ui_log.json`, `permission_grants.json`, `pending_permission.json` | notice rows shown in the transcript, the commands and write targets approved with "allow always", a permission prompt waiting for its answer over HTTP |
+| `pending_plan_context.json` | the design plan text handed to the turn a plan run started, kept until that turn is over. A turn stopped on a permission prompt is continued after the answer arrives, sometimes in another process, and renders the same system prompt again ([Plan mode](modes.md)) |
 
 Compaction and result eviction never rewrite a bundle: both are projections built when a request goes to the model, and `messages.json` keeps every original row ([Context compaction](compaction.md)).
 
