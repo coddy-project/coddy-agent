@@ -61,7 +61,7 @@ When adding or changing behavior (including words like feature, add, implement, 
    make site-docs-check    # report drift without writing; non-zero when stale
    ```
 
-   `llms.txt` names pages by their path on `main`, so the site commit follows the merge of the coddy-agent change, not the other way round. Links that leave the repository - the binary, the schema, the skill, the site, posts - use the **`coddy.dev/docs/<slug>`** form, never a GitHub path.
+   `llms.txt` and `llms-full.txt` are **not kept in this repository** - a concatenation of every page conflicts in every branch that touches one - so `make site-docs` is the only thing that writes them, straight into the site checkout. `llms.txt` names pages by their path on `main`, so the site commit follows the merge of the coddy-agent change, not the other way round. Links that leave the repository - the binary, the schema, the skill, the site, posts - use the **`coddy.dev/docs/<slug>`** form, never a GitHub path.
 
 9. **Documentation, examples, comments and bundled instructions** - a rename or a behavior
    change is not finished when `docs/` reads correctly. Nothing in the build catches the old
@@ -114,8 +114,8 @@ When adding or changing behavior (including words like feature, add, implement, 
       or the **`Dockerfile`**; **`make docs-check`** fails on one that is not, so a screenshot leaves
       together with the feature it showed. Screenshots that only prove a pull request go to the pull
       request (drag and drop, or the orphan **`screenshots`** branch), never under **`docs/assets/`**.
-    - **Generated pages** - **`make docs`** regenerates **`docs/README.md`**, **`docs/llms.txt`**,
-      **`docs/llms-full.txt`**, the field tables of **`docs/reference/config.md`**, the help screens of
+    - **Generated pages** - **`make docs`** regenerates **`docs/README.md`**,
+      the field tables of **`docs/reference/config.md`**, the help screens of
       **`docs/reference/cli.md`** and the inventory of **`docs/assets/INDEX.md`**; commit the result.
       **`make docs-check`** (the CI job **Documentation**, and the pre-commit hook for documentation
       commits) fails on drift, on a page missing from the map, on a broken relative link or anchor and

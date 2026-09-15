@@ -99,7 +99,6 @@ func (s *Server) resolveSessionCWD(w http.ResponseWriter, r *http.Request) (stri
 		if fs != nil && fs.HasPersistedSnapshot(sid) {
 			if _, err := s.mgr.HandleSessionLoad(r.Context(), acp.SessionLoadParams{
 				SessionID: sid,
-				CWD:       s.defaultCWD,
 			}); err != nil {
 				http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
 				return "", false

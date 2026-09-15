@@ -141,3 +141,74 @@ test("retries PATCH when session returns 404 until ok", async () => {
     expect(applied).toEqual([{ sid: "sid1", title: "T" }]);
   });
 });
+
+test("the tags describe proposed are filed with the title in one PATCH", async () => {
+  const bodies: string[] = [];
+  const fetchImpl = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/coddy/describe")) {
+        return new Response(
+          JSON.stringify({
+            object: "coddy.describe",
+            short: "Refactor the memory API",
+            tags: ["backend", "memory"],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      bodies.push(String(init?.body ?? ""));
+      return new Response(JSON.stringify({ object: "coddy.session_patched" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+  );
+
+  startSuggestSessionTitle({
+    userText: "please refactor the memory tree endpoint and add tests",
+    sessionIdPromise: Promise.resolve("sess_x"),
+    fetchImpl: fetchImpl as unknown as typeof fetch,
+  });
+
+  await vi.waitFor(() => expect(bodies).toHaveLength(1));
+  expect(JSON.parse(String(bodies[0]))).toEqual({
+    title: "Refactor the memory API",
+    tags: ["backend", "memory"],
+  });
+});
+
+test("a model that proposed no tags patches the title alone", async () => {
+  const bodies: string[] = [];
+  const fetchImpl = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/coddy/describe")) {
+        return new Response(
+          JSON.stringify({
+            object: "coddy.describe",
+            short: "My title",
+            tags: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      bodies.push(String(init?.body ?? ""));
+      return new Response(JSON.stringify({ object: "coddy.session_patched" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+  );
+
+  startSuggestSessionTitle({
+    userText: "please explain async rust patterns in detail",
+    sessionIdPromise: Promise.resolve("sess_x"),
+    fetchImpl: fetchImpl as unknown as typeof fetch,
+  });
+
+  await vi.waitFor(() => expect(bodies).toHaveLength(1));
+  // An empty array would clear tags the operator may have set by hand; the
+  // field stays out of the body instead.
+  expect(JSON.parse(String(bodies[0]))).toEqual({ title: "My title" });
+});

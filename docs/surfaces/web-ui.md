@@ -247,13 +247,48 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 
 ## Session list
 
+![History grouped by folder, with a plus on the heading](../assets/sessions-history-grouping-dark-1280.png)
+
+*Grouped by folder: the heading is the folder name with its row count, and hovering it offers a new chat in that workspace. The first row is pinned*
+
+![The pinned group, mid-drag](../assets/sessions-history-pinned-dark-1280.png)
+
+*Pinned conversations lead every mode as one group, dragged into order by the grip on the left; the row being moved fades and the one it would land on is picked out*
+
+![The row menu of one conversation](../assets/sessions-history-row-menu-dark-1280.png)
+
+*One control per row: pin, archive, and delete set apart in the destructive colour. The row above it is pinned, and says so beside its title*
+
+![The History filter menu](../assets/sessions-history-filters-dark-1280.png)
+
+*Four rows, each naming its question and the answer in force; only a value moved off its default is coloured, and the choices open beside the row*
+
 ![The shared confirmation dialog before a chat is deleted](../assets/confirm-delete-chat-dark-1280.png)
 
 *The shared confirmation dialog before a chat is deleted*
 
 - **History** panel lists sessions via `GET /coddy/sessions` (still a **drawer**, not a persistent second column).
 - Pagination uses `limit` and `cursor`, with **infinite scroll** for older rows.
-- Optional **`q`** query string (**title substring or first **`user`** message content substring only**, case insensitive; **not** full-chat search). Search input updates use client debouncing.
+- Optional **`q`** query string (**title, workspace path, a tag, or the first **`user`** message content**, case insensitive substring; **not** full-chat search). Search input updates use client debouncing.
+- **Everything that decides what the list shows is one control**: the sliders button at the right end of the search row opens a menu of four rows (**`SessionsFilterMenu.tsx`**). It sits with the search because both narrow the list below; the drawer head keeps only its close button. Each row names its question and the answer in force, and its choices open beside it - hover or click a row, and the one before it folds. The menu is rendered into the document rather than into the drawer, which clips what overflows it, so a submenu reaches past the drawer's edge (and flips to the other side near the window's).
+  - **Status** - **Active** (the default), **Archived**, **All**: the **`archived`** query parameter. It leads, because it is the question asked most often.
+  - **Environment** - **All**, **Local**, **Gateway**, then one row per configured remote. The first three narrow the listing of whichever server is being read (**`origin`**): every conversation, the ones opened on this host, or the chats a messenger gateway is holding. They are a **filter**, so they reload nothing. A remote row is a **switch**: it points the whole app at that server, the same one the composer's environment chip makes, and that does reload - the origin filter goes with everything else. The section is left out entirely when there is only one row to choose from.
+  - **Group by** - **None**, **Date**, **Folder** (the default - a conversation is remembered by which checkout it was about far more often than by which day it happened on), **Tag**.
+  - **Sort by** - **Last activity** (the default), **Date created**, **Name**: the **`sort`** parameter, each with the direction that reads naturally for its kind of value.
+
+  A rule separates the first two rows from the last two: the first pair decides *what is listed*, the second *how it is arranged*. A row's value is drawn in the **accent** colour only when it is **not** the default - a menu where every row is coloured says nothing about what has been narrowed - and every one of the four is remembered across reloads in its own cookie (**`coddy_sessions_group`**, **`_status`**, **`_origin`**, **`_sort`**): a filter the next page load forgets is not a setting.
+- **Grouping** is a client concern - the server answers a flat ordered page and the drawer decides where the headings fall - so switching costs no request and never reorders what the server sorted inside a group. A heading is the bucket's own name with a caret after it, and folding it is what clicking the name does; a bucket nothing falls into is not drawn, and a session with three tags is listed under all three.
+  - **Date** buckets by local calendar day: **Today**, **Yesterday**, **Previous 7 days**, **Previous 30 days**, **Older**, and **No date** last for a bundle with no timestamp.
+  Only a **Folder** heading carries the **+**; a date or a tag is not a place to put a session.
+
+  - **Folder** keys on the full path and shows the folder name, so two checkouts called `one` stay apart - and when a name really is carried by more than one heading, each of them spells out its full path underneath, because the name alone cannot tell them apart. Sessions with no workspace go last. A folder heading also carries a **+** that starts a new chat already pointed at that workspace - the pick goes through the same pre-session path as the composer's folder chip, so the server resolves the folder's current git branch for the new conversation.
+  - **Tag** puts untagged sessions last.
+- **What can be done to one conversation is behind its ⋮**: **Pin to the top**, then below a rule **Archive** and **Delete** - the two that take the conversation out of the list, while pinning only moves it - with delete in the destructive colour. An icon per action cost the title a button's width each and put a delete one mis-click away; inside the menu the actions have room for their words. One menu is open at a time, **Escape** closes it, and it is portaled out of the drawer so it is not cut off at the edge (it flips above the row near the foot of the window).
+- **Pinned conversations are one group at the top**, headed **Pinned** and set apart by a rule, in every grouping mode: they are a single list the operator keeps by hand, not a stripe running through every group - the same conversation at the top *and* inside its folder would raise the question of which one dragging moves. A pinned row carries a small accent mark beside its title and a **grip** on the left.
+- **The pins are reordered by dragging** that grip, with a mouse or a finger: the drag is driven by **pointer events** (HTML5 drag-and-drop never starts from touch) and the list shows where the drop would land rather than a row following the pointer, which survives a scroll and costs no compositing layer. The dropped order is written with **`POST /coddy/sessions/pins/reorder`**, which takes the **whole** order, and a new pin goes **above** the ones already there. The row does not move on the client - the order is the server's answer - so the list is re-read after the change.
+- **An archived conversation is dimmed in the list and cannot be written to**: its row is muted, and opening it replaces the composer with a notice saying it is archived and one button that takes it back out. Nothing is refused on the server - the archive is a shelf, not a lock - but leaving the composer there would invite a prompt that silently undoes the operator's own *not now*. The composer learns this from **`GET /coddy/sessions/{id}/messages`**, which carries **`archived`**: the session listing skips the archive, so the conversation on screen may be in no page the client holds.
+- **Archiving** takes a conversation out of the working list without deleting it (**`PATCH`** with **`archived`**). The row moves only once the server has agreed: a refused request would otherwise leave the drawer showing a state that is not on disk. An archived row carries the archive **mark** beside its title - the state a conversation is in, not a label among its tags - and the same menu item puts it back. The **Status** filter remembers what it was set to, so a session put aside stays out of the way until the operator asks for it.
+- **Tags** of a row render under its title as small chips (the title keeps the first line to itself); they are proposed by the title generation and edited over the API.
 - Indicators
   - A spinner appears on rows for sessions that are still generating in the background.
   - A violet dot appears only when a background session completed while it was not the active chat.
@@ -270,8 +305,8 @@ Session rename UX
 
 Session delete UX
 
-- Each row has a trash icon button.
-- Clicking delete shows one confirm dialog and then calls `DELETE /coddy/sessions/{id}`.
+- Delete is a line of the row's **⋮** menu, set apart and in the destructive colour.
+- Clicking delete shows one confirm dialog and then calls `DELETE /coddy/sessions/{id}`. The dialog opens with **Delete** focused here, so **Enter** finishes what the click started: the row's trash does one thing and the dialog asks about that one thing. Everywhere else the shared dialog still opens on **Cancel**, where a stray Enter must not confirm something nobody meant (**`initialFocus`** on **`confirm({...})`**).
 - If the deleted session is **not** the one currently shown in the main chat, remove it from the list (and refresh from the server) and **keep the History drawer open**. Do not change the URL or clear the transcript for the session that stayed on screen.
 - If the deleted session **is** the one currently shown, navigate to **new chat** (empty start screen, session hash cleared), **close** the History drawer, and clear composer-related state as for a normal home transition.
 - For a short interval after the user confirms delete, **ignore** shell **backdrop** pointer-driven close so a stray event from the native confirm does not dismiss History or alter the route.
@@ -281,15 +316,19 @@ Session delete UX
 
 ![The session management table with the open conversation protected](../assets/sessions-management-table-dark-1280.png)
 
-*The header tick took the page; the conversation that is open keeps its row, marked open and out of reach of the one delete button*
+*Everything stored, the archive included: a row says where it sits and what it is filed under, the columns sort the whole listing, and the two icons beside the search are the only destructive controls*
 
 **Settings -> Sessions** (**`#/settings/sessions_manager`**, **`SessionsManager.tsx`**, pure helpers in **`sessions/sessionManagerRows.ts`**) is the stored history as a table rather than a list to scroll. It is a client-side tab like Appearance: it reads and removes session bundles over **`/coddy/sessions`** and edits no config key, so it renders before the config schema has loaded. Its id is **`sessions_manager`** because **`sessions`** is already a config key - the storage directory, which stays in the **System** tab.
 
 - **Rows** come from **`GET /coddy/sessions?include_stats=true`**, 50 at a time with a **Load more** button. Each one shows the title with its **workspace** underneath, the **model** the session overrode (**`default`** when it never did, meaning whatever **`agent.model`** was at the time), the **message count**, the **total tokens** (input and output in the cell tooltip), and **created** / **updated** dates (the exact instant in the tooltip). A bundle stored before Coddy recorded a creation stamp shows **—** rather than a date invented from a later save.
-- **Search** is the same **`q`** filter the History drawer uses - title or first user message, case insensitive - debounced as you type.
-- **Deleting is one action**: a single trash icon beside the search field, at every width, which removes the **ticked** rows (**`POST /coddy/sessions/bulk-delete`** with their ids) behind the shared confirmation dialog. What it does is its **tooltip** and its accessible name, not a label on its face; the only text drawn on it is the **selection count** badge, which a tooltip cannot show at a glance. The scope of a delete is therefore always what the operator can see ticked - there is no second button that reaches further than the ticks.
+- **Search** is the same **`q`** filter the History drawer uses - title, workspace, a tag or the first user message, case insensitive - debounced as you type.
+- **Sorting** is the column headers: **Conversation** (title), **Msgs**, **Tokens**, **Created** and **Updated** are buttons, the sorted one carries a caret and an **`aria-sort`**. Clicking the column that is already sorted flips it; a different one starts where its kind of value reads naturally, a date or a count at its largest and a title at its first letter. The order goes to the server (**`sort`** and **`order`**) and applies to the **whole filtered listing before paging**, so **Load more** continues the sorted result rather than re-sorting a page.
+- **The archive** is a select beside the search: **Working list** (the default), **Archive**, **Everything**. An archived row carries a neutral **archived** badge whose tooltip says when it was put aside. Conversations are archived from **History**, not here; this tab is where you look at what the archive holds and empty it.
+- **Deleting is two scopes, never more**: a trash icon beside the search field removes the **ticked** rows (**`POST /coddy/sessions/bulk-delete`** with their ids), and an archive-box icon beside it empties the **archive** (**`scope: "archived"`**, with the open conversation named in **`except`** so the protection below holds even for a scope the server resolves), both behind the shared confirmation dialog. What each does is its **tooltip** and its accessible name, not a label on its face; the only text drawn is the **selection count** badge on the first, which a tooltip cannot show at a glance. The ticked rows are what the operator can see; the archive is a scope the server resolves, because the archive may hold more than the page does - which the confirmation says in words. There is no third button that reaches further than either.
+- **Tags** render under the title as chips. Clicking one narrows the table to the conversations filed under it (**`tags`**), and a line under the toolbar says which tag is showing with a link that clears it.
+- A row has **no delete of its own**: the tick and the one button are the whole per-row surface, so the scope of a destructive click is never ambiguous.
 - **Emptying the page** is the header checkbox plus that one button. With more rows than a page holds, **Load more** first; the summary line under the table says how many are listed and how many are ticked.
-- The **conversation you have open is protected**: its row is highlighted and marked **open**, its tick box and its row trash are disabled with a tooltip saying why, and the header checkbox passes over it. The table cannot take the chat out from under you; close it or switch to another conversation first, then delete it from **History**.
+- The **conversation you have open is protected** from every delete here, the archive scope included: its row is highlighted and marked **open**, its tick box is disabled with a tooltip saying why, the header checkbox passes over it, and emptying the archive spares it by name even when it is the one that was archived. The table cannot take the chat out from under you; close it or switch to another conversation first, then delete it from **History**.
 - The **selection follows what the table shows**: the header checkbox ticks and unticks the rendered rows, and a search that hides a ticked row takes its tick with it (clearing the search brings the row back unticked). A destructive action never reaches a row that is off screen, and a tick cannot reappear later because it survived out of sight.
 - A session that could not be removed - a turn of its tree was still running - is **reported** under the toolbar with its reason, and its row stays. The others are still gone: the request answers with **`deleted`** and **`failed`** separately.
 - The list **re-reads after every delete**; nothing is reloaded. If the conversation on screen behind the panel was one of the deleted ones, the chat resets to a new one and Settings stays open on this tab.

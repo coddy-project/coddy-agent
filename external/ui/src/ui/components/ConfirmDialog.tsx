@@ -20,6 +20,13 @@ export type ConfirmDialogProps = {
   ariaLabel: string;
   onConfirm: () => void;
   onCancel: () => void;
+  /**
+   * Which button holds the focus when the dialog opens. Cancel by default, so
+   * a stray Enter cannot confirm a delete; "confirm" is for a caller whose
+   * control does nothing else - there the keyboard should be able to answer
+   * the question it just asked.
+   */
+  initialFocus?: "cancel" | "confirm" | undefined;
   /** When true, action buttons are disabled (e.g. while a DELETE is in flight). */
   confirming?: boolean | undefined;
   dataTestId?: string | undefined;
@@ -41,6 +48,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
     ariaLabel,
     onConfirm,
     onCancel,
+    initialFocus = "cancel",
     confirming = false,
     dataTestId,
   } = props;
@@ -49,6 +57,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
   // Focus Cancel first for destructive actions: an accidental Enter must not
   // confirm a delete. Kept as a ref so we can move focus without re-render loops.
   const cancelRef = useRef<HTMLButtonElement | null>(null);
+  const confirmRef = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -58,9 +67,14 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
     // Whatever opened the dialog (the 🗑 row button, the sheet Delete button)
     // gets focus back on close, the way the native confirm() used to.
     const opener = document.activeElement as HTMLElement | null;
-    // Move focus to Cancel when the dialog opens (Escape/Enter then dismisses).
+    // Move focus to the button the caller asked for (Cancel by default, where
+    // Escape and Enter both dismiss).
     const id = window.setTimeout(() => {
-      cancelRef.current?.focus();
+      if (initialFocus === "confirm") {
+        confirmRef.current?.focus();
+      } else {
+        cancelRef.current?.focus();
+      }
     }, 0);
     return () => {
       window.clearTimeout(id);
@@ -68,7 +82,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
         opener.focus();
       }
     };
-  }, [open]);
+  }, [open, initialFocus]);
 
   // Escape cancels the dialog, Tab stays inside it. Listens on window in the
   // CAPTURE phase and stops the event: the dialog is the topmost layer, so the
@@ -206,6 +220,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
             {cancelLabel}
           </button>
           <button
+            ref={confirmRef}
             type="button"
             className={confirmClass}
             onClick={onConfirm}

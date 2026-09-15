@@ -1497,32 +1497,501 @@ a.rail-brand {
   color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
 }
 
-.session-trash {
+/* The filter control sits in the search row - both narrow the list below - so
+   that row is what the menu hangs off. */
+.sessions-search-row {
+  position: relative;
+}
+
+/* The same box as the search field beside it - height and corner radius - so
+   the row reads as one strip of controls rather than a field with a smaller
+   button parked next to it. */
+.sessions-filter-trigger {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  background: rgba(20, 20, 22, 0.35);
+  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.sessions-filter-trigger:hover,
+.sessions-filter-trigger.is-open {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.sessions-filter-trigger.is-open {
+  background: color-mix(in srgb, var(--accent) 16%, rgba(20, 20, 22, 0.35));
+}
+
+/* The backdrop only catches the click that dismisses the menu; it draws
+   nothing, because the drawer behind it must stay readable while choosing. */
+.sessions-filter-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: default;
+}
+
+/* Portaled out of the drawer and placed from the trigger: the drawer clips what
+   overflows it, and a submenu has to reach past its edge. */
+.sessions-filter-menu {
+  position: fixed;
+  z-index: 101;
+  min-width: 232px;
+  padding: 6px;
+  border-radius: 14px;
+  /* The tooltip surface, not the glass one: this menu sits over the list it
+     filters, and a translucent panel would be read through. Every theme defines
+     the pair, so it follows the palette like everything else. */
+  background: var(--coddy-tip-bg);
+  border: 1px solid var(--coddy-glass-panel-border);
+  box-shadow: var(--coddy-tip-shadow);
+}
+
+.sessions-filter-parent {
+  position: relative;
+}
+
+/* A rule, not a heading: the four rows are questions of the same kind, and the
+   break only says that the first two are about what is listed and the last two
+   about how it is arranged. */
+.sessions-filter-parent.starts-group {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid
+    color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+}
+
+/* One row: the question, the answer in force, and the way in. */
+.sessions-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sessions-filter-row:hover,
+.sessions-filter-row.is-open {
+  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+}
+
+.sessions-filter-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The answer reads as the value it is, not as a second label - and it is
+   coloured only when the operator moved it off the default. A menu where every
+   row is accented says nothing about what has been narrowed. */
+.sessions-filter-value.is-default {
+  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
+}
+
+.sessions-filter-value {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--accent);
+}
+
+.sessions-filter-chevron {
+  flex: 0 0 auto;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.5;
+}
+
+.sessions-filter-row:hover .sessions-filter-chevron,
+.sessions-filter-row.is-open .sessions-filter-chevron {
+  opacity: 0.9;
+}
+
+/* Beside the row it belongs to, overlapping its own padding so the two panels
+   read as one surface rather than two floating cards. */
+.sessions-filter-submenu {
+  position: absolute;
+  top: -6px;
+  left: calc(100% + 4px);
+  min-width: 160px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--coddy-tip-bg);
+  border: 1px solid var(--coddy-glass-panel-border);
+  box-shadow: var(--coddy-tip-shadow);
+  max-height: min(60vh, 320px);
+  overflow-y: auto;
+}
+
+.sessions-filter-menu.opens-left .sessions-filter-submenu {
+  left: auto;
+  right: calc(100% + 4px);
+}
+
+.sessions-filter-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.sessions-filter-item:hover {
+  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+}
+
+.sessions-filter-check {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+
+/* A heading, the control that starts a chat in it, and the row count. The end
+   padding matches a session row's, so the count lands in the same column as the
+   rows' own ⋮ below it rather than a few pixels past it. */
+.session-group-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 8px;
+}
+
+
+/* In the column the rows' own control sits in, and visible at rest: a way to
+   start work in this folder is worth a glance, not a hunt with the pointer. */
+.session-group-new {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+
+.session-group-new:hover,
+.session-group-new:focus-visible {
+  color: var(--text);
+}
+
+.session-group {
+  margin-bottom: 4px;
+}
+
+/* The heading is the folder's own name with a caret after it, not a band across
+   the list: only the name is the target, so the hover says what will fold. The
+   name keeps the case the folder has - upper-casing a path is a small lie. */
+.session-group-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 1 auto;
+  min-width: 0;
+  /* Only the name is the fold target; the empty space after it belongs to
+     nothing, and pushes the controls at the end of the bar to the edge. */
+  margin-right: auto;
+  padding: 5px 7px 5px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+
+/* Brighter text, no plate behind it: a heading is a line of the list, and a
+   band appearing under the pointer makes it read like a row that can be opened. */
+.session-group-head:hover {
+  color: var(--text);
+}
+
+.session-group-caret {
+  flex: 0 0 auto;
+  font-size: 9px;
+  line-height: 1;
+  opacity: 0.75;
+}
+
+.session-group-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+/* The path appears only under a name more than one heading carries; it is the
+   thing that tells them apart, so it is quiet but complete. Clipped plainly at
+   the end: reversing the direction to clip the front moves the leading slash to
+   the other side, and a path that reads as ending in "/" is a worse lie than a
+   truncated one. */
+.session-group-path {
+  padding: 0 10px 4px 12px;
+  margin-top: -2px;
+  font-size: 10.5px;
+  line-height: 1.3;
+  color: color-mix(in srgb, var(--text) 40%, var(--coddy-blend-base));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The archive is a state the row is in, so it leads the row with the spinner
+   and the unread dot rather than sitting among the tags, which are labels the
+   operator chose. */
+.session-archived-mark {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  line-height: 1;
+  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+}
+
+.session-row-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 3px;
+  padding-left: 2px;
+}
+
+.session-tag {
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1.6;
+  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+}
+
+/* One control per row, not a strip of them: the actions have room for their
+   words inside the menu it opens, and the title keeps the width the icons took. */
+.session-row-menu-trigger {
   opacity: 0.38;
   flex-shrink: 0;
   position: relative;
   z-index: 2;
   width: 26px;
   height: 26px;
-  border-radius: 10px;
+  border-radius: 8px;
   border: 0;
   background: transparent;
   color: color-mix(in srgb, var(--text) 85%, var(--coddy-blend-base));
   cursor: pointer;
-  font-size: 13px;
-  line-height: 1;
   display: grid;
   place-items: center;
   pointer-events: auto;
 }
 
-.session-item:hover .session-trash,
-.session-trash:focus-visible {
+.session-item:hover .session-row-menu-trigger,
+.session-row-menu-trigger:focus-visible,
+.session-row-menu-trigger[aria-expanded="true"] {
   opacity: 1;
 }
 
-.session-trash:hover {
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+.session-row-menu-trigger:hover,
+.session-row-menu-trigger[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+}
+
+/* Portaled out of the drawer, which clips what overflows it. */
+.session-row-menu {
+  position: fixed;
+  z-index: 101;
+  min-width: 180px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--coddy-tip-bg);
+  border: 1px solid var(--coddy-glass-panel-border);
+  box-shadow: var(--coddy-tip-shadow);
+}
+
+.session-row-menu-item {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.session-row-menu-item:hover {
+  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+}
+
+/* A rule opens the group of actions that take the conversation out of the list,
+   away from the one that only moves it. */
+.session-row-menu-item.starts-group {
+  margin-top: 5px;
+  padding-top: 8px;
+  border-top: 1px solid
+    color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-radius: 0 0 8px 8px;
+}
+
+/* The irreversible one, in the colour that says so. */
+.session-row-menu-item.is-danger {
+  color: var(--coddy-danger, #f87171);
+}
+
+.session-row-menu-item.is-danger:hover {
+  background: color-mix(in srgb, #f87171 16%, transparent);
+}
+
+/* The pins are one list the operator keeps by hand, so they stand a little
+   apart from the groups the machine made below them. */
+.session-group.is-pinned {
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+}
+
+/* The handle. touch-action none is what lets a finger drag the row instead of
+   scrolling the list under it. */
+.session-drag-grip {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  margin-left: -4px;
+  color: color-mix(in srgb, var(--text) 30%, var(--coddy-blend-base));
+  cursor: grab;
+  touch-action: none;
+  transition: color 140ms ease;
+}
+
+.session-item:hover .session-drag-grip {
+  color: color-mix(in srgb, var(--text) 60%, var(--coddy-blend-base));
+}
+
+.session-drag-grip:active {
+  cursor: grabbing;
+}
+
+.session-item.is-dragging {
+  opacity: 0.45;
+}
+
+/* Where the drop would land, drawn on the list rather than under the pointer:
+   a row that follows the finger costs a layer and hides what it lands on. */
+.session-item.is-drop-target {
+  box-shadow: inset 0 2px 0 0 var(--accent);
+}
+
+/* An archived conversation reads as put aside: the row is quieter than the ones
+   still in play, which is the whole difference between the two. */
+.session-item.is-archived .session-title {
+  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+}
+
+.session-item.is-archived .session-row-tags {
+  opacity: 0.6;
+}
+
+/* The composer's slot on an archived conversation: the same glass panel the
+   subagent notice beside it is cut from, because it stands over the transcript
+   and a wash of the text colour is transparent on a dark canvas. */
+.archived-session-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: var(--coddy-glass-panel-radius);
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.archived-session-text {
+  min-width: 0;
+}
+
+.archived-session-action {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
+  background: rgba(20, 20, 22, 0.35);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.archived-session-action:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.archived-session-action:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* A pin is a mark on the title, not a badge: it says where the row is, and the
+   row is already at the top saying it. */
+.session-pin-mark {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  line-height: 1;
+  color: var(--accent);
 }
 
 .session-menu {
@@ -11282,11 +11751,6 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   font-variant-numeric: tabular-nums;
 }
 
-.sessions-manager-col-act {
-  width: 40px;
-  text-align: center;
-}
-
 /* Long values get a cap and an ellipsis; the full text is in the cell title. */
 .sessions-manager-title-line > span,
 .sessions-manager-col-model > span,
@@ -11335,9 +11799,90 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
-/* The row trash has no .session-item to hover in a table. */
-.sessions-manager-table tbody tr:hover .session-trash {
-  opacity: 1;
+/* A sortable column head is a button that fills its cell, so the whole header
+   is the target rather than the word inside it. */
+.sessions-manager-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  /* A form control does not inherit these on its own, and a sortable column
+     head must read exactly like the ones that are not sortable. */
+  text-transform: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sessions-manager-sort:hover {
+  color: var(--text);
+}
+
+.sessions-manager-sort-caret {
+  font-size: 0.6rem;
+  opacity: 0.75;
+}
+
+.sessions-manager-archive {
+  flex: 0 0 auto;
+}
+
+.sessions-manager-archive-select {
+  width: auto;
+  min-width: 0;
+}
+
+/* The same mark as in History: a state leading the title, not a pill among the
+   labels. */
+.sessions-manager-archived-mark {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  margin-right: 5px;
+  vertical-align: -3px;
+  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+}
+
+.sessions-manager-archived-mark svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* A tag under a title is a filter you can press. */
+.sessions-manager-tag {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.68rem;
+  line-height: 1.5;
+  cursor: pointer;
+  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+}
+
+.sessions-manager-tag:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.sessions-manager-tag-filter {
+  margin: 0;
+}
+
+.sessions-manager-tag-clear {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
 }
 
 .sessions-manager-empty {
