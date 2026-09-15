@@ -22,11 +22,19 @@ test("completed state uses plain thinking label without spinner", () => {
   expect(container.querySelector(".thinking-dur")?.textContent).toBe("12ms");
 });
 
-test("completed without duration shows placeholder in duration slot", () => {
+// A turn whose reasoning arrived in one flush has no duration to report, and the
+// dash the row used to print read as a failure next to rows showing milliseconds.
+// The floor of the same scale says the same thing without looking broken.
+test("completed without duration reads as the floor of the scale, not a dash", () => {
   const { container } = render(
     <ThinkingMessage status="completed" content="x" />,
   );
-  expect(container.querySelector(".thinking-dur")?.textContent).toBe("-");
+  expect(container.querySelector(".thinking-dur")?.textContent).toBe("0ms");
+});
+
+test("in_progress before the clock starts reads the same way", () => {
+  const { container } = render(<ThinkingMessage status="in_progress" content="x" />);
+  expect(container.querySelector(".thinking-dur")?.textContent).toBe("0ms");
 });
 
 test("in_progress shows thinking ellipsis and elapsed from startedAtMs", () => {
