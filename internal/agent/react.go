@@ -26,6 +26,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
+	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/todo"
 )
@@ -58,6 +59,12 @@ type SessionState interface {
 	ClearPendingPlanContext()
 	TakePendingImageParts() []llm.ImagePart
 	GetPermissionMode() string
+	// ConversationTitle, GetTags, SetTitlePinned and SetTags are how the
+	// session_describe tool reaches the session's own filing (session_filing.go).
+	ConversationTitle() string
+	GetTags() []string
+	SetTitlePinned(title string)
+	SetTags(tags []string)
 	IsUserCancelledTurn() bool
 	// TakeQueuedMessages drains the follow-ups written while this turn runs
 	// (session/turn_queue.go). The loop reads them between its own steps.
@@ -284,6 +291,12 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 			return nil
 		},
 		CompactSession: a.compactFromTool,
+		GetSessionFiling: func() tooling.SessionFiling {
+			return sessionFilingOf(a.state)
+		},
+		SetSessionFiling: func(upd tooling.SessionFilingUpdate) (tooling.SessionFiling, error) {
+			return applySessionFiling(a.state, upd)
+		},
 		PersistPlanDocument: func(doc plans.Document) {
 			a.state.AppendPlanDocument(doc)
 		},

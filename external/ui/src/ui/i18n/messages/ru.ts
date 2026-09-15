@@ -1176,6 +1176,7 @@ export const messagesRu: Record<string, string> = {
   "tool.name.keep_result": "сохраняю результат",
   "tool.name.plan_exit": "перехожу в агентный режим",
   "tool.name.compact_context": "сжимаю контекст",
+  "tool.name.session_describe": "правлю название и теги сессии",
   "tool.name.plan_write": "сохраняю план",
   "tool.name.plan_read": "читаю план",
   "tool.name.plan_list": "смотрю список планов",

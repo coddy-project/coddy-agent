@@ -106,6 +106,14 @@ type Env struct {
 	// transcript before the next model call.
 	ContextCompacted bool
 
+	// GetSessionFiling reads how the session is filed - the title it is listed
+	// under and the tags it is grouped by - and SetSessionFiling writes the
+	// parts an update names, answering with what the session carries after the
+	// write. Both are wired by the agent runtime; nil where no session backs
+	// the run, and session_describe refuses the call rather than pretending.
+	GetSessionFiling func() SessionFiling
+	SetSessionFiling func(SessionFilingUpdate) (SessionFiling, error)
+
 	// SubagentDepth is how deep this session sits in a spawn tree: 0 for an
 	// ordinary session, 1 for its children. The runtime uses it to refuse
 	// spawns past subagents.max_depth.
@@ -176,4 +184,23 @@ type SpawnRequest struct {
 	ExpectedSeconds int
 	TimeoutSeconds  int
 	NotifyOnFinish  bool
+}
+
+// SessionFiling is how one conversation is filed: the title it is listed under
+// (the pinned one, or the one derived from the first message) and the tags it
+// is grouped by. It is what session_describe reads and reports.
+type SessionFiling struct {
+	Title string
+	Tags  []string
+}
+
+// SessionFilingUpdate names the parts of the filing a call changes. A nil field
+// is left alone: that is what lets a call add a label without touching a title
+// the operator pinned by hand. Tags replaces the whole set, AddTags and
+// RemoveTags change it in place, and the two ways are never combined.
+type SessionFilingUpdate struct {
+	Title      *string
+	Tags       *[]string
+	AddTags    []string
+	RemoveTags []string
 }

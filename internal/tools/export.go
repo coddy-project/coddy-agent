@@ -53,6 +53,9 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 	if cfg == nil || cfg.Compaction.IsEnabled() {
 		r.Register(CompactContextTool())
 	}
+	// Filing the session it runs in: a conversation the model renamed or
+	// tagged is one the operator can find again.
+	r.Register(SessionDescribeTool())
 	r.Register(PlanWriteTool())
 	r.Register(PlanListTool())
 	r.Register(PlanReadTool())

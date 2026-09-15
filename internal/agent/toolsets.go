@@ -46,6 +46,9 @@ var planToolNames = []string{
 	// Folding the session's own replay window writes nothing outside it, and a
 	// long investigation is exactly the session that fills a context window.
 	"compact_context",
+	// Filing the session writes nothing but the session's own title and tags,
+	// and a planning session is one that earns a name as it goes.
+	"session_describe",
 }
 
 // askToolNames is the fixed allowlist for ask mode: repository reads and web

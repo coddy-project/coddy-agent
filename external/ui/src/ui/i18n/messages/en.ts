@@ -1158,6 +1158,7 @@ export const messagesEn: Record<string, string> = {
   "tool.name.keep_result": "keeping a result",
   "tool.name.plan_exit": "switching to agent mode",
   "tool.name.compact_context": "compacting the context",
+  "tool.name.session_describe": "filing the session",
   "tool.name.plan_write": "saving a plan",
   "tool.name.plan_read": "reading a plan",
   "tool.name.plan_list": "listing plans",
