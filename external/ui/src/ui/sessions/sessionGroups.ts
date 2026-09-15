@@ -34,6 +34,12 @@ export type SessionGroup = {
    * a new session in that folder.
    */
   workspacePath?: string;
+  /**
+   * A second line under the heading, set only when the name alone does not
+   * identify it - two checkouts called "one" are two projects a reader cannot
+   * tell apart without the path.
+   */
+  subLabel?: string;
   rows: SessionRow[];
 };
 
@@ -186,6 +192,18 @@ function groupByWorkspace(rows: readonly SessionRow[]): SessionGroup[] {
   const out = [...byPath.values()].sort((a, b) =>
     String(a.label).localeCompare(String(b.label)),
   );
+  // A folder name that more than one heading carries is not enough to tell them
+  // apart, so those headings - and only those - spell out their path.
+  const seen = new Map<string, number>();
+  for (const group of out) {
+    const label = String(group.label ?? "");
+    seen.set(label, (seen.get(label) ?? 0) + 1);
+  }
+  for (const group of out) {
+    if ((seen.get(String(group.label ?? "")) ?? 0) > 1 && group.workspacePath) {
+      group.subLabel = group.workspacePath;
+    }
+  }
   if (unknown.rows.length > 0) {
     out.push(unknown);
   }
@@ -230,11 +248,34 @@ function groupByTag(rows: readonly SessionRow[]): SessionGroup[] {
  * Divides rows into the headings `mode` asks for. The order inside a group is
  * the order it was handed - the server decided that - and a bucket nothing
  * falls into is not rendered at all.
+ *
+ * Pinned conversations are lifted out first, into one group above everything
+ * else. They are a single list the operator keeps by hand, not a stripe running
+ * through every group: a pin repeated inside its folder *and* at the top would
+ * be the same conversation twice, and dragging one of the two would raise the
+ * question of what the other one means.
  */
 export function groupSessions(
   rows: readonly SessionRow[],
   mode: SessionGroupMode,
   now: number = Date.now(),
+): SessionGroup[] {
+  const pinned = rows.filter((row) => row.pinned);
+  const rest = rows.filter((row) => !row.pinned);
+  const groups = groupTheRest(rest, mode, now);
+  if (pinned.length === 0) {
+    return groups;
+  }
+  return [
+    { key: "pinned", labelKey: "sessions.group.pinned", rows: pinned },
+    ...groups,
+  ];
+}
+
+function groupTheRest(
+  rows: readonly SessionRow[],
+  mode: SessionGroupMode,
+  now: number,
 ): SessionGroup[] {
   switch (mode) {
     case "time":
@@ -244,7 +285,7 @@ export function groupSessions(
     case "tag":
       return groupByTag(rows);
     default:
-      return [{ key: "all", rows: [...rows] }];
+      return rows.length === 0 ? [] : [{ key: "all", rows: [...rows] }];
   }
 }
 

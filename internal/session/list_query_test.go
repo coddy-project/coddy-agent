@@ -327,15 +327,18 @@ func TestSortSessionListKeepsPinnedRowsOnTopOfEveryOrder(t *testing.T) {
 	}
 }
 
-func TestSortSessionListOrdersSeveralPinsAmongThemselves(t *testing.T) {
+func TestSortSessionListDoesNotLetTheColumnReorderThePins(t *testing.T) {
+	// The order of the pins belongs to the operator, who dragged them into it.
+	// A column sort rearranging them underneath would undo that silently, so
+	// the column applies to everything below the pins and nothing above.
 	rows := []SessionListEntry{
-		{SessionID: "sess_a", Title: "alpha", Pinned: true},
-		{SessionID: "sess_b", Title: "bravo", Pinned: true},
+		{SessionID: "sess_a", Title: "alpha", Pinned: true, PinnedRank: 1},
+		{SessionID: "sess_b", Title: "bravo", Pinned: true, PinnedRank: 2},
 		{SessionID: "sess_c", Title: "charlie"},
 	}
 	SortSessionList(rows, SortTitle, SortDesc, nil)
-	if rows[0].SessionID != "sess_b" || rows[1].SessionID != "sess_a" {
-		t.Fatalf("pins ignore the sort among themselves: %v", rows)
+	if rows[0].SessionID != "sess_a" || rows[1].SessionID != "sess_b" {
+		t.Fatalf("a title sort reordered the pins: %v", rows)
 	}
 }
 
@@ -360,5 +363,57 @@ func TestSetPinnedStampsAndClears(t *testing.T) {
 	st.SetPinned(false)
 	if pinned, at = st.PinState(); pinned || at != "" {
 		t.Fatalf("after unpinning: %v, %q", pinned, at)
+	}
+}
+
+func TestSortSessionListOrdersPinsByTheirRank(t *testing.T) {
+	// The rank is the order the operator dragged them into, so it outranks the
+	// column being sorted by - inside the pins, that column says nothing.
+	rows := []SessionListEntry{
+		{SessionID: "sess_a", Title: "alpha", Pinned: true, PinnedRank: 2},
+		{SessionID: "sess_b", Title: "bravo", Pinned: true, PinnedRank: 0},
+		{SessionID: "sess_c", Title: "charlie", Pinned: true, PinnedRank: 1},
+		{SessionID: "sess_d", Title: "delta"},
+	}
+	for _, order := range []SortOrder{SortAsc, SortDesc} {
+		got := append([]SessionListEntry(nil), rows...)
+		SortSessionList(got, SortTitle, order, nil)
+		ids := []string{got[0].SessionID, got[1].SessionID, got[2].SessionID}
+		if !reflect.DeepEqual(ids, []string{"sess_b", "sess_c", "sess_a"}) {
+			t.Fatalf("order %q: pins read %v", order, ids)
+		}
+		if got[3].SessionID != "sess_d" {
+			t.Fatalf("order %q: an unpinned row got in among the pins: %v", order, got)
+		}
+	}
+}
+
+func TestSortSessionListFallsBackToTheNewestPinWhenRanksTie(t *testing.T) {
+	// A pin that never took part in a reorder has no rank of its own; the
+	// freshest one leads, which is where a new pin is put.
+	rows := []SessionListEntry{
+		{SessionID: "sess_a", Pinned: true, PinnedAt: "2026-09-01T00:00:00Z"},
+		{SessionID: "sess_b", Pinned: true, PinnedAt: "2026-09-03T00:00:00Z"},
+		{SessionID: "sess_c", Pinned: true, PinnedAt: "2026-09-02T00:00:00Z"},
+	}
+	SortSessionList(rows, SortUpdated, SortDesc, nil)
+	ids := []string{rows[0].SessionID, rows[1].SessionID, rows[2].SessionID}
+	if !reflect.DeepEqual(ids, []string{"sess_b", "sess_c", "sess_a"}) {
+		t.Fatalf("got %v", ids)
+	}
+}
+
+func TestSetPinnedRankRecordsTheHandPlacedOrder(t *testing.T) {
+	st := &State{ID: "sess_a"}
+	st.SetPinned(true)
+	st.SetPinnedRank(3)
+	if _, _, rank := st.PinPlacement(); rank != 3 {
+		t.Fatalf("rank = %d", rank)
+	}
+	// Unpinning forgets the placement: a session pinned again is a new pin and
+	// goes where new pins go.
+	st.SetPinned(false)
+	if _, _, rank := st.PinPlacement(); rank != 0 {
+		t.Fatalf("rank survived unpinning: %d", rank)
 	}
 }

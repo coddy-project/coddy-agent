@@ -800,6 +800,7 @@ export const messagesEn: Record<string, string> = {
   "sessions.sort.created": "Date created",
   "sessions.sort.title": "Name",
 
+  "sessions.group.pinned": "Pinned",
   "sessions.group.none": "None",
   "sessions.group.time": "Date",
   "sessions.group.workspace": "Folder",
@@ -815,12 +816,13 @@ export const messagesEn: Record<string, string> = {
   "sessions.group.untagged": "No tags",
   "sessions.group.collapse": "Collapse {group}",
   "sessions.group.expand": "Expand {group}",
+  "sessions.dragPin": "Drag to reorder",
   "sessions.pin": "Pin to the top",
   "sessions.unpin": "Unpin",
   "sessions.pinnedBadge": "pinned",
   "sessions.rowMenu": "Conversation actions",
-  "sessions.archive": "Archive conversation",
-  "sessions.unarchive": "Take out of the archive",
+  "sessions.archive": "Archive",
+  "sessions.unarchive": "Unarchive",
   "sessions.archivedBadge": "archived",
   "sessions.tagFilterClear": "Clear the tag filter",
 

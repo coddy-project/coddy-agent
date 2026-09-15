@@ -818,6 +818,7 @@ export const messagesRu: Record<string, string> = {
   "sessions.sort.created": "Дате создания",
   "sessions.sort.title": "Названию",
 
+  "sessions.group.pinned": "Закреплённые",
   "sessions.group.none": "Без группировки",
   "sessions.group.time": "Дате",
   "sessions.group.workspace": "Папке",
@@ -833,12 +834,13 @@ export const messagesRu: Record<string, string> = {
   "sessions.group.untagged": "Без тегов",
   "sessions.group.collapse": "Свернуть группу {group}",
   "sessions.group.expand": "Развернуть группу {group}",
+  "sessions.dragPin": "Перетащите, чтобы изменить порядок",
   "sessions.pin": "Закрепить сверху",
   "sessions.unpin": "Открепить",
   "sessions.pinnedBadge": "закреплён",
   "sessions.rowMenu": "Действия с диалогом",
-  "sessions.archive": "Отправить в архив",
-  "sessions.unarchive": "Вернуть из архива",
+  "sessions.archive": "Заархивировать",
+  "sessions.unarchive": "Разархивировать",
   "sessions.archivedBadge": "в архиве",
   "sessions.tagFilterClear": "Сбросить фильтр по тегам",
 

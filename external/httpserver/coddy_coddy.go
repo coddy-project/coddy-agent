@@ -166,6 +166,7 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("GET /coddy/events", s.coddyEventsStream)
 	s.mux.HandleFunc("GET /coddy/sessions", s.coddySessionsList)
 	s.mux.HandleFunc("POST /coddy/sessions/bulk-delete", s.coddySessionsBulkDelete)
+	s.mux.HandleFunc("POST /coddy/sessions/pins/reorder", s.coddySessionPinsReorder)
 	s.mux.HandleFunc("POST /coddy/describe", s.coddyDescribePost)
 	s.mux.HandleFunc("POST /coddy/enhance-prompt", s.coddyEnhancePromptPost)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/activity", s.coddySessionActivityGet)
@@ -1252,6 +1253,12 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Pinned != nil {
 		st.SetPinned(*body.Pinned)
+		if *body.Pinned {
+			// A new pin goes above the ones already there: a session is pinned
+			// because it matters now, and hunting for it at the bottom of the
+			// pins would be the opposite of what the pin was for.
+			st.SetPinnedRank(s.lowestPinRank() - 1)
+		}
 		did = true
 		pinned, at := st.PinState()
 		resp["pinned"] = pinned
@@ -1325,6 +1332,88 @@ func (s *Server) coddySessionDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"object": "coddy.session_deleted", "id": id})
+}
+
+// lowestPinRank returns the rank of the pin that currently sits highest, or 0
+// when nothing is pinned. A caller puts itself above them all with rank-1.
+func (s *Server) lowestPinRank() int {
+	fs := s.mgr.FileStore()
+	if fs == nil {
+		return 0
+	}
+	rows, err := fs.ListSnapshotsWith(session.ListOptions{Archived: session.ArchiveAll})
+	if err != nil {
+		s.log.Warn("read pin ranks", "error", err)
+		return 0
+	}
+	lowest := 0
+	for _, row := range rows {
+		if row.Pinned && row.PinnedRank < lowest {
+			lowest = row.PinnedRank
+		}
+	}
+	return lowest
+}
+
+// coddySessionPinsReorder writes the order the operator dragged the pins into.
+//
+// The whole order arrives at once rather than one moved id: a list rewritten
+// from the client's own view cannot end up interleaved with a concurrent change
+// in a way nobody asked for, and a refused request leaves every pin where it
+// was - the ids are checked before anything is written.
+func (s *Server) coddySessionPinsReorder(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	fs := s.coddyRequireStore(w)
+	if fs == nil {
+		return
+	}
+	var body struct {
+		IDs []string `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
+		return
+	}
+	if len(body.IDs) == 0 {
+		http.Error(w, `{"error":{"message":"ids must not be empty"}}`, http.StatusBadRequest)
+		return
+	}
+	ids := make([]string, 0, len(body.IDs))
+	seen := make(map[string]struct{}, len(body.IDs))
+	for _, raw := range body.IDs {
+		id := strings.TrimSpace(raw)
+		if err := session.ValidateFolderSessionID(id); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+			return
+		}
+		if _, dup := seen[id]; dup {
+			http.Error(w, fmt.Sprintf(`{"error":{"message":"%s is listed twice"}}`, id), http.StatusBadRequest)
+			return
+		}
+		seen[id] = struct{}{}
+		snap, err := fs.ReadSnapshot(id)
+		if err != nil || !snap.Meta.Pinned {
+			http.Error(w, fmt.Sprintf(`{"error":{"message":"%s is not a pinned session"}}`, id), http.StatusBadRequest)
+			return
+		}
+		ids = append(ids, id)
+	}
+
+	for rank, id := range ids {
+		st := s.coddyEnsureLoaded(w, r, id)
+		if st == nil {
+			return
+		}
+		st.SetPinnedRank(rank)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"object": "coddy.session_pins_reordered",
+		"ids":    ids,
+	})
 }
 
 // coddySessionsBulkDeleteRequest is the body of POST /coddy/sessions/bulk-delete.

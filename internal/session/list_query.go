@@ -300,6 +300,18 @@ func SortSessionList(rows []SessionListEntry, key SortKey, order SortOrder, toke
 		if a.Pinned != b.Pinned {
 			return a.Pinned
 		}
+		if a.Pinned {
+			// Among the pins the sort column says nothing: their order is the
+			// one the operator dragged them into, and before any dragging the
+			// freshest pin leads - which is where a new pin is put.
+			if a.PinnedRank != b.PinnedRank {
+				return a.PinnedRank < b.PinnedRank
+			}
+			if cmp, _ := compareOptionalTimestamps(a.PinnedAt, b.PinnedAt); cmp != 0 {
+				return cmp > 0
+			}
+			return a.SessionID < b.SessionID
+		}
 		if cmp, decided := compareSessionRows(a, b, key, tokensOf); decided {
 			if !asc {
 				cmp = -cmp

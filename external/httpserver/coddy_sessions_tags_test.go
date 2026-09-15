@@ -478,3 +478,99 @@ func TestPinnedSessionsLeadEveryOrder(t *testing.T) {
 		t.Fatalf("an unpinned row did not fall back into the order: %v", listed)
 	}
 }
+
+// postPinOrder sends one reorder request.
+func postPinOrder(t *testing.T, srv *Server, ids []string) (int, map[string]interface{}) {
+	t.Helper()
+	body, err := json.Marshal(map[string]interface{}{"ids": ids})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/coddy/sessions/pins/reorder", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.mux.ServeHTTP(rec, req)
+	var parsed map[string]interface{}
+	_ = json.Unmarshal(rec.Body.Bytes(), &parsed)
+	return rec.Code, parsed
+}
+
+func TestANewPinGoesOnTopOfTheOnesAlreadyThere(t *testing.T) {
+	srv, mgr, store := bulkDeleteServer(t)
+	var ids []string
+	for i := 0; i < 3; i++ {
+		ids = append(ids, storeSession(t, mgr, store, "question"))
+	}
+	for _, id := range ids {
+		if code, body := patchSessionJSON(t, srv, id, map[string]interface{}{"pinned": true}); code != http.StatusOK {
+			t.Fatalf("pin: status %d body %v", code, body)
+		}
+	}
+	_, body := getSessions(t, srv, "")
+	// Pinned in order, so the last one pinned leads and the first one trails.
+	want := []string{ids[2], ids[1], ids[0]}
+	if got := listedIDs(body); len(got) < 3 || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
+		t.Fatalf("pins read %v, want the newest first: %v", got, want)
+	}
+}
+
+func TestReorderPinsPutsThemWhereTheyWereDragged(t *testing.T) {
+	srv, mgr, store := bulkDeleteServer(t)
+	var ids []string
+	for i := 0; i < 3; i++ {
+		id := storeSession(t, mgr, store, "question")
+		if code, _ := patchSessionJSON(t, srv, id, map[string]interface{}{"pinned": true}); code != http.StatusOK {
+			t.Fatal("pin")
+		}
+		ids = append(ids, id)
+	}
+
+	order := []string{ids[1], ids[2], ids[0]}
+	if code, body := postPinOrder(t, srv, order); code != http.StatusOK {
+		t.Fatalf("reorder: status %d body %v", code, body)
+	}
+	_, body := getSessions(t, srv, "")
+	got := listedIDs(body)
+	for i, want := range order {
+		if got[i] != want {
+			t.Fatalf("after the drag the pins read %v, want %v", got[:3], order)
+		}
+	}
+
+	// And the order survives a sort the operator picks for everything below.
+	_, body = getSessions(t, srv, "sort=title&order=asc")
+	got = listedIDs(body)
+	for i, want := range order {
+		if got[i] != want {
+			t.Fatalf("a title sort reordered the pins: %v", got[:3])
+		}
+	}
+}
+
+func TestReorderPinsRefusesWhatIsNotAPin(t *testing.T) {
+	srv, mgr, store := bulkDeleteServer(t)
+	pinned := storeSession(t, mgr, store, "pinned")
+	plain := storeSession(t, mgr, store, "plain")
+	if code, _ := patchSessionJSON(t, srv, pinned, map[string]interface{}{"pinned": true}); code != http.StatusOK {
+		t.Fatal("pin")
+	}
+
+	cases := map[string][]string{
+		"a session that is not pinned":  {pinned, plain},
+		"a session that does not exist": {pinned, "sess_deadbeefdeadbeefdeadbeef"},
+		"a malformed id":                {"../../etc"},
+		"nothing at all":                {},
+	}
+	for name, ids := range cases {
+		t.Run(name, func(t *testing.T) {
+			if code, _ := postPinOrder(t, srv, ids); code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400", code)
+			}
+		})
+	}
+	// Nothing was written: the one real pin kept its place.
+	_, body := getSessions(t, srv, "")
+	if got := listedIDs(body); got[0] != pinned {
+		t.Fatalf("a refused reorder moved something: %v", got)
+	}
+}

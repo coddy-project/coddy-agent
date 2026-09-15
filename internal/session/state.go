@@ -145,9 +145,11 @@ type State struct {
 	Origin string
 
 	// Pinned keeps the session at the top of every listing; PinnedAt records
-	// the moment it was pinned.
-	Pinned   bool
-	PinnedAt string
+	// the moment it was pinned, and PinnedRank the place the operator dragged
+	// it to among the other pins (lower is higher up; 0 means never placed).
+	Pinned     bool
+	PinnedAt   string
+	PinnedRank int
 
 	// MemoryCopilotBlock is per-turn text from the memory copilot (not persisted to session.json).
 	MemoryCopilotBlock string
@@ -859,6 +861,27 @@ func (s *State) PinState() (pinned bool, at string) {
 	return s.Pinned, s.PinnedAt
 }
 
+// PinPlacement returns the pin, its stamp and its hand-placed rank together:
+// three halves of one fact, for the same reason ArchiveState returns two.
+func (s *State) PinPlacement() (pinned bool, at string, rank int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Pinned, s.PinnedAt, s.PinnedRank
+}
+
+// SetPinnedRank records where among the pins the operator dragged this one.
+// It means nothing for a session that is not pinned, so it is ignored there.
+func (s *State) SetPinnedRank(rank int) {
+	s.mu.Lock()
+	if !s.Pinned || s.PinnedRank == rank {
+		s.mu.Unlock()
+		return
+	}
+	s.PinnedRank = rank
+	s.mu.Unlock()
+	s.touchPersist()
+}
+
 // SetPinned keeps the session at the top of every listing, or lets it back into
 // the order. Pinning a pinned session changes nothing and costs no write, and
 // in particular leaves the original stamp standing.
@@ -872,20 +895,22 @@ func (s *State) SetPinned(pinned bool) {
 		s.Pinned = true
 		s.PinnedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	} else {
-		s.Pinned, s.PinnedAt = false, ""
+		// Unpinning forgets the placement too: pinning again is a new pin, and
+		// a new pin goes where new pins go rather than to a seat it once had.
+		s.Pinned, s.PinnedAt, s.PinnedRank = false, "", 0
 	}
 	s.mu.Unlock()
 	s.touchPersist()
 }
 
-// SetPinnedWithoutPersist restores the pin and its stamp from disk.
-func (s *State) SetPinnedWithoutPersist(pinned bool, at string) {
+// SetPinnedWithoutPersist restores the pin, its stamp and its rank from disk.
+func (s *State) SetPinnedWithoutPersist(pinned bool, at string, rank int) {
 	s.mu.Lock()
 	s.Pinned = pinned
 	if pinned {
-		s.PinnedAt = strings.TrimSpace(at)
+		s.PinnedAt, s.PinnedRank = strings.TrimSpace(at), rank
 	} else {
-		s.PinnedAt = ""
+		s.PinnedAt, s.PinnedRank = "", 0
 	}
 	s.mu.Unlock()
 }

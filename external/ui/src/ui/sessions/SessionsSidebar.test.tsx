@@ -418,7 +418,7 @@ test("an archived row says so and its menu puts it back", () => {
   expect(screen.getByTestId("session-archived-filed")).toBeInTheDocument();
   fireEvent.click(screen.getByTestId("session-menu-filed"));
   expect(screen.getByTestId("session-menu-archive-filed")).toHaveTextContent(
-    "Take out of the archive",
+    "Unarchive",
   );
   fireEvent.click(screen.getByTestId("session-menu-archive-filed"));
   expect(onArchive).toHaveBeenCalledWith("filed", false);

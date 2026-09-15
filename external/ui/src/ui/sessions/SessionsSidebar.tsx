@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { useT } from "../i18n/I18nProvider";
 import { appNavHrefDraft, appNavHrefSession } from "../scheduler/hashRoute";
 import { isClientDraftSessionId } from "./draftSessions";
@@ -13,6 +20,7 @@ import {
   type SessionsEnvironmentOption,
 } from "./SessionsFilterMenu";
 import type { SessionArchiveFilter, SessionSortKey } from "./sessionQuery";
+import { pinDropIndex, reorderPins } from "./reorderPins";
 import { SessionRowMenu, type SessionRowMenuItem } from "./SessionRowMenu";
 import {
   sessionRowShowsPermissionPending,
@@ -54,6 +62,26 @@ function IconFilters() {
       <path d="M12 17h8" />
       <circle cx="16" cy="7" r="2" />
       <circle cx="10" cy="17" r="2" />
+    </svg>
+  );
+}
+
+/** The handle a pinned row is dragged by. */
+function IconGrip() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden
+    >
+      <circle cx="9" cy="6" r="1.6" />
+      <circle cx="15" cy="6" r="1.6" />
+      <circle cx="9" cy="12" r="1.6" />
+      <circle cx="15" cy="12" r="1.6" />
+      <circle cx="9" cy="18" r="1.6" />
+      <circle cx="15" cy="18" r="1.6" />
     </svg>
   );
 }
@@ -135,6 +163,8 @@ export function SessionsSidebar(props: {
   onArchive?: (id: string, archived: boolean) => void;
   /** Keeps a conversation at the top of the list, or lets it back into order. */
   onPin?: (id: string, pinned: boolean) => void;
+  /** Writes the order the operator dragged the pinned conversations into. */
+  onReorderPins?: (ids: string[]) => void;
   /** How the list is divided into headings; "none" keeps it flat. */
   groupMode?: SessionGroupMode;
   onGroupModeChange?: (mode: SessionGroupMode) => void;
@@ -172,6 +202,10 @@ export function SessionsSidebar(props: {
   const [rowMenu, setRowMenu] = useState<{ id: string; at: DOMRect } | null>(
     null,
   );
+  // A pin being dragged, and where it would land. The pointer is tracked rather
+  // than HTML5 drag-and-drop, which a finger cannot start.
+  const [drag, setDrag] = useState<{ id: string; over: number } | null>(null);
+  const pinnedListRef = useRef<HTMLDivElement>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   // The menu is portaled out of the drawer (which clips what overflows it), so
   // it is placed from the trigger's rectangle rather than by being inside it.
@@ -218,13 +252,71 @@ export function SessionsSidebar(props: {
     return null;
   }
 
+  const { onReorderPins } = props;
+  const pinnedIds = props.sessions.filter((s) => s.pinned).map((s) => s.id);
+
+  /**
+   * Drags one pin through the list with the pointer, so a finger can do it too:
+   * HTML5 drag-and-drop never starts from touch. The row follows nothing - the
+   * list shows where the drop would land instead, which survives a scroll and
+   * costs no layer.
+   */
+  const startPinDrag = (id: string) => (ev: ReactPointerEvent) => {
+    if (!onReorderPins || ev.button !== 0) {
+      return;
+    }
+    ev.preventDefault();
+    ev.stopPropagation();
+    const from = pinnedIds.indexOf(id);
+    if (from < 0) {
+      return;
+    }
+    const handle = ev.currentTarget as HTMLElement;
+    handle.setPointerCapture(ev.pointerId);
+    setDrag({ id, over: from });
+
+    const rowsOf = () =>
+      [...(pinnedListRef.current?.querySelectorAll(".session-item") ?? [])].map(
+        (el) => el.getBoundingClientRect(),
+      );
+
+    const onMove = (move: PointerEvent) => {
+      setDrag((prev) =>
+        prev ? { ...prev, over: pinDropIndex(rowsOf(), move.clientY) } : prev,
+      );
+    };
+    const onUp = () => {
+      handle.removeEventListener("pointermove", onMove);
+      handle.removeEventListener("pointerup", onUp);
+      handle.removeEventListener("pointercancel", onUp);
+      setDrag((prev) => {
+        if (prev && prev.over !== from) {
+          onReorderPins(reorderPins(pinnedIds, from, prev.over));
+        }
+        return null;
+      });
+    };
+    handle.addEventListener("pointermove", onMove);
+    handle.addEventListener("pointerup", onUp);
+    handle.addEventListener("pointercancel", onUp);
+  };
+
   const groupLabel = (group: SessionGroup): string =>
     group.labelKey ? t(group.labelKey) : String(group.label ?? "");
 
-  const renderRow = (s: SessionRow) => (
+  const renderRow = (s: SessionRow, pinnedIndex = -1) => (
     <div
       key={s.id}
-      className={`session-item ${s.id === props.sessionId ? "active" : ""}`}
+      className={[
+        "session-item",
+        s.id === props.sessionId ? "active" : "",
+        drag?.id === s.id ? "is-dragging" : "",
+        drag && pinnedIndex >= 0 && drag.over === pinnedIndex
+          ? "is-drop-target"
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
       data-testid={`session-row-${s.id}`}
       onClick={(ev) =>
         pickFromSessionRowClick(ev, () => {
@@ -232,6 +324,23 @@ export function SessionsSidebar(props: {
         })
       }
     >
+      {pinnedIndex >= 0 && onReorderPins ? (
+        <span
+          className="session-drag-grip"
+          role="button"
+          tabIndex={-1}
+          aria-label={t("sessions.dragPin")}
+          title={t("sessions.dragPin")}
+          data-testid={`session-drag-${s.id}`}
+          onPointerDown={startPinDrag(s.id)}
+          onClick={(ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+          }}
+        >
+          <IconGrip />
+        </span>
+      ) : null}
       <a
         href={
           isClientDraftSessionId(s.id)
@@ -338,19 +447,23 @@ export function SessionsSidebar(props: {
             onPick: () => onPin(s.id, !s.pinned),
           });
         }
+        // Archiving and deleting both take the conversation out of the list,
+        // so they stand together below the rule; pinning only moves it.
         if (onArchive) {
           items.push({
             key: "archive",
             label: s.archived ? t("sessions.unarchive") : t("sessions.archive"),
             testId: `session-menu-archive-${s.id}`,
+            startsGroup: true,
             onPick: () => onArchive(s.id, !s.archived),
           });
         }
         items.push({
           key: "delete",
-          label: t("sessions.deleteConversation"),
+          label: t("sessions.delete"),
           testId: `session-menu-delete-${s.id}`,
           danger: true,
+          ...(onArchive ? {} : { startsGroup: true }),
           onPick: () => void props.onDelete(s.id),
         });
         return (
@@ -478,16 +591,17 @@ export function SessionsSidebar(props: {
             {t("sessions.empty")}
           </div>
         ) : null}
-        {groupMode === "none"
-          ? props.sessions.map(renderRow)
+        {groupMode === "none" && !props.sessions.some((s) => s.pinned)
+          ? props.sessions.map((row) => renderRow(row))
           : groups.map((group) => {
               const isCollapsed = collapsed.has(group.key);
               const label = groupLabel(group);
               return (
                 <div
-                  className="session-group"
+                  className={`session-group${group.key === "pinned" ? " is-pinned" : ""}`}
                   key={group.key}
                   data-testid={`session-group-${group.key}`}
+                  {...(group.key === "pinned" ? { ref: pinnedListRef } : {})}
                 >
                   <div className="session-group-bar">
                     <button
@@ -512,12 +626,9 @@ export function SessionsSidebar(props: {
                         })
                       }
                     >
+                      <span className="session-group-label">{label}</span>
                       <span className="session-group-caret" aria-hidden>
                         {isCollapsed ? "▸" : "▾"}
-                      </span>
-                      <span className="session-group-label">{label}</span>
-                      <span className="session-group-count">
-                        {group.rows.length}
                       </span>
                     </button>
                     {/* A folder heading is also where a conversation about that
@@ -542,7 +653,20 @@ export function SessionsSidebar(props: {
                       </button>
                     ) : null}
                   </div>
-                  {isCollapsed ? null : group.rows.map(renderRow)}
+                  {group.subLabel ? (
+                    <div
+                      className="session-group-path"
+                      title={group.subLabel}
+                      data-testid={`session-group-path-${group.key}`}
+                    >
+                      {group.subLabel}
+                    </div>
+                  ) : null}
+                  {isCollapsed
+                    ? null
+                    : group.key === "pinned"
+                      ? group.rows.map((row, index) => renderRow(row, index))
+                      : group.rows.map((row) => renderRow(row))}
                 </div>
               );
             })}

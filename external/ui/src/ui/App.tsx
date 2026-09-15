@@ -3008,6 +3008,32 @@ export function App() {
     }
   }
 
+  /**
+   * Writes the order the operator dragged the pinned conversations into. The
+   * whole order travels, not the one that moved: a list rewritten from what was
+   * on screen cannot interleave with a concurrent change into an order nobody
+   * asked for. The rows are re-read afterwards, because the order is the
+   * server's answer.
+   */
+  async function reorderPinnedSessions(ids: string[]) {
+    if (ids.length === 0) {
+      return;
+    }
+    try {
+      const res = await fetch("/coddy/sessions/pins/reorder", {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) {
+        setSessionsError(t("app.backendUnavailable", { status: res.status }));
+      }
+    } catch {
+      setSessionsError(t("app.backendUnavailable", { status: 0 }));
+    }
+    await loadSessionsList(true);
+  }
+
   // The session table in Settings removes bundles behind the open panel. Drop
   // the rows from History right away, and when the conversation on screen was
   // one of them, reset the chat to a new one - without leaving Settings, which
@@ -4585,6 +4611,7 @@ export function App() {
     onArchive: (id: string, archived: boolean) =>
       void archiveSession(id, archived),
     onPin: (id: string, pinned: boolean) => void pinSession(id, pinned),
+    onReorderPins: (ids: string[]) => void reorderPinnedSessions(ids),
     groupMode: sessionGroupMode,
     onGroupModeChange: (mode: SessionGroupMode) => {
       setSessionGroupMode(mode);

@@ -6,13 +6,16 @@ export type SessionRowMenuItem = {
   key: string;
   label: string;
   testId: string;
-  /** Drawn in the destructive colour, and separated from what is above it. */
+  /** Drawn in the destructive colour. */
   danger?: boolean;
+  /** A rule is drawn above this item: it starts a group of its own. */
+  startsGroup?: boolean;
   onPick: () => void;
 };
 
 /**
- * What can be done to one conversation, behind the row's ⋮.
+ * What can be done to one conversation, behind the row's ⋮. The items that take
+ * it out of the list stand together, apart from the one that only moves it.
  *
  * The row used to carry an icon per action, which cost the title a button's
  * width for each one and made a mis-click a delete. One control opens the list
@@ -88,7 +91,7 @@ export function SessionRowMenu(props: {
           <button
             key={item.key}
             type="button"
-            className={`session-row-menu-item${item.danger ? " is-danger" : ""}`}
+            className={`session-row-menu-item${item.startsGroup ? " starts-group" : ""}${item.danger ? " is-danger" : ""}`}
             role="menuitem"
             data-testid={item.testId}
             onClick={(ev) => {

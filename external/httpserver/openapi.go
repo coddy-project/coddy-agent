@@ -205,7 +205,7 @@ func openAPISpec() map[string]interface{} {
 						"Bundles created for **scheduler runs** (cron or manual) carry **schedulerRun** metadata and are **hidden** from this list unless **include_scheduler=true**. " +
 						"Child sessions of subagent runs (**subagentRun** metadata, stored inside the parent's bundle) are hidden unless **include_subagents=true**; an included child row carries **subagent** **`{parentSessionId, name, taskId}`** so a client can route back to the parent chat and to the task in its drawer. " +
 						"Sessions the operator **archived** are hidden unless **archived** says otherwise, and a row carries **tags**, **archived** / **archivedAt**, **origin** and **pinned** / **pinnedAt** when it has them. " +
-						"A **pinned** session leads the listing whatever **sort** says - a pin that worked in one order only would not be one - and several pins are ordered among themselves by that key. " +
+						"A **pinned** session leads the listing whatever **sort** says - a pin that worked in one order only would not be one - and the pins are ordered among themselves by **pinnedRank**, the order the operator dragged them into, newest pin first until one is dragged. " +
 						"**sort** and **order** replace the default ordering; they are applied to the whole filtered listing before paging, so page two of a sorted listing continues page one.",
 					"parameters": append(coddyPagingParams(), map[string]interface{}{
 						"name":   "cwd",
@@ -267,6 +267,38 @@ func openAPISpec() map[string]interface{} {
 					}),
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Paged session identifiers"},
+						"503": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions/pins/reorder": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Write the order of the pinned sessions",
+					"description": "Rewrites **pinnedRank** across the pinned sessions so they list in the order given. The **whole** order is sent, not the id that moved: a list rewritten from what the client was looking at cannot interleave with a concurrent change into an order nobody asked for. " +
+						"Every id is checked before anything is written - it must be a valid id, name a stored session, be **pinned**, and appear once - so a refused request leaves every pin exactly where it was. " +
+						"A session pinned afterwards goes **above** them all; unpinning forgets the placement, so pinning again is a new pin rather than a return to an old seat.",
+					"operationId": "coddySessionPinsReorder",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"ids": map[string]interface{}{
+											"type":        "array",
+											"items":       map[string]string{"type": "string"},
+											"description": "The pinned session ids, top first.",
+										},
+									},
+									"required": []string{"ids"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "The order that was written"},
+						"400": errorResponseRef(),
 						"503": errorResponseRef(),
 					},
 				},

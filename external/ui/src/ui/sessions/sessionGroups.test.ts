@@ -80,6 +80,22 @@ describe("groupSessions", () => {
     expect(new Set(groups.map((g) => g.key)).size).toBe(2);
   });
 
+  it("spells out the path when the folder name alone is ambiguous", () => {
+    const rows = [
+      row("a", { cwd: "/srv/one" }),
+      row("b", { cwd: "/opt/one" }),
+      row("c", { cwd: "/srv/two" }),
+    ];
+    const groups = groupSessions(rows, "workspace", NOW);
+    const byPath = new Map(groups.map((g) => [g.workspacePath, g]));
+    // Two headings both reading "one" are two projects a reader cannot tell
+    // apart; the path says which is which.
+    expect(byPath.get("/srv/one")?.subLabel).toBe("/srv/one");
+    expect(byPath.get("/opt/one")?.subLabel).toBe("/opt/one");
+    // A name nothing shares needs no second line.
+    expect(byPath.get("/srv/two")?.subLabel).toBeUndefined();
+  });
+
   it("lists a session under each of its tags, untagged last", () => {
     const rows = [
       row("a", { tags: ["ui", "backend"] }),
@@ -169,5 +185,38 @@ describe("age buckets across a daylight-saving change", () => {
     ];
     const groups = groupSessions(rows, "time", springForward);
     expect(groups.map((g) => g.key)).toEqual(["week", "month"]);
+  });
+});
+
+describe("the pinned group", () => {
+  it("leads every mode, and holds the pinned rows only", () => {
+    const rows = [
+      row("p1", { pinned: true, updatedAt: "2026-09-15T09:00:00", cwd: "/srv/one" }),
+      row("a", { updatedAt: "2026-09-15T09:00:00", cwd: "/srv/one" }),
+      row("p2", { pinned: true, updatedAt: "2026-01-02T09:00:00", cwd: "/srv/two" }),
+    ];
+    for (const mode of ["time", "workspace", "tag", "none"] as SessionGroupMode[]) {
+      const groups = groupSessions(rows, mode, NOW);
+      expect(groups[0].key).toBe("pinned");
+      expect(groups[0].rows.map((r) => r.id)).toEqual(["p1", "p2"]);
+      // The pins are held once, at the top - not again inside their folder or
+      // their date. They are one global list, not a stripe of every group.
+      const below = groups.slice(1).flatMap((g) => g.rows.map((r) => r.id));
+      expect(below).toEqual(["a"]);
+    }
+  });
+
+  it("keeps the order it was handed, which is the one the operator dragged", () => {
+    const rows = [
+      row("second", { pinned: true }),
+      row("first", { pinned: true }),
+    ];
+    const groups = groupSessions(rows, "time", NOW);
+    expect(groups[0].rows.map((r) => r.id)).toEqual(["second", "first"]);
+  });
+
+  it("is not drawn when nothing is pinned", () => {
+    const groups = groupSessions([row("a", { updatedAt: "2026-09-15T09:00:00" })], "time", NOW);
+    expect(groups.map((g) => g.key)).not.toContain("pinned");
   });
 });

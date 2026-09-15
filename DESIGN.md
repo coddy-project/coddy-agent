@@ -289,25 +289,50 @@ Single implementation: **`MarkdownLineEditor`** in **`external/ui/src/ui/markdow
   not the glass panel: it sits directly over the list it filters, and a translucent panel there is read
   through. Both panels use it, so the row and its choices read as one surface.
 - **Escape undoes one step**: an open submenu folds first, the menu closes second.
-- **Group heading** (**`.session-group-head`**) is a **button across the full width** of the list, so
-  the whole line folds the group rather than a caret the size of a full stop. Uppercase **12px**,
-  weight **600**, muted until hover; a caret on the left (**▸** collapsed, **▾** open), the label in
-  the middle with ellipsis, the **row count** on the right at weight 500 and 70% opacity. The label is
-  translated for a fixed bucket (dates, *No workspace*, *No tags*) and is the operator's own text for a
-  folder name or a tag - never translated.
+- **Group heading** (**`.session-group-head`**) is the bucket's **own name with a caret after it**
+  (**▸** collapsed, **▾** open), not a band across the list: it is **`flex: 0 1 auto`** with
+  **`margin-right: auto`**, so only the name is the fold target and the empty space after it belongs to
+  nothing. **12.5px**, weight **600**, muted until hover, and in the **case the name already has** -
+  upper-casing a folder path is a small lie. The label is translated for a fixed bucket (dates,
+  *No workspace*, *No tags*) and is the operator's own text for a folder name or a tag.
+- **The end of the bar is the `+`** (**`.session-group-new`**), in a 26px box whose right padding
+  matches a session row's, so it lands in the **same column as the rows' own ⋮**. It is **visible at
+  rest**, not revealed on hover: a way to start work in this folder is worth a glance, not a hunt with
+  the pointer. There is no row count - the rows are right there to be looked at.
+- **Hover brightens text, never a plate.** Both the heading and the **`+`** transition their **colour**
+  only (140ms): a band appearing under the pointer makes a heading read like a row that can be opened.
+- **A folder name more than one heading carries** gets the full path under it
+  (**`.session-group-path`**, 10.5px, 40% text): the name alone cannot tell two checkouts apart, and
+  that is the only case the line appears in. It is clipped plainly at the end - reversing the direction
+  to keep the tail moves the leading slash to the other side, and a path that reads as ending in
+  **`/`** is a worse lie than a truncated one. **`SessionGroup.subLabel`** carries it, set by
+  **`groupSessions`** only for the names that repeat.
 - **Buckets** that hold nothing are not drawn. Collapse state lives in the drawer, keyed by group, so a
   heading that comes and goes with a search keeps its state while it is on screen.
 - **A folder heading carries a `+`** (**`.session-group-new`**, 22px, revealed on hover of
   **`.session-group-bar`**) that starts a new chat in that workspace. Only a heading that *stands for a
   folder* has one - a date bucket is not a place to put a session - which is why **`SessionGroup`**
   carries **`workspacePath`** (the full path) next to the name it shows.
+- **The pinned group** (**`.session-group.is-pinned`**) leads every mode, headed *Pinned* and closed by a
+  hairline: the pins are one list kept by hand, and the groups below are the ones the machine made.
+  **`groupSessions`** lifts the pinned rows out first, so a pin is held **once** - a conversation at the
+  top *and* inside its folder would leave dragging one of the two meaning nothing.
+- **A pinned row is dragged by its grip** (**`.session-drag-grip`**, left of the title,
+  **`touch-action: none`** so a finger drags the row instead of scrolling the list). The drag runs on
+  **pointer events** - HTML5 drag-and-drop never starts from touch - the dragged row fades
+  (**`.is-dragging`**) and the **landing place** is drawn on the list itself - an inset accent rule
+  along the top of the row it would take (**`.is-drop-target`**), which the 14px corner radius carries
+  around the corners so it reads as that row being singled out - rather than a row following the
+  pointer, which would survive no scroll and cost a compositing layer. The arithmetic is
+  **`reorderPins`** / **`pinDropIndex`**, kept pure.
 - **Row tags** (**`.session-row-tags`**) go **under** the title, not beside it: the title is what the row
   is for and must not be pushed out of view by labels. Chips are **10px**, pill-shaped, on a 6% text
   wash. The **archived badge** (**`.session-archived-badge`**) is the same size and wash but uppercase,
   and sits **inline after the title**, because it qualifies the title rather than the row.
 - **One control per row** (**`.session-row-menu-trigger`**, a 26px **⋮**, 0.38 opacity until the row is
-  hovered) opens **`.session-row-menu`**: pin, archive, then **delete** set apart above a hairline and
-  drawn in the destructive colour. An icon per action cost the title a button's width each and made a
+  hovered) opens **`.session-row-menu`**: **pin**, then a hairline (**`.starts-group`**), then
+  **archive** and **delete** together - both take the conversation out of the list, while pinning only
+  moves it - with delete in the destructive colour. An icon per action cost the title a button's width each and made a
   mis-click a delete; inside the menu the actions have room for their words. The menu is portaled and
   placed from the trigger, and flips above the row near the foot of the window.
 - **A pin is a mark on the title** (**`.session-pin-mark`**, accent), not a badge: the row is already at
