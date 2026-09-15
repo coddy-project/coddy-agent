@@ -1267,19 +1267,28 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	t := strings.TrimSpace(body.Title)
+	// The same folding and the same limit the agent's session_describe writes
+	// through: a title is a row of a list whichever surface typed it, and two
+	// vocabularies for one field is how they drift apart.
+	t := session.NormalizeTitle(body.Title)
 	if t != "" {
-		pinned := strings.TrimSpace(st.GetTitlePinned())
-		if body.TitleIfUnpinned && pinned != "" {
-			// A suggestion that lost the race: the session already carries a
-			// name, and the tags of the same request still apply.
-			did = true
-			resp["title"] = pinned
+		if length, tooLong := session.TitleTooLong(t); tooLong {
+			http.Error(w, fmt.Sprintf(
+				`{"error":{"message":"title is %d characters long, keep it under %d"}}`,
+				length, session.MaxSessionTitleRunes), http.StatusBadRequest)
+			return
+		}
+		if body.TitleIfUnpinned {
+			// A suggestion, not a rename: it lands only while the session has
+			// no name of its own, and the check and the write are one step so
+			// a name written in between is not overwritten by this one.
+			stored, _ := st.SetTitlePinnedIfUnset(t)
+			resp["title"] = stored
 		} else {
 			st.SetTitlePinned(t)
-			did = true
 			resp["title"] = t
 		}
+		did = true
 	}
 	// Tags are replaced wholesale rather than merged: the client holds the set
 	// it is editing, and a merge would make removing the last tag impossible.

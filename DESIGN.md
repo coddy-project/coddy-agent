@@ -355,7 +355,9 @@ Single implementation: **`MarkdownLineEditor`** in **`external/ui/src/ui/markdow
 - **Rename edits the row in place** (**`.session-title-input`**, the box the chat header already uses):
   the name is **selected** when it opens, so typing replaces it and the box shows the beginning rather
   than the tail a caret at the end would scroll to. **Enter** and blur save, **Escape** leaves the title
-  alone, and a name that did not move costs no request.
+  alone, and a name that did not move costs no request. The rename ends **once**: the key that ended
+  it and the blur of the disappearing box both go through the same one-shot commit, so Escape cannot
+  be followed by a blur that saves the discarded draft.
 - **The tag editor** (**`.session-tag-editor`**, **`SessionTagEditor.tsx`**) is **one component for both
   places that show tags** - the row menu here and the **+** of the session table - because they are the
   same three gestures: drop one, type one, take one the history already uses. It is cut from the
@@ -365,8 +367,11 @@ Single implementation: **`MarkdownLineEditor`** in **`external/ui/src/ui/markdow
   (**`.session-tag-suggest`**, most used first, the row's own excluded, prefix matches leading);
   **Enter** files what was typed, the arrow keys take over the list and **Enter** then files the
   highlighted one, **Backspace** on an empty box drops the last chip, **Escape** closes.
-  **There is no Save**: every change is a **`PATCH`** at once and the list adopts the set the server
-  answers with, so a chip never changes spelling one refresh later. The folded form of what is being
+  **There is no Save**: every change is a **`PATCH`** at once. The list takes the new set **before**
+  the request answers - the editor builds each gesture on the row it is shown, and a second gesture
+  made while the first is in flight would otherwise start from the set before both - and the folded
+  set the server answers with then replaces it, so a chip never changes spelling one refresh later.
+  A refused write puts back what the row carried. The folded form of what is being
   typed is shown under the box (**`.session-tag-hint`**) **only when it differs** from what was typed -
   the arithmetic and the fold are **`tagEditing.ts`**, kept pure and a twin of `NormalizeTag` in Go.
 

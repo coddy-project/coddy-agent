@@ -213,6 +213,11 @@ export function SessionsSidebar(props: {
     id: string;
     draft: string;
   } | null>(null);
+  // The same value in a ref, because a rename ends from two places at once: the
+  // key that ended it and the blur the disappearing box fires. Whichever runs
+  // first clears the ref, and the other one then has nothing to save - no
+  // second request, and no Escape that writes the draft it discarded.
+  const renamingRef = useRef<{ id: string; draft: string } | null>(null);
   const [tagEditor, setTagEditor] = useState<{
     id: string;
     at: DOMRect;
@@ -323,20 +328,28 @@ export function SessionsSidebar(props: {
     handle.addEventListener("pointercancel", onUp);
   };
 
+  /** Opens, moves and closes the inline rename, ref and state together. */
+  const setRenamingBoth = (next: { id: string; draft: string } | null) => {
+    renamingRef.current = next;
+    setRenaming(next);
+  };
+
   /**
-   * Ends an inline rename. An empty box and a title that did not move both mean
-   * "never mind": the row goes back to what it was without a request.
+   * Ends an inline rename, at most once. An empty box and a title that did not
+   * move both mean "never mind": the row goes back to what it was without a
+   * request.
    */
   const commitRename = () => {
-    if (!renaming) {
+    const current = renamingRef.current;
+    setRenamingBoth(null);
+    if (!current) {
       return;
     }
-    const next = renaming.draft.trim();
-    const row = props.sessions.find((x) => x.id === renaming.id);
+    const next = current.draft.trim();
+    const row = props.sessions.find((x) => x.id === current.id);
     if (next && next !== (row?.title ?? "")) {
-      props.onTitleSave?.(renaming.id, next);
+      props.onTitleSave?.(current.id, next);
     }
-    setRenaming(null);
   };
 
   const groupLabel = (group: SessionGroup): string =>
@@ -393,9 +406,7 @@ export function SessionsSidebar(props: {
           onFocus={(ev) => ev.currentTarget.select()}
           onClick={(ev) => ev.stopPropagation()}
           onChange={(ev) =>
-            setRenaming((prev) =>
-              prev ? { ...prev, draft: ev.target.value } : prev,
-            )
+            setRenamingBoth({ id: s.id, draft: ev.target.value })
           }
           onBlur={() => commitRename()}
           onKeyDown={(ev) => {
@@ -405,7 +416,9 @@ export function SessionsSidebar(props: {
             }
             if (ev.key === "Escape") {
               ev.stopPropagation();
-              setRenaming(null);
+              // Clearing the ref is what makes this a cancel: the blur that
+              // follows the box disappearing finds nothing left to save.
+              setRenamingBoth(null);
             }
           }}
         />
@@ -526,7 +539,7 @@ export function SessionsSidebar(props: {
             key: "rename",
             label: t("sessions.rename"),
             testId: `session-menu-rename-${s.id}`,
-            onPick: () => setRenaming({ id: s.id, draft: s.title || "" }),
+            onPick: () => setRenamingBoth({ id: s.id, draft: s.title || "" }),
           });
         }
         if (onTagsSave) {

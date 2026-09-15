@@ -763,10 +763,47 @@ func (s *State) GetTitlePinned() string {
 
 // SetTitlePinned sets the pinned title and persists session metadata when a store is attached.
 func (s *State) SetTitlePinned(text string) {
+	_ = s.ReplaceTitlePinned(text)
+}
+
+// ReplaceTitlePinned sets the pinned title and reports whether it moved. A
+// caller that has to say what a write changed gets the answer from the write
+// itself rather than reading the field first, which would be a different value
+// by the time it wrote.
+func (s *State) ReplaceTitlePinned(text string) bool {
+	next := strings.TrimSpace(text)
 	s.mu.Lock()
-	s.TitlePinned = strings.TrimSpace(text)
+	if s.TitlePinned == next {
+		s.mu.Unlock()
+		return false
+	}
+	s.TitlePinned = next
 	s.mu.Unlock()
 	s.touchPersist()
+	return true
+}
+
+// SetTitlePinnedIfUnset names the session only while it has no pinned title of
+// its own, and answers the title it carries afterwards with whether this call
+// wrote it. "Name it unless it has a name" is one step on purpose: the caller
+// is the suggestion a describe call made seconds ago, racing whoever named the
+// session in the meantime, and a read followed by a write is exactly the race
+// it is trying to avoid.
+func (s *State) SetTitlePinnedIfUnset(text string) (title string, written bool) {
+	next := strings.TrimSpace(text)
+	s.mu.Lock()
+	if existing := strings.TrimSpace(s.TitlePinned); existing != "" {
+		s.mu.Unlock()
+		return existing, false
+	}
+	if s.TitlePinned == next {
+		s.mu.Unlock()
+		return next, false
+	}
+	s.TitlePinned = next
+	s.mu.Unlock()
+	s.touchPersist()
+	return next, true
 }
 
 // SetTitlePinnedWithoutPersist restores pinned title from disk without writing.
@@ -792,15 +829,40 @@ func (s *State) GetTags() []string {
 // wonder which spelling reached it. Writing the set it already has changes
 // nothing and costs no write.
 func (s *State) SetTags(tags []string) {
+	_, _ = s.ReplaceTags(tags)
+}
+
+// ReplaceTags stores the whole set and answers what the session carries
+// afterwards, with whether this call moved it.
+func (s *State) ReplaceTags(tags []string) (stored []string, changed bool) {
 	next := NormalizeTags(tags)
 	s.mu.Lock()
 	if slices.Equal(s.Tags, next) {
 		s.mu.Unlock()
-		return
+		return append([]string(nil), next...), false
 	}
 	s.Tags = next
 	s.mu.Unlock()
 	s.touchPersist()
+	return append([]string(nil), next...), true
+}
+
+// UpdateTags adds and removes labels around the ones the session already
+// carries, and answers the set it holds afterwards. The merge happens under the
+// lock: "keep the rest" is the whole promise of an add, and a caller that reads
+// the tags, merges and writes them back drops whatever another surface filed in
+// between - which is the one thing this shape of call is for.
+func (s *State) UpdateTags(add, remove []string) (stored []string, changed bool) {
+	s.mu.Lock()
+	next := MergeTags(s.Tags, add, remove)
+	if slices.Equal(s.Tags, next) {
+		s.mu.Unlock()
+		return append([]string(nil), next...), false
+	}
+	s.Tags = next
+	s.mu.Unlock()
+	s.touchPersist()
+	return append([]string(nil), next...), true
 }
 
 // SetTagsWithoutPersist restores tags from disk without writing.

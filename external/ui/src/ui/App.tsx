@@ -1476,17 +1476,44 @@ export function App() {
   }
 
   /**
-   * Writes the labels of one conversation. The server folds what it stores and
-   * answers with the set it kept, so the list adopts that answer rather than
-   * what was sent - otherwise a chip would change spelling one refresh later.
+   * Writes the labels of one conversation.
+   *
+   * The list takes the new set **before** the request: the editor builds each
+   * gesture on the row it is shown, so a second gesture made while the first is
+   * still in flight would otherwise start from the set before both and undo
+   * one of them. The server folds what it stores and answers with the set it
+   * kept, which then replaces the optimistic one - a chip drawn here never
+   * changes spelling one refresh later - and a refused write puts back what the
+   * row carried, so the list never claims something the server does not hold.
    */
   async function saveSessionTags(id: string, tags: string[]) {
-    const res = await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tags }),
-    });
+    let previous: string[] | undefined;
+    setSessions((prev) =>
+      prev.map((s) => {
+        if (s.id !== id) {
+          return s;
+        }
+        previous = s.tags ?? [];
+        return { ...s, tags };
+      }),
+    );
+    const restore = () =>
+      setSessions((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, tags: previous ?? [] } : s)),
+      );
+    let res: Response;
+    try {
+      res = await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tags }),
+      });
+    } catch {
+      restore();
+      return;
+    }
     if (!res.ok) {
+      restore();
       return;
     }
     const data = (await res.json()) as { tags?: string[] };

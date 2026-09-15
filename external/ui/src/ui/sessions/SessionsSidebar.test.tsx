@@ -557,7 +557,7 @@ test("escape leaves a rename without writing anything", () => {
   expect(screen.queryByTestId("session-rename-a")).toBeNull();
 });
 
-test("the tag editor drops a label and files a new one", () => {
+test("the tag editor drops a label by its cross", () => {
   const onTagsSave = vi.fn();
   renderDrawer({
     sessions: [filed("a", "A", ["api", "ui"]), filed("b", "B", ["sessions"])],
@@ -567,17 +567,87 @@ test("the tag editor drops a label and files a new one", () => {
   fireEvent.click(screen.getByTestId("session-menu-tags-a"));
 
   fireEvent.click(screen.getByTestId("session-tag-remove-ui"));
+  // The whole set goes, not a diff: PATCH replaces it.
   expect(onTagsSave).toHaveBeenCalledWith("a", ["api"]);
+});
 
-  // A label typed the way it reads is filed the way it is stored.
+test("a label typed the way it reads is filed the way it is stored", () => {
+  const onTagsSave = vi.fn();
+  renderDrawer({ sessions: [filed("a", "A", ["api"])], onTagsSave });
+  fireEvent.click(screen.getByTestId("session-menu-a"));
+  fireEvent.click(screen.getByTestId("session-menu-tags-a"));
+
   const input = screen.getByTestId("session-tag-input");
   fireEvent.change(input, { target: { value: "Session Store" } });
   fireEvent.keyDown(input, { key: "Enter" });
-  expect(onTagsSave).toHaveBeenLastCalledWith("a", [
-    "api",
-    "ui",
-    "session-store",
-  ]);
+  expect(onTagsSave).toHaveBeenCalledWith("a", ["api", "session-store"]);
+});
+
+test("a second gesture builds on the row the first one left", () => {
+  // The shell takes the new set before its request answers (App.saveSessionTags
+  // is optimistic), so the row the editor reads is already the edited one. The
+  // drawer must pass that through: computing the next set from a stale row is
+  // how the second gesture undoes the first.
+  const onTagsSave = vi.fn();
+  const { rerender } = renderDrawer({
+    sessions: [filed("a", "A", ["api", "ui"])],
+    onTagsSave,
+  });
+  fireEvent.click(screen.getByTestId("session-menu-a"));
+  fireEvent.click(screen.getByTestId("session-menu-tags-a"));
+
+  fireEvent.click(screen.getByTestId("session-tag-remove-ui"));
+  expect(onTagsSave).toHaveBeenCalledWith("a", ["api"]);
+
+  rerender(
+    <SessionsSidebar
+      sessionId="current"
+      sessions={[filed("a", "A", ["api"])]}
+      open
+      onPick={() => {}}
+      onDelete={() => Promise.resolve()}
+      onTagsSave={onTagsSave}
+      searchDraft=""
+      onSearchDraftChange={() => {}}
+      onSearchClear={() => {}}
+      hasMore={false}
+      loadingMore={false}
+      onLoadMore={() => {}}
+      now={NOW}
+    />,
+  );
+
+  const input = screen.getByTestId("session-tag-input");
+  fireEvent.change(input, { target: { value: "docs" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(onTagsSave).toHaveBeenLastCalledWith("a", ["api", "docs"]);
+});
+
+test("a rename ended by Escape is not saved by the blur that follows", () => {
+  const onTitleSave = vi.fn();
+  renderDrawer({ sessions: [row("a", "Old name")], onTitleSave });
+  fireEvent.click(screen.getByTestId("session-menu-a"));
+  fireEvent.click(screen.getByTestId("session-menu-rename-a"));
+
+  const input = screen.getByTestId("session-rename-a");
+  fireEvent.change(input, { target: { value: "Discarded" } });
+  fireEvent.keyDown(input, { key: "Escape" });
+  fireEvent.blur(input);
+  expect(onTitleSave).not.toHaveBeenCalled();
+});
+
+test("a rename saved by Enter is not saved a second time by the blur", () => {
+  const onTitleSave = vi.fn();
+  renderDrawer({ sessions: [row("a", "Old name")], onTitleSave });
+  fireEvent.click(screen.getByTestId("session-menu-a"));
+  fireEvent.click(screen.getByTestId("session-menu-rename-a"));
+
+  const input = screen.getByTestId("session-rename-a");
+  fireEvent.change(input, { target: { value: "New name" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  fireEvent.blur(input);
+  expect(onTitleSave).toHaveBeenCalledTimes(1);
+  expect(onTitleSave).toHaveBeenCalledWith("a", "New name");
 });
 
 test("the tag editor offers the labels this history already uses", () => {

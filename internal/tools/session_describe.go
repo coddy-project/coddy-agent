@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
@@ -56,7 +55,7 @@ func SessionDescribeTool() *tooling.Tool {
 }
 
 func executeSessionDescribe(_ context.Context, argsJSON string, env *tooling.Env) (string, error) {
-	if env == nil || env.GetSessionFiling == nil || env.SetSessionFiling == nil {
+	if env == nil || env.FileSession == nil {
 		return "", fmt.Errorf("%s is not available in this runtime", ToolSessionDescribe)
 	}
 	var args struct {
@@ -76,8 +75,11 @@ func executeSessionDescribe(_ context.Context, argsJSON string, env *tooling.Env
 		return "", fmt.Errorf("pass either tags (the whole set) or add_tags/remove_tags (a change to it), not both")
 	}
 
-	before := env.GetSessionFiling()
-	after, err := env.SetSessionFiling(tooling.SessionFilingUpdate{
+	// One call, whether this is a read or a write: an update naming nothing
+	// writes nothing. The session reports what it moved, so a tag the folding
+	// dropped and a title that was already the stored one both come back as no
+	// change - which is what the model needs to see to stop asking for it again.
+	result, err := env.FileSession(tooling.SessionFilingUpdate{
 		Title:      args.Title,
 		Tags:       args.Tags,
 		AddTags:    args.AddTags,
@@ -87,23 +89,17 @@ func executeSessionDescribe(_ context.Context, argsJSON string, env *tooling.Env
 		return "", err
 	}
 
-	// What moved, rather than what was asked for: a tag the folding dropped and
-	// a title that was already the stored one both come back as no change, and
-	// the model needs to see that to stop asking for it again.
-	changed := make([]string, 0, 2)
-	if after.Title != before.Title {
-		changed = append(changed, "title")
+	changed := result.Changed
+	if changed == nil {
+		changed = []string{}
 	}
-	if !slices.Equal(after.Tags, before.Tags) {
-		changed = append(changed, "tags")
-	}
-	tags := after.Tags
+	tags := result.Filing.Tags
 	if tags == nil {
 		tags = []string{}
 	}
 	out, err := json.Marshal(map[string]interface{}{
 		"object":  "session.filing",
-		"title":   after.Title,
+		"title":   result.Filing.Title,
 		"tags":    tags,
 		"changed": changed,
 	})

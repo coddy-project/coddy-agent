@@ -20,19 +20,21 @@ type filingEnv struct {
 
 func (f *filingEnv) env() *tooling.Env {
 	return &tooling.Env{
-		GetSessionFiling: func() tooling.SessionFiling { return f.filing },
-		SetSessionFiling: func(upd tooling.SessionFilingUpdate) (tooling.SessionFiling, error) {
+		FileSession: func(upd tooling.SessionFilingUpdate) (tooling.SessionFilingResult, error) {
 			f.updates = append(f.updates, upd)
 			if f.err != nil {
-				return f.filing, f.err
+				return tooling.SessionFilingResult{Filing: f.filing}, f.err
 			}
-			if upd.Title != nil {
+			changed := make([]string, 0, 2)
+			if upd.Title != nil && *upd.Title != f.filing.Title {
 				f.filing.Title = *upd.Title
+				changed = append(changed, "title")
 			}
 			if upd.Tags != nil {
 				f.filing.Tags = *upd.Tags
+				changed = append(changed, "tags")
 			}
-			return f.filing, nil
+			return tooling.SessionFilingResult{Filing: f.filing, Changed: changed}, nil
 		},
 	}
 }
@@ -70,6 +72,8 @@ func TestSessionDescribeReportsInvalidArguments(t *testing.T) {
 }
 
 func TestSessionDescribeReadsWithoutWritingWhenCalledEmpty(t *testing.T) {
+	// A read is an update that names nothing: one hook, so the tool never holds
+	// a filing it read a moment ago and cannot write one another surface moved.
 	f := &filingEnv{filing: tooling.SessionFiling{Title: "Rewrite the store", Tags: []string{"api"}}}
 	for _, args := range []string{"", "{}", "  "} {
 		out, err := runSessionDescribe(t, f.env(), args)

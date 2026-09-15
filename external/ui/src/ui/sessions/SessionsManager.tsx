@@ -174,6 +174,19 @@ export function SessionsManager(props: {
    */
   const saveTags = useCallback(
     async (id: string, tags: string[]) => {
+      // The row takes the new set before the request, so a second gesture made
+      // while the first is in flight builds on it instead of on the set before
+      // both; a refused write puts the old one back.
+      let previous: string[] | undefined;
+      setRows((prev) =>
+        prev.map((row) => {
+          if (row.id !== id) {
+            return row;
+          }
+          previous = row.tags ?? [];
+          return { ...row, tags };
+        }),
+      );
       try {
         const res = await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
           method: "PATCH",
@@ -190,6 +203,11 @@ export function SessionsManager(props: {
         );
         onSessionTagsChanged?.(id, stored);
       } catch (e) {
+        setRows((prev) =>
+          prev.map((row) =>
+            row.id === id ? { ...row, tags: previous ?? [] } : row,
+          ),
+        );
         setError(
           t("sessions.manage.tagsFailed", {
             error: e instanceof Error ? e.message : String(e),

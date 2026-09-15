@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -2748,8 +2750,8 @@ func TestApplySessionFilingClearsThePinOnAnEmptyTitle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if filing.Title == "Pinned by the model" || filing.Title == "" {
-		t.Fatalf("clearing the pin left the title %q, want the one derived from the first message", filing.Title)
+	if filing.Filing.Title == "Pinned by the model" || filing.Filing.Title == "" {
+		t.Fatalf("clearing the pin left the title %q, want the one derived from the first message", filing.Filing.Title)
 	}
 }
 
@@ -2764,8 +2766,8 @@ func TestApplySessionFilingEditsTheTagsInPlace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(filing.Tags, []string{"backend", "session-store"}) {
-		t.Fatalf("got %v", filing.Tags)
+	if !reflect.DeepEqual(filing.Filing.Tags, []string{"backend", "session-store"}) {
+		t.Fatalf("got %v", filing.Filing.Tags)
 	}
 }
 
@@ -2778,8 +2780,8 @@ func TestApplySessionFilingClearsTheTagsOnAnEmptyList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(filing.Tags) != 0 {
-		t.Fatalf("got %v, want no tags", filing.Tags)
+	if len(filing.Filing.Tags) != 0 {
+		t.Fatalf("got %v, want no tags", filing.Filing.Tags)
 	}
 }
 
@@ -2794,5 +2796,86 @@ func TestSessionDescribeIsOfferedToAPlannerAndNotToAsk(t *testing.T) {
 	}
 	if !ToolSetForMode("agent").Unrestricted() {
 		t.Fatal("agent mode is no longer unrestricted")
+	}
+}
+
+func TestApplySessionFilingReportsAClearedPinBehindTheSameWords(t *testing.T) {
+	// The pinned title and the derived one can read alike; clearing the pin is
+	// still a change, and a report built by comparing the effective title
+	// before and after would call it nothing.
+	st := &session.State{ID: "sess_filing", CWD: t.TempDir(), Mode: session.ModeAgent}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "Fix the failing test"})
+	derived := st.ConversationTitle()
+	st.SetTitlePinned(derived)
+
+	empty := ""
+	result, err := applySessionFiling(st, tooling.SessionFilingUpdate{Title: &empty})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(result.Changed, []string{"title"}) {
+		t.Fatalf("changed = %v, want the title", result.Changed)
+	}
+	if st.GetTitlePinned() != "" {
+		t.Fatalf("the pin survived: %q", st.GetTitlePinned())
+	}
+}
+
+func TestApplySessionFilingReportsNothingWhenTheCallNamesNothing(t *testing.T) {
+	st := &session.State{ID: "sess_filing", CWD: t.TempDir(), Mode: session.ModeAgent}
+	st.SetTitlePinned("A title")
+	st.SetTags([]string{"api"})
+
+	result, err := applySessionFiling(st, tooling.SessionFilingUpdate{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Changed) != 0 {
+		t.Fatalf("a read reported %v as changed", result.Changed)
+	}
+	if result.Filing.Title != "A title" || !reflect.DeepEqual(result.Filing.Tags, []string{"api"}) {
+		t.Fatalf("a read reported %+v", result.Filing)
+	}
+}
+
+func TestUpdateTagsKeepsWhatAnotherWriterFiledMeanwhile(t *testing.T) {
+	// The point of add_tags is "keep the rest". Merging outside the session
+	// would drop whatever another surface filed between the read and the write,
+	// so the merge happens under the session's own lock - which is what makes
+	// eight concurrent additions end up with eight labels.
+	st := &session.State{ID: "sess_filing", CWD: t.TempDir(), Mode: session.ModeAgent}
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			st.UpdateTags([]string{fmt.Sprintf("tag-%d", n)}, nil)
+		}(i)
+	}
+	wg.Wait()
+	if got := st.GetTags(); len(got) != 8 {
+		t.Fatalf("concurrent additions left %v", got)
+	}
+}
+
+func TestSetTitlePinnedIfUnsetHasOneWinner(t *testing.T) {
+	st := &session.State{ID: "sess_filing", CWD: t.TempDir(), Mode: session.ModeAgent}
+	var wg sync.WaitGroup
+	var wins atomic.Int64
+	for i := range 8 {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			if _, written := st.SetTitlePinnedIfUnset(fmt.Sprintf("name %d", n)); written {
+				wins.Add(1)
+			}
+		}(i)
+	}
+	wg.Wait()
+	if wins.Load() != 1 {
+		t.Fatalf("%d callers named the session", wins.Load())
+	}
+	if st.GetTitlePinned() == "" {
+		t.Fatal("nobody named it")
 	}
 }
