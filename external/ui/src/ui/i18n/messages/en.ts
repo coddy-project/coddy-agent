@@ -795,6 +795,7 @@ export const messagesEn: Record<string, string> = {
   "chat.heroVerb.refactor": "refactor",
   "chat.heroVerb.plan": "plan",
   "chat.runPlanMessage": "Implement the plan.",
+  "chat.scrollToBottom": "Scroll to the latest message",
   "chat.contextTitle": "Context",
   "chat.contextClose": "Close",
   "chat.contextCloseBreakdown": "Close context breakdown",
