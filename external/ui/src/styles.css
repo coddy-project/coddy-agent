@@ -8966,10 +8966,15 @@ html:not([data-theme="light"]) .context-usage-note--error {
 
 /* Label, target and duration are one non-wrapping unit: the row stays a single line and
    the target is what gives way, clipped with an ellipsis. A background-task chip is left
-   outside the unit, so it can still wrap below on a phone. */
+   outside the unit, so it can still wrap below on a phone.
+
+   They are three type sizes in two families - a 14px system label, a 12px monospace
+   target, a 12px system duration - so centring their boxes lines up the boxes and leaves
+   the baselines a fraction apart, which reads as the trailing text floating above the
+   label. Baseline alignment puts the text itself on one line. */
 .thinking-head {
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
   flex: 0 1 auto;
   gap: 0 6px;
   min-width: 0;
@@ -8990,6 +8995,9 @@ html:not([data-theme="light"]) .context-usage-note--error {
   color: color-mix(in srgb, var(--text) 40%, var(--coddy-blend-base));
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
+  /* The same line box as the label beside it, so the row's height never depends
+     on which of the two happens to be taller. */
+  line-height: 20px;
 }
 
 /* A rendered skill body replaces the monospace result panel with prose: the panel's
