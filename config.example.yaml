@@ -190,6 +190,9 @@ skills:
   # sources lists remote skill sources installed on demand with `coddy skills sync`
   # (never fetched automatically). Each entry is a GitHub repo (owner/repo[@ref]),
   # a git URL, or an http(s) URL to an agents-standard marketplace.json.
+  # Leave the key out entirely and Coddy configures "EvilFreelancer/rpa-skills",
+  # the catalogue the bundled rpa-* skills are published from; an empty list here
+  # is an answer of its own and connects no marketplace at all.
   # sources:
   #   - "EvilFreelancer/rpa-skills"
   #   - "https://example.com/skills/marketplace.json"

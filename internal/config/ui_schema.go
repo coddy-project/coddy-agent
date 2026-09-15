@@ -523,7 +523,7 @@ func UISchemaMap() map[string]interface{} {
 				"sources": map[string]interface{}{
 					"type":        "array",
 					"title":       "Remote skill sources",
-					"description": "GitHub repos (owner/repo[@ref]), git URLs, or an http(s) URL to an agents-standard marketplace.json. Installed on demand via `coddy skills sync` or the Sync button; never fetched automatically.",
+					"description": "GitHub repos (owner/repo[@ref]), git URLs, or an http(s) URL to an agents-standard marketplace.json. Installed on demand via `coddy skills sync` or the Sync button; never fetched automatically. Coddy starts out with EvilFreelancer/rpa-skills, the marketplace the bundled rpa-* skills are published from; clear the list to connect none.",
 					"items":       map[string]interface{}{"type": "string"},
 				},
 				"auto_discovery": map[string]interface{}{

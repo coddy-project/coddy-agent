@@ -668,12 +668,13 @@ func TestDeleteSkillOnDiskAndReadonly(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "foo")); !os.IsNotExist(err) {
 		t.Errorf("foo dir should be gone: %v", err)
 	}
-	// The bundled skill is read-only and cannot be deleted.
-	if err := DeleteSkill(cfg, ".", "generate-rules"); err == nil {
-		t.Error("expected bundled skill to be read-only")
-	}
+	// A skill read out of the binary is read-only and cannot be deleted; the
+	// copy the delivery writes into the managed dir can be, and is not here.
 	if err := DeleteSkill(cfg, ".", "configure-coddy"); err == nil {
-		t.Error("expected configuration skill to be read-only")
+		t.Error("expected the configuration skill to be read-only")
+	}
+	if err := DeleteSkill(cfg, ".", "rpa-feat"); err == nil {
+		t.Error("expected a delivered skill read from the binary to be read-only")
 	}
 	// Unknown skill errors.
 	if err := DeleteSkill(cfg, ".", "nope"); err == nil {

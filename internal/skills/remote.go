@@ -385,14 +385,9 @@ func installFromDir(root string, entry RemoteEntry, managedDir string, lock map[
 		}
 		dst := filepath.Join(managedDir, name)
 		_, existed := os.Stat(dst)
-		// Copy into a sibling temp dir, move any existing install aside to a
-		// backup, swap the new copy in, then drop the backup — so neither a copy
-		// nor a rename failure can leave the skill deleted or half-written. Sync
-		// is serialized (syncMu) so these sidecar names never collide.
-		tmpDst := filepath.Join(managedDir, ".tmp-"+name)
-		bakDst := filepath.Join(managedDir, ".bak-"+name)
+		// Copy into a sibling temp dir, then let replaceSkillDir swap it in.
+		tmpDst := stagingDir(managedDir, name)
 		_ = os.RemoveAll(tmpDst)
-		_ = os.RemoveAll(bakDst)
 		if err := copySkillDir(h.dir, tmpDst); err != nil {
 			_ = os.RemoveAll(tmpDst)
 			if firstErr == nil {
@@ -400,32 +395,12 @@ func installFromDir(root string, entry RemoteEntry, managedDir string, lock map[
 			}
 			continue
 		}
-		movedAside := false
-		if existed == nil { // dst currently exists
-			if err := os.Rename(dst, bakDst); err != nil {
-				_ = os.RemoveAll(tmpDst)
-				if firstErr == nil {
-					firstErr = err
-				}
-				continue
-			}
-			movedAside = true
-		}
-		if err := os.Rename(tmpDst, dst); err != nil {
-			_ = os.RemoveAll(tmpDst)
-			if movedAside {
-				if rbErr := os.Rename(bakDst, dst); rbErr != nil {
-					// Both the swap and the rollback failed: keep the backup and
-					// surface where the previous copy is so it can be recovered.
-					err = fmt.Errorf("install %q failed (%w) and rollback failed (%v); previous copy left at %s", name, err, rbErr, bakDst)
-				}
-			}
+		if err := replaceSkillDir(managedDir, name, tmpDst); err != nil {
 			if firstErr == nil {
 				firstErr = err
 			}
 			continue
 		}
-		_ = os.RemoveAll(bakDst)
 		ent := entry
 		if ent.Version == "" {
 			ent.Version = skillDirVersion(h.dir)
@@ -438,6 +413,49 @@ func installFromDir(root string, entry RemoteEntry, managedDir string, lock map[
 		}
 	}
 	return firstErr
+}
+
+// stagingDir names the sibling directory a skill is copied into before it is
+// swapped in. syncMu keeps one process from using the same name twice, and the
+// pid keeps two processes apart: a console and a `coddy serve` starting at once
+// on a fresh home both hand over the standard delivery, and two of them copying
+// into one directory would interleave into a tree neither wrote. A leading dot
+// keeps the loader from reading it as a skill while it is being filled.
+func stagingDir(managedDir, name string) string {
+	return filepath.Join(managedDir, fmt.Sprintf(".tmp-%s-%d", name, os.Getpid()))
+}
+
+// replaceSkillDir swaps a staged copy in as the skill named name: any existing
+// install moves aside to a backup, the staged copy takes its place, and the
+// backup is dropped - so neither a copy nor a rename failure can leave the
+// skill deleted or half-written. Shared by the marketplace installer and the
+// standard delivery; both hold syncMu, so the sidecar names never collide.
+func replaceSkillDir(managedDir, name, staged string) error {
+	dst := filepath.Join(managedDir, name)
+	bak := filepath.Join(managedDir, ".bak-"+name)
+	_ = os.RemoveAll(bak)
+
+	movedAside := false
+	if _, err := os.Stat(dst); err == nil {
+		if err := os.Rename(dst, bak); err != nil {
+			_ = os.RemoveAll(staged)
+			return err
+		}
+		movedAside = true
+	}
+	if err := os.Rename(staged, dst); err != nil {
+		_ = os.RemoveAll(staged)
+		if movedAside {
+			if rbErr := os.Rename(bak, dst); rbErr != nil {
+				// Both the swap and the rollback failed: keep the backup and
+				// surface where the previous copy is so it can be recovered.
+				return fmt.Errorf("install %q failed (%w) and rollback failed (%v); previous copy left at %s", name, err, rbErr, bak)
+			}
+		}
+		return err
+	}
+	_ = os.RemoveAll(bak)
+	return nil
 }
 
 // skillDirVersion reads the optional version from a skill directory's SKILL.md

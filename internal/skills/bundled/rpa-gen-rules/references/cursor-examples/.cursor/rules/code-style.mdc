@@ -1,0 +1,98 @@
+---
+description: Code style and formatting rules
+globs: *.py, **/*.py, **/**/*.py
+alwaysApply: true
+---
+
+# Code Style Rules
+
+## General Rules
+
+1. **Comments**: Write all code comments **ONLY in English**
+2. **Rules and briefs**: Write every agent rule file (`.cursor/rules/*.mdc`, `.claude/rules/*.md`) and every top-level brief (`AGENTS.md`, `CLAUDE.md`) **in English** unless the user explicitly asks for another language; when they do, switch **all** rule trees at once
+3. **User responses**: Respond in Russian unless user requests otherwise
+4. **Empty line at end of file**: Always add an empty line at the end of new files
+
+## Code Formatting
+
+### Ruff and Black
+- Use `ruff` for linting and formatting
+- Line length: **120 characters** (configured in `ruff.toml`)
+- Follow rules from `ruff.toml`
+
+### Imports
+- Use `isort` for import sorting
+- Group imports: standard library → third-party → local
+- One import per line for long lists
+
+### Type Hints
+- **Mandatory**: Use type hints for all functions and methods
+- Use `Optional[T]` instead of `T | None` for compatibility
+- Use `Union[A, B]` for complex types
+- Use `Dict[str, Any]` instead of `dict` for explicitness
+
+### Docstrings
+- Use docstrings in Google style format
+- All docstrings in **English**
+- Must document:
+  - Public classes and methods
+  - Complex business logic
+  - Parameters and return values
+
+Example:
+```python
+def get_query_value(self, name: str, key: str) -> QueryResult:
+    """
+    Get query value by key.
+
+    Args:
+        name: Name of source to search
+        key: Key to look up
+
+    Returns:
+        QueryResult with value or error message
+    """
+```
+
+## File Structure
+
+### Element Order in File
+1. Module docstring
+2. Imports (standard library → third-party → local)
+3. Constants
+4. Types and exceptions
+5. Classes and functions
+
+### Naming
+- **Classes**: PascalCase (`SearchController`)
+- **Functions and methods**: snake_case (`get_query_value`)
+- **Constants**: UPPER_SNAKE_CASE (`MAX_RETRIES`)
+- **Private methods**: start with `_` (`_internal_method`)
+- **Types**: PascalCase (`PostData`, `QueryResult`)
+
+## Error Handling
+
+- Use specific exceptions, not generic `Exception`
+- Create custom exceptions for business logic (`ConfigError`)
+- Always include informative error messages
+- Use `Optional` for values that may be missing
+
+## Performance
+
+- **Always** use hash indexes (dict) instead of loops for search
+- Avoid repeated calculations - cache results
+- Use generators for large collections
+- Minimize Excel file access - load once
+
+## Testing
+
+- Each new class must have unit tests
+- Tests should be in `tests/` directory
+- Test file name: `test_<module_name>.py`
+- Use pytest fixtures for data preparation
+- Aim for code coverage >90%
+
+## References
+
+@ruff.toml
+@pytest.ini

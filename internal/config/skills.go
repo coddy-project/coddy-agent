@@ -27,6 +27,13 @@ func ApplySkillsAutoDiscoveryFlag(fs *flag.FlagSet, cfg *Config, val *bool) {
 	})
 }
 
+// DefaultSkillsSource is the marketplace Coddy is configured with out of the
+// box: the catalogue that publishes the skills of the standard delivery plus
+// the rest of the same collection. It is only an address - nothing is fetched
+// from it until `coddy skills sync` asks - and an operator who removes it keeps
+// it removed, because a source list that exists in the file is taken as given.
+const DefaultSkillsSource = "EvilFreelancer/rpa-skills"
+
 // Skills is the YAML skills section (key skills).
 type Skills struct {
 	Dirs []string `yaml:"dirs"`
@@ -51,11 +58,17 @@ func (c *Skills) ManagedDir(coddyHome string) string {
 	return expandSkillsHome("~/.coddy/skills")
 }
 
-// ApplyDefaults fills empty Dirs during config load.
+// ApplyDefaults fills empty Dirs during config load, and connects the default
+// marketplace when the file says nothing about sources at all. An explicit
+// (even empty) sources list is the operator's answer and is left alone, which
+// is how removing the default marketplace stays removed.
 func (c *Skills) ApplyDefaults(coddyHome string, expandCODDYHome func(string) string) {
 	if c.AutoDiscovery == nil {
 		v := true
 		c.AutoDiscovery = &v
+	}
+	if c.Sources == nil {
+		c.Sources = []string{DefaultSkillsSource}
 	}
 	if len(c.Dirs) == 0 {
 		c.Dirs = []string{

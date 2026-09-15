@@ -1,0 +1,35 @@
+{
+  "comment": [
+    "The skills Coddy carries inside its binary and hands to ${CODDY_HOME}/skills.",
+    "Vendored copies live in internal/skills/bundled/<name>/ and are refreshed by",
+    "scripts/vendor-bundled-skills.sh (make skills-vendor). Entries without a repo",
+    "are written in this repository and are never overwritten by the script.",
+    "The version of a skill is the version: line of its SKILL.md frontmatter."
+  ],
+  "skills": [
+    {
+      "name": "configure-coddy",
+      "origin": "local"
+    },
+    {
+      "name": "rpa-init",
+      "repo": "https://github.com/EvilFreelancer/rpa-init.git",
+      "ref": "main"
+    },
+    {
+      "name": "rpa-feat",
+      "repo": "https://github.com/EvilFreelancer/rpa-feat.git",
+      "ref": "main"
+    },
+    {
+      "name": "rpa-bugfix",
+      "repo": "https://github.com/EvilFreelancer/rpa-bugfix.git",
+      "ref": "main"
+    },
+    {
+      "name": "rpa-gen-rules",
+      "repo": "https://github.com/EvilFreelancer/rpa-gen-rules.git",
+      "ref": "main"
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-.PHONY: build build-acp test test-matrix print-test-tag-sets test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check site-schema site-schema-check docs docs-check docs-changelog docs-fast site-docs site-docs-check
+.PHONY: build build-acp test test-matrix print-test-tag-sets test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check site-schema site-schema-check docs docs-check docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -174,6 +174,17 @@ site-docs-check:
 docs-changelog:
 	$(MAKE) build TAGS="$(FULL_TAGS)"
 	go run ./cmd/docsgen -changelog -write -coddy $(BINARY) -tags "$(FULL_TAGS_CSV)"
+
+# The skills Coddy carries inside its binary (internal/skills/bundled). Those
+# that live in their own repositories are vendored rather than fetched at
+# runtime: skills-vendor refreshes the copies from the upstreams named in
+# scripts/bundled-skills.json, skills-vendor-check reports drift without
+# writing. Needs jq, git and network.
+skills-vendor:
+	scripts/vendor-bundled-skills.sh
+
+skills-vendor-check:
+	scripts/vendor-bundled-skills.sh --check
 
 # Test the project plugin that attaches Cursor rules to OpenCode sessions.
 test-opencode-rules:

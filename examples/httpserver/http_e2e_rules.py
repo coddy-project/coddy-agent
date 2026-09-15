@@ -14,7 +14,7 @@ from typing import Any, Tuple
 
 GLOB_TOKEN = "RULE_GLOB_TOKEN:e2e-glob"
 MENTION_TOKEN = "RULE_MENTION_TOKEN:e2e-mention"
-BUNDLED_SLASH = "generate-rules"
+BUNDLED_SLASH = "rpa-gen-rules"
 
 
 def http_json(

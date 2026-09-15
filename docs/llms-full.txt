@@ -6947,7 +6947,9 @@ A leading `~` expands, and so do the two placeholders the config understands: `$
 
 ## Generating rules
 
-Use the bundled skill **`/generate-rules`**. It is always available (embedded in the binary) and guides the agent to write focused rule files via filesystem tools, into `.cursor/rules/` when the project already has one, into `.agents/rules/` when the project keeps shared agent configuration there, otherwise into `.coddy/rules/`.
+Use **`/rpa-gen-rules`**, one of the skills of the [standard delivery](skills.md#the-standard-delivery), so it is there on a fresh install. It reads the specs, the docs and the code first and derives the rules from what it finds, rather than asking you to describe the project: a layered-cake architecture rule (implement the inner layers that depend on nothing first), BDD-style delivery, and a Rules Sync step that mirrors a change in one agent's tree into every other one. It writes Cursor `.mdc` files under `.cursor/rules/`, the Claude Code pair (`CLAUDE.md` and `.claude/rules/`), and the Codex hook bridge under `.codex/` that attaches the Cursor rules by glob the way Cursor and Claude Code do natively.
+
+Rules Coddy reads itself live in `.coddy/rules/` and `.agents/rules/`; both are ordinary discovery roots, so a rule file the skill wrote for another agent is picked up here as well.
 
 There is no `coddy rules generate` CLI subcommand.
 
@@ -6993,7 +6995,53 @@ Skills are reusable instruction packs that extend the agent with slash commands,
 
 ---
 
-Coddy ships a read-only `/configure-coddy` system skill. When a user asks the agent to change a Coddy setting or to find or install an MCP server or skill, it instructs the agent to verify the upstream source, stage uci-like edits with the typed `config_get` / `config_set` tools, ask the user to confirm before `config_commit` applies and hot-reloads them, avoid echoing secrets, and confirm the component after reload. It also documents `config_rollback` for returning to the pre-commit snapshot.
+## The standard delivery
+
+Coddy carries a set of skills inside the binary and writes them into **`${CODDY_HOME}/skills`** the
+first time it sees they are not there. Nothing is downloaded for this: a fresh install has them on
+the first run, offline, and a skill that reads files beside its `SKILL.md` finds them on disk rather
+than pointing at a directory that does not exist.
+
+| Skill | What it does |
+|-------|--------------|
+| **`/configure-coddy`** | Changes Coddy's own configuration when you ask: settings, providers, models, logging, permissions, MCP servers and skills. Verifies the upstream source, stages uci-style edits with the typed `config_get` / `config_set` tools, and commits only after you confirm, so `config_commit` applies and hot-reloads them in one step; `config_rollback` returns to the pre-commit snapshot. Never echoes secrets. |
+| **`/rpa-init`** | Warms up context on a repository: reads the code, the documentation and the test code, sets up the dev environment the project documents, runs the tests, and writes a short report. Needs no brief. |
+| **`/rpa-feat`** | Adds a feature strictly by BDD: plan, failing tests, implementation, green tests, the full suite, documentation and examples, the linter at the end. Needs a description of what to build. |
+| **`/rpa-bugfix`** | Fixes a bug reproduction-test first, then the fix, then the full suite, then a short report. Needs the bug: expected against actual, and how to reproduce it. |
+| **`/rpa-gen-rules`** | Writes or refreshes the project's agent rules for Cursor, Claude Code and Codex from what the repository actually contains. See [rules.md](rules.md#generating-rules). |
+
+Once written they are ordinary skills in your home: edit them, `coddy skills disable <name>` them,
+delete them, or update them from the marketplace. What the delivery will and will not do is
+recorded in **`${CODDY_HOME}/skills/.bundled.json`** beside the skills it wrote:
+
+- a skill it has never handed over is written;
+- a skill you deleted stays deleted - it is not written again by the next start;
+- a copy older than the one in the release is **replaced**, so `coddy update` brings the newer skill
+  with it. Edit a delivered skill and you will want to raise its `version:` as well, otherwise the
+  next release that raises its own overwrites your copy;
+- a copy that is newer, or that carries no `version:` to compare against, is left exactly as it is;
+- the marketplace below is registered once.
+
+A home Coddy cannot write to - a read-only image, a locked-down account - is not an error: the
+copies inside the binary answer instead, read-only, and only a skill whose `references/` it needs
+notices the difference.
+
+The `rpa-*` skills live in their own repositories and are vendored into `internal/skills/bundled/`
+by **`make skills-vendor`**; `scripts/bundled-skills.json` says where each one comes from.
+
+### The marketplace that comes with it
+
+`skills.sources` starts out naming **`EvilFreelancer/rpa-skills`**, the catalogue the delivered
+`rpa-*` skills are published from, so the rest of that collection is one command away:
+
+```bash
+coddy skills sync                 # install everything the catalogue publishes
+coddy plugin marketplace list     # what is configured, and whether it resolves
+```
+
+This is an address and nothing more - Coddy contacts it only when you ask it to. It is written into
+`config.yaml` once; remove it with `coddy plugin marketplace remove EvilFreelancer/rpa-skills` and it
+stays removed, because a `sources` list that exists in the file is taken as your answer.
 
 ## Where to get skills
 
@@ -9372,7 +9420,7 @@ Directories scanned for skills (SKILL.md and root .md/.mdc files).
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `skills.dirs` | list of strings | ["~/.agents/skills","${CODDY_HOME}/skills","${CWD}/.coddy/skills"] | Search paths; later entries win on name conflicts. Defaults (lowest to highest priority): ~/.agents/skills, ${CODDY_HOME}/skills, ${CWD}/.coddy/skills. ${CODDY_HOME} expands when the file is loaded; ${CWD} stays in the entry and expands per session against that session's workspace. |
-| `skills.sources` | list of strings |  | Remote skill sources installed on demand with `coddy skills sync` (never fetched automatically). Each entry is a GitHub repo (owner/repo[@ref]), a git URL, or an http(s) URL to an agents-standard marketplace.json. Materialized into ${CODDY_HOME}/skills. |
+| `skills.sources` | list of strings | [EvilFreelancer/rpa-skills] | Remote skill sources installed on demand with `coddy skills sync` (never fetched automatically). Each entry is a GitHub repo (owner/repo[@ref]), a git URL, or an http(s) URL to an agents-standard marketplace.json. Materialized into ${CODDY_HOME}/skills. Omit the key and Coddy configures EvilFreelancer/rpa-skills, the marketplace the bundled rpa-* skills are published from; an empty list connects no marketplace at all. See https://coddy.dev/docs/skills. |
 | `skills.auto_discovery` | boolean or null | true | Offer the model-driven load_skill tool so the agent pulls a catalogued skill's full instructions into a turn on its own when the request matches, instead of requiring an explicit /name. Defaults to true. |
 
 ### `rules`
@@ -10030,6 +10078,8 @@ Every skill file that the loader accepts is a command:
 - the description shown next to the command is the frontmatter `description`, or the first plain line of the body when there is none, capped at 160 characters.
 
 The catalog reaches the model too: the system prompt carries a `## Slash commands` block listing every `/name` with its description (`skills.BuildSlashCatalogMarkdown`), and with `skills.auto_discovery` on, the model can pull a full body itself through the `load_skill` tool ([Tools](tools.md)).
+
+Five of those commands are there on a fresh install without anything being downloaded - `/configure-coddy`, `/rpa-init`, `/rpa-feat`, `/rpa-bugfix` and `/rpa-gen-rules`, the [standard delivery](../features/skills.md#the-standard-delivery) the binary writes into `${CODDY_HOME}/skills`.
 
 ## How a command in a prompt is parsed
 
@@ -12817,7 +12867,7 @@ persistence. Tools from MCP servers are appended to the LLM tool list in
 
 ### Skills loader (`internal/skills`)
 
-Loads `SKILL.md` from configured `skills.dirs` (see `docs/features/skills.md`). Default dirs (lowest → highest priority): **`~/.agents/skills`** (global, shared with `npx skills`/`npx skillsbd`), **`~/.coddy/skills`** (coddy-specific), **`${CWD}/.coddy/skills`** (project-local). Later dirs override earlier ones when the same skill name appears in multiple locations. Bundled **`/generate-rules`** is always prepended.
+Loads `SKILL.md` from configured `skills.dirs` (see `docs/features/skills.md`). Default dirs (lowest → highest priority): **`~/.agents/skills`** (global, shared with `npx skills`/`npx skillsbd`), **`~/.coddy/skills`** (coddy-specific), **`${CWD}/.coddy/skills`** (project-local). Later dirs override earlier ones when the same skill name appears in multiple locations. The **standard delivery** - the skills the binary carries in **`internal/skills/bundled/`** - is prepended below all of them, and is also written into **`~/.coddy/skills`** on first sight (**`internal/skills/seed.go`**), so the copy on disk is what a session actually reads and the in-binary one is the fallback for a home that could not be written.
 
 ### Subagents (`internal/subagents`)
 
