@@ -240,6 +240,73 @@ async function navigate(sid: string) {
   await screen.findByText(sid === A ? "Earlier A prompt" : "Earlier B prompt");
 }
 
+test.each(["post", "relay"])(
+  "a late provider window replaces the model-list fallback on the %s stream",
+  async (transport) => {
+    document.cookie = "coddy_llm_model=test-model; Path=/";
+    backend.override = (r) => {
+      if (r.path === "/v1/models")
+        return json({
+          data: [
+            { id: "test-model", owned_by: "test", max_context_tokens: 128000 },
+            { id: "other-model", owned_by: "test", max_context_tokens: 512000 },
+          ],
+        });
+      if (r.path.endsWith("/stats"))
+        return json({
+          stats: { contextBreakdown: { estimatedTotal: 120000 } },
+        });
+      return undefined;
+    };
+    if (transport === "relay") backend.activity.set(A, true);
+    await mount();
+    const expectWindow = async (size: number) => {
+      await waitFor(() => {
+        const ring = document.querySelector(".context-ring-fg")!;
+        const offset = Number(ring.getAttribute("stroke-dashoffset"));
+        expect(offset).toBeCloseTo(2 * Math.PI * 12 * (1 - 120000 / size), 1);
+      });
+    };
+    await expectWindow(128000);
+    if (transport === "post") await send("Continue A");
+    else await waitFor(() => expect(backend.relays).toHaveLength(1));
+    const stream = (transport === "post" ? backend.posts : backend.relays)[0]!
+      .stream;
+    // The listing missed the HTTP wait deadline. A later usage update carries
+    // the provider's resolved window without another /v1/models request.
+    await act(async () =>
+      stream.frame("usage_update", { used: 120000, size: 262144 }),
+    );
+    await expectWindow(262144);
+    const statsReads = backend.count(`/coddy/sessions/${A}/stats`);
+    fireEvent.click(screen.getByTestId("composer-context-ring-host"));
+    await waitFor(() =>
+      expect(backend.count(`/coddy/sessions/${A}/stats`)).toBeGreaterThan(
+        statsReads,
+      ),
+    );
+    await expectWindow(262144);
+    expect(backend.count("/v1/models")).toBe(1);
+
+    await navigate(B);
+    await expectWindow(128000);
+    await act(async () =>
+      stream.frame("usage_update", { used: 120000, size: 524288 }),
+    );
+    await expectWindow(128000);
+    await navigate(A);
+    await expectWindow(262144);
+    await act(async () => {
+      backend.turn(A, false);
+      stream.end();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Model" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "other-model" }));
+    await expectWindow(512000);
+    document.cookie = "coddy_llm_model=; Path=/; Max-Age=0";
+  },
+);
+
 test("an active session outside the History page gets Stop and queues text, not a new POST", async () => {
   backend.history = [B];
   backend.activity.set(A, true);

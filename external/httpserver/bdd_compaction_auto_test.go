@@ -17,10 +17,12 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cucumber/godog"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
 func (s *compactHTTPFeatureState) startServerTinyWindow() error {
@@ -51,6 +53,10 @@ func (s *compactHTTPFeatureState) startServerProviderReportsTinyWindow() error {
 // context ring against: GET /v1/models must carry the provider's window for
 // the model, the same window the trigger measured against.
 func (s *compactHTTPFeatureState) modelListReportsProviderWindow() error {
+	return s.modelListReportsWindow(providerReportedWindow)
+}
+
+func (s *compactHTTPFeatureState) modelListReportsWindow(want int) error {
 	res, err := http.Get(s.ts.URL + "/v1/models")
 	if err != nil {
 		return err
@@ -67,8 +73,8 @@ func (s *compactHTTPFeatureState) modelListReportsProviderWindow() error {
 	}
 	for _, m := range body.Data {
 		if m.ID == "fake/model" {
-			if m.MaxContextTokens != providerReportedWindow {
-				return fmt.Errorf("GET /v1/models max_context_tokens for fake/model = %d, want the provider's %d", m.MaxContextTokens, providerReportedWindow)
+			if m.MaxContextTokens != want {
+				return fmt.Errorf("GET /v1/models max_context_tokens for fake/model = %d, want %d", m.MaxContextTokens, want)
 			}
 			return nil
 		}
@@ -125,12 +131,57 @@ func (s *compactHTTPFeatureState) agentReplyArrives() error {
 
 func initializeCompactionAutoScenario(sc *godog.ScenarioContext) {
 	s := &compactHTTPFeatureState{}
+	var releaseListing func()
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
 		return ctx, s.reset()
 	})
 	sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
+		if releaseListing != nil {
+			releaseListing()
+			_ = s.mgr.WaitContextWindowsIdle(5 * time.Second)
+		}
 		s.close()
 		return ctx, nil
+	})
+
+	const lateWindow = 262144
+	sc.Step(`^a running coddy HTTP server with a delayed provider window$`, func() error {
+		if err := s.startServerWithProvider(config.ProviderConfig{
+			Name: "fake", Type: "openai", APIKey: "test", APIBase: "https://listing.invalid/v1",
+		}, 0); err != nil {
+			return err
+		}
+		gate := make(chan struct{})
+		releaseListing = func() {
+			select {
+			case <-gate:
+			default:
+				close(gate)
+			}
+		}
+		s.mgr.SetContextWindowLister(func(ctx context.Context, _ llm.ProviderInput) ([]llm.ModelEntry, error) {
+			select {
+			case <-gate:
+				return []llm.ModelEntry{{ID: "model", ContextWindow: lateWindow}}, nil
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}, nil)
+		return nil
+	})
+	sc.Step(`^the model list returns the fallback window before the provider answers$`, func() error {
+		return s.modelListReportsWindow(config.DefaultContextWindowTokens)
+	})
+	sc.Step(`^the provider finishes reporting its context window$`, func() error {
+		releaseListing()
+		return s.mgr.WaitContextWindowsIdle(5 * time.Second)
+	})
+	sc.Step(`^the user sends a streaming compaction command$`, s.sendCompactPrompt)
+	sc.Step(`^the usage update reports the late provider window$`, func() error {
+		if s.streamUsage == nil || s.streamUsage.Size != lateWindow {
+			return fmt.Errorf("usage_update = %+v, want size %d", s.streamUsage, lateWindow)
+		}
+		return nil
 	})
 
 	sc.Step(`^a running coddy HTTP server with a summarizing agent and a tiny context window$`, s.startServerTinyWindow)

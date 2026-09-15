@@ -1089,6 +1089,20 @@ export function App() {
   const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
   const [defaultAgentYamlModel, setDefaultAgentYamlModel] = useState("");
   const [llmModel, setLlmModel] = useState("");
+  // A provider listing can arrive after /v1/models returned its fallback.
+  // Keep the live window per session, scoped to its model and config version;
+  // stats refreshes must not replace it with the earlier model-list value.
+  const [sessionContextWindows, setSessionContextWindows] = useState<
+    Record<string, { model: string; epoch: number; size: number }>
+  >({});
+  const applyContextUsage = useStableHandler((sid: string, u: ContextUsageUpdate) => {
+    setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
+    setSessionContextWindows((prev) => ({
+      ...prev,
+      [sid]: { model: llmModel, epoch: configEpoch, size: u.size },
+    }));
+    debouncedRefreshSessionStats(sid);
+  });
   const providerUsageState = useProviderUsage({
     sessionId,
     llmModel,
@@ -3159,8 +3173,7 @@ export function App() {
     const branchContextUsage = (u: ContextUsageUpdate) => {
       if (!ownsRelay() || fetchCtl.signal.aborted) return;
       if (viewedSessionIdRef.current.trim() === key) {
-        setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
-        debouncedRefreshSessionStats(key);
+        applyContextUsage(key, u);
       }
     };
 
@@ -3433,8 +3446,7 @@ export function App() {
       const branchContextUsage = (u: ContextUsageUpdate) => {
         if (!ownsPost() || abortCtl.signal.aborted) return;
         if (viewedSessionIdRef.current.trim() === streamKey) {
-          setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
-          debouncedRefreshSessionStats(streamKey);
+          applyContextUsage(streamKey, u);
         }
       };
 
@@ -3912,9 +3924,13 @@ export function App() {
   }
 
   const maxContextTokens = useMemo(() => {
+    const live = sessionContextWindows[sessionId.trim()];
+    if (live?.model === llmModel && live.epoch === configEpoch) {
+      return live.size;
+    }
     const row = modelInfos.find((m) => m.id === llmModel);
     return row?.maxContextTokens || 128000;
-  }, [modelInfos, llmModel]);
+  }, [modelInfos, llmModel, sessionId, sessionContextWindows, configEpoch]);
 
   const llmModelMultimodal = useMemo(() => {
     const row = modelInfos.find((m) => m.id === llmModel);

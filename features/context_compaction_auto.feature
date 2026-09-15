@@ -25,3 +25,11 @@ Feature: Automatic context compaction
     And the session transcript contains a compaction summary row
     And the session transcript still contains all 4 original exchanges
     And the model list reports the provider's context window for the model
+
+  Scenario: A provider window arriving after the model-list deadline reaches the stream
+    Given a running coddy HTTP server with a delayed provider window
+    And an HTTP session with 4 completed exchanges
+    When the model list returns the fallback window before the provider answers
+    And the provider finishes reporting its context window
+    And the user sends a streaming compaction command
+    Then the usage update reports the late provider window

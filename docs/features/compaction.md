@@ -50,6 +50,14 @@ The summary row is a user-role message flagged `compaction_summary` that starts 
 
 After a compaction the context estimate is recomputed and published as a `usage_update` with `used` and `size`, which is what the composer's context ring and the console footer's context percentage show; `GET /coddy/sessions/{id}/stats` returns the same breakdown by category. Every client of a shared session reads the smaller number: the tab that sent the turn from its own stream, another tab watching the turn from `GET /coddy/sessions/{id}/composer-stream` (the same frames), and a tab that only views the session from the stats it reloads when `turn_ended` arrives. A compaction folds the turns before the kept tail, so the numbers fall when the bulk of the context sits in older turns; a large last message stays verbatim until newer turns push it past `keep_recent_turns`.
 
+The web UI also updates the session's context window from `usage_update.size` on either stream. If a provider listing arrives after `/v1/models` returned the 128000 fallback, the ring adopts the reported window without a reload. Stats refreshes preserve that live window; selecting a different model or saving the configuration uses the model listing until a fresh usage update arrives. A window received for one session never changes another session's ring.
+
+![Context using the fallback window](../assets/compaction/context-window-before-dark-1280.png)
+*Before the provider answers: the same 120000 tokens fill 93.8% of the fallback window. Captured from the running UI with a stand-in provider.*
+
+![Context using the late provider window](../assets/compaction/context-window-after-dark-1280.png)
+*After the stream reports a 262144-token window: 45.8%, without reloading. Narrow layout: [before](../assets/compaction/context-window-before-dark-390.png) and [after](../assets/compaction/context-window-after-dark-390.png).*
+
 ## What the transcript shows
 
 In the web UI the summary is a foldout row labelled **context compacted**, styled like the thinking disclosure, whose body renders the summary - what is now in the model's context. The row sits at the boundary, above the turns kept verbatim, not at the end of the chat; after a forced compaction of a short session it is the last row. The `/compact` command and its one-line reply are ordinary user and assistant rows. `GET /coddy/sessions/{id}/messages` returns every original row, the summary carrying `compaction_summary: true`, and an export writes it as a `compaction_summary` entry ([Session export](session-export.md)). An ACP client, and with it the console, sees the row on replay as a user message beginning with the preamble above.
