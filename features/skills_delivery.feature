@@ -26,6 +26,7 @@ Feature: The standard skill delivery
     And the operator deletes the skill "rpa-feat"
     When coddy hands over the standard delivery
     Then the home skills directory does not carry "rpa-feat"
+    And the skill catalogue does not offer "rpa-feat"
 
   Scenario: The marketplace of the delivery is built in and cannot be removed
     When coddy hands over the standard delivery

@@ -199,6 +199,24 @@ func modeForEmbedded(p string) os.FileMode {
 	}
 }
 
+// DeliveredAndDeleted returns the skills the delivery handed to managedDir and
+// the operator has since removed. The loader leaves those out of the catalogue:
+// a skill that is gone from disk but still read out of the binary would keep
+// answering its slash command and could not be deleted a second time.
+func DeliveredAndDeleted(managedDir string) map[string]struct{} {
+	receipt := readDeliveryReceipt(managedDir)
+	if len(receipt.Skills) == 0 {
+		return nil
+	}
+	out := make(map[string]struct{})
+	for name := range receipt.Skills {
+		if _, present := installedSkillVersion(filepath.Join(managedDir, name)); !present {
+			out[name] = struct{}{}
+		}
+	}
+	return out
+}
+
 func deliveryReceiptPath(managedDir string) string {
 	return filepath.Join(managedDir, deliveryReceiptFile)
 }

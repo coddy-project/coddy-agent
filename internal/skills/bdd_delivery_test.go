@@ -112,6 +112,13 @@ func (s *deliveryState) catalogueOffers(name string) error {
 	return fmt.Errorf("skill %q is not in the catalogue", name)
 }
 
+func (s *deliveryState) catalogueDoesNotOffer(name string) error {
+	if err := s.catalogueOffers(name); err == nil {
+		return fmt.Errorf("the catalogue still offers %q", name)
+	}
+	return nil
+}
+
 func (s *deliveryState) sourcesContain(source string) error {
 	for _, got := range skills.ListSources(s.cfg) {
 		if strings.EqualFold(got, source) {
@@ -193,6 +200,7 @@ func initializeDeliveryScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the home skills directory does not carry "([^"]*)"$`, s.doesNotCarry)
 	sc.Step(`^the skill "([^"]*)" carries its references on disk$`, s.carriesReferences)
 	sc.Step(`^the skill catalogue offers "([^"]*)"$`, s.catalogueOffers)
+	sc.Step(`^the skill catalogue does not offer "([^"]*)"$`, s.catalogueDoesNotOffer)
 	sc.Step(`^the configured skill sources contain "([^"]*)"$`, s.sourcesContain)
 	sc.Step(`^removing the marketplace "([^"]*)" is refused$`, s.removeMarketplaceRefused)
 	sc.Step(`^the config file was not touched$`, s.configUntouched)
