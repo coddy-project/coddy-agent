@@ -847,6 +847,7 @@ func (f *FileStore) Save(state *State) error {
 			pending = data
 		}
 	}
+	archived, archivedAt := state.ArchiveState()
 	meta := SessionMeta{
 		Version:           sessionFileLayout,
 		ID:                state.ID,
@@ -859,8 +860,8 @@ func (f *FileStore) Save(state *State) error {
 		Title:             title,
 		TitlePinned:       strings.TrimSpace(state.GetTitlePinned()),
 		Tags:              state.GetTags(),
-		Archived:          state.GetArchived(),
-		ArchivedAt:        strings.TrimSpace(state.GetArchivedAt()),
+		Archived:          archived,
+		ArchivedAt:        strings.TrimSpace(archivedAt),
 		Origin:            strings.TrimSpace(state.GetOrigin()),
 	}
 	if state.GetSchedulerRun() {

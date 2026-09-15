@@ -37,12 +37,24 @@ export type SessionGroup = {
   rows: SessionRow[];
 };
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 /** Local midnight of the day a timestamp falls on. */
 function startOfLocalDay(ms: number): number {
   const d = new Date(ms);
   d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/**
+ * Local midnight `days` calendar days before the day `ms` falls on.
+ *
+ * Subtracting 24 hours is not the same thing: a local day is 23 or 25 hours
+ * long across a daylight-saving change, so a fixed span lands at 23:00 or 01:00
+ * and puts the hours on either side of it in the wrong bucket.
+ */
+function startOfLocalDayBefore(ms: number, days: number): number {
+  const d = new Date(ms);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - days);
   return d.getTime();
 }
 
@@ -54,19 +66,26 @@ type AgeBucket = { key: string; labelKey: string; from: number };
  * not "twenty-five hours ago".
  */
 function ageBuckets(now: number): AgeBucket[] {
-  const today = startOfLocalDay(now);
   return [
-    { key: "today", labelKey: "sessions.group.today", from: today },
+    {
+      key: "today",
+      labelKey: "sessions.group.today",
+      from: startOfLocalDay(now),
+    },
     {
       key: "yesterday",
       labelKey: "sessions.group.yesterday",
-      from: today - DAY_MS,
+      from: startOfLocalDayBefore(now, 1),
     },
-    { key: "week", labelKey: "sessions.group.week", from: today - 6 * DAY_MS },
+    {
+      key: "week",
+      labelKey: "sessions.group.week",
+      from: startOfLocalDayBefore(now, 6),
+    },
     {
       key: "month",
       labelKey: "sessions.group.month",
-      from: today - 29 * DAY_MS,
+      from: startOfLocalDayBefore(now, 29),
     },
     {
       key: "older",

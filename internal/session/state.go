@@ -3,6 +3,7 @@ package session
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -765,10 +766,16 @@ func (s *State) GetTags() []string {
 
 // SetTags replaces the session tags and persists metadata when a store is
 // attached. The values are normalized here, so nothing downstream has to
-// wonder which spelling reached it.
+// wonder which spelling reached it. Writing the set it already has changes
+// nothing and costs no write.
 func (s *State) SetTags(tags []string) {
+	next := NormalizeTags(tags)
 	s.mu.Lock()
-	s.Tags = NormalizeTags(tags)
+	if slices.Equal(s.Tags, next) {
+		s.mu.Unlock()
+		return
+	}
+	s.Tags = next
 	s.mu.Unlock()
 	s.touchPersist()
 }
@@ -794,18 +801,33 @@ func (s *State) GetArchivedAt() string {
 	return s.ArchivedAt
 }
 
+// ArchiveState returns the flag and its stamp together. They are one fact, and
+// a writer that reads them under two locks can be caught between the two halves
+// of a change - persisting "archived with no stamp", or a stamp on a session
+// that is no longer archived.
+func (s *State) ArchiveState() (archived bool, at string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Archived, s.ArchivedAt
+}
+
 // SetArchived moves the session in or out of the archive and persists metadata
 // when a store is attached. The stamp is taken on the way in and cleared on the
 // way out; archiving a session that is already archived leaves the original
 // stamp standing, because that is when it was put aside.
 func (s *State) SetArchived(archived bool) {
 	s.mu.Lock()
-	switch {
-	case !archived:
-		s.Archived, s.ArchivedAt = false, ""
-	case !s.Archived:
+	if s.Archived == archived {
+		// Already where it is being put: nothing to write, and in particular no
+		// new stamp - when it was put aside is when it was put aside.
+		s.mu.Unlock()
+		return
+	}
+	if archived {
 		s.Archived = true
 		s.ArchivedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	} else {
+		s.Archived, s.ArchivedAt = false, ""
 	}
 	s.mu.Unlock()
 	s.touchPersist()
@@ -836,6 +858,12 @@ func (s *State) GetOrigin() string {
 // when a store is attached. It is written once, by the surface that created the
 // session: a conversation does not change where it came from, and a later
 // writer must not relabel somebody else's chat.
+//
+// An empty origin means "not recorded" rather than "opened on this host", which
+// is also what every bundle stored before the field existed carries. That is why
+// the guard here cannot be the whole protection: a caller stamps a session only
+// when it is the one creating it (see the Telegram gateway's ensureSession),
+// and this guard catches the repeat calls that follow.
 func (s *State) SetOrigin(origin string) {
 	s.mu.Lock()
 	if strings.TrimSpace(s.Origin) != "" {

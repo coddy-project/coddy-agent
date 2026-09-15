@@ -26,6 +26,10 @@ import (
 type sessTagsState struct {
 	sessMgmtState
 	describe map[string]interface{}
+	// tagged remembers the positions a scenario put tags on, so the step that
+	// checks the rest does not have to name them a second time - and cannot
+	// quietly check the wrong session when a scenario tags another one.
+	tagged map[int]bool
 }
 
 // patchSession sends one PATCH body to the nth stored session.
@@ -45,6 +49,10 @@ func (s *sessTagsState) patchSession(nth int, payload map[string]interface{}) er
 }
 
 func (s *sessTagsState) tagSession(nth int, tags string) error {
+	if s.tagged == nil {
+		s.tagged = map[int]bool{}
+	}
+	s.tagged[nth] = true
 	return s.patchSession(nth, map[string]interface{}{"tags": splitSpecList(tags)})
 }
 
@@ -113,9 +121,13 @@ func (s *sessTagsState) reportsTags(nth int, want string) error {
 	return nil
 }
 
-func (s *sessTagsState) othersReportNoTags(nth int) error {
+// othersReportNoTags checks every session a scenario did not tag.
+func (s *sessTagsState) othersReportNoTags() error {
+	if len(s.tagged) == 0 {
+		return fmt.Errorf("no session was tagged, so there is no rest to check")
+	}
 	for i := range s.ids {
-		if i+1 == nth {
+		if s.tagged[i+1] {
 			continue
 		}
 		got, err := s.rowTags(i + 1)
@@ -304,6 +316,7 @@ func initializeSessionTagsScenario(sc *godog.ScenarioContext) {
 	s := &sessTagsState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
 		s.describe = nil
+		s.tagged = map[int]bool{}
 		return ctx, s.reset()
 	})
 	sc.After(func(ctx context.Context, _ *godog.Scenario, err error) (context.Context, error) {
@@ -329,7 +342,7 @@ func initializeSessionTagsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I ask for a description of a long request$`, s.askForDescription)
 
 	sc.Step(`^session (\d+) reports tags "([^"]*)"$`, s.reportsTags)
-	sc.Step(`^the other sessions report no tags$`, func() error { return s.othersReportNoTags(2) })
+	sc.Step(`^the other sessions report no tags$`, s.othersReportNoTags)
 	sc.Step(`^the listing holds sessions (\d+) and (\d+)$`, s.taggedListingHolds)
 	sc.Step(`^the listing holds session (\d+)$`, func(nth int) error {
 		return s.listingHolds(nth)

@@ -142,3 +142,32 @@ describe("readSessionGroupCookie", () => {
     expect(readSessionGroupCookie()).toBeNull();
   });
 });
+
+describe("age buckets across a daylight-saving change", () => {
+  // A local day is 23 or 25 hours long around a DST change, so a boundary built
+  // by subtracting 24 hours lands at 23:00 or 01:00 instead of midnight and puts
+  // the hours on either side of it in the wrong bucket. These stamps are local
+  // times, so the test means the same thing in every timezone - and in one that
+  // observes DST it walks straight over the transition.
+  const springForward = Date.parse("2026-03-29T12:00:00");
+
+  it("keeps yesterday a whole calendar day", () => {
+    const rows = [
+      row("early", { updatedAt: "2026-03-28T00:30:00" }),
+      row("late", { updatedAt: "2026-03-28T23:30:00" }),
+    ];
+    const groups = groupSessions(rows, "time", springForward);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].key).toBe("yesterday");
+    expect(groups[0].rows).toHaveLength(2);
+  });
+
+  it("keeps the older buckets on calendar boundaries too", () => {
+    const rows = [
+      row("weekEdge", { updatedAt: "2026-03-23T00:30:00" }),
+      row("monthEdge", { updatedAt: "2026-02-28T00:30:00" }),
+    ];
+    const groups = groupSessions(rows, "time", springForward);
+    expect(groups.map((g) => g.key)).toEqual(["week", "month"]);
+  });
+});

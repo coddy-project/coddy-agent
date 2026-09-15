@@ -83,9 +83,11 @@ func TestSessionListRefusesUnknownQueryValues(t *testing.T) {
 
 func TestSessionListSortsTheWholeListingNotThePage(t *testing.T) {
 	srv, mgr, store := bulkDeleteServer(t)
-	// Stored newest first by updatedAt; sorted by title the order is different,
-	// and the first page must hold the first titles of the sorted listing.
-	for _, title := range []string{"delta", "charlie", "bravo", "alpha"} {
+	// Written oldest first, so the default order (newest updatedAt first) is
+	// delta, charlie, bravo, alpha - the reverse of the title order. A page
+	// taken before the sort would therefore hold delta and charlie, and only a
+	// listing sorted as a whole answers with alpha and bravo.
+	for _, title := range []string{"alpha", "bravo", "charlie", "delta"} {
 		id := storeSession(t, mgr, store, "question "+title)
 		if code, body := patchSessionJSON(t, srv, id, map[string]interface{}{"title": title}); code != http.StatusOK {
 			t.Fatalf("patch title: status %d body %v", code, body)
@@ -111,6 +113,26 @@ func TestSessionListSortsTheWholeListingNotThePage(t *testing.T) {
 	}
 	if hasMore, _ := body["hasMore"].(bool); !hasMore {
 		t.Fatal("a listing of four with a page of two must report more")
+	}
+
+	// The second page continues the sorted listing rather than restarting it.
+	cursor, _ := body["nextCursor"].(string)
+	if cursor == "" {
+		t.Fatal("a listing with more rows must hand back a cursor")
+	}
+	code, body = getSessions(t, srv, "sort=title&order=asc&limit=2&cursor="+cursor)
+	if code != http.StatusOK {
+		t.Fatalf("status %d body %v", code, body)
+	}
+	raw, _ = body["sessions"].([]interface{})
+	got = got[:0]
+	for _, item := range raw {
+		m, _ := item.(map[string]interface{})
+		title, _ := m["title"].(string)
+		got = append(got, title)
+	}
+	if len(got) != 2 || got[0] != "charlie" || got[1] != "delta" {
+		t.Fatalf("second page reads %v, want [charlie delta]", got)
 	}
 }
 
@@ -260,6 +282,11 @@ func TestDescribeSplitTagsLine(t *testing.T) {
 		{"decorated tag line", "Refactor memory API\n**Tags:** Backend, Memory, backend", "Refactor memory API", []string{"backend", "memory"}},
 		{"tags before the phrase", "tags: ui\nRefactor memory API", "Refactor memory API", []string{"ui"}},
 		{"an empty tag line proposes nothing", "Refactor memory API\ntags:", "Refactor memory API", nil},
+		// Lower casing can change how many bytes a rune takes (Ⱥ is two, ⱥ is
+		// three), so an offset measured on the lowered copy can run off the
+		// front of the original string.
+		{"a tag line whose lower case is longer", "Refactor memory API\ntags: ȺȺȺȺȺȺ", "Refactor memory API", []string{"ⱥⱥⱥⱥⱥⱥ"}},
+		{"a tag line in another script", "Refactor memory API\nTAGS: Память, Бэкенд", "Refactor memory API", []string{"память", "бэкенд"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

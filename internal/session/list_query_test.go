@@ -1,6 +1,7 @@
 package session
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -195,5 +196,114 @@ func TestGatewayOriginNamesTheMessenger(t *testing.T) {
 	// A messenger with no name is still a gateway, not a local session.
 	if got := GatewayOrigin(""); got != "gateway" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestNormalizeTagFoldsDelimitersSoAStoredTagIsAlwaysSearchable(t *testing.T) {
+	// A tag is written as an array element by PATCH and read back as one item of
+	// a comma separated query. A comma surviving inside the stored value would
+	// make the tag impossible to ask for.
+	got := NormalizeTag("backend,api")
+	if strings.Contains(got, ",") {
+		t.Fatalf("stored tag %q keeps a delimiter no query can express", got)
+	}
+	if got != "backend-api" {
+		t.Fatalf("got %q, want backend-api", got)
+	}
+	if round := ParseTagList(got); len(round) != 1 || round[0] != got {
+		t.Fatalf("round trip through a query gave %v", round)
+	}
+}
+
+func TestParseTagListDoesNotCapAFilterAtTheStorageLimit(t *testing.T) {
+	// Eight is how many labels one session may carry. It says nothing about how
+	// many alternatives a search may offer.
+	wanted := make([]string, 0, maxSessionTags+4)
+	for i := 0; i < maxSessionTags+4; i++ {
+		wanted = append(wanted, fmt.Sprintf("t%d", i))
+	}
+	got := ParseTagList(strings.Join(wanted, ","))
+	if len(got) != len(wanted) {
+		t.Fatalf("filter kept %d of %d alternatives", len(got), len(wanted))
+	}
+	last := wanted[len(wanted)-1]
+	row := SessionListEntry{Tags: []string{last}}
+	if !SessionMatchesAnyTag(row, got) {
+		t.Fatalf("a session tagged %q is not matched by a filter that lists it", last)
+	}
+}
+
+func TestSortSessionListIsTransitiveWithAnUnparseableStamp(t *testing.T) {
+	// A stamp this build cannot read is unknown, not "some other position in the
+	// chronology": mixing a lexical order with a chronological one makes the
+	// comparison non-transitive and the listing order undefined.
+	a := SessionListEntry{SessionID: "sess_a", UpdatedAt: "2026-09-01T00:00:00Z"}
+	b := SessionListEntry{SessionID: "sess_b", UpdatedAt: "2026-09-01T00:00:00.1Z"}
+	c := SessionListEntry{SessionID: "sess_c", UpdatedAt: "2026-09-01T00:00:00X"}
+
+	for _, order := range []SortOrder{SortAsc, SortDesc} {
+		rows := []SessionListEntry{c, b, a}
+		SortSessionList(rows, SortUpdated, order, nil)
+		if rows[2].SessionID != "sess_c" {
+			t.Fatalf("order %q: an unreadable stamp must sort last, got %v", order, rows)
+		}
+		// Whatever the direction, the two readable stamps keep a chronological
+		// relation to each other.
+		if order == SortAsc && rows[0].SessionID != "sess_a" {
+			t.Fatalf("asc: got %v", rows)
+		}
+		if order == SortDesc && rows[0].SessionID != "sess_b" {
+			t.Fatalf("desc: got %v", rows)
+		}
+	}
+}
+
+func TestArchiveStateIsReadAsOnePair(t *testing.T) {
+	// The flag and its stamp are one fact. Reading them under separate locks lets
+	// a concurrent change be caught halfway and persisted as "archived with no
+	// stamp" or "not archived, stamped".
+	st := &State{ID: "sess_a"}
+	st.SetArchived(true)
+	archived, at := st.ArchiveState()
+	if !archived || strings.TrimSpace(at) == "" {
+		t.Fatalf("ArchiveState() = %v, %q", archived, at)
+	}
+	st.SetArchived(false)
+	archived, at = st.ArchiveState()
+	if archived || at != "" {
+		t.Fatalf("after unarchiving: %v, %q", archived, at)
+	}
+}
+
+func TestSetOriginDoesNotRelabelASessionThatHasOneRecorded(t *testing.T) {
+	st := &State{ID: "sess_a"}
+	st.SetOrigin(GatewayOrigin("telegram"))
+	st.SetOrigin(GatewayOrigin("slack"))
+	if got := st.GetOrigin(); got != GatewayOrigin("telegram") {
+		t.Fatalf("origin = %q, want the first one recorded", got)
+	}
+}
+
+func TestSetTagsAndSetArchivedDoNotWriteWhenNothingMoves(t *testing.T) {
+	writes := 0
+	st := &State{ID: "sess_a"}
+	st.SetPersistHook(func() { writes++ })
+
+	st.SetTags([]string{"backend"})
+	st.SetArchived(true)
+	if writes != 2 {
+		t.Fatalf("two real changes produced %d writes", writes)
+	}
+
+	// The same values again: nothing moved, so nothing is written - and the
+	// archive stamp keeps saying when the session was actually put aside.
+	_, firstStamp := st.ArchiveState()
+	st.SetTags([]string{"Backend"})
+	st.SetArchived(true)
+	if writes != 2 {
+		t.Fatalf("re-setting the same values produced %d writes", writes)
+	}
+	if _, stamp := st.ArchiveState(); stamp != firstStamp {
+		t.Fatalf("archiving an archived session moved its stamp: %q -> %q", firstStamp, stamp)
 	}
 }

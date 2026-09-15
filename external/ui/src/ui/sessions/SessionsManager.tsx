@@ -325,6 +325,11 @@ export function SessionsManager(props: {
   // Emptying the archive is a scope the server resolves, not a list of ticks:
   // the table holds one page and the archive may be larger than it, so the
   // request names the scope and the confirmation says as much.
+  //
+  // The protection of the open conversation travels with it. History can put
+  // the conversation you are in into the archive, and this table promises that
+  // nothing here deletes it - a promise a server-side scope would otherwise
+  // walk straight past.
   const emptyArchive = useCallback(async () => {
     const ok = await confirm({
       title: t("sessions.manage.confirm.archived.title"),
@@ -342,7 +347,11 @@ export function SessionsManager(props: {
       const res = await fetch("/coddy/sessions/bulk-delete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scope: "archived" }),
+        body: JSON.stringify(
+          activeStoredId
+            ? { scope: "archived", except: [activeStoredId] }
+            : { scope: "archived" },
+        ),
       });
       const data = (await res.json().catch(() => ({}))) as BulkDeleteResponse;
       if (!res.ok) {
@@ -371,22 +380,28 @@ export function SessionsManager(props: {
         setError(failure);
       }
     }
-  }, [confirm, onSessionsDeleted, t]);
+  }, [activeStoredId, confirm, onSessionsDeleted, t]);
 
   // Clicking the column that is already sorted flips it; a different column
   // starts from the direction that reads naturally for its kind of value.
-  const sortBy = useCallback((key: SessionSortKey) => {
-    setSortKey((prevKey) => {
-      setSortOrder((prevOrder) =>
-        prevKey === key
-          ? prevOrder === "asc"
+  //
+  // The two updates are queued side by side, never one from inside the other's
+  // updater: React double-invokes updaters to surface impure ones, and a
+  // setState nested in another would run twice - flipping the direction and
+  // flipping it straight back.
+  const sortBy = useCallback(
+    (key: SessionSortKey) => {
+      setSortOrder((prev) =>
+        sortKey === key
+          ? prev === "asc"
             ? "desc"
             : "asc"
           : defaultSortOrder(key),
       );
-      return key;
-    });
-  }, []);
+      setSortKey(key);
+    },
+    [sortKey],
+  );
 
   const deleteSelectedLabel = t("sessions.manage.deleteSelected", {
     count: selectedIds.length,

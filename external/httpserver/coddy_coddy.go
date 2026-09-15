@@ -77,11 +77,14 @@ func describeSplitTagsLine(raw string) (rest string, tags []string) {
 	kept := make([]string, 0, 4)
 	for _, line := range strings.Split(raw, "\n") {
 		trimmed := describeStripLineNoise(line)
-		lowered := strings.ToLower(trimmed)
-		if after, found := strings.CutPrefix(lowered, describeTagsPrefix); found {
-			// Cut from the original line, not the lowered copy: a tag written
-			// in another script keeps its own letters until NormalizeTag folds it.
-			tags = append(tags, session.ParseTagList(trimmed[len(trimmed)-len(after):])...)
+		// The prefix is ASCII, so it is matched case-insensitively on the head of
+		// the original line and cut at its own fixed length. Measuring the offset
+		// on a lower-cased copy would be wrong: case folding changes how many
+		// bytes a rune takes (Ⱥ is two, ⱥ is three), so the offset can land
+		// inside a rune, or before the start of the string.
+		if len(trimmed) >= len(describeTagsPrefix) &&
+			strings.EqualFold(trimmed[:len(describeTagsPrefix)], describeTagsPrefix) {
+			tags = append(tags, session.ParseTagList(trimmed[len(describeTagsPrefix):])...)
 			continue
 		}
 		kept = append(kept, line)
@@ -1337,10 +1340,6 @@ func (s *Server) coddySessionsBulkDelete(w http.ResponseWriter, r *http.Request)
 	if scope == "" {
 		scope = "ids"
 	}
-	if scope == "archived" && len(req.IDs) > 0 {
-		http.Error(w, `{"error":{"message":"ids and scope \"archived\" are mutually exclusive"}}`, http.StatusBadRequest)
-		return
-	}
 	var targets []string
 	switch scope {
 	case "ids":
@@ -1364,7 +1363,7 @@ func (s *Server) coddySessionsBulkDelete(w http.ResponseWriter, r *http.Request)
 		}
 	case "all", "archived":
 		if len(req.IDs) > 0 {
-			http.Error(w, `{"error":{"message":"ids and scope \"all\" are mutually exclusive"}}`, http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf(`{"error":{"message":"ids and scope %q are mutually exclusive"}}`, scope), http.StatusBadRequest)
 			return
 		}
 		// An exception is a promise that a named session survives, so it is

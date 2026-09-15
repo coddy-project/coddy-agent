@@ -615,3 +615,64 @@ test("a tag on a row filters the listing when clicked, and clears again", async 
   fireEvent.click(screen.getByTestId("sessions-manager-tag-filter-clear"));
   await waitFor(() => expect(calls.at(-1)?.url).not.toContain("tags="));
 });
+
+// React double-invokes state updaters under StrictMode to surface impure ones.
+// A handler that queued one state change from inside another updater ran it
+// twice, so clicking the sorted column flipped the direction and flipped it
+// back - the table looked stuck.
+test("clicking the sorted column flips it under StrictMode too", async () => {
+  const calls = stubArchiveFetch();
+  render(
+    <React.StrictMode>
+      <ConfirmProvider>
+        <SessionsManager />
+      </ConfirmProvider>
+    </React.StrictMode>,
+  );
+  await screen.findByTestId("sessions-manager-row-sess_live");
+
+  fireEvent.click(screen.getByTestId("sessions-manager-sort-updated"));
+  await waitFor(() =>
+    expect(calls.at(-1)?.url).toContain("sort=updated&order=asc"),
+  );
+
+  fireEvent.click(screen.getByTestId("sessions-manager-sort-updated"));
+  await waitFor(() =>
+    expect(calls.at(-1)?.url).toContain("sort=updated&order=desc"),
+  );
+});
+
+// The table's contract is that the conversation on screen cannot be deleted
+// from here. Emptying the archive is a server-resolved scope, so the protection
+// has to travel with the request: archiving the open conversation from History
+// and then emptying the archive must not take it.
+test("emptying the archive spares the conversation that is open", async () => {
+  const calls = stubArchiveFetch();
+  renderTable({ activeSessionId: "sess_filed" });
+  await screen.findByTestId("sessions-manager-row-sess_live");
+
+  fireEvent.click(screen.getByTestId("sessions-manager-delete-archived"));
+  await confirmDialog();
+
+  await waitFor(() => {
+    const post = calls.find((c) => c.init?.method === "POST");
+    expect(JSON.parse(String(post?.init?.body))).toEqual({
+      scope: "archived",
+      except: ["sess_filed"],
+    });
+  });
+});
+
+test("with no conversation open the archive scope travels alone", async () => {
+  const calls = stubArchiveFetch();
+  renderTable();
+  await screen.findByTestId("sessions-manager-row-sess_live");
+
+  fireEvent.click(screen.getByTestId("sessions-manager-delete-archived"));
+  await confirmDialog();
+
+  await waitFor(() => {
+    const post = calls.find((c) => c.init?.method === "POST");
+    expect(JSON.parse(String(post?.init?.body))).toEqual({ scope: "archived" });
+  });
+});

@@ -11,6 +11,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 // An id that fills callback_data exactly travels as itself; one byte more and
@@ -139,5 +140,60 @@ func TestBotLoggerCarriesTheTelegramComponent(t *testing.T) {
 	}
 	if got := rec[logger.ComponentKey]; got != logger.ComponentGatewayTelegram {
 		t.Fatalf("component = %v, want %q", got, logger.ComponentGatewayTelegram)
+	}
+}
+
+// newOriginTestBot builds a Bot over the scripted runner, with a store of its
+// own, for the origin checks below.
+func newOriginTestBot(t *testing.T) (*Bot, *scriptedRunner) {
+	t.Helper()
+	runner := newScriptedRunner()
+	base, _, err := logger.New(config.Logger{
+		Level:   config.LogLevelError,
+		Format:  config.LogFormatText,
+		Outputs: []string{config.LogOutputStderr},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot := New(&config.TelegramGatewayConfig{
+		Enabled: true, Token: "t",
+		DefaultAccess: config.AccessAll, DefaultIsolation: config.IsolationIndividual,
+	}, runner, t.TempDir(), logger.Component(base, logger.ComponentGatewayTelegram), "", nil)
+	return bot, runner
+}
+
+// A gateway names only the conversations it starts. A chat key the store has
+// seen before belongs to a session that was stamped when it began, and an id
+// this gateway did not mint is somebody else's conversation to name - an empty
+// origin means "not recorded", not "opened on this host", so the write-once
+// guard in SetOrigin cannot tell those apart on its own.
+func TestEnsureSessionStampsOnlyTheChatsItStarts(t *testing.T) {
+	bot, _ := newOriginTestBot(t)
+
+	first, err := bot.ensureSession(t.Context(), "chat:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := first.GetOrigin(); got != session.GatewayOrigin("telegram") {
+		t.Fatalf("a chat the gateway started has origin %q", got)
+	}
+
+	// A session that already exists under a key the gateway did not mint keeps
+	// whatever it was: reaching it again must not relabel it.
+	adopted := bot.store.Get("chat:2")
+	local, err := bot.runner.EnsureHTTPSession(t.Context(), adopted, bot.cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := local.GetOrigin(); got != "" {
+		t.Fatalf("a session created outside the gateway starts with origin %q", got)
+	}
+	again, err := bot.ensureSession(t.Context(), "chat:2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := again.GetOrigin(); got != "" {
+		t.Fatalf("the gateway relabelled a session it did not start: origin %q", got)
 	}
 }

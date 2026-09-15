@@ -33,12 +33,20 @@ func NormalizeTag(raw string) string {
 	s = strings.ToLower(s)
 	// Whitespace inside a tag becomes a hyphen rather than being dropped: a
 	// filter chip reads "session-manager", and splitting it into two tags would
-	// invent a vocabulary the model never proposed.
-	s = strings.Join(strings.FieldsFunc(s, unicode.IsSpace), "-")
+	// invent a vocabulary the model never proposed. A comma or a line break is
+	// folded the same way, and for a harder reason: they are what a query string
+	// splits on, so a tag that kept one could be stored and never asked for
+	// again.
+	s = strings.Join(strings.FieldsFunc(s, isTagSeparator), "-")
 	if rs := []rune(s); len(rs) > maxSessionTagRunes {
 		s = string(rs[:maxSessionTagRunes])
 	}
 	return strings.Trim(s, tagTrimCutset)
+}
+
+// isTagSeparator reports whether r may not appear inside a single tag.
+func isTagSeparator(r rune) bool {
+	return unicode.IsSpace(r) || r == ',' || r == ';'
 }
 
 // NormalizeTags folds a list of labels, dropping what normalizes to nothing and
@@ -47,10 +55,26 @@ func NormalizeTag(raw string) string {
 // the cap. Empty input answers nil, so a session with no tags encodes to no
 // field at all rather than to an empty array.
 func NormalizeTags(raw []string) []string {
+	return normalizeTagList(raw, maxSessionTags)
+}
+
+// NormalizeTagValues folds a list of labels without the per-session cap. It is
+// what a *filter* is read with: eight is how many labels one session may carry
+// and says nothing about how many alternatives a search may offer.
+func NormalizeTagValues(raw []string) []string {
+	return normalizeTagList(raw, 0)
+}
+
+// normalizeTagList folds raw and keeps at most limit entries; limit 0 is no cap.
+func normalizeTagList(raw []string, limit int) []string {
 	if len(raw) == 0 {
 		return nil
 	}
-	out := make([]string, 0, min(len(raw), maxSessionTags))
+	capacity := len(raw)
+	if limit > 0 {
+		capacity = min(capacity, limit)
+	}
+	out := make([]string, 0, capacity)
 	seen := make(map[string]struct{}, len(raw))
 	for _, item := range raw {
 		tag := NormalizeTag(item)
@@ -62,7 +86,7 @@ func NormalizeTags(raw []string) []string {
 		}
 		seen[tag] = struct{}{}
 		out = append(out, tag)
-		if len(out) == maxSessionTags {
+		if limit > 0 && len(out) == limit {
 			break
 		}
 	}
@@ -82,7 +106,7 @@ func ParseTagList(s string) []string {
 	parts := strings.FieldsFunc(s, func(r rune) bool {
 		return r == ',' || r == '\n' || r == '\r'
 	})
-	return NormalizeTags(parts)
+	return NormalizeTagValues(parts)
 }
 
 // ArchiveFilter selects which side of the archive a listing reports.
@@ -244,7 +268,7 @@ func (f OriginFilter) Keeps(origin string) bool {
 // are normalized here so a chip typed as "Backend" finds what was stored as
 // "backend". An empty filter keeps every session.
 func SessionMatchesAnyTag(row SessionListEntry, wanted []string) bool {
-	want := NormalizeTags(wanted)
+	want := NormalizeTagValues(wanted)
 	if len(want) == 0 {
 		return true
 	}
@@ -323,26 +347,45 @@ func compareOptionalStrings(a, b string) (cmp int, decided bool) {
 	return 0, true
 }
 
-// compareOptionalTimestamps orders two RFC3339 stamps, falling back to string
-// order when one of them is not a stamp this build can parse. An empty stamp is
-// absent and sorts last.
+// compareOptionalTimestamps orders two RFC3339 stamps chronologically. A stamp
+// that is empty, or that this build cannot read, is *unknown* and sorts last in
+// both directions.
+//
+// Reading an unparseable stamp as a string and a readable one as a time would
+// mix two orderings in one comparison, and the mixture is not transitive: with
+// A and B a tenth of a second apart and C unreadable, A < B chronologically
+// while B < C and C < A lexically. sort.SliceStable is entitled to anything at
+// all from a comparison like that, and a tie-break on the id cannot repair it.
 func compareOptionalTimestamps(a, b string) (cmp int, decided bool) {
-	a, b = strings.TrimSpace(a), strings.TrimSpace(b)
-	if a == "" || b == "" {
-		return compareOptionalStrings(a, b)
-	}
-	ta, ea := time.Parse(time.RFC3339, a)
-	tb, eb := time.Parse(time.RFC3339, b)
-	if ea != nil || eb != nil {
-		return compareOptionalStrings(a, b)
-	}
+	ta, okA := parseListTimestamp(a)
+	tb, okB := parseListTimestamp(b)
 	switch {
+	case !okA && !okB:
+		return 0, true
+	case !okA:
+		return 1, false
+	case !okB:
+		return -1, false
 	case ta.Before(tb):
 		return -1, true
 	case ta.After(tb):
 		return 1, true
 	}
 	return 0, true
+}
+
+// parseListTimestamp reads a stored stamp; ok is false for an empty or
+// unreadable one.
+func parseListTimestamp(s string) (time.Time, bool) {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339, trimmed)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t, true
 }
 
 func compareInts(a, b int) int {

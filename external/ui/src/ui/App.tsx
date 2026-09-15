@@ -110,6 +110,10 @@ import {
   subscribeEnv,
 } from "./env/remoteEnv";
 import type { SessionsEnvironmentOption } from "./sessions/SessionsFilterMenu";
+import {
+  newChatWorkspaceIsReady,
+  type PendingNewChatWorkspace,
+} from "./sessions/newChatWorkspace";
 import { readNavRailCookie, writeNavRailCookie } from "./nav/navRailCookie";
 import { readLlmModelCookie, writeLlmModelCookie } from "./chat/llmModelCookie";
 import {
@@ -1134,6 +1138,15 @@ export function App() {
   const [configuredRemotes, setConfiguredRemotes] = useState<
     { name: string; url: string }[]
   >([]);
+  // A folder picked from a History heading, waiting for the conversation on
+  // screen to be gone before it is applied (see newChatWorkspace.ts). The value
+  // is a ref and the trigger a counter, so the one effect that owns "the
+  // session changed" applies it - two effects racing to set the workspace
+  // context would be decided by whichever fetch answered last.
+  const newChatWorkspaceRef = useRef<PendingNewChatWorkspace>(null);
+  // Sessions with an archive change in flight; see archiveSession.
+  const archivingRef = useRef<Set<string>>(new Set());
+  const [newChatWorkspaceEpoch, setNewChatWorkspaceEpoch] = useState(0);
   const [sessionsHasMore, setSessionsHasMore] = useState(false);
   const [sessionsLoadingMore, setSessionsLoadingMore] = useState(false);
   const sessionsHasMoreRef = useRef(false);
@@ -1406,10 +1419,22 @@ export function App() {
 
   // Load the workspace context whenever the viewed session changes; a fresh
   // home/draft view also drops stale pre-session workspace choices.
+  //
+  // A folder picked from a History heading is applied here rather than where it
+  // was picked: leaving a conversation is asynchronous, and a workspace change
+  // issued before the session is gone lands on the conversation being left.
+  // It replaces the default probe rather than running beside it - two context
+  // fetches in flight would be decided by whichever answered last.
   useEffect(() => {
     pendingWorkspaceRef.current = null;
+    const wanted = newChatWorkspaceRef.current;
+    if (newChatWorkspaceIsReady(wanted, sessionId)) {
+      newChatWorkspaceRef.current = null;
+      void switchWorkspace({ path: String(wanted?.path ?? "") });
+      return;
+    }
     void refreshWorkspaceContext(sessionId);
-  }, [sessionId, refreshWorkspaceContext]);
+  }, [sessionId, refreshWorkspaceContext, newChatWorkspaceEpoch]);
 
   async function switchWorkspace(payload: {
     path?: string;
@@ -2897,12 +2922,46 @@ export function App() {
   }
 
   /**
-   * Puts a conversation in the archive, or takes it back out. The row moves
-   * right away rather than waiting for the refresh - with the archive hidden it
-   * has to leave the list at once, or the drawer would show a session it says
-   * it is not showing - and the listing is re-read behind it.
+   * Puts a conversation in the archive, or takes it back out.
+   *
+   * The row moves only once the server has agreed. Moving it first reads better
+   * for the half second it saves, but it is a lie the UI then has to take back:
+   * a refused PATCH would leave the drawer showing a state that is not on disk,
+   * and a listing already in flight could put the row back anyway. The request
+   * is quick, and what the drawer shows stays what the server said.
    */
   async function archiveSession(id: string, archived: boolean) {
+    // One conversation, one request at a time. Two PATCHes for the same session
+    // in flight together settle in whatever order the network gives them, so a
+    // quick archive-then-unarchive could leave the archive flag opposite to the
+    // last thing the operator pressed.
+    if (archivingRef.current.has(id)) {
+      return;
+    }
+    archivingRef.current.add(id);
+    try {
+      await runArchiveSession(id, archived);
+    } finally {
+      archivingRef.current.delete(id);
+    }
+  }
+
+  async function runArchiveSession(id: string, archived: boolean) {
+    let res: Response;
+    try {
+      res = await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ archived }),
+      });
+    } catch {
+      setSessionsError(t("app.backendUnavailable", { status: 0 }));
+      return;
+    }
+    if (!res.ok) {
+      setSessionsError(t("app.backendUnavailable", { status: res.status }));
+      return;
+    }
     const rowStays =
       sessionsArchiveFilter === "all" ||
       (sessionsArchiveFilter === "only") === archived;
@@ -2911,14 +2970,6 @@ export function App() {
         ? prev.map((s) => (s.id === id ? { ...s, archived } : s))
         : prev.filter((s) => s.id !== id),
     );
-    const res = await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({ archived }),
-    });
-    if (!res.ok) {
-      setSessionsError(t("app.backendUnavailable", { status: res.status }));
-    }
     await loadSessionsList(true);
   }
 
@@ -4456,6 +4507,8 @@ export function App() {
         label: remote.name.trim() || remote.url,
         active:
           onRemote && activeEnv.baseUrl === remote.url.replace(/\/+$/, ""),
+        // connectRemote reloads the page, so nothing of this session's state
+        // reaches the other server - the origin filter included.
         onPick: () =>
           connectRemote(remote.url, getRemoteToken(remote.url), remote.name),
       });
@@ -4507,10 +4560,12 @@ export function App() {
     sortKey: sessionsSortKey,
     onSortKeyChange: setSessionsSortKey,
     onNewChatInWorkspace: (cwd: string) => {
-      // A new chat, then the folder: goHome clears any pending workspace
-      // choice, so the pick has to land after it or it would be thrown away.
+      // Park the folder and leave; the effect below applies it on the first
+      // render with no session current. Doing it here would post the folder to
+      // the conversation being left and leave the new chat in the default one.
+      newChatWorkspaceRef.current = { path: cwd, nonce: Date.now() };
+      setNewChatWorkspaceEpoch((n) => n + 1);
       goHome();
-      void switchWorkspace({ path: cwd });
     },
     searchDraft: sessionFilterDraft,
     onSearchDraftChange: setSessionFilterDraft,
