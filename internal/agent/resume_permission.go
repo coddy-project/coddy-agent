@@ -156,6 +156,7 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 		OutputLineLimits:  a.cfg.Tools.OutputLimits.AsMap(),
 		Background:        a.backgroundPool(sessionDir),
 		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
+		WebSearch:         webSearchSettings(a.cfg),
 	}
 	a.applySubagentEnv(env, mode)
 	if a.configReloader != nil {
@@ -176,6 +177,7 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 			env.OutputLineLimits = next.Tools.OutputLimits.AsMap()
 			env.Background = a.backgroundPool(sessionDir)
 			env.BackgroundEnabled = next.Tools.Background.ResolvedEnabled()
+			env.WebSearch = webSearchSettings(next)
 			return warnings, nil
 		}
 	}

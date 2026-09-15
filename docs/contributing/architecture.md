@@ -118,7 +118,7 @@ The **tool types and registry mechanics** live in **`internal/tooling`** (`Tool`
 composition root (`NewRegistry` wires everything) and exposes the same APIs via type aliases so
 call sites such as **`internal/agent`** keep importing **`tools`** only.
 
-- **`internal/tools/web`** - **`websearch`** (DuckDuckGo text search) and **`webfetch`** (fetch public `http(s)` pages, readability + Markdown; SSRF guards)
+- **`internal/tools/web`** - **`websearch`** (several engines asked in parallel behind the `searchFn` seam, each reporting `ok` / `empty` / `blocked` / `error` so a backend that was turned away is named rather than counted as nothing found; merge deduplicated by normalised URL, relevance gate against decoy result sets) and **`webfetch`** (fetch public `http(s)` pages, readability + Markdown; SSRF guards)
 
 Built-in implementations are grouped in subfolders under **`internal/tools/`**:
 

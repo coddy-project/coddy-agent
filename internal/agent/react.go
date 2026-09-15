@@ -307,6 +307,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		OutputLineLimits:  a.cfg.Tools.OutputLimits.AsMap(),
 		Background:        a.backgroundPool(sd),
 		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
+		WebSearch:         webSearchSettings(a.cfg),
 	}
 	if a.configReloader != nil {
 		toolEnv.ReloadConfig = func(ctx context.Context) ([]string, error) {
@@ -1002,6 +1003,7 @@ func (a *Agent) runReActLoop(
 			toolEnv.OutputLineLimits = a.cfg.Tools.OutputLimits.AsMap()
 			toolEnv.Background = a.backgroundPool(sd)
 			toolEnv.BackgroundEnabled = a.cfg.Tools.Background.ResolvedEnabled()
+			toolEnv.WebSearch = webSearchSettings(a.cfg)
 			toolEnv.ConfigReloaded = false
 		}
 		// The model made progress (executed tool calls), so reset the empty-turn
