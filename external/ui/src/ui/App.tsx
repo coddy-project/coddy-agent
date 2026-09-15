@@ -1252,6 +1252,12 @@ export function App() {
     model: string;
     reasoning: string;
   } | null>(null);
+  /** The selection object already applied to the composer; see the effect below. */
+  const appliedSessionSelectionRef = useRef<{
+    sid: string;
+    model: string;
+    reasoning: string;
+  } | null>(null);
   const [describePreview, setDescribePreview] = useState<{
     sessionId: string;
     title: string;
@@ -2159,6 +2165,16 @@ export function App() {
     if (openSessionSelection.sid !== viewedSessionIdRef.current.trim()) {
       return;
     }
+    // What the session was opened with is a snapshot, not a standing order. The
+    // models list is refetched on every configuration reload - a settings save,
+    // the agent's own config_commit - and this effect reads that list, so without
+    // a guard the snapshot lands a second time and undoes the model or the level
+    // the reader picked in between. Each load of a session carries its own
+    // object, so applying one exactly once is the whole rule.
+    if (appliedSessionSelectionRef.current === openSessionSelection) {
+      return;
+    }
+    appliedSessionSelectionRef.current = openSessionSelection;
     const nextModel = pickLlmModelForOpenSession({
       backends: llmModelIds,
       sessionModel: openSessionSelection.model,

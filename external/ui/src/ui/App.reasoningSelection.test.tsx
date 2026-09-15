@@ -1,5 +1,5 @@
 import React from "react";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { App } from "./App";
 import { ConfirmProvider } from "./components/useConfirm";
@@ -31,6 +31,19 @@ function emptyStream() {
   );
 }
 
+/** The server-events stream, held open so a test can push a frame into it. */
+let eventsController: ReadableStreamDefaultController<Uint8Array> | null = null;
+function eventsStream() {
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start: (c) => {
+        eventsController = c;
+      },
+    }),
+    { headers: { "Content-Type": "text/event-stream" } },
+  );
+}
+
 const reasoningBySession: Record<string, string> = {
   [WITH]: "high",
   [WITHOUT]: "",
@@ -38,7 +51,7 @@ const reasoningBySession: Record<string, string> = {
 
 const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
   const path = String(input);
-  if (path === "/coddy/events") return emptyStream();
+  if (path === "/coddy/events") return eventsStream();
   if (path === "/v1/models") {
     return json({
       default_agent_model: MODEL,
@@ -87,6 +100,7 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 });
 
 beforeEach(() => {
+  eventsController = null;
   initLocale("en");
   localStorage.clear();
   document.cookie = "coddy_llm_reasoning=; Path=/; Max-Age=0";
@@ -130,4 +144,38 @@ test("a session with no level of its own still shows the model's", async () => {
   // And back: a session that does name a level still wins.
   await navigate(WITH);
   await waitFor(() => expect(reasoningChip()).toHaveTextContent("High"));
+});
+
+// Cross-review: the level the session was opened with is a snapshot, and the
+// effect that applies it runs again whenever the models list is refetched - which
+// a config save or a config_commit does while the session stays open. Applied a
+// second time it undoes whatever the reader picked in between.
+test("a config reload leaves the level the reader picked", async () => {
+  render(
+    <ConfirmProvider>
+      <App />
+    </ConfirmProvider>,
+  );
+  await screen.findByText(`prompt in ${WITH}`);
+  await waitFor(() => expect(reasoningChip()).toHaveTextContent("High"));
+
+  fireEvent.click(reasoningChip());
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Low" }));
+  await waitFor(() => expect(reasoningChip()).toHaveTextContent("Low"));
+
+  const before = fetchMock.mock.calls.filter((c) => String(c[0]) === "/v1/models").length;
+  await act(async () => {
+    eventsController?.enqueue(
+      new TextEncoder().encode(`event: config_reloaded\ndata: {}\n\n`),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  await waitFor(() =>
+    expect(
+      fetchMock.mock.calls.filter((c) => String(c[0]) === "/v1/models").length,
+    ).toBeGreaterThan(before),
+  );
+
+  await new Promise((r) => setTimeout(r, 50));
+  expect(reasoningChip()).toHaveTextContent("Low");
 });
