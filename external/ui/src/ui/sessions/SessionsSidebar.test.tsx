@@ -236,10 +236,51 @@ test("the filter menu is closed until its control is pressed, and shuts again", 
   expect(screen.queryByTestId("sessions-filter-menu")).toBeNull();
 });
 
+test("a section keeps its options folded until it is opened", () => {
+  renderDrawer({ groupMode: "none" });
+  fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
+
+  // The menu is four rows, each naming its current value; the choices live one
+  // level in, so the panel stays the size of a menu rather than a list of lists.
+  expect(screen.getByTestId("sessions-filter-section-group")).toBeInTheDocument();
+  expect(screen.queryByTestId("sessions-filter-group-workspace")).toBeNull();
+
+  fireEvent.click(screen.getByTestId("sessions-filter-section-group"));
+  expect(screen.getByTestId("sessions-filter-group-workspace")).toBeInTheDocument();
+});
+
+test("a section row says which value is currently in force", () => {
+  renderDrawer({ groupMode: "workspace", sortKey: "title", archiveFilter: "only" });
+  fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
+
+  expect(screen.getByTestId("sessions-filter-section-group")).toHaveTextContent(
+    "Folder",
+  );
+  expect(screen.getByTestId("sessions-filter-section-sort")).toHaveTextContent(
+    "Name",
+  );
+  expect(screen.getByTestId("sessions-filter-section-status")).toHaveTextContent(
+    "Archived",
+  );
+});
+
+test("hovering a section opens it and closes the one before it", () => {
+  renderDrawer();
+  fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
+
+  fireEvent.mouseEnter(screen.getByTestId("sessions-filter-section-group"));
+  expect(screen.getByTestId("sessions-filter-group-tag")).toBeInTheDocument();
+
+  fireEvent.mouseEnter(screen.getByTestId("sessions-filter-section-sort"));
+  expect(screen.queryByTestId("sessions-filter-group-tag")).toBeNull();
+  expect(screen.getByTestId("sessions-filter-sort-title")).toBeInTheDocument();
+});
+
 test("picking a grouping reports it up and closes the menu", () => {
   const onGroupModeChange = vi.fn();
   renderDrawer({ groupMode: "none", onGroupModeChange });
   fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
+  fireEvent.click(screen.getByTestId("sessions-filter-section-group"));
   fireEvent.click(screen.getByTestId("sessions-filter-group-workspace"));
   expect(onGroupModeChange).toHaveBeenCalledWith("workspace");
   expect(screen.queryByTestId("sessions-filter-menu")).toBeNull();
@@ -249,6 +290,7 @@ test("status is the three sides of the archive, with the current one ticked", ()
   const onArchiveFilterChange = vi.fn();
   renderDrawer({ archiveFilter: "exclude", onArchiveFilterChange });
   fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
+  fireEvent.click(screen.getByTestId("sessions-filter-section-status"));
 
   expect(screen.getByTestId("sessions-filter-status-exclude")).toHaveAttribute(
     "aria-checked",
@@ -262,6 +304,7 @@ test("sort is reported up for the server to apply", () => {
   const onSortKeyChange = vi.fn();
   renderDrawer({ sortKey: "updated", onSortKeyChange });
   fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
+  fireEvent.click(screen.getByTestId("sessions-filter-section-sort"));
 
   expect(screen.getByTestId("sessions-filter-sort-updated")).toHaveAttribute(
     "aria-checked",
@@ -278,7 +321,7 @@ test("one environment is no choice at all, so the section stays out", () => {
     ],
   });
   fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
-  expect(screen.queryByTestId("sessions-filter-env-local")).toBeNull();
+  expect(screen.queryByTestId("sessions-filter-section-environment")).toBeNull();
 });
 
 test("an environment row switches where the history is read from", () => {
@@ -290,8 +333,23 @@ test("an environment row switches where the history is read from", () => {
     ],
   });
   fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
+  fireEvent.click(screen.getByTestId("sessions-filter-section-environment"));
   fireEvent.click(screen.getByTestId("sessions-filter-env-nas02"));
   expect(onPick).toHaveBeenCalledTimes(1);
+  expect(screen.queryByTestId("sessions-filter-menu")).toBeNull();
+});
+
+test("escape folds an open section first, and the menu next", () => {
+  renderDrawer();
+  fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
+  fireEvent.click(screen.getByTestId("sessions-filter-section-sort"));
+  expect(screen.getByTestId("sessions-filter-sort-title")).toBeInTheDocument();
+
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(screen.queryByTestId("sessions-filter-sort-title")).toBeNull();
+  expect(screen.getByTestId("sessions-filter-menu")).toBeInTheDocument();
+
+  fireEvent.keyDown(window, { key: "Escape" });
   expect(screen.queryByTestId("sessions-filter-menu")).toBeNull();
 });
 

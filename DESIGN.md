@@ -275,11 +275,20 @@ Single implementation: **`MarkdownLineEditor`** in **`external/ui/src/ui/markdow
   something else entirely. It takes the **height and corner radius of the search field** beside it
   (36px, 12px) so the row reads as one strip of controls. The search row is the menu's positioning
   context (**`position: relative`**), and the menu hangs under it at **`right: 8px`**.
+- **Four rows deep, not four lists long.** Each row (**`.sessions-filter-row`**) carries its question on
+  the left, the **answer in force** in the accent colour (**`.sessions-filter-value`**) and a chevron;
+  the choices open beside it as **`.sessions-filter-submenu`**, on hover or on click, one at a time.
+  A hairline above **`.starts-group`** separates the two rows that decide *what is listed* from the two
+  that decide *how it is arranged* - a rule rather than headings, because all four are questions of the
+  same kind. A section with only one row to choose from is not rendered at all.
+- **Portaled, not nested.** The drawer is **`overflow: hidden`**, so a submenu inside it would be cut at
+  its edge: the menu is rendered into the document (**`createPortal`**) and placed **`position: fixed`**
+  from the trigger's rectangle, the same way the composer's menus are. Near the right edge of the window
+  the submenus flip to the other side (**`.opens-left`**).
 - **The menu is opaque.** It uses the **tooltip** surface (**`--coddy-tip-bg`** / **`--coddy-tip-shadow`**),
   not the glass panel: it sits directly over the list it filters, and a translucent panel there is read
-  through. Sections are flat, separated by a hairline and labelled in 10px uppercase
-  (**`.sessions-filter-section-label`**); rows are **`.sessions-filter-item`** with the value on the left
-  and an accent tick on the right. A section with only one row to choose from is not rendered at all.
+  through. Both panels use it, so the row and its choices read as one surface.
+- **Escape undoes one step**: an open submenu folds first, the menu closes second.
 - **Group heading** (**`.session-group-head`**) is a **button across the full width** of the list, so
   the whole line folds the group rather than a caret the size of a full stop. Uppercase **12px**,
   weight **600**, muted until hover; a caret on the left (**▸** collapsed, **▾** open), the label in

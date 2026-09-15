@@ -132,6 +132,10 @@ export function SessionsSidebar(props: {
   const groupMode: SessionGroupMode = props.groupMode ?? "none";
   const { onArchive, onNewChatInWorkspace } = props;
   const [filtersOpen, setFiltersOpen] = useState(false);
+  // The menu is portaled out of the drawer (which clips what overflows it), so
+  // it is placed from the trigger's rectangle rather than by being inside it.
+  const [filtersAnchor, setFiltersAnchor] = useState<DOMRect | null>(null);
+  const filtersRef = useRef<HTMLButtonElement>(null);
   const archiveFilter: SessionArchiveFilter = props.archiveFilter ?? "exclude";
   const sortKey: SessionSortKey = props.sortKey ?? "updated";
 
@@ -362,13 +366,20 @@ export function SessionsSidebar(props: {
           aria-haspopup="menu"
           aria-expanded={filtersOpen}
           data-testid="sessions-filter-trigger"
-          onClick={() => setFiltersOpen((prev) => !prev)}
+          ref={filtersRef}
+          onClick={() => {
+            setFiltersAnchor(
+              filtersRef.current?.getBoundingClientRect() ?? null,
+            );
+            setFiltersOpen((prev) => !prev);
+          }}
         >
           <IconFilters />
         </button>
         <SessionsFilterMenu
           open={filtersOpen}
           onClose={() => setFiltersOpen(false)}
+          anchor={filtersAnchor}
           archiveFilter={archiveFilter}
           onArchiveFilterChange={(value) =>
             props.onArchiveFilterChange?.(value)

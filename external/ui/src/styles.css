@@ -1534,54 +1534,121 @@ a.rail-brand {
 .sessions-filter-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: 100;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: default;
 }
 
+/* Portaled out of the drawer and placed from the trigger: the drawer clips what
+   overflows it, and a submenu has to reach past its edge. */
 .sessions-filter-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 8px;
-  z-index: 41;
-  min-width: 208px;
+  position: fixed;
+  z-index: 101;
+  min-width: 232px;
   padding: 6px;
   border-radius: 14px;
-  /* The tooltip surface, not the glass one: this menu sits directly over the
-     list it filters, and a translucent panel would be read through. Every
-     theme defines the pair, so it follows the palette like everything else. */
+  /* The tooltip surface, not the glass one: this menu sits over the list it
+     filters, and a translucent panel would be read through. Every theme defines
+     the pair, so it follows the palette like everything else. */
   background: var(--coddy-tip-bg);
   border: 1px solid var(--coddy-glass-panel-border);
   box-shadow: var(--coddy-tip-shadow);
-  max-height: min(70vh, 520px);
+}
+
+.sessions-filter-parent {
+  position: relative;
+}
+
+/* A rule, not a heading: the four rows are questions of the same kind, and the
+   break only says that the first two are about what is listed and the last two
+   about how it is arranged. */
+.sessions-filter-parent.starts-group {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid
+    color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+}
+
+/* One row: the question, the answer in force, and the way in. */
+.sessions-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sessions-filter-row:hover,
+.sessions-filter-row.is-open {
+  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+}
+
+.sessions-filter-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The answer reads as the value it is, not as a second label. */
+.sessions-filter-value {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--accent);
+}
+
+.sessions-filter-chevron {
+  flex: 0 0 auto;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.5;
+}
+
+.sessions-filter-row:hover .sessions-filter-chevron,
+.sessions-filter-row.is-open .sessions-filter-chevron {
+  opacity: 0.9;
+}
+
+/* Beside the row it belongs to, overlapping its own padding so the two panels
+   read as one surface rather than two floating cards. */
+.sessions-filter-submenu {
+  position: absolute;
+  top: -6px;
+  left: calc(100% + 4px);
+  min-width: 160px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--coddy-tip-bg);
+  border: 1px solid var(--coddy-glass-panel-border);
+  box-shadow: var(--coddy-tip-shadow);
+  max-height: min(60vh, 320px);
   overflow-y: auto;
 }
 
-.sessions-filter-menu:focus {
-  outline: none;
-}
-
-/* Sections are flat and labelled rather than nested submenus: a drawer is
-   narrow, and a hover-to-open submenu in it is a worse target than a heading. */
-.sessions-filter-section + .sessions-filter-section {
-  margin-top: 4px;
-  padding-top: 4px;
-  border-top: 1px solid
-    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
-}
-
-.sessions-filter-section-label {
-  padding: 5px 8px 3px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+.sessions-filter-menu.opens-left .sessions-filter-submenu {
+  left: auto;
+  right: calc(100% + 4px);
 }
 
 .sessions-filter-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
   width: 100%;
   padding: 6px 8px;
   border: 0;
@@ -1591,11 +1658,12 @@ a.rail-brand {
   font: inherit;
   font-size: 13px;
   text-align: left;
+  white-space: nowrap;
   cursor: pointer;
 }
 
 .sessions-filter-item:hover {
-  background: color-mix(in srgb, var(--text) 7%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
 }
 
 .sessions-filter-check {
@@ -1603,6 +1671,7 @@ a.rail-brand {
   color: var(--accent);
   font-size: 12px;
 }
+
 
 /* A heading and the control that starts a chat in it share one line. */
 .session-group-bar {
