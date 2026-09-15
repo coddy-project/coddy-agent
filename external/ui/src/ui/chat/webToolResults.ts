@@ -38,24 +38,87 @@ function parseHits(value: unknown): SearchHit[] | null {
 }
 
 /**
+ * Hits out of a payload that was cut mid-array. A transcript row carries the first
+ * nineteen lines of a tool's output and a search answers with far more than that,
+ * so the complete document is the exception rather than the rule: read the entries
+ * that did arrive whole and stop at the one the cut caught. The row keeps its
+ * "more" control, which is where the rest of them are.
+ */
+function parseTruncatedHits(raw: string): SearchHit[] | null {
+  const marker = /"results"\s*:\s*\[/.exec(raw);
+  if (!marker) return null;
+  const hits: SearchHit[] = [];
+  let i = marker.index + marker[0].length;
+  while (i < raw.length) {
+    const start = raw.indexOf("{", i);
+    if (start < 0) break;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    let end = -1;
+    for (let j = start; j < raw.length; j++) {
+      const ch = raw[j];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+      if (ch === "{") depth++;
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0) {
+          end = j;
+          break;
+        }
+      }
+    }
+    if (end < 0) break;
+    const one = parseHits([safeParse(raw.slice(start, end + 1))]);
+    if (!one || one.length === 0) break;
+    hits.push(...one);
+    i = end + 1;
+  }
+  return hits.length > 0 ? hits : null;
+}
+
+function safeParse(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The Markdown body for a `websearch` result, or `null` when the text is not one -
- * a truncated preview, an error, an older result shape - in which case the caller
- * keeps the plain text it already had.
+ * an error, an older result shape, a preview cut before the first whole hit - in
+ * which case the caller keeps the plain text it already had.
  */
 export function webSearchResultMarkdown(resultText: string | undefined): string | null {
   const raw = (resultText || "").trim();
   if (!raw.startsWith("{")) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
+  const parsed = safeParse(raw);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    // A preview cut mid-array is not valid JSON and is the common case.
+    const partial = parseTruncatedHits(raw);
+    return partial ? renderHits(partial, "") : null;
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
   const obj = parsed as Record<string, unknown>;
   const hits = parseHits(obj.results);
   if (hits === null) return null;
 
+  return renderHits(hits, str(obj.has_more_hint));
+}
+
+function renderHits(hits: SearchHit[], hint: string): string {
   const lines: string[] = [];
   for (const hit of hits) {
     const label = linkText(hit.title || hit.url);
@@ -65,7 +128,6 @@ export function webSearchResultMarkdown(resultText: string | undefined): string 
       lines.push(`  ${hit.description}`);
     }
   }
-  const hint = str(obj.has_more_hint);
   if (hits.length === 0) {
     lines.push(hint || "No results.");
   } else if (hint) {
