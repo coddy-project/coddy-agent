@@ -2159,16 +2159,29 @@ export function App() {
     if (openSessionSelection.sid !== viewedSessionIdRef.current.trim()) {
       return;
     }
-    setLlmModel(
-      pickLlmModelForOpenSession({
-        backends: llmModelIds,
-        sessionModel: openSessionSelection.model,
-        cookie: readLlmModelCookie(),
-        defaultAgentModel: defaultAgentYamlModel,
+    const nextModel = pickLlmModelForOpenSession({
+      backends: llmModelIds,
+      sessionModel: openSessionSelection.model,
+      cookie: readLlmModelCookie(),
+      defaultAgentModel: defaultAgentYamlModel,
+    });
+    setLlmModel(nextModel);
+    // A session carries a reasoning level only once something chose one for it,
+    // and a model that names no `reasoning_default` makes the server report the
+    // effective level as empty. Applied as it comes, that empties the composer
+    // while the turn still runs at the model's default - so it goes through the
+    // same chooser as every other path, with the session's value as the
+    // preference rather than as the answer.
+    const openRow = modelInfos.find((m) => m.id === nextModel);
+    setLlmReasoning(
+      pickReasoningLevel({
+        levels: openRow?.reasoningLevels ?? [],
+        cookie: readReasoningCookie(),
+        sessionLevel: openSessionSelection.reasoning,
+        modelDefault: openRow?.reasoningDefault ?? null,
       }),
     );
-    setLlmReasoning(openSessionSelection.reasoning);
-  }, [openSessionSelection, llmModelIds, defaultAgentYamlModel]);
+  }, [openSessionSelection, llmModelIds, defaultAgentYamlModel, modelInfos]);
 
   useEffect(() => {
     setDescribePreview((p) => (p && p.sessionId !== sessionId ? null : p));
@@ -4371,13 +4384,21 @@ export function App() {
   // pick when the new model still offers it, else fall back (cookie -> model default).
   useEffect(() => {
     const row = modelInfos.find((m) => m.id === llmModel);
-    const levels = row?.reasoningLevels ?? [];
+    // Nothing is known about a model whose row has not arrived - the list is still
+    // in flight, or the id was just set. Clearing the level there loses the one the
+    // session asked for, and the run that follows cannot bring it back: it only
+    // sees the emptied value. Leave the selection alone until the row says what
+    // the model actually offers.
+    if (!row) {
+      return;
+    }
+    const levels = row.reasoningLevels ?? [];
     setLlmReasoning((prev) =>
       pickReasoningLevel({
         levels,
         cookie: readReasoningCookie(),
         sessionLevel: prev,
-        modelDefault: row?.reasoningDefault ?? null,
+        modelDefault: row.reasoningDefault ?? null,
       }),
     );
   }, [llmModel, modelInfos]);
