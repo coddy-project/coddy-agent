@@ -537,7 +537,13 @@ func UISchemaMap() map[string]interface{} {
 		"memory": objectSchema("Long-term memory", "Optional memory copilot (requires memory build tag and provider).",
 			map[string]interface{}{
 				"enable":             boolProp("Enabled", "Turns on the memory copilot for eligible builds."),
-				"model":              strProp("Memory model", "Logical model override for memory LLM calls; empty uses agent model."),
+				"model": strProp("Memory model", "Logical model override for memory LLM calls; empty uses agent model."),
+				"fallback_models": map[string]interface{}{
+					"type":        "array",
+					"items":       map[string]interface{}{"type": "string"},
+					"title":       "Fallback memory models",
+					"description": "Models the copilot tries in order when the one before them fails. The session's own model is the last resort whether or not it is listed.",
+				},
 				"dir":                strProp("Memory root", "Filesystem root for memory markdown; empty uses ${CODDY_HOME}/memory."),
 				"recall_max_turns":   intProp("Recall max turns", "Bounds recall-side LLM rounds in the memory loop."),
 				"persist_max_turns":  intProp("Persist max turns", "Bounds persist-side LLM rounds in the memory loop."),

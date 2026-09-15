@@ -934,6 +934,13 @@
           "description": "Exact models[].model id used only for recall/persist LLM calls; empty falls back to agent.model or the session override.",
           "default": ""
         },
+        "fallback_models": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Memory copilot models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so one unreachable deployment does not take the memory pass down with it."
+        },
         "dir": {
           "type": "string",
           "description": "Long-term memory root. Empty resolves to ${CODDY_HOME}/memory. Supports ${CODDY_HOME} and ~.",

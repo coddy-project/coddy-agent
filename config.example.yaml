@@ -391,6 +391,8 @@ tools:
 # memory:
 #   enable: false
 #   model: ""
+#   fallback_models: []  # tried in order when the model above them fails; the session model is
+#                        # the last resort whether or not it is listed
 #   dir: "" # default ${CODDY_HOME}/memory when empty
 #   recall_max_turns: 6
 #   persist_max_turns: 12
