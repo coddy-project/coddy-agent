@@ -257,7 +257,11 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 
 ![The row menu of one conversation](../assets/sessions-history-row-menu-dark-1280.png)
 
-*One control per row: pin, archive, and delete set apart in the destructive colour. The row above it is pinned, and says so beside its title*
+*One control per row: pin, rename and tags, then a rule and the two that take the conversation out of the list, with delete in the destructive colour*
+
+![The tag editor of one conversation](../assets/sessions-history-tag-editor-dark-1280.png)
+
+*The labels of one conversation: a cross on each chip, a box that offers the words this history already files under, and the folded spelling the typed one will be stored as*
 
 ![The History filter menu](../assets/sessions-history-filters-dark-1280.png)
 
@@ -283,12 +287,13 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 
   - **Folder** keys on the full path and shows the folder name, so two checkouts called `one` stay apart - and when a name really is carried by more than one heading, each of them spells out its full path underneath, because the name alone cannot tell them apart. Sessions with no workspace go last. A folder heading also carries a **+** that starts a new chat already pointed at that workspace - the pick goes through the same pre-session path as the composer's folder chip, so the server resolves the folder's current git branch for the new conversation.
   - **Tag** puts untagged sessions last.
-- **What can be done to one conversation is behind its ⋮**: **Pin to the top**, then below a rule **Archive** and **Delete** - the two that take the conversation out of the list, while pinning only moves it - with delete in the destructive colour. An icon per action cost the title a button's width each and put a delete one mis-click away; inside the menu the actions have room for their words. One menu is open at a time, **Escape** closes it, and it is portaled out of the drawer so it is not cut off at the edge (it flips above the row near the foot of the window).
+- **What can be done to one conversation is behind its ⋮**: **Pin to the top**, **Rename** and **Tags** - the three that change where the row sits or what it says about itself - then below a rule **Archive** and **Delete**, the two that take the conversation out of the list, with delete in the destructive colour. An icon per action cost the title a button's width each and put a delete one mis-click away; inside the menu the actions have room for their words. One menu is open at a time, **Escape** closes it, and it is portaled out of the drawer so it is not cut off at the edge (it flips above the row near the foot of the window).
 - **Pinned conversations are one group at the top**, headed **Pinned** and set apart by a rule, in every grouping mode: they are a single list the operator keeps by hand, not a stripe running through every group - the same conversation at the top *and* inside its folder would raise the question of which one dragging moves. A pinned row carries a small accent mark beside its title and a **grip** on the left.
 - **The pins are reordered by dragging** that grip, with a mouse or a finger: the drag is driven by **pointer events** (HTML5 drag-and-drop never starts from touch) and the list shows where the drop would land rather than a row following the pointer, which survives a scroll and costs no compositing layer. The dropped order is written with **`POST /coddy/sessions/pins/reorder`**, which takes the **whole** order, and a new pin goes **above** the ones already there. The row does not move on the client - the order is the server's answer - so the list is re-read after the change.
 - **An archived conversation is dimmed in the list and cannot be written to**: its row is muted, and opening it replaces the composer with a notice saying it is archived and one button that takes it back out. Nothing is refused on the server - the archive is a shelf, not a lock - but leaving the composer there would invite a prompt that silently undoes the operator's own *not now*. The composer learns this from **`GET /coddy/sessions/{id}/messages`**, which carries **`archived`**: the session listing skips the archive, so the conversation on screen may be in no page the client holds.
 - **Archiving** takes a conversation out of the working list without deleting it (**`PATCH`** with **`archived`**). The row moves only once the server has agreed: a refused request would otherwise leave the drawer showing a state that is not on disk. An archived row carries the archive **mark** beside its title - the state a conversation is in, not a label among its tags - and the same menu item puts it back. The **Status** filter remembers what it was set to, so a session put aside stays out of the way until the operator asks for it.
-- **Tags** of a row render under its title as small chips (the title keeps the first line to itself); they are proposed by the title generation and edited over the API.
+- **Tags** of a row render under its title as small chips (the title keeps the first line to itself). They are proposed by the title generation, edited by hand in the **Tags** editor of the row menu, and written by the model's own `session_describe` tool ([Sessions](../features/sessions.md#tags-and-the-archive)).
+- **The tag editor is one component in both places that show tags** (**`SessionTagEditor.tsx`**): a cross on every chip, a box that offers the labels this history already uses (most used first, its own excluded, prefix matches leading), **Enter** to file what was typed, arrow keys and **Enter** to take a suggestion, **Backspace** on an empty box to drop the last chip, **Escape** to close. There is no Save: every change is a **`PATCH`** at once, and the set the server answers with - folded to lower case, whitespace as hyphens, at most eight - is what the row then shows, so a chip never changes spelling one refresh later. The folded form of what is being typed is shown under the box only when it differs from what was typed.
 - Indicators
   - A spinner appears on rows for sessions that are still generating in the background.
   - A violet dot appears only when a background session completed while it was not the active chat.
@@ -300,8 +305,8 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 
 Session rename UX
 
-- Title rename is done only in the chat header.
-- On blur the UI saves via `PATCH /coddy/sessions/{id}`.
+- Title rename is done in the chat header, or from **Rename** in the row's **⋮** menu, which turns the row's title into a box with the name selected.
+- On blur the UI saves via `PATCH /coddy/sessions/{id}`; **Enter** saves, **Escape** leaves the title alone.
 
 Session delete UX
 
@@ -316,7 +321,7 @@ Session delete UX
 
 ![The session management table with the open conversation protected](../assets/sessions-management-table-dark-1280.png)
 
-*Everything stored, the archive included: a row says where it sits and what it is filed under, the columns sort the whole listing, and the two icons beside the search are the only destructive controls*
+*Everything stored, the archive included: a row says where it sits and what it is filed under, the **+** after its tags opens the same editor History uses, the columns sort the whole listing, and the two icons beside the search are the only destructive controls*
 
 **Settings -> Sessions** (**`#/settings/sessions_manager`**, **`SessionsManager.tsx`**, pure helpers in **`sessions/sessionManagerRows.ts`**) is the stored history as a table rather than a list to scroll. It is a client-side tab like Appearance: it reads and removes session bundles over **`/coddy/sessions`** and edits no config key, so it renders before the config schema has loaded. Its id is **`sessions_manager`** because **`sessions`** is already a config key - the storage directory, which stays in the **System** tab.
 

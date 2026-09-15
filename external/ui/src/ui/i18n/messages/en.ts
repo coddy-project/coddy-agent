@@ -742,6 +742,7 @@ export const messagesEn: Record<string, string> = {
   "sessions.manage.lead":
     "Every stored conversation with what it cost. Tick the rows you no longer need, or tick the header to take the whole page; the conversation you have open is protected.",
   "sessions.manage.loadFailed": "Could not load the sessions: {error}",
+  "sessions.manage.tagsFailed": "Could not save the tags: {error}",
   "sessions.manage.deleteFailed": "Could not delete: {error}",
   "sessions.manage.partialFailure":
     "{count} session(s) were kept because they are still busy. First reason: {reason}",
@@ -826,6 +827,16 @@ export const messagesEn: Record<string, string> = {
   "sessions.archive": "Archive",
   "sessions.unarchive": "Unarchive",
   "sessions.archivedBadge": "archived",
+  "sessions.rename": "Rename",
+  "sessions.tags.edit": "Tags",
+  "sessions.tags.editorAria": "Tags of {title}",
+  "sessions.tags.placeholder": "add a tag",
+  "sessions.tags.remove": "Remove the tag {tag}",
+  "sessions.tags.full": "at most {max} tags",
+  "sessions.tags.addHint": "Enter files it as {tag}",
+  "sessions.tags.add": "Add a tag",
+  "sessions.tags.editRow": "Edit the tags",
+  "sessions.tags.done": "Done",
   "sessions.tagFilterClear": "Clear the tag filter",
 
   "chat.newChat": "New chat",

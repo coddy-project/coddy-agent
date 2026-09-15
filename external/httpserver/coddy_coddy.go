@@ -368,15 +368,11 @@ func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Every text is asked about, however short. A first message of two words is
+	// exactly the one that needs the model: "git status" is a usable title and
+	// no filing at all, and the tags ride on this call - echoing the words back
+	// would leave the shortest conversations the only unlabelled ones.
 	words := strings.Fields(raw)
-	if len(words) <= 3 {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"object": "coddy.describe",
-			"short":  strings.Join(words, " "),
-		})
-		return
-	}
 
 	provider, err := s.providerFactory(s.activeCfg())
 	if err != nil {
@@ -1209,7 +1205,13 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
 	var body struct {
-		Title             string    `json:"title"`
+		Title string `json:"title"`
+		// TitleIfUnpinned marks a title nobody typed: the phrase the describe
+		// call proposes for a new chat. It lands only while the session has no
+		// pinned title of its own, so a name the operator or the model wrote
+		// during that first turn is not overwritten seconds later by an answer
+		// that was already in flight.
+		TitleIfUnpinned   bool      `json:"titleIfUnpinned"`
 		MarkActivityRead  bool      `json:"markActivityRead"`
 		SelectedModelID   *string   `json:"selectedModelId"`
 		SelectedReasoning *string   `json:"selectedReasoning"`
@@ -1267,9 +1269,17 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 	}
 	t := strings.TrimSpace(body.Title)
 	if t != "" {
-		st.SetTitlePinned(t)
-		did = true
-		resp["title"] = t
+		pinned := strings.TrimSpace(st.GetTitlePinned())
+		if body.TitleIfUnpinned && pinned != "" {
+			// A suggestion that lost the race: the session already carries a
+			// name, and the tags of the same request still apply.
+			did = true
+			resp["title"] = pinned
+		} else {
+			st.SetTitlePinned(t)
+			did = true
+			resp["title"] = t
+		}
 	}
 	// Tags are replaced wholesale rather than merged: the client holds the set
 	// it is editing, and a merge would make removing the last tag impossible.

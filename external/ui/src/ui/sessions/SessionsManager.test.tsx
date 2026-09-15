@@ -678,3 +678,81 @@ test("with no conversation open the archive scope travels alone", async () => {
     expect(JSON.parse(String(post?.init?.body))).toEqual({ scope: "archived" });
   });
 });
+
+// --- Filing a row by hand ---------------------------------------------------
+
+/**
+ * Answers the listing with tagged rows and accepts one PATCH, reporting the
+ * folded set the server would have stored.
+ */
+function stubTagFetch() {
+  const calls: Call[] = [];
+  const tagged: SessionManagerRow[] = [
+    { ...(rows[0] as SessionManagerRow), tags: ["api"] },
+    { ...(rows[1] as SessionManagerRow), tags: ["release"] },
+  ];
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    calls.push({ url, ...(init ? { init } : {}) });
+    if (init?.method === "PATCH") {
+      const sent = JSON.parse(String(init.body)) as { tags?: string[] };
+      return {
+        ok: true,
+        json: async () => ({ tags: sent.tags ?? [] }),
+      } as unknown as Response;
+    }
+    return {
+      ok: true,
+      json: async () => ({
+        sessions: tagged,
+        hasMore: false,
+        nextCursor: null,
+      }),
+    } as unknown as Response;
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return calls;
+}
+
+test("a row carries a way to add a tag, and the editor writes the whole set", async () => {
+  const calls = stubTagFetch();
+  const changed = vi.fn();
+  renderTable({ onSessionTagsChanged: changed });
+  await screen.findByTestId("sessions-manager-row-sess_one");
+
+  fireEvent.click(screen.getByTestId("sessions-manager-tag-add-sess_one"));
+  const input = await screen.findByTestId("session-tag-input");
+  fireEvent.change(input, { target: { value: "Session Store" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+
+  await waitFor(() => {
+    expect(calls.some((c) => c.init?.method === "PATCH")).toBe(true);
+  });
+  const patch = calls.find((c) => c.init?.method === "PATCH");
+  expect(patch?.url).toBe("/coddy/sessions/sess_one");
+  expect(JSON.parse(String(patch?.init?.body))).toEqual({
+    tags: ["api", "session-store"],
+  });
+  // The row and the drawer behind the panel both take the stored answer.
+  await screen.findByTestId("sessions-manager-tag-session-store");
+  await waitFor(() => {
+    expect(changed).toHaveBeenCalledWith("sess_one", ["api", "session-store"]);
+  });
+});
+
+test("the editor offers a label another row already uses and drops one by its cross", async () => {
+  const calls = stubTagFetch();
+  renderTable();
+  await screen.findByTestId("sessions-manager-row-sess_one");
+
+  fireEvent.click(screen.getByTestId("sessions-manager-tag-add-sess_one"));
+  expect(
+    await screen.findByTestId("session-tag-suggest-release"),
+  ).toBeInTheDocument();
+
+  fireEvent.click(screen.getByTestId("session-tag-remove-api"));
+  await waitFor(() => {
+    expect(calls.some((c) => c.init?.method === "PATCH")).toBe(true);
+  });
+  const patch = calls.find((c) => c.init?.method === "PATCH");
+  expect(JSON.parse(String(patch?.init?.body))).toEqual({ tags: [] });
+});

@@ -1475,6 +1475,27 @@ export function App() {
     );
   }
 
+  /**
+   * Writes the labels of one conversation. The server folds what it stores and
+   * answers with the set it kept, so the list adopts that answer rather than
+   * what was sent - otherwise a chip would change spelling one refresh later.
+   */
+  async function saveSessionTags(id: string, tags: string[]) {
+    const res = await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tags }),
+    });
+    if (!res.ok) {
+      return;
+    }
+    const data = (await res.json()) as { tags?: string[] };
+    const stored = data.tags ?? [];
+    setSessions((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, tags: stored } : s)),
+    );
+  }
+
   const headers = useMemo(
     () => (sessionId ? { [HDR]: sessionId } : {}),
     [sessionId],
@@ -4728,6 +4749,7 @@ export function App() {
     },
     onPick: pickSession,
     onTitleSave: saveSessionTitle as (id: string, title: string) => void,
+    onTagsSave: (id: string, tags: string[]) => void saveSessionTags(id, tags),
     onDelete: deleteSession as (id: string) => void | Promise<void>,
     onArchive: (id: string, archived: boolean) =>
       void archiveSession(id, archived),
@@ -5063,6 +5085,11 @@ export function App() {
               initialSection={settingsSection}
               activeSessionId={sidebarActiveId}
               onSessionsDeleted={onSessionsDeletedInSettings}
+              onSessionTagsChanged={(id: string, tags: string[]) =>
+                setSessions((prev) =>
+                  prev.map((s) => (s.id === id ? { ...s, tags } : s)),
+                )
+              }
             />
           </div>
         ) : null}

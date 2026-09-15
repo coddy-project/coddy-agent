@@ -384,7 +384,7 @@ func openAPISpec() map[string]interface{} {
 					"summary": "Generate a short text description",
 					"description": "Accepts arbitrary text and returns a short phrase describing what it is about, plus the **tags** the model proposed for filing the conversation. " +
 						"The tags ride on the call that already names a new chat, so a session is filed without a second request to the model; a model that ignores the instruction answers the phrase alone and **tags** is empty. " +
-						"If the input is 3 words or fewer, the response echoes them and proposes nothing.",
+						"Every text is asked about, however short: a first message of two words is the one that needs the labels most, and echoing it back would leave the shortest conversations unfiled.",
 					"operationId": "coddyDescribe",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -1379,6 +1379,7 @@ func openAPISpec() map[string]interface{} {
 					"summary": "Patch session composer metadata",
 					"description": "Set **title** (pinned title), **tags** (the session's labels), **archived** (put the session aside or take it back), **pinned** (hold it at the top of every listing), **selectedModelId** (YAML **`models[].model`** selector for this session), **selectedReasoning** (reasoning level; must be one of the effective model's **`reasoning_levels`**, empty to clear), and/or **markActivityRead** (boolean) to advance the read cursor for **activitySeq**. " +
 						"**tags** replaces the whole set rather than merging into it, so an empty array clears them; omitting the field leaves them alone. Values are normalized (lower case, inner whitespace as a hyphen, duplicates dropped, at most 8 of at most 32 characters). " +
+						"**titleIfUnpinned** marks **title** as a suggestion rather than a rename: the describe call that names a new chat sends it, and the title is then stored only while the session has no pinned title of its own, so a name written during that first turn (in the chat header, or by the agent's **session_describe** tool) is not overwritten by an answer that was already in flight. The response reports the title the session kept. " +
 						"**markActivityRead** updates only activity counters in **session.json** and does not change **updatedAt** (history order stays stable until new chat content is saved).",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -1403,6 +1404,7 @@ func openAPISpec() map[string]interface{} {
 										"pinned":            map[string]string{"type": "boolean"},
 										"selectedModelId":   map[string]string{"type": "string"},
 										"selectedReasoning": map[string]string{"type": "string"},
+										"titleIfUnpinned":   map[string]string{"type": "boolean"},
 										"markActivityRead":  map[string]string{"type": "boolean"},
 									},
 								},

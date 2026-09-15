@@ -500,3 +500,96 @@ test("an archived row reads as put aside", () => {
     "is-archived",
   );
 });
+
+// --- Renaming and filing from the row menu ---------------------------------
+
+const filed = (id: string, title: string, tags: string[]): SessionRow => ({
+  id,
+  title,
+  tags,
+});
+
+test("the row menu offers renaming and the tags, above the rule", () => {
+  renderDrawer({
+    sessions: [filed("a", "A", ["api"])],
+    onTitleSave: () => {},
+    onTagsSave: () => {},
+    onArchive: () => {},
+  });
+  fireEvent.click(screen.getByTestId("session-menu-a"));
+  // Neither of the two starts a group: renaming and filing change what the row
+  // says about itself, and the rule below them opens the pair that takes the
+  // conversation out of the list.
+  expect(screen.getByTestId("session-menu-rename-a").className).not.toContain(
+    "starts-group",
+  );
+  expect(screen.getByTestId("session-menu-tags-a").className).not.toContain(
+    "starts-group",
+  );
+  expect(screen.getByTestId("session-menu-archive-a").className).toContain(
+    "starts-group",
+  );
+});
+
+test("renaming a row edits the title in place and saves on Enter", () => {
+  const onTitleSave = vi.fn();
+  renderDrawer({ sessions: [row("a", "Old name")], onTitleSave });
+  fireEvent.click(screen.getByTestId("session-menu-a"));
+  fireEvent.click(screen.getByTestId("session-menu-rename-a"));
+
+  const input = screen.getByTestId("session-rename-a") as HTMLInputElement;
+  expect(input.value).toBe("Old name");
+  fireEvent.change(input, { target: { value: "New name" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(onTitleSave).toHaveBeenCalledWith("a", "New name");
+  expect(screen.queryByTestId("session-rename-a")).toBeNull();
+});
+
+test("escape leaves a rename without writing anything", () => {
+  const onTitleSave = vi.fn();
+  renderDrawer({ sessions: [row("a", "Old name")], onTitleSave });
+  fireEvent.click(screen.getByTestId("session-menu-a"));
+  fireEvent.click(screen.getByTestId("session-menu-rename-a"));
+  const input = screen.getByTestId("session-rename-a");
+  fireEvent.change(input, { target: { value: "Something else" } });
+  fireEvent.keyDown(input, { key: "Escape" });
+  expect(onTitleSave).not.toHaveBeenCalled();
+  expect(screen.queryByTestId("session-rename-a")).toBeNull();
+});
+
+test("the tag editor drops a label and files a new one", () => {
+  const onTagsSave = vi.fn();
+  renderDrawer({
+    sessions: [filed("a", "A", ["api", "ui"]), filed("b", "B", ["sessions"])],
+    onTagsSave,
+  });
+  fireEvent.click(screen.getByTestId("session-menu-a"));
+  fireEvent.click(screen.getByTestId("session-menu-tags-a"));
+
+  fireEvent.click(screen.getByTestId("session-tag-remove-ui"));
+  expect(onTagsSave).toHaveBeenCalledWith("a", ["api"]);
+
+  // A label typed the way it reads is filed the way it is stored.
+  const input = screen.getByTestId("session-tag-input");
+  fireEvent.change(input, { target: { value: "Session Store" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(onTagsSave).toHaveBeenLastCalledWith("a", [
+    "api",
+    "ui",
+    "session-store",
+  ]);
+});
+
+test("the tag editor offers the labels this history already uses", () => {
+  renderDrawer({
+    sessions: [filed("a", "A", ["api"]), filed("b", "B", ["sessions", "api"])],
+    onTagsSave: () => {},
+  });
+  fireEvent.click(screen.getByTestId("session-menu-a"));
+  fireEvent.click(screen.getByTestId("session-menu-tags-a"));
+  // Its own label is not offered again; the one from the other row is.
+  expect(
+    screen.getByTestId("session-tag-suggest-sessions"),
+  ).toBeInTheDocument();
+  expect(screen.queryByTestId("session-tag-suggest-api")).toBeNull();
+});
