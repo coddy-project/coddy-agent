@@ -1996,6 +1996,14 @@ a.rail-brand {
   color: var(--text);
 }
 
+/* A write the server refused: the row is already back to what it holds, and
+   this says why it moved. */
+.session-tag-error {
+  margin: 6px 2px 1px;
+  font-size: 10.5px;
+  color: var(--coddy-danger, #f87171);
+}
+
 /* What the fold will store, shown only when it differs from what was typed. */
 .session-tag-hint {
   margin: 6px 2px 1px;

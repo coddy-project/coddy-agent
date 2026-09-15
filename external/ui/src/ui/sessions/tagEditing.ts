@@ -12,6 +12,16 @@
 export const MAX_SESSION_TAGS = 8;
 export const MAX_SESSION_TAG_RUNES = 32;
 
+/**
+ * What may not appear inside one label, spelled out rather than written as
+ * `\s`: the server splits on Go's `unicode.IsSpace`, which carries U+0085 that
+ * JavaScript's `\s` does not, and leaves U+FEFF alone where `\s` would split on
+ * it. Two folds that disagree about a character draw a chip the PATCH then
+ * rewrites under the operator's eyes.
+ */
+const TAG_SEPARATORS =
+  /[\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000,;]+/;
+
 /** The decoration a label is trimmed of at both ends, as the server trims it. */
 const TRIM_CHARS = " \t\r\n#.,;:!?\"'`()[]{}*-_/\\";
 
@@ -34,7 +44,7 @@ export function normalizeTag(raw: string): string {
   if (!trimmed) return "";
   const joined = trimmed
     .toLowerCase()
-    .split(/[\s,;]+/)
+    .split(TAG_SEPARATORS)
     .filter((part) => part !== "")
     .join("-");
   const chars = [...joined];

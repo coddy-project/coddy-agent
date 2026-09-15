@@ -29,6 +29,8 @@ export function SessionTagEditor(props: {
   /** Labels this history already uses, most used first. */
   vocabulary: string[];
   onChange: (next: string[]) => void;
+  /** What the last write failed with, shown under the box; null while all is well. */
+  error?: string | null;
   onClose: () => void;
   ariaLabel: string;
 }) {
@@ -208,6 +210,11 @@ export function SessionTagEditor(props: {
         {!full && typed && typed !== draft.trim() ? (
           <p className="session-tag-hint" data-testid="session-tag-preview">
             {t("sessions.tags.addHint", { tag: typed })}
+          </p>
+        ) : null}
+        {props.error ? (
+          <p className="session-tag-error" data-testid="session-tag-error">
+            {props.error}
           </p>
         ) : null}
       </div>

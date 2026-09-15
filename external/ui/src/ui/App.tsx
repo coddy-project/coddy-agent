@@ -1486,7 +1486,7 @@ export function App() {
    * changes spelling one refresh later - and a refused write puts back what the
    * row carried, so the list never claims something the server does not hold.
    */
-  async function saveSessionTags(id: string, tags: string[]) {
+  async function saveSessionTags(id: string, tags: string[]): Promise<boolean> {
     let previous: string[] | undefined;
     setSessions((prev) =>
       prev.map((s) => {
@@ -1501,26 +1501,28 @@ export function App() {
       setSessions((prev) =>
         prev.map((s) => (s.id === id ? { ...s, tags: previous ?? [] } : s)),
       );
-    let res: Response;
+    let stored: string[];
     try {
-      res = await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
+      const res = await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tags }),
       });
+      if (!res.ok) {
+        throw new Error(String(res.status));
+      }
+      const data = (await res.json()) as { tags?: string[] };
+      stored = data.tags ?? [];
     } catch {
+      // A dropped connection and a refused write end the same way: the row goes
+      // back to what the server still holds, and the caller says so.
       restore();
-      return;
+      return false;
     }
-    if (!res.ok) {
-      restore();
-      return;
-    }
-    const data = (await res.json()) as { tags?: string[] };
-    const stored = data.tags ?? [];
     setSessions((prev) =>
       prev.map((s) => (s.id === id ? { ...s, tags: stored } : s)),
     );
+    return true;
   }
 
   const headers = useMemo(
@@ -4776,7 +4778,7 @@ export function App() {
     },
     onPick: pickSession,
     onTitleSave: saveSessionTitle as (id: string, title: string) => void,
-    onTagsSave: (id: string, tags: string[]) => void saveSessionTags(id, tags),
+    onTagsSave: (id: string, tags: string[]) => saveSessionTags(id, tags),
     onDelete: deleteSession as (id: string) => void | Promise<void>,
     onArchive: (id: string, archived: boolean) =>
       void archiveSession(id, archived),

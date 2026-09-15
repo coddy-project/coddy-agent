@@ -165,8 +165,11 @@ export function SessionsSidebar(props: {
   onArchive?: (id: string, archived: boolean) => void;
   /** Keeps a conversation at the top of the list, or lets it back into order. */
   onPin?: (id: string, pinned: boolean) => void;
-  /** Writes the labels a conversation is filed under. */
-  onTagsSave?: (id: string, tags: string[]) => void;
+  /**
+   * Writes the labels a conversation is filed under, answering whether the
+   * write landed so the editor can say when it did not.
+   */
+  onTagsSave?: (id: string, tags: string[]) => void | Promise<boolean>;
   /** Writes the order the operator dragged the pinned conversations into. */
   onReorderPins?: (ids: string[]) => void;
   /** How the list is divided into headings; "none" keeps it flat. */
@@ -222,6 +225,9 @@ export function SessionsSidebar(props: {
     id: string;
     at: DOMRect;
   } | null>(null);
+  // What the last filing write was refused with. The drawer has no room for a
+  // banner, and the editor is where the operator is looking anyway.
+  const [tagError, setTagError] = useState<string | null>(null);
   // A pin being dragged, and where it would land. The pointer is tracked rather
   // than HTML5 drag-and-drop, which a finger cannot start.
   const [drag, setDrag] = useState<{ id: string; over: number } | null>(null);
@@ -550,6 +556,7 @@ export function SessionsSidebar(props: {
             testId: `session-menu-tags-${s.id}`,
             onPick: () => {
               if (at) {
+                setTagError(null);
                 setTagEditor({ id: s.id, at });
               }
             },
@@ -608,8 +615,19 @@ export function SessionsSidebar(props: {
                 anchor={tagEditor?.id === s.id ? tagEditor.at : null}
                 tags={s.tags ?? []}
                 vocabulary={vocabulary}
-                onChange={(next) => onTagsSave(s.id, next)}
-                onClose={() => setTagEditor(null)}
+                onChange={(next) => {
+                  setTagError(null);
+                  void Promise.resolve(onTagsSave(s.id, next)).then((ok) => {
+                    if (ok === false) {
+                      setTagError(t("sessions.tags.failed"));
+                    }
+                  });
+                }}
+                {...(tagError ? { error: tagError } : {})}
+                onClose={() => {
+                  setTagError(null);
+                  setTagEditor(null);
+                }}
                 ariaLabel={s.title || t("sessions.newChatFallback")}
               />
             ) : null}

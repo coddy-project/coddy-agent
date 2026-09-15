@@ -95,3 +95,14 @@ describe("addTag and removeTag", () => {
     expect(addTag(full, "one-more")).toBe(full);
   });
 });
+
+describe("the fold and the server", () => {
+  it("splits on what Go calls whitespace, and only on that", () => {
+    // U+0085 is whitespace to the server and not to JavaScript's \s; U+FEFF is
+    // the other way round. A chip drawn from the wrong set is one the PATCH
+    // rewrites a moment later.
+    expect(normalizeTag("backend\u0085ui")).toBe("backend-ui");
+    expect(normalizeTag("backend\u00a0ui")).toBe("backend-ui");
+    expect(normalizeTag("backend\ufeffui")).toBe("backend\ufeffui");
+  });
+});

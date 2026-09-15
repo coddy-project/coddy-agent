@@ -835,6 +835,7 @@ export const messagesEn: Record<string, string> = {
   "sessions.tags.full": "at most {max} tags",
   "sessions.tags.addHint": "Enter files it as {tag}",
   "sessions.tags.add": "Add a tag",
+  "sessions.tags.failed": "The tags were not saved",
   "sessions.tags.editRow": "Edit the tags",
   "sessions.tags.done": "Done",
   "sessions.tagFilterClear": "Clear the tag filter",

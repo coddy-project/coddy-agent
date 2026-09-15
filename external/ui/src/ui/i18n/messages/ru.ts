@@ -853,6 +853,7 @@ export const messagesRu: Record<string, string> = {
   "sessions.tags.full": "не больше {max} тегов",
   "sessions.tags.addHint": "Enter добавит как {tag}",
   "sessions.tags.add": "Добавить тег",
+  "sessions.tags.failed": "Теги не сохранились",
   "sessions.tags.editRow": "Править теги",
   "sessions.tags.done": "Готово",
   "sessions.tagFilterClear": "Сбросить фильтр по тегам",

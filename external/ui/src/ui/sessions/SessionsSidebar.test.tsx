@@ -663,3 +663,26 @@ test("the tag editor offers the labels this history already uses", () => {
   ).toBeInTheDocument();
   expect(screen.queryByTestId("session-tag-suggest-api")).toBeNull();
 });
+
+test("a refused tag write says so in the editor", async () => {
+  // The row is put back by the shell; the editor is where the operator is
+  // looking, so that is where the refusal is said.
+  const onTagsSave = vi.fn().mockResolvedValue(false);
+  renderDrawer({ sessions: [filed("a", "A", ["api"])], onTagsSave });
+  fireEvent.click(screen.getByTestId("session-menu-a"));
+  fireEvent.click(screen.getByTestId("session-menu-tags-a"));
+
+  fireEvent.click(screen.getByTestId("session-tag-remove-api"));
+  expect(await screen.findByTestId("session-tag-error")).toBeInTheDocument();
+});
+
+test("a tag write that lands says nothing", async () => {
+  const onTagsSave = vi.fn().mockResolvedValue(true);
+  renderDrawer({ sessions: [filed("a", "A", ["api"])], onTagsSave });
+  fireEvent.click(screen.getByTestId("session-menu-a"));
+  fireEvent.click(screen.getByTestId("session-menu-tags-a"));
+
+  fireEvent.click(screen.getByTestId("session-tag-remove-api"));
+  await Promise.resolve();
+  expect(screen.queryByTestId("session-tag-error")).toBeNull();
+});
