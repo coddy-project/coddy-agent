@@ -19,8 +19,10 @@ Feature: Manual context compaction command
     And HTTP session stats match the compacted LLM context
 
   Scenario: The REST endpoint compacts the session directly
+    Given another client watches the server events
     When the client posts to the session compact endpoint
     Then the compact request succeeds
     And the compact response reports the summary and message counts
     And the session transcript contains a compaction summary row
     And HTTP session stats match the compacted LLM context
+    And the watching client was told the session started and finished working

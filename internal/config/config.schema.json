@@ -92,7 +92,7 @@
           },
           "max_context_tokens": {
             "type": "integer",
-            "description": "Optional UI hint for the composer context bar; 0 derives it from provider metadata when available.",
+            "description": "Context window of the model in tokens: what the web UI context ring, the console context percentage and the automatic compaction trigger measure against. 0 reads it from the provider's model listing when the provider reports one (the NeuralDeep hub, vLLM, OpenRouter, LM Studio), else 128000.",
             "default": 0
           },
           "multimodal": {
@@ -833,7 +833,7 @@
     "compaction": {
       "type": "object",
       "title": "Context compaction",
-      "description": "Summarizes older conversation history so long sessions keep fitting the model context window. Manual compact command plus automatic trigger at a percent of the model's max_context_tokens.",
+      "description": "Summarizes older conversation history so long sessions keep fitting the model context window. Manual compact command plus automatic trigger at a percent of the model's context window.",
       "additionalProperties": false,
       "properties": {
         "enable": {
@@ -846,7 +846,7 @@
         },
         "threshold_percent": {
           "type": "integer",
-          "description": "Auto-compaction fires when the estimated context usage reaches this percent of the effective model's max_context_tokens (1..100). Models without max_context_tokens skip auto-compaction; the manual command still works.",
+          "description": "Auto-compaction fires when the estimated context usage reaches this percent of the effective model's context window (1..100): its max_context_tokens, else the window its provider's model listing reports, else 128000 - the window the web UI context ring shows.",
           "default": 80,
           "minimum": 1,
           "maximum": 100
@@ -856,7 +856,7 @@
             "integer",
             "null"
           ],
-          "description": "How many most recent user turns (each with the agent replies and tool activity after it) stay verbatim; only history before that boundary is summarized. 0 summarizes the whole window.",
+          "description": "How many most recent user turns (each with the agent replies and tool activity after it) stay verbatim; only history before that boundary is summarized. 0 summarizes the whole window. When the window holds no more user turns than this, a compaction keeps fewer: the automatic trigger down to the prompt being answered, the manual command down to none.",
           "default": 2,
           "minimum": 0
         },
@@ -864,6 +864,13 @@
           "type": "string",
           "description": "Optional models[].model used for the summarization call. Empty uses the session's effective model.",
           "default": ""
+        },
+        "fallback_models": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Summarizer models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so a compaction is not blocked by one unreachable summarizer."
         },
         "result_eviction": {
           "type": "object",
@@ -926,6 +933,13 @@
           "type": "string",
           "description": "Exact models[].model id used only for recall/persist LLM calls; empty falls back to agent.model or the session override.",
           "default": ""
+        },
+        "fallback_models": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Memory copilot models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so one unreachable deployment does not take the memory pass down with it."
         },
         "dir": {
           "type": "string",

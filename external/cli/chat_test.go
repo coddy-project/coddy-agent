@@ -337,6 +337,12 @@ type stagedConfigBackend struct {
 }
 
 func (b *stagedConfigBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Only completions are turns. The session manager also reads the model
+	// listing for the context window; this server has none, like many.
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
 	raw, _ := io.ReadAll(r.Body)
 	var body struct {
 		Tools []struct {

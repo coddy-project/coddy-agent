@@ -17,6 +17,8 @@ Two switches: the binary must be built with the `memory` tag (the release binari
 
 The copilot uses `memory.model` when set, otherwise the session's effective model, through the same retry policy as the main agent; its completions are capped at `copilot_max_tokens` and the loop runs at most the larger of `recall_max_turns` and `persist_max_turns` model rounds. A pass that fails is logged and the main agent answers without memory context.
 
+A model that is down or overloaded need not cost the pass: `memory.fallback_models` is the chain tried after `memory.model`, and the session's own model is the last resort whether or not it is listed. A fallback picks up the round that failed rather than restarting the pass, and an entry naming nothing configured is skipped instead of ending the chain ([issue #247](https://github.com/coddy-project/coddy-agent/issues/247)).
+
 ## The tools
 
 | Tool | Arguments | Recall | Persist |
@@ -76,6 +78,7 @@ memory:
 |---|---|---|
 | `enable` | `false` | run the copilot at all (needs the `memory` build tag) |
 | `model` | `""` | pin the copilot to one `models[].model`; the main agent is unaffected |
+| `fallback_models` | `[]` | tried in order when the model above them fails; the session's own model is the last resort whether or not it is listed |
 | `dir` | `""` | the global root |
 | `recall_max_turns`, `persist_max_turns` | `6`, `12` | bound the model rounds of a pass; the effective cap is the larger of the two |
 | `copilot_max_tokens` | `4096` | completion cap for the copilot's calls |

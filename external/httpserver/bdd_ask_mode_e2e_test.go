@@ -61,6 +61,12 @@ type askModeStubBackend struct {
 }
 
 func (b *askModeStubBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Only completions are turns. The session manager also reads the model
+	// listing for the context window; this server has none, like many.
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
 	raw, _ := io.ReadAll(r.Body)
 	b.mu.Lock()
 	b.requests = append(b.requests, string(raw))

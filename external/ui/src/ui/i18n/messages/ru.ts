@@ -187,9 +187,9 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.models.temperature.desc":
     "Температура сэмплирования для этой логической модели (0 = детерминированно, выше = более случайно).",
   "settings.schema.models.max_context_tokens.label":
-    "Максимум токенов контекста (подсказка UI)",
+    "Окно контекста (токены)",
   "settings.schema.models.max_context_tokens.desc":
-    "Необязательная подсказка для индикатора контекста в композере; 0 — определить по метаданным провайдера, когда они доступны.",
+    "Окно контекста модели: по нему считаются индикатор контекста в композере и автоматическое сжатие. 0 — взять из списка моделей провайдера, если он его сообщает, иначе 128000.",
   "settings.schema.models.multimodal.label": "Мультимодальная",
   "settings.schema.models.multimodal.desc":
     "Если включено, модель принимает изображения или файлы в дополнение к тексту. UI предложит прикрепление файлов для сообщений, отправляемых с этой моделью.",
@@ -373,11 +373,11 @@ export const messagesRu: Record<string, string> = {
     "Главный выключатель сжатия (ручная команда и автоматический триггер). По умолчанию включено.",
   "settings.schema.compaction.threshold_percent.label": "Порог авто-сжатия (%)",
   "settings.schema.compaction.threshold_percent.desc":
-    "Авто-сжатие, когда оценка контекста достигает этой доли от max_context_tokens модели (1..100, по умолчанию 80). Модели без max_context_tokens пропускают авто-сжатие.",
+    "Авто-сжатие, когда оценка контекста достигает этой доли от окна контекста модели (1..100, по умолчанию 80): её max_context_tokens, иначе окно, которое сообщает провайдер, иначе 128000.",
   "settings.schema.compaction.keep_recent_turns.label":
     "Сохранять последние ходы",
   "settings.schema.compaction.keep_recent_turns.desc":
-    "Сколько последних ходов пользователя остаются дословными после сжатия (по умолчанию 2; 0 — суммируется всё).",
+    "Сколько последних ходов пользователя остаются дословными после сжатия (по умолчанию 2; 0 — суммируется всё). Если ходов не больше, автоматическое сжатие всё равно сворачивает более ранние, а запрос, на который идёт ответ, оставляет дословным.",
   "settings.schema.compaction.model.label": "Модель суммаризации",
   "settings.schema.compaction.model.desc":
     "Необязательный models[].model для вызова суммаризации; пусто — модель сессии.",
@@ -1112,6 +1112,7 @@ export const messagesRu: Record<string, string> = {
   "tool.name.websearch": "ищу в интернете",
   "tool.name.keep_result": "сохраняю результат",
   "tool.name.plan_exit": "перехожу в агентный режим",
+  "tool.name.compact_context": "сжимаю контекст",
   "tool.name.plan_write": "сохраняю план",
   "tool.name.plan_read": "читаю план",
   "tool.name.plan_list": "смотрю список планов",

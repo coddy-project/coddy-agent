@@ -61,17 +61,33 @@ func (s *Server) coddySessionCompactPost(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	unlock, err := s.mgr.AcquireComposerTurnLock(id, st)
+	// Admitted like a turn, not just locked: the clients watching this session
+	// (another browser tab, a console on --remote) learn from the turn edges on
+	// GET /coddy/events that it changed, and reload its smaller context stats.
+	turnCtx, finish, err := s.mgr.BeginSessionWork(r.Context(), id)
 	if err != nil {
-		if errors.Is(err, session.ErrSessionTurnBusy) {
+		switch {
+		case errors.Is(err, session.ErrSessionTurnBusy):
 			http.Error(w, `{"error":{"message":"session busy: another agent turn is in progress"}}`, http.StatusConflict)
-			return
+		case errors.Is(err, session.ErrSessionDeleting):
+			http.Error(w, `{"error":{"message":"session is being deleted"}}`, http.StatusConflict)
+		case errors.Is(err, session.ErrSessionGone):
+			http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
+		case isSubagentReadOnly(err):
+			// The guard above already answered for a child this handler
+			// resolved itself; this keeps the switch honest about every error
+			// admission can return, so the documented 409 does not turn into a
+			// 500 if the two ever drift apart.
+			writeSubagentsError(w, http.StatusConflict, subagentReadOnlyMessage(st))
+		default:
+			s.log.Error("compact: turn admission", "session", id, "error", err)
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
 		}
-		s.log.Error("compact: turn lock", "session", id, "error", err)
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
 		return
 	}
-	defer unlock()
+	defer finish()
+	// The summary is a model call: its release refreshes the provider usage.
+	session.MarkTurnRan(turnCtx)
 
 	bridge := NewSender(s.activeCfg(), nil, false, st.GetMode())
 	bridge.SetSessionDir(strings.TrimSpace(st.GetPersistedSessionDir()))
@@ -79,7 +95,7 @@ func (s *Server) coddySessionCompactPost(w http.ResponseWriter, r *http.Request)
 	ag.SetProviderFactory(s.agentProviderFactory)
 
 	// Manual trigger: force compaction (fold whatever exists, even a short chat).
-	res, err := ag.CompactSession(r.Context(), strings.TrimSpace(body.Instructions), true)
+	res, err := ag.CompactSession(turnCtx, strings.TrimSpace(body.Instructions), true)
 	w.Header().Set("Content-Type", "application/json")
 	switch {
 	case errors.Is(err, agent.ErrNothingToCompact):
@@ -99,6 +115,9 @@ func (s *Server) coddySessionCompactPost(w http.ResponseWriter, r *http.Request)
 			"compacted_messages": res.CompactedMessages,
 			"kept_messages":      res.KeptMessages,
 			"model":              res.Model,
+			// More than one when the history did not fit a single
+			// summarization request and was folded in passes.
+			"steps": res.Steps,
 		})
 	}
 }

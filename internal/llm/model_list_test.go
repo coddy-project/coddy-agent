@@ -39,6 +39,50 @@ func TestListModelsOpenAI(t *testing.T) {
 	}
 }
 
+func TestListModelsReadsTheReportedContextWindow(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[
+			{"id":"hub","limit":{"context":262144,"output":235929}},
+			{"id":"openrouter","context_length":200000},
+			{"id":"vllm","max_model_len":32768},
+			{"id":"lmstudio","max_context_length":"8192"},
+			{"id":"generic","context_window":1000000},
+			{"id":"limit-wins","limit":{"context":4096},"context_length":8192},
+			{"id":"embedding-without-limit","limit":{"output":512}},
+			{"id":"odd-shapes","limit":131072,"context_length":"128k","max_model_len":null},
+			{"id":"non-positive","context_length":0,"max_model_len":-1},
+			{"id":"plain"}
+		]}`))
+	}))
+	defer srv.Close()
+
+	got, err := ListModels(context.Background(), ProviderInput{Type: "openai", BaseURL: srv.URL})
+	if err != nil {
+		t.Fatalf("ListModels: %v", err)
+	}
+	want := map[string]int{
+		"hub":                     262144,
+		"openrouter":              200000,
+		"vllm":                    32768,
+		"lmstudio":                8192,
+		"generic":                 1000000,
+		"limit-wins":              4096,
+		"embedding-without-limit": 0,
+		"odd-shapes":              0,
+		"non-positive":            0,
+		"plain":                   0,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d models, want %d: %+v", len(got), len(want), got)
+	}
+	for _, m := range got {
+		if m.ContextWindow != want[m.ID] {
+			t.Errorf("%s: ContextWindow = %d, want %d", m.ID, m.ContextWindow, want[m.ID])
+		}
+	}
+}
+
 func TestListModelsAnthropic(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {

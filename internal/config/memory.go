@@ -12,6 +12,12 @@ type MemoryConfig struct {
 	// Model selects cfg.models entry for the unified memory copilot (before the main agent). Empty uses agent.model.
 	Model string `yaml:"model"`
 
+	// FallbackModels are the models[].model ids the copilot tries, in order,
+	// when the model above them fails. The session's own model is the last
+	// resort whether or not it is listed, so one unreachable deployment does
+	// not take the memory pass down with it (issue #247).
+	FallbackModels []string `yaml:"fallback_models"`
+
 	// Dir is the long-term memory root under Coddy home semantics. When empty, defaults to $CODDY_HOME/memory.
 	Dir string `yaml:"dir"`
 
@@ -31,6 +37,9 @@ type MemoryConfig struct {
 // Normalize trims string fields in place.
 func (m *MemoryConfig) Normalize(p Paths) {
 	m.Model = strings.TrimSpace(m.Model)
+	for i := range m.FallbackModels {
+		m.FallbackModels[i] = strings.TrimSpace(m.FallbackModels[i])
+	}
 	m.Dir = strings.TrimSpace(m.Dir)
 	if m.Dir != "" {
 		m.Dir = filepath.Clean(ExpandPathVars(m.Dir, p))

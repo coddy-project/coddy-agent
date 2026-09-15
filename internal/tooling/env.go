@@ -96,6 +96,16 @@ type Env struct {
 	// runtime; nil when subagents are unavailable (scheduled runs, disabled).
 	SpawnAgent func(ctx context.Context, req SpawnRequest) (string, error)
 
+	// CompactSession folds the older history into a summary for the
+	// compact_context tool, the same work /compact does. Wired by the agent
+	// runtime; nil when compaction is unavailable for this turn.
+	CompactSession func(ctx context.Context, instructions string) (string, error)
+
+	// ContextCompacted is set after a successful compact_context call so the
+	// ReAct loop rebuilds its outgoing message slice from the shortened
+	// transcript before the next model call.
+	ContextCompacted bool
+
 	// SubagentDepth is how deep this session sits in a spawn tree: 0 for an
 	// ordinary session, 1 for its children. The runtime uses it to refuse
 	// spawns past subagents.max_depth.
