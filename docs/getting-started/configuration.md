@@ -274,6 +274,8 @@ compaction:
   threshold_percent: 80    # auto-compact trigger, 1..100, a percent of the context window
   keep_recent_turns: 2     # last N user turns stay verbatim; 0 summarizes everything
   model: ""                # models[].model for the summarizer; empty = session model
+  fallback_models: []      # tried in order when the summarizer above them fails; the session
+                           # model is the last resort whether or not it is listed
 
 # Optional long-term memory copilot (Go: config.MemoryConfig, internal/config/memory.go; logic in external/memory).
 # Implementation is always linked; enable at runtime with memory.enable.

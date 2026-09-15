@@ -57,6 +57,12 @@ type Compaction struct {
 	// Model optionally selects the models[].model used for the summarization
 	// call. Empty means the session's effective model.
 	Model string `yaml:"model"`
+	// FallbackModels are the models[].model ids tried, in order, when the
+	// summarizer above them fails. A compaction is what a session out of room
+	// has left, so one unreachable or overloaded model must not be the end of
+	// it; the session's own model is always the last resort, whether or not it
+	// is listed here (issue #247).
+	FallbackModels []string `yaml:"fallback_models"`
 	// ResultEviction controls pruning of superseded read/grep tool results from
 	// the LLM projection (the persisted transcript is never rewritten).
 	ResultEviction ResultEviction `yaml:"result_eviction"`

@@ -131,20 +131,25 @@ func elideMiddle(s string, maxChars int) string {
 // making the call, so a compaction that takes a while says what it is doing.
 func (a *Agent) foldCompactionHead(
 	ctx context.Context,
-	provider llm.Provider,
+	chain []compactionCandidate,
 	head []llm.Message,
 	instructions string,
 	budget int,
 	progress compactionProgress,
-) (summary string, steps int, err error) {
+) (summary string, modelID string, steps int, err error) {
+	if len(chain) == 0 {
+		return "", "", 0, fmt.Errorf("compaction model: no model configured")
+	}
 	rest := head
 	carry := ""
+	// The model that answered the last pass: what the summary row records.
+	used := chain[0].modelID
 	// The plan is what the estimate expects; a shrink raises it as it goes, so
 	// the progress a client sees never promises a pass that will not happen.
 	total := plannedCompactionSteps(head, budget)
 	for len(rest) > 0 {
 		if steps >= compactionMaxSteps {
-			return "", steps, fmt.Errorf("compaction did not finish in %d passes: the summarizer's context window is too small for this history", compactionMaxSteps)
+			return "", "", steps, fmt.Errorf("compaction did not finish in %d passes: the summarizer's context window is too small for this history", compactionMaxSteps)
 		}
 		room := budget - session.EstimateTokens(carry)/compactionCarryShare
 		if room < compactionMinChunkTokens {
@@ -158,17 +163,18 @@ func (a *Agent) foldCompactionHead(
 		if progress != nil {
 			progress(steps, total)
 		}
-		out, done, callErr := a.foldOnePass(ctx, provider, carry, rest, chunk, instructions)
+		out, answered, done, callErr := a.foldOnePass(ctx, chain, carry, rest, chunk, instructions)
 		if callErr != nil {
-			return "", steps, callErr
+			return "", "", steps, callErr
 		}
 		carry = out
+		used = answered
 		rest = rest[done:]
 	}
 	if strings.TrimSpace(carry) == "" {
-		return "", steps, fmt.Errorf("compaction produced an empty summary")
+		return "", "", steps, fmt.Errorf("compaction produced an empty summary")
 	}
-	return carry, steps, nil
+	return carry, used, steps, nil
 }
 
 // foldOnePass makes one summarization call and reports how many messages it
@@ -178,44 +184,56 @@ func (a *Agent) foldCompactionHead(
 // reports is not always the one it enforces.
 func (a *Agent) foldOnePass(
 	ctx context.Context,
-	provider llm.Provider,
+	chain []compactionCandidate,
 	carry string,
 	rest []llm.Message,
 	chunk compactionChunk,
 	instructions string,
-) (summary string, covered int, err error) {
-	for attempt := 0; ; attempt++ {
-		resp, callErr := provider.Complete(ctx, compactionRequest(carry, chunk.body, instructions), nil)
-		if callErr == nil {
-			out := strings.TrimSpace(resp.Content)
-			if out == "" {
-				return "", 0, fmt.Errorf("compaction produced an empty summary")
+) (summary string, modelID string, covered int, err error) {
+	var lastErr error
+	for i, cand := range chain {
+		for attempt := 0; ; attempt++ {
+			resp, callErr := cand.provider.Complete(ctx, compactionRequest(carry, chunk.body, instructions), nil)
+			if callErr == nil {
+				out := strings.TrimSpace(resp.Content)
+				if out == "" {
+					return "", "", 0, fmt.Errorf("compaction produced an empty summary")
+				}
+				return out, cand.modelID, chunk.count, nil
 			}
-			return out, chunk.count, nil
+			lastErr = callErr
+			if ctx.Err() != nil {
+				return "", "", 0, fmt.Errorf("compaction LLM call: %w", callErr)
+			}
+			if attempt >= compactionShrinkAttempts {
+				break
+			}
+			// Halve what was actually sent, not the room it was allowed: the
+			// budget can be far larger than the pass that filled it, and halving
+			// the allowance would send the identical request again.
+			if smaller := nextCompactionChunk(rest, session.EstimateTokens(chunk.body)/2); smaller.count < chunk.count {
+				a.log.Warn("compaction pass refused; retrying with fewer messages",
+					"model", cand.modelID, "messages", chunk.count, "retryMessages", smaller.count, "error", callErr)
+				chunk = smaller
+				continue
+			}
+			// One message the provider refuses even on its own: cut it further
+			// rather than stop, because the alternative is a session that can
+			// never be compacted again.
+			body := elideMiddle(chunk.body, len([]rune(chunk.body))/2)
+			if len([]rune(body)) >= len([]rune(chunk.body)) {
+				break
+			}
+			a.log.Warn("compaction pass refused; retrying with a shortened message",
+				"model", cand.modelID, "error", callErr)
+			chunk.body = body
 		}
-		if ctx.Err() != nil || attempt >= compactionShrinkAttempts {
-			return "", 0, fmt.Errorf("compaction LLM call: %w", callErr)
+		if i+1 < len(chain) {
+			a.log.Warn("compaction summarizer could not fold this pass; falling back to the next model",
+				"model", cand.modelID, "next", chain[i+1].modelID, "error", lastErr)
 		}
-		// Halve what was actually sent, not the room it was allowed: the budget
-		// can be far larger than the pass that filled it, and halving the
-		// allowance would send the identical request again.
-		if smaller := nextCompactionChunk(rest, session.EstimateTokens(chunk.body)/2); smaller.count < chunk.count {
-			a.log.Warn("compaction pass refused; retrying with fewer messages",
-				"messages", chunk.count, "retryMessages", smaller.count, "error", callErr)
-			chunk = smaller
-			continue
-		}
-		// One message the provider refuses even on its own: cut it further
-		// rather than stop, because the alternative is a session that can
-		// never be compacted again.
-		body := elideMiddle(chunk.body, len([]rune(chunk.body))/2)
-		if len([]rune(body)) >= len([]rune(chunk.body)) {
-			return "", 0, fmt.Errorf("compaction LLM call: %w", callErr)
-		}
-		a.log.Warn("compaction pass refused; retrying with a shortened message",
-			"error", callErr)
-		chunk.body = body
 	}
+	return "", "", 0, fmt.Errorf("compaction LLM call: %w", lastErr)
 }
 
 // plannedCompactionSteps is how many passes the estimate expects, so the first
@@ -233,4 +251,56 @@ func plannedCompactionSteps(head []llm.Message, budget int) int {
 		return 1
 	}
 	return steps
+}
+
+// compactionDedupMinLineLen is how long a line must be before a later exact
+// copy of it is dropped. Short lines are structure - a closing brace, a bare
+// number, a blank - and dropping them mangles the code a summary has to read;
+// a long line repeating verbatim is a log the session pasted twice.
+const compactionDedupMinLineLen = 32
+
+// dedupeCompactionHead drops lines the head already carried verbatim. A session
+// that filled its window did it with repetition - the same build log pasted
+// after each attempt, the same file read a dozen times, a test runner printing
+// one line per package - and the summariser learns nothing from the second copy
+// while paying for it in full. The first copy of every line stays, in place;
+// each entry says how many repeats went, so the model is told the history was
+// thinned rather than left to wonder (issue #273).
+func dedupeCompactionHead(head []llm.Message) (out []llm.Message, dropped int) {
+	seen := make(map[string]struct{}, 1024)
+	out = make([]llm.Message, len(head))
+	for i, m := range head {
+		out[i] = m
+		if strings.TrimSpace(m.Content) == "" {
+			continue
+		}
+		kept, gone := dedupeLines(m.Content, seen)
+		if gone == 0 {
+			continue
+		}
+		dropped += gone
+		out[i].Content = fmt.Sprintf("%s\n[... %d repeated line(s) removed: identical to lines earlier in this conversation ...]", kept, gone)
+	}
+	return out, dropped
+}
+
+// dedupeLines removes from s every line long enough to carry meaning that seen
+// already holds, and records the rest.
+func dedupeLines(s string, seen map[string]struct{}) (kept string, dropped int) {
+	lines := strings.Split(s, "\n")
+	out := lines[:0:0]
+	for _, line := range lines {
+		key := strings.TrimSpace(line)
+		if len(key) < compactionDedupMinLineLen {
+			out = append(out, line)
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			dropped++
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n"), dropped
 }

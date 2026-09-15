@@ -116,7 +116,8 @@ func TestFoldRetriesASmallerPassWhenTheProviderRefuses(t *testing.T) {
 	}
 	// A budget that says both messages fit; the provider says otherwise, so the
 	// pass has to come down on its own.
-	summary, steps, err := ag.foldCompactionHead(context.Background(), provider, head, "", 100000, nil)
+	chain := []compactionCandidate{{provider: provider, modelID: "fake/model"}}
+	summary, _, steps, err := ag.foldCompactionHead(context.Background(), chain, head, "", 100000, nil)
 	if err != nil {
 		t.Fatalf("fold: %v", err)
 	}
@@ -138,7 +139,8 @@ func TestFoldGivesUpOnAnErrorThatShrinkingCannotFix(t *testing.T) {
 	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
 
 	head := []llm.Message{{Role: llm.RoleUser, Content: "short"}}
-	_, _, err := ag.foldCompactionHead(context.Background(), provider, head, "", 100000, nil)
+	chain := []compactionCandidate{{provider: provider, modelID: "fake/model"}}
+	_, _, _, err := ag.foldCompactionHead(context.Background(), chain, head, "", 100000, nil)
 	if err == nil {
 		t.Fatal("expected the failure to surface")
 	}
@@ -219,5 +221,144 @@ func TestManualCompactionStillFoldsEverythingWithKeepRecentTurnsZero(t *testing.
 	}
 	if res.KeptMessages != 0 {
 		t.Fatalf("kept %d messages, want /compact with keep_recent_turns 0 to fold everything", res.KeptMessages)
+	}
+}
+
+// Issue #273: a session fills its window by repeating itself, and the repeats
+// are what push the fold past the summarizer's window.
+func TestDedupeCompactionHeadDropsRepeatedLongLines(t *testing.T) {
+	logLine := "go: downloading github.com/example/module v1.2.3 checksum verified ok"
+	build := strings.Repeat(logLine+"\n", 50)
+	head := []llm.Message{
+		{Role: llm.RoleUser, Content: "here is the build log:\n" + build},
+		{Role: llm.RoleAssistant, Content: "and again:\n" + build},
+	}
+	out, dropped := dedupeCompactionHead(head)
+	if dropped < 90 {
+		t.Fatalf("dropped %d repeated lines, want nearly all 99 copies", dropped)
+	}
+	joined := out[0].Content + out[1].Content
+	if strings.Count(joined, logLine) != 1 {
+		t.Fatalf("the line survives %d times, want exactly one copy", strings.Count(joined, logLine))
+	}
+	if !strings.Contains(out[1].Content, "repeated line(s) removed") {
+		t.Fatal("the thinned entry does not say that repeats were removed")
+	}
+	if !strings.Contains(out[0].Content, "here is the build log:") ||
+		!strings.Contains(out[1].Content, "and again:") {
+		t.Fatal("dedup dropped a line that appeared only once")
+	}
+	if session.EstimateTokens(joined) >= session.EstimateTokens(head[0].Content+head[1].Content) {
+		t.Fatal("dedup did not make the head smaller")
+	}
+}
+
+func TestDedupeCompactionHeadKeepsShortStructuralLines(t *testing.T) {
+	code := "func main() {\n\tif err != nil {\n\t\treturn err\n\t}\n}\n"
+	head := []llm.Message{
+		{Role: llm.RoleAssistant, Content: code},
+		{Role: llm.RoleAssistant, Content: code},
+	}
+	out, dropped := dedupeCompactionHead(head)
+	if dropped != 0 {
+		t.Fatalf("dropped %d short lines; braces and returns are structure, not repetition", dropped)
+	}
+	if out[1].Content != code {
+		t.Fatalf("second copy was rewritten: %q", out[1].Content)
+	}
+}
+
+func TestDedupeCompactionHeadLeavesAHeadWithoutRepeatsAlone(t *testing.T) {
+	head := []llm.Message{
+		{Role: llm.RoleUser, Content: "a question long enough to be considered for deduplication"},
+		{Role: llm.RoleAssistant, Content: "an answer long enough to be considered for deduplication"},
+	}
+	out, dropped := dedupeCompactionHead(head)
+	if dropped != 0 {
+		t.Fatalf("dropped %d lines from a head with no repeats", dropped)
+	}
+	for i := range head {
+		if out[i].Content != head[i].Content {
+			t.Fatalf("message %d was rewritten: %q", i, out[i].Content)
+		}
+	}
+}
+
+// Issue #247: a summarizer that refuses must not be the end of a compaction,
+// because a session out of room has nothing else left.
+func TestCompactionFallsBackToTheNextSummarizer(t *testing.T) {
+	st := seededCompactState(t, 3)
+	keep := 1
+	broken := &compactCannedProvider{t: t, err: fmt.Errorf("503 model overloaded")}
+	working := &compactCannedProvider{t: t, summary: "SUMMARY FROM THE DEPUTY"}
+
+	ag := compactTestAgent(t, st, config.Compaction{
+		KeepRecentTurns: &keep,
+		Model:           "fake/broken",
+		FallbackModels:  []string{"fake/model"},
+	}, nil)
+	ag.cfg.Models = append(ag.cfg.Models, config.ModelEntry{Model: "fake/broken", MaxTokens: 100})
+	ag.providerFactory = func(in llm.ProviderInput) (llm.Provider, error) {
+		if strings.Contains(in.Model, "broken") {
+			return broken, nil
+		}
+		return working, nil
+	}
+
+	res, err := ag.CompactSession(context.Background(), "", true)
+	if err != nil {
+		t.Fatalf("compaction: %v", err)
+	}
+	if len(broken.requests) == 0 {
+		t.Fatal("the configured summarizer was never tried")
+	}
+	if res.Model != "fake/model" {
+		t.Fatalf("summary model = %q, want the fallback that answered", res.Model)
+	}
+	if !strings.Contains(res.Summary, "DEPUTY") {
+		t.Fatalf("summary = %q, want the fallback's answer", res.Summary)
+	}
+}
+
+func TestCompactionChainEndsAtTheSessionModel(t *testing.T) {
+	st := seededCompactState(t, 2)
+	keep := 1
+	ag := compactTestAgent(t, st, config.Compaction{
+		KeepRecentTurns: &keep,
+		// Neither names a configured model, so only the session's own is left.
+		Model:          "fake/missing",
+		FallbackModels: []string{"fake/also-missing"},
+	}, &compactCannedProvider{t: t, summary: "SUMMARY"})
+
+	chain, err := ag.compactionChain()
+	if err != nil {
+		t.Fatalf("chain: %v", err)
+	}
+	if len(chain) != 1 || chain[0].modelID != "fake/model" {
+		t.Fatalf("chain = %+v, want only the session's model", chain)
+	}
+}
+
+func TestCompactionChainIsOrderedAndDeduplicated(t *testing.T) {
+	st := seededCompactState(t, 2)
+	keep := 1
+	ag := compactTestAgent(t, st, config.Compaction{
+		KeepRecentTurns: &keep,
+		Model:           "fake/second",
+		// The session model repeated in the list must not be tried twice.
+		FallbackModels: []string{"fake/model", "fake/second"},
+	}, &compactCannedProvider{t: t, summary: "SUMMARY"})
+	ag.cfg.Models = append(ag.cfg.Models, config.ModelEntry{Model: "fake/second", MaxTokens: 100})
+
+	chain, err := ag.compactionChain()
+	if err != nil {
+		t.Fatalf("chain: %v", err)
+	}
+	var ids []string
+	for _, c := range chain {
+		ids = append(ids, c.modelID)
+	}
+	if len(ids) != 2 || ids[0] != "fake/second" || ids[1] != "fake/model" {
+		t.Fatalf("chain = %v, want [fake/second fake/model]", ids)
 	}
 }

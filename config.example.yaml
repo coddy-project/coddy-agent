@@ -154,6 +154,8 @@ sessions:
 #   threshold_percent: 80    # auto-compact at this percent of the model's context window (1..100)
 #   keep_recent_turns: 2     # last N user turns stay verbatim; 0 summarizes everything
 #   model: ""                # optional models[].model for the summarizer; empty = session model
+#   fallback_models: []      # tried in order when the summarizer above them fails; the session
+#                            # model is the last resort whether or not it is listed
 #   # Collapse superseded read/grep results to placeholders in the LLM request
 #   # (the persisted transcript stays complete). Only marked results survive.
 #   result_eviction:

@@ -50,6 +50,8 @@ The threshold is a guess made before a call; the model is the one that knows wha
 
 ## A history larger than one summarization request
 
+Before any of it, the head is deduplicated: a line the conversation already carried verbatim is dropped, keeping the first copy where it stands, and each entry says how many repeats went. A session fills its window by repeating itself - the same build log pasted after every attempt, the same file read a dozen times - and the summariser learns nothing from the second copy while paying for it in full (issue #273). Short lines are left alone: a closing brace and a bare number are structure, and dropping them would mangle the code the summary has to read.
+
 Folding used to be one call: the whole head of the conversation in a single request to the summariser. That holds while the session is near the window it is measured against, and stops holding exactly when compaction matters most. A session that ran far past its window - a model that kept reading large files, an automatic trigger that never fired because the window was unknown - arrives at `/compact` with a history several times the summariser's own window, and the provider refuses the request:
 
 ```text
@@ -57,6 +59,8 @@ compaction LLM call: 400 Bad Request: this model's maximum context length is exc
 ```
 
 That left the session stuck: too large to send, and the only thing that could shrink it was the call that would not go out.
+
+A summariser that refuses is not the end of it either. `compaction.fallback_models` lists the models tried, in order, when the one before them fails, and the session's own model is the last resort whether or not it is listed - so a `compaction.model` pointing at a deployment that is down, overloaded or gone no longer leaves a full session with no way out (issue #247).
 
 Such a history is now folded in passes. Each pass carries the summary of everything folded so far plus the next run of transcript, both sized against the summariser's own context window (`compaction.model`'s, when it names another model), and answers with one summary covering both. The last pass's answer is what goes into the transcript, so a compaction that took seven calls leaves the session looking exactly like one that took a single call. A pass the provider still refuses is retried with fewer messages, and a single entry too large even on its own is sent with its middle elided, head and tail kept - the fold makes progress rather than stopping on the one message it exists to fold away. `POST /coddy/sessions/{id}/compact` reports the passes as `steps`.
 

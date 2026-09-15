@@ -119,18 +119,29 @@ func (a *Agent) CompactSession(ctx context.Context, instructions string, force b
 	projected := a.prunedForLLM(visible)
 	head := projected[:splitIdx-visibleStart]
 
-	provider, modelID, err := a.compactionProvider()
+	chain, err := a.compactionChain()
 	if err != nil {
 		return nil, fmt.Errorf("compaction model: %w", err)
 	}
 
+	// Lines the history already carried go before anything is measured: a
+	// session fills its window by repeating itself, and the repeats are what
+	// push a fold past the summarizer's window (compact_fold.go).
+	if deduped, dropped := dedupeCompactionHead(head); dropped > 0 {
+		a.log.Info("compaction dropped repeated lines from the history it is folding",
+			"lines", dropped, "messages", len(head))
+		head = deduped
+	}
+
 	// The fold is sized against the summarizer's own window, not the session's:
 	// compaction.model may name a smaller or larger model than the turn runs on.
-	window, _ := a.contextWindowFor(modelID)
+	// The first of the chain sets the size; a fallback below it reads the same
+	// pass, which is why the share is a share rather than the whole window.
+	window, _ := a.contextWindowFor(chain[0].modelID)
 	budget := compactionInputBudget(window, session.EstimateTokens(instructions))
 
 	row := a.newCompactionRow()
-	summary, steps, err := a.foldCompactionHead(ctx, provider, head, instructions, budget, row.step)
+	summary, modelID, steps, err := a.foldCompactionHead(ctx, chain, head, instructions, budget, row.step)
 	if err != nil {
 		row.failed(err)
 		return nil, err
@@ -309,29 +320,63 @@ func (a *Agent) maybeAutoCompact(ctx context.Context) bool {
 	return true
 }
 
-// compactionProvider resolves the summarizer provider: compaction.model when
-// set, otherwise the session's effective model.
-func (a *Agent) compactionProvider() (llm.Provider, string, error) {
-	modelID := strings.TrimSpace(a.cfg.Compaction.Model)
-	if modelID == "" {
-		modelID = a.state.EffectiveModelID(a.cfg)
+// compactionCandidate is one summarizer of the chain a compaction may use.
+type compactionCandidate struct {
+	provider llm.Provider
+	modelID  string
+}
+
+// compactionChain is the summarizers a compaction tries, in order:
+// compaction.model (or the session's model when it is unset), then
+// compaction.fallback_models, then the session's own model as the last resort.
+// A model that names nothing configured, or whose provider cannot be built, is
+// left out rather than failing the chain - a compaction is what a session out
+// of room has left, and one bad entry must not be the end of it (issue #247).
+// The error is returned only when nothing in the chain resolves.
+func (a *Agent) compactionChain() ([]compactionCandidate, error) {
+	sessionModel := a.state.EffectiveModelID(a.cfg)
+	wanted := []string{strings.TrimSpace(a.cfg.Compaction.Model)}
+	if wanted[0] == "" {
+		wanted[0] = sessionModel
 	}
-	if modelID == "" {
-		return nil, "", fmt.Errorf("no model configured")
+	for _, m := range a.cfg.Compaction.FallbackModels {
+		wanted = append(wanted, strings.TrimSpace(m))
 	}
-	rm, err := a.cfg.ResolveLLM(modelID)
-	if err != nil {
-		return nil, "", err
-	}
+	wanted = append(wanted, sessionModel)
+
 	mk := a.providerFactory
 	if mk == nil {
 		mk = llm.NewProvider
 	}
-	provider, err := mk(a.llmProviderInput(rm))
-	if err != nil {
-		return nil, "", err
+	var out []compactionCandidate
+	seen := make(map[string]bool, len(wanted))
+	var firstErr error
+	for _, modelID := range wanted {
+		if modelID == "" || seen[modelID] {
+			continue
+		}
+		seen[modelID] = true
+		rm, err := a.cfg.ResolveLLM(modelID)
+		if err == nil {
+			var provider llm.Provider
+			provider, err = mk(a.llmProviderInput(rm))
+			if err == nil {
+				out = append(out, compactionCandidate{provider: provider, modelID: modelID})
+				continue
+			}
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
+		a.log.Warn("compaction summarizer unavailable; trying the next one", "model", modelID, "error", err)
 	}
-	return provider, modelID, nil
+	if len(out) == 0 {
+		if firstErr != nil {
+			return nil, firstErr
+		}
+		return nil, fmt.Errorf("no model configured")
+	}
+	return out, nil
 }
 
 // renderCompactionMessage is one transcript entry as the summarizer reads it.

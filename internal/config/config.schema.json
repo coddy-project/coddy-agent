@@ -865,6 +865,13 @@
           "description": "Optional models[].model used for the summarization call. Empty uses the session's effective model.",
           "default": ""
         },
+        "fallback_models": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Summarizer models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so a compaction is not blocked by one unreachable summarizer."
+        },
         "result_eviction": {
           "type": "object",
           "title": "Read/grep result eviction",
