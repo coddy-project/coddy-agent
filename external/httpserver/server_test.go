@@ -610,6 +610,19 @@ func TestCoddySessionCancelHTTP_StopsBlockedAgentTurn(t *testing.T) {
 	}
 }
 
+// lastHistoryMessageSeen is the newest message of a request that belongs to the
+// replayed conversation. Coddy appends a <turn_context> block after the history
+// on every request (internal/agent/turn_context.go); it is part of no transcript.
+func lastHistoryMessageSeen(msgs []llm.Message) llm.Message {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if strings.Contains(msgs[i].Content, "<turn_context>") {
+			continue
+		}
+		return msgs[i]
+	}
+	return llm.Message{}
+}
+
 func TestCoddySessionPermissionPostRejectResumesPersistedGateAfterRestart(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
@@ -715,7 +728,7 @@ func TestCoddySessionPermissionPostRejectResumesPersistedGateAfterRestart(t *tes
 			if len(provider.seen) == 0 {
 				t.Fatal("provider was not called")
 			}
-			lastSeen := provider.seen[len(provider.seen)-1]
+			lastSeen := lastHistoryMessageSeen(provider.seen)
 			if lastSeen.Role != llm.RoleTool || lastSeen.ToolCallID != "call_blocked" || lastSeen.Content != "permission denied by user" {
 				t.Fatalf("provider latest message %+v", lastSeen)
 			}

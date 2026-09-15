@@ -66,6 +66,7 @@ compaction:
     enable: true
     keep_recent: 2         # most recent read/grep results kept intact
     min_result_bytes: 2000 # results at or below this size are never evicted
+    start_percent: 50      # evict only once the context reaches this percent of the window
 ```
 
 | Key | Default | Meaning |
@@ -77,6 +78,20 @@ compaction:
 | `result_eviction.enable` | `true` | collapse superseded `read` and `grep` results |
 | `result_eviction.keep_recent` | `2` | most recent candidates kept as the working window |
 | `result_eviction.min_result_bytes` | `2000` | results at or below this size are left alone |
+| `result_eviction.start_percent` | `50` | how full the context must be before eviction starts; `0` evicts from the first result |
+
+`start_percent` exists because eviction and the provider's prompt cache pull in
+opposite directions. A placeholder is written **into the middle of the replayed
+history**, and a provider caches a request by its prefix, so one collapsed result
+throws away the cached copy of every message behind it. With a sliding working
+window that happens on nearly every step, and a long conversation is then
+reprocessed at full price to save a few thousand tokens the window was not short
+of yet. Below the mark the history therefore goes out exactly as the provider
+already has it; above it, the room matters more than the cache. A model entry
+without `max_context_tokens` cannot be measured and evicts from the first result,
+as it always did. See *The turn context block* in
+[react-agent.md](../contributing/react-agent.md) for the other half of the same
+story - what Coddy stopped putting in the system prompt for the same reason.
 
 The field table with types and validation is in the [config.yaml reference](../reference/config.md#compaction); the keys are ordinary settings, editable in the **Context compaction** section of the web UI's Settings. The one thing a model entry needs for the automatic trigger is `max_context_tokens`: without it the threshold has nothing to compare against.
 

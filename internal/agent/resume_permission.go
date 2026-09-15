@@ -221,7 +221,11 @@ func (a *Agent) continueReAct(ctx context.Context, mode string, toolEnv *tools.E
 	if err != nil {
 		return string(acp.StopReasonRefused), fmt.Errorf("no LLM configured: %w", err)
 	}
-	messages := a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
+	sys := a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles)
+	messages := a.buildMessages(sys.Content)
+	// The continuation is the last part of the turn that ran the plan, unless
+	// it stops on another gate of its own (react.go).
+	defer a.releasePlanContext()
 	maxTurns := a.cfg.Agent.MaxTurns
 	if maxTurns <= 0 {
 		maxTurns = 30
@@ -230,7 +234,7 @@ func (a *Agent) continueReAct(ctx context.Context, mode string, toolEnv *tools.E
 	toolEnv.SendDesignPlanUpdate = func(doc plans.Document) {
 		tools.SendDesignPlanUpdate(toolEnv, doc)
 	}
-	return a.runReActLoop(ctx, mode, messages, toolDefs, transport, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns)
+	return a.runReActLoop(ctx, mode, sys, messages, toolDefs, transport, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns)
 }
 
 func lastUserText(msgs []llm.Message) string {

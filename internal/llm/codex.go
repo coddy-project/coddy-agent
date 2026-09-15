@@ -102,7 +102,7 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 	var fullContent, reasoning string
 	var toolCalls []ToolCall
 	var reasoningItems []json.RawMessage
-	var inputTokens, outputTokens int
+	var inputTokens, outputTokens, cachedInputTokens int
 	stopReason := ""
 
 	for stream.Next() {
@@ -160,6 +160,7 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 		case "response.completed":
 			inputTokens = int(ev.Response.Usage.InputTokens)
 			outputTokens = int(ev.Response.Usage.OutputTokens)
+			cachedInputTokens = int(ev.Response.Usage.InputTokensDetails.CachedTokens)
 		case "error", "response.failed":
 			msg := strings.TrimSpace(ev.Message)
 			if msg == "" {
@@ -180,6 +181,7 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 				StopReason:         codexStopReason(toolCalls),
 				InputTokens:        inputTokens,
 				OutputTokens:       outputTokens,
+				CachedInputTokens:  cachedInputTokens,
 			}, fmt.Errorf("codex stream: %w", err)
 		}
 		return nil, fmt.Errorf("codex stream: %w", err)
@@ -196,6 +198,7 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 		StopReason:         stopReason,
 		InputTokens:        inputTokens,
 		OutputTokens:       outputTokens,
+		CachedInputTokens:  cachedInputTokens,
 	}, nil
 }
 

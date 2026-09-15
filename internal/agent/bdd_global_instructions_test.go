@@ -221,6 +221,22 @@ func (s *globalInstructionsFeatureState) systemPrompt(n int) (string, error) {
 	return msgs[0].Content, nil
 }
 
+// wholeRequest returns everything the nth request says to the model. A rule or
+// a nested AGENTS.md a tool call pulled in mid-turn arrives in the turn context
+// block after the history, not in the frozen system message, so what matters
+// here is that the model was told, not where (turn_context.go).
+func (s *globalInstructionsFeatureState) wholeRequest(n int) (string, error) {
+	if n >= len(s.seen) {
+		return "", fmt.Errorf("request %d was never made (%d total)", n, len(s.seen))
+	}
+	var b strings.Builder
+	for _, m := range s.seen[n] {
+		b.WriteString(m.Content)
+		b.WriteString("\n")
+	}
+	return b.String(), nil
+}
+
 func (s *globalInstructionsFeatureState) requestCarries(tail string) error {
 	sp, err := s.systemPrompt(len(s.seen) - 1)
 	if err != nil {
@@ -283,7 +299,7 @@ func (s *globalInstructionsFeatureState) requestsAfterReadCarry(tail string) err
 		return fmt.Errorf("expected a request after the read, got %d request(s)", len(s.seen))
 	}
 	for n := 1; n < len(s.seen); n++ {
-		sp, err := s.systemPrompt(n)
+		sp, err := s.wholeRequest(n)
 		if err != nil {
 			return err
 		}
