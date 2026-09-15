@@ -204,7 +204,8 @@ func openAPISpec() map[string]interface{} {
 						"**updatedAt** advances when session state is persisted (messages, titles, etc.); loading a snapshot into memory for HTTP does not rewrite it. " +
 						"Bundles created for **scheduler runs** (cron or manual) carry **schedulerRun** metadata and are **hidden** from this list unless **include_scheduler=true**. " +
 						"Child sessions of subagent runs (**subagentRun** metadata, stored inside the parent's bundle) are hidden unless **include_subagents=true**; an included child row carries **subagent** **`{parentSessionId, name, taskId}`** so a client can route back to the parent chat and to the task in its drawer. " +
-						"Sessions the operator **archived** are hidden unless **archived** says otherwise, and a row carries **tags**, **archived** / **archivedAt** and **origin** when it has them. " +
+						"Sessions the operator **archived** are hidden unless **archived** says otherwise, and a row carries **tags**, **archived** / **archivedAt**, **origin** and **pinned** / **pinnedAt** when it has them. " +
+						"A **pinned** session leads the listing whatever **sort** says - a pin that worked in one order only would not be one - and several pins are ordered among themselves by that key. " +
 						"**sort** and **order** replace the default ordering; they are applied to the whole filtered listing before paging, so page two of a sorted listing continues page one.",
 					"parameters": append(coddyPagingParams(), map[string]interface{}{
 						"name":   "cwd",
@@ -1344,7 +1345,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}": map[string]interface{}{
 				"patch": map[string]interface{}{
 					"summary": "Patch session composer metadata",
-					"description": "Set **title** (pinned title), **tags** (the session's labels), **archived** (put the session aside or take it back), **selectedModelId** (YAML **`models[].model`** selector for this session), **selectedReasoning** (reasoning level; must be one of the effective model's **`reasoning_levels`**, empty to clear), and/or **markActivityRead** (boolean) to advance the read cursor for **activitySeq**. " +
+					"description": "Set **title** (pinned title), **tags** (the session's labels), **archived** (put the session aside or take it back), **pinned** (hold it at the top of every listing), **selectedModelId** (YAML **`models[].model`** selector for this session), **selectedReasoning** (reasoning level; must be one of the effective model's **`reasoning_levels`**, empty to clear), and/or **markActivityRead** (boolean) to advance the read cursor for **activitySeq**. " +
 						"**tags** replaces the whole set rather than merging into it, so an empty array clears them; omitting the field leaves them alone. Values are normalized (lower case, inner whitespace as a hyphen, duplicates dropped, at most 8 of at most 32 characters). " +
 						"**markActivityRead** updates only activity counters in **session.json** and does not change **updatedAt** (history order stays stable until new chat content is saved).",
 					"parameters": []interface{}{
@@ -1367,6 +1368,7 @@ func openAPISpec() map[string]interface{} {
 											"items": map[string]string{"type": "string"},
 										},
 										"archived":          map[string]string{"type": "boolean"},
+										"pinned":            map[string]string{"type": "boolean"},
 										"selectedModelId":   map[string]string{"type": "string"},
 										"selectedReasoning": map[string]string{"type": "string"},
 										"markActivityRead":  map[string]string{"type": "boolean"},

@@ -866,6 +866,12 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 		if row.Origin != "" {
 			ent["origin"] = row.Origin
 		}
+		if row.Pinned {
+			ent["pinned"] = true
+			if row.PinnedAt != "" {
+				ent["pinnedAt"] = row.PinnedAt
+			}
+		}
 		if includeSubagents {
 			if link := subagentRowLink(row); link != nil {
 				ent["subagent"] = link
@@ -1171,6 +1177,7 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 		SelectedReasoning *string   `json:"selectedReasoning"`
 		Tags              *[]string `json:"tags"`
 		Archived          *bool     `json:"archived"`
+		Pinned            *bool     `json:"pinned"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
@@ -1243,8 +1250,17 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 			resp["archivedAt"] = at
 		}
 	}
+	if body.Pinned != nil {
+		st.SetPinned(*body.Pinned)
+		did = true
+		pinned, at := st.PinState()
+		resp["pinned"] = pinned
+		if at = strings.TrimSpace(at); at != "" {
+			resp["pinnedAt"] = at
+		}
+	}
 	if !did {
-		http.Error(w, `{"error":{"message":"title, tags, archived, markActivityRead, selectedModelId, or selectedReasoning required"}}`, http.StatusBadRequest)
+		http.Error(w, `{"error":{"message":"title, tags, archived, pinned, markActivityRead, selectedModelId, or selectedReasoning required"}}`, http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

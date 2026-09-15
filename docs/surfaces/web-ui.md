@@ -249,11 +249,15 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 
 ![History grouped by folder, with a plus on the heading](../assets/sessions-history-grouping-dark-1280.png)
 
-*Grouped by folder: the heading is the folder name with its row count, and hovering it offers a new chat in that workspace*
+*Grouped by folder: the heading is the folder name with its row count, and hovering it offers a new chat in that workspace. The first row is pinned*
+
+![The row menu of one conversation](../assets/sessions-history-row-menu-dark-1280.png)
+
+*One control per row: pin, archive, and delete set apart in the destructive colour. The row above it is pinned, and says so beside its title*
 
 ![The History filter menu](../assets/sessions-history-filters-dark-1280.png)
 
-*One control holds the four questions: which environment, which side of the archive, how the rows are grouped, and what they are ordered by*
+*Four rows, each naming its question and the answer in force; the choices open beside the row*
 
 ![The shared confirmation dialog before a chat is deleted](../assets/confirm-delete-chat-dark-1280.png)
 
@@ -273,7 +277,9 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
   - **Date** buckets by local calendar day: **Today**, **Yesterday**, **Previous 7 days**, **Previous 30 days**, **Older**, and **No date** last for a bundle with no timestamp.
   - **Folder** keys on the full path and shows the folder name, so two checkouts called `one` stay apart; sessions with no workspace go last. A folder heading also carries a **+** that starts a new chat already pointed at that workspace - the pick goes through the same pre-session path as the composer's folder chip, so the server resolves the folder's current git branch for the new conversation.
   - **Tag** puts untagged sessions last.
-- **Archiving** takes a conversation out of the working list without deleting it: the tray icon on the row calls **`PATCH /coddy/sessions/{id}`** with **`archived`**, and the row leaves the list at once rather than waiting for the refresh. An archived row carries an **archived** badge and its tray icon puts it back. The archive is hidden again on the next open - a conversation put aside stays out of the way.
+- **What can be done to one conversation is behind its ⋮**: **Pin to the top**, **Archive**, and **Delete** set apart below a rule in the destructive colour. An icon per action cost the title a button's width each and put a delete one mis-click away; inside the menu the actions have room for their words. One menu is open at a time, **Escape** closes it, and it is portaled out of the drawer so it is not cut off at the edge (it flips above the row near the foot of the window).
+- **Pinning** holds a conversation at the top of the list whatever the order is (**`PATCH`** with **`pinned`**); a pinned row carries a small accent mark beside its title. The row does not move on the client - the order is the server's answer - so the list is re-read after the change.
+- **Archiving** takes a conversation out of the working list without deleting it (**`PATCH`** with **`archived`**). The row moves only once the server has agreed: a refused request would otherwise leave the drawer showing a state that is not on disk. An archived row carries an **archived** badge and the same menu item puts it back. The archive is hidden again on the next open - a conversation put aside stays out of the way.
 - **Tags** of a row render under its title as small chips (the title keeps the first line to itself); they are proposed by the title generation and edited over the API.
 - Indicators
   - A spinner appears on rows for sessions that are still generating in the background.
@@ -291,8 +297,8 @@ Session rename UX
 
 Session delete UX
 
-- Each row has a trash icon button, and an archive tray beside it.
-- Clicking delete shows one confirm dialog and then calls `DELETE /coddy/sessions/{id}`.
+- Delete is a line of the row's **⋮** menu, set apart and in the destructive colour.
+- Clicking delete shows one confirm dialog and then calls `DELETE /coddy/sessions/{id}`. The dialog opens with **Delete** focused here, so **Enter** finishes what the click started: the row's trash does one thing and the dialog asks about that one thing. Everywhere else the shared dialog still opens on **Cancel**, where a stray Enter must not confirm something nobody meant (**`initialFocus`** on **`confirm({...})`**).
 - If the deleted session is **not** the one currently shown in the main chat, remove it from the list (and refresh from the server) and **keep the History drawer open**. Do not change the URL or clear the transcript for the session that stayed on screen.
 - If the deleted session **is** the one currently shown, navigate to **new chat** (empty start screen, session hash cleared), **close** the History drawer, and clear composer-related state as for a normal home transition.
 - For a short interval after the user confirms delete, **ignore** shell **backdrop** pointer-driven close so a stray event from the native confirm does not dismiss History or alter the route.

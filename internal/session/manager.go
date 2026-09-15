@@ -474,6 +474,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	st.SetTagsWithoutPersist(snap.Meta.Tags)
 	st.SetArchivedWithoutPersist(snap.Meta.Archived, snap.Meta.ArchivedAt)
 	st.SetOriginWithoutPersist(snap.Meta.Origin)
+	st.SetPinnedWithoutPersist(snap.Meta.Pinned, snap.Meta.PinnedAt)
 	st.RestoreHookContextWithoutPersist(snap.Meta.HookContext)
 	st.ReplaceMessagesWithoutPersist(snap.Messages)
 	st.SetPlanWithoutPersist(snap.Plan)

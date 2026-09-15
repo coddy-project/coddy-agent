@@ -305,9 +305,13 @@ Single implementation: **`MarkdownLineEditor`** in **`external/ui/src/ui/markdow
   is for and must not be pushed out of view by labels. Chips are **10px**, pill-shaped, on a 6% text
   wash. The **archived badge** (**`.session-archived-badge`**) is the same size and wash but uppercase,
   and sits **inline after the title**, because it qualifies the title rather than the row.
-- **Row actions** are the archive tray then the trash, both **`.session-trash`** (26px, 0.38 opacity
-  until the row is hovered). The tray glyph points **down into** the box to archive and **up out of** it
-  to restore, so the direction is the affordance.
+- **One control per row** (**`.session-row-menu-trigger`**, a 26px **⋮**, 0.38 opacity until the row is
+  hovered) opens **`.session-row-menu`**: pin, archive, then **delete** set apart above a hairline and
+  drawn in the destructive colour. An icon per action cost the title a button's width each and made a
+  mis-click a delete; inside the menu the actions have room for their words. The menu is portaled and
+  placed from the trigger, and flips above the row near the foot of the window.
+- **A pin is a mark on the title** (**`.session-pin-mark`**, accent), not a badge: the row is already at
+  the top saying it.
 
 ### Session table: sorting, the archive and tags
 

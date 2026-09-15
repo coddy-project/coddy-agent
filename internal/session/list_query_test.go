@@ -307,3 +307,58 @@ func TestSetTagsAndSetArchivedDoNotWriteWhenNothingMoves(t *testing.T) {
 		t.Fatalf("archiving an archived session moved its stamp: %q -> %q", firstStamp, stamp)
 	}
 }
+
+func TestSortSessionListKeepsPinnedRowsOnTopOfEveryOrder(t *testing.T) {
+	// A pin means "keep this where I can see it". It outranks the column being
+	// sorted by, or it would only work for one of them.
+	rows := []SessionListEntry{
+		{SessionID: "sess_a", Title: "alpha", UpdatedAt: "2026-09-03T00:00:00Z"},
+		{SessionID: "sess_b", Title: "bravo", UpdatedAt: "2026-09-02T00:00:00Z", Pinned: true},
+		{SessionID: "sess_c", Title: "charlie", UpdatedAt: "2026-09-01T00:00:00Z"},
+	}
+	for _, key := range []SortKey{SortUpdated, SortTitle, SortCreated} {
+		for _, order := range []SortOrder{SortAsc, SortDesc} {
+			got := append([]SessionListEntry(nil), rows...)
+			SortSessionList(got, key, order, nil)
+			if got[0].SessionID != "sess_b" {
+				t.Fatalf("%s %s: pinned row is at %v", key, order, got)
+			}
+		}
+	}
+}
+
+func TestSortSessionListOrdersSeveralPinsAmongThemselves(t *testing.T) {
+	rows := []SessionListEntry{
+		{SessionID: "sess_a", Title: "alpha", Pinned: true},
+		{SessionID: "sess_b", Title: "bravo", Pinned: true},
+		{SessionID: "sess_c", Title: "charlie"},
+	}
+	SortSessionList(rows, SortTitle, SortDesc, nil)
+	if rows[0].SessionID != "sess_b" || rows[1].SessionID != "sess_a" {
+		t.Fatalf("pins ignore the sort among themselves: %v", rows)
+	}
+}
+
+func TestSetPinnedStampsAndClears(t *testing.T) {
+	writes := 0
+	st := &State{ID: "sess_a"}
+	st.SetPersistHook(func() { writes++ })
+
+	st.SetPinned(true)
+	pinned, at := st.PinState()
+	if !pinned || strings.TrimSpace(at) == "" {
+		t.Fatalf("PinState() = %v, %q", pinned, at)
+	}
+	st.SetPinned(true)
+	if writes != 1 {
+		t.Fatalf("pinning a pinned session wrote %d times", writes)
+	}
+	if _, again := st.PinState(); again != at {
+		t.Fatalf("pinning again moved the stamp: %q -> %q", at, again)
+	}
+
+	st.SetPinned(false)
+	if pinned, at = st.PinState(); pinned || at != "" {
+		t.Fatalf("after unpinning: %v, %q", pinned, at)
+	}
+}

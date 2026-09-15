@@ -13,6 +13,7 @@ import {
   type SessionsEnvironmentOption,
 } from "./SessionsFilterMenu";
 import type { SessionArchiveFilter, SessionSortKey } from "./sessionQuery";
+import { SessionRowMenu, type SessionRowMenuItem } from "./SessionRowMenu";
 import {
   sessionRowShowsPermissionPending,
   sessionRowShowsQuestionPending,
@@ -53,6 +54,38 @@ function IconFilters() {
       <path d="M12 17h8" />
       <circle cx="16" cy="7" r="2" />
       <circle cx="10" cy="17" r="2" />
+    </svg>
+  );
+}
+
+/** A pin, for the row held at the top of the list. */
+function IconPin() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden
+    >
+      <path d="M14 2l8 8-3 1-1.5 1.5 1 6.5-3-3-5 5 1-6-4.5-1.5L9 10l1-3z" />
+    </svg>
+  );
+}
+
+/** The row's own menu: everything that can be done to one conversation. */
+function IconKebab() {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden
+    >
+      <circle cx="12" cy="5" r="1.7" />
+      <circle cx="12" cy="12" r="1.7" />
+      <circle cx="12" cy="19" r="1.7" />
     </svg>
   );
 }
@@ -100,6 +133,8 @@ export function SessionsSidebar(props: {
   onDelete: (id: string) => void;
   /** Puts a conversation in the archive, or takes it back out. */
   onArchive?: (id: string, archived: boolean) => void;
+  /** Keeps a conversation at the top of the list, or lets it back into order. */
+  onPin?: (id: string, pinned: boolean) => void;
   /** How the list is divided into headings; "none" keeps it flat. */
   groupMode?: SessionGroupMode;
   onGroupModeChange?: (mode: SessionGroupMode) => void;
@@ -130,7 +165,13 @@ export function SessionsSidebar(props: {
     props.permissionPendingSessionIds ?? new Set<string>();
   const questionPending = props.questionPendingSessionIds ?? new Set<string>();
   const groupMode: SessionGroupMode = props.groupMode ?? "none";
-  const { onArchive, onNewChatInWorkspace } = props;
+  const { onArchive, onPin, onNewChatInWorkspace } = props;
+  // Which row has its menu open, and where that row's control is. One at a
+  // time: a second menu open behind the first would be two answers to one
+  // question.
+  const [rowMenu, setRowMenu] = useState<{ id: string; at: DOMRect } | null>(
+    null,
+  );
   const [filtersOpen, setFiltersOpen] = useState(false);
   // The menu is portaled out of the drawer (which clips what overflows it), so
   // it is placed from the trigger's rectangle rather than by being inside it.
@@ -251,6 +292,16 @@ export function SessionsSidebar(props: {
           >
             {s.title || t("sessions.newChatFallback")}
           </span>
+          {s.pinned ? (
+            <span
+              className="session-pin-mark"
+              data-testid={`session-pinned-${s.id}`}
+              aria-label={t("sessions.pinnedBadge")}
+              title={t("sessions.pinnedBadge")}
+            >
+              <IconPin />
+            </span>
+          ) : null}
           {s.archived ? (
             <span
               className="session-archived-badge"
@@ -277,38 +328,62 @@ export function SessionsSidebar(props: {
           </div>
         ) : null}
       </a>
-      {onArchive ? (
-        <button
-          className="session-trash session-archive"
-          type="button"
-          aria-label={
-            s.archived ? t("sessions.unarchive") : t("sessions.archive")
-          }
-          title={s.archived ? t("sessions.unarchive") : t("sessions.archive")}
-          data-testid={`session-archive-${s.id}`}
-          onClick={(ev) => {
-            ev.preventDefault();
-            ev.stopPropagation();
-            onArchive(s.id, !s.archived);
-          }}
-        >
-          <IconArchiveRow out={!!s.archived} />
-        </button>
-      ) : null}
-      <button
-        className="session-trash"
-        type="button"
-        aria-label={t("sessions.deleteConversation")}
-        title={t("sessions.delete")}
-        data-testid={`session-delete-${s.id}`}
-        onClick={(ev) => {
-          ev.preventDefault();
-          ev.stopPropagation();
-          void props.onDelete(s.id);
-        }}
-      >
-        🗑
-      </button>
+      {(() => {
+        const items: SessionRowMenuItem[] = [];
+        if (onPin) {
+          items.push({
+            key: "pin",
+            label: s.pinned ? t("sessions.unpin") : t("sessions.pin"),
+            testId: `session-menu-pin-${s.id}`,
+            onPick: () => onPin(s.id, !s.pinned),
+          });
+        }
+        if (onArchive) {
+          items.push({
+            key: "archive",
+            label: s.archived ? t("sessions.unarchive") : t("sessions.archive"),
+            testId: `session-menu-archive-${s.id}`,
+            onPick: () => onArchive(s.id, !s.archived),
+          });
+        }
+        items.push({
+          key: "delete",
+          label: t("sessions.deleteConversation"),
+          testId: `session-menu-delete-${s.id}`,
+          danger: true,
+          onPick: () => void props.onDelete(s.id),
+        });
+        return (
+          <>
+            <button
+              className="session-row-menu-trigger"
+              type="button"
+              aria-label={t("sessions.rowMenu")}
+              title={t("sessions.rowMenu")}
+              aria-haspopup="menu"
+              aria-expanded={rowMenu?.id === s.id}
+              data-testid={`session-menu-${s.id}`}
+              onClick={(ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                const at = ev.currentTarget.getBoundingClientRect();
+                setRowMenu((prev) =>
+                  prev?.id === s.id ? null : { id: s.id, at },
+                );
+              }}
+            >
+              <IconKebab />
+            </button>
+            <SessionRowMenu
+              open={rowMenu?.id === s.id}
+              onClose={() => setRowMenu(null)}
+              anchor={rowMenu?.id === s.id ? rowMenu.at : null}
+              items={items}
+              ariaLabel={s.title || t("sessions.newChatFallback")}
+            />
+          </>
+        );
+      })()}
     </div>
   );
 

@@ -4,14 +4,14 @@ import "unicode/utf8"
 
 // ContextBreakdown estimates token usage by prompt category (v1: runes/4).
 type ContextBreakdown struct {
-	SystemPrompt     int `json:"systemPrompt"`
-	ToolDefinitions  int `json:"toolDefinitions"`
-	Rules            int `json:"rules"`
-	Skills           int `json:"skills"`
-	MCP              int `json:"mcp"`
-	Subagents        int `json:"subagents"`
-	Conversation     int `json:"conversation"`
-	EstimatedTotal   int `json:"estimatedTotal"`
+	SystemPrompt    int `json:"systemPrompt"`
+	ToolDefinitions int `json:"toolDefinitions"`
+	Rules           int `json:"rules"`
+	Skills          int `json:"skills"`
+	MCP             int `json:"mcp"`
+	Subagents       int `json:"subagents"`
+	Conversation    int `json:"conversation"`
+	EstimatedTotal  int `json:"estimatedTotal"`
 }
 
 // EstimateTokens approximates tokens from text length.

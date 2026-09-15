@@ -1787,32 +1787,90 @@ a.rail-brand {
   background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
 }
 
-.session-trash {
+/* One control per row, not a strip of them: the actions have room for their
+   words inside the menu it opens, and the title keeps the width the icons took. */
+.session-row-menu-trigger {
   opacity: 0.38;
   flex-shrink: 0;
   position: relative;
   z-index: 2;
   width: 26px;
   height: 26px;
-  border-radius: 10px;
+  border-radius: 8px;
   border: 0;
   background: transparent;
   color: color-mix(in srgb, var(--text) 85%, var(--coddy-blend-base));
   cursor: pointer;
-  font-size: 13px;
-  line-height: 1;
   display: grid;
   place-items: center;
   pointer-events: auto;
 }
 
-.session-item:hover .session-trash,
-.session-trash:focus-visible {
+.session-item:hover .session-row-menu-trigger,
+.session-row-menu-trigger:focus-visible,
+.session-row-menu-trigger[aria-expanded="true"] {
   opacity: 1;
 }
 
-.session-trash:hover {
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+.session-row-menu-trigger:hover,
+.session-row-menu-trigger[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+}
+
+/* Portaled out of the drawer, which clips what overflows it. */
+.session-row-menu {
+  position: fixed;
+  z-index: 101;
+  min-width: 180px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--coddy-tip-bg);
+  border: 1px solid var(--coddy-glass-panel-border);
+  box-shadow: var(--coddy-tip-shadow);
+}
+
+.session-row-menu-item {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.session-row-menu-item:hover {
+  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+}
+
+/* The one irreversible line, in the colour that says so and set apart from the
+   reversible ones above it. */
+.session-row-menu-item.is-danger {
+  margin-top: 5px;
+  padding-top: 8px;
+  border-top: 1px solid
+    color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-radius: 0 0 8px 8px;
+  color: var(--coddy-danger, #f87171);
+}
+
+.session-row-menu-item.is-danger:hover {
+  background: color-mix(in srgb, #f87171 16%, transparent);
+}
+
+/* A pin is a mark on the title, not a badge: it says where the row is, and the
+   row is already at the top saying it. */
+.session-pin-mark {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  line-height: 1;
+  color: var(--accent);
 }
 
 .session-menu {

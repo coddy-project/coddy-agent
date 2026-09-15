@@ -286,7 +286,8 @@ func SessionMatchesAnyTag(row SessionListEntry, wanted []string) bool {
 // SortTokens - the totals live in a file of their own, so the caller reads them
 // only when that column is the one being sorted by - and may be nil otherwise.
 //
-// Two rules hold for every key. A session the key says nothing about (no
+// Pinned sessions come first whatever the key says, and are ordered among
+// themselves by it. Two further rules hold for every key. A session the key says nothing about (no
 // creation stamp, no title yet) sorts last in *both* directions, because
 // "unknown" is not a small value. And a tie is broken by session id, so paging
 // through a listing never shows the same row twice or skips one.
@@ -294,6 +295,11 @@ func SortSessionList(rows []SessionListEntry, key SortKey, order SortOrder, toke
 	asc := order == SortAsc
 	sort.SliceStable(rows, func(i, j int) bool {
 		a, b := rows[i], rows[j]
+		// A pin means "keep this where I can see it", so it outranks the column
+		// being sorted by - a pin that only worked in one order would not be one.
+		if a.Pinned != b.Pinned {
+			return a.Pinned
+		}
 		if cmp, decided := compareSessionRows(a, b, key, tokensOf); decided {
 			if !asc {
 				cmp = -cmp

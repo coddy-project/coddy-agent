@@ -14,12 +14,12 @@ const pendingPermissionFileName = "pending_permission.json"
 
 // PendingPermissionRecord is persisted while the agent waits on POST /coddy/sessions/{id}/permission.
 type PendingPermissionRecord struct {
-	Version   int                          `json:"version"`
-	SessionID string                       `json:"sessionId"`
-	ToolCall  acp.PermissionToolCall       `json:"toolCall"`
-	Options   []acp.PermissionOption       `json:"options"`
-	ToolName  string                       `json:"toolName,omitempty"`
-	ArgsJSON  string                       `json:"argsJson,omitempty"`
+	Version   int                    `json:"version"`
+	SessionID string                 `json:"sessionId"`
+	ToolCall  acp.PermissionToolCall `json:"toolCall"`
+	Options   []acp.PermissionOption `json:"options"`
+	ToolName  string                 `json:"toolName,omitempty"`
+	ArgsJSON  string                 `json:"argsJson,omitempty"`
 }
 
 // WritePendingPermission stores an in-flight permission gate on disk (survives process restart).

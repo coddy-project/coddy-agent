@@ -431,3 +431,50 @@ func TestSessionListReportsTheOriginOfAGatewayChat(t *testing.T) {
 		t.Fatalf("the origin stamp was overwritten: gateway listing = %v", ids)
 	}
 }
+
+func TestPinnedSessionsLeadEveryOrder(t *testing.T) {
+	srv, mgr, store := bulkDeleteServer(t)
+	var ids []string
+	for _, title := range []string{"alpha", "bravo", "charlie"} {
+		id := storeSession(t, mgr, store, "question "+title)
+		if code, body := patchSessionJSON(t, srv, id, map[string]interface{}{"title": title}); code != http.StatusOK {
+			t.Fatalf("patch title: status %d body %v", code, body)
+		}
+		ids = append(ids, id)
+	}
+	// The oldest and alphabetically first: last in a newest-first listing, and
+	// first in a title one - so a pin on it is visible in neither order by luck.
+	if code, body := patchSessionJSON(t, srv, ids[0], map[string]interface{}{"pinned": true}); code != http.StatusOK {
+		t.Fatalf("pin: status %d body %v", code, body)
+	}
+
+	for _, query := range []string{"", "sort=title&order=desc", "sort=created&order=asc"} {
+		_, body := getSessions(t, srv, query)
+		listed := listedIDs(body)
+		if len(listed) == 0 || listed[0] != ids[0] {
+			t.Fatalf("query %q: pinned row is not first: %v", query, listed)
+		}
+	}
+
+	_, body := getSessions(t, srv, "")
+	raw, _ := body["sessions"].([]interface{})
+	row, _ := raw[0].(map[string]interface{})
+	if pinned, _ := row["pinned"].(bool); !pinned {
+		t.Fatalf("row does not report the pin: %v", row)
+	}
+	if at, _ := row["pinnedAt"].(string); at == "" {
+		t.Fatalf("row does not report when it was pinned: %v", row)
+	}
+
+	if code, _ := patchSessionJSON(t, srv, ids[0], map[string]interface{}{"pinned": false}); code != http.StatusOK {
+		t.Fatal("unpin")
+	}
+	// Checked against a title order rather than the default one: unpinning is a
+	// write, so it leaves the session the most recently touched and it would
+	// lead a newest-first listing on its own merits.
+	_, body = getSessions(t, srv, "sort=title&order=desc")
+	listed := listedIDs(body)
+	if listed[len(listed)-1] != ids[0] {
+		t.Fatalf("an unpinned row did not fall back into the order: %v", listed)
+	}
+}

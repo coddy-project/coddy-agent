@@ -1146,6 +1146,8 @@ export function App() {
   const newChatWorkspaceRef = useRef<PendingNewChatWorkspace>(null);
   // Sessions with an archive change in flight; see archiveSession.
   const archivingRef = useRef<Set<string>>(new Set());
+  // The same, for pinning.
+  const pinningRef = useRef<Set<string>>(new Set());
   const [newChatWorkspaceEpoch, setNewChatWorkspaceEpoch] = useState(0);
   const [sessionsHasMore, setSessionsHasMore] = useState(false);
   const [sessionsLoadingMore, setSessionsLoadingMore] = useState(false);
@@ -2902,6 +2904,9 @@ export function App() {
       message: t("confirm.session.deleteChat.message"),
       confirmLabel: t("common.delete"),
       variant: "danger",
+      // The row's trash does one thing, and this dialog asks about that one
+      // thing: focus the answer so Enter finishes what the click started.
+      initialFocus: "confirm",
     });
     if (!ok) {
       return;
@@ -2971,6 +2976,36 @@ export function App() {
         : prev.filter((s) => s.id !== id),
     );
     await loadSessionsList(true);
+  }
+
+  /**
+   * Keeps a conversation at the top of every listing, or lets it back into the
+   * order. Like archiving, the row moves only once the server has agreed, and
+   * one request per session is in flight at a time.
+   */
+  async function pinSession(id: string, pinned: boolean) {
+    if (pinningRef.current.has(id)) {
+      return;
+    }
+    pinningRef.current.add(id);
+    try {
+      const res = await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ pinned }),
+      });
+      if (!res.ok) {
+        setSessionsError(t("app.backendUnavailable", { status: res.status }));
+        return;
+      }
+      // The row does not move here: a pin changes the order, and the order is
+      // the server's answer, not something to guess at from one row.
+      await loadSessionsList(true);
+    } catch {
+      setSessionsError(t("app.backendUnavailable", { status: 0 }));
+    } finally {
+      pinningRef.current.delete(id);
+    }
   }
 
   // The session table in Settings removes bundles behind the open panel. Drop
@@ -4549,6 +4584,7 @@ export function App() {
     onDelete: deleteSession as (id: string) => void | Promise<void>,
     onArchive: (id: string, archived: boolean) =>
       void archiveSession(id, archived),
+    onPin: (id: string, pinned: boolean) => void pinSession(id, pinned),
     groupMode: sessionGroupMode,
     onGroupModeChange: (mode: SessionGroupMode) => {
       setSessionGroupMode(mode);

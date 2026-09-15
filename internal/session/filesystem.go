@@ -376,7 +376,10 @@ type SessionMeta struct {
 	// Origin names the surface that started the session: empty for one a
 	// person opened on this host, "gateway:<messenger>" for a conversation a
 	// messenger gateway is holding.
-	Origin    string `json:"origin,omitempty"`
+	Origin string `json:"origin,omitempty"`
+	// Pinned keeps a session at the top of every listing; PinnedAt records when.
+	Pinned    bool   `json:"pinned,omitempty"`
+	PinnedAt  string `json:"pinnedAt,omitempty"`
 	UpdatedAt string `json:"updatedAt,omitempty"`
 	// CreatedAt is stamped when the bundle directory is first written and never
 	// moves again. A bundle stored before this field existed carries none: the
@@ -563,6 +566,9 @@ type SessionListEntry struct {
 	ArchivedAt string
 	// Origin is the surface that started the session (see SessionMeta.Origin).
 	Origin string
+	// Pinned keeps the row at the top of every listing; PinnedAt says when.
+	Pinned   bool
+	PinnedAt string
 	// MessageCount counts the persisted transcript rows of every role. The
 	// snapshot behind this listing is already parsed, so it costs no extra read.
 	MessageCount int
@@ -680,6 +686,8 @@ func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter s
 		Archived:        snap.Meta.Archived,
 		ArchivedAt:      snap.Meta.ArchivedAt,
 		Origin:          snap.Meta.Origin,
+		Pinned:          snap.Meta.Pinned,
+		PinnedAt:        snap.Meta.PinnedAt,
 		MessageCount:    len(snap.Messages),
 		SubagentRun:     snap.Meta.SubagentRun,
 		ParentSessionID: snap.Meta.ParentSessionID,
@@ -848,6 +856,7 @@ func (f *FileStore) Save(state *State) error {
 		}
 	}
 	archived, archivedAt := state.ArchiveState()
+	pinned, pinnedAt := state.PinState()
 	meta := SessionMeta{
 		Version:           sessionFileLayout,
 		ID:                state.ID,
@@ -863,6 +872,8 @@ func (f *FileStore) Save(state *State) error {
 		Archived:          archived,
 		ArchivedAt:        strings.TrimSpace(archivedAt),
 		Origin:            strings.TrimSpace(state.GetOrigin()),
+		Pinned:            pinned,
+		PinnedAt:          strings.TrimSpace(pinnedAt),
 	}
 	if state.GetSchedulerRun() {
 		meta.SchedulerRun = true

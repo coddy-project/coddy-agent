@@ -11,7 +11,7 @@ const row = (id: string, title: string): SessionRow => ({
   title,
 });
 
-test("delete click does not bubble to row pick", async () => {
+test("delete lives in the row menu and does not bubble to row pick", async () => {
   const onPick = vi.fn();
   const onDelete = vi.fn().mockResolvedValue(undefined);
   render(
@@ -29,10 +29,39 @@ test("delete click does not bubble to row pick", async () => {
       onLoadMore={() => {}}
     />,
   );
-  fireEvent.click(screen.getByTestId("session-delete-other"));
+  // The row carries one control, not a strip of them; the actions are behind it.
+  expect(screen.queryByTestId("session-delete-other")).toBeNull();
+
+  fireEvent.click(screen.getByTestId("session-menu-other"));
+  fireEvent.click(screen.getByTestId("session-menu-delete-other"));
   expect(onDelete).toHaveBeenCalledTimes(1);
   expect(onDelete).toHaveBeenCalledWith("other");
   expect(onPick).not.toHaveBeenCalled();
+});
+
+test("opening a row menu does not open the session", () => {
+  const onPick = vi.fn();
+  renderDrawer({ sessions: [row("other", "B")], onPick });
+  fireEvent.click(screen.getByTestId("session-menu-other"));
+  expect(screen.getByTestId("session-menu-delete-other")).toBeInTheDocument();
+  expect(onPick).not.toHaveBeenCalled();
+});
+
+test("only one row menu is open at a time", () => {
+  renderDrawer({ sessions: [row("a", "A"), row("b", "B")] });
+  fireEvent.click(screen.getByTestId("session-menu-a"));
+  expect(screen.getByTestId("session-menu-delete-a")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByTestId("session-menu-b"));
+  expect(screen.queryByTestId("session-menu-delete-a")).toBeNull();
+  expect(screen.getByTestId("session-menu-delete-b")).toBeInTheDocument();
+});
+
+test("escape closes the row menu", () => {
+  renderDrawer({ sessions: [row("a", "A")] });
+  fireEvent.click(screen.getByTestId("session-menu-a"));
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(screen.queryByTestId("session-menu-delete-a")).toBeNull();
 });
 
 test("clicking session row outside the text picks the session", () => {
@@ -242,15 +271,23 @@ test("a section keeps its options folded until it is opened", () => {
 
   // The menu is four rows, each naming its current value; the choices live one
   // level in, so the panel stays the size of a menu rather than a list of lists.
-  expect(screen.getByTestId("sessions-filter-section-group")).toBeInTheDocument();
+  expect(
+    screen.getByTestId("sessions-filter-section-group"),
+  ).toBeInTheDocument();
   expect(screen.queryByTestId("sessions-filter-group-workspace")).toBeNull();
 
   fireEvent.click(screen.getByTestId("sessions-filter-section-group"));
-  expect(screen.getByTestId("sessions-filter-group-workspace")).toBeInTheDocument();
+  expect(
+    screen.getByTestId("sessions-filter-group-workspace"),
+  ).toBeInTheDocument();
 });
 
 test("a section row says which value is currently in force", () => {
-  renderDrawer({ groupMode: "workspace", sortKey: "title", archiveFilter: "only" });
+  renderDrawer({
+    groupMode: "workspace",
+    sortKey: "title",
+    archiveFilter: "only",
+  });
   fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
 
   expect(screen.getByTestId("sessions-filter-section-group")).toHaveTextContent(
@@ -259,9 +296,9 @@ test("a section row says which value is currently in force", () => {
   expect(screen.getByTestId("sessions-filter-section-sort")).toHaveTextContent(
     "Name",
   );
-  expect(screen.getByTestId("sessions-filter-section-status")).toHaveTextContent(
-    "Archived",
-  );
+  expect(
+    screen.getByTestId("sessions-filter-section-status"),
+  ).toHaveTextContent("Archived");
 });
 
 test("hovering a section opens it and closes the one before it", () => {
@@ -321,7 +358,9 @@ test("one environment is no choice at all, so the section stays out", () => {
     ],
   });
   fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
-  expect(screen.queryByTestId("sessions-filter-section-environment")).toBeNull();
+  expect(
+    screen.queryByTestId("sessions-filter-section-environment"),
+  ).toBeNull();
 });
 
 test("an environment row switches where the history is read from", () => {
@@ -353,7 +392,7 @@ test("escape folds an open section first, and the menu next", () => {
   expect(screen.queryByTestId("sessions-filter-menu")).toBeNull();
 });
 
-test("a row archives without opening the session", () => {
+test("a row archives from its menu, without opening the session", () => {
   const onArchive = vi.fn();
   const onPick = vi.fn();
   renderDrawer({
@@ -361,12 +400,15 @@ test("a row archives without opening the session", () => {
     onArchive,
     onPick,
   });
-  fireEvent.click(screen.getByTestId("session-archive-other"));
+  fireEvent.click(screen.getByTestId("session-menu-other"));
+  fireEvent.click(screen.getByTestId("session-menu-archive-other"));
   expect(onArchive).toHaveBeenCalledWith("other", true);
   expect(onPick).not.toHaveBeenCalled();
+  // The menu closes behind the action it performed.
+  expect(screen.queryByTestId("session-menu-archive-other")).toBeNull();
 });
 
-test("an archived row says so and its button puts it back", () => {
+test("an archived row says so and its menu puts it back", () => {
   const onArchive = vi.fn();
   renderDrawer({
     sessions: [{ id: "filed", title: "B", archived: true }],
@@ -374,8 +416,19 @@ test("an archived row says so and its button puts it back", () => {
     onArchive,
   });
   expect(screen.getByTestId("session-archived-filed")).toBeInTheDocument();
-  fireEvent.click(screen.getByTestId("session-archive-filed"));
+  fireEvent.click(screen.getByTestId("session-menu-filed"));
+  expect(screen.getByTestId("session-menu-archive-filed")).toHaveTextContent(
+    "Take out of the archive",
+  );
+  fireEvent.click(screen.getByTestId("session-menu-archive-filed"));
   expect(onArchive).toHaveBeenCalledWith("filed", false);
+});
+
+test("a shell that offers no archiving still offers delete", () => {
+  renderDrawer({ sessions: [row("a", "A")] });
+  fireEvent.click(screen.getByTestId("session-menu-a"));
+  expect(screen.queryByTestId("session-menu-archive-a")).toBeNull();
+  expect(screen.getByTestId("session-menu-delete-a")).toBeInTheDocument();
 });
 
 test("a row shows the tags it is filed under", () => {
@@ -411,4 +464,26 @@ test("only a folder heading offers that: a date bucket is not a workspace", () =
     onNewChatInWorkspace: () => {},
   });
   expect(screen.queryByTestId("session-group-new-today")).toBeNull();
+});
+
+test("a row pins and unpins from its menu", () => {
+  const onPin = vi.fn();
+  renderDrawer({ sessions: [row("a", "A")], onPin });
+  fireEvent.click(screen.getByTestId("session-menu-a"));
+  expect(screen.getByTestId("session-menu-pin-a")).toHaveTextContent(
+    "Pin to the top",
+  );
+  fireEvent.click(screen.getByTestId("session-menu-pin-a"));
+  expect(onPin).toHaveBeenCalledWith("a", true);
+});
+
+test("a pinned row says so and offers to let it go", () => {
+  const onPin = vi.fn();
+  renderDrawer({ sessions: [{ id: "a", title: "A", pinned: true }], onPin });
+  expect(screen.getByTestId("session-pinned-a")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByTestId("session-menu-a"));
+  expect(screen.getByTestId("session-menu-pin-a")).toHaveTextContent("Unpin");
+  fireEvent.click(screen.getByTestId("session-menu-pin-a"));
+  expect(onPin).toHaveBeenCalledWith("a", false);
 });

@@ -144,6 +144,11 @@ type State struct {
 	// Origin names the surface that started the session; see SessionMeta.Origin.
 	Origin string
 
+	// Pinned keeps the session at the top of every listing; PinnedAt records
+	// the moment it was pinned.
+	Pinned   bool
+	PinnedAt string
+
 	// MemoryCopilotBlock is per-turn text from the memory copilot (not persisted to session.json).
 	MemoryCopilotBlock string
 
@@ -842,6 +847,45 @@ func (s *State) SetArchivedWithoutPersist(archived bool, at string) {
 		s.ArchivedAt = strings.TrimSpace(at)
 	} else {
 		s.ArchivedAt = ""
+	}
+	s.mu.Unlock()
+}
+
+// PinState returns the pin flag and its stamp together, for the same reason
+// ArchiveState does: they are one fact and a writer must not catch half of it.
+func (s *State) PinState() (pinned bool, at string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Pinned, s.PinnedAt
+}
+
+// SetPinned keeps the session at the top of every listing, or lets it back into
+// the order. Pinning a pinned session changes nothing and costs no write, and
+// in particular leaves the original stamp standing.
+func (s *State) SetPinned(pinned bool) {
+	s.mu.Lock()
+	if s.Pinned == pinned {
+		s.mu.Unlock()
+		return
+	}
+	if pinned {
+		s.Pinned = true
+		s.PinnedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	} else {
+		s.Pinned, s.PinnedAt = false, ""
+	}
+	s.mu.Unlock()
+	s.touchPersist()
+}
+
+// SetPinnedWithoutPersist restores the pin and its stamp from disk.
+func (s *State) SetPinnedWithoutPersist(pinned bool, at string) {
+	s.mu.Lock()
+	s.Pinned = pinned
+	if pinned {
+		s.PinnedAt = strings.TrimSpace(at)
+	} else {
+		s.PinnedAt = ""
 	}
 	s.mu.Unlock()
 }
