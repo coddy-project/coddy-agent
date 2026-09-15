@@ -23,6 +23,7 @@ import (
 	"github.com/cucumber/godog"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	"github.com/EvilFreelancer/coddy-agent/external/gateway/sessionstore"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -42,6 +43,7 @@ type subagentPermissionWorld struct {
 	nextMsg int
 
 	sessionID string
+	isGroup   bool
 	answers   chan *acp.PermissionResult
 }
 
@@ -79,6 +81,7 @@ func (w *subagentPermissionWorld) reset() {
 	w.bot.setAPI(w.api)
 	w.calls = nil
 	w.nextMsg = 0
+	w.isGroup = false
 	w.answers = make(chan *acp.PermissionResult, 1)
 }
 
@@ -93,7 +96,12 @@ func (w *subagentPermissionWorld) close() {
 }
 
 func (w *subagentPermissionWorld) chatKey() string {
-	return fmt.Sprintf("tg:user:%d", permissionUserID)
+	return sessionstore.SessionKey(adapterName, permissionChatID, permissionUserID, config.IsolationIndividual, w.isGroup)
+}
+
+func (w *subagentPermissionWorld) groupWithSession() error {
+	w.isGroup = true
+	return w.chatWithSession()
 }
 
 func (w *subagentPermissionWorld) chatWithSession() error {
@@ -198,6 +206,25 @@ func (w *subagentPermissionWorld) chatShowsRequest(name, first, second string) e
 }
 
 func (w *subagentPermissionWorld) userTaps(label string) error {
+	return w.tapAs(label, permissionUserID)
+}
+
+func (w *subagentPermissionWorld) foreignUserTaps(label string) error {
+	return w.tapAs(label, permissionUserID+1)
+}
+
+func (w *subagentPermissionWorld) ownerKeepsButtons() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, call := range w.calls {
+		if call.method == "editMessageReplyMarkup" {
+			return fmt.Errorf("another member removed the owner's buttons")
+		}
+	}
+	return nil
+}
+
+func (w *subagentPermissionWorld) tapAs(label string, userID int64) error {
 	form, err := w.promptMessage()
 	if err != nil {
 		return err
@@ -211,12 +238,16 @@ func (w *subagentPermissionWorld) userTaps(label string) error {
 			if btn.Text != label {
 				continue
 			}
+			chatType := "private"
+			if w.isGroup {
+				chatType = "supergroup"
+			}
 			w.bot.handleCallback(context.Background(), w.api, &tgbotapi.CallbackQuery{
 				ID:   "cb_perm",
-				From: &tgbotapi.User{ID: permissionUserID},
+				From: &tgbotapi.User{ID: userID},
 				Message: &tgbotapi.Message{
 					MessageID: 1,
-					Chat:      &tgbotapi.Chat{ID: permissionChatID, Type: "private"},
+					Chat:      &tgbotapi.Chat{ID: permissionChatID, Type: chatType},
 				},
 				Data: *btn.CallbackData,
 			})
@@ -266,6 +297,9 @@ func initializeSubagentPermissionScenario(sc *godog.ScenarioContext) {
 	})
 	sc.Given(`^a telegram chat whose agent is running a turn$`, w.chatWithSession)
 	sc.Given(`^a telegram chat with a session$`, w.chatWithSession)
+	sc.Given(`^a telegram group with individual sessions$`, w.groupWithSession)
+	sc.When(`^another group member taps "([^"]*)"$`, w.foreignUserTaps)
+	sc.Then(`^the owner's permission buttons remain available$`, w.ownerKeepsButtons)
 	sc.When(`^a subagent "([^"]*)" of that turn asks to run "([^"]*)"$`, w.liveSubagentAsks)
 	sc.When(`^the background subagent "([^"]*)" of that session asks to run "([^"]*)"$`, w.backgroundSubagentAsks)
 	sc.Then(`^the chat shows a permission request naming the subagent "([^"]*)" with the buttons "([^"]*)" and "([^"]*)"$`, w.chatShowsRequest)

@@ -31,6 +31,10 @@ func TestSubagentsWebUIFeature(t *testing.T) {
 	suite := godog.TestSuite{
 		Name: "subagents_web_ui",
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
+			sc.Step(`^a new background permission follows a reader at the bottom without interrupting a reader of older messages$`, func() error {
+				return runVitestScenario("src/ui/chat/ChatScreen.test.tsx",
+					"new background permission prompts follow the reader at the bottom, but polling does not")
+			})
 			sc.Step(`^the Subagents settings tab lists the definitions of the session workspace with their scope, description and file$`, func() error {
 				return runVitestScenario("src/ui/settings/SubagentsSection.test.tsx",
 					"lists every definition of the session workspace with its scope, description and file")

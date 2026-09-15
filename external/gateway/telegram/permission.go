@@ -190,6 +190,14 @@ func (b *Bot) answerPermissionTap(bot *tgbotapi.BotAPI, cbq *tgbotapi.CallbackQu
 	if !ok {
 		b.log.Debug("telegram: callback ignored", "reason", "permission request not waiting for this user",
 			"user", userID, "chat", chatID)
+		// A rejected tap may belong to somebody else in the group. The
+		// request's owner still needs these buttons while it is pending.
+		b.asks.mu.Lock()
+		_, waiting := b.asks.pending[token]
+		b.asks.mu.Unlock()
+		if waiting {
+			return
+		}
 		empty := tgbotapi.NewEditMessageReplyMarkup(chatID, cbq.Message.MessageID,
 			tgbotapi.InlineKeyboardMarkup{InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{}})
 		if _, err := bot.Request(empty); err != nil {

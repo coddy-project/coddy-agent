@@ -10,10 +10,38 @@ import (
 	"testing"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/external/gateway/sessionstore"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
+
+func TestForeignPermissionTapPreservesOwnersKeyboard(t *testing.T) {
+	w := newPermissionWorld(t)
+	owner := w.bot.store.Get(sessionstore.SessionKey(adapterName, permissionChatID, permissionUserID, config.IsolationIndividual, true))
+	p := &chatPrompt{sessionID: owner, options: []acp.PermissionOption{{OptionID: "allow", Name: "Allow"}}, answer: make(chan *acp.PermissionResult, 1)}
+	w.bot.asks.pending["token"] = p
+	query := &tgbotapi.CallbackQuery{From: &tgbotapi.User{ID: permissionUserID + 1}, Message: &tgbotapi.Message{MessageID: 1, Chat: &tgbotapi.Chat{ID: permissionChatID, Type: "supergroup"}}}
+	w.bot.answerPermissionTap(w.api, query, "token:0")
+	w.mu.Lock()
+	for _, call := range w.calls {
+		if call.method == "editMessageReplyMarkup" {
+			t.Error("a foreign tap removed the owner's permission buttons")
+		}
+	}
+	w.mu.Unlock()
+	query.From.ID = permissionUserID
+	w.bot.answerPermissionTap(w.api, query, "token:0")
+	select {
+	case answer := <-p.answer:
+		if answer.OptionID != "allow" {
+			t.Fatalf("owner answered %+v", answer)
+		}
+	default:
+		t.Fatal("the owner can no longer answer")
+	}
+}
 
 // The chat's own agent is allowed without a question, and so is a subagent
 // stamped with bypass; a subagent narrowed below it is never waved through on

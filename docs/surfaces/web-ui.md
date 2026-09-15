@@ -629,6 +629,12 @@ Automated checks:
 
 A background subagent that needs a permission after the turn that spawned it has ended asks in the chat of its parent session: the prompt waits at the end of the conversation in the same card an inline prompt uses, the subagent named in its head (`SubagentPermissionCards`, `chat/SubagentPermissionCard.tsx`). The chat reads it from `pending_permission` on the session's background task rows, re-reads those rows on the `subagent_permission` event of `GET /coddy/events` (the task poll is the fallback), and answers against the **child** session with `POST /coddy/sessions/{child}/permission`. A prompt answered elsewhere first - a console attached over `--remote`, a Telegram chat - leaves the chat on the next read. See `docs/features/subagents.md` (Detached runs).
 
+Multiple requests keep the transcript's 10px spacing. A new request scrolls into view when you are following the end of the chat; reading older messages keeps your position. Routine task refreshes do not move the viewport.
+
+![Two background permission cards with the standard transcript spacing](../assets/subagents/chat-permissions-spaced-dark-1280.png)
+
+*The real ChatScreen rendered with two deterministic pending task rows, Dark theme, 1280px wide.*
+
 ![A background subagent asking for permission in its parent chat](../assets/subagents/chat-subagent-permission-dark-1280.png)
 
 Automated checks:

@@ -18,6 +18,7 @@ import { Composer } from "./Composer";
 import type { QueuedMessage } from "./Composer";
 import { MessageList } from "../messages/MessageList";
 import type { BackgroundTask } from "../tasks/types";
+import { isAwaitingPermission } from "../tasks/taskStatus";
 import { BackgroundTasksChip } from "../tasks/BackgroundTasksChip";
 import { SubagentPermissionCards } from "./SubagentPermissionCard";
 import { SubagentReadOnlyNotice } from "./SubagentReadOnlyNotice";
@@ -127,6 +128,7 @@ export function ChatScreen(props: {
   const showSkeleton = isEmpty && !!props.sessionLoading;
   const stickToBottomRef = useRef(true);
   const prevItemsForScrollRef = useRef<TranscriptItem[]>([]);
+  const prevPermissionsForScrollRef = useRef(new Set<string>());
   const [composerReserve, setComposerReserve] = useState(200);
   // Shared by hero and docked composers so disabled files survive the first text turn.
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
@@ -156,7 +158,24 @@ export function ChatScreen(props: {
     if (isEmpty) return;
     const prev = prevItemsForScrollRef.current;
     prevItemsForScrollRef.current = props.items;
-    if (!transcriptItemsAffectAutoScroll(prev, props.items)) {
+    // Polling replaces task rows even when nothing changed. Only a newly
+    // waiting call should follow the reader, never an elapsed-time update.
+    const permissions = new Set(
+      (props.backgroundTasks ?? [])
+        .filter(isAwaitingPermission)
+        .map((task) =>
+          JSON.stringify([
+            task.id,
+            task.pending_permission?.sessionId,
+            task.pending_permission?.toolCall.toolCallId,
+          ]),
+        ),
+    );
+    const newPermission = [...permissions].some(
+      (key) => !prevPermissionsForScrollRef.current.has(key),
+    );
+    prevPermissionsForScrollRef.current = permissions;
+    if (!newPermission && !transcriptItemsAffectAutoScroll(prev, props.items)) {
       return;
     }
     if (!stickToBottomRef.current) return;
@@ -173,7 +192,7 @@ export function ChatScreen(props: {
     }
     const el = messagesRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [props.items, isEmpty, mobileDocScroll]);
+  }, [props.items, props.backgroundTasks, isEmpty, mobileDocScroll]);
 
   useEffect(() => {
     if (isEmpty) return;

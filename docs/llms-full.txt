@@ -3704,7 +3704,7 @@ prompts reach the remote console like the parent's own, prefixed
 the child runs. A background child that asks after the turn ended reaches the
 console too: the server announces the prompt on its events stream and the
 console opens the modal for the sessions it opened, answering the child
-session; answered first in a browser or a chat, the modal closes. The footer shows the local folder; the trust receipt is keyed
+session; answered first in a browser or a chat, the modal closes. After reconnecting, the console reconciles the complete pending-request snapshot: prompts answered while offline close, while requests still waiting remain open without duplicate modals. An interrupted snapshot does not dismiss a pending request. The footer shows the local folder; the trust receipt is keyed
 by the server-side session workspace (the server's default cwd for a session
 the console created). A dropped connection leaves the server turn and its
 child running; `/resume` shows the outcome once it ends, and an answer to a
@@ -4540,6 +4540,12 @@ Automated checks:
 ![Settings Subagents catalog](../assets/subagents/settings-subagents-catalog-dark-1280.png)
 
 A background subagent that needs a permission after the turn that spawned it has ended asks in the chat of its parent session: the prompt waits at the end of the conversation in the same card an inline prompt uses, the subagent named in its head (`SubagentPermissionCards`, `chat/SubagentPermissionCard.tsx`). The chat reads it from `pending_permission` on the session's background task rows, re-reads those rows on the `subagent_permission` event of `GET /coddy/events` (the task poll is the fallback), and answers against the **child** session with `POST /coddy/sessions/{child}/permission`. A prompt answered elsewhere first - a console attached over `--remote`, a Telegram chat - leaves the chat on the next read. See `docs/features/subagents.md` (Detached runs).
+
+Multiple requests keep the transcript's 10px spacing. A new request scrolls into view when you are following the end of the chat; reading older messages keeps your position. Routine task refreshes do not move the viewport.
+
+![Two background permission cards with the standard transcript spacing](../assets/subagents/chat-permissions-spaced-dark-1280.png)
+
+*The real ChatScreen rendered with two deterministic pending task rows, Dark theme, 1280px wide.*
 
 ![A background subagent asking for permission in its parent chat](../assets/subagents/chat-subagent-permission-dark-1280.png)
 
@@ -5676,7 +5682,7 @@ The old session files remain on disk under the old ID. Use `coddy sessions list`
 ## Security notes
 
 - **Token exposure** — never commit the bot token to version control. Use `"${TELEGRAM_BOT_TOKEN}"` in YAML and export the variable before starting.
-- **Permissions** — the gateway auto-approves the chat agent's own tool permission requests so it can work unattended. Restrict `tools.command_allowlist` in `config.yaml` if you want to limit which shell commands the agent can run. A subagent whose definition narrowed its permission mode below `bypass` is not waved through: the bot asks in the chat with **Allow** / **Reject** buttons naming the subagent - during the turn, and after it ended for a background subagent - and only the person whose session asked can answer (in a group with individual sessions another member's tap is ignored). The message reads *Allowed*, *Denied* or *No longer waiting* once it settles.
+- **Permissions** — the gateway auto-approves the chat agent's own tool permission requests so it can work unattended. Restrict `tools.command_allowlist` in `config.yaml` if you want to limit which shell commands the agent can run. A subagent whose definition narrowed its permission mode below `bypass` is not waved through: the bot asks in the chat with **Allow** / **Reject** buttons naming the subagent - during the turn, and after it ended for a background subagent - and only the person whose session asked can answer (in a group with individual sessions another member's tap is ignored and leaves the owner's buttons available). The message reads *Allowed*, *Denied* or *No longer waiting* once it settles.
 - **Access control** — set `default_access: "admins"` for bots that should only respond to a specific set of users. Open bots (`default_access: "all"`) will respond to any Telegram user who can write to the chat.
 - **Network** — the gateway uses Telegram long-polling (not webhooks). No inbound port needs to be open.
 
@@ -7588,6 +7594,7 @@ The Subagents tab is shown under [Scopes and project trust](#scopes-and-project-
 ![The child session opened read-only from the task row](../assets/subagents/child-transcript-readonly-dark.png)
 
 *The child session opened read-only from the task row*
+
 
 
 # Features / Hooks
@@ -14229,7 +14236,7 @@ Tool call history is persisted per session under `tool_calls/` so it can be rest
 - The copy control is the clipboard icon (**`.md-copy`**, tooltip **Copy**). For a shell command it lives inside the command block next to the **`$`** prompt (**`data-testid="permission-prompt-copy"`**), not in the card header.
 - Preview bodies have a collapsed height cap. **More…** appears only when DOM measurement confirms overflow; it keeps the same bounded viewport, enables internal vertical scrolling, and changes to **Less**. The shared tab button is left-aligned under the viewport and gets a taller touch target on phones. Short content has no toggle.
 
-- **A background subagent's prompt** (**`SubagentPermissionCards`** in **`chat/SubagentPermissionCard.tsx`**) uses this same card once the turn that spawned the subagent has ended and no stream is left to carry the prompt. **`ChatScreen`** renders one per waiting task of the session at the **end of the transcript column**, after the last message and before the tasks chip, oldest question first: a running agent row with a usable **`pending_permission`** (**`isAwaitingPermission`**: the child **`sessionId`** and the **`toolCall.toolCallId`** present). The head names the subagent (*The subagent "writer" asks for permission*) in place of the action question; the preview is built by **`buildPermissionToolPreview`** after **`stripSubagentTitlePrefix`** drops the relay's **`[subagent <name>]`** prefix; the buttons are the offered options (never an "always" one). The answer goes to the **child** session through **`submitPermissionChoice`** (**`chat/permissionSubmit.ts`**, shared with **`PermissionPromptSection`**) and the task rows are re-read, as they are on every **`subagent_permission`** server event. Reference capture: **`docs/assets/subagents/chat-subagent-permission-dark-1280.png`**.
+- **A background subagent's prompt** (**`SubagentPermissionCards`** in **`chat/SubagentPermissionCard.tsx`**) uses this same card once the turn that spawned the subagent has ended and no stream is left to carry the prompt. **`ChatScreen`** renders one per waiting task of the session at the **end of the transcript column**, after the last message and before the tasks chip, oldest question first: a running agent row with a usable **`pending_permission`** (**`isAwaitingPermission`**: the child **`sessionId`** and the **`toolCall.toolCallId`** present). The head names the subagent (*The subagent "writer" asks for permission*) in place of the action question; the preview is built by **`buildPermissionToolPreview`** after **`stripSubagentTitlePrefix`** drops the relay's **`[subagent <name>]`** prefix; the buttons are the offered options (never an "always" one). The answer goes to the **child** session through **`submitPermissionChoice`** (**`chat/permissionSubmit.ts`**, shared with **`PermissionPromptSection`**) and the task rows are re-read, as they are on every **`subagent_permission`** server event. Adjacent prompts use the transcript's **10px** gap. A newly waiting call follows the reader only while the chat is pinned to the bottom; polling an unchanged prompt and removing a settled prompt do not force a scroll. Reference capture: **`docs/assets/subagents/chat-subagent-permission-dark-1280.png`**.
 
 Implementation: **external/ui/src/ui/chat/PermissionPromptSection.tsx**, **PermissionPromptPreview.tsx**, and **permissionToolPreview.ts**.
 

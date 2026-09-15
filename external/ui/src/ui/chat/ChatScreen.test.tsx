@@ -8,8 +8,90 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { ChatScreen } from "./ChatScreen";
+import type { BackgroundTask } from "../tasks/types";
 
 afterEach(() => cleanup());
+
+test("new background permission prompts follow the reader at the bottom, but polling does not", () => {
+  const common = {
+    title: "Audit",
+    sessionId: "sess_parent",
+    heroAccentVerb: "know" as const,
+    heroComposerFocusEpoch: 0,
+    onTitleSave: () => {},
+    items: [{ type: "user_message" as const, id: "u1", content: "audit" }],
+    draft: "",
+    tokenUsage: null,
+    mode: "agent",
+    modes: ["agent"],
+    onModeChange: () => {},
+    onDraftChange: () => {},
+    onSend: () => {},
+  };
+  const task: BackgroundTask = {
+    id: "bg_1",
+    session_id: "sess_parent",
+    kind: "agent",
+    label: "writer",
+    status: "running",
+    started_at: "2026-09-14T10:00:00Z",
+    timeout_seconds: 900,
+    output_bytes: 0,
+    output_truncated: false,
+    elapsed_seconds: 1,
+    overdue: false,
+    running: true,
+    agent: { name: "writer", session_id: "sess_child" },
+    pending_permission: {
+      sessionId: "sess_child",
+      toolCall: { toolCallId: "call_1", title: "Run: run_command" },
+      options: [],
+    },
+  };
+  const { container, rerender } = render(
+    <ChatScreen {...common} backgroundTasks={[]} />,
+  );
+  const scroller = container.querySelector("#messages") as HTMLElement;
+  Object.defineProperties(scroller, {
+    scrollHeight: { configurable: true, value: 2000 },
+    clientHeight: { configurable: true, value: 500 },
+  });
+  scroller.scrollTop = 1500;
+  fireEvent.scroll(scroller);
+  Object.defineProperty(scroller, "scrollHeight", {
+    configurable: true,
+    value: 2300,
+  });
+  rerender(<ChatScreen {...common} backgroundTasks={[task]} />);
+  expect(scroller.scrollTop).toBe(2300);
+  // A freshly fetched row with the same prompt must not move the viewport.
+  scroller.scrollTop = 1800;
+  rerender(
+    <ChatScreen
+      {...common}
+      backgroundTasks={[{ ...task, elapsed_seconds: 2 }]}
+    />,
+  );
+  expect(scroller.scrollTop).toBe(1800);
+  // A reader inspecting older messages keeps their position on a new prompt.
+  scroller.scrollTop = 300;
+  fireEvent.scroll(scroller);
+  rerender(
+    <ChatScreen
+      {...common}
+      backgroundTasks={[
+        {
+          ...task,
+          pending_permission: {
+            ...task.pending_permission!,
+            toolCall: { toolCallId: "call_2" },
+          },
+        },
+      ]}
+    />,
+  );
+  expect(scroller.scrollTop).toBe(300);
+});
 
 test("empty hero shows headline with accent span", () => {
   const { getByTestId, getByRole } = render(

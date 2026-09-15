@@ -70,6 +70,9 @@ func newFakeRemoteServer(answer string) *fakeRemoteServer {
 		for {
 			select {
 			case frame := <-f.events:
+				if frame == "" {
+					return // Disconnect; the next connection replays an empty snapshot.
+				}
 				_, _ = fmt.Fprint(w, frame)
 				if fl != nil {
 					fl.Flush()
@@ -350,6 +353,27 @@ func (s *cliRemoteState) operatorConfirmsHighlighted() error {
 	return nil
 }
 
+func (s *cliRemoteState) reconnectAfterPermissionSettled() error {
+	s.server.events <- ""
+	return nil
+}
+
+func (s *cliRemoteState) obsoletePermissionCloses() error {
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if !strings.Contains(s.screenText(), "Permission required") {
+			s.server.mu.Lock()
+			defer s.server.mu.Unlock()
+			if len(s.server.permissions) != 0 {
+				return fmt.Errorf("the console answered an obsolete permission")
+			}
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("the obsolete permission stayed open after reconnect")
+}
+
 func (s *cliRemoteState) serverReceivesChildAnswer(option string) error {
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
@@ -438,6 +462,8 @@ func initializeCLIRemoteScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the server announces that the background subagent "([^"]*)" of the console session asks to run "([^"]*)"$`, s.serverAnnouncesBackgroundSubagent)
 	sc.Step(`^the screen shows a permission modal naming the subagent "([^"]*)"$`, s.screenShowsModalNamingSubagent)
 	sc.Step(`^the operator confirms the highlighted option$`, s.operatorConfirmsHighlighted)
+	sc.Step(`^the connection drops and the permission is settled elsewhere before reconnect$`, s.reconnectAfterPermissionSettled)
+	sc.Step(`^the obsolete permission modal closes without posting an answer$`, s.obsoletePermissionCloses)
 	sc.Step(`^the server receives the answer "([^"]*)" for that subagent's child session$`, s.serverReceivesChildAnswer)
 	sc.Step(`^the operator runs a remote one-shot prompt "([^"]*)"$`, s.operatorRunsRemoteOneShot)
 	sc.Step(`^the one-shot output contains "([^"]*)"$`, s.oneShotOutputContains)

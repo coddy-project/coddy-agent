@@ -16,3 +16,6 @@ Feature: Subagents in the web UI
   Scenario: A background subagent's prompt is answered in its parent chat
     Then a background subagent's prompt waits at the end of its parent chat
     And the parent chat answers that prompt against the child session
+
+  Scenario: A late permission stays visible to a reader following the conversation
+    Then a new background permission follows a reader at the bottom without interrupting a reader of older messages

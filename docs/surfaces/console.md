@@ -363,7 +363,7 @@ prompts reach the remote console like the parent's own, prefixed
 the child runs. A background child that asks after the turn ended reaches the
 console too: the server announces the prompt on its events stream and the
 console opens the modal for the sessions it opened, answering the child
-session; answered first in a browser or a chat, the modal closes. The footer shows the local folder; the trust receipt is keyed
+session; answered first in a browser or a chat, the modal closes. After reconnecting, the console reconciles the complete pending-request snapshot: prompts answered while offline close, while requests still waiting remain open without duplicate modals. An interrupted snapshot does not dismiss a pending request. The footer shows the local folder; the trust receipt is keyed
 by the server-side session workspace (the server's default cwd for a session
 the console created). A dropped connection leaves the server turn and its
 child running; `/resume` shows the outcome once it ends, and an answer to a

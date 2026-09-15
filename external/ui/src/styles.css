@@ -7921,6 +7921,13 @@ html:not([data-theme="light"]) .context-usage-note--error {
   box-sizing: border-box;
 }
 
+.subagent-permissions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
 .permission-prompt-frame {
   width: 100%;
   min-width: 0;

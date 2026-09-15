@@ -29,6 +29,36 @@ type detachedPromptsState struct {
 	// client showed it.
 	detached   map[string]*detachedPrompt
 	detachedWG sync.WaitGroup
+	// A connect-time snapshot removes old prompts only after ready. A
+	// connection lost partway through the snapshot proves nothing absent.
+	snapshotMissing map[string]*detachedPrompt
+}
+
+func (h *Handler) beginDetachedPromptSnapshot() {
+	h.detachedMu.Lock()
+	defer h.detachedMu.Unlock()
+	h.snapshotMissing = make(map[string]*detachedPrompt, len(h.detached))
+	for key, p := range h.detached {
+		h.snapshotMissing[key] = p
+	}
+}
+
+func (h *Handler) finishDetachedPromptSnapshot() {
+	var cancel []context.CancelFunc
+	h.detachedMu.Lock()
+	for key, p := range h.snapshotMissing {
+		if h.detached[key] == p {
+			delete(h.detached, key)
+			if p.cancel != nil {
+				cancel = append(cancel, p.cancel)
+			}
+		}
+	}
+	h.snapshotMissing = nil
+	h.detachedMu.Unlock()
+	for _, stop := range cancel {
+		stop()
+	}
 }
 
 type detachedPrompt struct {
@@ -72,6 +102,7 @@ func (h *Handler) applyDetachedPromptEvent(data string) {
 		params.ToolCall.ToolCallID = toolCallID
 		p := &detachedPrompt{parentID: strings.TrimSpace(f.ParentSessionID), params: params}
 		h.detachedMu.Lock()
+		delete(h.snapshotMissing, key)
 		if _, seen := h.detached[key]; seen {
 			// A reconnect replays what is still waiting; it is already here.
 			h.detachedMu.Unlock()
@@ -89,9 +120,14 @@ func (h *Handler) applyDetachedPromptEvent(data string) {
 		h.detachedMu.Lock()
 		p := h.detached[key]
 		delete(h.detached, key)
+		delete(h.snapshotMissing, key)
+		var cancel context.CancelFunc
+		if p != nil {
+			cancel = p.cancel
+		}
 		h.detachedMu.Unlock()
-		if p != nil && p.cancel != nil {
-			p.cancel()
+		if cancel != nil {
+			cancel()
 		}
 	}
 }

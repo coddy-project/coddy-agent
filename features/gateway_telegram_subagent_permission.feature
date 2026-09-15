@@ -23,3 +23,12 @@ Feature: A subagent asks for permission in the Telegram chat
     When the user taps "Reject"
     Then the subagent is answered "reject"
     And the request in the chat reads "Denied"
+
+  Scenario: The session owner can still answer after another group member taps
+    Given a telegram group with individual sessions
+    When the background subagent "writer" of that session asks to run "echo checked"
+    Then the chat shows a permission request naming the subagent "writer" with the buttons "Allow" and "Reject"
+    When another group member taps "Allow"
+    Then the owner's permission buttons remain available
+    When the user taps "Allow"
+    Then the subagent is answered "allow"

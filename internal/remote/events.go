@@ -99,6 +99,7 @@ func (h *Handler) readEventsOnce(ctx context.Context) error {
 		body, _ := io.ReadAll(io.LimitReader(res.Body, 4<<10))
 		return h.remoteError(res, body)
 	}
+	h.beginDetachedPromptSnapshot()
 	return readSSE(res.Body, func(f sseFrame) error {
 		if ctx.Err() != nil {
 			return errStopStream
@@ -113,6 +114,7 @@ func (h *Handler) readEventsOnce(ctx context.Context) error {
 func (h *Handler) applyEventFrame(f sseFrame) {
 	switch f.event {
 	case "ready":
+		h.finishDetachedPromptSnapshot()
 		// A reconnect replays starts only. REST also recovers an end or a
 		// queue change missed while the connection was down.
 		h.refreshKnownSessions()

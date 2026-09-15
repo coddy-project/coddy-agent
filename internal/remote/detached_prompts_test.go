@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -150,6 +151,72 @@ func startPromptHandler(t *testing.T, srv *promptEventsServer, sender acp.Update
 }
 
 const promptWait = 5 * time.Second
+
+func TestReconnectRemovesOnlyPromptsMissingFromSnapshot(t *testing.T) {
+	for _, tc := range []struct{ replay, complete bool }{{false, true}, {true, true}, {false, false}} {
+		t.Run(fmt.Sprintf("replayed=%v/complete=%v", tc.replay, tc.complete), func(t *testing.T) {
+			var streamMu sync.Mutex
+			stream := askedFrame("sess_parent", "sess_child", "call_1", "writer") + "event: ready\ndata: {}\n\n"
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/coddy/events" {
+					http.NotFound(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				streamMu.Lock()
+				defer streamMu.Unlock()
+				_, _ = io.WriteString(w, stream)
+			}))
+			defer srv.Close()
+			h, err := NewHandler(Options{BaseURL: srv.URL})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer h.Close()
+			sender := newAskingSender(true)
+			h.SetServer(sender)
+			h.session("sess_parent")
+			if err := h.readEventsOnce(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-sender.asked:
+			case <-time.After(promptWait):
+				t.Fatal("prompt not shown")
+			}
+			streamMu.Lock()
+			if !tc.replay {
+				stream = "event: ready\ndata: {}\n\n"
+			}
+			if !tc.complete {
+				stream = ""
+			}
+			streamMu.Unlock()
+			if err := h.readEventsOnce(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			h.detachedMu.Lock()
+			_, retained := h.detached[detachedPromptKey("sess_child", "call_1")]
+			h.detachedMu.Unlock()
+			wantRetained := tc.replay || !tc.complete
+			if retained != wantRetained {
+				t.Fatalf("prompt retained=%v, want=%v", retained, wantRetained)
+			}
+			if !wantRetained {
+				select {
+				case <-sender.gaveUp:
+				case <-time.After(promptWait):
+					t.Fatal("obsolete modal not cancelled")
+				}
+			}
+			select {
+			case <-sender.asked:
+				t.Fatal("replay opened a duplicate prompt")
+			default:
+			}
+		})
+	}
+}
 
 // A prompt of a session this console opened is asked here and answered on the
 // child session; a prompt of somebody else's session - and a replay of one

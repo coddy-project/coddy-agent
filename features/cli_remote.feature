@@ -24,6 +24,17 @@ Feature: Console connected to a remote coddy server
     When the operator confirms the highlighted option
     Then the server receives the answer "allow" for that subagent's child session
 
+  Scenario: Reconnecting closes a permission answered elsewhere while offline
+    Given a fake remote coddy server that answers "the writer keeps working in the background"
+    And a console app connected to that remote server
+    When the console app starts
+    And the operator submits "audit the layout in the background"
+    Then the transcript shows the assistant text "the writer keeps working in the background"
+    When the server announces that the background subagent "writer" of the console session asks to run "echo checked"
+    Then the screen shows a permission modal naming the subagent "writer"
+    When the connection drops and the permission is settled elsewhere before reconnect
+    Then the obsolete permission modal closes without posting an answer
+
   Scenario: A one-shot print run works against the remote server
     Given a fake remote coddy server that answers "printed remotely"
     When the operator runs a remote one-shot prompt "sum it up"
