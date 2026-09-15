@@ -9233,6 +9233,12 @@ html:not([data-theme="light"]) .context-usage-note--error {
   padding: 12px 14px 6px;
 }
 
+/* The answered record has no footer under it - the live card's row of buttons is
+   what the 6px bottom was leaving room for - so it closes on its own padding. */
+.question-prompt-answered .question-prompt-body {
+  padding-bottom: 12px;
+}
+
 .question-prompt-subhead {
   font-size: 12px;
   color: var(--muted);
@@ -9472,27 +9478,6 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 .question-prompt-continue-ic {
   font-size: 15px;
   opacity: 0.85;
-}
-
-.question-prompt-head--stack {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 10px;
-}
-
-.question-prompt-head--stack .question-prompt-summary-line {
-  white-space: normal;
-  overflow: visible;
-  text-overflow: clip;
-  max-width: none;
-  line-height: 1.45;
-  font-weight: 500;
-  color: color-mix(in srgb, var(--text) 74%, var(--coddy-blend-base));
-}
-
-.question-prompt-card.question-prompt-collapsed
-  > summary.question-prompt-head.question-prompt-head--stack {
-  cursor: pointer;
 }
 
 .question-prompt-resolved-body {
