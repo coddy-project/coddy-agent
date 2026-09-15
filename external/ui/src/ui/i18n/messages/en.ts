@@ -1310,6 +1310,7 @@ export const messagesEn: Record<string, string> = {
   "permission.meta.hiddenFiles": "hidden files",
   "permission.meta.caseSensitive": "case sensitive",
   "permission.meta.maxResults": "max {count}",
+  "permission.meta.page": "page {page}",
   "permission.meta.depth": "depth {depth}",
 
   "scheduler.cron.required": "Enter a cron expression (5 fields, UTC).",

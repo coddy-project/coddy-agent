@@ -396,6 +396,27 @@ export function buildToolCallPreview(
     };
   }
 
+  if (normalized === "websearch" || normalized === "webfetch") {
+    // The query and the url are the whole of the call; a `{"query": "..."}` block
+    // beside a row that already shows it is punctuation, not information.
+    const subject = stringArg(args, "query", "url");
+    const meta: string[] = [];
+    const page = numberArg(args, "page", 0);
+    if (page > 1) meta.push(t("permission.meta.page", { page }));
+    const maxResults = numberArg(args, "max_results", 0);
+    if (maxResults > 0) {
+      meta.push(t("permission.meta.maxResults", { count: maxResults }));
+    }
+    return {
+      toolName,
+      title,
+      header: subject,
+      meta,
+      copyText: subject,
+      kind: "path",
+    };
+  }
+
   if (normalized === "config_get" || normalized === "config_revert") {
     // The dotted key is the whole of the call and the row already names it, so a
     // `{"path": "..."}` block would only repeat it - same reasoning as load_skill.

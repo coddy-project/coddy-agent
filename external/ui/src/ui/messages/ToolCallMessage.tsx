@@ -13,6 +13,7 @@ import {
   parseQuestionToolQuestionsFromArgs,
 } from "../chat/questionToolDisplay";
 import { PermissionToolPreview } from "../chat/PermissionPromptPreview";
+import { webSearchResultMarkdown } from "../chat/webToolResults";
 import {
   displayElapsedSeconds,
   formatDuration as formatTaskDuration,
@@ -429,8 +430,23 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     ? formatTaskDuration(displayElapsedSeconds(backgroundTask, backgroundNowMs))
     : "";
   // A completed load_skill returned a skill's markdown; a failed one returned an error,
-  // which stays raw monospace text.
-  const showSkillBody = isLoadSkillTool && status === "completed";
+  // which stays raw monospace text. A fetched page is markdown too, and a search
+  // answers with a JSON object of hits that reads as a list of links - both are
+  // documents, so both render as the prose they are rather than as their source.
+  const isWebSearchTool = rawNameLower === "websearch";
+  const isWebFetchTool = rawNameLower === "webfetch";
+  const searchResultMarkdown = useMemo(
+    () =>
+      isWebSearchTool && status === "completed"
+        ? webSearchResultMarkdown(resultBody)
+        : null,
+    [isWebSearchTool, resultBody, status],
+  );
+  const markdownResultBody =
+    searchResultMarkdown ??
+    (isWebFetchTool && status === "completed" ? resultBody : null);
+  const showSkillBody =
+    (isLoadSkillTool && status === "completed") || markdownResultBody !== null;
   // load_skill already names the skill on the summary row; its body is the skill itself.
   const showToolPreview =
     !isQuestionTool && !spawnAgent && !isLoadSkillTool && toolPreviewHasContent;
@@ -558,7 +574,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                     .join(" ")}
                 >
                   {showSkillBody ? (
-                    <Markdown text={resultBody} />
+                    <Markdown text={markdownResultBody ?? resultBody} />
                   ) : (
                     <pre className="tool-result-pre">{resultBody}</pre>
                   )}

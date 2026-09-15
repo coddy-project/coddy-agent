@@ -1594,3 +1594,82 @@ test("collapsing a long result returns it to the top", async () => {
   expect(viewport).toHaveClass("tool-result-viewport--clip");
   expect(viewport.scrollTop).toBe(0);
 });
+
+// The web tools used to print their own arguments back as a JSON object and their
+// answer as raw source: a search as a wall of braces, a fetched page as Markdown
+// nobody rendered. Both are documents and both now read as documents.
+test("a web search names its query and lists its hits as links", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-search"
+      title="websearch"
+      kind="other"
+      status="completed"
+      argsText={JSON.stringify({ query: "iPhone 18 price", page: 2 })}
+      resultText={JSON.stringify({
+        query: "iPhone 18 price",
+        page: 2,
+        results: [
+          {
+            title: "Ostrovok.ru",
+            url: "https://ostrovok.ru/",
+            description: "Hotel booking service.",
+          },
+        ],
+      })}
+      durationMs={2000}
+    />,
+  );
+  openToolDetails();
+
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent(
+    "iPhone 18 price",
+  );
+  // The argument card names the query and carries no JSON body.
+  expect(screen.queryByTestId("permission-preview-viewport")).toBeNull();
+  expect(screen.getByText("page 2")).toBeInTheDocument();
+  const link = screen.getByRole("link", { name: "Ostrovok.ru" });
+  expect(link).toHaveAttribute("href", "https://ostrovok.ru/");
+  expect(document.querySelector(".tool-result-pre")).toBeNull();
+});
+
+test("a fetched page renders as the markdown it already is", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-fetch"
+      title="webfetch"
+      kind="other"
+      status="completed"
+      argsText={JSON.stringify({ url: "https://coddy.dev/" })}
+      resultText={"# Coddy\n\nAn agent that runs where you work."}
+      durationMs={120}
+    />,
+  );
+  openToolDetails();
+
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent(
+    "https://coddy.dev/",
+  );
+  expect(screen.getByRole("heading", { name: "Coddy" })).toBeInTheDocument();
+  expect(document.querySelector(".tool-result-pre")).toBeNull();
+});
+
+// A failed call answers with an error line, not with a document.
+test("a failed web search keeps its error as plain text", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-search-failed"
+      title="websearch"
+      kind="other"
+      status="failed"
+      argsText={JSON.stringify({ query: "iPhone 18 price" })}
+      resultText="error: http 503"
+      durationMs={80}
+    />,
+  );
+  openToolDetails();
+
+  expect(document.querySelector(".tool-result-pre")?.textContent).toBe(
+    "error: http 503",
+  );
+});
