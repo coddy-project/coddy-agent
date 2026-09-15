@@ -4167,7 +4167,7 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 - **History** panel lists sessions via `GET /coddy/sessions` (still a **drawer**, not a persistent second column).
 - Pagination uses `limit` and `cursor`, with **infinite scroll** for older rows.
 - Optional **`q`** query string (**title, workspace path, a tag, or the first **`user`** message content**, case insensitive substring; **not** full-chat search). Search input updates use client debouncing.
-- **Everything that decides what the list shows is one control**: the sliders button in the drawer head opens a menu with four sections (**`SessionsFilterMenu.tsx`**). The sections are flat, with a tick on the current value, rather than nested submenus: a drawer is narrow, and a hover-to-open submenu in it is a worse target than one more line of text.
+- **Everything that decides what the list shows is one control**: the sliders button at the right end of the search row opens a menu with four sections (**`SessionsFilterMenu.tsx`**). It sits with the search because both narrow the list below; the drawer head keeps only its close button. The sections are flat, with a tick on the current value, rather than nested submenus: a drawer is narrow, and a hover-to-open submenu in it is a worse target than one more line of text.
   - **Status** - **Active** (the default), **Archived**, **All**: the **`archived`** query parameter. It leads, because it is the question asked most often.
   - **Environment** - **All**, **Local**, **Gateway**, then one row per configured remote. The first three narrow the listing of whichever server is being read (**`origin`**): every conversation, the ones opened on this host, or the chats a messenger gateway is holding. A remote row points the whole app at that server, the same switch the composer's environment chip makes; the section is left out entirely when there is only one row to choose from.
   - **Group by** - **None**, **Date** (the default), **Folder**, **Tag**.
@@ -14211,11 +14211,14 @@ Single implementation: **`MarkdownLineEditor`** in **`external/ui/src/ui/markdow
 
 ### History grouping, tags and the archive
 
-- **One control, not a row of them.** A sliders button (**`.sessions-filter-trigger`**, 26px) sits in the
-  drawer **head** beside the close button, and everything that decides what the list shows lives in the
-  menu it opens (**`.sessions-filter-menu`**): Status, Environment, Group by, Sort by - status first,
-  because "am I looking at the archive" is the question asked most often. The head is the
-  menu's positioning context (**`position: relative`**), and the menu hangs under it at **`right: 8px`**.
+- **One control, not a row of them.** A sliders button (**`.sessions-filter-trigger`**) sits at the right
+  end of the **search row**, and everything that decides what the list shows lives in the menu it opens
+  (**`.sessions-filter-menu`**): Status, Environment, Group by, Sort by - status first, because "am I
+  looking at the archive" is the question asked most often. It belongs with the search because both
+  narrow the list below, and not in the head, where its neighbour would be a close button that does
+  something else entirely. It takes the **height and corner radius of the search field** beside it
+  (36px, 12px) so the row reads as one strip of controls. The search row is the menu's positioning
+  context (**`position: relative`**), and the menu hangs under it at **`right: 8px`**.
 - **The menu is opaque.** It uses the **tooltip** surface (**`--coddy-tip-bg`** / **`--coddy-tip-shadow`**),
   not the glass panel: it sits directly over the list it filters, and a translucent panel there is read
   through. Sections are flat, separated by a hairline and labelled in 10px uppercase

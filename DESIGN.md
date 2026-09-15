@@ -267,11 +267,14 @@ Single implementation: **`MarkdownLineEditor`** in **`external/ui/src/ui/markdow
 
 ### History grouping, tags and the archive
 
-- **One control, not a row of them.** A sliders button (**`.sessions-filter-trigger`**, 26px) sits in the
-  drawer **head** beside the close button, and everything that decides what the list shows lives in the
-  menu it opens (**`.sessions-filter-menu`**): Status, Environment, Group by, Sort by - status first,
-  because "am I looking at the archive" is the question asked most often. The head is the
-  menu's positioning context (**`position: relative`**), and the menu hangs under it at **`right: 8px`**.
+- **One control, not a row of them.** A sliders button (**`.sessions-filter-trigger`**) sits at the right
+  end of the **search row**, and everything that decides what the list shows lives in the menu it opens
+  (**`.sessions-filter-menu`**): Status, Environment, Group by, Sort by - status first, because "am I
+  looking at the archive" is the question asked most often. It belongs with the search because both
+  narrow the list below, and not in the head, where its neighbour would be a close button that does
+  something else entirely. It takes the **height and corner radius of the search field** beside it
+  (36px, 12px) so the row reads as one strip of controls. The search row is the menu's positioning
+  context (**`position: relative`**), and the menu hangs under it at **`right: 8px`**.
 - **The menu is opaque.** It uses the **tooltip** surface (**`--coddy-tip-bg`** / **`--coddy-tip-shadow`**),
   not the glass panel: it sits directly over the list it filters, and a translucent panel there is read
   through. Sections are flat, separated by a hairline and labelled in 10px uppercase

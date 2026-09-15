@@ -1497,34 +1497,36 @@ a.rail-brand {
   color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
 }
 
-/* The head holds the title, the filter control and the close button; the menu
-   hangs off it, so it is the positioning context. */
-.sessions-head {
+/* The filter control sits in the search row - both narrow the list below - so
+   that row is what the menu hangs off. */
+.sessions-search-row {
   position: relative;
 }
 
-.sessions-head-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
+/* The same box as the search field beside it - height and corner radius - so
+   the row reads as one strip of controls rather than a field with a smaller
+   button parked next to it. */
 .sessions-filter-trigger {
-  width: 26px;
-  height: 26px;
+  width: 36px;
+  height: 36px;
   display: grid;
   place-items: center;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  background: rgba(20, 20, 22, 0.35);
+  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
   cursor: pointer;
+  flex-shrink: 0;
 }
 
 .sessions-filter-trigger:hover,
 .sessions-filter-trigger.is-open {
   color: var(--text);
-  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.sessions-filter-trigger.is-open {
+  background: color-mix(in srgb, var(--accent) 16%, rgba(20, 20, 22, 0.35));
 }
 
 /* The backdrop only catches the click that dismisses the menu; it draws

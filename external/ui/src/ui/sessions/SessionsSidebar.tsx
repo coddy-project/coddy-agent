@@ -319,42 +319,15 @@ export function SessionsSidebar(props: {
     >
       <div className="sessions-head">
         <span>{t("sessions.history")}</span>
-        <div className="sessions-head-actions">
-          <button
-            type="button"
-            className={`sessions-filter-trigger${filtersOpen ? " is-open" : ""}`}
-            aria-label={t("sessions.filter.menu")}
-            title={t("sessions.filter.menu")}
-            aria-haspopup="menu"
-            aria-expanded={filtersOpen}
-            data-testid="sessions-filter-trigger"
-            onClick={() => setFiltersOpen((prev) => !prev)}
-          >
-            <IconFilters />
-          </button>
-          <button
-            type="button"
-            className="sessions-close"
-            aria-label={t("sessions.closeHistory")}
-            data-testid="sessions-close"
-            onClick={props.onClose}
-          >
-            ×
-          </button>
-        </div>
-        <SessionsFilterMenu
-          open={filtersOpen}
-          onClose={() => setFiltersOpen(false)}
-          archiveFilter={archiveFilter}
-          onArchiveFilterChange={(value) =>
-            props.onArchiveFilterChange?.(value)
-          }
-          groupMode={groupMode}
-          onGroupModeChange={(mode) => props.onGroupModeChange?.(mode)}
-          sortKey={sortKey}
-          onSortKeyChange={(key) => props.onSortKeyChange?.(key)}
-          {...(props.environments ? { environments: props.environments } : {})}
-        />
+        <button
+          type="button"
+          className="sessions-close"
+          aria-label={t("sessions.closeHistory")}
+          data-testid="sessions-close"
+          onClick={props.onClose}
+        >
+          ×
+        </button>
       </div>
 
       <div className="sessions-search-row">
@@ -378,6 +351,34 @@ export function SessionsSidebar(props: {
             ×
           </button>
         ) : null}
+        {/* The filters sit with the search, not up in the head beside the
+            close button: both narrow the list below, and the close button
+            does something else entirely. */}
+        <button
+          type="button"
+          className={`sessions-filter-trigger${filtersOpen ? " is-open" : ""}`}
+          aria-label={t("sessions.filter.menu")}
+          title={t("sessions.filter.menu")}
+          aria-haspopup="menu"
+          aria-expanded={filtersOpen}
+          data-testid="sessions-filter-trigger"
+          onClick={() => setFiltersOpen((prev) => !prev)}
+        >
+          <IconFilters />
+        </button>
+        <SessionsFilterMenu
+          open={filtersOpen}
+          onClose={() => setFiltersOpen(false)}
+          archiveFilter={archiveFilter}
+          onArchiveFilterChange={(value) =>
+            props.onArchiveFilterChange?.(value)
+          }
+          groupMode={groupMode}
+          onGroupModeChange={(mode) => props.onGroupModeChange?.(mode)}
+          sortKey={sortKey}
+          onSortKeyChange={(key) => props.onSortKeyChange?.(key)}
+          {...(props.environments ? { environments: props.environments } : {})}
+        />
       </div>
 
       <div className="session-list" id="session-list" ref={listRef}>
