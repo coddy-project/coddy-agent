@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
@@ -98,7 +99,21 @@ import { NavRail } from "./nav/NavRail";
 import { SwarmView } from "./swarm/SwarmView";
 import { EnvironmentChip } from "./chat/EnvironmentChip";
 import { probeSwarm } from "./swarm/api";
-import { connectSwarmNode, returnToSwarm } from "./env/remoteEnv";
+import {
+  connectLocal,
+  connectRemote,
+  connectSwarmNode,
+  getRemoteToken,
+  localFetch,
+  returnToSwarm,
+  snapshotEnv,
+  subscribeEnv,
+} from "./env/remoteEnv";
+import type { SessionsEnvironmentOption } from "./sessions/SessionsFilterMenu";
+import {
+  newChatWorkspaceIsReady,
+  type PendingNewChatWorkspace,
+} from "./sessions/newChatWorkspace";
 import { readNavRailCookie, writeNavRailCookie } from "./nav/navRailCookie";
 import { readLlmModelCookie, writeLlmModelCookie } from "./chat/llmModelCookie";
 import {
@@ -114,6 +129,28 @@ import { SessionsSidebar } from "./sessions/SessionsSidebar";
 import { useConfirm } from "./components/useConfirm";
 import { useT } from "./i18n/I18nProvider";
 import type { SessionRow } from "./sessions/types";
+import {
+  DEFAULT_SESSION_GROUP_MODE,
+  readSessionGroupCookie,
+  writeSessionGroupCookie,
+  type SessionGroupMode,
+} from "./sessions/sessionGroups";
+import {
+  defaultSortOrder,
+  DEFAULT_ARCHIVE_FILTER,
+  DEFAULT_SESSION_SORT_KEY,
+  isHistorySortKey,
+  isSessionArchiveFilter,
+  isSessionOriginFilter,
+  type SessionArchiveFilter,
+  type SessionOriginFilter,
+  type SessionSortKey,
+} from "./sessions/sessionQuery";
+import {
+  readSessionPref,
+  SESSION_PREF_COOKIES,
+  writeSessionPref,
+} from "./sessions/sessionPrefs";
 import {
   isClientDraftSessionId,
   mergeSessionsWithDrafts,
@@ -823,7 +860,9 @@ export function App() {
   const pendingPostBySidRef = useRef(new Map<string, AbortController>());
   const streamGenerationBySidRef = useRef(new Map<string, number>());
   const relayAttachPendingRef = useRef(new Set<string>());
-  const stopPendingBySidRef = useRef(new Map<string, { superseded: boolean }>());
+  const stopPendingBySidRef = useRef(
+    new Map<string, { superseded: boolean }>(),
+  );
   const stoppedTurnBySidRef = useRef(new Map<string, number>());
   /** Last composer relay frame id seen per session, so a re-attach can resume from it. */
   const relayLastEventIdBySidRef = useRef<Map<string, string>>(new Map());
@@ -977,13 +1016,19 @@ export function App() {
       else if (wasActive) reconcileEndedTurn(sid);
     },
   });
-  const generating = sessionId.trim() !== "" &&
-    (turnActivity.get(sessionId) ?? activeComposerSidRef.current.has(sessionId.trim()));
-  const queuedMessages = generating ? queueBySid[sessionId.trim()] ?? [] : [];
+  const generating =
+    sessionId.trim() !== "" &&
+    (turnActivity.get(sessionId) ??
+      activeComposerSidRef.current.has(sessionId.trim()));
+  const queuedMessages = generating ? (queueBySid[sessionId.trim()] ?? []) : [];
 
   function reconcileEndedTurn(sid: string) {
     removeActiveComposer(sid);
-    if (sid !== viewedSessionIdRef.current.trim() && !streamShadowBySidRef.current.has(sid)) return;
+    if (
+      sid !== viewedSessionIdRef.current.trim() &&
+      !streamShadowBySidRef.current.has(sid)
+    )
+      return;
     noteUsageTurnEnded(sid);
     void loadMessages(sid, {
       preserveOnError: true,
@@ -993,8 +1038,10 @@ export function App() {
   }
 
   async function attachViewedComposer(sid: string) {
-    const canAttach = () => viewedSessionIdRef.current.trim() === sid &&
-      turnActivity.get(sid) === true && !postAbortBySidRef.current.has(sid) &&
+    const canAttach = () =>
+      viewedSessionIdRef.current.trim() === sid &&
+      turnActivity.get(sid) === true &&
+      !postAbortBySidRef.current.has(sid) &&
       !relayAbortBySidRef.current.has(sid) &&
       stoppedTurnBySidRef.current.get(sid) !== turnActivity.generation(sid);
     if (!canAttach() || relayAttachPendingRef.current.has(sid)) return;
@@ -1005,7 +1052,11 @@ export function App() {
         preserveOnError: true,
         freshLoad: !streamShadowBySidRef.current.has(sid),
       });
-      if (loaded && canAttach() && turnActivity.generation(sid) === generation) {
+      if (
+        loaded &&
+        canAttach() &&
+        turnActivity.generation(sid) === generation
+      ) {
         void rejoinComposerLiveStream(sid, loaded);
       }
     } catch {
@@ -1112,6 +1163,10 @@ export function App() {
   /** Ticks once a second so elapsed times advance between polls. */
   const [backgroundNowMs, setBackgroundNowMs] = useState(() => Date.now());
   /** Set while the viewed session is a subagent's transcript (read-only, no composer). */
+  // Whether the conversation on screen is archived, and whether the request to
+  // take it out of the archive is in flight.
+  const [viewedArchived, setViewedArchived] = useState(false);
+  const [unarchiving, setUnarchiving] = useState(false);
   const [subagentTranscript, setSubagentTranscript] =
     useState<SubagentTranscriptMeta | null>(null);
   // Mirrored for the stable Settings callback, which has to know that the
@@ -1121,6 +1176,48 @@ export function App() {
   const [schedDockClusterWidthPx, setSchedDockClusterWidthPx] = useState(0);
   const [sessionFilterDraft, setSessionFilterDraft] = useState("");
   const [sessionFilterQ, setSessionFilterQ] = useState("");
+  // How History divides the list, remembered across visits; the archive stays
+  // hidden until it is asked for, so a conversation put aside is out of the way
+  // on the next open too.
+  const [sessionGroupMode, setSessionGroupMode] = useState<SessionGroupMode>(
+    () => readSessionGroupCookie() ?? DEFAULT_SESSION_GROUP_MODE,
+  );
+  // Every one of these survives a reload: a filter forgotten by the next page
+  // load is not a setting, it is a gesture.
+  const [sessionsArchiveFilter, setSessionsArchiveFilter] =
+    useState<SessionArchiveFilter>(
+      () =>
+        readSessionPref(SESSION_PREF_COOKIES.status, isSessionArchiveFilter) ??
+        DEFAULT_ARCHIVE_FILTER,
+    );
+  const [sessionsSortKey, setSessionsSortKey] = useState<SessionSortKey>(
+    () =>
+      readSessionPref(SESSION_PREF_COOKIES.sort, isHistorySortKey) ??
+      DEFAULT_SESSION_SORT_KEY,
+  );
+  // Which surface's conversations History shows: every one, the ones opened on
+  // this host, or the chats a messenger gateway is holding.
+  const [sessionsOrigin, setSessionsOrigin] = useState<SessionOriginFilter>(
+    () =>
+      readSessionPref(SESSION_PREF_COOKIES.origin, isSessionOriginFilter) ?? "",
+  );
+  // The remotes this server offers as environments, read from the local config
+  // rather than the active one - the list of places to go must not travel with
+  // the place you are.
+  const [configuredRemotes, setConfiguredRemotes] = useState<
+    { name: string; url: string }[]
+  >([]);
+  // A folder picked from a History heading, waiting for the conversation on
+  // screen to be gone before it is applied (see newChatWorkspace.ts). The value
+  // is a ref and the trigger a counter, so the one effect that owns "the
+  // session changed" applies it - two effects racing to set the workspace
+  // context would be decided by whichever fetch answered last.
+  const newChatWorkspaceRef = useRef<PendingNewChatWorkspace>(null);
+  // Sessions with an archive change in flight; see archiveSession.
+  const archivingRef = useRef<Set<string>>(new Set());
+  // The same, for pinning.
+  const pinningRef = useRef<Set<string>>(new Set());
+  const [newChatWorkspaceEpoch, setNewChatWorkspaceEpoch] = useState(0);
   const [sessionsHasMore, setSessionsHasMore] = useState(false);
   const [sessionsLoadingMore, setSessionsLoadingMore] = useState(false);
   const sessionsHasMoreRef = useRef(false);
@@ -1401,10 +1498,22 @@ export function App() {
 
   // Load the workspace context whenever the viewed session changes; a fresh
   // home/draft view also drops stale pre-session workspace choices.
+  //
+  // A folder picked from a History heading is applied here rather than where it
+  // was picked: leaving a conversation is asynchronous, and a workspace change
+  // issued before the session is gone lands on the conversation being left.
+  // It replaces the default probe rather than running beside it - two context
+  // fetches in flight would be decided by whichever answered last.
   useEffect(() => {
     pendingWorkspaceRef.current = null;
+    const wanted = newChatWorkspaceRef.current;
+    if (newChatWorkspaceIsReady(wanted, sessionId)) {
+      newChatWorkspaceRef.current = null;
+      void switchWorkspace({ path: String(wanted?.path ?? "") });
+      return;
+    }
     void refreshWorkspaceContext(sessionId);
-  }, [sessionId, refreshWorkspaceContext]);
+  }, [sessionId, refreshWorkspaceContext, newChatWorkspaceEpoch]);
 
   async function switchWorkspace(payload: {
     path?: string;
@@ -2117,6 +2226,12 @@ export function App() {
       if (sessionFilterQ) {
         ps.set("q", sessionFilterQ);
       }
+      ps.set("archived", sessionsArchiveFilter);
+      if (sessionsOrigin) {
+        ps.set("origin", sessionsOrigin);
+      }
+      ps.set("sort", sessionsSortKey);
+      ps.set("order", defaultSortOrder(sessionsSortKey));
       ps.set("include_activity", "true");
       const res = await fetchJSON<{
         sessions: SessionRow[];
@@ -2150,7 +2265,14 @@ export function App() {
       sessionsHasMoreRef.current = hm;
       return next;
     },
-    [sessionFilterQ, headers, t],
+    [
+      sessionFilterQ,
+      sessionsArchiveFilter,
+      sessionsOrigin,
+      sessionsSortKey,
+      headers,
+      t,
+    ],
   );
 
   useEffect(() => {
@@ -2242,7 +2364,11 @@ export function App() {
     turnStarted: (sid: string) => {
       void loadSessionsList(true);
       const key = sid.trim();
-      if (key !== viewedSessionIdRef.current.trim() && turnActivity.get(key) === undefined) return;
+      if (
+        key !== viewedSessionIdRef.current.trim() &&
+        turnActivity.get(key) === undefined
+      )
+        return;
       stoppedTurnBySidRef.current.delete(key);
       const pendingStop = stopPendingBySidRef.current.get(key);
       if (pendingStop) pendingStop.superseded = true;
@@ -2253,7 +2379,11 @@ export function App() {
       void loadSessionsList(true);
       const key = sid.trim();
       if (!key) return;
-      if (key !== viewedSessionIdRef.current.trim() && turnActivity.get(key) === undefined) return;
+      if (
+        key !== viewedSessionIdRef.current.trim() &&
+        turnActivity.get(key) === undefined
+      )
+        return;
       // The event has no turn identity: an owned or observed successor may
       // already be active. Keep polling until REST confirms admission is idle.
       void turnActivity.refresh(key);
@@ -2268,7 +2398,8 @@ export function App() {
       // Recovery can miss the idle edge. Retire pending acknowledgements too,
       // so an old Stop cannot re-establish the fence after this reconnect.
       stoppedTurnBySidRef.current.clear();
-      for (const request of stopPendingBySidRef.current.values()) request.superseded = true;
+      for (const request of stopPendingBySidRef.current.values())
+        request.superseded = true;
       turnActivity.ready();
     },
   };
@@ -2311,7 +2442,8 @@ export function App() {
       return null;
     }
     const streamGeneration = streamGenerationBySidRef.current.get(sid);
-    const sameStream = () => streamGenerationBySidRef.current.get(sid) === streamGeneration;
+    const sameStream = () =>
+      streamGenerationBySidRef.current.get(sid) === streamGeneration;
     const res = await fetchJSON<{
       messages: Array<any>;
       model?: string;
@@ -2324,6 +2456,7 @@ export function App() {
         taskId?: string;
       } | null;
       readOnly?: boolean;
+      archived?: boolean;
       uiLog?: Array<{
         id?: string;
         level?: string;
@@ -2358,6 +2491,10 @@ export function App() {
       });
       // A child session locks the composer; an ordinary one carries no marker.
       setSubagentTranscript(parseSubagentTranscriptMeta(res.data));
+      // The composer learns from the transcript, not from the session list: the
+      // list skips the archive, so the conversation on screen may be in no page
+      // the client holds.
+      setViewedArchived(!!res.data.archived);
     }
     type UILogRow = {
       id: string;
@@ -2706,7 +2843,8 @@ export function App() {
     if (!sameStream()) return null;
     // Frames may have arrived while the optional branches request was in flight.
     withBranches = mergeTranscriptPreferLocalSuffix(
-      withBranches, streamShadowBySidRef.current.get(sid),
+      withBranches,
+      streamShadowBySidRef.current.get(sid),
     );
     streamShadowBySidRef.current.set(sid, withBranches);
     evictStaleSessionCaches(viewedSessionIdRef.current);
@@ -2848,6 +2986,9 @@ export function App() {
       message: t("confirm.session.deleteChat.message"),
       confirmLabel: t("common.delete"),
       variant: "danger",
+      // The row's trash does one thing, and this dialog asks about that one
+      // thing: focus the answer so Enter finishes what the click started.
+      initialFocus: "confirm",
     });
     if (!ok) {
       return;
@@ -2865,6 +3006,147 @@ export function App() {
       return;
     }
     await loadSessionsList(true);
+  }
+
+  /**
+   * Puts a conversation in the archive, or takes it back out.
+   *
+   * The row moves only once the server has agreed. Moving it first reads better
+   * for the half second it saves, but it is a lie the UI then has to take back:
+   * a refused PATCH would leave the drawer showing a state that is not on disk,
+   * and a listing already in flight could put the row back anyway. The request
+   * is quick, and what the drawer shows stays what the server said.
+   */
+  async function archiveSession(id: string, archived: boolean) {
+    // One conversation, one request at a time. Two PATCHes for the same session
+    // in flight together settle in whatever order the network gives them, so a
+    // quick archive-then-unarchive could leave the archive flag opposite to the
+    // last thing the operator pressed.
+    if (archivingRef.current.has(id)) {
+      return;
+    }
+    archivingRef.current.add(id);
+    try {
+      await runArchiveSession(id, archived);
+    } finally {
+      archivingRef.current.delete(id);
+    }
+  }
+
+  async function runArchiveSession(id: string, archived: boolean) {
+    let res: Response;
+    try {
+      res = await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ archived }),
+      });
+    } catch {
+      setSessionsError(t("app.backendUnavailable", { status: 0 }));
+      return;
+    }
+    if (!res.ok) {
+      setSessionsError(t("app.backendUnavailable", { status: res.status }));
+      return;
+    }
+    const rowStays =
+      sessionsArchiveFilter === "all" ||
+      (sessionsArchiveFilter === "only") === archived;
+    setSessions((prev) =>
+      rowStays
+        ? prev.map((s) => (s.id === id ? { ...s, archived } : s))
+        : prev.filter((s) => s.id !== id),
+    );
+    await loadSessionsList(true);
+  }
+
+  /**
+   * Keeps a conversation at the top of every listing, or lets it back into the
+   * order. Like archiving, the row moves only once the server has agreed, and
+   * one request per session is in flight at a time.
+   */
+  async function pinSession(id: string, pinned: boolean) {
+    if (pinningRef.current.has(id)) {
+      return;
+    }
+    pinningRef.current.add(id);
+    try {
+      const res = await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ pinned }),
+      });
+      if (!res.ok) {
+        setSessionsError(t("app.backendUnavailable", { status: res.status }));
+        return;
+      }
+      // The row does not move here: a pin changes the order, and the order is
+      // the server's answer, not something to guess at from one row.
+      await loadSessionsList(true);
+    } catch {
+      setSessionsError(t("app.backendUnavailable", { status: 0 }));
+    } finally {
+      pinningRef.current.delete(id);
+    }
+  }
+
+  /**
+   * Writes the order the operator dragged the pinned conversations into. The
+   * whole order travels, not the one that moved: a list rewritten from what was
+   * on screen cannot interleave with a concurrent change into an order nobody
+   * asked for. The rows are re-read afterwards, because the order is the
+   * server's answer.
+   */
+  async function reorderPinnedSessions(ids: string[]) {
+    if (ids.length === 0) {
+      return;
+    }
+    try {
+      const res = await fetch("/coddy/sessions/pins/reorder", {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) {
+        setSessionsError(t("app.backendUnavailable", { status: res.status }));
+      }
+    } catch {
+      setSessionsError(t("app.backendUnavailable", { status: 0 }));
+    }
+    await loadSessionsList(true);
+  }
+
+  /**
+   * Takes the conversation on screen out of the archive, from the notice that
+   * stands where its composer would be. The flag is cleared as soon as the
+   * server agrees, so the composer comes back without waiting for the listing.
+   */
+  async function unarchiveViewedSession() {
+    const sid = sessionId.trim();
+    if (!sid || unarchiving) {
+      return;
+    }
+    setUnarchiving(true);
+    try {
+      const res = await fetch(`/coddy/sessions/${encodeURIComponent(sid)}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ archived: false }),
+      });
+      if (!res.ok) {
+        setSessionsError(t("app.backendUnavailable", { status: res.status }));
+        return;
+      }
+      setViewedArchived(false);
+      setSessions((prev) =>
+        prev.map((s) => (s.id === sid ? { ...s, archived: false } : s)),
+      );
+      await loadSessionsList(true);
+    } catch {
+      setSessionsError(t("app.backendUnavailable", { status: 0 }));
+    } finally {
+      setUnarchiving(false);
+    }
   }
 
   // The session table in Settings removes bundles behind the open panel. Drop
@@ -2950,6 +3232,7 @@ export function App() {
     setEditingAssetNote("");
     setEditingFiles([]);
     setSubagentTranscript(null);
+    setViewedArchived(false);
     if (!sessionId) {
       setItems([]);
       setDraft("");
@@ -3085,9 +3368,7 @@ export function App() {
               setSessionLoading(false);
             }
           }
-          if (
-            loaded && turnActivity.get(sessionId) === true
-          ) {
+          if (loaded && turnActivity.get(sessionId) === true) {
             void attachViewedComposer(sessionId);
           }
         }
@@ -3178,10 +3459,17 @@ export function App() {
   ): Promise<void> {
     const key = sid.trim();
     if (!key) return;
-    if (postAbortBySidRef.current.has(key) || relayAbortBySidRef.current.has(key)) return;
+    if (
+      postAbortBySidRef.current.has(key) ||
+      relayAbortBySidRef.current.has(key)
+    )
+      return;
     const fetchCtl = new AbortController();
     relayAbortBySidRef.current.set(key, fetchCtl);
-    streamGenerationBySidRef.current.set(key, (streamGenerationBySidRef.current.get(key) ?? 0) + 1);
+    streamGenerationBySidRef.current.set(
+      key,
+      (streamGenerationBySidRef.current.get(key) ?? 0) + 1,
+    );
     const ownsRelay = () => relayAbortBySidRef.current.get(key) === fetchCtl;
     const queueEpoch = queueOrderRef.current.capture(key).epoch;
 
@@ -3196,7 +3484,8 @@ export function App() {
     const applyStreamItems = (
       fn: (prev: TranscriptItem[]) => TranscriptItem[],
     ) => {
-      if (ownsRelay() && !fetchCtl.signal.aborted) applyStreamItemsForSession(key, fn);
+      if (ownsRelay() && !fetchCtl.signal.aborted)
+        applyStreamItemsForSession(key, fn);
     };
 
     const branchTokenUsage = (u: TokenUsage | null) => {
@@ -3270,7 +3559,13 @@ export function App() {
             `/coddy/sessions/${encodeURIComponent(key)}/messages`,
             { headers: { [HDR]: key } },
           );
-          if (!ownsRelay() || fetchCtl.signal.aborted || !res2.ok || !res2.data?.messages) return false;
+          if (
+            !ownsRelay() ||
+            fetchCtl.signal.aborted ||
+            !res2.ok ||
+            !res2.data?.messages
+          )
+            return false;
           let last = "";
           let lastCreated: string | undefined;
           for (const m of res2.data.messages) {
@@ -3371,7 +3666,8 @@ export function App() {
 
       void loadSessionsList(true);
       let ok = transcriptHasFilledAssistant(
-        streamShadowBySidRef.current.get(key) ?? [], lastAssistantId,
+        streamShadowBySidRef.current.get(key) ?? [],
+        lastAssistantId,
       );
       if (!ok) ok = await syncAssistantFromServer();
       for (let i = 0; i < 10 && !ok; i++) {
@@ -3436,7 +3732,8 @@ export function App() {
       : null;
 
     let sidEffective = "";
-    const ownsPost = () => postAbortBySidRef.current.get(postSessionKey) === abortCtl;
+    const ownsPost = () =>
+      postAbortBySidRef.current.get(postSessionKey) === abortCtl;
 
     try {
       let sid = sessionId;
@@ -3457,7 +3754,10 @@ export function App() {
       postSessionKey = sid.trim();
       postAbortBySidRef.current.set(postSessionKey, abortCtl);
       pendingPostBySidRef.current.set(postSessionKey, abortCtl);
-      streamGenerationBySidRef.current.set(postSessionKey, (streamGenerationBySidRef.current.get(postSessionKey) ?? 0) + 1);
+      streamGenerationBySidRef.current.set(
+        postSessionKey,
+        (streamGenerationBySidRef.current.get(postSessionKey) ?? 0) + 1,
+      );
       stoppedTurnBySidRef.current.delete(postSessionKey);
       turnActivity.observe(postSessionKey, true);
       addActiveComposer(postSessionKey);
@@ -3469,7 +3769,8 @@ export function App() {
       const applyStreamItems = (
         fn: (prev: TranscriptItem[]) => TranscriptItem[],
       ) => {
-        if (ownsPost() && !abortCtl.signal.aborted) applyStreamItemsForSession(streamKey, fn);
+        if (ownsPost() && !abortCtl.signal.aborted)
+          applyStreamItemsForSession(streamKey, fn);
       };
 
       const branchTokenUsage = (u: TokenUsage | null) => {
@@ -3631,7 +3932,10 @@ export function App() {
             createdAtUtc: new Date().toISOString(),
           },
         ]);
-        if (opts?.restoreDraftOnBusy && viewedSessionIdRef.current.trim() === postSessionKey) {
+        if (
+          opts?.restoreDraftOnBusy &&
+          viewedSessionIdRef.current.trim() === postSessionKey
+        ) {
           setDraft((current) => current || text);
         }
         completedNormally = true;
@@ -3648,7 +3952,10 @@ export function App() {
         queueEpoch = queueOrderRef.current.capture(streamKey).epoch;
         postAbortBySidRef.current.delete(oldKey);
         postAbortBySidRef.current.set(postSessionKey, abortCtl);
-        streamGenerationBySidRef.current.set(postSessionKey, (streamGenerationBySidRef.current.get(postSessionKey) ?? 0) + 1);
+        streamGenerationBySidRef.current.set(
+          postSessionKey,
+          (streamGenerationBySidRef.current.get(postSessionKey) ?? 0) + 1,
+        );
         turnActivity.observe(oldKey, false);
         turnActivity.observe(postSessionKey, true);
         relayAbortBySidRef.current.get(oldKey)?.abort();
@@ -3661,7 +3968,8 @@ export function App() {
         }
         streamingAssistantBySidRef.current.delete(oldKey);
         streamingAssistantBySidRef.current.set(postSessionKey, assistantId);
-        if (viewedSessionIdRef.current.trim() === oldKey) openSessionFromRoute(sidHdr);
+        if (viewedSessionIdRef.current.trim() === oldKey)
+          openSessionFromRoute(sidHdr);
         setDescribePreview((p) =>
           p?.sessionId === sid ? { ...p, sessionId: sidHdr } : p,
         );
@@ -3736,7 +4044,13 @@ export function App() {
             `/coddy/sessions/${encodeURIComponent(sidEffective)}/messages`,
             { headers: { [HDR]: sidEffective } },
           );
-          if (!ownsPost() || abortCtl.signal.aborted || !res2.ok || !res2.data?.messages) return false;
+          if (
+            !ownsPost() ||
+            abortCtl.signal.aborted ||
+            !res2.ok ||
+            !res2.data?.messages
+          )
+            return false;
           let last = "";
           let lastCreated: string | undefined;
           for (const m of res2.data.messages) {
@@ -3930,17 +4244,24 @@ export function App() {
     const cancelCtl = new AbortController();
     const timer = window.setTimeout(() => cancelCtl.abort(), 5000);
     const errorId = `stop_error_${sid}`;
-    applyStreamItemsForSession(sid, (prev) => prev.filter((it) => it.id !== errorId));
+    applyStreamItemsForSession(sid, (prev) =>
+      prev.filter((it) => it.id !== errorId),
+    );
     try {
-      const res = await fetch(`/coddy/sessions/${encodeURIComponent(sid)}/cancel`, {
-        method: "POST",
-        headers: { [HDR]: sid },
-        signal: cancelCtl.signal,
-      });
+      const res = await fetch(
+        `/coddy/sessions/${encodeURIComponent(sid)}/cancel`,
+        {
+          method: "POST",
+          headers: { [HDR]: sid },
+          signal: cancelCtl.signal,
+        },
+      );
       if (!res.ok) throw new Error(`cancel failed (${res.status})`);
       // Abort only the captured connections. The acknowledgement neither proves
       // idle nor gives an old Stop ownership of a newer turn in this session.
-      const current = !request.superseded && turnActivity.generation(sid) === generation &&
+      const current =
+        !request.superseded &&
+        turnActivity.generation(sid) === generation &&
         streamGenerationBySidRef.current.get(sid) === streamGeneration;
       if (current) {
         stoppedTurnBySidRef.current.set(sid, generation);
@@ -3951,11 +4272,18 @@ export function App() {
     } catch {
       applyStreamItemsForSession(sid, (prev) => [
         ...prev.filter((it) => it.id !== errorId),
-        { id: errorId, type: "system_notice", level: "error", message: t("app.stopFailed"), createdAtUtc: new Date().toISOString() },
+        {
+          id: errorId,
+          type: "system_notice",
+          level: "error",
+          message: t("app.stopFailed"),
+          createdAtUtc: new Date().toISOString(),
+        },
       ]);
     } finally {
       window.clearTimeout(timer);
-      if (stopPendingBySidRef.current.get(sid) === request) stopPendingBySidRef.current.delete(sid);
+      if (stopPendingBySidRef.current.get(sid) === request)
+        stopPendingBySidRef.current.delete(sid);
     }
   }
 
@@ -4274,6 +4602,102 @@ export function App() {
     });
   }, [schedulerJobs, schedulerFilterQ]);
 
+  // Read the environments this server offers once: the list lives in the local
+  // config, so it is fetched off the origin rather than through the shim.
+  useEffect(() => {
+    let alive = true;
+    localFetch("/coddy/config")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((cfg) => {
+        if (!alive || !cfg) {
+          return;
+        }
+        const list = (cfg as Record<string, unknown>)?.httpserver as
+          | Record<string, unknown>
+          | undefined;
+        const raw = list?.remotes;
+        if (!Array.isArray(raw)) {
+          return;
+        }
+        setConfiguredRemotes(
+          raw
+            .map((item) => {
+              const o = (item ?? {}) as Record<string, unknown>;
+              return { name: String(o.name ?? ""), url: String(o.url ?? "") };
+            })
+            .filter((r) => r.url.trim() !== ""),
+        );
+      })
+      .catch(() => {
+        /* configured remotes are optional */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const activeEnv = useSyncExternalStore(
+    subscribeEnv,
+    snapshotEnv,
+    snapshotEnv,
+  );
+
+  /**
+   * The environments the History filter offers. Two kinds share the list,
+   * because to an operator they are one question - where is this conversation:
+   * the origin rows narrow the listing of whichever server is being read, and a
+   * remote row points the whole app at another server, the way the composer's
+   * environment chip does.
+   */
+  const sessionEnvironments = useMemo<SessionsEnvironmentOption[]>(() => {
+    const onRemote = activeEnv.mode === "remote";
+    // Narrowing by origin is a filter on the server being read; it must not
+    // reach for connectLocal, which reloads the page and would throw the choice
+    // away before it was used. Only coming *back* from a remote is a switch,
+    // and that reload resets the filter along with everything else.
+    const narrowTo = (origin: SessionOriginFilter) => () => {
+      if (onRemote) {
+        connectLocal();
+        return;
+      }
+      setSessionsOrigin(origin);
+      writeSessionPref(SESSION_PREF_COOKIES.origin, origin);
+    };
+    const rows: SessionsEnvironmentOption[] = [
+      {
+        key: "all",
+        label: t("sessions.filter.env.all"),
+        active: !onRemote && sessionsOrigin === "",
+        onPick: narrowTo(""),
+      },
+      {
+        key: "local",
+        label: t("sessions.filter.env.local"),
+        active: !onRemote && sessionsOrigin === "local",
+        onPick: narrowTo("local"),
+      },
+      {
+        key: "gateway",
+        label: t("sessions.filter.env.gateway"),
+        active: !onRemote && sessionsOrigin === "gateway",
+        onPick: narrowTo("gateway"),
+      },
+    ];
+    for (const remote of configuredRemotes) {
+      rows.push({
+        key: remote.url,
+        label: remote.name.trim() || remote.url,
+        active:
+          onRemote && activeEnv.baseUrl === remote.url.replace(/\/+$/, ""),
+        // connectRemote reloads the page, so nothing of this session's state
+        // reaches the other server - the origin filter included.
+        onPick: () =>
+          connectRemote(remote.url, getRemoteToken(remote.url), remote.name),
+      });
+    }
+    return rows;
+  }, [activeEnv, configuredRemotes, sessionsOrigin, t]);
+
   const sessionPanelShared = {
     sessionId: sidebarActiveId,
     permissionPendingSessionIds: permissionPendingSids,
@@ -4305,6 +4729,34 @@ export function App() {
     onPick: pickSession,
     onTitleSave: saveSessionTitle as (id: string, title: string) => void,
     onDelete: deleteSession as (id: string) => void | Promise<void>,
+    onArchive: (id: string, archived: boolean) =>
+      void archiveSession(id, archived),
+    onPin: (id: string, pinned: boolean) => void pinSession(id, pinned),
+    onReorderPins: (ids: string[]) => void reorderPinnedSessions(ids),
+    groupMode: sessionGroupMode,
+    onGroupModeChange: (mode: SessionGroupMode) => {
+      setSessionGroupMode(mode);
+      writeSessionGroupCookie(mode);
+    },
+    archiveFilter: sessionsArchiveFilter,
+    onArchiveFilterChange: (value: SessionArchiveFilter) => {
+      setSessionsArchiveFilter(value);
+      writeSessionPref(SESSION_PREF_COOKIES.status, value);
+    },
+    environments: sessionEnvironments,
+    sortKey: sessionsSortKey,
+    onSortKeyChange: (key: SessionSortKey) => {
+      setSessionsSortKey(key);
+      writeSessionPref(SESSION_PREF_COOKIES.sort, key);
+    },
+    onNewChatInWorkspace: (cwd: string) => {
+      // Park the folder and leave; the effect below applies it on the first
+      // render with no session current. Doing it here would post the folder to
+      // the conversation being left and leave the new chat in the default one.
+      newChatWorkspaceRef.current = { path: cwd, nonce: Date.now() };
+      setNewChatWorkspaceEpoch((n) => n + 1);
+      goHome();
+    },
     searchDraft: sessionFilterDraft,
     onSearchDraftChange: setSessionFilterDraft,
     onSearchClear: () => setSessionFilterDraft(""),
@@ -4377,9 +4829,12 @@ export function App() {
         applyQueue(sid, payload.messages, payload.version ?? 0, queueEpoch);
         return;
       }
-      if (payload?.error?.code === "no_active_turn" &&
-          queueOrderRef.current.capture(sid).epoch === queueEpoch &&
-          turnActivity.generation(sid) === generation && viewedSessionIdRef.current.trim() === sid) {
+      if (
+        payload?.error?.code === "no_active_turn" &&
+        queueOrderRef.current.capture(sid).epoch === queueEpoch &&
+        turnActivity.generation(sid) === generation &&
+        viewedSessionIdRef.current.trim() === sid
+      ) {
         // The turn ended between the keystroke and the request. Send it as an
         // ordinary prompt; if the admission has not been released yet and that
         // is refused too, the text comes back to the composer rather than
@@ -4387,7 +4842,8 @@ export function App() {
         void streamResponses(body, { restoreDraftOnBusy: true });
         return;
       }
-      if (viewedSessionIdRef.current.trim() === sid) setDraft((current) => current || body);
+      if (viewedSessionIdRef.current.trim() === sid)
+        setDraft((current) => current || body);
       applyStreamItemsForSession(sid, (prev) => [
         ...prev,
         {
@@ -4643,6 +5099,9 @@ export function App() {
             onOpenBackgroundTask={openBackgroundTask}
             onStopBackgroundTask={handleStopBackgroundTask}
             subagentTranscript={subagentTranscript}
+            sessionArchived={viewedArchived}
+            unarchiving={unarchiving}
+            onUnarchiveSession={() => void unarchiveViewedSession()}
             onOpenSession={openSessionInPlace}
             pathRoots={transcriptPathRoots}
             workspaceCtx={workspaceCtx}
@@ -4726,7 +5185,8 @@ export function App() {
                   onPlanDocumentRun: (slug: string) => {
                     if (
                       sessionId.trim() &&
-                      (turnActivity.get(sessionId) ?? activeComposerSidRef.current.has(sessionId.trim()))
+                      (turnActivity.get(sessionId) ??
+                        activeComposerSidRef.current.has(sessionId.trim()))
                     ) {
                       return;
                     }
@@ -4772,7 +5232,8 @@ export function App() {
               }
               if (
                 sessionId.trim() &&
-                (turnActivity.get(sessionId) ?? activeComposerSidRef.current.has(sessionId.trim()))
+                (turnActivity.get(sessionId) ??
+                  activeComposerSidRef.current.has(sessionId.trim()))
               ) {
                 return;
               }

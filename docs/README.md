@@ -2,7 +2,7 @@
 
 Coddy is a general-purpose agent in one static Go binary: a ReAct loop with filesystem and shell tools, MCP servers, project rules, skills, subagents, hooks, background tasks, a cron scheduler and long-term memory, driven from a terminal console, an embedded web UI with an OpenAI-compatible HTTP API, editors over the Agent Client Protocol, or a Telegram bot. Every surface shares the same sessions under `~/.coddy`.
 
-New here? Read [Quickstart](getting-started/quickstart.md), then the page of the surface you use. This map is generated from [nav.yaml](nav.yaml) by `make docs`; the same list feeds [llms.txt](llms.txt) and [llms-full.txt](llms-full.txt) for agents that read documentation. How the pages are organised and what a change to Coddy must carry into them is in [Writing documentation](contributing/documentation.md).
+New here? Read [Quickstart](getting-started/quickstart.md), then the page of the surface you use. This map is generated from [nav.yaml](nav.yaml) by `make docs`; the same list feeds <https://coddy.dev/llms.txt> and <https://coddy.dev/llms-full.txt> for agents that read documentation, built on every run and published from the site rather than kept here. How the pages are organised and what a change to Coddy must carry into them is in [Writing documentation](contributing/documentation.md).
 
 <!-- docsgen:nav:start -->
 ## Getting started

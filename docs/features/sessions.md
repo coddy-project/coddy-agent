@@ -12,7 +12,7 @@ A session spawned by another one is stored inside it, at `<parent>/subagents/<ch
 
 | Path | What it holds |
 |---|---|
-| `session.json` | id, `cwd`, `mode`, the session's model and reasoning overrides, the permission-mode override, the title (derived, or pinned by the user), `updatedAt`, the context handed over by `SessionStart` hooks, the run metadata of a scheduler or subagent bundle, and the activity counters behind the unread dot |
+| `session.json` | id, `cwd`, `mode`, the session's model and reasoning overrides, the permission-mode override, the title (derived, or pinned by the user), the `tags` it is filed under, whether it is `pinned` (with `pinnedAt` and `pinnedRank`) and whether it is `archived` (with `archivedAt`), `updatedAt`, the context handed over by `SessionStart` hooks, the run metadata of a scheduler or subagent bundle, and the activity counters behind the unread dot |
 | `messages.json` | the transcript the model sees: `user`, `assistant` and `tool` rows, compaction summaries included; hooks receive its path as `transcript_path` |
 | `assets/` | files uploaded through the composer, saved read-only, with PNG previews under `thumbnails/` |
 | `todos/active.md` | the current todo checklist; `todos/archive/` keeps replaced and archived lists |
@@ -30,7 +30,21 @@ Compaction and result eviction never rewrite a bundle: both are projections buil
 
 ## What a session remembers
 
-The mode (`agent`, `plan` or `ask`), the model, the reasoning level and the permission mode are session-scoped overrides persisted in `session.json`: the ACP `session/set_mode` and `session/set_config_option` methods, the composer's Mode, Model and Reasoning selectors (`PATCH /coddy/sessions/{id}` with `selectedModelId` or `selectedReasoning`) and the console's `/mode` and `ctrl+l` all write there, and a session-level `permission_mode` outranks `tools.permission_mode` from the configuration. The working directory is recorded too: `coddy -c`, the console picker and `coddy sessions list --cwd` filter on it. The web UI picks the folder, the git branch and an optional worktree before the first message and locks them once the transcript has messages ([Web UI](../surfaces/web-ui.md#per-session-workspace-folder--branch--worktree-chips)). The title is derived from the first prompt until you pin one, inline in the chat header or with `PATCH /coddy/sessions/{id}` and a `title`.
+The mode (`agent`, `plan` or `ask`), the model, the reasoning level and the permission mode are session-scoped overrides persisted in `session.json`: the ACP `session/set_mode` and `session/set_config_option` methods, the composer's Mode, Model and Reasoning selectors (`PATCH /coddy/sessions/{id}` with `selectedModelId` or `selectedReasoning`) and the console's `/mode` and `ctrl+l` all write there, and a session-level `permission_mode` outranks `tools.permission_mode` from the configuration. The working directory is recorded too: `coddy -c`, the console picker and `coddy sessions list --cwd` filter on it. The web UI picks the folder, the git branch and an optional worktree before the first message and locks them once the transcript has messages ([Web UI](../surfaces/web-ui.md#per-session-workspace-folder--branch--worktree-chips)). The title is derived from the first prompt until you pin one, inline in the chat header or with `PATCH /coddy/sessions/{id}` and a `title`; the same route carries the `tags` and the `archived` flag described below.
+
+## Tags and the archive
+
+A history that has grown for months is narrowed rather than scrolled, and two fields on the bundle carry that.
+
+**Tags** are a short flat vocabulary a session is filed under: lower case, inner whitespace as a hyphen, duplicates dropped, at most eight of at most thirty-two characters each. Nobody has to invent them. The call that names a new chat, `POST /coddy/describe`, asks the model for the phrase *and* one to three topic labels in the same answer, and the `PATCH` that pins the title carries them along - so filing costs no extra request, and a model that ignores the instruction simply names the chat as before. They are editable afterwards: `PATCH /coddy/sessions/{id}` with `tags` replaces the set wholesale, an empty array clears it, and omitting the field leaves it alone. The listing filters on them (`GET /coddy/sessions?tags=backend,ui` keeps a session carrying **any** of them), search matches them beside the title and the workspace, and History groups by them.
+
+**Pinning** holds a conversation at the top of every listing, whatever it is sorted by: `PATCH /coddy/sessions/{id}` with `pinned` sets the flag and stamps `pinnedAt`, and a pin that only worked in one order would not be a pin. The pins are one list the operator keeps by hand - `pinnedRank` records the order they were dragged into (`POST /coddy/sessions/pins/reorder`), a new pin goes above the ones already there, and unpinning forgets the placement, so pinning again is a new pin rather than a return to an old seat.
+
+**Archiving** takes a conversation out of the working list without taking it off disk. `PATCH /coddy/sessions/{id}` with `archived` sets the flag and stamps `archivedAt`; the default listing leaves those sessions out, `archived=only` is the archive and `archived=all` is everything. Nothing else changes: an archived session resumes, exports and branches exactly as it did. Emptying the archive is one request, `POST /coddy/sessions/bulk-delete` with `{"scope":"archived"}`, and the `all` scope still means the whole history, archive included.
+
+**Where a session came from** is recorded too: `session.json` carries an `origin`, empty for a conversation opened on this host and `gateway:<messenger>` for one a messenger gateway is holding (`gateway:telegram` today). The surface that creates the session writes it once and nothing rewrites it afterwards, so reopening a Telegram chat from the web UI does not relabel it. `GET /coddy/sessions?origin=local` and `?origin=gateway` split the two.
+
+All three are visible in the web UI ([Web UI](../surfaces/web-ui.md#session-list)): History has one menu for environment, archive status, grouping (date, folder or tag, with collapsible headings) and order, and the session table in **Settings -> Sessions** filters by archive, sorts by column, and has one button for emptying the archive.
 
 ## Git worktrees
 

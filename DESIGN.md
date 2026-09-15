@@ -265,6 +265,109 @@ Single implementation: **`MarkdownLineEditor`** in **`external/ui/src/ui/markdow
 - **Measured track width**: SPA sets **`--rail-shell-track-width`** on **`.shell`** to **`rail-column.offsetWidth`** (ResizeObserver in **`NavRail`**) before computing drawer **`left`** and **`width`** so narrow and labeled-wide rails stay flush with **`--nav-floating-gutter`** after the nav column.
 - **CSS fallback**: When the variable is not yet set inline, **`--rail-shell-track-width`** defaults on **`.shell`** to **`calc(var(--rail-pill-track) + var(--rail-column-pad-end))`**.
 
+### History grouping, tags and the archive
+
+- **One control, not a row of them.** A sliders button (**`.sessions-filter-trigger`**) sits at the right
+  end of the **search row**, and everything that decides what the list shows lives in the menu it opens
+  (**`.sessions-filter-menu`**): Status, Environment, Group by, Sort by - status first, because "am I
+  looking at the archive" is the question asked most often. It belongs with the search because both
+  narrow the list below, and not in the head, where its neighbour would be a close button that does
+  something else entirely. It takes the **height and corner radius of the search field** beside it
+  (36px, 12px) so the row reads as one strip of controls. The search row is the menu's positioning
+  context (**`position: relative`**), and the menu hangs under it at **`right: 8px`**.
+- **Four rows deep, not four lists long.** Each row (**`.sessions-filter-row`**) carries its question on
+  the left, the **answer in force** in the accent colour (**`.sessions-filter-value`**) and a chevron;
+  the choices open beside it as **`.sessions-filter-submenu`**, on hover or on click, one at a time.
+  A hairline above **`.starts-group`** separates the two rows that decide *what is listed* from the two
+  that decide *how it is arranged* - a rule rather than headings, because all four are questions of the
+  same kind. A section with only one row to choose from is not rendered at all.
+- **Portaled, not nested.** The drawer is **`overflow: hidden`**, so a submenu inside it would be cut at
+  its edge: the menu is rendered into the document (**`createPortal`**) and placed **`position: fixed`**
+  from the trigger's rectangle, the same way the composer's menus are. Near the right edge of the window
+  the submenus flip to the other side (**`.opens-left`**).
+- **Only a value moved off its default is coloured.** The answer on a row is the accent colour when it
+  differs from the default (**Active**, the first environment, **Folder**, **Last activity**) and a
+  muted 42% text otherwise (**`.sessions-filter-value.is-default`**): a menu where every row is accented
+  says nothing about what has been narrowed. Each of the four is remembered in its own cookie
+  (**`sessionPrefs.ts`**), and every read validates what it finds, so a cookie from an older build
+  cannot put the drawer into a state the code no longer has.
+- **The menu is opaque.** It uses the **tooltip** surface (**`--coddy-tip-bg`** / **`--coddy-tip-shadow`**),
+  not the glass panel: it sits directly over the list it filters, and a translucent panel there is read
+  through. Both panels use it, so the row and its choices read as one surface.
+- **Escape undoes one step**: an open submenu folds first, the menu closes second.
+- **Group heading** (**`.session-group-head`**) is the bucket's **own name with a caret after it**
+  (**▸** collapsed, **▾** open), not a band across the list: it is **`flex: 0 1 auto`** with
+  **`margin-right: auto`**, so only the name is the fold target and the empty space after it belongs to
+  nothing. **12.5px**, weight **600**, muted until hover, and in the **case the name already has** -
+  upper-casing a folder path is a small lie. The label is translated for a fixed bucket (dates,
+  *No workspace*, *No tags*) and is the operator's own text for a folder name or a tag.
+- **The end of the bar is the `+`** (**`.session-group-new`**), in a 26px box whose right padding
+  matches a session row's, so it lands in the **same column as the rows' own ⋮**. It is **visible at
+  rest**, not revealed on hover: a way to start work in this folder is worth a glance, not a hunt with
+  the pointer. There is no row count - the rows are right there to be looked at.
+- **Hover brightens text, never a plate.** Both the heading and the **`+`** transition their **colour**
+  only (140ms): a band appearing under the pointer makes a heading read like a row that can be opened.
+- **A folder name more than one heading carries** gets the full path under it
+  (**`.session-group-path`**, 10.5px, 40% text): the name alone cannot tell two checkouts apart, and
+  that is the only case the line appears in. It is clipped plainly at the end - reversing the direction
+  to keep the tail moves the leading slash to the other side, and a path that reads as ending in
+  **`/`** is a worse lie than a truncated one. **`SessionGroup.subLabel`** carries it, set by
+  **`groupSessions`** only for the names that repeat.
+- **Buckets** that hold nothing are not drawn. Collapse state lives in the drawer, keyed by group, so a
+  heading that comes and goes with a search keeps its state while it is on screen.
+- **A folder heading carries a `+`** (**`.session-group-new`**, 22px, revealed on hover of
+  **`.session-group-bar`**) that starts a new chat in that workspace. Only a heading that *stands for a
+  folder* has one - a date bucket is not a place to put a session - which is why **`SessionGroup`**
+  carries **`workspacePath`** (the full path) next to the name it shows.
+- **The pinned group** (**`.session-group.is-pinned`**) leads every mode, headed *Pinned* and closed by a
+  hairline: the pins are one list kept by hand, and the groups below are the ones the machine made.
+  **`groupSessions`** lifts the pinned rows out first, so a pin is held **once** - a conversation at the
+  top *and* inside its folder would leave dragging one of the two meaning nothing.
+- **A pinned row is dragged by its grip** (**`.session-drag-grip`**, left of the title,
+  **`touch-action: none`** so a finger drags the row instead of scrolling the list). The drag runs on
+  **pointer events** - HTML5 drag-and-drop never starts from touch - the dragged row fades
+  (**`.is-dragging`**) and the **landing place** is drawn on the list itself - an inset accent rule
+  along the top of the row it would take (**`.is-drop-target`**), which the 14px corner radius carries
+  around the corners so it reads as that row being singled out - rather than a row following the
+  pointer, which would survive no scroll and cost a compositing layer. The arithmetic is
+  **`reorderPins`** / **`pinDropIndex`**, kept pure.
+- **An archived row is dimmed** (**`.session-item.is-archived`**): its title drops to 45% text and its
+  tags to 60% opacity. Put aside and still in play differ by exactly that. The archive **mark**
+  (**`.session-archived-mark`**) leads the row beside the spinner and the unread dot, where states
+  belong - it is not a chip among the tags, which are labels the operator chose.
+- **The composer's slot on an archived conversation** is **`.archived-session-notice`**, cut from the
+  same glass panel as the subagent notice beside it (**`--coddy-glass-panel-bg`** plus the backdrop
+  filter) - it stands over the transcript, and a wash of the text colour is transparent on a dark
+  canvas. A line of text, and one button that takes the conversation back out.
+- **Row tags** (**`.session-row-tags`**) go **under** the title, not beside it: the title is what the row
+  is for and must not be pushed out of view by labels. Chips are **10px**, pill-shaped, on a 6% text
+  wash. The **archived badge** (**`.session-archived-badge`**) is the same size and wash but uppercase,
+  and sits **inline after the title**, because it qualifies the title rather than the row.
+- **One control per row** (**`.session-row-menu-trigger`**, a 26px **⋮**, 0.38 opacity until the row is
+  hovered) opens **`.session-row-menu`**: **pin**, then a hairline (**`.starts-group`**), then
+  **archive** and **delete** together - both take the conversation out of the list, while pinning only
+  moves it - with delete in the destructive colour. An icon per action cost the title a button's width each and made a
+  mis-click a delete; inside the menu the actions have room for their words. The menu is portaled and
+  placed from the trigger, and flips above the row near the foot of the window.
+- **A pin is a mark on the title** (**`.session-pin-mark`**, accent), not a badge: the row is already at
+  the top saying it.
+
+### Session table: sorting, the archive and tags
+
+- **Sortable column head** is a **`button`** inside the **`th`** (**`.sessions-manager-sort`**),
+  carrying the caret (**▲** / **▼**, 0.6rem, 75% opacity) only while it is the sorted column; the
+  **`th`** carries **`aria-sort`**. The header keeps the column's own typography - a sortable column
+  must not look like a control bolted onto the table.
+- **Toolbar order** is search, archive **`select`**, then the two icon actions: empty the **archive**
+  (archive box), then delete the **ticked** rows (trash with a check). The destructive pair sits
+  together at the trailing edge at every width.
+- **Archived badge** (**`.sessions-manager-badge-archived`**) is the **neutral twin** of the accent
+  **open** badge: a text-wash pill, because it says where a row sits, not that anything is wrong.
+- **Tag chip** (**`.sessions-manager-tag`**) is a **button**: pressing one filters the table. An active
+  tag filter is a muted line under the toolbar with an underlined accent link that clears it.
+- **No per-row delete.** The row's only destructive surface is its tick; the scope of a delete is
+  always what the operator can see ticked, or the archive scope named on its own button.
+
 ### Narrow-rail hover tooltips
 
 - Shown **only** when the rail is **narrow** (no wide labels column). Labels visible in wide rail substitute for tooltips; do not show floating tip rows there.

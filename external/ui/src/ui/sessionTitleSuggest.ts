@@ -39,9 +39,16 @@ export function startSuggestSessionTitle(deps: TitleSuggestDeps): void {
       return;
     }
     let short = "";
+    let tags: string[] = [];
     try {
-      const data = (await describeRes.json()) as { short?: string };
+      const data = (await describeRes.json()) as {
+        short?: string;
+        tags?: string[];
+      };
       short = (data.short || "").trim();
+      tags = Array.isArray(data.tags)
+        ? data.tags.map((t) => String(t).trim()).filter(Boolean)
+        : [];
     } catch {
       return;
     }
@@ -64,13 +71,20 @@ export function startSuggestSessionTitle(deps: TitleSuggestDeps): void {
       return;
     }
 
+    // Naming and filing the chat travel together: the tags came from the same
+    // answer as the title, and an empty set stays out of the body rather than
+    // going as [], which would clear tags the operator set by hand.
+    const patchBody = JSON.stringify(
+      tags.length > 0 ? { title: short, tags } : { title: short },
+    );
+
     for (let attempt = 0; attempt < 40; attempt++) {
       let patchRes: Response;
       try {
         patchRes = await fetchFn(`/coddy/sessions/${encodeURIComponent(sid)}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: short }),
+          body: patchBody,
         });
       } catch {
         await delay(100);

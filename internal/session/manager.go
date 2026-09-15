@@ -477,6 +477,10 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		})
 	}
 	st.SetTitlePinnedWithoutPersist(snap.Meta.TitlePinned)
+	st.SetTagsWithoutPersist(snap.Meta.Tags)
+	st.SetArchivedWithoutPersist(snap.Meta.Archived, snap.Meta.ArchivedAt)
+	st.SetOriginWithoutPersist(snap.Meta.Origin)
+	st.SetPinnedWithoutPersist(snap.Meta.Pinned, snap.Meta.PinnedAt, snap.Meta.PinnedRank)
 	st.RestoreHookContextWithoutPersist(snap.Meta.HookContext)
 	st.ReplaceMessagesWithoutPersist(snap.Messages)
 	st.SetPlanWithoutPersist(snap.Plan)
@@ -560,9 +564,17 @@ func (m *Manager) EnsureHTTPSession(ctx context.Context, sessionID string, defau
 		return existing, nil
 	}
 	if m.store != nil && m.store.HasPersistedSnapshot(sessionID) {
+		// No cwd is handed to the load. A stored session belongs to the folder
+		// it was started in, and params.CWD outranks that - which is right for
+		// an editor saying which checkout a session is for, and wrong here,
+		// where the only cwd on offer is the server's own. Rebinding somebody's
+		// conversation to another folder because a listing route had to load it
+		// is not a thing a caller asked for, and it rewrites the bundle, which
+		// moves the session in a listing ordered by when it last changed. The
+		// load falls back to defaultCWD by itself for a bundle that recorded
+		// none.
 		if _, err := m.HandleSessionLoad(ctx, acp.SessionLoadParams{
 			SessionID: sessionID,
-			CWD:       defaultCWD,
 		}); err != nil {
 			return nil, err
 		}
