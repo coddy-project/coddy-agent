@@ -14,7 +14,13 @@ package agent
 // starts, updated with the pass it is on, closed with what it folded. A
 // compaction the model asked for reuses the row the loop already announced for
 // its compact_context call, so the work appears once, under the call that
-// ordered it.
+// ordered it - and that one is an ordinary tool call, so it is in the
+// transcript afterwards like any other.
+//
+// The row a compaction draws for itself is live only. It reports work in
+// progress to whoever is watching, and the durable record of what happened is
+// the compaction summary row the fold inserts into the transcript; writing a
+// tool-call row no message refers to would leave an orphan in the bundle.
 
 import (
 	"fmt"
@@ -22,7 +28,6 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
-	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
 )
 
@@ -51,7 +56,6 @@ func (a *Agent) newCompactionRow() *compactionRow {
 		id:    fmt.Sprintf("compact_%d", time.Now().UTC().UnixNano()),
 		owned: true,
 	}
-	row.persist("pending")
 	_ = a.server.SendSessionUpdate(a.state.GetID(), acp.ToolCallUpdate{
 		SessionUpdate: acp.UpdateTypeToolCall,
 		ToolCallID:    row.id,
@@ -76,7 +80,6 @@ func (r *compactionRow) done(text string) {
 	if r == nil || r.agent == nil || !r.owned {
 		return
 	}
-	r.persist("completed")
 	r.status("completed", text)
 }
 
@@ -85,7 +88,6 @@ func (r *compactionRow) failed(err error) {
 	if r == nil || r.agent == nil || !r.owned || err == nil {
 		return
 	}
-	r.persist("failed")
 	r.status("failed", fmt.Sprintf("error: %v", err))
 }
 
@@ -101,24 +103,5 @@ func (r *compactionRow) status(status, text string) {
 		ToolCallID:    r.id,
 		Status:        status,
 		Content:       content,
-	})
-}
-
-// persist writes the row's metadata beside the session, so a client that
-// reloads the transcript after the compaction still finds it.
-func (r *compactionRow) persist(status string) {
-	st := sessionStatePtr(r.agent.state)
-	if st == nil {
-		return
-	}
-	sd := strings.TrimSpace(st.GetPersistedSessionDir())
-	if sd == "" {
-		return
-	}
-	_ = session.WriteToolCallMeta(sd, r.id, session.ToolCallMeta{
-		ToolCallID: r.id,
-		Name:       tools.ToolCompactContext,
-		Kind:       toolKind(tools.ToolCompactContext),
-		Status:     status,
 	})
 }
