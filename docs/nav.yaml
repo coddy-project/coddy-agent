@@ -97,6 +97,9 @@ groups:
       - path: features/mcp.md
         title: MCP servers
         summary: Connecting MCP servers over stdio, streamable HTTP and SSE, mcp.json files, workspace trust, enable switches, the management API.
+      - path: features/web-search.md
+        title: Web search
+        summary: The engines websearch asks, how a blocked backend is reported instead of counted as nothing found, the relevance gate, and pointing it at your own SearXNG.
       - path: features/message-queue.md
         title: Message queue
         summary: Writing a follow-up while the agent works, when the running turn reads it, taking one back, the composer and console surfaces, the queue routes.

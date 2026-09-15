@@ -48,8 +48,10 @@ The `background_*` tools are registered only while `tools.background` is enabled
 
 | Tool | Purpose | Arguments (short) | Permission | Modes |
 |---|---|---|---|---|
-| `websearch` | Search DuckDuckGo, Google and Bing at once and merge the results | `query`, `page`, `max_results` | none | agent, plan, ask |
+| `websearch` | Search several engines at once and merge the results, reporting each engine's outcome | `query`, `page`, `max_results`, `site` | none | agent, plan, ask |
 | `webfetch` | Download a public page and return its main text as Markdown; private networks and localhost are refused | `url`, `timeout_seconds`, `max_chars` | none | agent, plan, ask |
+
+`websearch` asks the engines named in `tools.websearch.engines` (Brave then Bing by default) and reports each one's outcome next to the results, so an engine that answered a challenge page is named rather than counted as nothing found; a search where every engine was turned away fails instead of returning an empty list. Which engines exist, how the relevance gate discards an unrelated result set, and how to point it at your own SearXNG: [Web search](../features/web-search.md).
 
 ## Interaction, skills and subagents
 

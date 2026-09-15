@@ -8,21 +8,33 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
-	"github.com/kuhahalong/ddgsearch"
 )
 
-// WebSearchTool returns the websearch built-in tool (DuckDuckGo + Google + Bing, parallel, merged).
+// searchDescription is what the model reads before it decides to search. The
+// text it replaced ended with an instruction never to call the tool more than
+// twice for one information need, which taught the model to abandon a subject
+// after two attempts at a tool that was failing on every one of them.
+const searchDescription = `Search the public web across several engines at once and return merged results: title, URL and a short snippet each.
+
+The answer carries an "engines" block reporting what every backend did: "ok" with a count, "empty" when it answered a result page with nothing on it, or "blocked" with a reason when it answered a challenge, an unreadable layout, or a set of results unrelated to the query. Read it before concluding anything:
+- results present: use them, and call webfetch on the ones worth reading in full - a snippet is not an answer;
+- zero results with every engine "ok" or "empty": the web really has nothing under those words. Search again with different words - broader, or the terms the sources themselves would use - rather than repeating the query;
+- engines "blocked": search from this machine is degraded, not the subject. Say so instead of concluding the subject does not exist.
+
+Use "page" to go further down the same result list, "site" to restrict to one domain, "max_results" to ask for fewer or more rows.`
+
+// WebSearchTool returns the websearch built-in tool.
 func WebSearchTool() *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "websearch",
-			Description: "Search the public web. Queries DuckDuckGo, Google, and Bing simultaneously, merges results (DDG first, duplicates removed). Returns titles, URLs, and short snippets. Use page for pagination (about 10 results per page). If results are empty, try ONE differently-worded query and stop — never repeat the same query or call this tool more than twice for the same information need.",
+			Description: searchDescription,
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"query": map[string]interface{}{
 						"type":        "string",
-						"description": "Search query",
+						"description": "Search query in the language the answer is likely written in",
 					},
 					"page": map[string]interface{}{
 						"type":        "integer",
@@ -31,6 +43,10 @@ func WebSearchTool() *tooling.Tool {
 					"max_results": map[string]interface{}{
 						"type":        "integer",
 						"description": "Maximum results to return for this page (default 15, cap 25)",
+					},
+					"site": map[string]interface{}{
+						"type":        "string",
+						"description": "Restrict results to one domain, e.g. \"go.dev\" or \"github.com\"",
 					},
 				},
 				"required": []string{"query"},
@@ -45,9 +61,28 @@ type searchWebArgs struct {
 	Query      string `json:"query"`
 	Page       int    `json:"page"`
 	MaxResults int    `json:"max_results"`
+	Site       string `json:"site"`
 }
 
-func executeSearchWeb(ctx context.Context, argsJSON string, _ *tooling.Env) (string, error) {
+// searchRow is one merged result as the model receives it.
+type searchRow struct {
+	Title       string `json:"title"`
+	URL         string `json:"url"`
+	Description string `json:"description,omitempty"`
+	Source      string `json:"source"`
+}
+
+// searchOutput is the tool's answer. Engines is not optional: it is what makes
+// an empty result list readable, by saying whether the engines were healthy.
+type searchOutput struct {
+	Query   string      `json:"query"`
+	Page    int         `json:"page"`
+	Engines []Report    `json:"engines"`
+	Results []searchRow `json:"results"`
+	Hint    string      `json:"hint,omitempty"`
+}
+
+func executeSearchWeb(ctx context.Context, argsJSON string, env *tooling.Env) (string, error) {
 	args, err := tooling.ParseArgs[searchWebArgs](argsJSON)
 	if err != nil {
 		return "", err
@@ -68,120 +103,71 @@ func executeSearchWeb(ctx context.Context, argsJSON string, _ *tooling.Env) (str
 		maxRes = 25
 	}
 
-	// Fire all three backends in parallel.
-	type ddgOut struct {
-		resp *ddgsearch.SearchResponse
-		err  error
-	}
-	type googleOut struct {
-		rows []googleResult
-		err  error
-	}
-	type bingOut struct {
-		rows []bingResult
-		err  error
-	}
-	ddgCh := make(chan ddgOut, 1)
-	googleCh := make(chan googleOut, 1)
-	bingCh := make(chan bingOut, 1)
+	settings := SettingsFromEnv(env)
+	names := settings.ResolvedEngines()
+	query := Query{Text: q, Page: page, MaxResults: maxRes, Site: strings.TrimSpace(args.Site)}
 
-	ddgFn := ddgSearchFunc
-	if ddgFn == nil {
-		ddgFn = defaultDDGSearch
-	}
-	go func() {
-		resp, err := ddgFn(ctx, &ddgsearch.SearchParams{
-			Query:      q,
-			Page:       page,
-			MaxResults: maxRes,
-		})
-		ddgCh <- ddgOut{resp, err}
-	}()
+	runs := runEngines(ctx, names, query, settings)
 
-	gFn := googleSearchFunc
-	if gFn == nil {
-		gFn = defaultGoogleSearch
-	}
-	go func() {
-		rows, err := gFn(ctx, q, page, maxRes)
-		googleCh <- googleOut{rows, err}
-	}()
-
-	bFn := bingSearchFunc
-	if bFn == nil {
-		bFn = defaultBingSearch
-	}
-	go func() {
-		rows, err := bFn(ctx, q, page, maxRes)
-		bingCh <- bingOut{rows, err}
-	}()
-
-	ddgR := <-ddgCh
-	googleR := <-googleCh
-	bingR := <-bingCh
-
-	// All three errored — nothing to return.
-	if ddgR.err != nil && googleR.err != nil && bingR.err != nil {
-		return "", fmt.Errorf("search failed (ddg: %w; google: %v; bing: %v)", ddgR.err, googleR.err, bingR.err)
-	}
-
-	// Merge with URL deduplication; order: DDG → Google → Bing.
-	type row struct {
-		Title       string `json:"title"`
-		URL         string `json:"url"`
-		Description string `json:"description"`
-	}
 	seen := make(map[string]bool)
-	var rows []row
-
-	if ddgR.err == nil && ddgR.resp != nil {
-		for _, r := range ddgR.resp.Results {
-			u := strings.TrimSpace(r.URL)
-			if u != "" && !seen[u] {
-				seen[u] = true
-				rows = append(rows, row{
-					Title:       strings.TrimSpace(r.Title),
-					URL:         u,
-					Description: strings.TrimSpace(r.Description),
-				})
+	rows := make([]searchRow, 0, maxRes)
+	reports := make([]Report, 0, len(runs))
+	healthy := 0
+	for i := range runs {
+		run := &runs[i]
+		kept := 0
+		for _, r := range run.rows {
+			url := strings.TrimSpace(r.URL)
+			if url == "" {
+				continue
 			}
-		}
-	}
-	if googleR.err == nil {
-		for _, r := range googleR.rows {
-			if r.URL != "" && !seen[r.URL] {
-				seen[r.URL] = true
-				rows = append(rows, row{Title: r.Title, URL: r.URL, Description: r.Snippet})
+			key := dedupKey(url)
+			if seen[key] {
+				continue
 			}
-		}
-	}
-	if bingR.err == nil {
-		for _, r := range bingR.rows {
-			if r.URL != "" && !seen[r.URL] {
-				seen[r.URL] = true
-				rows = append(rows, row{Title: r.Title, URL: r.URL, Description: r.Snippet})
+			seen[key] = true
+			if len(rows) >= maxRes {
+				continue
 			}
+			kept++
+			rows = append(rows, searchRow{
+				Title:       strings.TrimSpace(r.Title),
+				URL:         url,
+				Description: clipSnippet(r.Snippet, settings.SnippetLimit()),
+				Source:      run.name,
+			})
 		}
+		// The report counts what this engine contributed to the merged answer,
+		// not what it parsed: a row another engine already supplied is not a
+		// second result, and saying otherwise makes the counts unreadable.
+		if run.report.Status == OutcomeOK {
+			run.report.Results = kept
+			healthy++
+		}
+		if run.report.Status == OutcomeEmpty {
+			healthy++
+		}
+		reports = append(reports, run.report)
 	}
 
-	if len(rows) > maxRes {
-		rows = rows[:maxRes]
+	// Every engine turned away is a failure of the search, not an answer about
+	// the world. Reporting it as an error rather than as an empty result list
+	// is what stops the model concluding that the subject does not exist; the
+	// message names each engine so the operator can see what to fix.
+	if healthy == 0 && len(runs) > 0 {
+		return "", fmt.Errorf("every search engine was unavailable (%s). Search from this machine is degraded, not the subject: say so rather than concluding nothing exists. The operator can configure tools.websearch.searxng_url (a self-hosted SearXNG) or tools.websearch.brave_api_key for a reliable backend",
+			describeFailures(runs))
 	}
 
-	out := struct {
-		Query       string `json:"query"`
-		Page        int    `json:"page"`
-		HasMoreHint string `json:"has_more_hint,omitempty"`
-		Results     []row  `json:"results"`
-	}{
-		Query:   q,
-		Page:    page,
-		Results: rows,
+	out := searchOutput{Query: q, Page: page, Engines: reports, Results: rows}
+	switch {
+	case len(rows) == 0:
+		out.Hint = "Every engine answered, and none of them had anything under these words. Search again with different wording rather than repeating this query."
+	case len(rows) >= maxRes:
+		out.Hint = "More results are available: call websearch again with page incremented, or narrow the query."
 	}
-	if len(rows) == 0 {
-		out.HasMoreHint = "No results; try rephrasing the query."
-	} else if len(rows) >= maxRes {
-		out.HasMoreHint = "If you need more links, call websearch again with page incremented or a refined query."
+	if blockedNames := blockedEngines(runs); len(blockedNames) > 0 {
+		out.Hint = strings.TrimSpace(out.Hint + " Engines unavailable for this call: " + strings.Join(blockedNames, ", ") + ".")
 	}
 
 	b, err := json.MarshalIndent(out, "", "  ")
@@ -189,4 +175,41 @@ func executeSearchWeb(ctx context.Context, argsJSON string, _ *tooling.Env) (str
 		return "", err
 	}
 	return string(b), nil
+}
+
+// describeFailures renders one line per engine for the all-blocked error.
+func describeFailures(runs []engineRun) string {
+	parts := make([]string, 0, len(runs))
+	for _, r := range runs {
+		reason := r.report.Reason
+		if reason == "" {
+			reason = string(r.report.Status)
+		}
+		parts = append(parts, r.name+": "+reason)
+	}
+	return strings.Join(parts, "; ")
+}
+
+// blockedEngines names the engines that contributed nothing because something
+// stood in the way, so a partial answer still says what it is missing.
+func blockedEngines(runs []engineRun) []string {
+	var out []string
+	for _, r := range runs {
+		if r.report.Status == OutcomeBlocked || r.report.Status == OutcomeError {
+			out = append(out, r.name)
+		}
+	}
+	return out
+}
+
+// SettingsFromEnv reads the resolved tools.websearch section off the tool
+// environment, falling back to the built-in defaults when nothing was wired.
+// The conversion is direct because tooling.WebSearchSettings carries the same
+// fields in the same order: the data lives on the environment, the behaviour
+// stays in this package.
+func SettingsFromEnv(env *tooling.Env) Settings {
+	if env == nil || env.WebSearch == nil {
+		return Settings{}
+	}
+	return Settings(*env.WebSearch)
 }

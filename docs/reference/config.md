@@ -187,6 +187,15 @@ Filesystem and shell policy for built-in tools.
 | `tools.background.default_timeout_seconds` | integer | 900 | Hard limit for a task started without an explicit timeout and without a duration estimate. 0 uses the default. |
 | `tools.background.max_timeout_seconds` | integer | 3600 | Ceiling applied to any requested or estimate-derived timeout. 0 uses the default. |
 | `tools.background.output_buffer_bytes` | integer | 262144 | How much of each task's output stays in memory for the status ticker. The full log is still written to the session bundle. 0 uses the default. |
+| `tools.websearch` | object |  | Which search engines the websearch tool asks, in what order their results merge, and what it may spend asking them. Each engine reports its own outcome next to the results, so a blocked backend is named rather than counted as "the web has nothing". |
+| `tools.websearch.engines` | list of strings | ["brave","bing"] | Search engines to ask, in merge order. Unset asks brave then bing. "ddg" and "google" are not asked by default: measured from a server, DuckDuckGo answers every query with an anti-bot interstitial and Google renders its results in the browser. "searxng" needs searxng_url. |
+| `tools.websearch.engine_timeout_seconds` | integer | 8 | Seconds one engine may take before it is reported as unavailable. 0 uses the default. |
+| `tools.websearch.total_timeout_seconds` | integer | 20 | Seconds the whole search may take, however many engines it asks. 0 uses the default. |
+| `tools.websearch.max_concurrent_engines` | integer | 4 | How many engines are asked at once. 0 uses the default. |
+| `tools.websearch.snippet_chars` | integer | 320 | Maximum characters of one result description. 0 uses the default. |
+| `tools.websearch.cache_ttl_seconds` | integer | 300 | Seconds one engine answer is reused before the engine is asked again, so a repeated search does not repeat the request. 0 uses the default; a negative value turns caching off. |
+| `tools.websearch.searxng_url` | string | "" | Base address of your own SearXNG instance, asked over its JSON API (enable the json format in its settings.yml). A self-hosted aggregator is the durable answer to a scraped engine being turned away; localhost and LAN addresses are allowed on purpose. |
+| `tools.websearch.brave_api_key` | string | "" | Brave Search API subscription token. With it the brave engine uses the official JSON API instead of reading the public result page, which has no parser to break when Brave redeploys. |
 
 ### `subagents`
 

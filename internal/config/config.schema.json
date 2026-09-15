@@ -602,6 +602,67 @@
               "default": 262144
             }
           }
+        },
+        "websearch": {
+          "type": "object",
+          "title": "Web search",
+          "description": "Which search engines the websearch tool asks, in what order their results merge, and what it may spend asking them. Each engine reports its own outcome next to the results, so a blocked backend is named rather than counted as \"the web has nothing\".",
+          "additionalProperties": false,
+          "properties": {
+            "engines": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "brave",
+                  "bing",
+                  "ddg",
+                  "google",
+                  "searxng"
+                ]
+              },
+              "description": "Search engines to ask, in merge order. Unset asks brave then bing. \"ddg\" and \"google\" are not asked by default: measured from a server, DuckDuckGo answers every query with an anti-bot interstitial and Google renders its results in the browser. \"searxng\" needs searxng_url.",
+              "default": [
+                "brave",
+                "bing"
+              ]
+            },
+            "engine_timeout_seconds": {
+              "type": "integer",
+              "description": "Seconds one engine may take before it is reported as unavailable. 0 uses the default.",
+              "default": 8
+            },
+            "total_timeout_seconds": {
+              "type": "integer",
+              "description": "Seconds the whole search may take, however many engines it asks. 0 uses the default.",
+              "default": 20
+            },
+            "max_concurrent_engines": {
+              "type": "integer",
+              "description": "How many engines are asked at once. 0 uses the default.",
+              "default": 4
+            },
+            "snippet_chars": {
+              "type": "integer",
+              "description": "Maximum characters of one result description. 0 uses the default.",
+              "default": 320
+            },
+            "cache_ttl_seconds": {
+              "type": "integer",
+              "description": "Seconds one engine answer is reused before the engine is asked again, so a repeated search does not repeat the request. 0 uses the default; a negative value turns caching off.",
+              "default": 300
+            },
+            "searxng_url": {
+              "type": "string",
+              "description": "Base address of your own SearXNG instance, asked over its JSON API (enable the json format in its settings.yml). A self-hosted aggregator is the durable answer to a scraped engine being turned away; localhost and LAN addresses are allowed on purpose.",
+              "default": ""
+            },
+            "brave_api_key": {
+              "type": "string",
+              "description": "Brave Search API subscription token. With it the brave engine uses the official JSON API instead of reading the public result page, which has no parser to break when Brave redeploys.",
+              "default": ""
+            }
+          }
         }
       }
     },
