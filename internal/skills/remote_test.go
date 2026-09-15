@@ -435,6 +435,7 @@ func TestMarketplaceVersionsOmitsEmpty(t *testing.T) {
 }
 
 func TestListSourcesAndRemoveSource(t *testing.T) {
+	offlineSystemSources(t)
 	home := t.TempDir()
 	cfgPath := filepath.Join(home, "config.yaml")
 	if err := os.WriteFile(cfgPath, []byte("skills:\n  sources:\n    - owner/one\n    - owner/two\n"), 0o644); err != nil {
@@ -508,6 +509,7 @@ func writeMarketplaceManifest(t *testing.T, repo, skill, version string) {
 }
 
 func TestSyncRecordsVersionThenCheckAndUpdate(t *testing.T) {
+	offlineSystemSources(t)
 	if !gitws.GitAvailable() {
 		t.Skip("git binary not available")
 	}
@@ -708,6 +710,7 @@ func TestSyncSourceSingle(t *testing.T) {
 }
 
 func TestAvailablePluginsAndInstallPlugin(t *testing.T) {
+	offlineSystemSources(t)
 	if !gitws.GitAvailable() {
 		t.Skip("git binary not available")
 	}
@@ -774,4 +777,15 @@ func TestAvailablePluginsAndInstallPlugin(t *testing.T) {
 	if _, err := InstallPlugin(ctx, cfg, fileURL, "nope"); err == nil {
 		t.Error("expected error installing unknown plugin")
 	}
+}
+
+// offlineSystemSources keeps a test off the network. The built-in marketplace
+// is a real GitHub address, so any test that lists, probes or syncs sources
+// would clone it; the ones that care about the system source say so explicitly
+// (see seed_test.go).
+func offlineSystemSources(t *testing.T) {
+	t.Helper()
+	prev := SystemSources
+	SystemSources = nil
+	t.Cleanup(func() { SystemSources = prev })
 }

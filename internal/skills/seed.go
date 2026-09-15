@@ -11,11 +11,13 @@ package skills
 //
 //   - a skill it has never handed over is written;
 //   - a skill it has handed over and the operator then deleted stays deleted;
-//   - a copy on disk older than the release is replaced;
-//   - a copy that is newer, or that carries no version to compare against, is
-//     left exactly as it is;
-//   - the marketplace is registered in the config file once, and an operator
-//     who removes it keeps it removed.
+//   - a copy on disk older than the release is replaced, and one that declares
+//     no version at all counts as older: it predates these skills carrying one;
+//   - a copy that is newer is left exactly as it is.
+//
+// The marketplace those skills are published from needs no receipt: it is a
+// system source (config.SystemSkillsSource), listed and synced beside whatever
+// skills.sources names, so no config file is ever written here.
 
 import (
 	"encoding/json"
@@ -37,20 +39,17 @@ const deliveryReceiptFile = ".bundled.json"
 
 // deliveryReceipt is the on-disk form of that record. Skills maps a skill name
 // to the version handed over for it - an empty value meaning the delivery saw
-// the name and deliberately wrote nothing. Sources lists the marketplaces it
-// has offered, so one an operator removed is not offered again.
+// the name and deliberately wrote nothing.
 type deliveryReceipt struct {
 	Version int               `json:"version"`
 	Skills  map[string]string `json:"skills,omitempty"`
-	Sources []string          `json:"sources,omitempty"`
 }
 
 // SeedResult summarizes one delivery run. An empty result is the normal
 // outcome: the delivery only acts the first time it sees something.
 type SeedResult struct {
-	Installed   []string `json:"installed"`
-	Updated     []string `json:"updated"`
-	SourceAdded bool     `json:"source_added"`
+	Installed []string `json:"installed"`
+	Updated   []string `json:"updated"`
 }
 
 // SeedDelivery hands the standard delivery to the home cfg points at. It is
@@ -78,9 +77,6 @@ func SeedDelivery(cfg *config.Config) (*SeedResult, error) {
 			firstErr = err
 		}
 		changed = changed || acted
-	}
-	if deliverSource(cfg, receipt, res) {
-		changed = true
 	}
 
 	if changed {
@@ -115,16 +111,9 @@ func deliverSkill(entry BundledEntry, managedDir string, receipt *deliveryReceip
 		res.Installed = append(res.Installed, name)
 		return true, nil
 
-	case onDisk == "":
-		// A copy Coddy cannot compare itself against - hand-written, or from a
-		// source that declares no version. Record the name so the question is
-		// settled, and leave the files alone.
-		if seen {
-			return false, nil
-		}
-		receipt.Skills[name] = ""
-		return true, nil
-
+	// compareVersions ranks an absent version below every declared one, so a
+	// copy with no version: - installed before these skills declared one - is
+	// replaced along with the copies that name an older release.
 	case entry.Version != "" && compareVersions(entry.Version, onDisk) > 0:
 		if err := installBundledSkill(entry, managedDir, name); err != nil {
 			return false, err
@@ -141,44 +130,6 @@ func deliverSkill(entry BundledEntry, managedDir string, receipt *deliveryReceip
 		receipt.Skills[name] = onDisk
 		return true, nil
 	}
-}
-
-// deliverSource registers the default marketplace once and reports whether the
-// receipt needs writing. The address is only written into a config file that
-// already exists: creating one would change which file a later start loads, and
-// a home without a file already has the marketplace from the loader's default.
-func deliverSource(cfg *config.Config, receipt *deliveryReceipt, res *SeedResult) bool {
-	source := config.DefaultSkillsSource
-	for _, offered := range receipt.Sources {
-		if strings.EqualFold(strings.TrimSpace(offered), source) {
-			return false
-		}
-	}
-	receipt.Sources = append(receipt.Sources, source)
-
-	if configured(cfg.Skills.Sources, source) {
-		return true
-	}
-	path := strings.TrimSpace(cfg.Paths.ConfigPath)
-	if path == "" {
-		return true
-	}
-	if _, err := os.Stat(path); err != nil {
-		return true
-	}
-	if added, err := AddSource(cfg, source); err == nil && added {
-		res.SourceAdded = true
-	}
-	return true
-}
-
-func configured(sources []string, source string) bool {
-	for _, s := range sources {
-		if strings.EqualFold(strings.TrimSpace(s), source) {
-			return true
-		}
-	}
-	return false
 }
 
 // installedSkillVersion reads the version of the skill installed at dir and

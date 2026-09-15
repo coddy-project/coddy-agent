@@ -2907,6 +2907,7 @@ func TestCoddySkillsSourcesSyncDelete(t *testing.T) {
 // TestCoddySkillsNewRoutesEdgeCases covers error paths for the version/update
 // and source-management routes without network access.
 func TestCoddySkillsNewRoutesEdgeCases(t *testing.T) {
+	offlineSystemSources(t)
 	home := t.TempDir()
 	t.Setenv("CODDY_HOME", home)
 	cfgPath := filepath.Join(home, "config.yaml")

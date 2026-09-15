@@ -239,6 +239,7 @@ func TestPluginCommandFeature(t *testing.T) {
 	if !gitws.GitAvailable() {
 		t.Skip("git binary not available")
 	}
+	offlineSystemSources(t)
 	suite := godog.TestSuite{
 		Name:                "plugin_command",
 		ScenarioInitializer: initializePluginScenario,

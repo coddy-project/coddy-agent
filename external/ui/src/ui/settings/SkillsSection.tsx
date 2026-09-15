@@ -63,6 +63,16 @@ async function fetchAvailable(): Promise<AvailablePlugin[]> {
   return data.items ?? [];
 }
 
+// The marketplaces Coddy brings itself. They are in effect without being in
+// config.yaml, so the editor below shows them but offers no way to edit or
+// remove one.
+async function fetchSystemSources(): Promise<string[]> {
+  const res = await fetch("/coddy/skills/sources");
+  if (!res.ok) return [];
+  const data = (await res.json()) as { system?: string[] };
+  return data.system ?? [];
+}
+
 async function apiSend(
   path: string,
   method: "POST" | "DELETE",
@@ -177,22 +187,70 @@ const SYNC_ALL_KEY = " all";
  */
 function SourcesEditor(props: {
   value: string[];
+  system: string[];
   onChange: (next: string[]) => void;
   onSyncOne: (source: string) => void;
   onSyncAll: () => void;
   syncing: boolean;
   flash: string | null;
 }) {
-  const { value, onChange, onSyncOne, onSyncAll, syncing, flash } = props;
+  const { value, system, onChange, onSyncOne, onSyncAll, syncing, flash } =
+    props;
   const { t } = useT();
   const sources = Array.isArray(value) ? value : [];
+  // A config that repeats a built-in marketplace must not show it twice: the
+  // server lists it once, and so does this.
+  const lowerSystem = new Set(system.map((s) => s.trim().toLowerCase()));
+  const configured = sources.filter(
+    (s) => !lowerSystem.has(s.trim().toLowerCase()),
+  );
+  const indexOf = (src: string) => sources.indexOf(src);
   return (
     <fieldset className="settings-fieldset">
       <legend>{t("skills.sources.legend")}</legend>
       <p className="settings-field-desc">{t("skills.sources.description")}</p>
       <ul className="settings-array">
-        {sources.map((src, i) => (
-          <li key={i} className="settings-array-row">
+        {system.map((src) => (
+          <li key={`system-${src}`} className="settings-array-row">
+            <div className="settings-array-row-field">
+              <input
+                className="settings-input"
+                type="text"
+                value={src}
+                readOnly
+                disabled
+                title={t("skills.sources.systemTitle")}
+              />
+            </div>
+            <button
+              type="button"
+              className={`settings-btn settings-btn-icon${flash === src ? " is-synced" : ""}`}
+              disabled={syncing}
+              onClick={() => onSyncOne(src)}
+              title={
+                flash === src
+                  ? t("skills.sources.syncedTitle")
+                  : t("skills.sources.syncTitle", { source: src })
+              }
+              aria-label={t("skills.sources.syncAria")}
+              data-testid={`skills-sync-system-${src}`}
+            >
+              {flash === src ? <IconCheck /> : <IconSync />}
+            </button>
+            <button
+              type="button"
+              className="settings-btn settings-btn-icon settings-btn-danger settings-array-remove"
+              disabled
+              title={t("skills.sources.systemTitle")}
+              aria-label={t("skills.sources.removeAria")}
+              data-testid={`skills-remove-system-${src}`}
+            >
+              <IconTrash />
+            </button>
+          </li>
+        ))}
+        {configured.map((src) => (
+          <li key={indexOf(src)} className="settings-array-row">
             <div className="settings-array-row-field">
               <input
                 className="settings-input"
@@ -201,7 +259,7 @@ function SourcesEditor(props: {
                 placeholder={t("skills.sources.placeholder")}
                 onChange={(e) => {
                   const next = [...sources];
-                  next[i] = e.target.value;
+                  next[indexOf(src)] = e.target.value;
                   onChange(next);
                 }}
               />
@@ -217,14 +275,16 @@ function SourcesEditor(props: {
                   : t("skills.sources.syncTitle", { source: src.trim() })
               }
               aria-label={t("skills.sources.syncAria")}
-              data-testid={`skills-sync-source-${i}`}
+              data-testid={`skills-sync-source-${indexOf(src)}`}
             >
               {flash === src ? <IconCheck /> : <IconSync />}
             </button>
             <button
               type="button"
               className="settings-btn settings-btn-icon settings-btn-danger settings-array-remove"
-              onClick={() => onChange(sources.filter((_, j) => j !== i))}
+              onClick={() =>
+                onChange(sources.filter((_, j) => j !== indexOf(src)))
+              }
               title={t("skills.sources.removeTitle")}
               aria-label={t("skills.sources.removeAria")}
             >
@@ -244,7 +304,7 @@ function SourcesEditor(props: {
         <button
           type="button"
           className={`settings-btn skills-sync-all-btn${flash === SYNC_ALL_KEY ? " is-synced" : ""}`}
-          disabled={syncing || sources.length === 0}
+          disabled={syncing || sources.length + system.length === 0}
           onClick={onSyncAll}
           title={t("skills.sources.syncAllTitle")}
           data-testid="skills-sync-all"
@@ -293,6 +353,7 @@ export function SkillsSection(props: {
   const [available, setAvailable] = useState<AvailablePlugin[] | null>(null);
   const [availableLoading, setAvailableLoading] = useState(false);
   const [installQuery, setInstallQuery] = useState("");
+  const [systemSources, setSystemSources] = useState<string[]>([]);
   const [installBusy, setInstallBusy] = useState<Record<string, boolean>>({});
   // Name of a just-installed skill to briefly highlight in the list. We do not
   // scroll to it: the floating install menu never reflows the list, so the
@@ -324,6 +385,10 @@ export function SkillsSection(props: {
   useEffect(() => {
     void loadInstalled(true);
   }, [loadInstalled]);
+
+  useEffect(() => {
+    void (async () => setSystemSources(await fetchSystemSources()))();
+  }, []);
 
   // After an install, briefly flash the new row so it is easy to spot, then
   // clear the flag. No scroll - the list position is left untouched.
@@ -480,6 +545,7 @@ export function SkillsSection(props: {
       return (
         <SourcesEditor
           value={(fv as string[]) ?? []}
+          system={systemSources}
           onChange={(next) => fc(next)}
           onSyncOne={onSyncOne}
           onSyncAll={onSync}

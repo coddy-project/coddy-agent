@@ -43,6 +43,7 @@ func TestRunPluginCommandUsageAndErrors(t *testing.T) {
 }
 
 func TestMarketplaceStatusInvalidAndEmpty(t *testing.T) {
+	offlineSystemSources(t)
 	cfg := &config.Config{Paths: config.Paths{Home: t.TempDir()}}
 	// No sources.
 	if got := MarketplaceStatus(context.Background(), cfg); len(got) != 0 {
@@ -57,6 +58,7 @@ func TestMarketplaceStatusInvalidAndEmpty(t *testing.T) {
 }
 
 func TestPluginMarketplaceLifecycleFromLocalGit(t *testing.T) {
+	offlineSystemSources(t)
 	if !gitws.GitAvailable() {
 		t.Skip("git binary not available")
 	}

@@ -154,11 +154,7 @@ func Sync(ctx context.Context, cfg *config.Config) (*SyncResult, error) {
 	lock := readRemoteLock(managedDir)
 	res := &SyncResult{}
 
-	for _, src := range cfg.Skills.Sources {
-		src = strings.TrimSpace(src)
-		if src == "" {
-			continue
-		}
+	for _, src := range ListSources(cfg) {
 		if err := syncOne(ctx, src, managedDir, lock, res); err != nil {
 			res.Failed = append(res.Failed, SyncFailure{Source: src, Error: err.Error()})
 		}
@@ -674,6 +670,11 @@ func AddSource(cfg *config.Config, source string) (bool, error) {
 	if _, err := parseSource(source); err != nil {
 		return false, err
 	}
+	if IsSystemSource(source) {
+		// Already in effect, and writing it into the file would only create a
+		// duplicate the operator could then delete from half of it.
+		return false, nil
+	}
 	sourceMu.Lock()
 	defer sourceMu.Unlock()
 	return applySourceChange(cfg, func(current []string) ([]string, bool, error) {
@@ -1173,23 +1174,59 @@ func comparePrerelease(a, b string) int {
 
 // ---- source management ----
 
-// ListSources returns the configured remote skill sources (trimmed, non-empty).
-func ListSources(cfg *config.Config) []string {
-	out := make([]string, 0, len(cfg.Skills.Sources))
-	for _, s := range cfg.Skills.Sources {
-		if s = strings.TrimSpace(s); s != "" {
-			out = append(out, s)
+// SystemSources are the marketplaces Coddy is born with. They are listed and
+// synced exactly like configured ones, but they live here rather than in
+// skills.sources, so no surface can remove one and no config file has to be
+// written to have it. Tests replace this to keep their assertions off the
+// network; nothing else writes to it.
+var SystemSources = []string{config.SystemSkillsSource}
+
+// IsSystemSource reports whether source is one Coddy brings itself, which is
+// what makes it undeletable.
+func IsSystemSource(source string) bool {
+	source = strings.TrimSpace(source)
+	for _, sys := range SystemSources {
+		if strings.EqualFold(strings.TrimSpace(sys), source) {
+			return true
 		}
+	}
+	return false
+}
+
+// ListSources returns every remote skill source in effect: the system ones
+// first, then what skills.sources names (trimmed, non-empty, deduplicated - a
+// config that repeats a system source does not make it appear twice).
+func ListSources(cfg *config.Config) []string {
+	out := make([]string, 0, len(SystemSources)+len(cfg.Skills.Sources))
+	seen := make(map[string]struct{}, cap(out))
+	add := func(s string) {
+		if s = strings.TrimSpace(s); s != "" {
+			key := strings.ToLower(s)
+			if _, dup := seen[key]; !dup {
+				seen[key] = struct{}{}
+				out = append(out, s)
+			}
+		}
+	}
+	for _, s := range SystemSources {
+		add(s)
+	}
+	for _, s := range cfg.Skills.Sources {
+		add(s)
 	}
 	return out
 }
 
 // RemoveSource drops a source from skills.sources and persists config.yaml.
-// It reports whether a matching source was found and removed.
+// It reports whether a matching source was found and removed. A system source
+// is refused: it is not in the file, so there is nothing to take out of it.
 func RemoveSource(cfg *config.Config, source string) (bool, error) {
 	source = strings.TrimSpace(source)
 	if source == "" {
 		return false, fmt.Errorf("empty source")
+	}
+	if IsSystemSource(source) {
+		return false, fmt.Errorf("%s is built into Coddy and cannot be removed; disable the skills you do not want with `coddy skills disable <name>`", source)
 	}
 	sourceMu.Lock()
 	defer sourceMu.Unlock()

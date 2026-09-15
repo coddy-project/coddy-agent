@@ -2,13 +2,14 @@ package skills_test
 
 // Edge cases of the standard delivery. The happy path is
 // features/skills_delivery.feature; what is here is everything the delivery
-// must refuse to do: clobber a newer copy, clobber a copy it cannot compare
-// itself against, hand the same thing over twice, or create a config file that
-// was not there.
+// must refuse to do: clobber a newer copy, hand the same thing over twice, or
+// create a config file that was not there - plus the one thing it must do to a
+// copy that declares no version.
 
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -101,16 +102,28 @@ func TestDeliveryKeepsANewerCopyOnDisk(t *testing.T) {
 	}
 }
 
-func TestDeliveryKeepsACopyItCannotCompare(t *testing.T) {
+// A copy with no version: predates the delivery declaring one, so it is older
+// than anything the release carries and is replaced. Keeping an edited copy
+// means giving it a version higher than the delivered one, same as for any
+// other skill of the delivery.
+func TestDeliveryReplacesACopyWithoutAVersion(t *testing.T) {
 	cfg := deliveryHome(t, true)
 	path := writeSkill(t, cfg, "rpa-feat", "", "a copy with no version at all")
 
-	if _, err := skills.SeedDelivery(cfg); err != nil {
+	res, err := skills.SeedDelivery(cfg)
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	if got := readFile(t, path); !strings.Contains(got, "a copy with no version at all") {
-		t.Fatalf("the delivery overwrote a copy it cannot compare itself against:\n%s", got)
+	got := readFile(t, path)
+	if strings.Contains(got, "a copy with no version at all") {
+		t.Fatalf("the delivery kept a copy that declares no version:\n%s", got)
+	}
+	if want := "version: " + deliveredVersion(t, "rpa-feat"); !strings.Contains(got, want) {
+		t.Fatalf("expected %q on disk, got:\n%s", want, got)
+	}
+	if len(res.Updated) == 0 {
+		t.Fatalf("expected the result to report an update, got %+v", res)
 	}
 }
 
@@ -150,7 +163,7 @@ func TestDeliveryIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(second.Installed) != 0 || len(second.Updated) != 0 || second.SourceAdded {
+	if len(second.Installed) != 0 || len(second.Updated) != 0 {
 		t.Fatalf("the second run was not a no-op: %+v", second)
 	}
 }
@@ -158,19 +171,36 @@ func TestDeliveryIsIdempotent(t *testing.T) {
 func TestDeliveryDoesNotCreateAConfigFile(t *testing.T) {
 	cfg := deliveryHome(t, false)
 
-	res, err := skills.SeedDelivery(cfg)
-	if err != nil {
+	if _, err := skills.SeedDelivery(cfg); err != nil {
 		t.Fatal(err)
-	}
-	if res.SourceAdded {
-		t.Fatal("the delivery wrote a marketplace into a config file that does not exist")
 	}
 	if _, err := os.Stat(cfg.Paths.ConfigPath); !os.IsNotExist(err) {
 		t.Fatalf("a config file appeared at %s", cfg.Paths.ConfigPath)
 	}
-	// Without a file the default still connects the marketplace in memory.
+	// A home with no config file still has the marketplace: it is a system
+	// source, not something the file has to name.
 	if len(skills.ListSources(cfg)) == 0 {
-		t.Fatal("a home without a config file has no marketplace configured")
+		t.Fatal("a home without a config file has no marketplace in effect")
+	}
+}
+
+// The system marketplace is in effect beside skills.sources, is not duplicated
+// when a config happens to name it too, and cannot be taken out of either.
+func TestSystemSourceIsListedAndUndeletable(t *testing.T) {
+	cfg := deliveryHome(t, true)
+	cfg.Skills.Sources = []string{"someone/else", config.SystemSkillsSource}
+
+	got := skills.ListSources(cfg)
+	want := []string{config.SystemSkillsSource, "someone/else"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("sources: want %v, got %v", want, got)
+	}
+
+	if _, err := skills.RemoveSource(cfg, config.SystemSkillsSource); err == nil {
+		t.Fatal("removing the system marketplace was allowed")
+	}
+	if added, err := skills.AddSource(cfg, config.SystemSkillsSource); err != nil || added {
+		t.Fatalf("adding the system marketplace should be a no-op, got added=%v err=%v", added, err)
 	}
 }
 

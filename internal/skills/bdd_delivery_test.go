@@ -5,6 +5,7 @@ package skills_test
 // catalogue offers, and which marketplaces the config ended up naming.
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -19,9 +20,10 @@ import (
 )
 
 type deliveryState struct {
-	root string
-	home string
-	cfg  *config.Config
+	root    string
+	home    string
+	cfg     *config.Config
+	cfgFile []byte // config.yaml as written, to prove the delivery leaves it alone
 }
 
 func (s *deliveryState) reset() error {
@@ -43,15 +45,16 @@ func (s *deliveryState) close() {
 }
 
 // emptyHome builds a home with a config file in it, which is what an operator
-// who has ever saved a setting has; the delivery registers its marketplace in
-// that file rather than creating one.
+// who has ever saved a setting has. The delivery never writes to it: its
+// marketplace is built into Coddy, not configured.
 func (s *deliveryState) emptyHome() error {
 	s.home = filepath.Join(s.root, "home")
 	if err := os.MkdirAll(s.home, 0o755); err != nil {
 		return err
 	}
 	cfgPath := filepath.Join(s.home, "config.yaml")
-	if err := os.WriteFile(cfgPath, []byte("skills:\n  sources: []\n"), 0o644); err != nil {
+	s.cfgFile = []byte("skills:\n  sources: []\n")
+	if err := os.WriteFile(cfgPath, s.cfgFile, 0o644); err != nil {
 		return err
 	}
 	cfg, err := config.LoadWithPaths(config.Paths{Home: s.home, ConfigPath: cfgPath, CWD: s.root})
@@ -118,9 +121,13 @@ func (s *deliveryState) sourcesContain(source string) error {
 	return fmt.Errorf("sources %v do not name %q", s.cfg.Skills.Sources, source)
 }
 
-func (s *deliveryState) sourcesDoNotContain(source string) error {
-	if err := s.sourcesContain(source); err == nil {
-		return fmt.Errorf("sources still name %q", source)
+func (s *deliveryState) configUntouched() error {
+	got, err := os.ReadFile(s.cfg.Paths.ConfigPath)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(got, s.cfgFile) {
+		return fmt.Errorf("the delivery rewrote the config file:\n%s", got)
 	}
 	return nil
 }
@@ -158,13 +165,13 @@ func (s *deliveryState) deleteSkill(name string) error {
 	return os.RemoveAll(filepath.Join(s.managedDir(), name))
 }
 
-func (s *deliveryState) removeMarketplace(source string) error {
+func (s *deliveryState) removeMarketplaceRefused(source string) error {
 	removed, err := skills.RemoveSource(s.cfg, source)
-	if err != nil {
-		return err
+	if err == nil {
+		return fmt.Errorf("removing %q was allowed (removed=%v)", source, removed)
 	}
-	if !removed {
-		return fmt.Errorf("marketplace %q was not configured", source)
+	if removed {
+		return fmt.Errorf("removing %q failed with %v but reported a removal", source, err)
 	}
 	return nil
 }
@@ -187,11 +194,11 @@ func initializeDeliveryScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the skill "([^"]*)" carries its references on disk$`, s.carriesReferences)
 	sc.Step(`^the skill catalogue offers "([^"]*)"$`, s.catalogueOffers)
 	sc.Step(`^the configured skill sources contain "([^"]*)"$`, s.sourcesContain)
-	sc.Step(`^the configured skill sources do not contain "([^"]*)"$`, s.sourcesDoNotContain)
+	sc.Step(`^removing the marketplace "([^"]*)" is refused$`, s.removeMarketplaceRefused)
+	sc.Step(`^the config file was not touched$`, s.configUntouched)
 	sc.Step(`^the home already carries skill "([^"]*)" at version "([^"]*)"$`, s.writeSkill)
 	sc.Step(`^the home skill "([^"]*)" is at the delivered version$`, s.atDeliveredVersion)
 	sc.Step(`^the operator deletes the skill "([^"]*)"$`, s.deleteSkill)
-	sc.Step(`^the operator removes the marketplace "([^"]*)"$`, s.removeMarketplace)
 }
 
 func TestSkillsDeliveryFeature(t *testing.T) {

@@ -301,16 +301,22 @@ func (s *Server) coddySkillsInstallPost(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// coddySkillsSourcesGet lists configured remote skill sources.
+// coddySkillsSourcesGet lists every remote skill source in effect. system names
+// the subset Coddy brings itself: they are in items like any other, but they do
+// not live in config.yaml and DELETE refuses them, so a client shows them
+// without a remove control.
 func (s *Server) coddySkillsSourcesGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
 		return
 	}
+	system := make([]string, 0, len(skills.SystemSources))
+	system = append(system, skills.SystemSources...)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"object": "coddy.skills_sources",
 		"items":  skills.ListSources(s.activeCfg()),
+		"system": system,
 	})
 }
 

@@ -7017,10 +7017,11 @@ recorded in **`${CODDY_HOME}/skills/.bundled.json`** beside the skills it wrote:
 - a skill it has never handed over is written;
 - a skill you deleted stays deleted - it is not written again by the next start;
 - a copy older than the one in the release is **replaced**, so `coddy update` brings the newer skill
-  with it. Edit a delivered skill and you will want to raise its `version:` as well, otherwise the
-  next release that raises its own overwrites your copy;
-- a copy that is newer, or that carries no `version:` to compare against, is left exactly as it is;
-- the marketplace below is registered once.
+  with it. A copy that declares no `version:` at all counts as older - it predates these skills
+  carrying one - and is replaced too;
+- a copy that is newer is left exactly as it is. That is also how you keep an edit: raise the
+  `version:` of the copy in your home above the one the release carries, otherwise the next release
+  that raises its own overwrites it.
 
 A home Coddy cannot write to - a read-only image, a locked-down account - is not an error: the
 copies inside the binary answer instead, read-only, and only a skill whose `references/` it needs
@@ -7031,17 +7032,29 @@ by **`make skills-vendor`**; `scripts/bundled-skills.json` says where each one c
 
 ### The marketplace that comes with it
 
-`skills.sources` starts out naming **`EvilFreelancer/rpa-skills`**, the catalogue the delivered
-`rpa-*` skills are published from, so the rest of that collection is one command away:
+**`EvilFreelancer/rpa-skills`** - the catalogue the delivered `rpa-*` skills are published from - is a
+**system source**: it is in effect the way the delivered skills are, without appearing in
+`skills.sources` and without any file being written for it. So the rest of that collection is one
+command away on a machine whose `config.yaml` has never been touched:
 
 ```bash
 coddy skills sync                 # install everything the catalogue publishes
-coddy plugin marketplace list     # what is configured, and whether it resolves
+coddy plugin marketplace list     # every source in effect, and whether it resolves
 ```
 
-This is an address and nothing more - Coddy contacts it only when you ask it to. It is written into
-`config.yaml` once; remove it with `coddy plugin marketplace remove EvilFreelancer/rpa-skills` and it
-stays removed, because a `sources` list that exists in the file is taken as your answer.
+It is an address and nothing more - Coddy contacts it only when you ask it to. Because it is not in
+the config file there is nothing to take out of one: `coddy plugin marketplace remove` refuses it,
+`DELETE /coddy/skills/sources` answers 400, and **Settings → Skills → Remote skill sources** shows the
+row greyed out with its delete button disabled. To be rid of a skill it publishes, disable or delete
+that skill (`coddy skills disable <name>`) rather than the catalogue.
+
+`GET /coddy/skills/sources` names them under `system`, which is how a client knows which rows carry
+no remove control.
+
+![Remote skill sources with the built-in marketplace greyed out](../assets/skills/skills-system-source-dark-1280.png)
+
+*Settings → Skills: the built-in `EvilFreelancer/rpa-skills` is listed and can be synced, but its
+field and its delete button are disabled; a source you added yourself is editable as before.*
 
 ## Where to get skills
 
@@ -9420,7 +9433,7 @@ Directories scanned for skills (SKILL.md and root .md/.mdc files).
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `skills.dirs` | list of strings | ["~/.agents/skills","${CODDY_HOME}/skills","${CWD}/.coddy/skills"] | Search paths; later entries win on name conflicts. Defaults (lowest to highest priority): ~/.agents/skills, ${CODDY_HOME}/skills, ${CWD}/.coddy/skills. ${CODDY_HOME} expands when the file is loaded; ${CWD} stays in the entry and expands per session against that session's workspace. |
-| `skills.sources` | list of strings | [EvilFreelancer/rpa-skills] | Remote skill sources installed on demand with `coddy skills sync` (never fetched automatically). Each entry is a GitHub repo (owner/repo[@ref]), a git URL, or an http(s) URL to an agents-standard marketplace.json. Materialized into ${CODDY_HOME}/skills. Omit the key and Coddy configures EvilFreelancer/rpa-skills, the marketplace the bundled rpa-* skills are published from; an empty list connects no marketplace at all. See https://coddy.dev/docs/skills. |
+| `skills.sources` | list of strings |  | Remote skill sources installed on demand with `coddy skills sync` (never fetched automatically). Each entry is a GitHub repo (owner/repo[@ref]), a git URL, or an http(s) URL to an agents-standard marketplace.json. Materialized into ${CODDY_HOME}/skills. EvilFreelancer/rpa-skills, the marketplace the bundled rpa-* skills are published from, is always in effect as a system source and is not listed here. See https://coddy.dev/docs/skills. |
 | `skills.auto_discovery` | boolean or null | true | Offer the model-driven load_skill tool so the agent pulls a catalogued skill's full instructions into a turn on its own when the request matches, instead of requiring an explicit /name. Defaults to true. |
 
 ### `rules`
@@ -10530,9 +10543,9 @@ header where the client can set one, since a query token reaches proxy access lo
 | GET | **`/coddy/skills/available`** | Fetches every configured marketplace manifest (network / git) and lists the plugins they advertise for install. **`200`** **`{"object":"coddy.skills_available","items":[{"name","description","version","source","installed"}]}`**. |
 | POST | **`/coddy/skills/install`** | JSON **`{"source","plugin"}`**: installs a single named plugin from a marketplace source (not the whole source). **`200`** **`{"ok":true,"added":[...],"updated":[...],"failed":[...]}`**; **`400`** when the plugin or source is unknown. Invalidates the slash-command cache. |
 | POST | **`/coddy/skills/{name}/update`** | Re-syncs the marketplace source that provides **`{name}`**, installing the version it currently declares. **`200`** **`{"ok":true,"added":[...],"updated":[...],"failed":[...]}`**; **`400`** when **`{name}`** was not installed from a remote source. Invalidates the slash-command cache. |
-| GET | **`/coddy/skills/sources`** | Lists the configured **`skills.sources`** entries. **`200`** **`{"object":"coddy.skills_sources","items":["owner/repo", ...]}`**. |
+| GET | **`/coddy/skills/sources`** | Lists every source in effect - the system ones first, then **`skills.sources`**. **`200`** **`{"object":"coddy.skills_sources","items":["owner/repo", ...],"system":["EvilFreelancer/rpa-skills"]}`**. A source named under **`system`** is built into Coddy: it is not in **config.yaml** and cannot be removed, so a client shows it without a remove control. |
 | POST | **`/coddy/skills/sources`** | JSON **`{"source","sync"}`**: appends **`source`** to **`skills.sources`** in **config.yaml** and reloads config. When **`sync:true`**, also fetches it immediately. **`200`** **`{"ok":true,"added":bool,"sync":{...}}`**; **`400`** on an unrecognized source. |
-| DELETE | **`/coddy/skills/sources?source=<src>`** | Removes **`source`** (matched case-insensitively) from **`skills.sources`** in **config.yaml** and reloads config. Installed skills remain. **`200`** **`{"ok":true,"removed":bool}`**; **`400`** when the **`source`** query parameter is missing. |
+| DELETE | **`/coddy/skills/sources?source=<src>`** | Removes **`source`** (matched case-insensitively) from **`skills.sources`** in **config.yaml** and reloads config. Installed skills remain. **`200`** **`{"ok":true,"removed":bool}`**; **`400`** when the **`source`** query parameter is missing. A **`system`** source is refused with **`400`**: it is built into Coddy and is not in the file. |
 | DELETE | **`/coddy/skills/{name}`** | Deletes any on-disk skill by name (its directory, plus its remote provenance entry when synced). Bundled (read-only) skills, and skills outside the configured skill directories, return **`400`**. **`200`** **`{"ok":true}`**. Invalidates the slash-command cache. |
 | GET | **`/coddy/mcp`** | Merged MCP server list from three levels: **`mcp_servers`** in **config.yaml** and the user-global **`<home>/mcp.json`** (both scope **`global`**), plus the project-local **`.coddy/mcp.json`** (scope **`local`**); mcp.json files are Cursor-compatible and later levels override earlier ones by name. JSON **`{"object":"coddy.mcp_list","workspace":"...","project_trust":"ask","items":[...]}`**; each item has **`name`**, **`source`** (**`global`** / **`local`**), **`origin`** (**`config`** / **`home`** / **`project`** — the owning file), **`readonly`** (**`true`** for config.yaml entries), **`transport`**, **`command`**, **`args`**, **`url`**, **`env`**, **`headers`**, **`source_path`**, **`enabled`**, **`status`** (**`connected`** / **`error`** / **`disabled`** / **`unsupported`** / **`needs_approval`** / **`denied`**), **`error`**, **`trusted`**, **`gated`**, **`fingerprint`**, **`tools`** (**`[{name, description, enabled}]`**), **`disabled_tools`**. Enabled servers are probed for tools over their transport (**`stdio`** spawn, **`http`** streamable with legacy-SSE fallback, **`sse`**; connect, **`tools/list`**, close) with results cached until the definition changes; **`?refresh=1`** re-probes. Unknown transport types report **`unsupported`** without probing. A project-local entry that the workspace trust gate holds back is **never probed**: it reports **`needs_approval`** (or **`denied`**) with **`trusted:false`**, no tools, and the declaration an approval would cover. |
 | POST | **`/coddy/mcp/{name}/enable`** | Clears the server's disabled flag, persisting into the file that defines it (**config.yaml** **`disabled`** or **`disabled`** in the owning mcp.json), then reloads config. **`200`** **`{"ok":true}`**; **`400`** for an unknown server. Live sessions pick the change up on their next turn. |

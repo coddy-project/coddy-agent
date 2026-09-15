@@ -28,10 +28,11 @@ recorded in **`${CODDY_HOME}/skills/.bundled.json`** beside the skills it wrote:
 - a skill it has never handed over is written;
 - a skill you deleted stays deleted - it is not written again by the next start;
 - a copy older than the one in the release is **replaced**, so `coddy update` brings the newer skill
-  with it. Edit a delivered skill and you will want to raise its `version:` as well, otherwise the
-  next release that raises its own overwrites your copy;
-- a copy that is newer, or that carries no `version:` to compare against, is left exactly as it is;
-- the marketplace below is registered once.
+  with it. A copy that declares no `version:` at all counts as older - it predates these skills
+  carrying one - and is replaced too;
+- a copy that is newer is left exactly as it is. That is also how you keep an edit: raise the
+  `version:` of the copy in your home above the one the release carries, otherwise the next release
+  that raises its own overwrites it.
 
 A home Coddy cannot write to - a read-only image, a locked-down account - is not an error: the
 copies inside the binary answer instead, read-only, and only a skill whose `references/` it needs
@@ -42,17 +43,29 @@ by **`make skills-vendor`**; `scripts/bundled-skills.json` says where each one c
 
 ### The marketplace that comes with it
 
-`skills.sources` starts out naming **`EvilFreelancer/rpa-skills`**, the catalogue the delivered
-`rpa-*` skills are published from, so the rest of that collection is one command away:
+**`EvilFreelancer/rpa-skills`** - the catalogue the delivered `rpa-*` skills are published from - is a
+**system source**: it is in effect the way the delivered skills are, without appearing in
+`skills.sources` and without any file being written for it. So the rest of that collection is one
+command away on a machine whose `config.yaml` has never been touched:
 
 ```bash
 coddy skills sync                 # install everything the catalogue publishes
-coddy plugin marketplace list     # what is configured, and whether it resolves
+coddy plugin marketplace list     # every source in effect, and whether it resolves
 ```
 
-This is an address and nothing more - Coddy contacts it only when you ask it to. It is written into
-`config.yaml` once; remove it with `coddy plugin marketplace remove EvilFreelancer/rpa-skills` and it
-stays removed, because a `sources` list that exists in the file is taken as your answer.
+It is an address and nothing more - Coddy contacts it only when you ask it to. Because it is not in
+the config file there is nothing to take out of one: `coddy plugin marketplace remove` refuses it,
+`DELETE /coddy/skills/sources` answers 400, and **Settings → Skills → Remote skill sources** shows the
+row greyed out with its delete button disabled. To be rid of a skill it publishes, disable or delete
+that skill (`coddy skills disable <name>`) rather than the catalogue.
+
+`GET /coddy/skills/sources` names them under `system`, which is how a client knows which rows carry
+no remove control.
+
+![Remote skill sources with the built-in marketplace greyed out](../assets/skills/skills-system-source-dark-1280.png)
+
+*Settings → Skills: the built-in `EvilFreelancer/rpa-skills` is listed and can be synced, but its
+field and its delete button are disabled; a source you added yourself is editable as before.*
 
 ## Where to get skills
 

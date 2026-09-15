@@ -698,9 +698,11 @@ export const messagesRu: Record<string, string> = {
   "skills.sources.syncTitle": "Синхронизировать {source}",
   "skills.sources.syncAria": "Синхронизировать этот маркетплейс",
   "skills.sources.removeTitle": "Удалить",
+  "skills.sources.systemTitle":
+    "Встроен в Coddy: работает без записи в config.yaml и не удаляется",
   "skills.sources.removeAria": "Удалить маркетплейс",
   "skills.sources.description":
-    "Репозитории GitHub (owner/repo[@ref]), git-ссылки или URL agents-standard marketplace.json. Сохраняется в skills.sources; запрашивается только при синхронизации.",
+    "Репозитории GitHub (owner/repo[@ref]), git-ссылки или URL agents-standard marketplace.json. Сохраняется в skills.sources; запрашивается только при синхронизации. Блёклые строки встроены в Coddy, их нельзя удалить.",
   "skills.sources.placeholder": "owner/repo  ·  https://…/marketplace.json",
   "skills.install.cliHint":
     "Скилы можно также установить через npx skills или npx skillsbd — они попадают в ~/.agents/skills/ и подхватываются автоматически.",
