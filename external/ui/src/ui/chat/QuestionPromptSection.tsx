@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   startTransition,
 } from "react";
@@ -160,6 +161,24 @@ function formatResolvedSummaryLine(
   return parts.length > 0 ? parts.join(" · ") : translate("prompts.answered");
 }
 
+/**
+ * Whether Return pressed on `el` belongs to this card. The composer and the rest
+ * of the page stay usable while a gate is open, so the key is the card's only when
+ * it came from inside the card or from a page with nothing focused - never from
+ * the composer's textarea.
+ *
+ * A control the reader reached with the keyboard keeps its own Return, inside the
+ * card as much as outside it: Return on the focused Skip button has to skip, not
+ * send the answer.
+ */
+function keyBelongsToCard(el: EventTarget | null, card: HTMLElement | null): boolean {
+  if (el === null || el === document || el === document.body) return true;
+  if (!(el instanceof HTMLElement)) return false;
+  if (el.tagName.toLowerCase() === "html") return true;
+  if (!card?.contains(el)) return false;
+  return el.closest("button, a[href], summary, [role='button']") === null;
+}
+
 function rowLettersForQuestion(q: CoddyQuestionItem): readonly string[] {
   const opts = Math.max(q.options?.length ?? 0, 0);
   const total = opts + (q.custom ? 1 : 0);
@@ -199,6 +218,7 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
     qs.map(() => ""),
   );
   const [submitting, setSubmitting] = useState(false);
+  const frameRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     setMultiSel(qs.map(() => []));
@@ -265,14 +285,24 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
   useEffect(() => {
     if (resolved) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        if (submitting) return;
+        void submit(true);
+        return;
+      }
+      if (e.key !== "Enter") return;
+      if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+      if (!keyBelongsToCard(e.target, frameRef.current)) return;
+      // Only a key this card actually answers with is taken off the page: an
+      // unfinished answer leaves Return to whatever else would have used it.
+      if (submitting || !ready) return;
       e.preventDefault();
-      if (submitting) return;
-      void submit(true);
+      void submit(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [resolved, submit, submitting]);
+  }, [ready, resolved, submit, submitting]);
 
   if (resolved) {
     const sum = resolved.summaryLine.trim() || t("prompts.answered");
@@ -321,7 +351,11 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
   }
 
   return (
-    <section className="question-prompt-frame" data-test="question_prompt_section">
+    <section
+      className="question-prompt-frame"
+      data-test="question_prompt_section"
+      ref={frameRef}
+    >
       <div className="question-prompt-card">
         <div className="question-prompt-head">
           <div className="question-prompt-head-left">
@@ -500,11 +534,6 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
                               return nx;
                             });
                           }}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                            }
-                          }}
                         />
                       </label>
                     </li>
@@ -568,11 +597,6 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
                               nx[qi] = v;
                               return nx;
                             });
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                            }
                           }}
                         />
                       </label>

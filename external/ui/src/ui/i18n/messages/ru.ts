@@ -1339,6 +1339,7 @@ export const messagesRu: Record<string, string> = {
   "permission.meta.hiddenFiles": "скрытые файлы",
   "permission.meta.caseSensitive": "с учётом регистра",
   "permission.meta.maxResults": "макс. {count}",
+  "permission.meta.page": "страница {page}",
   "permission.meta.depth": "глубина {depth}",
 
   "scheduler.cron.required": "Введите cron-выражение (5 полей, UTC).",

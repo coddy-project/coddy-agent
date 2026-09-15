@@ -2479,34 +2479,18 @@ a.rail-brand {
   animation: chat-fade-in 0.22s ease-out both;
 }
 
-/* Long-transcript scroll optimization: off-screen rows skip layout and paint.
-   `contain-intrinsic-size: auto <fallback>` reuses the last rendered height, so
-   scrollHeight and stick-to-bottom anchoring stay stable while scrolling up.
-   `content-visibility: auto` also turns on paint containment while the row is
-   visible, which clips anything drawn outside the row box. It is therefore
-   opted in per row type: only rows whose content stays inside their own box
-   (assistant markdown, thinking / tool / compaction / memory foldouts, system
-   notices). User rows keep the hover edit button at `left: -32px`, and the
-   permission, question and plan cards cast shadows past their wrapper, so
-   those rows stay uncontained. */
-.messages-inner > .msg-assistant-stack,
-.messages-inner > .thinking-row,
-.messages-inner > .msg-system-stack {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 120px;
-  /* Paint containment clips at the padding edge. Focus rings on controls at
-     the row edge (2px outline + 2px offset on the copy buttons, the
-     edge-to-edge <summary> ring) need room inside the box: pad the row and
-     pull it back with a matching negative margin so nothing moves. */
-  padding: 4px;
-  margin: -4px;
-  /* Rows size as border-box, so widen by the padding to keep the content
-     width (and therefore line wrapping) exactly as without containment. */
-  width: calc(100% + 8px);
-}
-
+/* Transcript rows lay themselves out, every one of them.
+   `content-visibility: auto` used to let off-screen rows skip layout and paint,
+   sized from `contain-intrinsic-size` until they had been rendered once. A
+   session opens scrolled to its end, so every row above the first screen was a
+   guess: a 360-row transcript reported 42114px of scrollport against a real
+   50342px. Scrolling up then materialised those rows a screen at a time, the
+   height grew under the reader, and scroll anchoring pushed the position down
+   by the difference on every wheel notch - a transcript that fought the scroll.
+   Row memoisation and the bounded shadow-transcript cache carry the long
+   transcripts now; a wrong scrollport is not worth the layout it saves. */
 .messages-inner > .thinking-row {
-  max-width: calc(720px + 8px);
+  max-width: 720px;
 }
 
 .chat-scroll-tail {
@@ -8966,10 +8950,15 @@ html:not([data-theme="light"]) .context-usage-note--error {
 
 /* Label, target and duration are one non-wrapping unit: the row stays a single line and
    the target is what gives way, clipped with an ellipsis. A background-task chip is left
-   outside the unit, so it can still wrap below on a phone. */
+   outside the unit, so it can still wrap below on a phone.
+
+   They are three type sizes in two families - a 14px system label, a 12px monospace
+   target, a 12px system duration - so centring their boxes lines up the boxes and leaves
+   the baselines a fraction apart, which reads as the trailing text floating above the
+   label. Baseline alignment puts the text itself on one line. */
 .thinking-head {
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
   flex: 0 1 auto;
   gap: 0 6px;
   min-width: 0;
@@ -8990,6 +8979,9 @@ html:not([data-theme="light"]) .context-usage-note--error {
   color: color-mix(in srgb, var(--text) 40%, var(--coddy-blend-base));
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
+  /* The same line box as the label beside it, so the row's height never depends
+     on which of the two happens to be taller. */
+  line-height: 20px;
 }
 
 /* A rendered skill body replaces the monospace result panel with prose: the panel's

@@ -201,3 +201,86 @@ test("thinking row from a streamed response keeps its measured duration", async 
     vi.useRealTimers();
   }
 });
+
+// A gate prompt is answered outside the rAF-batched tool queue, so a question or
+// permission event landing in the same frame as the tool row that raised it used
+// to render above that row: the card appeared, and the "asking a question" row
+// followed it. Both prompt events must drain the queue before the card is added.
+async function driveWithPrompts(sse: string): Promise<string[]> {
+  vi.stubGlobal("requestAnimationFrame", () => 0);
+  const items: TranscriptItem[] = [];
+  let idc = 0;
+  const applyStreamItems = (fn: (prev: TranscriptItem[]) => TranscriptItem[]) => {
+    const next = fn(items.slice());
+    items.length = 0;
+    items.push(...next);
+  };
+  const params: ConsumeComposerSseParams = {
+    reader: mockReader(sse),
+    dec: new TextDecoder(),
+    carry: { buf: "" },
+    assistantId: "a-init",
+    applyStreamItems,
+    setTokenUsage: () => {},
+    setContextUsage: () => {},
+    tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
+    reasoningDurationMsByContentRef: { current: new Map() },
+    newId: (p) => `${p}-${idc++}`,
+    applyMemoryPhaseToItems: (prev) => prev,
+    applyMemoryChunkToItems: (prev) => prev,
+    // Mirrors App.tsx: both handlers apply their row straight away, outside the queue.
+    onQuestion: (raw) =>
+      applyStreamItems((prev) => [
+        ...prev,
+        {
+          id: `qp_${String(raw.requestId)}`,
+          type: "question_prompt",
+          payload: {
+            sessionId: "s1",
+            requestId: String(raw.requestId),
+            toolCallId: String(raw.toolCallId || ""),
+            questions: [{ question: "Which one?", options: [{ label: "A" }] }],
+          },
+        },
+      ]),
+    onPermission: (raw) =>
+      applyStreamItems((prev) => [
+        ...prev,
+        {
+          id: `pp_${String(raw.toolCallId)}`,
+          type: "permission_prompt",
+          payload: {
+            sessionId: "s1",
+            toolCall: { toolCallId: String(raw.toolCallId), title: "run_command" },
+            options: [],
+          },
+        } as TranscriptItem,
+      ]),
+  };
+  const res = await consumeComposerSseReader(params);
+  res.flushToolQueue();
+  return items.map((it) =>
+    it.type === "tool_call" ? `tool:${it.toolCallId}` : it.type,
+  );
+}
+
+test("a question card renders below the tool row that raised it", async () => {
+  const sse =
+    `event: tool_call\ndata: ${JSON.stringify({ toolCallId: "tc-q", title: "question", kind: "other", status: "pending" })}\n\n` +
+    `event: question\ndata: ${JSON.stringify({ sessionId: "s1", requestId: "q_1", toolCallId: "tc-q", questions: [] })}\n\n` +
+    `data: [DONE]\n\n`;
+
+  expect(await driveWithPrompts(sse)).toEqual(["tool:tc-q", "question_prompt"]);
+});
+
+test("a permission card renders below the tool row that raised it", async () => {
+  const sse =
+    `event: tool_call\ndata: ${JSON.stringify({ toolCallId: "tc-p", title: "run_command", kind: "execute", status: "pending" })}\n\n` +
+    `event: permission\ndata: ${JSON.stringify({ sessionId: "s1", toolCallId: "tc-p" })}\n\n` +
+    `data: [DONE]\n\n`;
+
+  expect(await driveWithPrompts(sse)).toEqual([
+    "tool:tc-p",
+    "permission_prompt",
+  ]);
+});

@@ -68,6 +68,7 @@ The composer is a plain `textarea`; keys not listed here keep their browser mean
 | Enter / Space | context ring button focused | open or close the breakdown |
 | Enter / Escape | model menu filter (shown with more than five backends) | pick the first match / close the menu |
 | Escape | History sidebar, scheduler drawer, job editor | close; the job editor closes first, then the drawer |
+| Enter | question prompt | send the answer, once every question has one; typed in the composer it still belongs to the composer |
 | Escape | question prompt | skip the questions |
 | Escape / Tab | confirmation dialog | cancel / keep the focus inside the dialog |
 

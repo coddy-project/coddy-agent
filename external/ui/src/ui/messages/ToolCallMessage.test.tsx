@@ -1549,3 +1549,127 @@ test("a remote shell is not the local interpreter", () => {
     setHostShell("");
   }
 });
+
+// Expanding a long result, scrolling it, then collapsing used to leave the box
+// clipped around wherever the reader had scrolled to: the card reopened in the
+// middle of the output, first line cut in half. The args preview next to it has
+// always reset; the result body has to as well.
+test("collapsing a long result returns it to the top", async () => {
+  const fetchSpy = vi.fn();
+  function Harness() {
+    const [full, setFull] = useState("");
+    const onFetch = useCallback(async (id: string) => {
+      fetchSpy(id);
+      await Promise.resolve();
+      setFull(`${"full line\n".repeat(40)}last full line`);
+    }, []);
+    return (
+      <ToolCallMessage
+        toolCallId="tc-scroll"
+        title="websearch"
+        kind="other"
+        status="completed"
+        argsText={JSON.stringify({ query: "iPhone 18 price" })}
+        resultText={`${"preview line\n".repeat(18)}...`}
+        fullResultText={full}
+        resultWasTruncated
+        durationMs={2000}
+        onFetchToolCallFull={onFetch}
+      />
+    );
+  }
+  render(<Harness />);
+  openToolDetails();
+
+  fireEvent.click(screen.getByTestId("tool-result-more"));
+  await waitFor(() =>
+    expect(screen.getByTestId("tool-result-less")).toBeInTheDocument(),
+  );
+
+  const viewport = screen.getByTestId("tool-result-viewport");
+  expect(viewport).toHaveClass("tool-result-viewport--scroll");
+  viewport.scrollTop = 240;
+
+  fireEvent.click(screen.getByTestId("tool-result-less"));
+  expect(viewport).toHaveClass("tool-result-viewport--clip");
+  expect(viewport.scrollTop).toBe(0);
+});
+
+// The web tools used to print their own arguments back as a JSON object and their
+// answer as raw source: a search as a wall of braces, a fetched page as Markdown
+// nobody rendered. Both are documents and both now read as documents.
+test("a web search names its query and lists its hits as links", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-search"
+      title="websearch"
+      kind="other"
+      status="completed"
+      argsText={JSON.stringify({ query: "iPhone 18 price", page: 2 })}
+      resultText={JSON.stringify({
+        query: "iPhone 18 price",
+        page: 2,
+        results: [
+          {
+            title: "Ostrovok.ru",
+            url: "https://ostrovok.ru/",
+            description: "Hotel booking service.",
+          },
+        ],
+      })}
+      durationMs={2000}
+    />,
+  );
+  openToolDetails();
+
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent(
+    "iPhone 18 price",
+  );
+  // The argument card names the query and carries no JSON body.
+  expect(screen.queryByTestId("permission-preview-viewport")).toBeNull();
+  expect(screen.getByText("page 2")).toBeInTheDocument();
+  const link = screen.getByRole("link", { name: "Ostrovok.ru" });
+  expect(link).toHaveAttribute("href", "https://ostrovok.ru/");
+  expect(document.querySelector(".tool-result-pre")).toBeNull();
+});
+
+test("a fetched page renders as the markdown it already is", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-fetch"
+      title="webfetch"
+      kind="other"
+      status="completed"
+      argsText={JSON.stringify({ url: "https://coddy.dev/" })}
+      resultText={"# Coddy\n\nAn agent that runs where you work."}
+      durationMs={120}
+    />,
+  );
+  openToolDetails();
+
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent(
+    "https://coddy.dev/",
+  );
+  expect(screen.getByRole("heading", { name: "Coddy" })).toBeInTheDocument();
+  expect(document.querySelector(".tool-result-pre")).toBeNull();
+});
+
+// A failed call answers with an error line, not with a document.
+test("a failed web search keeps its error as plain text", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-search-failed"
+      title="websearch"
+      kind="other"
+      status="failed"
+      argsText={JSON.stringify({ query: "iPhone 18 price" })}
+      resultText="error: http 503"
+      durationMs={80}
+    />,
+  );
+  openToolDetails();
+
+  expect(document.querySelector(".tool-result-pre")?.textContent).toBe(
+    "error: http 503",
+  );
+});
