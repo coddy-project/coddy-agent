@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
@@ -1553,5 +1555,191 @@ func TestFilingASessionDoesNotMoveItInTheList(t *testing.T) {
 	}
 	if snap.Meta.UpdatedAt == first.Meta.UpdatedAt {
 		t.Fatal("a new message did not move the session")
+	}
+}
+
+// The live path for filing a session is not the one a test that just created it
+// takes: the operator archives a conversation the server has not touched since
+// it started, so the store loads it from disk and its message cache is cold.
+// A cold cache used to mean "the history changed" without anyone looking at the
+// file, which moved updatedAt and sent the session to the top of the list - the
+// one thing archiving must not do.
+func TestFilingASessionLoadedFromDiskDoesNotMoveIt(t *testing.T) {
+	root := t.TempDir()
+	first := &FileStore{Root: root}
+	dir, err := first.EnsureLayout("sess_a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &State{ID: "sess_a", CWD: "/tmp", Mode: ModeAgent, SessionDir: dir}
+	st.SetTitlePinned("A conversation from an earlier run")
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hello"})
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "hi"})
+	if err := first.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	stamp, err := first.ReadSnapshot("sess_a")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A fresh store over the same bundle: no cache, exactly like a server that
+	// has just loaded the session to answer a PATCH.
+	cold := &FileStore{Root: root}
+	snap, err := cold.ReadSnapshot("sess_a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded := &State{ID: "sess_a", CWD: snap.Meta.CWD, Mode: Mode(snap.Meta.Mode), SessionDir: dir}
+	loaded.SetTitlePinnedWithoutPersist(snap.Meta.TitlePinned)
+	loaded.ReplaceMessagesWithoutPersist(snap.Messages)
+
+	loaded.SetArchived(true)
+	if err := cold.Save(loaded); err != nil {
+		t.Fatal(err)
+	}
+	after, err := cold.ReadSnapshot("sess_a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !after.Meta.Archived {
+		t.Fatal("the archive flag was not written")
+	}
+	if after.Meta.UpdatedAt != stamp.Meta.UpdatedAt {
+		t.Fatalf("archiving a session loaded from disk moved it: %q -> %q",
+			stamp.Meta.UpdatedAt, after.Meta.UpdatedAt)
+	}
+
+	// And the history is still intact: the comparison must not have skipped a
+	// write that was actually needed.
+	if len(after.Messages) != 2 {
+		t.Fatalf("the transcript lost rows: %d", len(after.Messages))
+	}
+}
+
+// A bundle written by an older build can hold the same conversation in a
+// different encoding. Normalising it is worth doing; calling it a change is
+// not - the listing is ordered by when a conversation last changed, and filing
+// one must not move it just because its file was rewritten.
+func TestFilingASessionWhoseFileWasWrittenDifferentlyDoesNotMoveIt(t *testing.T) {
+	root := t.TempDir()
+	fs := &FileStore{Root: root}
+	dir, err := fs.EnsureLayout("sess_a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &State{ID: "sess_a", CWD: "/tmp", Mode: ModeAgent, SessionDir: dir}
+	st.SetTitlePinned("From an older build")
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hello"})
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	stamp, err := fs.ReadSnapshot("sess_a")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Rewrite the transcript with the same messages but a different encoding,
+	// the way a build with another layout would have left it.
+	msgPath := filepath.Join(dir, MessagesFileName)
+	raw, err := os.ReadFile(msgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored messagesFileData
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		t.Fatal(err)
+	}
+	reindented, err := json.MarshalIndent(stored, "", "\t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(reindented, raw) {
+		t.Fatal("the fixture did not actually change the encoding")
+	}
+	if err := os.WriteFile(msgPath, reindented, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cold := &FileStore{Root: root}
+	snap, err := cold.ReadSnapshot("sess_a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded := &State{ID: "sess_a", CWD: snap.Meta.CWD, Mode: Mode(snap.Meta.Mode), SessionDir: dir}
+	loaded.SetTitlePinnedWithoutPersist(snap.Meta.TitlePinned)
+	loaded.ReplaceMessagesWithoutPersist(snap.Messages)
+	loaded.SetArchived(true)
+	if err := cold.Save(loaded); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := cold.ReadSnapshot("sess_a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Meta.UpdatedAt != stamp.Meta.UpdatedAt {
+		t.Fatalf("a re-encoded transcript moved the session: %q -> %q",
+			stamp.Meta.UpdatedAt, after.Meta.UpdatedAt)
+	}
+	if len(after.Messages) != 1 || after.Messages[0].Content != "hello" {
+		t.Fatalf("the conversation did not survive the normalisation: %+v", after.Messages)
+	}
+}
+
+// A session belongs to the folder it was started in. Loading it to answer an
+// HTTP request - a PATCH that archives it, say - must not rebind it to whatever
+// folder the server itself was started in: that silently moves somebody's
+// conversation to another checkout, and it moves the session in the listing too,
+// because rewriting the workspace is a change to the bundle.
+func TestLoadingASessionOverHTTPKeepsItsOwnWorkspace(t *testing.T) {
+	root := t.TempDir()
+	elsewhere := t.TempDir()
+	serverCWD := t.TempDir()
+
+	store := &FileStore{Root: filepath.Join(root, "sessions")}
+	mgr := NewManager(&config.Config{}, nil, nil, slog.Default(), serverCWD, store)
+
+	res, err := mgr.HandleSessionNew(t.Context(), acp.SessionNewParams{CWD: elsewhere})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := res.SessionID
+	st := mgr.SessionByID(id)
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hello"})
+	if err := store.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	before, err := store.ReadSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Meta.CWD != elsewhere {
+		t.Fatalf("fixture cwd = %q, want %q", before.Meta.CWD, elsewhere)
+	}
+	mgr.ForgetLiveSession(id)
+
+	// The server hands its own cwd, the way EnsureHTTPSession does for every
+	// route that has to load a session before touching it.
+	loaded, err := mgr.EnsureHTTPSession(t.Context(), id, serverCWD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.CWD != elsewhere {
+		t.Fatalf("the session was rebound to the server's folder: %q, want %q", loaded.CWD, elsewhere)
+	}
+	if err := store.Save(loaded); err != nil {
+		t.Fatal(err)
+	}
+	after, err := store.ReadSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Meta.CWD != elsewhere {
+		t.Fatalf("the stored workspace was rewritten: %q, want %q", after.Meta.CWD, elsewhere)
+	}
+	if after.Meta.UpdatedAt != before.Meta.UpdatedAt {
+		t.Fatalf("loading the session moved it in the listing: %q -> %q",
+			before.Meta.UpdatedAt, after.Meta.UpdatedAt)
 	}
 }

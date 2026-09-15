@@ -222,7 +222,6 @@ func (s *Server) coddySessionCancelGeneration(w http.ResponseWriter, r *http.Req
 		}
 		if _, err := s.mgr.HandleSessionLoad(r.Context(), acp.SessionLoadParams{
 			SessionID: id,
-			CWD:       s.defaultCWD,
 		}); err != nil {
 			http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
 			return
@@ -748,9 +747,13 @@ func (s *Server) coddyEnsureLoaded(w http.ResponseWriter, r *http.Request, id st
 		if !fs.HasPersistedSnapshot(id) {
 			return nil, errSessionNotFound
 		}
+		// No cwd: a stored session belongs to the folder it was started in, and
+		// a load that carried this server's own cwd would rebind it - quietly
+		// moving somebody's conversation to another checkout, and rewriting the
+		// bundle, which moves the session in a listing ordered by when it last
+		// changed. The load falls back to the default for a bundle with none.
 		_, err := s.mgr.HandleSessionLoad(r.Context(), acp.SessionLoadParams{
 			SessionID: id,
-			CWD:       s.defaultCWD,
 		})
 		if err != nil {
 			return nil, err

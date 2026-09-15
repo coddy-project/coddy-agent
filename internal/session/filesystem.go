@@ -853,9 +853,36 @@ func (f *FileStore) Save(state *State) error {
 		// the end. Comparing what was encoded against what is already there
 		// costs a memcmp on a path that has just paid for the encoding, and it
 		// is what makes updatedAt follow the content rather than the bookkeeping.
-		if usable && bytes.Equal(data, cached.bytes) {
+		switch {
+		case usable && bytes.Equal(data, cached.bytes):
 			messagesUnchanged = true
-		} else {
+		case !usable:
+			// A cold cache is not evidence that anything changed - it only
+			// means this store has not written here yet, which is the normal
+			// state of the first save after a session is loaded from disk. The
+			// file is the record then, so it is read once and compared; without
+			// this, archiving a conversation the server had not touched since
+			// it started moved updatedAt and sent it to the top of the list.
+			onDisk, readErr := os.ReadFile(msgPath)
+			if readErr == nil && sameTranscript(onDisk, data, msgs) {
+				messagesUnchanged = true
+				// Remember it, so the read happens once rather than on every
+				// save that follows.
+				entry := &persistedMessages{owner: stateID, rev: msgRev, editRev: msgEditRev, count: len(msgs), bytes: data}
+				if st, statErr := os.Stat(msgPath); statErr == nil {
+					entry.size, entry.modTime = st.Size(), st.ModTime()
+				}
+				f.rememberMessages(msgPath, entry)
+				// The bytes may still differ from the file when an older build
+				// wrote it: normalise it once, but without calling that a
+				// change to the conversation.
+				if !bytes.Equal(onDisk, data) {
+					pending = data
+				}
+			} else {
+				pending = data
+			}
+		default:
 			pending = data
 		}
 	}
@@ -1107,6 +1134,24 @@ func truncateRunes(s string, max int) string {
 		return s
 	}
 	return string(rs[:max]) + "..."
+}
+
+// sameTranscript reports whether the file already holds this conversation.
+//
+// Byte equality is the cheap answer and usually the right one, but a bundle
+// written by an older build can encode the same messages differently. Re-encoding
+// it is worth doing; calling it a change to the conversation is not, because the
+// listing is ordered by when a conversation last changed - and archiving one
+// would then send it to the top of the list, which is the opposite of archiving.
+func sameTranscript(onDisk, encoded []byte, msgs []llm.Message) bool {
+	if bytes.Equal(onDisk, encoded) {
+		return true
+	}
+	var stored messagesFileData
+	if err := json.Unmarshal(onDisk, &stored); err != nil {
+		return false
+	}
+	return reflect.DeepEqual(stored.Messages, msgs)
 }
 
 // writeBytesAtomic writes data to path using a unique temp file in the same directory

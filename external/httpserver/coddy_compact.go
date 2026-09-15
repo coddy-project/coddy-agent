@@ -44,7 +44,6 @@ func (s *Server) coddySessionCompactPost(w http.ResponseWriter, r *http.Request)
 		}
 		if _, err := s.mgr.HandleSessionLoad(r.Context(), acp.SessionLoadParams{
 			SessionID: id,
-			CWD:       s.defaultCWD,
 		}); err != nil {
 			http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
 			return
