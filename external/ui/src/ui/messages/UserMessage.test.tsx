@@ -30,15 +30,15 @@ test("user bubble does not treat path slashes as skill chips without knownSkillN
 });
 
 test("user bubble renders known skill as chip when knownSkillNames provided", () => {
-  const known = new Set(["generate-rules"]);
-  render(<UserMessage content="please /generate-rules for me" knownSkillNames={known} />);
+  const known = new Set(["rpa-gen-rules"]);
+  render(<UserMessage content="please /rpa-gen-rules for me" knownSkillNames={known} />);
   const chip = screen.getByTestId("coddy-skill-span");
-  expect(chip).toHaveTextContent("/generate-rules");
-  expect(chip).toHaveAttribute("data-skill-name", "generate-rules");
+  expect(chip).toHaveTextContent("/rpa-gen-rules");
+  expect(chip).toHaveAttribute("data-skill-name", "rpa-gen-rules");
 });
 
 test("user bubble does not chip /name absent from knownSkillNames", () => {
-  const known = new Set(["generate-rules"]);
+  const known = new Set(["rpa-gen-rules"]);
   render(<UserMessage content="see /unknown-cmd here" knownSkillNames={known} />);
   expect(screen.queryByTestId("coddy-skill-span")).toBeNull();
   expect(screen.getByTestId("user-message-body")).toHaveTextContent(

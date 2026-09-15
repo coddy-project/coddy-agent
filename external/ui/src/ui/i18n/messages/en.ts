@@ -687,9 +687,11 @@ export const messagesEn: Record<string, string> = {
   "skills.sources.syncTitle": "Sync {source}",
   "skills.sources.syncAria": "Sync this marketplace",
   "skills.sources.removeTitle": "Remove",
+  "skills.sources.systemTitle":
+    "Built into Coddy: in effect without being in config.yaml, and not removable",
   "skills.sources.removeAria": "Remove marketplace",
   "skills.sources.description":
-    "GitHub repos (owner/repo[@ref]), git URLs, or an agents-standard marketplace.json URL. Saved to skills.sources; fetched only when you sync.",
+    "GitHub repos (owner/repo[@ref]), git URLs, or an agents-standard marketplace.json URL. Saved to skills.sources; fetched only when you sync. The greyed-out rows are built into Coddy and cannot be removed.",
   "skills.sources.placeholder": "owner/repo  ·  https://…/marketplace.json",
   "skills.install.cliHint":
     "You can also install skills via npx skills or npx skillsbd - they land in ~/.agents/skills/ and are picked up automatically.",

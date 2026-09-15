@@ -121,7 +121,7 @@ Directories scanned for skills (SKILL.md and root .md/.mdc files).
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `skills.dirs` | list of strings | ["~/.agents/skills","${CODDY_HOME}/skills","${CWD}/.coddy/skills"] | Search paths; later entries win on name conflicts. Defaults (lowest to highest priority): ~/.agents/skills, ${CODDY_HOME}/skills, ${CWD}/.coddy/skills. ${CODDY_HOME} expands when the file is loaded; ${CWD} stays in the entry and expands per session against that session's workspace. |
-| `skills.sources` | list of strings |  | Remote skill sources installed on demand with `coddy skills sync` (never fetched automatically). Each entry is a GitHub repo (owner/repo[@ref]), a git URL, or an http(s) URL to an agents-standard marketplace.json. Materialized into ${CODDY_HOME}/skills. |
+| `skills.sources` | list of strings |  | Remote skill sources installed on demand with `coddy skills sync` (never fetched automatically). Each entry is a GitHub repo (owner/repo[@ref]), a git URL, or an http(s) URL to an agents-standard marketplace.json. Materialized into ${CODDY_HOME}/skills. EvilFreelancer/rpa-skills, the marketplace the bundled rpa-* skills are published from, is always in effect as a system source and is not listed here. See https://coddy.dev/docs/skills. |
 | `skills.auto_discovery` | boolean or null | true | Offer the model-driven load_skill tool so the agent pulls a catalogued skill's full instructions into a turn on its own when the request matches, instead of requiring an explicit /name. Defaults to true. |
 
 ### `rules`

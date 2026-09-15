@@ -1,0 +1,22 @@
+---
+description: Rules for core modules
+globs: search_project/**/*.py
+alwaysApply: true
+---
+
+# Rules for Core Modules
+
+... описание правил всех ключевых модулей системы ...
+
+## General Rules for All Modules
+
+1. **Hash indexes**: Always use dict for O(1) access
+2. **Immutability**: Do not modify data structure after creation
+3. **Type hints**: Use type hints everywhere
+4. **Documentation**: Document public methods
+5. **Error handling**: Use specific exceptions
+
+## References
+
+@architecture.mdc
+@code-style.mdc

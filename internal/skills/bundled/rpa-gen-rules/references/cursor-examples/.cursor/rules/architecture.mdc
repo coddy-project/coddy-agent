@@ -1,0 +1,31 @@
+---
+description: Architectural rules and boundaries
+globs: search_project/**/*.py, main.py
+alwaysApply: true
+---
+
+# Architectural Rules
+
+## General Architecture
+
+The project uses **modular architecture with clear separation of concerns**. Each module has its own responsibility area and must not violate boundaries of other modules.
+
+## Architecture Layers (Implementation Order)
+
+... список слоёв классов и их зависимостей ...
+
+## Module Rules
+
+... описание каждого пакета ...
+
+## Design Principles
+
+1. **One class at a time**: When implementing new functionality, create one class at a time, starting from lower layers
+2. **Minimal dependencies**: Each module should depend only on lower layer modules
+3. **Hash indexes**: Use hash indexes for O(1) access instead of loops
+4. **Data immutability**: Data structures should not be modified after creation
+5. **Type hints**: Use type hints for all functions and methods
+
+## Documentation References
+
+@README.md

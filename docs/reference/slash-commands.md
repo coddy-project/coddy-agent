@@ -49,6 +49,8 @@ Every skill file that the loader accepts is a command:
 
 The catalog reaches the model too: the system prompt carries a `## Slash commands` block listing every `/name` with its description (`skills.BuildSlashCatalogMarkdown`), and with `skills.auto_discovery` on, the model can pull a full body itself through the `load_skill` tool ([Tools](tools.md)).
 
+Five of those commands are there on a fresh install without anything being downloaded - `/configure-coddy`, `/rpa-init`, `/rpa-feat`, `/rpa-bugfix` and `/rpa-gen-rules`, the [standard delivery](../features/skills.md#the-standard-delivery) the binary writes into `${CODDY_HOME}/skills`.
+
 ## How a command in a prompt is parsed
 
 The three built-ins are recognised on the whole prompt (`parseCompactCommand`, `parsePluginCommand` and `parseExportCommand` in `internal/agent`):

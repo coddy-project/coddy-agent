@@ -204,7 +204,7 @@ test("Tab key selects first slash command from picker", async () => {
   const fetchMock = vi.fn().mockResolvedValue({
     ok: true,
     json: async () => ({
-      items: [{ name: "generate-rules", description: "Generate rules" }],
+      items: [{ name: "rpa-gen-rules", description: "Generate project rules" }],
       has_more: false,
       page: 1,
     }),
@@ -238,7 +238,7 @@ test("Tab key selects first slash command from picker", async () => {
   fireEvent.keyDown(ta, { key: "Tab", code: "Tab" });
 
   await waitFor(() => {
-    expect(onChange).toHaveBeenCalledWith("/generate-rules ");
+    expect(onChange).toHaveBeenCalledWith("/rpa-gen-rules ");
   });
   expect(screen.queryByRole("listbox", { name: "Slash commands" })).toBeNull();
   vi.unstubAllGlobals();

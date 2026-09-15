@@ -1,0 +1,51 @@
+---
+description: Rules for API layer (FastAPI endpoints)
+globs: main.py
+alwaysApply: true
+---
+
+# Rules for API Layer (main.py)
+
+## General Structure
+
+The API layer is located in `main.py` and uses FastAPI.
+
+## Principles
+
+1. **Thin layer**: API must not contain business logic
+2. **Validation**: Use Pydantic models for request validation
+3. **Error handling**: Convert exceptions to HTTP status codes
+4. **Documentation**: All endpoints must be documented
+
+## Endpoint Structure
+
+### Pydantic Models
+- Create separate models for requests (`SearchRequest`, `UpdateRequest`)
+- Create separate models for responses (`SearchResponse`, `UpdateResponse`)
+- Use `Field` for field descriptions
+- Use `field_validator` for custom validation
+
+### Request Processing
+- Always validate input data through Pydantic
+- Handle errors and return clear HTTP status codes
+
+## Endpoints
+
+... список эндпоинтов с указанием методов и для чего они нужны...
+
+## Error Handling
+
+### HTTP Status Codes
+- `200` - successful request
+- `400` - validation error or invalid request
+- `404` - resource not found
+- `500` - internal server error
+- `503` - service not initialized
+
+### Error Messages
+- Always include detailed error description
+- Specify what exactly was not found
+
+## References
+
+@architecture.mdc

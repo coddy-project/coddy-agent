@@ -32,6 +32,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 	"golang.org/x/text/encoding/charmap"
 	"gopkg.in/yaml.v3"
@@ -1638,8 +1639,10 @@ func TestCoddySlashCommandsGetPagingAndPrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = r1.Body.Close()
-	if r1.StatusCode != http.StatusOK || page1.Total != 4 || !page1.HasMore || len(page1.Items) != 1 || page1.Items[0]["name"] != "apples" {
-		t.Fatalf("page1: status=%d %+v", r1.StatusCode, page1)
+	// The catalogue is the two skills written above plus the standard delivery.
+	wantTotal := 2 + len(skills.Bundled())
+	if r1.StatusCode != http.StatusOK || page1.Total != wantTotal || !page1.HasMore || len(page1.Items) != 1 || page1.Items[0]["name"] != "apples" {
+		t.Fatalf("page1: status=%d want total %d, got %+v", r1.StatusCode, wantTotal, page1)
 	}
 
 	rp, err := http.Get(ts.URL + "/coddy/slash-commands?page=1&page_size=10&prefix=z")
@@ -2904,6 +2907,7 @@ func TestCoddySkillsSourcesSyncDelete(t *testing.T) {
 // TestCoddySkillsNewRoutesEdgeCases covers error paths for the version/update
 // and source-management routes without network access.
 func TestCoddySkillsNewRoutesEdgeCases(t *testing.T) {
+	offlineSystemSources(t)
 	home := t.TempDir()
 	t.Setenv("CODDY_HOME", home)
 	cfgPath := filepath.Join(home, "config.yaml")
@@ -3022,15 +3026,15 @@ func TestCoddySkillsDeleteAnyAndReadonly(t *testing.T) {
 	for _, it := range list.Items {
 		ro[it.Name] = it.Readonly
 	}
-	if !ro["generate-rules"] {
-		t.Errorf("bundled generate-rules should be read-only")
+	if !ro["configure-coddy"] {
+		t.Errorf("bundled configure-coddy should be read-only")
 	}
 	if ro["local"] {
 		t.Errorf("on-disk local skill should be deletable")
 	}
 
 	// Deleting the bundled skill fails with 400.
-	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/coddy/skills/generate-rules", nil)
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/coddy/skills/configure-coddy", nil)
 	dr, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)

@@ -1,0 +1,89 @@
+---
+description: Implementation order for new features - one class at a time
+globs: search_project/**/*.py, main.py
+alwaysApply: false
+---
+
+# Implementation Order: One Class at a Time
+
+## "One Class at a Time" Principle
+
+When adding new functionality, follow **"one class at a time"** principle, starting from lower architecture layers.
+
+## Implementation Steps
+
+### 1. Determine Layer
+Determine which layer the new functionality belongs to (see @architecture.mdc)
+
+### 2. Implement Class
+- Create class with minimal implementation
+- Use type hints
+- Add docstrings in English
+- Follow rules from @code-style.mdc
+
+### 3. Write Tests
+- Create test file `test_<module_name>.py`
+- Write minimal unit tests for class
+- Make sure tests pass
+- Follow rules from @testing.mdc
+
+### 4. Move to Next Layer
+Only after lower layer class is ready and tested, move to upper layer classes.
+
+## Example: Adding New Functionality
+
+### Step 1: Tests for NewProcessor
+```python
+# test_processor.py
+def test_new_processor():
+    processor = NewProcessor()
+    result = processor.process("test")
+    assert result is not None
+```
+
+### Step 2: Base Layer (NewProcessor)
+```python
+# processor.py
+class NewProcessor:
+    """New processor for special cases."""
+    def process(self, value: str) -> Optional[str]:
+        """Process special case."""
+        pass
+```
+
+### Step 3: Integration Tests
+```python
+# test_data_extractor.py
+def test_data_extractor_with_new_range_processor():
+    extractor = DataExtractor()
+    # Test integration
+```
+
+### Step 4: Integration into DataExtractor (Layer 2)
+Only after NewProcessor is ready and tested:
+```python
+# data_extractor.py
+class DataExtractor:
+    def __init__(self):
+        self.new_range_processor = NewProcessor()
+```
+
+## Forbidden
+
+❌ Implement multiple classes simultaneously
+❌ Move to upper layers before lower ones are ready
+❌ Skip writing tests
+❌ Implement functionality without understanding architecture
+
+## Allowed
+
+✅ Implement one class at a time
+✅ Write tests immediately before class
+✅ Use stubs for dependencies
+✅ Refactor after basic functionality works
+
+## References
+
+@architecture.mdc
+@code-style.mdc
+@testing.mdc

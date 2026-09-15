@@ -175,7 +175,7 @@ func runServe(args []string) error {
 	if err := serve.EnsureHomeLayout(paths.Home); err != nil {
 		return err
 	}
-	cfg, err := config.LoadFromCLI(cli)
+	cfg, err := loadRunConfig(cli)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}

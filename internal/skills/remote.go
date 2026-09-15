@@ -154,11 +154,7 @@ func Sync(ctx context.Context, cfg *config.Config) (*SyncResult, error) {
 	lock := readRemoteLock(managedDir)
 	res := &SyncResult{}
 
-	for _, src := range cfg.Skills.Sources {
-		src = strings.TrimSpace(src)
-		if src == "" {
-			continue
-		}
+	for _, src := range ListSources(cfg) {
 		if err := syncOne(ctx, src, managedDir, lock, res); err != nil {
 			res.Failed = append(res.Failed, SyncFailure{Source: src, Error: err.Error()})
 		}
@@ -385,14 +381,9 @@ func installFromDir(root string, entry RemoteEntry, managedDir string, lock map[
 		}
 		dst := filepath.Join(managedDir, name)
 		_, existed := os.Stat(dst)
-		// Copy into a sibling temp dir, move any existing install aside to a
-		// backup, swap the new copy in, then drop the backup — so neither a copy
-		// nor a rename failure can leave the skill deleted or half-written. Sync
-		// is serialized (syncMu) so these sidecar names never collide.
-		tmpDst := filepath.Join(managedDir, ".tmp-"+name)
-		bakDst := filepath.Join(managedDir, ".bak-"+name)
+		// Copy into a sibling temp dir, then let replaceSkillDir swap it in.
+		tmpDst := stagingDir(managedDir, name)
 		_ = os.RemoveAll(tmpDst)
-		_ = os.RemoveAll(bakDst)
 		if err := copySkillDir(h.dir, tmpDst); err != nil {
 			_ = os.RemoveAll(tmpDst)
 			if firstErr == nil {
@@ -400,32 +391,12 @@ func installFromDir(root string, entry RemoteEntry, managedDir string, lock map[
 			}
 			continue
 		}
-		movedAside := false
-		if existed == nil { // dst currently exists
-			if err := os.Rename(dst, bakDst); err != nil {
-				_ = os.RemoveAll(tmpDst)
-				if firstErr == nil {
-					firstErr = err
-				}
-				continue
-			}
-			movedAside = true
-		}
-		if err := os.Rename(tmpDst, dst); err != nil {
-			_ = os.RemoveAll(tmpDst)
-			if movedAside {
-				if rbErr := os.Rename(bakDst, dst); rbErr != nil {
-					// Both the swap and the rollback failed: keep the backup and
-					// surface where the previous copy is so it can be recovered.
-					err = fmt.Errorf("install %q failed (%w) and rollback failed (%v); previous copy left at %s", name, err, rbErr, bakDst)
-				}
-			}
+		if err := replaceSkillDir(managedDir, name, tmpDst); err != nil {
 			if firstErr == nil {
 				firstErr = err
 			}
 			continue
 		}
-		_ = os.RemoveAll(bakDst)
 		ent := entry
 		if ent.Version == "" {
 			ent.Version = skillDirVersion(h.dir)
@@ -438,6 +409,96 @@ func installFromDir(root string, entry RemoteEntry, managedDir string, lock map[
 		}
 	}
 	return firstErr
+}
+
+// The sidecar directories a skill install uses: the staged copy it is built in,
+// and the backup the previous install moves aside to. Both carry the pid.
+// syncMu keeps one process from using a name twice; the pid keeps two processes
+// apart, and a console and a `coddy serve` starting at once on a fresh home do
+// both hand over the standard delivery. Without it, one process copying into
+// the other's staging directory yields a tree neither wrote, and one process
+// clearing the other's backup destroys the only copy of what was there. A
+// leading dot keeps the loader from reading either as a skill.
+const (
+	stagingPrefix = ".tmp-"
+	backupPrefix  = ".bak-"
+)
+
+func stagingDir(managedDir, name string) string {
+	return filepath.Join(managedDir, fmt.Sprintf("%s%s-%d", stagingPrefix, name, os.Getpid()))
+}
+
+func backupDir(managedDir, name string) string {
+	return filepath.Join(managedDir, fmt.Sprintf("%s%s-%d", backupPrefix, name, os.Getpid()))
+}
+
+// RecoverInterruptedInstalls repairs what a process killed mid-swap left
+// behind. Replacing a skill is a rename of the old copy aside followed by a
+// rename of the new one into place, and between the two the skill is not there
+// at all: a process that dies in that window leaves a backup and no skill, and
+// nothing would ever put it back - the delivery would read the gap as a skill
+// the operator deleted. So every backup is resolved before anything else runs:
+// the skill is missing, and the backup is what it was, or the swap did finish
+// and the backup is the leftover of its last step.
+func RecoverInterruptedInstalls(managedDir string) {
+	entries, err := os.ReadDir(managedDir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), backupPrefix) {
+			continue
+		}
+		suffix := strings.TrimPrefix(e.Name(), backupPrefix)
+		cut := strings.LastIndex(suffix, "-")
+		if cut <= 0 {
+			continue
+		}
+		name, err := sanitizeSkillName(suffix[:cut])
+		if err != nil {
+			continue
+		}
+		bak := filepath.Join(managedDir, e.Name())
+		dst := filepath.Join(managedDir, name)
+		if _, err := os.Stat(dst); err == nil {
+			_ = os.RemoveAll(bak)
+			continue
+		}
+		_ = os.Rename(bak, dst)
+	}
+}
+
+// replaceSkillDir swaps a staged copy in as the skill named name: any existing
+// install moves aside to a backup, the staged copy takes its place, and the
+// backup is dropped - so neither a copy nor a rename failure can leave the
+// skill deleted or half-written. Shared by the marketplace installer and the
+// standard delivery.
+func replaceSkillDir(managedDir, name, staged string) error {
+	dst := filepath.Join(managedDir, name)
+	bak := backupDir(managedDir, name)
+	_ = os.RemoveAll(bak)
+
+	movedAside := false
+	if _, err := os.Stat(dst); err == nil {
+		if err := os.Rename(dst, bak); err != nil {
+			_ = os.RemoveAll(staged)
+			return err
+		}
+		movedAside = true
+	}
+	if err := os.Rename(staged, dst); err != nil {
+		_ = os.RemoveAll(staged)
+		if movedAside {
+			if rbErr := os.Rename(bak, dst); rbErr != nil {
+				// Both the swap and the rollback failed: keep the backup and
+				// surface where the previous copy is so it can be recovered.
+				return fmt.Errorf("install %q failed (%w) and rollback failed (%v); previous copy left at %s", name, err, rbErr, bak)
+			}
+		}
+		return err
+	}
+	_ = os.RemoveAll(bak)
+	return nil
 }
 
 // skillDirVersion reads the optional version from a skill directory's SKILL.md
@@ -655,6 +716,11 @@ func AddSource(cfg *config.Config, source string) (bool, error) {
 	}
 	if _, err := parseSource(source); err != nil {
 		return false, err
+	}
+	if IsSystemSource(source) {
+		// Already in effect, and writing it into the file would only create a
+		// duplicate the operator could then delete from half of it.
+		return false, nil
 	}
 	sourceMu.Lock()
 	defer sourceMu.Unlock()
@@ -1155,26 +1221,88 @@ func comparePrerelease(a, b string) int {
 
 // ---- source management ----
 
-// ListSources returns the configured remote skill sources (trimmed, non-empty).
-func ListSources(cfg *config.Config) []string {
-	out := make([]string, 0, len(cfg.Skills.Sources))
-	for _, s := range cfg.Skills.Sources {
-		if s = strings.TrimSpace(s); s != "" {
-			out = append(out, s)
+// SystemSources are the marketplaces Coddy is born with. They are listed and
+// synced exactly like configured ones, but they live here rather than in
+// skills.sources, so no surface can remove one and no config file has to be
+// written to have it. Tests replace this to keep their assertions off the
+// network; nothing else writes to it.
+var SystemSources = []string{config.SystemSkillsSource}
+
+// IsSystemSource reports whether source is one Coddy brings itself, which is
+// what makes it undeletable.
+func IsSystemSource(source string) bool {
+	source = strings.TrimSpace(source)
+	for _, sys := range SystemSources {
+		if strings.EqualFold(strings.TrimSpace(sys), source) {
+			return true
 		}
+	}
+	return false
+}
+
+// configured reports whether sources already names source.
+func configured(sources []string, source string) bool {
+	for _, s := range sources {
+		if strings.EqualFold(strings.TrimSpace(s), strings.TrimSpace(source)) {
+			return true
+		}
+	}
+	return false
+}
+
+// ListSources returns every remote skill source in effect: the system ones
+// first, then what skills.sources names (trimmed, non-empty, deduplicated - a
+// config that repeats a system source does not make it appear twice).
+func ListSources(cfg *config.Config) []string {
+	out := make([]string, 0, len(SystemSources)+len(cfg.Skills.Sources))
+	seen := make(map[string]struct{}, cap(out))
+	add := func(s string) {
+		if s = strings.TrimSpace(s); s != "" {
+			key := strings.ToLower(s)
+			if _, dup := seen[key]; !dup {
+				seen[key] = struct{}{}
+				out = append(out, s)
+			}
+		}
+	}
+	for _, s := range SystemSources {
+		add(s)
+	}
+	for _, s := range cfg.Skills.Sources {
+		add(s)
 	}
 	return out
 }
 
 // RemoveSource drops a source from skills.sources and persists config.yaml.
-// It reports whether a matching source was found and removed.
+// It reports whether a matching source was found and removed. A system source
+// is refused: it is not in the file, so there is nothing to take out of it.
 func RemoveSource(cfg *config.Config, source string) (bool, error) {
 	source = strings.TrimSpace(source)
 	if source == "" {
 		return false, fmt.Errorf("empty source")
 	}
+	if IsSystemSource(source) {
+		// A config that also names it is carrying a redundant entry - written
+		// before the source became a system one, or by hand. That entry can go;
+		// the system source itself stays, and saying so is the whole answer.
+		if !configured(cfg.Skills.Sources, source) {
+			return false, fmt.Errorf("%s is built into Coddy and cannot be removed; disable the skills you do not want with `coddy skills disable <name>`", source)
+		}
+		sourceMu.Lock()
+		defer sourceMu.Unlock()
+		if _, err := removeConfiguredSource(cfg, source); err != nil {
+			return false, err
+		}
+		return false, fmt.Errorf("removed the redundant %s from skills.sources; the marketplace itself is built into Coddy and stays in effect", source)
+	}
 	sourceMu.Lock()
 	defer sourceMu.Unlock()
+	return removeConfiguredSource(cfg, source)
+}
+
+// removeConfiguredSource drops source from skills.sources. Callers hold sourceMu.
+func removeConfiguredSource(cfg *config.Config, source string) (bool, error) {
 	return applySourceChange(cfg, func(current []string) ([]string, bool, error) {
 		kept := make([]string, 0, len(current))
 		removed := false

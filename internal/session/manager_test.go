@@ -800,17 +800,19 @@ func TestSessionNewSendsAvailableSlashCommandsUpdate(t *testing.T) {
 		t.Fatalf("expected AvailableCommandsUpdate in %#v", snd.ups)
 		return
 	}
-	// Skills plus the built-in commands: compact (while compaction is enabled),
-	// export and plugin (always).
-	if len(slash.AvailableCommands) != 6 {
-		t.Fatalf("unexpected commands %+v", slash.AvailableCommands)
+	// The workspace skill, the standard delivery, and the built-in commands:
+	// compact (while compaction is enabled), export and plugin (always).
+	if want := 4 + len(skills.Bundled()); len(slash.AvailableCommands) != want {
+		t.Fatalf("expected %d commands, got %+v", want, slash.AvailableCommands)
 	}
 	names := map[string]bool{}
 	for _, c := range slash.AvailableCommands {
 		names[c.Name] = true
 	}
-	if !names["demo"] || !names["generate-rules"] || !names["configure-coddy"] || !names["compact"] || !names["export"] || !names["plugin"] {
-		t.Fatalf("expected demo, generate-rules, configure-coddy, compact, export, and plugin, got %+v", slash.AvailableCommands)
+	for _, want := range []string{"demo", "configure-coddy", "rpa-feat", "compact", "export", "plugin"} {
+		if !names[want] {
+			t.Fatalf("expected %q among the commands, got %+v", want, slash.AvailableCommands)
+		}
 	}
 }
 

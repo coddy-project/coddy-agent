@@ -9,11 +9,18 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 )
 
+// withoutBundled drops the standard delivery from a listing, so a test can
+// assert on what it put in a directory itself. The names come from the delivery
+// rather than a list here, which is what keeps this from going stale every time
+// a skill joins or leaves it.
 func withoutBundled(loaded []*skills.Skill) []*skills.Skill {
+	delivered := make(map[string]bool)
+	for _, s := range skills.Bundled() {
+		delivered[skills.CanonicalCommandName(s)] = true
+	}
 	var out []*skills.Skill
 	for _, s := range loaded {
-		name := skills.CanonicalCommandName(s)
-		if name == "generate-rules" || name == "configure-coddy" {
+		if delivered[skills.CanonicalCommandName(s)] {
 			continue
 		}
 		out = append(out, s)

@@ -32,6 +32,17 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 )
 
+// offlineSystemSources keeps a test off the network: the built-in marketplace
+// is a real GitHub address, and listing, probing or syncing sources would clone
+// it. Tests that are about the built-in marketplace itself live in
+// internal/skills.
+func offlineSystemSources(t *testing.T) {
+	t.Helper()
+	prev := skills.SystemSources
+	skills.SystemSources = nil
+	t.Cleanup(func() { skills.SystemSources = prev })
+}
+
 type skFeatureState struct {
 	root     string
 	home     string
@@ -391,6 +402,7 @@ func TestSkillsMarketplaceFeature(t *testing.T) {
 	if !gitws.GitAvailable() {
 		t.Skip("git binary not available")
 	}
+	offlineSystemSources(t)
 	suite := godog.TestSuite{
 		Name:                "skills_marketplace",
 		ScenarioInitializer: initializeSkillsScenario,
