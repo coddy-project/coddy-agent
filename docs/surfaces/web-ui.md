@@ -316,6 +316,23 @@ SSE payloads
   - `usage_update` (`used` / `size` for the current model context; emitted again after compaction)
   - Default (no `event:`): chat completion chunk deltas, including `delta.content` and optional `delta.reasoning_content`
 
+## Transcript scroll-to-bottom
+
+![The scroll-to-bottom button above the composer, dark theme at 1280 px](../assets/scroll-to-bottom-visible-dark-1280.png)
+
+*The scroll-to-bottom button above the composer, dark theme at 1280 px*
+
+Scrolling up in a long chat leaves the newest messages off screen, and dragging the scrollbar back is the only way down. A round control above the composer does it in one press.
+
+- **When it is there** - the transcript follows new output while the scrollport sits within `TRANSCRIPT_BOTTOM_THRESHOLD_PX` (**80px**) of the end. The button appears exactly when that stops being true and goes away when it starts again, so seeing it means the transcript has something below the fold. It fades in and out on one mounted node (**~0.14s** in, **0.12s** out); hidden, it is `inert` and out of the tab order.
+- **Where it sits** - inside the composer's own column (`.chat-bottom-inner`), against its right edge, `10px` above the docked block. That is one set of coordinates for every shell: the absolute desktop dock, the `position: fixed` composer below `1200px`, and the inset the background tasks panel reserves.
+- **The jump** takes **220-460ms** by distance, on an ease-out curve: away at speed, settling into the last pixels rather than stopping dead. It is driven frame by frame (`transcriptJumpDurationMs` / `easeTranscriptJump` in `chat/transcriptScrollPosition.ts`), not handed to `scrollTo({ behavior: "smooth" })`, so the feel is the same in every engine. Arriving re-arms the follow, and the rest of the turn scrolls by itself again.
+- **Streaming under a reader who scrolled away** - the position does not move and the button stays, because the distance to the end only grows. A jump started mid-turn re-reads the end on every frame, so it lands on the newest message rather than where the transcript ended when the button was pressed.
+- **The reader always wins** - a wheel, a finger or a press on the scrollbar stops the travel where it is and brings the button straight back if they stopped short of the end.
+- **Both scroll surfaces** - the wide shell scrolls `.chat-scroll`, the narrow one scrolls the document; the same module reads the distance and the end position for both, and one reading drives the follow flag, the button and the jump.
+- **`prefers-reduced-motion: reduce`** puts the transcript at the end in one step and drops the button's fade.
+- **Accessible name and tooltip** are both `chat.scrollToBottom`; the empty hero never renders it.
+
 ## Composer primary action (`#btn-send`)
 
 ![The improve-prompt wand next to the send button](../assets/composer-improve-prompt.jpg)

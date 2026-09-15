@@ -813,6 +813,7 @@ export const messagesRu: Record<string, string> = {
   "chat.heroVerb.refactor": "рефакторить",
   "chat.heroVerb.plan": "спланировать",
   "chat.runPlanMessage": "Реализуй план.",
+  "chat.scrollToBottom": "Перейти к последнему сообщению",
   "chat.contextTitle": "Контекст",
   "chat.contextClose": "Закрыть",
   "chat.contextCloseBreakdown": "Закрыть разбор контекста",
