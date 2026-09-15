@@ -165,12 +165,18 @@ function formatResolvedSummaryLine(
  * Whether Return pressed on `el` belongs to this card. The composer and the rest
  * of the page stay usable while a gate is open, so the key is the card's only when
  * it came from inside the card or from a page with nothing focused - never from
- * the composer's textarea or from a button someone reached with the keyboard.
+ * the composer's textarea.
+ *
+ * A control the reader reached with the keyboard keeps its own Return, inside the
+ * card as much as outside it: Return on the focused Skip button has to skip, not
+ * send the answer.
  */
 function keyBelongsToCard(el: EventTarget | null, card: HTMLElement | null): boolean {
-  if (el instanceof Node && card?.contains(el)) return true;
   if (el === null || el === document || el === document.body) return true;
-  return el instanceof HTMLElement && el.tagName.toLowerCase() === "html";
+  if (!(el instanceof HTMLElement)) return false;
+  if (el.tagName.toLowerCase() === "html") return true;
+  if (!card?.contains(el)) return false;
+  return el.closest("button, a[href], summary, [role='button']") === null;
 }
 
 function rowLettersForQuestion(q: CoddyQuestionItem): readonly string[] {
@@ -288,8 +294,10 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
       if (e.key !== "Enter") return;
       if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
       if (!keyBelongsToCard(e.target, frameRef.current)) return;
-      e.preventDefault();
+      // Only a key this card actually answers with is taken off the page: an
+      // unfinished answer leaves Return to whatever else would have used it.
       if (submitting || !ready) return;
+      e.preventDefault();
       void submit(false);
     };
     window.addEventListener("keydown", onKey);

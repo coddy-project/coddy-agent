@@ -109,3 +109,42 @@ test("Escape skips the question", async () => {
   await waitFor(() => expect(resolved).toHaveBeenCalledTimes(1));
   expect(resolved.mock.calls[0]?.[0]).toMatchObject({ skipped: true });
 });
+
+// Cross-review: a control reached with the keyboard keeps its own Return, inside
+// the card as much as outside it.
+test("Return on the focused Skip button skips instead of sending", async () => {
+  const resolved = vi.fn();
+  renderPrompt(resolved);
+  fireEvent.click(screen.getByText("Todo plan"));
+
+  const skip = screen.getByTestId("question-skip");
+  const ev = new KeyboardEvent("keydown", {
+    key: "Enter",
+    bubbles: true,
+    cancelable: true,
+  });
+  skip.dispatchEvent(ev);
+  await Promise.resolve();
+
+  // The card left the key alone, so the button's own activation still runs it.
+  expect(ev.defaultPrevented).toBe(false);
+  expect(resolved).not.toHaveBeenCalled();
+  fireEvent.click(skip);
+  await waitFor(() => expect(resolved).toHaveBeenCalledTimes(1));
+  expect(resolved.mock.calls[0]?.[0]).toMatchObject({ skipped: true });
+});
+
+// An answer that is not ready yet leaves Return to the rest of the page.
+test("Return is not taken off the page while the answer is incomplete", async () => {
+  renderPrompt(vi.fn());
+
+  const ev = new KeyboardEvent("keydown", {
+    key: "Enter",
+    bubbles: true,
+    cancelable: true,
+  });
+  document.body.dispatchEvent(ev);
+  await Promise.resolve();
+
+  expect(ev.defaultPrevented).toBe(false);
+});
