@@ -94,6 +94,16 @@ function stringArg(args: Record<string, unknown>, ...names: string[]): string {
   return "";
 }
 
+/** A repeated string argument, e.g. the uci commands `config_set` stages. */
+function stringListArg(args: Record<string, unknown>, name: string): string[] {
+  const value = args[name];
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter((item) => item !== "");
+}
+
 function boolArg(
   args: Record<string, unknown>,
   name: string,
@@ -149,9 +159,14 @@ export function toolCallTargetText(context: PermissionToolCallContext): string {
       // The new name, when the call carries one; filing that only moves tags
       // has no target worth a row's width.
       return stringArg(args, "title");
+    case "config_set":
+      // Staged uci commands are what the call is about, the way a command is for
+      // run_command. One row, so they read as a list rather than as lines.
+      return stringListArg(args, "commands").join(", ");
     default:
       // read / write / edit / apply_patch / mkdir / touch / rm / rmdir / print_tree /
-      // plan_* take a path; webfetch takes a url.
+      // plan_* take a path; webfetch takes a url; config_get and config_revert take a
+      // dotted config key.
       return stringArg(args, "path", "filePath", "file_path", "url", "name");
   }
 }
@@ -184,6 +199,11 @@ export function toolCallTargetIsPath(
     case "load_skill":
     case "question":
     case "session_describe":
+    case "config_get":
+    case "config_set":
+    case "config_revert":
+      // A dotted config key looks like nothing on disk; respelling it against the
+      // session directory would say something the call never meant.
       return false;
     default: {
       const args = parseArgsText(context.argsText || "");
@@ -373,6 +393,36 @@ export function buildToolCallPreview(
       meta: [],
       copyText: skill,
       kind: "path",
+    };
+  }
+
+  if (normalized === "config_get" || normalized === "config_revert") {
+    // The dotted key is the whole of the call and the row already names it, so a
+    // `{"path": "..."}` block would only repeat it - same reasoning as load_skill.
+    const key = stringArg(args, "path");
+    return {
+      toolName,
+      title,
+      header: key,
+      meta: [],
+      copyText: key,
+      kind: "path",
+    };
+  }
+
+  if (normalized === "config_set") {
+    // Staged edits are uci command lines. Read as lines they are a command block
+    // like a shell call; read as a JSON array of strings they are punctuation.
+    const commands = stringListArg(args, "commands");
+    const text = commands.join("\n");
+    return {
+      toolName,
+      title,
+      header: "",
+      meta: [],
+      copyText: text,
+      kind: "code",
+      text,
     };
   }
 
