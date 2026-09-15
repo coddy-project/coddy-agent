@@ -138,7 +138,9 @@ type State struct {
 	// MemoryCopilotBlock is per-turn text from the memory copilot (not persisted to session.json).
 	MemoryCopilotBlock string
 
-	// pendingPlanContext is injected into the next agent system prompt (Run plan); not persisted.
+	// pendingPlanContext is injected into the agent system prompt of the turn a
+	// plan run started, and mirrored into the bundle (pending_plan_context.json)
+	// so a turn continued after a restart still carries it.
 	pendingPlanContext string
 
 	// pendingImageParts are image attachments for the next user message (from inline_files in agent mode); not persisted.
@@ -775,20 +777,53 @@ func (s *State) ClearMemoryCopilotBlock() {
 	s.mu.Unlock()
 }
 
-// SetPendingPlanContext sets design plan text for the next agent turn system prompt.
+// SetPendingPlanContext sets design plan text for the agent turn about to
+// start, and stores it in the session bundle beside the permission gate. That
+// turn can stop on a permission prompt and be continued after the process has
+// been restarted, and the continuation renders the same system prompt.
 func (s *State) SetPendingPlanContext(text string) {
 	s.mu.Lock()
 	s.pendingPlanContext = strings.TrimSpace(text)
+	text = s.pendingPlanContext
+	dir := strings.TrimSpace(s.SessionDir)
 	s.mu.Unlock()
+	if dir == "" {
+		return
+	}
+	if text == "" {
+		_ = ClearPendingPlanContext(dir)
+		return
+	}
+	_ = WritePendingPlanContext(dir, text)
 }
 
-// TakePendingPlanContext returns and clears pending plan context.
-func (s *State) TakePendingPlanContext() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// PendingPlanContext returns the hand-off of the turn in flight without
+// consuming it. Reading it destructively is what used to lose it: the first
+// system prompt of the turn took it, and everything rendered after a permission
+// prompt - a rebuild after compaction, the continuation the user's answer
+// starts - carried on without it. ClearPendingPlanContext releases it once the
+// turn is really over.
+func (s *State) PendingPlanContext() string {
+	s.mu.RLock()
 	out := s.pendingPlanContext
+	dir := strings.TrimSpace(s.SessionDir)
+	s.mu.RUnlock()
+	if out != "" || dir == "" {
+		return out
+	}
+	// Nothing in memory: this process did not start the turn. The bundle did.
+	return ReadPendingPlanContext(dir)
+}
+
+// ClearPendingPlanContext releases the hand-off, in memory and in the bundle.
+func (s *State) ClearPendingPlanContext() {
+	s.mu.Lock()
 	s.pendingPlanContext = ""
-	return out
+	dir := strings.TrimSpace(s.SessionDir)
+	s.mu.Unlock()
+	if dir != "" {
+		_ = ClearPendingPlanContext(dir)
+	}
 }
 
 // SetSurfaceSystemPrompt records the system prompt block the surface running

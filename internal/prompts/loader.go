@@ -14,7 +14,14 @@
 //	{{.UTCNow}}   - current date and time in UTC (RFC3339), set each time the system prompt renders
 //
 // Use {{if .Skills}}...{{end}} (and similarly for .Tools, .Memory, .TodoList) when sections should be omitted when empty.
-// The ReAct runner refreshes the rendered system prompt before each LLM call while handling one session prompt.
+//
+// The ReAct runner renders the system prompt once per turn and then freezes it: the provider caches
+// a request by its prefix, and the system message sits in front of the whole conversation, so a byte
+// that moves there throws away the cached copy of every message behind it. The built-in templates
+// therefore render neither {{.UTCNow}} nor {{.TodoList}}; the runner sends the clock, the checklist
+// and the rules a tool call activated after the history, in a <turn_context> block
+// (internal/agent/turn_context.go). Both fields stay populated for a template under prompts.dir that
+// wants them anyway, at the cost of that cache on every request.
 package prompts
 
 import (
@@ -51,6 +58,8 @@ type TemplateData struct {
 	Memory string
 
 	// TodoList is the current session checklist as markdown lines (may be empty).
+	// The built-in templates do not render it: it is rewritten by every
+	// coddy_todo_* call and travels in the turn context block instead.
 	TodoList string
 
 	// PlanContext is design plan text injected when the user runs a saved plan (may be empty).
@@ -68,7 +77,10 @@ type TemplateData struct {
 	// SubagentRole is the role block of a child agent run (may be empty).
 	SubagentRole string
 
-	// UTCNow is the wall-clock instant in RFC3339 (UTC) at render time for model grounding.
+	// UTCNow is the wall-clock instant in RFC3339 (UTC) at render time for model
+	// grounding. The built-in templates do not render it: a clock in the system
+	// prompt is a cache miss on every request, and the turn context block carries
+	// it after the history.
 	UTCNow string
 }
 
@@ -180,6 +192,25 @@ func RendersRules(mode, promptsDir, agentFile, planFile, askFile string) bool {
 		return true
 	}
 	return strings.Contains(src, ".Rules")
+}
+
+// RendersVolatile reports whether the template for mode prints something that
+// changes between the steps of one turn: the wall clock, or the todo checklist
+// a coddy_todo_* call rewrites. The built-in templates print neither, and the
+// ReAct runner can then render the system message once and freeze it. A
+// template under prompts.dir that prints either one keeps the old behaviour -
+// re-rendered before every LLM call - because its own conditionals around those
+// fields have to keep matching the state. It pays for that with the provider's
+// prompt cache, which is why the built-in templates stopped doing it.
+//
+// A source that cannot be read counts as volatile: the render fallback
+// (fallbackPrompt) carries a clock of its own.
+func RendersVolatile(mode, promptsDir, agentFile, planFile, askFile string) bool {
+	src, err := loadSource(mode, promptsDir, agentFile, planFile, askFile)
+	if err != nil {
+		return true
+	}
+	return strings.Contains(src, ".UTCNow") || strings.Contains(src, ".TodoList")
 }
 
 func fallbackPrompt(mode, cwd string) string {

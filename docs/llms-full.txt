@@ -644,8 +644,12 @@ prompts:
   #   {{.Memory}}   - session agent memory plus optional long-term recall when memory.enable is true
   #   {{.UTCNow}}   - date and time in UTC (RFC3339), refreshed whenever the system prompt is rendered
   #
-  # Built-in templates order: Tools, Skills, optional TodoList block, Memory (session notes plus optional recall), trailing Current UTC time.
-  # The checklist section is emitted only when the session plan is non-empty.
+  # Built-in templates order: Tools, Skills, Memory (session notes plus optional recall).
+  # They deliberately render neither {{.TodoList}} nor {{.UTCNow}}: both move between the steps of a
+  # turn, and the system prompt is what the provider's prompt cache keys the whole conversation on.
+  # Coddy sends the clock, the checklist and the rules a tool call activated after the history instead,
+  # in a <turn_context> block. Your own template may still render them, at the cost of that cache.
+  # See docs/contributing/react-agent.md (The turn context block).
   dir: ""
   agent_prompt: "agent.md"     # optional; default agent.md
   plan_prompt: "plan.md"       # optional; default plan.md
@@ -6604,7 +6608,7 @@ The web UI renders that row as the plan document card in the chat column:
 - **Collapsed**: the title (`name`, else the slug, with the file path as tooltip), a one-line description, and **Discard** and **Run plan** in the footer.
 - **Expanded**: the rendered markdown by default; the eye toggle switches to the markdown line editor, which holds the body without the frontmatter and autosaves through `PUT /coddy/sessions/{id}/plans/{slug}` about 600 ms after the last keystroke. The pane grows with the document instead of scrolling inside itself.
 - **Discard** (`DELETE` on the same route) marks the plan discarded: the card stays in the transcript, muted, with its controls disabled, and the plan leaves the plan-mode system prompt.
-- **Run plan** sends the next prompt with `metadata.runPlanSlug` (`_meta` `coddy.dev/runPlanSlug` over ACP): Coddy switches the session to agent mode, injects the plan body into the system prompt and runs the turn. The session todo list is not filled from the plan.
+- **Run plan** sends the next prompt with `metadata.runPlanSlug` (`_meta` `coddy.dev/runPlanSlug` over ACP): Coddy switches the session to agent mode, injects the plan body into the system prompt and runs the turn. The session todo list is not filled from the plan. The plan body stays with that turn for as long as it can still be continued - a turn stopped on a permission prompt renders its system prompt again when the answer arrives, so the text is held in the bundle (`pending_plan_context.json`) and released once the turn is over.
 - In the read-only transcript of a subagent child the card has no footer and its editor is read-only.
 
 The portable route, for a client without that hook, is to switch to agent mode and mention `@plans/<slug>.plan.md` in the prompt. Details: [Web UI](../surfaces/web-ui.md#plan-document-card-plan-mode-transcript), [ACP protocol](../reference/acp-protocol.md#design-plans-plan-mode).
@@ -6672,6 +6676,7 @@ A session spawned by another one is stored inside it, at `<parent>/subagents/<ch
 | `background/<task_id>/` | the record and output log of every background task and subagent run |
 | `memory_trace.json` | what the memory copilot did on each turn ([Long-term memory](memory.md)) |
 | `ui_log.json`, `permission_grants.json`, `pending_permission.json` | notice rows shown in the transcript, the commands and write targets approved with "allow always", a permission prompt waiting for its answer over HTTP |
+| `pending_plan_context.json` | the design plan text handed to the turn a plan run started, kept until that turn is over. A turn stopped on a permission prompt is continued after the answer arrives, sometimes in another process, and renders the same system prompt again ([Plan mode](modes.md)) |
 
 Compaction and result eviction never rewrite a bundle: both are projections built when a request goes to the model, and `messages.json` keeps every original row ([Context compaction](compaction.md)).
 
@@ -6774,10 +6779,15 @@ From top to bottom in the rendered system message:
 
 1. Tools
 2. Skills
-3. Plan context / todo list (mode-dependent)
+3. Plan context (mode-dependent)
 4. **Rules** (project docs + active rules)
 5. Session memory
-6. Current UTC time
+
+A rule a **tool call** activated mid-turn does not rewrite that message: it would throw away the
+provider's cached copy of the whole conversation behind it. It arrives after the history instead, in
+the `<turn_context>` block that also carries the clock and the todo checklist, and the next turn's
+system prompt picks it up from the sticky set. See *The turn context block* in
+[react-agent.md](../contributing/react-agent.md).
 
 ## Discovery
 
@@ -8605,6 +8615,7 @@ compaction:
     enable: true
     keep_recent: 2         # most recent read/grep results kept intact
     min_result_bytes: 2000 # results at or below this size are never evicted
+    start_percent: 50      # evict only once the context reaches this percent of the window
 ```
 
 | Key | Default | Meaning |
@@ -8616,6 +8627,20 @@ compaction:
 | `result_eviction.enable` | `true` | collapse superseded `read` and `grep` results |
 | `result_eviction.keep_recent` | `2` | most recent candidates kept as the working window |
 | `result_eviction.min_result_bytes` | `2000` | results at or below this size are left alone |
+| `result_eviction.start_percent` | `50` | how full the context must be before eviction starts; `0` evicts from the first result |
+
+`start_percent` exists because eviction and the provider's prompt cache pull in
+opposite directions. A placeholder is written **into the middle of the replayed
+history**, and a provider caches a request by its prefix, so one collapsed result
+throws away the cached copy of every message behind it. With a sliding working
+window that happens on nearly every step, and a long conversation is then
+reprocessed at full price to save a few thousand tokens the window was not short
+of yet. Below the mark the history therefore goes out exactly as the provider
+already has it; above it, the room matters more than the cache. A model entry
+without `max_context_tokens` cannot be measured and evicts from the first result,
+as it always did. See *The turn context block* in
+[react-agent.md](../contributing/react-agent.md) for the other half of the same
+story - what Coddy stopped putting in the system prompt for the same reason.
 
 The field table with types and validation is in the [config.yaml reference](../reference/config.md#compaction); the keys are ordinary settings, editable in the web UI's Settings in the **Context compaction** block at the end of the **ReAct agent** tab (compaction decides what the loop sends the model; the YAML key stays `compaction`, and `#/settings/compaction` opens the block). The window the threshold is a percent of belongs to the model entry: its `max_context_tokens`, else what its provider reports, else 128000 ([The context window](#the-context-window)).
 
@@ -9423,6 +9448,7 @@ Summarizes older conversation history so long sessions keep fitting the model co
 | `compaction.result_eviction.enable` | boolean or null | true | Master switch for read/grep result eviction. Defaults to true. |
 | `compaction.result_eviction.keep_recent` | integer or null | 2 | How many most recent evictable results (read pages, grep dumps) stay intact as a working window. 0 keeps none. The default of 2 keeps a read and a grep live at the same time; with 1, a model comparing two results keeps re-fetching whichever the other evicted. |
 | `compaction.result_eviction.min_result_bytes` | integer or null | 2000 | Results at or below this size are never evicted (too small to be worth a placeholder). 0 makes every result a candidate. |
+| `compaction.result_eviction.start_percent` | integer or null | 50 | Evict only once the estimated context reaches this percent of the effective model's max_context_tokens. Below it the replayed history is sent untouched, so the provider's prompt cache keeps it; a placeholder appearing mid-history invalidates every cached token behind it. 0 evicts from the first result; a model without max_context_tokens always does. |
 
 ### `memory`
 
@@ -12606,9 +12632,9 @@ Maintains the state for each conversation session:
 The core reasoning engine (**`react.go`**):
 
 1. Loads tool definitions from **`internal/tooling.Registry.AllToolDefinitions`**, applies the session **`ToolSet`** from **`internal/agent/toolsets.go`** (empty set means no filter), then appends MCP tool definitions from connected servers when the mode is **`agent`** or **`plan`** (never in **`ask`** mode). In **`ask`** mode a call that names a filtered-out tool (for example one replayed from history) is also refused at execution time.
-2. Builds the system prompt from **`internal/prompts.Render`**: embedded defaults or files under **`prompts.dir`** named by **`prompts.agent_prompt`**, **`prompts.plan_prompt`**, and **`prompts.ask_prompt`** (defaults **`agent.md`**, **`plan.md`**, and **`ask.md`**). Template data includes **`CWD`**, tools markdown, skills markdown, rules markdown (**`{{.Rules}}`** via **`internal/rules`**), optional **`TodoList`** and **`Memory`**, plus **`UTCNow`** (RFC3339 UTC refreshed on every render). Coddy then appends an **`<environment_context>`** block containing **`<os>`**, **`<arch>`**, and the detected **`<shell>`**, even when a custom prompt template is used.
+2. Builds the system prompt from **`internal/prompts.Render`**: embedded defaults or files under **`prompts.dir`** named by **`prompts.agent_prompt`**, **`prompts.plan_prompt`**, and **`prompts.ask_prompt`** (defaults **`agent.md`**, **`plan.md`**, and **`ask.md`**). Template data includes **`CWD`**, tools markdown, skills markdown, rules markdown (**`{{.Rules}}`** via **`internal/rules`**), optional **`TodoList`** and **`Memory`**, plus **`UTCNow`** (RFC3339 UTC refreshed on every render). Coddy then appends an **`<environment_context>`** block containing **`<os>`**, **`<arch>`**, and the detected **`<shell>`**, even when a custom prompt template is used. The message is rendered **once per turn** and then frozen, so the provider's prompt cache keeps the conversation behind it; the built-in templates render neither **`UTCNow`** nor **`TodoList`**, and what moves during a turn is sent after the history in a **`<turn_context>`** block (**`internal/agent/turn_context.go`**, and *The turn context block* in **`docs/contributing/react-agent.md`**).
 3. Prepends that system message to the session message list and appends the newest user turn.
-4. **Before every LLM invocation** inside one **`session/prompt`**, refreshes the **`system` message content** so **`TodoList`** and other template fields match state after prior tool calls in the same episode.
+4. **Before every LLM invocation** inside one **`session/prompt`**, appends the **`<turn_context>`** block after the history (**`internal/agent/turn_context.go`**): the wall clock, the todo checklist after a **`coddy_todo_*`** call, and the rules a filesystem tool call activated since the prompt was frozen. The **`system` message itself is not touched** - rewriting it would throw away the provider's cached copy of the conversation behind it. The exception is a template under **`prompts.dir`** that prints **`{{.UTCNow}}`** or **`{{.TodoList}}`** itself: it is re-rendered per call as before, and gets no block.
 5. Streams the LLM response, executes tool calls (each one passing through the operator hooks of **`internal/hooks`**: `PreToolUse` before the permission gate, `PostToolUse` or `PostToolUseFailure` after the tool), appends assistant and tool messages.
 6. Loops until there are no tool calls, **`max_turns`** is exceeded, the loop guard stops a runaway turn, or cancellation.
 6a. Loop guard (**`agent.loop_guard`**, on by default, **`internal/agent/loopguard.go`**): a streamed channel that degenerates into repeating the same passage has its stream cancelled and the repeated run stripped from the stored message, and a tool call repeated with identical canonical arguments stops being executed. The model is nudged to change course up to **`agent.loop_nudge_max`** times, after which the turn ends with **`StopReasonRefused`** and a UI notice.
@@ -13555,18 +13581,10 @@ Working directory: {{.CWD}}
 {{if .Skills}} ... skill catalog + always-active/glob-matched bodies
           (invoked /name bodies are injected into the user message instead) ... {{end}}
 
-{{if .TodoList}}
-### Current todo checklist
-{{.TodoList}}
-{{end}}
-
 {{if .Memory}}
 ## Session memory
 {{.Memory}}
 {{end}}
-
-## Current UTC time
-{{.UTCNow}}
 
 <environment_context>
 <os>...</os>
@@ -13575,9 +13593,92 @@ Working directory: {{.CWD}}
 </environment_context>
 ```
 
-The **`TodoList`** body is markdown from **`internal/tools/todo.FormatPlanMarkdown`** applied to **`session.Plan`**. It is injected **only when** at least one entry exists. Embedded templates treat an empty **`TodoList`** as false for **`{{if .TodoList}}`**. The environment block is appended outside the configurable template so OS and shell facts cannot be accidentally omitted by a custom prompt.
+The environment block is appended outside the configurable template so OS and shell facts cannot be accidentally omitted by a custom prompt.
 
-Immediately before **each** provider **`Stream`** call within a single **`session/prompt`**, Coddy reapplies **`Render`** so the **`system`** message reflects todo changes from tools executed earlier in that same episode. **`UTCNow`** is set to **`time.Now().UTC()`** formatted as RFC3339 on each render so the footer clock advances across ReAct iterations.
+### The system prompt is frozen for the turn
+
+The system message is rendered **once per turn**, by **`buildSystemPromptParts`**
+(**`internal/agent/system_prompt.go`**), and every step of the ReAct loop then sends that same
+message back byte for byte. Nothing rewrites **`messages[0]`** between the steps.
+
+The reason is the provider's prompt cache. A provider caches a request by its **prefix** - the tool
+definitions, then the messages from the start - and the first byte that differs from the previous
+request throws away everything cached behind it. The system message sits in front of the whole
+conversation, so a wall clock with seconds in it, or a checklist row a tool had just rewritten, used
+to make a fifty-thousand-token history look new on every single request. Alibaba's gateway caches in
+blocks of 1024 tokens; a difference inside the first block leaves **`cached_tokens`** at zero no
+matter how much identical history follows.
+
+### The turn context block
+
+What does move while a turn runs travels **after** the replayed history, as one trailing `user`
+message built by **`buildTurnContext`** (**`internal/agent/turn_context.go`**):
+
+```
+<turn_context>
+Runtime state refreshed by Coddy for this step. It is not a message from the user; do not answer it, just take it into account.
+
+## Current UTC time
+2026-09-15T11:39:03Z
+
+## Current todo checklist
+- [ ] ...
+
+## Project rules activated by this turn
+### go-files (Go style)
+...
+</turn_context>
+```
+
+- the **wall clock**, always - stamped once when the turn's prompt was rendered and reused by every
+  step of that turn, because the lane re-issues a step that produced nothing and that replay has to
+  be the request that failed, byte for byte (*Lane replays* in
+  [architecture.md](architecture.md));
+- the **todo checklist** (markdown from **`internal/tools/todo.FormatPlanMarkdown`** over
+  **`session.Plan`**), when the session has one - so a **`coddy_todo_*`** call in this turn is
+  reflected on the very next step;
+- the **rules a tool call activated** after the system prompt was frozen - a glob rule or a nested
+  **`AGENTS.md`** that a filesystem tool reached mid-turn (**`activateScopedRulesForToolCall`**).
+  They are **not** folded back into the frozen prompt; the next turn's prompt picks them up from
+  the sticky set, and **`rules.Added`** is what keeps the block down to what the model has not been
+  given yet.
+
+The block is never persisted: it is appended at the **`provider.Stream`** send boundary, next to the
+read/grep eviction projection, and the working message slice the loop keeps appending to never sees
+it. Only the last few hundred tokens of a request are therefore uncached; the conversation behind
+them is a cache hit.
+
+**`UTCNow`** and **`TodoList`** stay available to a template under **`prompts.dir`**, which may still
+render them - at the cost of that cache, on every request.
+
+### The other half: read/grep eviction
+
+Freezing the system message is only half of a stable prefix. Read/grep result
+eviction (**`internal/agent/result_eviction.go`**) writes placeholders **into the middle** of the
+replayed history, which invalidates the cache from that point on just as surely. With the default
+sliding working window that used to happen on nearly every step, so the conversation was reprocessed
+each time even with the prompt frozen. **`compaction.result_eviction.start_percent`** (default 50)
+holds the projection off until the estimated context reaches that share of the model's
+**`max_context_tokens`**; below it the history goes out exactly as the provider already has it. The
+decision is measured on the **unpruned** messages, so pruning cannot push the estimate back under the
+mark and make the projection flap between two shapes. See
+[compaction.md](../features/compaction.md).
+
+### Reading the cache hit
+
+Providers report the cached share of a request as
+**`usage.prompt_tokens_details.cached_tokens`** (OpenAI-compatible) or
+**`cache_read_input_tokens`** (Anthropic). Coddy carries it as
+**`llm.Response.CachedInputTokens`** and logs it per call:
+
+```
+export CODDY_LOG_LEVEL=debug   # or logger.levels: {agent: debug}
+# msg="llm call usage" input_tokens=6044 cached_input_tokens=5120 output_tokens=12
+```
+
+A long session whose second step shows **`cached_input_tokens`** near zero means something is
+rewriting the prefix. Most OpenAI-compatible servers omit the field entirely, and then it reads
+zero without meaning a miss.
 
 ### Agent identity
 

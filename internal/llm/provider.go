@@ -103,6 +103,12 @@ type Response struct {
 	// InputTokens and OutputTokens are for usage tracking.
 	InputTokens  int
 	OutputTokens int
+	// CachedInputTokens is the part of InputTokens the provider served from its
+	// prompt cache instead of processing again (OpenAI
+	// usage.prompt_tokens_details.cached_tokens, Anthropic
+	// cache_read_input_tokens). Zero when the provider reports nothing, which
+	// is not the same as a miss - most OpenAI-compatible servers omit it.
+	CachedInputTokens int
 }
 
 // StreamChunk is a single chunk streamed from the LLM.

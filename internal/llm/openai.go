@@ -197,11 +197,12 @@ func (p *openAIProvider) parseCompletion(resp *openai.ChatCompletion) (*Response
 	msg := choice.Message
 
 	r := &Response{
-		Content:      msg.Content,
-		Reasoning:    openAIMessageReasoning(msg.RawJSON()),
-		StopReason:   mapOpenAIStopReason(string(choice.FinishReason)),
-		InputTokens:  int(resp.Usage.PromptTokens),
-		OutputTokens: int(resp.Usage.CompletionTokens),
+		Content:           msg.Content,
+		Reasoning:         openAIMessageReasoning(msg.RawJSON()),
+		StopReason:        mapOpenAIStopReason(string(choice.FinishReason)),
+		InputTokens:       int(resp.Usage.PromptTokens),
+		OutputTokens:      int(resp.Usage.CompletionTokens),
+		CachedInputTokens: int(resp.Usage.PromptTokensDetails.CachedTokens),
 	}
 
 	for _, tc := range msg.ToolCalls {

@@ -1072,3 +1072,104 @@ func TestLabelProviderPassesSuccessThrough(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+// --- prompt cache accounting ------------------------------------------------
+//
+// The share of a request a provider served from its cache is what says whether
+// the request prefix is stable. It used to be dropped on the floor, so a cache
+// miss was invisible.
+
+func openAIStubProvider(t *testing.T, handler http.HandlerFunc) Provider {
+	t.Helper()
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	p, err := NewProvider(ProviderInput{
+		Type:          "openai",
+		Model:         "test-model",
+		BaseURL:       srv.URL,
+		RetryMax:      1,
+		RetryBase:     time.Millisecond,
+		RetryMaxDelay: time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("create openai provider: %v", err)
+	}
+	return p
+}
+
+func TestOpenAIStreamReportsCachedInputTokens(t *testing.T) {
+	const script = "data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hi\"}}],\"id\":\"c1\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n" +
+		"data: {\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"delta\":{}}],\"id\":\"c1\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n" +
+		"data: {\"choices\":[],\"id\":\"c1\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\",\"usage\":{\"prompt_tokens\":6044,\"completion_tokens\":12,\"total_tokens\":6056,\"prompt_tokens_details\":{\"cached_tokens\":5120}}}\n\n" +
+		"data: [DONE]\n\n"
+
+	p := openAIStubProvider(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, script)
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	resp, err := p.Stream(ctx, []Message{{Role: RoleUser, Content: "hello"}}, nil, func(StreamChunk) {})
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+	if resp.InputTokens != 6044 || resp.OutputTokens != 12 {
+		t.Fatalf("token counts: in=%d out=%d", resp.InputTokens, resp.OutputTokens)
+	}
+	if resp.CachedInputTokens != 5120 {
+		t.Fatalf("cached input tokens: got %d, want 5120", resp.CachedInputTokens)
+	}
+}
+
+// A server that reports no details at all must not look like a full miss in a
+// way that crashes or invents a number: the field simply stays zero.
+func TestOpenAIStreamWithoutUsageDetailsReportsZeroCached(t *testing.T) {
+	const script = "data: {\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hi\"}}],\"id\":\"c1\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n" +
+		"data: {\"choices\":[],\"id\":\"c1\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\",\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":2,\"total_tokens\":12}}\n\n" +
+		"data: [DONE]\n\n"
+
+	p := openAIStubProvider(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, script)
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	resp, err := p.Stream(ctx, []Message{{Role: RoleUser, Content: "hello"}}, nil, func(StreamChunk) {})
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+	if resp.CachedInputTokens != 0 {
+		t.Fatalf("cached input tokens: got %d, want 0", resp.CachedInputTokens)
+	}
+}
+
+func TestOpenAICompletionReportsCachedInputTokens(t *testing.T) {
+	body := map[string]interface{}{
+		"id":      "c1",
+		"object":  "chat.completion",
+		"model":   "test-model",
+		"choices": []interface{}{map[string]interface{}{"index": 0, "finish_reason": "stop", "message": map[string]interface{}{"role": "assistant", "content": "hi"}}},
+		"usage": map[string]interface{}{
+			"prompt_tokens":         900,
+			"completion_tokens":     4,
+			"total_tokens":          904,
+			"prompt_tokens_details": map[string]interface{}{"cached_tokens": 768},
+		},
+	}
+	p := openAIStubProvider(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(body)
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	resp, err := p.Complete(ctx, []Message{{Role: RoleUser, Content: "hello"}}, nil)
+	if err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	if resp.CachedInputTokens != 768 {
+		t.Fatalf("cached input tokens: got %d, want 768", resp.CachedInputTokens)
+	}
+}

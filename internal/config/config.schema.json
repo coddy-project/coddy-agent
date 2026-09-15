@@ -896,6 +896,16 @@
               "description": "Results at or below this size are never evicted (too small to be worth a placeholder). 0 makes every result a candidate.",
               "default": 2000,
               "minimum": 0
+            },
+            "start_percent": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "Evict only once the estimated context reaches this percent of the effective model's max_context_tokens. Below it the replayed history is sent untouched, so the provider's prompt cache keeps it; a placeholder appearing mid-history invalidates every cached token behind it. 0 evicts from the first result; a model without max_context_tokens always does.",
+              "default": 50,
+              "minimum": 0,
+              "maximum": 100
             }
           }
         }

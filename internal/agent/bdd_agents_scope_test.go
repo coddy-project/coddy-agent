@@ -191,6 +191,22 @@ func (s *agentsScopeFeatureState) systemPrompt(n int) (string, error) {
 	return msgs[0].Content, nil
 }
 
+// wholeRequest returns everything the nth request says to the model. A nested
+// AGENTS.md a tool call pulled in mid-turn arrives in the turn context block
+// after the history, not in the frozen system message, so what matters here is
+// that the model was told, not where (turn_context.go).
+func (s *agentsScopeFeatureState) wholeRequest(n int) (string, error) {
+	if n >= len(s.provider.seen) {
+		return "", fmt.Errorf("request %d was never made (%d total)", n, len(s.provider.seen))
+	}
+	var b strings.Builder
+	for _, m := range s.provider.seen[n] {
+		b.WriteString(m.Content)
+		b.WriteString("\n")
+	}
+	return b.String(), nil
+}
+
 func (s *agentsScopeFeatureState) firstRequestHasRootOnly() error {
 	sp, err := s.systemPrompt(0)
 	if err != nil {
@@ -209,7 +225,7 @@ func (s *agentsScopeFeatureState) firstRequestHasRootOnly() error {
 
 func (s *agentsScopeFeatureState) requestsAfterReadCarryNested(dir string) error {
 	for n := 1; n < len(s.provider.seen); n++ {
-		sp, err := s.systemPrompt(n)
+		sp, err := s.wholeRequest(n)
 		if err != nil {
 			return err
 		}
@@ -225,7 +241,7 @@ func (s *agentsScopeFeatureState) requestsAfterReadCarryNested(dir string) error
 
 func (s *agentsScopeFeatureState) noRequestCarriesSibling(dir string) error {
 	for n := range s.provider.seen {
-		sp, err := s.systemPrompt(n)
+		sp, err := s.wholeRequest(n)
 		if err != nil {
 			return err
 		}

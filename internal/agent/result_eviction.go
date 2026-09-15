@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
 )
 
@@ -39,9 +40,54 @@ func (a *Agent) evictionOptions() resultEvictionOptions {
 	}
 }
 
-// prunedForLLM applies read/grep result eviction to an LLM-visible message window.
+// prunedForLLM applies read/grep result eviction to an LLM-visible message window,
+// but only once the conversation is big enough to need it.
+//
+// Every placeholder this writes lands in the middle of the replayed history, and
+// a provider caches a request by its prefix: one rewritten result throws away
+// the cached copy of everything after it. With a sliding working window that
+// happens on almost every step, which is a whole transcript reprocessed to save
+// a few thousand tokens nobody was short of yet. So below
+// compaction.result_eviction.start_percent of the model's context window the
+// history is sent exactly as it was last time.
 func (a *Agent) prunedForLLM(msgs []llm.Message) []llm.Message {
+	if !a.evictionDue(msgs) {
+		return msgs
+	}
 	return pruneToolResults(msgs, a.evictionOptions())
+}
+
+// evictionDue reports whether the conversation has grown far enough into the
+// model's context window for eviction to be worth the cache it costs. It is
+// measured on the unpruned messages, so the answer only ever moves one way
+// within a session: pruning cannot push the estimate back under the mark and
+// start the projection flapping between two shapes.
+func (a *Agent) evictionDue(msgs []llm.Message) bool {
+	re := &a.cfg.Compaction.ResultEviction
+	if !re.IsEnabled() {
+		return false
+	}
+	start := re.EffectiveStartPercent()
+	if start <= 0 {
+		return true
+	}
+	ent := a.cfg.FindModelEntry(a.state.EffectiveModelID(a.cfg))
+	if ent == nil || ent.MaxContextTokens <= 0 {
+		// Nothing to measure against: keep the projection that protects the
+		// window, since overflowing it is the worse failure.
+		return true
+	}
+	// Everything the request carries besides the conversation - the system
+	// message, the tool definitions, the rules - read off the last estimate.
+	// It does not move with eviction, so it cannot make this decision flap.
+	overhead := 0
+	if rs, ok := a.state.(rulesState); ok {
+		if b := rs.GetLastContextBreakdown(); b != nil && b.EstimatedTotal > b.Conversation {
+			overhead = b.EstimatedTotal - b.Conversation
+		}
+	}
+	total := overhead + session.EstimateTokens(conversationText(msgs))
+	return total*100 >= start*ent.MaxContextTokens
 }
 
 // evReadResult is a read tool result eligible for eviction.

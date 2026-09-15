@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -611,13 +612,26 @@ func TestResumeAfterPermissionRejectContinuesWithoutExecutingTool(t *testing.T) 
 	if len(provider.seen) == 0 {
 		t.Fatal("provider was not called to continue after rejected permission")
 	}
-	last := provider.seen[len(provider.seen)-1]
+	last := lastHistoryMessage(provider.seen)
 	if last.Role != llm.RoleTool || last.ToolCallID != "call_blocked" || last.Content != "permission denied by user" {
 		t.Fatalf("provider did not receive denied tool result as latest message: %+v", last)
 	}
 	if got := st.GetMessages()[len(st.GetMessages())-1]; got.Role != llm.RoleAssistant || got.Content != "continued" {
 		t.Fatalf("missing continuation assistant message: %+v", got)
 	}
+}
+
+// lastHistoryMessage is the newest message of a request that is part of the
+// replayed conversation: the turn context block trails it and belongs to no
+// transcript (turn_context.go).
+func lastHistoryMessage(msgs []llm.Message) llm.Message {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if strings.Contains(msgs[i].Content, turnContextOpenTag) {
+			continue
+		}
+		return msgs[i]
+	}
+	return llm.Message{}
 }
 
 // --- system_prompt.go: context breakdown -----------------------------------
@@ -2400,5 +2414,305 @@ func TestBuildSystemPromptCustomTemplateWithoutRulesKeepsInstructions(t *testing
 	cfg.Prompts.Dir = ""
 	if n := strings.Count(a.buildSystemPrompt("agent", nil, nil, "", nil), "PROJECT_DOC_TOKEN"); n != 1 {
 		t.Fatalf("the built-in template carries the project AGENTS.md %d time(s), want 1", n)
+	}
+}
+
+// --- turn_context.go: what travels after the history ------------------------
+
+// The projection the loop hands to the provider is built from the working
+// message slice; appending the block must never reach back into it, or the next
+// tool result would land on top of a request Coddy already sent.
+func TestWithTurnContextDoesNotWriteIntoTheCallersSlice(t *testing.T) {
+	base := make([]llm.Message, 2, 8) // spare capacity: a naive append would stomp it
+	base[0] = llm.Message{Role: llm.RoleSystem, Content: "system"}
+	base[1] = llm.Message{Role: llm.RoleUser, Content: "hello"}
+
+	sent := withTurnContext(base, "<turn_context>\nclock\n</turn_context>")
+	if len(sent) != 3 || len(base) != 2 {
+		t.Fatalf("lengths: sent=%d base=%d", len(sent), len(base))
+	}
+	grown := append(base, llm.Message{Role: llm.RoleTool, Content: "result"}) //nolint:gocritic // the point of the test
+	if sent[2].Content != "<turn_context>\nclock\n</turn_context>" {
+		t.Fatalf("appending to the caller's slice overwrote the sent block: %q", sent[2].Content)
+	}
+	if grown[2].Content != "result" {
+		t.Fatalf("the caller's own append was disturbed: %q", grown[2].Content)
+	}
+}
+
+func TestWithTurnContextSendsHistoryAloneWhenTheBlockIsEmpty(t *testing.T) {
+	base := []llm.Message{{Role: llm.RoleSystem, Content: "system"}}
+	if got := withTurnContext(base, "   "); len(got) != 1 {
+		t.Fatalf("an empty block must add no message, got %d", len(got))
+	}
+}
+
+func TestBuildTurnContextCarriesClockTodoAndNewlyActivatedRules(t *testing.T) {
+	tmp := t.TempDir()
+	rulesDir := filepath.Join(tmp, ".coddy", "rules")
+	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\ndescription: Go files\nglobs: **/*.go\nalwaysApply: false\n---\n\nTURN_CTX_RULE_TOKEN\n"
+	if err := os.WriteFile(filepath.Join(rulesDir, "gofiles.mdc"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st := &session.State{ID: "t", CWD: tmp, Mode: session.ModeAgent}
+	st.ReplaceRulesCatalog(session.DiscoverRules(&config.Config{}, tmp))
+	cfg := &config.Config{}
+	cfg.Agent.ApplyDefaults()
+	cfg.Prompts.ApplyDefaults()
+	a := NewAgent(cfg, st, nil, nil)
+	a.clock = func() time.Time { return time.Date(2038, 1, 19, 3, 14, 7, 0, time.UTC) }
+
+	sys := a.buildSystemPromptParts("agent", nil, nil, "", nil)
+	if strings.Contains(sys.Content, "TURN_CTX_RULE_TOKEN") {
+		t.Fatal("a glob rule reached the system prompt before any tool touched a matching file")
+	}
+
+	block := a.buildTurnContext(sys)
+	if !strings.Contains(block, "2038-01-19T03:14:07Z") {
+		t.Fatalf("turn context lost the clock: %q", block)
+	}
+	if strings.Contains(block, "TURN_CTX_RULE_TOKEN") {
+		t.Fatalf("turn context carries a rule nothing activated: %q", block)
+	}
+
+	st.SetPlan([]acp.PlanEntry{{Content: "TURN_CTX_TODO_TOKEN", Status: "pending"}})
+	a.activateScopedRulesForToolCall("read", `{"path":"main.go"}`, tmp)
+
+	block = a.buildTurnContext(sys)
+	if !strings.Contains(block, "TURN_CTX_TODO_TOKEN") {
+		t.Fatalf("turn context lost the checklist: %q", block)
+	}
+	if !strings.Contains(block, "TURN_CTX_RULE_TOKEN") {
+		t.Fatalf("turn context lost the rule the read activated: %q", block)
+	}
+	// The frozen prompt is what the provider already has cached: the rule must
+	// not be folded back into it mid-turn.
+	if frozen := sys.Content; strings.Contains(frozen, "TURN_CTX_RULE_TOKEN") {
+		t.Fatal("the activated rule rewrote the frozen system prompt")
+	}
+}
+
+// A turn renders its system prompt more than once - a rebuild after compaction,
+// the continuation a permission answer starts - so reading the plan hand-off
+// must not consume it. That destructive read is what used to drop the plan
+// halfway through the turn that was carrying it out.
+func TestSystemPromptRebuildKeepsThePlanContext(t *testing.T) {
+	tmp := t.TempDir()
+	st := &session.State{ID: "t", CWD: tmp, Mode: session.ModeAgent}
+	st.SetPendingPlanContext("PLAN_HANDOFF_TOKEN")
+	cfg := &config.Config{}
+	cfg.Agent.ApplyDefaults()
+	cfg.Prompts.ApplyDefaults()
+	a := NewAgent(cfg, st, nil, nil)
+
+	for i := 1; i <= 3; i++ {
+		if got := a.buildSystemPromptParts("agent", nil, nil, "", nil); !strings.Contains(got.Content, "PLAN_HANDOFF_TOKEN") {
+			t.Fatalf("build %d lost the plan hand-off", i)
+		}
+	}
+
+	// And it is let go when the turn ends, so the next one starts clean.
+	a.releasePlanContext()
+	if got := a.buildSystemPromptParts("agent", nil, nil, "", nil); strings.Contains(got.Content, "PLAN_HANDOFF_TOKEN") {
+		t.Fatal("the plan hand-off outlived the turn that ran the plan")
+	}
+}
+
+// The hand-off is released by the turn that ran the plan, but not while a
+// permission gate is still held in the bundle: what answers that gate renders
+// this turn's system prompt again, possibly in another process.
+func TestPlanContextSurvivesWhileAPermissionGateIsHeld(t *testing.T) {
+	tmp := t.TempDir()
+	store := &session.FileStore{Root: t.TempDir()}
+	sd, err := store.EnsureLayout("sess_gate_hold")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &session.State{ID: "sess_gate_hold", CWD: tmp, Mode: session.ModeAgent, SessionDir: sd}
+	st.SetPendingPlanContext("PLAN_HANDOFF_TOKEN")
+	cfg := &config.Config{}
+	cfg.Agent.ApplyDefaults()
+	cfg.Prompts.ApplyDefaults()
+	a := NewAgent(cfg, st, nil, nil)
+
+	if err := session.WritePendingPermission(sd, acp.PermissionRequestParams{
+		SessionID: "sess_gate_hold",
+		ToolCall:  acp.PermissionToolCall{ToolCallID: "call_held", Title: "Run: run_command", Status: "pending"},
+	}, "run_command", "{}"); err != nil {
+		t.Fatal(err)
+	}
+	a.releasePlanContext()
+	if st.PendingPlanContext() != "PLAN_HANDOFF_TOKEN" {
+		t.Fatal("the hand-off was released while a permission gate was still held")
+	}
+
+	if err := session.ClearPendingPermission(sd); err != nil {
+		t.Fatal(err)
+	}
+	a.releasePlanContext()
+	if st.PendingPlanContext() != "" {
+		t.Fatal("the hand-off outlived the gate that was holding it")
+	}
+	if session.ReadPendingPlanContext(sd) != "" {
+		t.Fatal("the hand-off is still in the bundle after the turn ended")
+	}
+}
+
+// The built-in plan and ask templates never showed the session checklist, and
+// neither mode offers the todo tools. Moving the block into the turn context
+// must not start showing it there.
+func TestTurnContextCarriesTheChecklistInAgentModeOnly(t *testing.T) {
+	tmp := t.TempDir()
+	st := &session.State{ID: "t", CWD: tmp, Mode: session.ModeAgent}
+	st.SetPlan([]acp.PlanEntry{{Content: "MODE_TODO_TOKEN", Status: "pending"}})
+	cfg := &config.Config{}
+	cfg.Agent.ApplyDefaults()
+	cfg.Prompts.ApplyDefaults()
+	a := NewAgent(cfg, st, nil, nil)
+
+	for mode, want := range map[string]bool{"agent": true, "plan": false, "ask": false} {
+		sys := a.buildSystemPromptParts(mode, nil, nil, "", nil)
+		block := a.buildTurnContext(sys)
+		if got := strings.Contains(block, "MODE_TODO_TOKEN"); got != want {
+			t.Errorf("%s mode: checklist in the turn context = %v, want %v", mode, got, want)
+		}
+		if strings.Contains(sys.Content, "MODE_TODO_TOKEN") {
+			t.Errorf("%s mode: the checklist reached the frozen system prompt", mode)
+		}
+	}
+}
+
+// A template under prompts.dir that prints {{.UTCNow}} or {{.TodoList}} keeps
+// the pre-cache behaviour: re-rendered before every call, and no turn context
+// block, so its own conditionals around those fields stay true and the model is
+// not handed two clocks.
+func TestVolatileCustomTemplateKeepsThePerStepRefresh(t *testing.T) {
+	tmp := t.TempDir()
+	promptsDir := t.TempDir()
+	body := "You are Coddy.\n\n{{if .TodoList}}## Checklist\n\n{{.TodoList}}\n{{end}}\nNow: {{.UTCNow}}\n"
+	if err := os.WriteFile(filepath.Join(promptsDir, "agent.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Paths: config.Paths{CWD: tmp}}
+	cfg.Agent.ApplyDefaults()
+	cfg.Prompts.ApplyDefaults()
+	cfg.Prompts.Dir = promptsDir
+	st := &session.State{ID: "t", CWD: tmp, Mode: session.ModeAgent}
+	a := NewAgent(cfg, st, nil, nil)
+
+	sys := a.buildSystemPromptParts("agent", nil, nil, "", nil)
+	if !sys.Volatile {
+		t.Fatal("a template printing UTCNow and TodoList must be marked volatile")
+	}
+	if block := a.buildTurnContext(sys); block != "" {
+		t.Fatalf("a volatile template must get no turn context block, got %q", block)
+	}
+
+	// The built-in template is the other way round.
+	cfg.Prompts.Dir = ""
+	builtin := a.buildSystemPromptParts("agent", nil, nil, "", nil)
+	if builtin.Volatile {
+		t.Fatal("the built-in agent template must not be volatile")
+	}
+	if block := a.buildTurnContext(builtin); !strings.Contains(block, turnContextOpenTag) {
+		t.Fatalf("the built-in template must get a turn context block, got %q", block)
+	}
+}
+
+// A template with no {{.Rules}} in it asked for no rules at all. A rule a tool
+// call activates must not be smuggled in after the history either.
+func TestTemplateWithoutRulesGetsNoRulesInTheTurnContext(t *testing.T) {
+	tmp := t.TempDir()
+	rulesDir := filepath.Join(tmp, ".coddy", "rules")
+	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\ndescription: Go files\nglobs: **/*.go\nalwaysApply: false\n---\n\nNO_RULES_TEMPLATE_TOKEN\n"
+	if err := os.WriteFile(filepath.Join(rulesDir, "gofiles.mdc"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	promptsDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(promptsDir, "agent.md"), []byte("You are Coddy. {{.CWD}}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Paths: config.Paths{CWD: tmp}}
+	cfg.Agent.ApplyDefaults()
+	cfg.Prompts.ApplyDefaults()
+	cfg.Prompts.Dir = promptsDir
+	st := &session.State{ID: "t", CWD: tmp, Mode: session.ModeAgent}
+	st.ReplaceRulesCatalog(session.DiscoverRules(cfg, tmp))
+	a := NewAgent(cfg, st, nil, nil)
+
+	sys := a.buildSystemPromptParts("agent", nil, nil, "", nil)
+	a.activateScopedRulesForToolCall("read", `{"path":"main.go"}`, tmp)
+	if block := a.buildTurnContext(sys); strings.Contains(block, "NO_RULES_TEMPLATE_TOKEN") {
+		t.Fatalf("a template without {{.Rules}} still received a rule: %q", block)
+	}
+}
+
+// A rule the frozen system prompt already carries must never be repeated after
+// the history: that is what rules.Added is for, and repeating it would spend on
+// every step exactly the tokens this change is saving.
+func TestRuleAlreadyInTheSystemPromptIsNotRepeatedInTheTurnContext(t *testing.T) {
+	tmp := t.TempDir()
+	rulesDir := filepath.Join(tmp, ".coddy", "rules")
+	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\ndescription: Go files\nglobs: **/*.go\nalwaysApply: true\n---\n\nALREADY_SENT_RULE_TOKEN\n"
+	if err := os.WriteFile(filepath.Join(rulesDir, "gofiles.mdc"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"main.go", "other.go"} {
+		if err := os.WriteFile(filepath.Join(tmp, name), []byte("package main\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := &config.Config{Paths: config.Paths{CWD: tmp}}
+	cfg.Agent.ApplyDefaults()
+	cfg.Prompts.ApplyDefaults()
+	st := &session.State{ID: "t", CWD: tmp, Mode: session.ModeAgent}
+	st.ReplaceRulesCatalog(session.DiscoverRules(cfg, tmp))
+	a := NewAgent(cfg, st, nil, nil)
+
+	// An attachment already made the rule sticky, so the frozen prompt carries it.
+	sys := a.buildSystemPromptParts("agent", nil, nil, "", []string{filepath.Join(tmp, "main.go")})
+	if !strings.Contains(sys.Content, "ALREADY_SENT_RULE_TOKEN") {
+		t.Fatal("the attached file did not activate the glob rule")
+	}
+	a.activateScopedRulesForToolCall("read", `{"path":"other.go"}`, tmp)
+	if block := a.buildTurnContext(sys); strings.Contains(block, "ALREADY_SENT_RULE_TOKEN") {
+		t.Fatalf("a rule the system prompt already carried was repeated after the history: %q", block)
+	}
+}
+
+// The lane re-issues a step that produced nothing, and that replay must be the
+// request that failed. A clock ticking between the two would make it a
+// different request and miss the cache the first attempt just populated.
+func TestTurnClockDoesNotTickBetweenTheStepsOfATurn(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := &config.Config{}
+	cfg.Agent.ApplyDefaults()
+	cfg.Prompts.ApplyDefaults()
+	st := &session.State{ID: "t", CWD: tmp, Mode: session.ModeAgent}
+	a := NewAgent(cfg, st, nil, nil)
+
+	ticks := 0
+	a.clock = func() time.Time {
+		ticks++
+		return time.Date(2038, 1, 19, 3, 14, 7+ticks, 0, time.UTC)
+	}
+
+	sys := a.buildSystemPromptParts("agent", nil, nil, "", nil)
+	first := a.buildTurnContext(sys)
+	second := a.buildTurnContext(sys)
+	if first != second {
+		t.Fatalf("the turn context clock moved between two steps of one turn:\n%q\n%q", first, second)
+	}
+	if !strings.Contains(first, "2038-01-19T03:14:08Z") {
+		t.Fatalf("the block does not carry the turn's own stamp: %q", first)
 	}
 }

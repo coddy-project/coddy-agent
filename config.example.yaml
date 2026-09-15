@@ -160,6 +160,9 @@ sessions:
 #     enable: true           # master switch
 #     keep_recent: 2         # most recent evictable results kept as a working window; 0 keeps none
 #     min_result_bytes: 2000 # results this size or smaller are never evicted
+#     start_percent: 50      # wait until the context is this full before evicting; 0 = from the
+#                            # first result. A placeholder written into the middle of the history
+#                            # invalidates every token the provider cached behind it.
 
 prompts:
   # Directory containing prompt templates (Go text/template).
