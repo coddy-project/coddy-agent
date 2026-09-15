@@ -6,6 +6,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -83,6 +84,57 @@ func clampProviderMax(rm *config.ResolvedLLM, cap int) {
 // copilotProviderFactory builds the copilot's LLM provider; tests swap in a fake.
 var copilotProviderFactory = newCopilotProvider
 
+// copilotCandidate is one model of the chain the copilot may run on.
+type copilotCandidate struct {
+	provider llm.Provider
+	modelRef string
+}
+
+// copilotChain is the models the copilot tries, in order: the one it was asked
+// for, then memory.fallback_models, then the model the turn itself runs on as
+// the last resort. A model that resolves to nothing is left out rather than
+// ending the chain - a memory pass is a side errand of the turn, and one bad
+// entry must not be the end of it (issue #247). The error surfaces only when
+// nothing in the chain resolves.
+func copilotChain(cfg *config.Config, modelRef string) ([]copilotCandidate, error) {
+	base := strings.TrimSpace(cfg.Agent.Model)
+	wanted := []string{strings.TrimSpace(modelRef)}
+	wanted = append(wanted, cfg.Memory.FallbackModels...)
+	wanted = append(wanted, base)
+	if !anyNonEmpty(wanted) {
+		// Nothing names a model: leave the choice to the factory, which is what
+		// happened before there was a chain at all.
+		wanted = []string{modelRef}
+	}
+
+	var out []copilotCandidate
+	seen := make(map[string]bool, len(wanted))
+	var firstErr error
+	for i, ref := range wanted {
+		ref = strings.TrimSpace(ref)
+		// The empty ref is a candidate only when it is all there is (above).
+		if (ref == "" && i > 0) || seen[ref] {
+			continue
+		}
+		seen[ref] = true
+		prov, err := copilotProviderFactory(cfg, ref)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		out = append(out, copilotCandidate{provider: prov, modelRef: ref})
+	}
+	if len(out) == 0 {
+		if firstErr != nil {
+			return nil, firstErr
+		}
+		return nil, fmt.Errorf("memory copilot: no model configured")
+	}
+	return out, nil
+}
+
 func newCopilotProvider(cfg *config.Config, modelRef string) (llm.Provider, error) {
 	ref := strings.TrimSpace(modelRef)
 	if ref == "" {
@@ -107,6 +159,16 @@ func newCopilotProvider(cfg *config.Config, modelRef string) (llm.Provider, erro
 		DisableStream: !rm.Stream,
 		Timeout:       time.Duration(rm.TimeoutMS) * time.Millisecond,
 	}, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
+}
+
+// anyNonEmpty reports whether refs holds a model id at all.
+func anyNonEmpty(refs []string) bool {
+	for _, r := range refs {
+		if strings.TrimSpace(r) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 type saveCapture struct {
@@ -159,10 +221,14 @@ func RunBeforeTurn(ctx context.Context, log *slog.Logger, cfg *config.Config, cw
 	if err != nil {
 		return out, 0, err
 	}
-	prov, err := copilotProviderFactory(cfg, modelRef)
+	chain, err := copilotChain(cfg, modelRef)
 	if err != nil {
 		return out, 0, err
 	}
+	// The model answering right now: a failure moves to the next of the chain
+	// and the loop carries on from the same step.
+	current := 0
+	prov := chain[0].provider
 	readOnly := opts != nil && opts.ReadOnly
 	memTools := beforeTurnTools(store, &cfg.Memory, readOnly)
 	toolDefs := memtools.ToolDefinitions(memTools)
@@ -200,6 +266,16 @@ func RunBeforeTurn(ctx context.Context, log *slog.Logger, cfg *config.Config, cw
 			resp, err = prov.Complete(ctx, msgs, toolDefs)
 		}
 		if err != nil {
+			if current+1 < len(chain) {
+				if log != nil {
+					log.Warn("memory copilot model failed; falling back to the next one",
+						"model", chain[current].modelRef, "next", chain[current+1].modelRef, "error", err)
+				}
+				current++
+				prov = chain[current].provider
+				step--
+				continue
+			}
 			return out, timeNowMs() - started, err
 		}
 		if len(resp.ToolCalls) == 0 {

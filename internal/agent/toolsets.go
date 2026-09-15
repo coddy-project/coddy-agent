@@ -43,6 +43,9 @@ var planToolNames = []string{
 	// A planner fans out investigation the same way Claude Code's Explore
 	// subagent does; the child of a plan-mode parent is forced into plan mode.
 	"spawn_agent",
+	// Folding the session's own replay window writes nothing outside it, and a
+	// long investigation is exactly the session that fills a context window.
+	"compact_context",
 }
 
 // askToolNames is the fixed allowlist for ask mode: repository reads and web

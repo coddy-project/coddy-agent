@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -17,6 +19,11 @@ import (
 type ModelEntry struct {
 	ID   string `json:"id"`
 	Name string `json:"name,omitempty"`
+	// ContextWindow is the context window the listing reports for the model,
+	// 0 when it reports none. It stays out of the JSON the provider models
+	// route serves; the session manager reads it for models whose
+	// max_context_tokens is unset.
+	ContextWindow int `json:"-"`
 }
 
 // modelListTimeout bounds a single provider model-listing request.
@@ -123,6 +130,14 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 			ID          string `json:"id"`
 			Name        string `json:"name"`
 			DisplayName string `json:"display_name"`
+			// The context window, in the spellings OpenAI-compatible
+			// servers use. Raw, so a value in an unexpected shape is
+			// ignored instead of failing the whole listing.
+			Limit            json.RawMessage `json:"limit"`
+			ContextLength    json.RawMessage `json:"context_length"`
+			MaxModelLen      json.RawMessage `json:"max_model_len"`
+			MaxContextLength json.RawMessage `json:"max_context_length"`
+			ContextWindow    json.RawMessage `json:"context_window"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
@@ -144,10 +159,50 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 		if name == "" {
 			name = strings.TrimSpace(m.DisplayName)
 		}
-		out = append(out, ModelEntry{ID: id, Name: name})
+		out = append(out, ModelEntry{
+			ID:            id,
+			Name:          name,
+			ContextWindow: reportedContextWindow(m.Limit, m.ContextLength, m.MaxModelLen, m.MaxContextLength, m.ContextWindow),
+		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
+}
+
+// reportedContextWindow reads the context window a listing row reports:
+// limit.context (the NeuralDeep hub, the models.dev shape), then
+// context_length (OpenRouter), max_model_len (vLLM), max_context_length
+// (LM Studio) and context_window. The first positive value wins; 0 means the
+// row reports none.
+func reportedContextWindow(limit json.RawMessage, fields ...json.RawMessage) int {
+	var lim struct {
+		Context json.RawMessage `json:"context"`
+	}
+	if len(limit) > 0 && json.Unmarshal(limit, &lim) == nil {
+		if n := positiveTokenCount(lim.Context); n > 0 {
+			return n
+		}
+	}
+	for _, raw := range fields {
+		if n := positiveTokenCount(raw); n > 0 {
+			return n
+		}
+	}
+	return 0
+}
+
+// positiveTokenCount reads a token count written as a JSON number or a quoted
+// number; anything else, zero and negatives read as 0.
+func positiveTokenCount(raw json.RawMessage) int {
+	s := strings.Trim(strings.TrimSpace(string(raw)), `"`)
+	if s == "" {
+		return 0
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil || f < 1 || f > math.MaxInt32 {
+		return 0
+	}
+	return int(f)
 }
 
 // fetchCodexCatalog returns the raw Codex model catalog: fetched online with

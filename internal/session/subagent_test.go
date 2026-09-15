@@ -1203,6 +1203,71 @@ func TestBeginTurnInstallsCancelAndRefusesDuringDeletion(t *testing.T) {
 	}
 }
 
+// BeginSessionWork holds a session like a turn for work that is not a prompt
+// (the REST compaction): watchers see the turn edges, a second turn is busy,
+// and the message queue stays shut so a follow-up is refused, not dropped.
+func TestBeginSessionWorkIsATurnWithoutAMessageQueue(t *testing.T) {
+	m, _, root := newSubagentTestManager(t)
+	st := newParent(t, m, root)
+	var mu sync.Mutex
+	var edges []session.TurnPhase
+	remove := m.AddTurnObserver(func(ev session.TurnEvent) {
+		if ev.SessionID != st.ID {
+			return
+		}
+		mu.Lock()
+		edges = append(edges, ev.Phase)
+		mu.Unlock()
+	})
+	defer remove()
+
+	workCtx, finish, err := m.BeginSessionWork(context.Background(), st.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !m.SessionTurnActiveInProcess(st.ID) {
+		t.Fatal("BeginSessionWork must register the session as working")
+	}
+	if _, _, err := m.BeginTurn(context.Background(), st.ID, nil); !errors.Is(err, session.ErrSessionTurnBusy) {
+		t.Fatalf("a turn during session work = %v, want ErrSessionTurnBusy", err)
+	}
+	if st.MessageQueueOpen() {
+		t.Fatal("session work must not open the message queue")
+	}
+	if _, _, err := m.EnqueueTurnMessage(st.ID, "a follow-up"); err == nil {
+		t.Fatal("a follow-up during session work must be refused, not queued for a turn that never reads it")
+	}
+	st.Cancel()
+	select {
+	case <-workCtx.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("State.Cancel did not reach the session work's context")
+	}
+	finish()
+	if m.SessionTurnActiveInProcess(st.ID) {
+		t.Fatal("finish must end the session work")
+	}
+	mu.Lock()
+	got := append([]session.TurnPhase(nil), edges...)
+	mu.Unlock()
+	if len(got) != 2 || got[0] != session.TurnPhaseStarted || got[1] != session.TurnPhaseEnded {
+		t.Fatalf("turn edges = %v, want started then ended", got)
+	}
+
+	if _, _, err := m.BeginSessionWork(context.Background(), session.NewSessionID()); !errors.Is(err, session.ErrSessionGone) {
+		t.Fatalf("session work on an unknown session = %v, want ErrSessionGone", err)
+	}
+	childID := session.NewSessionID()
+	if _, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
+		ID: childID, ParentSessionID: st.ID, Name: "reviewer", TaskID: "bg_1", CWD: root,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := m.BeginSessionWork(context.Background(), childID); !errors.Is(err, session.ErrSubagentReadOnly) {
+		t.Fatalf("session work on a child = %v, want ErrSubagentReadOnly", err)
+	}
+}
+
 // A child created and persisted after the delete's first snapshot is caught
 // by the rescan and removed with the tree.
 func TestDeleteSessionTreeCatchesAChildCreatedAfterTheFirstScan(t *testing.T) {

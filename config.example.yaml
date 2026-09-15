@@ -151,9 +151,11 @@ sessions:
 # model context window. Manual /compact command plus automatic trigger.
 # compaction:
 #   enable: true             # master switch (manual command and automation)
-#   threshold_percent: 80    # auto-compact at this percent of models[].max_context_tokens (1..100)
+#   threshold_percent: 80    # auto-compact at this percent of the model's context window (1..100)
 #   keep_recent_turns: 2     # last N user turns stay verbatim; 0 summarizes everything
 #   model: ""                # optional models[].model for the summarizer; empty = session model
+#   fallback_models: []      # tried in order when the summarizer above them fails; the session
+#                            # model is the last resort whether or not it is listed
 #   # Collapse superseded read/grep results to placeholders in the LLM request
 #   # (the persisted transcript stays complete). Only marked results survive.
 #   result_eviction:
@@ -389,6 +391,8 @@ tools:
 # memory:
 #   enable: false
 #   model: ""
+#   fallback_models: []  # tried in order when the model above them fails; the session model is
+#                        # the last resort whether or not it is listed
 #   dir: "" # default ${CODDY_HOME}/memory when empty
 #   recall_max_turns: 6
 #   persist_max_turns: 12

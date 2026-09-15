@@ -69,7 +69,7 @@ Named model entries the agent and UI can select.
 | `models[].model` | string |  | "provider_name/api_model_id": the first path segment must match a providers[].name; the remainder is sent to the LLM API (may itself contain slashes). |
 | `models[].max_tokens` | integer |  | Upper bound on completion tokens per assistant message. Ignored by Codex because its backend does not accept max_output_tokens. |
 | `models[].temperature` | number |  | Sampling temperature (0 = deterministic; higher = more random). |
-| `models[].max_context_tokens` | integer | 0 | Optional UI hint for the composer context bar; 0 derives it from provider metadata when available. |
+| `models[].max_context_tokens` | integer | 0 | Context window of the model in tokens: what the web UI context ring, the console context percentage and the automatic compaction trigger measure against. 0 reads it from the provider's model listing when the provider reports one (the NeuralDeep hub, vLLM, OpenRouter, LM Studio), else 128000. |
 | `models[].multimodal` | boolean | false | Model accepts image/file inputs in addition to text; the UI shows a file attachment button for this model. |
 | `models[].reasoning_levels` | list of strings or null |  | Override the reasoning levels offered for this model. Omit to auto-detect from the model id (gpt-5* -> minimal,low,medium,high; OpenAI o-series, gpt-oss*, qwen3*, and Claude extended-thinking models -> low,medium,high). An explicit empty list hides the selector. Settings fills this field from GET /coddy/config/reasoning-levels behind its Fetch reasoning levels button. |
 | `models[].reasoning_default` | string |  | Reasoning level pre-selected for new chats; must be one of the resolved levels, otherwise ignored. |
@@ -242,14 +242,15 @@ Where persisted session bundles are stored.
 
 ### `compaction`
 
-Summarizes older conversation history so long sessions keep fitting the model context window. Manual compact command plus automatic trigger at a percent of the model's max_context_tokens.
+Summarizes older conversation history so long sessions keep fitting the model context window. Manual compact command plus automatic trigger at a percent of the model's context window.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `compaction.enable` | boolean or null | true | Master switch for compaction (manual command and automatic trigger). Defaults to true. |
-| `compaction.threshold_percent` | integer | 80 | Auto-compaction fires when the estimated context usage reaches this percent of the effective model's max_context_tokens (1..100). Models without max_context_tokens skip auto-compaction; the manual command still works. |
-| `compaction.keep_recent_turns` | integer or null | 2 | How many most recent user turns (each with the agent replies and tool activity after it) stay verbatim; only history before that boundary is summarized. 0 summarizes the whole window. |
+| `compaction.threshold_percent` | integer | 80 | Auto-compaction fires when the estimated context usage reaches this percent of the effective model's context window (1..100): its max_context_tokens, else the window its provider's model listing reports, else 128000 - the window the web UI context ring shows. |
+| `compaction.keep_recent_turns` | integer or null | 2 | How many most recent user turns (each with the agent replies and tool activity after it) stay verbatim; only history before that boundary is summarized. 0 summarizes the whole window. When the window holds no more user turns than this, a compaction keeps fewer: the automatic trigger down to the prompt being answered, the manual command down to none. |
 | `compaction.model` | string | "" | Optional models[].model used for the summarization call. Empty uses the session's effective model. |
+| `compaction.fallback_models` | list of strings |  | Summarizer models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so a compaction is not blocked by one unreachable summarizer. |
 | `compaction.result_eviction` | object |  | Collapses superseded read/grep tool results to short placeholders when building the LLM request (the persisted transcript is never rewritten), so paging a large file or a wide search cannot pin dead lines in every later turn. Only results the model marks (keep_result, or keep:true) or the most recent working window survive; a write to a file invalidates earlier reads/greps that covered it. |
 | `compaction.result_eviction.enable` | boolean or null | true | Master switch for read/grep result eviction. Defaults to true. |
 | `compaction.result_eviction.keep_recent` | integer or null | 2 | How many most recent evictable results (read pages, grep dumps) stay intact as a working window. 0 keeps none. The default of 2 keeps a read and a grep live at the same time; with 1, a model comparing two results keeps re-fetching whichever the other evicted. |
@@ -264,6 +265,7 @@ Optional memory copilot (implementation in external/memory; enable at runtime wi
 |-----|------|---------|-------------|
 | `memory.enable` | boolean | false | Turn on the memory copilot. |
 | `memory.model` | string | "" | Exact models[].model id used only for recall/persist LLM calls; empty falls back to agent.model or the session override. |
+| `memory.fallback_models` | list of strings |  | Memory copilot models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so one unreachable deployment does not take the memory pass down with it. |
 | `memory.dir` | string | "" | Long-term memory root. Empty resolves to ${CODDY_HOME}/memory. Supports ${CODDY_HOME} and ~. |
 | `memory.recall_max_turns` | integer | 6 | Bounds recall-side LLM rounds in the memory loop. |
 | `memory.persist_max_turns` | integer | 12 | Bounds persist-side LLM rounds in the memory loop. |

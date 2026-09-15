@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -69,5 +70,32 @@ func TestRestoreContextBreakdownPublishesUsageUpdate(t *testing.T) {
 	}
 	if update.SessionUpdate != acp.UpdateTypeUsage || update.Used != 420 || update.Size != 128000 {
 		t.Fatalf("usage update = %+v", update)
+	}
+}
+
+// A model without max_context_tokens still publishes its context usage,
+// sized by the window its provider reports - the size the web UI and the
+// console draw against.
+func TestSendContextUsageUpdateSizesByTheResolvedWindow(t *testing.T) {
+	cfg := windowTestConfig(t.TempDir())
+	listing := &windowListing{windows: map[string]int{"reported": 262144}}
+	m := newWindowTestManager(t, cfg, listing, nil)
+	sender := m.server.(*contextUsageCapture)
+
+	st := &State{ID: "sess_usage_window", Mode: ModeAgent, contextWindows: m}
+	st.SetLastContextBreakdown(&ContextBreakdown{SystemPrompt: 100, EstimatedTotal: 100})
+
+	m.sendContextUsageUpdate(st.ID, st)
+	m.AwaitContextWindows(context.Background(), cfg, []string{"hub/reported"}, time.Second)
+	m.sendContextUsageUpdate(st.ID, st)
+
+	if len(sender.updates) != 2 {
+		t.Fatalf("usage updates = %d, want 2", len(sender.updates))
+	}
+	for i, want := range []int{config.DefaultContextWindowTokens, 262144} {
+		update, ok := sender.updates[i].(acp.UsageUpdate)
+		if !ok || update.Size != want || update.Used != 100 {
+			t.Fatalf("update %d = %+v, want size %d", i, sender.updates[i], want)
+		}
 	}
 }

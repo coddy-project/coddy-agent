@@ -31,13 +31,13 @@ func (m *Manager) sendContextUsageUpdate(sessionID string, st *State) {
 	if cfg == nil {
 		return
 	}
-	ent := cfg.FindModelEntry(st.EffectiveModelID(cfg))
-	if ent == nil || ent.MaxContextTokens <= 0 {
+	size, _ := st.ContextWindow(cfg)
+	if size <= 0 {
 		return
 	}
 	_ = m.server.SendSessionUpdate(sessionID, acp.UsageUpdate{
 		SessionUpdate: acp.UpdateTypeUsage,
 		Used:          b.EstimatedTotal,
-		Size:          ent.MaxContextTokens,
+		Size:          size,
 	})
 }

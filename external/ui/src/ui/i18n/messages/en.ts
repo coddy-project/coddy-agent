@@ -191,9 +191,9 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.models.temperature.desc":
     "Sampling temperature for this logical model (0 = deterministic, higher = more random).",
   "settings.schema.models.max_context_tokens.label":
-    "Max context tokens (UI hint)",
+    "Context window (tokens)",
   "settings.schema.models.max_context_tokens.desc":
-    "Optional UI hint for composer context bar; 0 means derive from provider metadata when available.",
+    "The model's context window: what the composer context ring and automatic compaction measure against. 0 reads it from the provider's model listing when it reports one, else 128000.",
   "settings.schema.models.multimodal.label": "Multimodal",
   "settings.schema.models.multimodal.desc":
     "When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model.",
@@ -372,10 +372,10 @@ export const messagesEn: Record<string, string> = {
     "Master switch for compaction (manual command and automatic trigger). Defaults to true.",
   "settings.schema.compaction.threshold_percent.label": "Auto threshold (%)",
   "settings.schema.compaction.threshold_percent.desc":
-    "Auto-compact when the estimated context reaches this percent of the model's max_context_tokens (1..100, default 80). Models without max_context_tokens skip auto-compaction.",
+    "Auto-compact when the estimated context reaches this percent of the model's context window (1..100, default 80): its max_context_tokens, else the window its provider reports, else 128000.",
   "settings.schema.compaction.keep_recent_turns.label": "Keep recent turns",
   "settings.schema.compaction.keep_recent_turns.desc":
-    "How many most recent user turns stay verbatim after compaction (default 2; 0 summarizes everything).",
+    "How many most recent user turns stay verbatim after compaction (default 2; 0 summarizes everything). With no more turns than that, automatic compaction still folds the older ones and keeps the prompt being answered.",
   "settings.schema.compaction.model.label": "Summarizer model",
   "settings.schema.compaction.model.desc":
     "Optional models[].model for the summarization call; empty uses the session model.",
@@ -1155,6 +1155,7 @@ export const messagesEn: Record<string, string> = {
   "tool.name.websearch": "searching the web",
   "tool.name.keep_result": "keeping a result",
   "tool.name.plan_exit": "switching to agent mode",
+  "tool.name.compact_context": "compacting the context",
   "tool.name.plan_write": "saving a plan",
   "tool.name.plan_read": "reading a plan",
   "tool.name.plan_list": "listing plans",

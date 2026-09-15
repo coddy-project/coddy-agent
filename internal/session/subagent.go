@@ -134,6 +134,7 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 		Skills:          loadedSkills,
 		SelectedModelID: strings.TrimSpace(spec.SelectedModelID),
 		PermissionMode:  strings.TrimSpace(spec.PermissionMode),
+		contextWindows:  m,
 	}
 	// The child metadata is attached before the state is visible anywhere:
 	// every reader that finds the live entry must already see a read-only

@@ -226,6 +226,13 @@ func (a *Agent) continueReAct(ctx context.Context, mode string, toolEnv *tools.E
 	// The continuation is the last part of the turn that ran the plan, unless
 	// it stops on another gate of its own (react.go).
 	defer a.releasePlanContext()
+	// The same check Run makes before its first call: runReActLoop only checks
+	// between steps, and the result just approved may be what crossed the
+	// threshold.
+	if a.maybeAutoCompact(ctx) {
+		sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles)
+		messages = a.buildMessages(sys.Content)
+	}
 	maxTurns := a.cfg.Agent.MaxTurns
 	if maxTurns <= 0 {
 		maxTurns = 30

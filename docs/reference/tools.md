@@ -84,6 +84,12 @@ Plan documents live at `plans/<slug>.plan.md` inside the session bundle ([Operat
 | `plan_read` | Read one plan document | `slug` | none | agent, plan |
 | `plan_exit` | Switch the session from plan mode to agent mode | none | none | agent (not in the plan allowlist) |
 
+## Context
+
+| Tool | Purpose | Arguments (short) | Permission | Modes |
+|---|---|---|---|---|
+| `compact_context` | Fold the older history into a summary so the session keeps fitting the model's context window ([Context compaction](../features/compaction.md#the-model-can-ask-for-it)) | `instructions` | none | agent, plan; not in ask, whose tools stay read-only; hidden when `compaction.enable` is false |
+
 ## Self-configuration
 
 Staged edits to the live `config.yaml` ([config.yaml reference](../reference/config.md#agent-self-configuration)). The editing family is offered only when the surface wired a configuration reloader; without one, `config_get` is the only member left.
