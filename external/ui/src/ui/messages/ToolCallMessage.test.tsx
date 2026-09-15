@@ -487,7 +487,7 @@ test("completed mkdir uses the rich tool preview without approval actions", () =
   ).toContain("created directory H:\\workspace\\build");
 });
 
-test("question tool omits duration from summary row", () => {
+test("question tool names the act and omits duration from its summary row", () => {
   const { container } = render(
     <ToolCallMessage
       toolCallId="tc-q"
@@ -501,12 +501,88 @@ test("question tool omits duration from summary row", () => {
     />,
   );
   expect(container.querySelector(".thinking-dur")).toBeNull();
+  // Every other row names what the call is doing; this one used to name the noun.
   expect(container.querySelector(".thinking-label")?.textContent?.trim()).toBe(
-    "question",
+    "asking",
   );
   openToolDetails();
   expect(screen.getByText("Continue?")).toBeInTheDocument();
-  expect(screen.getByText("Yes")).toBeInTheDocument();
+  expect(container.querySelector(".question-prompt-resolved-a")?.textContent).toBe(
+    "Yes",
+  );
+});
+
+// The card in the transcript keeps only the question and the answer, so this row
+// is the one place the offer survives: what the reader was choosing between, and
+// what the options they did not take said.
+test("the question row records the whole offer, with the taken letters marked", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-offer"
+      title="question"
+      status="completed"
+      argsText={JSON.stringify({
+        questions: [
+          {
+            question: "Which scheduler did you mean?",
+            options: [
+              { label: "Todo plan", description: "A checklist of tasks" },
+              { label: "Background tasks" },
+              { label: "Cron" },
+            ],
+            custom: true,
+          },
+        ],
+      })}
+      resultText={JSON.stringify({ answers: [["Background tasks"]] })}
+    />,
+  );
+  openToolDetails();
+
+  const rows = [...container.querySelectorAll(".question-tool-offer-row")];
+  // Three options plus the free-answer slot, each behind its own letter.
+  expect(rows.map((r) => r.querySelector(".question-prompt-bubble")?.textContent)).toEqual([
+    "A",
+    "B",
+    "C",
+    "D",
+  ]);
+  expect(rows[0]?.textContent).toContain("A checklist of tasks");
+  expect(rows[3]?.textContent).toContain("an answer of their own");
+
+  const taken = rows.filter((r) =>
+    r.classList.contains("question-tool-offer-row--taken"),
+  );
+  expect(taken).toHaveLength(1);
+  expect(taken[0]?.textContent).toContain("Background tasks");
+  expect(container.querySelector(".question-prompt-resolved-a")?.textContent).toBe(
+    "Background tasks",
+  );
+});
+
+test("an answer the reader typed marks the free slot, not an option", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-own"
+      title="question"
+      status="completed"
+      argsText={JSON.stringify({
+        questions: [
+          { question: "Which one?", options: [{ label: "A one" }], custom: true },
+        ],
+      })}
+      resultText={JSON.stringify({ answers: [["something else entirely"]] })}
+    />,
+  );
+  openToolDetails();
+
+  const rows = [...container.querySelectorAll(".question-tool-offer-row")];
+  expect(rows).toHaveLength(2);
+  expect(rows[0]?.classList.contains("question-tool-offer-row--taken")).toBe(false);
+  expect(rows[1]?.classList.contains("question-tool-offer-row--taken")).toBe(true);
+  expect(container.querySelector(".question-prompt-resolved-a")?.textContent).toBe(
+    "something else entirely",
+  );
 });
 
 test("question tool shows human timeline readout instead of raw JSON blobs", () => {

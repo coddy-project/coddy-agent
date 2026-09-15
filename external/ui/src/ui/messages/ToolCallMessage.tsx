@@ -12,6 +12,7 @@ import {
   parseQuestionToolAnswersFromResult,
   parseQuestionToolQuestionsFromArgs,
 } from "../chat/questionToolDisplay";
+import { letterForOptionIndex } from "../chat/questionTypes";
 import { PermissionToolPreview } from "../chat/PermissionPromptPreview";
 import { webSearchResultMarkdown } from "../chat/webToolResults";
 import {
@@ -42,6 +43,15 @@ function formatDuration(ms: number): string {
   return `${Math.round(ms)}ms`;
 }
 
+/**
+ * What the `question` tool put up, as it put it up: every question with the
+ * options behind their own letters, the free-answer slot when one was offered,
+ * and the letters the reader took marked among them.
+ *
+ * The card in the transcript keeps only the question and the answer, so this row
+ * is the one place the offer survives - which of the four the reader was choosing
+ * between, and what the ones they did not take said.
+ */
 function QuestionToolTimelineReadout(props: {
   argsText?: string | undefined;
   resultText: string;
@@ -70,25 +80,81 @@ function QuestionToolTimelineReadout(props: {
       className="question-prompt-resolved-body"
       aria-label={t("messages.toolQuestionTimelineAriaLabel")}
     >
-      {qs.map((item, qi) => (
-        <div
-          key={`${qi}-${item.question}`}
-          className={qi === 0 ? undefined : "question-prompt-resolved-block"}
-        >
-          <div className="question-prompt-resolved-pair">
-            <div className="question-prompt-resolved-q">{item.question}</div>
-            {terminal && (answers[qi] ?? []).filter(Boolean).length ? (
+      {qs.map((item, qi) => {
+        const picked = (answers[qi] ?? []).filter((a) => a.trim().length > 0);
+        const taken = new Set(picked.map((a) => a.trim().toLowerCase()));
+        // An answer matching no option is what the reader typed into the free slot.
+        const ownAnswer = picked.filter(
+          (a) =>
+            !item.options.some(
+              (o) => o.label.trim().toLowerCase() === a.trim().toLowerCase(),
+            ),
+        );
+        return (
+          <div
+            key={`${qi}-${item.question}`}
+            className={qi === 0 ? undefined : "question-prompt-resolved-block"}
+          >
+            <div className="question-prompt-resolved-q">
+              {qs.length > 1 ? `${qi + 1}. ` : ""}
+              {item.question}
+            </div>
+            {item.options.length > 0 ? (
+              <ul className="question-tool-offer">
+                {item.options.map((option, oi) => (
+                  <li
+                    key={`${oi}-${option.label}`}
+                    className={
+                      "question-tool-offer-row" +
+                      (taken.has(option.label.trim().toLowerCase())
+                        ? " question-tool-offer-row--taken"
+                        : "")
+                    }
+                  >
+                    <span className="question-prompt-bubble" aria-hidden>
+                      {letterForOptionIndex(oi)}
+                    </span>
+                    <span className="question-tool-offer-text">
+                      {option.label}
+                      {option.description ? (
+                        <span className="muted"> - {option.description}</span>
+                      ) : null}
+                    </span>
+                  </li>
+                ))}
+                {item.custom ? (
+                  <li
+                    className={
+                      "question-tool-offer-row" +
+                      (ownAnswer.length > 0
+                        ? " question-tool-offer-row--taken"
+                        : "")
+                    }
+                  >
+                    <span className="question-prompt-bubble" aria-hidden>
+                      {letterForOptionIndex(item.options.length)}
+                    </span>
+                    <span className="question-tool-offer-text muted">
+                      {t("messages.toolQuestionOwnAnswer")}
+                    </span>
+                  </li>
+                ) : null}
+              </ul>
+            ) : null}
+            {terminal && picked.length > 0 ? (
               <div className="question-prompt-resolved-a">
-                {answers[qi]!.join(", ")}
+                {picked.join(", ")}
               </div>
             ) : (
               <div className="question-prompt-resolved-a muted">
-                {t("messages.toolAwaitingAnswer")}
+                {terminal
+                  ? t("prompts.noAnswer")
+                  : t("messages.toolAwaitingAnswer")}
               </div>
             )}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

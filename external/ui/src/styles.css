@@ -9480,6 +9480,44 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   opacity: 0.85;
 }
 
+/* The offer a question tool row records: the options behind their letters, with
+   the ones the reader took carrying their letter in the accent the live card
+   uses for a picked row. Read-only, so nothing here takes a pointer. */
+.question-tool-offer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.question-tool-offer-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+}
+
+.question-tool-offer-row .question-prompt-bubble {
+  flex: 0 0 auto;
+}
+
+.question-tool-offer-row--taken {
+  color: color-mix(in srgb, var(--text) 86%, var(--coddy-blend-base));
+}
+
+.question-tool-offer-row--taken .question-prompt-bubble {
+  background: var(--accent);
+  color: #fff;
+}
+
+.question-tool-offer-text {
+  min-width: 0;
+}
+
 .question-prompt-resolved-body {
   display: flex;
   flex-direction: column;
