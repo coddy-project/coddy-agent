@@ -32,11 +32,19 @@ recorded in **`${CODDY_HOME}/skills/.bundled.json`** beside the skills it wrote:
   carrying one - and is replaced too;
 - a copy that is newer is left exactly as it is. That is also how you keep an edit: raise the
   `version:` of the copy in your home above the one the release carries, otherwise the next release
-  that raises its own overwrites it.
+  that raises its own overwrites it;
+- a copy Coddy cannot read - a `SKILL.md` behind permissions it does not have - is left whole. It is
+  neither absent nor unversioned, and the delivery does not judge what it cannot open.
+
+If `.bundled.json` is there but unreadable, the delivery stops for that run and says so rather than
+guessing: read as an empty record it would claim nothing had ever been handed over, and write back
+every skill you had deleted. Replacing a skill renames the old copy aside and the new one into
+place; a process killed between the two leaves a backup and no skill, and the next run puts it back.
 
 A home Coddy cannot write to - a read-only image, a locked-down account - is not an error: the
 copies inside the binary answer instead, read-only, and only a skill whose `references/` it needs
-notices the difference.
+notices the difference. A delivered skill you deleted is not among them: the receipt says it was
+handed over, so the binary does not offer it again as one you cannot delete.
 
 The `rpa-*` skills live in their own repositories and are vendored into `internal/skills/bundled/`
 by **`make skills-vendor`**; `scripts/bundled-skills.json` says where each one comes from.
@@ -54,7 +62,9 @@ coddy plugin marketplace list     # every source in effect, and whether it resol
 ```
 
 It is an address and nothing more - Coddy contacts it only when you ask it to. Because it is not in
-the config file there is nothing to take out of one: `coddy plugin marketplace remove` refuses it,
+the config file there is nothing to take out of one: `coddy plugin marketplace remove` refuses it
+(unless your `skills.sources` happens to name it as well, in which case it takes that redundant
+entry out of the file and tells you the marketplace itself stays),
 `DELETE /coddy/skills/sources` answers 400, and **Settings → Skills → Remote skill sources** shows the
 row greyed out with its delete button disabled. To be rid of a skill it publishes, disable or delete
 that skill (`coddy skills disable <name>`) rather than the catalogue.

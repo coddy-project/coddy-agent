@@ -220,3 +220,111 @@ func TestDeliveryCarriesEveryBundledSkill(t *testing.T) {
 		}
 	}
 }
+
+// A SKILL.md Coddy cannot read is not an absent skill and not an unversioned
+// one: it is the operator's, and the delivery leaves it whole.
+func TestDeliveryKeepsACopyItCannotRead(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: file permissions do not deny a read")
+	}
+	cfg := deliveryHome(t, true)
+	path := writeSkill(t, cfg, "rpa-feat", "0.0.1", "a copy behind a closed door")
+	if err := os.Chmod(path, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(path, 0o644) })
+
+	res, err := skills.SeedDelivery(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range res.Updated {
+		if name == "rpa-feat" {
+			t.Fatal("the delivery replaced a skill it could not read")
+		}
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, path); !strings.Contains(got, "a copy behind a closed door") {
+		t.Fatalf("the unreadable copy was overwritten:\n%s", got)
+	}
+}
+
+// A receipt that is there but unreadable says nothing about what was delivered.
+// Read as an empty one it would claim nothing ever was, and the run would write
+// back every skill the operator had deleted - so the run stops instead.
+func TestDeliveryStopsOnAnUnreadableReceipt(t *testing.T) {
+	cfg := deliveryHome(t, true)
+	if _, err := skills.SeedDelivery(cfg); err != nil {
+		t.Fatal(err)
+	}
+	managed := cfg.Skills.ManagedDir(cfg.Paths.Home)
+	if err := os.RemoveAll(filepath.Join(managed, "rpa-feat")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(managed, ".bundled.json"), []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := skills.SeedDelivery(cfg); err == nil {
+		t.Fatal("a corrupt receipt was accepted")
+	}
+	if _, err := os.Stat(filepath.Join(managed, "rpa-feat", "SKILL.md")); err == nil {
+		t.Fatal("the deleted skill was written back on a corrupt receipt")
+	}
+}
+
+// Replacing a skill renames the old copy aside and the new one into place. A
+// process killed between the two leaves a backup and no skill; the next run
+// puts it back rather than reading the gap as a deletion.
+func TestDeliveryRecoversAnInterruptedReplacement(t *testing.T) {
+	cfg := deliveryHome(t, true)
+	if _, err := skills.SeedDelivery(cfg); err != nil {
+		t.Fatal(err)
+	}
+	managed := cfg.Skills.ManagedDir(cfg.Paths.Home)
+
+	// What a kill mid-swap leaves: the skill renamed to a pid-tagged backup.
+	live := filepath.Join(managed, "rpa-feat")
+	if err := os.Rename(live, filepath.Join(managed, ".bak-rpa-feat-4242")); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := skills.SeedDelivery(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(live, "SKILL.md")); err != nil {
+		t.Fatalf("the interrupted replacement was not recovered: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(managed, ".bak-rpa-feat-4242")); err == nil {
+		t.Fatal("the backup was left behind after recovery")
+	}
+}
+
+// A config that also names the system marketplace carries a redundant entry.
+// Removing it takes the entry out of the file and says the marketplace stays.
+func TestRemovingARedundantConfigEntryClearsTheFile(t *testing.T) {
+	cfg := deliveryHome(t, true)
+	if _, err := skills.AddSource(cfg, "someone/else"); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Skills.Sources = append(cfg.Skills.Sources, config.SystemSkillsSource)
+
+	_, err := skills.RemoveSource(cfg, config.SystemSkillsSource)
+	if err == nil || !strings.Contains(err.Error(), "stays in effect") {
+		t.Fatalf("expected the answer to say the marketplace stays, got %v", err)
+	}
+	for _, s := range cfg.Skills.Sources {
+		if strings.EqualFold(s, config.SystemSkillsSource) {
+			t.Fatalf("the redundant entry is still in skills.sources: %v", cfg.Skills.Sources)
+		}
+	}
+	// The marketplace is in effect all the same, and the other source survived.
+	if !strings.EqualFold(skills.ListSources(cfg)[0], config.SystemSkillsSource) {
+		t.Fatalf("the system marketplace left the listing: %v", skills.ListSources(cfg))
+	}
+	if !strings.Contains(strings.Join(skills.ListSources(cfg), " "), "someone/else") {
+		t.Fatalf("an unrelated source was dropped: %v", skills.ListSources(cfg))
+	}
+}

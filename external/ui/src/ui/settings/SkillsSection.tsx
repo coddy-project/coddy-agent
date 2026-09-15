@@ -199,12 +199,10 @@ function SourcesEditor(props: {
   const { t } = useT();
   const sources = Array.isArray(value) ? value : [];
   // A config that repeats a built-in marketplace must not show it twice: the
-  // server lists it once, and so does this.
+  // server lists it once, and so does this. Rows are skipped where they are,
+  // never compacted into a new array - two rows can hold the same text (click
+  // Add twice) and an index recovered by value would then edit the wrong one.
   const lowerSystem = new Set(system.map((s) => s.trim().toLowerCase()));
-  const configured = sources.filter(
-    (s) => !lowerSystem.has(s.trim().toLowerCase()),
-  );
-  const indexOf = (src: string) => sources.indexOf(src);
   return (
     <fieldset className="settings-fieldset">
       <legend>{t("skills.sources.legend")}</legend>
@@ -249,49 +247,49 @@ function SourcesEditor(props: {
             </button>
           </li>
         ))}
-        {configured.map((src) => (
-          <li key={indexOf(src)} className="settings-array-row">
-            <div className="settings-array-row-field">
-              <input
-                className="settings-input"
-                type="text"
-                value={src}
-                placeholder={t("skills.sources.placeholder")}
-                onChange={(e) => {
-                  const next = [...sources];
-                  next[indexOf(src)] = e.target.value;
-                  onChange(next);
-                }}
-              />
-            </div>
-            <button
-              type="button"
-              className={`settings-btn settings-btn-icon${flash === src ? " is-synced" : ""}`}
-              disabled={syncing || !src.trim()}
-              onClick={() => onSyncOne(src)}
-              title={
-                flash === src
-                  ? t("skills.sources.syncedTitle")
-                  : t("skills.sources.syncTitle", { source: src.trim() })
-              }
-              aria-label={t("skills.sources.syncAria")}
-              data-testid={`skills-sync-source-${indexOf(src)}`}
-            >
-              {flash === src ? <IconCheck /> : <IconSync />}
-            </button>
-            <button
-              type="button"
-              className="settings-btn settings-btn-icon settings-btn-danger settings-array-remove"
-              onClick={() =>
-                onChange(sources.filter((_, j) => j !== indexOf(src)))
-              }
-              title={t("skills.sources.removeTitle")}
-              aria-label={t("skills.sources.removeAria")}
-            >
-              <IconTrash />
-            </button>
-          </li>
-        ))}
+        {sources.map((src, i) =>
+          lowerSystem.has(src.trim().toLowerCase()) ? null : (
+            <li key={i} className="settings-array-row">
+              <div className="settings-array-row-field">
+                <input
+                  className="settings-input"
+                  type="text"
+                  value={src}
+                  placeholder={t("skills.sources.placeholder")}
+                  onChange={(e) => {
+                    const next = [...sources];
+                    next[i] = e.target.value;
+                    onChange(next);
+                  }}
+                />
+              </div>
+              <button
+                type="button"
+                className={`settings-btn settings-btn-icon${flash === src ? " is-synced" : ""}`}
+                disabled={syncing || !src.trim()}
+                onClick={() => onSyncOne(src)}
+                title={
+                  flash === src
+                    ? t("skills.sources.syncedTitle")
+                    : t("skills.sources.syncTitle", { source: src.trim() })
+                }
+                aria-label={t("skills.sources.syncAria")}
+                data-testid={`skills-sync-source-${i}`}
+              >
+                {flash === src ? <IconCheck /> : <IconSync />}
+              </button>
+              <button
+                type="button"
+                className="settings-btn settings-btn-icon settings-btn-danger settings-array-remove"
+                onClick={() => onChange(sources.filter((_, j) => j !== i))}
+                title={t("skills.sources.removeTitle")}
+                aria-label={t("skills.sources.removeAria")}
+              >
+                <IconTrash />
+              </button>
+            </li>
+          ),
+        )}
       </ul>
       <div className="skills-sources-footer">
         <button

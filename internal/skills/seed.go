@@ -66,7 +66,14 @@ func SeedDelivery(cfg *config.Config) (*SeedResult, error) {
 	if err := os.MkdirAll(managedDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create managed dir: %w", err)
 	}
-	receipt := readDeliveryReceipt(managedDir)
+	// A swap that a killed process left half-finished is repaired before
+	// anything decides what is on disk.
+	RecoverInterruptedInstalls(managedDir)
+
+	receipt, err := readDeliveryReceipt(managedDir)
+	if err != nil {
+		return nil, err
+	}
 	res := &SeedResult{}
 
 	var firstErr error
@@ -96,14 +103,14 @@ func deliverSkill(entry BundledEntry, managedDir string, receipt *deliveryReceip
 	}
 	dst := filepath.Join(managedDir, name)
 	_, seen := receipt.Skills[name]
-	onDisk, present := installedSkillVersion(dst)
+	on := inspectInstalledSkill(dst)
 
 	switch {
-	case !present && seen:
+	case !on.present && seen:
 		// Handed over once and gone since: the operator deleted it.
 		return false, nil
 
-	case !present:
+	case !on.present:
 		if err := installBundledSkill(entry, managedDir, name); err != nil {
 			return false, err
 		}
@@ -111,10 +118,19 @@ func deliverSkill(entry BundledEntry, managedDir string, receipt *deliveryReceip
 		res.Installed = append(res.Installed, name)
 		return true, nil
 
+	case !on.readable:
+		// There, but Coddy cannot read it. Record the name so the question is
+		// settled and leave every byte of it where it is.
+		if seen {
+			return false, nil
+		}
+		receipt.Skills[name] = ""
+		return true, nil
+
 	// compareVersions ranks an absent version below every declared one, so a
 	// copy with no version: - installed before these skills declared one - is
 	// replaced along with the copies that name an older release.
-	case entry.Version != "" && compareVersions(entry.Version, onDisk) > 0:
+	case entry.Version != "" && compareVersions(entry.Version, on.version) > 0:
 		if err := installBundledSkill(entry, managedDir, name); err != nil {
 			return false, err
 		}
@@ -124,22 +140,36 @@ func deliverSkill(entry BundledEntry, managedDir string, receipt *deliveryReceip
 
 	default:
 		// The copy on disk is the same or newer.
-		if seen && receipt.Skills[name] == onDisk {
+		if seen && receipt.Skills[name] == on.version {
 			return false, nil
 		}
-		receipt.Skills[name] = onDisk
+		receipt.Skills[name] = on.version
 		return true, nil
 	}
 }
 
-// installedSkillVersion reads the version of the skill installed at dir and
-// reports whether a skill is there at all.
-func installedSkillVersion(dir string) (version string, present bool) {
-	sk, err := loadFile(filepath.Join(dir, "SKILL.md"))
-	if err != nil {
-		return "", false
+// installedSkill describes what is at a skill's place in the managed dir. The
+// three states are not two: a SKILL.md that is there but cannot be read is
+// neither an absent skill nor one with no version. Calling it absent would hand
+// the fresh-install branch a directory holding the operator's work, and calling
+// its version empty would rank it below every release and replace it. It is
+// simply not ours to judge, so it is left alone.
+type installedSkill struct {
+	present  bool
+	readable bool
+	version  string
+}
+
+func inspectInstalledSkill(dir string) installedSkill {
+	path := filepath.Join(dir, "SKILL.md")
+	if _, err := os.Stat(path); err != nil {
+		return installedSkill{}
 	}
-	return strings.TrimSpace(sk.Version), true
+	sk, err := loadFile(path)
+	if err != nil {
+		return installedSkill{present: true}
+	}
+	return installedSkill{present: true, readable: true, version: strings.TrimSpace(sk.Version)}
 }
 
 // installBundledSkill materializes one embedded skill into the managed dir,
@@ -204,13 +234,18 @@ func modeForEmbedded(p string) os.FileMode {
 // a skill that is gone from disk but still read out of the binary would keep
 // answering its slash command and could not be deleted a second time.
 func DeliveredAndDeleted(managedDir string) map[string]struct{} {
-	receipt := readDeliveryReceipt(managedDir)
-	if len(receipt.Skills) == 0 {
+	receipt, err := readDeliveryReceipt(managedDir)
+	if err != nil || len(receipt.Skills) == 0 {
+		// A receipt that cannot be read withholds nothing: the copies in the
+		// binary answer, which is the safe direction for a loader.
 		return nil
 	}
 	out := make(map[string]struct{})
 	for name := range receipt.Skills {
-		if _, present := installedSkillVersion(filepath.Join(managedDir, name)); !present {
+		// Presence only - this runs for every session that loads skills, and
+		// reading each SKILL.md to learn it exists would be a file read per
+		// delivered skill per session.
+		if _, err := os.Stat(filepath.Join(managedDir, name, "SKILL.md")); err != nil {
 			out[name] = struct{}{}
 		}
 	}
@@ -221,15 +256,23 @@ func deliveryReceiptPath(managedDir string) string {
 	return filepath.Join(managedDir, deliveryReceiptFile)
 }
 
-func readDeliveryReceipt(managedDir string) *deliveryReceipt {
-	r := &deliveryReceipt{Version: 1, Skills: map[string]string{}}
+// readDeliveryReceipt reads the record of what has been handed over. A missing
+// file is a home that has never seen the delivery. A file that is there but
+// cannot be read is something else entirely and is reported as an error: read
+// as an empty record it would say nothing was ever delivered, and the next run
+// would write back every skill the operator had deleted.
+func readDeliveryReceipt(managedDir string) (*deliveryReceipt, error) {
+	fresh := &deliveryReceipt{Version: 1, Skills: map[string]string{}}
 	data, err := os.ReadFile(deliveryReceiptPath(managedDir))
 	if err != nil {
-		return r
+		if errors.Is(err, os.ErrNotExist) {
+			return fresh, nil
+		}
+		return nil, fmt.Errorf("read %s: %w", deliveryReceiptFile, err)
 	}
 	var parsed deliveryReceipt
 	if err := json.Unmarshal(data, &parsed); err != nil {
-		return r
+		return nil, fmt.Errorf("parse %s: %w", deliveryReceiptFile, err)
 	}
 	if parsed.Skills == nil {
 		parsed.Skills = map[string]string{}
@@ -237,7 +280,7 @@ func readDeliveryReceipt(managedDir string) *deliveryReceipt {
 	if parsed.Version == 0 {
 		parsed.Version = 1
 	}
-	return &parsed
+	return &parsed, nil
 }
 
 func writeDeliveryReceipt(managedDir string, r *deliveryReceipt) error {
@@ -245,5 +288,14 @@ func writeDeliveryReceipt(managedDir string, r *deliveryReceipt) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(deliveryReceiptPath(managedDir), append(data, '\n'), 0o644)
+	final := deliveryReceiptPath(managedDir)
+	tmp := fmt.Sprintf("%s.%d.tmp", final, os.Getpid())
+	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, final); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
