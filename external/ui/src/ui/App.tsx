@@ -1285,14 +1285,25 @@ export function App() {
           (x) =>
             !(x.type === "question_prompt" && x.payload.requestId === ridInner),
         );
-        return [
-          ...withoutDup,
-          {
-            id: `qp_${ridInner}`,
-            type: "question_prompt" as const,
-            payload: p,
-          },
-        ];
+        const row = {
+          id: `qp_${ridInner}`,
+          type: "question_prompt" as const,
+          payload: p,
+        };
+        // Insert right after the tool call that raised it, like the permission
+        // gate below: the card belongs under its own row, not above it.
+        const tcid = (p.toolCallId || "").trim();
+        const tcIdx = tcid
+          ? withoutDup.findIndex(
+              (x) => x.type === "tool_call" && x.toolCallId === tcid,
+            )
+          : -1;
+        if (tcIdx >= 0) {
+          const result = [...withoutDup];
+          result.splice(tcIdx + 1, 0, row);
+          return result;
+        }
+        return [...withoutDup, row];
       });
     },
     [],

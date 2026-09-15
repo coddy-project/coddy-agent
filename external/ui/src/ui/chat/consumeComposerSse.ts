@@ -669,6 +669,10 @@ export async function consumeComposerSseReader(
 
           if (ev.event === "permission") {
             try {
+              // The gate row is applied straight away, outside the rAF-batched
+              // tool queue, so the row that raised it has to land first or the
+              // card renders above its own tool call.
+              flushToolQueue();
               const raw = JSON.parse(ev.data) as Record<string, unknown>;
               onPermission?.(raw);
             } catch {
@@ -679,6 +683,8 @@ export async function consumeComposerSseReader(
 
           if (ev.event === "question") {
             try {
+              // Same ordering rule as the permission gate above.
+              flushToolQueue();
               const raw = JSON.parse(ev.data) as Record<string, unknown>;
               onQuestion?.(raw);
             } catch {
@@ -960,6 +966,10 @@ export async function consumeComposerSseReader(
           }
           if (ev.event === "permission") {
             try {
+              // The gate row is applied straight away, outside the rAF-batched
+              // tool queue, so the row that raised it has to land first or the
+              // card renders above its own tool call.
+              flushToolQueue();
               const raw = JSON.parse(ev.data) as Record<string, unknown>;
               onPermission?.(raw);
             } catch {
@@ -969,6 +979,8 @@ export async function consumeComposerSseReader(
           }
           if (ev.event === "question") {
             try {
+              // Same ordering rule as the permission gate above.
+              flushToolQueue();
               const raw = JSON.parse(ev.data) as Record<string, unknown>;
               onQuestion?.(raw);
             } catch {
