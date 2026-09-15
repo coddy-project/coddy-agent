@@ -73,6 +73,12 @@ func (s *Server) coddySessionCompactPost(w http.ResponseWriter, r *http.Request)
 			http.Error(w, `{"error":{"message":"session is being deleted"}}`, http.StatusConflict)
 		case errors.Is(err, session.ErrSessionGone):
 			http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
+		case isSubagentReadOnly(err):
+			// The guard above already answered for a child this handler
+			// resolved itself; this keeps the switch honest about every error
+			// admission can return, so the documented 409 does not turn into a
+			// 500 if the two ever drift apart.
+			writeSubagentsError(w, http.StatusConflict, subagentReadOnlyMessage(st))
 		default:
 			s.log.Error("compact: turn admission", "session", id, "error", err)
 			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
@@ -109,6 +115,9 @@ func (s *Server) coddySessionCompactPost(w http.ResponseWriter, r *http.Request)
 			"compacted_messages": res.CompactedMessages,
 			"kept_messages":      res.KeptMessages,
 			"model":              res.Model,
+			// More than one when the history did not fit a single
+			// summarization request and was folded in passes.
+			"steps": res.Steps,
 		})
 	}
 }

@@ -73,7 +73,6 @@ type contextWindowState struct {
 	entries map[string]*contextWindowEntry
 	list    ModelListerFunc
 	now     func() time.Time
-	wg      sync.WaitGroup
 }
 
 // resolveContextWindow applies the resolution order for modelRef. tokens is 0
@@ -125,6 +124,20 @@ func contextWindowKey(p *config.ProviderConfig) string {
 		strings.TrimRight(strings.TrimSpace(p.APIBase), "/"),
 		strings.TrimSpace(p.Proxy),
 	}, "|")
+}
+
+// ContextWindowFor resolves the window of an arbitrary configured model on the
+// same cache, for a reader that measures against a model other than the
+// session's - the compaction summarizer, which compaction.model may point at a
+// model with a window of its own.
+func (s *State) ContextWindowFor(cfg *config.Config, modelRef string) (tokens int, source string) {
+	if s == nil || cfg == nil {
+		return 0, ""
+	}
+	if strings.TrimSpace(modelRef) == "" {
+		return s.ContextWindow(cfg)
+	}
+	return resolveContextWindow(cfg, modelRef, s.contextWindows)
 }
 
 // ContextWindow resolves the context window of modelRef without waiting: the
@@ -235,9 +248,7 @@ func (m *Manager) refreshContextWindows(cfg *config.Config, prov config.Provider
 		list = llm.ListModels
 	}
 	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
-	w.wg.Add(1)
 	go func() {
-		defer w.wg.Done()
 		defer close(done)
 		ctx, cancel := context.WithTimeout(context.Background(), contextWindowFetchTimeout)
 		defer cancel()
@@ -295,17 +306,36 @@ func (m *Manager) SetContextWindowLister(list ModelListerFunc, now func() time.T
 }
 
 // WaitContextWindowsIdle blocks until every in-flight listing fetch returned,
-// or the timeout passes.
+// or the timeout passes. It waits on the fetches themselves rather than on a
+// counter: a fetch started while the wait is in flight is picked up by the
+// next round, and no wait outlives this call.
 func (m *Manager) WaitContextWindowsIdle(timeout time.Duration) error {
-	done := make(chan struct{})
-	go func() {
-		m.windows.wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-		return nil
-	case <-time.After(timeout):
-		return fmt.Errorf("provider listing fetches still running after %s", timeout)
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	for {
+		inflight := m.inflightContextWindowFetches()
+		if len(inflight) == 0 {
+			return nil
+		}
+		for _, ch := range inflight {
+			select {
+			case <-ch:
+			case <-deadline.C:
+				return fmt.Errorf("provider listing fetches still running after %s", timeout)
+			}
+		}
 	}
+}
+
+// inflightContextWindowFetches snapshots the fetches running right now.
+func (m *Manager) inflightContextWindowFetches() []chan struct{} {
+	m.windows.mu.Lock()
+	defer m.windows.mu.Unlock()
+	var out []chan struct{}
+	for _, e := range m.windows.entries {
+		if e.inflight != nil {
+			out = append(out, e.inflight)
+		}
+	}
+	return out
 }
