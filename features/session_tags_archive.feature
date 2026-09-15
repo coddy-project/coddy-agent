@@ -49,6 +49,12 @@ Feature: Tags and the archive over the stored sessions
     Then the description is "Refactor the memory API"
     And the description proposes tags "backend, memory"
 
+  Scenario: A first message of two words is described and filed as well
+    Given the title model answers "Check the repository state" with tags "git, status"
+    When I ask for a description of "git status"
+    Then the description is "Check the repository state"
+    And the description proposes tags "git, status"
+
   Scenario: Telling the messenger chats apart from the ones started here
     Given 3 stored sessions
     And session 2 was started by the telegram gateway

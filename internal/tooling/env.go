@@ -106,6 +106,15 @@ type Env struct {
 	// transcript before the next model call.
 	ContextCompacted bool
 
+	// FileSession reads and writes how the session is filed - the title it is
+	// listed under and the tags it is grouped by. An update that names nothing
+	// is a read, which is why there is one hook and not two: the tool never
+	// holds a filing it read a moment ago, so it cannot write one that another
+	// surface has already moved. Wired by the agent runtime; nil where no
+	// session backs the run, and session_describe refuses the call rather than
+	// pretending it filed something.
+	FileSession func(SessionFilingUpdate) (SessionFilingResult, error)
+
 	// SubagentDepth is how deep this session sits in a spawn tree: 0 for an
 	// ordinary session, 1 for its children. The runtime uses it to refuse
 	// spawns past subagents.max_depth.
@@ -176,4 +185,34 @@ type SpawnRequest struct {
 	ExpectedSeconds int
 	TimeoutSeconds  int
 	NotifyOnFinish  bool
+}
+
+// SessionFiling is how one conversation is filed: the title it is listed under
+// (the pinned one, or the one derived from the first message) and the tags it
+// is grouped by. It is what session_describe reads and reports.
+type SessionFiling struct {
+	Title string
+	Tags  []string
+}
+
+// SessionFilingUpdate names the parts of the filing a call changes. A nil field
+// is left alone: that is what lets a call add a label without touching a title
+// the operator pinned by hand. Tags replaces the whole set, AddTags and
+// RemoveTags change it in place, and the two ways are never combined. An update
+// naming nothing at all reads the filing without writing it.
+type SessionFilingUpdate struct {
+	Title      *string
+	Tags       *[]string
+	AddTags    []string
+	RemoveTags []string
+}
+
+// SessionFilingResult is what a write answers with: the filing the session
+// carries afterwards, and which of its two parts this call actually moved.
+// Changed comes from the writes themselves rather than from comparing a filing
+// read before and after, so a pin cleared behind a derived title of the same
+// words is still reported as a change.
+type SessionFilingResult struct {
+	Filing  SessionFiling
+	Changed []string
 }

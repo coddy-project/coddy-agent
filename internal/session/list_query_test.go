@@ -417,3 +417,64 @@ func TestSetPinnedRankRecordsTheHandPlacedOrder(t *testing.T) {
 		t.Fatalf("rank survived unpinning: %d", rank)
 	}
 }
+
+func TestMergeTagsKeepsWhatIsThereAndAppendsTheRest(t *testing.T) {
+	got := MergeTags([]string{"backend", "api"}, []string{"Session Store"}, nil)
+	want := []string{"backend", "api", "session-store"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestMergeTagsMatchesRemovalsAfterFolding(t *testing.T) {
+	// A caller names a label the way it reads, not the way it is stored.
+	got := MergeTags([]string{"session-store", "api"}, nil, []string{"Session Store"})
+	if !reflect.DeepEqual(got, []string{"api"}) {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestMergeTagsDropsALabelNamedOnBothSides(t *testing.T) {
+	got := MergeTags([]string{"api"}, []string{"backend"}, []string{"BACKEND"})
+	if !reflect.DeepEqual(got, []string{"api"}) {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestMergeTagsSpendsTheCapOnTheLabelsAlreadyThere(t *testing.T) {
+	// Eight is the per-session cap. The additions are what does not fit, so a
+	// call that files one topic too many cannot quietly unfile the others.
+	current := []string{"a", "b", "c", "d", "e", "f", "g", "h"}
+	got := MergeTags(current, []string{"i"}, nil)
+	if !reflect.DeepEqual(got, current) {
+		t.Fatalf("got %v, want the eight already there", got)
+	}
+}
+
+func TestMergeTagsAnswersNilWhenEverythingIsRemoved(t *testing.T) {
+	if got := MergeTags([]string{"api"}, nil, []string{"api"}); got != nil {
+		t.Fatalf("got %v, want nil so session.json carries no field", got)
+	}
+}
+
+func TestNormalizeTitleFoldsAMultiLineTitleOntoOneRow(t *testing.T) {
+	got := NormalizeTitle("  Rewrite\tthe session\n\nstore  ")
+	if got != "Rewrite the session store" {
+		t.Fatalf("got %q", got)
+	}
+	if got := NormalizeTitle("   \n "); got != "" {
+		t.Fatalf("a blank title became %q, want the empty string that clears a pin", got)
+	}
+}
+
+func TestTitleTooLongCountsCharactersNotBytes(t *testing.T) {
+	// A Cyrillic title is not half a title: the limit is about the row, and the
+	// row shows characters.
+	title := strings.Repeat("я", MaxSessionTitleRunes)
+	if length, tooLong := TitleTooLong(title); tooLong {
+		t.Fatalf("a title of exactly the limit was refused at %d characters", length)
+	}
+	if length, tooLong := TitleTooLong(title + "я"); !tooLong || length != MaxSessionTitleRunes+1 {
+		t.Fatalf("length = %d, tooLong = %v", length, tooLong)
+	}
+}

@@ -344,15 +344,42 @@ Single implementation: **`MarkdownLineEditor`** in **`external/ui/src/ui/markdow
   wash. The **archived badge** (**`.session-archived-badge`**) is the same size and wash but uppercase,
   and sits **inline after the title**, because it qualifies the title rather than the row.
 - **One control per row** (**`.session-row-menu-trigger`**, a 26px **⋮**, 0.38 opacity until the row is
-  hovered) opens **`.session-row-menu`**: **pin**, then a hairline (**`.starts-group`**), then
+  hovered) opens **`.session-row-menu`**: **pin**, **rename** and **tags** - the three that change where
+  the row sits or what it says about itself - then a hairline (**`.starts-group`**), then
   **archive** and **delete** together - both take the conversation out of the list, while pinning only
   moves it - with delete in the destructive colour. An icon per action cost the title a button's width each and made a
   mis-click a delete; inside the menu the actions have room for their words. The menu is portaled and
   placed from the trigger, and flips above the row near the foot of the window.
 - **A pin is a mark on the title** (**`.session-pin-mark`**, accent), not a badge: the row is already at
   the top saying it.
+- **Rename edits the row in place** (**`.session-title-input`**, the box the chat header already uses):
+  the name is **selected** when it opens, so typing replaces it and the box shows the beginning rather
+  than the tail a caret at the end would scroll to. **Enter** and blur save, **Escape** leaves the title
+  alone, and a name that did not move costs no request. The rename ends **once**: the key that ended
+  it and the blur of the disappearing box both go through the same one-shot commit, so Escape cannot
+  be followed by a blur that saves the discarded draft.
+- **The tag editor** (**`.session-tag-editor`**, **`SessionTagEditor.tsx`**) is **one component for both
+  places that show tags** - the row menu here and the **+** of the session table - because they are the
+  same three gestures: drop one, type one, take one the history already uses. It is cut from the
+  **tooltip** surface, like the row menu it opens from and for the same reason: it stands over the list.
+  A chip carries its own cross (**`.session-tag-chip`** + **`.session-tag-chip-remove`**); the box
+  (**`.session-tag-input`**) offers the labels this history already files under
+  (**`.session-tag-suggest`**, most used first, the row's own excluded, prefix matches leading);
+  **Enter** files what was typed, the arrow keys take over the list and **Enter** then files the
+  highlighted one, **Backspace** on an empty box drops the last chip, **Escape** closes.
+  **There is no Save**: every change is a **`PATCH`** at once. The list takes the new set **before**
+  the request answers - the editor builds each gesture on the row it is shown, and a second gesture
+  made while the first is in flight would otherwise start from the set before both - and the folded
+  set the server answers with then replaces it, so a chip never changes spelling one refresh later.
+  A refused write puts back what the row carried. The folded form of what is being
+  typed is shown under the box (**`.session-tag-hint`**) **only when it differs** from what was typed -
+  the arithmetic and the fold are **`tagEditing.ts`**, kept pure and a twin of `NormalizeTag` in Go.
 
 ### Session table: sorting, the archive and tags
+
+- **The tags of a row end in a `+`** (**`.sessions-manager-tag-add`**, dashed, **visible at rest**): the
+  chips themselves stay filters, as they were, and the **+** opens the same editor the row menu in
+  History opens. A row you can file is worth a glance, and a finger has no hover to reveal it with.
 
 - **Sortable column head** is a **`button`** inside the **`th`** (**`.sessions-manager-sort`**),
   carrying the caret (**▲** / **▼**, 0.6rem, 75% opacity) only while it is the sorted column; the

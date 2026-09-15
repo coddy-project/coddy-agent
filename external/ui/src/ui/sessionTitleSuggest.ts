@@ -74,8 +74,15 @@ export function startSuggestSessionTitle(deps: TitleSuggestDeps): void {
     // Naming and filing the chat travel together: the tags came from the same
     // answer as the title, and an empty set stays out of the body rather than
     // going as [], which would clear tags the operator set by hand.
+    //
+    // titleIfUnpinned is what makes this a suggestion: the first turn may have
+    // named the session itself - the operator in the header, or the model
+    // through session_describe - and this answer, in flight since before that,
+    // must not land on top of it.
     const patchBody = JSON.stringify(
-      tags.length > 0 ? { title: short, tags } : { title: short },
+      tags.length > 0
+        ? { title: short, titleIfUnpinned: true, tags }
+        : { title: short, titleIfUnpinned: true },
     );
 
     for (let attempt = 0; attempt < 40; attempt++) {

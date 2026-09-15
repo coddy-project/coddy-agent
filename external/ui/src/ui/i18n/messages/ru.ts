@@ -756,6 +756,7 @@ export const messagesRu: Record<string, string> = {
   "sessions.manage.lead":
     "Все сохранённые диалоги и во что они обошлись. Отметьте ненужные строки или галочку в шапке, чтобы взять всю страницу; открытый диалог защищён.",
   "sessions.manage.loadFailed": "Не удалось загрузить сессии, {error}",
+  "sessions.manage.tagsFailed": "Не удалось сохранить теги: {error}",
   "sessions.manage.deleteFailed": "Не удалось удалить, {error}",
   "sessions.manage.partialFailure":
     "Сессий оставлено {count}, они ещё заняты. Первая причина, {reason}",
@@ -844,6 +845,17 @@ export const messagesRu: Record<string, string> = {
   "sessions.archive": "Заархивировать",
   "sessions.unarchive": "Разархивировать",
   "sessions.archivedBadge": "в архиве",
+  "sessions.rename": "Переименовать",
+  "sessions.tags.edit": "Теги",
+  "sessions.tags.editorAria": "Теги сессии {title}",
+  "sessions.tags.placeholder": "добавить тег",
+  "sessions.tags.remove": "Убрать тег {tag}",
+  "sessions.tags.full": "не больше {max} тегов",
+  "sessions.tags.addHint": "Enter добавит как {tag}",
+  "sessions.tags.add": "Добавить тег",
+  "sessions.tags.failed": "Теги не сохранились",
+  "sessions.tags.editRow": "Править теги",
+  "sessions.tags.done": "Готово",
   "sessions.tagFilterClear": "Сбросить фильтр по тегам",
 
   "chat.newChat": "Новый чат",
@@ -1176,6 +1188,7 @@ export const messagesRu: Record<string, string> = {
   "tool.name.keep_result": "сохраняю результат",
   "tool.name.plan_exit": "перехожу в агентный режим",
   "tool.name.compact_context": "сжимаю контекст",
+  "tool.name.session_describe": "правлю название и теги сессии",
   "tool.name.plan_write": "сохраняю план",
   "tool.name.plan_read": "читаю план",
   "tool.name.plan_list": "смотрю список планов",

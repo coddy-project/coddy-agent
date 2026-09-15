@@ -191,9 +191,17 @@ export function SettingsSection(props: {
   activeSessionId?: string;
   /** Session ids the table removed, so the shell can drop them from History. */
   onSessionsDeleted?: (ids: string[]) => void;
+  onSessionTagsChanged?: (id: string, tags: string[]) => void;
 }) {
-  const { section, schema, doc, setDoc, activeSessionId, onSessionsDeleted } =
-    props;
+  const {
+    section,
+    schema,
+    doc,
+    setDoc,
+    activeSessionId,
+    onSessionsDeleted,
+    onSessionTagsChanged,
+  } = props;
   const { t } = useT();
   const props_ = schema.properties ?? {};
 
@@ -229,6 +237,7 @@ export function SettingsSection(props: {
       <SessionsManager
         {...(activeSessionId ? { activeSessionId } : {})}
         {...(onSessionsDeleted ? { onSessionsDeleted } : {})}
+        {...(onSessionTagsChanged ? { onSessionTagsChanged } : {})}
       />
     );
   }

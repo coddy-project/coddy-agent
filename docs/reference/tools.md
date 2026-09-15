@@ -90,6 +90,14 @@ Plan documents live at `plans/<slug>.plan.md` inside the session bundle ([Operat
 |---|---|---|---|---|
 | `compact_context` | Fold the older history into a summary so the session keeps fitting the model's context window ([Context compaction](../features/compaction.md#the-model-can-ask-for-it)) | `instructions` | none | agent, plan; not in ask, whose tools stay read-only; hidden when `compaction.enable` is false |
 
+## The session's own filing
+
+The title a conversation is listed under and the tags it is grouped by ([Sessions](../features/sessions.md#tags-and-the-archive)). The session the tool files is the one it runs in - a subagent files its own child session, never its parent's.
+
+| Tool | Purpose | Arguments (short) | Permission | Modes |
+|------|---------|-------------------|------------|-------|
+| `session_describe` | Read the session's title and tags, and change either; called with no arguments it only reports them | `title`, `tags`, `add_tags`, `remove_tags` | none | agent, plan; not in ask, whose tools stay read-only |
+
 ## Self-configuration
 
 Staged edits to the live `config.yaml` ([config.yaml reference](../reference/config.md#agent-self-configuration)). The editing family is offered only when the surface wired a configuration reloader; without one, `config_get` is the only member left.

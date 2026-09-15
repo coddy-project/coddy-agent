@@ -115,6 +115,7 @@ export function Settings(props: {
   activeSessionId?: string;
   /** Session ids the table removed, so the shell can drop them from History. */
   onSessionsDeleted?: (ids: string[]) => void;
+  onSessionTagsChanged?: (id: string, tags: string[]) => void;
 }) {
   const [schema, setSchema] = useState<JsonSchema | null>(null);
   const [doc, setDoc] = useState<Record<string, unknown>>({});
@@ -283,6 +284,9 @@ export function Settings(props: {
                 {...(props.onSessionsDeleted
                   ? { onSessionsDeleted: props.onSessionsDeleted }
                   : {})}
+                {...(props.onSessionTagsChanged
+                  ? { onSessionTagsChanged: props.onSessionTagsChanged }
+                  : {})}
               />
             ) : null}
           </div>
@@ -311,6 +315,9 @@ export function Settings(props: {
                   : {})}
                 {...(props.onSessionsDeleted
                   ? { onSessionsDeleted: props.onSessionsDeleted }
+                  : {})}
+                {...(props.onSessionTagsChanged
+                  ? { onSessionTagsChanged: props.onSessionTagsChanged }
                   : {})}
               />
             </div>

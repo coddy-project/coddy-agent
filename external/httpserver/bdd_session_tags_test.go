@@ -267,8 +267,12 @@ func (s *sessTagsState) titleModelAnswers(phrase, tags string) error {
 }
 
 func (s *sessTagsState) askForDescription() error {
+	return s.askForDescriptionOf("Please refactor the memory tree endpoint to reject traversal and add tests.")
+}
+
+func (s *sessTagsState) askForDescriptionOf(text string) error {
 	status, body, err := s.request(http.MethodPost, "/coddy/describe", map[string]interface{}{
-		"text": "Please refactor the memory tree endpoint to reject traversal and add tests.",
+		"text": text,
 	})
 	if err != nil {
 		return err
@@ -340,6 +344,7 @@ func initializeSessionTagsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I delete every archived session in one request$`, s.deleteEveryArchivedSession)
 	sc.Step(`^the title model answers "([^"]*)" with tags "([^"]*)"$`, s.titleModelAnswers)
 	sc.Step(`^I ask for a description of a long request$`, s.askForDescription)
+	sc.Step(`^I ask for a description of "([^"]*)"$`, s.askForDescriptionOf)
 
 	sc.Step(`^session (\d+) reports tags "([^"]*)"$`, s.reportsTags)
 	sc.Step(`^the other sessions report no tags$`, s.othersReportNoTags)

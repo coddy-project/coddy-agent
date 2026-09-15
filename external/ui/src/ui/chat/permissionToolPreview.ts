@@ -145,6 +145,10 @@ export function toolCallTargetText(context: PermissionToolCallContext): string {
       return parseLoadSkillName(context.argsText);
     case "question":
       return "";
+    case "session_describe":
+      // The new name, when the call carries one; filing that only moves tags
+      // has no target worth a row's width.
+      return stringArg(args, "title");
     default:
       // read / write / edit / apply_patch / mkdir / touch / rm / rmdir / print_tree /
       // plan_* take a path; webfetch takes a url.
@@ -179,6 +183,7 @@ export function toolCallTargetIsPath(
     case "spawn_agent":
     case "load_skill":
     case "question":
+    case "session_describe":
       return false;
     default: {
       const args = parseArgsText(context.argsText || "");

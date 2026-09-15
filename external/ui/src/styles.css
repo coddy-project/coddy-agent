@@ -1885,6 +1885,132 @@ a.rail-brand {
   background: color-mix(in srgb, #f87171 16%, transparent);
 }
 
+/* The labels of one conversation, edited by hand. Cut from the same surface as
+   the row menu it opens from: both stand over the drawer, and a wash of the text
+   colour is transparent on a dark canvas. */
+.session-tag-editor {
+  position: fixed;
+  z-index: 101;
+  width: 236px;
+  padding: 8px;
+  border-radius: 12px;
+  background: var(--coddy-tip-bg);
+  border: 1px solid var(--coddy-glass-panel-border);
+  box-shadow: var(--coddy-tip-shadow);
+}
+
+.session-tag-editor-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 7px;
+}
+
+/* A chip carries what removes it: the label and its cross are one target group,
+   so filing and unfiling are the same gesture in both places tags are shown. */
+.session-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 4px 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: color-mix(in srgb, var(--text) 80%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+}
+
+.session-tag-chip-remove,
+.sessions-manager-tag-remove {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  width: 13px;
+  height: 13px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 11px;
+  line-height: 1;
+  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  transition:
+    color 140ms ease,
+    background 140ms ease;
+}
+
+.session-tag-chip-remove:hover,
+.session-tag-chip-remove:focus-visible,
+.sessions-manager-tag-remove:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+}
+
+.session-tag-input {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 8px;
+  border-radius: 9px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  outline: none;
+}
+
+.session-tag-input:focus {
+  border-color: rgba(147, 51, 234, 0.45);
+  box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.12);
+}
+
+.session-tag-input:disabled {
+  cursor: not-allowed;
+}
+
+.session-tag-suggest {
+  margin-top: 5px;
+  display: flex;
+  flex-direction: column;
+  max-height: 168px;
+  overflow-y: auto;
+}
+
+.session-tag-suggest-item {
+  text-align: left;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 7px;
+  border-radius: 7px;
+  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  transition: color 140ms ease;
+}
+
+.session-tag-suggest-item.is-active,
+.session-tag-suggest-item:hover {
+  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+  color: var(--text);
+}
+
+/* A write the server refused: the row is already back to what it holds, and
+   this says why it moved. */
+.session-tag-error {
+  margin: 6px 2px 1px;
+  font-size: 10.5px;
+  color: var(--coddy-danger, #f87171);
+}
+
+/* What the fold will store, shown only when it differs from what was typed. */
+.session-tag-hint {
+  margin: 6px 2px 1px;
+  font-size: 10.5px;
+  color: color-mix(in srgb, var(--text) 40%, var(--coddy-blend-base));
+}
+
 /* The pins are one list the operator keeps by hand, so they stand a little
    apart from the groups the machine made below them. */
 .session-group.is-pinned {
@@ -11868,6 +11994,31 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 
 .sessions-manager-tag:hover {
   color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* Visible at rest, and dashed so it reads as an opening rather than a label:
+   the row's tags end with a way to add one. */
+.sessions-manager-tag-add {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.68rem;
+  line-height: 1.5;
+  cursor: pointer;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 40%, var(--coddy-blend-base));
+  border: 1px dashed color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
+  transition:
+    color 140ms ease,
+    border-color 140ms ease;
+}
+
+.sessions-manager-tag-add:hover,
+.sessions-manager-tag-add:focus-visible {
+  color: var(--text);
+  border-style: solid;
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
 }
 

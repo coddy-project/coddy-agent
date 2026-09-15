@@ -174,6 +174,7 @@ test("the tags describe proposed are filed with the title in one PATCH", async (
   await vi.waitFor(() => expect(bodies).toHaveLength(1));
   expect(JSON.parse(String(bodies[0]))).toEqual({
     title: "Refactor the memory API",
+    titleIfUnpinned: true,
     tags: ["backend", "memory"],
   });
 });
@@ -210,5 +211,10 @@ test("a model that proposed no tags patches the title alone", async () => {
   await vi.waitFor(() => expect(bodies).toHaveLength(1));
   // An empty array would clear tags the operator may have set by hand; the
   // field stays out of the body instead.
-  expect(JSON.parse(String(bodies[0]))).toEqual({ title: "My title" });
+  // titleIfUnpinned keeps this a suggestion: a session named during the first
+  // turn keeps its name and this answer only files it.
+  expect(JSON.parse(String(bodies[0]))).toEqual({
+    title: "My title",
+    titleIfUnpinned: true,
+  });
 });

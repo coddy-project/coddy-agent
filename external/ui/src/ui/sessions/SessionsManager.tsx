@@ -8,6 +8,8 @@ import {
   type SessionSortKey,
   type SessionSortOrder,
 } from "./sessionQuery";
+import { SessionTagEditor } from "./SessionTagEditor";
+import { tagVocabulary } from "./tagEditing";
 import {
   allRowsSelected,
   formatRowTimestamp,
@@ -114,10 +116,12 @@ export function SessionsManager(props: {
   activeSessionId?: string;
   /** Reports the ids the server actually removed, so the shell can drop them. */
   onSessionsDeleted?: (ids: string[]) => void;
+  /** Reports labels edited here, so the drawer behind the panel agrees. */
+  onSessionTagsChanged?: (id: string, tags: string[]) => void;
 }) {
   const { t, tp } = useT();
   const confirm = useConfirm();
-  const { onSessionsDeleted } = props;
+  const { onSessionsDeleted, onSessionTagsChanged } = props;
   const [rows, setRows] = useState<SessionManagerRow[]>([]);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [searchDraft, setSearchDraft] = useState("");
@@ -130,6 +134,13 @@ export function SessionsManager(props: {
   const [archiveFilter, setArchiveFilter] =
     useState<SessionArchiveFilter>("exclude");
   const [tagFilter, setTagFilter] = useState("");
+  // The row whose labels are open, and the rectangle of the control that opened
+  // them: the editor is portaled, so it is placed from the anchor rather than
+  // from where it sits in the table.
+  const [tagEditor, setTagEditor] = useState<{
+    id: string;
+    at: DOMRect;
+  } | null>(null);
   const [sortKey, setSortKey] = useState<SessionSortKey>("updated");
   const [sortOrder, setSortOrder] = useState<SessionSortOrder>("desc");
   // Every fetch carries a ticket; an answer that arrives after the search moved
@@ -150,6 +161,61 @@ export function SessionsManager(props: {
   const selectableRows = useMemo(
     () => rows.filter((row) => row.id !== activeStoredId),
     [rows, activeStoredId],
+  );
+
+  // What the label picker offers: the words the rows on screen are already
+  // filed under.
+  const vocabulary = useMemo(() => tagVocabulary(rows), [rows]);
+
+  /**
+   * Writes the labels of one row. The server folds what it stores and answers
+   * with the set it kept, so that answer - not what was sent - is what the
+   * table and the drawer behind it show afterwards.
+   */
+  const saveTags = useCallback(
+    async (id: string, tags: string[]) => {
+      // The row takes the new set before the request, so a second gesture made
+      // while the first is in flight builds on it instead of on the set before
+      // both; a refused write puts the old one back.
+      let previous: string[] | undefined;
+      setRows((prev) =>
+        prev.map((row) => {
+          if (row.id !== id) {
+            return row;
+          }
+          previous = row.tags ?? [];
+          return { ...row, tags };
+        }),
+      );
+      try {
+        const res = await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tags }),
+        });
+        if (!res.ok) {
+          throw new Error(String(res.status));
+        }
+        const data = (await res.json()) as { tags?: string[] };
+        const stored = data.tags ?? [];
+        setRows((prev) =>
+          prev.map((row) => (row.id === id ? { ...row, tags: stored } : row)),
+        );
+        onSessionTagsChanged?.(id, stored);
+      } catch (e) {
+        setRows((prev) =>
+          prev.map((row) =>
+            row.id === id ? { ...row, tags: previous ?? [] } : row,
+          ),
+        );
+        setError(
+          t("sessions.manage.tagsFailed", {
+            error: e instanceof Error ? e.message : String(e),
+          }),
+        );
+      }
+    },
+    [onSessionTagsChanged, t],
   );
 
   const load = useCallback(
@@ -676,6 +742,24 @@ export function SessionsManager(props: {
                           {tag}
                         </button>
                       ))}
+                      {/* Visible at rest rather than on hover: a row you can
+                          file is worth a glance, and a finger has no hover. */}
+                      <button
+                        type="button"
+                        className="sessions-manager-tag-add"
+                        data-testid={`sessions-manager-tag-add-${row.id}`}
+                        aria-label={t("sessions.tags.add")}
+                        title={t("sessions.tags.add")}
+                        aria-haspopup="dialog"
+                        onClick={(ev) =>
+                          setTagEditor({
+                            id: row.id,
+                            at: ev.currentTarget.getBoundingClientRect(),
+                          })
+                        }
+                      >
+                        +
+                      </button>
                     </span>
                   </td>
                   <td className="sessions-manager-col-model">
@@ -722,6 +806,21 @@ export function SessionsManager(props: {
           </p>
         ) : null}
       </div>
+
+      {tagEditor ? (
+        <SessionTagEditor
+          open
+          anchor={tagEditor.at}
+          tags={rows.find((row) => row.id === tagEditor.id)?.tags ?? []}
+          vocabulary={vocabulary}
+          onChange={(next) => void saveTags(tagEditor.id, next)}
+          onClose={() => setTagEditor(null)}
+          ariaLabel={
+            rows.find((row) => row.id === tagEditor.id)?.title ||
+            t("sessions.newChatFallback")
+          }
+        />
+      ) : null}
 
       <div className="sessions-manager-footer">
         <span className="settings-muted" data-testid="sessions-manager-summary">

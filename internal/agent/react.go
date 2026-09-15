@@ -26,6 +26,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
+	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/todo"
 )
@@ -58,6 +59,14 @@ type SessionState interface {
 	ClearPendingPlanContext()
 	TakePendingImageParts() []llm.ImagePart
 	GetPermissionMode() string
+	// How the session_describe tool reaches the session's own filing
+	// (session_filing.go). The writers report what they moved and do their own
+	// merging, so the tool never has to read a filing it is about to write.
+	ConversationTitle() string
+	GetTags() []string
+	ReplaceTitlePinned(title string) bool
+	ReplaceTags(tags []string) (stored []string, changed bool)
+	UpdateTags(add, remove []string) (stored []string, changed bool)
 	IsUserCancelledTurn() bool
 	// TakeQueuedMessages drains the follow-ups written while this turn runs
 	// (session/turn_queue.go). The loop reads them between its own steps.
@@ -284,6 +293,9 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 			return nil
 		},
 		CompactSession: a.compactFromTool,
+		FileSession: func(upd tooling.SessionFilingUpdate) (tooling.SessionFilingResult, error) {
+			return applySessionFiling(a.state, upd)
+		},
 		PersistPlanDocument: func(doc plans.Document) {
 			a.state.AppendPlanDocument(doc)
 		},

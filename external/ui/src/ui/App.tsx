@@ -1475,6 +1475,56 @@ export function App() {
     );
   }
 
+  /**
+   * Writes the labels of one conversation.
+   *
+   * The list takes the new set **before** the request: the editor builds each
+   * gesture on the row it is shown, so a second gesture made while the first is
+   * still in flight would otherwise start from the set before both and undo
+   * one of them. The server folds what it stores and answers with the set it
+   * kept, which then replaces the optimistic one - a chip drawn here never
+   * changes spelling one refresh later - and a refused write puts back what the
+   * row carried, so the list never claims something the server does not hold.
+   */
+  async function saveSessionTags(id: string, tags: string[]): Promise<boolean> {
+    let previous: string[] | undefined;
+    setSessions((prev) =>
+      prev.map((s) => {
+        if (s.id !== id) {
+          return s;
+        }
+        previous = s.tags ?? [];
+        return { ...s, tags };
+      }),
+    );
+    const restore = () =>
+      setSessions((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, tags: previous ?? [] } : s)),
+      );
+    let stored: string[];
+    try {
+      const res = await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tags }),
+      });
+      if (!res.ok) {
+        throw new Error(String(res.status));
+      }
+      const data = (await res.json()) as { tags?: string[] };
+      stored = data.tags ?? [];
+    } catch {
+      // A dropped connection and a refused write end the same way: the row goes
+      // back to what the server still holds, and the caller says so.
+      restore();
+      return false;
+    }
+    setSessions((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, tags: stored } : s)),
+    );
+    return true;
+  }
+
   const headers = useMemo(
     () => (sessionId ? { [HDR]: sessionId } : {}),
     [sessionId],
@@ -4728,6 +4778,7 @@ export function App() {
     },
     onPick: pickSession,
     onTitleSave: saveSessionTitle as (id: string, title: string) => void,
+    onTagsSave: (id: string, tags: string[]) => saveSessionTags(id, tags),
     onDelete: deleteSession as (id: string) => void | Promise<void>,
     onArchive: (id: string, archived: boolean) =>
       void archiveSession(id, archived),
@@ -5063,6 +5114,11 @@ export function App() {
               initialSection={settingsSection}
               activeSessionId={sidebarActiveId}
               onSessionsDeleted={onSessionsDeletedInSettings}
+              onSessionTagsChanged={(id: string, tags: string[]) =>
+                setSessions((prev) =>
+                  prev.map((s) => (s.id === id ? { ...s, tags } : s)),
+                )
+              }
             />
           </div>
         ) : null}
