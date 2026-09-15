@@ -5,13 +5,37 @@ import (
 	"strings"
 )
 
-// trackingParams are query keys that identify a referral rather than a page.
-// Two engines linking the same article often differ only by these, and a merged
-// answer that lists the page twice wastes a row and a slot in the model's
-// attention.
-var trackingParams = []string{
-	"utm_", "ref_", "fbclid", "gclid", "msclkid", "yclid", "mc_cid", "mc_eid",
-	"igshid", "ref", "referrer", "source", "spm",
+// trackingPrefixes are query-key prefixes that only ever identify a campaign.
+// They are matched as prefixes because they are namespaces: "utm_source",
+// "utm_medium" and the rest all name the same referral.
+var trackingPrefixes = []string{"utm_", "ref_", "mc_", "pk_", "piwik_"}
+
+// trackingExact are whole query keys that identify a referral rather than a
+// page. They are matched exactly, never as a prefix: "ref" is a tracking tag,
+// but "refresh" is not, and on a source host "ref=v1" and "ref=v2" are two
+// different revisions of one file. A prefix match here merged pages that are
+// genuinely different, which costs a result rather than saving one.
+var trackingExact = map[string]bool{
+	"fbclid": true, "gclid": true, "msclkid": true, "yclid": true,
+	"dclid": true, "twclid": true, "igshid": true, "ttclid": true,
+	"mc_cid": true, "mc_eid": true, "_hsenc": true, "_hsmi": true,
+	"referrer": true, "spm": true, "scm": true,
+}
+
+// isTrackingParam reports whether a query key identifies a referral. Note what
+// is deliberately absent: "ref", "source" and "id" all select content on some
+// host, and dropping them merges pages a reader would want to see separately.
+func isTrackingParam(key string) bool {
+	lower := strings.ToLower(key)
+	if trackingExact[lower] {
+		return true
+	}
+	for _, p := range trackingPrefixes {
+		if strings.HasPrefix(lower, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // dedupKey is the identity of a page across engines: scheme folded away, host
@@ -30,12 +54,8 @@ func dedupKey(raw string) string {
 	}
 	q := u.Query()
 	for key := range q {
-		lower := strings.ToLower(key)
-		for _, p := range trackingParams {
-			if lower == p || strings.HasPrefix(lower, p) {
-				q.Del(key)
-				break
-			}
+		if isTrackingParam(key) {
+			q.Del(key)
 		}
 	}
 	path := strings.TrimSuffix(u.EscapedPath(), "/")

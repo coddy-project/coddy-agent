@@ -11,7 +11,6 @@ require (
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/gogs/chardet v0.0.0-20211120154057-b7413eaefb8f
 	github.com/jedib0t/go-pretty/v6 v6.5.9
-	github.com/kuhahalong/ddgsearch v0.0.0-20241205095054-d297f4189b6e
 	github.com/mattn/go-runewidth v0.0.15
 	github.com/openai/openai-go v1.12.0
 	github.com/rivo/uniseg v0.4.7

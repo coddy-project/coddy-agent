@@ -95,14 +95,24 @@ func TestCacheRemembersABlockedEngineOnlyBriefly(t *testing.T) {
 	}
 }
 
-// TestCacheDoesNotRememberAnOrdinaryError: a connection refused says nothing
-// about the engine's health a second later.
-func TestCacheDoesNotRememberAnOrdinaryError(t *testing.T) {
+// TestCacheRemembersAnUnreachableEngineVeryBriefly: an engine that is simply
+// down otherwise costs a full per-engine timeout on every search, which is the
+// most common failure of all. It is remembered for seconds, not minutes.
+func TestCacheRemembersAnUnreachableEngineVeryBriefly(t *testing.T) {
 	searchCache.reset()
 	t.Cleanup(searchCache.reset)
-	searchCache.put("k", nil, fmt.Errorf("dial tcp: connection refused"), time.Minute)
-	if _, _, ok := searchCache.get("k"); ok {
-		t.Fatal("an ordinary error must not be cached")
+	searchCache.put("k", nil, fmt.Errorf("dial tcp: connection refused"), time.Hour)
+	if _, _, ok := searchCache.get("k"); !ok {
+		t.Fatal("an unreachable engine should be remembered briefly")
+	}
+	searchCache.mu.Lock()
+	entry := searchCache.entries["k"]
+	searchCache.mu.Unlock()
+	if remaining := time.Until(entry.expires); remaining > errorCacheTTL+time.Second {
+		t.Fatalf("remembered for %s, expected at most %s", remaining, errorCacheTTL)
+	}
+	if remaining := time.Until(entry.expires); remaining > blockedCacheTTL {
+		t.Fatal("an unreachable engine must be forgotten sooner than a blocked one")
 	}
 }
 

@@ -165,10 +165,14 @@ func (w *ToolWebSearch) validate() error {
 // validateSearXNGURL checks the operator's SearXNG address. Unlike the URL
 // webfetch is handed, this one comes from the configuration rather than from
 // the model, and the instances it names normally live on localhost or a LAN
-// address - so private ranges are allowed on purpose. What is refused is the
-// cloud metadata address, which no SearXNG listens on and which is the one
-// target where a mistyped or model-written config value turns a search into a
-// credential read.
+// address - so private ranges are allowed on purpose: refusing them would
+// refuse exactly the deployments this engine exists for.
+//
+// What is refused is the link-local range, where no SearXNG listens and where
+// the cloud metadata service does. That is the one address at which a value
+// typed wrong, or staged by the model through config_set, turns a search into
+// a credential read. A hostname is resolved before the check, because a name
+// pointing there reaches it just as well as the literal address does.
 func validateSearXNGURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -182,12 +186,31 @@ func validateSearXNGURL(raw string) error {
 	}
 	host := u.Hostname()
 	if ip := net.ParseIP(host); ip != nil {
-		if ip4 := ip.To4(); ip4 != nil && ip4[0] == 169 && ip4[1] == 254 {
-			return fmt.Errorf("tools.websearch.searxng_url: %s is the link-local metadata range, not a search instance", ip)
+		if err := checkSearXNGIP(ip); err != nil {
+			return fmt.Errorf("tools.websearch.searxng_url: %w", err)
 		}
-		if strings.HasPrefix(strings.ToLower(ip.String()), "fe80:") {
-			return fmt.Errorf("tools.websearch.searxng_url: %s is a link-local address, not a search instance", ip)
+		return nil
+	}
+	// A name that does not resolve is not a configuration error: an instance
+	// that is down, or a name only the run host knows, is a runtime problem
+	// the engine reports rather than a reason to refuse the whole file.
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return nil
+	}
+	for _, ip := range ips {
+		if err := checkSearXNGIP(ip); err != nil {
+			return fmt.Errorf("tools.websearch.searxng_url: %q resolves to %w", host, err)
 		}
+	}
+	return nil
+}
+
+// checkSearXNGIP refuses the link-local range and nothing else. Loopback and
+// private addresses are where a self-hosted instance actually lives.
+func checkSearXNGIP(ip net.IP) error {
+	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return fmt.Errorf("%s, a link-local address where the cloud metadata service lives, not a search instance", ip)
 	}
 	return nil
 }

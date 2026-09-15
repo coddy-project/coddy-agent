@@ -5,10 +5,11 @@ import (
 	"unicode"
 )
 
-// decoyMinRows is the smallest batch the relevance gate judges. Below it a
-// genuine answer can plausibly miss every query word - a two-row answer to a
-// long question often names only a synonym - so the gate stays out of the way.
-const decoyMinRows = 3
+// decoyMinRows is the smallest batch the relevance gate judges. The decoy an
+// engine serves is a full result page - every batch measured was ten rows - so
+// the threshold sits well above a short answer, where a genuine result set can
+// plausibly miss every query word by naming only synonyms.
+const decoyMinRows = 5
 
 // queryStopwords are words too common to carry the subject of a query. They are
 // removed before matching so "how to" in the query does not make a page titled
@@ -123,12 +124,32 @@ func decoyReason(query string, rows []Result) (string, bool) {
 		return "", false
 	}
 	for _, r := range rows {
-		rt := searchTokens(r.Title + " " + r.URL + " " + r.Snippet)
-		for t := range qt {
-			if rt[t] {
-				return "", false
-			}
+		if rowAnswersQuery(qt, r) {
+			return "", false
 		}
 	}
 	return "decoy: none of the results share a word with the query", true
+}
+
+// rowAnswersQuery reports whether one result has anything to do with the query.
+// A query word counts when it appears as a word of the row, and also when it
+// appears inside one: a question about "OOM" is answered by a page titled
+// "OOMKilled containers", and a question about "cancel" by one about
+// "cancellation". Matching inside words makes the gate more forgiving, which is
+// the right direction for something whose mistake would be discarding a real
+// answer - the decoys it exists for share nothing with the query by any
+// measure.
+func rowAnswersQuery(queryTokens map[string]bool, r Result) bool {
+	text := r.Title + " " + r.URL + " " + r.Snippet
+	rowTokens := searchTokens(text)
+	lower := strings.ToLower(text)
+	for t := range queryTokens {
+		if rowTokens[t] {
+			return true
+		}
+		if len([]rune(t)) >= 3 && strings.Contains(lower, t) {
+			return true
+		}
+	}
+	return false
 }

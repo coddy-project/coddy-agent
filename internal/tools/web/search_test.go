@@ -152,6 +152,8 @@ func TestSearchDiscardsAnEngineAnsweringADifferentSubject(t *testing.T) {
 			{Title: "Explorateur de fichiers Windows", URL: "https://support.microsoft.com/fr/1", Snippet: "Ouvrir l'explorateur."},
 			{Title: "Reparer l'Explorateur de fichiers", URL: "https://support.microsoft.com/fr/2", Snippet: "Si l'explorateur ne demarre pas."},
 			{Title: "Visit Rainier Official Site", URL: "https://visitrainier.com/", Snippet: "Mount Rainier tourism."},
+			{Title: "Les routes panoramiques", URL: "https://visitrainier.com/drives", Snippet: "Itineraires."},
+			{Title: "Ou dormir pres de la montagne", URL: "https://visitrainier.com/lodging", Snippet: "Hotels et chalets."},
 		}, nil
 	}
 	out := runSearch(t, envWith("brave", "bing"), `{"query":"golang context cancellation"}`)

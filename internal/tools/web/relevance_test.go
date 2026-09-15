@@ -26,6 +26,8 @@ func TestDecoyGateCatchesTheMeasuredBingDecoys(t *testing.T) {
 				{Title: "披萨馅料有哪些经典的种类？", URL: "https://www.zhihu.com/question/27157954"},
 				{Title: "乌兹别克斯坦是一个怎么样的国家？", URL: "https://www.zhihu.com/question/60608232"},
 				{Title: "如何评价这个问题？", URL: "https://www.zhihu.com/question/1"},
+				{Title: "为什么有人喜欢吃辣？", URL: "https://www.zhihu.com/question/2"},
+				{Title: "旅行时最难忘的一顿饭", URL: "https://www.zhihu.com/question/3"},
 			},
 		},
 		{
@@ -35,6 +37,8 @@ func TestDecoyGateCatchesTheMeasuredBingDecoys(t *testing.T) {
 				{Title: "Visit Rainier | Official Site Of Mt. Rainier Tourism", URL: "https://visitrainier.com/", Snippet: "Plan your trip."},
 				{Title: "The Best Mt. Rainier Scenic Drives", URL: "https://visitrainier.com/driving-tours/", Snippet: "Scenic routes."},
 				{Title: "Where to stay near the mountain", URL: "https://visitrainier.com/lodging/", Snippet: "Hotels and cabins."},
+				{Title: "Wildflower season on the mountain", URL: "https://visitrainier.com/wildflowers/", Snippet: "When to visit."},
+				{Title: "Camping permits and reservations", URL: "https://visitrainier.com/camping/", Snippet: "Book a site."},
 			},
 		},
 		{
@@ -44,6 +48,8 @@ func TestDecoyGateCatchesTheMeasuredBingDecoys(t *testing.T) {
 				{Title: "Explorateur de fichiers dans Windows", URL: "https://support.microsoft.com/fr-fr/windows/1"},
 				{Title: "Reparer l'Explorateur de fichiers", URL: "https://support.microsoft.com/fr-fr/windows/2"},
 				{Title: "Maitriser l'Explorateur de fichiers", URL: "https://support.microsoft.com/fr-fr/windows/3"},
+				{Title: "Ouvrir l'explorateur avec un raccourci", URL: "https://support.microsoft.com/fr-fr/windows/4"},
+				{Title: "Personnaliser l'affichage des dossiers", URL: "https://support.microsoft.com/fr-fr/windows/5"},
 			},
 		},
 	}
@@ -73,6 +79,39 @@ func TestDecoyGateKeepsGenuineAnswers(t *testing.T) {
 				{Title: "Download and install - The Go Programming Language", URL: "https://go.dev/doc/install"},
 				{Title: "GitHub - golang/go: The Go programming language", URL: "https://github.com/golang/go"},
 				{Title: "Go (programming language) - Wikipedia", URL: "https://en.wikipedia.org/wiki/Go_(programming_language)"},
+			},
+		},
+		{
+			name:  "an abbreviation the results spell out",
+			query: "K8s pod OOM",
+			rows: []Result{
+				{Title: "Kubernetes 1.29 release notes", URL: "https://kubernetes.io/blog/releases"},
+				{Title: "Troubleshooting OOMKilled containers", URL: "https://cncf.io/oomkilled"},
+				{Title: "Kubernetes resource management", URL: "https://kubernetes.io/docs/resources"},
+				{Title: "Requests and limits explained", URL: "https://kubernetes.io/docs/limits"},
+				{Title: "Debugging evicted workloads", URL: "https://example.com/evicted"},
+			},
+		},
+		{
+			name:  "an acronym the results expand",
+			query: "RAII in C++",
+			rows: []Result{
+				{Title: "Resource Acquisition Is Initialization", URL: "https://en.cppreference.com/w/cpp/language/raii"},
+				{Title: "Scope-based resource management", URL: "https://isocpp.org/wiki/faq/resource"},
+				{Title: "Smart pointers and ownership", URL: "https://learn.microsoft.com/cpp/smart-pointers"},
+				{Title: "Destructors and cleanup", URL: "https://example.com/dtor"},
+				{Title: "Exception safety guarantees", URL: "https://example.com/exceptions"},
+			},
+		},
+		{
+			name:  "a Russian verb answered by the noun",
+			query: "как отменить подписку",
+			rows: []Result{
+				{Title: "Отмена подписки в личном кабинете", URL: "https://example.ru/otmena"},
+				{Title: "Управление подписками", URL: "https://example.ru/subs"},
+				{Title: "Возврат средств за подписку", URL: "https://example.ru/refund"},
+				{Title: "Условия обслуживания", URL: "https://example.ru/terms"},
+				{Title: "Служба поддержки", URL: "https://example.ru/help"},
 			},
 		},
 		{

@@ -70,3 +70,40 @@ func TestClipSnippetLeavesShortTextAlone(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+// TestDedupKeyKeepsContentSelectingParameters is the fix for a real defect: the
+// tracking list matched "ref" and "source" by prefix, which merged two
+// revisions of one file on a source host and killed "refresh" and "referral"
+// along the way.
+func TestDedupKeyKeepsContentSelectingParameters(t *testing.T) {
+	different := [][]string{
+		{"https://github.com/o/r/blob/main/f.go?ref=v1", "https://github.com/o/r/blob/main/f.go?ref=v2"},
+		{"https://api.example.com/x?source=archive", "https://api.example.com/x?source=live"},
+		{"https://example.com/p?refresh=1", "https://example.com/p?refresh=2"},
+		{"https://example.com/p?referral_code=a", "https://example.com/p?referral_code=b"},
+		{"https://example.com/p?id=1", "https://example.com/p?id=2"},
+	}
+	for _, pair := range different {
+		if dedupKey(pair[0]) == dedupKey(pair[1]) {
+			t.Errorf("%q and %q are different pages but collapsed to %q",
+				pair[0], pair[1], dedupKey(pair[0]))
+		}
+	}
+}
+
+func TestDedupKeyStillStripsRealTrackingParameters(t *testing.T) {
+	base := dedupKey("https://example.com/p")
+	for _, raw := range []string{
+		"https://example.com/p?utm_source=x&utm_campaign=y",
+		"https://example.com/p?fbclid=123",
+		"https://example.com/p?gclid=123",
+		"https://example.com/p?msclkid=123",
+		"https://example.com/p?mc_cid=1&mc_eid=2",
+		"https://example.com/p?referrer=newsletter",
+		"https://example.com/p?ref_src=twsrc",
+	} {
+		if dedupKey(raw) != base {
+			t.Errorf("%q should fold to the bare page, got %q", raw, dedupKey(raw))
+		}
+	}
+}

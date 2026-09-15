@@ -243,3 +243,49 @@ func TestEngineQueryFoldsTheSiteRestriction(t *testing.T) {
 		}
 	}
 }
+
+// TestBraveOffsetIsAPageIndexNotAResultCount pins a measured fact that reads
+// like a bug and is not one. Brave's "offset" counts result pages, not results
+// to skip: offset=0 and offset=1 were observed returning twenty rows each with
+// zero URLs in common, which a skip-one-result offset could not produce, and
+// offset=15 returns nothing because the pagination ends around page ten.
+// Turning it into (page-1)*count would ask for a page past the end.
+func TestBraveOffsetIsAPageIndexNotAResultCount(t *testing.T) {
+	var gotOffset string
+	restore := pointBraveHTMLAt(t, func(w http.ResponseWriter, r *http.Request) {
+		gotOffset = r.URL.Query().Get("offset")
+		_, _ = w.Write([]byte(`<html><body>
+<div class="snippet svelte-a" data-pos="0" data-type="web">
+<a href="https://example.com/a" class="l1"><div class="title search-snippet-title svelte-b" title="T">T</div></a>
+</div></body></html>`))
+	})
+	defer restore()
+
+	if _, err := runBrave(context.Background(), Query{Text: "go", Page: 3, MaxResults: 15}, Settings{}); err != nil {
+		t.Fatal(err)
+	}
+	if gotOffset != "2" {
+		t.Fatalf("page 3 must ask for offset 2 (a page index), got %q", gotOffset)
+	}
+}
+
+func TestBraveFirstPageAsksForOffsetZero(t *testing.T) {
+	var gotOffset string
+	restore := pointBraveHTMLAt(t, func(w http.ResponseWriter, r *http.Request) {
+		gotOffset = r.URL.Query().Get("offset")
+		_, _ = w.Write([]byte(`<html><body>
+<div class="snippet" data-pos="0" data-type="web">
+<a href="https://example.com/a"><div class="title search-snippet-title" title="T">T</div></a>
+</div></body></html>`))
+	})
+	defer restore()
+
+	for _, page := range []int{0, 1} {
+		if _, err := runBrave(context.Background(), Query{Text: "go", Page: page, MaxResults: 15}, Settings{}); err != nil {
+			t.Fatal(err)
+		}
+		if gotOffset != "0" {
+			t.Fatalf("page %d must ask for offset 0, got %q", page, gotOffset)
+		}
+	}
+}

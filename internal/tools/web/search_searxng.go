@@ -12,6 +12,16 @@ import (
 // searxngSearchFunc is swapped in tests to avoid a live instance.
 var searxngSearchFunc func(ctx context.Context, q Query, s Settings) ([]Result, error)
 
+// searxngClient never follows a redirect. The operator vets the address they
+// configured; they cannot vet where it forwards to, and a redirect is the one
+// way an otherwise ordinary LAN address reaches somewhere it was never checked
+// against - the cloud metadata service, most of all.
+var searxngClient = &http.Client{
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
+}
+
 // searxngResponse is the shape of a SearXNG JSON answer.
 type searxngResponse struct {
 	Results []struct {
@@ -46,11 +56,15 @@ func runSearXNG(ctx context.Context, q Query, s Settings) ([]Result, error) {
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", browserUserAgent)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := searxngClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		return nil, blocked("searxng redirected to %q; point searxng_url at the instance itself",
+			resp.Header.Get("Location"))
+	}
 	if resp.StatusCode == http.StatusForbidden {
 		// A SearXNG instance serves the JSON format only when its settings
 		// enable it; the default configuration answers 403 here.

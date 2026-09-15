@@ -36,9 +36,17 @@ type cacheEntry struct {
 
 var searchCache = &engineCache{entries: make(map[string]cacheEntry)}
 
-// blockedCacheTTL is how long a blocked or failed answer is remembered. It is
-// deliberately far below the TTL of a good answer.
-const blockedCacheTTL = 30 * time.Second
+// Failures are remembered far more briefly than answers, and the two kinds of
+// failure differently. A challenge page is sticky: the engine serves it to the
+// next call too, so re-asking inside a turn only adds latency. A refused
+// connection says much less, but an engine that is simply down otherwise costs
+// a full per-engine timeout on every single search, which is the most common
+// failure there is - so it is remembered for just long enough to spare one
+// turn's worth of repeats.
+const (
+	blockedCacheTTL = 30 * time.Second
+	errorCacheTTL   = 5 * time.Second
+)
 
 // cacheKey identifies one engine's answer to one query. Settings that change
 // what an engine returns are part of it: two engines asked with different
@@ -64,7 +72,9 @@ func cacheKey(engine string, q Query, s Settings) string {
 	return b.String()
 }
 
-// get returns a remembered answer when one is still fresh.
+// get returns a remembered answer when one is still fresh. The rows are copied
+// out: the caller merges and rewrites them, and handing every caller the same
+// backing array would let one search corrupt the next.
 func (c *engineCache) get(key string) ([]Result, error, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -76,21 +86,23 @@ func (c *engineCache) get(key string) ([]Result, error, bool) {
 		delete(c.entries, key)
 		return nil, nil, false
 	}
-	return e.rows, e.err, true
+	return append([]Result(nil), e.rows...), e.err, true
 }
 
-// put remembers one engine's answer. A cancelled call is never stored: the
-// answer says nothing about the engine, only about the turn that ended.
+// put remembers one engine's answer, failures included but only briefly - see
+// the TTL constants. A cancelled call never reaches here at all: what it says
+// is about the turn that ended, not about the engine.
 func (c *engineCache) put(key string, rows []Result, err error, ttl time.Duration) {
 	if ttl <= 0 {
 		return
 	}
 	if err != nil {
-		if _, isBlocked := asBlocked(err); !isBlocked {
-			return
+		limit := errorCacheTTL
+		if _, isBlocked := asBlocked(err); isBlocked {
+			limit = blockedCacheTTL
 		}
-		if ttl > blockedCacheTTL {
-			ttl = blockedCacheTTL
+		if ttl > limit {
+			ttl = limit
 		}
 	}
 	c.mu.Lock()
@@ -101,7 +113,11 @@ func (c *engineCache) put(key string, rows []Result, err error, ttl time.Duratio
 		// round of searches at worst.
 		c.entries = make(map[string]cacheEntry, cacheMaxEntries)
 	}
-	c.entries[key] = cacheEntry{rows: rows, err: err, expires: time.Now().Add(ttl)}
+	c.entries[key] = cacheEntry{
+		rows:    append([]Result(nil), rows...),
+		err:     err,
+		expires: time.Now().Add(ttl),
+	}
 }
 
 // reset empties the cache. Tests call it so one scenario cannot answer another.

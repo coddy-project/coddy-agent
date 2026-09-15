@@ -7,6 +7,10 @@ Feature: Web search over several engines, honestly reported
   hides which of those happened teaches the model that the web is empty, so
   every engine reports its own outcome next to the results.
 
+  A batch is judged as a whole and only when it is big enough to be a result
+  page: the decoy an engine serves is a full page of them, while a short answer
+  that names only synonyms is ordinary.
+
   An engine is "ok" when it parsed rows, "empty" when it answered a page the
   parser understood and there was nothing on it, and "blocked" when it answered
   something else: a non-2xx status, a challenge page, a layout the parser no
@@ -61,6 +65,8 @@ Feature: Web search over several engines, honestly reported
       | Explorateur de fichiers Windows   | https://support.microsoft.com/fr/1 | Ouvrir l'explorateur |
       | Reparer l'Explorateur de fichiers | https://support.microsoft.com/fr/2 | Si l'explorateur...  |
       | Visit Rainier Official Site       | https://visitrainier.com/          | Mount Rainier.       |
+      | Les meilleures routes panoramiques | https://visitrainier.com/drives   | Itineraires.         |
+      | Ou dormir pres de la montagne     | https://visitrainier.com/lodging   | Hotels et chalets.   |
     When the agent searches the web for "golang context cancellation"
     Then the search returns 1 result
     And engine "bing" is reported as "blocked" because of "decoy"

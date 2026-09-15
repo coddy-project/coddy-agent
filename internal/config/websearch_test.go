@@ -1,6 +1,7 @@
 package config
 
 import (
+	"net"
 	"reflect"
 	"strings"
 	"testing"
@@ -144,4 +145,42 @@ func TestWebSearchValidateLowercasesEngineNames(t *testing.T) {
 	if !reflect.DeepEqual(w.Engines, []string{"brave", "bing"}) {
 		t.Errorf("got %v", w.Engines)
 	}
+}
+
+// TestSearXNGURLRefusesAHostnameResolvingToLinkLocal: a name reaches the
+// metadata service just as well as the literal address does. "localhost" is
+// the control - it resolves to loopback, which stays allowed.
+func TestSearXNGURLRefusesAHostnameResolvingToLinkLocal(t *testing.T) {
+	if err := validateSearXNGURL("http://localhost:8080"); err != nil {
+		t.Fatalf("localhost must stay allowed: %v", err)
+	}
+	// A name that does not resolve is a runtime problem, not a bad config.
+	if err := validateSearXNGURL("http://searx.invalid.nonexistent.example:8080"); err != nil {
+		t.Errorf("an unresolvable name should not fail the config: %v", err)
+	}
+}
+
+func TestCheckSearXNGIPAllowsWhereInstancesActuallyLive(t *testing.T) {
+	for _, raw := range []string{"127.0.0.1", "::1", "10.0.0.5", "192.168.1.10", "172.16.0.9", "8.8.8.8"} {
+		if err := checkSearXNGIP(netParseIP(t, raw)); err != nil {
+			t.Errorf("%s should be allowed: %v", raw, err)
+		}
+	}
+}
+
+func TestCheckSearXNGIPRefusesLinkLocal(t *testing.T) {
+	for _, raw := range []string{"169.254.169.254", "169.254.170.2", "fe80::1"} {
+		if err := checkSearXNGIP(netParseIP(t, raw)); err == nil {
+			t.Errorf("%s should be refused", raw)
+		}
+	}
+}
+
+func netParseIP(t *testing.T, raw string) net.IP {
+	t.Helper()
+	ip := net.ParseIP(raw)
+	if ip == nil {
+		t.Fatalf("bad test address %q", raw)
+	}
+	return ip
 }
