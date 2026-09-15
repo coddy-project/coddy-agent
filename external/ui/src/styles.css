@@ -2274,6 +2274,75 @@ a.rail-brand {
   pointer-events: auto;
 }
 
+/* Scroll-to-bottom: hangs off the top edge of the docked block, against the
+   composer's right edge, so it rides with the composer on every shell - the
+   absolute desktop dock, the fixed mobile one, and the inset the tasks panel
+   reserves - instead of being pinned to the viewport. It stays in the DOM for
+   the whole chat and crosses between its two states with a transition; the
+   resting rule below is the hidden state and carries the exit timing. */
+.chat-scroll-bottom {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  z-index: 2;
+  margin-bottom: 10px;
+  box-sizing: border-box;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  /* A small shadow, sized to a 34px circle: enough to lift it off the
+     transcript without the diffuse cast the full panel token carries. */
+  box-shadow:
+    0 3px 10px rgba(0, 0, 0, 0.32),
+    0 1px 2px rgba(0, 0, 0, 0.24);
+  color: color-mix(in srgb, var(--text) 76%, var(--coddy-blend-base));
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(6px) scale(0.9);
+  pointer-events: none;
+  transition:
+    opacity 0.12s ease-in,
+    transform 0.12s ease-in,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.chat-scroll-bottom.is-visible {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+  transition:
+    opacity 0.14s ease-out,
+    transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1),
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.chat-scroll-bottom:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--text) 24%, var(--coddy-blend-base));
+}
+
+[data-theme="light"] .chat-scroll-bottom {
+  box-shadow:
+    0 3px 10px rgba(15, 23, 42, 0.14),
+    0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-scroll-bottom,
+  .chat-scroll-bottom.is-visible {
+    transition: none;
+  }
+}
+
 /* Subagent transcript: the composer's slot holds a read-only notice that points
    back at the parent chat. Same glass card tokens as the composer so the
    bottom of the column keeps its weight. */
