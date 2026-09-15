@@ -899,14 +899,25 @@ func (f *FileStore) Save(state *State) error {
 	meta.PermissionMode = state.GetPermissionMode()
 
 	// The stamp stands only when this save puts nothing new anywhere - not the
-	// history, and not a field of the meta either. Pinning a title, tagging or
-	// archiving is something persisted, and docs/features/sessions.md promises
-	// the listing follows it. The tag slice makes SessionMeta uncomparable with
-	// ==, so the two are compared field by field: a reflective compare is
-	// nothing next to the encoding this save already paid for, and it cannot be
-	// left stale by a field somebody adds later.
+	// history, and not a field of the meta either.
+	//
+	// Filing is the exception, and it is the same exception markActivityRead
+	// already makes: updatedAt means "when this conversation last changed" and
+	// the listing is ordered by it, so tagging a session, pinning it or putting
+	// it aside must leave it exactly where it was. Those are bookkeeping *about*
+	// a conversation, not a change to it - an archive that jumped the session to
+	// the top of the list would be the opposite of what archiving is for.
+	//
+	// The tag slice makes SessionMeta uncomparable with ==, so the two are
+	// compared field by field: a reflective compare is nothing next to the
+	// encoding this save already paid for, and it cannot be left stale by a
+	// field somebody adds later.
 	sameMeta := meta
 	sameMeta.UpdatedAt, sameMeta.CreatedAt = prevMeta.UpdatedAt, prevMeta.CreatedAt
+	sameMeta.Tags = prevMeta.Tags
+	sameMeta.Archived, sameMeta.ArchivedAt = prevMeta.Archived, prevMeta.ArchivedAt
+	sameMeta.Pinned, sameMeta.PinnedAt = prevMeta.Pinned, prevMeta.PinnedAt
+	sameMeta.PinnedRank = prevMeta.PinnedRank
 	preserveUpdatedAt := messagesUnchanged && metaExisted && reflect.DeepEqual(sameMeta, prevMeta)
 
 	updatedAt := time.Now().UTC().Format(time.RFC3339Nano)

@@ -469,9 +469,6 @@ func TestPinnedSessionsLeadEveryOrder(t *testing.T) {
 	if code, _ := patchSessionJSON(t, srv, ids[0], map[string]interface{}{"pinned": false}); code != http.StatusOK {
 		t.Fatal("unpin")
 	}
-	// Checked against a title order rather than the default one: unpinning is a
-	// write, so it leaves the session the most recently touched and it would
-	// lead a newest-first listing on its own merits.
 	_, body = getSessions(t, srv, "sort=title&order=desc")
 	listed := listedIDs(body)
 	if listed[len(listed)-1] != ids[0] {
@@ -605,5 +602,42 @@ func TestSessionMessagesSayWhenTheSessionIsArchived(t *testing.T) {
 	// in any page the client holds.
 	if archived, _ := read()["archived"].(bool); !archived {
 		t.Fatal("an archived session does not say so on its transcript")
+	}
+}
+
+func TestArchivingDoesNotReorderTheListing(t *testing.T) {
+	srv, mgr, store := bulkDeleteServer(t)
+	var ids []string
+	for _, title := range []string{"first", "second", "third"} {
+		id := storeSession(t, mgr, store, "question "+title)
+		if code, _ := patchSessionJSON(t, srv, id, map[string]interface{}{"title": title}); code != http.StatusOK {
+			t.Fatal("patch title")
+		}
+		ids = append(ids, id)
+	}
+	_, body := getSessions(t, srv, "")
+	before := listedIDs(body)
+
+	// The oldest one: if filing moved it, it would jump from last to first.
+	oldest := ids[0]
+	if code, _ := patchSessionJSON(t, srv, oldest, map[string]interface{}{"archived": true}); code != http.StatusOK {
+		t.Fatal("archive")
+	}
+	if code, _ := patchSessionJSON(t, srv, oldest, map[string]interface{}{"archived": false}); code != http.StatusOK {
+		t.Fatal("unarchive")
+	}
+	if code, _ := patchSessionJSON(t, srv, oldest, map[string]interface{}{"tags": []string{"backend"}}); code != http.StatusOK {
+		t.Fatal("tag")
+	}
+
+	_, body = getSessions(t, srv, "")
+	after := listedIDs(body)
+	if len(after) != len(before) {
+		t.Fatalf("listing changed size: %v -> %v", before, after)
+	}
+	for i := range before {
+		if before[i] != after[i] {
+			t.Fatalf("filing reordered the listing: %v -> %v", before, after)
+		}
 	}
 }

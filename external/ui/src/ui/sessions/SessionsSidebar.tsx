@@ -389,6 +389,16 @@ export function SessionsSidebar(props: {
               ?
             </span>
           ) : null}
+          {s.archived ? (
+            <span
+              className="session-archived-mark"
+              data-testid={`session-archived-${s.id}`}
+              aria-label={t("sessions.archivedBadge")}
+              title={t("sessions.archivedBadge")}
+            >
+              <IconArchiveRow />
+            </span>
+          ) : null}
           {sessionRowShowsUnreadDot(s, props.sessionId) ? (
             <span
               className="session-unread-dot"
@@ -410,15 +420,6 @@ export function SessionsSidebar(props: {
               title={t("sessions.pinnedBadge")}
             >
               <IconPin />
-            </span>
-          ) : null}
-          {s.archived ? (
-            <span
-              className="session-archived-badge"
-              data-testid={`session-archived-${s.id}`}
-              title={t("sessions.archivedBadge")}
-            >
-              {t("sessions.archivedBadge")}
             </span>
           ) : null}
         </div>

@@ -1771,16 +1771,15 @@ a.rail-brand {
   white-space: nowrap;
 }
 
-.session-archived-badge {
+/* The archive is a state the row is in, so it leads the row with the spinner
+   and the unread dot rather than sitting among the tags, which are labels the
+   operator chose. */
+.session-archived-mark {
   flex: 0 0 auto;
-  padding: 0 6px;
-  border-radius: 999px;
-  font-size: 10px;
-  line-height: 1.6;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: color-mix(in srgb, var(--text) 68%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  display: grid;
+  place-items: center;
+  line-height: 1;
+  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
 }
 
 .session-row-tags {
@@ -11831,16 +11830,20 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   min-width: 0;
 }
 
-/* The archive badge is the neutral twin of the open badge: it says where a row
-   sits, not that anything is wrong with it. Uppercase keeps it apart from the
-   tag chips beside it, which are the row's own words rather than its state. */
-.sessions-manager-badge-archived {
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
-  background: transparent;
-  border-color: color-mix(in srgb, var(--text) 26%, var(--coddy-blend-base));
-  font-size: 0.62rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+/* The same mark as in History: a state leading the title, not a pill among the
+   labels. */
+.sessions-manager-archived-mark {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  margin-right: 5px;
+  vertical-align: -3px;
+  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+}
+
+.sessions-manager-archived-mark svg {
+  width: 14px;
+  height: 14px;
 }
 
 /* A tag under a title is a filter you can press. */

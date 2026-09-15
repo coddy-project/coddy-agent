@@ -109,7 +109,7 @@ Project trust is one decision for MCP servers, hooks and subagents that arrive w
 | Combine features for a task | [Tutorials](docs/tutorials/coddy-in-ci.md), the swarm ones included: [a relay and its nodes](docs/tutorials/swarm-relay-and-nodes.md), [a chain of relays](docs/tutorials/swarm-multi-hop.md), [working with remote nodes](docs/tutorials/swarm-remote-nodes.md) |
 | Change Coddy itself | [Contributing](CONTRIBUTING.md), [Architecture](docs/contributing/architecture.md), [AGENTS.md](AGENTS.md), [DESIGN.md](DESIGN.md) |
 
-The whole map is [docs/README.md](docs/README.md). Agents that read documentation get the same pages as [llms.txt](docs/llms.txt) and [llms-full.txt](docs/llms-full.txt), and the config file carries a JSON Schema at <https://coddy.dev/config.schema.json> for editor validation. How Coddy compares with other agent harnesses is on [coddy.dev/compare](https://coddy.dev/compare/).
+The whole map is [docs/README.md](docs/README.md). Agents that read documentation get the same pages as <https://coddy.dev/llms.txt> and <https://coddy.dev/llms-full.txt>, and the config file carries a JSON Schema at <https://coddy.dev/config.schema.json> for editor validation. How Coddy compares with other agent harnesses is on [coddy.dev/compare](https://coddy.dev/compare/).
 
 ## Contributing
 

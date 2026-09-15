@@ -1448,7 +1448,7 @@ func TestFilterSnapshotListForSearchMatchesATag(t *testing.T) {
 	}
 }
 
-func TestSaveKeepsUpdatedAtWhenTagsDidNotMove(t *testing.T) {
+func TestSaveKeepsUpdatedAtWhenNothingMoved(t *testing.T) {
 	fs := &FileStore{Root: t.TempDir()}
 	dir, err := fs.EnsureLayout("sess_a")
 	if err != nil {
@@ -1480,7 +1480,10 @@ func TestSaveKeepsUpdatedAtWhenTagsDidNotMove(t *testing.T) {
 		t.Fatalf("a save that changed nothing moved updatedAt: %q -> %q", first.Meta.UpdatedAt, again.Meta.UpdatedAt)
 	}
 
-	st.SetTags([]string{"backend", "api"})
+	// A change that *is* content still moves it, so the guard above is not
+	// simply pinning the stamp in place. (Filing - tags, pins, the archive -
+	// deliberately does not; see TestFilingASessionDoesNotMoveItInTheList.)
+	st.SetTitlePinned("Renamed by the operator")
 	if err := fs.Save(st); err != nil {
 		t.Fatal(err)
 	}
@@ -1489,6 +1492,66 @@ func TestSaveKeepsUpdatedAtWhenTagsDidNotMove(t *testing.T) {
 		t.Fatal(err)
 	}
 	if moved.Meta.UpdatedAt == first.Meta.UpdatedAt {
-		t.Fatal("adding a tag is a change and must move updatedAt")
+		t.Fatal("a pinned title is a change and must move updatedAt")
+	}
+}
+
+func TestFilingASessionDoesNotMoveItInTheList(t *testing.T) {
+	// updatedAt means "when this conversation last changed", and the listing is
+	// ordered by it. Tagging, pinning or archiving is bookkeeping *about* the
+	// conversation, not a change to it: a session put aside must stay exactly
+	// where it was, the way markActivityRead already leaves it.
+	fs := &FileStore{Root: t.TempDir()}
+	dir, err := fs.EnsureLayout("sess_a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &State{ID: "sess_a", CWD: "/tmp", Mode: ModeAgent, SessionDir: dir}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hello"})
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	first, err := fs.ReadSnapshot("sess_a")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, step := range []struct {
+		name string
+		do   func()
+	}{
+		{"archiving", func() { st.SetArchived(true) }},
+		{"unarchiving", func() { st.SetArchived(false) }},
+		{"pinning", func() { st.SetPinned(true) }},
+		{"placing the pin", func() { st.SetPinnedRank(4) }},
+		{"unpinning", func() { st.SetPinned(false) }},
+		{"tagging", func() { st.SetTags([]string{"backend"}) }},
+		{"clearing the tags", func() { st.SetTags(nil) }},
+	} {
+		step.do()
+		if err := fs.Save(st); err != nil {
+			t.Fatal(err)
+		}
+		snap, err := fs.ReadSnapshot("sess_a")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if snap.Meta.UpdatedAt != first.Meta.UpdatedAt {
+			t.Fatalf("%s moved the session in the list: %q -> %q",
+				step.name, first.Meta.UpdatedAt, snap.Meta.UpdatedAt)
+		}
+	}
+
+	// What the stamp is actually for still moves it.
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "answer"})
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := fs.ReadSnapshot("sess_a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.UpdatedAt == first.Meta.UpdatedAt {
+		t.Fatal("a new message did not move the session")
 	}
 }

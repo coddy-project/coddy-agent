@@ -16,7 +16,7 @@ How the documentation under `docs/` is organised, what a change to Coddy must ca
 | `docs/plans/` | Design records, decisions as they were taken | Internal: not in the map, frozen, not rewritten to match a later rename |
 | `docs/assets/` | What the pages embed: screenshots, videos, brand files | See [the assets index](../assets/INDEX.md) |
 
-The map of all of it is [`docs/nav.yaml`](../nav.yaml): every page with its group, title and a one-line summary. [`docs/README.md`](../README.md) (the hub), [`docs/llms.txt`](../llms.txt) and [`docs/llms-full.txt`](../llms-full.txt) are generated from it, and the sidebar of the documentation site will be too. A page that is not in the map does not exist as far as readers and agents are concerned, and `make docs-check` says so. The design records of `docs/plans/` are the one exception: they are internal and stay out of the map.
+The map of all of it is [`docs/nav.yaml`](../nav.yaml): every page with its group, title and a one-line summary. [`docs/README.md`](../README.md) (the hub) is generated from it, and so are the `llms.txt` and `llms-full.txt` published at the site root, and the sidebar of the documentation site will be too. A page that is not in the map does not exist as far as readers and agents are concerned, and `make docs-check` says so. The design records of `docs/plans/` are the one exception: they are internal and stay out of the map.
 
 A page that moves takes its address with it: there are no redirect stubs, so an old link breaks, and the coddy.dev address (`coddy.dev/docs/<slug>`) follows the map. Links that leave the repository use that form, and the binary, the schema and the bundled skill print the current addresses.
 
@@ -84,7 +84,7 @@ GitHub renders an inline player only for a file uploaded as a GitHub attachment:
 | File | Block | Source |
 |------|-------|--------|
 | `docs/README.md` | `docsgen:nav` | `nav.yaml`: groups, pages, summaries |
-| `docs/llms.txt`, `docs/llms-full.txt` | whole file | `nav.yaml` and the pages themselves; `docs/plans/` is outside the map, so neither file carries a design record |
+| `llms.txt`, `llms-full.txt` (site root, **not** kept in this repository) | whole file | `nav.yaml` and the pages themselves; `docs/plans/` is outside the map, so neither file carries a design record |
 | `docs/reference/config.md` | `docsgen:config` | `internal/config/config.schema.json` descriptions and the loader's defaults (`config.DocDefaults`) |
 | `docs/reference/cli.md` | `docsgen:cli` | `coddy --help` and the `--help` of every command with a flag set |
 | `docs/assets/INDEX.md` | `docsgen:assets` | the files under `docs/assets` and their references |
@@ -110,7 +110,7 @@ Every page of the map has a stable address on coddy.dev, so the binary, the sche
 | `https://coddy.dev/docs/<slug>` | The visitor lands on the page on GitHub; a `#fragment` survives the hop |
 | `https://coddy.dev/docs/<slug>.md` | The raw Markdown of the page on the main branch |
 | `https://coddy.dev/docs/` | The hub, `docs/README.md` on GitHub |
-| `https://coddy.dev/llms.txt`, `https://coddy.dev/llms-full.txt` | The same files as `docs/llms.txt` and `docs/llms-full.txt`; the index links the raw Markdown on `main` |
+| `https://coddy.dev/llms.txt`, `https://coddy.dev/llms-full.txt` | Built from `nav.yaml` and the pages on every run and written straight into the site checkout; the index links the raw Markdown on `main` |
 | `https://coddy.dev/config.schema.json` | The config schema, published by `make site-schema` |
 
 The slug is the page's path under `docs/` without `.md` (`getting-started/install`, `reference/config`); a page outside `docs/` is known by its file name (`CONTRIBUTING`). GitHub Pages has no server-side redirects, but it serves `404.html` for every address that is not a file, so the site's `404.html` loads `docs-redirect.js`, one generated script that reads the path and forwards the browser (`window.coddyDocsTarget` is the pure mapping, testable without navigating). The answer carries a 404 status, which is fine for people and irrelevant to agents, who get the raw addresses from `llms.txt`; a redirect rule on the Cloudflare zone in front of the site turns the same mapping into a real 301 (Rules, Redirect Rules, dynamic: when the path starts with `/docs/`, redirect to `concat("https://github.com/coddy-project/coddy-agent/blob/main/docs/", substring(http.request.uri.path, 6), ".md")` with status 301, and a second rule for the `.md` suffix pointing at raw.githubusercontent.com). `internal/docsgen` renders the layer from `nav.yaml`:
@@ -119,6 +119,8 @@ The slug is the page's path under `docs/` without `.md` (`getting-started/instal
 make site-docs        # write docs-redirect.js, llms.txt and llms-full.txt into the site checkout beside this one (SITE_REPO=... if elsewhere)
 make site-docs-check  # report drift without writing
 ```
+
+`llms.txt` and `llms-full.txt` are **not kept in this repository**. They are a concatenation of every page, rebuilt on every run, so a copy in the index conflicted in every branch that touched any page - two people editing two different pages both regenerate the same file. `make docs` renders them into the site layer only; `.gitignore` covers the old paths so a stale local copy cannot come back.
 
 The site repository is `coddy-project.github.io`. A change to a page, to `nav.yaml` or to the schema is published there with the same pull request; the site commit follows the merge of the coddy-agent change, because `llms.txt` names pages by their path on `main`. Links that leave the repository use the `coddy.dev/docs/<slug>` form, never a GitHub path.
 

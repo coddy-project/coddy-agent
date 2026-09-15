@@ -620,6 +620,25 @@ export function SessionsManager(props: {
                   </td>
                   <td className="sessions-manager-col-title">
                     <span className="sessions-manager-title-line">
+                      {/* The archive is the state the row is in, so it leads the
+                          title as a mark rather than standing among the tags,
+                          which are labels the operator chose. */}
+                      {row.archived ? (
+                        <span
+                          className="sessions-manager-archived-mark"
+                          data-testid={`sessions-manager-archived-${row.id}`}
+                          aria-label={t("sessions.manage.archivedBadge")}
+                          title={
+                            row.archivedAt
+                              ? t("sessions.manage.archivedOn", {
+                                  date: formatRowTimestampFull(row.archivedAt),
+                                })
+                              : t("sessions.manage.archivedBadge")
+                          }
+                        >
+                          <IconArchive />
+                        </span>
+                      ) : null}
                       <span title={row.title || row.id}>
                         {row.title || t("sessions.newChatFallback")}
                       </span>
@@ -641,21 +660,6 @@ export function SessionsManager(props: {
                           title={t("sessions.manage.protectedRow")}
                         >
                           {t("sessions.manage.openBadge")}
-                        </span>
-                      ) : null}
-                      {row.archived ? (
-                        <span
-                          className="sessions-manager-badge sessions-manager-badge-archived"
-                          data-testid={`sessions-manager-archived-${row.id}`}
-                          title={
-                            row.archivedAt
-                              ? t("sessions.manage.archivedOn", {
-                                  date: formatRowTimestampFull(row.archivedAt),
-                                })
-                              : t("sessions.manage.archivedBadge")
-                          }
-                        >
-                          {t("sessions.manage.archivedBadge")}
                         </span>
                       ) : null}
                       {/* A tag is a filter you can reach: clicking one narrows

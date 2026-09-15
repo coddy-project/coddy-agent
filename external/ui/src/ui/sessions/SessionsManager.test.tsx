@@ -533,9 +533,11 @@ test("an archived row says so", async () => {
     target: { value: "all" },
   });
   const filed = await screen.findByTestId("sessions-manager-row-sess_filed");
+  // The archive is a state, so the row wears a mark rather than a chip among
+  // its tags: what it says is its accessible name, not text in the row.
   expect(
     within(filed).getByTestId("sessions-manager-archived-sess_filed"),
-  ).toHaveTextContent("archived");
+  ).toHaveAccessibleName("archived");
   expect(
     screen.queryByTestId("sessions-manager-archived-sess_live"),
   ).toBeNull();

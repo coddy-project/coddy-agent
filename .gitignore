@@ -76,3 +76,9 @@ docs/superpowers/
 # Local Git worktrees.
 worktrees/
 /docsgen
+
+# Built for the site on every docs run and published from there, not kept here:
+# a copy in the index conflicted in every branch that touched any page, because
+# both sides regenerate the same concatenation of all of them.
+/docs/llms.txt
+/docs/llms-full.txt
