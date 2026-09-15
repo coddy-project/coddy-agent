@@ -115,6 +115,12 @@ export function Settings(props: {
   activeSessionId?: string;
   /** Session ids the table removed, so the shell can drop them from History. */
   onSessionsDeleted?: (ids: string[]) => void;
+  /**
+   * Workspace of the viewed session. The Subagents tab lists the definitions of
+   * that workspace and writes its approvals there, because a receipt is keyed
+   * by workspace and spawn_agent checks the session's own cwd.
+   */
+  workspacePath?: string | undefined;
 }) {
   const [schema, setSchema] = useState<JsonSchema | null>(null);
   const [doc, setDoc] = useState<Record<string, unknown>>({});
@@ -283,6 +289,7 @@ export function Settings(props: {
                 {...(props.onSessionsDeleted
                   ? { onSessionsDeleted: props.onSessionsDeleted }
                   : {})}
+                workspacePath={props.workspacePath}
               />
             ) : null}
           </div>

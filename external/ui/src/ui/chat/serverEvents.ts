@@ -17,6 +17,11 @@ export type ServerEventsHandlers = {
    *  follow-up onto the turn it is watching. Carries the whole queue and its
    *  version; the caller keeps the highest version it has seen. */
   onMessageQueue?: (sessionId: string, queue: QueuedMessageEvent) => void;
+  /** A background subagent of this parent session started waiting for a
+   *  permission answer, or stopped waiting (answered anywhere, withdrawn, its
+   *  run ended). The prompt itself waits on the subagent's task row, so the
+   *  chat of that session re-reads its tasks. */
+  onSubagentPermission?: (parentSessionId: string) => void;
   /** The connect/reconnect replay is complete; reconcile activity and queues over REST. */
   onReady?: () => void;
   /** Called whenever the subscription goes up or down, so callers can fall back to polling. */
@@ -97,6 +102,17 @@ function sessionIdOf(data: string): string {
   }
 }
 
+function parentSessionIdOf(data: string): string {
+  try {
+    const parsed = JSON.parse(data) as { parentSessionId?: unknown };
+    return typeof parsed.parentSessionId === "string"
+      ? parsed.parentSessionId.trim()
+      : "";
+  } catch {
+    return "";
+  }
+}
+
 /**
  * Subscribe to `GET /coddy/events` until the signal aborts.
  *
@@ -152,6 +168,11 @@ export async function subscribeServerEvents(
           if (ev.event === "config_reloaded") {
             // Nothing to parse: the payload is the announcement itself.
             p.onConfigReloaded?.();
+            continue;
+          }
+          if (ev.event === "subagent_permission") {
+            const parent = parentSessionIdOf(ev.data);
+            if (parent) p.onSubagentPermission?.(parent);
             continue;
           }
           if (ev.event !== "turn_started" && ev.event !== "turn_ended")

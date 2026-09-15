@@ -4,13 +4,15 @@ package httpserver
 
 // Edge cases of the subagent HTTP surface that are not part of the happy path
 // in features/subagents_http.feature: a child transcript cannot be branched,
-// and a child bundle is stored inside the session that spawned it rather than
-// beside it in the sessions root.
+// a child bundle is stored inside the session that spawned it rather than
+// beside it in the sessions root, the catalog reports every bound a definition
+// declares, and the catalog routes answer errors as JSON.
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -180,5 +182,124 @@ func TestSubagentHTTPChildIsReadOnlyThroughItsID(t *testing.T) {
 	status, body = rig.request(t, http.MethodPost, "/coddy/sessions/"+childID+"/workspace", workspace, nil)
 	if status != http.StatusConflict {
 		t.Fatalf("workspace on a child = %d %v, want 409", status, body)
+	}
+}
+
+// catalogRow finds one definition in a GET /coddy/subagents body.
+func catalogRow(t *testing.T, body map[string]interface{}, name string) map[string]interface{} {
+	t.Helper()
+	items, _ := body["items"].([]interface{})
+	for _, raw := range items {
+		if row, ok := raw.(map[string]interface{}); ok && row["name"] == name {
+			return row
+		}
+	}
+	t.Fatalf("catalog does not list %q: %v", name, body)
+	return nil
+}
+
+// The catalog is what an approval surface reasons about, so it has to name the
+// bounds the definition declares - not just its name and description - and
+// never the role body of a file nobody has approved yet.
+func TestSubagentCatalogServesTheDeclaredBounds(t *testing.T) {
+	rig := newSubagentEdgeRig(t)
+	writeProjectDefinition(t, rig.root, "bounded", "---\ndescription: lives in the project workspace\n"+
+		"tools: read, grep\ndisallowed_tools: run_command\npermission_mode: ask\ntimeout_seconds: 120\nmax_turns: 7\nbackground: true\n---\n"+
+		"You review code and report findings.\n")
+
+	status, body := rig.request(t, http.MethodGet, "/coddy/subagents", nil, nil)
+	if status != http.StatusOK {
+		t.Fatalf("catalog status %d body %v", status, body)
+	}
+	row := catalogRow(t, body, "bounded")
+	tools, _ := row["tools"].([]interface{})
+	if len(tools) != 2 || tools[0] != "read" || tools[1] != "grep" {
+		t.Fatalf("tools = %v", row["tools"])
+	}
+	denied, _ := row["disallowed_tools"].([]interface{})
+	if len(denied) != 1 || denied[0] != "run_command" {
+		t.Fatalf("disallowed_tools = %v", row["disallowed_tools"])
+	}
+	if row["permission_mode"] != "ask" || row["background"] != true {
+		t.Fatalf("bounds = %v", row)
+	}
+	if secs, _ := row["timeout_seconds"].(float64); secs != 120 {
+		t.Fatalf("timeout_seconds = %v", row["timeout_seconds"])
+	}
+	if turns, _ := row["max_turns"].(float64); turns != 7 {
+		t.Fatalf("max_turns = %v", row["max_turns"])
+	}
+	if size, _ := row["role_bytes"].(float64); size == 0 {
+		t.Fatalf("role_bytes = %v", row["role_bytes"])
+	}
+	encoded, err := json.Marshal(row)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "You review code") {
+		t.Fatalf("the role body reached the client: %s", encoded)
+	}
+	// A built-in restricting nothing must not claim an empty allowlist.
+	if general := catalogRow(t, body, "general"); general["tools"] != nil {
+		t.Fatalf("general restricts no tools, so the row must omit the key: %v", general)
+	}
+}
+
+// Every error on the catalog routes is read by the SPA with res.json(), so the
+// body has to be JSON and say so.
+func TestSubagentRouteErrorsAreJSON(t *testing.T) {
+	rig := newSubagentEdgeRig(t)
+	for _, tc := range []struct {
+		name, method, path string
+		want               int
+	}{
+		{"relative cwd", http.MethodGet, "/coddy/subagents?cwd=relative/path", http.StatusBadRequest},
+		{"unknown name", http.MethodPost, "/coddy/subagents/nope/trust", http.StatusNotFound},
+		{"builtin", http.MethodPost, "/coddy/subagents/general/trust", http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest(tc.method, rig.ts.URL+tc.path, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			res, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = res.Body.Close() }()
+			if res.StatusCode != tc.want {
+				t.Fatalf("status %d, want %d", res.StatusCode, tc.want)
+			}
+			if ct := res.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+				t.Fatalf("Content-Type %q", ct)
+			}
+			raw, err := io.ReadAll(res.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var parsed struct {
+				Error struct {
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(raw, &parsed); err != nil {
+				t.Fatalf("body is not JSON (%v): %s", err, raw)
+			}
+			if strings.TrimSpace(parsed.Error.Message) == "" {
+				t.Fatalf("error body carries no message: %s", raw)
+			}
+		})
+	}
+}
+
+// writeProjectDefinition puts a definition into the workspace's .coddy/agents.
+func writeProjectDefinition(t *testing.T, workspace, name, body string) {
+	t.Helper()
+	dir := filepath.Join(workspace, ".coddy", "agents")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name+".md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

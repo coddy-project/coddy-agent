@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -91,6 +92,43 @@ func (s *Store) Reset(key string) string {
 	s.data[key] = id
 	s.saveUnlocked()
 	return id
+}
+
+// KeyFor returns the key that maps to sessionID. A background subagent asks
+// about its parent session, not about a chat, and this is how the bot finds the
+// conversation that session belongs to - after a restart too, since the map is
+// persisted.
+func (s *Store) KeyFor(sessionID string) (string, bool) {
+	if sessionID == "" {
+		return "", false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, id := range s.data {
+		if id == sessionID {
+			return key, true
+		}
+	}
+	return "", false
+}
+
+// ChatID returns the chat a session key addresses. A private conversation is
+// keyed by the user, and Telegram gives a private chat the id of that user.
+func ChatID(key string) (int64, bool) {
+	parts := strings.Split(key, ":")
+	if len(parts) < 3 {
+		return 0, false
+	}
+	switch parts[1] {
+	case "user", "chat":
+	default:
+		return 0, false
+	}
+	id, err := strconv.ParseInt(parts[2], 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return id, true
 }
 
 // KnownIDs returns all session IDs currently held in the store.

@@ -140,13 +140,17 @@ test("known section labels and descriptions follow the active locale", () => {
   expect(byId.subagents.description).toBe("Пул делегирования и доверие");
 });
 
-test("the schema-driven subagents tab gets its own label and blurb", () => {
+// Hybrid tab: the generated form still edits the config section, so the tab
+// keeps its schema key, while the kind routes it to the panel that also lists
+// the definitions and records approvals.
+test("subagents is a hybrid tab that keeps its schema key, label and blurb", () => {
   const byId = Object.fromEntries(
     deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
   );
-  expect(byId.subagents.kind).toBe("object");
-  expect(byId.subagents.label).toBe("Subagents");
-  expect(byId.subagents.description).toBe("Delegation pool & trust");
+  expect(byId.subagents?.kind).toBe("subagents");
+  expect(byId.subagents?.schemaKey).toBe("subagents");
+  expect(byId.subagents?.label).toBe("Subagents");
+  expect(byId.subagents?.description).toBe("Delegation pool & trust");
 });
 
 test("the schema-driven hooks tab gets its own label and blurb", () => {

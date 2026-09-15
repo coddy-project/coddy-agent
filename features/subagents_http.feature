@@ -39,6 +39,28 @@ Feature: The HTTP surface exposes subagent runs and definitions
     And I GET the subagent catalog for the server workspace
     Then the catalog names "reviewer" as trusted
 
+  Scenario: The catalog carries the bounds each definition declares
+    Given a running coddy serve server with a session
+    And the server workspace has a bounded subagent definition "reviewer" under .coddy/agents
+    When I GET the subagent catalog for the server workspace
+    Then the catalog reports the bounds "reviewer" declares
+
+  Scenario: A detached subagent's prompt reaches the clients and is answered through the child session
+    Given a running coddy serve server with a session
+    And a live child session "sess_bdd_detached" of that session backed by a running subagent task
+    And a client is subscribed to the server events
+    And the subagent in "sess_bdd_detached" waits for permission to run a command after its parent turn ended
+    Then the events stream announces the prompt of child session "sess_bdd_detached" for that session
+    When I GET the background tasks of that session
+    Then the response lists a task of kind "agent"
+    And that task row carries the pending permission of child session "sess_bdd_detached"
+    When I answer "allow" to that prompt against the child session "sess_bdd_detached"
+    Then the waiting subagent in "sess_bdd_detached" receives "allow"
+    And the events stream announces that the prompt of "sess_bdd_detached" is settled
+    When I GET the background tasks of that session
+    Then the response lists a task of kind "agent"
+    And that task row carries no pending permission
+
   Scenario: Deleting a running child stops its task first
     Given a running coddy serve server with a session
     And a live child session "sess_bdd_running" of that session backed by a running subagent task

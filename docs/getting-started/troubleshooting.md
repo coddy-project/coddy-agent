@@ -143,7 +143,7 @@ coddy agents list [--cwd DIR]
 coddy agents trust <name>
 ```
 
-Both `trust` commands print what they are about to approve and record the receipt (`~/.coddy/hooks-trust.json`, `~/.coddy/subagents-trust.json`). From a remote console or an ACP client the approval belongs on the server: `POST /coddy/hooks/trust` and `POST /coddy/subagents/{name}/trust` with the session workspace as `cwd`. A checkout you already trust can run under `project_trust: allow`. Guides: [Hooks](../features/hooks.md#project-files-and-trust), [Subagents](../features/subagents.md#scopes-and-project-trust).
+Both `trust` commands print what they are about to approve and record the receipt (`~/.coddy/hooks-trust.json`, `~/.coddy/subagents-trust.json`). From a remote console or an ACP client the approval belongs on the server: `POST /coddy/hooks/trust` and `POST /coddy/subagents/{name}/trust` with the session workspace as `cwd`. The web UI's Settings > Subagents lists the definitions and marks the ones awaiting approval, but records none. A checkout you already trust can run under `project_trust: allow`. Guides: [Hooks](../features/hooks.md#project-files-and-trust), [Subagents](../features/subagents.md#scopes-and-project-trust).
 
 ## A turn stops with a usage limit
 

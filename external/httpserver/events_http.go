@@ -44,6 +44,15 @@ func (s *Server) coddyEventsStream(w http.ResponseWriter, r *http.Request) {
 			At:        time.Now().UTC(),
 		}))
 	}
+	// A subagent already waiting for an answer is part of the snapshot too: a
+	// console attached after it asked has no other way to find the prompt. A
+	// prompt settled in between is announced as settled after the snapshot,
+	// which a client handles like any other settled prompt.
+	for _, dto := range waitingDetachedPrompts() {
+		if frame := subagentPermissionFrame(detachedPromptAsked, dto); frame != nil {
+			_, _ = w.Write(frame)
+		}
+	}
 	// The snapshot is what makes a client connecting mid-turn see the turn at all, and
 	// "ready" is how it knows the snapshot is complete rather than still arriving.
 	_, _ = io.WriteString(w, "event: ready\ndata: {\"object\":\"coddy.events_ready\"}\n\n")

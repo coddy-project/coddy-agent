@@ -16,15 +16,18 @@ type updateMsg struct {
 	update    interface{}
 }
 
-// permRequest is a blocking permission round-trip between a turn worker and
-// the UI loop.
+// permRequest is a blocking permission round-trip between an asker (a turn
+// worker, or a background subagent) and the UI loop. ctx is the asker's: once
+// it ends nobody reads the reply, so the modal is taken down (gates.go).
 type permRequest struct {
+	ctx    context.Context
 	params acp.PermissionRequestParams
 	reply  chan *acp.PermissionResult
 }
 
 // questRequest is the question-tool round-trip.
 type questRequest struct {
+	ctx    context.Context
 	params acp.QuestionRequestParams
 	reply  chan *acp.QuestionResult
 }
@@ -77,7 +80,7 @@ func (s *sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 	if mode == config.PermModeBypass {
 		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
-	req := permRequest{params: params, reply: make(chan *acp.PermissionResult, 1)}
+	req := permRequest{ctx: ctx, params: params, reply: make(chan *acp.PermissionResult, 1)}
 	select {
 	case s.app.permCh <- req:
 	case <-ctx.Done():
@@ -97,7 +100,7 @@ func (s *sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 
 // RequestQuestion blocks the calling turn worker until the operator answers.
 func (s *sender) RequestQuestion(ctx context.Context, params acp.QuestionRequestParams) (*acp.QuestionResult, error) {
-	req := questRequest{params: params, reply: make(chan *acp.QuestionResult, 1)}
+	req := questRequest{ctx: ctx, params: params, reply: make(chan *acp.QuestionResult, 1)}
 	select {
 	case s.app.questCh <- req:
 	case <-ctx.Done():

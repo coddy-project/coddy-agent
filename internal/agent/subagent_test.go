@@ -243,6 +243,284 @@ func TestPermissionRelayDeniesAtOnceWhenTurnAlreadyEnded(t *testing.T) {
 	}
 }
 
+// stubBroker stands in for the surface that shows a detached prompt.
+type stubBroker struct {
+	mu       sync.Mutex
+	requests []DetachedPermissionRequest
+	asked    chan struct{}
+	release  chan *acp.PermissionResult
+	// err is answered instead of waiting when set.
+	err error
+}
+
+func newStubBroker() *stubBroker {
+	return &stubBroker{asked: make(chan struct{}, 8), release: make(chan *acp.PermissionResult)}
+}
+
+func (b *stubBroker) RequestDetachedPermission(ctx context.Context, req DetachedPermissionRequest) (*acp.PermissionResult, error) {
+	b.mu.Lock()
+	b.requests = append(b.requests, req)
+	b.mu.Unlock()
+	b.asked <- struct{}{}
+	if b.err != nil {
+		return nil, b.err
+	}
+	select {
+	case res := <-b.release:
+		return res, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (b *stubBroker) seen() []DetachedPermissionRequest {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]DetachedPermissionRequest(nil), b.requests...)
+}
+
+// A detached run's parent turn is over by construction, so its prompt has to
+// leave the finished turn's stream and reach the surface instead - addressed
+// to the child session, which is the one waiting for the answer.
+func TestPermissionRelayRoutesToTheBrokerOnceTheTurnEnded(t *testing.T) {
+	const parentID = "sess_relay_detached"
+	parent := newBlockingSender()
+	broker := newStubBroker()
+	turnCtx, cancelTurn := context.WithCancel(context.Background())
+	cancelTurn()
+	relay := &permissionRelay{
+		parent:              parent,
+		parentSessionID:     parentID,
+		childSessionID:      "sess_detached_child",
+		agentName:           "writer",
+		taskID:              "bg_7",
+		childPermissionMode: config.PermModeAsk,
+		turnCtx:             turnCtx,
+		childCtx:            context.Background(),
+		arbiter:             acquireArbiter(parentID),
+		broker:              broker,
+	}
+	defer releaseArbiter(parentID)
+
+	params := permParams("Run: run_command")
+	params.Options = []acp.PermissionOption{
+		{OptionID: "allow", Name: "Allow once", Kind: "allow_once"},
+		{OptionID: "allow_always", Name: "Always allow", Kind: "allow_always"},
+		{OptionID: "reject", Name: "Reject", Kind: "reject_once"},
+	}
+	done := make(chan *acp.PermissionResult, 1)
+	go func() {
+		res, err := relay.Request(context.Background(), params)
+		if err != nil {
+			t.Errorf("Request error = %v", err)
+		}
+		done <- res
+	}()
+
+	select {
+	case <-broker.asked:
+	case <-time.After(testWait):
+		t.Fatal("the prompt never reached the broker")
+	}
+	// The wait must not hold the parent's arbiter slot: it can last minutes,
+	// and a sibling's live prompt would be stuck behind it.
+	if n := arbiterWaiters(parentID); n != 0 {
+		t.Fatalf("detached wait queued %d relays on the arbiter slot", n)
+	}
+	select {
+	case relay.arbiter.slot <- struct{}{}:
+		<-relay.arbiter.slot
+	default:
+		t.Fatal("the detached wait holds the parent's arbiter slot")
+	}
+	if parent.calls() != 0 {
+		t.Fatalf("the finished turn's transport was touched %d times", parent.calls())
+	}
+
+	broker.release <- &acp.PermissionResult{Outcome: "selected", OptionID: "allow"}
+	select {
+	case res := <-done:
+		if res == nil || res.OptionID != "allow" {
+			t.Fatalf("answer = %+v, want the broker's allow", res)
+		}
+	case <-time.After(testWait):
+		t.Fatal("the answer never reached the child")
+	}
+
+	seen := broker.seen()
+	if len(seen) != 1 {
+		t.Fatalf("broker saw %d requests", len(seen))
+	}
+	req := seen[0]
+	if req.ChildSessionID != "sess_detached_child" || req.TaskID != "bg_7" || req.AgentName != "writer" {
+		t.Fatalf("request identity = %+v", req)
+	}
+	if req.ParentSessionID != parentID {
+		t.Fatalf("request parent = %q", req.ParentSessionID)
+	}
+	// Addressed to the child: that is the id the answer is posted against.
+	if req.Params.SessionID != "sess_detached_child" {
+		t.Fatalf("prompt SessionID = %q, want the child session", req.Params.SessionID)
+	}
+	if req.Params.ToolCall.Title != "[subagent writer] Run: run_command" {
+		t.Fatalf("prompt title = %q", req.Params.ToolCall.Title)
+	}
+	if req.Params.EffectivePermissionMode != config.PermModeAsk {
+		t.Fatalf("prompt mode = %q, want the child's", req.Params.EffectivePermissionMode)
+	}
+	for _, opt := range req.Params.Options {
+		if strings.HasPrefix(opt.OptionID, "allow_always") {
+			t.Fatalf("a detached prompt offers a standing grant: %+v", req.Params.Options)
+		}
+	}
+}
+
+// A relay queued behind a sibling's live prompt when its own turn ends must
+// not keep waiting for that slot: the prompt goes to the surface instead.
+func TestPermissionRelayQueuedOnTheArbiterMovesToTheBrokerWhenTheTurnEnds(t *testing.T) {
+	const parentID = "sess_relay_queued_detached"
+	broker := newStubBroker()
+	turnCtx, cancelTurn := context.WithCancel(context.Background())
+	defer cancelTurn()
+	relay := &permissionRelay{
+		parent:          newBlockingSender(),
+		parentSessionID: parentID,
+		childSessionID:  "sess_queued_child",
+		agentName:       "writer",
+		turnCtx:         turnCtx,
+		childCtx:        context.Background(),
+		arbiter:         acquireArbiter(parentID),
+		broker:          broker,
+	}
+	defer releaseArbiter(parentID)
+	// A sibling holds the slot for the whole test.
+	relay.arbiter.slot <- struct{}{}
+	defer func() { <-relay.arbiter.slot }()
+
+	done := make(chan *acp.PermissionResult, 1)
+	go func() {
+		res, _ := relay.Request(context.Background(), permParams("Run: write"))
+		done <- res
+	}()
+	deadline := time.Now().Add(testWait)
+	for arbiterWaiters(parentID) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the relay never queued on the slot")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	cancelTurn()
+
+	select {
+	case <-broker.asked:
+	case <-time.After(testWait):
+		t.Fatal("the queued prompt never reached the broker")
+	}
+	broker.release <- &acp.PermissionResult{Outcome: "selected", OptionID: "allow"}
+	select {
+	case res := <-done:
+		if res == nil || res.OptionID != "allow" {
+			t.Fatalf("answer = %+v, want allow", res)
+		}
+	case <-time.After(testWait):
+		t.Fatal("the answer never reached the child")
+	}
+}
+
+// Without a surface to show the prompt the answer is still a refusal, but the
+// child has to learn that nobody was asked - otherwise it reports that the
+// user said no, which never happened.
+func TestPermissionRelayDenialNamesWhyNobodyWasAsked(t *testing.T) {
+	const parentID = "sess_relay_no_broker"
+	turnCtx, cancelTurn := context.WithCancel(context.Background())
+	cancelTurn()
+	relay := &permissionRelay{
+		parent:          newBlockingSender(),
+		parentSessionID: parentID,
+		childSessionID:  "sess_no_broker_child",
+		agentName:       "writer",
+		turnCtx:         turnCtx,
+		childCtx:        context.Background(),
+		arbiter:         acquireArbiter(parentID),
+	}
+	defer releaseArbiter(parentID)
+
+	res, err := relay.Request(context.Background(), permParams("Run: write"))
+	assertDenied(t, res, err)
+	if res.Reason != permissionReasonNoApprover {
+		t.Fatalf("denial reason = %q", res.Reason)
+	}
+	if got := permissionDeniedResult(res); !strings.HasPrefix(got, permissionNotGrantedPrefix) {
+		t.Fatalf("tool result = %q, want the not-granted prefix", got)
+	}
+	// The eviction pass must still read it as a write that never happened.
+	if writeResultSucceeded(permissionDeniedResult(res)) {
+		t.Fatal("an unanswered gate was counted as a successful write")
+	}
+	// A refusal a user actually gave keeps its old wording.
+	if got := permissionDeniedResult(&acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}); got != permissionDeniedByUser {
+		t.Fatalf("a user's refusal renders as %q", got)
+	}
+}
+
+// In coddy serve the broker can find no surface up, or none that owns the
+// parent conversation. That is the same situation as no broker at all, and a
+// run stopped while it waits is told it was stopped, not that nobody answered.
+func TestPermissionRelayDetachedRefusalReasons(t *testing.T) {
+	t.Run("no surface can show it", func(t *testing.T) {
+		const parentID = "sess_relay_empty_slot"
+		broker := newStubBroker()
+		broker.err = ErrNoDetachedApprover
+		turnCtx, cancelTurn := context.WithCancel(context.Background())
+		cancelTurn()
+		relay := &permissionRelay{
+			parent: newBlockingSender(), parentSessionID: parentID, childSessionID: "sess_empty_slot_child",
+			agentName: "writer", turnCtx: turnCtx, childCtx: context.Background(),
+			arbiter: acquireArbiter(parentID), broker: broker,
+		}
+		defer releaseArbiter(parentID)
+		res, err := relay.Request(context.Background(), permParams("Run: write"))
+		assertDenied(t, res, err)
+		if res.Reason != permissionReasonNoApprover {
+			t.Fatalf("denial reason = %q, want the no-approver reason", res.Reason)
+		}
+	})
+	t.Run("stopped while waiting", func(t *testing.T) {
+		const parentID = "sess_relay_stopped_waiting"
+		broker := newStubBroker()
+		turnCtx, cancelTurn := context.WithCancel(context.Background())
+		cancelTurn()
+		childCtx, cancelChild := context.WithCancel(context.Background())
+		defer cancelChild()
+		relay := &permissionRelay{
+			parent: newBlockingSender(), parentSessionID: parentID, childSessionID: "sess_stopped_child",
+			agentName: "writer", turnCtx: turnCtx, childCtx: childCtx,
+			arbiter: acquireArbiter(parentID), broker: broker,
+		}
+		defer releaseArbiter(parentID)
+		done := make(chan *acp.PermissionResult, 1)
+		go func() {
+			res, _ := relay.Request(childCtx, permParams("Run: write"))
+			done <- res
+		}()
+		select {
+		case <-broker.asked:
+		case <-time.After(testWait):
+			t.Fatal("the prompt never reached the broker")
+		}
+		cancelChild()
+		select {
+		case res := <-done:
+			assertDenied(t, res, nil)
+			if res.Reason != permissionReasonStopped {
+				t.Fatalf("denial reason = %q, want the stopped reason", res.Reason)
+			}
+		case <-time.After(testWait):
+			t.Fatal("the wait outlived the stopped run")
+		}
+	})
+}
+
 func TestPermissionRelayUnblocksWithDenialWhileParentDecides(t *testing.T) {
 	cases := []struct {
 		name string

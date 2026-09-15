@@ -542,7 +542,7 @@ type UpdateSender interface {
 ```
 
 - `SendSessionUpdate` receives streaming events: `acp.MessageChunkUpdate` carries a text delta in `update.Content.Text`; `acp.ToolCallUpdate` is a tool start notification. Buffer text chunks and send them as a single message in `Flush()` after the agent turn.
-- `RequestPermission` should auto-approve in a gateway context (the admin configured the bot deliberately). Return `&acp.PermissionResult{Outcome: "allow", OptionID: "allow"}`.
+- `RequestPermission` should auto-approve the chat agent's own requests (the admin configured the bot deliberately): return `&acp.PermissionResult{Outcome: "allow", OptionID: "allow"}`. A request stamped with a subagent's own mode below `bypass` (`params.EffectivePermissionMode`) is not the admin's to wave through: ask the chat, as `external/gateway/telegram/permission.go` does, or deny it.
 - `RequestQuestion` can send the question text to the chat and return an empty answer, or implement a proper reply-based flow.
 
 See `external/gateway/telegram/sender.go` for a working reference.
@@ -579,7 +579,10 @@ conversation and the web UI are two views of one session.
   they arrive, not after the fact.
 - **The browser watches; the chat answers.** Session updates fan out to both
   surfaces, but permission requests and questions go only to the chat, because
-  it is the only one with somebody reading. A watcher is a spectator.
+  it is the only one with somebody reading. A watcher is a spectator. The one
+  exception is a background subagent that asks after the turn ended: that
+  prompt is offered to the chat and to the browser at once, and the first
+  answer wins.
 - **Continuing works in either direction.** Reply in the browser and the next
   `/context` in Telegram shows it; reply in Telegram and the browser has it on
   the next load. Only one turn runs at a time: the session's turn lock is a
@@ -641,6 +644,6 @@ The old session files remain on disk under the old ID. Use `coddy sessions list`
 ## Security notes
 
 - **Token exposure** — never commit the bot token to version control. Use `"${TELEGRAM_BOT_TOKEN}"` in YAML and export the variable before starting.
-- **Permissions** — the gateway auto-approves all tool permission requests so the agent can work unattended. Restrict `tools.command_allowlist` in `config.yaml` if you want to limit which shell commands the agent can run.
+- **Permissions** — the gateway auto-approves the chat agent's own tool permission requests so it can work unattended. Restrict `tools.command_allowlist` in `config.yaml` if you want to limit which shell commands the agent can run. A subagent whose definition narrowed its permission mode below `bypass` is not waved through: the bot asks in the chat with **Allow** / **Reject** buttons naming the subagent - during the turn, and after it ended for a background subagent - and only the person whose session asked can answer (in a group with individual sessions another member's tap is ignored and leaves the owner's buttons available). The message reads *Allowed*, *Denied* or *No longer waiting* once it settles.
 - **Access control** — set `default_access: "admins"` for bots that should only respond to a specific set of users. Open bots (`default_access: "all"`) will respond to any Telegram user who can write to the chat.
 - **Network** — the gateway uses Telegram long-polling (not webhooks). No inbound port needs to be open.
