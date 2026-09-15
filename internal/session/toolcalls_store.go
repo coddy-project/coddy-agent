@@ -16,6 +16,15 @@ import (
 
 const toolCallMetaVersion = 1
 
+// toolCallStampLayout is RFC3339 with milliseconds. A transcript row reports how
+// long a step took by subtracting StartedAt from FinishedAt, and time.RFC3339
+// carries whole seconds only - so a call that finished inside the second it
+// started in was written down as starting and ending at the same instant, and
+// every step faster than a second read "0ms" once the session was reloaded.
+// Bundles written before this keep their second-granular stamps; there is no
+// sub-second reading left in them to recover.
+const toolCallStampLayout = "2006-01-02T15:04:05.000Z07:00"
+
 type ToolCallMeta struct {
 	Version      int             `json:"version"`
 	ToolCallID   string          `json:"toolCallId"`
@@ -179,7 +188,7 @@ func ListToolCalls(sessionDir string) ([]string, error) {
 }
 
 func MarkToolCallStarted(sessionDir, toolCallID, name, kind, status string) error {
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := time.Now().UTC().Format(toolCallStampLayout)
 	meta := ToolCallMeta{
 		Version:    toolCallMetaVersion,
 		ToolCallID: strings.TrimSpace(toolCallID),
@@ -192,7 +201,7 @@ func MarkToolCallStarted(sessionDir, toolCallID, name, kind, status string) erro
 }
 
 func MarkToolCallFinished(sessionDir, toolCallID, name, kind, status string) error {
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := time.Now().UTC().Format(toolCallStampLayout)
 	meta := ToolCallMeta{
 		Version:    toolCallMetaVersion,
 		ToolCallID: strings.TrimSpace(toolCallID),
