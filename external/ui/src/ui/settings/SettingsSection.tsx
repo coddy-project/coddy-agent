@@ -16,10 +16,7 @@ import { schemaFieldDesc, schemaFieldLabel } from "./schemaI18n";
 import { SettingsArraySection } from "./SettingsArraySection";
 import { SessionsManager } from "../sessions/SessionsManager";
 import { SkillsSection } from "./SkillsSection";
-import {
-  settingsSectionLabel,
-  type SectionDescriptor,
-} from "./settingsSections";
+import type { SectionDescriptor } from "./settingsSections";
 import { useT } from "../i18n/I18nProvider";
 
 // The deployments a neuraldeep provider may point at, mirroring
@@ -428,7 +425,7 @@ export function SettingsSection(props: {
             />
           ) : null
       : undefined;
-  const form = (
+  return (
     <SchemaForm
       schema={sub}
       value={asObject(doc[key])}
@@ -436,39 +433,5 @@ export function SettingsSection(props: {
       fieldOverride={override}
       i18nDomain={section.id}
     />
-  );
-  const extraKeys = (section.extraKeys ?? []).filter(
-    (ck) => props_[ck] !== undefined,
-  );
-  if (extraKeys.length === 0) {
-    return form;
-  }
-  // Keys that belong to this tab's subject render as blocks below its form
-  // (Context compaction under ReAct agent); each still edits its own config key.
-  return (
-    <div className="settings-group">
-      <div className="settings-group-block">{form}</div>
-      {extraKeys.map((ck) => {
-        const extra = props_[ck] as JsonSchema;
-        return (
-          <div
-            key={ck}
-            id={`settings-block-${ck}`}
-            className="settings-group-block"
-            data-testid={`settings-block-${ck}`}
-          >
-            <p className="appearance-section-label">
-              {settingsSectionLabel(ck, extra)}
-            </p>
-            <SchemaForm
-              schema={extra}
-              value={asObject(doc[ck])}
-              onChange={(v) => setKey(ck, v)}
-              i18nDomain={ck}
-            />
-          </div>
-        );
-      })}
-    </div>
   );
 }

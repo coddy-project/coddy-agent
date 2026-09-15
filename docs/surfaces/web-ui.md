@@ -71,7 +71,7 @@ https://github.com/user-attachments/assets/55e9e66f-8a8d-47be-af75-596b8b00fafa
 
 ![The settings sheet with the tabbed navigation, ReAct agent tab](../assets/screenshot-fullhd-settings.png)
 
-*The settings sheet with the tabbed navigation, ReAct agent tab; its Context compaction block follows the loop settings*
+*The settings sheet with the tabbed navigation, ReAct agent tab*
 
 - Coddy hot-reloads its own configuration, and not only from this page: the agent's **`config_commit`** / **`config_rollback`** tools rewrite it mid-turn, installing a skill rewrites it, another browser tab may be saving the settings form. Anything the SPA derives from the configuration - the composer **Model** picker, the **`multimodal`** attachment button, the slash-command names - was read once at boot and would otherwise stay stale until a page reload (issue **#161**).
 - **`GET /coddy/events`** carries **`event: config_reloaded`** after every swap of the live configuration. **`subscribeServerEvents`** (**`chat/serverEvents.ts`**) turns it into the optional **`onConfigReloaded`** callback, and **`App.tsx`** bumps **`configEpoch`**. Both config-derived fetches - **`GET /v1/models`** and **`GET /coddy/slash-commands`** - depend on that counter, so they re-read together. The Settings **Save** button bumps the same counter through **`onConfigSaved`**, which is why a local save and a remote swap behave identically.

@@ -29,6 +29,20 @@ func TestUISchemaRootPropertyOrder(t *testing.T) {
 	if ord[0] != "providers" {
 		t.Fatalf("first key %v", ord[0])
 	}
+	// Context compaction is a tab of its own, right after the ReAct agent tab:
+	// the same loop, and the settings an operator reads together.
+	at := func(key string) int {
+		for i, v := range ord {
+			if v == key {
+				return i
+			}
+		}
+		return -1
+	}
+	agent, compaction := at("agent"), at("compaction")
+	if agent < 0 || compaction != agent+1 {
+		t.Fatalf("compaction must follow agent: agent=%d compaction=%d order=%v", agent, compaction, ord)
+	}
 }
 
 func TestUISchemaProviderNamePatternAndAPIKeyPlaceholderHint(t *testing.T) {

@@ -1,9 +1,5 @@
 import { afterEach, expect, test } from "vitest";
-import {
-  deriveSettingsSections,
-  findSettingsSection,
-  settingsSectionLabel,
-} from "./settingsSections";
+import { deriveSettingsSections } from "./settingsSections";
 import type { JsonSchema } from "./SchemaForm";
 import { initLocale } from "../i18n/i18n";
 
@@ -82,45 +78,10 @@ test("derives tabs in schema order with Appearance first and System group", () =
     "skills",
     "memory",
     "system",
+    "compaction",
     "subagents",
     "hooks",
   ]);
-});
-
-test("context compaction renders inside the ReAct agent tab, not as a tab", () => {
-  const sections = deriveSettingsSections(rootSchema);
-  const agent = sections.find((s) => s.id === "agent");
-  expect(agent?.kind).toBe("object");
-  expect(agent?.schemaKey).toBe("agent");
-  expect(agent?.extraKeys).toEqual(["compaction"]);
-  expect(sections.find((s) => s.id === "compaction")).toBeUndefined();
-  // Only the form moves: every other tab carries no nested keys.
-  expect(sections.filter((s) => s.extraKeys).map((s) => s.id)).toEqual([
-    "agent",
-  ]);
-});
-
-test("without an agent key in the schema compaction keeps a tab of its own", () => {
-  const { agent: _agent, ...rest } = rootSchema.properties ?? {};
-  const schema = {
-    ...rootSchema,
-    properties: rest,
-  } as unknown as JsonSchema;
-  const byId = Object.fromEntries(
-    deriveSettingsSections(schema).map((s) => [s.id, s]),
-  );
-  expect(byId.agent).toBeUndefined();
-  expect(byId.compaction?.kind).toBe("object");
-  expect(byId.compaction?.extraKeys).toBeUndefined();
-});
-
-test("a deep link to the compaction tab opens the ReAct agent tab", () => {
-  const sections = deriveSettingsSections(rootSchema);
-  expect(findSettingsSection(sections, "compaction")?.id).toBe("agent");
-  expect(findSettingsSection(sections, "agent")?.id).toBe("agent");
-  expect(findSettingsSection(sections, "tools")?.id).toBe("tools");
-  expect(findSettingsSection(sections, "no-such-tab")).toBeNull();
-  expect(findSettingsSection(sections, "")).toBeNull();
 });
 
 test("array sections carry their label field", () => {
@@ -173,8 +134,8 @@ test("known section labels and descriptions follow the active locale", () => {
   expect(byId.providers.label).toBe("Провайдеры LLM");
   expect(byId.tools.label).toBe("Инструменты и разрешения");
   expect(byId.memory.label).toBe("Долговременная память");
-  expect(byId.agent.description).toBe("Цикл ReAct и сжатие контекста");
-  expect(settingsSectionLabel("compaction")).toBe("Сжатие контекста");
+  expect(byId.compaction.label).toBe("Сжатие контекста");
+  expect(byId.compaction.description).toBe("Сжатие истории диалога");
   expect(byId.subagents.label).toBe("Субагенты");
   expect(byId.subagents.description).toBe("Пул делегирования и доверие");
 });

@@ -667,9 +667,12 @@ func UISchemaMap() map[string]interface{} {
 			nil),
 	}
 
+	// Context compaction follows the ReAct agent: it is the same loop deciding
+	// what to send the model, and an operator who has just set max_turns is the
+	// one who reads the threshold next.
 	rootOrder := []string{
-		"providers", "models", "agent", "tools", "subagents", "hooks", "mcp_servers", "skills", "memory", "scheduler",
-		"prompts", "instructions", "logger", "sessions", "compaction", "gateways",
+		"providers", "models", "agent", "compaction", "tools", "subagents", "hooks", "mcp_servers", "skills", "memory",
+		"scheduler", "prompts", "instructions", "logger", "sessions", "gateways",
 	}
 
 	doc := map[string]interface{}{
