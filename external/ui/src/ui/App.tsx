@@ -1110,6 +1110,10 @@ export function App() {
   /** Ticks once a second so elapsed times advance between polls. */
   const [backgroundNowMs, setBackgroundNowMs] = useState(() => Date.now());
   /** Set while the viewed session is a subagent's transcript (read-only, no composer). */
+  // Whether the conversation on screen is archived, and whether the request to
+  // take it out of the archive is in flight.
+  const [viewedArchived, setViewedArchived] = useState(false);
+  const [unarchiving, setUnarchiving] = useState(false);
   const [subagentTranscript, setSubagentTranscript] =
     useState<SubagentTranscriptMeta | null>(null);
   // Mirrored for the stable Settings callback, which has to know that the
@@ -2379,6 +2383,7 @@ export function App() {
         taskId?: string;
       } | null;
       readOnly?: boolean;
+      archived?: boolean;
       uiLog?: Array<{
         id?: string;
         level?: string;
@@ -2413,6 +2418,10 @@ export function App() {
       });
       // A child session locks the composer; an ordinary one carries no marker.
       setSubagentTranscript(parseSubagentTranscriptMeta(res.data));
+      // The composer learns from the transcript, not from the session list: the
+      // list skips the archive, so the conversation on screen may be in no page
+      // the client holds.
+      setViewedArchived(!!res.data.archived);
     }
     type UILogRow = {
       id: string;
@@ -3034,6 +3043,39 @@ export function App() {
     await loadSessionsList(true);
   }
 
+  /**
+   * Takes the conversation on screen out of the archive, from the notice that
+   * stands where its composer would be. The flag is cleared as soon as the
+   * server agrees, so the composer comes back without waiting for the listing.
+   */
+  async function unarchiveViewedSession() {
+    const sid = sessionId.trim();
+    if (!sid || unarchiving) {
+      return;
+    }
+    setUnarchiving(true);
+    try {
+      const res = await fetch(`/coddy/sessions/${encodeURIComponent(sid)}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ archived: false }),
+      });
+      if (!res.ok) {
+        setSessionsError(t("app.backendUnavailable", { status: res.status }));
+        return;
+      }
+      setViewedArchived(false);
+      setSessions((prev) =>
+        prev.map((s) => (s.id === sid ? { ...s, archived: false } : s)),
+      );
+      await loadSessionsList(true);
+    } catch {
+      setSessionsError(t("app.backendUnavailable", { status: 0 }));
+    } finally {
+      setUnarchiving(false);
+    }
+  }
+
   // The session table in Settings removes bundles behind the open panel. Drop
   // the rows from History right away, and when the conversation on screen was
   // one of them, reset the chat to a new one - without leaving Settings, which
@@ -3117,6 +3159,7 @@ export function App() {
     setEditingAssetNote("");
     setEditingFiles([]);
     setSubagentTranscript(null);
+    setViewedArchived(false);
     if (!sessionId) {
       setItems([]);
       setDraft("");
@@ -4533,33 +4576,35 @@ export function App() {
    */
   const sessionEnvironments = useMemo<SessionsEnvironmentOption[]>(() => {
     const onRemote = activeEnv.mode === "remote";
+    // Narrowing by origin is a filter on the server being read; it must not
+    // reach for connectLocal, which reloads the page and would throw the choice
+    // away before it was used. Only coming *back* from a remote is a switch,
+    // and that reload resets the filter along with everything else.
+    const narrowTo = (origin: SessionOriginFilter) => () => {
+      if (onRemote) {
+        connectLocal();
+        return;
+      }
+      setSessionsOrigin(origin);
+    };
     const rows: SessionsEnvironmentOption[] = [
       {
         key: "all",
         label: t("sessions.filter.env.all"),
         active: !onRemote && sessionsOrigin === "",
-        onPick: () => {
-          connectLocal();
-          setSessionsOrigin("");
-        },
+        onPick: narrowTo(""),
       },
       {
         key: "local",
         label: t("sessions.filter.env.local"),
         active: !onRemote && sessionsOrigin === "local",
-        onPick: () => {
-          connectLocal();
-          setSessionsOrigin("local");
-        },
+        onPick: narrowTo("local"),
       },
       {
         key: "gateway",
         label: t("sessions.filter.env.gateway"),
         active: !onRemote && sessionsOrigin === "gateway",
-        onPick: () => {
-          connectLocal();
-          setSessionsOrigin("gateway");
-        },
+        onPick: narrowTo("gateway"),
       },
     ];
     for (const remote of configuredRemotes) {
@@ -4972,6 +5017,9 @@ export function App() {
             onOpenBackgroundTask={openBackgroundTask}
             onStopBackgroundTask={handleStopBackgroundTask}
             subagentTranscript={subagentTranscript}
+            sessionArchived={viewedArchived}
+            unarchiving={unarchiving}
+            onUnarchiveSession={() => void unarchiveViewedSession()}
             onOpenSession={openSessionInPlace}
             pathRoots={transcriptPathRoots}
             workspaceCtx={workspaceCtx}

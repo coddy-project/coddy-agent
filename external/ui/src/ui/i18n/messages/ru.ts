@@ -849,6 +849,9 @@ export const messagesRu: Record<string, string> = {
   "chat.branchPrev": "Предыдущая ветка",
   "chat.branchNext": "Следующая ветка",
   "chat.branchLabel": "Ветка {current} из {total}",
+  "chat.archived.notice":
+    "Этот диалог в архиве. Разархивируйте его, чтобы продолжить работу.",
+  "chat.archived.unarchive": "Разархивировать",
   "chat.subagentReadOnly.notice":
     "Транскрипт субагента {name} доступен только для чтения. Запросы отправляются в родительский чат.",
   "chat.subagentReadOnly.noticeUnnamed":

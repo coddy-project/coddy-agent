@@ -310,6 +310,7 @@ export function SessionsSidebar(props: {
       className={[
         "session-item",
         s.id === props.sessionId ? "active" : "",
+        s.archived ? "is-archived" : "",
         drag?.id === s.id ? "is-dragging" : "",
         drag && pinnedIndex >= 0 && drag.over === pinnedIndex
           ? "is-drop-target"

@@ -487,3 +487,16 @@ test("a pinned row says so and offers to let it go", () => {
   fireEvent.click(screen.getByTestId("session-menu-pin-a"));
   expect(onPin).toHaveBeenCalledWith("a", false);
 });
+
+test("an archived row reads as put aside", () => {
+  renderDrawer({
+    sessions: [row("a", "A"), { id: "filed", title: "B", archived: true }],
+    archiveFilter: "all",
+  });
+  expect(screen.getByTestId("session-row-filed").className).toContain(
+    "is-archived",
+  );
+  expect(screen.getByTestId("session-row-a").className).not.toContain(
+    "is-archived",
+  );
+});

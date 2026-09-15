@@ -1137,6 +1137,12 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 		out["readOnly"] = true
 		out["subagent"] = subagentLink(meta.ParentSessionID, meta.Name, meta.TaskID)
 	}
+	// An archived session is where the composer learns it must not offer a
+	// prompt. It cannot be read off the session listing: that skips the archive,
+	// so the conversation on screen may be in no page the client holds.
+	if archived, _ := st.ArchiveState(); archived {
+		out["archived"] = true
+	}
 	if s.activeCfg() != nil {
 		out["selectedModelId"] = strings.TrimSpace(st.GetSelectedModelID())
 		out["model"] = effectiveYAMLModel(s.activeCfg(), st)

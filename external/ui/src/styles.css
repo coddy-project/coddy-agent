@@ -1921,6 +1921,64 @@ a.rail-brand {
   box-shadow: inset 0 2px 0 0 var(--accent);
 }
 
+/* An archived conversation reads as put aside: the row is quieter than the ones
+   still in play, which is the whole difference between the two. */
+.session-item.is-archived .session-title {
+  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+}
+
+.session-item.is-archived .session-row-tags {
+  opacity: 0.6;
+}
+
+/* The composer's slot on an archived conversation: the same glass panel the
+   subagent notice beside it is cut from, because it stands over the transcript
+   and a wash of the text colour is transparent on a dark canvas. */
+.archived-session-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: var(--coddy-glass-panel-radius);
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.archived-session-text {
+  min-width: 0;
+}
+
+.archived-session-action {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
+  background: rgba(20, 20, 22, 0.35);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.archived-session-action:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.archived-session-action:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* A pin is a mark on the title, not a badge: it says where the row is, and the
    row is already at the top saying it. */
 .session-pin-mark {

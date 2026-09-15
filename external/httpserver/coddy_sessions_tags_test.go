@@ -574,3 +574,36 @@ func TestReorderPinsRefusesWhatIsNotAPin(t *testing.T) {
 		t.Fatalf("a refused reorder moved something: %v", got)
 	}
 }
+
+func TestSessionMessagesSayWhenTheSessionIsArchived(t *testing.T) {
+	srv, mgr, store := bulkDeleteServer(t)
+	id := storeSession(t, mgr, store, "question")
+
+	read := func() map[string]interface{} {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/coddy/sessions/"+id+"/messages", nil)
+		rec := httptest.NewRecorder()
+		srv.mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status %d body %s", rec.Code, rec.Body.String())
+		}
+		var parsed map[string]interface{}
+		_ = json.Unmarshal(rec.Body.Bytes(), &parsed)
+		return parsed
+	}
+
+	// A session nobody put aside says nothing: the field is the exception.
+	if _, present := read()["archived"]; present {
+		t.Fatal("a working session reports an archive flag")
+	}
+
+	if code, body := patchSessionJSON(t, srv, id, map[string]interface{}{"archived": true}); code != http.StatusOK {
+		t.Fatalf("archive: status %d body %v", code, body)
+	}
+	// The transcript is where the composer learns it must not offer a prompt:
+	// the session listing skips archived sessions, so the open one may not be
+	// in any page the client holds.
+	if archived, _ := read()["archived"].(bool); !archived {
+		t.Fatal("an archived session does not say so on its transcript")
+	}
+}

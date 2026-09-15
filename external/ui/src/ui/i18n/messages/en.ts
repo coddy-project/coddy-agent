@@ -831,6 +831,9 @@ export const messagesEn: Record<string, string> = {
   "chat.branchPrev": "Previous branch",
   "chat.branchNext": "Next branch",
   "chat.branchLabel": "Branch {current} of {total}",
+  "chat.archived.notice":
+    "This conversation is archived. Take it out of the archive to keep working in it.",
+  "chat.archived.unarchive": "Unarchive",
   "chat.subagentReadOnly.notice":
     "Read-only transcript of subagent {name}. Prompts go to the parent chat.",
   "chat.subagentReadOnly.noticeUnnamed":

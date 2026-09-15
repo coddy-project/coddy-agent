@@ -325,6 +325,12 @@ Single implementation: **`MarkdownLineEditor`** in **`external/ui/src/ui/markdow
   around the corners so it reads as that row being singled out - rather than a row following the
   pointer, which would survive no scroll and cost a compositing layer. The arithmetic is
   **`reorderPins`** / **`pinDropIndex`**, kept pure.
+- **An archived row is dimmed** (**`.session-item.is-archived`**): its title drops to 45% text and its
+  tags to 60% opacity. Put aside and still in play differ by exactly that.
+- **The composer's slot on an archived conversation** is **`.archived-session-notice`**, cut from the
+  same glass panel as the subagent notice beside it (**`--coddy-glass-panel-bg`** plus the backdrop
+  filter) - it stands over the transcript, and a wash of the text colour is transparent on a dark
+  canvas. A line of text, and one button that takes the conversation back out.
 - **Row tags** (**`.session-row-tags`**) go **under** the title, not beside it: the title is what the row
   is for and must not be pushed out of view by labels. Chips are **10px**, pill-shaped, on a 6% text
   wash. The **archived badge** (**`.session-archived-badge`**) is the same size and wash but uppercase,
