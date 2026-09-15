@@ -356,7 +356,16 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     }
   }, [fetchFull, full, props.toolCallId]);
 
-  const onHide = useCallback(() => setShowExpanded(false), []);
+  // Collapsing swaps the result body from a scrollable box back to a clipped one,
+  // and a box that kept its offset reopens in the middle of the output with its
+  // first line cut in half. The argument preview resets the same way.
+  const resultViewportRef = useRef<HTMLDivElement | null>(null);
+  const onHide = useCallback(() => {
+    if (resultViewportRef.current) {
+      resultViewportRef.current.scrollTop = 0;
+    }
+    setShowExpanded(false);
+  }, []);
 
   const resultBody = showExpanded && full ? full : preview;
   const useTallViewport =
@@ -537,6 +546,8 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                 aria-label={t("messages.toolResultAriaLabel")}
               >
                 <div
+                  ref={resultViewportRef}
+                  data-testid="tool-result-viewport"
                   className={[
                     "tool-call-result-content",
                     showSkillBody && "tool-call-result-content--markdown",

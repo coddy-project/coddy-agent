@@ -1549,3 +1549,48 @@ test("a remote shell is not the local interpreter", () => {
     setHostShell("");
   }
 });
+
+// Expanding a long result, scrolling it, then collapsing used to leave the box
+// clipped around wherever the reader had scrolled to: the card reopened in the
+// middle of the output, first line cut in half. The args preview next to it has
+// always reset; the result body has to as well.
+test("collapsing a long result returns it to the top", async () => {
+  const fetchSpy = vi.fn();
+  function Harness() {
+    const [full, setFull] = useState("");
+    const onFetch = useCallback(async (id: string) => {
+      fetchSpy(id);
+      await Promise.resolve();
+      setFull(`${"full line\n".repeat(40)}last full line`);
+    }, []);
+    return (
+      <ToolCallMessage
+        toolCallId="tc-scroll"
+        title="websearch"
+        kind="other"
+        status="completed"
+        argsText={JSON.stringify({ query: "iPhone 18 price" })}
+        resultText={`${"preview line\n".repeat(18)}...`}
+        fullResultText={full}
+        resultWasTruncated
+        durationMs={2000}
+        onFetchToolCallFull={onFetch}
+      />
+    );
+  }
+  render(<Harness />);
+  openToolDetails();
+
+  fireEvent.click(screen.getByTestId("tool-result-more"));
+  await waitFor(() =>
+    expect(screen.getByTestId("tool-result-less")).toBeInTheDocument(),
+  );
+
+  const viewport = screen.getByTestId("tool-result-viewport");
+  expect(viewport).toHaveClass("tool-result-viewport--scroll");
+  viewport.scrollTop = 240;
+
+  fireEvent.click(screen.getByTestId("tool-result-less"));
+  expect(viewport).toHaveClass("tool-result-viewport--clip");
+  expect(viewport.scrollTop).toBe(0);
+});
