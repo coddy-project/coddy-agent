@@ -1,4 +1,9 @@
 import type { SessionRow } from "./types";
+import {
+  readSessionPref,
+  SESSION_PREF_COOKIES,
+  writeSessionPref,
+} from "./sessionPrefs";
 
 /**
  * How the History drawer divides the list it was handed. Grouping is a client
@@ -14,6 +19,13 @@ export const SESSION_GROUP_MODES: readonly SessionGroupMode[] = [
   "workspace",
   "tag",
 ];
+
+/**
+ * How History divides the list until the operator says otherwise. Folder,
+ * because a conversation is remembered by which checkout it was about far more
+ * often than by which day it happened on.
+ */
+export const DEFAULT_SESSION_GROUP_MODE: SessionGroupMode = "workspace";
 
 export function isSessionGroupMode(value: string): value is SessionGroupMode {
   return (SESSION_GROUP_MODES as readonly string[]).includes(value);
@@ -289,35 +301,13 @@ function groupTheRest(
   }
 }
 
-export const CODDY_SESSIONS_GROUP_COOKIE = "coddy_sessions_group";
-
-const MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
+export const CODDY_SESSIONS_GROUP_COOKIE = SESSION_PREF_COOKIES.group;
 
 /** The grouping the operator last chose, or null when they never chose one. */
 export function readSessionGroupCookie(): SessionGroupMode | null {
-  if (typeof document === "undefined") {
-    return null;
-  }
-  for (const part of document.cookie.split(";")) {
-    const s = part.trim();
-    if (!s.startsWith(`${CODDY_SESSIONS_GROUP_COOKIE}=`)) {
-      continue;
-    }
-    const v = decodeURIComponent(
-      s.slice(CODDY_SESSIONS_GROUP_COOKIE.length + 1).trim(),
-    );
-    return isSessionGroupMode(v) ? v : null;
-  }
-  return null;
+  return readSessionPref(CODDY_SESSIONS_GROUP_COOKIE, isSessionGroupMode);
 }
 
 export function writeSessionGroupCookie(mode: SessionGroupMode): void {
-  if (typeof document === "undefined") {
-    return;
-  }
-  const secure =
-    typeof window !== "undefined" && window.location.protocol === "https:"
-      ? "; Secure"
-      : "";
-  document.cookie = `${CODDY_SESSIONS_GROUP_COOKIE}=${encodeURIComponent(mode)}; Path=/; Max-Age=${MAX_AGE_SECONDS}; SameSite=Lax${secure}`;
+  writeSessionPref(CODDY_SESSIONS_GROUP_COOKIE, mode);
 }

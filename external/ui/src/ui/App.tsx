@@ -130,16 +130,27 @@ import { useConfirm } from "./components/useConfirm";
 import { useT } from "./i18n/I18nProvider";
 import type { SessionRow } from "./sessions/types";
 import {
+  DEFAULT_SESSION_GROUP_MODE,
   readSessionGroupCookie,
   writeSessionGroupCookie,
   type SessionGroupMode,
 } from "./sessions/sessionGroups";
 import {
   defaultSortOrder,
+  DEFAULT_ARCHIVE_FILTER,
+  DEFAULT_SESSION_SORT_KEY,
+  isHistorySortKey,
+  isSessionArchiveFilter,
+  isSessionOriginFilter,
   type SessionArchiveFilter,
   type SessionOriginFilter,
   type SessionSortKey,
 } from "./sessions/sessionQuery";
+import {
+  readSessionPref,
+  SESSION_PREF_COOKIES,
+  writeSessionPref,
+} from "./sessions/sessionPrefs";
 import {
   isClientDraftSessionId,
   mergeSessionsWithDrafts,
@@ -1127,15 +1138,27 @@ export function App() {
   // hidden until it is asked for, so a conversation put aside is out of the way
   // on the next open too.
   const [sessionGroupMode, setSessionGroupMode] = useState<SessionGroupMode>(
-    () => readSessionGroupCookie() ?? "time",
+    () => readSessionGroupCookie() ?? DEFAULT_SESSION_GROUP_MODE,
   );
+  // Every one of these survives a reload: a filter forgotten by the next page
+  // load is not a setting, it is a gesture.
   const [sessionsArchiveFilter, setSessionsArchiveFilter] =
-    useState<SessionArchiveFilter>("exclude");
-  const [sessionsSortKey, setSessionsSortKey] =
-    useState<SessionSortKey>("updated");
+    useState<SessionArchiveFilter>(
+      () =>
+        readSessionPref(SESSION_PREF_COOKIES.status, isSessionArchiveFilter) ??
+        DEFAULT_ARCHIVE_FILTER,
+    );
+  const [sessionsSortKey, setSessionsSortKey] = useState<SessionSortKey>(
+    () =>
+      readSessionPref(SESSION_PREF_COOKIES.sort, isHistorySortKey) ??
+      DEFAULT_SESSION_SORT_KEY,
+  );
   // Which surface's conversations History shows: every one, the ones opened on
   // this host, or the chats a messenger gateway is holding.
-  const [sessionsOrigin, setSessionsOrigin] = useState<SessionOriginFilter>("");
+  const [sessionsOrigin, setSessionsOrigin] = useState<SessionOriginFilter>(
+    () =>
+      readSessionPref(SESSION_PREF_COOKIES.origin, isSessionOriginFilter) ?? "",
+  );
   // The remotes this server offers as environments, read from the local config
   // rather than the active one - the list of places to go must not travel with
   // the place you are.
@@ -4586,6 +4609,7 @@ export function App() {
         return;
       }
       setSessionsOrigin(origin);
+      writeSessionPref(SESSION_PREF_COOKIES.origin, origin);
     };
     const rows: SessionsEnvironmentOption[] = [
       {
@@ -4663,10 +4687,16 @@ export function App() {
       writeSessionGroupCookie(mode);
     },
     archiveFilter: sessionsArchiveFilter,
-    onArchiveFilterChange: setSessionsArchiveFilter,
+    onArchiveFilterChange: (value: SessionArchiveFilter) => {
+      setSessionsArchiveFilter(value);
+      writeSessionPref(SESSION_PREF_COOKIES.status, value);
+    },
     environments: sessionEnvironments,
     sortKey: sessionsSortKey,
-    onSortKeyChange: setSessionsSortKey,
+    onSortKeyChange: (key: SessionSortKey) => {
+      setSessionsSortKey(key);
+      writeSessionPref(SESSION_PREF_COOKIES.sort, key);
+    },
     onNewChatInWorkspace: (cwd: string) => {
       // Park the folder and leave; the effect below applies it on the first
       // render with no session current. Doing it here would post the folder to

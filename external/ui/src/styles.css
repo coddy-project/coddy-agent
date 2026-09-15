@@ -1601,7 +1601,13 @@ a.rail-brand {
   white-space: nowrap;
 }
 
-/* The answer reads as the value it is, not as a second label. */
+/* The answer reads as the value it is, not as a second label - and it is
+   coloured only when the operator moved it off the default. A menu where every
+   row is accented says nothing about what has been narrowed. */
+.sessions-filter-value.is-default {
+  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
+}
+
 .sessions-filter-value {
   flex: 0 1 auto;
   min-width: 0;

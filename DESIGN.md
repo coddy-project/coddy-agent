@@ -285,6 +285,12 @@ Single implementation: **`MarkdownLineEditor`** in **`external/ui/src/ui/markdow
   its edge: the menu is rendered into the document (**`createPortal`**) and placed **`position: fixed`**
   from the trigger's rectangle, the same way the composer's menus are. Near the right edge of the window
   the submenus flip to the other side (**`.opens-left`**).
+- **Only a value moved off its default is coloured.** The answer on a row is the accent colour when it
+  differs from the default (**Active**, the first environment, **Folder**, **Last activity**) and a
+  muted 42% text otherwise (**`.sessions-filter-value.is-default`**): a menu where every row is accented
+  says nothing about what has been narrowed. Each of the four is remembered in its own cookie
+  (**`sessionPrefs.ts`**), and every read validates what it finds, so a cookie from an older build
+  cannot put the drawer into a state the code no longer has.
 - **The menu is opaque.** It uses the **tooltip** surface (**`--coddy-tip-bg`** / **`--coddy-tip-shadow`**),
   not the glass panel: it sits directly over the list it filters, and a translucent panel there is read
   through. Both panels use it, so the row and its choices read as one surface.
@@ -326,7 +332,9 @@ Single implementation: **`MarkdownLineEditor`** in **`external/ui/src/ui/markdow
   pointer, which would survive no scroll and cost a compositing layer. The arithmetic is
   **`reorderPins`** / **`pinDropIndex`**, kept pure.
 - **An archived row is dimmed** (**`.session-item.is-archived`**): its title drops to 45% text and its
-  tags to 60% opacity. Put aside and still in play differ by exactly that.
+  tags to 60% opacity. Put aside and still in play differ by exactly that. The archive **mark**
+  (**`.session-archived-mark`**) leads the row beside the spinner and the unread dot, where states
+  belong - it is not a chip among the tags, which are labels the operator chose.
 - **The composer's slot on an archived conversation** is **`.archived-session-notice`**, cut from the
   same glass panel as the subagent notice beside it (**`--coddy-glass-panel-bg`** plus the backdrop
   filter) - it stands over the transcript, and a wash of the text colour is transparent on a dark

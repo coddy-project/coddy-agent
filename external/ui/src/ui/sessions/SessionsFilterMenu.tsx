@@ -1,8 +1,14 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n/I18nProvider";
-import { SESSION_GROUP_MODES, type SessionGroupMode } from "./sessionGroups";
 import {
+  DEFAULT_SESSION_GROUP_MODE,
+  SESSION_GROUP_MODES,
+  type SessionGroupMode,
+} from "./sessionGroups";
+import {
+  DEFAULT_ARCHIVE_FILTER,
+  DEFAULT_SESSION_SORT_KEY,
   SESSION_ARCHIVE_FILTERS,
   type SessionArchiveFilter,
   type SessionSortKey,
@@ -39,6 +45,13 @@ type MenuSection = {
   label: string;
   /** The answer currently in force, drawn on the row. */
   value: string;
+  /**
+   * Whether that answer is the default one. Only a value the operator moved
+   * away from is worth the accent colour: if every row were coloured, the
+   * colour would say nothing, and what the menu is for is seeing at a glance
+   * what has been narrowed.
+   */
+  isDefault: boolean;
   options: MenuOption[];
   /** A rule is drawn above a section that starts a new group of questions. */
   startsGroup?: boolean;
@@ -127,6 +140,7 @@ export function SessionsFilterMenu(props: {
       key: "status",
       label: t("sessions.filter.status"),
       value: t(`sessions.filter.status.${props.archiveFilter}`),
+      isDefault: props.archiveFilter === DEFAULT_ARCHIVE_FILTER,
       options: SESSION_ARCHIVE_FILTERS.map((value) => ({
         key: value,
         label: t(`sessions.filter.status.${value}`),
@@ -141,6 +155,9 @@ export function SessionsFilterMenu(props: {
       key: "environment",
       label: t("sessions.filter.environment"),
       value: environments.find((e) => e.active)?.label ?? "",
+      // The first row is the one that narrows nothing, and the list is built
+      // with it first, so "default" is "the active row is that one".
+      isDefault: environments.findIndex((e) => e.active) === 0,
       options: environments.map((env) => ({
         key: env.key,
         label: env.label,
@@ -155,6 +172,7 @@ export function SessionsFilterMenu(props: {
       key: "group",
       label: t("sessions.filter.groupBy"),
       value: t(`sessions.group.${props.groupMode}`),
+      isDefault: props.groupMode === DEFAULT_SESSION_GROUP_MODE,
       startsGroup: true,
       options: SESSION_GROUP_MODES.map((mode) => ({
         key: mode,
@@ -168,6 +186,7 @@ export function SessionsFilterMenu(props: {
       key: "sort",
       label: t("sessions.filter.sortBy"),
       value: t(`sessions.sort.${props.sortKey}`),
+      isDefault: props.sortKey === DEFAULT_SESSION_SORT_KEY,
       options: HISTORY_SORT_KEYS.map((key) => ({
         key,
         label: t(`sessions.sort.${key}`),
@@ -229,7 +248,11 @@ export function SessionsFilterMenu(props: {
                 onClick={() => setOpenSection(expanded ? null : section.key)}
               >
                 <span className="sessions-filter-label">{section.label}</span>
-                <span className="sessions-filter-value">{section.value}</span>
+                <span
+                  className={`sessions-filter-value${section.isDefault ? " is-default" : ""}`}
+                >
+                  {section.value}
+                </span>
                 <span className="sessions-filter-chevron" aria-hidden>
                   ›
                 </span>
