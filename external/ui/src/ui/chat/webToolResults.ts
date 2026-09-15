@@ -18,9 +18,43 @@ function str(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-/** Escapes the characters that would break a link out of its `[text](url)`. */
-function linkText(value: string): string {
-  return value.replace(/([[\]])/g, "\\$1");
+/**
+ * A hit's title and snippet are text somebody else wrote, and they end up inside a
+ * Markdown document this transcript renders. Left as they are, a newline splits a
+ * list item in two, a bracket closes the link early and `[pay here](https://...)`
+ * inside a snippet renders as a link of its own. Every character Markdown reads as
+ * syntax is escaped and every run of whitespace becomes one space, so the text
+ * renders as the text it is. The renderer blocks raw HTML and dangerous hrefs on
+ * its own; this is about what the document says, not about what it executes.
+ */
+function plainText(value: string): string {
+  return value
+    .replace(/\s+/g, " ")
+    .replace(/([\\`*_{}[\]()#+\-.!|<>~])/g, "\\$1")
+    .trim();
+}
+
+/**
+ * The url of a hit, or "" when it is not one the transcript should link to. Only
+ * http(s) is linked; a space or a bracket inside is percent-encoded, because
+ * either would end the `(...)` early and let the rest of the url render as
+ * Markdown beside the link.
+ */
+function linkUrl(value: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return "";
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return "";
+  }
+  // encodeURIComponent leaves "(" and ")" alone, which are the two that matter here.
+  return value.replace(
+    /[\s()<>\\]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`,
+  );
 }
 
 function parseHits(value: unknown): SearchHit[] | null {
@@ -121,17 +155,19 @@ export function webSearchResultMarkdown(resultText: string | undefined): string 
 function renderHits(hits: SearchHit[], hint: string): string {
   const lines: string[] = [];
   for (const hit of hits) {
-    const label = linkText(hit.title || hit.url);
-    lines.push(hit.url ? `- [${label}](${hit.url})` : `- ${label}`);
-    if (hit.description) {
+    const href = linkUrl(hit.url);
+    const label = plainText(hit.title || hit.url);
+    lines.push(href ? `- [${label}](${href})` : `- ${label}`);
+    const description = plainText(hit.description);
+    if (description) {
       // Two spaces of indent keep the snippet inside its own list item.
-      lines.push(`  ${hit.description}`);
+      lines.push(`  ${description}`);
     }
   }
   if (hits.length === 0) {
-    lines.push(hint || "No results.");
+    lines.push(plainText(hint) || "No results.");
   } else if (hint) {
-    lines.push("", hint);
+    lines.push("", plainText(hint));
   }
   return lines.join("\n");
 }
