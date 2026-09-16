@@ -31,6 +31,7 @@ function deferred<T>() {
 class ControlledStream {
   controller!: ReadableStreamDefaultController<Uint8Array>;
   closed = false;
+  onClose?: () => void;
   response: Response;
   constructor(
     readonly signal?: AbortSignal | null,
@@ -43,6 +44,7 @@ class ControlledStream {
         },
         cancel: () => {
           this.closed = true;
+          this.onClose?.();
         },
       }),
       { headers: { "Content-Type": "text/event-stream" } },
@@ -67,11 +69,13 @@ class ControlledStream {
     if (this.closed) return;
     this.closed = true;
     this.controller.close();
+    this.onClose?.();
   }
   fail(error = new TypeError("Connection lost")) {
     if (this.closed) return;
     this.closed = true;
     this.controller.error(error);
+    this.onClose?.();
   }
 }
 
@@ -106,14 +110,73 @@ class Backend {
   relays: { sid: string; stream: ControlledStream }[] = [];
   abortPostReads = true;
   override?: (request: Request) => Response | Promise<Response> | undefined;
+  /** Connections the browser keeps open to this host, shared by every tab of
+   *  the profile: six over HTTP/1.1. A stream holds one until it closes or is
+   *  aborted, a request beyond the limit waits for one to free up. Unlimited
+   *  unless a test models the other tabs taking the rest. */
+  connectionLimit = Infinity;
+  connections = 0;
+  private waiting: (() => void)[] = [];
+  private streaming = new WeakSet<Response>();
+  private connect(signal?: AbortSignal | null): Promise<void> | undefined {
+    if (this.connections < this.connectionLimit) {
+      this.connections++;
+      return undefined;
+    }
+    return new Promise((resolve, reject) => {
+      const grant = () => {
+        signal?.removeEventListener("abort", drop);
+        this.connections++;
+        resolve();
+      };
+      const drop = () => {
+        this.waiting = this.waiting.filter((w) => w !== grant);
+        reject(new DOMException("Aborted", "AbortError"));
+      };
+      this.waiting.push(grant);
+      signal?.addEventListener("abort", drop, { once: true });
+    });
+  }
+  private disconnect() {
+    this.connections--;
+    if (this.connections < this.connectionLimit) this.waiting.shift()?.();
+  }
+  private hold(stream: ControlledStream, signal?: AbortSignal | null) {
+    let open = true;
+    const close = () => {
+      if (!open) return;
+      open = false;
+      this.disconnect();
+    };
+    stream.onClose = close;
+    signal?.addEventListener("abort", close, { once: true });
+    this.streaming.add(stream.response);
+    return stream;
+  }
   fetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
-    const path = String(input);
-    const request = { path, method: init.method ?? "GET", init };
+    const request = { path: String(input), method: init.method ?? "GET", init };
+    const connecting = this.connect(init.signal);
+    if (connecting) await connecting;
     this.requests.push(request);
+    let response: Response | Promise<Response>;
+    try {
+      response = this.respond(request);
+    } catch (err) {
+      this.disconnect();
+      throw err;
+    }
+    if (response instanceof Response) {
+      if (!this.streaming.has(response)) this.disconnect();
+      return response;
+    }
+    return response.finally(() => this.disconnect());
+  });
+  private respond(request: Request): Response | Promise<Response> {
+    const { path, init } = request;
     const overridden = this.override?.(request);
     if (overridden) return overridden;
     if (path === "/coddy/events") {
-      const stream = new ControlledStream(init.signal);
+      const stream = this.hold(new ControlledStream(init.signal), init.signal);
       this.events.push(stream);
       return stream.response;
     }
@@ -122,7 +185,10 @@ class Backend {
       this.activity.set(sid, true);
       const body = JSON.parse(String(init.body));
       this.messages.get(sid)?.push({ role: "user", content: body.input });
-      const stream = new ControlledStream(init.signal, this.abortPostReads);
+      const stream = this.hold(
+        new ControlledStream(init.signal, this.abortPostReads),
+        init.signal,
+      );
       this.posts.push({ sid, stream });
       return stream.response;
     }
@@ -151,7 +217,7 @@ class Backend {
       if (suffix === "/stats") return json({ stats: {} });
       if (suffix === "/background-tasks") return json({ data: [], running: 0 });
       if (suffix === "/composer-stream") {
-        const stream = new ControlledStream(init.signal);
+        const stream = this.hold(new ControlledStream(init.signal), init.signal);
         this.relays.push({ sid, stream });
         return stream.response;
       }
@@ -182,7 +248,7 @@ class Backend {
     if (path === "/coddy/workspace/context")
       return json({ cwd: "/workspace", is_git_repo: false });
     return json({}, 404);
-  });
+  }
   count(path: string, method = "GET") {
     return this.requests.filter((r) => r.path === path && r.method === method)
       .length;
@@ -418,7 +484,33 @@ test("a stale activity/queue snapshot cannot override newer server events", asyn
   expect(screen.queryByText("Stale queue")).not.toBeInTheDocument();
 });
 
-test("a failed cancel preserves the POST and offers a visible retryable Stop error", async () => {
+test.each(["post", "relay"])(
+  "Stop reaches the server while other tabs hold every other connection to the host, through this tab's %s",
+  async (transport) => {
+    if (transport === "relay") backend.activity.set(A, true);
+    await mount();
+    if (transport === "post") await send("Own A turn");
+    else await waitFor(() => expect(backend.relays).toHaveLength(1));
+    const stream = (transport === "post" ? backend.posts : backend.relays)[0]!
+      .stream;
+    await act(async () => {
+      stream.text("Partial answer A");
+    });
+    await screen.findByText("Partial answer A");
+    // Other tabs of this server hold the rest of the six connections a browser
+    // keeps to a host; this tab holds its events stream and the turn stream.
+    backend.connectionLimit = backend.connections;
+    fireEvent.click(stop());
+    await waitFor(() =>
+      expect(backend.count(`/coddy/sessions/${A}/cancel`, "POST")).toBe(1),
+    );
+    expect(stream.signal!.aborted).toBe(true);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByText("Partial answer A")).toBeInTheDocument();
+  },
+);
+
+test("a failed cancel rejoins the running turn and offers a visible retryable Stop error", async () => {
   backend.override = (r) =>
     r.path.endsWith("/cancel")
       ? json({ error: { message: "Unavailable" } }, 503)
@@ -432,19 +524,23 @@ test("a failed cancel preserves the POST and offers a visible retryable Stop err
   await waitFor(() =>
     expect(backend.count(`/coddy/sessions/${A}/cancel`, "POST")).toBe(1),
   );
-  expect(backend.posts[0]!.stream.signal!.aborted).toBe(false);
+  expect(backend.posts[0]!.stream.signal!.aborted).toBe(true);
   expect(await screen.findByRole("alert")).toHaveTextContent(
     /stop.*try again/i,
   );
+  // The turn Stop did not take is watched again through the relay.
+  await waitFor(() => expect(backend.relays).toHaveLength(1));
+  expect(backend.relays[0]!.stream.signal!.aborted).toBe(false);
   expect(stop()).toBeEnabled();
   fireEvent.click(stop());
   await waitFor(() =>
     expect(backend.count(`/coddy/sessions/${A}/cancel`, "POST")).toBe(2),
   );
+  expect(backend.relays[0]!.stream.signal!.aborted).toBe(true);
   expect(screen.getByText("Partial answer A")).toBeInTheDocument();
 });
 
-test("Stop waits for acknowledgement, targets its original session and preserves partial text", async () => {
+test("Stop releases its own stream at once, targets its original session and preserves partial text", async () => {
   const cancel = deferred<Response>();
   backend.override = (r) =>
     r.path.endsWith("/cancel") ? cancel.promise : undefined;
@@ -454,7 +550,10 @@ test("Stop waits for acknowledgement, targets its original session and preserves
     backend.posts[0]!.stream.text("Partial answer A");
   });
   fireEvent.click(stop());
-  expect(backend.posts[0]!.stream.signal!.aborted).toBe(false);
+  expect(backend.posts[0]!.stream.signal!.aborted).toBe(true);
+  // No relay takes the released stream's place while the answer is pending.
+  await new Promise((resolve) => setTimeout(resolve, 2300));
+  expect(backend.relays).toHaveLength(0);
   await navigate(B);
   await send("Own B turn");
   await act(async () => {
@@ -571,7 +670,7 @@ test("a slow queue read cannot block recovery from a missed turn end", async () 
   });
 });
 
-test("a cancel network error preserves a watched relay and a retry can acknowledge it", async () => {
+test("a cancel network error rewatches the turn through a new relay and a retry can acknowledge it", async () => {
   backend.activity.set(A, true);
   backend.override = (r) => {
     if (r.path.endsWith("/cancel")) throw new TypeError("Offline");
@@ -583,11 +682,13 @@ test("a cancel network error preserves a watched relay and a retry can acknowled
   expect(await screen.findByRole("alert")).toHaveTextContent(
     /stop.*try again/i,
   );
-  expect(backend.relays[0]!.stream.signal!.aborted).toBe(false);
+  expect(backend.relays[0]!.stream.signal!.aborted).toBe(true);
+  await waitFor(() => expect(backend.relays).toHaveLength(2));
+  expect(backend.relays[1]!.stream.signal!.aborted).toBe(false);
   delete backend.override;
   fireEvent.click(stop());
   await waitFor(() =>
-    expect(backend.relays[0]!.stream.signal!.aborted).toBe(true),
+    expect(backend.relays[1]!.stream.signal!.aborted).toBe(true),
   );
   expect(stop()).toBeEnabled();
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -1018,7 +1119,7 @@ test.each(["turn_started", "ready"])(
   },
 );
 
-test("a hung Stop times out without aborting the turn and becomes retryable", async () => {
+test("a hung Stop times out, keeps the turn watched and becomes retryable", async () => {
   await mount();
   await send("Keep this turn readable");
   backend.override = (r) => {
@@ -1032,11 +1133,14 @@ test("a hung Stop times out without aborting the turn and becomes retryable", as
     fireEvent.click(stop());
     await act(async () => { await vi.advanceTimersByTimeAsync(5100); });
     expect(screen.getByRole("alert")).toHaveTextContent(/stop.*try again/i);
-    expect(backend.posts[0]!.stream.signal!.aborted).toBe(false);
+    expect(backend.posts[0]!.stream.signal!.aborted).toBe(true);
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(backend.relays).toHaveLength(1);
+    expect(backend.relays[0]!.stream.signal!.aborted).toBe(false);
     delete backend.override;
     await act(async () => { fireEvent.click(stop()); });
     expect(backend.count(`/coddy/sessions/${A}/cancel`, "POST")).toBe(2);
-    expect(backend.posts[0]!.stream.signal!.aborted).toBe(true);
+    expect(backend.relays[0]!.stream.signal!.aborted).toBe(true);
   } finally {
     vi.useRealTimers();
   }
