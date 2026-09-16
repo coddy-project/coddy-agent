@@ -308,7 +308,8 @@ tools:
   #   snippet_chars: 320            # per-result description cap
   #   cache_ttl_seconds: 300        # reuse an engine answer for this long; negative = off
   #   searxng_url: ""               # e.g. http://localhost:8080 (enable format: json there)
-  #   brave_api_key: ""             # official Brave Search API instead of the public page
+  #   brave_api_key: ""             # official Brave Search API instead of the public page;
+  #                                 # empty reads BRAVE_API_KEY (environment or ~/.coddy/.env)
 
   # HTTP requests: the http_request tool is the agent's curl (any method, headers, bodies,
   # multipart uploads, downloads to a file, a proxy and the certificate check per request).

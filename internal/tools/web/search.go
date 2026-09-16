@@ -155,7 +155,7 @@ func executeSearchWeb(ctx context.Context, argsJSON string, env *tooling.Env) (s
 	// is what stops the model concluding that the subject does not exist; the
 	// message names each engine so the operator can see what to fix.
 	if healthy == 0 && len(runs) > 0 {
-		return "", fmt.Errorf("every search engine was unavailable (%s). Search from this machine is degraded, not the subject: say so rather than concluding nothing exists. The operator can configure tools.websearch.searxng_url (a self-hosted SearXNG) or tools.websearch.brave_api_key for a reliable backend",
+		return "", fmt.Errorf("every search engine was unavailable (%s). Search from this machine is degraded, not the subject: say so rather than concluding nothing exists. The operator can configure tools.websearch.searxng_url (a self-hosted SearXNG) or a Brave Search API key (tools.websearch.brave_api_key, or the BRAVE_API_KEY environment variable) for a reliable backend",
 			describeFailures(runs))
 	}
 

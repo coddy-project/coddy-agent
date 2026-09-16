@@ -41,7 +41,7 @@ When **every** engine is blocked the call fails rather than returning an empty l
 
 | Engine | Key needed | Notes |
 |--------|-----------|-------|
-| `brave` | no (optional) | Default and first in the merge order. Reads the public result page; with `brave_api_key` it uses the official Search API instead, which has no parser to break. |
+| `brave` | no (optional) | Default and first in the merge order. Reads the public result page; with an API key (`brave_api_key` or `BRAVE_API_KEY`) it uses the official Search API instead, which has no parser to break. |
 | `bing` | no | Default, second. Serves an unrelated result set to a client it dislikes, which the relevance gate below catches. |
 | `searxng` | no, but needs `searxng_url` | Your own instance, asked over its JSON API. The durable choice: not rate-limited against its owner, never served a decoy. |
 | `ddg` | no | Not asked by default. From a server, both its endpoints answer every query with an HTTP 202 anti-bot page, which arrives as `blocked`; where DuckDuckGo still serves you, a query it has nothing for arrives as `empty`. |
@@ -71,10 +71,20 @@ tools:
     snippet_chars: 320            # per-result description cap
     cache_ttl_seconds: 300        # reuse an engine answer for this long; negative = off
     searxng_url: ""               # e.g. http://localhost:8080
-    brave_api_key: ""             # official Brave Search API
+    brave_api_key: ""             # official Brave Search API; or BRAVE_API_KEY
 ```
 
 An engine name the loader does not know is a configuration error rather than a silently skipped backend, and `searxng` without `searxng_url` is refused the same way - `coddy -t` reports both with the line they are on.
+
+### The Brave Search API key
+
+The key does not have to live in `config.yaml`. When `brave_api_key` is empty, the engine reads the `BRAVE_API_KEY` environment variable, so the key can come from the shell, the container or `~/.coddy/.env`:
+
+```bash
+echo 'BRAVE_API_KEY=BSA...' >> ~/.coddy/.env
+```
+
+A key in the file wins over the variable, and `brave_api_key: ${BRAVE_API_KEY}` works as any other reference does. Neither way leaks the key: `config_get` and `coddy -t` print it as `<redacted>`, and a save from the Settings UI writes a `${BRAVE_API_KEY}` reference back as a reference and an empty field back as empty, never the key the environment supplied. The variable is read when a turn builds its tool settings; a key added to `.env` of a running `coddy serve` takes effect after a restart, since `.env` is read at startup.
 
 ### Your own SearXNG
 

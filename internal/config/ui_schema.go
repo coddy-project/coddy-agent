@@ -466,7 +466,7 @@ func UISchemaMap() map[string]interface{} {
 						"brave_api_key": map[string]interface{}{
 							"type":        "string",
 							"title":       "Brave Search API key",
-							"description": "With a subscription token the brave engine uses the official JSON API instead of reading the public result page.",
+							"description": "With a subscription token the brave engine uses the official JSON API instead of reading the public result page. Leave empty to read BRAVE_API_KEY from the environment or ~/.coddy/.env.",
 						},
 					},
 					[]string{"engines", "engine_timeout_seconds", "total_timeout_seconds", "max_concurrent_engines", "snippet_chars", "cache_ttl_seconds", "searxng_url", "brave_api_key"},

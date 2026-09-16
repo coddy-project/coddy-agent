@@ -24,6 +24,28 @@ func TestWebSearchDefaultsWhenNothingIsConfigured(t *testing.T) {
 	}
 }
 
+func TestWebSearchBraveKeyComesFromTheEnvironmentWhenTheConfigHasNone(t *testing.T) {
+	// A search key belongs in the environment (or ${CODDY_HOME}/.env) as much as
+	// a provider's key does; writing it into config.yaml must not be the only way.
+	t.Setenv(WebSearchBraveAPIKeyEnv, " BSA-from-env ")
+	var unset ToolWebSearch
+	if got := unset.ToolSettings().BraveAPIKey; got != "BSA-from-env" {
+		t.Errorf("key without a configured one = %q, want the environment's", got)
+	}
+	var nilSection *ToolWebSearch
+	if got := nilSection.ToolSettings().BraveAPIKey; got != "BSA-from-env" {
+		t.Errorf("key without a websearch section = %q, want the environment's", got)
+	}
+	configured := ToolWebSearch{BraveAPIKey: "BSA-from-config"}
+	if got := configured.ToolSettings().BraveAPIKey; got != "BSA-from-config" {
+		t.Errorf("key with a configured one = %q, want the configured one", got)
+	}
+	t.Setenv(WebSearchBraveAPIKeyEnv, "")
+	if got := unset.ToolSettings().BraveAPIKey; got != "" {
+		t.Errorf("key with neither = %q, want none", got)
+	}
+}
+
 // TestWebSearchDefaultEnginesExcludeTheMeasuredDeadOnes pins the decision:
 // DuckDuckGo answers a server with an anti-bot interstitial and Google renders
 // its results in the browser, so neither is asked unless an operator says so.

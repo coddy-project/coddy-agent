@@ -908,6 +908,87 @@ tools:
 	}
 }
 
+func TestSettingsSaveKeepsEnvironmentReferences(t *testing.T) {
+	// A key the operator keeps in the environment is written as ${VAR} in
+	// config.yaml, or not written at all. The load expands the reference, so the
+	// config the settings screen saves holds the secret itself; a save that wrote
+	// that value back turned every reference into the key in plain text.
+	t.Setenv("CODDY_TEST_PROVIDER_KEY", "sk-from-env")
+	t.Setenv("CODDY_TEST_BRAVE_KEY", "BSA-from-env")
+	t.Setenv(config.WebSearchBraveAPIKeyEnv, "BSA-fallback")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	yml := `providers:
+  - name: p
+    type: openai
+    api_key: "${CODDY_TEST_PROVIDER_KEY}"
+  - name: q
+    type: openai
+    api_key: ${CODDY_TEST_PROVIDER_KEY}
+models:
+  - model: p/m
+agent:
+  model: p/m
+tools:
+  websearch:
+    brave_api_key: ${CODDY_TEST_BRAVE_KEY}
+`
+	if err := os.WriteFile(path, []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	paths := config.Paths{ConfigPath: path, Home: dir, CWD: dir}
+	save := func(edit func(*config.ConfigJSON)) string {
+		t.Helper()
+		live, err := config.LoadWithPaths(paths)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dto := config.ConfigToJSONDTO(live)
+		if edit != nil {
+			edit(dto)
+		}
+		body, err := json.Marshal(dto)
+		if err != nil {
+			t.Fatal(err)
+		}
+		next, err := config.ParseConfigJSONPreservingSecrets(body, live.Paths, live)
+		if err != nil {
+			t.Fatal(err)
+		}
+		saved, err := config.MarshalConfigYAMLForFile(next, path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, saved, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return string(saved)
+	}
+
+	saved := save(nil)
+	for _, secret := range []string{"sk-from-env", "BSA-from-env", "BSA-fallback"} {
+		if strings.Contains(saved, secret) {
+			t.Fatalf("a save wrote the secret %q into config.yaml:\n%s", secret, saved)
+		}
+	}
+	if strings.Count(saved, "${CODDY_TEST_PROVIDER_KEY}") != 2 || !strings.Contains(saved, "${CODDY_TEST_BRAVE_KEY}") {
+		t.Fatalf("a save dropped the environment references:\n%s", saved)
+	}
+	reloaded, err := config.LoadWithPaths(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.Providers[0].APIKey != "sk-from-env" || reloaded.Tools.WebSearch.BraveAPIKey != "BSA-from-env" {
+		t.Fatalf("the references no longer resolve: %+v %+v", reloaded.Providers[0], reloaded.Tools.WebSearch)
+	}
+
+	// A value the operator changed on the settings screen is written as changed.
+	saved = save(func(dto *config.ConfigJSON) { dto.Tools.WebSearch.BraveAPIKey = "BSA-typed-in" })
+	if strings.Contains(saved, "${CODDY_TEST_BRAVE_KEY}") || !strings.Contains(saved, "BSA-typed-in") {
+		t.Fatalf("an edited key was not written:\n%s", saved)
+	}
+}
+
 func TestSkillsAutoDiscoveryJSONRoundTrip(t *testing.T) {
 	f := false
 	c := &config.Config{Skills: config.Skills{AutoDiscovery: &f}}
