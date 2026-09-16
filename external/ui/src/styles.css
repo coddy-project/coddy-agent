@@ -9494,6 +9494,13 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   list-style: none;
 }
 
+/* The 8px below the offer separates it from a line that usually is not there -
+   the letters say the answer - and left the block closing on twice the air it
+   opens with. It is kept only when something follows. */
+.question-tool-offer:last-child {
+  margin-bottom: 0;
+}
+
 .question-tool-offer-row {
   display: flex;
   align-items: baseline;
