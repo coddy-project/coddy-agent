@@ -23,6 +23,7 @@ import type { SessionArchiveFilter, SessionSortKey } from "./sessionQuery";
 import { pinDropIndex, reorderPins } from "./reorderPins";
 import { SessionRowMenu, type SessionRowMenuItem } from "./SessionRowMenu";
 import { SessionTagEditor } from "./SessionTagEditor";
+import { Chevron } from "../components/Chevron";
 import { tagVocabulary } from "./tagEditing";
 import {
   sessionRowShowsPermissionPending,
@@ -788,9 +789,7 @@ export function SessionsSidebar(props: {
                       }
                     >
                       <span className="session-group-label">{label}</span>
-                      <span className="session-group-caret" aria-hidden>
-                        {isCollapsed ? "▸" : "▾"}
-                      </span>
+                      <Chevron open={!isCollapsed} className="session-group-caret" />
                     </button>
                     {/* A folder heading is also where a conversation about that
                       folder starts: the plus opens a new chat already pointed

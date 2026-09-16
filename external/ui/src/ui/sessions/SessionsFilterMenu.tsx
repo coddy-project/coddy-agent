@@ -13,6 +13,7 @@ import {
   type SessionArchiveFilter,
   type SessionSortKey,
 } from "./sessionQuery";
+import { Chevron } from "../components/Chevron";
 
 /** One environment the History can be pointed at: this server, or a remote. */
 export type SessionsEnvironmentOption = {
@@ -253,9 +254,7 @@ export function SessionsFilterMenu(props: {
                 >
                   {section.value}
                 </span>
-                <span className="sessions-filter-chevron" aria-hidden>
-                  ›
-                </span>
+                <Chevron className="sessions-filter-chevron" />
               </button>
               {expanded ? (
                 <div className="sessions-filter-submenu" role="menu">

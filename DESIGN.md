@@ -296,8 +296,9 @@ Single implementation: **`MarkdownLineEditor`** in **`external/ui/src/ui/markdow
   not the glass panel: it sits directly over the list it filters, and a translucent panel there is read
   through. Both panels use it, so the row and its choices read as one surface.
 - **Escape undoes one step**: an open submenu folds first, the menu closes second.
-- **Group heading** (**`.session-group-head`**) is the bucket's **own name with a caret after it**
-  (**▸** collapsed, **▾** open), not a band across the list: it is **`flex: 0 1 auto`** with
+- **Group heading** (**`.session-group-head`**) is the bucket's **own name with the shared chevron after
+  it** (**`<Chevron open />`**, see **Chevron**: pointing right while collapsed, turned down when open),
+  not a band across the list: it is **`flex: 0 1 auto`** with
   **`margin-right: auto`**, so only the name is the fold target and the empty space after it belongs to
   nothing. **12.5px**, weight **600**, muted until hover, and in the **case the name already has** -
   upper-casing a folder path is a small lie. The label is translated for a fixed bucket (dates,
@@ -694,6 +695,10 @@ A turn in flight no longer locks the composer. What is typed during it is queued
 - **The primary control** (**`#btn-send`**) keeps its circle and swaps only its meaning. While generating with a **non-empty** draft it carries the **play** glyph on an accent fill (**`.composer-run-icon--queue`**, **`data-queue="true"`**, accessible name **`Queue this message`**); with an **empty** draft it is the **stop** square exactly as before. Never render a third glyph for this, and never remove Stop: emptying the field is how a turn is cancelled.
 - **The field** keeps focus and its content rules while generating; only the placeholder changes (**`composer.placeholderQueue`**).
 - **State recovery** - session open and reconnect read **`GET /coddy/sessions/{id}/queue`**, without waiting for another queue mutation or a History row. HTTP responses and **`message_queue`** events carry a list and version from one server snapshot; **`QueueDeliveryOrder`** (**`chat/messageQueueState.ts`**) keeps the highest version per session for ordinary deliveries. A fresh queue GET captures the delivery revision and recovery epoch before the request. The SPA rejects a snapshot crossed by any queue delivery; otherwise it may establish a lower version (including **`0`**) after a server restart. A lower-version snapshot advances the local recovery epoch, so mutation responses and own/relay stream queue frames captured in earlier epochs are ignored. Replayed **`turn_started`** events preserve waiting messages and their version, and closing a reader does not clear the queue. These controls use the existing same-server routes and events; transcript relay and permission/question ownership stay unchanged.
+
+### Chevron
+
+The app has **one chevron**, **`<Chevron />`** (**`ui/components/Chevron.tsx`**): the **`›`** at **15px**, **70%** opacity, that a transcript row folds with. It points **right while closed** and turns **down when open** (**`.coddy-chevron.is-open`**, a 90° rotation over 140ms); a dropdown indicator is the same glyph pointing **down while closed** and **up when open** (**`pointing="down"`**). The transcript row's **`.thinking-chevron`** and **`.coddy-chevron`** are drawn by **one CSS rule**, so they cannot drift apart. History group headings, the **Finished N** toggle of the Tasks panel, the History filter rows and the settings combobox all use it - the headings used to draw a small solid triangle, the Tasks panel a border triangle and the combobox a third glyph, and each read as a different kind of control. **Any new disclosure, submenu or dropdown uses `<Chevron />`**; drawing **`▸`**, **`▾`** or a border triangle is a defect, and **`chevronContract.test.tsx`** fails on one. Pager arrows (**`‹`** / **`›`** buttons of the branch navigator and the settings tabs) and the **▶** of a Run control are not chevrons.
 
 ### Close control
 

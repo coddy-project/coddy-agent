@@ -1665,10 +1665,7 @@ a.rail-brand {
   color: var(--accent);
 }
 
-.sessions-filter-chevron {
-  flex: 0 0 auto;
-  font-size: 14px;
-  line-height: 1;
+.sessions-filter-chevron.coddy-chevron {
   opacity: 0.5;
 }
 
@@ -1795,10 +1792,7 @@ a.rail-brand {
 }
 
 .session-group-caret {
-  flex: 0 0 auto;
-  font-size: 9px;
-  line-height: 1;
-  opacity: 0.75;
+  margin-left: 1px;
 }
 
 .session-group-label {
@@ -3434,11 +3428,38 @@ a.rail-brand {
   transform: translateY(-50%) rotate(0deg);
 }
 
-.thinking-chevron:after {
+/* The app's one chevron (<Chevron />, DESIGN.md "Chevron"): the transcript row's
+   fold marker and every disclosure, submenu and dropdown share this one glyph, so
+   none of them can drift into a triangle of its own. */
+.thinking-chevron:after,
+.coddy-chevron:after {
   content: "›";
   display: block;
   line-height: 1;
   font-size: 15px;
+}
+
+.coddy-chevron {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  opacity: 0.7;
+  transition: transform 140ms ease;
+}
+
+.coddy-chevron.is-open {
+  transform: rotate(90deg);
+}
+
+.coddy-chevron--down {
+  transform: rotate(90deg);
+}
+
+.coddy-chevron--down.is-open {
+  transform: rotate(-90deg);
 }
 
 .thinking-details[open] .thinking-chevron {
@@ -10872,18 +10893,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   color: var(--text);
 }
 
-.bgtask-section-chevron {
-  width: 0;
-  height: 0;
-  border-top: 4px solid transparent;
-  border-bottom: 4px solid transparent;
-  border-left: 5px solid currentColor;
-  transition: transform 0.15s ease;
-}
 
-.bgtask-section-chevron.is-open {
-  transform: rotate(90deg);
-}
 
 /* Live task card. */
 .bgtask-card {

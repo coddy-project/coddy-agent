@@ -6,6 +6,7 @@ import {
   useState,
 } from "react";
 import { useT } from "../i18n/I18nProvider";
+import { Chevron } from "../components/Chevron";
 
 export type ComboOption = { value: string; label?: string };
 
@@ -127,7 +128,7 @@ export function Combobox(props: {
           setOpen((o) => !o);
         }}
       >
-        ▾
+        <Chevron pointing="down" open={open} />
       </button>
       {open && filtered.length > 0 ? (
         <ul className="settings-combobox-list" role="listbox">
