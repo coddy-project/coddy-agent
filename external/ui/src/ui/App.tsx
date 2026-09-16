@@ -1096,10 +1096,19 @@ export function App() {
   const sidebarActiveIdRef = useRef(sidebarActiveId);
   sidebarActiveIdRef.current = sidebarActiveId;
 
-  const sessionsForSidebar = useMemo(
-    () => mergeSessionsWithDrafts(sessions, clientDraftSessions),
-    [sessions, clientDraftSessions, t],
-  );
+  const sessionsForSidebar = useMemo(() => {
+    const rows = mergeSessionsWithDrafts(sessions, clientDraftSessions);
+    // The open conversation's row follows this tab's own view of its turn, not the
+    // last listing: the listing is refreshed on a poll, and the activity dot must
+    // not trail a turn the reader is watching start or end.
+    const open = sessionId.trim();
+    if (!open) return rows;
+    return rows.map((row) =>
+      row.id === open && !!row.turnActive !== generating
+        ? { ...row, turnActive: generating }
+        : row,
+    );
+  }, [sessions, clientDraftSessions, sessionId, generating, t]);
 
   const reasoningDurationMsByContentRef = useRef<Map<string, number>>(
     new Map(),

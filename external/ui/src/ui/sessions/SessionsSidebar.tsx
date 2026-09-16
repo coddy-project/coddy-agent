@@ -27,7 +27,7 @@ import { tagVocabulary } from "./tagEditing";
 import {
   sessionRowShowsPermissionPending,
   sessionRowShowsQuestionPending,
-  sessionRowShowsSpinner,
+  sessionRowShowsActivity,
   sessionRowShowsUnreadDot,
 } from "./sessionRowActivity";
 import type { SessionRow } from "./types";
@@ -444,16 +444,12 @@ export function SessionsSidebar(props: {
           }}
         >
           <div className="session-row-leading">
-            {sessionRowShowsSpinner(
-              s,
-              props.sessionId,
-              permissionPending,
-              questionPending,
-            ) ? (
+            {sessionRowShowsActivity(s, permissionPending, questionPending) ? (
               <span
-                className="session-activity-spinner"
-                aria-hidden
-                data-testid={`session-spinner-${s.id}`}
+                className="session-activity-dot"
+                aria-label={t("sessions.turnRunning")}
+                title={t("sessions.turnRunning")}
+                data-testid={`session-activity-${s.id}`}
               />
             ) : null}
             {sessionRowShowsPermissionPending(s, permissionPending) ? (

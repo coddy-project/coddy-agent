@@ -11,15 +11,16 @@ export function sessionRowNeedsUserAttention(
   );
 }
 
-export function sessionRowShowsSpinner(
+/**
+ * Whether the row carries the pulsing activity dot: its turn is running and is not
+ * waiting on the reader. The conversation on screen is no exception - it is the one
+ * the reader is most likely waiting on, and a row without the mark reads as finished.
+ */
+export function sessionRowShowsActivity(
   row: SessionRow,
-  currentSessionId: string,
   permissionPendingSessionIds: ReadonlySet<string>,
   questionPendingSessionIds: ReadonlySet<string>,
 ): boolean {
-  if (row.id === currentSessionId) {
-    return false;
-  }
   if (
     sessionRowNeedsUserAttention(
       row,

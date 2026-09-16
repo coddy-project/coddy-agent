@@ -747,6 +747,7 @@ export const messagesRu: Record<string, string> = {
   "sessions.empty": "История пуста",
   "sessions.permissionRequired": "Требуется разрешение",
   "sessions.questionPending": "Ожидается ответ",
+  "sessions.turnRunning": "Идёт ход",
   "sessions.unreadCompletion": "Непрочитанное завершение",
   "sessions.newChatFallback": "Новый чат",
   "sessions.deleteConversation": "Удалить диалог",

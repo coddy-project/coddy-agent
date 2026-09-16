@@ -733,6 +733,7 @@ export const messagesEn: Record<string, string> = {
   "sessions.empty": "No history yet",
   "sessions.permissionRequired": "Permission required",
   "sessions.questionPending": "Question pending",
+  "sessions.turnRunning": "Turn running",
   "sessions.unreadCompletion": "Unread completion",
   "sessions.newChatFallback": "New chat",
   "sessions.deleteConversation": "Delete conversation",

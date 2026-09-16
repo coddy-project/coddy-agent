@@ -1395,14 +1395,33 @@ a.rail-brand {
   min-width: 0;
 }
 
-.session-activity-spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid color-mix(in srgb, var(--text) 15%, var(--coddy-blend-base));
-  border-top-color: rgba(147, 51, 234, 0.85);
+/* A running turn is the unread dot a third darker, pulsing: the two marks are one
+   family - "working" and "done, not read yet" - and a spinner beside them read as
+   a third kind of state. */
+.session-activity-dot {
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
+  background: color-mix(in srgb, rgba(167, 139, 250, 0.95) 67%, #000);
+  box-shadow: 0 0 0 2px rgba(147, 51, 234, 0.2);
   flex-shrink: 0;
-  animation: session-spin 0.7s linear infinite;
+  animation: session-activity-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes session-activity-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-activity-dot {
+    animation: none;
+  }
 }
 
 @keyframes session-spin {
@@ -1777,8 +1796,8 @@ a.rail-brand {
   white-space: nowrap;
 }
 
-/* The archive is a state the row is in, so it leads the row with the spinner
-   and the unread dot rather than sitting among the tags, which are labels the
+/* The archive is a state the row is in, so it leads the row with the activity
+   dot and the unread dot rather than sitting among the tags, which are labels the
    operator chose. */
 .session-archived-mark {
   flex: 0 0 auto;

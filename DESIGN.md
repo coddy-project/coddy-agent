@@ -333,8 +333,17 @@ Single implementation: **`MarkdownLineEditor`** in **`external/ui/src/ui/markdow
   **`reorderPins`** / **`pinDropIndex`**, kept pure.
 - **An archived row is dimmed** (**`.session-item.is-archived`**): its title drops to 45% text and its
   tags to 60% opacity. Put aside and still in play differ by exactly that. The archive **mark**
-  (**`.session-archived-mark`**) leads the row beside the spinner and the unread dot, where states
+  (**`.session-archived-mark`**) leads the row beside the activity dot and the unread dot, where states
   belong - it is not a chip among the tags, which are labels the operator chose.
+- **A running turn is a pulsing dot** (**`.session-activity-dot`**, **`sessionRowShowsActivity`**), not a
+  spinner: the **unread dot** a finished background turn leaves behind (8px, violet) made **a third
+  darker** (**`color-mix(in srgb, <unread colour> 67%, #000)`**) and pulsing between full and 30%
+  opacity every 1.2s, held still under **`prefers-reduced-motion`**. The two marks are one family -
+  *working* and *done, not read yet* - where a spinner beside them read as a third kind of state.
+  **The open conversation carries it too**: it is the turn the reader is most likely waiting on, and a
+  row without the mark reads as finished. Its row follows this tab's own view of the turn
+  (**`generating`** in **`App.tsx`**) rather than the last listing, which is only refreshed on a poll.
+  Only a turn waiting on the reader drops the dot, for the permission or question mark.
 - **The composer's slot on an archived conversation** is **`.archived-session-notice`**, cut from the
   same glass panel as the subagent notice beside it (**`--coddy-glass-panel-bg`** plus the backdrop
   filter) - it stands over the transcript, and a wash of the text colour is transparent on a dark
