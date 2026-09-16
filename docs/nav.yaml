@@ -100,6 +100,9 @@ groups:
       - path: features/web-search.md
         title: Web search
         summary: The engines websearch asks, how a blocked backend is reported instead of counted as nothing found, the relevance gate, and pointing it at your own SearXNG.
+      - path: features/http-requests.md
+        title: HTTP requests
+        summary: The http_request tool - any method, headers, bodies, multipart uploads and downloads, a proxy and the certificate check per request - and the permission prompt that shows where a request goes and what it carries.
       - path: features/message-queue.md
         title: Message queue
         summary: Writing a follow-up while the agent works, when the running turn reads it, taking one back, the composer and console surfaces, the queue routes.

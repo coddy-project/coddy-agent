@@ -165,10 +165,34 @@ type MCPJSON struct {
 }
 
 type ToolsJSON struct {
-	PermissionMode   string               `json:"permission_mode,omitempty"`
-	CommandAllowlist []string             `json:"command_allowlist,omitempty"`
-	OutputLimits     ToolOutputLimitsJSON `json:"output_limits,omitempty"`
-	Background       ToolBackgroundJSON   `json:"background,omitempty"`
+	PermissionMode    string               `json:"permission_mode,omitempty"`
+	CommandAllowlist  []string             `json:"command_allowlist,omitempty"`
+	SSHConnectTimeout int                  `json:"ssh_connect_timeout,omitempty"`
+	OutputLimits      ToolOutputLimitsJSON `json:"output_limits,omitempty"`
+	Background        ToolBackgroundJSON   `json:"background,omitempty"`
+	WebSearch         ToolWebSearchJSON    `json:"websearch,omitempty"`
+	HTTPRequest       ToolHTTPRequestJSON  `json:"http_request,omitempty"`
+}
+
+// ToolWebSearchJSON mirrors ToolWebSearch for JSON APIs. BraveAPIKey travels
+// both ways, like a provider's api_key: it is a credential for a third-party
+// service the settings screen edits, not one that grants access to Coddy
+// itself, which is what the write-only fields (httpserver.auth_token, the login
+// hash, the swarm tokens) are. config_get still redacts it from the model.
+type ToolWebSearchJSON struct {
+	Engines              []string `json:"engines,omitempty"`
+	EngineTimeoutSeconds int      `json:"engine_timeout_seconds,omitempty"`
+	TotalTimeoutSeconds  int      `json:"total_timeout_seconds,omitempty"`
+	MaxConcurrentEngines int      `json:"max_concurrent_engines,omitempty"`
+	SnippetChars         int      `json:"snippet_chars,omitempty"`
+	CacheTTLSeconds      int      `json:"cache_ttl_seconds,omitempty"`
+	SearXNGURL           string   `json:"searxng_url,omitempty"`
+	BraveAPIKey          string   `json:"brave_api_key,omitempty"`
+}
+
+// ToolHTTPRequestJSON mirrors ToolHTTPRequest for JSON APIs.
+type ToolHTTPRequestJSON struct {
+	Allowlist []string `json:"allowlist,omitempty"`
 }
 
 // ToolBackgroundJSON mirrors ToolBackground for JSON APIs.
@@ -447,8 +471,10 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	}
 	out.MCP = MCPJSON{ProjectTrust: c.MCP.ResolvedProjectTrust()}
 	out.Tools = ToolsJSON{
-		PermissionMode:   c.Tools.ResolvedPermMode(),
-		CommandAllowlist: append([]string(nil), c.Tools.CommandAllowlist...),
+		PermissionMode:    c.Tools.ResolvedPermMode(),
+		CommandAllowlist:  append([]string(nil), c.Tools.CommandAllowlist...),
+		SSHConnectTimeout: c.Tools.SSHConnectTimeout,
+		WebSearch:         ToolWebSearchJSON(c.Tools.WebSearch),
 		OutputLimits: ToolOutputLimitsJSON{
 			Read:          cloneIntPtr(c.Tools.OutputLimits.Read),
 			Grep:          cloneIntPtr(c.Tools.OutputLimits.Grep),
@@ -466,6 +492,9 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			DefaultTimeoutSeconds: c.Tools.Background.DefaultTimeoutSeconds,
 			MaxTimeoutSeconds:     c.Tools.Background.MaxTimeoutSeconds,
 			OutputBufferBytes:     c.Tools.Background.OutputBufferBytes,
+		},
+		HTTPRequest: ToolHTTPRequestJSON{
+			Allowlist: append([]string(nil), c.Tools.HTTPRequest.Allowlist...),
 		},
 	}
 	out.Logger = LoggerJSON{
@@ -655,8 +684,10 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	}
 	cfg.MCP = MCP{ProjectTrust: j.MCP.ProjectTrust}
 	cfg.Tools = Tools{
-		PermissionMode:   j.Tools.PermissionMode,
-		CommandAllowlist: append([]string(nil), j.Tools.CommandAllowlist...),
+		PermissionMode:    j.Tools.PermissionMode,
+		CommandAllowlist:  append([]string(nil), j.Tools.CommandAllowlist...),
+		SSHConnectTimeout: j.Tools.SSHConnectTimeout,
+		WebSearch:         ToolWebSearch(j.Tools.WebSearch),
 		OutputLimits: ToolOutputLimits{
 			Read:          cloneIntPtr(j.Tools.OutputLimits.Read),
 			Grep:          cloneIntPtr(j.Tools.OutputLimits.Grep),
@@ -674,6 +705,9 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			DefaultTimeoutSeconds: j.Tools.Background.DefaultTimeoutSeconds,
 			MaxTimeoutSeconds:     j.Tools.Background.MaxTimeoutSeconds,
 			OutputBufferBytes:     j.Tools.Background.OutputBufferBytes,
+		},
+		HTTPRequest: ToolHTTPRequest{
+			Allowlist: append([]string(nil), j.Tools.HTTPRequest.Allowlist...),
 		},
 	}
 	cfg.Logger = Logger{

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os"
 	"strings"
 )
 
@@ -38,6 +39,10 @@ type Tools struct {
 	// WebSearch picks the search engines the websearch tool asks, and bounds
 	// how long it may wait for them.
 	WebSearch ToolWebSearch `yaml:"websearch"`
+
+	// HTTPRequest is the policy of the http_request tool: the addresses it may
+	// reach without asking the operator.
+	HTTPRequest ToolHTTPRequest `yaml:"http_request"`
 }
 
 // Search engine names accepted in tools.websearch.engines.
@@ -60,6 +65,11 @@ const (
 	WebSearchDefaultSnippetChars         = 320
 	WebSearchDefaultCacheTTLSeconds      = 300
 )
+
+// WebSearchBraveAPIKeyEnv is the environment variable the Brave engine reads
+// its API key from when tools.websearch.brave_api_key is empty, so the key can
+// live in the environment or ${CODDY_HOME}/.env rather than in config.yaml.
+const WebSearchBraveAPIKeyEnv = "BRAVE_API_KEY"
 
 // WebSearchDefaultEngines is what the tool asks when the operator named no
 // engines: Brave first, Bing behind it. DuckDuckGo and Google are deliberately
@@ -419,6 +429,9 @@ func (c *Tools) Validate() error {
 	if err := c.Background.validate(); err != nil {
 		return err
 	}
+	if err := c.HTTPRequest.validate(); err != nil {
+		return err
+	}
 	return c.WebSearch.validate()
 }
 
@@ -455,6 +468,10 @@ func (w *ToolWebSearch) ToolSettings() ToolWebSearchSettings {
 		MaxConcurrentEngines: WebSearchDefaultMaxConcurrent,
 		SnippetChars:         WebSearchDefaultSnippetChars,
 		CacheTTLSeconds:      WebSearchDefaultCacheTTLSeconds,
+		// Read when the settings are built, like the rest of the section, so a
+		// key exported for the process (or set in ${CODDY_HOME}/.env) is used
+		// without being written into config.yaml. A configured key wins.
+		BraveAPIKey: strings.TrimSpace(os.Getenv(WebSearchBraveAPIKeyEnv)),
 	}
 	if w == nil {
 		return out
@@ -475,7 +492,9 @@ func (w *ToolWebSearch) ToolSettings() ToolWebSearchSettings {
 		out.CacheTTLSeconds = w.CacheTTLSeconds
 	}
 	out.SearXNGURL = strings.TrimSpace(w.SearXNGURL)
-	out.BraveAPIKey = strings.TrimSpace(w.BraveAPIKey)
+	if key := strings.TrimSpace(w.BraveAPIKey); key != "" {
+		out.BraveAPIKey = key
+	}
 	return out
 }
 

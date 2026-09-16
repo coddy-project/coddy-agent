@@ -592,6 +592,12 @@ corrupting the secret. The Settings UI does this automatically for the `proxy` f
 **not** support `${VAR}` references; for a literal `$` in `api_key` (which does support `${VAR}`),
 write `$$` by hand.
 
+**A save keeps the references.** The loaded configuration holds what a reference resolved to, so the
+Settings UI works with the secret itself. When it saves, a value written as `${VAR}` in the file is
+written back as `${VAR}` as long as it still resolves to the value being saved; only a value you
+changed on the screen replaces the reference. A key kept in the environment or in `~/.coddy/.env`
+therefore never lands in `config.yaml` because of an unrelated save.
+
 Two placeholders are not environment variables:
 
 - **`${CODDY_HOME}`** - the resolved `CODDY_HOME` directory, substituted when the file is read.

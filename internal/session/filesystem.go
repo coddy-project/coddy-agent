@@ -440,6 +440,7 @@ type permissionGrantsFileData struct {
 	Version  int      `json:"version"`
 	Commands []string `json:"commands,omitempty"`
 	Writes   []string `json:"writes,omitempty"`
+	HTTP     []string `json:"http,omitempty"`
 }
 
 // LoadedSnapshot is session data read from disk (before MCP and skills are attached).
@@ -451,6 +452,7 @@ type LoadedSnapshot struct {
 	Plan                []acp.PlanEntry
 	PermissionCommands  []string
 	PermissionWriteKeys []string
+	PermissionHTTPKeys  []string
 }
 
 // ReadSnapshot loads session.json, messages.json, and todos/active.md if present.
@@ -504,13 +506,14 @@ func (f *FileStore) readSnapshotAt(dir, sessionID string) (*LoadedSnapshot, erro
 		plan = todo.ParsePlanMarkdown(string(b))
 	}
 
-	var permCmds, permWrites []string
+	var permCmds, permWrites, permHTTP []string
 	pgPath := filepath.Join(dir, permissionGrantsFile)
 	if b, readErr := os.ReadFile(pgPath); readErr == nil {
 		var pg permissionGrantsFileData
 		if jsonErr := json.Unmarshal(b, &pg); jsonErr == nil {
 			permCmds = append(permCmds, pg.Commands...)
 			permWrites = append(permWrites, pg.Writes...)
+			permHTTP = append(permHTTP, pg.HTTP...)
 		}
 	}
 
@@ -529,6 +532,7 @@ func (f *FileStore) readSnapshotAt(dir, sessionID string) (*LoadedSnapshot, erro
 		Plan:                plan,
 		PermissionCommands:  permCmds,
 		PermissionWriteKeys: permWrites,
+		PermissionHTTPKeys:  permHTTP,
 	}, nil
 }
 
@@ -992,6 +996,7 @@ func (f *FileStore) Save(state *State) error {
 		Version:  permissionGrantsVer,
 		Commands: state.GetPermissionCommandGrants(),
 		Writes:   state.GetPermissionWriteGrants(),
+		HTTP:     state.GetPermissionHTTPGrants(),
 	}
 	if err := writeJSONAtomic(filepath.Join(dir, permissionGrantsFile), pg); err != nil {
 		return err
