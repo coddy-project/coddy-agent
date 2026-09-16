@@ -9233,6 +9233,12 @@ html:not([data-theme="light"]) .context-usage-note--error {
   padding: 12px 14px 6px;
 }
 
+/* The answered record has no footer under it - the live card's row of buttons is
+   what the 6px bottom was leaving room for - so it closes on its own padding. */
+.question-prompt-answered .question-prompt-body {
+  padding-bottom: 12px;
+}
+
 .question-prompt-subhead {
   font-size: 12px;
   color: var(--muted);
@@ -9474,25 +9480,51 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   opacity: 0.85;
 }
 
-.question-prompt-head--stack {
+/* The offer a question tool row records: the options behind their letters, with
+   the ones the reader took carrying their letter in the accent the live card
+   uses for a picked row. Read-only, so nothing here takes a pointer. */
+.question-tool-offer {
+  display: flex;
   flex-direction: column;
-  align-items: stretch;
-  gap: 10px;
+  gap: 4px;
+  /* The question introduces the offer, so it keeps the 12px the live card puts
+     between a question and its first row rather than sitting on top of it. */
+  margin: 12px 0 8px;
+  padding: 0;
+  list-style: none;
 }
 
-.question-prompt-head--stack .question-prompt-summary-line {
-  white-space: normal;
-  overflow: visible;
-  text-overflow: clip;
-  max-width: none;
-  line-height: 1.45;
-  font-weight: 500;
-  color: color-mix(in srgb, var(--text) 74%, var(--coddy-blend-base));
+/* The 8px below the offer separates it from a line that usually is not there -
+   the letters say the answer - and left the block closing on twice the air it
+   opens with. It is kept only when something follows. */
+.question-tool-offer:last-child {
+  margin-bottom: 0;
 }
 
-.question-prompt-card.question-prompt-collapsed
-  > summary.question-prompt-head.question-prompt-head--stack {
-  cursor: pointer;
+.question-tool-offer-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+}
+
+.question-tool-offer-row .question-prompt-bubble {
+  flex: 0 0 auto;
+}
+
+.question-tool-offer-row--taken {
+  color: color-mix(in srgb, var(--text) 86%, var(--coddy-blend-base));
+}
+
+.question-tool-offer-row--taken .question-prompt-bubble {
+  background: var(--accent);
+  color: #fff;
+}
+
+.question-tool-offer-text {
+  min-width: 0;
 }
 
 .question-prompt-resolved-body {
@@ -9520,6 +9552,14 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 .question-prompt-resolved-pair {
   margin: 0;
+}
+
+.coddy-tool-call-body .question-prompt-resolved-q {
+  margin-bottom: 12px;
+}
+
+.coddy-tool-call-body .question-tool-offer + .question-prompt-resolved-a {
+  margin-top: 0;
 }
 
 .question-prompt-resolved-pair .question-prompt-resolved-q {

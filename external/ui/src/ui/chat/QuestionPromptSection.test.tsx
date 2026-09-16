@@ -148,3 +148,55 @@ test("Return is not taken off the page while the answer is incomplete", async ()
 
   expect(ev.defaultPrevented).toBe(false);
 });
+
+// An answered card is a record of one exchange: the question, and under it what
+// the reader said. It used to carry a summary line on its head and the same two
+// lines again inside a foldout - the same thing twice, behind a control that only
+// ever revealed what was already on screen.
+test("an answered card states the question once and the answer under it", () => {
+  const { container } = render(
+    <QuestionPromptSection
+      itemId="qp_1"
+      payload={payload}
+      resolved={{
+        skipped: false,
+        answers: [["через скил configure-coddy"]],
+        summaryLine:
+          "Which scheduler did you mean? через скил configure-coddy",
+      }}
+      onResolved={() => {}}
+    />,
+  );
+
+  expect(container.querySelector("details")).toBeNull();
+  expect(container.querySelector("summary")).toBeNull();
+  expect(container.querySelector(".question-prompt-summary-line")).toBeNull();
+
+  expect(container.querySelectorAll(".question-prompt-resolved-q")).toHaveLength(1);
+  expect(
+    container.querySelector(".question-prompt-resolved-q")?.textContent,
+  ).toBe("Which scheduler did you mean?");
+  expect(
+    container.querySelector(".question-prompt-resolved-a")?.textContent,
+  ).toBe("через скил configure-coddy");
+
+  // The options stay on the tool row that recorded the offer, not here.
+  expect(container.querySelector(".question-tool-offer")).toBeNull();
+  expect(container.textContent).not.toContain("Todo plan");
+});
+
+test("a skipped card says so and names the missing answer", () => {
+  const { container } = render(
+    <QuestionPromptSection
+      itemId="qp_2"
+      payload={payload}
+      resolved={{ skipped: true, answers: [[]], summaryLine: "Skipped" }}
+      onResolved={() => {}}
+    />,
+  );
+
+  expect(screen.getByText("Skipped")).toBeInTheDocument();
+  expect(
+    container.querySelector(".question-prompt-resolved-a")?.textContent,
+  ).toBe("(no answer)");
+});

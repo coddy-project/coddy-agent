@@ -450,6 +450,8 @@ The expanded body uses the same tool-specific visual preview as the permission g
 
 **`load_skill`** is the exception to the raw-text result. The summary row already names the skill, so the call renders no argument card; the body a **completed** call returns is a skill's markdown and renders through the Markdown component (**`.tool-call-result-content--markdown`**) in the prose font rather than the panel's monospace stack, with list indents tightened for the narrower card. A **failed** call returned an error rather than a skill and keeps the raw monospace panel.
 
+**`question` is the record of an offer.** The row names the act (**`asking`** / **`спрашиваю`**, key **`messages.toolQuestionLabel`**) and carries no duration - nothing was running while the reader read it. Its body is the offer as the model made it: every question, each option behind the letter it was offered under (**`.question-tool-offer-row`**, the letter in the same **`.question-prompt-bubble`** the live card uses), and the free-answer slot when **`custom`** was set - carrying the words the reader typed into it, so an answer is read in the slot it was given in rather than named twice. The letters the reader took are marked in the accent, each answer claiming one option. A line closes the block only when the letters cannot say it: nothing answered yet, or an answer with no slot of its own. This is the **only** place the offer survives - the answered card below the row keeps just the question and the answer - so an option the reader did not take is readable here and nowhere else.
+
 **Copy controls are icons.** Every control that used to spell out **Copy** - the markdown code-block button, the tool preview and permission preview controls - is the clipboard glyph on the shared **`.md-copy`** chrome, with the word it replaced kept as the native **`title`** tooltip and the accessible name.
 
 - Tool arguments arrive via `tool_call_update` status `in_progress` where `content[0].content.text` is raw JSON args.
@@ -473,6 +475,10 @@ Tool call history is persisted per session under `tool_calls/` so it can be rest
 **PermissionPromptSection** renders only for tool calls that actually require approval. Read-only calls do not get a placeholder card, status checkmark, or “runs without a permission prompt” message.
 
 - The header contains one short action question and one technical tool-id badge. Do not repeat the raw tool name in the question or preview header.
+
+### Answered question card
+
+An answered **`question_prompt`** (**`QuestionPromptSection.tsx`**, resolved branch) is a record of one exchange and states it once: the **Questions** head, the question, and under it what the reader said (**`.question-prompt-answered`**, reusing **`.question-prompt-resolved-q`** / **`-a`**). It is **not** a foldout - it carried a summary line on its head and the same two lines again inside a **`<details>`**, which put the same exchange on screen twice behind a control that revealed nothing new, three times counting the tool row above it. The options are not repeated here either; the tool row keeps the offer.
 - Buttons keep the backend option labels and order: **Allow**, **Allow always**, optional **Always allow `<program>`**, **Reject**.
 - The **Always allow `<program>`** option appears **only** for **run_command**, and only when the command is a single plain invocation (**`internal/permission.ProgramGrant`** refuses anything carrying shell metacharacters or a leading **`VAR=`** assignment). Its label names the exact allowlist entry that will be stored — **`curl`** for a bare program, **`git status`** for a multiplexer — so the operator approves the string that is actually saved. **Allow always** keeps its narrow exact-command meaning; the wider grant is never implied.
 - Four buttons must still wrap cleanly at phone width: the row wraps rather than shrinking any button below its touch target.

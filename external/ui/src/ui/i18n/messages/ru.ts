@@ -1234,7 +1234,7 @@ export const messagesRu: Record<string, string> = {
   "toolAction.ariaLabel": "Действие инструмента",
 
   "messages.toolDefaultName": "инструмент",
-  "messages.toolQuestionLabel": "вопрос",
+  "messages.toolQuestionLabel": "спрашиваю",
   "messages.toolPendingSuffix": "…",
   "messages.toolSummaryAriaLabel": "Сводка инструмента",
   "messages.spawnAgentDetails": "Сведения об агенте",
@@ -1270,6 +1270,7 @@ export const messagesRu: Record<string, string> = {
   "messages.toolLess": "Свернуть",
   "messages.toolQuestionTimelineAriaLabel": "Хронология инструмента вопроса",
   "messages.toolAwaitingAnswer": "Ожидается ответ",
+  "messages.toolQuestionOwnAnswer": "свой ответ",
   "messages.toolQuestionMirrorHint":
     "Ответьте через карточку «Вопросы» в этом чате. Эта строка только отражает состояние инструмента.",
   "messages.toolBgTaskOpen": "Открыть в задачах",

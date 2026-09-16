@@ -5,12 +5,36 @@ import { t } from "../i18n/i18n";
  * human-readable copy instead of raw JSON in ToolCallMessage.
  */
 
+export type QuestionToolOption = {
+  label: string;
+  description: string;
+};
+
 export type QuestionToolArgItem = {
   question: string;
+  /** What the model offered, in the order it offered them. */
+  options: QuestionToolOption[];
+  /** Whether the reader could pick more than one of them. */
+  multiple: boolean;
+  /** Whether an answer of their own was offered beside the options. */
+  custom: boolean;
 };
 
 function trimQ(s: string): string {
   return s.replace(/\s+/g, " ").trim();
+}
+
+function parseOptions(raw: unknown): QuestionToolOption[] {
+  if (!Array.isArray(raw)) return [];
+  const out: QuestionToolOption[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as { label?: unknown; description?: unknown };
+    const label = trimQ(String(o.label ?? ""));
+    if (!label) continue;
+    out.push({ label, description: trimQ(String(o.description ?? "")) });
+  }
+  return out;
 }
 
 export function parseQuestionToolQuestionsFromArgs(
@@ -24,8 +48,20 @@ export function parseQuestionToolQuestionsFromArgs(
     const out: QuestionToolArgItem[] = [];
     for (const item of raw) {
       if (!item || typeof item !== "object") continue;
-      const q = trimQ(String((item as { question?: unknown }).question ?? ""));
-      if (q) out.push({ question: q });
+      const row = item as {
+        question?: unknown;
+        options?: unknown;
+        multiple?: unknown;
+        custom?: unknown;
+      };
+      const q = trimQ(String(row.question ?? ""));
+      if (!q) continue;
+      out.push({
+        question: q,
+        options: parseOptions(row.options),
+        multiple: row.multiple === true,
+        custom: row.custom === true,
+      });
     }
     return out;
   } catch {

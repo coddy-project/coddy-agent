@@ -12,6 +12,7 @@ import {
   parseQuestionToolAnswersFromResult,
   parseQuestionToolQuestionsFromArgs,
 } from "../chat/questionToolDisplay";
+import { letterForOptionIndex } from "../chat/questionTypes";
 import { PermissionToolPreview } from "../chat/PermissionPromptPreview";
 import { webSearchResultMarkdown } from "../chat/webToolResults";
 import {
@@ -42,6 +43,15 @@ function formatDuration(ms: number): string {
   return `${Math.round(ms)}ms`;
 }
 
+/**
+ * What the `question` tool put up, as it put it up: every question with the
+ * options behind their own letters, the free-answer slot when one was offered,
+ * and the letters the reader took marked among them.
+ *
+ * The card in the transcript keeps only the question and the answer, so this row
+ * is the one place the offer survives - which of the four the reader was choosing
+ * between, and what the ones they did not take said.
+ */
 function QuestionToolTimelineReadout(props: {
   argsText?: string | undefined;
   resultText: string;
@@ -70,25 +80,108 @@ function QuestionToolTimelineReadout(props: {
       className="question-prompt-resolved-body"
       aria-label={t("messages.toolQuestionTimelineAriaLabel")}
     >
-      {qs.map((item, qi) => (
-        <div
-          key={`${qi}-${item.question}`}
-          className={qi === 0 ? undefined : "question-prompt-resolved-block"}
-        >
-          <div className="question-prompt-resolved-pair">
-            <div className="question-prompt-resolved-q">{item.question}</div>
-            {terminal && (answers[qi] ?? []).filter(Boolean).length ? (
-              <div className="question-prompt-resolved-a">
-                {answers[qi]!.join(", ")}
-              </div>
-            ) : (
-              <div className="question-prompt-resolved-a muted">
-                {t("messages.toolAwaitingAnswer")}
-              </div>
-            )}
+      {qs.map((item, qi) => {
+        const picked = (answers[qi] ?? []).filter((a) => a.length > 0);
+        // Answers and option labels come out of the same parser, which collapses
+        // the whitespace in both, so an answer only has to be matched case
+        // -insensitively. Each answer claims one option: a model that offers the
+        // same label twice lights one letter per answer rather than both.
+        const claimed = new Set<number>();
+        const takenOptions = new Set<number>();
+        item.options.forEach((option, oi) => {
+          const label = option.label.toLowerCase();
+          const at = picked.findIndex(
+            (a, ai) => !claimed.has(ai) && a.toLowerCase() === label,
+          );
+          if (at < 0) return;
+          claimed.add(at);
+          takenOptions.add(oi);
+        });
+        // Whatever matched no option is what the reader wrote themselves, and the
+        // free slot is where they wrote it: it carries their words rather than the
+        // name of the slot, so the answer is read where it was given.
+        const ownAnswers = picked.filter((_, ai) => !claimed.has(ai));
+        const offered = item.options.length > 0 || item.custom;
+        // Every answer the offer accounts for is already marked among the letters.
+        // The line below carries only what the letters cannot say: that nothing has
+        // been answered yet, or an answer with no slot of its own to sit in.
+        const strayAnswers = item.custom ? [] : ownAnswers;
+        const answerLine =
+          !offered || picked.length === 0 || strayAnswers.length > 0;
+        return (
+          <div
+            key={`${qi}-${item.question}`}
+            className={qi === 0 ? undefined : "question-prompt-resolved-block"}
+          >
+            <div className="question-prompt-resolved-q">
+              {qs.length > 1 ? `${qi + 1}. ` : ""}
+              {item.question}
+            </div>
+            {item.options.length > 0 || item.custom ? (
+              <ul className="question-tool-offer">
+                {item.options.map((option, oi) => (
+                  <li
+                    key={`${oi}-${option.label}`}
+                    className={
+                      "question-tool-offer-row" +
+                      (takenOptions.has(oi)
+                        ? " question-tool-offer-row--taken"
+                        : "")
+                    }
+                  >
+                    <span className="question-prompt-bubble" aria-hidden>
+                      {letterForOptionIndex(oi)}
+                    </span>
+                    <span className="question-tool-offer-text">
+                      {option.label}
+                      {option.description ? (
+                        <span className="muted"> - {option.description}</span>
+                      ) : null}
+                    </span>
+                  </li>
+                ))}
+                {item.custom ? (
+                  <li
+                    className={
+                      "question-tool-offer-row" +
+                      (ownAnswers.length > 0
+                        ? " question-tool-offer-row--taken"
+                        : "")
+                    }
+                  >
+                    <span className="question-prompt-bubble" aria-hidden>
+                      {letterForOptionIndex(item.options.length)}
+                    </span>
+                    <span
+                      className={
+                        "question-tool-offer-text" +
+                        (ownAnswers.length > 0 ? "" : " muted")
+                      }
+                    >
+                      {ownAnswers.length > 0
+                        ? ownAnswers.join(", ")
+                        : t("messages.toolQuestionOwnAnswer")}
+                    </span>
+                  </li>
+                ) : null}
+              </ul>
+            ) : null}
+            {answerLine ? (
+              terminal && picked.length > 0 ? (
+                <div className="question-prompt-resolved-a">
+                  {(strayAnswers.length > 0 ? strayAnswers : picked).join(", ")}
+                </div>
+              ) : (
+                <div className="question-prompt-resolved-a muted">
+                  {terminal
+                    ? t("prompts.noAnswer")
+                    : t("messages.toolAwaitingAnswer")}
+                </div>
+              )
+            ) : null}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

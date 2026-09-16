@@ -1216,7 +1216,7 @@ export const messagesEn: Record<string, string> = {
   "toolAction.ariaLabel": "Tool action",
 
   "messages.toolDefaultName": "tool",
-  "messages.toolQuestionLabel": "question",
+  "messages.toolQuestionLabel": "asking",
   "messages.toolPendingSuffix": "...",
   "messages.toolSummaryAriaLabel": "Tool summary",
   "messages.spawnAgentDetails": "Agent details",
@@ -1248,6 +1248,7 @@ export const messagesEn: Record<string, string> = {
   "messages.toolLess": "Less",
   "messages.toolQuestionTimelineAriaLabel": "Question tool timeline",
   "messages.toolAwaitingAnswer": "Awaiting answer",
+  "messages.toolQuestionOwnAnswer": "an answer of their own",
   "messages.toolQuestionMirrorHint":
     "Answer using the Questions card in this chat. This row only mirrors the tool state.",
   "messages.toolBgTaskOpen": "Open in Tasks",

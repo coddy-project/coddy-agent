@@ -487,7 +487,7 @@ test("completed mkdir uses the rich tool preview without approval actions", () =
   ).toContain("created directory H:\\workspace\\build");
 });
 
-test("question tool omits duration from summary row", () => {
+test("question tool names the act and omits duration from its summary row", () => {
   const { container } = render(
     <ToolCallMessage
       toolCallId="tc-q"
@@ -501,12 +501,112 @@ test("question tool omits duration from summary row", () => {
     />,
   );
   expect(container.querySelector(".thinking-dur")).toBeNull();
+  // Every other row names what the call is doing; this one used to name the noun.
   expect(container.querySelector(".thinking-label")?.textContent?.trim()).toBe(
-    "question",
+    "asking",
   );
   openToolDetails();
   expect(screen.getByText("Continue?")).toBeInTheDocument();
-  expect(screen.getByText("Yes")).toBeInTheDocument();
+  // The taken letter is the answer; nothing repeats it underneath.
+  const row = container.querySelector(".question-tool-offer-row");
+  expect(row?.classList.contains("question-tool-offer-row--taken")).toBe(true);
+  expect(row?.textContent).toContain("Yes");
+  expect(container.querySelector(".question-prompt-resolved-a")).toBeNull();
+});
+
+// The card in the transcript keeps only the question and the answer, so this row
+// is the one place the offer survives: what the reader was choosing between, and
+// what the options they did not take said.
+test("the question row records the whole offer, with the taken letters marked", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-offer"
+      title="question"
+      status="completed"
+      argsText={JSON.stringify({
+        questions: [
+          {
+            question: "Which scheduler did you mean?",
+            options: [
+              { label: "Todo plan", description: "A checklist of tasks" },
+              { label: "Background tasks" },
+              { label: "Cron" },
+            ],
+            custom: true,
+          },
+        ],
+      })}
+      resultText={JSON.stringify({ answers: [["Background tasks"]] })}
+    />,
+  );
+  openToolDetails();
+
+  const rows = [...container.querySelectorAll(".question-tool-offer-row")];
+  // Three options plus the free-answer slot, each behind its own letter.
+  expect(rows.map((r) => r.querySelector(".question-prompt-bubble")?.textContent)).toEqual([
+    "A",
+    "B",
+    "C",
+    "D",
+  ]);
+  expect(rows[0]?.textContent).toContain("A checklist of tasks");
+  expect(rows[3]?.textContent).toContain("an answer of their own");
+
+  const taken = rows.filter((r) =>
+    r.classList.contains("question-tool-offer-row--taken"),
+  );
+  expect(taken).toHaveLength(1);
+  expect(taken[0]?.textContent).toContain("Background tasks");
+  expect(container.querySelector(".question-prompt-resolved-a")).toBeNull();
+});
+
+// An answer the reader wrote belongs in the slot they wrote it in: the free row
+// carries their words, not the name of the row.
+test("the free slot carries what the reader typed into it", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-own"
+      title="question"
+      status="completed"
+      argsText={JSON.stringify({
+        questions: [
+          { question: "Which one?", options: [{ label: "A one" }], custom: true },
+        ],
+      })}
+      resultText={JSON.stringify({ answers: [["something else entirely"]] })}
+    />,
+  );
+  openToolDetails();
+
+  const rows = [...container.querySelectorAll(".question-tool-offer-row")];
+  expect(rows).toHaveLength(2);
+  expect(rows[0]?.classList.contains("question-tool-offer-row--taken")).toBe(false);
+  expect(rows[1]?.classList.contains("question-tool-offer-row--taken")).toBe(true);
+  expect(rows[1]?.textContent).toContain("something else entirely");
+  expect(rows[1]?.textContent).not.toContain("an answer of their own");
+  // The words are in the row, so nothing repeats them below it.
+  expect(container.querySelector(".question-prompt-resolved-a")).toBeNull();
+});
+
+test("an unanswered question still says so under the offer", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-waiting"
+      title="question"
+      status="in_progress"
+      argsText={JSON.stringify({
+        questions: [{ question: "Which one?", options: [{ label: "A one" }], custom: true }],
+      })}
+      resultText=""
+    />,
+  );
+  openToolDetails();
+
+  const slot = [...container.querySelectorAll(".question-tool-offer-row")].pop();
+  expect(slot?.textContent).toContain("an answer of their own");
+  expect(container.querySelector(".question-prompt-resolved-a")?.textContent).toBe(
+    "Awaiting answer",
+  );
 });
 
 test("question tool shows human timeline readout instead of raw JSON blobs", () => {
@@ -1672,4 +1772,74 @@ test("a failed web search keeps its error as plain text", () => {
   expect(document.querySelector(".tool-result-pre")?.textContent).toBe(
     "error: http 503",
   );
+});
+
+// Cross-review: the same label offered twice used to light both letters for one
+// answer, an offer of nothing but a free slot drew no offer at all, and the
+// whitespace normalisation of answers against labels was worth pinning down.
+test("each answer claims one option, even when two carry the same label", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-dup"
+      title="question"
+      status="completed"
+      argsText={JSON.stringify({
+        questions: [
+          { question: "Which?", options: [{ label: "Yes" }, { label: "Yes" }] },
+        ],
+      })}
+      resultText={JSON.stringify({ answers: [["Yes"]] })}
+    />,
+  );
+  openToolDetails();
+
+  const rows = [...container.querySelectorAll(".question-tool-offer-row")];
+  expect(rows).toHaveLength(2);
+  expect(
+    rows.filter((r) => r.classList.contains("question-tool-offer-row--taken")),
+  ).toHaveLength(1);
+});
+
+test("an answer matches a label whose spacing differs", () => {
+  // Both sides come out of the same parser, which collapses runs of whitespace.
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-space"
+      title="question"
+      status="completed"
+      argsText={JSON.stringify({
+        questions: [
+          { question: "Which?", options: [{ label: "Todo  plan" }], custom: true },
+        ],
+      })}
+      resultText={JSON.stringify({ answers: [["Todo   plan"]] })}
+    />,
+  );
+  openToolDetails();
+
+  const rows = [...container.querySelectorAll(".question-tool-offer-row")];
+  expect(rows[0]?.classList.contains("question-tool-offer-row--taken")).toBe(true);
+  // The free slot stays unmarked: the answer was one of the options.
+  expect(rows[1]?.classList.contains("question-tool-offer-row--taken")).toBe(false);
+});
+
+test("an offer of nothing but a free slot still shows that slot", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-free"
+      title="question"
+      status="completed"
+      argsText={JSON.stringify({
+        questions: [{ question: "Say anything", options: [], custom: true }],
+      })}
+      resultText={JSON.stringify({ answers: [["hello"]] })}
+    />,
+  );
+  openToolDetails();
+
+  const rows = [...container.querySelectorAll(".question-tool-offer-row")];
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.querySelector(".question-prompt-bubble")?.textContent).toBe("A");
+  expect(rows[0]?.classList.contains("question-tool-offer-row--taken")).toBe(true);
+  expect(rows[0]?.textContent).toContain("hello");
 });

@@ -304,21 +304,25 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, [ready, resolved, submit, submitting]);
 
+  // An answered card is a record of one exchange: the question, and under it what
+  // the reader said. It used to carry a summary line on the head and the same
+  // question and answer again inside a foldout, which is the same two lines twice
+  // behind a control that only ever revealed what was already on screen. The
+  // options the model offered are not repeated here either - the tool row above
+  // keeps the whole offer.
   if (resolved) {
-    const sum = resolved.summaryLine.trim() || t("prompts.answered");
     return (
       <section
         className="question-prompt-frame"
         data-test="question_prompt_resolved"
       >
-        <details className="question-prompt-card question-prompt-collapsed">
-          <summary className="question-prompt-head question-prompt-head--stack">
+        <div className="question-prompt-card question-prompt-answered">
+          <div className="question-prompt-head">
             <div className="question-prompt-head-left">
               <span className="question-prompt-icon" aria-hidden />
               <span className="question-prompt-title">{t("prompts.questions")}</span>
             </div>
-            <span className="question-prompt-summary-line">{sum}</span>
-          </summary>
+          </div>
           <div className="question-prompt-body question-prompt-resolved-body">
             {resolved.skipped ? (
               <p className="question-prompt-skipped-note">{t("prompts.skipped")}</p>
@@ -327,7 +331,8 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
               const parts = (resolved.answers[qi] ?? [])
                 .map((s) => String(s).trim())
                 .filter((s) => s.length > 0);
-              const aText = parts.length > 0 ? parts.join(", ") : "-";
+              const aText =
+                parts.length > 0 ? parts.join(", ") : t("prompts.noAnswer");
               return (
                 <div
                   key={`${qi}-${q.question}`}
@@ -338,14 +343,17 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
                   }
                 >
                   <div className="question-prompt-resolved-pair">
-                    <div className="question-prompt-resolved-q">{q.question}</div>
+                    <div className="question-prompt-resolved-q">
+                      {qs.length > 1 ? `${qi + 1}. ` : ""}
+                      {q.question}
+                    </div>
                     <div className="question-prompt-resolved-a">{aText}</div>
                   </div>
                 </div>
               );
             })}
           </div>
-        </details>
+        </div>
       </section>
     );
   }
