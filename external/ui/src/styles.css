@@ -1362,12 +1362,26 @@ a.rail-brand {
   box-sizing: border-box;
 }
 
+/* Two columns: the state marks, then the title with its tags under it. The tags
+   label the words, so they start where the title's text starts rather than under
+   the marks; a row with no mark leaves the first column empty. */
 .session-row-link {
   flex: 1;
   min-width: 0;
   text-decoration: none;
   color: inherit;
-  display: block;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+}
+
+.session-row-marks {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 6px;
 }
 
 .session-item:hover {
@@ -1388,10 +1402,11 @@ a.rail-brand {
 }
 
 .session-row-leading {
+  grid-column: 2;
+  grid-row: 1;
   display: flex;
   align-items: center;
   gap: 6px;
-  flex: 1;
   min-width: 0;
 }
 
@@ -1808,11 +1823,12 @@ a.rail-brand {
 }
 
 .session-row-tags {
+  grid-column: 2;
+  grid-row: 2;
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
   margin-top: 3px;
-  padding-left: 2px;
 }
 
 .session-tag {

@@ -14,7 +14,9 @@ const css = readFileSync(join(dir, "../../styles.css"), "utf8");
 
 function rule(selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|\\n)${escaped}\\s*\\{[^}]*\\}`, "s").exec(css)?.[0] ?? "";
+  return (
+    new RegExp(`(^|\\n)${escaped}\\s*\\{[^}]*\\}`, "s").exec(css)?.[0] ?? ""
+  );
 }
 
 test("the activity dot is the unread dot, a third darker", () => {

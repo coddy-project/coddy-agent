@@ -182,6 +182,40 @@ test("question pending hides the activity dot and shows animated question icon",
   expect(screen.getByTestId("session-question-q")).toBeInTheDocument();
 });
 
+test("the state marks stand apart from the title so the tags line up under its text", () => {
+  render(
+    <SessionsSidebar
+      sessionId="other"
+      sessions={[
+        { id: "busy", title: "Busy", turnActive: true, tags: ["planning"] },
+        { id: "calm", title: "Calm", tags: ["scheduling"] },
+      ]}
+      open
+      onPick={() => {}}
+      onDelete={() => Promise.resolve()}
+      searchDraft=""
+      onSearchDraftChange={() => {}}
+      onSearchClear={() => {}}
+      hasMore={false}
+      loadingMore={false}
+      onLoadMore={() => {}}
+    />,
+  );
+  const busy = screen.getByTestId("session-row-busy");
+  const marks = busy.querySelector(".session-row-marks");
+  expect(marks).not.toBeNull();
+  expect(marks?.contains(screen.getByTestId("session-activity-busy"))).toBe(
+    true,
+  );
+  expect(
+    busy.querySelector(".session-row-leading .session-activity-dot"),
+  ).toBeNull();
+  // A row without a state mark has no empty column holder to push its title in.
+  expect(
+    screen.getByTestId("session-row-calm").querySelector(".session-row-marks"),
+  ).toBeNull();
+});
+
 // --- grouping and the archive ---
 
 const NOW = Date.parse("2026-09-15T12:00:00");

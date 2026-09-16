@@ -350,7 +350,12 @@ Single implementation: **`MarkdownLineEditor`** in **`external/ui/src/ui/markdow
   canvas. A line of text, and one button that takes the conversation back out.
 - **Row tags** (**`.session-row-tags`**) go **under** the title, not beside it: the title is what the row
   is for and must not be pushed out of view by labels. Chips are **10px**, pill-shaped, on a 6% text
-  wash. The **archived badge** (**`.session-archived-badge`**) is the same size and wash but uppercase,
+  wash. **The first chip starts where the title's text starts**, never under the state marks: the link
+  (**`.session-row-link`**) is a two-column grid, **`auto minmax(0, 1fr)`**, the marks
+  (**`.session-row-marks`**, rendered only when the row has one) hold the first column and keep their
+  own 6px to the title, and the title line (**`.session-row-leading`**) and the tags share the second.
+  Neither carries a nudge of its own. A row with no mark leaves the first column empty, so title and
+  tags both start at the row's edge; covered by **`sessionRowTagsAlignCss.test.ts`**. The **archived badge** (**`.session-archived-badge`**) is the same size and wash but uppercase,
   and sits **inline after the title**, because it qualifies the title rather than the row.
 - **One control per row** (**`.session-row-menu-trigger`**, a 26px **⋮**, 0.38 opacity until the row is
   hovered) opens **`.session-row-menu`**: **pin**, **rename** and **tags** - the three that change where

@@ -90,4 +90,3 @@ test("permission pending when session id is in pending set", () => {
   expect(sessionRowShowsPermissionPending(base("a"), set)).toBe(true);
   expect(sessionRowShowsPermissionPending(base("b"), set)).toBe(false);
 });
-
