@@ -1330,6 +1330,9 @@ a.rail-brand {
     color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
 }
 
+/* The app's one close control: a framed square with the × in it, used by every
+   drawer, panel and dialog head and, at a smaller size, by a queued message. The
+   frame lightens under the pointer so it reads as a control rather than a label. */
 .sessions-close {
   width: 34px;
   height: 30px;
@@ -1340,6 +1343,17 @@ a.rail-brand {
   cursor: pointer;
   font-size: 18px;
   line-height: 1;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.sessions-close:hover,
+.sessions-close:focus-visible {
+  background: color-mix(in srgb, var(--text) 12%, rgba(20, 20, 22, 0.35));
+  border-color: color-mix(in srgb, var(--text) 18%, var(--coddy-blend-base));
+  color: var(--text);
 }
 
 .session-list {
@@ -4086,16 +4100,22 @@ a.rail-brand {
   gap: 4px;
 }
 
+/* Frosted glass, the same panel the composer card is cut from: a 6% wash of the
+   text colour is nearly transparent over a dark transcript, and the words
+   scrolling under the queue read through it. */
 .composer-queue-item {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
-  padding: 7px 8px 7px 12px;
+  padding: 6px 6px 6px 12px;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
-  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
-  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  border: 1px solid var(--coddy-glass-panel-border);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
   font-size: 12px;
   line-height: 1.45;
 }
@@ -4103,6 +4123,9 @@ a.rail-brand {
 .composer-queue-text {
   flex: 1 1 auto;
   min-width: 0;
+  /* Centres the first line on the 24px close control beside it, so a one-line
+     message sits level with its × and a longer one hangs from the same line. */
+  padding-top: 3px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   display: -webkit-box;
@@ -4112,29 +4135,21 @@ a.rail-brand {
   overflow: hidden;
 }
 
+/* The close control in the top right corner, at a size a one-line row can hold. */
 .composer-queue-remove {
   flex: 0 0 auto;
-  align-self: flex-end;
+  align-self: flex-start;
+}
+
+.sessions-close.composer-queue-remove {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   padding: 0;
-  border: none;
-  border-radius: 50%;
-  background: transparent;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
-  cursor: pointer;
-  transition:
-    background 0.15s,
-    color 0.15s;
-}
-
-.composer-queue-remove:hover,
-.composer-queue-remove:focus-visible {
-  background: color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
-  color: var(--text);
+  border-radius: 8px;
+  font-size: 15px;
 }
 
 /* The primary control keeps its circle and swaps only its meaning: a draft

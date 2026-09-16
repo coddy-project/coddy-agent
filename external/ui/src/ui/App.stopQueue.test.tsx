@@ -162,6 +162,18 @@ class Backend {
         return stream.response;
       }
       if (suffix === "/cancel") return json({});
+      if (suffix?.startsWith("/queue/") && request.method === "DELETE") {
+        const queue = this.queues.get(sid) ?? { messages: [], version: 1 };
+        const id = decodeURIComponent(suffix.slice("/queue/".length));
+        if (!queue.messages.some((m) => m.id === id))
+          return json({ error: { code: "not_found" } }, 404);
+        const next = {
+          messages: queue.messages.filter((m) => m.id !== id),
+          version: queue.version + 1,
+        };
+        this.queues.set(sid, next);
+        return json(next);
+      }
       if (suffix === "/queue") {
         const queue = this.queues.get(sid) ?? { messages: [], version: 1 };
         if (request.method === "POST") {
@@ -553,6 +565,45 @@ test("attaching to a running turn asks the relay only for what the loaded transc
       (r) => r.path === `/coddy/sessions/${A}/composer-stream?since_rev=7`,
     ),
   ).toBe(true);
+});
+
+// A queued message is still the operator's until the agent reads it, and taking it
+// back is how it gets edited: the text returns to the composer rather than vanishing.
+test("taking a queued message back puts its text in the composer", async () => {
+  backend.activity.set(A, true);
+  backend.queues.set(A, {
+    messages: [{ id: "q1", text: "Use the EU prices" }],
+    version: 3,
+  });
+  await mount();
+  await screen.findByText("Use the EU prices");
+  fireEvent.click(screen.getByTestId("composer-queue-remove-q1"));
+  await waitFor(() => expect(composer()).toHaveValue("Use the EU prices"));
+  expect(screen.queryByTestId("composer-queue")).not.toBeInTheDocument();
+});
+
+test("a message the agent read before it was taken back does not return", async () => {
+  backend.activity.set(A, true);
+  backend.queues.set(A, {
+    messages: [{ id: "q1", text: "Already read" }],
+    version: 3,
+  });
+  await mount();
+  await screen.findByText("Already read");
+  backend.override = (r) =>
+    r.method === "DELETE" && r.path.includes("/queue/")
+      ? json({ error: { code: "not_found" } }, 404)
+      : undefined;
+  fireEvent.click(screen.getByTestId("composer-queue-remove-q1"));
+  await waitFor(() =>
+    expect(
+      backend.requests.some((r) => r.method === "DELETE" && r.path.includes("/queue/q1")),
+    ).toBe(true),
+  );
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 50));
+  });
+  expect(composer()).toHaveValue("");
 });
 
 test("reconciliation does not repeatedly abort a slow activity read", async () => {

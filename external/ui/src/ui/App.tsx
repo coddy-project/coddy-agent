@@ -5007,6 +5007,7 @@ export function App() {
     const queueEpoch = queueOrderRef.current.capture(sid).epoch;
     const messageID = id.trim();
     if (!sid || !messageID) return;
+    const taken = (queueBySid[sid] ?? []).find((q) => q.id === messageID);
     setQueueBySid((prev) => ({
       ...prev,
       [sid]: (prev[sid] ?? []).filter((q) => q.id !== messageID),
@@ -5023,6 +5024,15 @@ export function App() {
         } | null;
         if (Array.isArray(data?.messages)) {
           applyQueue(sid, data.messages, data.version ?? 0, queueEpoch);
+        }
+        // Taken back before the agent read it: the text returns to the composer to be
+        // edited, ahead of anything typed since. A 404 means the agent read it first,
+        // and it is already in the conversation.
+        const text = taken?.text ?? "";
+        if (res.ok && text.trim() && viewedSessionIdRef.current.trim() === sid) {
+          setDraft((current) =>
+            current.trim() ? `${text}\n\n${current}` : text,
+          );
         }
       } catch {
         // The next message_queue frame corrects the list.

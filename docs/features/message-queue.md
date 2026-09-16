@@ -37,7 +37,7 @@ A **child (subagent) session** takes nothing. Its only turn is the task its pare
 
 The composer stays live while the agent works. With text in the field, the round control at its right queues that text for the running turn instead of stopping it; with the field empty it is still **Stop**, which is how a turn is cancelled. **Enter** does the same as the control.
 
-Queued messages stack above the composer in the order the agent will read them, each with a cross that takes it back. A message the agent has just read leaves the stack and appears in the conversation in the same breath.
+Queued messages stack above the composer in the order the agent will read them, each with a cross in its corner that takes it back - and puts the text back into the field, so taking a message back is how it gets edited. A message the agent read before the cross was pressed is already in the conversation, and nothing returns. A message the agent has just read leaves the stack and appears in the conversation in the same breath.
 
 The browser checks the selected session's activity and queue when opening it and reconnecting, but skips both reads while its own prompt request awaits admission. Stop and queueing remain available for a running turn even when that tab has lost its stream reader or the session is outside the current History page. Stop waits for the cancellation request to succeed before aborting the local reader; a failed request shows an error and leaves the controls available for another attempt. The server may still need time to release the turn after acknowledging Stop; an old turn-end event overlapping the next pending or admitted prompt requires a fresh activity read before the browser declares idle.
 

@@ -1892,20 +1892,13 @@ export function Composer(props: {
                 <span className="composer-queue-text">{q.text}</span>
                 <button
                   type="button"
-                  className="composer-queue-remove"
+                  className="sessions-close composer-queue-remove"
                   data-testid={`composer-queue-remove-${q.id}`}
                   aria-label={t("composer.queueRemove")}
                   title={t("composer.queueRemove")}
                   onClick={() => props.onCancelQueued?.(q.id)}
                 >
-                  <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true">
-                    <path
-                      d="M2 2 L10 10 M10 2 L2 10"
-                      stroke="currentColor"
-                      strokeWidth="1.6"
-                      strokeLinecap="round"
-                    />
-                  </svg>
+                  ×
                 </button>
               </li>
             ))}
