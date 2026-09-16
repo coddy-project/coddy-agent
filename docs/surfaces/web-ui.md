@@ -295,7 +295,7 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 - **Tags** of a row render under its title as small chips (the title keeps the first line to itself). They are proposed by the title generation, edited by hand in the **Tags** editor of the row menu, and written by the model's own `session_describe` tool ([Sessions](../features/sessions.md#tags-and-the-archive)).
 - **The tag editor is one component in both places that show tags** (**`SessionTagEditor.tsx`**): a cross on every chip, a box that offers the labels this history already uses (most used first, its own excluded, prefix matches leading), **Enter** to file what was typed, arrow keys and **Enter** to take a suggestion, **Backspace** on an empty box to drop the last chip, **Escape** to close. There is no Save: every change is a **`PATCH`** at once. The row takes the new set **before** the request, so a second gesture made while the first is still in flight builds on it instead of undoing it; the set the server answers with - folded to lower case, whitespace as hyphens, at most eight - then replaces it, so a chip never changes spelling one refresh later, and a refused write puts back what the row carried. The folded form of what is being typed is shown under the box only when it differs from what was typed.
 - Indicators
-  - A spinner appears on rows for sessions that are still generating in the background.
+  - A pulsing dot - the violet unread dot, a third darker - appears on every row whose turn is still running, the open conversation included. A turn waiting on a permission or a question shows that mark instead.
   - A violet dot appears only when a background session completed while it was not the active chat.
   - A question mark icon appears when a session is waiting for user permission.
 - CRUD
@@ -413,7 +413,7 @@ Regression
 The composer stays live while the agent works: what is typed during a turn is queued for that turn to read at its next step, rather than refused by the turn lock. Full behaviour: [Message queue](../features/message-queue.md).
 
 - **Queueing** - desktop **Enter** or the primary control (see above) calls **`POST /coddy/sessions/{id}/queue`** with **`{"text": ...}`** and clears the field. A **409** with code **`no_active_turn`** means the turn ended between the keystroke and the request: the SPA sends the same text through **`POST /v1/responses`** instead, so nothing typed is lost. Any other refusal puts the text back in the field and adds a system notice (**`composer.queueFull`** / **`composer.queueFailed`**).
-- **The list** — queued rows render as **`.composer-queue-item`** (**`data-testid="composer-queue-item"`**) stacked **above** the composer card in reading order, text clamped to 3 lines, each with a round remove control at its right (**`data-testid="composer-queue-remove-<id>"`**, accessible name **`Remove from the queue`**) that calls **`DELETE /coddy/sessions/{id}/queue/{message_id}`**. Nothing waiting renders no list.
+- **The list** — queued rows render as **`.composer-queue-item`** (**`data-testid="composer-queue-item"`**) stacked **above** the composer card in reading order, text clamped to 3 lines, on the frosted glass of the composer card, each with the app's framed **×** in its top-right corner (**`data-testid="composer-queue-remove-<id>"`**, accessible name **`Remove from the queue`**) that calls **`DELETE /coddy/sessions/{id}/queue/{message_id}`**. When the call succeeds the message was still waiting, and its text goes back into the field, ahead of anything typed since; a **404** means the agent read it first and nothing returns. Nothing waiting renders no list.
 - **Open and reconnect** - the UI reads **`GET /coddy/sessions/{id}/queue`** for the selected session alongside its activity snapshot. Existing waiting messages appear without another queue mutation, a live turn reader, or a matching row in **History**.
 - **Staying in step** - clients of the same **`coddy serve`** receive **`event: message_queue`** with the whole queue and a **`version`** through the turn's stream (**`consumeComposerSse`**) and **`GET /coddy/events`** (**`serverEvents.ts`**, **`onMessageQueue`**). HTTP queue responses carry the same snapshot fields. **`App.tsx`** uses **`QueueDeliveryOrder`** (**`chat/messageQueueState.ts`**): ordinary deliveries keep the highest version per session. A fresh queue GET may recover a lower version, including **`0`**, after a restart if no queue delivery crosses the read. Recovery advances a local epoch and rejects mutation responses and own/relay stream queue frames captured in earlier epochs. A replayed **`turn_started`** does not reset that version or clear waiting messages. The server empties the queue when its turn releases, not when a browser reader closes. On the turn stream, **`event: user_message`** adds a consumed follow-up to the transcript where the agent read it.
 - **Scope** - these are Stop and queue controls, not a shared session bus. Existing transcript relay and permission/question ownership stay unchanged. Separate local console or ACP processes sharing a sessions directory share the cancel marker, not their in-memory queues or answer channels.
@@ -575,10 +575,10 @@ The chat transcript renders a flat list of UI message blocks. Each block has a `
 
 ## Live status next to the typing dots
 
-While a turn runs and no assistant text streams yet, the typing dots carry a live status line (`TypingDotsMessage.tsx`, pure derivation in `chat/liveStatus.ts`, visual contract in `DESIGN.md`):
+For the whole of a running turn, streaming text included, the typing dots carry a live status line (`TypingDotsMessage.tsx`, pure derivation in `chat/liveStatus.ts`, visual contract in `DESIGN.md`):
 
 - Verb + target + elapsed counter for the current step (`Reading external/ui/src/ui/App.tsx · 12s`); only the target ellipsizes when space runs out.
-- Priority: unresolved permission prompt → unresolved question prompt → running tool call (an `in_progress` call beats a later announced `pending` one) → in-progress thinking → memory copilot → waiting on the model.
+- Priority: unresolved permission prompt → unresolved question prompt → running tool call (an `in_progress` call beats a later announced `pending` one) → in-progress thinking (`Thinking…`) → memory copilot → answer text as the turn's newest row (`Writing the answer`) → waiting on the model. The line always carries a phrase; it is never three bare dots.
 - The two prompt states render **no** counter: nothing is running while the operator decides.
 - A plain wait escalates with time: `Waiting for the model` → `The model is taking longer than usual` (15 s, `typing-dots-status--slow`) → `Still no response from the server` (60 s).
 - Derivation scans back to the last `user_message`, so a stale `in_progress` row from a finished turn never drives the label. The console twin of the phrase table lives in `external/cli/status.go`.
@@ -592,6 +592,12 @@ While a turn runs and no assistant text streams yet, the typing dots carry a liv
 ![A long tool result collapsed behind More and expanded with Less](../assets/screenshot-tool-previews-overflow-dark.png)
 
 *A long tool result collapsed behind More and expanded with Less*
+
+The scheduler tools (`coddy_scheduler_*`) have a card of their own instead of their JSON: the bar names the job and what happened to it (*resumed*, *run started*, *was not running*, *created*, *updated*, *deleted*), a job read or created is shown as its fields - description, schedule with its human reading, state, next run, mode, model, folder - with the instruction rendered as Markdown, the job list as one row per job and the runs of a job as one row per run with its status and duration.
+
+![Scheduler calls in the transcript: a job read as its fields, a resume and a run as their outcome](../assets/scheduler-tool-cards-dark-1280.png)
+
+*Scheduler calls in the transcript: a job read as its fields, a resume and a run as their outcome*
 
 `spawn_agent` has a dedicated argument card: agent icon and name, optional description, a labelled timeout badge, and an inset panel for the full multiline prompt. The timeout is the supplied execution limit in seconds, separate from the elapsed duration beside the tool title. The layout wraps on narrow screens and follows the active light/dark theme. Calls with truncated history arguments load the full arguments once per incomplete preview, including running calls; malformed arguments or failed fetches retain the plain argument preview. Result output and More / Less behave as for other tools, with the result attached below the agent card. Card labels follow the active English/Russian UI locale.
 

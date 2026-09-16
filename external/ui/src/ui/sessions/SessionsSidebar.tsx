@@ -23,11 +23,12 @@ import type { SessionArchiveFilter, SessionSortKey } from "./sessionQuery";
 import { pinDropIndex, reorderPins } from "./reorderPins";
 import { SessionRowMenu, type SessionRowMenuItem } from "./SessionRowMenu";
 import { SessionTagEditor } from "./SessionTagEditor";
+import { Chevron } from "../components/Chevron";
 import { tagVocabulary } from "./tagEditing";
 import {
   sessionRowShowsPermissionPending,
   sessionRowShowsQuestionPending,
-  sessionRowShowsSpinner,
+  sessionRowShowsActivity,
   sessionRowShowsUnreadDot,
 } from "./sessionRowActivity";
 import type { SessionRow } from "./types";
@@ -361,281 +362,305 @@ export function SessionsSidebar(props: {
   const groupLabel = (group: SessionGroup): string =>
     group.labelKey ? t(group.labelKey) : String(group.label ?? "");
 
-  const renderRow = (s: SessionRow, pinnedIndex = -1) => (
-    <div
-      key={s.id}
-      className={[
-        "session-item",
-        s.id === props.sessionId ? "active" : "",
-        s.archived ? "is-archived" : "",
-        drag?.id === s.id ? "is-dragging" : "",
-        drag && pinnedIndex >= 0 && drag.over === pinnedIndex
-          ? "is-drop-target"
-          : "",
-      ]
-        .filter(Boolean)
-        .join(" ")}
-      data-testid={`session-row-${s.id}`}
-      onClick={(ev) =>
-        pickFromSessionRowClick(ev, () => {
-          props.onPick(s.id);
-        })
-      }
-    >
-      {pinnedIndex >= 0 && onReorderPins ? (
-        <span
-          className="session-drag-grip"
-          role="button"
-          tabIndex={-1}
-          aria-label={t("sessions.dragPin")}
-          title={t("sessions.dragPin")}
-          data-testid={`session-drag-${s.id}`}
-          onPointerDown={startPinDrag(s.id)}
-          onClick={(ev) => {
-            ev.preventDefault();
-            ev.stopPropagation();
-          }}
-        >
-          <IconGrip />
-        </span>
-      ) : null}
-      {renaming?.id === s.id ? (
-        <input
-          className="session-title-input"
-          autoFocus
-          value={renaming.draft}
-          aria-label={t("sessions.rename")}
-          data-testid={`session-rename-${s.id}`}
-          // Selected on open, the way a rename behaves everywhere else: typing
-          // replaces the name, and the box shows its beginning rather than the
-          // tail a caret at the end would scroll it to.
-          onFocus={(ev) => ev.currentTarget.select()}
-          onClick={(ev) => ev.stopPropagation()}
-          onChange={(ev) =>
-            setRenamingBoth({ id: s.id, draft: ev.target.value })
-          }
-          onBlur={() => commitRename()}
-          onKeyDown={(ev) => {
-            if (ev.key === "Enter") {
+  const renderRow = (s: SessionRow, pinnedIndex = -1) => {
+    const showsActivity = sessionRowShowsActivity(
+      s,
+      permissionPending,
+      questionPending,
+    );
+    const showsPermission = sessionRowShowsPermissionPending(
+      s,
+      permissionPending,
+    );
+    const showsQuestion = sessionRowShowsQuestionPending(s, questionPending);
+    const showsUnread = sessionRowShowsUnreadDot(s, props.sessionId);
+    const hasMarks =
+      showsActivity ||
+      showsPermission ||
+      showsQuestion ||
+      !!s.archived ||
+      showsUnread;
+    return (
+      <div
+        key={s.id}
+        className={[
+          "session-item",
+          s.id === props.sessionId ? "active" : "",
+          s.archived ? "is-archived" : "",
+          drag?.id === s.id ? "is-dragging" : "",
+          drag && pinnedIndex >= 0 && drag.over === pinnedIndex
+            ? "is-drop-target"
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        data-testid={`session-row-${s.id}`}
+        onClick={(ev) =>
+          pickFromSessionRowClick(ev, () => {
+            props.onPick(s.id);
+          })
+        }
+      >
+        {pinnedIndex >= 0 && onReorderPins ? (
+          <span
+            className="session-drag-grip"
+            role="button"
+            tabIndex={-1}
+            aria-label={t("sessions.dragPin")}
+            title={t("sessions.dragPin")}
+            data-testid={`session-drag-${s.id}`}
+            onPointerDown={startPinDrag(s.id)}
+            onClick={(ev) => {
               ev.preventDefault();
-              commitRename();
-            }
-            if (ev.key === "Escape") {
               ev.stopPropagation();
-              // Clearing the ref is what makes this a cancel: the blur that
-              // follows the box disappearing finds nothing left to save.
-              setRenamingBoth(null);
+            }}
+          >
+            <IconGrip />
+          </span>
+        ) : null}
+        {renaming?.id === s.id ? (
+          <input
+            className="session-title-input"
+            autoFocus
+            value={renaming.draft}
+            aria-label={t("sessions.rename")}
+            data-testid={`session-rename-${s.id}`}
+            // Selected on open, the way a rename behaves everywhere else: typing
+            // replaces the name, and the box shows its beginning rather than the
+            // tail a caret at the end would scroll it to.
+            onFocus={(ev) => ev.currentTarget.select()}
+            onClick={(ev) => ev.stopPropagation()}
+            onChange={(ev) =>
+              setRenamingBoth({ id: s.id, draft: ev.target.value })
             }
-          }}
-        />
-      ) : (
-        <a
-          href={
-            isClientDraftSessionId(s.id)
-              ? appNavHrefDraft(s.id)
-              : appNavHrefSession(s.id)
-          }
-          className="session-row-link"
-          onClick={(ev) => {
-            ev.stopPropagation();
-            sameTabInAppNavClick(ev, () => {
-              props.onPick(s.id);
-            });
-          }}
-        >
-          <div className="session-row-leading">
-            {sessionRowShowsSpinner(
-              s,
-              props.sessionId,
-              permissionPending,
-              questionPending,
-            ) ? (
-              <span
-                className="session-activity-spinner"
-                aria-hidden
-                data-testid={`session-spinner-${s.id}`}
-              />
-            ) : null}
-            {sessionRowShowsPermissionPending(s, permissionPending) ? (
-              <span
-                className="session-permission-icon"
-                aria-label={t("sessions.permissionRequired")}
-                data-testid={`session-permission-${s.id}`}
-                title={t("sessions.permissionRequired")}
-              >
-                ?
+            onBlur={() => commitRename()}
+            onKeyDown={(ev) => {
+              if (ev.key === "Enter") {
+                ev.preventDefault();
+                commitRename();
+              }
+              if (ev.key === "Escape") {
+                ev.stopPropagation();
+                // Clearing the ref is what makes this a cancel: the blur that
+                // follows the box disappearing finds nothing left to save.
+                setRenamingBoth(null);
+              }
+            }}
+          />
+        ) : (
+          <a
+            href={
+              isClientDraftSessionId(s.id)
+                ? appNavHrefDraft(s.id)
+                : appNavHrefSession(s.id)
+            }
+            className="session-row-link"
+            onClick={(ev) => {
+              ev.stopPropagation();
+              sameTabInAppNavClick(ev, () => {
+                props.onPick(s.id);
+              });
+            }}
+          >
+            {/* The state marks take a column of their own, so the title and the
+            tags under it share one left edge: the tags label the words, not the
+            marks in front of them. A row with no mark renders no column. */}
+            {hasMarks ? (
+              <span className="session-row-marks">
+                {showsActivity ? (
+                  <span
+                    className="session-activity-dot"
+                    aria-label={t("sessions.turnRunning")}
+                    title={t("sessions.turnRunning")}
+                    data-testid={`session-activity-${s.id}`}
+                  />
+                ) : null}
+                {showsPermission ? (
+                  <span
+                    className="session-permission-icon"
+                    aria-label={t("sessions.permissionRequired")}
+                    data-testid={`session-permission-${s.id}`}
+                    title={t("sessions.permissionRequired")}
+                  >
+                    ?
+                  </span>
+                ) : null}
+                {showsQuestion ? (
+                  <span
+                    className="session-question-icon"
+                    aria-label={t("sessions.questionPending")}
+                    data-testid={`session-question-${s.id}`}
+                    title={t("sessions.questionPending")}
+                  >
+                    ?
+                  </span>
+                ) : null}
+                {s.archived ? (
+                  <span
+                    className="session-archived-mark"
+                    data-testid={`session-archived-${s.id}`}
+                    aria-label={t("sessions.archivedBadge")}
+                    title={t("sessions.archivedBadge")}
+                  >
+                    <IconArchiveRow />
+                  </span>
+                ) : null}
+                {showsUnread ? (
+                  <span
+                    className="session-unread-dot"
+                    aria-label={t("sessions.unreadCompletion")}
+                    data-testid={`session-unread-${s.id}`}
+                  />
+                ) : null}
               </span>
             ) : null}
-            {sessionRowShowsQuestionPending(s, questionPending) ? (
+            <div className="session-row-leading">
               <span
-                className="session-question-icon"
-                aria-label={t("sessions.questionPending")}
-                data-testid={`session-question-${s.id}`}
-                title={t("sessions.questionPending")}
+                className="session-title"
+                title={s.title || t("sessions.newChatFallback")}
               >
-                ?
+                {s.title || t("sessions.newChatFallback")}
               </span>
-            ) : null}
-            {s.archived ? (
-              <span
-                className="session-archived-mark"
-                data-testid={`session-archived-${s.id}`}
-                aria-label={t("sessions.archivedBadge")}
-                title={t("sessions.archivedBadge")}
-              >
-                <IconArchiveRow />
-              </span>
-            ) : null}
-            {sessionRowShowsUnreadDot(s, props.sessionId) ? (
-              <span
-                className="session-unread-dot"
-                aria-label={t("sessions.unreadCompletion")}
-                data-testid={`session-unread-${s.id}`}
-              />
-            ) : null}
-            <span
-              className="session-title"
-              title={s.title || t("sessions.newChatFallback")}
-            >
-              {s.title || t("sessions.newChatFallback")}
-            </span>
-            {s.pinned ? (
-              <span
-                className="session-pin-mark"
-                data-testid={`session-pinned-${s.id}`}
-                aria-label={t("sessions.pinnedBadge")}
-                title={t("sessions.pinnedBadge")}
-              >
-                <IconPin />
-              </span>
-            ) : null}
-          </div>
-          {/* The tags sit under the title rather than beside it: the title is
+              {s.pinned ? (
+                <span
+                  className="session-pin-mark"
+                  data-testid={`session-pinned-${s.id}`}
+                  aria-label={t("sessions.pinnedBadge")}
+                  title={t("sessions.pinnedBadge")}
+                >
+                  <IconPin />
+                </span>
+              ) : null}
+            </div>
+            {/* The tags sit under the title rather than beside it: the title is
             what the row is for, and a long one must not be pushed out of view
             by labels. Grouping by tag is how they are navigated. */}
-          {(s.tags ?? []).length > 0 ? (
-            <div
-              className="session-row-tags"
-              data-testid={`session-tags-${s.id}`}
-            >
-              {(s.tags ?? []).map((tag) => (
-                <span className="session-tag" key={tag}>
-                  {tag}
-                </span>
-              ))}
-            </div>
-          ) : null}
-        </a>
-      )}
-      {(() => {
-        const items: SessionRowMenuItem[] = [];
-        if (onPin) {
-          items.push({
-            key: "pin",
-            label: s.pinned ? t("sessions.unpin") : t("sessions.pin"),
-            testId: `session-menu-pin-${s.id}`,
-            onPick: () => onPin(s.id, !s.pinned),
-          });
-        }
-        // Renaming and filing change what the row says about itself, and stay
-        // above the rule with pinning: none of them takes the conversation out
-        // of the list.
-        if (props.onTitleSave) {
-          items.push({
-            key: "rename",
-            label: t("sessions.rename"),
-            testId: `session-menu-rename-${s.id}`,
-            onPick: () => setRenamingBoth({ id: s.id, draft: s.title || "" }),
-          });
-        }
-        if (onTagsSave) {
-          const at = rowMenu?.id === s.id ? rowMenu.at : null;
-          items.push({
-            key: "tags",
-            label: t("sessions.tags.edit"),
-            testId: `session-menu-tags-${s.id}`,
-            onPick: () => {
-              if (at) {
-                setTagError(null);
-                setTagEditor({ id: s.id, at });
-              }
-            },
-          });
-        }
-        // Archiving and deleting both take the conversation out of the list,
-        // so they stand together below the rule; pinning only moves it.
-        if (onArchive) {
-          items.push({
-            key: "archive",
-            label: s.archived ? t("sessions.unarchive") : t("sessions.archive"),
-            testId: `session-menu-archive-${s.id}`,
-            startsGroup: true,
-            onPick: () => onArchive(s.id, !s.archived),
-          });
-        }
-        items.push({
-          key: "delete",
-          label: t("sessions.delete"),
-          testId: `session-menu-delete-${s.id}`,
-          danger: true,
-          ...(onArchive ? {} : { startsGroup: true }),
-          onPick: () => void props.onDelete(s.id),
-        });
-        return (
-          <>
-            <button
-              className="session-row-menu-trigger"
-              type="button"
-              aria-label={t("sessions.rowMenu")}
-              title={t("sessions.rowMenu")}
-              aria-haspopup="menu"
-              aria-expanded={rowMenu?.id === s.id}
-              data-testid={`session-menu-${s.id}`}
-              onClick={(ev) => {
-                ev.preventDefault();
-                ev.stopPropagation();
-                const at = ev.currentTarget.getBoundingClientRect();
-                setRowMenu((prev) =>
-                  prev?.id === s.id ? null : { id: s.id, at },
-                );
-              }}
-            >
-              <IconKebab />
-            </button>
-            <SessionRowMenu
-              open={rowMenu?.id === s.id}
-              onClose={() => setRowMenu(null)}
-              anchor={rowMenu?.id === s.id ? rowMenu.at : null}
-              items={items}
-              ariaLabel={s.title || t("sessions.newChatFallback")}
-            />
-            {onTagsSave ? (
-              <SessionTagEditor
-                open={tagEditor?.id === s.id}
-                anchor={tagEditor?.id === s.id ? tagEditor.at : null}
-                tags={s.tags ?? []}
-                vocabulary={vocabulary}
-                onChange={(next) => {
+            {(s.tags ?? []).length > 0 ? (
+              <div
+                className="session-row-tags"
+                data-testid={`session-tags-${s.id}`}
+              >
+                {(s.tags ?? []).map((tag) => (
+                  <span className="session-tag" key={tag}>
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </a>
+        )}
+        {(() => {
+          const items: SessionRowMenuItem[] = [];
+          if (onPin) {
+            items.push({
+              key: "pin",
+              label: s.pinned ? t("sessions.unpin") : t("sessions.pin"),
+              testId: `session-menu-pin-${s.id}`,
+              onPick: () => onPin(s.id, !s.pinned),
+            });
+          }
+          // Renaming and filing change what the row says about itself, and stay
+          // above the rule with pinning: none of them takes the conversation out
+          // of the list.
+          if (props.onTitleSave) {
+            items.push({
+              key: "rename",
+              label: t("sessions.rename"),
+              testId: `session-menu-rename-${s.id}`,
+              onPick: () => setRenamingBoth({ id: s.id, draft: s.title || "" }),
+            });
+          }
+          if (onTagsSave) {
+            const at = rowMenu?.id === s.id ? rowMenu.at : null;
+            items.push({
+              key: "tags",
+              label: t("sessions.tags.edit"),
+              testId: `session-menu-tags-${s.id}`,
+              onPick: () => {
+                if (at) {
                   setTagError(null);
-                  void Promise.resolve(onTagsSave(s.id, next)).then((ok) => {
-                    if (ok === false) {
-                      setTagError(t("sessions.tags.failed"));
-                    }
-                  });
+                  setTagEditor({ id: s.id, at });
+                }
+              },
+            });
+          }
+          // Archiving and deleting both take the conversation out of the list,
+          // so they stand together below the rule; pinning only moves it.
+          if (onArchive) {
+            items.push({
+              key: "archive",
+              label: s.archived
+                ? t("sessions.unarchive")
+                : t("sessions.archive"),
+              testId: `session-menu-archive-${s.id}`,
+              startsGroup: true,
+              onPick: () => onArchive(s.id, !s.archived),
+            });
+          }
+          items.push({
+            key: "delete",
+            label: t("sessions.delete"),
+            testId: `session-menu-delete-${s.id}`,
+            danger: true,
+            ...(onArchive ? {} : { startsGroup: true }),
+            onPick: () => void props.onDelete(s.id),
+          });
+          return (
+            <>
+              <button
+                className="session-row-menu-trigger"
+                type="button"
+                aria-label={t("sessions.rowMenu")}
+                title={t("sessions.rowMenu")}
+                aria-haspopup="menu"
+                aria-expanded={rowMenu?.id === s.id}
+                data-testid={`session-menu-${s.id}`}
+                onClick={(ev) => {
+                  ev.preventDefault();
+                  ev.stopPropagation();
+                  const at = ev.currentTarget.getBoundingClientRect();
+                  setRowMenu((prev) =>
+                    prev?.id === s.id ? null : { id: s.id, at },
+                  );
                 }}
-                {...(tagError ? { error: tagError } : {})}
-                onClose={() => {
-                  setTagError(null);
-                  setTagEditor(null);
-                }}
+              >
+                <IconKebab />
+              </button>
+              <SessionRowMenu
+                open={rowMenu?.id === s.id}
+                onClose={() => setRowMenu(null)}
+                anchor={rowMenu?.id === s.id ? rowMenu.at : null}
+                items={items}
                 ariaLabel={s.title || t("sessions.newChatFallback")}
               />
-            ) : null}
-          </>
-        );
-      })()}
-    </div>
-  );
+              {onTagsSave ? (
+                <SessionTagEditor
+                  open={tagEditor?.id === s.id}
+                  anchor={tagEditor?.id === s.id ? tagEditor.at : null}
+                  tags={s.tags ?? []}
+                  vocabulary={vocabulary}
+                  onChange={(next) => {
+                    setTagError(null);
+                    void Promise.resolve(onTagsSave(s.id, next)).then((ok) => {
+                      if (ok === false) {
+                        setTagError(t("sessions.tags.failed"));
+                      }
+                    });
+                  }}
+                  {...(tagError ? { error: tagError } : {})}
+                  onClose={() => {
+                    setTagError(null);
+                    setTagEditor(null);
+                  }}
+                  ariaLabel={s.title || t("sessions.newChatFallback")}
+                />
+              ) : null}
+            </>
+          );
+        })()}
+      </div>
+    );
+  };
 
   return (
     <aside
@@ -764,9 +789,7 @@ export function SessionsSidebar(props: {
                       }
                     >
                       <span className="session-group-label">{label}</span>
-                      <span className="session-group-caret" aria-hidden>
-                        {isCollapsed ? "▸" : "▾"}
-                      </span>
+                      <Chevron open={!isCollapsed} className="session-group-caret" />
                     </button>
                     {/* A folder heading is also where a conversation about that
                       folder starts: the plus opens a new chat already pointed

@@ -1,16 +1,7 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import { Markdown } from "../markdown/Markdown";
 import { useT } from "../i18n/I18nProvider";
-
-function formatDuration(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 0) return "";
-  if (ms >= 60_000) {
-    const mins = ms / 60_000;
-    const fixed = mins < 10 ? mins.toFixed(1) : mins.toFixed(0);
-    return `${fixed}m`;
-  }
-  return `${Math.round(ms)}ms`;
-}
+import { formatStepDuration } from "./formatStepDuration";
 
 function SummaryHeader(props: {
   label: string;
@@ -89,7 +80,7 @@ export const MemoryCopilotMessage = memo(function MemoryCopilotMessage(props: {
       typeof props.memoryWallDurationMs === "number" &&
       Number.isFinite(props.memoryWallDurationMs)
     ) {
-      return formatDuration(props.memoryWallDurationMs);
+      return formatStepDuration(props.memoryWallDurationMs);
     }
     if (
       props.mainThinkingInProgress &&
@@ -97,12 +88,12 @@ export const MemoryCopilotMessage = memo(function MemoryCopilotMessage(props: {
       Number.isFinite(props.memoryWallLiveCapMs) &&
       props.memoryWallLiveCapMs >= 0
     ) {
-      return formatDuration(props.memoryWallLiveCapMs);
+      return formatStepDuration(props.memoryWallLiveCapMs);
     }
     if (!busy && (props.recallDurationMs || props.persistDurationMs)) {
       const sum =
         (props.recallDurationMs ?? 0) + (props.persistDurationMs ?? 0);
-      return formatDuration(sum);
+      return formatStepDuration(sum);
     }
     if (
       busy &&
@@ -115,9 +106,9 @@ export const MemoryCopilotMessage = memo(function MemoryCopilotMessage(props: {
         Number.isFinite(props.memoryWallLiveCapMs) &&
         props.memoryWallLiveCapMs >= 0
       ) {
-        return formatDuration(Math.min(rawEl, props.memoryWallLiveCapMs));
+        return formatStepDuration(Math.min(rawEl, props.memoryWallLiveCapMs));
       }
-      return formatDuration(rawEl);
+      return formatStepDuration(rawEl);
     }
     return "-";
   }, [

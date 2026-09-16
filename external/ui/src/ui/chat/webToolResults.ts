@@ -123,6 +123,38 @@ function parseTruncatedHits(raw: string): SearchHit[] | null {
   return hits.length > 0 ? hits : null;
 }
 
+/**
+ * Index of the bracket that closes the one at `open`, skipping brackets inside
+ * strings - an engine's reason is free text - or -1 when the text ends first.
+ */
+function closingBracket(raw: string, open: number): number {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let j = open; j < raw.length; j++) {
+    const ch = raw[j];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === "[" || ch === "{") depth++;
+    else if (ch === "]" || ch === "}") {
+      depth--;
+      if (depth === 0) return j;
+    }
+  }
+  return -1;
+}
+
 function safeParse(text: string): unknown {
   try {
     return JSON.parse(text);
@@ -149,7 +181,82 @@ export function webSearchResultMarkdown(resultText: string | undefined): string 
   const hits = parseHits(obj.results);
   if (hits === null) return null;
 
-  return renderHits(hits, str(obj.has_more_hint));
+  // The tool answers `hint`; `has_more_hint` is the spelling older answers carry.
+  return renderHits(hits, str(obj.hint) || str(obj.has_more_hint));
+}
+
+/** How one search engine answered, as the tool reports it next to the hits. */
+export type WebSearchEngineReport = {
+  engine: string;
+  /** `ok`, `empty`, `blocked` or `error`. */
+  status: string;
+  results: number;
+  reason: string;
+  tookMs: number;
+  cached: boolean;
+};
+
+/** What a `websearch` answer says about the search itself, apart from its hits. */
+export type WebSearchReport = {
+  query: string;
+  page: number;
+  engines: WebSearchEngineReport[];
+};
+
+function parseEngines(value: unknown): WebSearchEngineReport[] {
+  if (!Array.isArray(value)) return [];
+  const out: WebSearchEngineReport[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const row = entry as Record<string, unknown>;
+    const engine = str(row.engine);
+    if (!engine) continue;
+    out.push({
+      engine,
+      status: str(row.status),
+      results: typeof row.results === "number" ? row.results : 0,
+      reason: str(row.reason),
+      tookMs: typeof row.took_ms === "number" ? row.took_ms : 0,
+      cached: row.cached === true,
+    });
+  }
+  return out;
+}
+
+/**
+ * The query, the page and the engine report of a `websearch` answer, or `null` when
+ * the text is not one. The report leads the answer, so it is whole even in the
+ * nineteen-line preview a transcript row carries, where not one hit may be: the
+ * array is cut out by its brackets and parsed on its own.
+ */
+export function webSearchReport(
+  resultText: string | undefined,
+): WebSearchReport | null {
+  const raw = (resultText || "").trim();
+  if (!raw.startsWith("{")) return null;
+  const parsed = safeParse(raw);
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    const obj = parsed as Record<string, unknown>;
+    if (!Array.isArray(obj.engines) && !Array.isArray(obj.results)) return null;
+    return {
+      query: str(obj.query),
+      page: typeof obj.page === "number" ? obj.page : 0,
+      engines: parseEngines(obj.engines),
+    };
+  }
+  const marker = /"engines"\s*:\s*\[/.exec(raw);
+  if (!marker) return null;
+  const open = marker.index + marker[0].length - 1;
+  const close = closingBracket(raw, open);
+  if (close < 0) return null;
+  const engines = parseEngines(safeParse(raw.slice(open, close + 1)));
+  const query = /"query"\s*:\s*("(?:[^"\\]|\\.)*")/.exec(raw);
+  const page = /"page"\s*:\s*(\d+)/.exec(raw);
+  return {
+    query: query ? str(safeParse(query[1] ?? "")) : "",
+    page: page ? Number(page[1]) : 0,
+    engines,
+  };
 }
 
 function renderHits(hits: SearchHit[], hint: string): string {
@@ -157,11 +264,16 @@ function renderHits(hits: SearchHit[], hint: string): string {
   for (const hit of hits) {
     const href = linkUrl(hit.url);
     const label = plainText(hit.title || hit.url);
-    lines.push(href ? `- [${label}](${href})` : `- ${label}`);
+    const head = href ? `- [${label}](${href})` : `- ${label}`;
     const description = plainText(hit.description);
     if (description) {
-      // Two spaces of indent keep the snippet inside its own list item.
+      // A trailing backslash is a hard line break, so the snippet reads on its own
+      // line under the link rather than running on after it; two spaces of indent
+      // keep it inside its own list item.
+      lines.push(`${head}\\`);
       lines.push(`  ${description}`);
+    } else {
+      lines.push(head);
     }
   }
   if (hits.length === 0) {

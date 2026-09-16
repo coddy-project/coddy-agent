@@ -88,3 +88,13 @@ test("job row main control exposes scheduler hash href", () => {
   expect(main).toBeTruthy();
   expect(main).toHaveAttribute("href", "#/scheduler/jobs/my-job");
 });
+
+// The stop glyph of a running job was the text character "■" inside a wrapper whose
+// stop rule sets font-size: 0 for the composer's drawn square, so the button showed an
+// empty red circle. It is the same drawn square the composer's Stop carries.
+test("a running job's Stop carries the drawn stop square", () => {
+  renderDrawer(null, [{ ...baseJob("busy"), running: true }]);
+  const stop = screen.getByTestId("scheduler-stop-busy");
+  expect(stop.querySelector(".composer-send-glyph .composer-stop-square")).toBeTruthy();
+  expect(stop.textContent?.trim()).toBe("");
+});

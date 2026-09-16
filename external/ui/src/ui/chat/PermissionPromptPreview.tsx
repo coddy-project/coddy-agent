@@ -85,7 +85,7 @@ function todoStatusLabel(status: string, t: (key: string) => string): string {
   }
 }
 
-function todoStatusMark(status: string): string {
+export function todoStatusMark(status: string): string {
   switch (status) {
     case "completed":
       return "✓";

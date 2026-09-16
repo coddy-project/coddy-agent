@@ -5,7 +5,8 @@ import {
   writeSessionPref,
 } from "./sessionPrefs";
 
-const isColour = (v: string): v is "red" | "blue" => v === "red" || v === "blue";
+const isColour = (v: string): v is "red" | "blue" =>
+  v === "red" || v === "blue";
 
 describe("session preferences", () => {
   it("reads back what was written", () => {
