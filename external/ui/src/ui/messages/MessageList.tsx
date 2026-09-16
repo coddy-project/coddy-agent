@@ -244,6 +244,11 @@ export function MessageList(props: {
           );
         }
         if (it.type === "assistant_message") {
+          // Whitespace alone is a zero-height row that still takes the column's
+          // gap, a hole between the rows around it; there is nothing in it to copy.
+          if (!it.content.trim()) {
+            return null;
+          }
           return (
             <AssistantMessage
               key={it.id}

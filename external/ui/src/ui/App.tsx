@@ -2756,7 +2756,7 @@ export function App() {
           });
         }
         const content = m.content || "";
-        if (content) {
+        if (content.trim()) {
           const acat = readMessageCreatedAtUTC(m as Record<string, unknown>);
           next.push({
             id: stableAssistantItemId(userTurnIdx, assistantInTurn++),

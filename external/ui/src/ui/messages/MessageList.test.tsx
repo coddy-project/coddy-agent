@@ -425,3 +425,16 @@ test("a new turn does not strip the action row off the previous answer", () => {
       .querySelector(".msg-assistant-foot"),
   ).not.toBeNull();
 });
+
+// An assistant row holding nothing but whitespace is zero pixels tall and still
+// takes the column's gap, which reads as a hole between the rows around it.
+test("a whitespace-only assistant row takes no place in the transcript", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "Hello" },
+    { id: "t1", type: "tool_call", toolCallId: "tc1", title: "read", status: "completed" },
+    { id: "a1", type: "assistant_message", content: "\n\n", streaming: true },
+    { id: "t2", type: "tool_call", toolCallId: "tc2", title: "read", status: "completed" },
+  ];
+  const { container } = render(<MessageList items={items} />);
+  expect(container.querySelectorAll(".msg-assistant-stack")).toHaveLength(0);
+});

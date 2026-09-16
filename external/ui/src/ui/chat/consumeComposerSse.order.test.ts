@@ -152,6 +152,52 @@ test("streaming interleaves across multiple tool calls", async () => {
   ]);
 });
 
+// A model that calls several tools in one answer puts whitespace between the calls
+// (the hermes parser behind vLLM passes "\n\n" through as content). Each run used
+// to open an assistant segment of its own: an empty, zero-height row that still
+// took the column's gap, so the live transcript spread its tool rows apart until a
+// reload rebuilt it from the persisted messages, where the whitespace is one tail.
+test("whitespace between tool calls opens no empty assistant segment", async () => {
+  const tool = (id: string) =>
+    `event: tool_call\ndata: ${JSON.stringify({ toolCallId: id, title: "webfetch", kind: "fetch", status: "pending" })}\n\n`;
+  const sse =
+    textEvent("Checking the shops.") +
+    tool("t1") +
+    textEvent("\n\n") +
+    tool("t2") +
+    textEvent("\n\n") +
+    tool("t3") +
+    textEvent("Found it.") +
+    `data: [DONE]\n\n`;
+
+  const items = await drive(sse);
+  const shape = items.map((it) =>
+    it.type === "assistant_message"
+      ? `text:${it.content.trim()}`
+      : it.type === "tool_call"
+        ? `tool:${it.toolCallId}`
+        : it.type,
+  );
+  expect(shape).toEqual([
+    "text:Checking the shops.",
+    "tool:t1",
+    "tool:t2",
+    "tool:t3",
+    "text:Found it.",
+  ]);
+});
+
+test("whitespace inside a paragraph still reaches the segment it belongs to", async () => {
+  const items = await drive(
+    textEvent("one") + textEvent("\n\n") + textEvent("two") + `data: [DONE]\n\n`,
+  );
+  expect(
+    items
+      .filter((it) => it.type === "assistant_message")
+      .map((it) => (it.type === "assistant_message" ? it.content : "")),
+  ).toEqual(["one\n\ntwo"]);
+});
+
 // A model configured with stream: false delivers reasoning and answer in the same
 // flush, so the client-side clock measures the gap between two frames, not how long
 // the model thought. The row must report nothing rather than a fabricated duration.

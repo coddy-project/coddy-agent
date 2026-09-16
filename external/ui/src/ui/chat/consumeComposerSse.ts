@@ -400,6 +400,58 @@ export async function consumeComposerSseReader(
         activeThinkingId = null;
       };
 
+      // Whitespace that would be the first thing in a segment is held back until
+      // text follows it. A model calling several tools in one answer puts "\n\n"
+      // between the calls, and opening a segment for that alone left an empty,
+      // zero-height row between the tool rows that still took the column's gap.
+      let pendingWhitespace = "";
+      let currentSegmentHasText = false;
+      const appendText = (c: string) => {
+        // Land any queued tool rows first, then open a new assistant
+        // segment if a tool/thinking closed the previous one, so text
+        // interleaves with tools in arrival order.
+        flushToolQueue();
+        const blank = !/\S/.test(c);
+        if (blank && (assistantSegmentDirty || !currentSegmentHasText)) {
+          pendingWhitespace += c;
+          return;
+        }
+        if (!blank) {
+          finishThinking();
+        }
+        const text = pendingWhitespace + c;
+        pendingWhitespace = "";
+        if (assistantSegmentDirty) {
+          currentAssistantId = newId("a");
+          assistantSegmentDirty = false;
+          currentSegmentHasText = false;
+        }
+        ensureAssistant();
+        currentSegmentHasText = true;
+        applyStreamItems((prev) =>
+          prev.map((it) =>
+            it.type === "assistant_message" && it.id === currentAssistantId
+              ? { ...it, content: it.content + text }
+              : it,
+          ),
+        );
+      };
+      const applyChoiceDelta = (
+        delta: { content?: unknown; reasoning_content?: unknown } | undefined,
+      ) => {
+        const c = typeof delta?.content === "string" ? delta.content : "";
+        const r =
+          typeof delta?.reasoning_content === "string"
+            ? delta.reasoning_content
+            : "";
+        if (r) {
+          appendThinking(r);
+        }
+        if (c) {
+          appendText(c);
+        }
+      };
+
       let sawDone = false;
       let streamErrorMessage: string | null = null;
       let streamErrorCode: string | null = null;
@@ -477,35 +529,7 @@ export async function consumeComposerSseReader(
               }>;
             };
             try {
-              const contentDelta = d.choices?.[0]?.delta?.content;
-              const c = typeof contentDelta === "string" ? contentDelta : "";
-              const rRaw = d.choices?.[0]?.delta?.reasoning_content || "";
-              const r = typeof rRaw === "string" ? rRaw : "";
-              if (r) {
-                appendThinking(r);
-              }
-              if (c) {
-                if (/\S/.test(c)) {
-                  finishThinking();
-                }
-                // Land any queued tool rows first, then open a new assistant
-                // segment if a tool/thinking closed the previous one, so text
-                // interleaves with tools in arrival order.
-                flushToolQueue();
-                if (assistantSegmentDirty) {
-                  currentAssistantId = newId("a");
-                  assistantSegmentDirty = false;
-                }
-                ensureAssistant();
-                applyStreamItems((prev) =>
-                  prev.map((it) =>
-                    it.type === "assistant_message" &&
-                    it.id === currentAssistantId
-                      ? { ...it, content: it.content + c }
-                      : it,
-                  ),
-                );
-              }
+              applyChoiceDelta(d.choices?.[0]?.delta);
             } catch {
               // ignore
             }
@@ -828,35 +852,7 @@ export async function consumeComposerSseReader(
               }>;
             };
             try {
-              const contentDelta = d.choices?.[0]?.delta?.content;
-              const c = typeof contentDelta === "string" ? contentDelta : "";
-              const rRaw = d.choices?.[0]?.delta?.reasoning_content || "";
-              const r = typeof rRaw === "string" ? rRaw : "";
-              if (r) {
-                appendThinking(r);
-              }
-              if (c) {
-                if (/\S/.test(c)) {
-                  finishThinking();
-                }
-                // Land any queued tool rows first, then open a new assistant
-                // segment if a tool/thinking closed the previous one, so text
-                // interleaves with tools in arrival order.
-                flushToolQueue();
-                if (assistantSegmentDirty) {
-                  currentAssistantId = newId("a");
-                  assistantSegmentDirty = false;
-                }
-                ensureAssistant();
-                applyStreamItems((prev) =>
-                  prev.map((it) =>
-                    it.type === "assistant_message" &&
-                    it.id === currentAssistantId
-                      ? { ...it, content: it.content + c }
-                      : it,
-                  ),
-                );
-              }
+              applyChoiceDelta(d.choices?.[0]?.delta);
             } catch {
               // ignore
             }
