@@ -222,6 +222,53 @@ test("replayed frames are dated when they happened, not when they arrived", asyn
   expect(call?.type === "tool_call" && call.durationMs).toBe(5000);
 });
 
+// Tool rows wait for an animation frame so a burst of updates costs one render.
+// Reasoning is applied at once, so a reasoning block that followed queued tool rows
+// used to land above them, and a tab that gets no animation frames - hidden, or a
+// window the browser treats as occluded - never landed the tool rows at all.
+test("a reasoning block that follows queued tool rows lands below them", async () => {
+  const sse =
+    `event: tool_call\ndata: ${JSON.stringify({ toolCallId: "t1", title: "webfetch", status: "pending" })}\n\n` +
+    `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "Next." } }] })}\n\n` +
+    `data: [DONE]\n\n`;
+  const items = await drive(sse);
+  expect(items.map((it) => it.type)).toEqual(["tool_call", "thinking"]);
+});
+
+test("queued tool rows land even when no animation frame ever comes", async () => {
+  vi.useFakeTimers();
+  try {
+    vi.stubGlobal("requestAnimationFrame", () => 1);
+    const items: TranscriptItem[] = [];
+    const params: ConsumeComposerSseParams = {
+      reader: mockReader(
+        `event: tool_call\ndata: ${JSON.stringify({ toolCallId: "t1", title: "webfetch", status: "pending" })}\n\n`,
+      ),
+      dec: new TextDecoder(),
+      carry: { buf: "" },
+      assistantId: "a-init",
+      applyStreamItems: (fn) => {
+        const next = fn(items.slice());
+        items.length = 0;
+        items.push(...next);
+      },
+      setTokenUsage: () => {},
+      setContextUsage: () => {},
+      tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
+      reasoningDurationMsByContentRef: { current: new Map() },
+      newId: (p) => p,
+      applyMemoryPhaseToItems: (prev) => prev,
+      applyMemoryChunkToItems: (prev) => prev,
+    };
+    await consumeComposerSseReader(params);
+    expect(items).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(items.map((it) => it.type)).toEqual(["tool_call"]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 // A model configured with stream: false delivers reasoning and answer in the same
 // flush, so the client-side clock measures the gap between two frames, not how long
 // the model thought. The row must report nothing rather than a fabricated duration.

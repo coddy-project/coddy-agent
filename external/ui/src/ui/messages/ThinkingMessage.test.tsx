@@ -56,3 +56,18 @@ test("a long reasoning step reads in minutes and seconds, not in fractions of a 
   );
   expect(container.querySelector(".thinking-dur")?.textContent).toBe("1m 42s");
 });
+
+// Every reasoning delta changes the row's content, and a closed row used to parse
+// its whole Markdown body again for each one - on a long reasoning block that is
+// the work that keeps the page busy while nothing on screen changes. The body is
+// rendered when the reader opens the row.
+test("a closed reasoning row renders its body only once it is opened", async () => {
+  const { container } = render(
+    <ThinkingMessage status="in_progress" content="**Weighing** the options" startedAtMs={Date.now()} />,
+  );
+  expect(container.querySelector(".thinking-body")).toBeNull();
+  const details = container.querySelector("details")!;
+  details.open = true;
+  details.dispatchEvent(new Event("toggle"));
+  expect(await screen.findByText("Weighing")).toBeInTheDocument();
+});

@@ -69,6 +69,9 @@ export type MemoryChunkEvt = {
  */
 export const minMeasurableThinkingMs = 5;
 
+/** Longest a queued tool row waits for an animation frame before a timer lands it. */
+export const toolFlushFallbackMs = 250;
+
 function reasoningDurationCacheKey(text: string): string {
   return text.trim().replace(/\s+/g, " ");
 }
@@ -219,8 +222,13 @@ export async function consumeComposerSseReader(
         }
       > = [];
       let raf = 0;
+      let flushTimer = 0;
       const flushToolQueue = () => {
         raf = 0;
+        if (flushTimer) {
+          window.clearTimeout(flushTimer);
+          flushTimer = 0;
+        }
         if (toolQueue.length === 0) return;
         const pending = toolQueue.splice(0, toolQueue.length);
         applyStreamItems((prev) => {
@@ -301,9 +309,13 @@ export async function consumeComposerSseReader(
           return next;
         });
       };
+      // A frame batches a burst of tool updates into one render. A tab that gets no
+      // frames - hidden, or a window the browser treats as occluded - would hold the
+      // rows back indefinitely, so a timer lands them regardless.
       const scheduleToolFlush = () => {
-        if (raf) return;
+        if (raf || flushTimer) return;
         raf = window.requestAnimationFrame(flushToolQueue);
+        flushTimer = window.setTimeout(flushToolQueue, toolFlushFallbackMs);
       };
 
       const ensureAssistant = (
@@ -350,6 +362,9 @@ export async function consumeComposerSseReader(
           activeThinkingStarted = freezeAt;
         }
         const id = activeThinkingId;
+        // Queued tool rows came first in the stream; they land before a new
+        // reasoning row does, not after it.
+        flushToolQueue();
         applyStreamItems((prev) => {
           const known = prev.some(
             (it) => it.type === "thinking" && it.id === id,

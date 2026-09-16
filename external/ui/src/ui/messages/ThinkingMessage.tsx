@@ -18,6 +18,11 @@ export const ThinkingMessage = memo(function ThinkingMessage(props: {
   const text = (props.content || "").trim();
 
   const [nowMs, setNowMs] = useState(() => Date.now());
+  // The body is rendered while the row is open. Every reasoning delta changes the
+  // content, and a closed row parsing its whole Markdown again for each one is the
+  // work that kept the page busy through a long reasoning block with nothing on
+  // screen to show for it.
+  const [open, setOpen] = useState(false);
   useEffect(() => {
     if (!inProgress || typeof props.startedAtMs !== "number") return;
     const h = window.setInterval(() => setNowMs(Date.now()), 160);
@@ -55,7 +60,10 @@ export const ThinkingMessage = memo(function ThinkingMessage(props: {
 
   return (
     <div className="thinking-row">
-      <details className="thinking-details">
+      <details
+        className="thinking-details"
+        onToggle={(e) => setOpen(e.currentTarget.open)}
+      >
         <summary className="thinking-summary" aria-label={t("messages.thinkingSummaryAriaLabel")}>
           <span className="thinking-left">
             <span className="thinking-chevron" aria-hidden="true" />
@@ -67,7 +75,7 @@ export const ThinkingMessage = memo(function ThinkingMessage(props: {
             ) : null}
           </span>
         </summary>
-        {text ? (
+        {open && text ? (
           <div className="thinking-body" aria-label={t("messages.thinkingContentAriaLabel")}>
             <Markdown text={text} />
           </div>
