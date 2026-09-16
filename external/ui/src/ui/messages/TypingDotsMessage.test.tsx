@@ -33,13 +33,13 @@ test("MessageList hides typing dots when not generating", () => {
   expect(screen.queryByTestId("typing-dots")).toBeNull();
 });
 
-test("MessageList hides typing dots when streaming assistant message is present", () => {
+test("MessageList keeps typing dots while the assistant message streams", () => {
   const items: TranscriptItem[] = [
     { id: "u1", type: "user_message", content: "Hello" },
     { id: "a1", type: "assistant_message", content: "Hi th", streaming: true },
   ];
   render(<MessageList items={items} generating={true} />);
-  expect(screen.queryByTestId("typing-dots")).toBeNull();
+  expect(screen.getByTestId("typing-dots")).toBeInTheDocument();
 });
 
 test("MessageList shows typing dots when generating with tool call in progress", () => {

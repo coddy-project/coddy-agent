@@ -1464,6 +1464,7 @@ export const messagesRu: Record<string, string> = {
   "status.memory": "Работаю с памятью",
   "status.awaitingPermission": "Жду разрешения",
   "status.awaitingAnswer": "Жду ответа",
+  "status.writing": "Пишу ответ",
   "status.waitingModel": "Жду ответ модели",
   "status.waitingSlow": "Модель отвечает дольше обычного",
   "status.waitingStuck": "Ответа от сервера всё ещё нет",

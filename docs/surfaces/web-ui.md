@@ -575,10 +575,10 @@ The chat transcript renders a flat list of UI message blocks. Each block has a `
 
 ## Live status next to the typing dots
 
-While a turn runs and no assistant text streams yet, the typing dots carry a live status line (`TypingDotsMessage.tsx`, pure derivation in `chat/liveStatus.ts`, visual contract in `DESIGN.md`):
+For the whole of a running turn, streaming text included, the typing dots carry a live status line (`TypingDotsMessage.tsx`, pure derivation in `chat/liveStatus.ts`, visual contract in `DESIGN.md`):
 
 - Verb + target + elapsed counter for the current step (`Reading external/ui/src/ui/App.tsx · 12s`); only the target ellipsizes when space runs out.
-- Priority: unresolved permission prompt → unresolved question prompt → running tool call (an `in_progress` call beats a later announced `pending` one) → in-progress thinking → memory copilot → waiting on the model.
+- Priority: unresolved permission prompt → unresolved question prompt → running tool call (an `in_progress` call beats a later announced `pending` one) → in-progress thinking (`Thinking…`) → memory copilot → answer text as the turn's newest row (`Writing the answer`) → waiting on the model. The line always carries a phrase; it is never three bare dots.
 - The two prompt states render **no** counter: nothing is running while the operator decides.
 - A plain wait escalates with time: `Waiting for the model` → `The model is taking longer than usual` (15 s, `typing-dots-status--slow`) → `Still no response from the server` (60 s).
 - Derivation scans back to the last `user_message`, so a stale `in_progress` row from a finished turn never drives the label. The console twin of the phrase table lives in `external/cli/status.go`.

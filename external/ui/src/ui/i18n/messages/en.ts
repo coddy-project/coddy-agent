@@ -1415,6 +1415,7 @@ export const messagesEn: Record<string, string> = {
   "status.memory": "Working with memory",
   "status.awaitingPermission": "Waiting for your approval",
   "status.awaitingAnswer": "Waiting for your answer",
+  "status.writing": "Writing the answer",
   "status.waitingModel": "Waiting for the model",
   "status.waitingSlow": "The model is taking longer than usual",
   "status.waitingStuck": "Still no response from the server",

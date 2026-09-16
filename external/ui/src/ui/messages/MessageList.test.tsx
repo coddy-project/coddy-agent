@@ -194,9 +194,11 @@ test("renders memory copilot foldout", () => {
   expect(screen.getByText(/No durable fact to persist/)).toBeInTheDocument();
 });
 
-test("the live line does not repeat the reasoning row right above it", () => {
-  // The transcript row already says the turn is reasoning and ticks its own
-  // duration; the status line under it said the same word again, one line apart.
+// The live line is on screen for the whole turn and always says what is happening,
+// in general words at least: it used to drop its text under a reasoning row and to
+// vanish altogether once the turn had written any text, which read as a turn that
+// had stopped.
+test("the live line names reasoning under a reasoning row", () => {
   const items: TranscriptItem[] = [
     { id: "u1", type: "user_message", content: "hi" },
     {
@@ -210,8 +212,54 @@ test("the live line does not repeat the reasoning row right above it", () => {
 
   render(<MessageList items={items} generating />);
 
+  expect(screen.getByTestId("typing-dots-status")).toHaveTextContent("Thinking…");
+});
+
+test("the live line stays while the answer streams and names it", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "hi" },
+    { id: "a1", type: "assistant_message", content: "The price", streaming: true },
+  ];
+
+  render(<MessageList items={items} generating />);
+
+  expect(screen.getByTestId("typing-dots-status")).toHaveTextContent(
+    "Writing the answer",
+  );
+});
+
+test("the live line stays under text written earlier in the turn", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "hi" },
+    { id: "a1", type: "assistant_message", content: "Checking.", streaming: true },
+    {
+      id: "t1",
+      type: "tool_call",
+      toolCallId: "tc1",
+      title: "webfetch",
+      status: "in_progress",
+      argsText: '{"url":"https://coddy.dev/"}',
+      startedAtMs: Date.now(),
+    },
+  ];
+
+  render(<MessageList items={items} generating />);
+
   expect(screen.getByTestId("typing-dots")).toBeInTheDocument();
-  expect(screen.queryByTestId("typing-dots-status")).toBeNull();
+  expect(screen.getByTestId("typing-dots-status")).toHaveTextContent(
+    "Fetching",
+  );
+});
+
+test("a finished turn carries no live line", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "hi" },
+    { id: "a1", type: "assistant_message", content: "Done." },
+  ];
+
+  render(<MessageList items={items} />);
+
+  expect(screen.queryByTestId("typing-dots")).toBeNull();
 });
 
 test("the live line still speaks when the transcript is not already saying it", () => {

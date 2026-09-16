@@ -32,22 +32,6 @@ function mainThinkingOverlapsMemory(
   return false;
 }
 
-/**
- * Whether the live line would only repeat the row it sits under. A reasoning row
- * is present exactly when the status is "thinking" (that is what derives it),
- * says the same word and ticks its own duration, so the line below it keeps the
- * dots and drops the text.
- */
-function repeatsTheRowAbove(status: { kind: string }): boolean {
-  return status.kind === "thinking";
-}
-
-function hasStreamingAssistant(items: TranscriptItem[]): boolean {
-  return items.some(
-    (it) => it.type === "assistant_message" && it.streaming === true,
-  );
-}
-
 export function MessageList(props: {
   items: TranscriptItem[];
   generating?: boolean;
@@ -393,9 +377,13 @@ export function MessageList(props: {
           />
         );
       })}
-      {props.generating === true && !hasStreamingAssistant(props.items) ? (
+      {/* The live line stands under the transcript for the whole turn and always
+          says what is happening, in general words at least. It used to vanish once
+          the turn had written any text and to fall silent under a reasoning row,
+          which read as a turn that had stopped. */}
+      {props.generating === true ? (
         <TypingDotsMessage
-          {...(liveStatus && !repeatsTheRowAbove(liveStatus)
+          {...(liveStatus
             ? { statusKind: liveStatus.kind, statusKey: liveStatus.key }
             : {})}
           {...(liveStatus && liveStatus.target
