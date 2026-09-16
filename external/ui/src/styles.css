@@ -9487,7 +9487,9 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin: 0 0 8px;
+  /* The question introduces the offer, so it keeps the 12px the live card puts
+     between a question and its first row rather than sitting on top of it. */
+  margin: 12px 0 8px;
   padding: 0;
   list-style: none;
 }
@@ -9543,6 +9545,14 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 .question-prompt-resolved-pair {
   margin: 0;
+}
+
+.coddy-tool-call-body .question-prompt-resolved-q {
+  margin-bottom: 12px;
+}
+
+.coddy-tool-call-body .question-tool-offer + .question-prompt-resolved-a {
+  margin-top: 0;
 }
 
 .question-prompt-resolved-pair .question-prompt-resolved-q {
