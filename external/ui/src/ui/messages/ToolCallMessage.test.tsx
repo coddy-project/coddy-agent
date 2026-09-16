@@ -1666,10 +1666,10 @@ test("collapsing a long result returns it to the top", async () => {
     return (
       <ToolCallMessage
         toolCallId="tc-scroll"
-        title="websearch"
+        title="grep"
         kind="other"
         status="completed"
-        argsText={JSON.stringify({ query: "iPhone 18 price" })}
+        argsText={JSON.stringify({ pattern: "iPhone 18 price" })}
         resultText={`${"preview line\n".repeat(18)}...`}
         fullResultText={full}
         resultWasTruncated
@@ -1731,6 +1731,101 @@ test("a web search names its query and lists its hits as links", () => {
   const link = screen.getByRole("link", { name: "Ostrovok.ru" });
   expect(link).toHaveAttribute("href", "https://ostrovok.ru/");
   expect(document.querySelector(".tool-result-pre")).toBeNull();
+});
+
+const truncatedSearch = {
+  query: "iPhone 18 announcement September 2026 preorder",
+  page: 1,
+  engines: [
+    {
+      engine: "brave",
+      status: "blocked",
+      results: 0,
+      reason: "http 429",
+      took_ms: 214,
+    },
+    { engine: "bing", status: "ok", results: 10, took_ms: 158 },
+  ],
+  results: Array.from({ length: 12 }, (_, n) => ({
+    title: `Hit ${n + 1}`,
+    url: `https://hit${n + 1}.example/`,
+    description: `Snippet ${n + 1}`,
+    source: "bing",
+  })),
+};
+
+// The row carried the first nineteen lines of the answer, which the engine report
+// fills, so the expanded row printed raw JSON and hid the hits behind More: the
+// reader who opened a search wants its results, not a control that fetches them.
+test("opening a truncated web search loads every hit at once, with no More control", async () => {
+  const pretty = JSON.stringify(truncatedSearch, null, 2);
+  const fetchSpy = vi.fn();
+  function Harness() {
+    const [full, setFull] = useState("");
+    const onFetch = useCallback(async (id: string) => {
+      fetchSpy(id);
+      await Promise.resolve();
+      setFull(pretty);
+    }, []);
+    return (
+      <ToolCallMessage
+        toolCallId="tc-search-full"
+        title="websearch"
+        kind="other"
+        status="completed"
+        argsText={JSON.stringify({ query: truncatedSearch.query })}
+        resultText={pretty.split("\n").slice(0, 19).join("\n") + "\n..."}
+        fullResultText={full}
+        resultWasTruncated
+        durationMs={195}
+        onFetchToolCallFull={onFetch}
+      />
+    );
+  }
+  render(<Harness />);
+  // A closed row costs no request.
+  expect(fetchSpy).not.toHaveBeenCalled();
+
+  openToolDetails();
+  await waitFor(() =>
+    expect(screen.getByRole("link", { name: "Hit 12" })).toBeInTheDocument(),
+  );
+  expect(fetchSpy).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("link", { name: "Hit 1" })).toHaveAttribute(
+    "href",
+    "https://hit1.example/",
+  );
+  expect(screen.queryByTestId("tool-result-more")).toBeNull();
+  expect(screen.queryByTestId("tool-result-less")).toBeNull();
+  expect(screen.getByTestId("tool-result-viewport")).not.toHaveClass(
+    "tool-result-viewport--tall",
+  );
+  expect(document.querySelector(".tool-result-pre")).toBeNull();
+});
+
+test("a web search header carries every parameter of the search", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-search-params"
+      title="websearch"
+      kind="other"
+      status="completed"
+      argsText={JSON.stringify({ query: "go slog", site: "go.dev" })}
+      resultText={JSON.stringify(truncatedSearch)}
+      durationMs={195}
+    />,
+  );
+  openToolDetails();
+
+  const meta = document.querySelector(".permission-preview-meta");
+  // What the tool ran with, defaults included: page 1, fifteen rows, the domain.
+  expect(meta).toHaveTextContent("page 1");
+  expect(meta).toHaveTextContent("max 15");
+  expect(meta).toHaveTextContent("site go.dev");
+  // How each engine answered is read above the hits.
+  const report = screen.getByTestId("web-search-engines");
+  expect(report).toHaveTextContent("brave: blocked (http 429)");
+  expect(report).toHaveTextContent("bing: 10");
 });
 
 test("a fetched page renders as the markdown it already is", () => {

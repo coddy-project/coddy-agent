@@ -401,11 +401,17 @@ export function buildToolCallPreview(
     // beside a row that already shows it is punctuation, not information.
     const subject = stringArg(args, "query", "url");
     const meta: string[] = [];
-    const page = numberArg(args, "page", 0);
-    if (page > 1) meta.push(t("permission.meta.page", { page }));
-    const maxResults = numberArg(args, "max_results", 0);
-    if (maxResults > 0) {
+    if (normalized === "websearch") {
+      // Every parameter the search ran with, defaults included, so the header
+      // says what was asked for without opening the arguments: the tool starts
+      // at page 1 and returns 15 rows, never more than 25.
+      const page = Math.max(1, numberArg(args, "page", 1));
+      meta.push(t("permission.meta.page", { page }));
+      const requested = numberArg(args, "max_results", 0);
+      const maxResults = requested > 0 ? Math.min(requested, 25) : 15;
       meta.push(t("permission.meta.maxResults", { count: maxResults }));
+      const site = stringArg(args, "site");
+      if (site) meta.push(t("permission.meta.site", { site }));
     }
     return {
       toolName,

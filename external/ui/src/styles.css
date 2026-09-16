@@ -9032,6 +9032,36 @@ html:not([data-theme="light"]) .context-usage-note--error {
   line-height: 1.55;
 }
 
+/* How each engine answered a search, above its hits: one muted monospace line in
+   the voice of the preview bar's meta, an engine that turned the search away in
+   the failure colour the row uses for a failed call. */
+.web-search-engines {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  margin: 0 0 8px;
+  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.web-search-engine + .web-search-engine::before {
+  content: "·";
+  margin-right: 6px;
+  color: color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
+}
+
+.web-search-engine--blocked,
+.web-search-engine--error {
+  color: color-mix(in srgb, var(--diff-del-no) 70%, var(--text));
+}
+
+.tool-result-loading {
+  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  font-size: 12.5px;
+}
+
 .tool-call-result-content--markdown .md-code {
   margin: 8px 0;
 }

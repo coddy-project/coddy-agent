@@ -37,6 +37,10 @@ When **every** engine is blocked the call fails rather than returning an empty l
 
 `cached: true` marks an answer reused from a recent identical search rather than asked again.
 
+### In the web UI
+
+A search row in the transcript reads as what it found, not as the JSON above. Its header names the query and every parameter the search ran with - the page, the number of rows asked for (15 when the call named none) and the site when there was one - and the first line under it says how each engine answered: a count for an engine that answered, the outcome and its reason for one that did not. The hits follow as links, each snippet on its own line. Opening the row loads the whole answer at once: the row only holds the first lines of the output, which the engine report fills, so there is no **More** control to press for the results.
+
 ## Engines
 
 | Engine | Key needed | Notes |

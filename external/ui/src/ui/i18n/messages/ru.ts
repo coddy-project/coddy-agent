@@ -1245,6 +1245,8 @@ export const messagesRu: Record<string, string> = {
   "messages.toolDetailsAriaLabel": "Детали вызова инструмента",
   "messages.toolResultAriaLabel": "Результат инструмента",
   "messages.toolFailedMarker": "(ошибка)",
+  "messages.webSearchEngineBlocked": "заблокирован",
+  "messages.webSearchEngineError": "ошибка",
   "messages.toolLoading": "Загрузка…",
   "messages.toolMore": "Ещё…",
   "todo.preview.updatedItem": "Обновлённый пункт",
@@ -1342,6 +1344,7 @@ export const messagesRu: Record<string, string> = {
   "permission.meta.caseSensitive": "с учётом регистра",
   "permission.meta.maxResults": "макс. {count}",
   "permission.meta.page": "страница {page}",
+  "permission.meta.site": "сайт {site}",
   "permission.meta.depth": "глубина {depth}",
 
   "scheduler.cron.required": "Введите cron-выражение (5 полей, UTC).",

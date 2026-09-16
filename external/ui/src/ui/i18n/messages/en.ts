@@ -1227,6 +1227,8 @@ export const messagesEn: Record<string, string> = {
   "messages.toolDetailsAriaLabel": "Tool call details",
   "messages.toolResultAriaLabel": "Tool result",
   "messages.toolFailedMarker": "(failed)",
+  "messages.webSearchEngineBlocked": "blocked",
+  "messages.webSearchEngineError": "error",
   "messages.toolLoading": "Loading…",
   "messages.toolMore": "More…",
   "todo.preview.updatedItem": "Updated item",
@@ -1313,6 +1315,7 @@ export const messagesEn: Record<string, string> = {
   "permission.meta.caseSensitive": "case sensitive",
   "permission.meta.maxResults": "max {count}",
   "permission.meta.page": "page {page}",
+  "permission.meta.site": "site {site}",
   "permission.meta.depth": "depth {depth}",
 
   "scheduler.cron.required": "Enter a cron expression (5 fields, UTC).",
