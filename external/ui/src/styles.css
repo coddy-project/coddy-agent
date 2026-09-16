@@ -9072,6 +9072,84 @@ html:not([data-theme="light"]) .context-usage-note--error {
   color: color-mix(in srgb, var(--diff-del-no) 70%, var(--text));
 }
 
+/* A scheduler call: the preview bar names the job and what happened to it, the body
+   under it is the job, the list or the runs the call read - labelled fields and rows
+   rather than a line of JSON. */
+.scheduler-tool-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+  background: var(--coddy-surface-inset);
+  color: var(--coddy-surface-code-fg);
+  font-size: 12.5px;
+  line-height: 1.5;
+  min-width: 0;
+}
+
+.scheduler-tool-fields {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 14px;
+  margin: 0;
+}
+
+.scheduler-tool-field {
+  display: contents;
+}
+
+.scheduler-tool-field dt {
+  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+}
+
+.scheduler-tool-field dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.scheduler-tool-cron,
+.scheduler-tool-row-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+}
+
+.scheduler-tool-muted {
+  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+}
+
+.scheduler-tool-instruction {
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  font-size: 13px;
+}
+
+.scheduler-tool-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.scheduler-tool-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  min-width: 0;
+}
+
+.scheduler-tool-row-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .tool-result-loading {
   color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
   font-size: 12.5px;

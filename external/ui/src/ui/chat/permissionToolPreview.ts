@@ -137,6 +137,10 @@ export function toolCallTargetText(context: PermissionToolCallContext): string {
   if (!args) {
     return "";
   }
+  // Every scheduler tool acts on, or reads, one job.
+  if (toolName.startsWith("coddy_scheduler_")) {
+    return stringArg(args, "job_id");
+  }
   switch (toolName) {
     case "run_command":
     case "ssh_run_command":

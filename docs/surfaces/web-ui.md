@@ -593,6 +593,8 @@ For the whole of a running turn, streaming text included, the typing dots carry 
 
 *A long tool result collapsed behind More and expanded with Less*
 
+The scheduler tools (`coddy_scheduler_*`) have a card of their own instead of their JSON: the bar names the job and what happened to it (*resumed*, *run started*, *was not running*, *created*, *updated*, *deleted*), a job read or created is shown as its fields - description, schedule with its human reading, state, next run, mode, model, folder - with the instruction rendered as Markdown, the job list as one row per job and the runs of a job as one row per run with its status and duration.
+
 `spawn_agent` has a dedicated argument card: agent icon and name, optional description, a labelled timeout badge, and an inset panel for the full multiline prompt. The timeout is the supplied execution limit in seconds, separate from the elapsed duration beside the tool title. The layout wraps on narrow screens and follows the active light/dark theme. Calls with truncated history arguments load the full arguments once per incomplete preview, including running calls; malformed arguments or failed fetches retain the plain argument preview. Result output and More / Less behave as for other tools, with the result attached below the agent card. Card labels follow the active English/Russian UI locale.
 
 The happy path is in `features/spawn_agent_card.feature`, run by the `http,ui` godog harness through the React DOM test in `SpawnAgentCard.test.tsx`. Edge cases cover invalid arguments, absent/invalid timeouts, escaped prompt text, and history fetch failure.

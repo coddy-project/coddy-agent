@@ -1828,6 +1828,55 @@ test("a web search header carries every parameter of the search", () => {
   expect(report).toHaveTextContent("bing: 10");
 });
 
+// The scheduler tools printed their arguments and their JSON answer as two raw
+// panels. A job action is read as what happened to which job, a job as its fields.
+test("a scheduler action reads as its outcome, not as JSON", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-resume"
+      title="coddy_scheduler_job_resume"
+      status="completed"
+      argsText={JSON.stringify({ job_id: "ai-news-digest" })}
+      resultText={'{"job_id":"ai-news-digest","paused":false}'}
+      durationMs={3}
+    />,
+  );
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent("ai-news-digest");
+  openToolDetails();
+  const card = screen.getByTestId("scheduler-tool-card");
+  expect(card).toHaveTextContent("ai-news-digest");
+  expect(card).toHaveTextContent("resumed");
+  expect(container.textContent).not.toContain('"paused"');
+  expect(container.querySelector(".tool-result-pre")).toBeNull();
+});
+
+test("a scheduled job reads as its fields and its instruction", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-get"
+      title="coddy_scheduler_job_get"
+      status="completed"
+      argsText={JSON.stringify({ job_id: "ai-news-digest" })}
+      resultText={JSON.stringify({
+        job_id: "ai-news-digest",
+        description: "Daily AI news digest",
+        schedule: "0 8 * * *",
+        paused: true,
+        running: false,
+        mode: "agent",
+        body: "Collect **the news**",
+      })}
+      durationMs={3}
+    />,
+  );
+  openToolDetails();
+  const card = screen.getByTestId("scheduler-tool-card");
+  expect(card).toHaveTextContent("Daily AI news digest");
+  expect(card).toHaveTextContent("0 8 * * *");
+  expect(card).toHaveTextContent("paused");
+  expect(screen.getByText("the news").tagName).toBe("STRONG");
+});
+
 test("a fetched page renders as the markdown it already is", () => {
   render(
     <ToolCallMessage
