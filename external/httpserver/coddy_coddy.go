@@ -1153,10 +1153,14 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 	if st == nil {
 		return
 	}
+	msgs, rev := st.MessagesWithRev()
 	out := map[string]interface{}{
 		"object":    "coddy.messages",
 		"sessionId": id,
-		"messages":  llmMsgsToCoddyOpenAIForSession(id, st.GetMessages()),
+		"messages":  llmMsgsToCoddyOpenAIForSession(id, msgs),
+		// The revision this history was read at: a client attaching to the composer
+		// relay passes it back as since_rev and is replayed only what it lacks.
+		"messagesRev": rev,
 	}
 	// A child session is a read-only transcript: the SPA drops the composer
 	// and links back to the parent chat and to the task in its drawer.

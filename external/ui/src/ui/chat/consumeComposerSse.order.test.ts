@@ -198,6 +198,30 @@ test("whitespace inside a paragraph still reaches the segment it belongs to", as
   ).toEqual(["one\n\ntwo"]);
 });
 
+// A tab reloaded mid-turn is replayed the step still streaming in one burst. Dated on
+// arrival, the reasoning restarted its clock at the reload and a tool call whose start
+// and end came in the same burst read 0ms; each frame now carries its age.
+test("replayed frames are dated when they happened, not when they arrived", async () => {
+  const now = Date.now();
+  vi.spyOn(Date, "now").mockReturnValue(now);
+  const aged = (age: number, frame: string) => frame.replace(/^/, `age: ${age}\n`);
+  const sse =
+    aged(30000, `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "Weighing." } }] })}\n\n`) +
+    aged(20000, `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: " More." } }] })}\n\n`) +
+    aged(12000, `event: tool_call\ndata: ${JSON.stringify({ toolCallId: "tc1", title: "webfetch", status: "pending" })}\n\n`) +
+    aged(9000, `event: tool_call_update\ndata: ${JSON.stringify({ toolCallId: "tc1", status: "in_progress", content: [{ content: { text: '{"url":"https://coddy.dev/"}' } }] })}\n\n`) +
+    aged(4000, `event: tool_call_update\ndata: ${JSON.stringify({ toolCallId: "tc1", status: "completed", content: [{ content: { text: "page" } }] })}\n\n`) +
+    `data: [DONE]\n\n`;
+
+  const items = await drive(sse);
+  vi.restoreAllMocks();
+  const thinking = items.find((it) => it.type === "thinking");
+  const call = items.find((it) => it.type === "tool_call");
+  expect(thinking?.type === "thinking" && thinking.startedAtMs).toBe(now - 30000);
+  expect(thinking?.type === "thinking" && thinking.durationMs).toBe(18000);
+  expect(call?.type === "tool_call" && call.durationMs).toBe(5000);
+});
+
 // A model configured with stream: false delivers reasoning and answer in the same
 // flush, so the client-side clock measures the gap between two frames, not how long
 // the model thought. The row must report nothing rather than a fabricated duration.

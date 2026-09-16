@@ -104,6 +104,7 @@ class Backend {
   events: ControlledStream[] = [];
   posts: { sid: string; stream: ControlledStream }[] = [];
   relays: { sid: string; stream: ControlledStream }[] = [];
+  messagesRev = new Map<string, number>();
   abortPostReads = true;
   override?: (request: Request) => Response | Promise<Response> | undefined;
   fetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
@@ -137,7 +138,7 @@ class Backend {
     const match = path.match(/^\/coddy\/sessions\/([^/]+)(.*)$/);
     if (match) {
       const sid = decodeURIComponent(match[1]!);
-      const suffix = match[2];
+      const suffix = match[2]!.split("?")[0];
       if (!suffix) return json({});
       if (suffix === "/activity")
         return json({
@@ -145,7 +146,12 @@ class Backend {
           turnActive: this.activity.get(sid) ?? false,
         });
       if (suffix === "/messages")
-        return json({ messages: this.messages.get(sid) ?? [] });
+        return json({
+          messages: this.messages.get(sid) ?? [],
+          ...(this.messagesRev.has(sid)
+            ? { messagesRev: this.messagesRev.get(sid) }
+            : {}),
+        });
       if (suffix === "/tool-calls") return json({ toolCalls: [] });
       if (suffix === "/branches") return json({ branchPoints: [] });
       if (suffix === "/stats") return json({ stats: {} });
@@ -533,6 +539,20 @@ test("relay EOF preserves partial text when persistence still has only the previ
   });
   expect(screen.getByText("Unpersisted relay answer")).toBeInTheDocument();
   expect(stop()).toBeEnabled();
+});
+
+// A reloaded tab holds the transcript it just loaded, so it asks the relay only for what
+// that transcript lacks; replaying the whole turn put the finished steps on screen twice.
+test("attaching to a running turn asks the relay only for what the loaded transcript lacks", async () => {
+  backend.activity.set(A, true);
+  backend.messagesRev.set(A, 7);
+  await mount();
+  await waitFor(() => expect(backend.relays).toHaveLength(1));
+  expect(
+    backend.requests.some(
+      (r) => r.path === `/coddy/sessions/${A}/composer-stream?since_rev=7`,
+    ),
+  ).toBe(true);
 });
 
 test("reconciliation does not repeatedly abort a slow activity read", async () => {

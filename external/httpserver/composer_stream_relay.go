@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"sync"
+	"time"
 )
 
 const defaultComposerRelayMaxBytes = 512 << 10
@@ -35,13 +36,40 @@ type composerStreamRelay struct {
 	maxBytes int
 	closed   bool
 	subs     map[*relaySubscriber]struct{}
+	// rev reads the revision of the session's message history, so each frame knows
+	// which persisted snapshot it predates. Nil stamps every frame zero.
+	rev func() uint64
+	// trimmedAny and trimmedRev remember the history dropped from the front: a
+	// client resuming by snapshot has a gap only if a trimmed frame is one its
+	// snapshot does not hold.
+	trimmedAny bool
+	trimmedRev uint64
 }
 
 // relayFrame is one complete SSE frame plus the sequence a client resumes from.
 type relayFrame struct {
 	seq  uint64
 	data []byte
+	// rev is the message history revision when the frame was written. Whatever the
+	// frame describes is persisted by a later revision, so a snapshot at rev R holds
+	// every frame stamped below R and none stamped R or later.
+	rev uint64
+	// at is when the frame was written, so a replay can say how old it is.
+	at time.Time
 }
+
+// relayResume is where a subscriber picks the turn up: after the frame it last saw,
+// or after the transcript snapshot it loaded, or from the start of the buffer.
+type relayResume struct {
+	lastEventID uint64
+	sinceRev    uint64
+	bySnapshot  bool
+}
+
+// relayAgeThreshold is how old a frame must be before the subscriber is told its age.
+// Live frames reach a client within it and stay byte-identical to the primary stream
+// apart from their id; replayed history is older than that.
+const relayAgeThreshold = 250 * time.Millisecond
 
 // relaySubscriber is one attached client. Sends are non-blocking, so a subscriber that
 // cannot keep up is marked desynced instead of stalling the turn that is publishing.
@@ -64,6 +92,13 @@ func (r *composerStreamRelay) Write(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
+	// Read before taking the relay lock: the revision lives behind the session's own
+	// lock, and nothing here should ever hold both.
+	var rev uint64
+	if r.rev != nil {
+		rev = r.rev()
+	}
+	now := time.Now()
 	r.mu.Lock()
 	if r.closed {
 		r.mu.Unlock()
@@ -80,6 +115,8 @@ func (r *composerStreamRelay) Write(p []byte) (int, error) {
 		frame := relayFrame{
 			seq:  r.lastSeq + 1,
 			data: append([]byte(nil), r.pending[:end]...),
+			rev:  rev,
+			at:   now,
 		}
 		r.lastSeq = frame.seq
 		r.pending = append([]byte(nil), r.pending[end:]...)
@@ -90,6 +127,10 @@ func (r *composerStreamRelay) Write(p []byte) (int, error) {
 	// Trim whole frames from the front, oldest first.
 	for r.bufBytes > r.maxBytes && len(r.frames) > 1 {
 		r.bufBytes -= len(r.frames[0].data)
+		r.trimmedAny = true
+		if r.frames[0].rev > r.trimmedRev {
+			r.trimmedRev = r.frames[0].rev
+		}
 		r.frames = r.frames[1:]
 	}
 	for sub := range r.subs {
@@ -135,25 +176,47 @@ func (r *composerStreamRelay) serveSubscriber(ctx context.Context, w http.Respon
 // serveSubscriberFrom is serveSubscriber resuming after the frame the client last saw.
 // lastEventID 0 means "send everything still buffered".
 func (r *composerStreamRelay) serveSubscriberFrom(ctx context.Context, w http.ResponseWriter, lastEventID uint64) error {
+	return r.serveSubscriberAfter(ctx, w, relayResume{lastEventID: lastEventID})
+}
+
+// serveSubscriberAfter replays from the resume point, then streams live frames until
+// Close or ctx ends. A frame cursor wins over a snapshot: it is exact.
+func (r *composerStreamRelay) serveSubscriberAfter(ctx context.Context, w http.ResponseWriter, from relayResume) error {
 	sub := &relaySubscriber{ch: make(chan relayFrame, 256)}
 	r.mu.Lock()
 	if r.closed {
 		r.mu.Unlock()
 		return errComposerRelayClosed
 	}
+	lastEventID := from.lastEventID
+	bySnapshot := lastEventID == 0 && from.bySnapshot
 	replay := make([]relayFrame, 0, len(r.frames))
 	oldest := uint64(0)
 	if len(r.frames) > 0 {
 		oldest = r.frames[0].seq
 	}
 	for _, f := range r.frames {
-		if f.seq > lastEventID {
-			replay = append(replay, f)
+		if f.seq <= lastEventID {
+			continue
 		}
+		// A client holding a transcript loaded at sinceRev has every frame written
+		// before that revision in it already.
+		if bySnapshot && f.rev < from.sinceRev {
+			continue
+		}
+		replay = append(replay, f)
 	}
-	// The client asked to continue from a frame that has already been trimmed, so the
-	// gap between what it has and what we can still send is unbridgeable.
-	gapped := lastEventID > 0 && oldest > lastEventID+1
+	var gapped bool
+	var gapFrom uint64
+	switch {
+	case lastEventID > 0:
+		// The client asked to continue from a frame that has already been trimmed, so
+		// the gap between what it has and what we can still send is unbridgeable.
+		gapped = oldest > lastEventID+1
+		gapFrom = lastEventID
+	case bySnapshot:
+		gapped = r.trimmedAny && r.trimmedRev >= from.sinceRev
+	}
 	r.subs[sub] = struct{}{}
 	r.mu.Unlock()
 
@@ -164,7 +227,7 @@ func (r *composerStreamRelay) serveSubscriberFrom(ctx context.Context, w http.Re
 		return errors.New("response writer is not a flusher")
 	}
 	if gapped {
-		if _, err := io.WriteString(w, desyncFrame(lastEventID, oldest)); err != nil {
+		if _, err := io.WriteString(w, desyncFrame(gapFrom, oldest)); err != nil {
 			return err
 		}
 	}
@@ -202,12 +265,19 @@ func (r *composerStreamRelay) serveSubscriberFrom(ctx context.Context, w http.Re
 	}
 }
 
-// subscriberFrame prefixes a frame with its sequence, so a client can resume from it.
-// Only the subscriber path does this: the primary POST stream keeps the exact bytes API
-// clients have always parsed.
+// subscriberFrame prefixes a frame with its sequence, so a client can resume from it,
+// and a frame older than relayAgeThreshold with its age in milliseconds (an `age:`
+// field, which SSE parsers that do not know it skip), so a client can date what it
+// replays when it happened rather than when it arrived. Only the subscriber path does
+// this: the primary POST stream keeps the exact bytes API clients have always parsed.
 func subscriberFrame(f relayFrame) []byte {
-	out := make([]byte, 0, len(f.data)+24)
+	out := make([]byte, 0, len(f.data)+40)
 	out = append(out, fmt.Sprintf("id: %d\n", f.seq)...)
+	if !f.at.IsZero() {
+		if age := time.Since(f.at); age >= relayAgeThreshold {
+			out = append(out, fmt.Sprintf("age: %d\n", age.Milliseconds())...)
+		}
+	}
 	return append(out, f.data...)
 }
 
@@ -240,6 +310,9 @@ var _ http.Flusher = (*teeSSEWriter)(nil)
 
 func (s *Server) beginComposerRelay(sessionID string) *composerStreamRelay {
 	rel := newComposerStreamRelay()
+	if st := s.mgr.SessionByID(sessionID); st != nil {
+		rel.rev = st.MessagesRev
+	}
 	s.composerRelayMu.Lock()
 	if s.composerRelays == nil {
 		s.composerRelays = make(map[string]*composerStreamRelay)

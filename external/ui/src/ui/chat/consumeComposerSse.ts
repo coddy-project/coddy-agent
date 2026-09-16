@@ -334,10 +334,17 @@ export async function consumeComposerSseReader(
         });
       };
 
+      // When the frame being handled happened. A frame the relay replays after a
+      // reload carries its age, and dating it on arrival restarted a reasoning
+      // block's clock at the reload and read 0ms for a tool call whose start and end
+      // were replayed in the same burst. Outside a frame it is simply now.
+      let frameAt: number | null = null;
+      const eventNow = () => frameAt ?? Date.now();
+
       let activeThinkingId: string | null = null;
       let activeThinkingStarted = 0;
       const appendThinking = (delta: string) => {
-        const freezeAt = Date.now();
+        const freezeAt = eventNow();
         if (!activeThinkingId) {
           activeThinkingId = newId("r");
           activeThinkingStarted = freezeAt;
@@ -374,7 +381,7 @@ export async function consumeComposerSseReader(
       const finishThinking = () => {
         if (!activeThinkingId) return;
         const id = activeThinkingId;
-        const dur = Math.max(0, Date.now() - activeThinkingStarted);
+        const dur = Math.max(0, eventNow() - activeThinkingStarted);
         // A model configured with stream: false delivers its reasoning and its answer
         // in the same flush, so this clock measures the gap between two frames rather
         // than how long the model thought. Below the floor there is nothing to report:
@@ -468,6 +475,8 @@ export async function consumeComposerSseReader(
           carry,
         );
         for (const ev of events) {
+          frameAt =
+            typeof ev.ageMs === "number" ? Date.now() - ev.ageMs : null;
           if (ev.id) {
             lastEventId = ev.id;
           }
@@ -721,7 +730,7 @@ export async function consumeComposerSseReader(
             try {
               finishThinking();
               const t = JSON.parse(ev.data) as ToolCallUpdate;
-              const now = Date.now();
+              const now = eventNow();
               const patch: Partial<
                 Extract<TranscriptItem, { type: "tool_call" }>
               > & { toolCallId: string } = {
@@ -744,7 +753,7 @@ export async function consumeComposerSseReader(
               const u = JSON.parse(ev.data) as ToolCallStatusUpdate;
               const status = (u.status as any) || "in_progress";
               const text0 = u.content?.[0]?.content?.text || "";
-              const now = Date.now();
+              const now = eventNow();
               if (status === "in_progress" && text0) {
                 toolQueue.push({
                   toolCallId: u.toolCallId,
@@ -803,6 +812,7 @@ export async function consumeComposerSseReader(
           break;
         }
       }
+      frameAt = null;
       if (sawDone) {
         try {
           await reader.cancel();
@@ -814,6 +824,8 @@ export async function consumeComposerSseReader(
       if (carry.buf.trim()) {
         const tailEvents = parseSSEBlocks("\n\n", carry);
         for (const ev of tailEvents) {
+          frameAt =
+            typeof ev.ageMs === "number" ? Date.now() - ev.ageMs : null;
           if (ev.id) {
             lastEventId = ev.id;
           }
@@ -988,7 +1000,7 @@ export async function consumeComposerSseReader(
             try {
               finishThinking();
               const t = JSON.parse(ev.data) as ToolCallUpdate;
-              const now = Date.now();
+              const now = eventNow();
               const patch: Partial<
                 Extract<TranscriptItem, { type: "tool_call" }>
               > & { toolCallId: string } = {
@@ -1010,7 +1022,7 @@ export async function consumeComposerSseReader(
               const u = JSON.parse(ev.data) as ToolCallStatusUpdate;
               const status = (u.status as any) || "in_progress";
               const text0 = u.content?.[0]?.content?.text || "";
-              const now = Date.now();
+              const now = eventNow();
               if (status === "in_progress" && text0) {
                 toolQueue.push({
                   toolCallId: u.toolCallId,
@@ -1064,6 +1076,7 @@ export async function consumeComposerSseReader(
         }
       }
 
+  frameAt = null;
   return {
     streamErrorMessage,
     streamErrorCode,

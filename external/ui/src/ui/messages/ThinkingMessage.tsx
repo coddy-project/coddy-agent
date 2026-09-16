@@ -25,10 +25,9 @@ export const ThinkingMessage = memo(function ThinkingMessage(props: {
   }, [inProgress, props.startedAtMs]);
 
   // Reasoning delivered in a single flush - a model configured with `stream: false`,
-  // or a provider that emits the whole block at once - leaves nothing to measure.
-  // The row used to print a dash there, which reads as a failure standing next to
-  // rows that report milliseconds; the floor of the same scale says "no time worth
-  // reporting" in the units the column already uses.
+  // or a provider that emits the whole block at once - leaves nothing to measure, and
+  // neither does history saved without a length. A dash there read as a failure and
+  // "0ms" as a clock that had stopped, so a length nobody measured is not shown.
   const durationLabel = useMemo(() => {
     if (props.status === "completed") {
       if (
@@ -37,7 +36,7 @@ export const ThinkingMessage = memo(function ThinkingMessage(props: {
       ) {
         return formatStepDuration(props.durationMs);
       }
-      return formatStepDuration(0);
+      return "";
     }
     if (
       typeof props.startedAtMs === "number" &&
@@ -61,9 +60,11 @@ export const ThinkingMessage = memo(function ThinkingMessage(props: {
           <span className="thinking-left">
             <span className="thinking-chevron" aria-hidden="true" />
             <span className="thinking-label">{label}</span>
-            <span className="thinking-dur" aria-hidden="true">
-              {durationLabel}
-            </span>
+            {durationLabel ? (
+              <span className="thinking-dur" aria-hidden="true">
+                {durationLabel}
+              </span>
+            ) : null}
           </span>
         </summary>
         {text ? (

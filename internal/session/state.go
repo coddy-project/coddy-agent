@@ -733,6 +733,25 @@ func (s *State) GetMessages() []llm.Message {
 	return msgs
 }
 
+// MessagesRev is the revision of the message history: it moves on every append and
+// every edit. A client that loaded the history at one revision holds everything a
+// stream frame written before it described.
+func (s *State) MessagesRev() uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.msgRev
+}
+
+// MessagesWithRev returns a copy of the history with the revision it reflects, read
+// under one lock so the two cannot come from either side of a change.
+func (s *State) MessagesWithRev() ([]llm.Message, uint64) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	msgs := make([]llm.Message, len(s.Messages))
+	copy(msgs, s.Messages)
+	return msgs, s.msgRev
+}
+
 // GetAgentMemory returns session memory text for prompt templates.
 func (s *State) GetAgentMemory() string {
 	s.mu.RLock()

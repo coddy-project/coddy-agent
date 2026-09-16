@@ -58,12 +58,13 @@ func (s *Server) coddySessionComposerStream(w http.ResponseWriter, r *http.Reque
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 
-	lastEventID := parseLastEventID(r)
+	from := relayResume{lastEventID: parseLastEventID(r)}
+	from.sinceRev, from.bySnapshot = parseSinceRev(r)
 	for {
 		if rel := s.peekComposerRelay(id); rel != nil {
 			deadline.Stop()
 			ticker.Stop()
-			err := rel.serveSubscriberFrom(r.Context(), w, lastEventID)
+			err := rel.serveSubscriberAfter(r.Context(), w, from)
 			if err != nil && !errors.Is(err, context.Canceled) {
 				s.log.Warn("composer stream subscriber", "session", id, "error", err)
 			}
@@ -102,6 +103,22 @@ func parseLastEventID(r *http.Request) uint64 {
 		return 0
 	}
 	return n
+}
+
+// parseSinceRev reads the messages revision of the transcript the client already holds
+// (the messagesRev of GET /coddy/sessions/{id}/messages). With it the replay leaves out
+// every frame a persisted message already describes; without it, or unparseable, the
+// whole buffer is replayed as before.
+func parseSinceRev(r *http.Request) (uint64, bool) {
+	raw := strings.TrimSpace(r.URL.Query().Get("since_rev"))
+	if raw == "" {
+		return 0, false
+	}
+	n, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 // writeSSEHeaders prepares a response for Server-Sent Events.

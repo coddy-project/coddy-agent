@@ -25,11 +25,14 @@ test("completed state uses plain thinking label without spinner", () => {
 // A turn whose reasoning arrived in one flush has no duration to report, and the
 // dash the row used to print read as a failure next to rows showing milliseconds.
 // The floor of the same scale says the same thing without looking broken.
-test("completed without duration reads as the floor of the scale, not a dash", () => {
+// A reasoning block with no measured length - a non-streamed response, or history
+// saved without one - used to read 0ms, which looked like a clock that had stopped.
+// A length nobody measured is not shown at all.
+test("completed without a measured duration shows no duration", () => {
   const { container } = render(
     <ThinkingMessage status="completed" content="x" />,
   );
-  expect(container.querySelector(".thinking-dur")?.textContent).toBe("0ms");
+  expect(container.querySelector(".thinking-dur")).toBeNull();
 });
 
 test("in_progress before the clock starts reads the same way", () => {
