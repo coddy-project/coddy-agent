@@ -51,6 +51,40 @@ func TestFileStoreRoundTripUILog(t *testing.T) {
 	}
 }
 
+func TestFileStoreRoundTripPermissionGrants(t *testing.T) {
+	root := t.TempDir()
+	fs := &FileStore{Root: root}
+	id := "sess_grants"
+	dir, err := fs.EnsureLayout(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &State{ID: id, CWD: "/tmp/unit", Mode: ModeAgent, SessionDir: dir}
+	st.AddCommandGrantIfNew("go test")
+	st.AddWriteGrantIfNew("write|/tmp/unit/a.go")
+	st.AddHTTPGrantIfNew("origin|https://api.example.com")
+	st.AddHTTPGrantIfNew("origin|https://api.example.com")
+	st.AddHTTPGrantIfNew("file|https://api.example.com|/tmp/unit/r.pdf")
+	if got := st.GetPermissionHTTPGrants(); len(got) != 2 {
+		t.Fatalf("http grants = %v, want two distinct keys", got)
+	}
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := fs.ReadSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored := &State{}
+	restored.RestorePermissionGrantsWithoutPersist(snap.PermissionCommands, snap.PermissionWriteKeys, snap.PermissionHTTPKeys)
+	if got := restored.GetPermissionHTTPGrants(); !reflect.DeepEqual(got, st.GetPermissionHTTPGrants()) {
+		t.Fatalf("http grants after reload = %v, want %v", got, st.GetPermissionHTTPGrants())
+	}
+	if got := restored.GetPermissionCommandGrants(); !reflect.DeepEqual(got, []string{"go test"}) {
+		t.Fatalf("command grants after reload = %v", got)
+	}
+}
+
 func TestFileStoreRoundTripMessages(t *testing.T) {
 	root := t.TempDir()
 	fs := &FileStore{Root: root}

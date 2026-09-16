@@ -196,6 +196,11 @@ type State struct {
 	PermissionCommandGrants []string
 	// PermissionWriteGrants are keys "toolName|absolutePath" for filesystem tools approved via "allow always".
 	PermissionWriteGrants []string
+	// PermissionHTTPGrants are the http_request approvals given via an "always"
+	// answer: a destination ("origin|..." or "url|...") and what a request to it
+	// carried ("file|...", "proxy|...", "insecure|...", "output|..."). The keys
+	// are built and matched by internal/permission.
+	PermissionHTTPGrants []string
 
 	// activitySeq increments when an agent turn finishes (persisted in session.json).
 	// readActivitySeq is advanced when the user marks the session read (PATCH markActivityRead).
@@ -1447,10 +1452,11 @@ func (s *State) CloseAll() {
 }
 
 // RestorePermissionGrantsWithoutPersist loads grants from disk snapshot (session/load).
-func (s *State) RestorePermissionGrantsWithoutPersist(commands, writes []string) {
+func (s *State) RestorePermissionGrantsWithoutPersist(commands, writes, httpKeys []string) {
 	s.mu.Lock()
 	s.PermissionCommandGrants = append([]string(nil), commands...)
 	s.PermissionWriteGrants = append([]string(nil), writes...)
+	s.PermissionHTTPGrants = append([]string(nil), httpKeys...)
 	s.mu.Unlock()
 }
 
@@ -1508,6 +1514,33 @@ func (s *State) GetPermissionWriteGrants() []string {
 	out := make([]string, len(s.PermissionWriteGrants))
 	copy(out, s.PermissionWriteGrants)
 	return out
+}
+
+// GetPermissionHTTPGrants returns a copy of the session's http_request grant keys.
+func (s *State) GetPermissionHTTPGrants() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]string, len(s.PermissionHTTPGrants))
+	copy(out, s.PermissionHTTPGrants)
+	return out
+}
+
+// AddHTTPGrantIfNew appends an http_request grant key if not already present.
+func (s *State) AddHTTPGrantIfNew(key string) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return
+	}
+	s.mu.Lock()
+	for _, g := range s.PermissionHTTPGrants {
+		if g == key {
+			s.mu.Unlock()
+			return
+		}
+	}
+	s.PermissionHTTPGrants = append(s.PermissionHTTPGrants, key)
+	s.mu.Unlock()
+	s.touchPersist()
 }
 
 // AddCommandGrantIfNew appends a command pattern if not already matched by existing grants.

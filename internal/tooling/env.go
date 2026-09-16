@@ -22,6 +22,10 @@ type Env struct {
 	// require permission. Checked via CommandAllowed().
 	CommandAllowlist []string
 
+	// HTTPAllowlist is tools.http_request.allowlist: destinations an
+	// http_request call reaches without a permission prompt.
+	HTTPAllowlist []string
+
 	// SessionID is the current session identifier (used by plan tools).
 	SessionID string
 

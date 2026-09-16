@@ -138,6 +138,8 @@ func statusVerbForTool(toolName string) string {
 		return "Searching the web"
 	case "webfetch":
 		return "Fetching"
+	case "http_request":
+		return "Sending a request"
 	case "load_skill":
 		return "Loading a skill"
 	case "spawn_agent":
@@ -176,6 +178,13 @@ func statusTargetFromArgs(toolName, argsJSON string) string {
 		return stringArg(args, "pattern")
 	case "websearch":
 		return stringArg(args, "query")
+	case "http_request":
+		// The method is half of what a request does; the url alone reads like a fetch.
+		method, target := strings.ToUpper(stringArg(args, "method")), stringArg(args, "url")
+		if method != "" && target != "" {
+			return method + " " + target
+		}
+		return target
 	case "spawn_agent":
 		// The definition name is what the operator recognises; the prompt would fill the row.
 		return stringArg(args, "agent")

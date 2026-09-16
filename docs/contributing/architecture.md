@@ -118,7 +118,7 @@ The **tool types and registry mechanics** live in **`internal/tooling`** (`Tool`
 composition root (`NewRegistry` wires everything) and exposes the same APIs via type aliases so
 call sites such as **`internal/agent`** keep importing **`tools`** only.
 
-- **`internal/tools/web`** - **`websearch`** (several engines asked in parallel behind the `searchFn` seam, each reporting `ok` / `empty` / `blocked` / `error` so a backend that was turned away is named rather than counted as nothing found; merge deduplicated by normalised URL, relevance gate against decoy result sets) and **`webfetch`** (fetch public `http(s)` pages, readability + Markdown; SSRF guards)
+- **`internal/tools/web`** - **`http_request`** (`http_request.go`: the curl-like tool, `ParseHTTPRequest` is the one validated value the tool sends and the permission gate in **`internal/permission/http.go`** decides on; `client.go`: the shared client - transport per route (proxy, certificate check), redirect policy, per-hop guard), **`websearch`** (several engines asked in parallel behind the `searchFn` seam, each reporting `ok` / `empty` / `blocked` / `error` so a backend that was turned away is named rather than counted as nothing found; merge deduplicated by normalised URL, relevance gate against decoy result sets) and **`webfetch`** (fetch public `http(s)` pages, readability + Markdown; SSRF guards)
 
 Built-in implementations are grouped in subfolders under **`internal/tools/`**:
 

@@ -126,7 +126,32 @@ func mergeYAMLComments(prev, next *yaml.Node) {
 		mergeMappingComments(prev, next)
 	case prev.Kind == yaml.SequenceNode && next.Kind == yaml.SequenceNode:
 		mergeSequenceComments(prev, next)
+	case prev.Kind == yaml.ScalarNode && next.Kind == yaml.ScalarNode:
+		keepEnvironmentReference(prev, next)
 	}
+}
+
+// keepEnvironmentReference writes a value back the way the file spelled it when
+// that spelling still loads as the value being saved.
+//
+// The load expands ${VAR} references, so the config a save renders holds what
+// the environment supplied - often a key kept out of the file on purpose, as in
+// api_key: ${OPENAI_API_KEY}. Rendering that value as it is would write the
+// secret into config.yaml and cut it loose from the environment, and every save
+// from the settings screen did exactly that. The previous spelling is kept when
+// it loads as the value in memory (next.Value, or, for a field rendered with
+// "$" escaped, what that escaped form loads as); a value the operator changed
+// matches neither and is written as changed.
+func keepEnvironmentReference(prev, next *yaml.Node) {
+	if !strings.Contains(prev.Value, "$") || prev.Value == next.Value {
+		return
+	}
+	loaded := expandEnvEscaped(prev.Value)
+	if loaded != next.Value && loaded != expandEnvEscaped(next.Value) {
+		return
+	}
+	next.Value = prev.Value
+	next.Style = prev.Style
 }
 
 func adoptComments(prev, next *yaml.Node) {

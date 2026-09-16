@@ -68,6 +68,7 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 	r.Register(todo.ItemMoveTool())
 	r.Register(toolweb.WebSearchTool())
 	r.Register(toolweb.WebFetchTool())
+	r.Register(toolweb.HTTPRequestTool())
 	r.Register(toolssh.SSHRunCommandTool())
 	// Subagents: offered unless explicitly disabled; the runtime hides the tool
 	// again for a child that reached subagents.max_depth.
