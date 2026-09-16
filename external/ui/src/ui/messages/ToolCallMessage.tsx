@@ -81,15 +81,33 @@ function QuestionToolTimelineReadout(props: {
       aria-label={t("messages.toolQuestionTimelineAriaLabel")}
     >
       {qs.map((item, qi) => {
-        const picked = (answers[qi] ?? []).filter((a) => a.trim().length > 0);
-        const taken = new Set(picked.map((a) => a.trim().toLowerCase()));
-        // An answer matching no option is what the reader typed into the free slot.
-        const ownAnswer = picked.filter(
-          (a) =>
-            !item.options.some(
-              (o) => o.label.trim().toLowerCase() === a.trim().toLowerCase(),
-            ),
-        );
+        const picked = (answers[qi] ?? []).filter((a) => a.length > 0);
+        // Answers and option labels come out of the same parser, which collapses
+        // the whitespace in both, so an answer only has to be matched case
+        // -insensitively. Each answer claims one option: a model that offers the
+        // same label twice lights one letter per answer rather than both.
+        const claimed = new Set<number>();
+        const takenOptions = new Set<number>();
+        item.options.forEach((option, oi) => {
+          const label = option.label.toLowerCase();
+          const at = picked.findIndex(
+            (a, ai) => !claimed.has(ai) && a.toLowerCase() === label,
+          );
+          if (at < 0) return;
+          claimed.add(at);
+          takenOptions.add(oi);
+        });
+        // Whatever matched no option is what the reader wrote themselves, and the
+        // free slot is where they wrote it: it carries their words rather than the
+        // name of the slot, so the answer is read where it was given.
+        const ownAnswers = picked.filter((_, ai) => !claimed.has(ai));
+        const offered = item.options.length > 0 || item.custom;
+        // Every answer the offer accounts for is already marked among the letters.
+        // The line below carries only what the letters cannot say: that nothing has
+        // been answered yet, or an answer with no slot of its own to sit in.
+        const strayAnswers = item.custom ? [] : ownAnswers;
+        const answerLine =
+          !offered || picked.length === 0 || strayAnswers.length > 0;
         return (
           <div
             key={`${qi}-${item.question}`}
@@ -99,14 +117,14 @@ function QuestionToolTimelineReadout(props: {
               {qs.length > 1 ? `${qi + 1}. ` : ""}
               {item.question}
             </div>
-            {item.options.length > 0 ? (
+            {item.options.length > 0 || item.custom ? (
               <ul className="question-tool-offer">
                 {item.options.map((option, oi) => (
                   <li
                     key={`${oi}-${option.label}`}
                     className={
                       "question-tool-offer-row" +
-                      (taken.has(option.label.trim().toLowerCase())
+                      (takenOptions.has(oi)
                         ? " question-tool-offer-row--taken"
                         : "")
                     }
@@ -126,7 +144,7 @@ function QuestionToolTimelineReadout(props: {
                   <li
                     className={
                       "question-tool-offer-row" +
-                      (ownAnswer.length > 0
+                      (ownAnswers.length > 0
                         ? " question-tool-offer-row--taken"
                         : "")
                     }
@@ -134,24 +152,33 @@ function QuestionToolTimelineReadout(props: {
                     <span className="question-prompt-bubble" aria-hidden>
                       {letterForOptionIndex(item.options.length)}
                     </span>
-                    <span className="question-tool-offer-text muted">
-                      {t("messages.toolQuestionOwnAnswer")}
+                    <span
+                      className={
+                        "question-tool-offer-text" +
+                        (ownAnswers.length > 0 ? "" : " muted")
+                      }
+                    >
+                      {ownAnswers.length > 0
+                        ? ownAnswers.join(", ")
+                        : t("messages.toolQuestionOwnAnswer")}
                     </span>
                   </li>
                 ) : null}
               </ul>
             ) : null}
-            {terminal && picked.length > 0 ? (
-              <div className="question-prompt-resolved-a">
-                {picked.join(", ")}
-              </div>
-            ) : (
-              <div className="question-prompt-resolved-a muted">
-                {terminal
-                  ? t("prompts.noAnswer")
-                  : t("messages.toolAwaitingAnswer")}
-              </div>
-            )}
+            {answerLine ? (
+              terminal && picked.length > 0 ? (
+                <div className="question-prompt-resolved-a">
+                  {(strayAnswers.length > 0 ? strayAnswers : picked).join(", ")}
+                </div>
+              ) : (
+                <div className="question-prompt-resolved-a muted">
+                  {terminal
+                    ? t("prompts.noAnswer")
+                    : t("messages.toolAwaitingAnswer")}
+                </div>
+              )
+            ) : null}
           </div>
         );
       })}
