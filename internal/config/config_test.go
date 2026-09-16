@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -841,6 +842,69 @@ func TestHTTPRequestAllowlistJSONRoundTrip(t *testing.T) {
 	back := config.JSONDTOToConfig(config.ConfigToJSONDTO(c), config.Paths{})
 	if got := strings.Join(back.Tools.HTTPRequest.Allowlist, ","); got != "api.github.com,http://localhost:8080" {
 		t.Fatalf("allowlist after the round-trip = %q", got)
+	}
+}
+
+func TestSettingsSaveKeepsWebSearchAndSSHTimeout(t *testing.T) {
+	// PUT /coddy/config rebuilds the whole file from the JSON DTO. A key the DTO
+	// does not carry comes back empty, so an unrelated save from the settings
+	// screen used to erase the search engines, the SearXNG address, the Brave key
+	// and the SSH timeout the operator had set. This walks the same path the
+	// handler does: load, DTO, JSON, parse over the live config, render, reload.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	yml := `providers:
+  - name: p
+    type: openai
+models:
+  - model: p/m
+agent:
+  model: p/m
+tools:
+  ssh_connect_timeout: 77
+  websearch:
+    engines: [searxng, brave]
+    engine_timeout_seconds: 5
+    total_timeout_seconds: 12
+    max_concurrent_engines: 2
+    snippet_chars: 200
+    cache_ttl_seconds: -1
+    searxng_url: http://127.0.0.1:8888
+    brave_api_key: BSA-secret
+`
+	if err := os.WriteFile(path, []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	paths := config.Paths{ConfigPath: path, Home: dir, CWD: dir}
+	live, err := config.LoadWithPaths(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(config.ConfigToJSONDTO(live))
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := config.ParseConfigJSONPreservingSecrets(body, live.Paths, live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := config.MarshalConfigYAMLForFile(next, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, saved, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := config.LoadWithPaths(paths)
+	if err != nil {
+		t.Fatalf("the saved file does not load: %v\n%s", err, saved)
+	}
+	if got := reloaded.Tools.SSHConnectTimeout; got != 77 {
+		t.Errorf("tools.ssh_connect_timeout after a save = %d, want 77", got)
+	}
+	want := live.Tools.WebSearch
+	if got := reloaded.Tools.WebSearch; !reflect.DeepEqual(got, want) {
+		t.Errorf("tools.websearch after a save = %+v, want %+v\n%s", got, want, saved)
 	}
 }
 
