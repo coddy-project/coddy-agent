@@ -181,7 +181,7 @@ export function SchedulerJobsDrawer(props: {
                   }}
                 >
                   <span className="composer-send-glyph" aria-hidden="true">
-                    ■
+                    <span className="composer-stop-square" />
                   </span>
                 </button>
               ) : (
