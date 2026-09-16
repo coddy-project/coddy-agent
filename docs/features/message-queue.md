@@ -52,7 +52,7 @@ A session is not owned by the tab that opened it. Two browsers, a third window o
 That works whether or not a client is reading the stream of the turn that is running. Every change travels down two paths:
 
 - the **turn's own stream**, so the client driving the turn and anyone teed onto it (`GET /coddy/sessions/{id}/composer-stream`) has it immediately;
-- **`GET /coddy/events`**, the server-wide stream every browser holds open and the console subscribes to under `--remote`, which carries `event: message_queue` with the session id, the whole queue and its version.
+- **`GET /coddy/events`**, the server-wide stream every browser holds open (one connection shared by its tabs) and the console subscribes to under `--remote`, which carries `event: message_queue` with the session id, the whole queue and its version.
 
 The answer to whichever request made the change carries the same list and version, so it is a third delivery of the same fact rather than a separate truth.
 

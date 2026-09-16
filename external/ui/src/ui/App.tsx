@@ -20,7 +20,7 @@ import { insertNewThinkingBeforeStreamingAssistant } from "./chat/transcriptThin
 import { openAIStreamErrorMessage } from "./chat/streamError";
 import { optimisticUserFiles } from "./chat/optimisticUserFiles";
 import { sessionMessageFiles } from "./chat/sessionMessageFiles";
-import { getEnv } from "./env/remoteEnv";
+import { getEnv, notifyLocalApiUnauthorized } from "./env/remoteEnv";
 import {
   isAbortError,
   remoteHttpErrorMessage,
@@ -28,7 +28,7 @@ import {
 } from "./env/remoteErrors";
 import { EnvHealthBanner } from "./env/EnvHealthBanner";
 import { isNoLiveTurnRelayError } from "./chat/composerStreamError";
-import { subscribeServerEvents } from "./chat/serverEvents";
+import { subscribeSharedServerEvents } from "./chat/sharedServerEvents";
 import { useSessionTurnActivity } from "./chat/useSessionTurnActivity";
 import type { QueuedMessageEvent } from "./chat/serverEvents";
 import { QueueDeliveryOrder } from "./chat/messageQueueState";
@@ -2499,7 +2499,15 @@ export function App() {
 
   useEffect(() => {
     const ctl = new AbortController();
-    void subscribeServerEvents({
+    // One connection for every tab of this environment where the browser allows
+    // it: a browser keeps six HTTP/1.1 connections per host for all of its tabs.
+    // Changing the environment reloads the page, so the one read here holds.
+    const env = getEnv();
+    void subscribeSharedServerEvents({
+      env,
+      onRefused: (status) => {
+        if (status === 401 && env.mode === "local") notifyLocalApiUnauthorized();
+      },
       onTurnStarted: (sid) => serverEventHandlersRef.current.turnStarted(sid),
       onTurnEnded: (sid) => serverEventHandlersRef.current.turnEnded(sid),
       onProviderUsage: (_sid, usage) =>

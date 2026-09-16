@@ -1,7 +1,8 @@
 import { parseSSEBlocks } from "./sse";
 import type { ProviderUsage } from "./providerUsage";
 
-export type ServerEventsHandlers = {
+/** What a caller does with the events of `GET /coddy/events`. */
+export type ServerEventHandlers = {
   onTurnStarted: (sessionId: string) => void;
   onTurnEnded: (sessionId: string) => void;
   /** A fresh account-usage snapshot the server built outside a request
@@ -21,12 +22,28 @@ export type ServerEventsHandlers = {
   onReady?: () => void;
   /** Called whenever the subscription goes up or down, so callers can fall back to polling. */
   onConnectedChange?: (connected: boolean) => void;
+};
+
+export type ServerEventsHandlers = ServerEventHandlers & {
   signal: AbortSignal;
   /** Injectable for tests; defaults to the global fetch (which carries remote-env auth). */
   fetchImpl?: typeof fetch;
   /** Injectable for tests; defaults to window.setTimeout semantics. */
   sleep?: (ms: number) => Promise<void>;
 };
+
+/**
+ * One event of the stream, parsed. Plain data on purpose: a tab that does not own
+ * the connection receives these through a MessagePort or a BroadcastChannel, which
+ * carry structured clones and nothing else.
+ */
+export type ServerEvent =
+  | { type: "turn_started"; sessionId: string }
+  | { type: "turn_ended"; sessionId: string }
+  | { type: "provider_usage"; sessionId: string; usage: ProviderUsage }
+  | { type: "message_queue"; sessionId: string; queue: QueuedMessageEvent }
+  | { type: "config_reloaded" }
+  | { type: "ready" };
 
 /** One session's message queue as the server event carries it. */
 export type QueuedMessageEvent = {
@@ -97,32 +114,108 @@ function sessionIdOf(data: string): string {
   }
 }
 
+/** parseServerEvent reads one SSE block of the stream; null for anything a client ignores. */
+export function parseServerEvent(ev: {
+  event: string;
+  data: string;
+}): ServerEvent | null {
+  switch (ev.event) {
+    case "ready":
+      return { type: "ready" };
+    case "provider_usage": {
+      const parsed = providerUsageOf(ev.data);
+      return parsed ? { type: "provider_usage", ...parsed } : null;
+    }
+    case "message_queue": {
+      const parsed = messageQueueOf(ev.data);
+      return parsed ? { type: "message_queue", ...parsed } : null;
+    }
+    case "config_reloaded":
+      // Nothing to parse: the payload is the announcement itself.
+      return { type: "config_reloaded" };
+    case "turn_started":
+    case "turn_ended": {
+      const sid = sessionIdOf(ev.data);
+      return sid ? { type: ev.event, sessionId: sid } : null;
+    }
+    default:
+      return null;
+  }
+}
+
+/** dispatchServerEvent hands one parsed event to the handler that takes it. */
+export function dispatchServerEvent(
+  h: ServerEventHandlers,
+  event: ServerEvent,
+): void {
+  switch (event.type) {
+    case "ready":
+      h.onReady?.();
+      return;
+    case "provider_usage":
+      h.onProviderUsage?.(event.sessionId, event.usage);
+      return;
+    case "message_queue":
+      h.onMessageQueue?.(event.sessionId, event.queue);
+      return;
+    case "config_reloaded":
+      h.onConfigReloaded?.();
+      return;
+    case "turn_started":
+      h.onTurnStarted(event.sessionId);
+      return;
+    case "turn_ended":
+      h.onTurnEnded(event.sessionId);
+      return;
+  }
+}
+
+export type ServerEventsStreamOptions = {
+  onEvent: (event: ServerEvent) => void;
+  onConnectedChange?: (connected: boolean) => void;
+  /** A connection attempt the server answered with an error status. */
+  onRefused?: (status: number) => void;
+  signal: AbortSignal;
+  /** Where the stream is; `/coddy/events` of the page (or of the remote the fetch shim picks) by default. */
+  url?: string;
+  headers?: Record<string, string>;
+  fetchImpl?: typeof fetch;
+  sleep?: (ms: number) => Promise<void>;
+};
+
 /**
- * Subscribe to `GET /coddy/events` until the signal aborts.
+ * streamServerEvents holds `GET /coddy/events` open until the signal aborts and reports
+ * every parsed event. It is the connection itself, whoever owns it: a tab on its own, the
+ * shared worker, or the tab elected to hold the stream for the others.
  *
  * Built on `fetch` rather than `EventSource` on purpose: `EventSource` cannot carry the
- * `Authorization` header the remote-environment shim injects, and the SPA already reads
- * every other stream this way. Reconnects with capped exponential backoff, because the
- * events stream is an optimisation - callers keep a poll as the fallback - and a server
- * that never comes back must not spin.
+ * `Authorization` header a remote environment needs, and the SPA already reads every
+ * other stream this way. Reconnects with capped exponential backoff, because the events
+ * stream is an optimisation - callers keep a poll as the fallback - and a server that
+ * never comes back must not spin.
  */
-export async function subscribeServerEvents(
-  p: ServerEventsHandlers,
+export async function streamServerEvents(
+  o: ServerEventsStreamOptions,
 ): Promise<void> {
-  const doFetch = p.fetchImpl ?? fetch;
-  const sleep = p.sleep ?? defaultSleep;
+  const doFetch = o.fetchImpl ?? fetch;
+  const sleep = o.sleep ?? defaultSleep;
+  const url = o.url ?? "/coddy/events";
   let backoff = BACKOFF_START_MS;
 
-  while (!p.signal.aborted) {
+  while (!o.signal.aborted) {
     let connected = false;
     try {
-      const res = await doFetch("/coddy/events", { signal: p.signal });
+      const res = await doFetch(url, {
+        signal: o.signal,
+        ...(o.headers ? { headers: o.headers } : {}),
+      });
       if (!res.ok || !res.body) {
+        if (!res.ok) o.onRefused?.(res.status);
         throw new Error(`events stream unavailable (${res.status})`);
       }
       connected = true;
       backoff = BACKOFF_START_MS;
-      p.onConnectedChange?.(true);
+      o.onConnectedChange?.(true);
 
       const reader = res.body.getReader();
       const dec = new TextDecoder();
@@ -135,41 +228,29 @@ export async function subscribeServerEvents(
           carry,
         );
         for (const ev of events) {
-          if (ev.event === "ready") {
-            p.onReady?.();
-            continue;
-          }
-          if (ev.event === "provider_usage") {
-            const parsed = providerUsageOf(ev.data);
-            if (parsed) p.onProviderUsage?.(parsed.sessionId, parsed.usage);
-            continue;
-          }
-          if (ev.event === "message_queue") {
-            const parsed = messageQueueOf(ev.data);
-            if (parsed) p.onMessageQueue?.(parsed.sessionId, parsed.queue);
-            continue;
-          }
-          if (ev.event === "config_reloaded") {
-            // Nothing to parse: the payload is the announcement itself.
-            p.onConfigReloaded?.();
-            continue;
-          }
-          if (ev.event !== "turn_started" && ev.event !== "turn_ended")
-            continue;
-          const sid = sessionIdOf(ev.data);
-          if (!sid) continue;
-          if (ev.event === "turn_started") p.onTurnStarted(sid);
-          else p.onTurnEnded(sid);
+          const event = parseServerEvent(ev);
+          if (event) o.onEvent(event);
         }
       }
     } catch {
       // Aborted, refused, or dropped: both cases fall through to the backoff below.
     } finally {
-      if (connected) p.onConnectedChange?.(false);
+      if (connected) o.onConnectedChange?.(false);
     }
 
-    if (p.signal.aborted) return;
+    if (o.signal.aborted) return;
     await sleep(backoff);
     backoff = Math.min(backoff * 2, BACKOFF_MAX_MS);
   }
+}
+
+/** Subscribe to `GET /coddy/events` on a connection of this tab's own until the signal aborts. */
+export function subscribeServerEvents(p: ServerEventsHandlers): Promise<void> {
+  return streamServerEvents({
+    onEvent: (event) => dispatchServerEvent(p, event),
+    ...(p.onConnectedChange ? { onConnectedChange: p.onConnectedChange } : {}),
+    signal: p.signal,
+    ...(p.fetchImpl ? { fetchImpl: p.fetchImpl } : {}),
+    ...(p.sleep ? { sleep: p.sleep } : {}),
+  });
 }

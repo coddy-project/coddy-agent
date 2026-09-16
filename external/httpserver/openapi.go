@@ -32,7 +32,7 @@ func openAPISpec() map[string]interface{} {
 		"servers": []interface{}{
 			map[string]interface{}{
 				"url":         "/",
-				"description": "Server root (same host/port as the API coddy serve exposes). **`GET /`**, **`/index.html`**, **`/app.js`**, **`/styles.css`**, and favicon paths (**`/coddy-favicon.svg`**, **`/favicon-32.png`**, **`/favicon.ico`**, **`/apple-touch-icon.png`**) set **`Cache-Control: no-cache`**.",
+				"description": "Server root (same host/port as the API coddy serve exposes). **`GET /`**, **`/index.html`**, **`/app.js`**, **`/events-worker.js`** (the SharedWorker that holds **`GET /coddy/events`** for every tab of one environment), **`/styles.css`**, and favicon paths (**`/coddy-favicon.svg`**, **`/favicon-32.png`**, **`/favicon.ico`**, **`/apple-touch-icon.png`**) set **`Cache-Control: no-cache`**.",
 			},
 		},
 		// Optional auth: an empty requirement plus the two schemes means requests may be

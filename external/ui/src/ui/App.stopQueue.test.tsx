@@ -6,9 +6,15 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { App } from "./App";
+import {
+  FakeLocks,
+  fakeChannels,
+  fakeWorkers,
+} from "./chat/sharedServerEvents.fakes";
 import { ConfirmProvider } from "./components/useConfirm";
 import { initLocale } from "./i18n/i18n";
 
@@ -281,6 +287,7 @@ afterEach(async () => {
       stream.fail(new DOMException("Aborted", "AbortError"));
   });
   vi.unstubAllGlobals();
+  delete (navigator as { locks?: unknown }).locks;
 });
 async function mount() {
   render(
@@ -507,6 +514,61 @@ test.each(["post", "relay"])(
     expect(stream.signal!.aborted).toBe(true);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByText("Partial answer A")).toBeInTheDocument();
+  },
+);
+
+test.each(["worker", "locks"] as const)(
+  "tabs of one server share a single events stream through a %s and leave room for a prompt",
+  async (transport) => {
+    if (transport === "worker") {
+      const workers = fakeWorkers(backend.fetch as unknown as typeof fetch);
+      vi.stubGlobal("SharedWorker", function (_url: URL, options: WorkerOptions) {
+        return workers.factory(options.name!);
+      });
+    } else {
+      const channels = fakeChannels();
+      vi.stubGlobal("BroadcastChannel", function (name: string) {
+        return channels.create(name);
+      });
+      Object.defineProperty(navigator, "locks", {
+        value: new FakeLocks(),
+        configurable: true,
+      });
+    }
+    const tabs = [0, 1, 2].map(
+      () =>
+        render(
+          <ConfirmProvider>
+            <App />
+          </ConfirmProvider>,
+        ).container,
+    );
+    await waitFor(() =>
+      expect(screen.getAllByText("Earlier A prompt")).toHaveLength(3),
+    );
+    await waitFor(() => expect(backend.events.length).toBeGreaterThan(0));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(backend.count("/coddy/events")).toBe(1);
+    // Three tabs streaming on their own would hold all three connections.
+    backend.connectionLimit = 3;
+    const first = within(tabs[0]!);
+    // Three apps in one document share the composer's id, so its label names
+    // only one of them: reach the field through its tab.
+    fireEvent.change(tabs[0]!.querySelector("textarea#composer")!, {
+      target: { value: "From the first tab" },
+    });
+    fireEvent.click(first.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(backend.posts).toHaveLength(1));
+    // The one stream still tells every tab that the turn started.
+    await act(async () => {
+      backend.turn(A, true);
+    });
+    for (const tab of tabs)
+      await waitFor(() =>
+        expect(
+          within(tab).getByRole("button", { name: "Stop generation" }),
+        ).toBeInTheDocument(),
+      );
   },
 );
 

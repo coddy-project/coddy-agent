@@ -143,7 +143,7 @@ func TestEmbeddedUIPublicAssetsCacheControl(t *testing.T) {
 	t.Cleanup(ts.Close)
 
 	for _, path := range []string{
-		"/", "/index.html", "/app.js", "/styles.css",
+		"/", "/index.html", "/app.js", "/events-worker.js", "/styles.css",
 		"/coddy-favicon.svg", "/favicon-32.png", "/favicon.ico", "/apple-touch-icon.png",
 	} {
 		t.Run(path, func(t *testing.T) {
@@ -156,5 +156,39 @@ func TestEmbeddedUIPublicAssetsCacheControl(t *testing.T) {
 				t.Fatalf("Cache-Control %q for %s, want no-cache", cc, path)
 			}
 		})
+	}
+}
+
+// Every tab of one environment shares GET /coddy/events through a SharedWorker, which
+// the browser loads from its own script: the file has to ship with the SPA, as
+// JavaScript, public like the rest of the shell.
+func TestEmbeddedUIServesEventsWorker(t *testing.T) {
+	cfg := &config.Config{
+		Agent: config.Agent{Model: "openai/gpt-4o"},
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), t.TempDir(), nil)
+	srv := New(cfg, mgr, slog.Default(), t.TempDir())
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	res, err := http.Get(ts.URL + "/events-worker.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := ioReadAllClose(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d body %q", res.StatusCode, b)
+	}
+	if ct := res.Header.Get("Content-Type"); !strings.Contains(ct, "javascript") {
+		t.Fatalf("Content-Type %q, want JavaScript", ct)
+	}
+	if !strings.Contains(string(b), "/coddy/events") {
+		t.Fatal("events-worker.js does not read /coddy/events")
 	}
 }
