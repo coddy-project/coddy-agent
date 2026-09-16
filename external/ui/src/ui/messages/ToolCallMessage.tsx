@@ -36,16 +36,7 @@ import { SpawnAgentCard } from "./SpawnAgentCard";
 import { relativeToolTarget } from "../chat/toolTargetPath";
 import { toolDisplayName } from "./toolDisplayName";
 import { Markdown } from "../markdown/Markdown";
-
-function formatDuration(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 0) return "";
-  if (ms >= 60_000) {
-    const mins = ms / 60_000;
-    const fixed = mins < 10 ? mins.toFixed(1) : mins.toFixed(0);
-    return `${fixed}m`;
-  }
-  return `${Math.round(ms)}ms`;
-}
+import { formatStepDuration } from "./formatStepDuration";
 
 /**
  * What the `question` tool put up, as it put it up: every question with the
@@ -397,24 +388,24 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
         Number.isFinite(props.durationMs) &&
         props.durationMs >= 0
       ) {
-        return formatDuration(props.durationMs);
+        return formatStepDuration(props.durationMs);
       }
       return "-";
     }
     if (permissionWaiting && frozenElapsedMs !== null) {
-      return formatDuration(frozenElapsedMs);
+      return formatStepDuration(frozenElapsedMs);
     }
     if (
       typeof props.startedAtMs === "number" &&
       Number.isFinite(props.startedAtMs)
     ) {
-      return formatDuration(Math.max(0, nowMs - props.startedAtMs));
+      return formatStepDuration(Math.max(0, nowMs - props.startedAtMs));
     }
     if (
       typeof props.durationMs === "number" &&
       Number.isFinite(props.durationMs)
     ) {
-      return formatDuration(props.durationMs);
+      return formatStepDuration(props.durationMs);
     }
     return "-";
   }, [

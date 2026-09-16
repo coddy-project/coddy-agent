@@ -46,3 +46,10 @@ test("in_progress shows thinking ellipsis and elapsed from startedAtMs", () => {
   const dur = container.querySelector(".thinking-dur")?.textContent ?? "";
   expect(dur).toMatch(/^\d+ms$|^\d/);
 });
+
+test("a long reasoning step reads in minutes and seconds, not in fractions of a minute", () => {
+  const { container } = render(
+    <ThinkingMessage status="completed" content="x" durationMs={102_000} />,
+  );
+  expect(container.querySelector(".thinking-dur")?.textContent).toBe("1m 42s");
+});
