@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/tools/web"
 )
 
 // OptionAllowAlwaysProgram is the permission option id for widening a grant from
@@ -100,8 +101,12 @@ func ProgramGrant(cmd string) (string, bool) {
 // Every tool gets allow / allow always / reject. A shell command that can be
 // widened safely gets a fourth choice naming the grant it would store, so a
 // batch of calls differing only in their arguments is approved once instead of
-// once per call.
+// once per call. An http_request names its address and its origin instead of
+// a bare "allow always", because those are what the grant would cover.
 func Options(toolName, argsJSON string) []acp.PermissionOption {
+	if strings.TrimSpace(toolName) == web.ToolHTTPRequest {
+		return httpRequestOptions(argsJSON)
+	}
 	options := []acp.PermissionOption{
 		{OptionID: OptionAllow, Name: "Allow", Kind: "allow_once"},
 		{OptionID: OptionAllowAlways, Name: "Allow always", Kind: "allow_always"},

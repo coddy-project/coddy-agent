@@ -214,7 +214,7 @@ Mode-specific visibility is **not** configured on the `Tool` struct. Instead, `i
 defines a `ToolSet` allowlist:
 
 - **`agent`** mode uses an **empty** `ToolSet`, which means **no filtering** - every tool in the registry is advertised, and MCP tools are appended.
-- **`plan`** mode filters **registry** builtins to a **fixed allowlist** (`read_file`, `list_dir`, `search_files`, `search_web`, `extract_page_content`, `run_command`). Other builtins (writes, todo tools, scheduler, memory, etc.) stay registered for execution consistency but are **hidden** from the LLM. **MCP** tool definitions from connected servers are **still appended** after that filter, same wiring as agent mode.
+- **`plan`** mode filters **registry** builtins to a **fixed allowlist** (`read_file`, `list_dir`, `search_files`, `websearch`, `webfetch`, `run_command`). Other builtins (writes, todo tools, scheduler, memory, etc.) stay registered for execution consistency but are **hidden** from the LLM. **MCP** tool definitions from connected servers are **still appended** after that filter, same wiring as agent mode.
 
 When you add a new built-in that should be plan-safe, append its name to `planToolNames` in `internal/agent/toolsets.go` and extend tests in `internal/agent/toolsets_test.go`.
 
@@ -228,7 +228,7 @@ Use `RequiresPermission: true` for:
 - Tools that execute external processes or shell commands
 - Tools that delete or irreversibly modify data outside clearly read-only flows
 
-Network tools may still use `RequiresPermission: false` when the implementation enforces its own guardrails (for example SSRF checks and response size limits on `extract_page_content`).
+Network tools may still use `RequiresPermission: false` when the implementation enforces its own guardrails (for example SSRF checks and response size limits on `webfetch`). A network tool whose request the model shapes freely, like `http_request`, sets `RequiresPermission: true` and gets its own branch in the gate (`permission.HTTPRequestAllowedWithSession`), which decides on the destination and on what the request carries.
 
 Use `RequiresPermission: false` for:
 - Read-only operations

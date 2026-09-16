@@ -3,11 +3,10 @@ package web
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
+	"net/url"
 	"strings"
-	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
@@ -52,12 +51,18 @@ type extractPageArgs struct {
 	MaxChars       int    `json:"max_chars"`
 }
 
+// fetchGuard vets every address webfetch contacts, the page and each redirect
+// on the way to it. It is a variable so tests can reach a local server.
+var fetchGuard = func(ctx context.Context, u *url.URL) error {
+	_, err := ValidateFetchURL(ctx, u.String())
+	return err
+}
+
+// executeExtractPageContent is http_request with a narrower contract: a GET
+// the model cannot shape, every hop held to the SSRF guard, and the answer run
+// through readability instead of being returned as it came.
 func executeExtractPageContent(ctx context.Context, argsJSON string, _ *tooling.Env) (string, error) {
 	args, err := tooling.ParseArgs[extractPageArgs](argsJSON)
-	if err != nil {
-		return "", err
-	}
-	u, err := ValidateFetchURL(ctx, args.URL)
 	if err != nil {
 		return "", err
 	}
@@ -72,32 +77,42 @@ func executeExtractPageContent(ctx context.Context, argsJSON string, _ *tooling.
 	if maxChars <= 0 {
 		maxChars = 120_000
 	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	requestArgs, err := json.Marshal(map[string]interface{}{
+		"url":             args.URL,
+		"timeout_seconds": timeout,
+	})
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("User-Agent", "coddy-agent/1.0 (+https://github.com/EvilFreelancer/coddy-agent)")
-
-	client := &http.Client{Timeout: time.Duration(timeout) * time.Second}
-	resp, err := client.Do(req)
+	req, err := ParseHTTPRequest(string(requestArgs), "")
 	if err != nil {
 		return "", err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	tr, err := req.send(ctx, transferPolicy{
+		timeout:         req.Timeout,
+		followRedirects: true,
+		guard:           fetchGuard,
+		decompress:      true,
+	})
+	if err != nil {
+		return "", err
+	}
+	defer tr.Close()
+	resp := tr.resp
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", fmt.Errorf("http %d", resp.StatusCode)
 	}
-	limited := io.LimitReader(resp.Body, maxFetchHTMLBytes+1)
-	body, err := io.ReadAll(limited)
+	body, truncated, err := readLimited(resp.Body, maxFetchHTMLBytes)
 	if err != nil {
 		return "", err
 	}
-	if len(body) > maxFetchHTMLBytes {
+	if truncated {
 		return "", fmt.Errorf("response body exceeds %d bytes", maxFetchHTMLBytes)
 	}
 
-	article, err := readability.FromReader(bytes.NewReader(body), u)
+	// Relative links resolve against the page that was finally served, not the
+	// address a redirect moved away from.
+	article, err := readability.FromReader(bytes.NewReader(body), resp.Request.URL)
 	if err != nil {
 		return "", fmt.Errorf("readability: %w", err)
 	}

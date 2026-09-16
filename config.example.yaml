@@ -310,6 +310,22 @@ tools:
   #   searxng_url: ""               # e.g. http://localhost:8080 (enable format: json there)
   #   brave_api_key: ""             # official Brave Search API instead of the public page
 
+  # HTTP requests: the http_request tool is the agent's curl (any method, headers, bodies,
+  # multipart uploads, downloads to a file, a proxy and the certificate check per request).
+  # Under permission_mode ask or accept_edits a request asks unless its destination is
+  # listed here or was approved in the session, and an approval of a destination does not
+  # approve the files, the proxy or the unchecked certificate of a later request by itself.
+  # An entry here also covers uploads and verify_tls: false for that destination; a proxy
+  # needs an entry of its own, and under ask a download to a file still asks. The tool
+  # refuses no address (localhost included), so bypass reaches anything the host can.
+  # See docs/features/http-requests.md.
+  # http_request:
+  #   allowlist:
+  #     - api.github.com              # a host, any scheme and port
+  #     - "*.internal.example.com"    # subdomains only
+  #     - localhost:8080              # host and port
+  #     - https://api.example.com/v1/ # an address prefix
+
 # Subagents: child agents the model can delegate to with spawn_agent. A definition is a
 # markdown file with YAML frontmatter (name, description, model, mode, tools,
 # permission_mode, ...) whose body is the child's role; each run is a background task of

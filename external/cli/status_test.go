@@ -21,6 +21,7 @@ func TestStatusVerbForTool(t *testing.T) {
 		"spawn_agent":               "Running subagent",
 		"rmdir":                     "Deleting",
 		"webfetch":                  "Fetching",
+		"http_request":              "Sending a request",
 		"load_skill":                "Loading a skill",
 		"plan_read":                 "Reading the plan",
 		"plan_write":                "Updating the plan",
@@ -59,6 +60,8 @@ func TestStatusTargetFromArgs(t *testing.T) {
 		{"query", "websearch", `{"query":"go slog"}`, "go slog"},
 		{"source", "mv", `{"src":"a.go","dst":"b.go"}`, "a.go"},
 		{"url", "webfetch", `{"url":"https://example.dev"}`, "https://example.dev"},
+		{"request", "http_request", `{"method":"post","url":"https://api.example.dev/items","json":{}}`, "POST https://api.example.dev/items"},
+		{"request without a method", "http_request", `{"url":"http://localhost:8080/health"}`, "http://localhost:8080/health"},
 		{"arguments envelope", "read", `Arguments: {"path":"a.go"}`, "a.go"},
 		// The body of a write is never the target: it would fill the whole row.
 		{"never the body", "write", `{"path":"a.go","content":"package main"}`, "a.go"},

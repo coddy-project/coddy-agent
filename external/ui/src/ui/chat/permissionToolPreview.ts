@@ -146,6 +146,12 @@ export function toolCallTargetText(context: PermissionToolCallContext): string {
       return stringArg(args, "pattern");
     case "websearch":
       return stringArg(args, "query");
+    case "http_request": {
+      // The method is half of what a request does; the url alone reads like a fetch.
+      const method = stringArg(args, "method").toUpperCase();
+      const url = stringArg(args, "url");
+      return method && url ? method + " " + url : url;
+    }
     case "mv":
       return stringArg(args, "src");
     case "spawn_agent":
@@ -195,6 +201,7 @@ export function toolCallTargetIsPath(
     case "glob":
     case "websearch":
     case "webfetch":
+    case "http_request":
     case "spawn_agent":
     case "load_skill":
     case "question":
@@ -239,6 +246,8 @@ function questionForTool(
         : t("permission.question.removePath");
     case "rmdir":
       return t("permission.question.removeEmptyDirectory");
+    case "http_request":
+      return t("permission.question.httpRequest");
     default:
       return t("permission.question.allowAction");
   }

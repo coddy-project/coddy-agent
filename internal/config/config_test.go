@@ -834,6 +834,16 @@ func TestAgentWaitForLimitResetJSONRoundTrip(t *testing.T) {
 	}
 }
 
+func TestHTTPRequestAllowlistJSONRoundTrip(t *testing.T) {
+	// A save from the settings screen goes through the JSON DTO: an allowlist
+	// set in YAML must survive it, or the next request to those hosts asks again.
+	c := &config.Config{Tools: config.Tools{HTTPRequest: config.ToolHTTPRequest{Allowlist: []string{"api.github.com", "http://localhost:8080"}}}}
+	back := config.JSONDTOToConfig(config.ConfigToJSONDTO(c), config.Paths{})
+	if got := strings.Join(back.Tools.HTTPRequest.Allowlist, ","); got != "api.github.com,http://localhost:8080" {
+		t.Fatalf("allowlist after the round-trip = %q", got)
+	}
+}
+
 func TestSkillsAutoDiscoveryJSONRoundTrip(t *testing.T) {
 	f := false
 	c := &config.Config{Skills: config.Skills{AutoDiscovery: &f}}

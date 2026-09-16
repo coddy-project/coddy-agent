@@ -29,6 +29,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/todo"
+	toolweb "github.com/EvilFreelancer/coddy-agent/internal/tools/web"
 )
 
 // SessionState is the interface Agent needs from a session.
@@ -271,6 +272,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		CWD:              a.state.GetCWD(),
 		PermissionMode:   effectivePermMode(a.state, a.cfg),
 		CommandAllowlist: a.cfg.Tools.CommandAllowlist,
+		HTTPAllowlist:    a.cfg.Tools.HTTPRequest.Allowlist,
 		SessionID:        a.state.GetID(),
 		SessionDir:       sd,
 		ArchiveActiveMarkdown: func() error {
@@ -999,6 +1001,7 @@ func (a *Agent) runReActLoop(
 			toolDefs = a.currentToolDefinitions(mode)
 			toolEnv.PermissionMode = effectivePermMode(a.state, a.cfg)
 			toolEnv.CommandAllowlist = append([]string(nil), a.cfg.Tools.CommandAllowlist...)
+			toolEnv.HTTPAllowlist = append([]string(nil), a.cfg.Tools.HTTPRequest.Allowlist...)
 			toolEnv.SSHConnectTimeout = a.cfg.Tools.SSHConnectTimeout
 			toolEnv.OutputLineLimits = a.cfg.Tools.OutputLimits.AsMap()
 			toolEnv.Background = a.backgroundPool(sd)
@@ -1237,10 +1240,11 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	tool, ok := a.registry.Get(tc.Name)
 	requiresPerm := ok && tool.RequiresPermission
 
-	var sessCmdGrants, sessWriteGrants []string
+	var sessCmdGrants, sessWriteGrants, sessHTTPGrants []string
 	if st := sessionStatePtr(a.state); st != nil {
 		sessCmdGrants = st.GetPermissionCommandGrants()
 		sessWriteGrants = st.GetPermissionWriteGrants()
+		sessHTTPGrants = st.GetPermissionHTTPGrants()
 	}
 
 	if tc.Name == "run_command" {
@@ -1262,6 +1266,11 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 				requiresPerm = true
 			}
 		}
+	} else if tc.Name == toolweb.ToolHTTPRequest {
+		// The gate decides on where the request goes and on what it carries
+		// beyond that - files, a proxy, an unchecked certificate, a file it
+		// writes - so an approved origin never approves an upload by itself.
+		requiresPerm = !permission.HTTPRequestAllowedWithSession(env, sessHTTPGrants, tc.InputJSON)
 	} else if configWriteTool(tc.Name) {
 		// Committing or rolling back the agent's own configuration can start
 		// new MCP processes and change the permission policy itself, so
@@ -1298,6 +1307,11 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 
 	if requiresPerm && !skipPermission {
 		promptBody := permission.PromptBody(tc.Name, tc.InputJSON)
+		if tc.Name == toolweb.ToolHTTPRequest {
+			// Raw arguments would bury the address and the files in JSON;
+			// the prompt shows the request as it would go out.
+			promptBody = permission.HTTPRequestPromptBody(tc.InputJSON, env.CWD)
+		}
 		if tc.Name == "config_commit" {
 			// The commit call itself carries no arguments, so the dialog must
 			// show the staged commands it would apply (secrets redacted) -

@@ -38,6 +38,10 @@ type Tools struct {
 	// WebSearch picks the search engines the websearch tool asks, and bounds
 	// how long it may wait for them.
 	WebSearch ToolWebSearch `yaml:"websearch"`
+
+	// HTTPRequest is the policy of the http_request tool: the addresses it may
+	// reach without asking the operator.
+	HTTPRequest ToolHTTPRequest `yaml:"http_request"`
 }
 
 // Search engine names accepted in tools.websearch.engines.
@@ -417,6 +421,9 @@ func (c *Tools) Validate() error {
 		return err
 	}
 	if err := c.Background.validate(); err != nil {
+		return err
+	}
+	if err := c.HTTPRequest.validate(); err != nil {
 		return err
 	}
 	return c.WebSearch.validate()

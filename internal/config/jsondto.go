@@ -169,6 +169,12 @@ type ToolsJSON struct {
 	CommandAllowlist []string             `json:"command_allowlist,omitempty"`
 	OutputLimits     ToolOutputLimitsJSON `json:"output_limits,omitempty"`
 	Background       ToolBackgroundJSON   `json:"background,omitempty"`
+	HTTPRequest      ToolHTTPRequestJSON  `json:"http_request,omitempty"`
+}
+
+// ToolHTTPRequestJSON mirrors ToolHTTPRequest for JSON APIs.
+type ToolHTTPRequestJSON struct {
+	Allowlist []string `json:"allowlist,omitempty"`
 }
 
 // ToolBackgroundJSON mirrors ToolBackground for JSON APIs.
@@ -467,6 +473,9 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			MaxTimeoutSeconds:     c.Tools.Background.MaxTimeoutSeconds,
 			OutputBufferBytes:     c.Tools.Background.OutputBufferBytes,
 		},
+		HTTPRequest: ToolHTTPRequestJSON{
+			Allowlist: append([]string(nil), c.Tools.HTTPRequest.Allowlist...),
+		},
 	}
 	out.Logger = LoggerJSON{
 		Level: c.Logger.Level, Outputs: append([]string(nil), c.Logger.Outputs...),
@@ -674,6 +683,9 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			DefaultTimeoutSeconds: j.Tools.Background.DefaultTimeoutSeconds,
 			MaxTimeoutSeconds:     j.Tools.Background.MaxTimeoutSeconds,
 			OutputBufferBytes:     j.Tools.Background.OutputBufferBytes,
+		},
+		HTTPRequest: ToolHTTPRequest{
+			Allowlist: append([]string(nil), j.Tools.HTTPRequest.Allowlist...),
 		},
 	}
 	cfg.Logger = Logger{

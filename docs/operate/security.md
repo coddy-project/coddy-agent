@@ -28,6 +28,8 @@ What the gate does not cover:
 - `websearch` and `webfetch` ask nobody;
 - the console's `!!` prefix runs a command with no gate at all, by design: only a submitted editor line can reach it, never model output ([Console](../surfaces/console.md)).
 
+An HTTP request the model shapes itself (`http_request`) prompts under `ask` and `accept_edits` with the request as it would go out - the address, the headers, the body, the local files it uploads, a proxy, an unchecked certificate, the file it saves. Its "always" choices name an address or a whole origin, and they approve what that request carried along with the destination, so an approved origin never approves an upload of a file nobody saw. `tools.http_request.allowlist` names destinations that never ask. The tool refuses no address - localhost, private networks and the cloud metadata address included - so under `bypass` it reaches whatever the host can ([HTTP requests](../features/http-requests.md#permissions)).
+
 A config commit (`config_commit`) is gated harder than a write: it prompts in `ask` and `accept_edits`, because it can start MCP processes and change the policy itself; only `bypass` skips it.
 
 Surfaces without a person answering resolve prompts on their own. Print mode (`coddy -p`) allows under `bypass` and rejects otherwise. The Telegram gateway approves every prompt so the bot can work unattended (a narrowed subagent whose own mode is not `bypass` is rejected instead). A turn woken by a finished background task on `coddy serve` runs through a non-interactive sender: a gated call inside it is denied unless the server's mode is `bypass`.

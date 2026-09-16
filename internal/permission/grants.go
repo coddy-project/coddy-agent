@@ -8,6 +8,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	toolfs "github.com/EvilFreelancer/coddy-agent/internal/tools/fs"
+	"github.com/EvilFreelancer/coddy-agent/internal/tools/web"
 )
 
 // WriteGrantKeys returns persisted keys for filesystem tools (toolName|absolutePath). Empty if none.
@@ -88,10 +89,14 @@ func RecordAllowAlways(st *session.State, toolName, argsJSON, cwd string, res *a
 	if st == nil || res == nil {
 		return
 	}
+	toolName = strings.TrimSpace(toolName)
+	if toolName == web.ToolHTTPRequest {
+		recordHTTPGrants(st, argsJSON, cwd, res.OptionID)
+		return
+	}
 	if res.OptionID != OptionAllowAlways && res.OptionID != OptionAllowAlwaysProgram {
 		return
 	}
-	toolName = strings.TrimSpace(toolName)
 	switch toolName {
 	case "run_command":
 		cmd := ExtractRunCommand(argsJSON)

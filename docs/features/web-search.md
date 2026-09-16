@@ -110,10 +110,11 @@ Failures are remembered far more briefly, and the two kinds differently. A chall
 
 ## Reading a page
 
-`websearch` returns snippets, and a snippet is not an answer. `webfetch` takes one URL and returns the article as Markdown through readability extraction, refusing private networks and localhost - see [Tools](../reference/tools.md).
+`websearch` returns snippets, and a snippet is not an answer. `webfetch` takes one URL and returns the article as Markdown through readability extraction, refusing private networks and localhost, and checks every redirect against the same rules before following it - see [Tools](../reference/tools.md). It sends its request through the client of [`http_request`](http-requests.md), the tool for calling an API or anything else that is not reading a page.
 
 ## Related
 
 [Tools](../reference/tools.md) - every built-in tool and its arguments;
 [Configuration](../getting-started/configuration.md) - where `config.yaml` lives and how to check it;
-[Operating modes](modes.md) - `websearch` and `webfetch` are offered in every mode, including the read-only `ask`.
+[Operating modes](modes.md) - `websearch` and `webfetch` are offered in every mode, including the read-only `ask`;
+[HTTP requests](http-requests.md) - `http_request`, the agent's curl, and the client `webfetch` is built on.
