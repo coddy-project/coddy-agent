@@ -58,7 +58,7 @@ Frontmatter fields:
 - **`model`** (string, optional) - session model override for the run
 - **`mode`** (string, optional) - **`agent`**, **`plan`**, or **`ask`** (default **`agent`**)
 - **`agent`** (string, optional) - a subagent definition name (**`subagents.dirs`**, see [Subagents](../features/subagents.md)): the run is made under its role, tool allowlist, model and permission narrowing. A project-scope definition needs its trust receipt like any spawn; a job naming one that is not approved does not start, and a manual run says so. Empty runs a general agent with the full tool set of the mode.
-- **`permission_mode`** (string, optional) - **`ask`**, **`accept_edits`** or **`bypass`**: what the run may do without asking. Empty is **`bypass`**, the unattended default and what the scheduler always did; a definition named in **`agent`** can only narrow it. Nobody answers a prompt in a scheduled run, so under **`ask`** or **`accept_edits`** a gated call is **denied**, never waited on.
+- **`permission_mode`** (string, optional) - **`ask`**, **`accept_edits`** or **`bypass`**: what the run may do without asking. Empty is **`bypass`**, the unattended default and what the scheduler always did; a definition named in **`agent`** can only narrow it. Nobody answers a prompt in a scheduled run, so under **`ask`** or **`accept_edits`** a gated call is **denied**, never waited on; the refusal tells the run that nobody could be asked, so it reports what it could not do instead of claiming the operator refused ([Subagents](../features/subagents.md), Detached runs).
 - **`paused`** (bool, optional) - when true, the job does not execute
 
 Body - markdown used as the one-shot user instruction for that scheduler run.
