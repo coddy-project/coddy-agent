@@ -471,8 +471,10 @@ run.
 
 **`examples/gateway/tg_e2e_offline.sh`** does all of the above in one go -
 builds `tgfake`, writes a temporary home, boots `coddy serve` against it, sends
-`hello` and checks the reply - and `TG_E2E_KEEP=1` leaves the stand running
-with the page URL printed. It runs in Git Bash on Windows as well.
+`hello` and checks the reply, then leaves the session with `/clear`, comes back
+to it from the `/resume` keyboard and checks that the next message landed in
+that bundle - and `TG_E2E_KEEP=1` leaves the stand running with the page URL
+printed. It runs in Git Bash on Windows as well.
 
 The variable is not only for the fake: a self-hosted Bot API server
 (`telegram-bot-api` for large files or a local network) is pointed at the same
