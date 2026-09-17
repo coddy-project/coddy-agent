@@ -3,29 +3,27 @@
 package telegram
 
 // Godog harness for features/gateway_session_identity.feature: drives a chat
-// message through the real handler against a stub Telegram API and a scripted
-// agent, and asserts on the session id, on the prompt the agent was handed and
-// on the text that reached the chat. No LLM and no network beyond the local
-// httptest server.
+// message through the real handler against the fake Bot API (internal/tgfake)
+// and a scripted agent, and asserts on the session id, on the prompt the agent
+// was handed and on the text that reached the chat. No LLM and no network
+// beyond the local httptest server.
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"regexp"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/cucumber/godog"
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/EvilFreelancer/coddy-agent/internal/tgfake"
 )
 
 const (
@@ -116,49 +114,30 @@ func (r *scriptedRunner) Cfg() *config.Config {
 	return r.cfg
 }
 
-// identityWorld holds the bot, the stub API and the forms the bot posted.
+// identityWorld holds the bot and the fake Bot API it posts to.
 type identityWorld struct {
-	mu sync.Mutex
-
-	runner   *scriptedRunner
-	bot      *Bot
-	api      *tgbotapi.BotAPI
-	srv      *httptest.Server
-	messages []url.Values
-	nextMsg  int
-}
-
-func (w *identityWorld) handler(rw http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
-	w.mu.Lock()
-	w.messages = append(w.messages, r.PostForm)
-	w.nextMsg++
-	id := w.nextMsg
-	w.mu.Unlock()
-	rw.Header().Set("Content-Type", "application/json")
-	_, _ = fmt.Fprintf(rw, `{"ok":true,"result":{"message_id":%d,"date":0,"chat":{"id":%d,"type":"private"}}}`,
-		id, identityChatID)
+	runner *scriptedRunner
+	bot    *Bot
+	f      *fakeAPI
 }
 
 func (w *identityWorld) gatewayOverScriptedAgent() error {
 	w.runner = newScriptedRunner()
-	w.srv = httptest.NewServer(http.HandlerFunc(w.handler))
-	w.api = &tgbotapi.BotAPI{Token: "TESTTOKEN", Client: &http.Client{}, Buffer: 100}
-	w.api.SetAPIEndpoint(w.srv.URL + "/bot%s/%s")
+	w.f = openFakeAPI(tgfake.Options{})
 	base, _, err := logger.New(config.Logger{Level: config.LogLevelError, Format: config.LogFormatText, Outputs: []string{config.LogOutputStderr}})
 	if err != nil {
 		return err
 	}
 	w.bot = New(&config.TelegramGatewayConfig{
 		Enabled: true, Token: "t", DefaultAccess: config.AccessAll, DefaultIsolation: config.IsolationIndividual,
-	}, w.runner, w.srv.URL, logger.Component(base, logger.ComponentGatewayTelegram), "", nil)
+	}, w.runner, w.f.srv.URL, logger.Component(base, logger.ComponentGatewayTelegram), "", nil)
 	return nil
 }
 
 func (w *identityWorld) close() {
-	if w.srv != nil {
-		w.srv.Close()
-		w.srv = nil
+	if w.f != nil {
+		w.f.close()
+		w.f = nil
 	}
 }
 
@@ -177,13 +156,8 @@ func (w *identityWorld) agentAnswersWithCodeBlock(body string) error {
 }
 
 func (w *identityWorld) userSends(text string) error {
-	msg := &tgbotapi.Message{
-		MessageID: 1,
-		From:      &tgbotapi.User{ID: identityUserID},
-		Chat:      &tgbotapi.Chat{ID: identityChatID, Type: "private"},
-		Text:      text,
-	}
-	w.bot.processMessage(context.Background(), w.api, msg, w.sessionKey())
+	msg := w.f.userMessage(identityChatID, identityUserID, text)
+	w.bot.processMessage(context.Background(), w.f.api, msg, w.sessionKey())
 	return nil
 }
 
@@ -257,17 +231,20 @@ func (w *identityWorld) surfaceStayedOutOfThePrompt() error {
 	return nil
 }
 
-// sentTexts returns the text of every message the bot posted to the chat.
+// sentTexts returns every text the bot posted to the chat, the live previews
+// and the edits included: what must never reach a chat must not pass through
+// it either.
 func (w *identityWorld) sentTexts() []string {
-	w.mu.Lock()
-	defer w.mu.Unlock()
 	var out []string
-	for _, form := range w.messages {
-		if t := form.Get("text"); t != "" {
+	for _, call := range w.f.fake.Calls("") {
+		if t := call.Params["text"]; t != "" {
 			out = append(out, t)
 		}
-		if t := form.Get("markdown"); t != "" {
-			out = append(out, t)
+		var rich struct {
+			Markdown string `json:"markdown"`
+		}
+		if json.Unmarshal([]byte(call.Params["rich_message"]), &rich) == nil && rich.Markdown != "" {
+			out = append(out, rich.Markdown)
 		}
 	}
 	return out

@@ -18,6 +18,7 @@ Built with **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (
 | `external/gateway/sessionstore` | `Store`: maps stable chat/user keys to Coddy session IDs; persisted to `gateway_sessions.json` |
 | `external/gateway/proxyutil` | `BuildHTTPClient` — HTTP/SOCKS5 proxy support for outbound adapter requests |
 | `external/gateway/telegram` | `Bot` (polling, dispatch, ACL), `Sender` (streaming output), `commands.go` (inline keyboards), `prompt.go` (what the model is told about answering here), `markdown.go` (md → Telegram format) |
+| `internal/tgfake` (untagged) | The fake Bot API: every method the adapter calls, long-polled `getUpdates`, the `/sim/*` API and the chat page, `llmstub` for a scripted model. `cmd/tgfake` serves it; the adapter's polling feature runs it on httptest |
 
 ## Session store
 
@@ -80,6 +81,16 @@ Inline-keyboard payloads must survive the round trip. `callback_data` is capped 
 ## Proxy
 
 `proxyutil.BuildHTTPClient(url)` handles http, https, socks5, socks5h. An empty string returns `http.DefaultClient` unchanged. The Telegram adapter passes `cfg.Proxy` to this function in `Start()`.
+
+## Bot API origin
+
+`Start()` reads `config.TelegramAPIBaseEnv` (`CODDY_TELEGRAM_API_BASE`, the variable the `--dry-run` probe honours too) and builds the library's endpoint template with `telegramAPIEndpoint` (`<origin>/bot%s/%s`; empty means api.telegram.org). It logs `telegram: api base override` at `info` when set. Tests set the unexported `Bot.apiBase` instead of the environment. `internal/tgfake` is the stand-in server that origin points at, in `go run ./cmd/tgfake` and in the polling feature; it is untagged and imports no Telegram library, so it must stay free of `tgbotapi` types. Operator guide: `docs/surfaces/gateway.md` (Debugging against a fake Bot API).
+
+The poll names its `allowed_updates` (`subscribedUpdates`: `message`, `callback_query`) on every request. Telegram remembers the last subscription a bot asked for, and the library sends none by default, which inherits whatever a previous process left - a token once run under another framework with messages only drops every keyboard tap server-side (found on a real bot). Extend that list when the adapter starts handling another update kind; `tgfake` models the memory (`Options.AllowedUpdates`, `SetAllowedUpdates`) and the polling feature starts under a stale subscription.
+
+## Tests
+
+Every test in `external/gateway/telegram` that needs Telegram reaches it through `fakeapi_test.go`: `newFakeAPI(t, opts)` (or `openFakeAPI` for a godog world) serves `internal/tgfake` on httptest and hands back a `tgbotapi` client pointed at it; `userMessage` and `tap` put the person's side into the fake's chat, so the message a handler replies to and the keyboard a tap presses are ones the server knows. Assert on `fake.Calls(method)` (what the bot posted) and `fake.Chat(id)` (what the chat ends up holding). Do not hand-roll an `http.HandlerFunc` for the Bot API: a canned answer accepts what Telegram refuses (an edit of a message never sent, 65 bytes of `callback_data`, a 4097-character text, a reply to a message the chat does not hold, an answer to a callback query it never issued). When a test needs Telegram to behave in a new way - a new method, a new refusal - extend `internal/tgfake` with its own unit test; `Fault` (`Times`, `Contains`) covers refusals by method and by payload. The godog harnesses call `processMessage` / `handleCallback` directly to stay synchronous; only `bdd_polling_test.go` runs `Bot.Start`.
 
 ## Adding a new adapter
 

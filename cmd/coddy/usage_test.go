@@ -178,7 +178,7 @@ func readRepoFile(t *testing.T, rel string) string {
 	if err != nil {
 		t.Fatalf("read %s: %v", rel, err)
 	}
-	return string(b)
+	return strings.ReplaceAll(string(b), "\r\n", "\n")
 }
 
 // TestPackagingFilesCarryTheConfigTestFlag ties -t / --test-config to the same

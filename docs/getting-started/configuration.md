@@ -131,7 +131,7 @@ dry run: 2 errors, 3 warnings, 4 ok
 dry run failed
 ```
 
-`ok` and `skipped` lines carry no fix; a `warning` never fails the run; an `error` does. A file that fails the static check is always shown, whichever flags were given: nothing else can be probed until it is fixed. Network probes run concurrently and each is bounded to ten seconds, so a dead server costs one wait, not one per model. Secrets are not echoed: a Telegram token is masked in any error text and a provider key is never printed. `CODDY_TELEGRAM_API_BASE` points the Telegram probe at a stand-in Bot API (tests and self-hosted gateways).
+`ok` and `skipped` lines carry no fix; a `warning` never fails the run; an `error` does. A file that fails the static check is always shown, whichever flags were given: nothing else can be probed until it is fixed. Network probes run concurrently and each is bounded to ten seconds, so a dead server costs one wait, not one per model. Secrets are not echoed: a Telegram token is masked in any error text and a provider key is never printed. `CODDY_TELEGRAM_API_BASE` points the Telegram probe, and the bot itself, at another Bot API origin: a self-hosted server, or the offline stand of [`cmd/tgfake`](../surfaces/gateway.md#debugging-against-a-fake-bot-api).
 
 ## Full Configuration Schema
 

@@ -32,7 +32,8 @@ LDFLAGS := -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(V
 
 TAGS ?=
 BUILD_DIR := build
-BINARY := $(BUILD_DIR)/coddy
+GOEXE := $(shell go env GOEXE)
+BINARY := $(BUILD_DIR)/coddy$(GOEXE)
 
 # Default tag set for `make install` when build/coddy is missing (matches Docker BUILD_TAGS).
 FULL_TAGS := http ui scheduler memory cli gateway swarm
@@ -80,7 +81,7 @@ install:
 	else \
 		echo "Installing existing $(BINARY)"; \
 	fi
-	cp $(BINARY) $(INSTALL_DIR)/coddy
+	cp $(BINARY) $(INSTALL_DIR)/coddy$(GOEXE)
 	cp packaging/man/coddy.1 $(MAN_DIR)/coddy.1
 	@echo "Installed to $(INSTALL_DIR)/coddy and $(MAN_DIR)/coddy.1"
 

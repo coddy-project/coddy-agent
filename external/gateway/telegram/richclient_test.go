@@ -5,11 +5,9 @@ package telegram
 import (
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"testing"
 
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/EvilFreelancer/coddy-agent/internal/tgfake"
 )
 
 func TestRichParams_WireFormat(t *testing.T) {
@@ -60,68 +58,61 @@ func TestRichDraftParams_WireFormat(t *testing.T) {
 	}
 }
 
-// stubBot builds a BotAPI pointed at a local test server, bypassing the getMe
-// network call that NewBotAPIWithClient would make.
-func stubBot(t *testing.T, srvURL string) *tgbotapi.BotAPI {
-	t.Helper()
-	bot := &tgbotapi.BotAPI{Token: "TESTTOKEN", Client: &http.Client{}, Buffer: 100}
-	bot.SetAPIEndpoint(srvURL + "/bot%s/%s")
-	return bot
-}
-
+// The fake accepts the bot's token and no other, so an ok answer is the
+// /bot<token>/<method> path arriving as the Bot API expects it.
 func TestSendRichMessage_PostsExpectedRequest(t *testing.T) {
-	var gotPath string
-	var gotForm url.Values
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
-		_ = r.ParseForm()
-		gotForm = r.PostForm
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":1,"date":0,"chat":{"id":5,"type":"private"}}}`))
-	}))
-	defer srv.Close()
+	f := newFakeAPI(t, tgfake.Options{Token: fakeToken})
 
-	resp, err := sendRichMessage(stubBot(t, srv.URL), 5, "# Title", 0)
+	resp, err := sendRichMessage(f.api, 5, "# Title", 0)
 	if err != nil {
 		t.Fatalf("sendRichMessage: %v", err)
 	}
 	if !resp.Ok {
 		t.Fatalf("expected ok response")
 	}
-	if gotPath != "/botTESTTOKEN/sendRichMessage" {
-		t.Fatalf("endpoint: want /botTESTTOKEN/sendRichMessage got %q", gotPath)
+	calls := f.fake.Calls("sendRichMessage")
+	if len(calls) != 1 || calls[0].Status != http.StatusOK {
+		t.Fatalf("sendRichMessage calls: %+v", f.fake.Calls(""))
 	}
-	if gotForm.Get("chat_id") != "5" {
-		t.Fatalf("chat_id: want 5 got %q", gotForm.Get("chat_id"))
+	if got := calls[0].Params["chat_id"]; got != "5" {
+		t.Fatalf("chat_id: want 5 got %q", got)
 	}
 	var rm map[string]any
-	if err := json.Unmarshal([]byte(gotForm.Get("rich_message")), &rm); err != nil {
+	if err := json.Unmarshal([]byte(calls[0].Params["rich_message"]), &rm); err != nil {
 		t.Fatalf("rich_message not JSON: %v", err)
 	}
 	if rm["markdown"] != "# Title" {
 		t.Fatalf("markdown: want '# Title' got %v", rm["markdown"])
 	}
+	// What the chat ends up holding is the message as the agent wrote it.
+	if msgs := f.fake.Chat(5).Messages; len(msgs) != 1 || !msgs[0].Rich || msgs[0].Text != "# Title" {
+		t.Fatalf("chat: %+v", msgs)
+	}
 }
 
 func TestSendRichMessageDraft_PostsExpectedRequest(t *testing.T) {
-	var gotPath string
-	var gotForm url.Values
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
-		_ = r.ParseForm()
-		gotForm = r.PostForm
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
-	}))
-	defer srv.Close()
+	f := newFakeAPI(t, tgfake.Options{Token: fakeToken})
 
-	if err := sendRichMessageDraft(stubBot(t, srv.URL), 5, 42, "partial"); err != nil {
+	if err := sendRichMessageDraft(f.api, 5, 42, "partial"); err != nil {
 		t.Fatalf("sendRichMessageDraft: %v", err)
 	}
-	if gotPath != "/botTESTTOKEN/sendRichMessageDraft" {
-		t.Fatalf("endpoint: want /botTESTTOKEN/sendRichMessageDraft got %q", gotPath)
+	calls := f.fake.Calls("sendRichMessageDraft")
+	if len(calls) != 1 || calls[0].Status != http.StatusOK {
+		t.Fatalf("sendRichMessageDraft calls: %+v", f.fake.Calls(""))
 	}
-	if gotForm.Get("draft_id") != "42" {
-		t.Fatalf("draft_id: want 42 got %q", gotForm.Get("draft_id"))
+	if got := calls[0].Params["draft_id"]; got != "42" {
+		t.Fatalf("draft_id: want 42 got %q", got)
+	}
+	if drafts := f.fake.Chat(5).Drafts; len(drafts) != 1 || drafts[0].DraftID != 42 || drafts[0].Markdown != "partial" {
+		t.Fatalf("drafts: %+v", drafts)
+	}
+}
+
+// A token the server does not know is refused, which is what keeps the two
+// tests above honest about the path.
+func TestSendRichMessage_WrongTokenIsRefused(t *testing.T) {
+	f := newFakeAPI(t, tgfake.Options{Token: "another-token"})
+	if _, err := sendRichMessage(f.api, 5, "x", 0); err == nil {
+		t.Fatal("a request under the wrong token was accepted")
 	}
 }
