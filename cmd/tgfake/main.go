@@ -104,6 +104,7 @@ func printBanner(origin, botName string, stub *llmstub.Server) {
 		fmt.Printf("\nconfig.yaml for an offline stand:\n\n")
 		fmt.Printf("providers:\n  - name: stub\n    type: openai\n    api_base: \"%s/v1\"\n    api_key: \"sk-tgfake\"\n", origin)
 		fmt.Printf("models:\n  - model: stub/%s\nagent:\n  model: stub/%s\n", stub.Model, stub.Model)
+		fmt.Printf("httpserver:\n  enable: false\n")
 		fmt.Printf("gateways:\n  telegram:\n    enable: true\n    token: \"123456:fake\"\n\n")
 	}
 }

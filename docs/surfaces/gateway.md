@@ -398,6 +398,8 @@ models:
   - model: stub/coddy-demo
 agent:
   model: stub/coddy-demo
+httpserver:
+  enable: false                     # the stand is the bot alone; drop this to watch the chat in the web UI too
 gateways:
   telegram:
     enable: true
@@ -415,8 +417,13 @@ coddy serve --gateway --http=false --config stand.yaml  # telegram: api base ove
 ```
 
 Then open `http://127.0.0.1:18790/`, type `hello`, tap a `/mode` button, and
-read the Bot API calls on the right as the log fills on the left. The same
-page is an HTTP API, which is what a script or a coding agent drives:
+read the Bot API calls on the right as the log fills on the left.
+
+![The chat page of cmd/tgfake on the dark scheme: the person's side of the chat on the left with the bot's /mode keyboard as buttons, every Bot API call the bot made listed on the right](../assets/tgfake-chat-dark-1280.png)
+
+*The chat page of `cmd/tgfake`: a greeting answered by the scripted model, the `/mode` keyboard with the tap applied, and on the right every Bot API call the bot made, `getUpdates` polls hidden.*
+
+The same page is an HTTP API, which is what a script or a coding agent drives:
 
 | Route | Body / answer |
 |-------|---------------|
@@ -428,9 +435,12 @@ page is an HTTP API, which is what a script or a coding agent drives:
 | `POST /sim/reset` | forgets chats, outbox and faults. Update ids keep growing, so a polling bot is not confused. |
 
 The fake is strict where Telegram is. An edit that changes nothing, an edit
-of a message that was never sent, and a keyboard whose `callback_data` is
-longer than 64 bytes (`BUTTON_DATA_INVALID`) are refused with Telegram's own
-error, so a keyboard that works on the stand works in a chat.
+of a message that was never sent, a text over 4096 characters, a reply to a
+message the chat does not hold (unless `allow_sending_without_reply` says to
+send it anyway), an answer to a callback query the fake never issued, and a
+keyboard whose `callback_data` is longer than 64 bytes (`BUTTON_DATA_INVALID`)
+are refused with Telegram's own error, so a keyboard that works on the stand
+works in a chat.
 
 It also remembers `allowed_updates` the way Telegram does. A bot token that
 once ran under another framework may be subscribed to messages alone, and a
@@ -450,7 +460,8 @@ The outbox retains the calls for debugging, and persistent messages remain.
 
 `--llm-answer` (repeatable) scripts the model's replies in turn, `--llm-script
 rules.json` matches them by substring (`[{"match": "weather", "answer":
-"Sunny."}]`), and without either the model echoes the prompt. Rules are the
+"Sunny."}]`), and without either the model echoes the prompt - the person's
+message, not the `<turn_context>` block Coddy appends to every request. Rules are the
 reliable choice: the title a session derives from its first message is one more
 model call, so a list of answers advances a step earlier than the chat shows.
 The streamed answer arrives one word per `--llm-delay`, long enough for the
