@@ -84,7 +84,7 @@
           },
           "max_tokens": {
             "type": "integer",
-            "description": "Upper bound on completion tokens per assistant message. Ignored by Codex because its backend does not accept max_output_tokens."
+            "description": "Upper bound on completion tokens per assistant message. A codex model never sends it (the Codex backend rejects max_output_tokens), so there it bounds nothing, and coddy -t and --dry-run warn about such a value."
           },
           "temperature": {
             "type": "number",

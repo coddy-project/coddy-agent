@@ -263,7 +263,27 @@ func checkConfigBytes(data []byte, paths Paths) []Finding {
 			findings = append(findings, f)
 		}
 	}
+	findings = append(findings, unsentSettingFindings(&cfg, body)...)
 	return sortFindings(findings)
+}
+
+// unsentSettingFindings warns about the settings the loader accepts but the
+// provider never sends (Config.UnsentModelSettings), each on its own line.
+func unsentSettingFindings(cfg *Config, body *yaml.Node) []Finding {
+	var out []Finding
+	for _, u := range cfg.UnsentModelSettings() {
+		f := Finding{Severity: SeverityWarning, Message: u.Message, Fix: "remove " + u.Key + " from this model"}
+		if n := locatePath(body, u.Path(), true); n != nil {
+			f.Line, f.Column = n.Line, n.Column
+		}
+		if root, err := loadSchema(); err == nil {
+			if s := root.lookup(selectorRE.ReplaceAllString(u.Path(), "")); s != nil {
+				f.Doc = s.doc()
+			}
+		}
+		out = append(out, f)
+	}
+	return out
 }
 
 // coveredAtLine reports whether an error is already reported on that line; a
@@ -495,10 +515,34 @@ func loaderPaths(msg string) []string {
 // an operator looks for. In lenient mode an absent last key yields the key
 // that introduces the section that should hold it; nil when the path does
 // not fit the document.
+// splitConfigPath splits a dotted config path into its segments, leaving the
+// dots inside a selector alone: models[codex/gpt-5.5].max_tokens is two
+// segments, not four.
+func splitConfigPath(path string) []string {
+	var segments []string
+	depth, start := 0, 0
+	for i := 0; i < len(path); i++ {
+		switch path[i] {
+		case '[':
+			depth++
+		case ']':
+			if depth > 0 {
+				depth--
+			}
+		case '.':
+			if depth == 0 {
+				segments = append(segments, path[start:i])
+				start = i + 1
+			}
+		}
+	}
+	return append(segments, path[start:])
+}
+
 func locatePath(body *yaml.Node, path string, lenient bool) *yaml.Node {
 	cur := body
 	var parentKey *yaml.Node
-	segments := strings.Split(path, ".")
+	segments := splitConfigPath(path)
 	for i, seg := range segments {
 		key, sel := seg, ""
 		if j := strings.IndexByte(seg, '['); j >= 0 && strings.HasSuffix(seg, "]") {
