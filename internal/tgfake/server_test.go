@@ -444,3 +444,34 @@ func TestAnswerCallbackQuery_UnknownIDIsRefused(t *testing.T) {
 		t.Fatalf("a query from before Reset: %d", status)
 	}
 }
+
+// Reset clears what a chat holds and keeps what Telegram keeps with the token:
+// the update counter and the allowed_updates subscription.
+func TestReset_KeepsSubscriptionAndUpdateIDs(t *testing.T) {
+	s := newStand(t, Options{})
+	s.fake.SetAllowedUpdates([]string{"message"})
+	s.fake.InjectMessage(IncomingMessage{Text: "before"})
+	s.fake.Reset()
+	if got := s.fake.AllowedUpdates(); len(got) != 1 || got[0] != "message" {
+		t.Fatalf("Reset must keep the subscription: %v", got)
+	}
+	if upd, _ := s.fake.InjectMessage(IncomingMessage{Text: "after"}); upd != 2 {
+		t.Fatalf("update ids must keep growing across Reset: %d", upd)
+	}
+	s.fake.SetAllowedUpdates(nil)
+	if got := s.fake.AllowedUpdates(); got != nil {
+		t.Fatalf("SetAllowedUpdates(nil) should mean every kind: %v", got)
+	}
+}
+
+// An edit or a delete without a chat is refused as such, not reported as a
+// message that was not found in chat 0.
+func TestEditAndDeleteNeedAChatID(t *testing.T) {
+	s := newStand(t, Options{})
+	for _, method := range []string{"editMessageText", "editMessageReplyMarkup", "deleteMessage"} {
+		status, body := s.call(method, url.Values{"message_id": {"1"}, "text": {"x"}})
+		if status != http.StatusBadRequest || !strings.Contains(body["description"].(string), "chat_id is empty") {
+			t.Fatalf("%s without chat_id: %d %v", method, status, body)
+		}
+	}
+}

@@ -125,7 +125,10 @@ func (s *Server) Close() {
 
 // Reset forgets the chats, the outbox, the faults and the commands. Update
 // ids keep growing: a bot that is polling remembers the last id it confirmed
-// and would drop anything numbered below it.
+// and would drop anything numbered below it. The allowed_updates subscription
+// stays as well, on purpose: Telegram keeps it with the token, not with the
+// chats, so a reset between two runs of a bot leaves it what the previous run
+// asked for - SetAllowedUpdates puts it back to anything else.
 func (s *Server) Reset() {
 	s.mu.Lock()
 	defer s.mu.Unlock()

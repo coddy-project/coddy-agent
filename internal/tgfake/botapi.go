@@ -223,7 +223,11 @@ func (s *Server) sendMessage(w http.ResponseWriter, method string, params url.Va
 }
 
 func (s *Server) editMessage(w http.ResponseWriter, method string, params url.Values) {
-	chatID, _ := chatIDOf(params)
+	chatID, ok := chatIDOf(params)
+	if !ok {
+		s.writeError(w, method, params, http.StatusBadRequest, "Bad Request: chat_id is empty", 0)
+		return
+	}
 	msgID := atoi(params.Get("message_id"))
 	s.mu.Lock()
 	chat := s.chats[chatID]
@@ -280,7 +284,11 @@ func (s *Server) editMessage(w http.ResponseWriter, method string, params url.Va
 }
 
 func (s *Server) deleteMessage(w http.ResponseWriter, method string, params url.Values) {
-	chatID, _ := chatIDOf(params)
+	chatID, ok := chatIDOf(params)
+	if !ok {
+		s.writeError(w, method, params, http.StatusBadRequest, "Bad Request: chat_id is empty", 0)
+		return
+	}
 	msgID := atoi(params.Get("message_id"))
 	s.mu.Lock()
 	chat := s.chats[chatID]
