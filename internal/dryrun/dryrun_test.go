@@ -198,7 +198,7 @@ func TestTelegramTokenProbe(t *testing.T) {
 		}
 	}))
 	t.Cleanup(srv.Close)
-	t.Setenv(TelegramAPIBaseEnv, srv.URL)
+	t.Setenv(config.TelegramAPIBaseEnv, srv.URL)
 	body := "gateways:\n  telegram:\n    enable: true\n    token: \"123:abc\"\n"
 
 	status = http.StatusOK

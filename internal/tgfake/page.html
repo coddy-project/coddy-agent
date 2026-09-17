@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tgfake</title>
+<style>
+  :root { color-scheme: light dark; font: 14px/1.4 system-ui, sans-serif; }
+  body { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0; height: 100vh; }
+  @media (max-width: 800px) { body { grid-template-columns: 1fr; height: auto; } }
+  section { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid #8884; padding: 12px 16px; box-sizing: border-box; }
+  h1 { font-size: 15px; margin: 0 0 8px; }
+  form.who { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  form.who label { display: flex; flex-direction: column; font-size: 11px; opacity: .8; }
+  form.who input, form.who select { font: inherit; width: 9em; }
+  #log, #outbox { flex: 1; overflow: auto; border: 1px solid #8884; border-radius: 6px; padding: 8px; min-height: 12em; }
+  .msg { margin: 6px 0; padding: 6px 10px; border-radius: 10px; max-width: 85%; white-space: pre-wrap; word-break: break-word; }
+  .user { background: #4a90e233; margin-left: auto; }
+  .bot { background: #8883; }
+  .meta { font-size: 11px; opacity: .6; }
+  .kb { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .kb button { font: inherit; }
+  .draft { border: 1px dashed #888; border-radius: 10px; padding: 6px 10px; margin: 6px 0; opacity: .8; white-space: pre-wrap; }
+  .typing { font-style: italic; opacity: .6; }
+  form.send { display: flex; gap: 6px; margin-top: 8px; }
+  form.send input { flex: 1; font: inherit; }
+  .call { font-family: ui-monospace, monospace; font-size: 12px; border-bottom: 1px solid #8882; padding: 3px 0; white-space: pre-wrap; word-break: break-all; }
+  .call .m { font-weight: bold; }
+  .call.err .m { color: #d33; }
+  .tools { display: flex; gap: 6px; margin-bottom: 8px; align-items: center; font-size: 12px; }
+</style>
+</head>
+<body>
+<section>
+  <h1>tgfake — the person's side of the chat</h1>
+  <form class="who" onsubmit="return false">
+    <label>chat id <input id="chat" value="4242"></label>
+    <label>user id <input id="user" value="4242"></label>
+    <label>username <input id="username" value="alice"></label>
+    <label>chat type <select id="ctype"><option>private</option><option>group</option><option>supergroup</option></select></label>
+    <label>mention bot <input id="mention" type="checkbox" style="width:auto"></label>
+  </form>
+  <div id="log"></div>
+  <form class="send" id="sendForm">
+    <input id="text" placeholder="message or /command" autocomplete="off" autofocus>
+    <button>Send</button>
+  </form>
+</section>
+<section>
+  <div class="tools">
+    <strong>Bot API calls</strong>
+    <label><input id="showPolls" type="checkbox"> show getUpdates</label>
+    <button id="reset" type="button">Reset</button>
+    <span id="state"></span>
+  </div>
+  <div id="outbox"></div>
+</section>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const num = (id) => Number($(id).value) || 0;
+  let lastSeq = 0;
+
+  async function post(path, body) {
+    const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!r.ok) { const e = await r.json().catch(() => ({})); alert(e.error || r.statusText); }
+    return r;
+  }
+
+  $('sendForm').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const text = $('text').value.trim();
+    if (!text) return;
+    await post('/sim/message', { chat_id: num('chat'), user_id: num('user'), username: $('username').value,
+      chat_type: $('ctype').value, text, mention: $('mention').checked });
+    $('text').value = '';
+    refreshChat();
+  });
+  $('reset').addEventListener('click', async () => { await post('/sim/reset', {}); lastSeq = 0; $('outbox').textContent = ''; refreshChat(); });
+  $('showPolls').addEventListener('change', () => { lastSeq = 0; $('outbox').textContent = ''; refreshOutbox(); });
+
+  function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+
+  async function refreshChat() {
+    const chatID = num('chat');
+    const v = await (await fetch('/sim/chat/' + chatID)).json();
+    const log = $('log');
+    const stick = log.scrollTop + log.clientHeight >= log.scrollHeight - 8;
+    log.textContent = '';
+    for (const m of v.messages) {
+      if (m.deleted) continue;
+      const box = el('div', 'msg ' + (m.from === 'bot' ? 'bot' : 'user'));
+      const meta = [ '#' + m.message_id, m.from === 'bot' ? 'bot' : (m.username || 'user') ];
+      if (m.parse_mode) meta.push(m.parse_mode);
+      if (m.rich) meta.push('rich');
+      if (m.edited) meta.push('edited');
+      if (m.reply_to_message_id) meta.push('reply to #' + m.reply_to_message_id);
+      box.appendChild(el('div', 'meta', meta.join(' · ')));
+      box.appendChild(el('div', '', m.text));
+      if (m.keyboard) {
+        for (const row of m.keyboard) {
+          const kb = el('div', 'kb');
+          for (const b of row) {
+            const btn = el('button', '', b.text);
+            btn.type = 'button';
+            btn.addEventListener('click', async () => {
+              await post('/sim/callback', { chat_id: chatID, user_id: num('user'), username: $('username').value, message_id: m.message_id, data: b.callback_data });
+              refreshChat();
+            });
+            kb.appendChild(btn);
+          }
+          box.appendChild(kb);
+        }
+      }
+      log.appendChild(box);
+    }
+    for (const d of v.drafts) {
+      const box = el('div', 'draft');
+      box.appendChild(el('div', 'meta', 'draft ' + d.draft_id + ' · revision ' + d.revisions));
+      box.appendChild(el('div', '', d.markdown));
+      log.appendChild(box);
+    }
+    if (v.typing) log.appendChild(el('div', 'typing', 'typing…'));
+    if (stick) log.scrollTop = log.scrollHeight;
+  }
+
+  async function refreshOutbox() {
+    const r = await (await fetch('/sim/outbox?since=' + lastSeq)).json();
+    const out = $('outbox');
+    for (const c of r.calls) {
+      lastSeq = c.seq;
+      if (!$('showPolls').checked && c.method.toLowerCase() === 'getupdates') continue;
+      const line = el('div', 'call' + (c.status >= 400 ? ' err' : ''));
+      line.appendChild(el('span', 'm', c.seq + ' ' + c.method + ' ' + c.status + ' '));
+      const parts = [];
+      for (const k of Object.keys(c.params).sort()) {
+        let v = c.params[k];
+        if (v.length > 120) v = v.slice(0, 120) + '…';
+        parts.push(k + '=' + v.replace(/\n/g, '\\n'));
+      }
+      line.appendChild(el('span', '', parts.join(' ')));
+      out.appendChild(line);
+      out.scrollTop = out.scrollHeight;
+    }
+    const st = await (await fetch('/sim/state')).json();
+    $('state').textContent = '@' + st.bot.username + ' · pending ' + st.pending_updates + ' · faults ' + st.faults.length;
+  }
+
+  $('chat').addEventListener('change', refreshChat);
+  setInterval(refreshChat, 1000);
+  setInterval(refreshOutbox, 1000);
+  refreshChat();
+  refreshOutbox();
+})();
+</script>
+</body>
+</html>
