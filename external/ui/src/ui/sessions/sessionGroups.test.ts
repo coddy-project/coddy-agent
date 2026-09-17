@@ -191,11 +191,24 @@ describe("age buckets across a daylight-saving change", () => {
 describe("the pinned group", () => {
   it("leads every mode, and holds the pinned rows only", () => {
     const rows = [
-      row("p1", { pinned: true, updatedAt: "2026-09-15T09:00:00", cwd: "/srv/one" }),
+      row("p1", {
+        pinned: true,
+        updatedAt: "2026-09-15T09:00:00",
+        cwd: "/srv/one",
+      }),
       row("a", { updatedAt: "2026-09-15T09:00:00", cwd: "/srv/one" }),
-      row("p2", { pinned: true, updatedAt: "2026-01-02T09:00:00", cwd: "/srv/two" }),
+      row("p2", {
+        pinned: true,
+        updatedAt: "2026-01-02T09:00:00",
+        cwd: "/srv/two",
+      }),
     ];
-    for (const mode of ["time", "workspace", "tag", "none"] as SessionGroupMode[]) {
+    for (const mode of [
+      "time",
+      "workspace",
+      "tag",
+      "none",
+    ] as SessionGroupMode[]) {
       const groups = groupSessions(rows, mode, NOW);
       expect(groups[0].key).toBe("pinned");
       expect(groups[0].rows.map((r) => r.id)).toEqual(["p1", "p2"]);
@@ -216,7 +229,11 @@ describe("the pinned group", () => {
   });
 
   it("is not drawn when nothing is pinned", () => {
-    const groups = groupSessions([row("a", { updatedAt: "2026-09-15T09:00:00" })], "time", NOW);
+    const groups = groupSessions(
+      [row("a", { updatedAt: "2026-09-15T09:00:00" })],
+      "time",
+      NOW,
+    );
     expect(groups.map((g) => g.key)).not.toContain("pinned");
   });
 });

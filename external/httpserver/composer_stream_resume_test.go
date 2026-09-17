@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func frameOf(text string) string { return "data: " + text + "\n\n" }
@@ -134,5 +135,110 @@ func TestRelayAssemblesFramesSplitAcrossWrites(t *testing.T) {
 	body := drainSubscriber(t, r, 0)
 	if !strings.Contains(body, "id: 1\ndata: split-frame\n\n") {
 		t.Fatalf("frame split across writes was not reassembled: %q", body)
+	}
+}
+
+// drainSubscriberAfter is drainSubscriber for a client that attaches with a transcript
+// in hand: it asks for the frames the snapshot at sinceRev does not hold.
+func drainSubscriberAfter(t *testing.T, r *composerStreamRelay, sinceRev uint64) string {
+	t.Helper()
+	sub := &signalOnWriteRecorder{
+		ResponseRecorder: httptest.NewRecorder(),
+		wrote:            make(chan struct{}),
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = r.serveSubscriberAfter(context.Background(), sub, relayResume{sinceRev: sinceRev, bySnapshot: true})
+	}()
+	<-sub.wrote
+	r.Close()
+	<-done
+	return sub.Body.String()
+}
+
+// A tab reloaded in the middle of a turn loads the transcript first and attaches to the
+// relay second. Replaying the whole turn on top of that transcript put every reasoning
+// block and every answer of the finished steps on screen a second time, and stamped
+// the finished tool rows with the moment of the replay, so they read 0ms. The frames a
+// persisted message already holds are left out.
+func TestRelayReplaysOnlyFramesTheSnapshotLacks(t *testing.T) {
+	var rev uint64 = 3
+	r := newComposerStreamRelay()
+	r.rev = func() uint64 { return rev }
+	if _, err := r.Write([]byte(frameOf("step-one"))); err != nil {
+		t.Fatal(err)
+	}
+	rev = 4 // the first step's message is persisted
+	if _, err := r.Write([]byte(frameOf("step-two"))); err != nil {
+		t.Fatal(err)
+	}
+
+	body := drainSubscriberAfter(t, r, 4)
+	if strings.Contains(body, "step-one") {
+		t.Fatalf("replayed a step the transcript already holds: %s", body)
+	}
+	if !strings.Contains(body, "step-two") {
+		t.Fatalf("left out the step still streaming: %s", body)
+	}
+	if strings.Contains(body, "event: desync") {
+		t.Fatalf("nothing the snapshot lacks was trimmed: %s", body)
+	}
+}
+
+func TestRelayReportsDesyncWhenFramesTheSnapshotLacksWereTrimmed(t *testing.T) {
+	var rev uint64 = 1
+	r := newComposerStreamRelay()
+	r.rev = func() uint64 { return rev }
+	r.maxBytes = 120
+	for i := 1; i <= 30; i++ {
+		if _, err := r.Write([]byte(frameOf(fmt.Sprintf("frame-%02d", i)))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if body := drainSubscriberAfter(t, r, 1); !strings.Contains(body, "event: desync") {
+		t.Fatalf("a client missing trimmed unpersisted frames must be told: %s", body)
+	}
+}
+
+func TestRelayTrimmedPersistedFramesAreNoGap(t *testing.T) {
+	var rev uint64 = 1
+	r := newComposerStreamRelay()
+	r.rev = func() uint64 { return rev }
+	r.maxBytes = 120
+	for i := 1; i <= 30; i++ {
+		if _, err := r.Write([]byte(frameOf(fmt.Sprintf("persisted-%02d", i)))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rev = 2
+	if _, err := r.Write([]byte(frameOf("live"))); err != nil {
+		t.Fatal(err)
+	}
+	body := drainSubscriberAfter(t, r, 2)
+	if strings.Contains(body, "event: desync") {
+		t.Fatalf("frames the snapshot holds were trimmed, which loses nothing: %s", body)
+	}
+	if !strings.Contains(body, "live") {
+		t.Fatalf("missing the frame the snapshot lacks: %s", body)
+	}
+}
+
+// A replayed frame is old news: its age lets the client date it when it happened
+// rather than when it arrived, so a reasoning block that started a minute before the
+// reload does not restart its clock, and a tool call that ran for seconds does not
+// read 0ms because its start and its end were replayed in the same burst.
+func TestRelayReplayedFramesCarryTheirAge(t *testing.T) {
+	r := newComposerStreamRelay()
+	if _, err := r.Write([]byte(frameOf("old"))); err != nil {
+		t.Fatal(err)
+	}
+	r.mu.Lock()
+	r.frames[0].at = time.Now().Add(-5 * time.Second)
+	r.mu.Unlock()
+
+	body := drainSubscriber(t, r, 0)
+	if !strings.HasPrefix(body, "id: 1\nage: 5") || !strings.Contains(body, "\ndata: old\n\n") {
+		t.Fatalf("replayed frame %q must carry its age in milliseconds", body)
 	}
 }

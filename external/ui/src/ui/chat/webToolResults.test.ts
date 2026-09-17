@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { webSearchResultMarkdown } from "./webToolResults";
+import { webSearchReport, webSearchResultMarkdown } from "./webToolResults";
 
 test("a search result becomes a list of links with their snippets", () => {
   const md = webSearchResultMarkdown(
@@ -20,7 +20,7 @@ test("a search result becomes a list of links with their snippets", () => {
 
   expect(md).toBe(
     [
-      "- [Ostrovok\\.ru](https://ostrovok.ru/)",
+      "- [Ostrovok\\.ru](https://ostrovok.ru/)\\",
       "  Hotel booking service",
       "- [Otello](https://otello.ru/)",
       "",
@@ -119,9 +119,9 @@ test("a preview cut mid-array renders the hits that arrived whole", () => {
 
   expect(webSearchResultMarkdown(cut)).toBe(
     [
-      "- [First](https://one.example/)",
+      "- [First](https://one.example/)\\",
       "  One",
-      "- [Second](https://two.example/)",
+      "- [Second](https://two.example/)\\",
       "  Two",
     ].join("\n"),
   );
@@ -148,4 +148,127 @@ test("a preview cut before the first whole hit keeps its plain text", () => {
   expect(
     webSearchResultMarkdown('{\n  "query": "x",\n  "results": [\n    {\n      "title": "Fir\n...'),
   ).toBeNull();
+});
+
+// The tool answers `hint`, which the transcript used to look for as `has_more_hint`
+// and so never showed.
+test("the tool's own hint closes the list", () => {
+  expect(
+    webSearchResultMarkdown(
+      JSON.stringify({
+        query: "x",
+        page: 1,
+        results: [{ title: "One", url: "https://one.example/" }],
+        hint: "Call websearch again with page 2",
+      }),
+    ),
+  ).toBe(
+    [
+      "- [One](https://one.example/)",
+      "",
+      "Call websearch again with page 2",
+    ].join("\n"),
+  );
+});
+
+const searchOutput = {
+  query: "iPhone 18 announcement September 2026 preorder",
+  page: 1,
+  engines: [
+    {
+      engine: "brave",
+      status: "blocked",
+      results: 0,
+      reason: "http 429",
+      took_ms: 214,
+    },
+    { engine: "bing", status: "ok", results: 10, took_ms: 158 },
+  ],
+  results: [
+    {
+      title: "First",
+      url: "https://one.example/",
+      description: "One",
+      source: "bing",
+    },
+    {
+      title: "Second",
+      url: "https://two.example/",
+      description: "Two",
+      source: "bing",
+    },
+  ],
+};
+
+test("the engine report is read off a whole answer", () => {
+  expect(webSearchReport(JSON.stringify(searchOutput))).toEqual({
+    query: "iPhone 18 announcement September 2026 preorder",
+    page: 1,
+    engines: [
+      {
+        engine: "brave",
+        status: "blocked",
+        results: 0,
+        reason: "http 429",
+        tookMs: 214,
+        cached: false,
+      },
+      {
+        engine: "bing",
+        status: "ok",
+        results: 10,
+        reason: "",
+        tookMs: 158,
+        cached: false,
+      },
+    ],
+  });
+});
+
+// The row's preview is the first nineteen lines, and the engines take most of them:
+// the cut lands on `"results": [` with not one hit whole. The report is still there.
+test("the engine report survives a preview cut before the first hit", () => {
+  const cut =
+    JSON.stringify(searchOutput, null, 2).split("\n").slice(0, 19).join("\n") +
+    "\n...";
+  expect(cut).not.toContain("First");
+  expect(webSearchResultMarkdown(cut)).toBeNull();
+  expect(
+    webSearchReport(cut)?.engines.map((e) => [e.engine, e.status]),
+  ).toEqual([
+    ["brave", "blocked"],
+    ["bing", "ok"],
+  ]);
+});
+
+test("anything that is not a search answer has no report", () => {
+  expect(webSearchReport("error: all engines blocked")).toBeNull();
+  expect(webSearchReport(undefined)).toBeNull();
+});
+
+test("a bracket inside an engine's reason does not cut the report short", () => {
+  const cut =
+    JSON.stringify(
+      {
+        query: "x",
+        page: 2,
+        engines: [
+          {
+            engine: "brave",
+            status: "error",
+            results: 0,
+            reason: "bad ] answer",
+            took_ms: 1,
+          },
+          { engine: "bing", status: "ok", results: 3, took_ms: 2 },
+        ],
+        results: [{ title: "Cut", url: "https://c" }],
+      },
+      null,
+      2,
+    ).slice(0, -40) + "\n...";
+  const report = webSearchReport(cut);
+  expect(report?.page).toBe(2);
+  expect(report?.engines.map((e) => e.engine)).toEqual(["brave", "bing"]);
+  expect(report?.engines[0]?.reason).toBe("bad ] answer");
 });

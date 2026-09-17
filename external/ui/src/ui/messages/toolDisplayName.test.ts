@@ -61,3 +61,13 @@ test("background is read from the arguments, not guessed", () => {
     "running a command",
   );
 });
+
+// Every scheduler tool is an action on a job; a missing entry left the raw id
+// `coddy_scheduler_job_resume` on the row.
+test("resuming a scheduled job is named like the other scheduler actions", () => {
+  expect(toolDisplayName("coddy_scheduler_job_resume")).toBe("resuming a scheduled job");
+  setLocale("ru");
+  expect(toolDisplayName("coddy_scheduler_job_resume")).toBe(
+    "снимаю задание планировщика с паузы",
+  );
+});

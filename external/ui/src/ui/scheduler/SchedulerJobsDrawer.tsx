@@ -5,7 +5,7 @@ import { sameTabInAppNavClick } from "../nav/sameTabInAppNav";
 import { useT } from "../i18n/I18nProvider";
 
 /** Renders next fire as YYYY-MM-DD HH:MM (UTC) for list rows (scheduler uses UTC five-field cron). */
-function formatNextRunUtc(iso: string | undefined): string {
+export function formatNextRunUtc(iso: string | undefined): string {
   if (!iso || !iso.trim()) {
     return "—";
   }
@@ -181,7 +181,7 @@ export function SchedulerJobsDrawer(props: {
                   }}
                 >
                   <span className="composer-send-glyph" aria-hidden="true">
-                    ■
+                    <span className="composer-stop-square" />
                   </span>
                 </button>
               ) : (

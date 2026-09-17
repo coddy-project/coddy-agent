@@ -33,11 +33,14 @@ func (a *Agent) readQueuedMessages(messages *[]llm.Message) bool {
 			CreatedAt: time.Now().UTC().Format(time.RFC3339),
 		}
 		*messages = append(*messages, msg)
-		a.state.AddMessage(msg)
+		// The frame goes out before the message is persisted, like every other
+		// frame a message describes: a client that reloads between the two reads
+		// the message in the transcript and is not replayed the frame on top of it.
 		_ = a.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 			SessionUpdate: acp.UpdateTypeUserMessageChunk,
 			Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: q.Text},
 		})
+		a.state.AddMessage(msg)
 	}
 	a.log.Info("read queued messages", "session_id", sessionID, "messages", len(queued))
 	a.refreshConversationContextUsage(true)

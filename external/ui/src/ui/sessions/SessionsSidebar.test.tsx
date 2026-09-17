@@ -128,12 +128,12 @@ test("draft session row links to #/draft/<id>", () => {
   expect(link).toHaveAttribute("href", "#/draft/draft_1");
 });
 
-test("shows spinner and unread dot for other sessions", () => {
+test("shows the activity dot on every running session and the unread dot on others", () => {
   render(
     <SessionsSidebar
       sessionId="current"
       sessions={[
-        { id: "current", title: "A" },
+        { id: "current", title: "A", turnActive: true },
         {
           id: "busy",
           title: "B",
@@ -152,12 +152,13 @@ test("shows spinner and unread dot for other sessions", () => {
       onLoadMore={() => {}}
     />,
   );
-  expect(screen.getByTestId("session-spinner-busy")).toBeInTheDocument();
+  expect(screen.getByTestId("session-activity-busy")).toBeInTheDocument();
   expect(screen.getByTestId("session-unread-busy")).toBeInTheDocument();
-  expect(screen.queryByTestId("session-spinner-current")).toBeNull();
+  expect(screen.getByTestId("session-activity-current")).toBeInTheDocument();
+  expect(screen.queryByTestId("session-unread-current")).toBeNull();
 });
 
-test("question pending hides spinner and shows animated question icon", () => {
+test("question pending hides the activity dot and shows animated question icon", () => {
   render(
     <SessionsSidebar
       sessionId="current"
@@ -177,8 +178,42 @@ test("question pending hides spinner and shows animated question icon", () => {
       onLoadMore={() => {}}
     />,
   );
-  expect(screen.queryByTestId("session-spinner-q")).toBeNull();
+  expect(screen.queryByTestId("session-activity-q")).toBeNull();
   expect(screen.getByTestId("session-question-q")).toBeInTheDocument();
+});
+
+test("the state marks stand apart from the title so the tags line up under its text", () => {
+  render(
+    <SessionsSidebar
+      sessionId="other"
+      sessions={[
+        { id: "busy", title: "Busy", turnActive: true, tags: ["planning"] },
+        { id: "calm", title: "Calm", tags: ["scheduling"] },
+      ]}
+      open
+      onPick={() => {}}
+      onDelete={() => Promise.resolve()}
+      searchDraft=""
+      onSearchDraftChange={() => {}}
+      onSearchClear={() => {}}
+      hasMore={false}
+      loadingMore={false}
+      onLoadMore={() => {}}
+    />,
+  );
+  const busy = screen.getByTestId("session-row-busy");
+  const marks = busy.querySelector(".session-row-marks");
+  expect(marks).not.toBeNull();
+  expect(marks?.contains(screen.getByTestId("session-activity-busy"))).toBe(
+    true,
+  );
+  expect(
+    busy.querySelector(".session-row-leading .session-activity-dot"),
+  ).toBeNull();
+  // A row without a state mark has no empty column holder to push its title in.
+  expect(
+    screen.getByTestId("session-row-calm").querySelector(".session-row-marks"),
+  ).toBeNull();
 });
 
 // --- grouping and the archive ---

@@ -9,6 +9,7 @@ package httpserver
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -32,6 +33,11 @@ import (
 
 const watchFeatureReply = "the watched answer"
 
+const (
+	watchFirstStep  = "the step already persisted"
+	watchSecondStep = "the step still streaming"
+)
+
 type composerWatchState struct {
 	root      string
 	ts        *httptest.Server
@@ -46,6 +52,13 @@ type composerWatchState struct {
 
 	watched string
 
+	// twoSteps makes the runner persist a first step and stream a second one before
+	// parking, the moment a reloaded tab loads the transcript and attaches.
+	twoSteps      bool
+	firstStepDone chan struct{}
+	messagesRev   uint64
+	transcript    string
+
 	eventsBody  *bufio.Reader
 	closeEvents func()
 }
@@ -57,6 +70,10 @@ func (s *composerWatchState) reset() {
 	s.releaseTurn = make(chan struct{})
 	s.scriptDone = make(chan struct{})
 	s.watched = ""
+	s.twoSteps = false
+	s.firstStepDone = make(chan struct{})
+	s.messagesRev = 0
+	s.transcript = ""
 	s.scriptStatus = 0
 	s.scriptBody = ""
 }
@@ -93,6 +110,21 @@ func (s *composerWatchState) startServer() error {
 	var once sync.Once
 	runner := func(_ context.Context, st *session.State, _ []acp.ContentBlock, sender acp.UpdateSender) (string, error) {
 		once.Do(func() { close(s.turnStarted) })
+		if s.twoSteps {
+			_ = sender.SendSessionUpdate(st.GetID(), acp.MessageChunkUpdate{
+				SessionUpdate: acp.UpdateTypeAgentMessageChunk,
+				Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: watchFirstStep},
+			})
+			st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: watchFirstStep})
+			_ = sender.SendSessionUpdate(st.GetID(), acp.MessageChunkUpdate{
+				SessionUpdate: acp.UpdateTypeAgentMessageChunk,
+				Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: watchSecondStep},
+			})
+			close(s.firstStepDone)
+			<-s.releaseTurn
+			st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: watchSecondStep})
+			return string(acp.StopReasonEndTurn), nil
+		}
 		<-s.releaseTurn
 		_ = sender.SendSessionUpdate(st.GetID(), acp.MessageChunkUpdate{
 			SessionUpdate: acp.UpdateTypeAgentMessageChunk,
@@ -143,6 +175,94 @@ func (s *composerWatchState) scriptStartsNonStreamingTurn() error {
 		s.scriptBody = string(body)
 	}()
 	<-s.turnStarted
+	return nil
+}
+
+func (s *composerWatchState) scriptStartsTwoStepTurn() error {
+	s.twoSteps = true
+	if err := s.scriptStartsNonStreamingTurn(); err != nil {
+		return err
+	}
+	select {
+	case <-s.firstStepDone:
+		return nil
+	case <-time.After(10 * time.Second):
+		return fmt.Errorf("the first step never finished")
+	}
+}
+
+// clientLoadsTranscript is what a reloaded tab does first: read the persisted history
+// and the revision it was read at.
+func (s *composerWatchState) clientLoadsTranscript() error {
+	req, err := http.NewRequest(http.MethodGet,
+		s.ts.URL+"/coddy/sessions/"+url.PathEscape(s.sessionID)+"/messages", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Coddy-Session-ID", s.sessionID)
+	res, err := s.ts.Client().Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	var body struct {
+		Messages    []map[string]any `json:"messages"`
+		MessagesRev *uint64          `json:"messagesRev"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		return err
+	}
+	if body.MessagesRev == nil {
+		return fmt.Errorf("the transcript does not say which revision it was read at")
+	}
+	s.messagesRev = *body.MessagesRev
+	b, _ := json.Marshal(body.Messages)
+	s.transcript = string(b)
+	if !strings.Contains(s.transcript, watchFirstStep) {
+		return fmt.Errorf("the transcript is missing the persisted step: %s", s.transcript)
+	}
+	return nil
+}
+
+func (s *composerWatchState) clientSubscribesAfterTranscript() error {
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/coddy/sessions/%s/composer-stream?since_rev=%d",
+		s.ts.URL, url.PathEscape(s.sessionID), s.messagesRev), nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Coddy-Session-ID", s.sessionID)
+	res, err := s.ts.Client().Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return errStatus("composer stream not served", res.StatusCode, "")
+	}
+	select {
+	case <-s.releaseTurn:
+	default:
+		close(s.releaseTurn)
+	}
+	b, err := io.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+	s.watched = string(b)
+	return nil
+}
+
+func (s *composerWatchState) watcherSawStreamingStep() error {
+	if !strings.Contains(s.watched, watchSecondStep) {
+		return fmt.Errorf("watched stream missing the step still streaming: %s", s.watched)
+	}
+	return nil
+}
+
+func (s *composerWatchState) watcherSkippedPersistedStep() error {
+	if strings.Contains(s.watched, watchFirstStep) {
+		return fmt.Errorf("watched stream replayed a step the transcript holds: %s", s.watched)
+	}
 	return nil
 }
 
@@ -301,6 +421,11 @@ func initializeComposerWatchScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a client is subscribed to the server event stream$`, s.subscribesToServerEvents)
 	sc.Step(`^the subscribed client is told the turn started for that session$`, s.toldTurnStarted)
 	sc.Step(`^the subscribed client is told the turn ended when it finishes$`, s.toldTurnEnded)
+	sc.Step(`^a script starts an agent turn whose first step is persisted while the second still streams$`, s.scriptStartsTwoStepTurn)
+	sc.Step(`^a client loads the transcript of that session$`, s.clientLoadsTranscript)
+	sc.Step(`^the client subscribes to the composer stream after that transcript$`, s.clientSubscribesAfterTranscript)
+	sc.Step(`^the watching client receives the text of the step still streaming$`, s.watcherSawStreamingStep)
+	sc.Step(`^the watching client does not receive the step its transcript already holds$`, s.watcherSkippedPersistedStep)
 }
 
 func TestComposerLiveWatchFeature(t *testing.T) {

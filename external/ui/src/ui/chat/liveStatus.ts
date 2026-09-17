@@ -25,6 +25,7 @@ export type LiveStatusKind =
   | "tool"
   | "thinking"
   | "memory"
+  | "writing"
   | "waiting";
 
 export type LiveStatus = {
@@ -253,6 +254,10 @@ export function deriveLiveStatus(
   let toolPending: ToolItem | null = null;
   let thinking: ThinkingItem | null = null;
   let memory: MemoryItem | null = null;
+  // The turn's newest row is answer text: whatever runs next has not shown up yet,
+  // so the model is still writing it.
+  let writing = false;
+  let sawStep = false;
   // When the model went quiet: end of the most recent finished step in this turn.
   let waitingFrom: number | undefined;
   let turnStartedAtMs: number | undefined;
@@ -265,6 +270,20 @@ export function deriveLiveStatus(
     if (it.type === "user_message") {
       turnStartedAtMs = parseCreatedAt(it.createdAtUtc);
       break;
+    }
+    if (!sawStep) {
+      if (it.type === "assistant_message") {
+        if (it.content.trim()) {
+          writing = true;
+          sawStep = true;
+        }
+      } else if (
+        it.type === "tool_call" ||
+        it.type === "thinking" ||
+        it.type === "memory_copilot"
+      ) {
+        sawStep = true;
+      }
     }
     switch (it.type) {
       case "permission_prompt":
@@ -377,6 +396,10 @@ export function deriveLiveStatus(
         ? { startedAtMs: memory.memoryWallStartedAtMs }
         : {}),
     };
+  }
+
+  if (writing) {
+    return { kind: "writing", key: "status.writing", target: "" };
   }
 
   const startedAtMs = waitingFrom ?? turnStartedAtMs;

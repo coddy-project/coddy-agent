@@ -3,7 +3,7 @@ import {
   sessionRowNeedsUserAttention,
   sessionRowShowsPermissionPending,
   sessionRowShowsQuestionPending,
-  sessionRowShowsSpinner,
+  sessionRowShowsActivity,
   sessionRowShowsUnreadDot,
 } from "./sessionRowActivity";
 import type { SessionRow } from "./types";
@@ -19,41 +19,39 @@ const emptySets = () => ({
   question: new Set<string>(),
 });
 
-test("spinner when another session has active turn", () => {
+test("activity dot for every session with an active turn, the open one included", () => {
   const sets = emptySets();
   expect(
-    sessionRowShowsSpinner(
+    sessionRowShowsActivity(
       base("a", { turnActive: true }),
-      "b",
+      sets.permission,
+      sets.question,
+    ),
+  ).toBe(true);
+  // The conversation on screen is the one the reader is most likely waiting on;
+  // hiding its mark made a running turn look finished from the History list.
+  expect(
+    sessionRowShowsActivity(
+      base("current", { turnActive: true }),
       sets.permission,
       sets.question,
     ),
   ).toBe(true);
   expect(
-    sessionRowShowsSpinner(
-      base("a", { turnActive: true }),
-      "a",
-      sets.permission,
-      sets.question,
-    ),
-  ).toBe(false);
-  expect(
-    sessionRowShowsSpinner(
+    sessionRowShowsActivity(
       base("a", { turnActive: false }),
-      "b",
       sets.permission,
       sets.question,
     ),
   ).toBe(false);
 });
 
-test("no spinner when session awaits user attention", () => {
+test("no activity dot when session awaits user attention", () => {
   const permission = new Set(["a"]);
   const question = new Set<string>();
   expect(
-    sessionRowShowsSpinner(
+    sessionRowShowsActivity(
       base("a", { turnActive: true }),
-      "b",
       permission,
       question,
     ),
@@ -92,4 +90,3 @@ test("permission pending when session id is in pending set", () => {
   expect(sessionRowShowsPermissionPending(base("a"), set)).toBe(true);
   expect(sessionRowShowsPermissionPending(base("b"), set)).toBe(false);
 });
-
