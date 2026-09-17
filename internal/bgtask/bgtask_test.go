@@ -1347,3 +1347,139 @@ func TestDeriveLabelForAnAgentTask(t *testing.T) {
 		t.Fatalf("label without a name = %q, want %q", got, "agent")
 	}
 }
+
+// Retention of scheduled runs removes one finished task at a time, in memory
+// and on disk, while the rest of the session's history stays.
+func TestForgetDropsAFinishedTaskFromMemoryAndDisk(t *testing.T) {
+	runner := &stubRunner{}
+	p := newTestPool(t, runner, Config{})
+	sessionDir := t.TempDir()
+	p.SetSessionDir("s1", sessionDir)
+
+	first, err := p.Start(Spec{SessionID: "s1", Command: "make build", Label: "writes"})
+	if err != nil {
+		t.Fatalf("Start(): %v", err)
+	}
+	runner.last().finish(0)
+	waitUntilFinished(t, p, "s1", first.ID, StatusSucceeded)
+	second, err := p.Start(Spec{SessionID: "s1", Command: "make test", Label: "writes"})
+	if err != nil {
+		t.Fatalf("Start(): %v", err)
+	}
+	runner.last().finish(0)
+	waitUntilFinished(t, p, "s1", second.ID, StatusSucceeded)
+
+	if err := p.Forget("s1", first.ID); err != nil {
+		t.Fatalf("Forget(): %v", err)
+	}
+	if _, err := p.Get("s1", first.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("forgotten task still answers: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(sessionDir, backgroundDirName, first.ID)); !os.IsNotExist(err) {
+		t.Fatalf("task dir must be gone, stat err = %v", err)
+	}
+	if got := p.List("s1"); len(got) != 1 || got[0].ID != second.ID {
+		t.Fatalf("the other task must stay listed, got %+v", got)
+	}
+	if loaded := LoadPersisted(sessionDir); len(loaded) != 1 || loaded[0].ID != second.ID {
+		t.Fatalf("persisted records = %+v, want only %s", loaded, second.ID)
+	}
+	if err := p.Forget("s1", first.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("second Forget must report not found, got %v", err)
+	}
+}
+
+func TestForgetRefusesARunningTask(t *testing.T) {
+	runner := &stubRunner{}
+	p := newTestPool(t, runner, Config{})
+	snap, err := p.Start(Spec{SessionID: "s1", Command: "sleep 600"})
+	if err != nil {
+		t.Fatalf("Start(): %v", err)
+	}
+	if err := p.Forget("s1", snap.ID); !errors.Is(err, ErrTaskRunning) {
+		t.Fatalf("Forget on a running task = %v, want ErrTaskRunning", err)
+	}
+	if _, err := p.Get("s1", snap.ID); err != nil {
+		t.Fatalf("the running task must still be there: %v", err)
+	}
+}
+
+// A record left by an earlier process is part of the same history, so the
+// sweep reaches it through the bundle even though this pool never ran it.
+func TestForgetReachesARecordOfAnEarlierProcess(t *testing.T) {
+	p := newTestPool(t, &stubRunner{}, Config{})
+	sessionDir := t.TempDir()
+	p.SetSessionDir("s1", sessionDir)
+	dir := filepath.Join(sessionDir, backgroundDirName, "bg_9")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	finished := time.Now().Add(-time.Hour)
+	data, _ := json.Marshal(Snapshot{ID: "bg_9", SessionID: "s1", Kind: KindAgent, Status: StatusSucceeded, StartedAt: finished.Add(-time.Minute), FinishedAt: &finished})
+	if err := os.WriteFile(filepath.Join(dir, metaFileName), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Forget("s1", "bg_9"); err != nil {
+		t.Fatalf("Forget(): %v", err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("persisted task dir must be gone, stat err = %v", err)
+	}
+}
+
+// A retired session takes its finished tasks out of the pool's memory; the
+// records stay in the bundle, where a later read finds them as it finds the
+// records of an earlier process.
+func TestReleaseSessionDropsFinishedTasksFromMemoryAndKeepsTheRecords(t *testing.T) {
+	runner := &stubRunner{}
+	p := newTestPool(t, runner, Config{})
+	sessionDir := t.TempDir()
+	p.SetSessionDir("s1", sessionDir)
+
+	snap, err := p.Start(Spec{SessionID: "s1", Command: "make build", Label: "writes"})
+	if err != nil {
+		t.Fatalf("Start(): %v", err)
+	}
+	runner.last().finish(0)
+	waitUntilFinished(t, p, "s1", snap.ID, StatusSucceeded)
+
+	p.ReleaseSession("s1")
+	if got := p.List("s1"); len(got) != 0 {
+		t.Fatalf("released session still lists %d tasks", len(got))
+	}
+	if _, err := p.Get("s1", snap.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("released task must be gone from memory, got %v", err)
+	}
+	loaded := LoadPersisted(sessionDir)
+	if len(loaded) != 1 || loaded[0].ID != snap.ID || loaded[0].Status != StatusSucceeded {
+		t.Fatalf("the record must stay on disk as finished, got %+v", loaded)
+	}
+	// The next task of the session numbers past what the bundle holds, so the
+	// released record is never overwritten.
+	p.SetSessionDir("s1", sessionDir)
+	next, err := p.Start(Spec{SessionID: "s1", Command: "make test", Label: "writes"})
+	if err != nil {
+		t.Fatalf("Start(): %v", err)
+	}
+	if next.ID == snap.ID {
+		t.Fatalf("a new task reused the released id %s", snap.ID)
+	}
+	runner.last().finish(0)
+	waitUntilFinished(t, p, "s1", next.ID, StatusSucceeded)
+	if loaded := LoadPersisted(sessionDir); len(loaded) != 2 {
+		t.Fatalf("both records must be on disk, got %d", len(loaded))
+	}
+}
+
+func TestReleaseSessionLeavesARunningTaskAlone(t *testing.T) {
+	runner := &stubRunner{}
+	p := newTestPool(t, runner, Config{})
+	snap, err := p.Start(Spec{SessionID: "s1", Command: "sleep 600"})
+	if err != nil {
+		t.Fatalf("Start(): %v", err)
+	}
+	p.ReleaseSession("s1")
+	if _, err := p.Get("s1", snap.ID); err != nil {
+		t.Fatalf("a running task must survive a release: %v", err)
+	}
+}

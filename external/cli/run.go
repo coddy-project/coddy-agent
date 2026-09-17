@@ -17,8 +17,10 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
+	"github.com/EvilFreelancer/coddy-agent/external/scheduler"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
+	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/dryrun"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
@@ -218,6 +220,7 @@ func Run(args []string, deps CommandDeps) error {
 		}
 		mgr = session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
 		lateSender.inner = &printSender{mgr: mgr, cfg: cfg, out: os.Stdout, errOut: os.Stderr}
+		startScheduler(ctx, cfg, mgr, log)
 		return PrintPrompt(ctx, mgr, popts)
 	}
 
@@ -280,7 +283,21 @@ func buildApp(cfg *config.Config, store *session.FileStore, log *slog.Logger, te
 	mgr = session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
 	app = newApp(cfg, mgr, log, term, themeName, plain)
 	lateSender.inner = app.Sender()
+	startScheduler(context.Background(), cfg, mgr, log)
 	return app
+}
+
+// startScheduler runs the cron daemon in this console process when the
+// configuration (or --scheduler) asks for it. A scheduled run is a child of
+// its job session through the manager, which is why it starts only once the
+// manager exists; a binary built without the scheduler tag does nothing here.
+func startScheduler(ctx context.Context, cfg *config.Config, mgr *session.Manager, log *slog.Logger) {
+	if cfg == nil || mgr == nil || !cfg.SchedulerEffectiveEnabled() {
+		return
+	}
+	scheduler.Start(ctx, scheduler.Options{
+		Cfg: mgr.Cfg, Log: log, ProcessCWD: cfg.Paths.CWD, Mgr: mgr, Pool: bgtask.Default(),
+	})
 }
 
 // newTurnAgent builds the ReAct agent for one local console turn on the

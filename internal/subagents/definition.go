@@ -66,6 +66,12 @@ const DirectoryFileName = "AGENT.md"
 
 var namePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
+// ValidName reports whether name could be a definition name: what a file
+// stem, a spawn_agent call or a scheduler job's agent field may carry.
+func ValidName(name string) bool {
+	return namePattern.MatchString(name)
+}
+
 // Definition is one loaded subagent. It is immutable once returned by the
 // loader: trust, tool set and role decisions all read the same value the file
 // was parsed into, never the file again.

@@ -5,11 +5,9 @@ package schedservice
 import (
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/EvilFreelancer/coddy-agent/external/scheduler/storage"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
@@ -51,11 +49,4 @@ func (o *Service) jobAbsPath(jobID string) (string, error) {
 		return "", fmt.Errorf("scheduler.dir is empty")
 	}
 	return filepath.Join(filepath.Clean(roots[0]), jobID+".md"), nil
-}
-
-func lockOrTracked(abs string) bool {
-	if _, err := os.Stat(storage.LockPath(abs)); err == nil {
-		return true
-	}
-	return IsTrackedJob(abs)
 }

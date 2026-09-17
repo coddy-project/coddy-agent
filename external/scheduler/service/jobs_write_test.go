@@ -3,6 +3,7 @@
 package schedservice
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -90,7 +91,20 @@ func TestPatchJobRenameJobIDConflict(t *testing.T) {
 	}
 }
 
-func TestDeleteJobBlockedByLock(t *testing.T) {
+// runningStubRuntime is a Runtime whose only fact is that one job is running.
+type runningStubRuntime struct {
+	Runtime
+	running string
+}
+
+func (r *runningStubRuntime) RunningRun(jobPath string) (RunRef, bool) {
+	if jobPath == r.running {
+		return RunRef{JobID: "running"}, true
+	}
+	return RunRef{}, false
+}
+
+func TestDeleteAndRenameAreBlockedWhileTheJobRuns(t *testing.T) {
 	root := t.TempDir()
 	schedDir := filepath.Join(root, "scheduler")
 	if err := os.MkdirAll(schedDir, 0o755); err != nil {
@@ -103,19 +117,72 @@ func TestDeleteJobBlockedByLock(t *testing.T) {
 	cfg.Scheduler.ApplyDefaults(config.Paths{CWD: root})
 	svc := NewService(cfg, nil, root)
 	if err := svc.CreateJob(SchedulerJobCreate{
-		JobID: "locked", Description: "x", Schedule: "0 * * * *", Body: "y",
+		JobID: "busy", Description: "x", Schedule: "0 * * * *", Body: "y",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	abs, err := svc.jobAbsPath("locked")
+	abs, err := svc.jobAbsPath("busy")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(storage.LockPath(abs), []byte("2026-05-01T12:00:00Z\n"), 0o644); err != nil {
+	SetRuntime(&runningStubRuntime{running: abs})
+	defer SetRuntime(nil)
+	if err := svc.DeleteJob("busy"); err != ErrJobBusy {
+		t.Fatalf("delete: want ErrJobBusy, got %v", err)
+	}
+	newID := "renamed"
+	if err := svc.PatchJob("busy", SchedulerJobPatch{JobID: &newID}); err != ErrJobBusy {
+		t.Fatalf("rename: want ErrJobBusy, got %v", err)
+	}
+	if _, err := os.Stat(abs); err != nil {
+		t.Fatalf("the running job's file must still be there: %v", err)
+	}
+}
+
+// The frontmatter fields a run is made from are validated on the way in, so a
+// job file never carries a permission mode or an agent name the daemon would
+// have to refuse at fire time.
+func TestCreateJobValidatesAgentAndPermissionMode(t *testing.T) {
+	root := t.TempDir()
+	schedDir := filepath.Join(root, "scheduler")
+	if err := os.MkdirAll(schedDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.DeleteJob("locked"); err != ErrJobBusy {
-		t.Fatalf("want ErrJobBusy, got %v", err)
+	cfg := &config.Config{
+		Scheduler: config.SchedulerConfig{Enabled: true, Dir: schedDir},
+	}
+	cfg.Scheduler.Normalize(config.Paths{CWD: root})
+	cfg.Scheduler.ApplyDefaults(config.Paths{CWD: root})
+	svc := NewService(cfg, nil, root)
+	if err := svc.CreateJob(SchedulerJobCreate{
+		JobID: "a", Description: "x", Schedule: "0 * * * *", Body: "y", PermissionMode: "sometimes",
+	}); !errors.Is(err, ErrInvalidJob) {
+		t.Fatalf("permission_mode: want ErrInvalidJob, got %v", err)
+	}
+	if err := svc.CreateJob(SchedulerJobCreate{
+		JobID: "a", Description: "x", Schedule: "0 * * * *", Body: "y", Agent: "Not A Name",
+	}); !errors.Is(err, ErrInvalidJob) {
+		t.Fatalf("agent: want ErrInvalidJob, got %v", err)
+	}
+	if err := svc.CreateJob(SchedulerJobCreate{
+		JobID: "a", Description: "x", Schedule: "0 * * * *", Body: "y", Agent: "reviewer", PermissionMode: "accept_edits",
+	}); err != nil {
+		t.Fatalf("valid fields refused: %v", err)
+	}
+	job, err := svc.GetJob("a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.Agent != "reviewer" || job.PermissionMode != "accept_edits" {
+		t.Fatalf("fields lost on the way through the file: %+v", job)
+	}
+	abs, _ := svc.jobAbsPath("a")
+	fm, _, err := storage.ParseJobFile(abs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fm.Agent != "reviewer" || fm.PermissionMode != "accept_edits" {
+		t.Fatalf("frontmatter = %+v", fm)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"sort"
 	"strings"
 	"sync"
@@ -23,9 +24,10 @@ import (
 
 // SubagentRuntime is what the agent needs from the session manager to run a
 // child: create and register its session, run its one turn through the normal
-// prompt path, and retire it afterwards. session.Manager implements it; a
-// surface that has no manager (a scheduler run) leaves it unset and the
-// spawn_agent tool answers that subagents are unavailable.
+// prompt path, and retire it afterwards. session.Manager implements it, and
+// every surface that runs turns wires it - the scheduler's runs are children
+// of their job session and go through it too. A surface that leaves it unset
+// has the spawn_agent tool answer that subagents are unavailable.
 type SubagentRuntime interface {
 	CreateSubagentSession(ctx context.Context, spec session.SubagentSpec) (*session.State, error)
 	RunSubagentTurn(ctx context.Context, sessionID string, prompt []acp.ContentBlock, sender acp.UpdateSender) (*acp.SessionPromptResult, error)
@@ -326,8 +328,14 @@ func (h *subagentHandle) Stop(time.Duration) error {
 func (h *subagentHandle) PID() int                    { return 0 }
 func (h *subagentHandle) ProcessStartedAt() time.Time { return time.Time{} }
 
-// subagentRun is the bookkeeping of one spawn from the parent's side.
+// subagentRun is the bookkeeping of one child run: a spawn from the parent's
+// side, or a scheduled run from the daemon's.
 type subagentRun struct {
+	// name is what the run is called in logs and reports: the definition
+	// name of a spawn, the job id (or its definition) of a scheduled run.
+	name string
+	// def is the definition the run is made under; nil for a scheduled run
+	// without one.
 	def     *subagents.Definition
 	childID string
 	taskID  string
@@ -343,6 +351,18 @@ type subagentRun struct {
 	status     string // end_turn | cancelled | failed | ...
 	err        error
 	mu         sync.Mutex
+}
+
+// displayName is what logs and reports call the run: the name it was given,
+// or its definition's when a caller built the run from a definition alone.
+func (r *subagentRun) displayName() string {
+	if r.name != "" {
+		return r.name
+	}
+	if r.def != nil {
+		return r.def.Name
+	}
+	return ""
 }
 
 // subagentDepth is how deep this agent's session sits in a spawn tree.
@@ -374,6 +394,7 @@ func (a *Agent) canSpawnInMode(mode string) bool {
 // which a concurrent session/set_mode can flip while the turn runs.
 func (a *Agent) applySubagentEnv(env *tools.Env, mode string) {
 	env.SubagentDepth = a.subagentDepth()
+	env.WakeableSession = a.subagent == nil
 	if a.canSpawnInMode(mode) {
 		env.SpawnAgent = func(ctx context.Context, req tooling.SpawnRequest) (string, error) {
 			return a.spawnSubagentInMode(ctx, req, mode)
@@ -402,16 +423,33 @@ func (a *Agent) subagentCatalogBlock() string {
 	return subagents.PromptBlock(entries)
 }
 
-// subagentRoleBlock renders the child's role section.
+// subagentRoleBlock renders the child's role section: a delegate's preamble
+// for a spawned child, a scheduled job's for a run the scheduler started.
 func (a *Agent) subagentRoleBlock() string {
 	if a.subagent == nil {
 		return ""
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "You are running as the subagent **%s**, spawned by a parent agent to complete one self-contained task. ", a.subagent.Name)
-	b.WriteString("You see nothing of the parent's conversation: work from the task below and from the workspace. ")
-	b.WriteString("You cannot ask the user questions; if something blocks you, say so in your report. ")
-	b.WriteString("Only your final message reaches the parent, so finish with a concise report of what you did, what you found (with file paths), and what remains.")
+	if sched := a.subagent.Scheduler; sched != nil {
+		fmt.Fprintf(&b, "You are running the scheduled job **%s**", sched.JobID)
+		switch sched.Trigger {
+		case "cron":
+			if !sched.FireSlot.IsZero() {
+				fmt.Fprintf(&b, ", started by the scheduler on its cron schedule at %s", sched.FireSlot.UTC().Format("2006-01-02 15:04 UTC"))
+			} else {
+				b.WriteString(", started by the scheduler on its cron schedule")
+			}
+		case "manual":
+			b.WriteString(", started by hand through the scheduler")
+		}
+		b.WriteString(". The run is unattended: nobody watches it and nobody answers questions, so work from the instruction below and from the workspace, and when something blocks you, say so and stop. ")
+		b.WriteString("Your final message is kept as the run's record together with the transcript, so finish with a concise report of what you did, what you found (with file paths), and what remains.")
+	} else {
+		fmt.Fprintf(&b, "You are running as the subagent **%s**, spawned by a parent agent to complete one self-contained task. ", a.subagent.Name)
+		b.WriteString("You see nothing of the parent's conversation: work from the task below and from the workspace. ")
+		b.WriteString("You cannot ask the user questions; if something blocks you, say so in your report. ")
+		b.WriteString("Only your final message reaches the parent, so finish with a concise report of what you did, what you found (with file paths), and what remains.")
+	}
 	if role := strings.TrimSpace(a.subagent.Role); role != "" {
 		b.WriteString("\n\n")
 		b.WriteString(role)
@@ -562,7 +600,9 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 			def.Name, cfg.Subagents.EffectiveMaxConcurrent())
 	}
 
-	notify := req.NotifyOnFinish && background && a.subagentDepth() == 0
+	// Only a session somebody can wake registers a wake: a child and a
+	// scheduled run are sealed when their turn returns.
+	notify := req.NotifyOnFinish && background && a.subagent == nil
 	label := firstLine(req.Description)
 	if label == "" {
 		label = firstLine(req.Prompt)
@@ -589,13 +629,16 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 		childCtx:            runCtx,
 		arbiter:             arbiter,
 	}
-	run := &subagentRun{def: def, childID: childID, prompt: prompt, parentMode: mode, handle: handle, startedAt: time.Now()}
+	run := &subagentRun{name: def.Name, def: def, childID: childID, prompt: prompt, parentMode: mode, handle: handle, startedAt: time.Now()}
 
 	var finishOnce sync.Once
 	finish := func() {
 		finishOnce.Do(func() {
-			// Work the child launched settles before its transcript is sealed.
+			// Work the child launched settles before its transcript is sealed,
+			// and its records leave the pool's memory with it: the bundle keeps
+			// them, and a retired session is not coming back for them.
 			pool.StopSession(childID)
+			pool.ReleaseSession(childID)
 			rt.RetireSubagentSession(childID)
 			releaseArbiter(parentID)
 			release()
@@ -681,11 +724,23 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	return b.String(), nil
 }
 
-// executeSubagentRun creates the child session, drives its one turn and
-// records the outcome. It runs on its own goroutine; the pool supervises
-// through the handle, and a Stop or timeout that lands while the session is
-// still being created cancels the creation through the run context.
+// executeSubagentRun is executeChildRun for a spawn: the parent's logger, and
+// the parent's SubagentStop hooks see the outcome before the report is sealed.
 func (a *Agent) executeSubagentRun(ctx context.Context, rt SubagentRuntime, run *subagentRun, spec session.SubagentSpec, out io.Writer, finish func()) {
+	executeChildRun(ctx, rt, run, spec, out, finish, a.log, func(status, report string, turns int) {
+		a.runSubagentStopHooks(context.WithoutCancel(ctx), run.parentMode, run.displayName(), run.childID, run.taskID, status, report, turns)
+	})
+}
+
+// executeChildRun creates the child session, drives its one turn and records
+// the outcome. It runs on its own goroutine; the pool supervises through the
+// handle, and a Stop or timeout that lands while the session is still being
+// created cancels the creation through the run context. onStop, when set,
+// sees the outcome before the report is written to the sink.
+func executeChildRun(ctx context.Context, rt SubagentRuntime, run *subagentRun, spec session.SubagentSpec, out io.Writer, finish func(), log *slog.Logger, onStop func(status, report string, turns int)) {
+	if log == nil {
+		log = slog.Default()
+	}
 	exit := 1
 	var st *session.State
 	defer func() {
@@ -694,7 +749,7 @@ func (a *Agent) executeSubagentRun(ctx context.Context, rt SubagentRuntime, run 
 			run.status = "failed"
 			run.err = fmt.Errorf("subagent panicked: %v", r)
 			run.mu.Unlock()
-			a.log.Error("subagent run panicked", "agent", run.def.Name, "session", run.childID, "panic", r)
+			log.Error("subagent run panicked", "agent", run.displayName(), "session", run.childID, "panic", r)
 		}
 		run.sender.Flush()
 		_, _ = io.WriteString(out, formatSubagentReport(run, st))
@@ -746,7 +801,9 @@ func (a *Agent) executeSubagentRun(ctx context.Context, rt SubagentRuntime, run 
 	}
 	// SubagentStop hooks in the parent see the outcome before the report is
 	// sealed, so a foreground parent reads a report the hook already saw.
-	a.runSubagentStopHooks(context.WithoutCancel(ctx), run.parentMode, run.def.Name, run.childID, run.taskID, run.status, run.report, run.turns)
+	if onStop != nil {
+		onStop(run.status, run.report, run.turns)
+	}
 }
 
 // parentSessionMCPDeclarations returns the ACP client-supplied MCP declarations
@@ -765,7 +822,7 @@ func formatSubagentReport(run *subagentRun, st *session.State) string {
 	var b strings.Builder
 	b.WriteString("\n=== subagent report ===\n")
 	fmt.Fprintf(&b, "agent: %s | task: %s | session: %s | outcome: %s | turns: %d | duration: %s\n",
-		run.def.Name, run.taskID, run.childID, run.status, run.turns, humanSecondsAgent(int(time.Since(run.startedAt).Round(time.Second)/time.Second)))
+		run.displayName(), run.taskID, run.childID, run.status, run.turns, humanSecondsAgent(int(time.Since(run.startedAt).Round(time.Second)/time.Second)))
 	if run.err != nil {
 		fmt.Fprintf(&b, "error: %v\n", run.err)
 	}
@@ -799,7 +856,7 @@ func formatForegroundResult(run *subagentRun, snap bgtask.Snapshot) string {
 		status = run.status
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "<subagent task=%q session=%q agent=%q status=%q turns=\"%d\">\n", run.taskID, run.childID, run.def.Name, status, turns)
+	fmt.Fprintf(&b, "<subagent task=%q session=%q agent=%q status=%q turns=\"%d\">\n", run.taskID, run.childID, run.displayName(), status, turns)
 	b.WriteString(wrapXMLCDATA(report))
 	b.WriteString("\n</subagent>\n")
 	if runErr != nil {

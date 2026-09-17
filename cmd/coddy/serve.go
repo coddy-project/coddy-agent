@@ -16,6 +16,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/external/httpserver"
 	"github.com/EvilFreelancer/coddy-agent/external/scheduler"
 	"github.com/EvilFreelancer/coddy-agent/external/swarm"
+	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/dryrun"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
@@ -471,7 +472,8 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 			Fingerprint: schedulerFingerprint,
 			Run: func(ctx context.Context) error {
 				return scheduler.Serve(ctx, scheduler.Options{
-					Cfg: rt.Cfg(), Log: rt.Log, ProcessCWD: rt.Paths.CWD,
+					Cfg: rt.Cfg, Log: rt.Log, ProcessCWD: rt.Paths.CWD,
+					Mgr: rt.Mgr, Pool: bgtask.Default(),
 				})
 			},
 		},

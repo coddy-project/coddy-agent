@@ -19,7 +19,10 @@ func Serve(ctx context.Context, opts Options) error {
 	if opts.Cfg == nil || opts.Log == nil {
 		return errors.New("scheduler: Cfg and Log are required")
 	}
-	Start(ctx, opts.Cfg, opts.Log, opts.ProcessCWD)
+	if opts.Mgr == nil {
+		return errors.New("scheduler: a session manager is required")
+	}
+	Start(ctx, opts)
 	<-ctx.Done()
 	return nil
 }

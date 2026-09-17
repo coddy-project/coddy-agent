@@ -17,7 +17,7 @@ import (
 func jobDeleteTool(cfg *config.Config) *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
-			Name: toolJobDelete,
+			Name:        toolJobDelete,
 			Description: "Deletes a scheduler job file and its sibling .state and .lock artifacts when idle. Refuses while a run holds the lock or is tracked (409-style error text). Requires permission.",
 			InputSchema: map[string]interface{}{
 				"type": "object",

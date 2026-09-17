@@ -127,6 +127,14 @@ type JobFrontmatter struct {
 	CWD         string `yaml:"cwd"`
 	Model       string `yaml:"model"`
 	Mode        string `yaml:"mode"`
+	// Agent names a subagent definition (subagents.dirs) the run is made
+	// under: its role, tool allowlist, model and permission narrowing apply.
+	// Empty runs a general agent with the full tool set of the mode.
+	Agent string `yaml:"agent,omitempty"`
+	// PermissionMode is what the run may do without asking: ask, accept_edits
+	// or bypass. Empty is bypass, the unattended default; a definition named
+	// in Agent can only narrow it further.
+	PermissionMode string `yaml:"permission_mode,omitempty"`
 }
 
 // ParseJobFile reads a markdown job file and returns frontmatter, instruction body, or error.
@@ -278,41 +286,25 @@ func CanonicalSchedulerJobPath(jobMDPath string) string {
 	return ap
 }
 
-// LockPath returns the lock file path for a job .md path.
-func LockPath(jobMDPath string) string {
-	base := strings.TrimSuffix(filepath.Base(jobMDPath), ".md")
-	return filepath.Join(filepath.Dir(jobMDPath), base+".lock")
-}
-
-// ReadSchedulerLockFireSlotUTC reads the first line of a job .lock file as an RFC3339 instant in UTC.
-// The daemon writes the committed cron fire slot there so ticks between lock creation and .state
-// rename still see that this fire is already in progress.
-// It returns (zero, false) when the file is missing, empty, or the first line is not valid RFC3339.
-func ReadSchedulerLockFireSlotUTC(lockPath string) (time.Time, bool) {
-	data, err := os.ReadFile(lockPath)
-	if err != nil {
-		return time.Time{}, false
-	}
-	first := strings.Split(string(data), "\n")[0]
-	line := strings.TrimSpace(first)
-	if line == "" {
-		return time.Time{}, false
-	}
-	t, err := time.Parse(time.RFC3339, line)
-	if err != nil {
-		return time.Time{}, false
-	}
-	return t.UTC(), true
-}
-
 // StatePath returns the state file path for a job .md path.
 func StatePath(jobMDPath string) string {
 	base := strings.TrimSuffix(filepath.Base(jobMDPath), ".md")
 	return filepath.Join(filepath.Dir(jobMDPath), base+".state")
 }
 
-type jobDiskState struct {
+// JobState is the job's sidecar record, basename.state next to basename.md.
+// Two writers share it: the daemon tick records the cron checkpoint after every
+// run it starts, and the first run of a job records the id of the job session
+// the run history lives in. Each writer reads the record first, so neither
+// field is lost to the other's write; a job renamed through the service takes
+// the sidecar with it, so the history follows the rename.
+type JobState struct {
+	// LastScheduledUTC is the UTC minute of the last cron fire the daemon
+	// started, RFC3339.
 	LastScheduledUTC string `json:"last_scheduled_utc,omitempty"`
+	// SessionID is the job session: the parent every run of the job is a
+	// child of. Empty until the job ran once.
+	SessionID string `json:"session_id,omitempty"`
 }
 
 func parseRFC3339Field(s string) (time.Time, bool) {
@@ -327,17 +319,28 @@ func parseRFC3339Field(s string) (time.Time, bool) {
 	return t.UTC(), true
 }
 
-// ReadJobState reads last scheduled fire time from a .state file.
-func ReadJobState(path string) (time.Time, error) {
+// ReadJobStateRecord reads the sidecar. A missing file is an empty record, not
+// an error: a job that never ran has none.
+func ReadJobStateRecord(path string) (JobState, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return time.Time{}, nil
+			return JobState{}, nil
 		}
-		return time.Time{}, err
+		return JobState{}, err
 	}
-	var st jobDiskState
+	var st JobState
 	if err := json.Unmarshal(data, &st); err != nil {
+		return JobState{}, err
+	}
+	return st, nil
+}
+
+// ReadJobState reads the last scheduled fire time from the sidecar; zero when
+// the file is missing or carries no parsable checkpoint.
+func ReadJobState(path string) (time.Time, error) {
+	st, err := ReadJobStateRecord(path)
+	if err != nil {
 		return time.Time{}, err
 	}
 	if t, ok := parseRFC3339Field(st.LastScheduledUTC); ok {
@@ -346,7 +349,17 @@ func ReadJobState(path string) (time.Time, error) {
 	return time.Time{}, nil
 }
 
-func marshalJobDiskState(st jobDiskState) ([]byte, error) {
+// ReadJobSessionID reads the job session id from the sidecar; empty when the
+// job never ran.
+func ReadJobSessionID(path string) (string, error) {
+	st, err := ReadJobStateRecord(path)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(st.SessionID), nil
+}
+
+func marshalJobState(st JobState) ([]byte, error) {
 	data, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
 		return nil, err
@@ -354,7 +367,7 @@ func marshalJobDiskState(st jobDiskState) ([]byte, error) {
 	return append(data, '\n'), nil
 }
 
-func persistJobDiskState(path string, data []byte) error {
+func persistJobState(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	f, err := os.CreateTemp(dir, filepath.Base(path)+".")
 	if err != nil {
@@ -390,16 +403,40 @@ func persistJobDiskState(path string, data []byte) error {
 	return nil
 }
 
-// WriteJobState persists the last executed cron slot (UTC).
-// It writes through a temp file in the same directory and renames into place so
-// concurrent daemon ticks never read a truncated JSON file as an empty checkpoint.
-// On Unix, rename replaces an existing destination atomically. On Windows the prior
-// file is removed first because os.Rename cannot replace an existing path there.
-func WriteJobState(path string, lastScheduled time.Time) error {
-	st := jobDiskState{LastScheduledUTC: lastScheduled.UTC().Format(time.RFC3339)}
-	data, err := marshalJobDiskState(st)
+// updateJobState rewrites the sidecar through a temp file in the same
+// directory and a rename, after handing the current record to apply. A
+// concurrent reader never sees a truncated file, and the field the caller did
+// not come for survives. On Unix the rename replaces the destination
+// atomically; on Windows the previous file is removed first because os.Rename
+// cannot replace an existing path there.
+func updateJobState(path string, apply func(*JobState)) error {
+	st, err := ReadJobStateRecord(path)
+	if err != nil {
+		// A corrupt record is replaced rather than kept: the checkpoint it
+		// carried is unreadable anyway, and the next tick re-derives timing
+		// from the wall clock as for a job with no checkpoint.
+		st = JobState{}
+	}
+	apply(&st)
+	data, err := marshalJobState(st)
 	if err != nil {
 		return err
 	}
-	return persistJobDiskState(path, data)
+	return persistJobState(path, data)
+}
+
+// WriteJobState persists the last executed cron slot (UTC), keeping the job
+// session id the record already carries.
+func WriteJobState(path string, lastScheduled time.Time) error {
+	return updateJobState(path, func(st *JobState) {
+		st.LastScheduledUTC = lastScheduled.UTC().Format(time.RFC3339)
+	})
+}
+
+// WriteJobSessionID records the job session id, keeping the cron checkpoint
+// the record already carries.
+func WriteJobSessionID(path, sessionID string) error {
+	return updateJobState(path, func(st *JobState) {
+		st.SessionID = strings.TrimSpace(sessionID)
+	})
 }

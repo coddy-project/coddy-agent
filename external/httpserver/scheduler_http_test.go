@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	// Register LaunchManualJob (same as cmd/coddy linking scheduler).
 	_ "github.com/EvilFreelancer/coddy-agent/external/scheduler"
@@ -192,24 +191,6 @@ func TestCoddySchedulerHTTPJobsEnvelopeCRUDPauseRunConflict(t *testing.T) {
 		t.Fatalf("run while paused status=%d want 409", runRes.StatusCode)
 	}
 
-	lockPath := filepath.Join(schedRoot, "demo-renamed.lock")
-	if err := os.WriteFile(lockPath, []byte("x\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	delReq, err := http.NewRequest(http.MethodDelete, ts.URL+"/coddy/scheduler/jobs/demo-renamed", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	delRes, err := http.DefaultClient.Do(delReq)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, _ = ioReadAllClose(delRes.Body)
-	if delRes.StatusCode != http.StatusConflict {
-		t.Fatalf("delete with lock=%d want 409", delRes.StatusCode)
-	}
-	_ = os.Remove(lockPath)
-
 	rmReq, err := http.NewRequest(http.MethodDelete, ts.URL+"/coddy/scheduler/jobs/demo-renamed", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -242,8 +223,7 @@ func TestCoddySchedulerHTTPJobsEnvelopeCRUDPauseRunConflict(t *testing.T) {
 		Mode:       session.ModeAgent,
 		SessionDir: dirS,
 	}
-	ss.SetSchedulerRunMeta("jobx", "2026-05-01T00:00:00Z")
-	ss.FinishSchedulerRun("2026-05-02T00:00:00Z", "completed")
+	ss.SetSchedulerJobWithoutPersist("jobx")
 	if err := store.Save(&ss); err != nil {
 		t.Fatal(err)
 	}
@@ -294,80 +274,5 @@ func TestCoddySchedulerHTTPJobsEnvelopeCRUDPauseRunConflict(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("include_scheduler listing missing sess_ui: %s", blsw)
-	}
-}
-
-func TestCoddySchedulerCancelClearsStaleLock(t *testing.T) {
-	root := t.TempDir()
-	home := filepath.Join(root, "home")
-	cwd := filepath.Join(root, "cwd")
-	schedRoot := filepath.Join(root, "scheduler")
-	sessRoot := filepath.Join(root, "sessions")
-	for _, d := range []string{home, cwd, schedRoot, sessRoot} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	cfg := &config.Config{
-		Paths:     config.Paths{Home: home, CWD: cwd},
-		Scheduler: config.SchedulerConfig{Enabled: true, Dir: schedRoot},
-		Sessions:  config.Sessions{Dir: sessRoot},
-		Models:    []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
-		Agent:     config.Agent{Model: "openai/gpt-4o"},
-	}
-	p := cfg.Paths
-	cfg.Scheduler.Normalize(p)
-	cfg.Scheduler.ApplyDefaults(p)
-
-	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
-		return "", nil
-	}
-	store := &session.FileStore{Root: sessRoot}
-	log := slog.Default()
-	mgr := session.NewManager(cfg, noopSender{}, runner, log, cwd, store)
-	ts := httptest.NewServer(New(cfg, mgr, log, cwd).Handler())
-	defer ts.Close()
-
-	payload := strings.NewReader(`{"job_id":"demo","description":"Demo","schedule":"0 9 * * 1","body":"Say hello."}`)
-	rPost, err := http.Post(ts.URL+"/coddy/scheduler/jobs", "application/json", payload)
-	if err != nil {
-		t.Fatal(err)
-	}
-	bPost, _ := ioReadAllClose(rPost.Body)
-	if rPost.StatusCode != http.StatusCreated {
-		t.Fatalf("create status=%d body=%s", rPost.StatusCode, bPost)
-	}
-
-	lockPath := filepath.Join(schedRoot, "demo.lock")
-	if err := os.WriteFile(lockPath, []byte("2020-01-01T00:00:00Z\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	old := time.Now().Add(-2 * time.Hour)
-	if err := os.Chtimes(lockPath, old, old); err != nil {
-		t.Fatal(err)
-	}
-
-	req, err := http.NewRequest(http.MethodPost, ts.URL+"/coddy/scheduler/jobs/demo/cancel", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, _ := ioReadAllClose(res.Body)
-	if res.StatusCode != http.StatusOK {
-		t.Fatalf("cancel status=%d body=%s", res.StatusCode, b)
-	}
-	var out map[string]interface{}
-	if err := json.Unmarshal(b, &out); err != nil {
-		t.Fatal(err)
-	}
-	if out["cancelled"] != true {
-		t.Fatalf("want cancelled true, got %+v", out)
-	}
-	if _, err := os.Stat(lockPath); err == nil {
-		t.Fatal("stale lock should be removed")
 	}
 }

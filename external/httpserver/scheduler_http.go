@@ -4,7 +4,6 @@ package httpserver
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -26,14 +25,12 @@ func (s *Server) registerSchedulerRoutes() {
 	s.mux.HandleFunc("POST /coddy/scheduler/jobs/{job_id}/run", s.coddySchedulerJobRunPost)
 	s.mux.HandleFunc("POST /coddy/scheduler/jobs/{job_id}/cancel", s.coddySchedulerJobCancelPost)
 	s.mux.HandleFunc("GET /coddy/scheduler/jobs/{job_id}/runs", s.coddySchedulerJobRunsGet)
+	s.mux.HandleFunc("DELETE /coddy/scheduler/jobs/{job_id}/runs", s.coddySchedulerJobRunsClear)
 }
 
 func (s *Server) coddySchedulerWriteErr(w http.ResponseWriter, err error) {
 	code := schedservice.HTTPErrStatus(err)
-	if code == http.StatusInternalServerError && !errors.Is(err, schedservice.ErrSchedulerDisabled) &&
-		!errors.Is(err, schedservice.ErrJobNotFound) && !errors.Is(err, schedservice.ErrInvalidJobID) &&
-		!errors.Is(err, schedservice.ErrJobBusy) && !errors.Is(err, schedservice.ErrJobExists) &&
-		!errors.Is(err, schedservice.ErrJobPaused) {
+	if !schedservice.IsClientError(err) {
 		s.log.Error("coddy_scheduler", "error", err)
 	}
 	msg := err.Error()
@@ -202,16 +199,20 @@ func (s *Server) coddySchedulerJobRunPost(w http.ResponseWriter, r *http.Request
 	}
 	id := strings.TrimSpace(r.PathValue("job_id"))
 	op := s.schedulerService()
-	if err := op.TriggerJobRun(id); err != nil {
+	ref, err := op.TriggerJobRun(id)
+	if err != nil {
 		s.coddySchedulerWriteErr(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"object": "coddy.scheduler_job_run_accepted",
-		"job_id": id,
-		"status": "accepted",
+		"object":         "coddy.scheduler_job_run_accepted",
+		"job_id":         id,
+		"status":         "accepted",
+		"task_id":        ref.TaskID,
+		"session_id":     ref.JobSessionID,
+		"run_session_id": ref.RunSessionID,
 	}); err != nil {
 		s.log.Error("coddy_scheduler_encode", "error", err)
 	}
@@ -255,11 +256,36 @@ func (s *Server) coddySchedulerJobRunsGet(w http.ResponseWriter, r *http.Request
 		s.coddySchedulerWriteErr(w, err)
 		return
 	}
+	sessionID := ""
+	if len(runs) > 0 {
+		sessionID = runs[0].JobSessionID
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"object": "coddy.scheduler_job_runs",
-		"job_id": id,
-		"runs":   runs,
+		"object":     "coddy.scheduler_job_runs",
+		"job_id":     id,
+		"session_id": sessionID,
+		"runs":       runs,
+	})
+}
+
+func (s *Server) coddySchedulerJobRunsClear(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.NotFound(w, r)
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("job_id"))
+	op := s.schedulerService()
+	cleared, err := op.ClearJobRuns(id)
+	if err != nil {
+		s.coddySchedulerWriteErr(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"object":  "coddy.scheduler_job_runs_cleared",
+		"job_id":  id,
+		"cleared": cleared,
 	})
 }
 
@@ -474,19 +500,23 @@ func openAPISchedulerPaths() map[string]interface{} {
 		},
 		"/coddy/scheduler/jobs/{job_id}/run": map[string]interface{}{
 			"post": map[string]interface{}{
-				"summary":    "Trigger asynchronous scheduler-backed agent run once",
-				"parameters": jobIDParam,
+				"summary":     "Start one run of the job now",
+				"description": "Starts a run the way the cron tick does: a background task of kind **agent** under the job's session (**`session_id`**), backed by the run session **`run_session_id`** that holds the transcript. Does not advance the cron **`.state`** checkpoint. **409** while the job is paused, while a run of it is in flight, while **scheduler.max_queue** runs are already going, or when the definition the job names is not trusted for its workspace.",
+				"parameters":  jobIDParam,
 				"responses": map[string]interface{}{
 					"202": map[string]interface{}{
-						"description": "Accepted (runs in-process). Does not mutate cron *.state checkpoints.",
+						"description": "Accepted: the run is registered and going.",
 						"content": map[string]interface{}{
 							"application/json": map[string]interface{}{
 								"schema": map[string]interface{}{
 									"type": "object",
 									"properties": map[string]interface{}{
-										"object": map[string]string{"type": "string"},
-										"job_id": map[string]string{"type": "string"},
-										"status": map[string]string{"type": "string", "example": "accepted"},
+										"object":         map[string]string{"type": "string"},
+										"job_id":         map[string]string{"type": "string"},
+										"status":         map[string]string{"type": "string", "example": "accepted"},
+										"task_id":        map[string]string{"type": "string", "description": "The background task under the job session."},
+										"session_id":     map[string]string{"type": "string", "description": "The job session: poll GET /coddy/sessions/{session_id}/background-tasks for the run rows."},
+										"run_session_id": map[string]string{"type": "string", "description": "The run session: GET /coddy/sessions/{run_session_id}/messages is its transcript."},
 									},
 								},
 							},
@@ -500,8 +530,8 @@ func openAPISchedulerPaths() map[string]interface{} {
 		},
 		"/coddy/scheduler/jobs/{job_id}/cancel": map[string]interface{}{
 			"post": map[string]interface{}{
-				"summary":     "Cancel tracked scheduler run or clear orphan lock",
-				"description": "**cancelled** is true when an in-process run received **context.Cancel**, or when a stale **basename.lock** was removed because no run is tracked (crash recovery).",
+				"summary":     "Stop the run of the job that is in flight",
+				"description": "Stops the run's background task; the run is recorded as **stopped** in the job's history. **cancelled** is false when the job was not running.",
 				"parameters":  jobIDParam,
 				"responses": map[string]interface{}{
 					"200": map[string]interface{}{
@@ -526,8 +556,8 @@ func openAPISchedulerPaths() map[string]interface{} {
 		},
 		"/coddy/scheduler/jobs/{job_id}/runs": map[string]interface{}{
 			"get": map[string]interface{}{
-				"summary":     "List persisted scheduler run sessions for job",
-				"description": "Returns metadata keyed by **`session_id`**. Inspect transcripts via existing **`GET /coddy/sessions/{id}/messages`** after selecting a **`session_id`**. Scheduler runs omit default composer lists unless **`include_scheduler=true`** on **`GET /coddy/sessions**`.",
+				"summary":     "List the runs of a job",
+				"description": "The runs of the job, newest first: the run in flight and the finished ones **scheduler.retain_sessions** kept. Each row is the run's background task seen from the job: **`task_id`** under the job session (**`job_session_id`**, also the envelope's **`session_id`**), and **`session_id`** the run session whose transcript **`GET /coddy/sessions/{session_id}/messages`** serves (read-only). The same rows are what **`GET /coddy/sessions/{job_session_id}/background-tasks`** lists, which is what the runs panel polls.",
 				"parameters": append(append([]interface{}{}, jobIDParam...), map[string]interface{}{
 					"name":        "limit",
 					"in":          "query",
@@ -536,8 +566,32 @@ func openAPISchedulerPaths() map[string]interface{} {
 				}),
 				"responses": map[string]interface{}{
 					"200": map[string]interface{}{
-						"description": "Run metadata envelope",
+						"description": "Run rows envelope",
 						"content":     jsonApp("#/components/schemas/SchedulerRunsEnvelope"),
+					},
+					"404": errorResponseRef(),
+					"503": errorResponseRef(),
+				},
+			},
+			"delete": map[string]interface{}{
+				"summary":     "Clear the finished runs of a job",
+				"description": "Removes every finished run of the job - the task record and the run's transcript - and answers how many went. A run in flight stays. This is what the runs panel's Clear does; **`DELETE /coddy/sessions/{job_session_id}/background-tasks`** would leave the transcripts behind.",
+				"parameters":  jobIDParam,
+				"responses": map[string]interface{}{
+					"200": map[string]interface{}{
+						"description": "Cleared count",
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"object":  map[string]string{"type": "string"},
+										"job_id":  map[string]string{"type": "string"},
+										"cleared": map[string]string{"type": "integer"},
+									},
+								},
+							},
+						},
 					},
 					"404": errorResponseRef(),
 					"503": errorResponseRef(),
@@ -560,45 +614,8 @@ func openAPISchedulerSchemas() map[string]interface{} {
 				"retain_sessions": map[string]string{"type": "integer"},
 			},
 		},
-		"SchedulerJobListRow": map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"job_id":                  map[string]string{"type": "string"},
-				"description":             map[string]string{"type": "string"},
-				"schedule":                map[string]string{"type": "string"},
-				"paused":                  map[string]string{"type": "boolean"},
-				"cwd":                     map[string]string{"type": "string"},
-				"model":                   map[string]string{"type": "string"},
-				"mode":                    map[string]string{"type": "string"},
-				"body":                    map[string]string{"type": "string"},
-				"last_scheduled_slot_utc": map[string]string{"type": "string"},
-				"next_run_utc":            map[string]string{"type": "string"},
-				"running": map[string]interface{}{
-					"type":        "boolean",
-					"description": "True while this process tracks an in-flight agent run for the job (not merely presence of basename.lock).",
-				},
-			},
-		},
+		"SchedulerJobListRow": map[string]interface{}{"$ref": "#/components/schemas/SchedulerJobFull"},
 		"SchedulerJobFull": map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"job_id":                  map[string]string{"type": "string"},
-				"description":             map[string]string{"type": "string"},
-				"schedule":                map[string]string{"type": "string"},
-				"paused":                  map[string]string{"type": "boolean"},
-				"cwd":                     map[string]string{"type": "string"},
-				"model":                   map[string]string{"type": "string"},
-				"mode":                    map[string]string{"type": "string"},
-				"body":                    map[string]string{"type": "string"},
-				"last_scheduled_slot_utc": map[string]string{"type": "string"},
-				"next_run_utc":            map[string]string{"type": "string"},
-				"running": map[string]interface{}{
-					"type":        "boolean",
-					"description": "True while this process tracks an in-flight agent run for the job (not merely presence of basename.lock).",
-				},
-			},
-		},
-		"SchedulerJobCreateDoc": map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
 				"job_id":      map[string]string{"type": "string"},
@@ -608,7 +625,42 @@ func openAPISchedulerSchemas() map[string]interface{} {
 				"cwd":         map[string]string{"type": "string"},
 				"model":       map[string]string{"type": "string"},
 				"mode":        map[string]string{"type": "string"},
-				"body":        map[string]string{"type": "string"},
+				"agent": map[string]interface{}{
+					"type":        "string",
+					"description": "Subagent definition the run is made under (role, tool allowlist, model, permission narrowing); empty runs a general agent.",
+				},
+				"permission_mode": map[string]interface{}{
+					"type":        "string",
+					"enum":        []interface{}{"ask", "accept_edits", "bypass"},
+					"description": "What a run may do without asking; empty is bypass. Under ask or accept_edits a gated call is denied, nobody being there to answer.",
+				},
+				"body":                    map[string]string{"type": "string"},
+				"last_scheduled_slot_utc": map[string]string{"type": "string"},
+				"next_run_utc":            map[string]string{"type": "string"},
+				"running": map[string]interface{}{
+					"type":        "boolean",
+					"description": "True while a run of the job is in flight in this process.",
+				},
+				"session_id": map[string]interface{}{
+					"type":        "string",
+					"description": "The job session every run is a child of: GET /coddy/sessions/{session_id}/background-tasks lists the runs. Empty until the first run.",
+				},
+				"last_run": map[string]interface{}{"$ref": "#/components/schemas/SchedulerRunRow"},
+			},
+		},
+		"SchedulerJobCreateDoc": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"job_id":          map[string]string{"type": "string"},
+				"description":     map[string]string{"type": "string"},
+				"schedule":        map[string]string{"type": "string"},
+				"paused":          map[string]string{"type": "boolean"},
+				"cwd":             map[string]string{"type": "string"},
+				"model":           map[string]string{"type": "string"},
+				"mode":            map[string]string{"type": "string"},
+				"agent":           map[string]string{"type": "string"},
+				"permission_mode": map[string]interface{}{"type": "string", "enum": []interface{}{"ask", "accept_edits", "bypass"}},
+				"body":            map[string]string{"type": "string"},
 			},
 			"required": []interface{}{"job_id", "description", "schedule", "body"},
 		},
@@ -617,15 +669,17 @@ func openAPISchedulerSchemas() map[string]interface{} {
 			"properties": map[string]interface{}{
 				"job_id": map[string]interface{}{
 					"type":        "string",
-					"description": "New job id (renames the on-disk job file and sidecars when different from the path job_id).",
+					"description": "New job id (renames the on-disk job file and its .state sidecar when different from the path job_id; the run history follows).",
 				},
-				"description": map[string]string{"type": "string"},
-				"schedule":    map[string]string{"type": "string"},
-				"paused":      map[string]string{"type": "boolean"},
-				"cwd":         map[string]string{"type": "string"},
-				"model":       map[string]string{"type": "string"},
-				"mode":        map[string]string{"type": "string"},
-				"body":        map[string]string{"type": "string"},
+				"description":     map[string]string{"type": "string"},
+				"schedule":        map[string]string{"type": "string"},
+				"paused":          map[string]string{"type": "boolean"},
+				"cwd":             map[string]string{"type": "string"},
+				"model":           map[string]string{"type": "string"},
+				"mode":            map[string]string{"type": "string"},
+				"agent":           map[string]string{"type": "string"},
+				"permission_mode": map[string]interface{}{"type": "string", "enum": []interface{}{"ask", "accept_edits", "bypass"}},
+				"body":            map[string]string{"type": "string"},
 			},
 		},
 		"SchedulerJobsListEnvelope": map[string]interface{}{
@@ -641,17 +695,25 @@ func openAPISchedulerSchemas() map[string]interface{} {
 		"SchedulerRunRow": map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
-				"session_id": map[string]string{"type": "string"},
-				"started_at": map[string]string{"type": "string"},
-				"ended_at":   map[string]string{"type": "string"},
-				"status":     map[string]string{"type": "string"},
+				"task_id":         map[string]string{"type": "string", "description": "The background task under the job session."},
+				"session_id":      map[string]string{"type": "string", "description": "The run session: its transcript is GET /coddy/sessions/{session_id}/messages (read-only)."},
+				"job_session_id":  map[string]string{"type": "string"},
+				"trigger":         map[string]interface{}{"type": "string", "enum": []interface{}{"cron", "manual"}},
+				"status":          map[string]interface{}{"type": "string", "enum": []interface{}{"running", "succeeded", "failed", "timed_out", "stopped", "orphaned"}},
+				"running":         map[string]string{"type": "boolean"},
+				"started_at":      map[string]string{"type": "string"},
+				"ended_at":        map[string]string{"type": "string"},
+				"elapsed_seconds": map[string]string{"type": "integer"},
+				"error":           map[string]string{"type": "string"},
+				"label":           map[string]string{"type": "string"},
 			},
 		},
 		"SchedulerRunsEnvelope": map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
-				"object": map[string]string{"type": "string"},
-				"job_id": map[string]string{"type": "string"},
+				"object":     map[string]string{"type": "string"},
+				"job_id":     map[string]string{"type": "string"},
+				"session_id": map[string]string{"type": "string", "description": "The job session; empty when the job never ran."},
 				"runs": map[string]interface{}{
 					"type":  "array",
 					"items": map[string]interface{}{"$ref": "#/components/schemas/SchedulerRunRow"},

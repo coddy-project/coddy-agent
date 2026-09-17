@@ -17,7 +17,7 @@ func jobRunsTool(cfg *config.Config) *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
 			Name: toolJobRuns,
-			Description: "Lists recent persisted scheduler runs for a job_id (metadata only). Each row includes session_id; read full turns with normal session tools or HTTP /coddy/sessions/{session_id}/messages. " +
+			Description: "Lists the runs of a job, newest first: the run in flight and the finished ones retention kept (scheduler.retain_sessions). Each row carries task_id (the background task under the job's session), session_id (the run's transcript session: read it with HTTP /coddy/sessions/{session_id}/messages), trigger (cron or manual), status (running, succeeded, failed, timed_out, stopped, orphaned), started_at, ended_at, elapsed_seconds and error. " +
 				"Use when the user wants history, audit, or to debug a recurring job. Optional limit (default 50, max 100).",
 			InputSchema: map[string]interface{}{
 				"type": "object",
