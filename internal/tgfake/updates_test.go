@@ -58,6 +58,9 @@ func TestGetUpdates_AllowedUpdatesIsRemembered(t *testing.T) {
 	if _, _, err := s.fake.InjectCallback(IncomingCallback{Label: "Plan"}); err != nil {
 		t.Fatal(err)
 	}
+	if got := s.fake.PendingUpdates(); got != 1 {
+		t.Fatalf("excluded tap was queued: %d pending updates", got)
+	}
 
 	// A poll that names no allowed_updates (the literal null) inherits it:
 	// the message arrives, the tap is dropped for good.
@@ -76,11 +79,18 @@ func TestGetUpdates_AllowedUpdatesIsRemembered(t *testing.T) {
 		t.Fatalf("tap still filtered without a new subscription: %v", got)
 	}
 
-	// Naming the kinds replaces the subscription.
+	// Naming the kinds replaces the subscription for future updates only.
 	if _, _, err := s.fake.InjectCallback(IncomingCallback{Label: "Plan"}); err != nil {
 		t.Fatal(err)
 	}
 	_, body = s.call("getUpdates", url.Values{"offset": {"2"}, "timeout": {"0"}, "allowed_updates": {`["message","callback_query"]`}})
+	if got := updates(t, body); len(got) != 0 {
+		t.Fatalf("subscription change recovered an excluded tap: %v", got)
+	}
+	if _, _, err := s.fake.InjectCallback(IncomingCallback{Label: "Plan"}); err != nil {
+		t.Fatal(err)
+	}
+	_, body = s.call("getUpdates", url.Values{"offset": {"2"}, "timeout": {"0"}})
 	if got := updates(t, body); len(got) != 1 || got[0]["callback_query"] == nil {
 		t.Fatalf("subscribed tap: %v", got)
 	}
@@ -89,7 +99,7 @@ func TestGetUpdates_AllowedUpdatesIsRemembered(t *testing.T) {
 	}
 
 	// An empty list is every kind again; a broken one is refused.
-	s.call("getUpdates", url.Values{"offset": {"5"}, "timeout": {"0"}, "allowed_updates": {`[]`}})
+	s.call("getUpdates", url.Values{"offset": {"6"}, "timeout": {"0"}, "allowed_updates": {`[]`}})
 	if got := s.fake.AllowedUpdates(); got != nil {
 		t.Fatalf("empty list should mean everything: %v", got)
 	}

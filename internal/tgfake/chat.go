@@ -197,6 +197,20 @@ type DraftView struct {
 // typingWindow is how long Telegram shows "typing…" after one chat action.
 const typingWindow = 5 * time.Second
 
+// draftLifetime is renewed by every successful sendRichMessageDraft revision.
+const draftLifetime = 30 * time.Second
+
+// expireDraftsLocked removes previews whose last revision expired. Reads and
+// writes both prune, so an active chat does not accumulate obsolete drafts.
+// Caller holds s.mu.
+func (c *chatState) expireDraftsLocked(now time.Time) {
+	for id, d := range c.drafts {
+		if !now.Before(d.updatedAt.Add(draftLifetime)) {
+			delete(c.drafts, id)
+		}
+	}
+}
+
 // Chat returns the transcript of a chat; an unknown chat is an empty one.
 func (s *Server) Chat(id int64) ChatView {
 	s.mu.Lock()
@@ -209,6 +223,7 @@ func (s *Server) Chat(id int64) ChatView {
 }
 
 func (c *chatState) view(now time.Time) ChatView {
+	c.expireDraftsLocked(now)
 	v := ChatView{
 		ChatID:    c.id,
 		Type:      c.typ,

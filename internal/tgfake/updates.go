@@ -177,11 +177,16 @@ func (s *Server) InjectCallback(in IncomingCallback) (updateID int, callbackID s
 	return upd, id, nil
 }
 
-// pushUpdateLocked numbers an update, queues it and wakes the polls.
+// pushUpdateLocked numbers an update and queues it only if the subscription
+// in force at creation includes its kind. Later polls cannot recover an
+// excluded update or discard one that was already queued.
 // Caller holds s.mu.
 func (s *Server) pushUpdateLocked(u Update) int {
 	u.UpdateID = s.nextUpdate
 	s.nextUpdate++
+	if !s.deliverableLocked(u) {
+		return u.UpdateID
+	}
 	s.pending = append(s.pending, u)
 	s.wakeLocked()
 	return u.UpdateID
@@ -218,13 +223,12 @@ func (s *Server) deliverableLocked(u Update) bool {
 	return false
 }
 
-// takeUpdatesLocked confirms everything below offset, drops what the
-// subscription excludes - Telegram does not hold those back for later, it
-// forgets them - and returns up to limit of what is left. Caller holds s.mu.
+// takeUpdatesLocked confirms everything below offset and returns up to limit
+// of what is left. Subscription changes affect only new updates. Caller holds s.mu.
 func (s *Server) takeUpdatesLocked(offset, limit int) []Update {
 	kept := s.pending[:0]
 	for _, u := range s.pending {
-		if u.UpdateID >= offset && s.deliverableLocked(u) {
+		if u.UpdateID >= offset {
 			kept = append(kept, u)
 		}
 	}

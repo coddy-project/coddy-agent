@@ -371,13 +371,15 @@ func (s *Server) sendRichMessageDraft(w http.ResponseWriter, method string, para
 	}
 	s.mu.Lock()
 	chat := s.ensureChatLocked(chatID, "", "", nil)
+	now := s.now()
+	chat.expireDraftsLocked(now)
 	d := chat.drafts[draftID]
 	if d == nil {
 		d = &draft{id: draftID}
 		chat.drafts[draftID] = d
 	}
 	d.markdown = in.Markdown
-	d.updatedAt = s.now()
+	d.updatedAt = now
 	d.revisions++
 	s.mu.Unlock()
 	s.writeResult(w, method, params, true)

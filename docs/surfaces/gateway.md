@@ -440,6 +440,13 @@ dropped before anyone sees them. The gateway therefore asks for `message` and
 force; `tgfake.Options.AllowedUpdates` starts a bot under a stale one, which
 is how the polling feature reproduces the case. On a real bot,
 `getWebhookInfo` reports the same field.
+The subscription is applied when an update is created: changing it preserves
+already queued updates and cannot recover events excluded at creation.
+
+Rich-message previews expire 30 seconds after their last successful revision.
+The chat page and `/sim/chat/{id}` stop showing expired drafts; reading the
+chat or writing another draft also removes expired entries from its storage.
+The outbox retains the calls for debugging, and persistent messages remain.
 
 `--llm-answer` (repeatable) scripts the model's replies in turn, `--llm-script
 rules.json` matches them by substring (`[{"match": "weather", "answer":
