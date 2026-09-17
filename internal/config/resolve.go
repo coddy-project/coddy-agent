@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 )
 
@@ -74,6 +75,59 @@ func (c *Config) ResolveLLM(modelRef string) (*ResolvedLLM, error) {
 		TimeoutMS:    prov.TimeoutMS,
 		Stream:       entry.EffectiveStream(),
 	}, nil
+}
+
+// UnsentModelSetting is a models[] setting the provider serving the model never
+// sends, so it bounds nothing.
+type UnsentModelSetting struct {
+	// Model is the models[].model selector the setting sits on.
+	Model string
+	// Key is the setting's key inside that entry.
+	Key string
+	// Message says what the setting fails to do and why.
+	Message string
+}
+
+// Path is the setting's config path, in the selector form the config check and
+// the dry run place a finding with.
+func (u UnsentModelSetting) Path() string { return "models[" + u.Model + "]." + u.Key }
+
+// UnsentModelSettings reports the models[] settings their provider never sends:
+// today max_tokens on a model served by a codex provider, whose backend rejects
+// an output cap (max_output_tokens). The loader still accepts them, unlike
+// stream: false on the same provider: the settings form seeds max_tokens on
+// every model row it adds, and refusing to load would stop a server over a
+// value that never did anything. The config check, the dry run and the startup
+// log name each one instead, so the value is not taken for a bound.
+func (c *Config) UnsentModelSettings() []UnsentModelSetting {
+	if c == nil {
+		return nil
+	}
+	var out []UnsentModelSetting
+	for i := range c.Models {
+		m := &c.Models[i]
+		prov := c.FindProvider(m.ProviderName())
+		if prov == nil || prov.Type != "codex" || m.MaxTokens <= 0 {
+			continue
+		}
+		out = append(out, UnsentModelSetting{
+			Model:   m.Model,
+			Key:     "max_tokens",
+			Message: "max_tokens bounds nothing on a codex model: the Codex backend takes no output cap, so no request carries it",
+		})
+	}
+	return out
+}
+
+// LogUnsentModelSettings writes a startup warning for every setting
+// UnsentModelSettings reports. Nothing is logged when there is none.
+func (c *Config) LogUnsentModelSettings(log *slog.Logger) {
+	if log == nil {
+		return
+	}
+	for _, u := range c.UnsentModelSettings() {
+		log.Warn("model setting has no effect", "setting", u.Path(), "detail", u.Message)
+	}
 }
 
 // ValidateModelsProvidersAndAgent checks providers, models, and agent.model references.

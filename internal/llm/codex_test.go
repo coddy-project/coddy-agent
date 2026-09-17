@@ -8,11 +8,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
 // sse writes one Server-Sent Event with the given type and JSON data payload.
@@ -732,5 +735,65 @@ func TestCodexCompleteRetriesACutStream(t *testing.T) {
 	}
 	if resp.Content != "Hello world" || calls.Load() != 2 {
 		t.Fatalf("content %q after %d requests, want the retried whole answer after 2", resp.Content, calls.Load())
+	}
+}
+
+// TestCodexConfiguredMaxTokensNeverReachesTheWire builds a codex provider the
+// way every surface does - a models[] entry, ResolveLLM, NewProvider - and
+// reads the request the backend received: a configured max_tokens (and
+// temperature) is not on it, which is why the config check, the dry run and
+// the startup log call that setting one that bounds nothing.
+func TestCodexConfiguredMaxTokensNeverReachesTheWire(t *testing.T) {
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		sse(w, "response.output_text.delta", map[string]any{"delta": "ok"})
+		sseCompleted(w)
+	}))
+	defer srv.Close()
+	t.Setenv(EnvCodexBaseURL, srv.URL)
+
+	home := t.TempDir()
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: home},
+		Providers: []config.ProviderConfig{{Name: "codex", Type: "codex"}},
+		Models:    []config.ModelEntry{{Model: "codex/gpt-5.5", MaxTokens: 8192, Temperature: 0.3}},
+	}
+	authPath := config.CodexAuthPath(home, "codex")
+	if err := os.MkdirAll(filepath.Dir(authPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(writeCodexAuth(t, t.TempDir(), codexAuthFile{
+		AuthMode: codexAuthModeChatGPT,
+		Tokens:   codexTokens{AccessToken: makeJWT(time.Now().Add(time.Hour)), RefreshToken: "rt", AccountID: "acct"},
+	}), authPath); err != nil {
+		t.Fatal(err)
+	}
+	rm, err := cfg.ResolveLLM("codex/gpt-5.5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider, err := NewProvider(ProviderInput{
+		Type: rm.ProviderType, Model: rm.Model, AuthPath: rm.AuthPath,
+		MaxTokens: rm.MaxTokens, Temperature: rm.Temperature, RetryDisabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {}); err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	if body["model"] != "gpt-5.5" {
+		t.Fatalf("the request never reached the stand-in backend: %v", body)
+	}
+	for _, key := range []string{"max_output_tokens", "max_tokens", "temperature"} {
+		if v, ok := body[key]; ok {
+			t.Errorf("the codex request carries %s=%v, which its backend rejects", key, v)
+		}
+	}
+	if got := cfg.UnsentModelSettings(); len(got) != 1 || got[0].Key != "max_tokens" {
+		t.Errorf("the config does not report the unsent max_tokens: %+v", got)
 	}
 }

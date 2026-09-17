@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -497,6 +498,9 @@ httpserver:
   port: 8080
 skills:
   dirs: ["/one", "/two"]
+models:
+  - model: codex/gpt-5.5
+    max_tokens: 4096
 `
 	loc := NewLocator([]byte(doc))
 	cases := map[string][2]int{
@@ -506,6 +510,9 @@ skills:
 		"httpserver.port":       {8, 9},
 		"skills.dirs[1]":        {10, 18},
 		"httpserver":            {7, 1},
+		// A dot inside a selector belongs to the id, not the path.
+		"models[codex/gpt-5.5]":            {12, 5},
+		"models[codex/gpt-5.5].max_tokens": {13, 17},
 	}
 	for path, want := range cases {
 		line, col, ok := loc.Locate(path)
@@ -600,5 +607,32 @@ func TestCheckKeepsTheLinesOfEveryDecodeError(t *testing.T) {
 	}
 	if !lines[3] || !lines[4] {
 		t.Fatalf("want a finding on line 3 and on line 4, got %+v", rep.Findings)
+	}
+}
+
+func TestUnsentModelSettingsNameCodexMaxTokensOnly(t *testing.T) {
+	cfg := &Config{
+		Providers: []ProviderConfig{{Name: "codex", Type: "codex"}, {Name: "local", Type: "openai"}},
+		Models: []ModelEntry{
+			{Model: "codex/gpt-5.5", MaxTokens: 4096},
+			{Model: "codex/gpt-5.4"},
+			{Model: "local/qwen", MaxTokens: 4096},
+			{Model: "ghost/model", MaxTokens: 4096},
+		},
+	}
+	got := cfg.UnsentModelSettings()
+	if len(got) != 1 || got[0].Path() != "models[codex/gpt-5.5].max_tokens" || !strings.Contains(got[0].Message, "bounds nothing") {
+		t.Fatalf("UnsentModelSettings = %+v, want only the codex model carrying max_tokens", got)
+	}
+
+	var buf bytes.Buffer
+	cfg.LogUnsentModelSettings(slog.New(slog.NewTextHandler(&buf, nil)))
+	if line := buf.String(); strings.Count(line, "\n") != 1 || !strings.Contains(line, "level=WARN") || !strings.Contains(line, "setting=models[codex/gpt-5.5].max_tokens") {
+		t.Fatalf("startup log = %q, want one warning naming the setting", line)
+	}
+	buf.Reset()
+	(&Config{Models: []ModelEntry{{Model: "local/qwen", MaxTokens: 4096}}, Providers: []ProviderConfig{{Name: "local", Type: "openai"}}}).LogUnsentModelSettings(slog.New(slog.NewTextHandler(&buf, nil)))
+	if buf.Len() != 0 {
+		t.Fatalf("a config without unsent settings logged %q", buf.String())
 	}
 }

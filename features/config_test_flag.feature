@@ -44,6 +44,13 @@ Feature: Checking config.yaml before anything starts
     And the report says the config is valid
     And the report has nothing else to say
 
+  Scenario: an output cap the provider never sends is reported as bounding nothing
+    Given a config.yaml whose codex model sets max_tokens on line 7
+    When I run coddy with -t
+    Then the command succeeds
+    And the report points at line 7 of the config file
+    And the report warns that max_tokens bounds nothing on a codex model
+
   Scenario: the check never rewrites the file
     Given a config.yaml with a broken value and a valid config.yaml.bak beside it
     When I run coddy acp with -t

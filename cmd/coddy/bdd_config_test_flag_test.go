@@ -84,6 +84,34 @@ agent:
 `)
 }
 
+// codexModelMaxTokens writes a codex model carrying max_tokens, as a row the
+// settings form adds does: the Codex backend takes no output cap, so the value
+// bounds nothing.
+func (s *configTestFlagState) codexModelMaxTokens(line int) error {
+	body := `# yaml-language-server: $schema=https://coddy.dev/config.schema.json
+providers:
+  - name: codex
+    type: codex
+models:
+  - model: codex/gpt-5.5
+    max_tokens: 4096
+agent:
+  model: codex/gpt-5.5
+`
+	if got := strings.Count(body[:strings.Index(body, "max_tokens")], "\n") + 1; got != line {
+		return fmt.Errorf("the fixture puts max_tokens on line %d, the scenario says %d", got, line)
+	}
+	return s.write(body)
+}
+
+func (s *configTestFlagState) reportWarnsCodexMaxTokens() error {
+	txt := s.out.String()
+	if !strings.Contains(txt, "warning: ") || !strings.Contains(txt, "max_tokens bounds nothing on a codex model") {
+		return fmt.Errorf("the report does not warn that max_tokens bounds nothing:\n%s", txt)
+	}
+	return nil
+}
+
 func (s *configTestFlagState) misspelledHTTPServerKey(line int) error {
 	body := "httpserver:\n  host: 127.0.0.1\n  enabled: true\n"
 	if got := strings.Count(strings.TrimSuffix(body, "\n"), "\n") + 1; got != line {
@@ -250,6 +278,8 @@ func initializeConfigTestFlagScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^a config\.yaml with one provider and one model$`, s.validConfig)
 	sc.Step(`^a config\.yaml whose httpserver section says "enabled: true" on line (\d+)$`, s.misspelledHTTPServerKey)
+	sc.Step(`^a config\.yaml whose codex model sets max_tokens on line (\d+)$`, s.codexModelMaxTokens)
+	sc.Step(`^the report warns that max_tokens bounds nothing on a codex model$`, s.reportWarnsCodexMaxTokens)
 	sc.Step(`^a config\.yaml whose logger\.level is "([^"]*)"$`, s.loggerLevel)
 	sc.Step(`^a config\.yaml whose provider entry loses one space of indentation on line (\d+)$`, s.misindentedProviderEntry)
 	sc.Step(`^a config\.yaml with one provider and one model saved as Windows text$`, s.windowsValidConfig)
