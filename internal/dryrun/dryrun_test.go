@@ -331,7 +331,7 @@ func TestPromptsDirAndTemplates(t *testing.T) {
 
 func TestExplicitSkillsDirMissingIsAWarningDefaultsAreSilent(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "skills-gone")
-	rep := run(t, "skills:\n  dirs: [\""+missing+"\"]\n", nil)
+	rep := run(t, fmt.Sprintf("skills:\n  dirs: [%q]\n", missing), nil)
 	if c := find(t, rep, "skills.dirs[0]"); c.Status != StatusWarning || !strings.Contains(c.Message, "does not exist") || c.Line != 3 {
 		t.Errorf("explicit dir %+v", c)
 	}

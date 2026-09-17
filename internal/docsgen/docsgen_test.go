@@ -72,6 +72,46 @@ func TestCheckLinksFindsBrokenTargetsAndAnchors(t *testing.T) {
 	}
 }
 
+func TestCodeFencesAndAssetSizesWithCRLF(t *testing.T) {
+	for _, eol := range []string{"\n", "\r\n"} {
+		t.Run(fmt.Sprintf("%q", eol), func(t *testing.T) {
+			root := t.TempDir()
+			body := "# Real\n\n~~~\n# Fake\n[example](missing.md)\n~~~\n\n[real](#real)\n"
+			write(t, root, "docs/page.md", strings.ReplaceAll(body, "\n", eol))
+			if problems := CheckLinks(root, []string{"docs/page.md"}); len(problems) != 0 {
+				t.Fatalf("fenced example treated as a link: %v", problems)
+			}
+			if headingAnchors(filepath.Join(root, "docs/page.md"))["fake"] {
+				t.Fatal("fenced heading became a page anchor")
+			}
+			svg := "<svg>\n</svg>\n"
+			write(t, root, "docs/assets/icon.svg", strings.ReplaceAll(svg, "\n", eol))
+			write(t, root, "docs/assets/INDEX.md", "Icon: `icon.svg`\n")
+			assets, err := AssetInventory(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(assets) != 1 || assets[0].Size != int64(len(svg)) {
+				t.Fatalf("inventory depends on checkout line endings: %+v", assets)
+			}
+		})
+	}
+}
+
+func TestStaleIgnoresCheckoutLineEndings(t *testing.T) {
+	root := t.TempDir()
+	want := "# Page\n\nGenerated content.\n"
+	r := Result{Files: map[string]string{"docs/page.md": want}}
+	write(t, root, "docs/page.md", strings.ReplaceAll(want, "\n", "\r\n"))
+	if problems := r.Stale(root); len(problems) != 0 {
+		t.Fatalf("CRLF checkout reported as stale: %v", problems)
+	}
+	write(t, root, "docs/page.md", "# Page\r\n\r\nOld content.\r\n")
+	if problems := r.Stale(root); len(problems) != 1 {
+		t.Fatalf("real content change must still be reported: %v", problems)
+	}
+}
+
 func TestCheckNavListsEveryPageOnce(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, NavFile, "groups:\n  - id: g\n    title: G\n    pages:\n      - path: one.md\n        title: One\n        summary: s\n      - path: missing.md\n        title: Missing\n        summary: s\n")

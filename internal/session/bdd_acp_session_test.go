@@ -5,12 +5,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"syscall"
 	"testing"
 	"time"
 
@@ -382,12 +385,17 @@ func (s *acpSessionFeatureState) coddyACPKeepsSessionsOnDisk() error {
 // sessionCreatedThroughSymlinkedPath creates a session the way a console
 // started inside a symlinked checkout stores it: the cwd carries the link's
 // spelling, while an editor opening the same folder sends the physical one.
-func (s *acpSessionFeatureState) sessionCreatedThroughSymlinkedPath() error {
+func (s *acpSessionFeatureState) sessionCreatedThroughSymlinkedPath(ctx context.Context) error {
 	real := filepath.Join(s.root, "real", "project")
 	if err := os.MkdirAll(real, 0o755); err != nil {
 		return err
 	}
 	if err := os.Symlink(filepath.Join(s.root, "real"), filepath.Join(s.root, "link")); err != nil {
+		// ERROR_PRIVILEGE_NOT_HELD: Developer Mode or elevation is required.
+		if runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(1314)) {
+			godog.T(ctx).Skipf("symlinks are unavailable: %v", err)
+			return nil
+		}
 		return err
 	}
 	s.realProjectDir = real

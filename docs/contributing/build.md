@@ -208,6 +208,19 @@ Order does not matter for these tags.
 
 **`make test`** is the express run: the whole tree once with every optional module compiled in (**`http,ui,scheduler,memory,cli,gateway,swarm`**). **`make test-matrix`** walks every combination (the **`TEST_TAG_SETS`** list in [`Makefile`](../../Makefile)); CI runs that matrix on every pull request, one job per combination.
 
+On Windows, run Make through Git Bash. The build and install targets use Go's
+executable suffix (`coddy.exe`), including the binary that `make docs` runs.
+Fixtures escape native paths in JSON and
+YAML, and packaging checks accept CRLF checkouts. POSIX mode assertions do not
+apply on Windows; tests that induce failures through Unix directory or file
+permissions skip there (and when run as root). The ACP symlink scenario skips
+only when Windows denies the symlink privilege; enable Developer Mode or run an
+elevated terminal to exercise it. Docker asset checks also cover Git checkouts
+with `core.symlinks=false` by reading link modes from the index.
+
+Documentation checks accept CRLF code fences and measure SVG text with LF line
+endings, so Windows checkout conversion does not change the generated inventory.
+
 ## Release binaries (CI)
 
 On each SemVer git tag **`X.Y.Z`** that is on **`main`**, the [**Release binaries**](../../.github/workflows/release-binaries.yaml) workflow (separate from Docker CI) uploads archives to the matching **GitHub Release**:

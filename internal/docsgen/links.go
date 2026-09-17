@@ -27,7 +27,7 @@ var linkRE = regexp.MustCompile(`(?m)(?:\]\(|(?:src|href)=")([^)"\s]+)[)"]|^\[[^
 // fencedRE strips fenced code blocks so a "](x)" inside an example is not a
 // link. A fence opens and closes at the start of a line, with backticks or
 // tildes: three backticks in running prose are not a fence.
-var fencedRE = regexp.MustCompile("(?ms)^[ \\t]*(```|~~~).*?^[ \\t]*(```|~~~)[ \\t]*$")
+var fencedRE = regexp.MustCompile("(?ms)^[ \\t]*(```|~~~).*?^[ \\t]*(```|~~~)[ \\t]*\\r?$")
 
 // inlineCodeRE strips inline code spans for the same reason.
 var inlineCodeRE = regexp.MustCompile("`[^`\n]*`")
