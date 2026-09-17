@@ -201,7 +201,21 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 		// Same transport wrapper as the openai path: the emitted flag lets
 		// classification retry status-less failures only while nothing was
 		// delivered. HTTP errors keep their status reachable through Unwrap.
-		return nil, fmt.Errorf("anthropic stream: %w", &streamTransportError{cause: err, emitted: emitted})
+		wrapped := fmt.Errorf("anthropic stream: %w", &streamTransportError{cause: err, emitted: emitted})
+		if IsStreamStalled(err) && (strings.TrimSpace(fullContent) != "" || strings.TrimSpace(thinkingBuf.String()) != "") {
+			// The stall guard cut the stream: keep what the user watched
+			// arrive, as the truncation branch below does, and drop the
+			// tool_use blocks whose input may be cut mid-JSON.
+			return &Response{
+				Content:            fullContent,
+				Reasoning:          thinkingBuf.String(),
+				ReasoningSignature: thinkingSig,
+				InputTokens:        inputTokens,
+				OutputTokens:       outputTokens,
+				CachedInputTokens:  cachedInputTokens,
+			}, wrapped
+		}
+		return nil, wrapped
 	}
 
 	if stopReason == "" {
