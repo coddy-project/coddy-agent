@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -196,6 +197,9 @@ func TestConfigRevertDropsAllOrByPath(t *testing.T) {
 }
 
 func TestConfigCommitAbortsWhenStagingCannotBeConsumed(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("requires directory permissions that deny writes")
+	}
 	const original = "agent:\n  max_turns: 21\n"
 	env := testConfigToolsEnv(t, original)
 	reloads := 0
@@ -233,6 +237,9 @@ func TestConfigCommitAbortsWhenStagingCannotBeConsumed(t *testing.T) {
 }
 
 func TestConfigCommitKeepsStagingConsumedWhenRollbackFails(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("requires directory permissions that deny writes")
+	}
 	const original = "agent:\n  max_turns: 21\nskills:\n  dirs:\n    - /opt/base\n"
 	env := testConfigToolsEnv(t, original)
 	dir := filepath.Dir(env.ConfigPath)

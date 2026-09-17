@@ -1,6 +1,7 @@
 package permission
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -350,7 +351,11 @@ func TestHTTPRequestFilesNeedTheirOwnApproval(t *testing.T) {
 	if allowedHTTP(env, st, `{"url":"https://api.example.com/upload","body_file":"other.txt"}`) {
 		t.Error("a different file rides on the approval")
 	}
-	if !allowedHTTP(httpEnv(t, "ask", "api.example.com"), httpState(), `{"url":"https://api.example.com/upload","body_file":"`+filepath.Join(env.CWD, "other.txt")+`"}`) {
+	args, err := json.Marshal(map[string]string{"url": "https://api.example.com/upload", "body_file": filepath.Join(env.CWD, "other.txt")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !allowedHTTP(httpEnv(t, "ask", "api.example.com"), httpState(), string(args)) {
 		t.Error("an allowlisted destination still asks about a file")
 	}
 }

@@ -123,6 +123,9 @@ func initializeDocsIgnoreScenario(sc *godog.ScenarioContext) {
 	sc.Given(`^the file "([^"]*)" which docs/nav\.yaml does not list, linking to "([^"]*)"$`, w.unlistedFileLinkingTo)
 
 	sc.When(`^the documentation checks run$`, w.checksRun)
+	sc.Given(`^that page contains fenced code with CRLF line endings$`, func() error {
+		return w.writeFile(w.listed[len(w.listed)-1], "# Windows\r\n\r\n```go\r\nparseArgs[Args](argsJSON)\r\n# Example heading\r\n```\r\n\r\n[here](#windows)\r\n")
+	})
 
 	sc.Then(`^the documentation checks pass$`, w.checksPass)
 	sc.Then(`^"([^"]*)" is reported as not listed in docs/nav\.yaml$`, func(rel string) error {

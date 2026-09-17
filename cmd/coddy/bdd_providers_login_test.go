@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -312,7 +313,7 @@ func (s *loginFlowState) storedKeyIs(want string) error {
 	if err != nil {
 		return err
 	}
-	if mode := info.Mode().Perm(); mode != 0o600 {
+	if mode := info.Mode().Perm(); runtime.GOOS != "windows" && mode != 0o600 {
 		return fmt.Errorf("credential mode = %v, want 0600", mode)
 	}
 	return nil

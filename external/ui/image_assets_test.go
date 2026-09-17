@@ -4,6 +4,7 @@ package ui
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -20,6 +21,19 @@ import (
 // as usual, so the coupling gets a test rather than a note.
 func TestDockerfileStagesEverySymlinkedAsset(t *testing.T) {
 	copied := dockerfileAssetPatterns(t)
+	// With core.symlinks=false Git checks out link targets as plain text.
+	// The index still identifies which assets Docker receives as symlinks.
+	index, err := exec.Command("git", "ls-files", "--stage", "-z", "--", "src/assets").Output()
+	if err != nil {
+		t.Fatalf("read asset modes from git: %v", err)
+	}
+	links := map[string]bool{}
+	for _, record := range strings.Split(string(index), "\x00") {
+		mode, path, ok := strings.Cut(record, "\t")
+		if ok && strings.HasPrefix(mode, "120000 ") {
+			links[filepath.Base(path)] = true
+		}
+	}
 
 	assets := filepath.Join("src", "assets")
 	entries, err := os.ReadDir(assets)
@@ -33,12 +47,20 @@ func TestDockerfileStagesEverySymlinkedAsset(t *testing.T) {
 		if err != nil {
 			t.Fatalf("stat %s: %v", entry.Name(), err)
 		}
-		if info.Mode()&os.ModeSymlink == 0 {
+		isLink := info.Mode()&os.ModeSymlink != 0
+		if !isLink && !links[entry.Name()] {
 			continue
 		}
 		seen++
 
-		target, err := os.Readlink(filepath.Join(assets, entry.Name()))
+		var target string
+		if isLink {
+			target, err = os.Readlink(filepath.Join(assets, entry.Name()))
+		} else {
+			var raw []byte
+			raw, err = os.ReadFile(filepath.Join(assets, entry.Name()))
+			target = strings.TrimSpace(string(raw))
+		}
 		if err != nil {
 			t.Fatalf("readlink %s: %v", entry.Name(), err)
 		}

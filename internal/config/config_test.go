@@ -304,7 +304,7 @@ logger:
 	if cfg.Logger.Outputs[0] != config.LogOutputStderr || cfg.Logger.Outputs[1] != config.LogOutputFile {
 		t.Fatalf("unexpected outputs: %v", cfg.Logger.Outputs)
 	}
-	if cfg.Logger.File != "/tmp/coddy-legacy.log" {
+	if cfg.Logger.File != filepath.FromSlash("/tmp/coddy-legacy.log") {
 		t.Fatalf("file: %q", cfg.Logger.File)
 	}
 }

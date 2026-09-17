@@ -39,3 +39,9 @@ Feature: The documentation checks leave alone what git ignores
     Given the file "docs/plans/selector.md" which docs/nav.yaml does not list
     When the documentation checks run
     Then the documentation checks pass
+
+  Scenario: Code examples in a Windows checkout are not links
+    Given the page "docs/features/plan.md" listed in docs/nav.yaml
+    And that page contains fenced code with CRLF line endings
+    When the documentation checks run
+    Then the documentation checks pass

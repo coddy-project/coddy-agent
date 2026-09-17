@@ -3,18 +3,17 @@
 package telegram
 
 // Godog harness for features/gateway_telegram_model_switch.feature: drives
-// /model and the inline-keyboard tap through the real handlers against a stub
-// Telegram API, and asserts on the session model plus the debug trail. No LLM
-// and no network beyond the local httptest server.
+// /model and the inline-keyboard tap through the real handlers against the
+// fake Bot API (internal/tgfake), and asserts on the session model plus the
+// debug trail. The keyboard a tap presses is the one the bot really sent, on
+// the message it really sent it with. No LLM and no network beyond the local
+// httptest server.
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,12 +21,12 @@ import (
 	"testing"
 
 	"github.com/cucumber/godog"
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/EvilFreelancer/coddy-agent/internal/tgfake"
 )
 
 const (
@@ -141,20 +140,15 @@ func (r *stubRunner) Cfg() *config.Config {
 	return r.cfg
 }
 
-// modelSwitchWorld holds the bot, the stub API and everything the steps assert on.
+// modelSwitchWorld holds the bot, the fake Bot API and everything the steps assert on.
 type modelSwitchWorld struct {
-	mu sync.Mutex
-
 	runner   *stubRunner
 	bot      *Bot
-	api      *tgbotapi.BotAPI
-	srv      *httptest.Server
+	f        *fakeAPI
 	logDir   string
 	logPath  string
 	logClose io.Closer
 	logCfg   config.Logger
-	messages []url.Values // every outgoing sendMessage / editMessageText form
-	nextMsg  int
 }
 
 // logText returns everything the process has written to its log file.
@@ -169,27 +163,13 @@ func (w *modelSwitchWorld) logText() string {
 	return string(data)
 }
 
-func (w *modelSwitchWorld) handler(rw http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
-	w.mu.Lock()
-	w.messages = append(w.messages, r.PostForm)
-	w.nextMsg++
-	id := w.nextMsg
-	w.mu.Unlock()
-	rw.Header().Set("Content-Type", "application/json")
-	_, _ = fmt.Fprintf(rw, `{"ok":true,"result":{"message_id":%d,"date":0,"chat":{"id":%d,"type":"private"}}}`,
-		id, modelSwitchChatID)
-}
-
 func (w *modelSwitchWorld) gatewayWithModels(a, b string) error {
 	w.logCfg = config.Logger{Level: config.LogLevelInfo, Format: config.LogFormatJSON}
 	w.runner = newStubRunner(&config.Config{
 		Models: []config.ModelEntry{{Model: a}, {Model: b}},
 		Agent:  config.Agent{Model: a},
 	})
-	w.srv = httptest.NewServer(http.HandlerFunc(w.handler))
-	w.api = &tgbotapi.BotAPI{Token: "TESTTOKEN", Client: &http.Client{}, Buffer: 100}
-	w.api.SetAPIEndpoint(w.srv.URL + "/bot%s/%s")
+	w.f = openFakeAPI(tgfake.Options{})
 	return nil
 }
 
@@ -235,14 +215,8 @@ func (w *modelSwitchWorld) sendCommand(text string) error {
 	if err := w.buildBot(); err != nil {
 		return err
 	}
-	msg := &tgbotapi.Message{
-		MessageID: 1,
-		From:      &tgbotapi.User{ID: modelSwitchUserID},
-		Chat:      &tgbotapi.Chat{ID: modelSwitchChatID, Type: "private"},
-		Text:      text,
-		Entities:  []tgbotapi.MessageEntity{{Type: "bot_command", Offset: 0, Length: len(text)}},
-	}
-	w.bot.processMessage(context.Background(), w.api, msg, w.sessionKey())
+	msg := w.f.userMessage(modelSwitchChatID, modelSwitchUserID, text)
+	w.bot.processMessage(context.Background(), w.f.api, msg, w.sessionKey())
 	return nil
 }
 
@@ -250,52 +224,20 @@ func (w *modelSwitchWorld) sessionKey() string {
 	return fmt.Sprintf("tg:user:%d", modelSwitchUserID)
 }
 
-// keyboardData returns the callback_data of the button labelled for model.
-func (w *modelSwitchWorld) keyboardData(model string) (string, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	for i := len(w.messages) - 1; i >= 0; i-- {
-		raw := w.messages[i].Get("reply_markup")
-		if raw == "" {
-			continue
-		}
-		var kb tgbotapi.InlineKeyboardMarkup
-		if err := json.Unmarshal([]byte(raw), &kb); err != nil {
-			continue
-		}
-		for _, row := range kb.InlineKeyboard {
-			for _, btn := range row {
-				if btn.CallbackData == nil {
-					continue
-				}
-				if strings.TrimPrefix(btn.Text, "✓ ") != model {
-					continue
-				}
-				if len(*btn.CallbackData) > telegramCallbackDataMax {
-					return "", fmt.Errorf("callback_data for %q is %d bytes, over the telegram limit of %d",
-						model, len(*btn.CallbackData), telegramCallbackDataMax)
-				}
-				return *btn.CallbackData, nil
-			}
-		}
-	}
-	return "", fmt.Errorf("no button for model %q in %d outgoing messages", model, len(w.messages))
-}
-
+// tapButton presses the button labelled for model on the keyboard the bot
+// sent. The fake refuses a keyboard whose callback_data is over Telegram's
+// limit, so a button that exists already fits; the length is asserted anyway,
+// because it is what the feature states.
 func (w *modelSwitchWorld) tapButton(model string) error {
-	data, err := w.keyboardData(model)
+	cbq, err := w.f.tap(modelSwitchChatID, modelSwitchUserID, model)
 	if err != nil {
 		return err
 	}
-	w.bot.handleCallback(context.Background(), w.api, &tgbotapi.CallbackQuery{
-		ID:   "cb1",
-		From: &tgbotapi.User{ID: modelSwitchUserID},
-		Message: &tgbotapi.Message{
-			MessageID: 2,
-			Chat:      &tgbotapi.Chat{ID: modelSwitchChatID, Type: "private"},
-		},
-		Data: data,
-	})
+	if len(cbq.Data) > telegramCallbackDataMax {
+		return fmt.Errorf("callback_data for %q is %d bytes, over the telegram limit of %d",
+			model, len(cbq.Data), telegramCallbackDataMax)
+	}
+	w.bot.handleCallback(context.Background(), w.f.api, cbq)
 	return nil
 }
 
@@ -389,8 +331,8 @@ func initializeModelSwitchScenario(sc *godog.ScenarioContext) {
 	w := &modelSwitchWorld{}
 
 	sc.After(func(ctx context.Context, _ *godog.Scenario, err error) (context.Context, error) {
-		if w.srv != nil {
-			w.srv.Close()
+		if w.f != nil {
+			w.f.close()
 		}
 		if w.logClose != nil {
 			_ = w.logClose.Close()
