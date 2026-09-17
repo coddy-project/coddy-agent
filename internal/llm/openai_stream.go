@@ -350,12 +350,13 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 		}
 	}
 
-	if streamErr == nil {
+	if streamErr == nil && !done {
+		// After [DONE] the response is complete whatever happens to the
+		// connection next; before it, a transport failure mid-read (reset,
+		// unexpected EOF, http2 stream error, the stall guard) carries no
+		// HTTP status. The wrapper keeps the emitted flag so classification
+		// can retry it only while no delta reached the caller.
 		if err := scanner.Err(); err != nil {
-			// A transport failure mid-read (reset, unexpected EOF, http2
-			// stream error) carries no HTTP status; the wrapper keeps the
-			// emitted flag so classification can retry it only while no
-			// delta reached the caller.
 			streamErr = &streamTransportError{cause: err, emitted: emitted}
 		}
 	}
@@ -370,11 +371,13 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 	}
 
 	if streamErr != nil {
-		if IsStreamTruncated(streamErr) {
+		if IsStreamTruncated(streamErr) || IsStreamStalled(streamErr) {
 			// Keep the user-visible output the caller already saw, like the
 			// cancellation branch below. Unfinished tool-call builders are dropped
 			// deliberately: their arguments may be cut mid-JSON, and
-			// replaying an invalid call is worse than losing it.
+			// replaying an invalid call is worse than losing it. A stall is
+			// a cut the guard made instead of the server, and keeps the same
+			// contract.
 			if strings.TrimSpace(fullContent) != "" || strings.TrimSpace(reasoningBuf.String()) != "" {
 				return &Response{
 					Content:           fullContent,

@@ -166,7 +166,7 @@ func TestPrepareExportOutput(t *testing.T) {
 		{"empty", "", cwd, ""},
 		{"file in cwd", "chat.md", cwd, "chat.md"},
 		{"nested file in cwd", "exports/chat.json", cwd, filepath.Join("exports", "chat.json")},
-		{"directory in cwd", "exports/", cwd, "exports/"},
+		{"directory in cwd", "exports/", cwd, "exports" + string(filepath.Separator)},
 		{"existing directory in cwd", "existing", cwd, "existing"},
 		{"absolute inside cwd", filepath.Join(cwd, "abs.md"), cwd, "abs.md"},
 		{"absolute file elsewhere", filepath.Join(elsewhere, "reports", "chat.html"), filepath.Join(elsewhere, "reports"), "chat.html"},

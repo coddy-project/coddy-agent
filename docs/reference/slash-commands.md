@@ -8,7 +8,7 @@ The built-in commands on each surface and how skills become commands. A slash co
 |---|---|---|---|
 | `/model [id]` | console; Telegram | Console: opens the model selector, or switches directly when a configured model id follows (`external/cli/slash.go`). Telegram: an inline keyboard over the configured `models`. | [Console](../surfaces/console.md#commands-and-keys), [Telegram gateway](../surfaces/gateway.md#commands) |
 | `/mode [agent\|plan\|ask]` | console; Telegram | Console: opens the mode selector, or switches directly when a valid mode follows. Telegram: an inline keyboard. | [Operating modes](../features/modes.md#switching-on-each-surface) |
-| `/resume` | console | Picker over the sessions of the current folder; the chosen one replaces the current session. | [Sessions](../features/sessions.md#resuming) |
+| `/resume [id or title]` | console; Telegram | Console: a picker over the sessions of the current folder; the chosen one replaces the current session. Telegram: an inline keyboard over every session the server keeps, or, with words after it, the session whose id or title they name. | [Sessions](../features/sessions.md#resuming), [Telegram gateway](../surfaces/gateway.md#commands) |
 | `/new` | console | Starts a new session in the same folder. | [Console](../surfaces/console.md#commands-and-keys) |
 | `/theme` | console | Selector between the dark and the light palette. | [Console](../surfaces/console.md#flags) |
 | `/hotkeys` | console | Prints the key list. | [Keyboard](keyboard.md) |
@@ -20,12 +20,12 @@ The built-in commands on each surface and how skills become commands. A slash co
 | `/plugin marketplace list\|add\|remove\|sync`, `/plugin install\|remove\|enable\|disable` | console, web UI, ACP editors, `POST /v1/responses` | Manages skill plugins and marketplaces, the chat twin of `coddy plugin`. | [Skills](../features/skills.md#the-plugin-command-cli-and-plugin-in-chat) |
 | `/start`, `/help` | Telegram | The greeting and the command list of the bot. | [Telegram gateway](../surfaces/gateway.md#commands) |
 | `/context` | Telegram | The context window usage of the chat's session by category. | [Telegram gateway](../surfaces/gateway.md#commands) |
-| `/clear` | Telegram | Starts a new session for the chat; the old one stays on disk. | [Telegram gateway](../surfaces/gateway.md#session-lifecycle) |
+| `/clear` | Telegram | Starts a new session for the chat; the old one stays on disk, and `/resume` brings it back. | [Telegram gateway](../surfaces/gateway.md#session-lifecycle) |
 | `/<skill>` | console, web UI, ACP editors, `POST /v1/responses` | Runs a skill: the full `SKILL.md` body is prepended to the message the model receives for this turn. | [Skills](../features/skills.md#how-skills-are-applied) |
 
 Three boundaries follow from the code:
 
-- the Telegram adapter answers only its six commands and drops any other message that starts with `/` (`external/gateway/telegram/bot.go`), so `/compact`, `/export` and skills are not reachable there;
+- the Telegram adapter answers only its seven commands and drops any other message that starts with `/` (`external/gateway/telegram/bot.go`), so `/compact`, `/export` and skills are not reachable there;
 - a subagent never runs a built-in: a child prompt that starts with `/export` is an ordinary task for the child (`internal/agent/react.go`);
 - the console's client-side commands exist only in the console; the web UI and ACP clients have their own model and mode controls.
 
@@ -36,7 +36,7 @@ Three boundaries follow from the code:
 | Console | A fixed client-side list (`model`, `mode`, `resume`, `new`, `theme`, `hotkeys`, `usage`, `quit`) merged with the rows the server advertises through the ACP `available_commands_update` notification (`slashCatalog` in `external/cli/app.go`). | Typing `/` opens the suggestion menu; Enter on a suggestion applies it and submits in one stroke. |
 | Web UI | Two groups in the composer: the built-ins from `GET /coddy/commands`, loaded once when the composer mounts, and the skills from `GET /coddy/slash-commands`, paged and filtered by `prefix`, scoped to the session workspace through `X-Coddy-Session-ID`. | Both lists are re-read when the server announces a configuration reload (`event: config_reloaded` on `GET /coddy/events`), so a skill installed by `/plugin` shows up without a page reload. Picking a row inserts the plain `/name` token and nothing else. |
 | ACP editors | `available_commands_update` after `session/new` and `session/load`: the built-ins first, then the skills sorted by name; rows carry `name` (without the slash) and `description` only. | The same function, `skills.BuiltinCommands` in `internal/skills/slash.go`, feeds the HTTP endpoint and the notification, so the two never disagree: `compact` only while compaction is enabled, `export` and `plugin` always. |
-| Telegram | `start`, `help`, `mode`, `model`, `context` and `clear`, registered with `setMyCommands` at startup. | They appear in the client's command menu; nothing else is offered. |
+| Telegram | `start`, `help`, `mode`, `model`, `context`, `resume` and `clear`, registered with `setMyCommands` at startup. | They appear in the client's command menu; nothing else is offered. |
 
 ## How skills become commands
 

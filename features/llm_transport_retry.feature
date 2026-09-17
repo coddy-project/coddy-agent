@@ -14,3 +14,15 @@ Feature: Transport failures without a status are retried
     Given an "openai" provider whose upstream leaves the first TLS handshake unanswered and then streams a completion
     When a streaming completion is requested
     Then the call succeeds with text "Hello after retry" over 2 upstream connections
+    And 1 request reached the upstream handler
+
+  Scenario: An HTTP/2 stream reset before any output is retried and succeeds
+    Given an "openai" provider whose upstream resets the first HTTP/2 stream before any output and then streams a completion
+    When a streaming completion is requested
+    Then the call succeeds with text "Hello after retry" in 2 upstream requests
+
+  Scenario: A connection whose peer stops answering pings is closed and the request is retried
+    Given an "openai" provider whose upstream goes silent on the first connection, pings included, and then streams a completion
+    When a streaming completion is requested
+    Then the call succeeds with text "Hello after retry" over 2 upstream connections
+    And 2 requests reached the upstream handler

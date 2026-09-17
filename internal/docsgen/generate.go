@@ -232,13 +232,18 @@ func (r *Result) Write(root string) error {
 // generated one. Files that are only published (siteOnlyFiles) are not looked
 // for here: they are not in this repository, so "missing" is what is correct.
 func (r *Result) Stale(root string) []Problem {
+	// Git may convert Markdown to CRLF on checkout. Only content differences
+	// require regeneration; compare both sides with the same line endings.
+	normalize := func(s string) string {
+		return strings.TrimRight(strings.ReplaceAll(s, "\r\n", "\n"), "\n")
+	}
 	var out []Problem
 	for rel, content := range r.Files {
 		if siteOnlyFiles[rel] {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(root, rel))
-		if err != nil || strings.TrimRight(string(data), "\n") != strings.TrimRight(content, "\n") {
+		if err != nil || normalize(string(data)) != normalize(content) {
 			out = append(out, Problem{rel, "generated content is stale, run make docs"})
 		}
 	}

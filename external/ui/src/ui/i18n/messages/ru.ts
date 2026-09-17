@@ -226,6 +226,10 @@ export const messagesRu: Record<string, string> = {
     "Таймаут первого токена LLM, мс",
   "settings.schema.agent.llm_first_token_timeout_ms.desc":
     "Как долго потоковый вызов LLM может оставаться без ответа, прежде чем шаг будет отменён (явный 0 отключает защиту).",
+  "settings.schema.agent.llm_stream_idle_timeout_ms.label":
+    "Таймаут простоя потока LLM, мс",
+  "settings.schema.agent.llm_stream_idle_timeout_ms.desc":
+    "Как долго потоковый ответ LLM может ничего не присылать после первых байтов, прежде чем поток будет обрезан как зависший с сохранением уже полученного текста (явный 0 отключает защиту).",
   "settings.schema.agent.loop_guard.label": "Защита от зацикливания",
   "settings.schema.agent.loop_guard.desc":
     "Останавливает ответ, вырождающийся в повторение самого себя, и блокирует инструмент, вызываемый раз за разом с одинаковыми аргументами.",

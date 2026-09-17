@@ -177,6 +177,15 @@
           "default": 90000,
           "minimum": 0
         },
+        "llm_stream_idle_timeout_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "How long a streamed LLM response may send nothing after its first bytes before the stream is cut as stalled (the mid-answer hang guard): the text already delivered is kept and the turn ends with the stall named. An explicit 0 disables the guard; the wait for the first byte belongs to llm_first_token_timeout_ms, and blocking (stream: false) transports are never guarded.",
+          "default": 300000,
+          "minimum": 0
+        },
         "loop_guard": {
           "type": [
             "boolean",
