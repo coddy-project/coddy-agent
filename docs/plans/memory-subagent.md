@@ -668,6 +668,36 @@ Verdict: approve with changes. Confirmed and fixed:
 - the import grouping of `external/cli/print.go`;
 - the ACP reference tells a client not to wait for `finished`.
 
+### Coddy (neuraldeep/qwen3.6-35b-a3b, ask mode), implementation review, 2026-09-18
+
+The first attempt on qwen3.8-27b stalled for 17 minutes without a byte and
+was cut by the new stream guard; the 3.6 model answered in a few minutes.
+Verdict: approve with changes, ten findings. Each was checked against the
+code and none is a defect:
+
+- "data race on `subagentRun.report`": `reportText` takes the run's own
+  mutex, the one the run goroutine writes the report under; the report is
+  written before the handle's `done` closes, which is before `Pool.Wait`
+  returns;
+- "double delivery": after a late delivery through the turn context, a
+  rebuild of the system prompt carries the report and the section drops out
+  on the next step because the store now equals `MemoryRecall`; the two never
+  coincide in one request;
+- "slot leak in `acquireMemorySlot`": the release is under `sync.Once`, and a
+  delete of a missing key is a no-op;
+- "`OutputSink.Write` races `Close`": both hold the sink's mutex for their
+  whole body;
+- "skip with an empty reason when there is no runtime": the call passes a
+  reason;
+- "report not visible after `Pool.Wait`": the ordering above;
+- "retention could remove a run before its delivery": the pruned runs are the
+  oldest beyond the kept tail, and the run of the turn in flight is always the
+  newest of its session; a comment on `pruneMemoryRuns` now says so.
+
+Taken: the comment; the note that a system child loads no skills and no
+rules is covered by `TestRemoveRetiredChildRefusesLiveAndRemovesRetired` and
+the prompt scenario.
+
 ## 9. Implementation notes (deviations from the text above)
 
 - `finished` on the wire is sent from the turn's goroutine only (3.3): the

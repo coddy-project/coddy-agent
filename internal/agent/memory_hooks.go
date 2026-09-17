@@ -181,7 +181,11 @@ func memoryRunSnapshots(pool *bgtask.Pool, sessionID, sessionDir string) []bgtas
 
 // pruneMemoryRuns removes the finished memory runs of a session beyond the
 // newest keep, task record and child bundle alike. keep 0 keeps everything.
-// A child that is still live or still owns a task is left alone.
+// A child that is still live or still owns a task is left alone. The run of
+// the turn in flight is never among the pruned: turns are serialised by the
+// turn lock, so it is the newest run of the session and stays inside the
+// kept tail, and a record an earlier process left behind is older than any
+// run this one started.
 func (a *Agent) pruneMemoryRuns(pool *bgtask.Pool, sessionID string, rt SubagentRuntime, keep int) {
 	if keep <= 0 || pool == nil {
 		return
