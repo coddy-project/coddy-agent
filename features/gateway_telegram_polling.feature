@@ -42,6 +42,15 @@ Feature: The Telegram bot polls a Bot API server
     And the user taps the button for "rpa/qwen3.6-35b-a3b"
     Then the session model is "rpa/qwen3.6-35b-a3b"
 
+  Scenario: The Bot API origin comes from the environment
+    Nothing in config.yaml names the server. The operator exports
+    CODDY_TELEGRAM_API_BASE, and the same file runs the bot against Telegram
+    or against the stand.
+    Given the environment names the fake as the Bot API origin
+    When the bot is started
+    Then the Bot API received "getMe"
+    And the bot knows itself as "coddy_fake_bot"
+
   Scenario: Stopping the bot ends polling
     When the bot is started
     And the bot is stopped

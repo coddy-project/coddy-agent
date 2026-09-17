@@ -75,6 +75,7 @@ type pollingWorld struct {
 	cancel     context.CancelFunc
 	done       chan error
 	lastUpdate int
+	envSet     bool // CODDY_TELEGRAM_API_BASE was exported for this scenario
 }
 
 func (w *pollingWorld) fakeBotAPI(username string) error {
@@ -103,6 +104,15 @@ func (w *pollingWorld) gatewayPointedAtIt() error {
 	// The same origin the operator would export as CODDY_TELEGRAM_API_BASE.
 	w.bot.apiBase = w.f.srv.URL
 	return nil
+}
+
+// originFromEnvironment is the operator's way: nothing in the config names the
+// server, the environment does. The field the other scenarios set is cleared
+// so that Start has to read the variable.
+func (w *pollingWorld) originFromEnvironment() error {
+	w.bot.apiBase = ""
+	w.envSet = true
+	return os.Setenv(config.TelegramAPIBaseEnv, w.f.srv.URL)
 }
 
 func (w *pollingWorld) subscribedToMessagesOnly() error {
@@ -299,6 +309,9 @@ func (w *pollingWorld) close() {
 	if w.dir != "" {
 		_ = os.RemoveAll(w.dir)
 	}
+	if w.envSet {
+		_ = os.Unsetenv(config.TelegramAPIBaseEnv)
+	}
 }
 
 func initializePollingScenario(sc *godog.ScenarioContext) {
@@ -312,6 +325,7 @@ func initializePollingScenario(sc *godog.ScenarioContext) {
 	sc.Given(`^a telegram gateway over a scripted agent pointed at it$`, w.gatewayPointedAtIt)
 	sc.Given(`^the agent answers with "([^"]*)"$`, w.agentAnswersWith)
 	sc.Given(`^the Bot API remembers a subscription to messages only$`, w.subscribedToMessagesOnly)
+	sc.Given(`^the environment names the fake as the Bot API origin$`, w.originFromEnvironment)
 
 	sc.When(`^the bot is started$`, w.botStarted)
 	sc.When(`^the user sends "([^"]*)"$`, w.userSends)
