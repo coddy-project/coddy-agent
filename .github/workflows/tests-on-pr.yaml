@@ -94,6 +94,19 @@ jobs:
           .venv/bin/pip install -r examples/cli/requirements.txt
           CODDY_BIN="$PWD/build/coddy" .venv/bin/python examples/cli/cli_e2e_startup.py
 
+      # The gateway suite runs the bot against the fake Bot API in-process. In
+      # the combination that is the gateway alone, the real binary is started
+      # against cmd/tgfake on a port and has to answer a message, so the
+      # offline stand of docs/surfaces/gateway.md is proven on every pull
+      # request without a Telegram token or a model.
+      - name: Build the gateway
+        if: matrix.tags == 'gateway'
+        run: make build TAGS=gateway
+
+      - name: Run the bot against the offline Telegram stand
+        if: matrix.tags == 'gateway'
+        run: CODDY_BIN="$PWD/build/coddy" examples/gateway/tg_e2e_offline.sh
+
   # The suite above runs on Linux, so nothing behind //go:build windows is ever
   # compiled by it. This job type-checks that half across every tag combination
   # for the price of a cross-build, and catches a shared signature that only one
