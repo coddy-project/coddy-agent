@@ -4,6 +4,7 @@ package httpserver
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -17,13 +18,14 @@ import (
 // selector and appends the assistant message. toolDefs are the caller's own tools,
 // offered to the model as they are: a call the model makes is streamed back as an
 // OpenAI tool_calls delta and kept on the assistant message, and running it is the
-// caller's business.
-func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State, sessionID, yamlSel string, bridge *Sender, toolDefs []llm.ToolDefinition) (*llm.Response, error) {
+// caller's business. opts are the request's own generation options, applied to
+// the provider built for this one call.
+func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State, sessionID, yamlSel string, bridge *Sender, toolDefs []llm.ToolDefinition, opts llm.RequestOptions) (*llm.Response, error) {
 	mk := s.makeLLMFromYAML
 	if mk == nil {
 		mk = defaultMakeLLMFromYAML
 	}
-	provider, err := mk(s.activeCfg(), yamlSel)
+	provider, err := mk(s.activeCfg(), yamlSel, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -90,6 +92,38 @@ func directAssistantMessage(resp *llm.Response, yamlSel string) llm.Message {
 		Model:     yamlSel,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 	}
+}
+
+// directRequestOptions reads the generation options of a direct completion
+// request and checks them against the provider type that serves model.
+// max_tokens and max_completion_tokens are one cap under two names, so a
+// request may carry both only when they agree.
+func directRequestOptions(cfg *config.Config, model string, req chatCompletionRequest) (llm.RequestOptions, error) {
+	opts := llm.RequestOptions{MaxTokens: req.MaxTokens, Temperature: req.Temperature}
+	if req.MaxCompletionTokens != nil {
+		if req.MaxTokens != nil && *req.MaxTokens != *req.MaxCompletionTokens {
+			return llm.RequestOptions{}, fmt.Errorf("max_tokens (%d) and max_completion_tokens (%d) disagree", *req.MaxTokens, *req.MaxCompletionTokens)
+		}
+		opts.MaxTokens = req.MaxCompletionTokens
+	}
+	return opts, opts.Validate(directProviderType(cfg, model))
+}
+
+// directProviderType is the type of the provider serving a configured model,
+// read without resolving its credentials; empty when either is missing, in
+// which case building the provider reports the configuration error.
+func directProviderType(cfg *config.Config, model string) string {
+	if cfg == nil {
+		return ""
+	}
+	ent := cfg.FindModelEntry(model)
+	if ent == nil {
+		return ""
+	}
+	if prov := cfg.FindProvider(ent.ProviderName()); prov != nil {
+		return prov.Type
+	}
+	return ""
 }
 
 // resolveDirectYAMLMaxTokens returns the max_tokens value to send to the LLM

@@ -153,6 +153,10 @@ type ProviderInput struct {
 	AuthPath    string
 	MaxTokens   int
 	Temperature float64
+	// TemperatureSet marks Temperature as asked for on the request rather than
+	// read from the model's configuration, where zero means "not configured":
+	// a set temperature is sent as is, zero included.
+	TemperatureSet bool
 	// ReasoningEffort is the reasoning level name ("minimal"|"low"|"medium"|"high"), or empty.
 	// OpenAI maps it to reasoning_effort; Anthropic maps it to an extended-thinking token budget.
 	ReasoningEffort string
@@ -235,11 +239,17 @@ func NewProvider(p ProviderInput) (Provider, error) {
 	var inner Provider
 	switch p.Type {
 	case "openai":
-		inner = newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		op := newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		op.tempSet = p.TemperatureSet
+		inner = op
 	case "anthropic":
-		inner = newAnthropicProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		ap := newAnthropicProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		ap.tempSet = p.TemperatureSet
+		inner = ap
 	case "neuraldeep":
-		inner = newOpenAIProvider(p.Model, neuralDeepEffectiveKey(p.APIKey, p.AuthPath), providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		op := newOpenAIProvider(p.Model, neuralDeepEffectiveKey(p.APIKey, p.AuthPath), providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		op.tempSet = p.TemperatureSet
+		inner = op
 	case "codex":
 		// Codex uses ChatGPT OAuth credentials. APIKey and the configured BaseURL are
 		// intentionally ignored: OAuth tokens go to the official Codex backend unless

@@ -1246,7 +1246,7 @@ func TestResponsesMultiTurnHistory(t *testing.T) {
 
 func TestResponsesDirectCompletionRejectsMetadataModel(t *testing.T) {
 	_, srv, _ := testHTTPServerPersist(t)
-	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) {
+	srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) {
 		return fakeProvider{reply: "ok"}, nil
 	}
 	ts := httptest.NewServer(srv.Handler())
@@ -1529,7 +1529,7 @@ func TestCoddySessionPatchSelectedModelId(t *testing.T) {
 
 func TestResponsesDirectPersistsAssistantModel(t *testing.T) {
 	_, srv, _ := testHTTPServerPersist(t)
-	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) {
+	srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) {
 		return fakeProvider{reply: "direct-reply"}, nil
 	}
 	ts := httptest.NewServer(srv.Handler())
@@ -2085,7 +2085,7 @@ func TestResponsesInlineFilesDirectModel(t *testing.T) {
 	cp := &capturingHTTPProvider{reply: "ok"}
 	_, srv, _ := testHTTPServerPersist(t)
 	srv.activeCfg().Models[0].Multimodal = true
-	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) { return cp, nil }
+	srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) { return cp, nil }
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -2126,7 +2126,7 @@ func TestResponsesInlineFilesDirectModel(t *testing.T) {
 func TestResponsesInlineFilesOmittedForNonMultimodalDirectModel(t *testing.T) {
 	cp := &capturingHTTPProvider{reply: "ok"}
 	_, srv, sessRoot := testHTTPServerPersist(t)
-	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) { return cp, nil }
+	srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) { return cp, nil }
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -2172,7 +2172,7 @@ func TestResponsesInlineFilesPersistThumbnailInSessionHistory(t *testing.T) {
 	cp := &capturingHTTPProvider{reply: "ok"}
 	_, srv, sessRoot := testHTTPServerPersist(t)
 	srv.activeCfg().Models[0].Multimodal = true
-	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) { return cp, nil }
+	srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) { return cp, nil }
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -3841,7 +3841,7 @@ func (p *passthroughCaptureProvider) Stream(ctx context.Context, messages []llm.
 func TestChatCompletionsPassthroughBoundaries(t *testing.T) {
 	_, srv, _ := testHTTPServerPersist(t)
 	capture := &passthroughCaptureProvider{}
-	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) { return capture, nil }
+	srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) { return capture, nil }
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 	const model = "openai/gpt-4o"
@@ -3913,7 +3913,9 @@ func (p toolCallingProvider) Stream(ctx context.Context, m []llm.Message, t []ll
 
 func TestChatCompletionsPassthroughToolAnswerAndBounds(t *testing.T) {
 	_, srv, _ := testHTTPServerPersist(t)
-	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) { return toolCallingProvider{}, nil }
+	srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) {
+		return toolCallingProvider{}, nil
+	}
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 	const model = "openai/gpt-4o"
@@ -3985,7 +3987,9 @@ func TestChatCompletionsToolCallsFinishOnThemWhateverTheProviderSaid(t *testing.
 	// Some servers say stop next to their tool_calls; the client must still
 	// see finish_reason tool_calls, or it would not run them.
 	_, srv, _ := testHTTPServerPersist(t)
-	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) { return stopSayingToolProvider{}, nil }
+	srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) {
+		return stopSayingToolProvider{}, nil
+	}
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 	body := `{"model":"openai/gpt-4o","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"get_weather"}}],"stream":%v}`
@@ -4131,5 +4135,154 @@ func TestCoddySessionPatchTitleIfUnpinnedDoesNotOverwriteAName(t *testing.T) {
 	// A rename without the flag still renames.
 	if got := patch(`{"title":"Renamed by hand"}`)["title"]; got != "Renamed by hand" {
 		t.Fatalf("title = %v", got)
+	}
+}
+
+// directOptionsTestServer serves three direct models - openai, anthropic and
+// codex - whose providers all point at one recording backend, so a test can
+// tell whether a refused request reached any of them.
+func directOptionsTestServer(t *testing.T) (*Server, *httptest.Server, *recordingOpenAIBackend, string) {
+	t.Helper()
+	backend := &recordingOpenAIBackend{}
+	backendTS := httptest.NewServer(backend)
+	t.Cleanup(backendTS.Close)
+	t.Setenv("CODDY_CODEX_BASE_URL", backendTS.URL)
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	sessRoot := filepath.Join(root, "sessions")
+	for _, dir := range []string{home, sessRoot} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := &config.Config{
+		Paths: config.Paths{Home: home, CWD: root},
+		Providers: []config.ProviderConfig{
+			{Name: "local", Type: "openai", APIBase: backendTS.URL, APIKey: "k"},
+			{Name: "claude", Type: "anthropic", APIBase: backendTS.URL, APIKey: "k"},
+			{Name: "codex", Type: "codex"},
+		},
+		Models: []config.ModelEntry{
+			{Model: "local/llama-3.1-8b", MaxTokens: 8192, Temperature: 0.2},
+			{Model: "claude/claude-3-5-haiku", MaxTokens: 8192, Temperature: 0.2},
+			{Model: "codex/gpt-5.5"},
+		},
+		Agent: config.Agent{Model: "local/llama-3.1-8b"},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, nil, slog.Default(), root, &session.FileStore{Root: sessRoot})
+	srv := New(cfg, mgr, slog.Default(), root)
+	t.Cleanup(srv.Drain)
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	return srv, ts, backend, sessRoot
+}
+
+func TestChatCompletionsDirectRefusesOptionsTheProviderCannotSend(t *testing.T) {
+	_, ts, backend, sessRoot := directOptionsTestServer(t)
+	for name, tc := range map[string]struct{ model, options, want string }{
+		"zero max_tokens":            {"local/llama-3.1-8b", `"max_tokens":0`, "max_tokens must be a positive integer"},
+		"negative max_tokens":        {"local/llama-3.1-8b", `"max_tokens":-5`, "max_tokens must be a positive integer"},
+		"zero max_completion_tokens": {"local/llama-3.1-8b", `"max_completion_tokens":0`, "max_tokens must be a positive integer"},
+		"disagreeing caps":           {"local/llama-3.1-8b", `"max_tokens":100,"max_completion_tokens":200`, "max_tokens (100) and max_completion_tokens (200) disagree"},
+		"openai temperature above 2": {"local/llama-3.1-8b", `"temperature":2.5`, "temperature must be between 0 and 2"},
+		"negative temperature":       {"local/llama-3.1-8b", `"temperature":-0.1`, "temperature must be between 0 and 2"},
+		"anthropic temperature 1.5":  {"claude/claude-3-5-haiku", `"temperature":1.5`, "temperature must be between 0 and 1"},
+		"codex max_tokens":           {"codex/gpt-5.5", `"max_tokens":256`, "max_tokens is not supported by a codex model"},
+		"codex temperature":          {"codex/gpt-5.5", `"temperature":0.5`, "temperature is not supported by a codex model"},
+	} {
+		for _, stream := range []bool{false, true} {
+			body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hi"}],%s,"stream":%v}`, tc.model, tc.options, stream)
+			res, err := http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, _ := ioReadAllClose(res.Body)
+			if res.StatusCode != http.StatusBadRequest || !strings.Contains(gjson.GetBytes(raw, "error.message").String(), tc.want) {
+				t.Fatalf("%s (stream %v): %d %s, want 400 with %q", name, stream, res.StatusCode, raw, tc.want)
+			}
+			if sid := res.Header.Get("X-Coddy-Session-ID"); sid != "" {
+				t.Fatalf("%s (stream %v): a refused request created session %s", name, stream, sid)
+			}
+		}
+	}
+	if n := len(backend.requests); n != 0 {
+		t.Fatalf("refused requests reached a provider %d times: %v", n, backend.requests)
+	}
+	if entries, _ := os.ReadDir(sessRoot); len(entries) != 0 {
+		t.Fatalf("refused requests left %d session bundles behind", len(entries))
+	}
+}
+
+func TestChatCompletionsDirectSendsZeroTemperatureAndCompletionTokens(t *testing.T) {
+	_, ts, backend, _ := directOptionsTestServer(t)
+	for _, tc := range []struct{ model, maxField string }{
+		{"local/llama-3.1-8b", "max_tokens"},
+		// The recording backend answers the anthropic dialect with nothing it
+		// can parse; only the request that left coddy matters here.
+		{"claude/claude-3-5-haiku", "max_tokens"},
+	} {
+		body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hi"}],"max_completion_tokens":64,"temperature":0,"stream":false}`, tc.model)
+		res, err := http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = ioReadAllClose(res.Body)
+		last := backend.last()
+		if got := gjson.Get(last, tc.maxField); got.Int() != 64 {
+			t.Fatalf("%s: upstream %s = %s, want 64 from max_completion_tokens: %s", tc.model, tc.maxField, got.Raw, last)
+		}
+		if got := gjson.Get(last, "temperature"); !got.Exists() || got.Float() != 0 {
+			t.Fatalf("%s: upstream temperature = %q, want an explicit 0: %s", tc.model, got.Raw, last)
+		}
+	}
+}
+
+func TestChatCompletionsDirectOptionsStayOnTheirOwnRequest(t *testing.T) {
+	srv, ts, backend, _ := directOptionsTestServer(t)
+	const n = 12
+	var wg sync.WaitGroup
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			body := fmt.Sprintf(`{"model":"local/llama-3.1-8b","messages":[{"role":"user","content":"req-%d"}],"max_tokens":%d,"temperature":%g,"stream":%v}`,
+				i, 100+i, float64(i)/10, i%2 == 0)
+			res, err := http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(body))
+			if err != nil {
+				errs <- err
+				return
+			}
+			raw, _ := ioReadAllClose(res.Body)
+			if res.StatusCode != http.StatusOK {
+				errs <- fmt.Errorf("req-%d: %d %s", i, res.StatusCode, raw)
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+	backend.mu.Lock()
+	requests := append([]string(nil), backend.requests...)
+	backend.mu.Unlock()
+	if len(requests) != n {
+		t.Fatalf("upstream saw %d requests, want %d", len(requests), n)
+	}
+	for _, raw := range requests {
+		var i int
+		if _, err := fmt.Sscanf(gjson.Get(raw, "messages.0.content").String(), "req-%d", &i); err != nil {
+			t.Fatalf("unrecognised upstream request: %s", raw)
+		}
+		if got := gjson.Get(raw, "max_tokens").Int(); got != int64(100+i) {
+			t.Fatalf("req-%d reached the provider with max_tokens %d: %s", i, got, raw)
+		}
+		if got := gjson.Get(raw, "temperature"); !got.Exists() || got.Float() != float64(i)/10 {
+			t.Fatalf("req-%d reached the provider with temperature %s: %s", i, got.Raw, raw)
+		}
+	}
+	if ent := srv.activeCfg().FindModelEntry("local/llama-3.1-8b"); ent.MaxTokens != 8192 || ent.Temperature != 0.2 {
+		t.Fatalf("configuration changed under the requests: max_tokens %d, temperature %g", ent.MaxTokens, ent.Temperature)
 	}
 }

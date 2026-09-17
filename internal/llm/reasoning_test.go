@@ -205,3 +205,65 @@ func TestAnthropicThinkingBudgetBumpsMaxTokens(t *testing.T) {
 		t.Errorf("budget %d must be < max_tokens %d", params.Thinking.OfEnabled.BudgetTokens, params.MaxTokens)
 	}
 }
+
+// TestBuildParamsSendsARequestedZeroTemperature pins the difference between a
+// configured temperature, where zero means "not configured", and one a caller
+// asked for, where zero is a value like any other.
+func TestBuildParamsSendsARequestedZeroTemperature(t *testing.T) {
+	msgs := []Message{{Role: RoleUser, Content: "hi"}}
+
+	configured := newOpenAIProvider("gpt-4o", "", "", nil, 1024, 0, "")
+	if configured.buildParams(msgs, nil, true).Temperature.Valid() {
+		t.Error("openai: an unconfigured temperature must stay off the request")
+	}
+	requested := newOpenAIProvider("gpt-4o", "", "", nil, 1024, 0, "")
+	requested.tempSet = true
+	if got := requested.buildParams(msgs, nil, true).Temperature; !got.Valid() || got.Value != 0 {
+		t.Errorf("openai: requested temperature 0 = %+v, want an explicit 0", got)
+	}
+
+	anthConfigured := newAnthropicProvider("claude-3-5-haiku", "", "", nil, 1024, 0, "")
+	if anthConfigured.buildParams("", nil, nil).Temperature.Valid() {
+		t.Error("anthropic: an unconfigured temperature must stay off the request")
+	}
+	anthRequested := newAnthropicProvider("claude-3-5-haiku", "", "", nil, 1024, 0, "")
+	anthRequested.tempSet = true
+	if got := anthRequested.buildParams("", nil, nil).Temperature; !got.Valid() || got.Value != 0 {
+		t.Errorf("anthropic: requested temperature 0 = %+v, want an explicit 0", got)
+	}
+}
+
+func TestRequestOptionsValidateAndApply(t *testing.T) {
+	intp := func(v int) *int { return &v }
+	floatp := func(v float64) *float64 { return &v }
+	for name, tc := range map[string]struct {
+		providerType string
+		opts         RequestOptions
+		wantErr      string
+	}{
+		"nothing asked":               {"codex", RequestOptions{}, ""},
+		"openai cap and temperature":  {"openai", RequestOptions{MaxTokens: intp(1), Temperature: floatp(2)}, ""},
+		"neuraldeep temperature 0":    {"neuraldeep", RequestOptions{Temperature: floatp(0)}, ""},
+		"anthropic temperature 1":     {"anthropic", RequestOptions{Temperature: floatp(1)}, ""},
+		"zero cap":                    {"openai", RequestOptions{MaxTokens: intp(0)}, "max_tokens must be a positive integer"},
+		"openai temperature too high": {"openai", RequestOptions{Temperature: floatp(2.01)}, "between 0 and 2"},
+		"anthropic temperature 1.01":  {"anthropic", RequestOptions{Temperature: floatp(1.01)}, "between 0 and 1"},
+		"codex cap":                   {"codex", RequestOptions{MaxTokens: intp(64)}, "max_tokens is not supported by a codex model"},
+		"codex temperature":           {"codex", RequestOptions{Temperature: floatp(0)}, "temperature is not supported by a codex model"},
+	} {
+		err := tc.opts.Validate(tc.providerType)
+		if tc.wantErr == "" && err != nil || tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)) {
+			t.Errorf("%s: Validate = %v, want %q", name, err, tc.wantErr)
+		}
+	}
+
+	in := ProviderInput{MaxTokens: 8192, Temperature: 0.2}
+	RequestOptions{}.Apply(&in)
+	if in.MaxTokens != 8192 || in.Temperature != 0.2 || in.TemperatureSet {
+		t.Fatalf("empty options changed the input: %+v", in)
+	}
+	RequestOptions{MaxTokens: intp(256), Temperature: floatp(0)}.Apply(&in)
+	if in.MaxTokens != 256 || in.Temperature != 0 || !in.TemperatureSet {
+		t.Fatalf("options not applied: %+v", in)
+	}
+}

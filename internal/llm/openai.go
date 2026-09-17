@@ -15,10 +15,12 @@ import (
 
 // openAIProvider implements Provider using the OpenAI API (or compatible).
 type openAIProvider struct {
-	client          openai.Client
-	model           string
-	maxTokens       int
-	temp            float64
+	client    openai.Client
+	model     string
+	maxTokens int
+	temp      float64
+	// tempSet sends temp even at zero: the caller asked for that value.
+	tempSet         bool
 	reasoningEffort string
 }
 
@@ -147,7 +149,7 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition,
 		if p.maxTokens > 0 {
 			params.MaxTokens = openai.Int(int64(p.maxTokens))
 		}
-		if p.temp > 0 {
+		if p.temp > 0 || p.tempSet {
 			params.Temperature = openai.Float(p.temp)
 		}
 	}

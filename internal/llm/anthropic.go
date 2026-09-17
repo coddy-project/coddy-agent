@@ -14,10 +14,12 @@ import (
 
 // anthropicProvider implements Provider using the Anthropic API.
 type anthropicProvider struct {
-	client          anthropic.Client
-	model           string
-	maxTokens       int
-	temp            float64
+	client    anthropic.Client
+	model     string
+	maxTokens int
+	temp      float64
+	// tempSet sends temp even at zero: the caller asked for that value.
+	tempSet         bool
 	reasoningEffort string
 }
 
@@ -305,7 +307,7 @@ func (p *anthropicProvider) buildParams(system string, messages []anthropic.Mess
 			params.MaxTokens = budget + anthropicMinThinkingBudget
 		}
 		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(budget)
-	} else if p.temp > 0 {
+	} else if p.temp > 0 || p.tempSet {
 		params.Temperature = anthropic.Float(p.temp)
 	}
 

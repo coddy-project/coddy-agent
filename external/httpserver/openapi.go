@@ -69,6 +69,7 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary": "Create chat completion",
 					"description": "Chat completion in OpenAI-compatible shape. **`model`** must match an **`id`** from **`GET /v1/models`**: **`agent`** / **`plan`** / **`ask`** (ReAct) or a configured **`models[].model`** YAML selector (single direct completion). " +
+						"A direct **`models[].model`** id sends the request's **`max_tokens`** (or **`max_completion_tokens`**) and **`temperature`** for that one request in place of the configured values, and refuses with **400**, before a session is created or the provider is contacted, a value its provider cannot send as asked. " +
 						"Optional **`metadata`** on agent/plan/ask only: **`metadata.model`** sets the backed LLM (**`models[].model`**); omit or omit the key to use session defaults. " +
 						"**`metadata`** must not carry **`model`** for direct-completion **`model`** values. " +
 						"When **stream** is true the response is **text/event-stream** in the strict OpenAI **`chat.completion.chunk`** contract a third-party client parses literally (VS Code Copilot, the openai SDKs): a first chunk with **`delta.role`** `assistant`, **`delta.content`**, **`delta.reasoning_content`** and **`delta.tool_calls`** deltas with **`finish_reason: null`**, a final chunk whose **`finish_reason`** is **`stop`** (**`length`** when the turn hit **`max_turns`** / **`max_tokens`**, **`tool_calls`** when a direct model called one of the client's tools), a usage chunk with an empty **`choices`** array when **`stream_options.include_usage`** is true, then **`data: [DONE]`**. No named **`event:`** frame is sent here (each leaves an SSE comment in its place, so the connection stays busy through a tool phase); the coddy events (**`tool_call`**, **`token_usage`**, **`coddy_meta`**, ...) are the **`POST /v1/responses`** stream and the composer relay. Otherwise JSON. " +
@@ -3079,8 +3080,23 @@ func openAPISpec() map[string]interface{} {
 								map[string]interface{}{"type": "object", "additionalProperties": true},
 							},
 						},
-						"max_tokens":  map[string]string{"type": "integer"},
-						"temperature": map[string]interface{}{"type": "number", "format": "float"},
+						"max_tokens": map[string]interface{}{
+							"type":        "integer",
+							"minimum":     1,
+							"description": "Output cap of this request for a direct `models[].model` id, replacing the model's configured `max_tokens`; omitted, the configured value applies. **400** below 1 and on a `codex` model, whose backend takes no cap. The agent/plan/ask profiles do not read it: their turn runs on the profile model's configured values.",
+						},
+						"max_completion_tokens": map[string]interface{}{
+							"type":        "integer",
+							"minimum":     1,
+							"description": "OpenAI's newer name for `max_tokens`, with the same meaning. A request may carry both only when they agree, else **400**.",
+						},
+						"temperature": map[string]interface{}{
+							"type":        "number",
+							"format":      "float",
+							"minimum":     0,
+							"maximum":     2,
+							"description": "Temperature of this request for a direct `models[].model` id, replacing the model's configured `temperature`, `0` included; omitted, the configured value applies. **400** outside 0-2 (0-1 for an `anthropic` provider) and on a `codex` model, whose backend takes no temperature. The agent/plan/ask profiles do not read it.",
+						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
 							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. Not allowed for direct completion `model` values.",
