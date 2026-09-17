@@ -381,6 +381,8 @@ func UISchemaMap() map[string]interface{} {
 					"Minimum gap between consecutive LLM calls in milliseconds, retries included (0 disables pacing)."),
 				"llm_first_token_timeout_ms": intProp("LLM first token timeout ms",
 					"How long a streamed LLM call may stay silent before the turn cancels it (an explicit 0 disables the guard)."),
+				"llm_stream_idle_timeout_ms": intProp("LLM stream idle timeout ms",
+					"How long a streamed LLM response may send nothing after its first bytes before it is cut as stalled, the delivered text kept (an explicit 0 disables the guard)."),
 				"loop_guard": boolProp("Loop guard",
 					"Stop a response that degenerates into repeating itself, and block a tool called over and over with identical arguments."),
 				"loop_tool_repeat_limit": intProp("Loop tool repeat limit",
@@ -396,7 +398,7 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{
 				"model", "max_turns", "max_tokens_per_turn", "llm_retry_max", "llm_retry_base_ms", "llm_min_interval_ms",
-				"llm_first_token_timeout_ms", "loop_guard", "loop_tool_repeat_limit", "loop_stream_repeat_cycles", "loop_nudge_max",
+				"llm_first_token_timeout_ms", "llm_stream_idle_timeout_ms", "loop_guard", "loop_tool_repeat_limit", "loop_stream_repeat_cycles", "loop_nudge_max",
 				"wait_for_limit_reset", "wait_for_limit_reset_max_ms",
 			},
 			nil),

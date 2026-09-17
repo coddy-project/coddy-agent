@@ -42,7 +42,8 @@ Telegram / future messengers
          │
          ▼
   sessionstore               ← maps chat+user context → Coddy session ID
-         │                     /clear command replaces the stored ID
+         │                     /clear replaces the stored ID, /resume binds it
+         │                     to a session chosen from the server's list
          ▼
   session.Manager            ← shared with coddy acp / coddy serve
     HandleSessionPromptWithSender(...)
@@ -366,7 +367,119 @@ Every record keeps its `component` attribute, so a file that mixes subsystems st
 grep '"component":"gateway.telegram"' /var/log/coddy/coddy.log
 ```
 
-A switch that lands is reported at `info`, so the confirmation is in the log without raising anything: `telegram: model applied` and `telegram: mode applied` name the session and the new value. A tap that reaches the bot and fails logs why at `warn`, equally visible: `telegram: callback session` when the session cannot be loaded, `telegram: callback model unknown` when the button names a model that is no longer configured, and `telegram: set model` when the manager refuses the change. Silence at `warn` and nothing at `debug` means the update never arrived - check the bot token, the ACL, and whether another process is polling the same bot, since Telegram delivers each update to one long poll only.
+A switch that lands is reported at `info`, so the confirmation is in the log without raising anything: `telegram: model applied` and `telegram: mode applied` name the session and the new value, `telegram: session resumed` names the session the chat left and the one it moved to. A tap that reaches the bot and fails logs why at `warn`, equally visible: `telegram: callback session` when the session cannot be loaded, `telegram: callback model unknown` when the button names a model that is no longer configured, `telegram: callback session unknown` when a resume button names a session deleted since the keyboard was sent, `telegram: resume session` when the chosen bundle cannot be loaded, and `telegram: set model` when the manager refuses the change. At `debug`, `telegram: resume menu` records each page of the picker with the chat's current session and `telegram: resume query` records the words after `/resume` with how many sessions they matched. Silence at `warn` and nothing at `debug` means the update never arrived - check the bot token, the ACL, and whether another process is polling the same bot, since Telegram delivers each update to one long poll only.
+
+### Debugging against a fake Bot API
+
+The log tells what the bot did with an update; it does not let you send one
+without a phone, a token and a model behind the answer. `cmd/tgfake` does: a
+stand-in Bot API server that answers every method the gateway calls
+(`getMe`, `getUpdates` with real long polling, `sendMessage`,
+`editMessageText`, `answerCallbackQuery`, the Bot API 10.1 `sendRichMessage`
+and `sendRichMessageDraft`, ...), keeps the chats it is sent, and serves a page
+where you are the person in the chat - the bot's inline keyboards are buttons.
+With `--llm` it also serves a scripted model, so the whole stand runs with no
+network at all:
+
+```bash
+go run ./cmd/tgfake --llm --llm-delay 50ms      # Bot API + model on 127.0.0.1:18790
+```
+
+Point `coddy serve` at it with **`CODDY_TELEGRAM_API_BASE`**, the origin the
+`--dry-run` probe honours as well, and give it the stub as its provider (the
+command prints this snippet on start):
+
+```yaml
+providers:
+  - name: stub
+    type: openai
+    api_base: "http://127.0.0.1:18790/v1"
+    api_key: "sk-tgfake"
+models:
+  - model: stub/coddy-demo
+agent:
+  model: stub/coddy-demo
+httpserver:
+  enable: false                     # the stand is the bot alone; drop this to watch the chat in the web UI too
+gateways:
+  telegram:
+    enable: true
+    token: "123456:fake"            # any token; the fake accepts all of them
+logger:
+  levels:
+    - component: gateway.telegram
+      level: debug
+```
+
+```bash
+export CODDY_TELEGRAM_API_BASE=http://127.0.0.1:18790   # PowerShell: $env:CODDY_TELEGRAM_API_BASE="http://127.0.0.1:18790"
+coddy serve --dry-run --config stand.yaml               # ok  gateways.telegram: token accepted by the Bot API, bot @coddy_fake_bot
+coddy serve --gateway --http=false --config stand.yaml  # telegram: api base override ... telegram bot connected
+```
+
+Then open `http://127.0.0.1:18790/`, type `hello`, tap a `/mode` button, and
+read the Bot API calls on the right as the log fills on the left.
+
+![The chat page of cmd/tgfake on the dark scheme: the person's side of the chat on the left with the bot's /mode keyboard as buttons, every Bot API call the bot made listed on the right](../assets/tgfake-chat-dark-1280.png)
+
+*The chat page of `cmd/tgfake`: a greeting answered by the scripted model, the `/mode` keyboard with the tap applied, and on the right every Bot API call the bot made, `getUpdates` polls hidden.*
+
+The same page is an HTTP API, which is what a script or a coding agent drives:
+
+| Route | Body / answer |
+|-------|---------------|
+| `POST /sim/message` | `{"chat_id": 4242, "user_id": 4242, "username": "alice", "text": "hello"}`; `chat_type: group`, `mention: true` and `reply_to_message_id` for the group paths. A leading `/word` becomes a `bot_command` entity. |
+| `POST /sim/callback` | `{"chat_id": 4242, "label": "Plan"}` taps the button by its text (the `✓` prefix is ignored), or `{"message_id": 4, "data": "mode:plan"}`. |
+| `GET /sim/chat/4242` | the transcript: messages, keyboards after every edit, drafts, `typing`; `?format=text` for `grep`. |
+| `GET /sim/outbox?method=sendMessage&since=10` | every Bot API call with its parameters and the answer; `/sim/outbox/count?method=...` for a script. |
+| `POST /sim/fault` | `{"method": "sendMessage", "code": 429, "retry_after": 2, "times": 1}` makes the next `sendMessage` fail like a flood; `"method": "*"` fails everything until `DELETE /sim/fault`; `"contains": "<details>"` narrows the fault to calls whose parameters carry that text, which is Telegram refusing one entity rather than the method. |
+| `POST /sim/reset` | forgets chats, outbox and faults. Update ids keep growing, so a polling bot is not confused. |
+
+The fake is strict where Telegram is. An edit that changes nothing, an edit
+of a message that was never sent, a text over 4096 characters, a reply to a
+message the chat does not hold (unless `allow_sending_without_reply` says to
+send it anyway), an answer to a callback query the fake never issued, and a
+keyboard whose `callback_data` is longer than 64 bytes (`BUTTON_DATA_INVALID`)
+are refused with Telegram's own error, so a keyboard that works on the stand
+works in a chat.
+
+It also remembers `allowed_updates` the way Telegram does. A bot token that
+once ran under another framework may be subscribed to messages alone, and a
+poll that names no kinds inherits that: text arrives, keyboard taps are
+dropped before anyone sees them. The gateway therefore asks for `message` and
+`callback_query` on every poll. `GET /sim/state` shows the subscription in
+force; `tgfake.Options.AllowedUpdates` starts a bot under a stale one, which
+is how the polling feature reproduces the case. On a real bot,
+`getWebhookInfo` reports the same field.
+The subscription is applied when an update is created: changing it preserves
+already queued updates and cannot recover events excluded at creation.
+
+Rich-message previews expire 30 seconds after their last successful revision.
+The chat page and `/sim/chat/{id}` stop showing expired drafts; reading the
+chat or writing another draft also removes expired entries from its storage.
+The outbox retains the calls for debugging, and persistent messages remain.
+
+`--llm-answer` (repeatable) scripts the model's replies in turn, `--llm-script
+rules.json` matches them by substring (`[{"match": "weather", "answer":
+"Sunny."}]`), and without either the model echoes the prompt - the person's
+message, not the `<turn_context>` block Coddy appends to every request. Rules are the
+reliable choice: the title a session derives from its first message is one more
+model call, so a list of answers advances a step earlier than the chat shows.
+The streamed answer arrives one word per `--llm-delay`, long enough for the
+live `editMessageText` path, or the draft path with `rich_messages: true`, to
+run.
+
+**`examples/gateway/tg_e2e_offline.sh`** does all of the above in one go -
+builds `tgfake`, writes a temporary home, boots `coddy serve` against it, sends
+`hello` and checks the reply, then leaves the session with `/clear`, comes back
+to it from the `/resume` keyboard and checks that the next message landed in
+that bundle - and `TG_E2E_KEEP=1` leaves the stand running with the page URL
+printed. It runs in Git Bash on Windows as well.
+
+The variable is not only for the fake: a self-hosted Bot API server
+(`telegram-bot-api` for large files or a local network) is pointed at the same
+way, and `coddy serve --dry-run` confirms which server answered before the bot
+starts.
 
 ---
 
@@ -382,7 +495,7 @@ In a group the bot **only responds** when explicitly addressed. It will react to
 
 1. A message that **@mentions** the bot (`@coddy_agent_bot hello`)
 2. A **direct reply** to a previous bot message
-3. The `/clear` command
+3. A bot command (`/clear`, `/resume`, `/mode`, `/model`, `/context`, `/help`, `/start`), with or without the mention
 
 When `isolation` is `admin`, the bot additionally ignores everyone who is not in the `admins` list.
 
@@ -395,7 +508,8 @@ When `isolation` is `admin`, the bot additionally ignores everyone who is not in
 | `/mode` | all permitted users | Opens an inline keyboard to switch the session mode between `agent`, `plan`, and `ask`. |
 | `/model` | all permitted users | Opens an inline keyboard to switch the active LLM model (from the configured `models` list). |
 | `/context` | all permitted users | Displays the current session's context window usage broken down by category (conversation, system prompt, tool definitions, rules, skills, MCP). |
-| `/clear` | all permitted users | Starts a new session for the current user/chat context. The old session is removed from memory (persisted history remains on disk). |
+| `/resume [id or title]` | all permitted users | Continues another session. Alone it opens an inline keyboard over the sessions the server keeps, newest first, eight per page, the chat's own session marked; a tap binds the chat to the one chosen. With words after it, the session whose id they are, or whose id starts with them or whose title contains them (those two case-insensitively), is resumed at once; several matches come back as the keyboard, and no match is answered with a message. The session left behind stays loaded. |
+| `/clear` | all permitted users | Starts a new session for the current user/chat context. The old session is removed from memory (persisted history remains on disk); `/resume` brings it back. |
 
 ---
 
@@ -506,11 +620,12 @@ type SessionRunner interface {
     ForgetLiveSession(sessionID string)
     HandleSessionSetMode(ctx context.Context, params acp.SessionSetModeParams) error
     HandleSessionSetConfigOption(ctx context.Context, params acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error)
+    HandleSessionList(ctx context.Context, params acp.SessionListParams) (*acp.SessionListResult, error)
     Cfg() *config.Config
 }
 ```
 
-`session.Manager` already satisfies this interface — pass it directly. `HandleSessionSetMode` and `HandleSessionSetConfigOption` are needed for `/mode` and `/model` inline keyboard commands; `Cfg()` returns the loaded config (used by `/model` to list available models).
+`session.Manager` already satisfies this interface — pass it directly. `HandleSessionSetMode` and `HandleSessionSetConfigOption` are needed for `/mode` and `/model` inline keyboard commands; `HandleSessionList` is what `/resume` offers to the chat; `Cfg()` returns the loaded config (used by `/model` to list available models).
 
 ### 2. Register in Start()
 
@@ -637,7 +752,32 @@ manager.ForgetLiveSession(oldID)   → drops the in-memory session (disk persist
 Next message → EnsureHTTPSession creates a fresh session for the new ID
 ```
 
-The old session files remain on disk under the old ID. Use `coddy sessions list` to inspect them.
+The old session files remain on disk under the old ID. Use `coddy sessions list` to inspect them, or `/resume` in the chat to come back to one.
+
+**`/resume` flow:**
+
+```
+manager.HandleSessionList(...)     → the sessions the server keeps, newest first
+                                     (no folder filter: a chat has no cwd of its own)
+/resume            → inline keyboard, one button per session: the title, or the
+                     id of a session without one, then its age; the chat's own
+                     session is marked; eight per page with Prev/Next
+/resume <query>    → the session whose id the query is (byte for byte), or
+                     whose id starts with it or whose title contains it (case-
+                     insensitive); one match is resumed at once, several come
+                     back as the keyboard
+manager.EnsureHTTPSession(ctx, chosenID, cwd)   → loads the bundle first, so a
+                                                   bundle that cannot be read is
+                                                   reported here and nothing changes
+store.Bind(key, chosenID)   → replaces the stored id in gateway_sessions.json
+Next message → runs in the resumed session
+```
+
+The session the chat came from stays loaded. `/resume` is a switch, not an
+ending - the chat may come straight back - while `/clear` says a conversation
+is over, and dropping it from memory belongs there. A tap on a keyboard that
+outlived its session - deleted from the web UI since the list was shown - is
+answered with an alert and binds nothing.
 
 ---
 
@@ -646,4 +786,5 @@ The old session files remain on disk under the old ID. Use `coddy sessions list`
 - **Token exposure** — never commit the bot token to version control. Use `"${TELEGRAM_BOT_TOKEN}"` in YAML and export the variable before starting.
 - **Permissions** — the gateway auto-approves the chat agent's own tool permission requests so it can work unattended. Restrict `tools.command_allowlist` in `config.yaml` if you want to limit which shell commands the agent can run. A subagent whose definition narrowed its permission mode below `bypass` is not waved through: the bot asks in the chat with **Allow** / **Reject** buttons naming the subagent - during the turn, and after it ended for a background subagent - and only the person whose session asked can answer (in a group with individual sessions another member's tap is ignored and leaves the owner's buttons available). The message reads *Allowed*, *Denied* or *No longer waiting* once it settles.
 - **Access control** — set `default_access: "admins"` for bots that should only respond to a specific set of users. Open bots (`default_access: "all"`) will respond to any Telegram user who can write to the chat.
+- **`/resume` lists every session of the server** — the sessions started in a console or a browser included, and a permitted user can continue any of them from the chat, which puts their transcripts in front of the model. With the defaults - every permission auto-approved, an unrestricted shell - the bundles on disk were within a permitted user's reach already; with a narrowed tool set (`tools.command_allowlist`, `ask` mode) `/resume` is a new path to other people's conversations. Either way, keep `default_access` narrow on a bot that more than one person can write to.
 - **Network** — the gateway uses Telegram long-polling (not webhooks). No inbound port needs to be open.

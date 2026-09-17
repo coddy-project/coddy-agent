@@ -53,7 +53,7 @@ $ coddy serve -t
 config test failed
 ```
 
-The exit status is 1 when the file has errors and 0 otherwise, so the flag fits a deploy script right before `coddy serve restart`. Warnings (marked `warning:`) never fail the check: they flag spellings the loader still reads but the schema and editors reject - `yes` for a boolean, `40.0` for an integer - and a file without the `# yaml-language-server:` header. A missing file is an error, since the flag exists to check the file a start would use. Values under secret-shaped keys (`api_key`, `auth_token`, `pairing_tokens`) are never echoed in a message.
+The exit status is 1 when the file has errors and 0 otherwise, so the flag fits a deploy script right before `coddy serve restart`. Warnings (marked `warning:`) never fail the check: they flag spellings the loader still reads but the schema and editors reject - `yes` for a boolean, `40.0` for an integer - a file without the `# yaml-language-server:` header, and a setting the provider never sends: `max_tokens` on a model served by a `codex` provider bounds nothing, because the Codex backend takes no output cap. The loader keeps accepting that one, since the settings form seeds `max_tokens` on every model row it adds, and `coddy serve` names it in a warning at startup. A missing file is an error, since the flag exists to check the file a start would use. Values under secret-shaped keys (`api_key`, `auth_token`, `pairing_tokens`) are never echoed in a message.
 
 A file that does not parse at all is placed differently from one whose values are merely wrong. The parser reports the line the block it was reading began on, which in a file with a header of comments is a blank line far above the mistake, so the check re-reads the file to find the line whose arrival stops it parsing and reports that one instead. A start prints the same line, so `coddy -t` and `coddy serve` send you to the same place.
 
@@ -64,7 +64,7 @@ What an editor leaves in the file is not part of the configuration. A file writt
 `--dry-run` looks at the world the file describes, after the same check `--test-config` performs. Every command that takes `-t` takes it too: `coddy --dry-run`, `coddy cli --dry-run`, `coddy acp --dry-run`, `coddy serve --dry-run`, with `--config` and `--home` selecting the file as for a start. The static check runs first, and a file with errors stops there - probing what a broken file names would only bury the first mistake under its consequences. When the file is clean, the configuration is loaded without side effects (no `config.yaml.bak` written or restored) and probed:
 
 - **paths** - `sessions.dir`, `logger.file`, `scheduler.dir` and `memory.dir` are fine when missing as long as they can be created (the process makes them at start), and an error when a regular file stands in the way; `prompts.dir` has to exist, and a template missing from it is a warning; `skills.dirs`, `subagents.dirs` and `hooks.files` entries you wrote are warnings when missing, while absent defaults stay quiet; a hook file that exists has to parse; `swarm.tls` must load and every `dial.ca_file` must hold a certificate;
-- **LLM providers** - each provider is asked for its model list, which exercises the address, the proxy and the credential in one request (`coddy providers login` credentials included); a provider aimed at a vendor's official endpoint with nothing to present is reported without a request. Every `models[]` entry is then checked against that list: a model the server does not name is a warning, since some servers serve more than they list;
+- **LLM providers** - each provider is asked for its model list, which exercises the address, the proxy and the credential in one request (`coddy providers login` credentials included); a provider aimed at a vendor's official endpoint with nothing to present is reported without a request. Every `models[]` entry is then checked against that list: a model the server does not name is a warning, since some servers serve more than they list. A `max_tokens` on a `codex` model is a warning whatever the provider answers, since no request carries it;
 - **MCP servers** from `config.yaml` - the executable of a stdio server is resolved in `PATH` the way the spawn would, without spawning it; a remote server is asked for any HTTP answer, with its headers. Project-local `.coddy/mcp.json` declarations are not contacted: they sit behind the workspace trust gate;
 - **Telegram** - when `gateways.telegram.enable` is true the token is checked against the Bot API (`getMe`), through `gateways.telegram.proxy` when set; the report names the bot;
 - **remotes** - each `httpserver.remotes[]` URL is asked for an answer (a warning when down, since it is used only on request), and the `--remote` target of a console or `acp` run has to accept the token;
@@ -131,7 +131,7 @@ dry run: 2 errors, 3 warnings, 4 ok
 dry run failed
 ```
 
-`ok` and `skipped` lines carry no fix; a `warning` never fails the run; an `error` does. A file that fails the static check is always shown, whichever flags were given: nothing else can be probed until it is fixed. Network probes run concurrently and each is bounded to ten seconds, so a dead server costs one wait, not one per model. Secrets are not echoed: a Telegram token is masked in any error text and a provider key is never printed. `CODDY_TELEGRAM_API_BASE` points the Telegram probe at a stand-in Bot API (tests and self-hosted gateways).
+`ok` and `skipped` lines carry no fix; a `warning` never fails the run; an `error` does. A file that fails the static check is always shown, whichever flags were given: nothing else can be probed until it is fixed. Network probes run concurrently and each is bounded to ten seconds, so a dead server costs one wait, not one per model. Secrets are not echoed: a Telegram token is masked in any error text and a provider key is never printed. `CODDY_TELEGRAM_API_BASE` points the Telegram probe, and the bot itself, at another Bot API origin: a self-hosted server, or the offline stand of [`cmd/tgfake`](../surfaces/gateway.md#debugging-against-a-fake-bot-api).
 
 ## Full Configuration Schema
 
@@ -224,6 +224,8 @@ agent:
                                # capped at 60s
   llm_min_interval_ms: 0       # min gap between consecutive LLM calls, retries included; e.g. 12000 on strict free tiers
   llm_first_token_timeout_ms: 90000  # cancel a silent streamed LLM call after this long (0 disables the guard)
+  llm_stream_idle_timeout_ms: 300000 # cut a streamed answer that sends nothing for this long after its first bytes,
+                                     # keeping the text already delivered (0 disables the guard; blocking models are never guarded)
   wait_for_limit_reset: false        # wait for a hit usage limit to lift and re-issue the call (off: the turn ends with the error)
   wait_for_limit_reset_max_ms: 14400000  # total wait per turn (4 h), the retry wrapper's sleeps on a limit included; under 60 s it also bounds ordinary 429 retries; 0 never waits
   loop_guard: true             # stop a response that repeats itself, and a tool called over and over with identical args

@@ -47,12 +47,6 @@ type subagentPermissionWorld struct {
 	answers   chan *acp.PermissionResult
 }
 
-// apiCall is one request the bot made to the Telegram API.
-type apiCall struct {
-	method string
-	form   url.Values
-}
-
 func (w *subagentPermissionWorld) handler(rw http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 	method := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]

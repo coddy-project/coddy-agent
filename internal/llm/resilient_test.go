@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -275,7 +276,9 @@ func TestRetryDelayParsesRetryInBodyPhrase(t *testing.T) {
 
 // TestTransientTransportErrorClassification verifies that transport failures
 // carrying no HTTP status (unexpected EOF, connection reset, http2 stream
-// errors) classify as retryable, while arbitrary failures stay final.
+// errors, a TLS handshake or a dial that never completed) classify as
+// retryable, while arbitrary failures, an unknown host and the caller's own
+// cancellation or deadline stay final.
 func TestTransientTransportErrorClassification(t *testing.T) {
 	cases := []struct {
 		name string
@@ -285,8 +288,31 @@ func TestTransientTransportErrorClassification(t *testing.T) {
 		{"unexpected EOF", fmt.Errorf("openai stream: %w", io.ErrUnexpectedEOF), true},
 		{"connection reset", fmt.Errorf("openai stream: %w",
 			&net.OpError{Op: "read", Err: os.NewSyscallError("read", syscall.ECONNRESET)}), true},
-		{"http2 stream error text", errors.New(`openai stream: POST "https://api.example.test": http2: stream error: stream ID 5; INTERNAL_ERROR; received from peer`), true},
+		// What net/http actually prints for an RST_STREAM from the peer: no
+		// "http2:" prefix (that spelling belongs to GOAWAY and the lost-ping
+		// close), and wrapped in the url.Error of the request it killed.
+		{"http2 stream reset by the peer", fmt.Errorf("openai complete: %w",
+			&url.Error{Op: "Post", URL: "https://api.example.test/v1/chat/completions", Err: errors.New("stream error: stream ID 1; INTERNAL_ERROR; received from peer")}), true},
+		{"http2 stream refused", errors.New(`openai stream: POST "https://api.example.test": stream error: stream ID 3; REFUSED_STREAM`), true},
+		{"http2 lost ping", fmt.Errorf("openai stream: %w",
+			&url.Error{Op: "Post", URL: "https://api.example.test/v1/chat/completions", Err: errors.New("http2: client connection lost")}), true},
+		{"stalled stream before any delta", fmt.Errorf("openai stream: %w",
+			&streamTransportError{cause: &streamStalledError{idle: time.Second}}), true},
 		{"plain failure", errors.New("openai stream: boom"), false},
+		// The request never left the client: the handshake or the dial failed.
+		{"TLS handshake timeout", fmt.Errorf("openai stream: %w",
+			&url.Error{Op: "Post", URL: "https://api.example.test/v1/chat/completions", Err: errors.New("net/http: TLS handshake timeout")}), true},
+		{"dial timeout", fmt.Errorf("openai stream: %w",
+			&url.Error{Op: "Post", URL: "https://api.example.test/v1/chat/completions", Err: realDialTimeout(t)}), true},
+		{"dial host unreachable", fmt.Errorf("openai stream: %w",
+			&net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", syscall.EHOSTUNREACH)}), true},
+		{"dial temporary DNS failure", fmt.Errorf("openai stream: %w",
+			&net.OpError{Op: "dial", Net: "tcp", Err: &net.DNSError{Err: "server misbehaving", Name: "api.example.test", IsTemporary: true}}), true},
+		{"dial unknown host", fmt.Errorf("openai stream: %w",
+			&net.OpError{Op: "dial", Net: "tcp", Err: &net.DNSError{Err: "no such host", Name: "api.example.test", IsNotFound: true}}), false},
+		{"dial canceled by the caller", fmt.Errorf("openai stream: %w",
+			&net.OpError{Op: "dial", Net: "tcp", Err: context.Canceled}), false},
+		{"caller deadline", fmt.Errorf("openai stream: %w", context.DeadlineExceeded), false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -295,6 +321,19 @@ func TestTransientTransportErrorClassification(t *testing.T) {
 			}
 		})
 	}
+}
+
+// realDialTimeout returns the error net.Dialer produces when its timeout
+// fires: an "i/o timeout" that also matches context.DeadlineExceeded. A
+// deadline already in the past fails before any packet is sent.
+func realDialTimeout(t *testing.T) error {
+	t.Helper()
+	_, err := (&net.Dialer{Timeout: time.Nanosecond}).Dial("tcp", "192.0.2.1:443")
+	var op *net.OpError
+	if !errors.As(err, &op) || op.Op != "dial" || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("dial error = %#v, want a dial timeout", err)
+	}
+	return err
 }
 
 // TestStreamTransportErrorEmittedBlocksRetry pins the emitted contract for
@@ -312,6 +351,13 @@ func TestStreamTransportErrorEmittedBlocksRetry(t *testing.T) {
 	odd := fmt.Errorf("openai stream: %w", &streamTransportError{cause: bufio.ErrTooLong})
 	if isRetryableLLMError(odd) {
 		t.Fatal("a deterministic cause must stay non-retryable even before output")
+	}
+	stalled := fmt.Errorf("openai stream: %w", &streamTransportError{cause: &streamStalledError{idle: time.Second}, emitted: true})
+	if isRetryableLLMError(stalled) {
+		t.Fatal("a stream that stalled after emitted deltas must not be retryable")
+	}
+	if !IsStreamStalled(stalled) {
+		t.Fatal("the stall must stay recognisable through the transport wrapper and the provider prefix")
 	}
 }
 

@@ -56,7 +56,17 @@ func AssetInventory(root string) ([]Asset, error) {
 		if err != nil {
 			return err
 		}
-		assets = append(assets, Asset{Path: rel, Size: info.Size()})
+		size := info.Size()
+		// SVG is text: Git's CRLF checkout conversion must not change the
+		// generated inventory. Symlink sizes remain the link target length.
+		if info.Mode().IsRegular() && strings.EqualFold(filepath.Ext(path), ".svg") {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			size = int64(len(strings.ReplaceAll(string(data), "\r\n", "\n")))
+		}
+		assets = append(assets, Asset{Path: rel, Size: size})
 		return nil
 	})
 	if err != nil {

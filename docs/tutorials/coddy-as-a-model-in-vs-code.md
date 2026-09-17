@@ -39,6 +39,8 @@ VS Code Copilot takes any OpenAI-compatible endpoint as a chat model through `ch
    }
    ```
 
+   Copilot sends its own `temperature` with every request, and a direct model uses it in place of the configured one. A reasoning model may refuse it: a `codex` model always does (coddy answers `400` before calling it), OpenAI's reasoning models and Anthropic's extended thinking refuse the value Copilot sends as well, while Qwen3 thinking on vLLM takes it. Give the entry of every model that reasons `"thinking": true` - a `codex` model, or one whose `GET /v1/models` row carries `reasoning_levels` - and Copilot leaves `temperature` out, as it does for any reasoning model.
+
    Bearer auth is off by default, and any `apiKey` string satisfies VS Code's form; with `httpserver.auth_token` set, the `apiKey` is that token. Copilot sends the whole conversation with every request, so each request is a session of its own on the server unless a `requestHeaders` entry on the model sets `X-Coddy-Session-ID` to a fixed `sess_<hex>` id, which keeps the turns in one transcript.
 
 3. **Mind the agent's permission gate.** The `agent` model runs tools under `tools.permission_mode`, and a permission prompt cannot be answered from Copilot: the turn waits for an answer that never comes. Give the serving config `bypass` when the workspace is one you trust the agent with, or keep `ask` and answer the prompt in the web UI, where the turn is live under its session.

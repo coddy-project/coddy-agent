@@ -118,7 +118,7 @@ func TestRelaySenderPublishesToTheRelayOnly(t *testing.T) {
 func TestDirectYAMLNonStreamCallsComplete(t *testing.T) {
 	_, srv, _ := testHTTPServerPersist(t)
 	calls := &recordingProvider{reply: "direct answer"}
-	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) { return calls, nil }
+	srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) { return calls, nil }
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()

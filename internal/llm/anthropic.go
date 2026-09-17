@@ -14,10 +14,12 @@ import (
 
 // anthropicProvider implements Provider using the Anthropic API.
 type anthropicProvider struct {
-	client          anthropic.Client
-	model           string
-	maxTokens       int
-	temp            float64
+	client    anthropic.Client
+	model     string
+	maxTokens int
+	temp      float64
+	// tempSet sends temp even at zero: the caller asked for that value.
+	tempSet         bool
 	reasoningEffort string
 }
 
@@ -199,7 +201,21 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 		// Same transport wrapper as the openai path: the emitted flag lets
 		// classification retry status-less failures only while nothing was
 		// delivered. HTTP errors keep their status reachable through Unwrap.
-		return nil, fmt.Errorf("anthropic stream: %w", &streamTransportError{cause: err, emitted: emitted})
+		wrapped := fmt.Errorf("anthropic stream: %w", &streamTransportError{cause: err, emitted: emitted})
+		if IsStreamStalled(err) && (strings.TrimSpace(fullContent) != "" || strings.TrimSpace(thinkingBuf.String()) != "") {
+			// The stall guard cut the stream: keep what the user watched
+			// arrive, as the truncation branch below does, and drop the
+			// tool_use blocks whose input may be cut mid-JSON.
+			return &Response{
+				Content:            fullContent,
+				Reasoning:          thinkingBuf.String(),
+				ReasoningSignature: thinkingSig,
+				InputTokens:        inputTokens,
+				OutputTokens:       outputTokens,
+				CachedInputTokens:  cachedInputTokens,
+			}, wrapped
+		}
+		return nil, wrapped
 	}
 
 	if stopReason == "" {
@@ -305,7 +321,12 @@ func (p *anthropicProvider) buildParams(system string, messages []anthropic.Mess
 			params.MaxTokens = budget + anthropicMinThinkingBudget
 		}
 		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(budget)
-	} else if p.temp > 0 {
+		// Same rule as the OpenAI path: only a temperature the caller asked for
+		// travels next to thinking, and the backend decides whether it takes it.
+		if p.tempSet {
+			params.Temperature = anthropic.Float(p.temp)
+		}
+	} else if p.temp > 0 || p.tempSet {
 		params.Temperature = anthropic.Float(p.temp)
 	}
 

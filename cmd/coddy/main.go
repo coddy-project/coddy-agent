@@ -331,6 +331,7 @@ func runACP(args []string) error {
 
 	log.Info("starting ACP server", "version", version.Get())
 	llm.LogCodexAuthNotices(log, cfg)
+	cfg.LogUnsentModelSettings(log)
 	llm.LogNeuralDeepAuthNotices(log, cfg)
 
 	if cfg.SchedulerEffectiveEnabled() {

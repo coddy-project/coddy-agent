@@ -15,6 +15,10 @@ const (
 	// stay silent before the turn cancels it (the API hang guard in the ReAct
 	// loop).
 	AgentDefaultLLMFirstTokenTimeoutMS = 90000
+	// AgentDefaultLLMStreamIdleTimeoutMS is how long a streamed LLM response
+	// may send nothing after its first bytes before the stream is cut as
+	// stalled (the mid-answer hang guard, internal/llm's stall guard).
+	AgentDefaultLLMStreamIdleTimeoutMS = 300000
 	// AgentDefaultLoopToolRepeatLimit is how many consecutive identical tool calls
 	// (same name, same canonical arguments) the loop guard tolerates.
 	AgentDefaultLoopToolRepeatLimit = 3
@@ -46,6 +50,13 @@ type Agent struct {
 	// the turn cancels it. A nil pointer means the default (90000); an explicit 0
 	// disables the guard, leaving the turn context as the only bound.
 	LLMFirstTokenTimeoutMS *int `yaml:"llm_first_token_timeout_ms"`
+	// LLMStreamIdleTimeoutMS is how long a streamed LLM response may stay
+	// silent after its first bytes before the stream is cut as stalled: the
+	// text already delivered is kept and the turn ends with the stall named.
+	// A nil pointer means the default (300000, five minutes); an explicit 0
+	// disables the guard. The wait for the first byte is the first-token
+	// guard's, and a blocking (stream: false) answer is never guarded.
+	LLMStreamIdleTimeoutMS *int `yaml:"llm_stream_idle_timeout_ms"`
 	// LoopGuard toggles runaway-loop protection: aborting a streamed response that
 	// degenerates into repeating itself, and blocking identical tool calls issued
 	// over and over. A nil pointer means the default (true).
@@ -89,6 +100,15 @@ func (c *Agent) EffectiveLLMFirstTokenTimeout() time.Duration {
 		return AgentDefaultLLMFirstTokenTimeoutMS * time.Millisecond
 	}
 	return time.Duration(*c.LLMFirstTokenTimeoutMS) * time.Millisecond
+}
+
+// EffectiveLLMStreamIdleTimeout returns llm_stream_idle_timeout_ms as a
+// duration with the default applied. An explicit 0 disables the guard.
+func (c *Agent) EffectiveLLMStreamIdleTimeout() time.Duration {
+	if c.LLMStreamIdleTimeoutMS == nil {
+		return AgentDefaultLLMStreamIdleTimeoutMS * time.Millisecond
+	}
+	return time.Duration(*c.LLMStreamIdleTimeoutMS) * time.Millisecond
 }
 
 // LoopGuardEnabled reports whether runaway-loop protection is active. Defaults to true when unset.
@@ -164,6 +184,9 @@ func (c *Agent) Validate() error {
 	}
 	if c.LLMFirstTokenTimeoutMS != nil && *c.LLMFirstTokenTimeoutMS < 0 {
 		return fmt.Errorf("agent.llm_first_token_timeout_ms: must be >= 0")
+	}
+	if c.LLMStreamIdleTimeoutMS != nil && *c.LLMStreamIdleTimeoutMS < 0 {
+		return fmt.Errorf("agent.llm_stream_idle_timeout_ms: must be >= 0")
 	}
 	if c.LoopToolRepeatLimit != nil && *c.LoopToolRepeatLimit < 0 {
 		return fmt.Errorf("agent.loop_tool_repeat_limit: must be >= 0")

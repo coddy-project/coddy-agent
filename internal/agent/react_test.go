@@ -6,7 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -2877,5 +2880,93 @@ func TestSetTitlePinnedIfUnsetHasOneWinner(t *testing.T) {
 	}
 	if st.GetTitlePinned() == "" {
 		t.Fatal("nobody named it")
+	}
+}
+
+// --- stalled streams and interrupted waits ---------------------------------
+
+// A stream that goes quiet after its first deltas is cut by the idle guard:
+// the text the user already watched stream in is persisted like a
+// truncation, and the turn ends with the stall named, not with a silent
+// wait for a byte that never comes.
+func TestStalledStreamKeepsPartialAnswerAndReportsTheStall(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		flusher, _ := w.(http.Flusher)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\"Hello fr\"}}],\"id\":\"c1\",\"model\":\"m\",\"object\":\"chat.completion.chunk\"}\n\n")
+		flusher.Flush()
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	idle := 200
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{{Name: "stub", Type: "openai", APIKey: "test", APIBase: srv.URL}},
+		Models:    []config.ModelEntry{{Model: "stub/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "stub/model", MaxTurns: 3, LLMStreamIdleTimeoutMS: &idle},
+	}
+	st := &session.State{ID: "sess_stall", CWD: t.TempDir(), Mode: session.ModeAgent, SessionDir: t.TempDir()}
+	sender := &loopGuardSender{}
+	ag := NewAgent(cfg, st, sender, nil)
+
+	// Bounded so a guard that never fires fails the test instead of hanging it.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := ag.Run(ctx, []acp.ContentBlock{{Type: "text", Text: "hello"}})
+	if err == nil || !llm.IsStreamStalled(err) {
+		t.Fatalf("the turn must end with the stall, got err=%v", err)
+	}
+	if !strings.Contains(err.Error(), "200ms") {
+		t.Fatalf("the error must name the idle time: %v", err)
+	}
+	msgs := st.GetMessages()
+	if len(msgs) == 0 {
+		t.Fatal("no messages persisted")
+	}
+	last := msgs[len(msgs)-1]
+	if last.Role != llm.RoleAssistant || last.Content != "Hello fr" {
+		t.Fatalf("the partial answer must be persisted, last message = %+v", last)
+	}
+}
+
+// silentStreamProvider never sends a chunk and returns only when the caller's
+// context ends, as a provider does when the upstream holds the request.
+type silentStreamProvider struct{}
+
+func (silentStreamProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return nil, fmt.Errorf("Complete must not be used here")
+}
+
+func (silentStreamProvider) Stream(ctx context.Context, _ []llm.Message, _ []llm.ToolDefinition, _ func(llm.StreamChunk)) (*llm.Response, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+// A turn interrupted from outside (a signal, a shutdown) while the model has
+// produced nothing says how long the model had been silent, so a kill after
+// a long silent wait is not reported as a mere interruption.
+func TestInterruptedBeforeOutputNamesTheSilence(t *testing.T) {
+	guard := 60000
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{{Name: "lane", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "lane/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "lane/model", MaxTurns: 3, LLMFirstTokenTimeoutMS: &guard},
+	}
+	st := &session.State{ID: "sess_silent", CWD: t.TempDir(), Mode: session.ModeAgent, SessionDir: t.TempDir()}
+	ag := NewAgent(cfg, st, &loopGuardSender{}, nil)
+	ag.SetProviderFactory(func(llm.ProviderInput) (llm.Provider, error) { return silentStreamProvider{}, nil })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		cancel()
+	}()
+	_, err := ag.Run(ctx, []acp.ContentBlock{{Type: "text", Text: "hello"}})
+	if err == nil || !strings.Contains(err.Error(), "interrupted before producing a response") {
+		t.Fatalf("expected the interruption error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "silent for") {
+		t.Fatalf("the error must say how long the model was silent: %v", err)
 	}
 }

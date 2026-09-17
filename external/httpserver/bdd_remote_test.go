@@ -128,7 +128,7 @@ func (s *remoteFeatureState) start(token string) error {
 	store := &session.FileStore{Root: s.sessRoot}
 	s.mgr = session.NewManager(cfg, noopSender{}, runner, slog.Default(), s.root, store)
 	s.srv = New(cfg, s.mgr, slog.Default(), s.root)
-	s.srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) {
+	s.srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) {
 		return remoteStubProvider{}, nil
 	}
 	s.ts = httptest.NewServer(s.srv.Handler())

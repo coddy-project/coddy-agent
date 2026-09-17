@@ -12,6 +12,15 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
+// unsentModelSettings warns about the models[] settings the serving provider
+// never sends (config.UnsentModelSettings): no probe can confirm a bound that
+// no request carries, whether or not the provider itself answers.
+func (r *runner) unsentModelSettings() {
+	for _, u := range r.req.Cfg.UnsentModelSettings() {
+		r.rep.add(r.check(StatusWarning, u.Path(), u.Path(), u.Message, "remove "+u.Key+" from this model"))
+	}
+}
+
 // providerProbes asks every provider for its model list, which exercises the
 // address, the credential and the transport in one request, and then checks
 // that every model of that provider is one the server names.

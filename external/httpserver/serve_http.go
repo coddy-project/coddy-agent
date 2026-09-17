@@ -35,6 +35,7 @@ func Serve(ctx context.Context, opts Options) error {
 	}
 	log := opts.Log
 	llm.LogCodexAuthNotices(log, opts.Cfg)
+	opts.Cfg.LogUnsentModelSettings(log)
 	llm.LogNeuralDeepAuthNotices(log, opts.Cfg)
 
 	s := New(opts.Cfg, opts.Mgr, log, opts.DefaultCWD)

@@ -40,7 +40,7 @@ func postEnhancePrompt(t *testing.T, url, sessionID, body string) (*http.Respons
 
 func TestCoddyEnhancePromptRewritesDraftWithoutFollowingIt(t *testing.T) {
 	_, srv, _ := testHTTPServerPersist(t)
-	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) {
+	srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) {
 		return fakeProvider{reply: "```\n\"Refactor the memory endpoint and add tests.\"\n```"}, nil
 	}
 	ts := httptest.NewServer(srv.Handler())
@@ -70,7 +70,7 @@ func TestCoddyEnhancePromptUsesSelectedSessionModel(t *testing.T) {
 	cfg := srv.activeCfg()
 	cfg.Models = append(cfg.Models, config.ModelEntry{Model: enhanceAltModel, MaxTokens: 4096, Temperature: 0.2})
 	var gotModel string
-	srv.makeLLMFromYAML = func(_ *config.Config, model string) (llm.Provider, error) {
+	srv.makeLLMFromYAML = func(_ *config.Config, model string, _ llm.RequestOptions) (llm.Provider, error) {
 		gotModel = model
 		return fakeProvider{reply: "Better draft."}, nil
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -415,7 +416,17 @@ func isRetryableLLMError(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	// Ahead of the deadline gate: a dial that ran out of time matches
+	// context.DeadlineExceeded just like the caller's own timer does, and
+	// the caller's timer is already ruled out by the ctx.Err() check in
+	// callWithRetry before this classification runs.
+	if isDialFailure(err) {
+		return true
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
 	var reset *QuotaResetError
@@ -435,6 +446,14 @@ func isRetryableLLMError(err error) bool {
 		// Same emitted contract for transport failures mid-stream; a fresh
 		// one falls through to normal classification of its cause.
 		return false
+	}
+	var stalled *streamStalledError
+	if errors.As(err, &stalled) {
+		// The guard cut a stream that went silent before any delta reached
+		// the caller (after one, the wrapper above already refused): the
+		// server took the request and never answered it, which is the same
+		// wager as a connection cut before output.
+		return true
 	}
 	switch httpStatusFromError(err) {
 	case 429, 408, 500, 502, 503, 504:
@@ -459,16 +478,43 @@ func isTransientTransportError(err error) bool {
 	}
 	s := err.Error()
 	for _, needle := range []string{
-		"http2: stream error",
+		// An RST_STREAM from the peer (INTERNAL_ERROR, REFUSED_STREAM, ...):
+		// net/http prints it as "stream error: stream ID N; CODE; received
+		// from peer", with no "http2:" prefix. The connection lives on; the
+		// one request on that stream died.
+		"stream error: stream ID",
 		"http2: server sent GOAWAY",
+		// The liveness ping went unanswered and the transport closed the
+		// connection (transport.go): the far side of the path is gone.
+		"http2: client connection lost",
 		"connection reset by peer",
 		"unexpected EOF",
+		// The connection opened but the server never finished the handshake,
+		// so the request itself was never sent.
+		"net/http: TLS handshake timeout",
 	} {
 		if strings.Contains(s, needle) {
 			return true
 		}
 	}
 	return false
+}
+
+// isDialFailure reports a connection that was never established: a dial
+// that timed out or found no route, or a name lookup that failed for the
+// moment. The request did not leave the client, so repeating it cannot
+// duplicate work. A name that does not resolve at all is configuration, not
+// a network hiccup. Callers rule out a canceled context first.
+func isDialFailure(err error) bool {
+	var op *net.OpError
+	if !errors.As(err, &op) || op.Op != "dial" {
+		return false
+	}
+	var dns *net.DNSError
+	if errors.As(err, &dns) && dns.IsNotFound {
+		return false
+	}
+	return true
 }
 
 func httpStatusFromError(err error) int {

@@ -611,11 +611,21 @@ func (a *Agent) runReActLoop(
 		// the working `messages` slice keeps full content (copy-on-write) so state,
 		// the transcript, and later appends stay intact.
 		sendMessages := withTurnContext(a.prunedForLLM(messages), turnCtx)
+		// The call's own clock: when it went out, when the first chunk came
+		// back and how many followed. It names the silence in the errors
+		// below and is the debug-level account of every call.
+		callStart := time.Now()
+		var firstChunkAt time.Time
+		var chunkCount int
 		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, toolDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
 			}
 			now := time.Now()
+			chunkCount++
+			if firstChunkAt.IsZero() {
+				firstChunkAt = now
+			}
 			if chunk.ReasoningDelta != "" {
 				emitReason(chunk.ReasoningDelta, now)
 				if _, tripped := reasonLoop.Add(chunk.ReasoningDelta); tripped && loopAbort == loopAbortNone {
@@ -670,6 +680,7 @@ func (a *Agent) runReActLoop(
 		})
 		stopFirstTokenTimer()
 		streamCancel()
+		a.logLLMCall(callStart, firstChunkAt, chunkCount, response, streamErr)
 
 		// The loop guard cancelled this stream: keep the useful part of the answer,
 		// drop the repeated run so it is never replayed to the model, and either nudge
@@ -738,10 +749,11 @@ func (a *Agent) runReActLoop(
 				turn--
 				continue
 			}
-			// A mid-generation truncation keeps its partial answer like a user
-			// stop: the user already watched the text stream in, so it must
-			// survive in the transcript next to the honest error below.
-			if (errors.Is(streamErr, context.Canceled) || llm.IsStreamTruncated(streamErr)) && response != nil {
+			// A mid-generation truncation, or a stall the idle guard cut,
+			// keeps its partial answer like a user stop: the user already
+			// watched the text stream in, so it must survive in the
+			// transcript next to the honest error below.
+			if (errors.Is(streamErr, context.Canceled) || llm.IsStreamTruncated(streamErr) || llm.IsStreamStalled(streamErr)) && response != nil {
 				reasonTrim := strings.TrimSpace(reasoningBuf.String())
 				hasText := strings.TrimSpace(response.Content) != ""
 				hasTools := len(response.ToolCalls) > 0
@@ -780,9 +792,12 @@ func (a *Agent) runReActLoop(
 				if hasAnyOutput || a.state.IsUserCancelledTurn() {
 					return string(acp.StopReasonCancelled), nil
 				}
-				// Stream was interrupted before producing any output and the user did not stop it —
-				// surface an error so the UI can show feedback instead of silently completing.
-				return string(acp.StopReasonRefused), fmt.Errorf("generation was interrupted before producing a response")
+				// Stream was interrupted before producing any output and the user did not stop it
+				// (a signal, a shutdown): surface an error so the UI can show feedback instead of
+				// silently completing, and say how long the model had been silent, because a
+				// process killed after a long empty wait is a different story from one interrupted
+				// at once.
+				return string(acp.StopReasonRefused), fmt.Errorf("generation was interrupted before producing a response (the model had been silent for %s)", humanDuration(time.Since(callStart)))
 			}
 			if ctx.Err() != nil {
 				// Context cancelled for non-context-Canceled stream error: still propagate the real error.
@@ -1047,6 +1062,45 @@ func (a *Agent) runReActLoop(
 	}
 
 	return string(acp.StopReasonMaxTurns), nil
+}
+
+// logLLMCall is the debug-level account of one model call: how long it took,
+// how long the first chunk took to arrive, how many chunks followed, and how
+// it ended. It is what -log-level debug shows for a call that hangs or is
+// cut, where the transcript alone shows nothing at all.
+func (a *Agent) logLLMCall(callStart, firstChunkAt time.Time, chunks int, response *llm.Response, err error) {
+	if a.log == nil || !a.log.Enabled(context.Background(), slog.LevelDebug) {
+		return
+	}
+	attrs := []any{
+		"duration", humanDuration(time.Since(callStart)),
+		"chunks", chunks,
+	}
+	if firstChunkAt.IsZero() {
+		attrs = append(attrs, "first_chunk", "none")
+	} else {
+		attrs = append(attrs, "first_chunk", humanDuration(firstChunkAt.Sub(callStart)))
+	}
+	if response != nil {
+		attrs = append(attrs, "stop_reason", response.StopReason,
+			"content_bytes", len(response.Content), "tool_calls", len(response.ToolCalls))
+	}
+	if err != nil {
+		attrs = append(attrs, "error", err.Error())
+	}
+	a.log.Debug("llm call finished", attrs...)
+}
+
+// humanDuration rounds a duration for a message a person reads: whole
+// seconds once it is a second or more, milliseconds below that.
+func humanDuration(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	if d >= time.Second {
+		return d.Round(time.Second).String()
+	}
+	return d.Round(time.Millisecond).String()
 }
 
 // persistLoopAbortedMessage stores the partial assistant message from a stream the
@@ -1735,7 +1789,7 @@ func (a *Agent) turnProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 }
 
 func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
-	return llm.WithAgentResilience(llm.ProviderInput{
+	in := llm.ProviderInput{
 		Name:          rm.ProviderName,
 		Type:          rm.ProviderType,
 		Model:         rm.Model,
@@ -1747,7 +1801,14 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 		Temperature:   rm.Temperature,
 		DisableStream: !rm.Stream,
 		Timeout:       time.Duration(rm.TimeoutMS) * time.Millisecond,
-	}, a.cfg.Agent.EffectiveLLMRetryMax(), a.cfg.Agent.LLMRetryBaseMS, a.cfg.Agent.LLMMinIntervalMS)
+	}
+	// The stall guard (agent.llm_stream_idle_timeout_ms) watches the gaps
+	// between the bytes of a streamed answer; a blocking answer arrives in
+	// one piece and has no gaps to watch.
+	if rm.Stream {
+		in.StreamIdleTimeout = a.cfg.Agent.EffectiveLLMStreamIdleTimeout()
+	}
+	return llm.WithAgentResilience(in, a.cfg.Agent.EffectiveLLMRetryMax(), a.cfg.Agent.LLMRetryBaseMS, a.cfg.Agent.LLMMinIntervalMS)
 }
 
 // contentBlocksToText converts ACP content blocks to a plain text string.

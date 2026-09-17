@@ -15,13 +15,14 @@ Built with **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (
 |---------|------|
 | `external/gateway` | `Adapter` interface, `Hub`, `IncomingMessage`, `OutgoingMessage` |
 | `external/gateway/access` | `CanAccess`, `EffectiveAccess`, `EffectiveIsolation` — ACL helpers |
-| `external/gateway/sessionstore` | `Store`: maps stable chat/user keys to Coddy session IDs; persisted to `gateway_sessions.json` |
+| `external/gateway/sessionstore` | `Store`: maps stable chat/user keys to Coddy session IDs (`Get` mints, `Reset` replaces for `/clear`, `Bind` points a chat at an existing session for `/resume`); persisted to `gateway_sessions.json` |
 | `external/gateway/proxyutil` | `BuildHTTPClient` — HTTP/SOCKS5 proxy support for outbound adapter requests |
-| `external/gateway/telegram` | `Bot` (polling, dispatch, ACL), `Sender` (streaming output), `commands.go` (inline keyboards), `prompt.go` (what the model is told about answering here), `markdown.go` (md → Telegram format) |
+| `external/gateway/telegram` | `Bot` (polling, dispatch, ACL), `Sender` (streaming output), `commands.go` (inline keyboards for `/mode` and `/model`, the callback dispatcher, `callbackValue` for payloads over 64 bytes), `resume.go` (`/resume`: the session picker over `HandleSessionList`, the query matcher, the `resume:s:` / `resume:p:` callbacks), `prompt.go` (what the model is told about answering here), `markdown.go` (md → Telegram format) |
+| `internal/tgfake` (untagged) | The fake Bot API: every method the adapter calls, long-polled `getUpdates`, the `/sim/*` API and the chat page, `llmstub` for a scripted model. `cmd/tgfake` serves it; the adapter's polling feature runs it on httptest |
 
 ## Session store
 
-`sessionstore.NewPersisted(path)` loads/saves a JSON map of key→session-ID on every mutation. The file lives at `$CODDY_HOME/sessions/gateway_sessions.json` (set in `external/gateway/start.go`). On restart the bot reloads the map so existing conversations continue where they left off.
+`sessionstore.NewPersisted(path)` loads/saves a JSON map of key→session-ID on every mutation. The file lives at `$CODDY_HOME/sessions/gateway_sessions.json` (set in `external/gateway/start.go`). On restart the bot reloads the map so existing conversations continue where they left off. `/resume` writes the same map through `Bind`, so a chat moved to another session stays there across a restart; the session it left is not forgotten, because `/resume` is a switch the chat may reverse a moment later, while `/clear` ends a conversation and `ForgetLiveSession` belongs to it.
 
 `newID()` mints ids through `session.NewSessionID()`: a chat conversation is an ordinary Coddy session with an ordinary `sess_` id, so `GET /coddy/sessions` lists it beside the sessions started in a terminal or a browser.
 
@@ -36,9 +37,12 @@ type SessionRunner interface {
     ForgetLiveSession(sessionID string)
     HandleSessionSetMode(ctx context.Context, params acp.SessionSetModeParams) error
     HandleSessionSetConfigOption(ctx context.Context, params acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error)
+    HandleSessionList(ctx context.Context, params acp.SessionListParams) (*acp.SessionListResult, error)
     Cfg() *config.Config
 }
 ```
+
+`/resume` resolves its choice against `HandleSessionList` and never hands the manager an id that listing did not return: `EnsureHTTPSession` creates a session for an unknown id, and a typo must not become an empty bundle.
 
 ## Telegram Sender streaming
 
@@ -73,13 +77,23 @@ Enabled per-bot with `gateways.telegram.rich_messages: true` (`config.TelegramGa
 
 The adapter's logger arrives tagged with the `gateway.telegram` component (`internal/logger.Component`, applied in `external/gateway/start.go`; the hub itself is `gateway`), so `logger.levels` can raise one bot to `debug` while the rest of the process stays at `info`. Tag once, at construction - `Component` on an already-tagged logger prints two `component` attributes.
 
-The whole command path logs at `debug`: `telegram: update` per arriving message or callback, `telegram: update ignored`/`update rejected` with a `reason` for every silent drop, `telegram: command`, the `mode`/`model`/`context` menus with the session they belong to, and `telegram: callback` with the resolved value. A switch that lands is `info` (`telegram: model applied`, `telegram: mode applied`), matching `telegram: session cleared`; a failure is `warn`. Nothing in the adapter may log through `slog.Default` - a record that skips `b.log` misses the configured sink and carries no component. Operator guide: `docs/surfaces/gateway.md` (Debugging a chat).
+The whole command path logs at `debug`: `telegram: update` per arriving message or callback, `telegram: update ignored`/`update rejected` with a `reason` for every silent drop, `telegram: command`, the `mode`/`model`/`context`/`resume` menus with the session they belong to (`telegram: resume query` for the words after `/resume` and how many sessions matched), and `telegram: callback` with the resolved value. A switch that lands is `info` (`telegram: model applied`, `telegram: mode applied`, `telegram: session resumed`), matching `telegram: session cleared`; a failure is `warn`. Nothing in the adapter may log through `slog.Default` - a record that skips `b.log` misses the configured sink and carries no component. Operator guide: `docs/surfaces/gateway.md` (Debugging a chat).
 
-Inline-keyboard payloads must survive the round trip. `callback_data` is capped at 64 bytes, so `modelCallbackValue` sends a model id verbatim when it fits and a digest when it does not (never a truncated id, which resolves to nothing), and `resolveModelCallback` maps the payload back against the configured models. The keyboard also outlives the process that sent it, so `handleCallback` calls `ensureSession` before configuring anything: after a restart the session is on disk, and the manager only configures live ones.
+Inline-keyboard payloads must survive the round trip. `callback_data` is capped at 64 bytes, so `callbackValue` sends a model id or a session id verbatim when it fits next to its prefix and a digest when it does not (never a truncated id, which resolves to nothing), and `resolveModelCallback` / `resolveResumeCallback` map the payload back against the configured models or the current session listing. The keyboard also outlives the process that sent it, so `handleCallback` calls `ensureSession` before configuring anything: after a restart the session is on disk, and the manager only configures live ones. A resume tap is dispatched before that call: it names the session the chat moves to, and loading the chat's current one first would mint a session for a chat that never spoke.
 
 ## Proxy
 
 `proxyutil.BuildHTTPClient(url)` handles http, https, socks5, socks5h. An empty string returns `http.DefaultClient` unchanged. The Telegram adapter passes `cfg.Proxy` to this function in `Start()`.
+
+## Bot API origin
+
+`Start()` reads `config.TelegramAPIBaseEnv` (`CODDY_TELEGRAM_API_BASE`, the variable the `--dry-run` probe honours too) and builds the library's endpoint template with `telegramAPIEndpoint` (`<origin>/bot%s/%s`; empty means api.telegram.org). It logs `telegram: api base override` at `info` when set. Tests set the unexported `Bot.apiBase` instead of the environment. `internal/tgfake` is the stand-in server that origin points at, in `go run ./cmd/tgfake` and in the polling feature; it is untagged and imports no Telegram library, so it must stay free of `tgbotapi` types. Operator guide: `docs/surfaces/gateway.md` (Debugging against a fake Bot API).
+
+The poll names its `allowed_updates` (`subscribedUpdates`: `message`, `callback_query`) on every request. Telegram remembers the last subscription a bot asked for, and the library sends none by default, which inherits whatever a previous process left - a token once run under another framework with messages only drops every keyboard tap server-side (found on a real bot). Extend that list when the adapter starts handling another update kind; `tgfake` models the memory (`Options.AllowedUpdates`, `SetAllowedUpdates`) and the polling feature starts under a stale subscription.
+
+## Tests
+
+Every test in `external/gateway/telegram` that needs Telegram reaches it through `fakeapi_test.go`: `newFakeAPI(t, opts)` (or `openFakeAPI` for a godog world) serves `internal/tgfake` on httptest and hands back a `tgbotapi` client pointed at it; `userMessage` and `tap` put the person's side into the fake's chat, so the message a handler replies to and the keyboard a tap presses are ones the server knows. Assert on `fake.Calls(method)` (what the bot posted) and `fake.Chat(id)` (what the chat ends up holding). Do not hand-roll an `http.HandlerFunc` for the Bot API: a canned answer accepts what Telegram refuses (an edit of a message never sent, 65 bytes of `callback_data`, a 4097-character text, a reply to a message the chat does not hold, an answer to a callback query it never issued). When a test needs Telegram to behave in a new way - a new method, a new refusal - extend `internal/tgfake` with its own unit test; `Fault` (`Times`, `Contains`) covers refusals by method and by payload. The godog harnesses call `processMessage` / `handleCallback` directly to stay synchronous; only `bdd_polling_test.go` runs `Bot.Start`.
 
 ## Adding a new adapter
 

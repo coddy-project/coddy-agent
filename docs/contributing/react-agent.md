@@ -239,6 +239,17 @@ messages: [
      came back empty too, and the **`agent_refused`** notice only after that.
    - Both budgets reset as soon as the model makes progress.
 
+   Two guards bound a streamed call that stops answering. The first-token guard
+   (**`llm_first_token_timeout_ms`**, 90 s) cuts a call that produced nothing;
+   the stream idle guard (**`llm_stream_idle_timeout_ms`**, five minutes, in
+   **`internal/llm/transport.go`**) cuts a response whose server sent nothing
+   for that long after its first bytes. The text the user already watched
+   stream in is persisted like a truncation, and the turn ends with the stall
+   named. Neither guard applies to a **`stream: false`** model, whose answer
+   arrives in one piece: **`providers[].timeout_ms`** is the only bound on
+   such a call, next to the HTTP/2 liveness pings that close a connection
+   whose far side stopped answering.
+
 7. FINAL_RESPONSE
    - Send session/prompt response with stopReason
 ```
@@ -383,6 +394,7 @@ Plan entries are updated as the agent progresses:
 ## Error Handling in ReAct Loop
 
 - LLM API error: retry up to 3 times with exponential backoff, then fail turn
+- LLM stream stalled (no bytes after the first ones for `llm_stream_idle_timeout_ms`): persist the partial answer, fail turn with the stall named; retried only when nothing was delivered
 - Tool execution error: return error as observation, let LLM decide next step
 - Permission denied: return "permission denied" observation
 - Tool timeout: return "timeout" observation after configured timeout

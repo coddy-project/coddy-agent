@@ -3,68 +3,20 @@
 package telegram
 
 import (
-	"io"
 	"log/slog"
 	"net/http"
-	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/tgfake"
 )
 
-// capturingServer records every Bot API call (endpoint + form values).
-type capturingServer struct {
-	mu    sync.Mutex
-	calls []capturedCall
-}
-
-type capturedCall struct {
-	endpoint string
-	form     map[string]string
-}
-
-func (c *capturingServer) handler(w http.ResponseWriter, r *http.Request) {
-	body, _ := io.ReadAll(r.Body)
-	_ = r.Body.Close()
-	r.Body = io.NopCloser(strings.NewReader(string(body)))
-	_ = r.ParseForm()
-	form := map[string]string{}
-	for k := range r.PostForm {
-		form[k] = r.PostForm.Get(k)
-	}
-	endpoint := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
-	c.mu.Lock()
-	c.calls = append(c.calls, capturedCall{endpoint: endpoint, form: form})
-	c.mu.Unlock()
-
-	w.Header().Set("Content-Type", "application/json")
-	if endpoint == "sendRichMessageDraft" {
-		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
-		return
-	}
-	_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":1,"date":0,"chat":{"id":5,"type":"private"}}}`))
-}
-
-func (c *capturingServer) byEndpoint(name string) []capturedCall {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	var out []capturedCall
-	for _, call := range c.calls {
-		if call.endpoint == name {
-			out = append(out, call)
-		}
-	}
-	return out
-}
-
 func TestSender_RichFlow_DraftsThenFinalizesWithTools(t *testing.T) {
-	srvCap := &capturingServer{}
-	srv := httptest.NewServer(http.HandlerFunc(srvCap.handler))
-	defer srv.Close()
+	f := newFakeAPI(t, tgfake.Options{})
+	asked := f.userMessage(5, 5, "say hello")
 
-	s := newSender(stubBot(t, srv.URL), 5, 678, slog.Default(), richConfig{
+	s := newSender(f.api, 5, asked.MessageID, slog.Default(), richConfig{
 		enabled:    true,
 		allowDraft: true,
 		draftID:    7,
@@ -85,20 +37,20 @@ func TestSender_RichFlow_DraftsThenFinalizesWithTools(t *testing.T) {
 	s.Flush()
 
 	// At least one ephemeral draft was streamed to the right draft_id.
-	drafts := srvCap.byEndpoint("sendRichMessageDraft")
+	drafts := f.fake.Calls("sendRichMessageDraft")
 	if len(drafts) == 0 {
 		t.Fatalf("expected at least one sendRichMessageDraft call")
 	}
-	if drafts[0].form["draft_id"] != "7" {
-		t.Fatalf("draft_id: want 7 got %q", drafts[0].form["draft_id"])
+	if got := drafts[0].Params["draft_id"]; got != "7" {
+		t.Fatalf("draft_id: want 7 got %q", got)
 	}
 
 	// Exactly one persistent sendRichMessage finalized the turn.
-	finals := srvCap.byEndpoint("sendRichMessage")
+	finals := f.fake.Calls("sendRichMessage")
 	if len(finals) != 1 {
 		t.Fatalf("expected exactly one sendRichMessage, got %d", len(finals))
 	}
-	rm := finals[0].form["rich_message"]
+	rm := finals[0].Params["rich_message"]
 	if !strings.Contains(rm, "Hello world") {
 		t.Fatalf("final message should contain the LLM text, got: %s", rm)
 	}
@@ -109,8 +61,13 @@ func TestSender_RichFlow_DraftsThenFinalizesWithTools(t *testing.T) {
 		t.Fatalf("final message should contain the captured tool output, got: %s", rm)
 	}
 	// The legacy live message path must not be used in rich mode.
-	if len(srvCap.byEndpoint("editMessageText")) != 0 {
-		t.Fatalf("rich mode must not call editMessageText")
+	if len(f.fake.Calls("editMessageText")) != 0 || len(f.fake.Calls("sendMessage")) != 0 {
+		t.Fatalf("rich mode must not use the legacy send and edit path")
+	}
+	// The chat holds the question and one rich answer threaded under it.
+	msgs := f.fake.Chat(5).Messages
+	if len(msgs) != 2 || !msgs[1].Rich || msgs[1].ReplyToMessageID != asked.MessageID {
+		t.Fatalf("chat: %+v", msgs)
 	}
 }
 
@@ -118,53 +75,39 @@ func TestSender_RichFlow_DraftsThenFinalizesWithTools(t *testing.T) {
 // combined message (answer + tool blocks) is rejected, the Sender retries with the
 // answer alone so the reply is never lost.
 func TestSender_RichFlow_AnswerSurvivesToolBlockRejection(t *testing.T) {
-	var sends []string // rich_message payloads, in order
-	var mu sync.Mutex
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = r.ParseForm()
-		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path == "/botTESTTOKEN/sendRichMessage" {
-			rm := r.PostFormValue("rich_message")
-			mu.Lock()
-			sends = append(sends, rm)
-			mu.Unlock()
-			// Telegram rejects the message while it carries a tool <details> block.
-			if strings.Contains(rm, "details") {
-				_, _ = w.Write([]byte(`{"ok":false,"error_code":400,"description":"bad rich entity"}`))
-				return
-			}
-		}
-		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":1,"date":0,"chat":{"id":5,"type":"private"}}}`))
-	}))
-	defer srv.Close()
+	f := newFakeAPI(t, tgfake.Options{})
+	// Telegram rejects the message while it carries a tool <details> block.
+	f.fake.SetFault(tgfake.Fault{Method: "sendRichMessage", Code: http.StatusBadRequest, Description: "bad rich entity", Contains: "details"})
 
-	s := newSender(stubBot(t, srv.URL), 5, 0, slog.Default(), richConfig{enabled: true, allowDraft: false})
+	s := newSender(f.api, 5, 0, slog.Default(), richConfig{enabled: true, allowDraft: false})
 	_ = s.SendSessionUpdate("sess", acp.ToolCallUpdate{ToolCallID: "t1", Title: "bash"})
 	_ = s.SendSessionUpdate("sess", acp.MessageChunkUpdate{
 		Content: acp.ContentBlock{Type: acp.ContentTypeText, Text: "The answer is 42"},
 	})
 	s.Flush()
 
-	mu.Lock()
-	defer mu.Unlock()
+	sends := f.fake.Calls("sendRichMessage")
 	if len(sends) != 2 {
-		t.Fatalf("expected two sendRichMessage attempts (combined, then answer-only), got %d: %v", len(sends), sends)
+		t.Fatalf("expected two sendRichMessage attempts (combined, then answer-only), got %d: %+v", len(sends), sends)
 	}
-	if !strings.Contains(sends[0], "details") {
-		t.Fatalf("first attempt should be the combined message, got: %s", sends[0])
+	first, retry := sends[0].Params["rich_message"], sends[1].Params["rich_message"]
+	if sends[0].Status != http.StatusBadRequest || !strings.Contains(first, "details") {
+		t.Fatalf("first attempt should be the combined message, refused: %d %s", sends[0].Status, first)
 	}
-	if strings.Contains(sends[1], "details") || !strings.Contains(sends[1], "The answer is 42") {
-		t.Fatalf("retry should be the answer alone (no tool blocks), got: %s", sends[1])
+	if sends[1].Status != http.StatusOK || strings.Contains(retry, "details") || !strings.Contains(retry, "The answer is 42") {
+		t.Fatalf("retry should be the answer alone (no tool blocks), accepted: %d %s", sends[1].Status, retry)
+	}
+	if msgs := f.fake.Chat(5).Messages; len(msgs) != 1 || msgs[0].Text != "The answer is 42" {
+		t.Fatalf("the chat should hold the answer once: %+v", msgs)
 	}
 }
 
 func TestSender_RichGroup_NoDraftButFinalizes(t *testing.T) {
-	srvCap := &capturingServer{}
-	srv := httptest.NewServer(http.HandlerFunc(srvCap.handler))
-	defer srv.Close()
+	f := newFakeAPI(t, tgfake.Options{})
+	asked := f.userMessage(-100, 5, "question")
 
 	// Group chat: allowDraft is false (drafts are private-only).
-	s := newSender(stubBot(t, srv.URL), -100, 5, slog.Default(), richConfig{
+	s := newSender(f.api, -100, asked.MessageID, slog.Default(), richConfig{
 		enabled:    true,
 		allowDraft: false,
 		draftID:    9,
@@ -174,10 +117,10 @@ func TestSender_RichGroup_NoDraftButFinalizes(t *testing.T) {
 	})
 	s.Flush()
 
-	if got := len(srvCap.byEndpoint("sendRichMessageDraft")); got != 0 {
+	if got := len(f.fake.Calls("sendRichMessageDraft")); got != 0 {
 		t.Fatalf("group chat must not stream drafts, got %d", got)
 	}
-	if got := len(srvCap.byEndpoint("sendRichMessage")); got != 1 {
+	if got := len(f.fake.Calls("sendRichMessage")); got != 1 {
 		t.Fatalf("expected one sendRichMessage in group, got %d", got)
 	}
 }

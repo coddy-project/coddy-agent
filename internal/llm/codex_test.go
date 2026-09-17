@@ -3,14 +3,19 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
 // sse writes one Server-Sent Event with the given type and JSON data payload.
@@ -18,6 +23,12 @@ func sse(w io.Writer, eventType string, data map[string]any) {
 	data["type"] = eventType
 	b, _ := json.Marshal(data)
 	_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, b)
+}
+
+// sseCompleted ends a scripted Codex response the way the backend does, with
+// the terminal event a stream needs to count as a whole answer.
+func sseCompleted(w io.Writer) {
+	sse(w, "response.completed", map[string]any{"response": map[string]any{"status": "completed"}})
 }
 
 // newCodexTestProvider wires a codex provider at a fake backend with a valid
@@ -196,6 +207,7 @@ func TestCodexProviderReasoningRequest(t *testing.T) {
 				w.Header().Set("Content-Type", "text/event-stream")
 				sse(w, "response.reasoning_summary_text.delta", map[string]any{"delta": "**Checking**"})
 				sse(w, "response.output_text.delta", map[string]any{"delta": "done"})
+				sseCompleted(w)
 			}))
 			defer srv.Close()
 
@@ -253,6 +265,7 @@ func TestCodexProviderReplaysEncryptedReasoning(t *testing.T) {
 				"type": "function_call", "call_id": "call_1", "name": "get_weather", "arguments": `{}`,
 			},
 		})
+		sseCompleted(w)
 	}))
 	defer srv.Close()
 
@@ -337,6 +350,7 @@ func TestCodexProviderOmitsReasoningWhenUnset(t *testing.T) {
 		_ = json.Unmarshal(body, &reqBody)
 		w.Header().Set("Content-Type", "text/event-stream")
 		sse(w, "response.output_text.delta", map[string]any{"delta": "ok"})
+		sseCompleted(w)
 	}))
 	defer srv.Close()
 
@@ -418,6 +432,7 @@ func TestCodexReasoningSummaryPartsKeepTheirBoundary(t *testing.T) {
 		sse(w, "response.reasoning_summary_part.added", map[string]any{"summary_index": 1})
 		sse(w, "response.reasoning_summary_text.delta", map[string]any{"delta": "**Checking status**"})
 		sse(w, "response.output_text.delta", map[string]any{"delta": "done"})
+		sseCompleted(w)
 	}))
 	defer srv.Close()
 
@@ -448,6 +463,7 @@ func TestCodexReasoningLeadingPartAddsNoBlankLine(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		sse(w, "response.reasoning_summary_part.added", map[string]any{"summary_index": 0})
 		sse(w, "response.reasoning_summary_text.delta", map[string]any{"delta": "**Planning**"})
+		sseCompleted(w)
 	}))
 	defer srv.Close()
 
@@ -482,6 +498,7 @@ func TestCodexAnnouncesToolCallWhenItsNameIsKnown(t *testing.T) {
 				"type": "function_call", "call_id": "call_1", "name": "run_command", "arguments": `{"command":"ls"}`,
 			},
 		})
+		sseCompleted(w)
 	}))
 	defer srv.Close()
 
@@ -518,5 +535,265 @@ func TestCodexAnnouncesToolCallWhenItsNameIsKnown(t *testing.T) {
 	}
 	if resp.ToolCalls[0].InputJSON != `{"command":"ls"}` {
 		t.Errorf("response tool call arguments = %q", resp.ToolCalls[0].InputJSON)
+	}
+}
+
+// TestCodexStreamTerminalStates pins how a Codex Responses stream ends: only a
+// terminal event makes an answer, response.incomplete names why it stopped
+// short, and a stream cut or failed after deltas reached the caller is never
+// retried into a second copy of them.
+func TestCodexStreamTerminalStates(t *testing.T) {
+	delta := func(w io.Writer, text string) {
+		sse(w, "response.output_text.delta", map[string]any{"delta": text})
+	}
+	incomplete := func(w io.Writer, reason string) {
+		details := map[string]any{}
+		if reason != "" {
+			details["reason"] = reason
+		}
+		sse(w, "response.incomplete", map[string]any{"response": map[string]any{
+			"status": "incomplete", "incomplete_details": details,
+			"usage": map[string]any{"input_tokens": 9, "output_tokens": 4},
+		}})
+	}
+	for name, tc := range map[string]struct {
+		script        func(w io.Writer)
+		wantContent   string
+		wantResponse  bool
+		wantStop      string
+		wantErr       string
+		wantTruncated bool
+		wantRetryable bool
+	}{
+		"clean EOF before any event": {
+			script:        func(io.Writer) {},
+			wantErr:       "stream truncated",
+			wantTruncated: true,
+			wantRetryable: true,
+		},
+		"clean EOF after text": {
+			script:        func(w io.Writer) { delta(w, "Hello "); delta(w, "wor") },
+			wantResponse:  true,
+			wantContent:   "Hello wor",
+			wantErr:       "stream truncated",
+			wantTruncated: true,
+		},
+		"clean EOF after a tool call drops the call": {
+			script: func(w io.Writer) {
+				sse(w, "response.output_item.done", map[string]any{"item": map[string]any{
+					"type": "function_call", "call_id": "call_1", "name": "run_command", "arguments": `{"command":"rm -rf build"}`,
+				}})
+			},
+			wantErr:       "stream truncated",
+			wantTruncated: true,
+		},
+		"incomplete at the output cap": {
+			script:       func(w io.Writer) { delta(w, "Hello"); incomplete(w, "max_output_tokens") },
+			wantResponse: true,
+			wantContent:  "Hello",
+			wantStop:     "max_tokens",
+		},
+		"incomplete on the content filter": {
+			script:       func(w io.Writer) { delta(w, "Hel"); incomplete(w, "content_filter") },
+			wantResponse: true,
+			wantContent:  "Hel",
+			wantStop:     "content_filter",
+		},
+		"incomplete for a reason nothing maps": {
+			script:       func(w io.Writer) { delta(w, "Hel"); incomplete(w, "server_overloaded") },
+			wantResponse: true,
+			wantContent:  "Hel",
+			wantErr:      "response incomplete: server_overloaded",
+		},
+		"incomplete after text for a reason that reads retryable": {
+			script:       func(w io.Writer) { delta(w, "Hel"); incomplete(w, "upstream 503 Service Unavailable") },
+			wantResponse: true,
+			wantContent:  "Hel",
+			wantErr:      "response incomplete: upstream 503 Service Unavailable",
+		},
+		"incomplete without a reason": {
+			script:  func(w io.Writer) { incomplete(w, "") },
+			wantErr: "response incomplete: no reason given",
+		},
+		"failed before any delta": {
+			script: func(w io.Writer) {
+				sse(w, "response.failed", map[string]any{"response": map[string]any{
+					"status": "failed", "error": map[string]any{"code": "server_error", "message": "The model crashed"},
+				}})
+			},
+			wantErr: "codex stream: server_error: The model crashed",
+		},
+		"failed after deltas is not replayed": {
+			script: func(w io.Writer) {
+				delta(w, "Hello")
+				sse(w, "response.failed", map[string]any{"response": map[string]any{
+					"status": "failed", "error": map[string]any{"code": "server_error", "message": "upstream said 503 Service Unavailable"},
+				}})
+			},
+			wantErr: "upstream said 503 Service Unavailable",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				tc.script(w)
+			}))
+			defer srv.Close()
+
+			var streamed []StreamChunk
+			resp, err := newCodexTestProvider(t, srv.URL).Stream(context.Background(),
+				[]Message{{Role: RoleUser, Content: "hi"}}, nil,
+				func(c StreamChunk) { streamed = append(streamed, c) })
+
+			switch {
+			case tc.wantErr == "" && err != nil:
+				t.Fatalf("Stream: %v", err)
+			case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
+				t.Fatalf("Stream error = %v, want %q", err, tc.wantErr)
+			}
+			if err != nil {
+				if got := IsStreamTruncated(err); got != tc.wantTruncated {
+					t.Errorf("IsStreamTruncated = %v, want %v", got, tc.wantTruncated)
+				}
+				if got := isRetryableLLMError(err); got != tc.wantRetryable {
+					t.Errorf("retryable = %v, want %v (%d chunks already streamed)", got, tc.wantRetryable, len(streamed))
+				}
+			}
+			if (resp != nil) != tc.wantResponse {
+				t.Fatalf("response = %+v, want one: %v", resp, tc.wantResponse)
+			}
+			if resp == nil {
+				return
+			}
+			if resp.Content != tc.wantContent || resp.StopReason != tc.wantStop {
+				t.Errorf("response content %q stop %q, want %q and %q", resp.Content, resp.StopReason, tc.wantContent, tc.wantStop)
+			}
+			if len(resp.ToolCalls) != 0 {
+				t.Errorf("a response that did not finish carries tool calls: %+v", resp.ToolCalls)
+			}
+			if tc.wantStop != "" && (resp.InputTokens != 9 || resp.OutputTokens != 4) {
+				t.Errorf("usage of the incomplete response = %d/%d, want 9/4", resp.InputTokens, resp.OutputTokens)
+			}
+		})
+	}
+}
+
+// TestCodexStreamCancelKeepsPartialText covers a Stop mid-answer: the text
+// already streamed comes back next to the cancellation, which is not
+// retried.
+func TestCodexStreamCancelKeepsPartialText(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		sse(w, "response.output_text.delta", map[string]any{"delta": "Hello"})
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	resp, err := newCodexTestProvider(t, srv.URL).Stream(ctx,
+		[]Message{{Role: RoleUser, Content: "hi"}}, nil,
+		func(c StreamChunk) {
+			if c.TextDelta != "" {
+				cancel()
+			}
+		})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Stream error = %v, want context.Canceled", err)
+	}
+	if isRetryableLLMError(err) {
+		t.Error("a cancelled stream must not be retried")
+	}
+	if resp == nil || resp.Content != "Hello" {
+		t.Fatalf("partial response = %+v, want the streamed text", resp)
+	}
+}
+
+// TestCodexCompleteRetriesACutStream covers the callers that take the answer
+// whole (compaction, a JSON direct completion, prompt enhancement): nothing
+// was shown to them, so a stream cut midway is retried instead of failing.
+func TestCodexCompleteRetriesACutStream(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		sse(w, "response.output_text.delta", map[string]any{"delta": "Hello"})
+		if calls.Add(1) == 1 {
+			return
+		}
+		sse(w, "response.output_text.delta", map[string]any{"delta": " world"})
+		sseCompleted(w)
+	}))
+	defer srv.Close()
+
+	provider := applyResilientWrap(newCodexTestProvider(t, srv.URL), ProviderInput{
+		RetryMax: 1, RetryBase: time.Millisecond, RetryMaxDelay: time.Millisecond,
+	})
+	resp, err := provider.Complete(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil)
+	if err != nil {
+		t.Fatalf("Complete: %v (after %d requests)", err, calls.Load())
+	}
+	if resp.Content != "Hello world" || calls.Load() != 2 {
+		t.Fatalf("content %q after %d requests, want the retried whole answer after 2", resp.Content, calls.Load())
+	}
+}
+
+// TestCodexConfiguredMaxTokensNeverReachesTheWire builds a codex provider the
+// way every surface does - a models[] entry, ResolveLLM, NewProvider - and
+// reads the request the backend received: a configured max_tokens (and
+// temperature) is not on it, which is why the config check, the dry run and
+// the startup log call that setting one that bounds nothing.
+func TestCodexConfiguredMaxTokensNeverReachesTheWire(t *testing.T) {
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		sse(w, "response.output_text.delta", map[string]any{"delta": "ok"})
+		sseCompleted(w)
+	}))
+	defer srv.Close()
+	t.Setenv(EnvCodexBaseURL, srv.URL)
+
+	home := t.TempDir()
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: home},
+		Providers: []config.ProviderConfig{{Name: "codex", Type: "codex"}},
+		Models:    []config.ModelEntry{{Model: "codex/gpt-5.5", MaxTokens: 8192, Temperature: 0.3}},
+	}
+	authPath := config.CodexAuthPath(home, "codex")
+	if err := os.MkdirAll(filepath.Dir(authPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(writeCodexAuth(t, t.TempDir(), codexAuthFile{
+		AuthMode: codexAuthModeChatGPT,
+		Tokens:   codexTokens{AccessToken: makeJWT(time.Now().Add(time.Hour)), RefreshToken: "rt", AccountID: "acct"},
+	}), authPath); err != nil {
+		t.Fatal(err)
+	}
+	rm, err := cfg.ResolveLLM("codex/gpt-5.5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider, err := NewProvider(ProviderInput{
+		Type: rm.ProviderType, Model: rm.Model, AuthPath: rm.AuthPath,
+		MaxTokens: rm.MaxTokens, Temperature: rm.Temperature, RetryDisabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {}); err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	if body["model"] != "gpt-5.5" {
+		t.Fatalf("the request never reached the stand-in backend: %v", body)
+	}
+	for _, key := range []string{"max_output_tokens", "max_tokens", "temperature"} {
+		if v, ok := body[key]; ok {
+			t.Errorf("the codex request carries %s=%v, which its backend rejects", key, v)
+		}
+	}
+	if got := cfg.UnsentModelSettings(); len(got) != 1 || got[0].Key != "max_tokens" {
+		t.Errorf("the config does not report the unsent max_tokens: %+v", got)
 	}
 }

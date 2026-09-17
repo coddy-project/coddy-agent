@@ -27,7 +27,7 @@ func TestModelCallbackValueSwitchesToADigestAtTheLimit(t *testing.T) {
 	if got == over {
 		t.Fatal("id over the limit travelled verbatim")
 	}
-	if !strings.HasPrefix(got, modelDigestMarker) {
+	if !strings.HasPrefix(got, callbackDigestMarker) {
 		t.Fatalf("digest form %q does not carry the marker", got)
 	}
 	if prefix+len(got) > telegramCallbackDataMax {

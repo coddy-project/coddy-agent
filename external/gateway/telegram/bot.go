@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -33,6 +34,9 @@ type SessionRunner interface {
 	ForgetLiveSession(sessionID string)
 	HandleSessionSetMode(ctx context.Context, params acp.SessionSetModeParams) error
 	HandleSessionSetConfigOption(ctx context.Context, params acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error)
+	// HandleSessionList lists the sessions the server keeps, the most
+	// recently updated first; /resume offers them to the chat.
+	HandleSessionList(ctx context.Context, params acp.SessionListParams) (*acp.SessionListResult, error)
 	Cfg() *config.Config
 }
 
@@ -50,6 +54,11 @@ type Bot struct {
 	log     *slog.Logger
 	store   *sessionstore.Store
 	botName string // @username of the bot (set after connect)
+
+	// apiBase is the Bot API origin Start connects to; empty means the
+	// CODDY_TELEGRAM_API_BASE environment variable, and failing that
+	// api.telegram.org. Tests set it to point the bot at a local stand-in.
+	apiBase string
 
 	mu      sync.Mutex
 	workers map[string]chan workerJob // session key → sequential job queue
@@ -108,7 +117,15 @@ func (b *Bot) Start(ctx context.Context) error {
 	if token == "" {
 		return fmt.Errorf("telegram: no bot token; set gateways.telegram.token or the %s environment variable", config.TelegramBotTokenEnvVar)
 	}
-	bot, err := tgbotapi.NewBotAPIWithClient(token, tgbotapi.APIEndpoint, httpClient)
+	base := b.apiBase
+	if base == "" {
+		base = os.Getenv(config.TelegramAPIBaseEnv)
+	}
+	endpoint := telegramAPIEndpoint(base)
+	if endpoint != tgbotapi.APIEndpoint {
+		b.log.Info("telegram: api base override", "base", strings.TrimSuffix(endpoint, apiEndpointSuffix))
+	}
+	bot, err := tgbotapi.NewBotAPIWithClient(token, endpoint, httpClient)
 	if err != nil {
 		return fmt.Errorf("telegram: connect: %w", err)
 	}
@@ -132,6 +149,7 @@ func (b *Bot) Start(ctx context.Context) error {
 		tgbotapi.BotCommand{Command: "mode", Description: "Switch session mode (agent / plan / ask)"},
 		tgbotapi.BotCommand{Command: "model", Description: "Switch LLM model"},
 		tgbotapi.BotCommand{Command: "context", Description: "Show context window usage"},
+		tgbotapi.BotCommand{Command: "resume", Description: "Continue another session (pick from the list or name it)"},
 		tgbotapi.BotCommand{Command: "clear", Description: "Start a new session (forget context)"},
 	)); err != nil {
 		b.log.Warn("telegram: set commands", "err", err)
@@ -139,6 +157,11 @@ func (b *Bot) Start(ctx context.Context) error {
 
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 30
+	// Telegram remembers the last allowed_updates a bot asked for, and the
+	// library sends none, which means "keep the previous setting". A bot that
+	// another framework once ran with messages only would then never see a
+	// keyboard tap: say what this adapter handles, every time.
+	u.AllowedUpdates = subscribedUpdates
 	updates := bot.GetUpdatesChan(u)
 
 	// Turns run under a context of their own so that stopping the bot stops
@@ -166,6 +189,26 @@ func (b *Bot) Start(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// apiEndpointSuffix is the path template the Bot API library formats the
+// token and the method into.
+const apiEndpointSuffix = "/bot%s/%s"
+
+// subscribedUpdates is what the poll asks Telegram for: the two update kinds
+// Start dispatches. Anything else is dropped server-side, and a subscription
+// left behind by a previous bot process is replaced rather than inherited.
+var subscribedUpdates = []string{"message", "callback_query"}
+
+// telegramAPIEndpoint turns a Bot API origin into the library's endpoint
+// template. Empty means api.telegram.org; a trailing slash or surrounding
+// whitespace on the origin is tolerated, the way the --dry-run probe reads it.
+func telegramAPIEndpoint(base string) string {
+	base = strings.TrimRight(strings.TrimSpace(base), "/")
+	if base == "" {
+		return tgbotapi.APIEndpoint
+	}
+	return base + apiEndpointSuffix
 }
 
 // drainTimeout bounds the wait for turns still being generated when the bot is
@@ -299,6 +342,7 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 				"/mode — switch session mode (agent / plan / ask)\n"+
 				"/model — switch LLM model\n"+
 				"/context — show context window usage\n"+
+				"/resume [id or title] — continue another session\n"+
 				"/clear — start a new session (forgets previous context)\n"+
 				"/help — show this message\n\n"+
 				"In group chats mention me (@"+b.botName+") or reply to my message to talk to me.")
@@ -314,6 +358,10 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 	}
 	if isCommand(msg, "context") {
 		b.handleContextCommand(ctx, bot, msg, key)
+		return
+	}
+	if isCommand(msg, "resume") {
+		b.handleResumeCommand(ctx, bot, msg, key)
 		return
 	}
 
@@ -419,7 +467,7 @@ func (b *Bot) chatSender(bot *tgbotapi.BotAPI, chatID int64, replyTo int, rich r
 func (b *Bot) shouldRespond(msg *tgbotapi.Message, text string) bool {
 	if msg.IsCommand() {
 		switch strings.ToLower(msg.Command()) {
-		case "clear", "start", "help", "mode", "model", "context":
+		case "clear", "start", "help", "mode", "model", "context", "resume":
 			return true
 		}
 	}

@@ -2,7 +2,7 @@
 
 // Package sessionstore maps stable messenger chat/user keys to Coddy session IDs.
 // Each unique (gateway, chatID, userID, isolation) combination yields a single session ID
-// that is replaced when the user sends /clear.
+// that is replaced when the user sends /clear, or bound to an existing one by /resume.
 //
 // When a save path is supplied via NewPersisted, the map is written atomically to disk on
 // every mutation so the bot can resume existing conversations after a restart.
@@ -129,6 +129,25 @@ func ChatID(key string) (int64, bool) {
 		return 0, false
 	}
 	return id, true
+}
+
+// Bind maps key to a session that already exists - the /resume command, where
+// a chat continues a session it did not start or left with /clear - and
+// persists the mapping like every other mutation. An empty id is ignored:
+// nothing may map a chat to no session, because Get would then answer ""
+// instead of minting one.
+func (s *Store) Bind(key, id string) {
+	id = strings.TrimSpace(id)
+	if key == "" || id == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.data[key] == id {
+		return
+	}
+	s.data[key] = id
+	s.saveUnlocked()
 }
 
 // KnownIDs returns all session IDs currently held in the store.
