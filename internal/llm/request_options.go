@@ -3,15 +3,22 @@ package llm
 import "fmt"
 
 // RequestOptions are the generation options one caller asked for on one
-// request - the max_tokens and temperature of a direct POST
+// request - the max_tokens, temperature and reasoning_effort of a direct POST
 // /v1/chat/completions - as opposed to the values configured on the model.
 // The zero value asks for nothing and leaves the configured values in place.
 type RequestOptions struct {
 	// MaxTokens caps the output of this request; nil keeps the model's max_tokens.
 	MaxTokens *int
 	// Temperature replaces the model's temperature; nil keeps it. Zero is a
-	// temperature like any other and is sent as 0.
+	// temperature like any other and is sent as 0, and a reasoning level next
+	// to it does not keep it off the request: whether a model takes both is
+	// the backend's to answer.
 	Temperature *float64
+	// ReasoningEffort is the reasoning level of this request, already checked
+	// against the levels the model offers (the caller's own, or the model's
+	// reasoning_default); empty sends no reasoning parameter at all, which is
+	// not the same request as the level "none".
+	ReasoningEffort string
 }
 
 // Validate reports the first option a provider of providerType cannot send as
@@ -40,6 +47,14 @@ func (o RequestOptions) Validate(providerType string) error {
 			return fmt.Errorf("temperature must be between 0 and %g", highest)
 		}
 	}
+	if o.MaxTokens != nil && providerType == "anthropic" {
+		// Extended thinking needs room for an answer beyond its budget, and the
+		// provider raises a cap that leaves none; a cap the caller set is kept or
+		// refused, never raised behind the caller's back.
+		if budget := anthropicThinkingBudget(o.ReasoningEffort, *o.MaxTokens); budget >= anthropicMinThinkingBudget && int64(*o.MaxTokens) <= budget {
+			return fmt.Errorf("max_tokens must exceed %d at reasoning level %q: extended thinking takes that budget first", budget, o.ReasoningEffort)
+		}
+	}
 	return nil
 }
 
@@ -53,5 +68,8 @@ func (o RequestOptions) Apply(in *ProviderInput) {
 	if o.Temperature != nil {
 		in.Temperature = *o.Temperature
 		in.TemperatureSet = true
+	}
+	if o.ReasoningEffort != "" {
+		in.ReasoningEffort = o.ReasoningEffort
 	}
 }

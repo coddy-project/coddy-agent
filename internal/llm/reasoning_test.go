@@ -267,3 +267,52 @@ func TestRequestOptionsValidateAndApply(t *testing.T) {
 		t.Fatalf("options not applied: %+v", in)
 	}
 }
+
+// TestBuildParamsSendsARequestedTemperatureNextToReasoning pins that a
+// configured temperature stays off a reasoning request while one the caller
+// asked for is sent, leaving the verdict to the backend.
+func TestBuildParamsSendsARequestedTemperatureNextToReasoning(t *testing.T) {
+	msgs := []Message{{Role: RoleUser, Content: "hi"}}
+
+	oai := newOpenAIProvider("qwen3.6-35b-a3b", "", "", nil, 1024, 0.6, "high")
+	oai.tempSet = true
+	if got := oai.buildParams(msgs, nil, true).Temperature; !got.Valid() || got.Value != 0.6 {
+		t.Errorf("openai: requested temperature next to reasoning = %+v, want 0.6", got)
+	}
+
+	anth := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 1, "high")
+	anth.tempSet = true
+	params := anth.buildParams("", nil, nil)
+	if params.Thinking.OfEnabled == nil {
+		t.Fatal("anthropic: thinking must stay enabled")
+	}
+	if got := params.Temperature; !got.Valid() || got.Value != 1 {
+		t.Errorf("anthropic: requested temperature next to thinking = %+v, want 1", got)
+	}
+}
+
+func TestRequestOptionsCapAgainstAnthropicThinking(t *testing.T) {
+	intp := func(v int) *int { return &v }
+	for name, tc := range map[string]struct {
+		providerType, level string
+		maxTokens           int
+		wantErr             string
+	}{
+		"room above the budget":    {"anthropic", "high", 4096, ""},
+		"no reasoning, tiny cap":   {"anthropic", "", 16, ""},
+		"cap equal to the minimum": {"anthropic", "low", 1024, "max_tokens must exceed 1024"},
+		"cap below the minimum":    {"anthropic", "high", 1000, "max_tokens must exceed 1024"},
+		"openai has no budget":     {"openai", "high", 16, ""},
+	} {
+		err := RequestOptions{MaxTokens: intp(tc.maxTokens), ReasoningEffort: tc.level}.Validate(tc.providerType)
+		if tc.wantErr == "" && err != nil || tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)) {
+			t.Errorf("%s: Validate = %v, want %q", name, err, tc.wantErr)
+		}
+	}
+
+	in := ProviderInput{ReasoningEffort: ""}
+	RequestOptions{ReasoningEffort: "none"}.Apply(&in)
+	if in.ReasoningEffort != "none" {
+		t.Fatalf("reasoning level not applied: %+v", in)
+	}
+}

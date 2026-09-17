@@ -88,20 +88,27 @@ func applySessionReasoning(cfg *config.Config, st *session.State, level string) 
 		st.SetSelectedReasoning("")
 		return nil
 	}
-	if cfg == nil {
+	if cfg == nil || !reasoningLevelOffered(cfg, cfg.FindModelEntry(st.EffectiveModelID(cfg)), level) {
 		return ErrUnknownReasoningLevel
 	}
-	ent := cfg.FindModelEntry(st.EffectiveModelID(cfg))
-	if ent == nil {
-		return ErrUnknownReasoningLevel
+	st.SetSelectedReasoning(level)
+	return nil
+}
+
+// reasoningLevelOffered reports whether level is one of the reasoning levels
+// the model entry offers, as GET /v1/models lists them for it. It is the one
+// check behind metadata.reasoning on a profile turn and reasoning_effort on a
+// direct completion.
+func reasoningLevelOffered(cfg *config.Config, ent *config.ModelEntry, level string) bool {
+	if cfg == nil || ent == nil {
+		return false
 	}
 	for _, lv := range cfg.ReasoningLevelsFor(ent) {
 		if lv == level {
-			st.SetSelectedReasoning(level)
-			return nil
+			return true
 		}
 	}
-	return ErrUnknownReasoningLevel
+	return false
 }
 
 // completionMetadataForbidden returns true when JSON metadata contains a model key (not allowed for direct completion).

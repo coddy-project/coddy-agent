@@ -69,7 +69,7 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary": "Create chat completion",
 					"description": "Chat completion in OpenAI-compatible shape. **`model`** must match an **`id`** from **`GET /v1/models`**: **`agent`** / **`plan`** / **`ask`** (ReAct) or a configured **`models[].model`** YAML selector (single direct completion). " +
-						"A direct **`models[].model`** id sends the request's **`max_tokens`** (or **`max_completion_tokens`**) and **`temperature`** for that one request in place of the configured values, and refuses with **400**, before a session is created or the provider is contacted, a value its provider cannot send as asked. " +
+						"A direct **`models[].model`** id sends the request's **`max_tokens`** (or **`max_completion_tokens`**), **`temperature`** and **`reasoning_effort`** for that one request in place of the configured values (the model's **`reasoning_default`** when no level is given), and refuses with **400**, before a session is created or the provider is contacted, a value its provider or model cannot take as asked. " +
 						"Optional **`metadata`** on agent/plan/ask only: **`metadata.model`** sets the backed LLM (**`models[].model`**); omit or omit the key to use session defaults. " +
 						"**`metadata`** must not carry **`model`** for direct-completion **`model`** values. " +
 						"When **stream** is true the response is **text/event-stream** in the strict OpenAI **`chat.completion.chunk`** contract a third-party client parses literally (VS Code Copilot, the openai SDKs): a first chunk with **`delta.role`** `assistant`, **`delta.content`**, **`delta.reasoning_content`** and **`delta.tool_calls`** deltas with **`finish_reason: null`**, a final chunk whose **`finish_reason`** is **`stop`** (**`length`** when the turn hit **`max_turns`** / **`max_tokens`**, **`tool_calls`** when a direct model called one of the client's tools), a usage chunk with an empty **`choices`** array when **`stream_options.include_usage`** is true, then **`data: [DONE]`**. No named **`event:`** frame is sent here (each leaves an SSE comment in its place, so the connection stays busy through a tool phase); the coddy events (**`tool_call`**, **`token_usage`**, **`coddy_meta`**, ...) are the **`POST /v1/responses`** stream and the composer relay. Otherwise JSON. " +
@@ -3095,7 +3095,11 @@ func openAPISpec() map[string]interface{} {
 							"format":      "float",
 							"minimum":     0,
 							"maximum":     2,
-							"description": "Temperature of this request for a direct `models[].model` id, replacing the model's configured `temperature`, `0` included; omitted, the configured value applies. **400** outside 0-2 (0-1 for an `anthropic` provider) and on a `codex` model, whose backend takes no temperature. The agent/plan/ask profiles do not read it.",
+							"description": "Temperature of this request for a direct `models[].model` id, replacing the model's configured `temperature`, `0` included, and sent next to a reasoning level too; omitted, the configured value applies. **400** outside 0-2 (0-1 for an `anthropic` provider) and on a `codex` model, whose backend takes no temperature. The agent/plan/ask profiles do not read it.",
+						},
+						"reasoning_effort": map[string]interface{}{
+							"type":        "string",
+							"description": "Reasoning level of this request for a direct `models[].model` id: one of the `reasoning_levels` `GET /v1/models` lists for that id, else **400**. Omitted, `null` or empty, the model's `reasoning_default` applies, and a model without one gets no reasoning parameter at all, which is not the same request as the level `none` a `codex` model offers. The level the provider was asked for is echoed as `metadata.reasoning_effort`. Mapped to OpenAI `reasoning_effort`, Anthropic extended thinking (a `max_tokens` of this request that leaves no room above the thinking budget is **400**) or Codex `reasoning.effort`. The agent/plan/ask profiles take `metadata.reasoning` instead.",
 						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
@@ -3114,7 +3118,7 @@ func openAPISpec() map[string]interface{} {
 						"model":   map[string]string{"type": "string"},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Effective YAML model selector under `model`, optional `api_model`.",
+							"description":          "Effective YAML model selector under `model`, optional `api_model`, and for a direct completion that reasoned, the level the provider was asked for under `reasoning_effort`.",
 							"additionalProperties": map[string]string{"type": "string"},
 						},
 						"choices": map[string]interface{}{

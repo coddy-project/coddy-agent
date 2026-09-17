@@ -95,9 +95,11 @@ func directAssistantMessage(resp *llm.Response, yamlSel string) llm.Message {
 }
 
 // directRequestOptions reads the generation options of a direct completion
-// request and checks them against the provider type that serves model.
-// max_tokens and max_completion_tokens are one cap under two names, so a
-// request may carry both only when they agree.
+// request and checks them against the model and the provider type that
+// serves it. max_tokens and max_completion_tokens are one cap under two
+// names, so a request may carry both only when they agree. reasoning_effort
+// must be a level the model offers, as GET /v1/models lists them; omitted,
+// null or empty, the model's reasoning_default applies.
 func directRequestOptions(cfg *config.Config, model string, req chatCompletionRequest) (llm.RequestOptions, error) {
 	opts := llm.RequestOptions{MaxTokens: req.MaxTokens, Temperature: req.Temperature}
 	if req.MaxCompletionTokens != nil {
@@ -106,24 +108,37 @@ func directRequestOptions(cfg *config.Config, model string, req chatCompletionRe
 		}
 		opts.MaxTokens = req.MaxCompletionTokens
 	}
-	return opts, opts.Validate(directProviderType(cfg, model))
-}
-
-// directProviderType is the type of the provider serving a configured model,
-// read without resolving its credentials; empty when either is missing, in
-// which case building the provider reports the configuration error.
-func directProviderType(cfg *config.Config, model string) string {
-	if cfg == nil {
-		return ""
+	var ent *config.ModelEntry
+	providerType := ""
+	if cfg != nil {
+		if ent = cfg.FindModelEntry(model); ent != nil {
+			if prov := cfg.FindProvider(ent.ProviderName()); prov != nil {
+				providerType = prov.Type
+			}
+		}
 	}
-	ent := cfg.FindModelEntry(model)
-	if ent == nil {
-		return ""
+	level := ""
+	if req.ReasoningEffort != nil {
+		level = strings.TrimSpace(*req.ReasoningEffort)
 	}
-	if prov := cfg.FindProvider(ent.ProviderName()); prov != nil {
-		return prov.Type
+	switch {
+	case level == "":
+		if ent != nil {
+			opts.ReasoningEffort = cfg.DefaultReasoningLevelFor(ent)
+		}
+	case reasoningLevelOffered(cfg, ent, level):
+		opts.ReasoningEffort = level
+	default:
+		var levels []string
+		if ent != nil {
+			levels = cfg.ReasoningLevelsFor(ent)
+		}
+		if len(levels) == 0 {
+			return llm.RequestOptions{}, fmt.Errorf("reasoning_effort %q: model %q offers no reasoning levels", level, model)
+		}
+		return llm.RequestOptions{}, fmt.Errorf("reasoning_effort %q is not offered by model %q (offered: %s)", level, model, strings.Join(levels, ", "))
 	}
-	return ""
+	return opts, opts.Validate(providerType)
 }
 
 // resolveDirectYAMLMaxTokens returns the max_tokens value to send to the LLM

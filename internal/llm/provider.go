@@ -155,7 +155,8 @@ type ProviderInput struct {
 	Temperature float64
 	// TemperatureSet marks Temperature as asked for on the request rather than
 	// read from the model's configuration, where zero means "not configured":
-	// a set temperature is sent as is, zero included.
+	// a set temperature is sent as is, zero included, and next to a reasoning
+	// level too, where a configured one is left out.
 	TemperatureSet bool
 	// ReasoningEffort is the reasoning level name ("minimal"|"low"|"medium"|"high"), or empty.
 	// OpenAI maps it to reasoning_effort; Anthropic maps it to an extended-thinking token budget.

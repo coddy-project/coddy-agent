@@ -307,6 +307,11 @@ func (p *anthropicProvider) buildParams(system string, messages []anthropic.Mess
 			params.MaxTokens = budget + anthropicMinThinkingBudget
 		}
 		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(budget)
+		// Same rule as the OpenAI path: only a temperature the caller asked for
+		// travels next to thinking, and the backend decides whether it takes it.
+		if p.tempSet {
+			params.Temperature = anthropic.Float(p.temp)
+		}
 	} else if p.temp > 0 || p.tempSet {
 		params.Temperature = anthropic.Float(p.temp)
 	}

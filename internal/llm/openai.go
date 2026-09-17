@@ -145,6 +145,12 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition,
 				"chat_template_kwargs": map[string]any{"enable_thinking": true},
 			})
 		}
+		// A configured temperature stays off, but one the caller asked for is
+		// sent: an OpenAI-compatible server may well take it with reasoning
+		// (Qwen3 thinking on vLLM does), and one that does not says so itself.
+		if p.tempSet {
+			params.Temperature = openai.Float(p.temp)
+		}
 	} else {
 		if p.maxTokens > 0 {
 			params.MaxTokens = openai.Int(int64(p.maxTokens))

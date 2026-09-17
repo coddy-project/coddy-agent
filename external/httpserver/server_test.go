@@ -4164,7 +4164,10 @@ func directOptionsTestServer(t *testing.T) (*Server, *httptest.Server, *recordin
 		},
 		Models: []config.ModelEntry{
 			{Model: "local/llama-3.1-8b", MaxTokens: 8192, Temperature: 0.2},
+			{Model: "local/o4-mini", ReasoningDefault: "medium"},
+			{Model: "local/o3"},
 			{Model: "claude/claude-3-5-haiku", MaxTokens: 8192, Temperature: 0.2},
+			{Model: "claude/claude-sonnet-4-5", MaxTokens: 8192},
 			{Model: "codex/gpt-5.5"},
 		},
 		Agent: config.Agent{Model: "local/llama-3.1-8b"},
@@ -4189,6 +4192,11 @@ func TestChatCompletionsDirectRefusesOptionsTheProviderCannotSend(t *testing.T) 
 		"anthropic temperature 1.5":  {"claude/claude-3-5-haiku", `"temperature":1.5`, "temperature must be between 0 and 1"},
 		"codex max_tokens":           {"codex/gpt-5.5", `"max_tokens":256`, "max_tokens is not supported by a codex model"},
 		"codex temperature":          {"codex/gpt-5.5", `"temperature":0.5`, "temperature is not supported by a codex model"},
+		"level the model lacks":      {"local/o4-mini", `"reasoning_effort":"minimal"`, `reasoning_effort "minimal" is not offered by model "local/o4-mini" (offered: low, medium, high)`},
+		"level on a plain model":     {"local/llama-3.1-8b", `"reasoning_effort":"low"`, `model "local/llama-3.1-8b" offers no reasoning levels`},
+		"minimal on codex":           {"codex/gpt-5.5", `"reasoning_effort":"minimal"`, "(offered: none, low, medium, high)"},
+		"reasoning_effort not text":  {"local/o4-mini", `"reasoning_effort":3`, "invalid JSON"},
+		"cap under thinking budget":  {"claude/claude-sonnet-4-5", `"reasoning_effort":"low","max_tokens":1024`, `max_tokens must exceed 1024 at reasoning level "low"`},
 	} {
 		for _, stream := range []bool{false, true} {
 			body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hi"}],%s,"stream":%v}`, tc.model, tc.options, stream)
@@ -4284,5 +4292,48 @@ func TestChatCompletionsDirectOptionsStayOnTheirOwnRequest(t *testing.T) {
 	}
 	if ent := srv.activeCfg().FindModelEntry("local/llama-3.1-8b"); ent.MaxTokens != 8192 || ent.Temperature != 0.2 {
 		t.Fatalf("configuration changed under the requests: max_tokens %d, temperature %g", ent.MaxTokens, ent.Temperature)
+	}
+}
+
+func TestChatCompletionsDirectReasoningEffortPrecedence(t *testing.T) {
+	_, ts, backend, _ := directOptionsTestServer(t)
+	post := func(body string) string {
+		t.Helper()
+		res, err := http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := ioReadAllClose(res.Body)
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("%s: %d %s", body, res.StatusCode, raw)
+		}
+		return string(raw)
+	}
+	for name, tc := range map[string]struct {
+		model, options, wantLevel string
+	}{
+		"requested level wins":            {"local/o4-mini", `"reasoning_effort":"low",`, "low"},
+		"omitted takes the default":       {"local/o4-mini", ``, "medium"},
+		"null takes the default":          {"local/o4-mini", `"reasoning_effort":null,`, "medium"},
+		"empty takes the default":         {"local/o4-mini", `"reasoning_effort":"",`, "medium"},
+		"no default sends no level":       {"local/o3", ``, ""},
+		"no levels sends no level either": {"local/llama-3.1-8b", ``, ""},
+	} {
+		answer := post(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hi"}],%s"stream":false}`, tc.model, tc.options))
+		last := backend.last()
+		if got := gjson.Get(last, "reasoning_effort"); got.String() != tc.wantLevel || (tc.wantLevel == "") == got.Exists() {
+			t.Fatalf("%s: upstream reasoning_effort = %s, want %q: %s", name, got.Raw, tc.wantLevel, last)
+		}
+		if got := gjson.Get(answer, "metadata.reasoning_effort"); got.String() != tc.wantLevel || (tc.wantLevel == "") == got.Exists() {
+			t.Fatalf("%s: metadata.reasoning_effort = %s, want %q: %s", name, got.Raw, tc.wantLevel, answer)
+		}
+	}
+
+	// A requested temperature travels next to the level; the configured cap
+	// of a reasoning model goes out as max_completion_tokens.
+	post(`{"model":"local/o4-mini","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"high","temperature":0.6,"max_tokens":512,"stream":false}`)
+	last := backend.last()
+	if gjson.Get(last, "reasoning_effort").String() != "high" || gjson.Get(last, "temperature").Float() != 0.6 || gjson.Get(last, "max_completion_tokens").Int() != 512 {
+		t.Fatalf("reasoning, temperature and cap did not all reach the provider: %s", last)
 	}
 }

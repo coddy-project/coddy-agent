@@ -369,10 +369,14 @@ type chatCompletionRequest struct {
 	// older and newer names, and Temperature replaces the model's own: a
 	// direct model sends them for this request, a profile turn runs on its
 	// model's configured values.
-	MaxTokens           *int            `json:"max_tokens,omitempty"`
-	MaxCompletionTokens *int            `json:"max_completion_tokens,omitempty"`
-	Temperature         *float64        `json:"temperature,omitempty"`
-	Metadata            json.RawMessage `json:"metadata,omitempty"`
+	MaxTokens           *int     `json:"max_tokens,omitempty"`
+	MaxCompletionTokens *int     `json:"max_completion_tokens,omitempty"`
+	Temperature         *float64 `json:"temperature,omitempty"`
+	// ReasoningEffort is OpenAI's reasoning_effort: a level the direct model
+	// offers, in place of its reasoning_default. A profile turn reads the level
+	// from metadata.reasoning instead.
+	ReasoningEffort *string         `json:"reasoning_effort,omitempty"`
+	Metadata        json.RawMessage `json:"metadata,omitempty"`
 	// StreamOptions is OpenAI's stream_options; include_usage asks for the
 	// usage chunk after the choice finishes.
 	StreamOptions *chatStreamOptions `json:"stream_options,omitempty"`
@@ -714,6 +718,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	meta := metadataResponse(s.activeCfg(), model)
+	if genOpts.ReasoningEffort != "" {
+		// The level the provider was asked for, the model's default included,
+		// so a caller comparing model and level pairs can tell which ran.
+		meta["reasoning_effort"] = genOpts.ReasoningEffort
+	}
 	if stop := directStopReason(directRes); stop != "" {
 		// The strict stream finishes its choice with this: tool_use becomes
 		// finish_reason tool_calls, max_tokens becomes length.
