@@ -9,3 +9,8 @@ Feature: Transport failures without a status are retried
     Given an "openai" provider whose upstream cuts the connection once before any output and then streams a completion
     When a streaming completion is requested
     Then the call succeeds with text "Hello after retry" in 2 upstream requests
+
+  Scenario: A TLS handshake that times out before the request is sent is retried and succeeds
+    Given an "openai" provider whose upstream leaves the first TLS handshake unanswered and then streams a completion
+    When a streaming completion is requested
+    Then the call succeeds with text "Hello after retry" over 2 upstream connections
