@@ -87,6 +87,16 @@ type SubagentSpec struct {
 	// ClientMCPServers are the parent's ACP client-supplied declarations to
 	// redial; they exist nowhere in the configuration.
 	ClientMCPServers []config.MCPServerConfig
+	// ResolveTools decides the effective tool set once the child's MCP
+	// clients are up, for a run that has no parent to copy the names from (a
+	// scheduled run). It receives every MCP tool name the child can call and
+	// returns the set; a nil resolver keeps Tools as given. A resolver that
+	// returns nothing fails the creation, as an empty allowlist fails a spawn.
+	ResolveTools func(mcpTools []string) []string
+	// Scheduler marks a run the scheduler started rather than a model's
+	// delegate: the job and the trigger, kept on the child's metadata and in
+	// its bundle.
+	Scheduler *SchedulerRunMeta
 }
 
 // CreateSubagentSession builds, registers and persists a child session. The
@@ -147,6 +157,7 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 		MaxTurns:        spec.MaxTurns,
 		Role:            spec.Role,
 		Tools:           spec.Tools,
+		Scheduler:       spec.Scheduler,
 	})
 	if title := strings.TrimSpace(spec.Title); title != "" {
 		state.SetTitlePinnedWithoutPersist(title)
@@ -249,6 +260,18 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 		return nil, fmt.Errorf("subagent session creation cancelled: %w", err)
 	}
 
+	// A run without a parent to inherit names from decides its tool set here,
+	// with the MCP names known, and before the first save. The turn starts
+	// only after this call returns, so the empty set stored above is never
+	// what the model is offered.
+	if spec.ResolveTools != nil {
+		resolved := spec.ResolveTools(mcpToolNames(state))
+		if len(resolved) == 0 {
+			return nil, fmt.Errorf("subagent %q would have no tools at all", name)
+		}
+		state.SetSubagentTools(resolved)
+	}
+
 	// A deletion that ran while this call was in flight has dropped the live
 	// entry or marked the parent; the bundle must not be written after that,
 	// or it would outlive the tree it belongs to.
@@ -264,6 +287,22 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 	failed = false
 	m.log.Info("subagent session created", "id", id, "parent", parentID, "agent", name, "task", spec.TaskID)
 	return state, nil
+}
+
+// mcpToolNames lists every MCP tool the session can call, in the server__tool
+// spelling the registry and the tool set use, honouring the session's filter.
+func mcpToolNames(st *State) []string {
+	allowed := st.GetMCPToolFilter()
+	var names []string
+	for _, client := range st.GetMCPClients() {
+		for _, t := range client.Tools() {
+			if !allowed(client.Name(), t.Name) {
+				continue
+			}
+			names = append(names, client.Name()+"__"+t.Name)
+		}
+	}
+	return names
 }
 
 // refuseIfParentDeleting answers ErrSessionDeleting when the child's live entry

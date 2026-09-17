@@ -17,7 +17,7 @@ import (
 func jobResumeTool(cfg *config.Config) *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
-			Name: toolJobResume,
+			Name:        toolJobResume,
 			Description: "Clears paused for one scheduler job (paused:false). After resume, cron and manual triggers may run normally again.",
 			InputSchema: map[string]interface{}{
 				"type": "object",

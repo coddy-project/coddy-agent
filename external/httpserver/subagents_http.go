@@ -206,6 +206,20 @@ func subagentLink(parentSessionID, name, taskID string) map[string]interface{} {
 	}
 }
 
+// subagentMetaLink is subagentLink for a live child's metadata, with the
+// scheduler origin when the child is a scheduled run: the job and the trigger,
+// so a client routes back to the job's runs rather than to a parent chat.
+func subagentMetaLink(meta *session.SubagentMeta) map[string]interface{} {
+	link := subagentLink(meta.ParentSessionID, meta.Name, meta.TaskID)
+	if meta.Scheduler != nil {
+		link["scheduler"] = map[string]interface{}{
+			"jobId":   meta.Scheduler.JobID,
+			"trigger": meta.Scheduler.Trigger,
+		}
+	}
+	return link
+}
+
 // subagentRowLink is the parent link of a session-list row, or nil when the
 // row is not a spawned run. The listing already parsed the bundle the row came
 // from, so this costs no second read.
@@ -216,19 +230,28 @@ func subagentRowLink(row session.SessionListEntry) map[string]interface{} {
 	return subagentLink(row.ParentSessionID, row.SubagentName, row.SubagentTaskID)
 }
 
-// subagentReadOnlyMessage names the parent a caller should prompt instead.
+// subagentReadOnlyMessage names what a caller should do instead: prompt the
+// parent of a child session, or open the runs of a scheduler job's session.
 func subagentReadOnlyMessage(st *session.State) string {
+	if st.IsSchedulerJob() {
+		return fmt.Sprintf("the session of scheduler job %q is read-only: it holds the job's runs and never runs a turn of its own", st.GetSchedulerJobID())
+	}
 	if meta := st.Subagent(); meta != nil && strings.TrimSpace(meta.ParentSessionID) != "" {
+		if meta.Scheduler != nil {
+			return fmt.Sprintf("scheduled runs are read-only transcripts; this one belongs to scheduler job %q", meta.Scheduler.JobID)
+		}
 		return fmt.Sprintf("subagent sessions are read-only transcripts; prompt the parent session %s instead", meta.ParentSessionID)
 	}
 	return session.ErrSubagentReadOnly.Error()
 }
 
-// rejectSubagentTurn answers 409 and reports true when st is a child session:
-// resuming or messaging a subagent is not supported, so every route that would
-// start a turn on it stops here. It is a no-op for ordinary sessions.
+// rejectSubagentTurn answers 409 and reports true when st is a read-only
+// transcript: a child session (a spawned subagent or a scheduled run) or the
+// session of a scheduler job. Resuming or messaging one is not supported, so
+// every route that would start a turn on it stops here. It is a no-op for
+// ordinary sessions.
 func rejectSubagentTurn(w http.ResponseWriter, st *session.State) bool {
-	if st == nil || !st.IsSubagentRun() {
+	if st == nil || !st.IsReadOnlyTranscript() {
 		return false
 	}
 	writeSubagentsError(w, http.StatusConflict, subagentReadOnlyMessage(st))
@@ -238,5 +261,5 @@ func rejectSubagentTurn(w http.ResponseWriter, st *session.State) bool {
 // isSubagentReadOnly maps the manager's refusal onto the HTTP 409, for paths
 // where the state is not at hand when the error surfaces.
 func isSubagentReadOnly(err error) bool {
-	return errors.Is(err, session.ErrSubagentReadOnly)
+	return errors.Is(err, session.ErrSubagentReadOnly) || errors.Is(err, session.ErrSchedulerSessionReadOnly)
 }

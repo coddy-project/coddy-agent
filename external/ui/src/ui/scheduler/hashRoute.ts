@@ -1,7 +1,9 @@
 /**
  * Hash routes: `#/s/<sessionId>`, `#/s/<sessionId>/tasks`,
  * `#/s/<sessionId>/tasks/<task_id>`, `#/history`, `#/scheduler`,
- * `#/scheduler/new`, `#/scheduler/jobs/<job_id>`.
+ * `#/scheduler/new`, `#/scheduler/jobs/<job_id>`,
+ * `#/scheduler/jobs/<job_id>/runs` and `#/scheduler/jobs/<job_id>/runs/<task_id>`
+ * (the runs panel of a job, and one run open in it).
  *
  * Background tasks hang off the session segment rather than living at the top
  * level: a task belongs to one chat, so the URL that opens its panel has to
@@ -25,6 +27,10 @@ export type ParsedAppHash =
       jobId: string | null;
       createOpen: boolean;
       historyOpen: boolean;
+      /** The job's runs panel is open instead of its editor. */
+      runsOpen: boolean;
+      /** One run (a background task of the job session) open in the panel. */
+      runTaskId: string | null;
     }
   | { branch: "settings"; historyOpen: boolean; section: string | null }
   | { branch: "swarm"; historyOpen: boolean };
@@ -32,6 +38,7 @@ export type ParsedAppHash =
 export type SchedulerEditorRoute =
   | { mode: "create" }
   | { mode: "edit"; jobId: string }
+  | { mode: "runs"; jobId: string; taskId: string | null }
   | null;
 
 /** Maps a parsed scheduler hash to editor state (list-only hash yields null). */
@@ -45,6 +52,9 @@ export function schedulerEditorFromParsedHash(
     return { mode: "create" };
   }
   const jid = (p.jobId || "").trim();
+  if (jid && p.runsOpen) {
+    return { mode: "runs", jobId: jid, taskId: p.runTaskId };
+  }
   if (jid) {
     return { mode: "edit", jobId: jid };
   }
@@ -103,6 +113,28 @@ export function parseAppHash(): ParsedAppHash {
       section: decodeURIComponent(settingsSec[1]),
     };
   }
+  const schedJobRun = /^scheduler\/jobs\/([^/]+)\/runs\/(.+)$/.exec(h);
+  if (schedJobRun && schedJobRun[1] && schedJobRun[2]) {
+    return {
+      branch: "scheduler",
+      jobId: decodeURIComponent(schedJobRun[1]),
+      createOpen: false,
+      historyOpen,
+      runsOpen: true,
+      runTaskId: decodeURIComponent(schedJobRun[2]),
+    };
+  }
+  const schedJobRuns = /^scheduler\/jobs\/([^/]+)\/runs$/.exec(h);
+  if (schedJobRuns && schedJobRuns[1]) {
+    return {
+      branch: "scheduler",
+      jobId: decodeURIComponent(schedJobRuns[1]),
+      createOpen: false,
+      historyOpen,
+      runsOpen: true,
+      runTaskId: null,
+    };
+  }
   const schedJob = /^scheduler\/jobs\/(.+)$/.exec(h);
   if (schedJob && schedJob[1]) {
     return {
@@ -110,6 +142,8 @@ export function parseAppHash(): ParsedAppHash {
       jobId: decodeURIComponent(schedJob[1]),
       createOpen: false,
       historyOpen,
+      runsOpen: false,
+      runTaskId: null,
     };
   }
   if (h === "scheduler/new") {
@@ -118,6 +152,8 @@ export function parseAppHash(): ParsedAppHash {
       jobId: null,
       createOpen: true,
       historyOpen,
+      runsOpen: false,
+      runTaskId: null,
     };
   }
   if (h === "scheduler") {
@@ -126,6 +162,8 @@ export function parseAppHash(): ParsedAppHash {
       jobId: null,
       createOpen: false,
       historyOpen,
+      runsOpen: false,
+      runTaskId: null,
     };
   }
   const sessTask = /^s\/([^/]+)\/tasks\/(.+)$/.exec(h);
@@ -348,12 +386,32 @@ export function setSchedulerJobHash(
   }
 }
 
+/** `#/scheduler/jobs/<job_id>/runs[/<task_id>]` - the runs panel of a job. */
+export function setSchedulerJobRunsHash(
+  jobId: string,
+  taskId?: string | null,
+  opts?: { historySidebar?: boolean },
+): void {
+  const base = appNavHrefSchedulerJobRuns(jobId, taskId);
+  const next = withHistoryQuery(base, !!opts?.historySidebar);
+  if (window.location.hash !== next) {
+    history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${window.location.search}${next}`,
+    );
+    notifyHashAfterReplaceState();
+  }
+}
+
 /** Remove `history=1` from the current hash for scheduler or session routes. */
 export function stripHistorySidebarFromHash(): void {
   const p = parseAppHash();
   if (p.branch === "scheduler" && p.historyOpen) {
     if (p.createOpen) {
       setSchedulerCreateHash();
+    } else if (p.jobId && p.runsOpen) {
+      setSchedulerJobRunsHash(p.jobId, p.runTaskId);
     } else if (p.jobId) {
       setSchedulerJobHash(p.jobId);
     } else {
@@ -439,4 +497,19 @@ export function appNavHrefSchedulerJob(jobId: string): string {
     return appNavHrefScheduler();
   }
   return `#/scheduler/jobs/${encodeURIComponent(id)}`;
+}
+
+/** Hash to open the runs of a scheduler job, or one run in that panel. */
+export function appNavHrefSchedulerJobRuns(
+  jobId: string,
+  taskId?: string | null,
+): string {
+  const id = (jobId || "").trim();
+  if (!id) {
+    return appNavHrefScheduler();
+  }
+  const tid = (taskId || "").trim();
+  return tid
+    ? `#/scheduler/jobs/${encodeURIComponent(id)}/runs/${encodeURIComponent(tid)}`
+    : `#/scheduler/jobs/${encodeURIComponent(id)}/runs`;
 }

@@ -212,7 +212,7 @@ func TestListSnapshotsSkipsMarkedSchedulerRunsByMeta(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := &State{ID: metaOnlyID, CWD: "/tmp", Mode: ModeAgent, SessionDir: dirM}
-	m.SetSchedulerRunMeta("job_a", time.Now().UTC().Format(time.RFC3339))
+	m.SetSchedulerJobWithoutPersist("job_a")
 	m.AddMessage(llm.Message{Role: llm.RoleUser, Content: "cron"})
 	if err := fs.Save(m); err != nil {
 		t.Fatal(err)

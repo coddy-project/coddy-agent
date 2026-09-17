@@ -68,7 +68,7 @@ groups:
         summary: Relays and nodes, mounts, the aggregated session list, rings and routes, the reverse tunnel.
       - path: operate/scheduler.md
         title: Scheduler
-        summary: Cron job files, UTC firing rules, run sessions, the scheduler tools and REST.
+        summary: Cron job files, UTC firing rules, runs as background agent tasks under a job session, the runs panel, the scheduler tools and REST.
       - path: operate/security.md
         title: Security and trust
         summary: What the agent may execute and how to bound it, permission modes, project trust for MCP servers, hooks and subagents, tokens and CORS, what is not sandboxed.

@@ -205,6 +205,8 @@ What that changes on the surface:
 
 Everything else in this document applies unchanged: timeouts (the run arrives with an explicit `TimeoutSeconds` resolved by the runtime and is capped by `max_timeout_seconds` like any other task), persistence, drain, orphan marking after a restart, and the HTTP surface.
 
+A **scheduled run** ([Scheduler](../operate/scheduler.md)) is the same kind of task under a **job session** instead of a chat: the scheduler's runs panel is this panel docked in the scheduler drawer, polling `GET /coddy/sessions/{job session}/background-tasks`, and its Clear goes through `DELETE /coddy/scheduler/jobs/{job_id}/runs` so the run transcripts go with the task records. When a child or a scheduled run is retired, its own finished tasks leave the pool's memory (`Pool.ReleaseSession`) while the records stay in its bundle; the scheduler's retention drops older runs one at a time (`Pool.Forget`).
+
 ## Tests
 
 - Happy paths are Gherkin specs run by godog: `features/background_tasks.feature` (pool behaviour through the tools, `internal/tools/shell/bdd_background_test.go`), `features/background_reap.feature` (leftovers from an earlier run, `internal/tools/shell/bdd_background_reap_test.go`, which abandons a real second pool over the same bundle rather than stubbing the restart), `features/background_tasks_http.feature` (REST surface, `external/httpserver/bdd_background_test.go`), `features/background_permissions.feature` (the program-wide grant, `internal/permission/bdd_background_permissions_test.go`), and `features/foreground_timeout_adoption.feature` (handover of a foreground command that outlives its timeout, `internal/tools/shell/bdd_foreground_timeout_test.go`).

@@ -307,13 +307,68 @@ func TestNextScheduledDisplayUTC_StaleLastAdvancesToNow(t *testing.T) {
 	}
 }
 
-func TestStatePathLockPath(t *testing.T) {
+func TestStatePath(t *testing.T) {
 	p := filepath.FromSlash("/x/y/job.md")
 	if g := StatePath(p); g != filepath.FromSlash("/x/y/job.state") {
 		t.Fatalf("StatePath %q", g)
 	}
-	if g := LockPath(p); g != filepath.FromSlash("/x/y/job.lock") {
-		t.Fatalf("LockPath %q", g)
+}
+
+// The sidecar carries two fields written by two different callers: the cron
+// checkpoint by the tick, the job session id by the first run. Each write
+// must keep the other's field, or the pointer to the run history is lost on
+// the first checkpoint after the run that minted it.
+func TestWriteJobStateKeepsSessionID(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "job.state")
+	if err := WriteJobSessionID(p, "sess_0123456789abcdef01234567"); err != nil {
+		t.Fatal(err)
+	}
+	slot, err := time.Parse(time.RFC3339, "2026-09-18T10:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteJobState(p, slot); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := ReadJobStateRecord(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.SessionID != "sess_0123456789abcdef01234567" {
+		t.Fatalf("checkpoint write dropped the session id: %+v", rec)
+	}
+	got, err := ReadJobState(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Equal(slot) {
+		t.Fatalf("checkpoint %v want %v", got, slot)
+	}
+	// And the other way round: recording the session keeps the checkpoint.
+	if err := WriteJobSessionID(p, "sess_fedcba9876543210fedcba98"); err != nil {
+		t.Fatal(err)
+	}
+	again, err := ReadJobState(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !again.Equal(slot) {
+		t.Fatalf("session id write dropped the checkpoint: %v", again)
+	}
+	id, err := ReadJobSessionID(p)
+	if err != nil || id != "sess_fedcba9876543210fedcba98" {
+		t.Fatalf("session id %q err %v", id, err)
+	}
+}
+
+func TestReadJobStateRecordMissingFileIsEmpty(t *testing.T) {
+	rec, err := ReadJobStateRecord(filepath.Join(t.TempDir(), "none.state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.SessionID != "" || rec.LastScheduledUTC != "" {
+		t.Fatalf("missing file should read empty, got %+v", rec)
 	}
 }
 
@@ -378,26 +433,6 @@ func TestReadWriteJobStateRoundTrip(t *testing.T) {
 	}
 	if !empty.IsZero() {
 		t.Fatalf("missing file should yield zero time, got %v", empty)
-	}
-}
-
-func TestReadSchedulerLockFireSlotUTC(t *testing.T) {
-	dir := t.TempDir()
-	lock := filepath.Join(dir, "demo.lock")
-	want, err := time.Parse(time.RFC3339, "2026-05-12T00:02:00Z")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(lock, []byte(want.UTC().Format(time.RFC3339)+"\ntrailer\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	got, ok := ReadSchedulerLockFireSlotUTC(lock)
-	if !ok || !got.Equal(want.UTC()) {
-		t.Fatalf("got %v ok=%v want %v", got, ok, want.UTC())
-	}
-	missing := filepath.Join(dir, "nope.lock")
-	if _, ok := ReadSchedulerLockFireSlotUTC(missing); ok {
-		t.Fatal("missing lock should return ok=false")
 	}
 }
 

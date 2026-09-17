@@ -39,6 +39,9 @@ var ErrNotFound = errors.New("background task not found")
 // drain cannot start work nothing will clean up.
 var ErrDraining = errors.New("background task pool is shutting down")
 
+// ErrTaskRunning is returned by Forget for a task that has not finished.
+var ErrTaskRunning = errors.New("background task is still running")
+
 // Config bounds what the pool will accept.
 type Config struct {
 	// MaxConcurrent is how many tasks one session may run at once.
@@ -769,6 +772,101 @@ func (p *Pool) ClearFinished(sessionID string) int {
 		}
 	}
 	return cleared
+}
+
+// Forget drops one finished task of a session, in memory and on disk. It is the
+// retention primitive: a sweep that keeps the newest runs of a scheduled job
+// calls it for every older one, where ClearFinished is the operator's "throw
+// it all away". A task still in flight is refused with ErrTaskRunning; a task
+// neither this process nor the bundle knows is ErrNotFound. A record left by an
+// earlier process is reached through the bundle, exactly as ClearFinished
+// reaches it: it is part of the same history.
+func (p *Pool) Forget(sessionID, taskID string) error {
+	sessionID = strings.TrimSpace(sessionID)
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" || taskID != filepath.Base(taskID) || strings.HasPrefix(taskID, ".") {
+		return fmt.Errorf("%w: %s", ErrNotFound, taskID)
+	}
+	key := taskKey(sessionID, taskID)
+
+	p.mu.Lock()
+	sessionDir := p.sessionDirs[sessionID]
+	t, live := p.tasks[key]
+	if live {
+		t.mu.Lock()
+		finished := t.snap.Status.Finished()
+		t.mu.Unlock()
+		if !finished {
+			p.mu.Unlock()
+			return fmt.Errorf("%w: %s", ErrTaskRunning, taskID)
+		}
+		delete(p.tasks, key)
+		kept := make([]string, 0, len(p.order))
+		for _, k := range p.order {
+			if k != key {
+				kept = append(kept, k)
+			}
+		}
+		p.order = kept
+	}
+	p.mu.Unlock()
+
+	if live {
+		if t.dir != "" {
+			_ = os.RemoveAll(t.dir)
+		}
+		return nil
+	}
+	if sessionDir == "" {
+		return fmt.Errorf("%w: %s", ErrNotFound, taskID)
+	}
+	dir := filepath.Join(sessionDir, backgroundDirName, taskID)
+	if _, err := os.Stat(filepath.Join(dir, metaFileName)); err != nil {
+		return fmt.Errorf("%w: %s", ErrNotFound, taskID)
+	}
+	// A record that still says running belongs to a process that is gone (this
+	// one would hold it in memory), so it is as finished as the reader sees it.
+	return os.RemoveAll(dir)
+}
+
+// ReleaseSession lets go of a session that is being retired: its finished
+// tasks leave the pool's memory and its bundle directory is forgotten, while
+// the records on disk stay exactly as they are and a later read finds them
+// there like the records of an earlier process. Running tasks are left alone;
+// a caller retiring a session stops them first (StopSession).
+//
+// It exists because the pool is process-wide and a session is not: a child
+// session or a scheduled run is created, does its work and is retired, and
+// without this its finished tasks, output windows included, would stay in the
+// pool for the life of the process.
+func (p *Pool) ReleaseSession(sessionID string) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	kept := make([]string, 0, len(p.order))
+	for _, key := range p.order {
+		t, ok := p.tasks[key]
+		if !ok {
+			continue
+		}
+		if t.snap.SessionID != sessionID {
+			kept = append(kept, key)
+			continue
+		}
+		t.mu.Lock()
+		finished := t.snap.Status.Finished()
+		t.mu.Unlock()
+		if !finished {
+			kept = append(kept, key)
+			continue
+		}
+		delete(p.tasks, key)
+	}
+	p.order = kept
+	delete(p.sessionDirs, sessionID)
 }
 
 // RunningCount reports how many tasks of a session are still in flight.

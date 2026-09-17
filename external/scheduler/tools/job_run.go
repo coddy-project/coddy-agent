@@ -18,8 +18,8 @@ func jobRunTool(cfg *config.Config) *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
 			Name: toolJobRun,
-			Description: "Triggers one asynchronous scheduler agent run NOW for the named job using the SAME code path as the daemon (persists transcripts under sessions.dir with scheduler markers). " +
-				"This does NOT update the cron-style last-fire .state checkpoint (cron schedule stays honest). Accepts shortly with JSON status accepted; watch coddy_scheduler_job_runs for session ids. Blocked while paused or while another execution holds the exclusive lock.",
+			Description: "Starts one run of the named job NOW, as a background agent task under the job's session: the same run the cron tick starts, so the run appears in the job's run history with its progress log and its transcript. " +
+				"Does NOT advance the cron checkpoint. Answers at once with the task id (task_id) and the run's transcript session (run_session_id); follow it with coddy_scheduler_job_runs. Refused while the job is paused, while another run of it is in flight, or while scheduler.max_queue runs are already going.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -40,10 +40,12 @@ func jobRunTool(cfg *config.Config) *tooling.Tool {
 				return "", err
 			}
 			op := schedservice.NewService(cfg, nil, toolEnvCWD(env))
-			if err := op.TriggerJobRun(strings.TrimSpace(in.JobID)); err != nil {
+			ref, err := op.TriggerJobRun(strings.TrimSpace(in.JobID))
+			if err != nil {
 				return "", err
 			}
-			return fmt.Sprintf(`{"object":"coddy.scheduler_job_run_accepted","job_id":%q,"status":"accepted"}`, strings.TrimSpace(in.JobID)), nil
+			return fmt.Sprintf(`{"object":"coddy.scheduler_job_run_accepted","job_id":%q,"status":"accepted","task_id":%q,"session_id":%q,"run_session_id":%q}`,
+				strings.TrimSpace(in.JobID), ref.TaskID, ref.JobSessionID, ref.RunSessionID), nil
 		},
 	}
 }

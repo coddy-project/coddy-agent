@@ -913,6 +913,13 @@ export const messagesRu: Record<string, string> = {
   "chat.subagentReadOnly.openParent": "Открыть родительский чат",
   "chat.subagentTitle": "Субагент {name}",
   "chat.subagentTitleUnnamed": "Транскрипт субагента",
+  "chat.scheduledRunReadOnly.notice":
+    "Транскрипт запуска задачи планировщика {jobId} доступен только для чтения.",
+  "chat.scheduledRunReadOnly.openRuns": "Открыть запуски задачи",
+  "chat.schedulerJobSession.notice":
+    "Эта сессия принадлежит задаче планировщика {jobId} и хранит её запуски; запросы сюда не отправляются.",
+  "chat.scheduledRunTitle": "Запуск {jobId}",
+  "chat.schedulerJobSessionTitle": "Задача {jobId}",
   "chat.subagentPermission.head": "Фоновый субагент просит разрешение",
   "chat.subagentPermission.headNamed": "Субагент «{name}» просит разрешение",
   "chat.heroTitle": "Что вы хотите {verb}?",
@@ -1143,6 +1150,23 @@ export const messagesRu: Record<string, string> = {
     "Без пробелов — используйте дефисы (пример: daily-report)",
   "scheduler.validation.invalidJobId":
     "Только буквы, цифры и дефисы (пример: daily-report)",
+  "scheduler.runs": "Запуски",
+  "scheduler.openRuns": "Открыть запуски задачи {jobId}",
+  "scheduler.runsTitle": "Запуски задачи {jobId}",
+  "scheduler.runsEmpty": "Запусков ещё не было. Запустите задачу сейчас или дождитесь расписания.",
+  "scheduler.runsJobHeading": "Задача",
+  "scheduler.lastRun.running": "Выполняется",
+  "scheduler.field.agent": "agent (необязательно)",
+  "scheduler.field.agentHelp":
+    "Определение субагента, под которым идёт запуск: его роль, список инструментов, модель и сужение прав.",
+  "scheduler.field.agentPlaceholder": "общий агент",
+  "scheduler.field.permissionMode": "режим разрешений",
+  "scheduler.field.permissionModeHelp":
+    "Что запуску можно делать без вопроса. Отвечать на запрос некому, поэтому при ask и accept_edits вызов под гейтом отклоняется.",
+  "scheduler.permission.default": "bypass (по умолчанию: без присмотра)",
+  "scheduler.permission.acceptEdits": "accept_edits",
+  "scheduler.permission.ask": "ask",
+  "scheduler.permission.bypass": "bypass",
 
   "tasks.panelTitle": "Фоновые задачи",
   "tasks.closePanel": "Закрыть фоновые задачи",

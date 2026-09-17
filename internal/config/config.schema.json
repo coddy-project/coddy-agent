@@ -1430,7 +1430,7 @@
     "scheduler": {
       "type": "object",
       "title": "Cron scheduler",
-      "description": "Cron-driven scheduled jobs (used only by binaries built with -tags scheduler). Jobs are flat *.md files with YAML frontmatter under scheduler.dir; five-field crontab in UTC.",
+      "description": "Cron-driven scheduled jobs (used only by binaries built with -tags scheduler). Jobs are flat *.md files with YAML frontmatter under scheduler.dir; five-field crontab in UTC. A run is a background agent task under the job's own session, which is the job's run history.",
       "additionalProperties": false,
       "properties": {
         "enable": {
@@ -1445,17 +1445,17 @@
         },
         "max_queue": {
           "type": "integer",
-          "description": "Concurrent scheduled runs; when saturated, extra firings are skipped until a slot frees.",
+          "description": "Runs in flight across all jobs at once; a due slot past the cap is skipped until a run finishes, and a manual run past it is refused.",
           "default": 10
         },
         "timeout": {
           "type": "string",
-          "description": "Wall-clock limit for one scheduled agent run, as a Go duration (e.g. \"30m\", \"1h30m\").",
+          "description": "Wall-clock limit for one run, as a Go duration (e.g. \"30m\", \"1h30m\"); the background task pool still caps it at tools.background.max_timeout_seconds.",
           "default": "30m"
         },
         "retain_sessions": {
           "type": "integer",
-          "description": "Completed scheduler-run session directories kept per job_id under sessions.dir; older runs are pruned.",
+          "description": "Finished runs kept per job_id (their task records and transcripts under the job session); older runs are removed when a run finishes.",
           "default": 5
         }
       }

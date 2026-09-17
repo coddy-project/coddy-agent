@@ -146,3 +146,18 @@ export async function schedulerCancelJob(
   );
   return parseJson(res);
 }
+
+/**
+ * Clears the finished runs of a job: the task records and the run
+ * transcripts. The panel's Clear goes here rather than to the session's
+ * background-tasks DELETE, which would leave the transcripts behind.
+ */
+export async function schedulerClearJobRuns(
+  jobId: string,
+): Promise<ApiResult<{ object?: string; job_id?: string; cleared?: number }>> {
+  const res = await fetch(
+    `/coddy/scheduler/jobs/${encodeURIComponent(jobId)}/runs`,
+    { method: "DELETE" },
+  );
+  return parseJson(res);
+}

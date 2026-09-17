@@ -124,6 +124,14 @@ type Env struct {
 	// spawns past subagents.max_depth.
 	SubagentDepth int
 
+	// WakeableSession reports whether a finished background task may start a
+	// turn on this session (notify_on_finish). False for every session whose
+	// transcript is sealed once its one turn returns - a spawned child and a
+	// scheduled run alike - so a task started there never registers a wake
+	// that the read-only guard would only refuse. A scheduled run sits at
+	// depth 0 and still cannot be woken, which is why this is not the depth.
+	WakeableSession bool
+
 	// WebSearch is the resolved tools.websearch section the websearch tool
 	// reads its engine list and bounds from. It travels on the environment
 	// rather than being captured when the registry is built, so a config

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/external/scheduler/storage"
+	"github.com/EvilFreelancer/coddy-agent/internal/subagents"
 )
 
 // CreateJob writes a new *.md job file.
@@ -27,16 +28,9 @@ func (o *Service) CreateJob(in SchedulerJobCreate) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	fm := &storage.JobFrontmatter{
-		Description: strings.TrimSpace(in.Description),
-		Schedule:    strings.TrimSpace(in.Schedule),
-		Paused:      in.Paused,
-		CWD:         strings.TrimSpace(in.CWD),
-		Model:       strings.TrimSpace(in.Model),
-		Mode:        strings.TrimSpace(in.Mode),
-	}
-	if _, err := storage.ParseCronUTC(fm.Schedule); err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalidJobID, err)
+	fm, err := frontmatterFromCreate(in)
+	if err != nil {
+		return err
 	}
 	data, err := storage.FormatJobMarkdown(fm, in.Body)
 	if err != nil {
@@ -66,16 +60,9 @@ func (o *Service) ReplaceJob(jobID string, in SchedulerJobCreate) error {
 		}
 		return err
 	}
-	fm := &storage.JobFrontmatter{
-		Description: strings.TrimSpace(in.Description),
-		Schedule:    strings.TrimSpace(in.Schedule),
-		Paused:      in.Paused,
-		CWD:         strings.TrimSpace(in.CWD),
-		Model:       strings.TrimSpace(in.Model),
-		Mode:        strings.TrimSpace(in.Mode),
-	}
-	if _, err := storage.ParseCronUTC(fm.Schedule); err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalidJobID, err)
+	fm, err := frontmatterFromCreate(in)
+	if err != nil {
+		return err
 	}
 	data, err := storage.FormatJobMarkdown(fm, in.Body)
 	if err != nil {
@@ -87,7 +74,44 @@ func (o *Service) ReplaceJob(jobID string, in SchedulerJobCreate) error {
 	return os.WriteFile(abs, data, 0o644)
 }
 
-// renameJobFiles moves basename.md plus .state and .lock sidecars when idle.
+// frontmatterFromCreate builds and validates the frontmatter of a create or
+// replace body.
+func frontmatterFromCreate(in SchedulerJobCreate) (*storage.JobFrontmatter, error) {
+	fm := &storage.JobFrontmatter{
+		Description:    strings.TrimSpace(in.Description),
+		Schedule:       strings.TrimSpace(in.Schedule),
+		Paused:         in.Paused,
+		CWD:            strings.TrimSpace(in.CWD),
+		Model:          strings.TrimSpace(in.Model),
+		Mode:           strings.TrimSpace(in.Mode),
+		Agent:          strings.TrimSpace(in.Agent),
+		PermissionMode: strings.TrimSpace(in.PermissionMode),
+	}
+	if err := validateFrontmatter(fm); err != nil {
+		return nil, err
+	}
+	return fm, nil
+}
+
+// validateFrontmatter checks what a job file must satisfy to run: a cron
+// expression, a known permission mode, a definition name that could exist.
+func validateFrontmatter(fm *storage.JobFrontmatter) error {
+	if _, err := storage.ParseCronUTC(fm.Schedule); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidJobID, err)
+	}
+	if pm := strings.TrimSpace(fm.PermissionMode); pm != "" {
+		if _, ok := subagents.NormalizePermissionMode(pm); !ok {
+			return fmt.Errorf("%w: permission_mode must be ask, accept_edits or bypass", ErrInvalidJob)
+		}
+	}
+	if name := strings.TrimSpace(fm.Agent); name != "" && !subagents.ValidName(name) {
+		return fmt.Errorf("%w: agent %q is not a subagent definition name", ErrInvalidJob, name)
+	}
+	return nil
+}
+
+// renameJobFiles moves basename.md and its .state sidecar when the job is not
+// running. The run history follows: the sidecar carries the job session id.
 func (o *Service) renameJobFiles(oldID, newID string) error {
 	oldID = strings.TrimSpace(oldID)
 	newID = strings.TrimSpace(newID)
@@ -116,25 +140,20 @@ func (o *Service) renameJobFiles(oldID, newID string) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	if lockOrTracked(oldAbs) {
+	if jobRunning(oldAbs) {
 		return ErrJobBusy
 	}
 	if err := os.Rename(oldAbs, newAbs); err != nil {
 		return err
 	}
-	for _, pathFn := range []func(string) string{storage.StatePath, storage.LockPath} {
-		oldSide := pathFn(oldAbs)
-		if _, err := os.Stat(oldSide); err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			return err
+	oldSide := storage.StatePath(oldAbs)
+	if _, err := os.Stat(oldSide); err != nil {
+		if os.IsNotExist(err) {
+			return nil
 		}
-		if err := os.Rename(oldSide, pathFn(newAbs)); err != nil {
-			return err
-		}
+		return err
 	}
-	return nil
+	return os.Rename(oldSide, storage.StatePath(newAbs))
 }
 
 // PatchJob merges fields into an existing job file.
@@ -184,11 +203,17 @@ func (o *Service) PatchJob(jobID string, p SchedulerJobPatch) error {
 	if p.Mode != nil {
 		fm.Mode = strings.TrimSpace(*p.Mode)
 	}
+	if p.Agent != nil {
+		fm.Agent = strings.TrimSpace(*p.Agent)
+	}
+	if p.PermissionMode != nil {
+		fm.PermissionMode = strings.TrimSpace(*p.PermissionMode)
+	}
 	if p.Body != nil {
 		body = strings.TrimRight(*p.Body, "\n")
 	}
-	if _, err := storage.ParseCronUTC(fm.Schedule); err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalidJobID, err)
+	if err := validateFrontmatter(fm); err != nil {
+		return err
 	}
 	data, err := storage.FormatJobMarkdown(fm, body)
 	if err != nil {
@@ -200,7 +225,8 @@ func (o *Service) PatchJob(jobID string, p SchedulerJobPatch) error {
 	return os.WriteFile(abs, data, 0o644)
 }
 
-// DeleteJob removes job markdown and sidecars when idle.
+// DeleteJob removes the job file, its .state sidecar and its run history (the
+// job session with every run under it) when the job is not running.
 func (o *Service) DeleteJob(jobID string) error {
 	if err := o.requireEnabled(); err != nil {
 		return err
@@ -215,10 +241,14 @@ func (o *Service) DeleteJob(jobID string) error {
 		}
 		return err
 	}
-	if lockOrTracked(abs) {
+	if jobRunning(abs) {
 		return ErrJobBusy
 	}
-	_ = os.Remove(storage.LockPath(abs))
+	if rt := CurrentRuntime(); rt != nil {
+		if err := rt.DeleteJobHistory(abs); err != nil {
+			return err
+		}
+	}
 	_ = os.Remove(storage.StatePath(abs))
 	if err := os.Remove(abs); err != nil {
 		return err

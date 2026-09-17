@@ -25,6 +25,7 @@ import type {
 import {
   SchedulerIconPause,
   SchedulerIconResume,
+  SchedulerIconRuns,
   SchedulerIconTrash,
 } from "./schedulerToolbarIcons";
 
@@ -41,6 +42,17 @@ const AUTOSAVE_MS = 600;
 
 const JOB_MODES = ["agent", "plan", "ask"] as const;
 type JobMode = (typeof JOB_MODES)[number];
+
+// Frontmatter `permission_mode` values; "" is the unattended default (bypass).
+const PERMISSION_MODES = ["", "accept_edits", "ask", "bypass"] as const;
+type JobPermissionMode = (typeof PERMISSION_MODES)[number];
+
+function normalizePermissionMode(raw: string | undefined): JobPermissionMode {
+  const v = (raw || "").trim().toLowerCase();
+  return (PERMISSION_MODES as readonly string[]).includes(v)
+    ? (v as JobPermissionMode)
+    : "";
+}
 
 // Frontmatter `mode` values the daemon accepts (external/scheduler/daemon
 // parseSessionMode); anything else falls back to agent the same way it does.
@@ -76,6 +88,8 @@ type FormRef = {
   cwd: string;
   model: string;
   modeField: string;
+  agent: string;
+  permissionMode: string;
   paused: boolean;
   loading: boolean;
   loadErr: string | null;
@@ -91,6 +105,8 @@ export function SchedulerJobEditorSheet(props: {
   onClose: () => void;
   onSaved: (createdJobId?: string) => void;
   onDeleted: () => void;
+  /** Opens the runs panel of the job being edited. */
+  onOpenRuns?: (jobId: string) => void;
 }) {
   const { t } = useT();
   const confirm = useConfirm();
@@ -106,6 +122,8 @@ export function SchedulerJobEditorSheet(props: {
   const [cwd, setCwd] = useState("");
   const [model, setModel] = useState("");
   const [modeField, setModeField] = useState("agent");
+  const [agent, setAgent] = useState("");
+  const [permissionMode, setPermissionMode] = useState("");
   const [body, setBody] = useState("");
   const [paused, setPaused] = useState(false);
 
@@ -124,6 +142,8 @@ export function SchedulerJobEditorSheet(props: {
     cwd: "",
     model: "",
     modeField: "agent",
+    agent: "",
+    permissionMode: "",
     paused: false,
     loading: false,
     loadErr: null,
@@ -139,6 +159,8 @@ export function SchedulerJobEditorSheet(props: {
     cwd,
     model,
     modeField,
+    agent,
+    permissionMode,
     paused,
     loading,
     loadErr,
@@ -153,6 +175,8 @@ export function SchedulerJobEditorSheet(props: {
       cwd: f.cwd.trim(),
       model: f.model.trim(),
       mode: f.modeField,
+      agent: f.agent.trim(),
+      permissionMode: f.permissionMode,
       paused: f.paused,
     });
   }, []);
@@ -222,6 +246,8 @@ export function SchedulerJobEditorSheet(props: {
         ...(f.cwd.trim() ? { cwd: f.cwd.trim() } : { cwd: "" }),
         ...(f.model.trim() ? { model: f.model.trim() } : { model: "" }),
         mode: f.modeField,
+        agent: f.agent.trim(),
+        permission_mode: f.permissionMode,
       };
       if (nextId && nextId !== existing) {
         patch.job_id = nextId;
@@ -245,6 +271,8 @@ export function SchedulerJobEditorSheet(props: {
         cwd: f.cwd.trim(),
         model: f.model.trim(),
         mode: f.modeField,
+        agent: f.agent.trim(),
+        permissionMode: f.permissionMode,
         paused: f.paused,
       });
       if (outId !== existing) {
@@ -281,6 +309,8 @@ export function SchedulerJobEditorSheet(props: {
       ...(f.cwd.trim() ? { cwd: f.cwd.trim() } : {}),
       ...(f.model.trim() ? { model: f.model.trim() } : {}),
       ...(f.modeField ? { mode: f.modeField } : {}),
+      ...(f.agent.trim() ? { agent: f.agent.trim() } : {}),
+      ...(f.permissionMode ? { permission_mode: f.permissionMode } : {}),
     };
     setSaving(true);
     setSaveErr(null);
@@ -316,6 +346,8 @@ export function SchedulerJobEditorSheet(props: {
     setCwd(props.currentCwd || "");
     setModel(props.defaultModel || "");
     setModeField("agent");
+    setAgent("");
+    setPermissionMode("");
     setBody("");
     setPaused(false);
     setLoading(false);
@@ -353,6 +385,8 @@ export function SchedulerJobEditorSheet(props: {
       setCwd(j.cwd || "");
       setModel(j.model || "");
       setModeField(normalizeJobMode(j.mode));
+      setAgent((j.agent || "").trim());
+      setPermissionMode(normalizePermissionMode(j.permission_mode));
       setBody(j.body || "");
       setPaused(!!j.paused);
       lastCommittedRef.current = JSON.stringify({
@@ -363,6 +397,8 @@ export function SchedulerJobEditorSheet(props: {
         cwd: (j.cwd || "").trim(),
         model: (j.model || "").trim(),
         mode: normalizeJobMode(j.mode),
+        agent: (j.agent || "").trim(),
+        permissionMode: normalizePermissionMode(j.permission_mode),
         paused: !!j.paused,
       });
     })();
@@ -400,6 +436,8 @@ export function SchedulerJobEditorSheet(props: {
     cwd,
     model,
     modeField,
+    agent,
+    permissionMode,
     paused,
     snapshotFromForm,
     runPatch,
@@ -424,6 +462,8 @@ export function SchedulerJobEditorSheet(props: {
     cwd,
     model,
     modeField,
+    agent,
+    permissionMode,
     paused,
     runCreate,
   ]);
@@ -658,6 +698,42 @@ export function SchedulerJobEditorSheet(props: {
                   />
                 )}
               </label>
+              <label className="scheduler-field">
+                <span className="scheduler-field-label">{t("scheduler.field.agent")}</span>
+                <span className="scheduler-field-help">
+                  {t("scheduler.field.agentHelp")}
+                </span>
+                <input
+                  className="scheduler-field-input"
+                  value={agent}
+                  onChange={(ev) => setAgent(ev.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder={t("scheduler.field.agentPlaceholder")}
+                  data-testid="scheduler-field-agent"
+                />
+              </label>
+              <label className="scheduler-field">
+                <span className="scheduler-field-label">
+                  {t("scheduler.field.permissionMode")}
+                </span>
+                <span className="scheduler-field-help">
+                  {t("scheduler.field.permissionModeHelp")}
+                </span>
+                <select
+                  className="scheduler-field-input"
+                  value={permissionMode}
+                  onChange={(ev) => setPermissionMode(ev.target.value)}
+                  data-testid="scheduler-field-permission-mode"
+                >
+                  <option value="">{t("scheduler.permission.default")}</option>
+                  <option value="accept_edits">
+                    {t("scheduler.permission.acceptEdits")}
+                  </option>
+                  <option value="ask">{t("scheduler.permission.ask")}</option>
+                  <option value="bypass">{t("scheduler.permission.bypass")}</option>
+                </select>
+              </label>
               <div className="scheduler-field scheduler-field-stack">
                 <span className="scheduler-field-label">{t("scheduler.field.body")}</span>
                 <div
@@ -693,6 +769,24 @@ export function SchedulerJobEditorSheet(props: {
       </div>
 
       <div className="scheduler-editor-footer">
+        {props.mode === "edit" && props.onOpenRuns ? (
+          <button
+            type="button"
+            className="scheduler-btn scheduler-btn-icon-only"
+            disabled={loading}
+            data-testid="scheduler-editor-runs"
+            title={t("scheduler.runs")}
+            aria-label={t("scheduler.openRuns", { jobId: (props.jobId || "").trim() })}
+            onClick={() => {
+              const jid = (props.jobId || "").trim();
+              if (jid) {
+                props.onOpenRuns?.(jid);
+              }
+            }}
+          >
+            <SchedulerIconRuns />
+          </button>
+        ) : null}
         {props.mode === "edit" && !loading && !loadErr ? (
           <button
             type="button"

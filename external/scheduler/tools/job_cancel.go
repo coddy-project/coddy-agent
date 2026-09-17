@@ -17,8 +17,8 @@ import (
 func jobCancelTool(cfg *config.Config) *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
-			Name: toolJobCancel,
-			Description: "Requests cancellation for an ACTIVE scheduler-backed agent run linked to job_id via the process-wide run tracker (context.Cancel). Returns JSON bool cancelled=false when nothing was tracked. Different from paused (resume still needed after pause); cancel stops an in-flight run only.",
+			Name:        toolJobCancel,
+			Description: "Stops the run of job_id that is in flight: the run's background task is stopped and recorded as stopped in the job's run history. Returns JSON bool cancelled=false when the job was not running. Different from pause: a paused job still needs resume, a cancelled run is simply over.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{

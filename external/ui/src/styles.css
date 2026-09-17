@@ -6663,7 +6663,39 @@ html:not([data-theme="light"]) .context-usage-note--error {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
+  gap: 4px;
   padding: 6px 8px 6px 0;
+}
+
+/* The runs control sits before the run/stop circle: a quiet icon button that
+   opens the job's history, the same chrome as the drawer's Add job. */
+.scheduler-job-runs-icon.scheduler-btn {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+/* Last run of a job: the Tasks panel's dot, the status and the local clock,
+   under the description so the list says how every job went last time. */
+.scheduler-job-row-last-run {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scheduler-job-row-last-run .bgtask-dot {
+  flex: 0 0 auto;
 }
 
 .scheduler-job-run-icon.composer-icon {
@@ -6710,6 +6742,36 @@ html:not([data-theme="light"]) .context-usage-note--error {
     )
   );
   max-height: none;
+}
+
+/* The runs panel docked in the scheduler cluster takes the editor's slot: the
+   same panel the chat docks beside its transcript, with the cluster's own
+   geometry instead of the viewport's right edge. */
+.scheduler-dock-cluster .bgtasks-panel.scheduler-runs-dock {
+  position: relative;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  flex: 1 1 auto;
+  height: 100%;
+  min-width: 0;
+  width: min(
+    480px,
+    calc(
+      100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) -
+        16px -
+        min(
+          320px,
+          calc(
+            100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) -
+              16px
+          )
+        ) -
+        8px
+    )
+  );
+  max-width: min(560px, 46vw);
+  z-index: auto;
 }
 
 .scheduler-job-editor-dock {
@@ -7098,6 +7160,17 @@ html:not([data-theme="light"]) .context-usage-note--error {
     min-width: 0;
     max-width: none;
     min-height: 0;
+    align-self: stretch;
+  }
+
+  /* The runs panel covers the list on narrow screens like the editor does. */
+  .scheduler-dock-cluster .bgtasks-panel.scheduler-runs-dock {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    min-height: 0;
+    height: 100%;
     align-self: stretch;
   }
 
