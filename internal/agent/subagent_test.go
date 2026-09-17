@@ -427,6 +427,238 @@ func TestPermissionRelayQueuedOnTheArbiterMovesToTheBrokerWhenTheTurnEnds(t *tes
 	}
 }
 
+// withdrawingSender is a parent client that reports when the prompt it is
+// holding is cancelled under it, which is how a surface learns to take its copy
+// down.
+type withdrawingSender struct {
+	blockingSender
+	withdrawn chan struct{}
+}
+
+func newWithdrawingSender() *withdrawingSender {
+	return &withdrawingSender{
+		blockingSender: blockingSender{asked: make(chan struct{}), release: make(chan struct{})},
+		withdrawn:      make(chan struct{}, 1),
+	}
+}
+
+func (s *withdrawingSender) RequestPermission(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	res, err := s.blockingSender.RequestPermission(ctx, params)
+	if ctx.Err() != nil {
+		select {
+		case s.withdrawn <- struct{}{}:
+		default:
+		}
+	}
+	return res, err
+}
+
+// A prompt still on the parent's screen when the turn ends is not lost with
+// that screen: the parent-facing copy is withdrawn and the same prompt goes to
+// the broker, addressed to the child, so the person answers it once where the
+// conversation is still read. This is the common case for a background child,
+// which starts asking while the parent is still writing its reply.
+func TestPermissionRelayHandsAPromptOnTheParentsScreenToTheBrokerWhenTheTurnEnds(t *testing.T) {
+	const parentID = "sess_relay_handoff"
+	parent := newWithdrawingSender()
+	broker := newStubBroker()
+	turnCtx, cancelTurn := context.WithCancel(context.Background())
+	defer cancelTurn()
+	relay := &permissionRelay{
+		parent:              parent,
+		parentSessionID:     parentID,
+		childSessionID:      "sess_handoff_child",
+		agentName:           "writer",
+		taskID:              "bg_9",
+		childPermissionMode: config.PermModeAsk,
+		turnCtx:             turnCtx,
+		childCtx:            context.Background(),
+		arbiter:             acquireArbiter(parentID),
+		broker:              broker,
+	}
+	defer releaseArbiter(parentID)
+
+	params := permParams("Run: run_command")
+	params.Options = []acp.PermissionOption{
+		{OptionID: "allow", Name: "Allow once", Kind: "allow_once"},
+		{OptionID: "allow_always", Name: "Always allow", Kind: "allow_always"},
+		{OptionID: "reject", Name: "Reject", Kind: "reject_once"},
+	}
+	done := make(chan *acp.PermissionResult, 1)
+	go func() {
+		res, err := relay.Request(context.Background(), params)
+		if err != nil {
+			t.Errorf("Request error = %v", err)
+		}
+		done <- res
+	}()
+
+	// The prompt is on the parent's screen, and only there.
+	select {
+	case <-parent.asked:
+	case <-time.After(testWait):
+		t.Fatal("the prompt never reached the parent's client")
+	}
+	select {
+	case <-broker.asked:
+		t.Fatal("the broker was asked while the parent turn was still alive")
+	default:
+	}
+
+	cancelTurn()
+
+	select {
+	case <-parent.withdrawn:
+	case <-time.After(testWait):
+		t.Fatal("the parent-facing copy was not withdrawn when the turn ended")
+	}
+	select {
+	case <-broker.asked:
+	case <-time.After(testWait):
+		t.Fatal("the prompt never moved to the broker")
+	}
+	// The detached wait must not hold the parent's arbiter slot.
+	select {
+	case relay.arbiter.slot <- struct{}{}:
+		<-relay.arbiter.slot
+	default:
+		t.Fatal("the detached wait holds the parent's arbiter slot")
+	}
+
+	broker.release <- &acp.PermissionResult{Outcome: "selected", OptionID: "allow"}
+	select {
+	case res := <-done:
+		if res == nil || res.OptionID != "allow" {
+			t.Fatalf("answer = %+v, want the broker's allow", res)
+		}
+	case <-time.After(testWait):
+		t.Fatal("the answer never reached the child")
+	}
+
+	seen := broker.seen()
+	if len(seen) != 1 {
+		t.Fatalf("broker saw %d requests, want the one handed over", len(seen))
+	}
+	req := seen[0]
+	if req.ChildSessionID != "sess_handoff_child" || req.TaskID != "bg_9" || req.AgentName != "writer" || req.ParentSessionID != parentID {
+		t.Fatalf("request identity = %+v", req)
+	}
+	// Addressed to the child, titled once: the parent-facing copy must not
+	// leak its address or its prefix into the handed-over prompt.
+	if req.Params.SessionID != "sess_handoff_child" {
+		t.Fatalf("prompt SessionID = %q, want the child session", req.Params.SessionID)
+	}
+	if req.Params.ToolCall.Title != "[subagent writer] Run: run_command" {
+		t.Fatalf("prompt title = %q", req.Params.ToolCall.Title)
+	}
+	if req.Params.EffectivePermissionMode != config.PermModeAsk {
+		t.Fatalf("prompt mode = %q, want the child's", req.Params.EffectivePermissionMode)
+	}
+	for _, opt := range req.Params.Options {
+		if strings.HasPrefix(opt.OptionID, "allow_always") {
+			t.Fatalf("a handed-over prompt offers a standing grant: %+v", req.Params.Options)
+		}
+	}
+}
+
+// An answer given at the very moment the turn ends is the person's answer: it
+// is kept, and the prompt is not asked a second time through the broker. The
+// turn end and the answer are made ready together, so either select branch may
+// run; both must keep the answer.
+func TestPermissionRelayKeepsAnAnswerGivenAsTheTurnEnds(t *testing.T) {
+	const parentID = "sess_relay_answer_at_turn_end"
+	for i := range 30 {
+		broker := newStubBroker()
+		parent := newBlockingSender()
+		close(parent.release) // answers allow the moment it is asked
+		turnCtx, cancelTurn := context.WithCancel(context.Background())
+		relay := &permissionRelay{
+			parent:          parent,
+			parentSessionID: parentID,
+			childSessionID:  "sess_answer_at_end_child",
+			agentName:       "writer",
+			turnCtx:         turnCtx,
+			childCtx:        context.Background(),
+			arbiter:         acquireArbiter(parentID),
+			broker:          broker,
+		}
+		done := make(chan *acp.PermissionResult, 1)
+		go func() {
+			res, _ := relay.Request(context.Background(), permParams("Run: write"))
+			done <- res
+		}()
+		select {
+		case <-parent.asked:
+		case <-time.After(testWait):
+			t.Fatalf("iteration %d: the prompt never reached the parent's client", i)
+		}
+		// The answer is on its way to the relay; let it land before the turn
+		// ends, so the two are ready together.
+		time.Sleep(2 * time.Millisecond)
+		cancelTurn()
+		select {
+		case res := <-done:
+			if res == nil || res.OptionID != "allow" {
+				t.Fatalf("iteration %d: answer = %+v, want the allow the person gave", i, res)
+			}
+		case <-time.After(testWait):
+			t.Fatalf("iteration %d: the answer never reached the child", i)
+		}
+		select {
+		case <-broker.asked:
+			t.Fatalf("iteration %d: the answered prompt was asked again through the broker", i)
+		default:
+		}
+		releaseArbiter(parentID)
+	}
+}
+
+// The same handoff without a broker: the parent-facing copy is still withdrawn
+// with the turn, and the child learns that nobody could be asked rather than
+// that the user refused.
+func TestPermissionRelayWithdrawsAPromptOnTheParentsScreenWhenTheTurnEndsWithoutABroker(t *testing.T) {
+	const parentID = "sess_relay_handoff_nobroker"
+	parent := newWithdrawingSender()
+	turnCtx, cancelTurn := context.WithCancel(context.Background())
+	defer cancelTurn()
+	relay := &permissionRelay{
+		parent:          parent,
+		parentSessionID: parentID,
+		childSessionID:  "sess_handoff_orphan",
+		agentName:       "writer",
+		turnCtx:         turnCtx,
+		childCtx:        context.Background(),
+		arbiter:         acquireArbiter(parentID),
+	}
+	defer releaseArbiter(parentID)
+
+	done := make(chan *acp.PermissionResult, 1)
+	go func() {
+		res, _ := relay.Request(context.Background(), permParams("Run: write"))
+		done <- res
+	}()
+	select {
+	case <-parent.asked:
+	case <-time.After(testWait):
+		t.Fatal("the prompt never reached the parent's client")
+	}
+	cancelTurn()
+	select {
+	case <-parent.withdrawn:
+	case <-time.After(testWait):
+		t.Fatal("the parent-facing copy was not withdrawn when the turn ended")
+	}
+	select {
+	case res := <-done:
+		assertDenied(t, res, nil)
+		if res.Reason != permissionReasonNoApprover {
+			t.Fatalf("denial reason = %q, want the no-approver reason", res.Reason)
+		}
+	case <-time.After(testWait):
+		t.Fatal("the relay kept waiting after the turn ended")
+	}
+}
+
 // Without a surface to show the prompt the answer is still a refusal, but the
 // child has to learn that nobody was asked - otherwise it reports that the
 // user said no, which never happened.

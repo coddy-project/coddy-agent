@@ -79,6 +79,24 @@ func TestAQueuedGateWhoseAskerGaveUpIsSkipped(t *testing.T) {
 	}
 }
 
+// A prompt whose asker gave up before it reached the screen - the run was
+// stopped while the request sat in the loop's channel - is never opened, not
+// even for the one frame it would take the withdrawal to catch up with it.
+func TestAGateWhoseAskerAlreadyGaveUpIsNotOpened(t *testing.T) {
+	a := newTestApp(t)
+	gaveUp, cancel := context.WithCancel(context.Background())
+	cancel()
+	a.openPermissionModal(gateRequest(gaveUp, "already withdrawn"))
+	if a.modal != nil {
+		t.Fatalf("a withdrawn prompt reached the screen:\n%s", modalText(t, a))
+	}
+	next := gateRequest(context.Background(), "next prompt")
+	a.openPermissionModal(next)
+	if got := modalText(t, a); !strings.Contains(got, "next prompt") {
+		t.Fatalf("the next prompt was not opened:\n%s", got)
+	}
+}
+
 // A prompt on screen whose asker gives up is taken down, and the one waiting
 // behind it takes its place.
 func TestAGateWhoseAskerGivesUpIsTakenDown(t *testing.T) {

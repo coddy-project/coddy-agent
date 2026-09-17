@@ -122,16 +122,16 @@ type cliTUIState struct {
 	directives chan stubDirective
 	turnEnds   chan struct{}
 
-	permOutcome  string
-	permOption   string
+	permOutcome string
+	permOption  string
 	// detachedAnswers carries what a background subagent's prompt returned.
 	detachedAnswers chan *acp.PermissionResult
 	questionAns     [][]string
-	prompts      []string
-	sawCancel    bool
-	activeToolID string
-	toolSeq      int
-	blockedCh    chan struct{}
+	prompts         []string
+	sawCancel       bool
+	activeToolID    string
+	toolSeq         int
+	blockedCh       chan struct{}
 
 	prevSessionID string
 

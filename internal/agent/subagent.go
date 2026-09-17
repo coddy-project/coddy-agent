@@ -216,9 +216,10 @@ func relayedPermissionTitle(agentName, title string) string {
 
 // Request forwards one permission prompt. While the parent turn is alive it
 // goes to the parent's client; once that turn is over - a detached run's
-// normal state - it goes to the broker. The child being stopped or the
-// caller's own context ending resolve as a denial without leaving a goroutine
-// parked on the transport.
+// normal state - it goes to the broker, and a prompt still unanswered on the
+// parent's screen when the turn ends moves there too. The child being stopped
+// or the caller's own context ending resolve as a denial without leaving a
+// goroutine parked on the transport.
 func (r *permissionRelay) Request(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
 	if r == nil || r.parent == nil {
 		return deniedPermission(permissionReasonNoClient), nil
@@ -240,14 +241,26 @@ func (r *permissionRelay) Request(ctx context.Context, params acp.PermissionRequ
 		r.arbiter.waiting.Add(-1)
 		return deniedPermission(permissionReasonStopped), nil
 	}
+	// The slot is handed back on every exit, and before any detached wait: that
+	// wait can last minutes, and a sibling's live prompt must not queue behind
+	// it.
+	slotHeld := true
+	releaseSlot := func() {
+		if slotHeld {
+			slotHeld = false
+			<-r.arbiter.slot
+		}
+	}
+	defer releaseSlot()
 	if r.turnCtx.Err() != nil {
-		// Hand the slot back first: a detached wait can last minutes, and a
-		// sibling's live prompt must not queue behind it.
-		<-r.arbiter.slot
+		releaseSlot()
 		return r.requestDetached(ctx, params)
 	}
-	defer func() { <-r.arbiter.slot }()
 
+	// The prompt as it arrived, kept for the broker: the parent-facing copy
+	// below is addressed, titled and narrowed for the parent's client, and
+	// requestDetached does the same for the child-addressed one.
+	asked := params
 	params.SessionID = r.parentSessionID
 	// The stamp is the stricter of what arrived and this child's own mode: a
 	// grandchild's prompt crosses two relays, and the intermediate child must
@@ -284,9 +297,28 @@ func (r *permissionRelay) Request(ctx context.Context, params acp.PermissionRequ
 		}
 		return out.res, nil
 	case <-r.turnCtx.Done():
-		// The prompt was on the parent's screen when its turn ended; raising it
-		// again through the broker would ask the same question twice.
-		return abandon(permissionReasonUnanswered), nil
+		// An answer that landed in the same instant is the person's answer and
+		// is kept: handing the prompt over after it would ask a second time.
+		select {
+		case out := <-done:
+			if out.err == nil && out.res != nil {
+				return out.res, nil
+			}
+		default:
+		}
+		// The parent turn ended with the prompt still on its screen, and that
+		// screen goes away with the stream that carried it: the parent's client
+		// can no longer answer. Withdraw that copy - the console takes its modal
+		// down, the bridge unregisters its wait, a chat marks its message as no
+		// longer waiting - and raise the prompt where the conversation is still
+		// read, exactly like a prompt asked after the turn had ended. The
+		// person answers it once, as the detached prompt; where no broker
+		// exists nobody can, and the child is told so. An answer that arrives
+		// between this check and the cancel is lost with the forward, and the
+		// prompt is asked once more: never executed on nobody's word.
+		cancel()
+		releaseSlot()
+		return r.requestDetached(ctx, asked)
 	case <-r.childCtx.Done():
 		return abandon(permissionReasonStopped), nil
 	case <-ctx.Done():

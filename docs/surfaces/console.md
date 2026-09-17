@@ -273,8 +273,10 @@ and when it needs a permission it asks through the same modal, titled
 `[subagent <name>] …`, between turns too. A permission or question that
 arrives while another one is on screen waits for it instead of replacing it,
 and a prompt whose asker gave up (the subagent was stopped or timed out) is
-taken down. One-shot print mode exits with its turn, so a background subagent
-there is refused with a reason instead.
+taken down. A subagent's prompt still open when the turn that spawned it ends
+closes with that turn and reopens at once as the subagent's own, so it is
+answered once. One-shot print mode exits with its turn, so a background
+subagent there is refused with a reason instead.
 
 The question modal spends every row on its option label and prints the
 description of the highlighted option under the list, word-wrapped over the

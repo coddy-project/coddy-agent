@@ -271,8 +271,9 @@ export function SettingsSection(props: {
   }
 
   // Subagents edits its config section like any object tab, and additionally
-  // lists the definitions of the viewed session's workspace so a project-scope
-  // one can be approved here instead of from a terminal.
+  // lists the definitions of the viewed session's workspace, read-only: a
+  // project-scope one is approved from a terminal on the machine running
+  // coddy (`coddy agents trust <name>`), and the list says so.
   if (section.kind === "subagents") {
     const sub = props_.subagents;
     if (!sub) {

@@ -74,6 +74,7 @@ import {
   type ToolsPermissionPolicy,
 } from "./chat/toolsPermissionPolicy";
 import { reattachLocalQuestionPrompts } from "./chat/transcriptQuestionReattach";
+import { retireRelayedPermissionPrompts } from "./chat/relayedPermissionPrompts";
 import { pickRicherToolArgs } from "./chat/toolCallArgs";
 import { normalizeTodoPlanSnapshot } from "./chat/todoToolPreview";
 import {
@@ -3787,7 +3788,9 @@ export function App() {
         finishThinking();
         const errText = streamErrorMessage;
         applyStreamItems((prev) => {
-          const withoutEmptyAssistant = prev.filter(
+          const withoutEmptyAssistant = retireRelayedPermissionPrompts(
+            prev,
+          ).filter(
             (it) =>
               !(
                 it.type === "assistant_message" &&
@@ -3812,6 +3815,10 @@ export function App() {
 
       flushToolQueue();
       finishThinking();
+      // A prompt this turn relayed on behalf of a subagent ended with the
+      // stream that carried it: the relay withdrew it and, for a background
+      // child, raised it again as the card at the end of the chat.
+      applyStreamItems(retireRelayedPermissionPrompts);
       ensureAssistant({
         streaming: false,
         createdAtUtc: new Date().toISOString(),

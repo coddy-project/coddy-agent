@@ -192,11 +192,16 @@ func (h *Handler) offerDetachedPrompt(key string, p *detachedPrompt) {
 		if ctx.Err() != nil {
 			return
 		}
-		optionID := "reject"
-		if err == nil && res != nil && res.OptionID != "" {
-			optionID = res.OptionID
+		// Only a choice somebody made here is posted. A surface that failed to
+		// show the prompt has not answered it: the child keeps waiting for the
+		// other surfaces of the server, or for this console after a reconnect,
+		// and must not be refused on their behalf.
+		if err != nil || res == nil || strings.TrimSpace(res.OptionID) == "" {
+			h.log.Warn("remote subagent permission prompt could not be shown, left to the other surfaces",
+				"session", p.params.SessionID, "toolCallId", p.params.ToolCall.ToolCallID, "error", err)
+			return
 		}
-		answer := map[string]string{"toolCallId": p.params.ToolCall.ToolCallID, "optionId": optionID}
+		answer := map[string]string{"toolCallId": p.params.ToolCall.ToolCallID, "optionId": res.OptionID}
 		path := "/coddy/sessions/" + url.PathEscape(p.params.SessionID) + "/permission"
 		if perr := h.postJSON(ctx, path, answer, nil); perr != nil {
 			if isStaleAnswer(perr) {

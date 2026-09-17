@@ -707,7 +707,7 @@ Automated checks:
 
 ![Settings Subagents catalog](../assets/subagents/settings-subagents-catalog-dark-1280.png)
 
-A background subagent that needs a permission after the turn that spawned it has ended asks in the chat of its parent session: the prompt waits at the end of the conversation in the same card an inline prompt uses, the subagent named in its head (`SubagentPermissionCards`, `chat/SubagentPermissionCard.tsx`). The chat reads it from `pending_permission` on the session's background task rows, re-reads those rows on the `subagent_permission` event of `GET /coddy/events` (the task poll is the fallback), and answers against the **child** session with `POST /coddy/sessions/{child}/permission`. A prompt answered elsewhere first - a console attached over `--remote`, a Telegram chat - leaves the chat on the next read. See `docs/features/subagents.md` (Detached runs).
+A background subagent that needs a permission after the turn that spawned it has ended asks in the chat of its parent session: the prompt waits at the end of the conversation in the same card an inline prompt uses, the subagent named in its head (`SubagentPermissionCards`, `chat/SubagentPermissionCard.tsx`). The chat reads it from `pending_permission` on the session's background task rows, re-reads those rows on the `subagent_permission` event of `GET /coddy/events` (the task poll is the fallback), and answers against the **child** session with `POST /coddy/sessions/{child}/permission`. A prompt answered elsewhere first - a console attached over `--remote`, a Telegram chat - leaves the chat on the next read. See `docs/features/subagents.md` (Detached runs). A prompt the child raised while the parent was still replying shows first as an inline card of that turn; when the turn ends before it is answered, the relay withdraws that copy and raises the prompt again at the end of the chat, so the inline card is retired with its stream and the card at the end is the one that answers.
 
 Multiple requests keep the transcript's 10px spacing. A new request scrolls into view when you are following the end of the chat; reading older messages keeps your position. Routine task refreshes do not move the viewport.
 
@@ -727,6 +727,7 @@ Automated checks:
 - **external/ui/src/ui/chat/SubagentPermissionCard.test.tsx** (answered against the child session, only waiting tasks and oldest first, nothing while none waits, title prefix, Russian copy)
 - **external/ui/src/ui/chat/ChatScreen.test.tsx** (the prompt waits at the end of the parent chat and answering re-reads the tasks)
 - **external/ui/src/ui/chat/serverEvents.test.ts** (a `subagent_permission` frame names the chat it belongs to)
+- **external/ui/src/ui/chat/relayedPermissionPrompts.test.ts** (the unresolved prompts a finished turn relayed for its subagents are retired with its stream; the parent's own prompts stay)
 
 ### Hooks
 

@@ -7,6 +7,7 @@ package remote
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -215,6 +216,38 @@ func TestReconnectRemovesOnlyPromptsMissingFromSnapshot(t *testing.T) {
 			default:
 			}
 		})
+	}
+}
+
+// failingSender stands in for a console that cannot put the prompt on screen.
+type failingSender struct {
+	collectSender
+	asked chan struct{}
+}
+
+func (s *failingSender) RequestPermission(context.Context, acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	s.asked <- struct{}{}
+	return nil, errors.New("no screen to show the prompt on")
+}
+
+// A console that failed to show the prompt has not answered it. Nothing is
+// posted: the child keeps waiting for the other surfaces of the server, and a
+// refusal on their behalf would deny what a browser or a chat could still allow.
+func TestAPromptTheConsoleCouldNotShowIsNotRefusedOnItsBehalf(t *testing.T) {
+	srv := newPromptEventsServer(t)
+	sender := &failingSender{asked: make(chan struct{}, 8)}
+	startPromptHandler(t, srv, sender, "sess_parent")
+
+	srv.frames <- askedFrame("sess_parent", "sess_child", "call_1", "writer")
+	select {
+	case <-sender.asked:
+	case <-time.After(promptWait):
+		t.Fatal("the console was never asked")
+	}
+	select {
+	case a := <-srv.answers:
+		t.Fatalf("a prompt the console could not show was answered on its behalf: %+v", a)
+	case <-time.After(300 * time.Millisecond):
 	}
 }
 

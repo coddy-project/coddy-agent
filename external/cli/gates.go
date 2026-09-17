@@ -40,6 +40,12 @@ func isGateModal(c tui.Component) bool {
 // selector is replaced as before: a blocked asker outranks a menu the operator
 // can open again.
 func (a *App) showGate(ctx context.Context, open func()) {
+	// An asker that gave up before its prompt reached the screen - a run
+	// stopped or timed out while the request waited in the loop's channel -
+	// has nothing to show, and the queue below skips such a gate too.
+	if ctx != nil && ctx.Err() != nil {
+		return
+	}
 	if isGateModal(a.modal) {
 		a.gates = append(a.gates, pendingGate{ctx: ctx, open: open})
 		return
