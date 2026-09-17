@@ -492,3 +492,34 @@ before any run is launched.
 - **Legacy bundles.** Run bundles of the old scheduler (`sched_` ids) stay on
   disk, hidden by the existing prefix rule, and are never pruned; the page tells
   the operator they can be deleted by hand.
+
+## 8. Implementation notes (deviations from the text above)
+
+- **Listing runs needs no daemon.** `schedservice.JobSessionIDFor`, `RunsOf`
+  and `RunEntryOf` read the sidecar, the pool and the job session's bundle, so
+  `GET …/jobs` and `GET …/runs` answer in a process where the scheduler is
+  enabled but no daemon runs; only starting, stopping, clearing and deleting
+  history go through the daemon's `Runtime` (`external/scheduler/daemon/runtime.go`,
+  registered with `schedservice.SetRuntime`). A paused job answers `409` before
+  the daemon is consulted.
+- **`Pool.Forget` after a release.** The daemon releases the job session from
+  the pool between runs (3.2), so the pool no longer knows the bundle directory
+  when retention or Clear runs later; `dropRun` re-registers it with
+  `SetSessionDir` before `Forget`, and the harnesses treat a task the pool has
+  already let go of as settled.
+- **The shared executor.** `executeChildRun` in `internal/agent/subagent.go`
+  is the one path both `spawn_agent` and `RunScheduledJob` run on; the spawn's
+  parent hooks arrive as an `onStop` callback, and a run built from a definition
+  alone still names itself after it (`subagentRun.displayName`).
+- **Run label.** `<job_id> · cron 2026-09-18 10:00 UTC` / `<job_id> · manual …`;
+  the transcript's title in the SPA is "Run of <job_id>" from the notice's
+  metadata rather than the label.
+- **The console starts the daemon too** (`external/cli/run.go`), in print mode
+  and in the interactive app, once its manager exists; before this change the
+  console's `--scheduler` only registered the tools.
+- **`Definition.Allows` probe.** `ConnectMCP` for a job under a definition is
+  decided by probing the allowlist with `<server>__probe` for each server the
+  trust gate admits; a definition with no allowlist admits everything.
+- **Screenshots** were taken against an OpenAI-compatible stub that answers
+  every completion with fixed text and can hold an answer for a set number of
+  seconds, so a run is "in flight" for the frame.
