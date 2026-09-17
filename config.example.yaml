@@ -123,6 +123,7 @@ agent:
   # llm_retry_base_ms: 1000       # initial backoff between retries
   # llm_min_interval_ms: 0        # min gap between LLM calls; e.g. 12000 on strict free tiers
   # llm_first_token_timeout_ms: 90000  # cancel a silent streamed call after this long (0 disables)
+  # llm_stream_idle_timeout_ms: 300000 # cut a streamed answer that goes silent mid-way for this long (0 disables)
   # Runaway-loop protection. Cuts a streamed response that degenerates into
   # repeating the same passage, and blocks a tool requested over and over with
   # identical arguments. The model is nudged back on track first; only a turn

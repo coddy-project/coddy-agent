@@ -230,7 +230,21 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 		// Same transport wrapper as the openai and anthropic paths: a failure
 		// mid-read is retried only while nothing reached the caller, and an
 		// HTTP error keeps its status reachable through Unwrap.
-		return nil, fmt.Errorf("codex stream: %w", &streamTransportError{cause: err, emitted: emitted})
+		wrapped := fmt.Errorf("codex stream: %w", &streamTransportError{cause: err, emitted: emitted})
+		if IsStreamStalled(err) && (strings.TrimSpace(fullContent) != "" || strings.TrimSpace(reasoning) != "") {
+			// The stall guard cut the stream: keep the delivered text and
+			// reasoning next to the error, as the truncation branch below
+			// does, and drop the tool calls of an answer that never finished.
+			return &Response{
+				Content:            fullContent,
+				Reasoning:          reasoning,
+				ReasoningSignature: p.encodeReasoningItems(reasoningItems),
+				InputTokens:        inputTokens,
+				OutputTokens:       outputTokens,
+				CachedInputTokens:  cachedInputTokens,
+			}, wrapped
+		}
+		return nil, wrapped
 	}
 
 	if terminal == "" || incompleteReason != "" {

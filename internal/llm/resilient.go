@@ -447,6 +447,14 @@ func isRetryableLLMError(err error) bool {
 		// one falls through to normal classification of its cause.
 		return false
 	}
+	var stalled *streamStalledError
+	if errors.As(err, &stalled) {
+		// The guard cut a stream that went silent before any delta reached
+		// the caller (after one, the wrapper above already refused): the
+		// server took the request and never answered it, which is the same
+		// wager as a connection cut before output.
+		return true
+	}
 	switch httpStatusFromError(err) {
 	case 429, 408, 500, 502, 503, 504:
 		return true
@@ -470,8 +478,15 @@ func isTransientTransportError(err error) bool {
 	}
 	s := err.Error()
 	for _, needle := range []string{
-		"http2: stream error",
+		// An RST_STREAM from the peer (INTERNAL_ERROR, REFUSED_STREAM, ...):
+		// net/http prints it as "stream error: stream ID N; CODE; received
+		// from peer", with no "http2:" prefix. The connection lives on; the
+		// one request on that stream died.
+		"stream error: stream ID",
 		"http2: server sent GOAWAY",
+		// The liveness ping went unanswered and the transport closed the
+		// connection (transport.go): the far side of the path is gone.
+		"http2: client connection lost",
 		"connection reset by peer",
 		"unexpected EOF",
 		// The connection opened but the server never finished the handshake,

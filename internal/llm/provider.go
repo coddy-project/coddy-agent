@@ -3,7 +3,6 @@ package llm
 
 import (
 	"context"
-	"net/http"
 	"strings"
 	"time"
 )
@@ -194,6 +193,13 @@ type ProviderInput struct {
 	// streamed body read (providers[].timeout_ms). Zero means no client
 	// timeout; the turn context stays the only bound.
 	Timeout time.Duration
+	// StreamIdleTimeout, when positive, is how long a streamed response may
+	// send nothing after its first bytes before the stream is cut as stalled
+	// (agent.llm_stream_idle_timeout_ms): the call then fails with an error
+	// IsStreamStalled recognises, next to whatever was delivered. Zero means
+	// no such guard. A blocking answer (stream: false) arrives in one piece
+	// and is never guarded.
+	StreamIdleTimeout time.Duration
 }
 
 // neuralDeepBaseURL is the default NeuralDeep deployment; neuralDeepEndpoints
@@ -227,15 +233,12 @@ func neuralDeepEffectiveKey(explicit, authPath string) string {
 
 // NewProvider creates the appropriate Provider from a model definition.
 func NewProvider(p ProviderInput) (Provider, error) {
-	hc, err := HTTPClientForOptionalProxy(p.ProxyURL)
+	// Never the SDK default client: the shared transport carries the HTTP/2
+	// liveness pings and the stall guard (transport.go), and the proxy
+	// setting is honoured either way (the environment's when none is set).
+	hc, err := providerHTTPClient(p.ProxyURL, p.Timeout, p.StreamIdleTimeout)
 	if err != nil {
 		return nil, err
-	}
-	if p.Timeout > 0 {
-		if hc == nil {
-			hc = &http.Client{}
-		}
-		hc.Timeout = p.Timeout
 	}
 	var inner Provider
 	switch p.Type {

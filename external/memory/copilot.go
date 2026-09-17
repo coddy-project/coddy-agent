@@ -146,7 +146,7 @@ func newCopilotProvider(cfg *config.Config, modelRef string) (llm.Provider, erro
 	}
 	cap := cfg.Memory.CopilotMaxTokens
 	clampProviderMax(rm, cap)
-	return llm.NewProvider(llm.WithAgentResilience(llm.ProviderInput{
+	in := llm.ProviderInput{
 		Name:          rm.ProviderName,
 		Type:          rm.ProviderType,
 		Model:         rm.Model,
@@ -158,7 +158,13 @@ func newCopilotProvider(cfg *config.Config, modelRef string) (llm.Provider, erro
 		Temperature:   rm.Temperature,
 		DisableStream: !rm.Stream,
 		Timeout:       time.Duration(rm.TimeoutMS) * time.Millisecond,
-	}, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
+	}
+	if rm.Stream {
+		// The same stall guard as the main agent's calls: a copilot stream
+		// that goes silent must not hold the turn forever either.
+		in.StreamIdleTimeout = cfg.Agent.EffectiveLLMStreamIdleTimeout()
+	}
+	return llm.NewProvider(llm.WithAgentResilience(in, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
 }
 
 // anyNonEmpty reports whether refs holds a model id at all.

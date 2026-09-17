@@ -190,6 +190,35 @@ providers:
 
 Field reference: [`agent`](../reference/config.md#agent), [`providers`](../reference/config.md#providers).
 
+## A turn never answers, or ends with `stream stalled`
+
+**Symptom.** The model starts answering and the text stops mid-sentence; after a while the turn ends with `LLM error: provider "<name>" (<address>): ... stream stalled: no data from the model for 5m0s`, and the text that did arrive stays in the transcript. Or a one-shot run (`coddy -p`) sits for a long time with no output at all, and when it is killed the session log says `generation was interrupted before producing a response (the model had been silent for 25m0s)`.
+
+**Cause.** The provider took the request and stopped sending. Nothing on the wire says whether it is still working: a stuck worker behind a gateway, a proxy or a VPN tunnel that lost the far side without closing the connection, a request the gateway forgot. Coddy bounds that wait in three places:
+
+- the first-token guard, `agent.llm_first_token_timeout_ms` (90 s), cuts a streamed call that produced nothing and re-issues it once - the address usually stands for a group of deployments, and the next attempt lands on another member;
+- the stream idle guard, `agent.llm_stream_idle_timeout_ms` (5 min), cuts a streamed answer whose server sent nothing for that long after its first bytes, keeps what arrived and ends the turn with the stall named. It is retried only when no text had been shown yet;
+- HTTP/2 liveness pings close a connection whose peer stops answering within about 45 s, and the request is repeated - that is what tells a dead tunnel apart from a slow model.
+
+Neither guard applies to a model configured with `stream: false`: its answer arrives in one piece, so the only bound on that call is `providers[].timeout_ms`, and a run killed from outside reports how long the model had been silent.
+
+**Fix.** A guard that fires on a healthy but slow model is a value to raise, not a bug: a large brief on a small server can spend minutes in prompt processing before the first token, and a long answer can pause for a while when the server is preempting requests. Set the guard to what the deployment needs, or to `0` to turn it off, and give a blocking model a request bound instead:
+
+```yaml
+agent:
+  llm_first_token_timeout_ms: 600000   # ten minutes before the first token
+  llm_stream_idle_timeout_ms: 600000   # ten minutes of silence mid-answer
+providers:
+  - name: slow-hub
+    type: openai
+    api_base: https://llm.example.com/v1
+    timeout_ms: 3600000                # one hour for a stream: false model's whole request
+```
+
+With `-log-level debug` the console writes one `llm call finished` line per model call to its log (`logs/cli.log` under the Coddy home; `coddy serve` logs it where `logger.outputs` points), with the call's duration, the time to the first chunk and the chunk count, which is where a slow deployment and a dead one part ways.
+
+Field reference: [`agent`](../reference/config.md#agent), [`providers`](../reference/config.md#providers).
+
 ## `coddy update` refuses to overwrite a packaged binary
 
 **Symptom.** `coddy update` changes nothing, names the package that owns the installation, prints the package manager command and exits 1; or it points at `brew upgrade`.
