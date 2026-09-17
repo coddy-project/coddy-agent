@@ -35,8 +35,17 @@ type Runtime struct {
 	processCWD string
 
 	mu      sync.Mutex
-	running map[string]schedservice.RunRef
+	running map[string]*runningEntry
 	slots   chan struct{}
+}
+
+// runningEntry is one reserved job: the run's ids once the launch returned,
+// and whether a cancel arrived before that. A job is reserved before anything
+// exists to stop, so a cancel that lands in that window is kept and applied to
+// the task the moment it is registered.
+type runningEntry struct {
+	ref             schedservice.RunRef
+	cancelRequested bool
 }
 
 // NewRuntime builds the runtime of one daemon. ctx is the daemon's lifetime:
@@ -59,7 +68,7 @@ func NewRuntime(ctx context.Context, cfg func() *config.Config, mgr *session.Man
 		pool:       pool,
 		log:        log,
 		processCWD: processCWD,
-		running:    map[string]schedservice.RunRef{},
+		running:    map[string]*runningEntry{},
 		slots:      make(chan struct{}, maxQueue),
 	}
 }
@@ -182,8 +191,8 @@ func (r *Runtime) StartRun(_ context.Context, req schedservice.RunRequest) (sche
 		r.mu.Unlock()
 		return schedservice.RunRef{}, fmt.Errorf("%w (scheduler.max_queue is %d)", schedservice.ErrQueueSaturated, cap(r.slots))
 	}
-	placeholder := schedservice.RunRef{JobID: jobID, Trigger: trigger, StartedAt: time.Now().UTC()}
-	r.running[abs] = placeholder
+	entry := &runningEntry{ref: schedservice.RunRef{JobID: jobID, Trigger: trigger, StartedAt: time.Now().UTC()}}
+	r.running[abs] = entry
 	r.mu.Unlock()
 
 	var releaseOnce sync.Once
@@ -249,9 +258,16 @@ func (r *Runtime) StartRun(_ context.Context, req schedservice.RunRequest) (sche
 		StartedAt:    snap.StartedAt.UTC(),
 	}
 	r.mu.Lock()
-	r.running[abs] = ref
+	entry.ref = ref
+	cancelled := entry.cancelRequested
 	r.mu.Unlock()
 	r.log.Info("scheduler_run_spawn", "job_id", jobID, "session_id", runID, "task_id", snap.ID, "trigger", trigger)
+	if cancelled {
+		// A cancel that arrived while the job was reserved but its task did
+		// not exist yet is honoured now, the task being the first thing there
+		// is to stop.
+		go func() { _, _ = r.pool.Stop(ref.JobSessionID, ref.TaskID) }()
+	}
 	go r.watch(abs, ref, release)
 	return ref, nil
 }
@@ -299,15 +315,24 @@ func (r *Runtime) watch(abs string, ref schedservice.RunRef, release func()) {
 	release()
 }
 
-// CancelRun implements schedservice.Runtime.
+// CancelRun implements schedservice.Runtime. A job reserved whose task is
+// not registered yet is cancelled too: the request is kept on the reservation
+// and applied to the task as soon as StartRun has it.
 func (r *Runtime) CancelRun(jobPath string) bool {
 	abs := canonicalJobPath(jobPath)
 	r.mu.Lock()
-	ref, ok := r.running[abs]
-	r.mu.Unlock()
-	if !ok || ref.TaskID == "" {
+	entry, ok := r.running[abs]
+	if !ok {
+		r.mu.Unlock()
 		return false
 	}
+	ref := entry.ref
+	if ref.TaskID == "" {
+		entry.cancelRequested = true
+		r.mu.Unlock()
+		return true
+	}
+	r.mu.Unlock()
 	if _, err := r.pool.Stop(ref.JobSessionID, ref.TaskID); err != nil {
 		return false
 	}
@@ -319,8 +344,11 @@ func (r *Runtime) RunningRun(jobPath string) (schedservice.RunRef, bool) {
 	abs := canonicalJobPath(jobPath)
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	ref, ok := r.running[abs]
-	return ref, ok
+	entry, ok := r.running[abs]
+	if !ok {
+		return schedservice.RunRef{}, false
+	}
+	return entry.ref, true
 }
 
 // RunningCount implements schedservice.Runtime.
@@ -367,7 +395,9 @@ func (r *Runtime) runsOf(jobSessionID string) []bgtask.Snapshot {
 // record it holds on disk is what Forget has to reach.
 func (r *Runtime) dropRun(jobSessionID string, snap bgtask.Snapshot) error {
 	if snap.Agent != nil && strings.TrimSpace(snap.Agent.SessionID) != "" {
-		if err := r.mgr.DeleteSessionTree(snap.Agent.SessionID, r.pool); err != nil && !strings.Contains(err.Error(), "not found") {
+		// A bundle that is already gone is not an error: the tree walk finds
+		// nothing under it and the removal of a missing path is a no-op.
+		if err := r.mgr.DeleteSessionTree(snap.Agent.SessionID, r.pool); err != nil {
 			return err
 		}
 	}

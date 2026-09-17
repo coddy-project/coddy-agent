@@ -112,6 +112,7 @@ type schedulerRunsState struct {
 	providers map[string]*scriptedRunProvider
 
 	retain    int
+	maxQueue  int
 	agentName string
 	lastErr   error
 	refs      []schedservice.RunRef
@@ -135,6 +136,7 @@ func (s *schedulerRunsState) reset() error {
 		}
 	}
 	s.retain = 0
+	s.maxQueue = 0
 	s.agentName = ""
 	s.lastErr = nil
 	s.refs = nil
@@ -180,7 +182,7 @@ func (s *schedulerRunsState) buildConfig() *config.Config {
 		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
 		Agent:     config.Agent{Model: "fake/model", MaxTurns: 8},
 		Sessions:  config.Sessions{Dir: filepath.Join(s.root, "sessions")},
-		Scheduler: config.SchedulerConfig{Enabled: true, Dir: s.schedDir, Timeout: "1m", RetainSessions: s.retain},
+		Scheduler: config.SchedulerConfig{Enabled: true, Dir: s.schedDir, Timeout: "1m", RetainSessions: s.retain, MaxQueue: s.maxQueue},
 	}
 	cfg.Tools.PermissionMode = config.PermModeAsk
 	cfg.Subagents.Dirs = []string{filepath.Join(s.home, "agents")}
@@ -279,6 +281,37 @@ func (s *schedulerRunsState) definition(name, tools, role string) error {
 	}
 	body := fmt.Sprintf("---\nname: %s\ndescription: BDD helper %s.\ntools: %s\n---\n%s\n", name, name, tools, role)
 	return os.WriteFile(filepath.Join(dir, name+".md"), []byte(body), 0o644)
+}
+
+// projectDefinition writes a definition inside the job's workspace, where the
+// project trust policy holds it until the operator approves it.
+func (s *schedulerRunsState) projectDefinition(name string) error {
+	if err := s.start(); err != nil {
+		return err
+	}
+	dir := filepath.Join(s.cwd, ".coddy", "agents")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	body := fmt.Sprintf("---\nname: %s\ndescription: BDD project helper %s.\n---\nYou review.\n", name, name)
+	if err := os.WriteFile(filepath.Join(dir, name+".md"), []byte(body), 0o644); err != nil {
+		return err
+	}
+	s.cfg.Subagents.Dirs = append(s.cfg.Subagents.Dirs, dir)
+	return nil
+}
+
+func (s *schedulerRunsState) jobsWithMaxQueue(maxQueue int, first, second string) error {
+	s.maxQueue = maxQueue
+	if err := s.start(); err != nil {
+		return err
+	}
+	for _, id := range []string{first, second} {
+		if err := s.writeJob(id, "* * * * *", "Do the scheduled thing."); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *schedulerRunsState) jobRunningAgent(jobID, agentName string) error {
@@ -768,6 +801,20 @@ func initializeSchedulerRunsScenario(sc *godog.ScenarioContext) {
 		return nil
 	})
 	sc.Step(`^the run in flight is released$`, s.releaseInFlight)
+	sc.Step(`^a workspace definition "([^"]*)" under \.coddy/agents of the job's workspace$`, s.projectDefinition)
+	sc.Step(`^a scheduler with max_queue (\d+) and the jobs "([^"]*)" and "([^"]*)"$`, s.jobsWithMaxQueue)
+	sc.Step(`^the manual run is refused because the definition is not approved$`, func() error {
+		if !errors.Is(s.lastErr, schedservice.ErrRunRefused) || !strings.Contains(s.lastErr.Error(), "not approved") {
+			return fmt.Errorf("manual run error = %v, want ErrRunRefused naming the approval", s.lastErr)
+		}
+		return nil
+	})
+	sc.Step(`^the manual run is refused because scheduler\.max_queue runs are in flight$`, func() error {
+		if !errors.Is(s.lastErr, schedservice.ErrQueueSaturated) {
+			return fmt.Errorf("manual run error = %v, want ErrQueueSaturated", s.lastErr)
+		}
+		return nil
+	})
 	sc.Step(`^the daemon ticks at "([^"]*)" and the model answers "([^"]*)"$`, s.tickAndAnswer)
 	sc.Step(`^the daemon ticks at "([^"]*)" again$`, s.tickAt)
 	sc.Step(`^the daemon ticks at "([^"]*)"$`, s.tickAt)

@@ -256,9 +256,11 @@ func (s *Server) coddySchedulerJobRunsGet(w http.ResponseWriter, r *http.Request
 		s.coddySchedulerWriteErr(w, err)
 		return
 	}
-	sessionID := ""
-	if len(runs) > 0 {
-		sessionID = runs[0].JobSessionID
+	// The job session exists whether or not any run is left under it.
+	sessionID, err := op.JobSessionID(id)
+	if err != nil {
+		s.coddySchedulerWriteErr(w, err)
+		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{

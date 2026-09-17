@@ -98,7 +98,10 @@ func doTickAtMinute(rt *Runtime, log *slog.Logger, evalMinute time.Time) {
 			log.Warn("scheduler max_queue saturated, skipping job until a run finishes (raise scheduler.max_queue if needed)",
 				"job", path, "max_queue", cfg.Scheduler.MaxQueue)
 		default:
-			log.Warn("scheduler run not started", "job", path, "error", err)
+			// The checkpoint may already be written for this slot: it is
+			// committed before the run is created, so the slot does not fire
+			// again on the next tick. The operator sees the reason here.
+			log.Warn("scheduler run not started; its cron slot is checkpointed and will not fire again", "job", path, "slot", evalMinute.Format(time.RFC3339), "error", err)
 		}
 	}
 }

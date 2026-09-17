@@ -71,3 +71,18 @@ Feature: Scheduled jobs run as background subagent tasks
     When the runs of "nightly" are cleared
     Then the job "nightly" has 0 runs
     And no run bundle is left under the job session of "nightly"
+
+  Scenario: A job under an unapproved project definition does not start
+    Given a workspace definition "reviewer" under .coddy/agents of the job's workspace
+    And a scheduler with a job "audit" running the agent "reviewer"
+    When the job "audit" is run by hand
+    Then the manual run is refused because the definition is not approved
+    And the job "audit" has 0 runs
+
+  Scenario: A manual run past scheduler.max_queue is refused
+    Given a scheduler with max_queue 1 and the jobs "first" and "second"
+    And a run of "first" is in flight
+    When the job "second" is run by hand
+    Then the manual run is refused because scheduler.max_queue runs are in flight
+    When the run in flight is released
+    Then the job "first" is no longer running

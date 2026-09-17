@@ -45,6 +45,12 @@ func (o *Service) sessionStore() *session.FileStore {
 	return &session.FileStore{Root: o.Cfg.ResolvedSessionsRoot()}
 }
 
+// legacyRunPrefix is how the scheduler shipped before the job session wrote
+// its run bundles: top-level sessions whose ids began with sched_, marked
+// schedulerRun with the job id like a job session is. They are runs, not a
+// parent to hang new runs under, so the fallback walk never picks one.
+const legacyRunPrefix = "sched_"
+
 // JobSessionIDFor names the job session of a job: the pointer in its sidecar,
 // or the bundle in the sessions root whose session.json says it belongs to the
 // job when the pointer is missing (a sidecar deleted by hand, or written by the
@@ -68,7 +74,7 @@ func JobSessionIDFor(store *session.FileStore, jobPath string) string {
 		return ""
 	}
 	for _, ent := range entries {
-		if !ent.IsDir() || strings.HasPrefix(ent.Name(), ".") {
+		if !ent.IsDir() || strings.HasPrefix(ent.Name(), ".") || strings.HasPrefix(ent.Name(), legacyRunPrefix) {
 			continue
 		}
 		meta, err := store.ReadMeta(ent.Name())
@@ -80,6 +86,18 @@ func JobSessionIDFor(store *session.FileStore, jobPath string) string {
 		}
 	}
 	return ""
+}
+
+// JobSessionID names the job session of a job, "" before its first run.
+func (o *Service) JobSessionID(jobID string) (string, error) {
+	if err := o.requireEnabled(); err != nil {
+		return "", err
+	}
+	abs, err := o.existingJobPath(jobID)
+	if err != nil {
+		return "", err
+	}
+	return o.jobSessionIDOf(abs), nil
 }
 
 // RunsOf lists the run tasks of a job session, newest first: what the pool

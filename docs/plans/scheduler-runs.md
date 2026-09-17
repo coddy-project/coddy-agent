@@ -480,6 +480,35 @@ not by the layout; the child-creation rollback removes the parent's folder
 only when it is empty, and a job session's bundle holds its `session.json`
 before any run is launched.
 
+### Iteration 3 (Cursor `auto`, implementation review, 2026-09-18)
+
+Verified against the code and fixed:
+
+- the fallback walk that re-attaches a job session whose sidecar lost its
+  pointer could take a run bundle of the old scheduler (a top-level `sched_`
+  session marked with the same job id) for the job session and hang new runs
+  under a finished transcript; the walk now skips `sched_` ids
+  (`schedservice.JobSessionIDFor`, unit test);
+- a cancel that landed while the job was reserved but its task not registered
+  yet answered "not running"; the request is now kept on the reservation and
+  applied to the task the moment `StartRun` has it (`runtime_test.go`);
+- `GET …/runs` named the job session only when a run was listed; the envelope
+  now reads it from the sidecar, so a cleared history still names its session;
+- the delete, create, replace and patch tools still described `.lock` sidecars
+  and knew nothing of `agent` and `permission_mode`;
+- `dropRun` matched an error by its text; a missing bundle is not an error on
+  that path, so the check went;
+- two scenarios joined `features/scheduler_runs.feature`: a job under an
+  unapproved project definition does not start, and a manual run past
+  `scheduler.max_queue` is refused;
+- the tick's warning says that a slot whose run did not start is checkpointed
+  and will not fire again.
+
+Left as is: the read-only notice's link to the job's runs is a plain hash
+link (the route change is what opens the scheduler, the same way the nav rail
+does), and the checkpoint stays committed before the run is created, the
+trade-off the design took over re-firing a slot twice.
+
 ## 7. Risks
 
 - **Behaviour change under `permission_mode`.** The default keeps the old
