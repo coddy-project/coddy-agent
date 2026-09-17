@@ -17,10 +17,6 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/netx"
 )
 
-// TelegramAPIBaseEnv overrides the Bot API origin the Telegram probe talks
-// to (default https://api.telegram.org), for tests and stand-ins.
-const TelegramAPIBaseEnv = "CODDY_TELEGRAM_API_BASE"
-
 const defaultTelegramAPIBase = "https://api.telegram.org"
 
 // listeners tries each address the command would bind, once, and lets go.
@@ -72,7 +68,7 @@ func (r *runner) telegramProbes() []probe {
 		if hc == nil {
 			hc = &http.Client{}
 		}
-		base := strings.TrimRight(strings.TrimSpace(os.Getenv(TelegramAPIBaseEnv)), "/")
+		base := strings.TrimRight(strings.TrimSpace(os.Getenv(config.TelegramAPIBaseEnv)), "/")
 		if base == "" {
 			base = defaultTelegramAPIBase
 		}

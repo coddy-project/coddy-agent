@@ -229,6 +229,10 @@ export const messagesEn: Record<string, string> = {
     "LLM first token timeout ms",
   "settings.schema.agent.llm_first_token_timeout_ms.desc":
     "How long a streamed LLM call may stay silent before the turn cancels it (an explicit 0 disables the guard).",
+  "settings.schema.agent.llm_stream_idle_timeout_ms.label":
+    "LLM stream idle timeout ms",
+  "settings.schema.agent.llm_stream_idle_timeout_ms.desc":
+    "How long a streamed LLM response may send nothing after its first bytes before it is cut as stalled, the delivered text kept (an explicit 0 disables the guard).",
   "settings.schema.agent.loop_guard.label": "Loop guard",
   "settings.schema.agent.loop_guard.desc":
     "Stop a response that degenerates into repeating itself, and block a tool called over and over with identical arguments.",

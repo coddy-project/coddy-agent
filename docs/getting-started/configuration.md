@@ -131,7 +131,7 @@ dry run: 2 errors, 3 warnings, 4 ok
 dry run failed
 ```
 
-`ok` and `skipped` lines carry no fix; a `warning` never fails the run; an `error` does. A file that fails the static check is always shown, whichever flags were given: nothing else can be probed until it is fixed. Network probes run concurrently and each is bounded to ten seconds, so a dead server costs one wait, not one per model. Secrets are not echoed: a Telegram token is masked in any error text and a provider key is never printed. `CODDY_TELEGRAM_API_BASE` points the Telegram probe at a stand-in Bot API (tests and self-hosted gateways).
+`ok` and `skipped` lines carry no fix; a `warning` never fails the run; an `error` does. A file that fails the static check is always shown, whichever flags were given: nothing else can be probed until it is fixed. Network probes run concurrently and each is bounded to ten seconds, so a dead server costs one wait, not one per model. Secrets are not echoed: a Telegram token is masked in any error text and a provider key is never printed. `CODDY_TELEGRAM_API_BASE` points the Telegram probe, and the bot itself, at another Bot API origin: a self-hosted server, or the offline stand of [`cmd/tgfake`](../surfaces/gateway.md#debugging-against-a-fake-bot-api).
 
 ## Full Configuration Schema
 
@@ -224,6 +224,8 @@ agent:
                                # capped at 60s
   llm_min_interval_ms: 0       # min gap between consecutive LLM calls, retries included; e.g. 12000 on strict free tiers
   llm_first_token_timeout_ms: 90000  # cancel a silent streamed LLM call after this long (0 disables the guard)
+  llm_stream_idle_timeout_ms: 300000 # cut a streamed answer that sends nothing for this long after its first bytes,
+                                     # keeping the text already delivered (0 disables the guard; blocking models are never guarded)
   wait_for_limit_reset: false        # wait for a hit usage limit to lift and re-issue the call (off: the turn ends with the error)
   wait_for_limit_reset_max_ms: 14400000  # total wait per turn (4 h), the retry wrapper's sleeps on a limit included; under 60 s it also bounds ordinary 429 retries; 0 never waits
   loop_guard: true             # stop a response that repeats itself, and a tool called over and over with identical args

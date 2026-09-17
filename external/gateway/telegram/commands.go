@@ -115,21 +115,29 @@ const (
 
 	// telegramCallbackDataMax is Telegram's hard limit on callback_data.
 	telegramCallbackDataMax = 64
-	// modelDigestMarker prefixes the short form used for a model id that does
-	// not fit that limit.
-	modelDigestMarker = "#"
+	// callbackDigestMarker prefixes the short form used for a value that does
+	// not fit that limit. A session id cannot carry it (ValidateFolderSessionID
+	// admits letters, digits, underscore and hyphen), so the two forms never
+	// collide there.
+	callbackDigestMarker = "#"
 )
 
-// modelCallbackValue returns the payload carried by a model button. An id that
-// fits travels as itself; a longer one travels as a digest, because truncating
-// it would send back a name nothing is configured under - the tap would be
-// rejected and the keyboard would look broken with nothing to explain it.
-func modelCallbackValue(model string) string {
-	if len(callbackActionModel)+1+len(model) <= telegramCallbackDataMax {
-		return model
+// callbackValue returns the payload a button carries for value, next to a
+// prefix of prefixLen bytes ("model:", "resume:s:"). A value that fits travels
+// as itself; a longer one travels as a digest, because truncating it would send
+// back a name nothing is stored under - the tap would be rejected and the
+// keyboard would look broken with nothing to explain it.
+func callbackValue(prefixLen int, value string) string {
+	if prefixLen+len(value) <= telegramCallbackDataMax {
+		return value
 	}
-	sum := sha256.Sum256([]byte(model))
-	return modelDigestMarker + hex.EncodeToString(sum[:8])
+	sum := sha256.Sum256([]byte(value))
+	return callbackDigestMarker + hex.EncodeToString(sum[:8])
+}
+
+// modelCallbackValue returns the payload carried by a model button.
+func modelCallbackValue(model string) string {
+	return callbackValue(len(callbackActionModel)+1, model)
 }
 
 // resolveModelCallback maps a payload back to a configured model id. A model
@@ -141,7 +149,7 @@ func resolveModelCallback(models []config.ModelEntry, payload string) (string, b
 			return payload, true
 		}
 	}
-	if !strings.HasPrefix(payload, modelDigestMarker) {
+	if !strings.HasPrefix(payload, callbackDigestMarker) {
 		return "", false
 	}
 	for i := range models {
@@ -228,7 +236,7 @@ func (b *Bot) handleCallback(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgb
 	}
 
 	action, payload, split := strings.Cut(cbq.Data, ":")
-	if !split || payload == "" || (action != callbackActionMode && action != callbackActionModel) {
+	if !split || payload == "" || !knownCallbackAction(action) {
 		b.log.Debug("telegram: callback ignored", "reason", "unrecognised payload",
 			"data", cbq.Data, "user", userID, "chat", chatID)
 		return
@@ -236,6 +244,14 @@ func (b *Bot) handleCallback(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgb
 
 	isolation := access.EffectiveIsolation(chatID, b.cfg)
 	key := sessionstore.SessionKey(adapterName, chatID, userID, isolation, isGroup)
+
+	// A resume tap names the session the chat moves to, so the chat's current
+	// session is not loaded first: for a chat that never spoke, that would
+	// mint a session only to leave it a moment later.
+	if action == callbackActionResume {
+		b.handleResumeCallback(ctx, bot, cbq, key, payload)
+		return
+	}
 
 	// The keyboard outlives the process that sent it: a chat keeps showing the
 	// buttons long after a restart, and a tap then addresses a session that is
@@ -274,6 +290,15 @@ func (b *Bot) handleCallback(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgb
 	case callbackActionModel:
 		b.applyModel(ctx, bot, cbq, sessionID, value)
 	}
+}
+
+// knownCallbackAction reports whether action names a keyboard this bot sends.
+func knownCallbackAction(action string) bool {
+	switch action {
+	case callbackActionMode, callbackActionModel, callbackActionResume:
+		return true
+	}
+	return false
 }
 
 func (b *Bot) applyMode(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgbotapi.CallbackQuery, sessionID, newMode string) {

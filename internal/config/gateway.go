@@ -12,6 +12,12 @@ import (
 // of config.yaml). Mirrors the provider api_key → NAME_API_KEY convention.
 const TelegramBotTokenEnvVar = "TELEGRAM_BOT_TOKEN"
 
+// TelegramAPIBaseEnv overrides the Bot API origin (default https://api.telegram.org)
+// for the Telegram gateway and for the --dry-run probe alike: a self-hosted Bot
+// API server, or the offline stand cmd/tgfake. The value is an origin such as
+// "http://127.0.0.1:18790"; a trailing slash is tolerated.
+const TelegramAPIBaseEnv = "CODDY_TELEGRAM_API_BASE"
+
 // GatewayConfig is the root config block for all messenger gateways (built with -tags gateway or gateway.telegram).
 type GatewayConfig struct {
 	Telegram TelegramGatewayConfig `yaml:"telegram"`

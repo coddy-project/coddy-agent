@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -224,8 +225,8 @@ func TestDeliveryCarriesEveryBundledSkill(t *testing.T) {
 // A SKILL.md Coddy cannot read is not an absent skill and not an unversioned
 // one: it is the operator's, and the delivery leaves it whole.
 func TestDeliveryKeepsACopyItCannotRead(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("running as root: file permissions do not deny a read")
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("requires file permissions that deny reads")
 	}
 	cfg := deliveryHome(t, true)
 	path := writeSkill(t, cfg, "rpa-feat", "0.0.1", "a copy behind a closed door")

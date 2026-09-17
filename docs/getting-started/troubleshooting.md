@@ -118,7 +118,7 @@ coddy --dry-run              # resolves stdio commands in PATH, contacts remote 
 
 **Symptom.** The bot never answers, or a `/model` or `/mode` tap changes nothing.
 
-**Cause.** In order of frequency: the binary has no gateway tag (a startup error naming the tag); `gateways.telegram.enable` is true but no token could be resolved (the gateway refuses to start and says to set `gateways.telegram.token` or `TELEGRAM_BOT_TOKEN`); the sender is not allowed - `default_access: admins` or `group:<name>` drops everyone else silently, and `admins` must hold your numeric Telegram user id; the message is in a group and the bot was not addressed (in groups it reacts only to an @mention, a reply to its own message, or `/clear`); another process is polling the same bot, and Telegram hands each update to one long poll only.
+**Cause.** In order of frequency: the binary has no gateway tag (a startup error naming the tag); `gateways.telegram.enable` is true but no token could be resolved (the gateway refuses to start and says to set `gateways.telegram.token` or `TELEGRAM_BOT_TOKEN`); the sender is not allowed - `default_access: admins` or `group:<name>` drops everyone else silently, and `admins` must hold your numeric Telegram user id; the message is in a group and the bot was not addressed (in groups it reacts only to an @mention, a reply to its own message, or `/clear`); another process is polling the same bot, and Telegram hands each update to one long poll only. Text answered but taps ignored, with nothing at `debug`, was the subscription: Telegram remembers the last `allowed_updates` a bot asked for, and a token that once ran under another framework may be subscribed to messages alone. Coddy asks for `message` and `callback_query` on every poll since it hit this itself; `curl https://api.telegram.org/bot<token>/getWebhookInfo` shows what is in force.
 
 **Fix.** `coddy --dry-run` checks the token against the Bot API and names the bot. A connected bot logs `telegram bot connected` at `info`. For a dropped update raise that one component:
 
@@ -127,6 +127,8 @@ coddy serve --log-level "info,gateway.telegram=debug"
 ```
 
 or the same in the file under `logger.levels`. At `debug` every update is recorded with the reason it was dropped (access denied, an admin-only chat, a group message not addressed to the bot, a full queue). Silence at `warn` and nothing at `debug` means the update never arrived: check the token, the access lists and other pollers. Guide: [Telegram gateway](../surfaces/gateway.md#debugging-a-chat).
+
+To separate Telegram from the bot, run the bot against the fake Bot API of `cmd/tgfake` with `CODDY_TELEGRAM_API_BASE` set: you send the messages from a page on your machine, every Bot API call is listed, and a fault can be injected on demand. Guide: [Debugging against a fake Bot API](../surfaces/gateway.md#debugging-against-a-fake-bot-api).
 
 ## Hooks or subagent definitions are ignored
 
@@ -185,6 +187,35 @@ providers:
     api_base: https://llm.example.com/v1
     proxy: socks5h://127.0.0.1:1080
 ```
+
+Field reference: [`agent`](../reference/config.md#agent), [`providers`](../reference/config.md#providers).
+
+## A turn never answers, or ends with `stream stalled`
+
+**Symptom.** The model starts answering and the text stops mid-sentence; after a while the turn ends with `LLM error: provider "<name>" (<address>): ... stream stalled: no data from the model for 5m0s`, and the text that did arrive stays in the transcript. Or a one-shot run (`coddy -p`) sits for a long time with no output at all, and when it is killed the session log says `generation was interrupted before producing a response (the model had been silent for 25m0s)`.
+
+**Cause.** The provider took the request and stopped sending. Nothing on the wire says whether it is still working: a stuck worker behind a gateway, a proxy or a VPN tunnel that lost the far side without closing the connection, a request the gateway forgot. Coddy bounds that wait in three places:
+
+- the first-token guard, `agent.llm_first_token_timeout_ms` (90 s), cuts a streamed call that produced nothing and re-issues it once - the address usually stands for a group of deployments, and the next attempt lands on another member;
+- the stream idle guard, `agent.llm_stream_idle_timeout_ms` (5 min), cuts a streamed answer whose server sent nothing for that long after its first bytes, keeps what arrived and ends the turn with the stall named. It is retried only when no text had been shown yet;
+- HTTP/2 liveness pings close a connection whose peer stops answering within about 45 s, and the request is repeated - that is what tells a dead tunnel apart from a slow model.
+
+Neither guard applies to a model configured with `stream: false`: its answer arrives in one piece, so the only bound on that call is `providers[].timeout_ms`, and a run killed from outside reports how long the model had been silent.
+
+**Fix.** A guard that fires on a healthy but slow model is a value to raise, not a bug: a large brief on a small server can spend minutes in prompt processing before the first token, and a long answer can pause for a while when the server is preempting requests. Set the guard to what the deployment needs, or to `0` to turn it off, and give a blocking model a request bound instead:
+
+```yaml
+agent:
+  llm_first_token_timeout_ms: 600000   # ten minutes before the first token
+  llm_stream_idle_timeout_ms: 600000   # ten minutes of silence mid-answer
+providers:
+  - name: slow-hub
+    type: openai
+    api_base: https://llm.example.com/v1
+    timeout_ms: 3600000                # one hour for a stream: false model's whole request
+```
+
+With `-log-level debug` the console writes one `llm call finished` line per model call to its log (`logs/cli.log` under the Coddy home; `coddy serve` logs it where `logger.outputs` points), with the call's duration, the time to the first chunk and the chunk count, which is where a slow deployment and a dead one part ways.
 
 Field reference: [`agent`](../reference/config.md#agent), [`providers`](../reference/config.md#providers).
 

@@ -304,7 +304,7 @@ logger:
 	if cfg.Logger.Outputs[0] != config.LogOutputStderr || cfg.Logger.Outputs[1] != config.LogOutputFile {
 		t.Fatalf("unexpected outputs: %v", cfg.Logger.Outputs)
 	}
-	if cfg.Logger.File != "/tmp/coddy-legacy.log" {
+	if cfg.Logger.File != filepath.FromSlash("/tmp/coddy-legacy.log") {
 		t.Fatalf("file: %q", cfg.Logger.File)
 	}
 }
@@ -1272,6 +1272,7 @@ agent:
   model: "local/gpt-4o"
   llm_retry_max: 0
   llm_first_token_timeout_ms: 0
+  llm_stream_idle_timeout_ms: 0
 `
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "config.yaml")
@@ -1289,6 +1290,9 @@ agent:
 	if got := cfg.Agent.EffectiveLLMFirstTokenTimeout(); got != 0 {
 		t.Errorf("explicit llm_first_token_timeout_ms: 0 resolved to %v, want 0 (guard disabled)", got)
 	}
+	if got := cfg.Agent.EffectiveLLMStreamIdleTimeout(); got != 0 {
+		t.Errorf("explicit llm_stream_idle_timeout_ms: 0 resolved to %v, want 0 (guard disabled)", got)
+	}
 
 	rm, err := cfg.ResolveLLM("local/gpt-4o")
 	if err != nil {
@@ -1305,6 +1309,9 @@ agent:
 	if got := unset.EffectiveLLMFirstTokenTimeout(); got != config.AgentDefaultLLMFirstTokenTimeoutMS*time.Millisecond {
 		t.Errorf("unset llm_first_token_timeout_ms resolved to %v, want 90s", got)
 	}
+	if got := unset.EffectiveLLMStreamIdleTimeout(); got != config.AgentDefaultLLMStreamIdleTimeoutMS*time.Millisecond {
+		t.Errorf("unset llm_stream_idle_timeout_ms resolved to %v, want 5m", got)
+	}
 }
 
 // TestAgentLLMKnobsValidation rejects negative values for the new knobs.
@@ -1317,6 +1324,10 @@ func TestAgentLLMKnobsValidation(t *testing.T) {
 	a = config.Agent{LLMFirstTokenTimeoutMS: &neg}
 	if err := a.Validate(); err == nil {
 		t.Error("negative llm_first_token_timeout_ms must fail validation")
+	}
+	a = config.Agent{LLMStreamIdleTimeoutMS: &neg}
+	if err := a.Validate(); err == nil {
+		t.Error("negative llm_stream_idle_timeout_ms must fail validation")
 	}
 	p := config.ProviderConfig{Name: "x", Type: "openai", TimeoutMS: -5}
 	if err := p.Validate(); err == nil {

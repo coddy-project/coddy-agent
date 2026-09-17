@@ -33,6 +33,7 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			LLMRetryMax:            intPtr(AgentDefaultLLMRetryMax),
 			LLMRetryBaseMS:         AgentDefaultLLMRetryBaseMS,
 			LLMFirstTokenTimeoutMS: intPtr(AgentDefaultLLMFirstTokenTimeoutMS),
+			LLMStreamIdleTimeoutMS: intPtr(AgentDefaultLLMStreamIdleTimeoutMS),
 			LoopGuard:              boolPtr(true),
 			LoopToolRepeatLimit:    intPtr(AgentDefaultLoopToolRepeatLimit),
 			LoopStreamRepeatCycles: intPtr(AgentDefaultLoopStreamRepeatCycles),

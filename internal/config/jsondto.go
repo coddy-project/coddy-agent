@@ -100,8 +100,9 @@ type ModelJSON struct {
 
 // AgentJSON mirrors Agent for JSON APIs. Pointer fields keep the unset/explicit
 // distinction where an explicit 0 means something different from "unset":
-// loop-guard counters, llm_retry_max (0 disables retries), and
-// llm_first_token_timeout_ms (0 disables the silence guard).
+// loop-guard counters, llm_retry_max (0 disables retries),
+// llm_first_token_timeout_ms (0 disables the silence guard) and
+// llm_stream_idle_timeout_ms (0 disables the stall guard).
 type AgentJSON struct {
 	Model                  string `json:"model"`
 	MaxTurns               int    `json:"max_turns,omitempty"`
@@ -110,6 +111,7 @@ type AgentJSON struct {
 	LLMRetryBaseMS         int    `json:"llm_retry_base_ms,omitempty"`
 	LLMMinIntervalMS       int    `json:"llm_min_interval_ms,omitempty"`
 	LLMFirstTokenTimeoutMS *int   `json:"llm_first_token_timeout_ms,omitempty"`
+	LLMStreamIdleTimeoutMS *int   `json:"llm_stream_idle_timeout_ms,omitempty"`
 	LoopGuard              *bool  `json:"loop_guard,omitempty"`
 	LoopToolRepeatLimit    *int   `json:"loop_tool_repeat_limit,omitempty"`
 	LoopStreamRepeatCycles *int   `json:"loop_stream_repeat_cycles,omitempty"`
@@ -441,6 +443,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		LLMRetryBaseMS:         c.Agent.LLMRetryBaseMS,
 		LLMMinIntervalMS:       c.Agent.LLMMinIntervalMS,
 		LLMFirstTokenTimeoutMS: cloneIntPtr(c.Agent.LLMFirstTokenTimeoutMS),
+		LLMStreamIdleTimeoutMS: cloneIntPtr(c.Agent.LLMStreamIdleTimeoutMS),
 		LoopGuard:              cloneBoolPtr(c.Agent.LoopGuard),
 		LoopToolRepeatLimit:    cloneIntPtr(c.Agent.LoopToolRepeatLimit),
 		LoopStreamRepeatCycles: cloneIntPtr(c.Agent.LoopStreamRepeatCycles),
@@ -655,6 +658,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		LLMRetryBaseMS:         j.Agent.LLMRetryBaseMS,
 		LLMMinIntervalMS:       j.Agent.LLMMinIntervalMS,
 		LLMFirstTokenTimeoutMS: cloneIntPtr(j.Agent.LLMFirstTokenTimeoutMS),
+		LLMStreamIdleTimeoutMS: cloneIntPtr(j.Agent.LLMStreamIdleTimeoutMS),
 		LoopGuard:              cloneBoolPtr(j.Agent.LoopGuard),
 		LoopToolRepeatLimit:    cloneIntPtr(j.Agent.LoopToolRepeatLimit),
 		LoopStreamRepeatCycles: cloneIntPtr(j.Agent.LoopStreamRepeatCycles),

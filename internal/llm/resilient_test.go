@@ -288,7 +288,16 @@ func TestTransientTransportErrorClassification(t *testing.T) {
 		{"unexpected EOF", fmt.Errorf("openai stream: %w", io.ErrUnexpectedEOF), true},
 		{"connection reset", fmt.Errorf("openai stream: %w",
 			&net.OpError{Op: "read", Err: os.NewSyscallError("read", syscall.ECONNRESET)}), true},
-		{"http2 stream error text", errors.New(`openai stream: POST "https://api.example.test": http2: stream error: stream ID 5; INTERNAL_ERROR; received from peer`), true},
+		// What net/http actually prints for an RST_STREAM from the peer: no
+		// "http2:" prefix (that spelling belongs to GOAWAY and the lost-ping
+		// close), and wrapped in the url.Error of the request it killed.
+		{"http2 stream reset by the peer", fmt.Errorf("openai complete: %w",
+			&url.Error{Op: "Post", URL: "https://api.example.test/v1/chat/completions", Err: errors.New("stream error: stream ID 1; INTERNAL_ERROR; received from peer")}), true},
+		{"http2 stream refused", errors.New(`openai stream: POST "https://api.example.test": stream error: stream ID 3; REFUSED_STREAM`), true},
+		{"http2 lost ping", fmt.Errorf("openai stream: %w",
+			&url.Error{Op: "Post", URL: "https://api.example.test/v1/chat/completions", Err: errors.New("http2: client connection lost")}), true},
+		{"stalled stream before any delta", fmt.Errorf("openai stream: %w",
+			&streamTransportError{cause: &streamStalledError{idle: time.Second}}), true},
 		{"plain failure", errors.New("openai stream: boom"), false},
 		// The request never left the client: the handshake or the dial failed.
 		{"TLS handshake timeout", fmt.Errorf("openai stream: %w",
@@ -342,6 +351,13 @@ func TestStreamTransportErrorEmittedBlocksRetry(t *testing.T) {
 	odd := fmt.Errorf("openai stream: %w", &streamTransportError{cause: bufio.ErrTooLong})
 	if isRetryableLLMError(odd) {
 		t.Fatal("a deterministic cause must stay non-retryable even before output")
+	}
+	stalled := fmt.Errorf("openai stream: %w", &streamTransportError{cause: &streamStalledError{idle: time.Second}, emitted: true})
+	if isRetryableLLMError(stalled) {
+		t.Fatal("a stream that stalled after emitted deltas must not be retryable")
+	}
+	if !IsStreamStalled(stalled) {
+		t.Fatal("the stall must stay recognisable through the transport wrapper and the provider prefix")
 	}
 }
 
