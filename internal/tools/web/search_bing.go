@@ -5,69 +5,63 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"golang.org/x/net/html"
 )
 
 // bingSearchFunc is swapped in tests to avoid live Bing calls.
-var bingSearchFunc func(ctx context.Context, query string, page, maxResults int) ([]bingResult, error)
+var bingSearchFunc func(ctx context.Context, q Query, s Settings) ([]Result, error)
 
-type bingResult struct {
-	Title   string
-	URL     string
-	Snippet string
-}
-
-func defaultBingSearch(ctx context.Context, query string, page, maxResults int) ([]bingResult, error) {
+// runBing asks Bing. Bing answers a client it dislikes with a result page that
+// is structurally perfect and about a different subject entirely, so what it
+// returns is only merged after the relevance gate in classify has looked at it.
+func runBing(ctx context.Context, q Query, s Settings) ([]Result, error) {
+	if bingSearchFunc != nil {
+		return bingSearchFunc(ctx, q, s)
+	}
+	count := q.MaxResults
+	if count <= 0 {
+		count = 15
+	}
+	page := q.Page
 	if page < 1 {
 		page = 1
 	}
-	// Bing's first parameter is 1-based offset: page 1 → first=1, page 2 → first=count+1, etc.
-	first := (page-1)*maxResults + 1
+	// Bing's first parameter is a 1-based offset: page 1 -> first=1, page 2 -> first=count+1.
+	first := (page-1)*count + 1
 	searchURL := fmt.Sprintf(
 		"https://www.bing.com/search?q=%s&count=%d&first=%d&setlang=en",
-		url.QueryEscape(query), maxResults+2, first,
+		url.QueryEscape(engineQuery(q)), count+2, first,
 	)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
+	body, err := httpGet(ctx, searchURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
+	rows, err := parseBingResults(body, count)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("bing: http %d", resp.StatusCode)
+	if len(rows) == 0 {
+		if reason, ok := challengeReason(body); ok {
+			return nil, blocked("%s", reason)
+		}
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-	if err != nil {
-		return nil, err
-	}
-	return parseBingResults(body, maxResults)
+	return rows, nil
 }
 
 // parseBingResults extracts organic results from Bing's HTML response.
 // Bing marks each result with <li class="b_algo">, title in <h2><a>, snippet in <div class="b_caption"><p>.
-func parseBingResults(body []byte, maxResults int) ([]bingResult, error) {
+func parseBingResults(body []byte, maxResults int) ([]Result, error) {
 	doc, err := html.Parse(bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
-	var results []bingResult
+	var results []Result
 	var walk func(*html.Node)
 	walk = func(n *html.Node) {
-		if len(results) >= maxResults {
+		if maxResults > 0 && len(results) >= maxResults {
 			return
 		}
 		if n.Type == html.ElementNode && n.Data == "li" {
@@ -86,23 +80,23 @@ func parseBingResults(body []byte, maxResults int) ([]bingResult, error) {
 	return results, nil
 }
 
-func extractBingResult(li *html.Node) (bingResult, bool) {
+func extractBingResult(li *html.Node) (Result, bool) {
 	h2 := findElement(li, "h2")
 	if h2 == nil {
-		return bingResult{}, false
+		return Result{}, false
 	}
 	a := findElement(h2, "a")
 	if a == nil {
-		return bingResult{}, false
+		return Result{}, false
 	}
 	href := htmlAttr(a, "href")
 	actualURL := decodeBingURL(href)
 	if actualURL == "" {
-		return bingResult{}, false
+		return Result{}, false
 	}
 	title := strings.TrimSpace(htmlText(a))
 	if title == "" {
-		return bingResult{}, false
+		return Result{}, false
 	}
 	snippet := ""
 	if cap := findElementByClass(li, "div", "b_caption"); cap != nil {
@@ -110,7 +104,7 @@ func extractBingResult(li *html.Node) (bingResult, bool) {
 			snippet = strings.TrimSpace(htmlText(p))
 		}
 	}
-	return bingResult{Title: title, URL: actualURL, Snippet: snippet}, true
+	return Result{Title: title, URL: actualURL, Snippet: snippet}, true
 }
 
 // decodeBingURL extracts the real destination from Bing's tracking redirect.

@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -22,6 +23,7 @@ import { isAwaitingPermission } from "../tasks/taskStatus";
 import { BackgroundTasksChip } from "../tasks/BackgroundTasksChip";
 import { SubagentPermissionCards } from "./SubagentPermissionCard";
 import { SubagentReadOnlyNotice } from "./SubagentReadOnlyNotice";
+import { ArchivedSessionNotice } from "./ArchivedSessionNotice";
 import type { SubagentTranscriptMeta } from "./subagentTranscript";
 import {
   subscribeShellStack,
@@ -29,6 +31,16 @@ import {
   serverSnapshotShellStack,
 } from "../shellBreakpoint";
 import { transcriptItemsAffectAutoScroll } from "./transcriptAutoScroll";
+import {
+  documentScrollBottom,
+  documentTranscriptMetrics,
+  easeTranscriptJump,
+  elementScrollBottom,
+  elementTranscriptMetrics,
+  isTranscriptAtBottom,
+  transcriptJumpDurationMs,
+} from "./transcriptScrollPosition";
+import { ScrollToBottomButton } from "./ScrollToBottomButton";
 
 export function ChatScreen(props: {
   title: string;
@@ -48,7 +60,8 @@ export function ChatScreen(props: {
   contextPct?: number;
   maxContextTokens?: number;
   contextBreakdown?:
-    import("./ContextBreakdownPopover").ContextBreakdown | null;
+    | import("./ContextBreakdownPopover").ContextBreakdown
+    | null;
   mode: string;
   modes: string[];
   llmModels?: string[];
@@ -118,6 +131,11 @@ export function ChatScreen(props: {
   onWorktreeToggle?: () => void;
   /** Set when this session is a subagent's transcript: the composer gives way to a read-only notice. */
   subagentTranscript?: SubagentTranscriptMeta | null;
+  /** True when the conversation on screen is archived: the composer gives way to the notice that offers to take it back out. */
+  sessionArchived?: boolean;
+  onUnarchiveSession?: () => void;
+  /** True while that request is in flight. */
+  unarchiving?: boolean;
   /** Opens another session in this tab (the parent chat from the notice). */
   onOpenSession?: (sessionId: string) => void;
 }) {
@@ -129,7 +147,9 @@ export function ChatScreen(props: {
   const stickToBottomRef = useRef(true);
   const prevItemsForScrollRef = useRef<TranscriptItem[]>([]);
   const prevPermissionsForScrollRef = useRef(new Set<string>());
+  const jumpFrameRef = useRef<number | null>(null);
   const [composerReserve, setComposerReserve] = useState(200);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   // Shared by hero and docked composers so disabled files survive the first text turn.
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const mobileDocScroll = useSyncExternalStore(
@@ -153,6 +173,119 @@ export function ChatScreen(props: {
     ro?.observe(host);
     return () => ro?.disconnect();
   }, [isEmpty, props.tokenUsage]);
+
+  // Whichever surface scrolls, it is read and written through these three, so
+  // the follow, the button and the jump never disagree about where the end is.
+  const transcriptScrollBottom = useCallback((): number => {
+    if (mobileDocScroll) return documentScrollBottom(window);
+    const el = messagesRef.current;
+    return el ? elementScrollBottom(el) : 0;
+  }, [mobileDocScroll]);
+
+  const readTranscriptScrollTop = useCallback((): number => {
+    if (mobileDocScroll) return window.scrollY;
+    return messagesRef.current?.scrollTop ?? 0;
+  }, [mobileDocScroll]);
+
+  const writeTranscriptScrollTop = useCallback(
+    (top: number) => {
+      if (mobileDocScroll) {
+        window.scrollTo({ top, left: 0, behavior: "auto" });
+        return;
+      }
+      const el = messagesRef.current;
+      if (el) el.scrollTop = top;
+    },
+    [mobileDocScroll],
+  );
+
+  const cancelTranscriptJump = useCallback((): boolean => {
+    if (jumpFrameRef.current === null) return false;
+    cancelAnimationFrame(jumpFrameRef.current);
+    jumpFrameRef.current = null;
+    return true;
+  }, []);
+
+  // One reading of the scrollport drives both behaviours: the transcript
+  // follows new output while it sits in the bottom band, and the jump button
+  // appears exactly when it stops following.
+  const syncTranscriptPosition = useCallback(() => {
+    // A jump owns the position while it travels. Reading it mid-flight would
+    // put the button back on screen for every frame above the band.
+    if (jumpFrameRef.current !== null) return;
+    let atBottom: boolean;
+    if (mobileDocScroll) {
+      atBottom = isTranscriptAtBottom(documentTranscriptMetrics(window));
+    } else {
+      const el = messagesRef.current;
+      if (!el) return;
+      atBottom = isTranscriptAtBottom(elementTranscriptMetrics(el));
+    }
+    stickToBottomRef.current = atBottom;
+    setShowScrollToBottom(!atBottom);
+  }, [mobileDocScroll]);
+
+  const jumpToNewestMessage = useCallback(() => {
+    cancelTranscriptJump();
+    stickToBottomRef.current = true;
+    setShowScrollToBottom(false);
+    const from = readTranscriptScrollTop();
+    const to = transcriptScrollBottom();
+    const reduceMotion =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (to <= from || reduceMotion) {
+      writeTranscriptScrollTop(to);
+      return;
+    }
+    const duration = transcriptJumpDurationMs(to - from);
+    const started = performance.now();
+    const step = (now: number) => {
+      const progress = (now - started) / duration;
+      // The end is re-read every frame: a streaming turn keeps moving it down,
+      // and the travel should land on where the transcript is now.
+      const end = transcriptScrollBottom();
+      writeTranscriptScrollTop(
+        from + (end - from) * easeTranscriptJump(progress),
+      );
+      if (progress < 1) {
+        jumpFrameRef.current = requestAnimationFrame(step);
+        return;
+      }
+      jumpFrameRef.current = null;
+      syncTranscriptPosition();
+    };
+    jumpFrameRef.current = requestAnimationFrame(step);
+  }, [
+    cancelTranscriptJump,
+    readTranscriptScrollTop,
+    syncTranscriptPosition,
+    transcriptScrollBottom,
+    writeTranscriptScrollTop,
+  ]);
+
+  // The reader reaching for the wheel, a finger or the scrollbar always wins
+  // over a jump still in the air.
+  useEffect(() => {
+    const takeOver = () => {
+      if (cancelTranscriptJump()) syncTranscriptPosition();
+    };
+    const passive = { passive: true } as const;
+    window.addEventListener("wheel", takeOver, passive);
+    window.addEventListener("touchstart", takeOver, passive);
+    window.addEventListener("mousedown", takeOver, passive);
+    return () => {
+      window.removeEventListener("wheel", takeOver);
+      window.removeEventListener("touchstart", takeOver);
+      window.removeEventListener("mousedown", takeOver);
+    };
+  }, [cancelTranscriptJump, syncTranscriptPosition]);
+
+  useEffect(() => {
+    return () => {
+      cancelTranscriptJump();
+    };
+  }, [cancelTranscriptJump]);
 
   useEffect(() => {
     if (isEmpty) return;
@@ -178,36 +311,38 @@ export function ChatScreen(props: {
     if (!newPermission && !transcriptItemsAffectAutoScroll(prev, props.items)) {
       return;
     }
-    if (!stickToBottomRef.current) return;
-    if (mobileDocScroll) {
-      const run = () => {
-        const top = Math.max(
-          document.body.scrollHeight,
-          document.documentElement.scrollHeight,
-        );
-        window.scrollTo({ top, left: 0, behavior: "auto" });
-      };
-      requestAnimationFrame(() => requestAnimationFrame(run));
+    // A jump already chases the end of a growing transcript; a hard scroll here
+    // would fight its travel frame by frame.
+    if (jumpFrameRef.current !== null) return;
+    // Content grew under a reader who scrolled away: leave them where they are
+    // and re-read the position, which is what reveals the button mid-stream.
+    if (!stickToBottomRef.current) {
+      syncTranscriptPosition();
       return;
     }
-    const el = messagesRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [props.items, props.backgroundTasks, isEmpty, mobileDocScroll]);
+    const follow = () => {
+      writeTranscriptScrollTop(transcriptScrollBottom());
+      syncTranscriptPosition();
+    };
+    if (mobileDocScroll) {
+      // The document takes its new height after layout, not on this tick.
+      requestAnimationFrame(() => requestAnimationFrame(follow));
+      return;
+    }
+    follow();
+  }, [
+    props.items,
+    props.backgroundTasks,
+    isEmpty,
+    mobileDocScroll,
+    syncTranscriptPosition,
+    transcriptScrollBottom,
+    writeTranscriptScrollTop,
+  ]);
 
   useEffect(() => {
     if (isEmpty) return;
-    const onScroll = () => {
-      if (mobileDocScroll) {
-        const doc = document.documentElement;
-        const dist = doc.scrollHeight - window.scrollY - window.innerHeight;
-        stickToBottomRef.current = dist < 80;
-      } else {
-        const el = messagesRef.current;
-        if (!el) return;
-        const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
-        stickToBottomRef.current = dist < 80;
-      }
-    };
+    const onScroll = () => syncTranscriptPosition();
     if (mobileDocScroll) {
       window.addEventListener("scroll", onScroll, { passive: true });
       return () => window.removeEventListener("scroll", onScroll);
@@ -215,14 +350,22 @@ export function ChatScreen(props: {
     const el = messagesRef.current;
     el?.addEventListener("scroll", onScroll, { passive: true });
     return () => el?.removeEventListener("scroll", onScroll);
-  }, [isEmpty, mobileDocScroll]);
+  }, [isEmpty, mobileDocScroll, syncTranscriptPosition]);
 
   // A child session is read-only on the server (409 on any prompt), so the
   // notice takes the composer's slot in both the hero and the docked layout.
+  // An archived conversation takes the same slot for a different reason: the
+  // server would accept the prompt, and accepting it would quietly undo the
+  // operator's own "not now".
   const readOnlyNotice = props.subagentTranscript ? (
     <SubagentReadOnlyNotice
       meta={props.subagentTranscript}
       {...(props.onOpenSession ? { onOpenSession: props.onOpenSession } : {})}
+    />
+  ) : props.sessionArchived ? (
+    <ArchivedSessionNotice
+      onUnarchive={() => props.onUnarchiveSession?.()}
+      {...(props.unarchiving ? { busy: true } : {})}
     />
   ) : null;
 
@@ -510,6 +653,10 @@ export function ChatScreen(props: {
 
           <div className="chat-bottom">
             <div className="chat-bottom-inner" ref={composerHostRef}>
+              <ScrollToBottomButton
+                visible={showScrollToBottom}
+                onClick={jumpToNewestMessage}
+              />
               {readOnlyNotice ? null : (
                 <UsageBanner
                   usage={props.providerUsage}

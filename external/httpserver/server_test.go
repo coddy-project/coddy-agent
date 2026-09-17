@@ -32,6 +32,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 	"golang.org/x/text/encoding/charmap"
 	"gopkg.in/yaml.v3"
@@ -106,6 +107,80 @@ func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 		}
 		if item.MaxContextTokens <= 0 {
 			t.Fatalf("row %d: expected max_context_tokens, got %+v", i, item)
+		}
+	}
+}
+
+// Each model row carries the context window a session on that model measures
+// its compaction threshold against: its own max_context_tokens, the window its
+// provider's listing reports, or the default - never the default agent
+// model's number borrowed for a model that has none (#245).
+func TestGETModelsReportsEachModelsOwnContextWindow(t *testing.T) {
+	listing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/models" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":[{"id":"qwen3.8-27b","limit":{"context":262144}},{"id":"no-window"}]}`)
+	}))
+	defer listing.Close()
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{
+			{Name: "openai", Type: "openai", APIKey: "k"},
+			{Name: "hub", Type: "openai", APIKey: "k", APIBase: listing.URL},
+		},
+		Agent: config.Agent{Model: "openai/gpt-4o"},
+		Models: []config.ModelEntry{
+			{Model: "openai/gpt-4o", MaxContextTokens: 32000},
+			{Model: "openai/gpt-4o-mini"},
+			{Model: "hub/qwen3.8-27b"},
+			{Model: "hub/no-window"},
+		},
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
+	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, err := http.Get(ts.URL + "/v1/models")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var body struct {
+		Data []struct {
+			ID               string `json:"id"`
+			MaxContextTokens int    `json:"max_context_tokens"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]int{
+		string(session.ModeAgent): 32000,
+		string(session.ModePlan):  32000,
+		string(session.ModeAsk):   32000,
+		"openai/gpt-4o":           32000,
+		"openai/gpt-4o-mini":      config.DefaultContextWindowTokens,
+		"hub/qwen3.8-27b":         262144,
+		"hub/no-window":           config.DefaultContextWindowTokens,
+	}
+	if len(body.Data) != len(want) {
+		t.Fatalf("want %d rows, got %+v", len(want), body.Data)
+	}
+	for _, row := range body.Data {
+		if row.MaxContextTokens != want[row.ID] {
+			t.Errorf("%s: max_context_tokens = %d, want %d", row.ID, row.MaxContextTokens, want[row.ID])
+		}
+		if httpModelIsCoddyProfile(row.ID) {
+			continue
+		}
+		if tokens, _ := mgr.ContextWindow(cfg, row.ID); tokens != row.MaxContextTokens {
+			t.Errorf("%s: the model list says %d, a session on it measures against %d", row.ID, row.MaxContextTokens, tokens)
 		}
 	}
 }
@@ -242,10 +317,15 @@ func (p *capturingHTTPProvider) Stream(_ context.Context, messages []llm.Message
 	return &llm.Response{Content: p.reply, StopReason: "end_turn"}, nil
 }
 
-func TestCoddyDescribeEchoesShortCommand(t *testing.T) {
+// A two-word first message used to be echoed back without asking the model,
+// which was cheap while a title was all this call produced. The tags ride on it
+// now, so the shortest conversations would have been the only unfiled ones.
+func TestCoddyDescribeAsksTheModelAboutAShortCommandToo(t *testing.T) {
 	_, srv, _ := testHTTPServerPersist(t)
+	asked := 0
 	srv.providerFactory = func(*config.Config) (llm.Provider, error) {
-		return fakeProvider{reply: "should not be used"}, nil
+		asked++
+		return fakeProvider{reply: "Check the repository state\ntags: git, status"}, nil
 	}
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -262,14 +342,21 @@ func TestCoddyDescribeEchoesShortCommand(t *testing.T) {
 		t.Fatalf("status %d body %s", res.StatusCode, b)
 	}
 	var out struct {
-		Object string `json:"object"`
-		Short  string `json:"short"`
+		Object string   `json:"object"`
+		Short  string   `json:"short"`
+		Tags   []string `json:"tags"`
 	}
 	if err := json.Unmarshal(b, &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.Object != "coddy.describe" || out.Short != "git status" {
+	if asked != 1 {
+		t.Fatalf("the model was asked %d times, want once", asked)
+	}
+	if out.Object != "coddy.describe" || out.Short != "Check the repository state" {
 		t.Fatalf("unexpected %+v", out)
+	}
+	if strings.Join(out.Tags, ",") != "git,status" {
+		t.Fatalf("tags = %v", out.Tags)
 	}
 }
 
@@ -610,6 +697,19 @@ func TestCoddySessionCancelHTTP_StopsBlockedAgentTurn(t *testing.T) {
 	}
 }
 
+// lastHistoryMessageSeen is the newest message of a request that belongs to the
+// replayed conversation. Coddy appends a <turn_context> block after the history
+// on every request (internal/agent/turn_context.go); it is part of no transcript.
+func lastHistoryMessageSeen(msgs []llm.Message) llm.Message {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if strings.Contains(msgs[i].Content, "<turn_context>") {
+			continue
+		}
+		return msgs[i]
+	}
+	return llm.Message{}
+}
+
 func TestCoddySessionPermissionPostRejectResumesPersistedGateAfterRestart(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
@@ -715,7 +815,7 @@ func TestCoddySessionPermissionPostRejectResumesPersistedGateAfterRestart(t *tes
 			if len(provider.seen) == 0 {
 				t.Fatal("provider was not called")
 			}
-			lastSeen := provider.seen[len(provider.seen)-1]
+			lastSeen := lastHistoryMessageSeen(provider.seen)
 			if lastSeen.Role != llm.RoleTool || lastSeen.ToolCallID != "call_blocked" || lastSeen.Content != "permission denied by user" {
 				t.Fatalf("provider latest message %+v", lastSeen)
 			}
@@ -1551,8 +1651,10 @@ func TestCoddySlashCommandsGetPagingAndPrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = r1.Body.Close()
-	if r1.StatusCode != http.StatusOK || page1.Total != 4 || !page1.HasMore || len(page1.Items) != 1 || page1.Items[0]["name"] != "apples" {
-		t.Fatalf("page1: status=%d %+v", r1.StatusCode, page1)
+	// The catalogue is the two skills written above plus the standard delivery.
+	wantTotal := 2 + len(skills.Bundled())
+	if r1.StatusCode != http.StatusOK || page1.Total != wantTotal || !page1.HasMore || len(page1.Items) != 1 || page1.Items[0]["name"] != "apples" {
+		t.Fatalf("page1: status=%d want total %d, got %+v", r1.StatusCode, wantTotal, page1)
 	}
 
 	rp, err := http.Get(ts.URL + "/coddy/slash-commands?page=1&page_size=10&prefix=z")
@@ -2817,6 +2919,7 @@ func TestCoddySkillsSourcesSyncDelete(t *testing.T) {
 // TestCoddySkillsNewRoutesEdgeCases covers error paths for the version/update
 // and source-management routes without network access.
 func TestCoddySkillsNewRoutesEdgeCases(t *testing.T) {
+	offlineSystemSources(t)
 	home := t.TempDir()
 	t.Setenv("CODDY_HOME", home)
 	cfgPath := filepath.Join(home, "config.yaml")
@@ -2935,15 +3038,15 @@ func TestCoddySkillsDeleteAnyAndReadonly(t *testing.T) {
 	for _, it := range list.Items {
 		ro[it.Name] = it.Readonly
 	}
-	if !ro["generate-rules"] {
-		t.Errorf("bundled generate-rules should be read-only")
+	if !ro["configure-coddy"] {
+		t.Errorf("bundled configure-coddy should be read-only")
 	}
 	if ro["local"] {
 		t.Errorf("on-disk local skill should be deletable")
 	}
 
 	// Deleting the bundled skill fails with 400.
-	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/coddy/skills/generate-rules", nil)
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/coddy/skills/configure-coddy", nil)
 	dr, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -3968,5 +4071,65 @@ func TestCoddySessionsListFiltersByWorkspace(t *testing.T) {
 	}
 	if len(ids) != 1 || ids[0] != inWorkspace.SessionID {
 		t.Fatalf("cwd=%q listed %v, want only %s (not %s)", real, ids, inWorkspace.SessionID, elsewhere.SessionID)
+	}
+}
+
+// The describe call that names a new chat answers seconds after the turn it
+// belongs to started, and that turn may have named the session itself - the
+// operator in the header, or the model through session_describe. The suggestion
+// then applies its tags and leaves the name alone.
+func TestCoddySessionPatchTitleIfUnpinnedDoesNotOverwriteAName(t *testing.T) {
+	mgr, srv, _ := testHTTPServerPersist(t)
+	ctx := context.Background()
+	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := res.SessionID
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	patch := func(body string) map[string]interface{} {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodPatch, ts.URL+"/coddy/sessions/"+url.PathEscape(sid), strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resHTTP, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := ioReadAllClose(resHTTP.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resHTTP.StatusCode != http.StatusOK {
+			t.Fatalf("status %d %s", resHTTP.StatusCode, b)
+		}
+		var parsed map[string]interface{}
+		if err := json.Unmarshal(b, &parsed); err != nil {
+			t.Fatal(err)
+		}
+		return parsed
+	}
+
+	// Nothing named it yet, so the suggestion is what the session is called.
+	if got := patch(`{"title":"Suggested by describe","titleIfUnpinned":true}`)["title"]; got != "Suggested by describe" {
+		t.Fatalf("title = %v, want the suggestion", got)
+	}
+	// Named during the first turn, then the second suggestion arrives.
+	patch(`{"title":"Named during the turn"}`)
+	after := patch(`{"title":"Suggested by describe","titleIfUnpinned":true,"tags":["backend"]}`)
+	if got := after["title"]; got != "Named during the turn" {
+		t.Fatalf("title = %v, want the name the turn wrote", got)
+	}
+	tags, _ := after["tags"].([]interface{})
+	if len(tags) != 1 || tags[0] != "backend" {
+		t.Fatalf("the tags of the same request did not land: %v", after["tags"])
+	}
+	// A rename without the flag still renames.
+	if got := patch(`{"title":"Renamed by hand"}`)["title"]; got != "Renamed by hand" {
+		t.Fatalf("title = %v", got)
 	}
 }

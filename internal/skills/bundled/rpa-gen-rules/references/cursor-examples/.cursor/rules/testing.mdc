@@ -1,0 +1,159 @@
+---
+description: Test writing rules
+globs: tests/**/*.py
+alwaysApply: true
+---
+
+# Test Writing Rules
+
+## General Principles
+
+1. **Coverage**: Aim for code coverage >90%
+2. **One class at a time**: When creating new class, write tests for it immediately
+3. **Isolation**: Each test must be independent
+4. **Readability**: Test names should describe what is being tested
+
+## Test Structure
+
+### Naming
+- Test file: `test_<module_name>.py`
+- Test class: `Test<ClassName>`
+- Test method: `test_<what_is_tested>`
+
+### Test Class Structure
+```python
+class TestSearchController:
+    """Test suite for SearchController."""
+
+    @pytest.fixture
+    def search_controller(self, realistic_data_path):
+        """SearchController loaded with realistic test data."""
+        return SearchController(str(realistic_data_path))
+
+    def test_some_functionality(self, search_controller):
+        """Test description."""
+        # Arrange
+        # Act
+        # Assert
+```
+
+## Test Types
+
+### Unit Tests
+- Test individual modules in isolation
+- Use mocks for dependencies
+- Fast and deterministic
+
+### Integration Tests
+- Test interaction between modules
+- Use real data from `tests/test_data/`
+- Test through HTTP API using `TestClient`
+
+### Performance Tests
+- Check hash index performance
+- Ensure search works in O(1)
+
+### Edge-case Tests
+- Test edge cases
+- Test error handling
+- Test input validation
+
+## Fixtures
+
+### Using Fixtures
+- Create fixtures for data preparation
+- Use `@pytest.fixture` for reusable data
+- Use `scope="function"` for test isolation
+
+### Test Data
+- Store test Excel files in `tests/test_data/`
+- Use realistic data for integration tests
+- Create minimal data for unit tests
+
+## Test Examples
+
+### Unit Test for Class
+```python
+def test_get_value_global(self, search_controller):
+    """Test global value search."""
+    result = search_controller.get_value("custom_key")
+
+    assert isinstance(result, QueryResult)
+    assert result.success
+    assert result.value == 1.2
+    assert result.error is None
+```
+
+### Integration Test for API
+```python
+def test_simple_search_success(self, client):
+    """Test successful simple search."""
+    request_data = {
+        "name": "Demo",
+        "key": "Key"
+    }
+
+    response = client.post("/search", json=request_data)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["value"] == 1.2
+```
+
+### Error Handling Test
+```python
+def test_get_value_not_found(self, search_controller):
+    """Test search value with non-existent data."""
+    result = search_controller.get_value("NonExistentKey")
+
+    assert isinstance(result, QueryResult)
+    assert not result.success
+    assert result.value is None
+    assert result.error is not None
+    assert "not found" in result.error.lower()
+```
+
+## Assertions
+
+### What to Check
+- Return value types
+- Operation success (`success` flag)
+- Result values
+- Error messages
+- HTTP status codes (for API tests)
+
+### Using assert
+- Use clear assert messages
+- Check multiple aspects of result
+- Use `isinstance()` for type checking
+
+## Edge Case Testing
+
+### Empty Data
+- Empty responses
+
+### Invalid Data
+- Invalid types
+- Invalid formats
+
+## Running Tests
+
+### All Tests
+```bash
+pytest tests/ -v
+```
+
+### With Coverage
+```bash
+pytest tests/ --cov=search_project --cov-report=term-missing
+```
+
+### Specific Test
+```bash
+pytest tests/test_search_controller.py::TestSearchController::test_get_value_global -v
+```
+
+## References
+
+@pytest.ini
+@code-style.mdc

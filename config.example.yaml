@@ -151,15 +151,20 @@ sessions:
 # model context window. Manual /compact command plus automatic trigger.
 # compaction:
 #   enable: true             # master switch (manual command and automation)
-#   threshold_percent: 80    # auto-compact at this percent of models[].max_context_tokens (1..100)
+#   threshold_percent: 80    # auto-compact at this percent of the model's context window (1..100)
 #   keep_recent_turns: 2     # last N user turns stay verbatim; 0 summarizes everything
 #   model: ""                # optional models[].model for the summarizer; empty = session model
+#   fallback_models: []      # tried in order when the summarizer above them fails; the session
+#                            # model is the last resort whether or not it is listed
 #   # Collapse superseded read/grep results to placeholders in the LLM request
 #   # (the persisted transcript stays complete). Only marked results survive.
 #   result_eviction:
 #     enable: true           # master switch
 #     keep_recent: 2         # most recent evictable results kept as a working window; 0 keeps none
 #     min_result_bytes: 2000 # results this size or smaller are never evicted
+#     start_percent: 50      # wait until the context is this full before evicting; 0 = from the
+#                            # first result. A placeholder written into the middle of the history
+#                            # invalidates every token the provider cached behind it.
 
 prompts:
   # Directory containing prompt templates (Go text/template).
@@ -185,6 +190,9 @@ skills:
   # sources lists remote skill sources installed on demand with `coddy skills sync`
   # (never fetched automatically). Each entry is a GitHub repo (owner/repo[@ref]),
   # a git URL, or an http(s) URL to an agents-standard marketplace.json.
+  # "EvilFreelancer/rpa-skills", the catalogue the bundled rpa-* skills are
+  # published from, is always in effect as a system source and does not belong
+  # here: it is listed and synced beside this key and cannot be removed.
   # sources:
   #   - "EvilFreelancer/rpa-skills"
   #   - "https://example.com/skills/marketplace.json"
@@ -281,6 +289,43 @@ tools:
   #   default_timeout_seconds: 900  # hard limit without a timeout or an estimate
   #   max_timeout_seconds: 3600     # ceiling for any requested or estimated timeout
   #   output_buffer_bytes: 262144   # in-memory output window; full log goes to disk
+
+  # Web search: which engines the websearch tool asks, in what order their results merge,
+  # and what it may spend asking them. Every engine reports its own outcome next to the
+  # results ("ok", "empty", or "blocked" with a reason), so a backend that was turned away
+  # is named instead of being counted as "the web has nothing".
+  #
+  # The default set is brave then bing. "ddg" and "google" are available but not asked by
+  # default: from a server DuckDuckGo answers every query with an anti-bot page and Google
+  # renders its results in the browser, so both return nothing. "searxng" points at your
+  # own instance and is the durable choice - it is not rate-limited against its owner and
+  # is never served a decoy result set. See docs/features/web-search.md.
+  # websearch:
+  #   engines: [brave, bing]        # merge order; brave, bing, ddg, google, searxng
+  #   engine_timeout_seconds: 8     # per-engine budget
+  #   total_timeout_seconds: 20     # budget for the whole search
+  #   max_concurrent_engines: 4     # how many engines are asked at once
+  #   snippet_chars: 320            # per-result description cap
+  #   cache_ttl_seconds: 300        # reuse an engine answer for this long; negative = off
+  #   searxng_url: ""               # e.g. http://localhost:8080 (enable format: json there)
+  #   brave_api_key: ""             # official Brave Search API instead of the public page;
+  #                                 # empty reads BRAVE_API_KEY (environment or ~/.coddy/.env)
+
+  # HTTP requests: the http_request tool is the agent's curl (any method, headers, bodies,
+  # multipart uploads, downloads to a file, a proxy and the certificate check per request).
+  # Under permission_mode ask or accept_edits a request asks unless its destination is
+  # listed here or was approved in the session, and an approval of a destination does not
+  # approve the files, the proxy or the unchecked certificate of a later request by itself.
+  # An entry here also covers uploads and verify_tls: false for that destination; a proxy
+  # needs an entry of its own, and under ask a download to a file still asks. The tool
+  # refuses no address (localhost included), so bypass reaches anything the host can.
+  # See docs/features/http-requests.md.
+  # http_request:
+  #   allowlist:
+  #     - api.github.com              # a host, any scheme and port
+  #     - "*.internal.example.com"    # subdomains only
+  #     - localhost:8080              # host and port
+  #     - https://api.example.com/v1/ # an address prefix
 
 # Subagents: child agents the model can delegate to with spawn_agent. A definition is a
 # markdown file with YAML frontmatter (name, description, model, mode, tools,
@@ -386,6 +431,8 @@ tools:
 # memory:
 #   enable: false
 #   model: ""
+#   fallback_models: []  # tried in order when the model above them fails; the session model is
+#                        # the last resort whether or not it is listed
 #   dir: "" # default ${CODDY_HOME}/memory when empty
 #   recall_max_turns: 6
 #   persist_max_turns: 12

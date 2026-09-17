@@ -18,11 +18,60 @@ Nothing to compact: there is no earlier conversation to summarize yet.
 Compaction is disabled in the configuration (compaction.enable: false).
 ```
 
-Over HTTP the same action is `POST /coddy/sessions/{id}/compact` with an optional body `{"instructions": "..."}`; it answers with the summary and the message counts, `400` when compaction is disabled, `409` while a turn holds the session and for a read-only child session ([HTTP API](../reference/http-api.md)).
+Over HTTP the same action is `POST /coddy/sessions/{id}/compact` with an optional body `{"instructions": "..."}`; it answers with the summary and the message counts, `400` when compaction is disabled, `409` while a turn holds the session, while it is being deleted and for a read-only child session ([HTTP API](../reference/http-api.md)). It runs as a turn of the session, so `GET /coddy/events` announces its start and end and a browser tab viewing the session reloads what changed.
 
 ## Automatic compaction
 
-The agent estimates the context it is about to send - system prompt, tool definitions, rules, skills, MCP and the conversation - and compares it with the model's `max_context_tokens`. When the estimate reaches `compaction.threshold_percent` of it (80 by default) the history is compacted before the call: once before the first model call of a turn, and again between rounds when tool results grew the context past the threshold mid-turn. A model entry without `max_context_tokens` in `config.yaml` never compacts automatically; `/compact` still works. Automatic compaction is not forced: it needs more user turns than `keep_recent_turns` in the visible window, and any failure - nothing to compact, a summariser error, a hook veto - is logged and the turn continues uncompacted.
+The agent estimates the context it is about to send - system prompt, tool definitions, rules, skills, MCP and the conversation - and compares it with the context window of the session's model. When the estimate reaches `compaction.threshold_percent` of the window (80 by default) the history is compacted before the call: once before the first model call of a turn, a turn resumed after a permission answer included, and again between rounds when tool results grew the context past the threshold mid-turn. Any failure - a summariser error, a hook veto - is logged and the turn continues uncompacted.
+
+### The context window
+
+Every reader resolves the window the same way - the trigger, the `usage_update` behind the console's context percentage, and the `max_context_tokens` of `GET /v1/models` that the web UI draws its context ring against - so what the ring shows is what the trigger measures:
+
+1. the model entry's `max_context_tokens`;
+2. the window the provider's model listing reports for the model: `limit.context` (the NeuralDeep hub), `context_length` (OpenRouter), `max_model_len` (vLLM), `max_context_length` (LM Studio) or `context_window`. The listing is read for `neuraldeep` providers and for `openai` providers with an explicit `api_base`, never for api.openai.com, Anthropic or Codex, whose listings carry no window. It is read when a turn starts or the model list is served, with a turn waiting at most three seconds for a listing that has never answered, and it is trusted for an hour; a failed read is retried after five minutes;
+3. 128000.
+
+Set `max_context_tokens` when the provider reports no window, or a larger one than the deployment actually serves (a local server started with a smaller context).
+
+### Few long turns
+
+Automatic compaction keeps `keep_recent_turns` user turns verbatim when the window holds more than that. When it does not - a session of a few long agent turns, where the context outgrows the window without many prompts - it keeps fewer, down to the prompt being answered, which it never folds. With only that prompt in the window there is nothing to compact: the turn logs it once and continues.
+
+## The model can ask for it
+
+The threshold is a guess made before a call; the model is the one that knows what it just read. A build log it pasted, a file it no longer needs, a search that returned far more than expected - the model sees the context fill and can fold the history itself with the `compact_context` tool, instead of waiting for the trigger or for the operator to type `/compact`:
+
+```json
+{"instructions": "keep the file paths and the failing test"}
+```
+
+`instructions` is optional and steers the summary exactly as the text after `/compact` does. The call behaves like a manual compaction - it folds whatever exists - and the tool answers with the same line the command does, so the model reads back what it did and continues on the shortened history: the loop rebuilds the request from the folded transcript before its next call. The tool is offered in agent and plan mode, and hidden entirely when `compaction.enable` is false. Ask mode does not get it, because every tool offered there is read-only; the operator's `/compact` and the automatic trigger still work in that mode.
+
+## A history larger than one summarization request
+
+Before any of it, the head is deduplicated: a line the conversation already carried verbatim is dropped, keeping the first copy where it stands, and each entry says how many repeats went. A session fills its window by repeating itself - the same build log pasted after every attempt, the same file read a dozen times - and the summariser learns nothing from the second copy while paying for it in full (issue #273). Short lines are left alone: a closing brace and a bare number are structure, and dropping them would mangle the code the summary has to read.
+
+Folding used to be one call: the whole head of the conversation in a single request to the summariser. That holds while the session is near the window it is measured against, and stops holding exactly when compaction matters most. A session that ran far past its window - a model that kept reading large files, an automatic trigger that never fired because the window was unknown - arrives at `/compact` with a history several times the summariser's own window, and the provider refuses the request:
+
+```text
+compaction LLM call: 400 Bad Request: this model's maximum context length is exceeded
+```
+
+That left the session stuck: too large to send, and the only thing that could shrink it was the call that would not go out.
+
+A summariser that refuses is not the end of it either. `compaction.fallback_models` lists the models tried, in order, when the one before them fails, and the session's own model is the last resort whether or not it is listed - so a `compaction.model` pointing at a deployment that is down, overloaded or gone no longer leaves a full session with no way out (issue #247).
+
+Such a history is now folded in passes. Each pass carries the summary of everything folded so far plus the next run of transcript, both sized against the summariser's own context window (`compaction.model`'s, when it names another model), and answers with one summary covering both. The last pass's answer is what goes into the transcript, so a compaction that took seven calls leaves the session looking exactly like one that took a single call. A pass the provider still refuses is retried with fewer messages, and a single entry too large even on its own is sent with its middle elided, head and tail kept - the fold makes progress rather than stopping on the one message it exists to fold away. `POST /coddy/sessions/{id}/compact` reports the passes as `steps`.
+
+## What the session shows while it runs
+
+Every compaction, whichever way it started, draws the row a tool call draws: announced as `compact_context` when it begins, updated with the pass it is on while a multi-pass fold runs (`compacting context: pass 3 of 7`), and closed with what it folded. Before this the session simply went quiet for as long as the summariser took, which a fold of several calls over a large history makes hard to sit through.
+
+![The compact_context row while a compaction runs](../assets/compaction/compact-row-running-dark-1280.png)
+*`/compact` sent from the composer: the row says what is running, above the answer of the compaction before it. Captured from the running UI.*
+
+The row a compaction draws for itself is live: it reaches whoever is watching the session - the composer that sent `/compact`, a second browser tab, a console on `--remote` - and what stays in the transcript afterwards is the compaction summary row. A compaction the model asked for is different, because there the row already exists: the `compact_context` call reuses it, so the passes appear under the call that ordered them, and it stays in the transcript like any other tool call.
 
 ## What is kept and what is summarised
 
@@ -34,7 +83,15 @@ The summary is requested from `compaction.model` when set, otherwise from the se
 
 The summary row is a user-role message flagged `compaction_summary` that starts with `The earlier conversation was compacted. Summary of the compacted part:`; the model's window begins at the latest such row, and the rows before it stay in `messages.json` for the transcript only. `PreCompact` hooks run before either trigger and may veto it, `PostCompact` hooks receive the summary ([Hooks](hooks.md#events)).
 
-After a compaction the context estimate is recomputed and published as a `usage_update` with `used` and `size`, which is what the composer's context ring and the console footer's context percentage show; `GET /coddy/sessions/{id}/stats` returns the same breakdown by category.
+After a compaction the context estimate is recomputed and published as a `usage_update` with `used` and `size`, which is what the composer's context ring and the console footer's context percentage show; `GET /coddy/sessions/{id}/stats` returns the same breakdown by category. Every client of a shared session reads the smaller number: the tab that sent the turn from its own stream, another tab watching the turn from `GET /coddy/sessions/{id}/composer-stream` (the same frames), and a tab that only views the session from the stats it reloads when `turn_ended` arrives. A compaction folds the turns before the kept tail, so the numbers fall when the bulk of the context sits in older turns; a large last message stays verbatim until newer turns push it past `keep_recent_turns`.
+
+The web UI also updates the session's context window from `usage_update.size` on either stream. If a provider listing arrives after `/v1/models` returned the 128000 fallback, the ring adopts the reported window without a reload. Stats refreshes preserve that live window; selecting a different model or saving the configuration uses the model listing until a fresh usage update arrives. A window received for one session never changes another session's ring.
+
+![Context using the fallback window](../assets/compaction/context-window-before-dark-1280.png)
+*Before the provider answers: the same 120000 tokens fill 93.8% of the fallback window. Captured from the running UI with a stand-in provider.*
+
+![Context using the late provider window](../assets/compaction/context-window-after-dark-1280.png)
+*After the stream reports a 262144-token window: 45.8%, without reloading. Narrow layout: [before](../assets/compaction/context-window-before-dark-390.png) and [after](../assets/compaction/context-window-after-dark-390.png).*
 
 ## What the transcript shows
 
@@ -59,28 +116,47 @@ Eviction is the second projection over the same history: the persisted transcrip
 ```yaml
 compaction:
   enable: true             # master switch: the command and the automatic trigger
-  threshold_percent: 80    # auto-compact at this percent of models[].max_context_tokens (1..100)
+  threshold_percent: 80    # auto-compact at this percent of the model's context window (1..100)
   keep_recent_turns: 2     # user turns kept verbatim; 0 summarises everything
   model: ""                # models[].model for the summariser; empty = the session's model
   result_eviction:
     enable: true
     keep_recent: 2         # most recent read/grep results kept intact
     min_result_bytes: 2000 # results at or below this size are never evicted
+    start_percent: 50      # evict only once the context reaches this percent of the window
 ```
 
 | Key | Default | Meaning |
 |---|---|---|
 | `enable` | `true` | compaction at all: the command, the REST route and the automatic trigger |
-| `threshold_percent` | `80` | the automatic trigger, as a percent of the model's `max_context_tokens` |
+| `threshold_percent` | `80` | the automatic trigger, as a percent of the model's [context window](#the-context-window) |
 | `keep_recent_turns` | `2` | user turns (with the activity after each) that stay verbatim |
 | `model` | `""` | a `models[].model` for the summariser when the session's model should not summarise its own history |
 | `result_eviction.enable` | `true` | collapse superseded `read` and `grep` results |
 | `result_eviction.keep_recent` | `2` | most recent candidates kept as the working window |
 | `result_eviction.min_result_bytes` | `2000` | results at or below this size are left alone |
+| `result_eviction.start_percent` | `50` | how full the context must be before eviction starts; `0` evicts from the first result |
 
-The field table with types and validation is in the [config.yaml reference](../reference/config.md#compaction); the keys are ordinary settings, editable in the **Context compaction** section of the web UI's Settings. The one thing a model entry needs for the automatic trigger is `max_context_tokens`: without it the threshold has nothing to compare against.
+`start_percent` exists because eviction and the provider's prompt cache pull in
+opposite directions. A placeholder is written **into the middle of the replayed
+history**, and a provider caches a request by its prefix, so one collapsed result
+throws away the cached copy of every message behind it. With a sliding working
+window that happens on nearly every step, and a long conversation is then
+reprocessed at full price to save a few thousand tokens the window was not short
+of yet. Below the mark the history therefore goes out exactly as the provider
+already has it; above it, the room matters more than the cache. A model entry
+without `max_context_tokens` cannot be measured and evicts from the first result,
+as it always did. See *The turn context block* in
+[react-agent.md](../contributing/react-agent.md) for the other half of the same
+story - what Coddy stopped putting in the system prompt for the same reason.
+
+The field table with types and validation is in the [config.yaml reference](../reference/config.md#compaction); the keys are ordinary settings, editable in the web UI's Settings on the **Context compaction** tab, which follows **ReAct agent** because it is the same loop deciding what to send the model (`#/settings/compaction`). The window the threshold is a percent of belongs to the model entry: its `max_context_tokens`, else what its provider reports, else 128000 ([The context window](#the-context-window)).
 
 ## Testing
 
-- Executable specs in `features/`: `context_compaction.feature` (the kept turns, the summary in the next request, the smaller context over ACP; harness `internal/agent/bdd_compaction_test.go`), `context_compaction_command.feature` (`/compact` over the prompt surface and the REST endpoint; `external/httpserver/bdd_compaction_http_test.go`), `context_compaction_auto.feature` (a prompt over the threshold compacts before the reply; `external/httpserver/bdd_compaction_auto_test.go`), `context_result_eviction.feature` (marked pages and searches survive, unmarked ones collapse, the output limit; `internal/agent/bdd_result_eviction_test.go`).
-- Unit tests: `internal/session/compaction_test.go` (the split index and the visible window), `internal/agent/result_eviction_test.go` (pins, staleness, placeholders), `internal/config/compaction_test.go` (defaults and validation).
+- Executable specs in `features/`: `context_compaction.feature` (the kept turns, the summary in the next request, the smaller context over ACP, a history folded in passes with the row the client watches, and the model folding its own history through `compact_context`; harness `internal/agent/bdd_compaction_test.go`), `context_compaction_command.feature` (`/compact` over the prompt surface and the REST endpoint; `external/httpserver/bdd_compaction_http_test.go`), `context_compaction_auto.feature` (a prompt over the threshold compacts before the reply, and a model without `max_context_tokens` compacts at the window its provider reports, the one `GET /v1/models` shows; `external/httpserver/bdd_compaction_auto_test.go`), `context_result_eviction.feature` (marked pages and searches survive, unmarked ones collapse, the output limit; `internal/agent/bdd_result_eviction_test.go`).
+- Unit tests: `internal/session/compaction_test.go` (the split index and the visible window), `internal/session/context_window_test.go` (the resolution order, which providers are asked, the listing cache and its bounded wait), `internal/llm/model_list_test.go` (the window fields of a listing), `internal/agent/react_test.go` (the threshold, the fewer kept turns, the resumed turn), `internal/agent/compact_fold_test.go` (the pass budget and its floor, where a pass is cut, an entry elided because it does not fit alone, the retry on a refused pass, and the prompt being answered surviving `keep_recent_turns: 0`), `internal/agent/result_eviction_test.go` (pins, staleness, placeholders), `internal/config/compaction_test.go` (defaults and validation).
+- Live, against a real provider:
+  - `examples/httpserver/http_e2e_compact_auto.py` boots its own `coddy serve` with a model that has no `max_context_tokens`, checks that the web UI's window, the stream's `usage_update` and the trigger agree, and that the session compacts without `/compact`;
+  - `examples/httpserver/http_e2e_compact_clients.py` plays three clients of one session - the sender, a second tab on the composer stream, an idle viewer on the stats - and checks that all of them read the context usage fall after `/compact`, after `POST .../compact` (announced on `GET /coddy/events`) and after an automatic compaction;
+  - `examples/cli/cli_e2e_compact.py` drives the console in a pty and checks that the footer's context percentage falls after `/compact` and stays down on the next turn.

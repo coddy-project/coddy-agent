@@ -14,7 +14,8 @@ import type { CoddyPermissionOption } from "./permissionTypes";
  * by stripping the known English prefix -- the same "match the backend's text"
  * approach `compactionSummary.ts` and `loopGuardNotice.ts` already use. An
  * unrecognised shape falls back to the backend's own text, which is still
- * correct, merely untranslated.
+ * correct, merely untranslated. The http_request grants (`allow_always_url`,
+ * `allow_always_origin`) name their address or origin the same way.
  */
 export function permissionOptionLabel(opt: CoddyPermissionOption): string {
   switch (opt.optionId) {
@@ -29,6 +30,11 @@ export function permissionOptionLabel(opt: CoddyPermissionOption): string {
       return grant
         ? t("prompts.allowAlwaysProgram", { program: grant })
         : opt.name;
+    }
+    case "allow_always_url":
+    case "allow_always_origin": {
+      const target = programGrantFromOptionName(opt.name);
+      return target ? t("prompts.allowAlwaysTarget", { target }) : opt.name;
     }
     default:
       return opt.name;

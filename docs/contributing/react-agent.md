@@ -41,18 +41,10 @@ Working directory: {{.CWD}}
 {{if .Skills}} ... skill catalog + always-active/glob-matched bodies
           (invoked /name bodies are injected into the user message instead) ... {{end}}
 
-{{if .TodoList}}
-### Current todo checklist
-{{.TodoList}}
-{{end}}
-
 {{if .Memory}}
 ## Session memory
 {{.Memory}}
 {{end}}
-
-## Current UTC time
-{{.UTCNow}}
 
 <environment_context>
 <os>...</os>
@@ -61,9 +53,92 @@ Working directory: {{.CWD}}
 </environment_context>
 ```
 
-The **`TodoList`** body is markdown from **`internal/tools/todo.FormatPlanMarkdown`** applied to **`session.Plan`**. It is injected **only when** at least one entry exists. Embedded templates treat an empty **`TodoList`** as false for **`{{if .TodoList}}`**. The environment block is appended outside the configurable template so OS and shell facts cannot be accidentally omitted by a custom prompt.
+The environment block is appended outside the configurable template so OS and shell facts cannot be accidentally omitted by a custom prompt.
 
-Immediately before **each** provider **`Stream`** call within a single **`session/prompt`**, Coddy reapplies **`Render`** so the **`system`** message reflects todo changes from tools executed earlier in that same episode. **`UTCNow`** is set to **`time.Now().UTC()`** formatted as RFC3339 on each render so the footer clock advances across ReAct iterations.
+### The system prompt is frozen for the turn
+
+The system message is rendered **once per turn**, by **`buildSystemPromptParts`**
+(**`internal/agent/system_prompt.go`**), and every step of the ReAct loop then sends that same
+message back byte for byte. Nothing rewrites **`messages[0]`** between the steps.
+
+The reason is the provider's prompt cache. A provider caches a request by its **prefix** - the tool
+definitions, then the messages from the start - and the first byte that differs from the previous
+request throws away everything cached behind it. The system message sits in front of the whole
+conversation, so a wall clock with seconds in it, or a checklist row a tool had just rewritten, used
+to make a fifty-thousand-token history look new on every single request. Alibaba's gateway caches in
+blocks of 1024 tokens; a difference inside the first block leaves **`cached_tokens`** at zero no
+matter how much identical history follows.
+
+### The turn context block
+
+What does move while a turn runs travels **after** the replayed history, as one trailing `user`
+message built by **`buildTurnContext`** (**`internal/agent/turn_context.go`**):
+
+```
+<turn_context>
+Runtime state refreshed by Coddy for this step. It is not a message from the user; do not answer it, just take it into account.
+
+## Current UTC time
+2026-09-15T11:39:03Z
+
+## Current todo checklist
+- [ ] ...
+
+## Project rules activated by this turn
+### go-files (Go style)
+...
+</turn_context>
+```
+
+- the **wall clock**, always - stamped once when the turn's prompt was rendered and reused by every
+  step of that turn, because the lane re-issues a step that produced nothing and that replay has to
+  be the request that failed, byte for byte (*Lane replays* in
+  [architecture.md](architecture.md));
+- the **todo checklist** (markdown from **`internal/tools/todo.FormatPlanMarkdown`** over
+  **`session.Plan`**), when the session has one - so a **`coddy_todo_*`** call in this turn is
+  reflected on the very next step;
+- the **rules a tool call activated** after the system prompt was frozen - a glob rule or a nested
+  **`AGENTS.md`** that a filesystem tool reached mid-turn (**`activateScopedRulesForToolCall`**).
+  They are **not** folded back into the frozen prompt; the next turn's prompt picks them up from
+  the sticky set, and **`rules.Added`** is what keeps the block down to what the model has not been
+  given yet.
+
+The block is never persisted: it is appended at the **`provider.Stream`** send boundary, next to the
+read/grep eviction projection, and the working message slice the loop keeps appending to never sees
+it. Only the last few hundred tokens of a request are therefore uncached; the conversation behind
+them is a cache hit.
+
+**`UTCNow`** and **`TodoList`** stay available to a template under **`prompts.dir`**, which may still
+render them - at the cost of that cache, on every request.
+
+### The other half: read/grep eviction
+
+Freezing the system message is only half of a stable prefix. Read/grep result
+eviction (**`internal/agent/result_eviction.go`**) writes placeholders **into the middle** of the
+replayed history, which invalidates the cache from that point on just as surely. With the default
+sliding working window that used to happen on nearly every step, so the conversation was reprocessed
+each time even with the prompt frozen. **`compaction.result_eviction.start_percent`** (default 50)
+holds the projection off until the estimated context reaches that share of the model's
+**`max_context_tokens`**; below it the history goes out exactly as the provider already has it. The
+decision is measured on the **unpruned** messages, so pruning cannot push the estimate back under the
+mark and make the projection flap between two shapes. See
+[compaction.md](../features/compaction.md).
+
+### Reading the cache hit
+
+Providers report the cached share of a request as
+**`usage.prompt_tokens_details.cached_tokens`** (OpenAI-compatible) or
+**`cache_read_input_tokens`** (Anthropic). Coddy carries it as
+**`llm.Response.CachedInputTokens`** and logs it per call:
+
+```
+export CODDY_LOG_LEVEL=debug   # or logger.levels: {agent: debug}
+# msg="llm call usage" input_tokens=6044 cached_input_tokens=5120 output_tokens=12
+```
+
+A long session whose second step shows **`cached_input_tokens`** near zero means something is
+rewriting the prefix. Most OpenAI-compatible servers omit the field entirely, and then it reads
+zero without meaning a miss.
 
 ### Agent identity
 
@@ -177,7 +252,7 @@ Embedded **`agent.md`** describes agent behavior (quality, shells, todos, git wo
 Representative builtins (excluding MCP-namespaced tools):
 
 - `read_file`, `write_file`, `write_text_file`, `list_dir`, `search_files`
-- `search_web`, `extract_page_content`
+- `websearch`, `webfetch`, `http_request`
 - `run_command`, `apply_diff`
 - Filesystem mutations: **`mkdir`**, **`rm`**, **`rmdir`**, **`touch`**, **`mv`** (subset may require permission paths)
 - Session checklist: **`coddy_todo_plan_read`**, **`coddy_todo_plan_replace`**, **`coddy_todo_plan_archive`**, **`coddy_todo_item_add`**, **`coddy_todo_item_remove`**, **`coddy_todo_item_update`**, **`coddy_todo_item_move`**
@@ -190,7 +265,7 @@ Embedded **`plan.md`** keeps the default **registry** surface read-oriented (no 
 Representative builtins exposed to the LLM (registry allowlist):
 
 - `read_file`, `list_dir`, `search_files`
-- `search_web`, `extract_page_content`
+- `websearch`, `webfetch`
 - `run_command`
 
 Plus MCP tools (**`serverName__toolName`**). When ready to ship implementation work, prompts instruct switching the client to **`agent`** mode.

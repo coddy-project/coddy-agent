@@ -55,6 +55,7 @@ func (p *blockingProvider) Stream(ctx context.Context, messages []Message, tools
 		StopReason:         resp.StopReason,
 		InputTokens:        resp.InputTokens,
 		OutputTokens:       resp.OutputTokens,
+		CachedInputTokens:  resp.CachedInputTokens,
 		ReasoningSignature: resp.ReasoningSignature,
 	}
 	any := false

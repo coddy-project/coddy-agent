@@ -65,7 +65,6 @@ func (s *Server) persistedSessionState(ctx context.Context, sessionID string) *s
 	}
 	if _, err := s.mgr.HandleSessionLoad(ctx, acp.SessionLoadParams{
 		SessionID: sessionID,
-		CWD:       s.defaultCWD,
 	}); err != nil {
 		return nil
 	}

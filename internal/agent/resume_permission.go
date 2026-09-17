@@ -124,6 +124,7 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 		CWD:              a.state.GetCWD(),
 		PermissionMode:   effectivePermMode(a.state, a.cfg),
 		CommandAllowlist: a.cfg.Tools.CommandAllowlist,
+		HTTPAllowlist:    a.cfg.Tools.HTTPRequest.Allowlist,
 		SessionID:        a.state.GetID(),
 		SessionDir:       sessionDir,
 		ArchiveActiveMarkdown: func() error {
@@ -156,6 +157,7 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 		OutputLineLimits:  a.cfg.Tools.OutputLimits.AsMap(),
 		Background:        a.backgroundPool(sessionDir),
 		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
+		WebSearch:         webSearchSettings(a.cfg),
 	}
 	a.applySubagentEnv(env, mode)
 	if a.configReloader != nil {
@@ -172,10 +174,12 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 			a.registry = tools.NewRegistryForEnvironment(next, a.environment)
 			env.PermissionMode = effectivePermMode(a.state, next)
 			env.CommandAllowlist = append([]string(nil), next.Tools.CommandAllowlist...)
+			env.HTTPAllowlist = append([]string(nil), next.Tools.HTTPRequest.Allowlist...)
 			env.SSHConnectTimeout = next.Tools.SSHConnectTimeout
 			env.OutputLineLimits = next.Tools.OutputLimits.AsMap()
 			env.Background = a.backgroundPool(sessionDir)
 			env.BackgroundEnabled = next.Tools.Background.ResolvedEnabled()
+			env.WebSearch = webSearchSettings(next)
 			return warnings, nil
 		}
 	}
@@ -221,7 +225,18 @@ func (a *Agent) continueReAct(ctx context.Context, mode string, toolEnv *tools.E
 	if err != nil {
 		return string(acp.StopReasonRefused), fmt.Errorf("no LLM configured: %w", err)
 	}
-	messages := a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
+	sys := a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles)
+	messages := a.buildMessages(sys.Content)
+	// The continuation is the last part of the turn that ran the plan, unless
+	// it stops on another gate of its own (react.go).
+	defer a.releasePlanContext()
+	// The same check Run makes before its first call: runReActLoop only checks
+	// between steps, and the result just approved may be what crossed the
+	// threshold.
+	if a.maybeAutoCompact(ctx) {
+		sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles)
+		messages = a.buildMessages(sys.Content)
+	}
 	maxTurns := a.cfg.Agent.MaxTurns
 	if maxTurns <= 0 {
 		maxTurns = 30
@@ -230,7 +245,7 @@ func (a *Agent) continueReAct(ctx context.Context, mode string, toolEnv *tools.E
 	toolEnv.SendDesignPlanUpdate = func(doc plans.Document) {
 		tools.SendDesignPlanUpdate(toolEnv, doc)
 	}
-	return a.runReActLoop(ctx, mode, messages, toolDefs, transport, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns)
+	return a.runReActLoop(ctx, mode, sys, messages, toolDefs, transport, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns)
 }
 
 func lastUserText(msgs []llm.Message) string {

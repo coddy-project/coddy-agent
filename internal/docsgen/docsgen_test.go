@@ -273,3 +273,34 @@ func TestRenderHubAndLLMSIndex(t *testing.T) {
 		t.Fatalf("llms index:\n%s", idx)
 	}
 }
+
+// The llms files are built for the site on every run and are not kept in this
+// repository: a copy in the index bought nothing and conflicted in every branch
+// that touched any page, because both sides regenerate the same concatenation
+// of all of them.
+func TestLLMSFilesAreRenderedButNotKeptInTheRepository(t *testing.T) {
+	res := &Result{Files: map[string]string{
+		LLMSFile:         "index",
+		LLMSFullFile:     "everything",
+		"docs/README.md": "hub",
+	}}
+	root := t.TempDir()
+	if err := res.Write(root); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{LLMSFile, LLMSFullFile} {
+		if _, err := os.Stat(filepath.Join(root, rel)); !os.IsNotExist(err) {
+			t.Fatalf("%s was written into the repository", rel)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "docs/README.md")); err != nil {
+		t.Fatalf("a page that does belong here was not written: %v", err)
+	}
+	// And their absence is not a staleness problem, or a fresh checkout would
+	// fail the check it is supposed to pass.
+	for _, p := range res.Stale(root) {
+		if p.File == LLMSFile || p.File == LLMSFullFile {
+			t.Fatalf("a published-only file was reported as stale: %v", p)
+		}
+	}
+}

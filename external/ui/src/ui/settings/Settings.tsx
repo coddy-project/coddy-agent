@@ -117,10 +117,11 @@ export function Settings(props: {
   onSessionsDeleted?: (ids: string[]) => void;
   /**
    * Workspace of the viewed session. The Subagents tab lists the definitions of
-   * that workspace and writes its approvals there, because a receipt is keyed
-   * by workspace and spawn_agent checks the session's own cwd.
+   * that workspace, because spawn_agent resolves them against the session's own
+   * cwd.
    */
   workspacePath?: string | undefined;
+  onSessionTagsChanged?: (id: string, tags: string[]) => void;
 }) {
   const [schema, setSchema] = useState<JsonSchema | null>(null);
   const [doc, setDoc] = useState<Record<string, unknown>>({});
@@ -290,6 +291,9 @@ export function Settings(props: {
                   ? { onSessionsDeleted: props.onSessionsDeleted }
                   : {})}
                 workspacePath={props.workspacePath}
+                {...(props.onSessionTagsChanged
+                  ? { onSessionTagsChanged: props.onSessionTagsChanged }
+                  : {})}
               />
             ) : null}
           </div>
@@ -318,6 +322,9 @@ export function Settings(props: {
                   : {})}
                 {...(props.onSessionsDeleted
                   ? { onSessionsDeleted: props.onSessionsDeleted }
+                  : {})}
+                {...(props.onSessionTagsChanged
+                  ? { onSessionTagsChanged: props.onSessionTagsChanged }
                   : {})}
               />
             </div>

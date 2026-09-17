@@ -8,7 +8,7 @@ import (
 	"net/http"
 )
 
-//go:embed index.html styles.css app.js coddy-favicon.svg favicon-32.png favicon.ico apple-touch-icon.png
+//go:embed index.html styles.css app.js events-worker.js coddy-favicon.svg favicon-32.png favicon.ico apple-touch-icon.png
 var Assets embed.FS
 
 // Handler serves the bundled SPA and sets Cache-Control on the fixed asset paths
@@ -19,7 +19,7 @@ func Handler() http.Handler {
 	next := http.FileServer(http.FS(Assets))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/", "/index.html", "/app.js", "/styles.css",
+		case "/", "/index.html", "/app.js", "/events-worker.js", "/styles.css",
 			"/coddy-favicon.svg", "/favicon-32.png", "/favicon.ico", "/apple-touch-icon.png":
 			w.Header().Set("Cache-Control", "no-cache")
 		default:

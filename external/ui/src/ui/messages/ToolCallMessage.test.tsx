@@ -487,7 +487,7 @@ test("completed mkdir uses the rich tool preview without approval actions", () =
   ).toContain("created directory H:\\workspace\\build");
 });
 
-test("question tool omits duration from summary row", () => {
+test("question tool names the act and omits duration from its summary row", () => {
   const { container } = render(
     <ToolCallMessage
       toolCallId="tc-q"
@@ -501,12 +501,112 @@ test("question tool omits duration from summary row", () => {
     />,
   );
   expect(container.querySelector(".thinking-dur")).toBeNull();
+  // Every other row names what the call is doing; this one used to name the noun.
   expect(container.querySelector(".thinking-label")?.textContent?.trim()).toBe(
-    "question",
+    "asking",
   );
   openToolDetails();
   expect(screen.getByText("Continue?")).toBeInTheDocument();
-  expect(screen.getByText("Yes")).toBeInTheDocument();
+  // The taken letter is the answer; nothing repeats it underneath.
+  const row = container.querySelector(".question-tool-offer-row");
+  expect(row?.classList.contains("question-tool-offer-row--taken")).toBe(true);
+  expect(row?.textContent).toContain("Yes");
+  expect(container.querySelector(".question-prompt-resolved-a")).toBeNull();
+});
+
+// The card in the transcript keeps only the question and the answer, so this row
+// is the one place the offer survives: what the reader was choosing between, and
+// what the options they did not take said.
+test("the question row records the whole offer, with the taken letters marked", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-offer"
+      title="question"
+      status="completed"
+      argsText={JSON.stringify({
+        questions: [
+          {
+            question: "Which scheduler did you mean?",
+            options: [
+              { label: "Todo plan", description: "A checklist of tasks" },
+              { label: "Background tasks" },
+              { label: "Cron" },
+            ],
+            custom: true,
+          },
+        ],
+      })}
+      resultText={JSON.stringify({ answers: [["Background tasks"]] })}
+    />,
+  );
+  openToolDetails();
+
+  const rows = [...container.querySelectorAll(".question-tool-offer-row")];
+  // Three options plus the free-answer slot, each behind its own letter.
+  expect(rows.map((r) => r.querySelector(".question-prompt-bubble")?.textContent)).toEqual([
+    "A",
+    "B",
+    "C",
+    "D",
+  ]);
+  expect(rows[0]?.textContent).toContain("A checklist of tasks");
+  expect(rows[3]?.textContent).toContain("an answer of their own");
+
+  const taken = rows.filter((r) =>
+    r.classList.contains("question-tool-offer-row--taken"),
+  );
+  expect(taken).toHaveLength(1);
+  expect(taken[0]?.textContent).toContain("Background tasks");
+  expect(container.querySelector(".question-prompt-resolved-a")).toBeNull();
+});
+
+// An answer the reader wrote belongs in the slot they wrote it in: the free row
+// carries their words, not the name of the row.
+test("the free slot carries what the reader typed into it", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-own"
+      title="question"
+      status="completed"
+      argsText={JSON.stringify({
+        questions: [
+          { question: "Which one?", options: [{ label: "A one" }], custom: true },
+        ],
+      })}
+      resultText={JSON.stringify({ answers: [["something else entirely"]] })}
+    />,
+  );
+  openToolDetails();
+
+  const rows = [...container.querySelectorAll(".question-tool-offer-row")];
+  expect(rows).toHaveLength(2);
+  expect(rows[0]?.classList.contains("question-tool-offer-row--taken")).toBe(false);
+  expect(rows[1]?.classList.contains("question-tool-offer-row--taken")).toBe(true);
+  expect(rows[1]?.textContent).toContain("something else entirely");
+  expect(rows[1]?.textContent).not.toContain("an answer of their own");
+  // The words are in the row, so nothing repeats them below it.
+  expect(container.querySelector(".question-prompt-resolved-a")).toBeNull();
+});
+
+test("an unanswered question still says so under the offer", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-waiting"
+      title="question"
+      status="in_progress"
+      argsText={JSON.stringify({
+        questions: [{ question: "Which one?", options: [{ label: "A one" }], custom: true }],
+      })}
+      resultText=""
+    />,
+  );
+  openToolDetails();
+
+  const slot = [...container.querySelectorAll(".question-tool-offer-row")].pop();
+  expect(slot?.textContent).toContain("an answer of their own");
+  expect(container.querySelector(".question-prompt-resolved-a")?.textContent).toBe(
+    "Awaiting answer",
+  );
 });
 
 test("question tool shows human timeline readout instead of raw JSON blobs", () => {
@@ -1548,4 +1648,342 @@ test("a remote shell is not the local interpreter", () => {
   } finally {
     setHostShell("");
   }
+});
+
+// Expanding a long result, scrolling it, then collapsing used to leave the box
+// clipped around wherever the reader had scrolled to: the card reopened in the
+// middle of the output, first line cut in half. The args preview next to it has
+// always reset; the result body has to as well.
+test("collapsing a long result returns it to the top", async () => {
+  const fetchSpy = vi.fn();
+  function Harness() {
+    const [full, setFull] = useState("");
+    const onFetch = useCallback(async (id: string) => {
+      fetchSpy(id);
+      await Promise.resolve();
+      setFull(`${"full line\n".repeat(40)}last full line`);
+    }, []);
+    return (
+      <ToolCallMessage
+        toolCallId="tc-scroll"
+        title="grep"
+        kind="other"
+        status="completed"
+        argsText={JSON.stringify({ pattern: "iPhone 18 price" })}
+        resultText={`${"preview line\n".repeat(18)}...`}
+        fullResultText={full}
+        resultWasTruncated
+        durationMs={2000}
+        onFetchToolCallFull={onFetch}
+      />
+    );
+  }
+  render(<Harness />);
+  openToolDetails();
+
+  fireEvent.click(screen.getByTestId("tool-result-more"));
+  await waitFor(() =>
+    expect(screen.getByTestId("tool-result-less")).toBeInTheDocument(),
+  );
+
+  const viewport = screen.getByTestId("tool-result-viewport");
+  expect(viewport).toHaveClass("tool-result-viewport--scroll");
+  viewport.scrollTop = 240;
+
+  fireEvent.click(screen.getByTestId("tool-result-less"));
+  expect(viewport).toHaveClass("tool-result-viewport--clip");
+  expect(viewport.scrollTop).toBe(0);
+});
+
+// The web tools used to print their own arguments back as a JSON object and their
+// answer as raw source: a search as a wall of braces, a fetched page as Markdown
+// nobody rendered. Both are documents and both now read as documents.
+test("a web search names its query and lists its hits as links", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-search"
+      title="websearch"
+      kind="other"
+      status="completed"
+      argsText={JSON.stringify({ query: "iPhone 18 price", page: 2 })}
+      resultText={JSON.stringify({
+        query: "iPhone 18 price",
+        page: 2,
+        results: [
+          {
+            title: "Ostrovok.ru",
+            url: "https://ostrovok.ru/",
+            description: "Hotel booking service.",
+          },
+        ],
+      })}
+      durationMs={2000}
+    />,
+  );
+  openToolDetails();
+
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent(
+    "iPhone 18 price",
+  );
+  // The argument card names the query and carries no JSON body.
+  expect(screen.queryByTestId("permission-preview-viewport")).toBeNull();
+  expect(screen.getByText("page 2")).toBeInTheDocument();
+  const link = screen.getByRole("link", { name: "Ostrovok.ru" });
+  expect(link).toHaveAttribute("href", "https://ostrovok.ru/");
+  expect(document.querySelector(".tool-result-pre")).toBeNull();
+});
+
+const truncatedSearch = {
+  query: "iPhone 18 announcement September 2026 preorder",
+  page: 1,
+  engines: [
+    {
+      engine: "brave",
+      status: "blocked",
+      results: 0,
+      reason: "http 429",
+      took_ms: 214,
+    },
+    { engine: "bing", status: "ok", results: 10, took_ms: 158 },
+  ],
+  results: Array.from({ length: 12 }, (_, n) => ({
+    title: `Hit ${n + 1}`,
+    url: `https://hit${n + 1}.example/`,
+    description: `Snippet ${n + 1}`,
+    source: "bing",
+  })),
+};
+
+// The row carried the first nineteen lines of the answer, which the engine report
+// fills, so the expanded row printed raw JSON and hid the hits behind More: the
+// reader who opened a search wants its results, not a control that fetches them.
+test("opening a truncated web search loads every hit at once, with no More control", async () => {
+  const pretty = JSON.stringify(truncatedSearch, null, 2);
+  const fetchSpy = vi.fn();
+  function Harness() {
+    const [full, setFull] = useState("");
+    const onFetch = useCallback(async (id: string) => {
+      fetchSpy(id);
+      await Promise.resolve();
+      setFull(pretty);
+    }, []);
+    return (
+      <ToolCallMessage
+        toolCallId="tc-search-full"
+        title="websearch"
+        kind="other"
+        status="completed"
+        argsText={JSON.stringify({ query: truncatedSearch.query })}
+        resultText={pretty.split("\n").slice(0, 19).join("\n") + "\n..."}
+        fullResultText={full}
+        resultWasTruncated
+        durationMs={195}
+        onFetchToolCallFull={onFetch}
+      />
+    );
+  }
+  render(<Harness />);
+  // A closed row costs no request.
+  expect(fetchSpy).not.toHaveBeenCalled();
+
+  openToolDetails();
+  await waitFor(() =>
+    expect(screen.getByRole("link", { name: "Hit 12" })).toBeInTheDocument(),
+  );
+  expect(fetchSpy).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("link", { name: "Hit 1" })).toHaveAttribute(
+    "href",
+    "https://hit1.example/",
+  );
+  expect(screen.queryByTestId("tool-result-more")).toBeNull();
+  expect(screen.queryByTestId("tool-result-less")).toBeNull();
+  expect(screen.getByTestId("tool-result-viewport")).not.toHaveClass(
+    "tool-result-viewport--tall",
+  );
+  expect(document.querySelector(".tool-result-pre")).toBeNull();
+});
+
+test("a web search header carries every parameter of the search", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-search-params"
+      title="websearch"
+      kind="other"
+      status="completed"
+      argsText={JSON.stringify({ query: "go slog", site: "go.dev" })}
+      resultText={JSON.stringify(truncatedSearch)}
+      durationMs={195}
+    />,
+  );
+  openToolDetails();
+
+  const meta = document.querySelector(".permission-preview-meta");
+  // What the tool ran with, defaults included: page 1, fifteen rows, the domain.
+  expect(meta).toHaveTextContent("page 1");
+  expect(meta).toHaveTextContent("max 15");
+  expect(meta).toHaveTextContent("site go.dev");
+  // How each engine answered is read above the hits.
+  const report = screen.getByTestId("web-search-engines");
+  expect(report).toHaveTextContent("brave: blocked (http 429)");
+  expect(report).toHaveTextContent("bing: 10");
+});
+
+// The scheduler tools printed their arguments and their JSON answer as two raw
+// panels. A job action is read as what happened to which job, a job as its fields.
+test("a scheduler action reads as its outcome, not as JSON", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-resume"
+      title="coddy_scheduler_job_resume"
+      status="completed"
+      argsText={JSON.stringify({ job_id: "ai-news-digest" })}
+      resultText={'{"job_id":"ai-news-digest","paused":false}'}
+      durationMs={3}
+    />,
+  );
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent("ai-news-digest");
+  openToolDetails();
+  const card = screen.getByTestId("scheduler-tool-card");
+  expect(card).toHaveTextContent("ai-news-digest");
+  expect(card).toHaveTextContent("resumed");
+  expect(container.textContent).not.toContain('"paused"');
+  expect(container.querySelector(".tool-result-pre")).toBeNull();
+});
+
+test("a scheduled job reads as its fields and its instruction", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-get"
+      title="coddy_scheduler_job_get"
+      status="completed"
+      argsText={JSON.stringify({ job_id: "ai-news-digest" })}
+      resultText={JSON.stringify({
+        job_id: "ai-news-digest",
+        description: "Daily AI news digest",
+        schedule: "0 8 * * *",
+        paused: true,
+        running: false,
+        mode: "agent",
+        body: "Collect **the news**",
+      })}
+      durationMs={3}
+    />,
+  );
+  openToolDetails();
+  const card = screen.getByTestId("scheduler-tool-card");
+  expect(card).toHaveTextContent("Daily AI news digest");
+  expect(card).toHaveTextContent("0 8 * * *");
+  expect(card).toHaveTextContent("paused");
+  expect(screen.getByText("the news").tagName).toBe("STRONG");
+});
+
+test("a fetched page renders as the markdown it already is", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-fetch"
+      title="webfetch"
+      kind="other"
+      status="completed"
+      argsText={JSON.stringify({ url: "https://coddy.dev/" })}
+      resultText={"# Coddy\n\nAn agent that runs where you work."}
+      durationMs={120}
+    />,
+  );
+  openToolDetails();
+
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent(
+    "https://coddy.dev/",
+  );
+  expect(screen.getByRole("heading", { name: "Coddy" })).toBeInTheDocument();
+  expect(document.querySelector(".tool-result-pre")).toBeNull();
+});
+
+// A failed call answers with an error line, not with a document.
+test("a failed web search keeps its error as plain text", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-search-failed"
+      title="websearch"
+      kind="other"
+      status="failed"
+      argsText={JSON.stringify({ query: "iPhone 18 price" })}
+      resultText="error: http 503"
+      durationMs={80}
+    />,
+  );
+  openToolDetails();
+
+  expect(document.querySelector(".tool-result-pre")?.textContent).toBe(
+    "error: http 503",
+  );
+});
+
+// Cross-review: the same label offered twice used to light both letters for one
+// answer, an offer of nothing but a free slot drew no offer at all, and the
+// whitespace normalisation of answers against labels was worth pinning down.
+test("each answer claims one option, even when two carry the same label", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-dup"
+      title="question"
+      status="completed"
+      argsText={JSON.stringify({
+        questions: [
+          { question: "Which?", options: [{ label: "Yes" }, { label: "Yes" }] },
+        ],
+      })}
+      resultText={JSON.stringify({ answers: [["Yes"]] })}
+    />,
+  );
+  openToolDetails();
+
+  const rows = [...container.querySelectorAll(".question-tool-offer-row")];
+  expect(rows).toHaveLength(2);
+  expect(
+    rows.filter((r) => r.classList.contains("question-tool-offer-row--taken")),
+  ).toHaveLength(1);
+});
+
+test("an answer matches a label whose spacing differs", () => {
+  // Both sides come out of the same parser, which collapses runs of whitespace.
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-space"
+      title="question"
+      status="completed"
+      argsText={JSON.stringify({
+        questions: [
+          { question: "Which?", options: [{ label: "Todo  plan" }], custom: true },
+        ],
+      })}
+      resultText={JSON.stringify({ answers: [["Todo   plan"]] })}
+    />,
+  );
+  openToolDetails();
+
+  const rows = [...container.querySelectorAll(".question-tool-offer-row")];
+  expect(rows[0]?.classList.contains("question-tool-offer-row--taken")).toBe(true);
+  // The free slot stays unmarked: the answer was one of the options.
+  expect(rows[1]?.classList.contains("question-tool-offer-row--taken")).toBe(false);
+});
+
+test("an offer of nothing but a free slot still shows that slot", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-free"
+      title="question"
+      status="completed"
+      argsText={JSON.stringify({
+        questions: [{ question: "Say anything", options: [], custom: true }],
+      })}
+      resultText={JSON.stringify({ answers: [["hello"]] })}
+    />,
+  );
+  openToolDetails();
+
+  const rows = [...container.querySelectorAll(".question-tool-offer-row")];
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.querySelector(".question-prompt-bubble")?.textContent).toBe("A");
+  expect(rows[0]?.classList.contains("question-tool-offer-row--taken")).toBe(true);
+  expect(rows[0]?.textContent).toContain("hello");
 });

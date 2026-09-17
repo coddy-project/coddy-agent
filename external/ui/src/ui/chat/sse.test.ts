@@ -36,3 +36,15 @@ test("multi-line data keeps its line breaks", () => {
     { event: "", data: "one\ntwo", id: "" },
   ]);
 });
+
+// The relay tells a subscriber how old a replayed frame is, so the transcript can date
+// a reasoning block or a tool call when it happened rather than when the replay arrived.
+test("the age of a replayed frame is surfaced in milliseconds", () => {
+  const carry = { buf: "" };
+  expect(parseSSEBlocks(`id: 3\nage: 4200\ndata: late\n\n`, carry)).toEqual([
+    { event: "", data: "late", id: "3", ageMs: 4200 },
+  ]);
+  expect(parseSSEBlocks(`age: soon\ndata: x\n\n`, carry)).toEqual([
+    { event: "", data: "x", id: "" },
+  ]);
+});

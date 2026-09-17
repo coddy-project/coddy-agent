@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -365,7 +366,22 @@ type SessionMeta struct {
 	HookContext string `json:"hookContext,omitempty"`
 	Title       string `json:"title,omitempty"`
 	TitlePinned string `json:"titlePinned,omitempty"`
-	UpdatedAt   string `json:"updatedAt,omitempty"`
+	// Tags are the flat labels the listing filters and groups by, normalized
+	// by NormalizeTags before they reach this struct.
+	Tags []string `json:"tags,omitempty"`
+	// Archived takes a session out of the working list without taking it off
+	// disk; ArchivedAt records when that happened.
+	Archived   bool   `json:"archived,omitempty"`
+	ArchivedAt string `json:"archivedAt,omitempty"`
+	// Origin names the surface that started the session: empty for one a
+	// person opened on this host, "gateway:<messenger>" for a conversation a
+	// messenger gateway is holding.
+	Origin string `json:"origin,omitempty"`
+	// Pinned keeps a session at the top of every listing; PinnedAt records when.
+	Pinned     bool   `json:"pinned,omitempty"`
+	PinnedAt   string `json:"pinnedAt,omitempty"`
+	PinnedRank int    `json:"pinnedRank,omitempty"`
+	UpdatedAt  string `json:"updatedAt,omitempty"`
 	// CreatedAt is stamped when the bundle directory is first written and never
 	// moves again. A bundle stored before this field existed carries none: the
 	// moment it was started is not recoverable, so it stays empty rather than
@@ -424,6 +440,7 @@ type permissionGrantsFileData struct {
 	Version  int      `json:"version"`
 	Commands []string `json:"commands,omitempty"`
 	Writes   []string `json:"writes,omitempty"`
+	HTTP     []string `json:"http,omitempty"`
 }
 
 // LoadedSnapshot is session data read from disk (before MCP and skills are attached).
@@ -435,6 +452,7 @@ type LoadedSnapshot struct {
 	Plan                []acp.PlanEntry
 	PermissionCommands  []string
 	PermissionWriteKeys []string
+	PermissionHTTPKeys  []string
 }
 
 // ReadSnapshot loads session.json, messages.json, and todos/active.md if present.
@@ -488,13 +506,14 @@ func (f *FileStore) readSnapshotAt(dir, sessionID string) (*LoadedSnapshot, erro
 		plan = todo.ParsePlanMarkdown(string(b))
 	}
 
-	var permCmds, permWrites []string
+	var permCmds, permWrites, permHTTP []string
 	pgPath := filepath.Join(dir, permissionGrantsFile)
 	if b, readErr := os.ReadFile(pgPath); readErr == nil {
 		var pg permissionGrantsFileData
 		if jsonErr := json.Unmarshal(b, &pg); jsonErr == nil {
 			permCmds = append(permCmds, pg.Commands...)
 			permWrites = append(permWrites, pg.Writes...)
+			permHTTP = append(permHTTP, pg.HTTP...)
 		}
 	}
 
@@ -513,6 +532,7 @@ func (f *FileStore) readSnapshotAt(dir, sessionID string) (*LoadedSnapshot, erro
 		Plan:                plan,
 		PermissionCommands:  permCmds,
 		PermissionWriteKeys: permWrites,
+		PermissionHTTPKeys:  permHTTP,
 	}, nil
 }
 
@@ -544,6 +564,18 @@ type SessionListEntry struct {
 	// Model is the session's own backend override (session.json
 	// selectedModelId); empty when the session ran on the configured default.
 	Model string
+	// Tags are the session's labels, already normalized on the way to disk.
+	Tags []string
+	// Archived marks a session the operator put aside; ArchivedAt says when.
+	Archived   bool
+	ArchivedAt string
+	// Origin is the surface that started the session (see SessionMeta.Origin).
+	Origin string
+	// Pinned keeps the row at the top of every listing; PinnedAt says when.
+	Pinned   bool
+	PinnedAt string
+	// PinnedRank is the place the operator dragged this pin to; 0 = never placed.
+	PinnedRank int
 	// MessageCount counts the persisted transcript rows of every role. The
 	// snapshot behind this listing is already parsed, so it costs no extra read.
 	MessageCount int
@@ -565,6 +597,15 @@ type ListOptions struct {
 	// IncludeSubagents descends into the sessions spawned by spawn_agent,
 	// which are stored inside the bundle of the session that spawned them.
 	IncludeSubagents bool
+	// Archived selects which side of the archive is listed. The zero value is
+	// ArchiveExclude, so every caller written before the archive existed keeps
+	// getting the working list.
+	Archived ArchiveFilter
+	// Tags keeps the sessions carrying any of these labels when non-empty.
+	Tags []string
+	// Origin selects sessions by the surface that started them; the zero value
+	// is every surface.
+	Origin OriginFilter
 }
 
 // ListSnapshots scans Root for persisted sessions (requires session.json).
@@ -635,19 +676,36 @@ func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter s
 	if cwdFilter != "" && !matchesWorkspace(cwdFilter, snap.Meta.CWD) {
 		return out
 	}
-	return append(out, SessionListEntry{
+	if !opts.Archived.Keeps(snap.Meta.Archived) {
+		return out
+	}
+	if !opts.Origin.Keeps(snap.Meta.Origin) {
+		return out
+	}
+	row := SessionListEntry{
 		SessionID:       snap.Meta.ID,
 		CWD:             snap.Meta.CWD,
 		Title:           snap.Meta.Title,
 		UpdatedAt:       snap.Meta.UpdatedAt,
 		CreatedAt:       snap.Meta.CreatedAt,
 		Model:           snap.Meta.SelectedModelID,
+		Tags:            NormalizeTags(snap.Meta.Tags),
+		Archived:        snap.Meta.Archived,
+		ArchivedAt:      snap.Meta.ArchivedAt,
+		Origin:          snap.Meta.Origin,
+		Pinned:          snap.Meta.Pinned,
+		PinnedAt:        snap.Meta.PinnedAt,
+		PinnedRank:      snap.Meta.PinnedRank,
 		MessageCount:    len(snap.Messages),
 		SubagentRun:     snap.Meta.SubagentRun,
 		ParentSessionID: snap.Meta.ParentSessionID,
 		SubagentName:    snap.Meta.SubagentName,
 		SubagentTaskID:  snap.Meta.SubagentTaskID,
-	})
+	}
+	if !SessionMatchesAnyTag(row, opts.Tags) {
+		return out
+	}
+	return append(out, row)
 }
 
 // appendChildRows adds the sessions nested inside dir, and their own children,
@@ -690,9 +748,20 @@ func (f *FileStore) FirstUserMessageContent(sessionID string) (content string, f
 	return "", false, nil
 }
 
-// FilterSnapshotListForSearch keeps sessions where the title, the working directory, or the
-// first role-user message content matches needle (case-insensitive substring), checked in
-// that order because the first two are already in hand and the last needs a file read.
+// matchesAnyTagSubstring reports whether one of the session's tags contains the
+// (already lower-cased) needle. Tags are stored normalized, so no folding here.
+func matchesAnyTagSubstring(tags []string, needle string) bool {
+	for _, tag := range tags {
+		if strings.Contains(tag, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+// FilterSnapshotListForSearch keeps sessions where the title, the working directory, a tag,
+// or the first role-user message content matches needle (case-insensitive substring), checked
+// in that order because the first three are already in hand and the last needs a file read.
 //
 // The working directory is part of the search because it is often how someone remembers a
 // session: not by what they called it, but by which checkout it was about.
@@ -709,6 +778,10 @@ func (f *FileStore) FilterSnapshotListForSearch(entries []SessionListEntry, q st
 			continue
 		}
 		if cwd := strings.ToLower(strings.TrimSpace(row.CWD)); cwd != "" && strings.Contains(cwd, needle) {
+			out = append(out, row)
+			continue
+		}
+		if matchesAnyTagSubstring(row.Tags, needle) {
 			out = append(out, row)
 			continue
 		}
@@ -784,12 +857,41 @@ func (f *FileStore) Save(state *State) error {
 		// the end. Comparing what was encoded against what is already there
 		// costs a memcmp on a path that has just paid for the encoding, and it
 		// is what makes updatedAt follow the content rather than the bookkeeping.
-		if usable && bytes.Equal(data, cached.bytes) {
+		switch {
+		case usable && bytes.Equal(data, cached.bytes):
 			messagesUnchanged = true
-		} else {
+		case !usable:
+			// A cold cache is not evidence that anything changed - it only
+			// means this store has not written here yet, which is the normal
+			// state of the first save after a session is loaded from disk. The
+			// file is the record then, so it is read once and compared; without
+			// this, archiving a conversation the server had not touched since
+			// it started moved updatedAt and sent it to the top of the list.
+			onDisk, readErr := os.ReadFile(msgPath)
+			if readErr == nil && sameTranscript(onDisk, data, msgs) {
+				messagesUnchanged = true
+				// Remember it, so the read happens once rather than on every
+				// save that follows.
+				entry := &persistedMessages{owner: stateID, rev: msgRev, editRev: msgEditRev, count: len(msgs), bytes: data}
+				if st, statErr := os.Stat(msgPath); statErr == nil {
+					entry.size, entry.modTime = st.Size(), st.ModTime()
+				}
+				f.rememberMessages(msgPath, entry)
+				// The bytes may still differ from the file when an older build
+				// wrote it: normalise it once, but without calling that a
+				// change to the conversation.
+				if !bytes.Equal(onDisk, data) {
+					pending = data
+				}
+			} else {
+				pending = data
+			}
+		default:
 			pending = data
 		}
 	}
+	archived, archivedAt := state.ArchiveState()
+	pinned, pinnedAt, pinnedRank := state.PinPlacement()
 	meta := SessionMeta{
 		Version:           sessionFileLayout,
 		ID:                state.ID,
@@ -801,6 +903,13 @@ func (f *FileStore) Save(state *State) error {
 		AgentMemory:       state.GetAgentMemory(),
 		Title:             title,
 		TitlePinned:       strings.TrimSpace(state.GetTitlePinned()),
+		Tags:              state.GetTags(),
+		Archived:          archived,
+		ArchivedAt:        strings.TrimSpace(archivedAt),
+		Origin:            strings.TrimSpace(state.GetOrigin()),
+		Pinned:            pinned,
+		PinnedAt:          strings.TrimSpace(pinnedAt),
+		PinnedRank:        pinnedRank,
 	}
 	if state.GetSchedulerRun() {
 		meta.SchedulerRun = true
@@ -821,13 +930,26 @@ func (f *FileStore) Save(state *State) error {
 	meta.PermissionMode = state.GetPermissionMode()
 
 	// The stamp stands only when this save puts nothing new anywhere - not the
-	// history, and not a field of the meta either. Pinning a title or switching
-	// mode is something persisted, and docs/features/sessions.md promises the
-	// listing follows it. SessionMeta is all scalars, so the two compare
-	// directly once the stamps are taken out of the question.
+	// history, and not a field of the meta either.
+	//
+	// Filing is the exception, and it is the same exception markActivityRead
+	// already makes: updatedAt means "when this conversation last changed" and
+	// the listing is ordered by it, so tagging a session, pinning it or putting
+	// it aside must leave it exactly where it was. Those are bookkeeping *about*
+	// a conversation, not a change to it - an archive that jumped the session to
+	// the top of the list would be the opposite of what archiving is for.
+	//
+	// The tag slice makes SessionMeta uncomparable with ==, so the two are
+	// compared field by field: a reflective compare is nothing next to the
+	// encoding this save already paid for, and it cannot be left stale by a
+	// field somebody adds later.
 	sameMeta := meta
 	sameMeta.UpdatedAt, sameMeta.CreatedAt = prevMeta.UpdatedAt, prevMeta.CreatedAt
-	preserveUpdatedAt := messagesUnchanged && metaExisted && sameMeta == prevMeta
+	sameMeta.Tags = prevMeta.Tags
+	sameMeta.Archived, sameMeta.ArchivedAt = prevMeta.Archived, prevMeta.ArchivedAt
+	sameMeta.Pinned, sameMeta.PinnedAt = prevMeta.Pinned, prevMeta.PinnedAt
+	sameMeta.PinnedRank = prevMeta.PinnedRank
+	preserveUpdatedAt := messagesUnchanged && metaExisted && reflect.DeepEqual(sameMeta, prevMeta)
 
 	updatedAt := time.Now().UTC().Format(time.RFC3339Nano)
 	if preserveUpdatedAt && strings.TrimSpace(prevMeta.UpdatedAt) != "" {
@@ -874,6 +996,7 @@ func (f *FileStore) Save(state *State) error {
 		Version:  permissionGrantsVer,
 		Commands: state.GetPermissionCommandGrants(),
 		Writes:   state.GetPermissionWriteGrants(),
+		HTTP:     state.GetPermissionHTTPGrants(),
 	}
 	if err := writeJSONAtomic(filepath.Join(dir, permissionGrantsFile), pg); err != nil {
 		return err
@@ -1016,6 +1139,24 @@ func truncateRunes(s string, max int) string {
 		return s
 	}
 	return string(rs[:max]) + "..."
+}
+
+// sameTranscript reports whether the file already holds this conversation.
+//
+// Byte equality is the cheap answer and usually the right one, but a bundle
+// written by an older build can encode the same messages differently. Re-encoding
+// it is worth doing; calling it a change to the conversation is not, because the
+// listing is ordered by when a conversation last changed - and archiving one
+// would then send it to the top of the list, which is the opposite of archiving.
+func sameTranscript(onDisk, encoded []byte, msgs []llm.Message) bool {
+	if bytes.Equal(onDisk, encoded) {
+		return true
+	}
+	var stored messagesFileData
+	if err := json.Unmarshal(onDisk, &stored); err != nil {
+		return false
+	}
+	return reflect.DeepEqual(stored.Messages, msgs)
 }
 
 // writeBytesAtomic writes data to path using a unique temp file in the same directory

@@ -40,7 +40,6 @@ func (s *Server) attachBackgroundWaker() {
 		if s.mgr.SessionByID(sessionID) == nil {
 			if _, err := s.mgr.HandleSessionLoad(ctx, acp.SessionLoadParams{
 				SessionID: sessionID,
-				CWD:       s.defaultCWD,
 			}); err != nil {
 				return err
 			}

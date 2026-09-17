@@ -213,3 +213,41 @@ func TestToolCallDirNameKeepsSafeIDsVerbatim(t *testing.T) {
 		t.Fatalf("resolving a derived name again must be a no-op: %q -> %q", a, got)
 	}
 }
+
+// A transcript row reports how long a step took by subtracting these two stamps,
+// and RFC3339 carries whole seconds only: a call that finished inside the second
+// it started in was written down as starting and ending at the same instant, so
+// every step faster than a second read "0ms" once the session was reloaded. The
+// stamps carry milliseconds.
+func TestToolCallTimestampsKeepMilliseconds(t *testing.T) {
+	t.Parallel()
+	sd := t.TempDir()
+	id := "call_subsecond"
+	if err := MarkToolCallStarted(sd, id, "read", "read", "in_progress"); err != nil {
+		t.Fatalf("MarkToolCallStarted: %v", err)
+	}
+	time.Sleep(15 * time.Millisecond)
+	if err := MarkToolCallFinished(sd, id, "read", "read", "completed"); err != nil {
+		t.Fatalf("MarkToolCallFinished: %v", err)
+	}
+	meta, err := ReadToolCallMeta(sd, id)
+	if err != nil {
+		t.Fatalf("ReadToolCallMeta: %v", err)
+	}
+	for name, value := range map[string]string{
+		"startedAt":  meta.StartedAt,
+		"finishedAt": meta.FinishedAt,
+	} {
+		if !strings.Contains(value, ".") {
+			t.Fatalf("%s = %q, want sub-second precision", name, value)
+		}
+		if _, err := time.Parse(time.RFC3339, value); err != nil {
+			t.Fatalf("%s = %q is not RFC3339: %v", name, value, err)
+		}
+	}
+	started, _ := time.Parse(time.RFC3339, meta.StartedAt)
+	finished, _ := time.Parse(time.RFC3339, meta.FinishedAt)
+	if d := finished.Sub(started); d < 10*time.Millisecond {
+		t.Fatalf("duration %v collapsed; stamps %q -> %q", d, meta.StartedAt, meta.FinishedAt)
+	}
+}

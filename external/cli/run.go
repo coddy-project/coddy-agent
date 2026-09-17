@@ -24,6 +24,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/remote"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
 
@@ -128,6 +129,10 @@ func Run(args []string, deps CommandDeps) error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	// Hand over the standard skill delivery before the session catalogue is
+	// built. Best effort: a home that cannot be written still gets the copies
+	// the binary carries (skills.Bundled).
+	_, _ = skills.SeedDelivery(cfg)
 	if *schedulerEnabled {
 		cfg.Scheduler.Enabled = true
 	}

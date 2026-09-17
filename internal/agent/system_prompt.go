@@ -7,6 +7,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/prompts"
+	"github.com/EvilFreelancer/coddy-agent/internal/rules"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
@@ -77,15 +78,63 @@ func (a *Agent) loadSkillBody(name string) (string, []string, bool) {
 	return "", available, false
 }
 
+// systemPromptBuild is a rendered system message plus what the turn still needs
+// from it once it is frozen: the component blocks the context estimate
+// subtracts, the tool definitions it described, and the sticky rule set it
+// already carries, so a rule activated later can be told apart from one the
+// model has already been given.
+type systemPromptBuild struct {
+	Mode     string
+	Content  string
+	SkillsMD string
+	ToolsMD  string
+	RulesMD  string
+	ToolDefs []llm.ToolDefinition
+	// RenderedRules is what the {{.Rules}} block of this message carries, and
+	// what the turn context block diffs a later activation against.
+	RenderedRules []*rules.Rule
+	// Clock is the wall clock this build was stamped with: the {{.UTCNow}} a
+	// template may render and the reading the turn context block carries. It is
+	// taken once per turn and reused by every step, so a step the lane re-issues
+	// sends byte for byte the request that failed (react.go, lane replays)
+	// rather than one that ticked a second forward.
+	Clock time.Time
+	// RendersRules is false for a template under prompts.dir with no
+	// {{.Rules}} in it. That operator asked for no rules block at all, so a
+	// rule a tool call activates is not smuggled in after the history either.
+	RendersRules bool
+	// Volatile marks a template under prompts.dir that prints {{.UTCNow}} or
+	// {{.TodoList}}. Such a message cannot be frozen for the turn - its own
+	// conditionals have to keep matching the state - so the loop re-renders it
+	// before every call, as it did for every template before, and sends no turn
+	// context block: the template is already carrying what the block would say.
+	Volatile bool
+}
+
 // buildSystemPrompt constructs the system prompt for the current mode and skills.
-// It is rebuilt each agent turn so the checklist section stays aligned with todo tool mutations.
 func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition, userText string, contextFiles []string) string {
+	return a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles).Content
+}
+
+// buildSystemPromptParts renders the system message for the turn. It is built
+// once per turn and then frozen: a provider caches a request by its prefix, and
+// the system message sits in front of the whole conversation, so rewriting it
+// between the steps of a turn throws away the cached copy of everything behind
+// it. What moves while the turn runs - the wall clock, the todo checklist, the
+// rules a tool call activated - travels in the turn context block appended
+// after the history instead (turn_context.go).
+func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition, userText string, contextFiles []string) *systemPromptBuild {
 	promptsDir := a.cfg.Prompts.ResolvedDir(a.state.GetCWD())
+	clock := a.now().UTC()
 	promptTodoMD := checklistMarkdownFromPlan(a.state.GetPlan())
 	mem := formatMergedMemory(strings.TrimSpace(a.state.GetAgentMemory()), strings.TrimSpace(a.state.GetMemoryCopilotBlock()))
 	planCtx := ""
 	if mode == "agent" {
-		planCtx = a.state.TakePendingPlanContext()
+		// Read, never taken. The turn it belongs to renders this prompt more
+		// than once - a rebuild after a compaction, the continuation after a
+		// permission prompt - and releasePlanContext hands it back when that
+		// turn is really over (react.go).
+		planCtx = a.state.PendingPlanContext()
 	}
 	discardedPlans := ""
 	if mode == "plan" {
@@ -100,9 +149,11 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 	// then nothing carries them - so the skip list is taken only from a
 	// template that actually prints the block.
 	var embeddedDocs []string
+	var renderedRules []*rules.Rule
+	rendersRules := prompts.RendersRules(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile())
 	if rs, ok := a.state.(rulesState); ok {
-		rulesMD, embeddedDocs = buildRulesPromptMarkdown(rs, a.cfg.Paths.Home, contextFiles, userText, a.agentsOnDemand())
-		if !prompts.RendersRules(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile()) {
+		rulesMD, embeddedDocs, renderedRules = buildRulesPromptMarkdown(rs, a.cfg.Paths.Home, contextFiles, userText, a.agentsOnDemand())
+		if !rendersRules {
 			embeddedDocs = nil
 		}
 	}
@@ -119,7 +170,11 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 		Instructions:   instructionsMD,
 		Subagents:      a.subagentCatalogBlock(),
 		SubagentRole:   a.subagentRoleBlock(),
-		UTCNow:         time.Now().UTC().Format(time.RFC3339),
+		// The built-in templates no longer render this: a wall clock in the
+		// system message breaks the provider's prefix cache on every request,
+		// and the turn context block carries the clock instead. It stays
+		// available to an operator's own prompts.dir template, at that cost.
+		UTCNow: clock.Format(time.RFC3339),
 	})
 	full = joinNonEmptyPromptBlocks(full, a.environment.PromptContext())
 	// Context handed over by SessionStart and UserPromptSubmit hooks; appended
@@ -133,12 +188,39 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 	// render fallback, and before the context breakdown so the estimate counts
 	// what is actually sent. See internal/prompts/identity.go.
 	full = prompts.WithIdentity(full)
-	if _, ok := a.state.(rulesState); ok {
-		// The Conversation estimate mirrors what buildMessages sends: only the
-		// LLM-visible window after the last compaction summary.
-		a.setContextBreakdown(computeContextBreakdown(full, skillsMD, toolsMD, rulesMD, a.prunedForLLM(session.MessagesForLLM(a.state.GetMessages())), toolDefs), false)
+	build := &systemPromptBuild{
+		Mode:          mode,
+		Content:       full,
+		SkillsMD:      skillsMD,
+		ToolsMD:       toolsMD,
+		RulesMD:       rulesMD,
+		ToolDefs:      toolDefs,
+		RenderedRules: renderedRules,
+		Clock:         clock,
+		RendersRules:  rendersRules,
+		Volatile:      prompts.RendersVolatile(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile()),
 	}
-	return full
+	a.refreshContextBreakdown(build, "")
+	return build
+}
+
+// refreshContextBreakdown re-estimates the context UI from a frozen system
+// prompt. The loop calls it every step, because the estimate is what
+// auto-compaction reads and tool results grow between calls while the system
+// message no longer moves. turnCtx is the block that will trail the history, so
+// what the request actually costs is counted.
+func (a *Agent) refreshContextBreakdown(build *systemPromptBuild, turnCtx string) {
+	if build == nil {
+		return
+	}
+	if _, ok := a.state.(rulesState); !ok {
+		return
+	}
+	// The Conversation estimate mirrors what buildMessages sends: only the
+	// LLM-visible window after the last compaction summary.
+	sys := joinNonEmptyPromptBlocks(build.Content, turnCtx)
+	msgs := a.prunedForLLM(session.MessagesForLLM(a.state.GetMessages()))
+	a.setContextBreakdown(computeContextBreakdown(sys, build.SkillsMD, build.ToolsMD, build.RulesMD, msgs, build.ToolDefs), false)
 }
 
 func discardedPlansPromptBlock(slugs []string) string {

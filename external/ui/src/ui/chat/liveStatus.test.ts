@@ -229,6 +229,27 @@ describe("deriveLiveStatus", () => {
     ).toBe("thinking");
   });
 
+  // The dots used to vanish as soon as the turn had written anything, and a turn
+  // that writes its answer is still working: the line says so in general words.
+  it("reports writing while the turn's last row is its answer text", () => {
+    const s = deriveLiveStatus([
+      user(),
+      { id: "a1", type: "assistant_message", content: "The price is", streaming: true },
+    ]);
+    expect(s.kind).toBe("writing");
+    expect(s.key).toBe("status.writing");
+    expect(s.target).toBe("");
+  });
+
+  it("text earlier in the turn does not hide the step running after it", () => {
+    const s = deriveLiveStatus([
+      user(),
+      { id: "a1", type: "assistant_message", content: "Checking.", streaming: true },
+      tool({ title: "webfetch", argsText: '{"url":"https://coddy.dev/"}' }),
+    ]);
+    expect(s.kind).toBe("tool");
+  });
+
   it("stops at the turn boundary", () => {
     const s = deriveLiveStatus([tool({ title: "read" }), user("u2")]);
     expect(s.kind).toBe("waiting");
@@ -318,6 +339,7 @@ describe("statusKeyForTool", () => {
     expect(statusKeyForTool("coddy_memory_search")).toBe("status.memory");
     expect(statusKeyForTool("config_set")).toBe("status.config");
     expect(statusKeyForTool("ssh_run_command")).toBe("status.runRemote");
+    expect(statusKeyForTool("http_request")).toBe("status.httpRequest");
     expect(statusKeyForTool("spawn_agent")).toBe("status.spawnAgent");
     expect(statusKeyForTool("APPLY_PATCH")).toBe("status.edit");
     expect(statusKeyForTool("")).toBe("status.tool");

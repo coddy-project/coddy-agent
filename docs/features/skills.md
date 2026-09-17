@@ -6,7 +6,76 @@ Skills are reusable instruction packs that extend the agent with slash commands,
 
 ---
 
-Coddy ships a read-only `/configure-coddy` system skill. When a user asks the agent to change a Coddy setting or to find or install an MCP server or skill, it instructs the agent to verify the upstream source, stage uci-like edits with the typed `config_get` / `config_set` tools, ask the user to confirm before `config_commit` applies and hot-reloads them, avoid echoing secrets, and confirm the component after reload. It also documents `config_rollback` for returning to the pre-commit snapshot.
+## The standard delivery
+
+Coddy carries a set of skills inside the binary and writes them into **`${CODDY_HOME}/skills`** the
+first time it sees they are not there. Nothing is downloaded for this: a fresh install has them on
+the first run, offline, and a skill that reads files beside its `SKILL.md` finds them on disk rather
+than pointing at a directory that does not exist.
+
+| Skill | What it does |
+|-------|--------------|
+| **`/configure-coddy`** | Changes Coddy's own configuration when you ask: settings, providers, models, logging, permissions, MCP servers and skills. Verifies the upstream source, stages uci-style edits with the typed `config_get` / `config_set` tools, and commits only after you confirm, so `config_commit` applies and hot-reloads them in one step; `config_rollback` returns to the pre-commit snapshot. Never echoes secrets. |
+| **`/rpa-init`** | Warms up context on a repository: reads the code, the documentation and the test code, sets up the dev environment the project documents, runs the tests, and writes a short report. Needs no brief. |
+| **`/rpa-feat`** | Adds a feature strictly by BDD: plan, failing tests, implementation, green tests, the full suite, documentation and examples, the linter at the end. Needs a description of what to build. |
+| **`/rpa-bugfix`** | Fixes a bug reproduction-test first, then the fix, then the full suite, then a short report. Needs the bug: expected against actual, and how to reproduce it. |
+| **`/rpa-gen-rules`** | Writes or refreshes the project's agent rules for Cursor, Claude Code and Codex from what the repository actually contains. See [rules.md](rules.md#generating-rules). |
+
+Once written they are ordinary skills in your home: edit them, `coddy skills disable <name>` them,
+delete them, or update them from the marketplace. What the delivery will and will not do is
+recorded in **`${CODDY_HOME}/skills/.bundled.json`** beside the skills it wrote:
+
+- a skill it has never handed over is written;
+- a skill you deleted stays deleted - it is not written again by the next start;
+- a copy older than the one in the release is **replaced**, so `coddy update` brings the newer skill
+  with it. A copy that declares no `version:` at all counts as older - it predates these skills
+  carrying one - and is replaced too;
+- a copy that is newer is left exactly as it is. That is also how you keep an edit: raise the
+  `version:` of the copy in your home above the one the release carries, otherwise the next release
+  that raises its own overwrites it;
+- a copy Coddy cannot read - a `SKILL.md` behind permissions it does not have - is left whole. It is
+  neither absent nor unversioned, and the delivery does not judge what it cannot open.
+
+If `.bundled.json` is there but unreadable, the delivery stops for that run and says so rather than
+guessing: read as an empty record it would claim nothing had ever been handed over, and write back
+every skill you had deleted. Replacing a skill renames the old copy aside and the new one into
+place; a process killed between the two leaves a backup and no skill, and the next run puts it back.
+
+A home Coddy cannot write to - a read-only image, a locked-down account - is not an error: the
+copies inside the binary answer instead, read-only, and only a skill whose `references/` it needs
+notices the difference. A delivered skill you deleted is not among them: the receipt says it was
+handed over, so the binary does not offer it again as one you cannot delete.
+
+The `rpa-*` skills live in their own repositories and are vendored into `internal/skills/bundled/`
+by **`make skills-vendor`**; `scripts/bundled-skills.json` says where each one comes from.
+
+### The marketplace that comes with it
+
+**`EvilFreelancer/rpa-skills`** - the catalogue the delivered `rpa-*` skills are published from - is a
+**system source**: it is in effect the way the delivered skills are, without appearing in
+`skills.sources` and without any file being written for it. So the rest of that collection is one
+command away on a machine whose `config.yaml` has never been touched:
+
+```bash
+coddy skills sync                 # install everything the catalogue publishes
+coddy plugin marketplace list     # every source in effect, and whether it resolves
+```
+
+It is an address and nothing more - Coddy contacts it only when you ask it to. Because it is not in
+the config file there is nothing to take out of one: `coddy plugin marketplace remove` refuses it
+(unless your `skills.sources` happens to name it as well, in which case it takes that redundant
+entry out of the file and tells you the marketplace itself stays),
+`DELETE /coddy/skills/sources` answers 400, and **Settings → Skills → Remote skill sources** shows the
+row greyed out with its delete button disabled. To be rid of a skill it publishes, disable or delete
+that skill (`coddy skills disable <name>`) rather than the catalogue.
+
+`GET /coddy/skills/sources` names them under `system`, which is how a client knows which rows carry
+no remove control.
+
+![Remote skill sources with the built-in marketplace greyed out](../assets/skills/skills-system-source-dark-1280.png)
+
+*Settings → Skills: the built-in `EvilFreelancer/rpa-skills` is listed and can be synced, but its
+field and its delete button are disabled; a source you added yourself is editable as before.*
 
 ## Where to get skills
 

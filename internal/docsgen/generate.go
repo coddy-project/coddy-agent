@@ -198,9 +198,25 @@ func markdownToCheck(root string) ([]string, error) {
 	return files, nil
 }
 
-// Write stores the generated files.
+// siteOnlyFiles are rendered for publication and never kept in this repository.
+//
+// llms.txt and llms-full.txt exist for the site, which serves them at its root,
+// and they are built from the pages on every run. Keeping a copy in the index
+// bought nothing and cost a conflict in every branch that touched a page: two
+// people editing two different pages both regenerate the same concatenation of
+// all of them. The site layer reads these out of the render (SiteFiles), not off
+// disk, so nothing here needs a local copy.
+var siteOnlyFiles = map[string]bool{
+	LLMSFile:     true,
+	LLMSFullFile: true,
+}
+
+// Write stores the generated files that belong in the repository.
 func (r *Result) Write(root string) error {
 	for rel, content := range r.Files {
+		if siteOnlyFiles[rel] {
+			continue
+		}
 		p := filepath.Join(root, rel)
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			return err
@@ -213,10 +229,14 @@ func (r *Result) Write(root string) error {
 }
 
 // Stale reports the generated files whose content on disk differs from the
-// generated one.
+// generated one. Files that are only published (siteOnlyFiles) are not looked
+// for here: they are not in this repository, so "missing" is what is correct.
 func (r *Result) Stale(root string) []Problem {
 	var out []Problem
 	for rel, content := range r.Files {
+		if siteOnlyFiles[rel] {
+			continue
+		}
 		data, err := os.ReadFile(filepath.Join(root, rel))
 		if err != nil || strings.TrimRight(string(data), "\n") != strings.TrimRight(content, "\n") {
 			out = append(out, Problem{rel, "generated content is stale, run make docs"})

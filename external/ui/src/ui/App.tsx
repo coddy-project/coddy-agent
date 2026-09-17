@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
@@ -19,7 +20,7 @@ import { insertNewThinkingBeforeStreamingAssistant } from "./chat/transcriptThin
 import { openAIStreamErrorMessage } from "./chat/streamError";
 import { optimisticUserFiles } from "./chat/optimisticUserFiles";
 import { sessionMessageFiles } from "./chat/sessionMessageFiles";
-import { getEnv } from "./env/remoteEnv";
+import { getEnv, notifyLocalApiUnauthorized } from "./env/remoteEnv";
 import {
   isAbortError,
   remoteHttpErrorMessage,
@@ -27,7 +28,7 @@ import {
 } from "./env/remoteErrors";
 import { EnvHealthBanner } from "./env/EnvHealthBanner";
 import { isNoLiveTurnRelayError } from "./chat/composerStreamError";
-import { subscribeServerEvents } from "./chat/serverEvents";
+import { subscribeSharedServerEvents } from "./chat/sharedServerEvents";
 import { useSessionTurnActivity } from "./chat/useSessionTurnActivity";
 import type { QueuedMessageEvent } from "./chat/serverEvents";
 import { QueueDeliveryOrder } from "./chat/messageQueueState";
@@ -98,7 +99,21 @@ import { NavRail } from "./nav/NavRail";
 import { SwarmView } from "./swarm/SwarmView";
 import { EnvironmentChip } from "./chat/EnvironmentChip";
 import { probeSwarm } from "./swarm/api";
-import { connectSwarmNode, returnToSwarm } from "./env/remoteEnv";
+import {
+  connectLocal,
+  connectRemote,
+  connectSwarmNode,
+  getRemoteToken,
+  localFetch,
+  returnToSwarm,
+  snapshotEnv,
+  subscribeEnv,
+} from "./env/remoteEnv";
+import type { SessionsEnvironmentOption } from "./sessions/SessionsFilterMenu";
+import {
+  newChatWorkspaceIsReady,
+  type PendingNewChatWorkspace,
+} from "./sessions/newChatWorkspace";
 import { readNavRailCookie, writeNavRailCookie } from "./nav/navRailCookie";
 import { readLlmModelCookie, writeLlmModelCookie } from "./chat/llmModelCookie";
 import {
@@ -114,6 +129,28 @@ import { SessionsSidebar } from "./sessions/SessionsSidebar";
 import { useConfirm } from "./components/useConfirm";
 import { useT } from "./i18n/I18nProvider";
 import type { SessionRow } from "./sessions/types";
+import {
+  DEFAULT_SESSION_GROUP_MODE,
+  readSessionGroupCookie,
+  writeSessionGroupCookie,
+  type SessionGroupMode,
+} from "./sessions/sessionGroups";
+import {
+  defaultSortOrder,
+  DEFAULT_ARCHIVE_FILTER,
+  DEFAULT_SESSION_SORT_KEY,
+  isHistorySortKey,
+  isSessionArchiveFilter,
+  isSessionOriginFilter,
+  type SessionArchiveFilter,
+  type SessionOriginFilter,
+  type SessionSortKey,
+} from "./sessions/sessionQuery";
+import {
+  readSessionPref,
+  SESSION_PREF_COOKIES,
+  writeSessionPref,
+} from "./sessions/sessionPrefs";
 import {
   isClientDraftSessionId,
   mergeSessionsWithDrafts,
@@ -299,6 +336,14 @@ type ModelInfo = {
 };
 
 const PROFILE_MODES = ["agent", "plan", "ask"] as const;
+
+// SessionContextWindow is the window GET .../stats reports for a session,
+// named with the model it belongs to.
+type SessionContextWindow = {
+  model: string;
+  tokens: number;
+  source?: string;
+};
 
 type SessionStats = {
   tokenUsageTotal?: {
@@ -704,6 +749,30 @@ export function App() {
   const [contextBreakdown, setContextBreakdown] = useState<NonNullable<
     SessionStats["contextBreakdown"]
   > | null>(null);
+  // A provider listing can arrive after /v1/models returned its fallback.
+  // Keep the live window per session, scoped to its model and config version;
+  // stats refreshes must not replace it with the earlier model-list value.
+  const [sessionContextWindows, setSessionContextWindows] = useState<
+    Record<string, { model: string; epoch: number; size: number }>
+  >({});
+  // The live config version, readable from handlers declared above the state
+  // that holds it.
+  const configEpochRef = useRef(0);
+  // The window GET .../stats reports, which names its own model instead of
+  // borrowing the composer's. It is the authority when the two disagree: a
+  // live frame is labelled with what the tab was showing when it arrived.
+  const recordSessionContextWindow = useStableHandler(
+    (sid: string, w: SessionContextWindow | null | undefined) => {
+      const key = sid.trim();
+      if (!key || !w || !(w.tokens > 0) || !w.model) {
+        return;
+      }
+      setSessionContextWindows((prev) => ({
+        ...prev,
+        [key]: { model: w.model, epoch: configEpochRef.current, size: w.tokens },
+      }));
+    },
+  );
 
   const applySessionStatsPayload = useCallback(
     (stats: SessionStats | null | undefined, viewing: boolean) => {
@@ -736,19 +805,26 @@ export function App() {
       if (!key) {
         return;
       }
-      const statsRes = await fetchJSON<{ stats?: SessionStats | null }>(
-        `/coddy/sessions/${encodeURIComponent(key)}/stats`,
-        { headers: { [HDR]: key } },
-      );
+      const statsRes = await fetchJSON<{
+        stats?: SessionStats | null;
+        contextWindow?: SessionContextWindow | null;
+      }>(`/coddy/sessions/${encodeURIComponent(key)}/stats`, {
+        headers: { [HDR]: key },
+      });
       if (!statsRes.ok) {
         return;
       }
+      // The session's own window, named with the model it belongs to. Recorded
+      // whether or not this session is the one on screen: a window learnt while
+      // the tab was showing another chat is exactly what would otherwise be
+      // missed, leaving the ring on the model-list fallback until the next turn.
+      recordSessionContextWindow(key, statsRes.data?.contextWindow);
       applySessionStatsPayload(
         statsRes.data?.stats,
         viewedSessionIdRef.current.trim() === key,
       );
     },
-    [applySessionStatsPayload],
+    [applySessionStatsPayload, recordSessionContextWindow],
   );
 
   const debouncedRefreshSessionStats = useMemo(
@@ -784,7 +860,9 @@ export function App() {
   const pendingPostBySidRef = useRef(new Map<string, AbortController>());
   const streamGenerationBySidRef = useRef(new Map<string, number>());
   const relayAttachPendingRef = useRef(new Set<string>());
-  const stopPendingBySidRef = useRef(new Map<string, { superseded: boolean }>());
+  const stopPendingBySidRef = useRef(
+    new Map<string, { superseded: boolean }>(),
+  );
   const stoppedTurnBySidRef = useRef(new Map<string, number>());
   /** Last composer relay frame id seen per session, so a re-attach can resume from it. */
   const relayLastEventIdBySidRef = useRef<Map<string, string>>(new Map());
@@ -940,13 +1018,19 @@ export function App() {
       else if (wasActive) reconcileEndedTurn(sid);
     },
   });
-  const generating = sessionId.trim() !== "" &&
-    (turnActivity.get(sessionId) ?? activeComposerSidRef.current.has(sessionId.trim()));
-  const queuedMessages = generating ? queueBySid[sessionId.trim()] ?? [] : [];
+  const generating =
+    sessionId.trim() !== "" &&
+    (turnActivity.get(sessionId) ??
+      activeComposerSidRef.current.has(sessionId.trim()));
+  const queuedMessages = generating ? (queueBySid[sessionId.trim()] ?? []) : [];
 
   function reconcileEndedTurn(sid: string) {
     removeActiveComposer(sid);
-    if (sid !== viewedSessionIdRef.current.trim() && !streamShadowBySidRef.current.has(sid)) return;
+    if (
+      sid !== viewedSessionIdRef.current.trim() &&
+      !streamShadowBySidRef.current.has(sid)
+    )
+      return;
     noteUsageTurnEnded(sid);
     void loadMessages(sid, {
       preserveOnError: true,
@@ -956,9 +1040,14 @@ export function App() {
   }
 
   async function attachViewedComposer(sid: string) {
-    const canAttach = () => viewedSessionIdRef.current.trim() === sid &&
-      turnActivity.get(sid) === true && !postAbortBySidRef.current.has(sid) &&
+    const canAttach = () =>
+      viewedSessionIdRef.current.trim() === sid &&
+      turnActivity.get(sid) === true &&
+      !postAbortBySidRef.current.has(sid) &&
       !relayAbortBySidRef.current.has(sid) &&
+      // A Stop in flight has released the stream on purpose; its outcome
+      // decides whether this turn is watched again.
+      !stopPendingBySidRef.current.has(sid) &&
       stoppedTurnBySidRef.current.get(sid) !== turnActivity.generation(sid);
     if (!canAttach() || relayAttachPendingRef.current.has(sid)) return;
     relayAttachPendingRef.current.add(sid);
@@ -968,7 +1057,11 @@ export function App() {
         preserveOnError: true,
         freshLoad: !streamShadowBySidRef.current.has(sid),
       });
-      if (loaded && canAttach() && turnActivity.generation(sid) === generation) {
+      if (
+        loaded &&
+        canAttach() &&
+        turnActivity.generation(sid) === generation
+      ) {
         void rejoinComposerLiveStream(sid, loaded);
       }
     } catch {
@@ -1008,10 +1101,19 @@ export function App() {
   const sidebarActiveIdRef = useRef(sidebarActiveId);
   sidebarActiveIdRef.current = sidebarActiveId;
 
-  const sessionsForSidebar = useMemo(
-    () => mergeSessionsWithDrafts(sessions, clientDraftSessions),
-    [sessions, clientDraftSessions, t],
-  );
+  const sessionsForSidebar = useMemo(() => {
+    const rows = mergeSessionsWithDrafts(sessions, clientDraftSessions);
+    // The open conversation's row follows this tab's own view of its turn, not the
+    // last listing: the listing is refreshed on a poll, and the activity dot must
+    // not trail a turn the reader is watching start or end.
+    const open = sessionId.trim();
+    if (!open) return rows;
+    return rows.map((row) =>
+      row.id === open && !!row.turnActive !== generating
+        ? { ...row, turnActive: generating }
+        : row,
+    );
+  }, [sessions, clientDraftSessions, sessionId, generating, t]);
 
   const reasoningDurationMsByContentRef = useRef<Map<string, number>>(
     new Map(),
@@ -1024,6 +1126,9 @@ export function App() {
    * so a model added mid-session reaches the picker without a page reload.
    */
   const [configEpoch, setConfigEpoch] = useState(0);
+  useEffect(() => {
+    configEpochRef.current = configEpoch;
+  }, [configEpoch]);
   const [sessionsOpen, setSessionsOpen] = useState(false);
   /** null until first probe of /coddy/scheduler/jobs; false when route returns 404 (binary without scheduler). */
   const [schedulerHttpLinked, setSchedulerHttpLinked] = useState<
@@ -1072,6 +1177,10 @@ export function App() {
   /** Ticks once a second so elapsed times advance between polls. */
   const [backgroundNowMs, setBackgroundNowMs] = useState(() => Date.now());
   /** Set while the viewed session is a subagent's transcript (read-only, no composer). */
+  // Whether the conversation on screen is archived, and whether the request to
+  // take it out of the archive is in flight.
+  const [viewedArchived, setViewedArchived] = useState(false);
+  const [unarchiving, setUnarchiving] = useState(false);
   const [subagentTranscript, setSubagentTranscript] =
     useState<SubagentTranscriptMeta | null>(null);
   // Mirrored for the stable Settings callback, which has to know that the
@@ -1081,6 +1190,48 @@ export function App() {
   const [schedDockClusterWidthPx, setSchedDockClusterWidthPx] = useState(0);
   const [sessionFilterDraft, setSessionFilterDraft] = useState("");
   const [sessionFilterQ, setSessionFilterQ] = useState("");
+  // How History divides the list, remembered across visits; the archive stays
+  // hidden until it is asked for, so a conversation put aside is out of the way
+  // on the next open too.
+  const [sessionGroupMode, setSessionGroupMode] = useState<SessionGroupMode>(
+    () => readSessionGroupCookie() ?? DEFAULT_SESSION_GROUP_MODE,
+  );
+  // Every one of these survives a reload: a filter forgotten by the next page
+  // load is not a setting, it is a gesture.
+  const [sessionsArchiveFilter, setSessionsArchiveFilter] =
+    useState<SessionArchiveFilter>(
+      () =>
+        readSessionPref(SESSION_PREF_COOKIES.status, isSessionArchiveFilter) ??
+        DEFAULT_ARCHIVE_FILTER,
+    );
+  const [sessionsSortKey, setSessionsSortKey] = useState<SessionSortKey>(
+    () =>
+      readSessionPref(SESSION_PREF_COOKIES.sort, isHistorySortKey) ??
+      DEFAULT_SESSION_SORT_KEY,
+  );
+  // Which surface's conversations History shows: every one, the ones opened on
+  // this host, or the chats a messenger gateway is holding.
+  const [sessionsOrigin, setSessionsOrigin] = useState<SessionOriginFilter>(
+    () =>
+      readSessionPref(SESSION_PREF_COOKIES.origin, isSessionOriginFilter) ?? "",
+  );
+  // The remotes this server offers as environments, read from the local config
+  // rather than the active one - the list of places to go must not travel with
+  // the place you are.
+  const [configuredRemotes, setConfiguredRemotes] = useState<
+    { name: string; url: string }[]
+  >([]);
+  // A folder picked from a History heading, waiting for the conversation on
+  // screen to be gone before it is applied (see newChatWorkspace.ts). The value
+  // is a ref and the trigger a counter, so the one effect that owns "the
+  // session changed" applies it - two effects racing to set the workspace
+  // context would be decided by whichever fetch answered last.
+  const newChatWorkspaceRef = useRef<PendingNewChatWorkspace>(null);
+  // Sessions with an archive change in flight; see archiveSession.
+  const archivingRef = useRef<Set<string>>(new Set());
+  // The same, for pinning.
+  const pinningRef = useRef<Set<string>>(new Set());
+  const [newChatWorkspaceEpoch, setNewChatWorkspaceEpoch] = useState(0);
   const [sessionsHasMore, setSessionsHasMore] = useState(false);
   const [sessionsLoadingMore, setSessionsLoadingMore] = useState(false);
   const sessionsHasMoreRef = useRef(false);
@@ -1091,6 +1242,14 @@ export function App() {
   const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
   const [defaultAgentYamlModel, setDefaultAgentYamlModel] = useState("");
   const [llmModel, setLlmModel] = useState("");
+  const applyContextUsage = useStableHandler((sid: string, u: ContextUsageUpdate) => {
+    setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
+    setSessionContextWindows((prev) => ({
+      ...prev,
+      [sid]: { model: llmModel, epoch: configEpoch, size: u.size },
+    }));
+    debouncedRefreshSessionStats(sid);
+  });
   const providerUsageState = useProviderUsage({
     sessionId,
     llmModel,
@@ -1103,6 +1262,12 @@ export function App() {
    * `/v1/models` and `/coddy/sessions/.../messages` resolves first on reload.
    */
   const [openSessionSelection, setOpenSessionSelection] = useState<{
+    sid: string;
+    model: string;
+    reasoning: string;
+  } | null>(null);
+  /** The selection object already applied to the composer; see the effect below. */
+  const appliedSessionSelectionRef = useRef<{
     sid: string;
     model: string;
     reasoning: string;
@@ -1140,14 +1305,25 @@ export function App() {
           (x) =>
             !(x.type === "question_prompt" && x.payload.requestId === ridInner),
         );
-        return [
-          ...withoutDup,
-          {
-            id: `qp_${ridInner}`,
-            type: "question_prompt" as const,
-            payload: p,
-          },
-        ];
+        const row = {
+          id: `qp_${ridInner}`,
+          type: "question_prompt" as const,
+          payload: p,
+        };
+        // Insert right after the tool call that raised it, like the permission
+        // gate below: the card belongs under its own row, not above it.
+        const tcid = (p.toolCallId || "").trim();
+        const tcIdx = tcid
+          ? withoutDup.findIndex(
+              (x) => x.type === "tool_call" && x.toolCallId === tcid,
+            )
+          : -1;
+        if (tcIdx >= 0) {
+          const result = [...withoutDup];
+          result.splice(tcIdx + 1, 0, row);
+          return result;
+        }
+        return [...withoutDup, row];
       });
     },
     [],
@@ -1330,6 +1506,56 @@ export function App() {
     );
   }
 
+  /**
+   * Writes the labels of one conversation.
+   *
+   * The list takes the new set **before** the request: the editor builds each
+   * gesture on the row it is shown, so a second gesture made while the first is
+   * still in flight would otherwise start from the set before both and undo
+   * one of them. The server folds what it stores and answers with the set it
+   * kept, which then replaces the optimistic one - a chip drawn here never
+   * changes spelling one refresh later - and a refused write puts back what the
+   * row carried, so the list never claims something the server does not hold.
+   */
+  async function saveSessionTags(id: string, tags: string[]): Promise<boolean> {
+    let previous: string[] | undefined;
+    setSessions((prev) =>
+      prev.map((s) => {
+        if (s.id !== id) {
+          return s;
+        }
+        previous = s.tags ?? [];
+        return { ...s, tags };
+      }),
+    );
+    const restore = () =>
+      setSessions((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, tags: previous ?? [] } : s)),
+      );
+    let stored: string[];
+    try {
+      const res = await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tags }),
+      });
+      if (!res.ok) {
+        throw new Error(String(res.status));
+      }
+      const data = (await res.json()) as { tags?: string[] };
+      stored = data.tags ?? [];
+    } catch {
+      // A dropped connection and a refused write end the same way: the row goes
+      // back to what the server still holds, and the caller says so.
+      restore();
+      return false;
+    }
+    setSessions((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, tags: stored } : s)),
+    );
+    return true;
+  }
+
   const headers = useMemo(
     () => (sessionId ? { [HDR]: sessionId } : {}),
     [sessionId],
@@ -1353,10 +1579,22 @@ export function App() {
 
   // Load the workspace context whenever the viewed session changes; a fresh
   // home/draft view also drops stale pre-session workspace choices.
+  //
+  // A folder picked from a History heading is applied here rather than where it
+  // was picked: leaving a conversation is asynchronous, and a workspace change
+  // issued before the session is gone lands on the conversation being left.
+  // It replaces the default probe rather than running beside it - two context
+  // fetches in flight would be decided by whichever answered last.
   useEffect(() => {
     pendingWorkspaceRef.current = null;
+    const wanted = newChatWorkspaceRef.current;
+    if (newChatWorkspaceIsReady(wanted, sessionId)) {
+      newChatWorkspaceRef.current = null;
+      void switchWorkspace({ path: String(wanted?.path ?? "") });
+      return;
+    }
     void refreshWorkspaceContext(sessionId);
-  }, [sessionId, refreshWorkspaceContext]);
+  }, [sessionId, refreshWorkspaceContext, newChatWorkspaceEpoch]);
 
   async function switchWorkspace(payload: {
     path?: string;
@@ -1944,16 +2182,39 @@ export function App() {
     if (openSessionSelection.sid !== viewedSessionIdRef.current.trim()) {
       return;
     }
-    setLlmModel(
-      pickLlmModelForOpenSession({
-        backends: llmModelIds,
-        sessionModel: openSessionSelection.model,
-        cookie: readLlmModelCookie(),
-        defaultAgentModel: defaultAgentYamlModel,
+    // What the session was opened with is a snapshot, not a standing order. The
+    // models list is refetched on every configuration reload - a settings save,
+    // the agent's own config_commit - and this effect reads that list, so without
+    // a guard the snapshot lands a second time and undoes the model or the level
+    // the reader picked in between. Each load of a session carries its own
+    // object, so applying one exactly once is the whole rule.
+    if (appliedSessionSelectionRef.current === openSessionSelection) {
+      return;
+    }
+    appliedSessionSelectionRef.current = openSessionSelection;
+    const nextModel = pickLlmModelForOpenSession({
+      backends: llmModelIds,
+      sessionModel: openSessionSelection.model,
+      cookie: readLlmModelCookie(),
+      defaultAgentModel: defaultAgentYamlModel,
+    });
+    setLlmModel(nextModel);
+    // A session carries a reasoning level only once something chose one for it,
+    // and a model that names no `reasoning_default` makes the server report the
+    // effective level as empty. Applied as it comes, that empties the composer
+    // while the turn still runs at the model's default - so it goes through the
+    // same chooser as every other path, with the session's value as the
+    // preference rather than as the answer.
+    const openRow = modelInfos.find((m) => m.id === nextModel);
+    setLlmReasoning(
+      pickReasoningLevel({
+        levels: openRow?.reasoningLevels ?? [],
+        cookie: readReasoningCookie(),
+        sessionLevel: openSessionSelection.reasoning,
+        modelDefault: openRow?.reasoningDefault ?? null,
       }),
     );
-    setLlmReasoning(openSessionSelection.reasoning);
-  }, [openSessionSelection, llmModelIds, defaultAgentYamlModel]);
+  }, [openSessionSelection, llmModelIds, defaultAgentYamlModel, modelInfos]);
 
   useEffect(() => {
     setDescribePreview((p) => (p && p.sessionId !== sessionId ? null : p));
@@ -2072,6 +2333,12 @@ export function App() {
       if (sessionFilterQ) {
         ps.set("q", sessionFilterQ);
       }
+      ps.set("archived", sessionsArchiveFilter);
+      if (sessionsOrigin) {
+        ps.set("origin", sessionsOrigin);
+      }
+      ps.set("sort", sessionsSortKey);
+      ps.set("order", defaultSortOrder(sessionsSortKey));
       ps.set("include_activity", "true");
       const res = await fetchJSON<{
         sessions: SessionRow[];
@@ -2105,7 +2372,14 @@ export function App() {
       sessionsHasMoreRef.current = hm;
       return next;
     },
-    [sessionFilterQ, headers, t],
+    [
+      sessionFilterQ,
+      sessionsArchiveFilter,
+      sessionsOrigin,
+      sessionsSortKey,
+      headers,
+      t,
+    ],
   );
 
   useEffect(() => {
@@ -2197,7 +2471,11 @@ export function App() {
     turnStarted: (sid: string) => {
       void loadSessionsList(true);
       const key = sid.trim();
-      if (key !== viewedSessionIdRef.current.trim() && turnActivity.get(key) === undefined) return;
+      if (
+        key !== viewedSessionIdRef.current.trim() &&
+        turnActivity.get(key) === undefined
+      )
+        return;
       stoppedTurnBySidRef.current.delete(key);
       const pendingStop = stopPendingBySidRef.current.get(key);
       if (pendingStop) pendingStop.superseded = true;
@@ -2208,7 +2486,11 @@ export function App() {
       void loadSessionsList(true);
       const key = sid.trim();
       if (!key) return;
-      if (key !== viewedSessionIdRef.current.trim() && turnActivity.get(key) === undefined) return;
+      if (
+        key !== viewedSessionIdRef.current.trim() &&
+        turnActivity.get(key) === undefined
+      )
+        return;
       // The event has no turn identity: an owned or observed successor may
       // already be active. Keep polling until REST confirms admission is idle.
       void turnActivity.refresh(key);
@@ -2230,14 +2512,23 @@ export function App() {
       // Recovery can miss the idle edge. Retire pending acknowledgements too,
       // so an old Stop cannot re-establish the fence after this reconnect.
       stoppedTurnBySidRef.current.clear();
-      for (const request of stopPendingBySidRef.current.values()) request.superseded = true;
+      for (const request of stopPendingBySidRef.current.values())
+        request.superseded = true;
       turnActivity.ready();
     },
   };
 
   useEffect(() => {
     const ctl = new AbortController();
-    void subscribeServerEvents({
+    // One connection for every tab of this environment where the browser allows
+    // it: a browser keeps six HTTP/1.1 connections per host for all of its tabs.
+    // Changing the environment reloads the page, so the one read here holds.
+    const env = getEnv();
+    void subscribeSharedServerEvents({
+      env,
+      onRefused: (status) => {
+        if (status === 401 && env.mode === "local") notifyLocalApiUnauthorized();
+      },
       onTurnStarted: (sid) => serverEventHandlersRef.current.turnStarted(sid),
       onTurnEnded: (sid) => serverEventHandlersRef.current.turnEnded(sid),
       onProviderUsage: (_sid, usage) =>
@@ -2261,6 +2552,17 @@ export function App() {
     void loadSessionsList(true);
   }, [sessionsOpen, sessionFilterQ, loadSessionsList]);
 
+  /**
+   * The messages revision each transcript returned by loadMessages was read at, for
+   * a transcript that is the server's own snapshot and nothing more. Attaching to a
+   * running turn with it asks the relay only for the frames that snapshot lacks;
+   * a transcript that kept local rows past the snapshot has none, and attaches the
+   * way it always did.
+   */
+  const snapshotRevByTranscript = useRef(
+    new WeakMap<readonly TranscriptItem[], number>(),
+  );
+
   async function loadMessages(
     idOverride?: string,
     opts?: {
@@ -2275,7 +2577,8 @@ export function App() {
       return null;
     }
     const streamGeneration = streamGenerationBySidRef.current.get(sid);
-    const sameStream = () => streamGenerationBySidRef.current.get(sid) === streamGeneration;
+    const sameStream = () =>
+      streamGenerationBySidRef.current.get(sid) === streamGeneration;
     const res = await fetchJSON<{
       messages: Array<any>;
       model?: string;
@@ -2288,6 +2591,8 @@ export function App() {
         taskId?: string;
       } | null;
       readOnly?: boolean;
+      archived?: boolean;
+      messagesRev?: number;
       uiLog?: Array<{
         id?: string;
         level?: string;
@@ -2322,6 +2627,10 @@ export function App() {
       });
       // A child session locks the composer; an ordinary one carries no marker.
       setSubagentTranscript(parseSubagentTranscriptMeta(res.data));
+      // The composer learns from the transcript, not from the session list: the
+      // list skips the archive, so the conversation on screen may be in no page
+      // the client holds.
+      setViewedArchived(!!res.data.archived);
     }
     type UILogRow = {
       id: string;
@@ -2484,7 +2793,7 @@ export function App() {
           });
         }
         const content = m.content || "";
-        if (content) {
+        if (content.trim()) {
           const acat = readMessageCreatedAtUTC(m as Record<string, unknown>);
           next.push({
             id: stableAssistantItemId(userTurnIdx, assistantInTurn++),
@@ -2627,6 +2936,8 @@ export function App() {
       localForMerge ?? prevShadow ?? itemsRef.current,
     );
     const applied = dedupeAdjacentDuplicateThinkingCompleted(withStableIds);
+    const snapshotRev = res.data.messagesRev;
+    const serverOnly = mergedTranscript === next && appliedRaw === merged;
     const hasPendingPermission = applied.some(
       (x) => x.type === "permission_prompt" && !x.resolved,
     );
@@ -2639,9 +2950,15 @@ export function App() {
       }
       return next;
     });
+    const noteSnapshotRev = (items: readonly TranscriptItem[]) => {
+      if (serverOnly && typeof snapshotRev === "number") {
+        snapshotRevByTranscript.current.set(items, snapshotRev);
+      }
+    };
     if (opts?.skipSetItems) {
       streamShadowBySidRef.current.set(sid, applied);
       evictStaleSessionCaches(viewedSessionIdRef.current);
+      noteSnapshotRev(applied);
       return applied;
     }
 
@@ -2669,9 +2986,12 @@ export function App() {
 
     if (!sameStream()) return null;
     // Frames may have arrived while the optional branches request was in flight.
+    const beforeShadowMerge = withBranches;
     withBranches = mergeTranscriptPreferLocalSuffix(
-      withBranches, streamShadowBySidRef.current.get(sid),
+      withBranches,
+      streamShadowBySidRef.current.get(sid),
     );
+    if (withBranches === beforeShadowMerge) noteSnapshotRev(withBranches);
     streamShadowBySidRef.current.set(sid, withBranches);
     evictStaleSessionCaches(viewedSessionIdRef.current);
     // The viewer moved on while this fetch was in flight (the user picked
@@ -2812,6 +3132,9 @@ export function App() {
       message: t("confirm.session.deleteChat.message"),
       confirmLabel: t("common.delete"),
       variant: "danger",
+      // The row's trash does one thing, and this dialog asks about that one
+      // thing: focus the answer so Enter finishes what the click started.
+      initialFocus: "confirm",
     });
     if (!ok) {
       return;
@@ -2829,6 +3152,147 @@ export function App() {
       return;
     }
     await loadSessionsList(true);
+  }
+
+  /**
+   * Puts a conversation in the archive, or takes it back out.
+   *
+   * The row moves only once the server has agreed. Moving it first reads better
+   * for the half second it saves, but it is a lie the UI then has to take back:
+   * a refused PATCH would leave the drawer showing a state that is not on disk,
+   * and a listing already in flight could put the row back anyway. The request
+   * is quick, and what the drawer shows stays what the server said.
+   */
+  async function archiveSession(id: string, archived: boolean) {
+    // One conversation, one request at a time. Two PATCHes for the same session
+    // in flight together settle in whatever order the network gives them, so a
+    // quick archive-then-unarchive could leave the archive flag opposite to the
+    // last thing the operator pressed.
+    if (archivingRef.current.has(id)) {
+      return;
+    }
+    archivingRef.current.add(id);
+    try {
+      await runArchiveSession(id, archived);
+    } finally {
+      archivingRef.current.delete(id);
+    }
+  }
+
+  async function runArchiveSession(id: string, archived: boolean) {
+    let res: Response;
+    try {
+      res = await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ archived }),
+      });
+    } catch {
+      setSessionsError(t("app.backendUnavailable", { status: 0 }));
+      return;
+    }
+    if (!res.ok) {
+      setSessionsError(t("app.backendUnavailable", { status: res.status }));
+      return;
+    }
+    const rowStays =
+      sessionsArchiveFilter === "all" ||
+      (sessionsArchiveFilter === "only") === archived;
+    setSessions((prev) =>
+      rowStays
+        ? prev.map((s) => (s.id === id ? { ...s, archived } : s))
+        : prev.filter((s) => s.id !== id),
+    );
+    await loadSessionsList(true);
+  }
+
+  /**
+   * Keeps a conversation at the top of every listing, or lets it back into the
+   * order. Like archiving, the row moves only once the server has agreed, and
+   * one request per session is in flight at a time.
+   */
+  async function pinSession(id: string, pinned: boolean) {
+    if (pinningRef.current.has(id)) {
+      return;
+    }
+    pinningRef.current.add(id);
+    try {
+      const res = await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ pinned }),
+      });
+      if (!res.ok) {
+        setSessionsError(t("app.backendUnavailable", { status: res.status }));
+        return;
+      }
+      // The row does not move here: a pin changes the order, and the order is
+      // the server's answer, not something to guess at from one row.
+      await loadSessionsList(true);
+    } catch {
+      setSessionsError(t("app.backendUnavailable", { status: 0 }));
+    } finally {
+      pinningRef.current.delete(id);
+    }
+  }
+
+  /**
+   * Writes the order the operator dragged the pinned conversations into. The
+   * whole order travels, not the one that moved: a list rewritten from what was
+   * on screen cannot interleave with a concurrent change into an order nobody
+   * asked for. The rows are re-read afterwards, because the order is the
+   * server's answer.
+   */
+  async function reorderPinnedSessions(ids: string[]) {
+    if (ids.length === 0) {
+      return;
+    }
+    try {
+      const res = await fetch("/coddy/sessions/pins/reorder", {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) {
+        setSessionsError(t("app.backendUnavailable", { status: res.status }));
+      }
+    } catch {
+      setSessionsError(t("app.backendUnavailable", { status: 0 }));
+    }
+    await loadSessionsList(true);
+  }
+
+  /**
+   * Takes the conversation on screen out of the archive, from the notice that
+   * stands where its composer would be. The flag is cleared as soon as the
+   * server agrees, so the composer comes back without waiting for the listing.
+   */
+  async function unarchiveViewedSession() {
+    const sid = sessionId.trim();
+    if (!sid || unarchiving) {
+      return;
+    }
+    setUnarchiving(true);
+    try {
+      const res = await fetch(`/coddy/sessions/${encodeURIComponent(sid)}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ archived: false }),
+      });
+      if (!res.ok) {
+        setSessionsError(t("app.backendUnavailable", { status: res.status }));
+        return;
+      }
+      setViewedArchived(false);
+      setSessions((prev) =>
+        prev.map((s) => (s.id === sid ? { ...s, archived: false } : s)),
+      );
+      await loadSessionsList(true);
+    } catch {
+      setSessionsError(t("app.backendUnavailable", { status: 0 }));
+    } finally {
+      setUnarchiving(false);
+    }
   }
 
   // The session table in Settings removes bundles behind the open panel. Drop
@@ -2914,6 +3378,7 @@ export function App() {
     setEditingAssetNote("");
     setEditingFiles([]);
     setSubagentTranscript(null);
+    setViewedArchived(false);
     if (!sessionId) {
       setItems([]);
       setDraft("");
@@ -3049,9 +3514,7 @@ export function App() {
               setSessionLoading(false);
             }
           }
-          if (
-            loaded && turnActivity.get(sessionId) === true
-          ) {
+          if (loaded && turnActivity.get(sessionId) === true) {
             void attachViewedComposer(sessionId);
           }
         }
@@ -3142,10 +3605,17 @@ export function App() {
   ): Promise<void> {
     const key = sid.trim();
     if (!key) return;
-    if (postAbortBySidRef.current.has(key) || relayAbortBySidRef.current.has(key)) return;
+    if (
+      postAbortBySidRef.current.has(key) ||
+      relayAbortBySidRef.current.has(key)
+    )
+      return;
     const fetchCtl = new AbortController();
     relayAbortBySidRef.current.set(key, fetchCtl);
-    streamGenerationBySidRef.current.set(key, (streamGenerationBySidRef.current.get(key) ?? 0) + 1);
+    streamGenerationBySidRef.current.set(
+      key,
+      (streamGenerationBySidRef.current.get(key) ?? 0) + 1,
+    );
     const ownsRelay = () => relayAbortBySidRef.current.get(key) === fetchCtl;
     const queueEpoch = queueOrderRef.current.capture(key).epoch;
 
@@ -3160,7 +3630,8 @@ export function App() {
     const applyStreamItems = (
       fn: (prev: TranscriptItem[]) => TranscriptItem[],
     ) => {
-      if (ownsRelay() && !fetchCtl.signal.aborted) applyStreamItemsForSession(key, fn);
+      if (ownsRelay() && !fetchCtl.signal.aborted)
+        applyStreamItemsForSession(key, fn);
     };
 
     const branchTokenUsage = (u: TokenUsage | null) => {
@@ -3173,8 +3644,7 @@ export function App() {
     const branchContextUsage = (u: ContextUsageUpdate) => {
       if (!ownsRelay() || fetchCtl.signal.aborted) return;
       if (viewedSessionIdRef.current.trim() === key) {
-        setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
-        debouncedRefreshSessionStats(key);
+        applyContextUsage(key, u);
       }
     };
 
@@ -3186,8 +3656,15 @@ export function App() {
       if (resumeFrom) {
         headers["Last-Event-ID"] = resumeFrom;
       }
+      // Without a frame cursor - a reloaded tab - the baseline is the transcript just
+      // loaded, and the relay is asked only for what that snapshot lacks: replaying
+      // the whole turn on top of it put every finished step on screen a second time.
+      const sinceRev = resumeFrom
+        ? undefined
+        : snapshotRevByTranscript.current.get(baseline);
       const res = await fetch(
-        `/coddy/sessions/${encodeURIComponent(key)}/composer-stream`,
+        `/coddy/sessions/${encodeURIComponent(key)}/composer-stream` +
+          (sinceRev !== undefined ? `?since_rev=${sinceRev}` : ""),
         { headers, signal: fetchCtl.signal },
       );
       if (!ownsRelay() || fetchCtl.signal.aborted || !res.ok || !res.body) {
@@ -3235,7 +3712,13 @@ export function App() {
             `/coddy/sessions/${encodeURIComponent(key)}/messages`,
             { headers: { [HDR]: key } },
           );
-          if (!ownsRelay() || fetchCtl.signal.aborted || !res2.ok || !res2.data?.messages) return false;
+          if (
+            !ownsRelay() ||
+            fetchCtl.signal.aborted ||
+            !res2.ok ||
+            !res2.data?.messages
+          )
+            return false;
           let last = "";
           let lastCreated: string | undefined;
           for (const m of res2.data.messages) {
@@ -3336,7 +3819,8 @@ export function App() {
 
       void loadSessionsList(true);
       let ok = transcriptHasFilledAssistant(
-        streamShadowBySidRef.current.get(key) ?? [], lastAssistantId,
+        streamShadowBySidRef.current.get(key) ?? [],
+        lastAssistantId,
       );
       if (!ok) ok = await syncAssistantFromServer();
       for (let i = 0; i < 10 && !ok; i++) {
@@ -3401,7 +3885,8 @@ export function App() {
       : null;
 
     let sidEffective = "";
-    const ownsPost = () => postAbortBySidRef.current.get(postSessionKey) === abortCtl;
+    const ownsPost = () =>
+      postAbortBySidRef.current.get(postSessionKey) === abortCtl;
 
     try {
       let sid = sessionId;
@@ -3422,7 +3907,10 @@ export function App() {
       postSessionKey = sid.trim();
       postAbortBySidRef.current.set(postSessionKey, abortCtl);
       pendingPostBySidRef.current.set(postSessionKey, abortCtl);
-      streamGenerationBySidRef.current.set(postSessionKey, (streamGenerationBySidRef.current.get(postSessionKey) ?? 0) + 1);
+      streamGenerationBySidRef.current.set(
+        postSessionKey,
+        (streamGenerationBySidRef.current.get(postSessionKey) ?? 0) + 1,
+      );
       stoppedTurnBySidRef.current.delete(postSessionKey);
       turnActivity.observe(postSessionKey, true);
       addActiveComposer(postSessionKey);
@@ -3434,7 +3922,8 @@ export function App() {
       const applyStreamItems = (
         fn: (prev: TranscriptItem[]) => TranscriptItem[],
       ) => {
-        if (ownsPost() && !abortCtl.signal.aborted) applyStreamItemsForSession(streamKey, fn);
+        if (ownsPost() && !abortCtl.signal.aborted)
+          applyStreamItemsForSession(streamKey, fn);
       };
 
       const branchTokenUsage = (u: TokenUsage | null) => {
@@ -3447,8 +3936,7 @@ export function App() {
       const branchContextUsage = (u: ContextUsageUpdate) => {
         if (!ownsPost() || abortCtl.signal.aborted) return;
         if (viewedSessionIdRef.current.trim() === streamKey) {
-          setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
-          debouncedRefreshSessionStats(streamKey);
+          applyContextUsage(streamKey, u);
         }
       };
 
@@ -3597,7 +4085,10 @@ export function App() {
             createdAtUtc: new Date().toISOString(),
           },
         ]);
-        if (opts?.restoreDraftOnBusy && viewedSessionIdRef.current.trim() === postSessionKey) {
+        if (
+          opts?.restoreDraftOnBusy &&
+          viewedSessionIdRef.current.trim() === postSessionKey
+        ) {
           setDraft((current) => current || text);
         }
         completedNormally = true;
@@ -3614,7 +4105,10 @@ export function App() {
         queueEpoch = queueOrderRef.current.capture(streamKey).epoch;
         postAbortBySidRef.current.delete(oldKey);
         postAbortBySidRef.current.set(postSessionKey, abortCtl);
-        streamGenerationBySidRef.current.set(postSessionKey, (streamGenerationBySidRef.current.get(postSessionKey) ?? 0) + 1);
+        streamGenerationBySidRef.current.set(
+          postSessionKey,
+          (streamGenerationBySidRef.current.get(postSessionKey) ?? 0) + 1,
+        );
         turnActivity.observe(oldKey, false);
         turnActivity.observe(postSessionKey, true);
         relayAbortBySidRef.current.get(oldKey)?.abort();
@@ -3627,7 +4121,8 @@ export function App() {
         }
         streamingAssistantBySidRef.current.delete(oldKey);
         streamingAssistantBySidRef.current.set(postSessionKey, assistantId);
-        if (viewedSessionIdRef.current.trim() === oldKey) openSessionFromRoute(sidHdr);
+        if (viewedSessionIdRef.current.trim() === oldKey)
+          openSessionFromRoute(sidHdr);
         setDescribePreview((p) =>
           p?.sessionId === sid ? { ...p, sessionId: sidHdr } : p,
         );
@@ -3702,7 +4197,13 @@ export function App() {
             `/coddy/sessions/${encodeURIComponent(sidEffective)}/messages`,
             { headers: { [HDR]: sidEffective } },
           );
-          if (!ownsPost() || abortCtl.signal.aborted || !res2.ok || !res2.data?.messages) return false;
+          if (
+            !ownsPost() ||
+            abortCtl.signal.aborted ||
+            !res2.ok ||
+            !res2.data?.messages
+          )
+            return false;
           let last = "";
           let lastCreated: string | undefined;
           for (const m of res2.data.messages) {
@@ -3896,39 +4397,71 @@ export function App() {
     const cancelCtl = new AbortController();
     const timer = window.setTimeout(() => cancelCtl.abort(), 5000);
     const errorId = `stop_error_${sid}`;
-    applyStreamItemsForSession(sid, (prev) => prev.filter((it) => it.id !== errorId));
+    applyStreamItemsForSession(sid, (prev) =>
+      prev.filter((it) => it.id !== errorId),
+    );
+    let fenced = false;
     try {
-      const res = await fetch(`/coddy/sessions/${encodeURIComponent(sid)}/cancel`, {
-        method: "POST",
-        headers: { [HDR]: sid },
-        signal: cancelCtl.signal,
-      });
-      if (!res.ok) throw new Error(`cancel failed (${res.status})`);
-      // Abort only the captured connections. The acknowledgement neither proves
-      // idle nor gives an old Stop ownership of a newer turn in this session.
-      const current = !request.superseded && turnActivity.generation(sid) === generation &&
-        streamGenerationBySidRef.current.get(sid) === streamGeneration;
-      if (current) {
-        stoppedTurnBySidRef.current.set(sid, generation);
-      }
+      const cancelled = fetch(
+        `/coddy/sessions/${encodeURIComponent(sid)}/cancel`,
+        {
+          method: "POST",
+          headers: { [HDR]: sid },
+          signal: cancelCtl.signal,
+        },
+      );
+      // Release this tab's stream of the turn before the answer, not after it.
+      // Over HTTP/1.1 a browser keeps six connections to a host for all of its
+      // tabs, and a few open tabs of Coddy hold every one of them with event and
+      // turn streams: the cancel request then waits for a connection that only
+      // this abort frees. The turn does not depend on the stream, and a failed
+      // Stop rejoins it through the relay.
       post?.abort();
       relay?.abort();
-      if (current) void turnActivity.refresh(sid, false);
+      const res = await cancelled;
+      if (!res.ok) throw new Error(`cancel failed (${res.status})`);
+      // The acknowledgement neither proves idle nor gives an old Stop ownership
+      // of a newer turn in this session.
+      fenced =
+        !request.superseded &&
+        turnActivity.generation(sid) === generation &&
+        streamGenerationBySidRef.current.get(sid) === streamGeneration;
+      if (fenced) {
+        stoppedTurnBySidRef.current.set(sid, generation);
+        void turnActivity.refresh(sid, false);
+      }
     } catch {
       applyStreamItemsForSession(sid, (prev) => [
         ...prev.filter((it) => it.id !== errorId),
-        { id: errorId, type: "system_notice", level: "error", message: t("app.stopFailed"), createdAtUtc: new Date().toISOString() },
+        {
+          id: errorId,
+          type: "system_notice",
+          level: "error",
+          message: t("app.stopFailed"),
+          createdAtUtc: new Date().toISOString(),
+        },
       ]);
     } finally {
       window.clearTimeout(timer);
-      if (stopPendingBySidRef.current.get(sid) === request) stopPendingBySidRef.current.delete(sid);
+      if (stopPendingBySidRef.current.get(sid) === request) {
+        stopPendingBySidRef.current.delete(sid);
+        // The stream was released for a Stop that did not take this turn: the
+        // request failed, or a successor started meanwhile. Rejoin it without
+        // waiting for the next reconciliation tick, one task later, so the
+        // released stream has let go of the session before the attach looks.
+        if (!fenced) window.setTimeout(() => void turnActivity.refresh(sid), 0);
+      }
     }
   }
 
   const maxContextTokens = useMemo(() => {
+    const live = sessionContextWindows[sessionId.trim()];
+    if (live?.model === llmModel && live.epoch === configEpoch) {
+      return live.size;
+    }
     const row = modelInfos.find((m) => m.id === llmModel);
     return row?.maxContextTokens || 128000;
-  }, [modelInfos, llmModel]);
+  }, [modelInfos, llmModel, sessionId, sessionContextWindows, configEpoch]);
 
   const llmModelMultimodal = useMemo(() => {
     const row = modelInfos.find((m) => m.id === llmModel);
@@ -3944,13 +4477,21 @@ export function App() {
   // pick when the new model still offers it, else fall back (cookie -> model default).
   useEffect(() => {
     const row = modelInfos.find((m) => m.id === llmModel);
-    const levels = row?.reasoningLevels ?? [];
+    // Nothing is known about a model whose row has not arrived - the list is still
+    // in flight, or the id was just set. Clearing the level there loses the one the
+    // session asked for, and the run that follows cannot bring it back: it only
+    // sees the emptied value. Leave the selection alone until the row says what
+    // the model actually offers.
+    if (!row) {
+      return;
+    }
+    const levels = row.reasoningLevels ?? [];
     setLlmReasoning((prev) =>
       pickReasoningLevel({
         levels,
         cookie: readReasoningCookie(),
         sessionLevel: prev,
-        modelDefault: row?.reasoningDefault ?? null,
+        modelDefault: row.reasoningDefault ?? null,
       }),
     );
   }, [llmModel, modelInfos]);
@@ -4236,6 +4777,102 @@ export function App() {
     });
   }, [schedulerJobs, schedulerFilterQ]);
 
+  // Read the environments this server offers once: the list lives in the local
+  // config, so it is fetched off the origin rather than through the shim.
+  useEffect(() => {
+    let alive = true;
+    localFetch("/coddy/config")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((cfg) => {
+        if (!alive || !cfg) {
+          return;
+        }
+        const list = (cfg as Record<string, unknown>)?.httpserver as
+          | Record<string, unknown>
+          | undefined;
+        const raw = list?.remotes;
+        if (!Array.isArray(raw)) {
+          return;
+        }
+        setConfiguredRemotes(
+          raw
+            .map((item) => {
+              const o = (item ?? {}) as Record<string, unknown>;
+              return { name: String(o.name ?? ""), url: String(o.url ?? "") };
+            })
+            .filter((r) => r.url.trim() !== ""),
+        );
+      })
+      .catch(() => {
+        /* configured remotes are optional */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const activeEnv = useSyncExternalStore(
+    subscribeEnv,
+    snapshotEnv,
+    snapshotEnv,
+  );
+
+  /**
+   * The environments the History filter offers. Two kinds share the list,
+   * because to an operator they are one question - where is this conversation:
+   * the origin rows narrow the listing of whichever server is being read, and a
+   * remote row points the whole app at another server, the way the composer's
+   * environment chip does.
+   */
+  const sessionEnvironments = useMemo<SessionsEnvironmentOption[]>(() => {
+    const onRemote = activeEnv.mode === "remote";
+    // Narrowing by origin is a filter on the server being read; it must not
+    // reach for connectLocal, which reloads the page and would throw the choice
+    // away before it was used. Only coming *back* from a remote is a switch,
+    // and that reload resets the filter along with everything else.
+    const narrowTo = (origin: SessionOriginFilter) => () => {
+      if (onRemote) {
+        connectLocal();
+        return;
+      }
+      setSessionsOrigin(origin);
+      writeSessionPref(SESSION_PREF_COOKIES.origin, origin);
+    };
+    const rows: SessionsEnvironmentOption[] = [
+      {
+        key: "all",
+        label: t("sessions.filter.env.all"),
+        active: !onRemote && sessionsOrigin === "",
+        onPick: narrowTo(""),
+      },
+      {
+        key: "local",
+        label: t("sessions.filter.env.local"),
+        active: !onRemote && sessionsOrigin === "local",
+        onPick: narrowTo("local"),
+      },
+      {
+        key: "gateway",
+        label: t("sessions.filter.env.gateway"),
+        active: !onRemote && sessionsOrigin === "gateway",
+        onPick: narrowTo("gateway"),
+      },
+    ];
+    for (const remote of configuredRemotes) {
+      rows.push({
+        key: remote.url,
+        label: remote.name.trim() || remote.url,
+        active:
+          onRemote && activeEnv.baseUrl === remote.url.replace(/\/+$/, ""),
+        // connectRemote reloads the page, so nothing of this session's state
+        // reaches the other server - the origin filter included.
+        onPick: () =>
+          connectRemote(remote.url, getRemoteToken(remote.url), remote.name),
+      });
+    }
+    return rows;
+  }, [activeEnv, configuredRemotes, sessionsOrigin, t]);
+
   const sessionPanelShared = {
     sessionId: sidebarActiveId,
     permissionPendingSessionIds: permissionPendingSids,
@@ -4266,7 +4903,36 @@ export function App() {
     },
     onPick: pickSession,
     onTitleSave: saveSessionTitle as (id: string, title: string) => void,
+    onTagsSave: (id: string, tags: string[]) => saveSessionTags(id, tags),
     onDelete: deleteSession as (id: string) => void | Promise<void>,
+    onArchive: (id: string, archived: boolean) =>
+      void archiveSession(id, archived),
+    onPin: (id: string, pinned: boolean) => void pinSession(id, pinned),
+    onReorderPins: (ids: string[]) => void reorderPinnedSessions(ids),
+    groupMode: sessionGroupMode,
+    onGroupModeChange: (mode: SessionGroupMode) => {
+      setSessionGroupMode(mode);
+      writeSessionGroupCookie(mode);
+    },
+    archiveFilter: sessionsArchiveFilter,
+    onArchiveFilterChange: (value: SessionArchiveFilter) => {
+      setSessionsArchiveFilter(value);
+      writeSessionPref(SESSION_PREF_COOKIES.status, value);
+    },
+    environments: sessionEnvironments,
+    sortKey: sessionsSortKey,
+    onSortKeyChange: (key: SessionSortKey) => {
+      setSessionsSortKey(key);
+      writeSessionPref(SESSION_PREF_COOKIES.sort, key);
+    },
+    onNewChatInWorkspace: (cwd: string) => {
+      // Park the folder and leave; the effect below applies it on the first
+      // render with no session current. Doing it here would post the folder to
+      // the conversation being left and leave the new chat in the default one.
+      newChatWorkspaceRef.current = { path: cwd, nonce: Date.now() };
+      setNewChatWorkspaceEpoch((n) => n + 1);
+      goHome();
+    },
     searchDraft: sessionFilterDraft,
     onSearchDraftChange: setSessionFilterDraft,
     onSearchClear: () => setSessionFilterDraft(""),
@@ -4339,9 +5005,12 @@ export function App() {
         applyQueue(sid, payload.messages, payload.version ?? 0, queueEpoch);
         return;
       }
-      if (payload?.error?.code === "no_active_turn" &&
-          queueOrderRef.current.capture(sid).epoch === queueEpoch &&
-          turnActivity.generation(sid) === generation && viewedSessionIdRef.current.trim() === sid) {
+      if (
+        payload?.error?.code === "no_active_turn" &&
+        queueOrderRef.current.capture(sid).epoch === queueEpoch &&
+        turnActivity.generation(sid) === generation &&
+        viewedSessionIdRef.current.trim() === sid
+      ) {
         // The turn ended between the keystroke and the request. Send it as an
         // ordinary prompt; if the admission has not been released yet and that
         // is refused too, the text comes back to the composer rather than
@@ -4349,7 +5018,8 @@ export function App() {
         void streamResponses(body, { restoreDraftOnBusy: true });
         return;
       }
-      if (viewedSessionIdRef.current.trim() === sid) setDraft((current) => current || body);
+      if (viewedSessionIdRef.current.trim() === sid)
+        setDraft((current) => current || body);
       applyStreamItemsForSession(sid, (prev) => [
         ...prev,
         {
@@ -4376,6 +5046,7 @@ export function App() {
     const queueEpoch = queueOrderRef.current.capture(sid).epoch;
     const messageID = id.trim();
     if (!sid || !messageID) return;
+    const taken = (queueBySid[sid] ?? []).find((q) => q.id === messageID);
     setQueueBySid((prev) => ({
       ...prev,
       [sid]: (prev[sid] ?? []).filter((q) => q.id !== messageID),
@@ -4392,6 +5063,15 @@ export function App() {
         } | null;
         if (Array.isArray(data?.messages)) {
           applyQueue(sid, data.messages, data.version ?? 0, queueEpoch);
+        }
+        // Taken back before the agent read it: the text returns to the composer to be
+        // edited, ahead of anything typed since. A 404 means the agent read it first,
+        // and it is already in the conversation.
+        const text = taken?.text ?? "";
+        if (res.ok && text.trim() && viewedSessionIdRef.current.trim() === sid) {
+          setDraft((current) =>
+            current.trim() ? `${text}\n\n${current}` : text,
+          );
         }
       } catch {
         // The next message_queue frame corrects the list.
@@ -4569,10 +5249,15 @@ export function App() {
               initialSection={settingsSection}
               activeSessionId={sidebarActiveId}
               onSessionsDeleted={onSessionsDeletedInSettings}
-              // Subagent approvals are keyed by workspace, and spawn_agent
-              // checks the session's own cwd: the viewed session's workspace
-              // is the one the Subagents tab must ask about.
+              // spawn_agent resolves definitions against the session's own
+              // cwd: the viewed session's workspace is the one the Subagents
+              // tab lists.
               workspacePath={workspaceCtx?.path || undefined}
+              onSessionTagsChanged={(id: string, tags: string[]) =>
+                setSessions((prev) =>
+                  prev.map((s) => (s.id === id ? { ...s, tags } : s)),
+                )
+              }
             />
           </div>
         ) : null}
@@ -4612,6 +5297,9 @@ export function App() {
             onOpenBackgroundTask={openBackgroundTask}
             onStopBackgroundTask={handleStopBackgroundTask}
             subagentTranscript={subagentTranscript}
+            sessionArchived={viewedArchived}
+            unarchiving={unarchiving}
+            onUnarchiveSession={() => void unarchiveViewedSession()}
             onOpenSession={openSessionInPlace}
             pathRoots={transcriptPathRoots}
             workspaceCtx={workspaceCtx}
@@ -4695,7 +5383,8 @@ export function App() {
                   onPlanDocumentRun: (slug: string) => {
                     if (
                       sessionId.trim() &&
-                      (turnActivity.get(sessionId) ?? activeComposerSidRef.current.has(sessionId.trim()))
+                      (turnActivity.get(sessionId) ??
+                        activeComposerSidRef.current.has(sessionId.trim()))
                     ) {
                       return;
                     }
@@ -4741,7 +5430,8 @@ export function App() {
               }
               if (
                 sessionId.trim() &&
-                (turnActivity.get(sessionId) ?? activeComposerSidRef.current.has(sessionId.trim()))
+                (turnActivity.get(sessionId) ??
+                  activeComposerSidRef.current.has(sessionId.trim()))
               ) {
                 return;
               }

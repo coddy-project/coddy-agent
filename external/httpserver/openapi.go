@@ -32,7 +32,7 @@ func openAPISpec() map[string]interface{} {
 		"servers": []interface{}{
 			map[string]interface{}{
 				"url":         "/",
-				"description": "Server root (same host/port as the API coddy serve exposes). **`GET /`**, **`/index.html`**, **`/app.js`**, **`/styles.css`**, and favicon paths (**`/coddy-favicon.svg`**, **`/favicon-32.png`**, **`/favicon.ico`**, **`/apple-touch-icon.png`**) set **`Cache-Control: no-cache`**.",
+				"description": "Server root (same host/port as the API coddy serve exposes). **`GET /`**, **`/index.html`**, **`/app.js`**, **`/events-worker.js`** (the SharedWorker that holds **`GET /coddy/events`** for every tab of one environment), **`/styles.css`**, and favicon paths (**`/coddy-favicon.svg`**, **`/favicon-32.png`**, **`/favicon.ico`**, **`/apple-touch-icon.png`**) set **`Cache-Control: no-cache`**.",
 			},
 		},
 		// Optional auth: an empty requirement plus the two schemes means requests may be
@@ -203,7 +203,10 @@ func openAPISpec() map[string]interface{} {
 					"description": "Rows are ordered by **session.json** **updatedAt** (newest first), then **id** when timestamps tie. " +
 						"**updatedAt** advances when session state is persisted (messages, titles, etc.); loading a snapshot into memory for HTTP does not rewrite it. " +
 						"Bundles created for **scheduler runs** (cron or manual) carry **schedulerRun** metadata and are **hidden** from this list unless **include_scheduler=true**. " +
-						"Child sessions of subagent runs (**subagentRun** metadata, stored inside the parent's bundle) are hidden unless **include_subagents=true**; an included child row carries **subagent** **`{parentSessionId, name, taskId}`** so a client can route back to the parent chat and to the task in its drawer.",
+						"Child sessions of subagent runs (**subagentRun** metadata, stored inside the parent's bundle) are hidden unless **include_subagents=true**; an included child row carries **subagent** **`{parentSessionId, name, taskId}`** so a client can route back to the parent chat and to the task in its drawer. " +
+						"Sessions the operator **archived** are hidden unless **archived** says otherwise, and a row carries **tags**, **archived** / **archivedAt**, **origin** and **pinned** / **pinnedAt** when it has them. " +
+						"A **pinned** session leads the listing whatever **sort** says - a pin that worked in one order only would not be one - and the pins are ordered among themselves by **pinnedRank**, the order the operator dragged them into, newest pin first until one is dragged. " +
+						"**sort** and **order** replace the default ordering; they are applied to the whole filtered listing before paging, so page two of a sorted listing continues page one.",
 					"parameters": append(coddyPagingParams(), map[string]interface{}{
 						"name":   "cwd",
 						"in":     "query",
@@ -220,6 +223,34 @@ func openAPISpec() map[string]interface{} {
 						"in":          "query",
 						"schema":      map[string]string{"type": "boolean"},
 						"description": "When true, include child sessions spawned by **spawn_agent**; each such row carries **subagent** **`{parentSessionId, name, taskId}`** read from its bundle. The default listing hides them and opens no child bundle.",
+					}, map[string]interface{}{
+						"name":        "archived",
+						"in":          "query",
+						"schema":      map[string]interface{}{"type": "string", "enum": []string{"exclude", "only", "all"}},
+						"description": "Which side of the archive to list: **`exclude`** (the default, the working list), **`only`** (the archive) or **`all`**. An unknown value is a **400** rather than a silent default.",
+					}, map[string]interface{}{
+						"name":   "tags",
+						"in":     "query",
+						"schema": map[string]string{"type": "string"},
+						"description": "Comma separated tags; a session is kept when it carries **any** of them. Values are normalized the same way stored tags are (lower case, inner whitespace as a hyphen), " +
+							"so **`Backend`** finds what was stored as **`backend`**.",
+					}, map[string]interface{}{
+						"name":   "origin",
+						"in":     "query",
+						"schema": map[string]interface{}{"type": "string", "enum": []string{"local", "gateway"}},
+						"description": "Keeps the sessions of one surface: **`local`** for the ones opened on this host, **`gateway`** for the chats a messenger gateway is holding. " +
+							"Omit it for every surface. A row a gateway started carries **`origin`** (**`gateway:telegram`**), written once by the surface that created the session. An unknown value is a **400**.",
+					}, map[string]interface{}{
+						"name":   "sort",
+						"in":     "query",
+						"schema": map[string]interface{}{"type": "string", "enum": []string{"updated", "created", "title", "messages", "tokens"}},
+						"description": "The column the listing is ordered by; **`updated`** by default. A session the column says nothing about (no creation stamp, no title) sorts **last in both directions**, and ties break by id so paging is stable. " +
+							"**`tokens`** reads each bundle's **stats.json**, so it costs one extra small file read per session and only when it is the column asked for. An unknown key is a **400**.",
+					}, map[string]interface{}{
+						"name":        "order",
+						"in":          "query",
+						"schema":      map[string]interface{}{"type": "string", "enum": []string{"desc", "asc"}},
+						"description": "Direction of **sort**; **`desc`** by default. An unknown value is a **400**.",
 					}, map[string]interface{}{
 						"name":        "include_activity",
 						"in":          "query",
@@ -240,12 +271,45 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/sessions/pins/reorder": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Write the order of the pinned sessions",
+					"description": "Rewrites **pinnedRank** across the pinned sessions so they list in the order given. The **whole** order is sent, not the id that moved: a list rewritten from what the client was looking at cannot interleave with a concurrent change into an order nobody asked for. " +
+						"Every id is checked before anything is written - it must be a valid id, name a stored session, be **pinned**, and appear once - so a refused request leaves every pin exactly where it was. " +
+						"A session pinned afterwards goes **above** them all; unpinning forgets the placement, so pinning again is a new pin rather than a return to an old seat.",
+					"operationId": "coddySessionPinsReorder",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"ids": map[string]interface{}{
+											"type":        "array",
+											"items":       map[string]string{"type": "string"},
+											"description": "The pinned session ids, top first.",
+										},
+									},
+									"required": []string{"ids"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "The order that was written"},
+						"400": errorResponseRef(),
+						"503": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/sessions/bulk-delete": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary": "Delete many sessions in one request",
 					"description": "Removes several session trees with the same semantics as **DELETE /coddy/sessions/{id}** applied to each id: branch references retracted, background tasks and subagent children stopped, bundles removed deepest first. " +
-						"The body names either an explicit **ids** list, or **scope** **`all`** with an optional **except** list of ids to keep. **`all`** is resolved on the server against the default session listing " +
-						"(scheduler runs excluded, subagent children going with their parents), so it means the whole stored history rather than the page a client happens to have loaded. " +
+						"The body names either an explicit **ids** list, **scope** **`all`**, or **scope** **`archived`**, either of the two scopes with an optional **except** list of ids to keep. The scopes are resolved on the server against the session listing " +
+						"(scheduler runs excluded, subagent children going with their parents), so they mean the whole stored history rather than the page a client happens to have loaded. " +
+						"**`all`** reaches into the archive as well - a scope that left sessions behind because they were put aside would not be the whole history - while **`archived`** empties the archive and touches nothing else. " +
 						"An **except** entry is a promise that the session survives, so it is checked before anything is removed: a malformed id, or one with no bundle on disk, is a **400** and nothing is deleted - a misspelt exception would otherwise turn *keep this one* into *delete everything*. " +
 						"Sparing a session spares its **ancestors** too, because the delete takes a whole tree: excepting a child keeps the parent it hangs from, which the listing names and the child does not. **except** is refused beside an **ids** list, where nothing would consult it. " +
 						"One id that cannot be removed does not abandon the rest: every id is attempted and the answer lists **deleted** and **failed** separately, so a table can drop the rows that went and keep the others with their reason. " +
@@ -261,18 +325,19 @@ func openAPISpec() map[string]interface{} {
 									"properties": map[string]interface{}{
 										"scope": map[string]interface{}{
 											"type":        "string",
-											"enum":        []string{"ids", "all"},
-											"description": "**`ids`** (the default) deletes exactly the **ids** list; **`all`** deletes every listed session minus **except**.",
+											"enum":        []string{"ids", "all", "archived"},
+											"description": "**`ids`** (the default) deletes exactly the **ids** list; **`all`** deletes every stored session minus **except**, the archive included; **`archived`** deletes only the sessions in the archive.",
 										},
+
 										"ids": map[string]interface{}{
 											"type":        "array",
 											"items":       map[string]string{"type": "string"},
-											"description": "Session ids to remove. Required and non-empty for scope **`ids`**; rejected together with scope **`all`**.",
+											"description": "Session ids to remove. Required and non-empty for scope **`ids`**; rejected together with scope **`all`** or **`archived`**.",
 										},
 										"except": map[string]interface{}{
 											"type":        "array",
 											"items":       map[string]string{"type": "string"},
-											"description": "Session ids to keep, for scope **`all`** only (a **400** beside an **ids** list). Each one must be a valid id **and** name a stored bundle, or the whole request is a **400** and nothing is removed. Keeping a session keeps its ancestors as well.",
+											"description": "Session ids to keep, for the **`all`** and **`archived`** scopes only (a **400** beside an **ids** list). Each one must be a valid id **and** name a stored bundle, or the whole request is a **400** and nothing is removed. Keeping a session keeps its ancestors as well.",
 										},
 									},
 								},
@@ -316,8 +381,10 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/coddy/describe": map[string]interface{}{
 				"post": map[string]interface{}{
-					"summary":     "Generate a short text description",
-					"description": "Accepts arbitrary text and returns a short phrase describing what it is about. If the input is 3 words or fewer, the response echoes them.",
+					"summary": "Generate a short text description",
+					"description": "Accepts arbitrary text and returns a short phrase describing what it is about, plus the **tags** the model proposed for filing the conversation. " +
+						"The tags ride on the call that already names a new chat, so a session is filed without a second request to the model; a model that ignores the instruction answers the phrase alone and **tags** is empty. " +
+						"Every text is asked about, however short: a first message of two words is the one that needs the labels most, and echoing it back would leave the shortest conversations unfiled.",
 					"operationId": "coddyDescribe",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -343,6 +410,11 @@ func openAPISpec() map[string]interface{} {
 										"properties": map[string]interface{}{
 											"object": map[string]string{"type": "string", "example": "coddy.describe"},
 											"short":  map[string]string{"type": "string"},
+											"tags": map[string]interface{}{
+												"type":        "array",
+												"items":       map[string]string{"type": "string"},
+												"description": "Normalized topic labels, empty when the model proposed none.",
+											},
 										},
 										"required": []string{"object", "short"},
 									},
@@ -1304,8 +1376,11 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/coddy/sessions/{id}": map[string]interface{}{
 				"patch": map[string]interface{}{
-					"summary":     "Patch session composer metadata",
-					"description": "Set **title** (pinned title), **selectedModelId** (YAML **`models[].model`** selector for this session), **selectedReasoning** (reasoning level; must be one of the effective model's **`reasoning_levels`**, empty to clear), and/or **markActivityRead** (boolean) to advance the read cursor for **activitySeq**. **markActivityRead** updates only activity counters in **session.json** and does not change **updatedAt** (history order stays stable until new chat content is saved).",
+					"summary": "Patch session composer metadata",
+					"description": "Set **title** (pinned title), **tags** (the session's labels), **archived** (put the session aside or take it back), **pinned** (hold it at the top of every listing), **selectedModelId** (YAML **`models[].model`** selector for this session), **selectedReasoning** (reasoning level; must be one of the effective model's **`reasoning_levels`**, empty to clear), and/or **markActivityRead** (boolean) to advance the read cursor for **activitySeq**. " +
+						"**tags** replaces the whole set rather than merging into it, so an empty array clears them; omitting the field leaves them alone. Values are normalized (lower case, inner whitespace as a hyphen, duplicates dropped, at most 8 of at most 32 characters). " +
+						"**titleIfUnpinned** marks **title** as a suggestion rather than a rename: the describe call that names a new chat sends it, and the title is then stored only while the session has no pinned title of its own, so a name written during that first turn (in the chat header, or by the agent's **session_describe** tool) is not overwritten by an answer that was already in flight. The response reports the title the session kept. " +
+						"**markActivityRead** updates only activity counters in **session.json** and does not change **updatedAt** (history order stays stable until new chat content is saved).",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -1320,9 +1395,16 @@ func openAPISpec() map[string]interface{} {
 								"schema": map[string]interface{}{
 									"type": "object",
 									"properties": map[string]interface{}{
-										"title":             map[string]string{"type": "string"},
+										"title": map[string]string{"type": "string"},
+										"tags": map[string]interface{}{
+											"type":  "array",
+											"items": map[string]string{"type": "string"},
+										},
+										"archived":          map[string]string{"type": "boolean"},
+										"pinned":            map[string]string{"type": "boolean"},
 										"selectedModelId":   map[string]string{"type": "string"},
 										"selectedReasoning": map[string]string{"type": "string"},
+										"titleIfUnpinned":   map[string]string{"type": "boolean"},
 										"markActivityRead":  map[string]string{"type": "boolean"},
 									},
 								},
@@ -1561,6 +1643,7 @@ func openAPISpec() map[string]interface{} {
 						"**user** and **assistant** rows may include **created_at** (RFC3339 UTC) when the server appended that message to history. " +
 						"When long-term memory copilot has run for this session bundle, responses may include **memoryTurns** (persisted observability parallel to Chat Completions transcript; not forwarded to main LLM). " +
 						"**uiLog** (optional) lists UI-only rows such as persisted LLM/request errors keyed by **userTurnIndex**; these are not part of **messages** and are not sent to the model. " +
+						"**messagesRev** is the revision of the history these **messages** were read at; pass it to **GET /coddy/sessions/{id}/composer-stream** as **`?since_rev=`** to be replayed only the frames of a running turn this transcript does not already hold. " +
 						"Immediately after **POST /coddy/sessions/{id}/cancel**, the returned **messages** list can briefly omit or shorten the in-progress **assistant** row compared to what was already streamed; UIs that keep a local shadow should merge when the server snapshot is a strict prefix of on-screen rows. " +
 						"For a child session spawned by **spawn_agent** the payload also carries **readOnly** **true** and **subagent** **`{parentSessionId, name, taskId}`**: the transcript is served from the live child while it runs and from its bundle afterwards, and no route accepts a prompt for it (**409**), so a UI replaces the composer with a notice linking to the parent chat.",
 					"parameters": []interface{}{
@@ -1607,9 +1690,11 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/composer-stream": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to live composer SSE for an in-flight turn",
-					"description": "Server-Sent Events with the same **data:** and **event:** frames as **POST /v1/responses** (**stream: true**) for the active **agent**/**plan**/**ask** turn. Replays bytes generated so far, then forwards live chunks until the turn ends (relay closes). With **no turn running** for the session, answers immediately with **event: error** carrying **error.code** **no_active_stream**, so a client can fall back to the persisted transcript without waiting. While a turn *is* running but has not attached its relay yet, emits **SSE comments** (`: composer stream pending`) until it does or the wait window expires. Optional header **X-Coddy-Session-ID** must match **{id}** when set. Frames replayed to a subscriber carry an **`id:`** sequence; send it back as **Last-Event-ID** (or **`?last_event_id=`**) to resume after it instead of replaying the whole turn. When the frames a client asks to resume from have already been trimmed, the stream leads with **event: desync** so it can reload the transcript instead of rendering a gap. The primary **POST** stream is unchanged and carries no ids.",
+					"description": "Server-Sent Events with the same **data:** and **event:** frames as **POST /v1/responses** (**stream: true**) for the active **agent**/**plan**/**ask** turn. Replays bytes generated so far, then forwards live chunks until the turn ends (relay closes). With **no turn running** for the session, answers immediately with **event: error** carrying **error.code** **no_active_stream**, so a client can fall back to the persisted transcript without waiting. While a turn *is* running but has not attached its relay yet, emits **SSE comments** (`: composer stream pending`) until it does or the wait window expires. Optional header **X-Coddy-Session-ID** must match **{id}** when set. Frames replayed to a subscriber carry an **`id:`** sequence; send it back as **Last-Event-ID** (or **`?last_event_id=`**) to resume after it instead of replaying the whole turn. A client that has just loaded the transcript instead passes that response's **messagesRev** as **`?since_rev=`**: the replay then leaves out every frame a persisted message already describes (the finished steps of the turn), so nothing on screen arrives twice; a frame cursor wins when both are sent. When the frames a client needs have already been trimmed, the stream leads with **event: desync** so it can reload the transcript instead of rendering a gap. A frame older than 250ms when it is written to the subscriber - replayed history, or a subscriber that fell behind - carries an **`age:`** field with its age in milliseconds, so a client can date it when it happened rather than when it arrived. The primary **POST** stream is unchanged and carries no ids.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
+						map[string]interface{}{"name": "since_rev", "in": "query", "required": false, "schema": map[string]string{"type": "integer"}, "description": "The **messagesRev** of the transcript the client holds; replays only the frames it lacks."},
+						map[string]interface{}{"name": "last_event_id", "in": "query", "required": false, "schema": map[string]string{"type": "integer"}, "description": "Resume after this frame (for clients that cannot send **Last-Event-ID**)."},
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "text/event-stream composer relay"},
@@ -1622,7 +1707,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/permission": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Resolve a pending tool permission prompt from a streaming ReAct turn",
-					"description": "Completes **`event: permission`** on **`POST /v1/responses`** (**stream: true**). A child session spawned by **spawn_agent** normally holds no prompt of its own (its requests are relayed to the parent chat) and answers **409**. The exception is a **detached** child whose spawning turn has ended: its prompt is published as **pending_permission** on the parent's background task row and as **event: subagent_permission** on **GET /coddy/events**, and is answered here under the **child's** id, the one its **sessionId** names; a **409** therefore only means nobody is waiting on that id. Body **`toolCallId`** must match **`toolCall.toolCallId`** from the SSE payload; **`optionId`** is **`allow`**, **`allow_always`** (remembers this exact command), **`allow_always_program`** (offered for **run_command** only, and only when the command is a single plain invocation; remembers the program, or the program plus its subcommand for multiplexers like **git**), or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). Optional header **X-Coddy-Session-ID** must match **{id}** when set. Frames replayed to a subscriber carry an **`id:`** sequence; send it back as **Last-Event-ID** (or **`?last_event_id=`**) to resume after it instead of replaying the whole turn. When the frames a client asks to resume from have already been trimmed, the stream leads with **event: desync** so it can reload the transcript instead of rendering a gap. The primary **POST** stream is unchanged and carries no ids.",
+					"description": "Completes **`event: permission`** on **`POST /v1/responses`** (**stream: true**). A child session spawned by **spawn_agent** normally holds no prompt of its own (its requests are relayed to the parent chat) and answers **409**. The exception is a **detached** child whose spawning turn has ended: its prompt is published as **pending_permission** on the parent's background task row and as **event: subagent_permission** on **GET /coddy/events**, and is answered here under the **child's** id, the one its **sessionId** names; a **409** therefore only means nobody is waiting on that id. Body **`toolCallId`** must match **`toolCall.toolCallId`** from the SSE payload; **`optionId`** is **`allow`**, **`allow_always`** (remembers this exact command), **`allow_always_program`** (offered for **run_command** only, and only when the command is a single plain invocation; remembers the program, or the program plus its subcommand for multiplexers like **git**), **`allow_always_url`** / **`allow_always_origin`** (offered for **http_request** instead of **`allow_always`**; remember the request's address or its whole origin together with the files, proxy, unchecked certificate and output path it carried), or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). Optional header **X-Coddy-Session-ID** must match **{id}** when set. Frames replayed to a subscriber carry an **`id:`** sequence; send it back as **Last-Event-ID** (or **`?last_event_id=`**) to resume after it instead of replaying the whole turn. When the frames a client asks to resume from have already been trimmed, the stream leads with **event: desync** so it can reload the transcript instead of rendering a gap. The primary **POST** stream is unchanged and carries no ids.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -2182,7 +2267,8 @@ func openAPISpec() map[string]interface{} {
 										"type": "object",
 										"properties": map[string]interface{}{
 											"object": map[string]string{"type": "string", "example": "coddy.skills_sources"},
-											"items":  map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+											"items":  map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Every source in effect: the built-in ones first, then what skills.sources names."},
+											"system": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "The subset of items Coddy brings itself. They are not in config.yaml, DELETE refuses them, and a client should offer no remove control for them."},
 										},
 									},
 								},
@@ -2217,7 +2303,7 @@ func openAPISpec() map[string]interface{} {
 				},
 				"delete": map[string]interface{}{
 					"summary":     "Remove a remote skill source",
-					"description": "Removes a source from **`skills.sources`** in **config.yaml** (matched case-insensitively) and reloads config. Already-installed skills remain until removed. The source is passed as the **`source`** query parameter. Missing **`source`** returns 400.",
+					"description": "Removes a source from **`skills.sources`** in **config.yaml** (matched case-insensitively) and reloads config. Already-installed skills remain until removed. The source is passed as the **`source`** query parameter. Missing **`source`** returns 400, and so does a source listed under **`system`** by `GET /coddy/skills/sources`: those are built into Coddy and are not in the file.",
 					"operationId": "removeSkillSource",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -2413,7 +2499,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/compact": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Compact (summarize) older session history",
-					"description": "Summarizes conversation history into a single summary row inserted into the transcript. As a manual trigger it forces compaction, folding whatever exists even below the keep-recent boundary (**compaction.keep_recent_turns**, default 2 user turns) by reducing the kept tail as needed; nothing_to_compact is returned only when there is no prior conversation. Later LLM prompts replay only the summary plus the kept tail; the persisted transcript keeps every original message. Equivalent to the built-in **/compact** prompt command. Requires the composer turn lock (409 when another agent turn is running). A child session spawned by **spawn_agent** is a read-only transcript and answers **409** as well.",
+					"description": "Summarizes conversation history into a single summary row inserted into the transcript. As a manual trigger it forces compaction, folding whatever exists even below the keep-recent boundary (**compaction.keep_recent_turns**, default 2 user turns) by reducing the kept tail as needed; nothing_to_compact is returned only when there is no prior conversation. Later LLM prompts replay only the summary plus the kept tail; the persisted transcript keeps every original message. Equivalent to the built-in **/compact** prompt command. It runs as a turn of the session: **GET /coddy/events** publishes **turn_started** and **turn_ended** for it, so a client watching the session reloads the smaller context usage, and a second turn meanwhile is refused. **409** when another agent turn is running or the session is being deleted; a child session spawned by **spawn_agent** is a read-only transcript and answers **409** as well. A history larger than the summarizer's own context window is folded in several passes rather than refused, each pass carrying the summary so far; **steps** reports how many it took, and the progress is published as a **compact_context** tool-call row on the session stream.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -2563,6 +2649,10 @@ func openAPISpec() map[string]interface{} {
 							"type": "integer", "description": "How many messages after the summary stayed verbatim.",
 						},
 						"model": map[string]string{"type": "string", "description": "models[].model that produced the summary."},
+						"steps": map[string]interface{}{
+							"type":        "integer",
+							"description": "How many summarization calls the fold took: 1 while the history fits one request, more when it was folded in passes because it did not.",
+						},
 					},
 				},
 				"SkillRow": map[string]interface{}{
@@ -2874,12 +2964,15 @@ func openAPISpec() map[string]interface{} {
 							"items": map[string]interface{}{
 								"type": "object",
 								"properties": map[string]interface{}{
-									"id":                 map[string]string{"type": "string"},
-									"object":             map[string]string{"type": "string", "example": "model"},
-									"created":            map[string]string{"type": "integer", "format": "int64"},
-									"owned_by":           map[string]string{"type": "string", "example": "coddy"},
-									"max_context_tokens": map[string]string{"type": "integer"},
-									"multimodal":         map[string]string{"type": "boolean"},
+									"id":       map[string]string{"type": "string"},
+									"object":   map[string]string{"type": "string", "example": "model"},
+									"created":  map[string]string{"type": "integer", "format": "int64"},
+									"owned_by": map[string]string{"type": "string", "example": "coddy"},
+									"max_context_tokens": map[string]string{
+										"type":        "integer",
+										"description": "Context window a session on this model measures its context usage and its automatic compaction threshold against: `models[].max_context_tokens`, else the window the provider's model listing reports, else 128000. The `agent`, `plan` and `ask` rows carry the window of `agent.model`.",
+									},
+									"multimodal": map[string]string{"type": "boolean"},
 									"reasoning_levels": map[string]interface{}{
 										"type":        "array",
 										"items":       map[string]string{"type": "string"},
@@ -3230,7 +3323,7 @@ func openAPISpec() map[string]interface{} {
 							"example":     "/usr/bin/bash",
 						},
 						"repo_root": map[string]string{"type": "string"},
-						"branch":      map[string]string{"type": "string"},
+						"branch":    map[string]string{"type": "string"},
 						"branches": map[string]interface{}{
 							"type":  "array",
 							"items": map[string]string{"type": "string"},

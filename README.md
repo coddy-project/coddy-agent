@@ -75,7 +75,7 @@ agent:
 
 - **Three operating modes**: `agent` with every tool, `plan` for planning and text files, `ask` for read-only research, switched from any surface ([Operating modes](docs/features/modes.md)).
 - **Rules and project files**: `.coddy/rules`, `.agents/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules` and nested `AGENTS.md` are picked up as the agent works, and your own `~/.coddy/AGENTS.md`, `~/.coddy/DESIGN.md` and `~/.coddy/rules` apply in every workspace ([Rules and instructions](docs/features/rules.md)).
-- **Skills**: `SKILL.md` packs become slash commands, installed from skills.sh, the skillsbd registry or any repository ([Skills](docs/features/skills.md)).
+- **Skills**: `SKILL.md` packs become slash commands. Five ship inside the binary and are there on the first run - `/rpa-init`, `/rpa-feat`, `/rpa-bugfix`, `/rpa-gen-rules` and `/configure-coddy` - and more install from skills.sh, the skillsbd registry or any repository ([Skills](docs/features/skills.md)).
 - **Subagents**: `spawn_agent` delegates a bounded task to a child with its own context and session, tools and permissions only narrowing ([Subagents](docs/features/subagents.md)).
 - **Hooks**: your own commands at every lifecycle point, in Claude Code's `hooks.json` shape, able to deny, approve or rewrite a tool call ([Hooks](docs/features/hooks.md)).
 - **MCP servers** over stdio, streamable HTTP and SSE, from `config.yaml`, `mcp.json` files or the editor, with a trust gate for what arrives with a checkout ([MCP servers](docs/features/mcp.md)).
@@ -109,7 +109,7 @@ Project trust is one decision for MCP servers, hooks and subagents that arrive w
 | Combine features for a task | [Tutorials](docs/tutorials/coddy-in-ci.md), the swarm ones included: [a relay and its nodes](docs/tutorials/swarm-relay-and-nodes.md), [a chain of relays](docs/tutorials/swarm-multi-hop.md), [working with remote nodes](docs/tutorials/swarm-remote-nodes.md) |
 | Change Coddy itself | [Contributing](CONTRIBUTING.md), [Architecture](docs/contributing/architecture.md), [AGENTS.md](AGENTS.md), [DESIGN.md](DESIGN.md) |
 
-The whole map is [docs/README.md](docs/README.md). Agents that read documentation get the same pages as [llms.txt](docs/llms.txt) and [llms-full.txt](docs/llms-full.txt), and the config file carries a JSON Schema at <https://coddy.dev/config.schema.json> for editor validation. How Coddy compares with other agent harnesses is on [coddy.dev/compare](https://coddy.dev/compare/).
+The whole map is [docs/README.md](docs/README.md). Agents that read documentation get the same pages as <https://coddy.dev/llms.txt> and <https://coddy.dev/llms-full.txt>, and the config file carries a JSON Schema at <https://coddy.dev/config.schema.json> for editor validation. How Coddy compares with other agent harnesses is on [coddy.dev/compare](https://coddy.dev/compare/).
 
 ## Contributing
 

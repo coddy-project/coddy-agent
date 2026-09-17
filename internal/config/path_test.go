@@ -143,6 +143,25 @@ func TestCommitUCICommandsStringFieldKeepsLiteralText(t *testing.T) {
 	}
 }
 
+func TestReadConfigPathRedactsTheBraveSearchKey(t *testing.T) {
+	// config_get hands its answer to the model; a search API key is as much a
+	// credential as a provider's api_key and must not reach it.
+	paths := testPathConfig(t, "tools:\n  websearch:\n    engines: [brave]\n    brave_api_key: BSA-secret\n")
+	for _, key := range []string{"tools.websearch", "tools.websearch.brave_api_key"} {
+		got, err := ReadConfigPath(paths, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := json.Marshal(got.Value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(encoded), "BSA-secret") || !got.Redacted {
+			t.Fatalf("config_get %s leaked the Brave key: %s", key, encoded)
+		}
+	}
+}
+
 func TestReadConfigPathRedactsSecrets(t *testing.T) {
 	paths := testPathConfig(t, `providers:
   - name: openai
@@ -206,6 +225,7 @@ func TestUCICommandRedactedString(t *testing.T) {
 		{line: "set providers.0.api_key_command=vault read key", want: "set providers.0.api_key_command=<redacted>"},
 		{line: "set mcp_servers[name=x].env.0.value=tok-123", want: "set mcp_servers[name=x].env.0.value=<redacted>"},
 		{line: "set httpserver.auth_token='t0p'", want: "set httpserver.auth_token=<redacted>"},
+		{line: "set tools.websearch.brave_api_key=BSA-secret", want: "set tools.websearch.brave_api_key=<redacted>"},
 		{line: "add_list skills.dirs=/opt/skills", want: "add_list skills.dirs=/opt/skills"},
 		{line: "delete mcp_servers[name=x]", want: "delete mcp_servers[name=x]"},
 		{line: "set agent.max_turns=20", want: "set agent.max_turns=20"},

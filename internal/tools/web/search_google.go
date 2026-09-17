@@ -2,70 +2,70 @@ package web
 
 import (
 	"bytes"
-	"context"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"strings"
-	"time"
+
+	"context"
 
 	"golang.org/x/net/html"
 )
 
 // googleSearchFunc is swapped in tests to avoid live Google calls.
-var googleSearchFunc func(ctx context.Context, query string, page, maxResults int) ([]googleResult, error)
+var googleSearchFunc func(ctx context.Context, q Query, s Settings) ([]Result, error)
 
-type googleResult struct {
-	Title   string
-	URL     string
-	Snippet string
-}
-
-func defaultGoogleSearch(ctx context.Context, query string, page, maxResults int) ([]googleResult, error) {
+// runGoogle asks Google. It is not in the default engine set: measured from a
+// server, the page Google serves an unapproved client carries no organic
+// results at all - no <h3>, no /url?q= href - for any user agent and with the
+// basic-HTML switch, because the results are rendered in the browser. The
+// backend stays available for an operator whose egress Google still serves, and
+// an answer with no result markup is reported as blocked rather than as an
+// empty index.
+func runGoogle(ctx context.Context, q Query, s Settings) ([]Result, error) {
+	if googleSearchFunc != nil {
+		return googleSearchFunc(ctx, q, s)
+	}
+	count := q.MaxResults
+	if count <= 0 {
+		count = 15
+	}
+	page := q.Page
 	if page < 1 {
 		page = 1
 	}
-	start := (page - 1) * maxResults
+	start := (page - 1) * count
 	searchURL := fmt.Sprintf(
 		"https://www.google.com/search?q=%s&num=%d&start=%d&hl=en&safe=moderate",
-		url.QueryEscape(query), maxResults+2, start,
+		url.QueryEscape(engineQuery(q)), count+2, start,
 	)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
+	body, err := httpGet(ctx, searchURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
+	rows, err := parseGoogleResults(body, count)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("google: http %d", resp.StatusCode)
+	if len(rows) == 0 {
+		if reason, ok := challengeReason(body); ok {
+			return nil, blocked("%s", reason)
+		}
+		return nil, blocked("no organic results in the static page (client-rendered)")
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-	if err != nil {
-		return nil, err
-	}
-	return parseGoogleResults(body, maxResults)
+	return rows, nil
 }
 
 // parseGoogleResults extracts organic results from Google's HTML response.
 // Locates <a> elements containing an <h3> — Google's stable pattern for result titles.
-func parseGoogleResults(body []byte, maxResults int) ([]googleResult, error) {
+func parseGoogleResults(body []byte, maxResults int) ([]Result, error) {
 	doc, err := html.Parse(bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
-	var results []googleResult
+	var results []Result
 	var walk func(*html.Node)
 	walk = func(n *html.Node) {
-		if len(results) >= maxResults {
+		if maxResults > 0 && len(results) >= maxResults {
 			return
 		}
 		if n.Type == html.ElementNode && n.Data == "a" {
@@ -75,7 +75,14 @@ func parseGoogleResults(body []byte, maxResults int) ([]googleResult, error) {
 				if actualURL != "" && !isGoogleDomain(actualURL) {
 					title := strings.TrimSpace(htmlText(h3))
 					if title != "" {
-						results = append(results, googleResult{Title: title, URL: actualURL})
+						// The snippet sits in a sibling container of the
+						// anchor, not inside it: without this a Google row
+						// reached the model as a bare title and URL.
+						results = append(results, Result{
+							Title:   title,
+							URL:     actualURL,
+							Snippet: googleSnippetNear(n),
+						})
 						return
 					}
 				}
@@ -119,4 +126,23 @@ func isGoogleDomain(rawURL string) bool {
 	return host == "google.com" ||
 		strings.HasPrefix(host, "google.") ||
 		strings.HasSuffix(host, ".google.com")
+}
+
+// googleSnippetNear recovers the description that belongs to a result anchor.
+// Google keeps it outside the anchor, in a later sibling of one of the
+// anchor's ancestors, so the search walks up a few levels and takes the first
+// following block with enough text to be a description rather than a label.
+func googleSnippetNear(anchor *html.Node) string {
+	for node, depth := anchor, 0; node != nil && depth < 4; node, depth = node.Parent, depth+1 {
+		for sib := node.NextSibling; sib != nil; sib = sib.NextSibling {
+			if sib.Type != html.ElementNode {
+				continue
+			}
+			text := strings.TrimSpace(htmlText(sib))
+			if len([]rune(text)) >= 40 {
+				return strings.Join(strings.Fields(text), " ")
+			}
+		}
+	}
+	return ""
 }

@@ -5,14 +5,26 @@ import (
 	"strings"
 )
 
+// DefaultContextWindowTokens is the context window assumed for a model whose
+// max_context_tokens is unset and whose provider does not report one in its
+// model listing. The web UI falls back to the same number
+// (external/ui/src/ui/App.tsx), so the context ring it draws and the automatic
+// compaction trigger always measure against one window.
+const DefaultContextWindowTokens = 128000
+
 // ModelEntry is one logical model under YAML key models.
 // Model must be "provider_name/api_model_id" where provider_name matches providers[].name
 // and api_model_id is sent to the LLM API (may contain additional slashes).
 type ModelEntry struct {
-	Model            string  `yaml:"model"`
-	MaxTokens        int     `yaml:"max_tokens"`
-	Temperature      float64 `yaml:"temperature"`
-	MaxContextTokens int     `yaml:"max_context_tokens"`
+	Model       string  `yaml:"model"`
+	MaxTokens   int     `yaml:"max_tokens"`
+	Temperature float64 `yaml:"temperature"`
+	// MaxContextTokens is the model's context window in tokens: what the
+	// composer context ring, usage_update and the automatic compaction trigger
+	// measure against. 0 reads the window from the provider's model listing
+	// when the provider reports one, else DefaultContextWindowTokens
+	// (session.Manager.ContextWindow).
+	MaxContextTokens int `yaml:"max_context_tokens"`
 	// Multimodal declares that this model accepts image/file inputs in addition to text.
 	// When true the UI may offer file attachment for messages sent with this model.
 	Multimodal bool `yaml:"multimodal"`

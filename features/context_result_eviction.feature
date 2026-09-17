@@ -5,6 +5,16 @@ Feature: Context overflow protection for read and grep results
   as useful. Tool output is also capped by a per-tool line limit. The persisted
   transcript always keeps every result in full.
 
+  It holds off until the conversation actually needs the room: a placeholder that
+  appears mid-history invalidates every token the provider cached behind it, so a
+  short session is sent untouched.
+
+  Scenario: A short conversation reaches the model with every result intact
+    Given a workspace file "big.go" with 30 numbered lines
+    And result eviction starts at 50 percent of the context window
+    When the model reads page 1, reads page 2, reads page 3, then answers
+    Then the next LLM request keeps all three pages verbatim
+
   Scenario: A marked read page survives while unmarked pages are evicted
     Given a workspace file "big.go" with 30 numbered lines
     When the model reads page 1, reads page 2, marks page 2 as useful, reads page 3, then answers

@@ -1,0 +1,217 @@
+---
+description: Workflow rules for documentation, bug fixes, and new features
+globs: docs/**/*, **/*.py, tests/**/*.py
+alwaysApply: true
+---
+
+# Workflow Rules for Documentation, Bugs, and New Features
+
+## Documentation and Examples
+
+### Documentation Location
+- **All documentation** must be in `docs/` folder
+- **API usage examples** must be in `docs/examples.md`
+- **HTTP requests for testing** must be in `docs/examples.http`
+
+### Example Synchronization
+
+**IMPORTANT**: If user asks to add example to documentation (`docs/examples.md`), then **must** add corresponding HTTP request to `docs/examples.http`.
+
+Examples must be synchronized between two files:
+
+1. **examples.md** - description and explanation of example
+2. **examples.http** - ready HTTP request for copying and use
+
+### examples.http Format
+
+Use REST Client format for VSCode:
+```http
+### Example description
+POST {{base_url}}/search
+Content-Type: application/json
+
+{
+  "name": "Demo",
+  "key": "Key"
+}
+```
+
+### examples.md Format
+
+Use Markdown with a heading, short description, a `curl` example in a bash fenced block, and a JSON response in a json fenced block. Do not nest triple-backtick fences inside each other.
+
+## New Features (TDD Approach)
+
+### Mandatory Workflow for New Features
+
+**CRITICALLY IMPORTANT**: When user asks to implement a new feature (using words "фича", "feature", "новая функция", "добавить", "implement", "add"), **always** apply TDD approach and follow this strict workflow:
+
+**Do not skip any step!** Always follow order: write test (red) → verify test fails → implement feature → test (green) → run all tests → run linter → report.
+
+### Step-by-step Process for New Features
+
+1. **Write test first**
+   - Create test in corresponding file `tests/test_*.py`
+   - Test must **fail** (red) because feature doesn't exist yet
+   - Test must clearly describe expected behavior
+   - Make sure test actually fails for the right reason
+
+2. **Verify test fails**
+   - Run new test: `pytest tests/test_*.py::test_name -v`
+   - Test must **fail** (red) - this confirms test is correct
+   - If test passes unexpectedly, review test logic
+
+3. **Implement feature**
+   - Write code that implements new feature
+   - Follow rules from @code-style.mdc and @architecture.mdc
+   - Use @implementation-order.mdc if adding new classes
+
+4. **Verify feature works**
+   - Run new test - it must **pass** (green)
+   - Make sure feature works as expected
+
+5. **Run all tests**
+   - Execute full test suite: `pytest tests/ -v`
+   - Make sure **all tests are green**
+   - If there are failing tests - fix them before proceeding
+
+6. **Run linter**
+   - Execute linter: `pre-commit run -a`
+   - Fix all linting errors
+   - Make sure linter passes completely
+
+7. **Write report**
+   - Brief report of work done
+   - What feature was implemented
+   - Which tests were added/changed
+   - Test run results
+   - Linter results
+
+### Report Structure Example for New Features
+
+```markdown
+## Feature: [brief description]
+
+### Implementation
+1. Added test `test_new_feature` in `tests/test_module.py` (initially red)
+2. Implemented `new_method` in `module.py`
+3. Ran new test - passed (green)
+4. Ran all tests - all green (193 passed)
+5. Ran linter - all checks passed
+
+### Changed Files
+- `get_gl_model/module.py` - added new_method implementation
+- `tests/test_module.py` - added test_new_feature test
+```
+
+## Bug Fixes (TDD Approach)
+
+### Mandatory Workflow for Bug Fixes
+
+**CRITICALLY IMPORTANT**: When user asks to fix a bug (using words "баг", "bug", "ошибка", "error", "исправить", "fix"), **always** apply TDD approach and follow this prompt:
+
+```
+<bug description>
+
+First write a test reproducing this bug, make sure the error actually exists, then write code fixing the error and run the test, then when the new test works run all tests and if they are all green write a brief report of the work done.
+```
+
+**Do not skip any step!** Always follow order: test (red) → fix → test (green) → all tests → run linter → report.
+
+### Step-by-step Process
+
+1. **Write test reproducing bug**
+   - Create test in corresponding file `tests/test_*.py`
+   - Test must **fail** (red) and reproduce bug
+   - Make sure error actually exists
+
+2. **Fix code**
+   - Write code that fixes bug
+   - Follow rules from @code-style.mdc and @architecture.mdc
+
+3. **Verify fix**
+   - Run new test - it must **pass** (green)
+   - Make sure bug is fixed
+
+4. **Run all tests**
+   - Execute full run: `pytest tests/ -v`
+   - Make sure **all tests are green**
+   - If there are failing tests - fix them
+
+5. **Run linter**
+   - Execute linter: `pre-commit run -a`
+   - Fix all linting errors
+   - Make sure linter passes completely
+
+6. **Write report**
+   - Brief report of work done
+   - What was fixed
+   - Which tests were added/changed
+   - Test run results
+   - Linter results
+
+### Report Structure Example for Bug Fixes
+
+```markdown
+## Bug Fix: [brief description]
+
+### Problem
+[Bug description]
+
+### Solution
+1. Added test `test_bug_reproduction` in `tests/test_module.py` (initially red)
+2. Fixed method `method_name` in `module.py`
+3. Ran new test - passed (green)
+4. Ran all tests - all green (193 passed)
+5. Ran linter - all checks passed
+
+### Changed Files
+- `get_gl_model/module.py` - fixed processing logic
+- `tests/test_module.py` - added test for bug
+```
+
+## Final Verification Before Reporting
+
+**MANDATORY**: Before writing final report for any work (bug fix or new feature), **always** complete these steps:
+
+1. **Run all tests**: `pytest tests/ -v`
+   - All tests must pass (green)
+   - No test failures allowed
+
+2. **Run linter**: `pre-commit run -a`
+   - All linting checks must pass
+   - Fix all errors and warnings
+
+3. **Rules sync** (see section below)
+   - If any rule under `.cursor/rules/` or `.claude/rules/` (or `AGENTS.md`) was edited in this task, mirror the change to the other agent's tree in the same commit.
+
+4. **Only then write report**
+   - Report must include test results
+   - Report must include linter results
+   - Report must confirm all checks passed
+   - Report must list synced rule files (if any)
+
+## Rules Sync
+
+**MANDATORY** - if any rule file is added or changed in this task, mirror the change to every other agent's rule tree in the same PR. Do not leave one tree ahead of the other.
+
+1. Identify every rule tree in the repo: `.cursor/rules/`, `.claude/rules/`, root `AGENTS.md` / `CLAUDE.md`, the Codex bridge (`.codex/`), plus any other agent roots present (`.kimi/`, `.github/copilot-instructions.md`).
+2. For each edited file, locate or create its counterpart in every other tree under the same topic name (`workflow`, `testing`, `architecture`, `code-style`, `implementation-order`, `api-layer`, `core-modules`).
+3. Copy the body verbatim, then adapt frontmatter and inline links:
+   - Cursor `globs:` + `alwaysApply: true` <-> Claude rule **without** `paths:` (always loads).
+   - Cursor `globs: src/**/*.py` + `alwaysApply: true` <-> Claude `paths: ["src/**/*.py"]`.
+   - Cursor `@file.mdc` references <-> Claude `.claude/rules/file.md` references.
+   - File extension `.mdc` <-> `.md`.
+4. Keep the language identical across trees. Rule files and `AGENTS.md` are written in **English** unless the user asked for another language for this project.
+5. If `AGENTS.md` changed, verify `CLAUDE.md` resolves to the same content (`ls -la CLAUDE.md` shows a symlink to `AGENTS.md`; if not, refresh it or re-create the symlink: `ln -sf AGENTS.md CLAUDE.md`).
+6. If the repo has the Codex bridge and a rule file was added, renamed, or removed, refresh the index in `.codex/rules.md`; the hook (`.codex/hooks.json`, `.codex/hooks/attach_rules.py`) reads `.cursor/rules/` directly and needs no update.
+7. Commit both sides together. The report must list every rule file synced.
+
+Skip only when the topic is genuinely tool-specific (e.g. a Cursor `@`-context trick with no Claude equivalent). When skipping, add a one-line comment in the file that diverges so the divergence is intentional and visible.
+
+## References
+
+@testing.mdc
+@code-style.mdc
+@docs/examples.md
+@docs/examples.http

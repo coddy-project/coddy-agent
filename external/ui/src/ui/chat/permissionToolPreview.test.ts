@@ -306,6 +306,23 @@ test("toolCallTargetText names the one thing each call acts on", () => {
   ).toBe("https://x.dev");
 });
 
+test("an http_request names its method and address, never a path", () => {
+  const context = {
+    title: "http_request",
+    argsText:
+      '{"method":"patch","url":"https://api.x.dev/items/7","body_file":"src/a.json"}',
+  };
+  expect(toolCallTargetText(context)).toBe("PATCH https://api.x.dev/items/7");
+  expect(
+    toolCallTargetText({
+      title: "http_request",
+      argsText: '{"url":"http://localhost:8080/health"}',
+    }),
+  ).toBe("http://localhost:8080/health");
+  expect(toolCallTargetIsPath(context)).toBe(false);
+  expect(buildToolCallPreview(context).title).toBe("Send this HTTP request?");
+});
+
 test("toolCallTargetText stays empty when there is nothing to name", () => {
   // A question carries its prompt, not a target; a call whose arguments have not
   // streamed in yet has to render as a bare verb rather than as "undefined".
@@ -419,4 +436,86 @@ test("an empty object is empty however it is spelled, but broken JSON is not", (
       '{"target":"pro',
     ),
   ).toMatchObject({ kind: "code", text: '{"target":"pro' });
+});
+
+// The config family read as bare verbs: "changing the config" with nothing beside
+// it, while every neighbouring row names what it touched. A dotted config path is
+// also not a filesystem path, so it must never be respelt against the session
+// directory.
+test("config calls name the key or the command they act on", () => {
+  expect(
+    toolCallTargetText({
+      title: "config_get",
+      argsText: '{"path":"scheduler.enable"}',
+    }),
+  ).toBe("scheduler.enable");
+  expect(
+    toolCallTargetText({
+      title: "config_set",
+      argsText: '{"commands":["set scheduler.enable=true"]}',
+    }),
+  ).toBe("set scheduler.enable=true");
+  expect(
+    toolCallTargetText({
+      title: "config_set",
+      argsText:
+        '{"commands":["set scheduler.enable=true","set agent.max_turns=20"]}',
+    }),
+  ).toBe("set scheduler.enable=true, set agent.max_turns=20");
+  expect(
+    toolCallTargetText({
+      title: "config_revert",
+      argsText: '{"path":"scheduler.enable"}',
+    }),
+  ).toBe("scheduler.enable");
+  // config_commit, config_changes and config_rollback take no arguments at all.
+  expect(toolCallTargetText({ title: "config_commit", argsText: "{}" })).toBe("");
+
+  for (const context of [
+    { title: "config_get", argsText: '{"path":"scheduler.enable"}' },
+    { title: "config_set", argsText: '{"commands":["set a.b=1"]}' },
+    { title: "config_revert", argsText: '{"path":"skills.dirs.0"}' },
+  ]) {
+    expect(toolCallTargetIsPath(context), context.title).toBe(false);
+  }
+});
+
+// The config family used to fall through to the generic branch and print its own
+// arguments back as a JSON object, next to a row that named nothing at all.
+test("config calls preview the key or the staged commands, not their JSON", () => {
+  expect(
+    buildToolCallPreview({
+      title: "config_get",
+      argsText: JSON.stringify({ path: "scheduler.enable" }),
+    }),
+  ).toMatchObject({
+    header: "scheduler.enable",
+    meta: [],
+    kind: "path",
+  });
+
+  expect(
+    buildToolCallPreview({
+      title: "config_revert",
+      argsText: JSON.stringify({ path: "skills.dirs.0" }),
+    }),
+  ).toMatchObject({ header: "skills.dirs.0", kind: "path" });
+
+  expect(
+    buildToolCallPreview({
+      title: "config_set",
+      argsText: JSON.stringify({
+        commands: ["set scheduler.enable=true", "set agent.max_turns=20"],
+      }),
+    }),
+  ).toMatchObject({
+    header: "",
+    kind: "code",
+    text: "set scheduler.enable=true\nset agent.max_turns=20",
+  });
+
+  // config_commit and its no-argument siblings keep naming the action instead.
+  expect(
+    buildToolCallPreview({ title: "config_commit", argsText: "{}" }),
+  ).toMatchObject({ kind: "action" });
 });

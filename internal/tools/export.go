@@ -48,6 +48,14 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 	r.Register(ConfigRevertTool())
 	r.Register(ConfigRollbackTool())
 	r.Register(PlanExitTool())
+	// Compaction is a capability of the loop, so the model may reach for it
+	// like any other tool; the operator turns it off with compaction.enable.
+	if cfg == nil || cfg.Compaction.IsEnabled() {
+		r.Register(CompactContextTool())
+	}
+	// Filing the session it runs in: a conversation the model renamed or
+	// tagged is one the operator can find again.
+	r.Register(SessionDescribeTool())
 	r.Register(PlanWriteTool())
 	r.Register(PlanListTool())
 	r.Register(PlanReadTool())
@@ -60,6 +68,7 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 	r.Register(todo.ItemMoveTool())
 	r.Register(toolweb.WebSearchTool())
 	r.Register(toolweb.WebFetchTool())
+	r.Register(toolweb.HTTPRequestTool())
 	r.Register(toolssh.SSHRunCommandTool())
 	// Subagents: offered unless explicitly disabled; the runtime hides the tool
 	// again for a child that reached subagents.max_depth.

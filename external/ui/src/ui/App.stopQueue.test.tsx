@@ -6,9 +6,15 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { App } from "./App";
+import {
+  FakeLocks,
+  fakeChannels,
+  fakeWorkers,
+} from "./chat/sharedServerEvents.fakes";
 import { ConfirmProvider } from "./components/useConfirm";
 import { initLocale } from "./i18n/i18n";
 
@@ -31,6 +37,7 @@ function deferred<T>() {
 class ControlledStream {
   controller!: ReadableStreamDefaultController<Uint8Array>;
   closed = false;
+  onClose?: () => void;
   response: Response;
   constructor(
     readonly signal?: AbortSignal | null,
@@ -43,6 +50,7 @@ class ControlledStream {
         },
         cancel: () => {
           this.closed = true;
+          this.onClose?.();
         },
       }),
       { headers: { "Content-Type": "text/event-stream" } },
@@ -67,11 +75,13 @@ class ControlledStream {
     if (this.closed) return;
     this.closed = true;
     this.controller.close();
+    this.onClose?.();
   }
   fail(error = new TypeError("Connection lost")) {
     if (this.closed) return;
     this.closed = true;
     this.controller.error(error);
+    this.onClose?.();
   }
 }
 
@@ -104,16 +114,76 @@ class Backend {
   events: ControlledStream[] = [];
   posts: { sid: string; stream: ControlledStream }[] = [];
   relays: { sid: string; stream: ControlledStream }[] = [];
+  messagesRev = new Map<string, number>();
   abortPostReads = true;
   override?: (request: Request) => Response | Promise<Response> | undefined;
+  /** Connections the browser keeps open to this host, shared by every tab of
+   *  the profile: six over HTTP/1.1. A stream holds one until it closes or is
+   *  aborted, a request beyond the limit waits for one to free up. Unlimited
+   *  unless a test models the other tabs taking the rest. */
+  connectionLimit = Infinity;
+  connections = 0;
+  private waiting: (() => void)[] = [];
+  private streaming = new WeakSet<Response>();
+  private connect(signal?: AbortSignal | null): Promise<void> | undefined {
+    if (this.connections < this.connectionLimit) {
+      this.connections++;
+      return undefined;
+    }
+    return new Promise((resolve, reject) => {
+      const grant = () => {
+        signal?.removeEventListener("abort", drop);
+        this.connections++;
+        resolve();
+      };
+      const drop = () => {
+        this.waiting = this.waiting.filter((w) => w !== grant);
+        reject(new DOMException("Aborted", "AbortError"));
+      };
+      this.waiting.push(grant);
+      signal?.addEventListener("abort", drop, { once: true });
+    });
+  }
+  private disconnect() {
+    this.connections--;
+    if (this.connections < this.connectionLimit) this.waiting.shift()?.();
+  }
+  private hold(stream: ControlledStream, signal?: AbortSignal | null) {
+    let open = true;
+    const close = () => {
+      if (!open) return;
+      open = false;
+      this.disconnect();
+    };
+    stream.onClose = close;
+    signal?.addEventListener("abort", close, { once: true });
+    this.streaming.add(stream.response);
+    return stream;
+  }
   fetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
-    const path = String(input);
-    const request = { path, method: init.method ?? "GET", init };
+    const request = { path: String(input), method: init.method ?? "GET", init };
+    const connecting = this.connect(init.signal);
+    if (connecting) await connecting;
     this.requests.push(request);
+    let response: Response | Promise<Response>;
+    try {
+      response = this.respond(request);
+    } catch (err) {
+      this.disconnect();
+      throw err;
+    }
+    if (response instanceof Response) {
+      if (!this.streaming.has(response)) this.disconnect();
+      return response;
+    }
+    return response.finally(() => this.disconnect());
+  });
+  private respond(request: Request): Response | Promise<Response> {
+    const { path, init } = request;
     const overridden = this.override?.(request);
     if (overridden) return overridden;
     if (path === "/coddy/events") {
-      const stream = new ControlledStream(init.signal);
+      const stream = this.hold(new ControlledStream(init.signal), init.signal);
       this.events.push(stream);
       return stream.response;
     }
@@ -122,7 +192,10 @@ class Backend {
       this.activity.set(sid, true);
       const body = JSON.parse(String(init.body));
       this.messages.get(sid)?.push({ role: "user", content: body.input });
-      const stream = new ControlledStream(init.signal, this.abortPostReads);
+      const stream = this.hold(
+        new ControlledStream(init.signal, this.abortPostReads),
+        init.signal,
+      );
       this.posts.push({ sid, stream });
       return stream.response;
     }
@@ -137,7 +210,7 @@ class Backend {
     const match = path.match(/^\/coddy\/sessions\/([^/]+)(.*)$/);
     if (match) {
       const sid = decodeURIComponent(match[1]!);
-      const suffix = match[2];
+      const suffix = match[2]!.split("?")[0];
       if (!suffix) return json({});
       if (suffix === "/activity")
         return json({
@@ -145,17 +218,34 @@ class Backend {
           turnActive: this.activity.get(sid) ?? false,
         });
       if (suffix === "/messages")
-        return json({ messages: this.messages.get(sid) ?? [] });
+        return json({
+          messages: this.messages.get(sid) ?? [],
+          ...(this.messagesRev.has(sid)
+            ? { messagesRev: this.messagesRev.get(sid) }
+            : {}),
+        });
       if (suffix === "/tool-calls") return json({ toolCalls: [] });
       if (suffix === "/branches") return json({ branchPoints: [] });
       if (suffix === "/stats") return json({ stats: {} });
       if (suffix === "/background-tasks") return json({ data: [], running: 0 });
       if (suffix === "/composer-stream") {
-        const stream = new ControlledStream(init.signal);
+        const stream = this.hold(new ControlledStream(init.signal), init.signal);
         this.relays.push({ sid, stream });
         return stream.response;
       }
       if (suffix === "/cancel") return json({});
+      if (suffix?.startsWith("/queue/") && request.method === "DELETE") {
+        const queue = this.queues.get(sid) ?? { messages: [], version: 1 };
+        const id = decodeURIComponent(suffix.slice("/queue/".length));
+        if (!queue.messages.some((m) => m.id === id))
+          return json({ error: { code: "not_found" } }, 404);
+        const next = {
+          messages: queue.messages.filter((m) => m.id !== id),
+          version: queue.version + 1,
+        };
+        this.queues.set(sid, next);
+        return json(next);
+      }
       if (suffix === "/queue") {
         const queue = this.queues.get(sid) ?? { messages: [], version: 1 };
         if (request.method === "POST") {
@@ -182,7 +272,7 @@ class Backend {
     if (path === "/coddy/workspace/context")
       return json({ cwd: "/workspace", is_git_repo: false });
     return json({}, 404);
-  });
+  }
   count(path: string, method = "GET") {
     return this.requests.filter((r) => r.path === path && r.method === method)
       .length;
@@ -215,6 +305,7 @@ afterEach(async () => {
       stream.fail(new DOMException("Aborted", "AbortError"));
   });
   vi.unstubAllGlobals();
+  delete (navigator as { locks?: unknown }).locks;
 });
 async function mount() {
   render(
@@ -239,6 +330,73 @@ async function navigate(sid: string) {
   });
   await screen.findByText(sid === A ? "Earlier A prompt" : "Earlier B prompt");
 }
+
+test.each(["post", "relay"])(
+  "a late provider window replaces the model-list fallback on the %s stream",
+  async (transport) => {
+    document.cookie = "coddy_llm_model=test-model; Path=/";
+    backend.override = (r) => {
+      if (r.path === "/v1/models")
+        return json({
+          data: [
+            { id: "test-model", owned_by: "test", max_context_tokens: 128000 },
+            { id: "other-model", owned_by: "test", max_context_tokens: 512000 },
+          ],
+        });
+      if (r.path.endsWith("/stats"))
+        return json({
+          stats: { contextBreakdown: { estimatedTotal: 120000 } },
+        });
+      return undefined;
+    };
+    if (transport === "relay") backend.activity.set(A, true);
+    await mount();
+    const expectWindow = async (size: number) => {
+      await waitFor(() => {
+        const ring = document.querySelector(".context-ring-fg")!;
+        const offset = Number(ring.getAttribute("stroke-dashoffset"));
+        expect(offset).toBeCloseTo(2 * Math.PI * 12 * (1 - 120000 / size), 1);
+      });
+    };
+    await expectWindow(128000);
+    if (transport === "post") await send("Continue A");
+    else await waitFor(() => expect(backend.relays).toHaveLength(1));
+    const stream = (transport === "post" ? backend.posts : backend.relays)[0]!
+      .stream;
+    // The listing missed the HTTP wait deadline. A later usage update carries
+    // the provider's resolved window without another /v1/models request.
+    await act(async () =>
+      stream.frame("usage_update", { used: 120000, size: 262144 }),
+    );
+    await expectWindow(262144);
+    const statsReads = backend.count(`/coddy/sessions/${A}/stats`);
+    fireEvent.click(screen.getByTestId("composer-context-ring-host"));
+    await waitFor(() =>
+      expect(backend.count(`/coddy/sessions/${A}/stats`)).toBeGreaterThan(
+        statsReads,
+      ),
+    );
+    await expectWindow(262144);
+    expect(backend.count("/v1/models")).toBe(1);
+
+    await navigate(B);
+    await expectWindow(128000);
+    await act(async () =>
+      stream.frame("usage_update", { used: 120000, size: 524288 }),
+    );
+    await expectWindow(128000);
+    await navigate(A);
+    await expectWindow(262144);
+    await act(async () => {
+      backend.turn(A, false);
+      stream.end();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Model" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "other-model" }));
+    await expectWindow(512000);
+    document.cookie = "coddy_llm_model=; Path=/; Max-Age=0";
+  },
+);
 
 test("an active session outside the History page gets Stop and queues text, not a new POST", async () => {
   backend.history = [B];
@@ -351,7 +509,88 @@ test("a stale activity/queue snapshot cannot override newer server events", asyn
   expect(screen.queryByText("Stale queue")).not.toBeInTheDocument();
 });
 
-test("a failed cancel preserves the POST and offers a visible retryable Stop error", async () => {
+test.each(["post", "relay"])(
+  "Stop reaches the server while other tabs hold every other connection to the host, through this tab's %s",
+  async (transport) => {
+    if (transport === "relay") backend.activity.set(A, true);
+    await mount();
+    if (transport === "post") await send("Own A turn");
+    else await waitFor(() => expect(backend.relays).toHaveLength(1));
+    const stream = (transport === "post" ? backend.posts : backend.relays)[0]!
+      .stream;
+    await act(async () => {
+      stream.text("Partial answer A");
+    });
+    await screen.findByText("Partial answer A");
+    // Other tabs of this server hold the rest of the six connections a browser
+    // keeps to a host; this tab holds its events stream and the turn stream.
+    backend.connectionLimit = backend.connections;
+    fireEvent.click(stop());
+    await waitFor(() =>
+      expect(backend.count(`/coddy/sessions/${A}/cancel`, "POST")).toBe(1),
+    );
+    expect(stream.signal!.aborted).toBe(true);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByText("Partial answer A")).toBeInTheDocument();
+  },
+);
+
+test.each(["worker", "locks"] as const)(
+  "tabs of one server share a single events stream through a %s and leave room for a prompt",
+  async (transport) => {
+    if (transport === "worker") {
+      const workers = fakeWorkers(backend.fetch as unknown as typeof fetch);
+      vi.stubGlobal("SharedWorker", function (_url: URL, options: WorkerOptions) {
+        return workers.factory(options.name!);
+      });
+    } else {
+      const channels = fakeChannels();
+      vi.stubGlobal("BroadcastChannel", function (name: string) {
+        return channels.create(name);
+      });
+      Object.defineProperty(navigator, "locks", {
+        value: new FakeLocks(),
+        configurable: true,
+      });
+    }
+    const tabs = [0, 1, 2].map(
+      () =>
+        render(
+          <ConfirmProvider>
+            <App />
+          </ConfirmProvider>,
+        ).container,
+    );
+    await waitFor(() =>
+      expect(screen.getAllByText("Earlier A prompt")).toHaveLength(3),
+    );
+    await waitFor(() => expect(backend.events.length).toBeGreaterThan(0));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(backend.count("/coddy/events")).toBe(1);
+    // Three tabs streaming on their own would hold all three connections.
+    backend.connectionLimit = 3;
+    const first = within(tabs[0]!);
+    // Three apps in one document share the composer's id, so its label names
+    // only one of them: reach the field through its tab.
+    fireEvent.change(tabs[0]!.querySelector("textarea#composer")!, {
+      target: { value: "From the first tab" },
+    });
+    fireEvent.click(first.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(backend.posts).toHaveLength(1));
+    // The one stream still tells every tab that the turn started.
+    await act(async () => {
+      backend.turn(A, true);
+    });
+    for (const tab of tabs)
+      await waitFor(() =>
+        expect(
+          within(tab).getByRole("button", { name: "Stop generation" }),
+        ).toBeInTheDocument(),
+      );
+  },
+);
+
+test("a failed cancel rejoins the running turn and offers a visible retryable Stop error", async () => {
   backend.override = (r) =>
     r.path.endsWith("/cancel")
       ? json({ error: { message: "Unavailable" } }, 503)
@@ -365,19 +604,23 @@ test("a failed cancel preserves the POST and offers a visible retryable Stop err
   await waitFor(() =>
     expect(backend.count(`/coddy/sessions/${A}/cancel`, "POST")).toBe(1),
   );
-  expect(backend.posts[0]!.stream.signal!.aborted).toBe(false);
+  expect(backend.posts[0]!.stream.signal!.aborted).toBe(true);
   expect(await screen.findByRole("alert")).toHaveTextContent(
     /stop.*try again/i,
   );
+  // The turn Stop did not take is watched again through the relay.
+  await waitFor(() => expect(backend.relays).toHaveLength(1));
+  expect(backend.relays[0]!.stream.signal!.aborted).toBe(false);
   expect(stop()).toBeEnabled();
   fireEvent.click(stop());
   await waitFor(() =>
     expect(backend.count(`/coddy/sessions/${A}/cancel`, "POST")).toBe(2),
   );
+  expect(backend.relays[0]!.stream.signal!.aborted).toBe(true);
   expect(screen.getByText("Partial answer A")).toBeInTheDocument();
 });
 
-test("Stop waits for acknowledgement, targets its original session and preserves partial text", async () => {
+test("Stop releases its own stream at once, targets its original session and preserves partial text", async () => {
   const cancel = deferred<Response>();
   backend.override = (r) =>
     r.path.endsWith("/cancel") ? cancel.promise : undefined;
@@ -387,7 +630,10 @@ test("Stop waits for acknowledgement, targets its original session and preserves
     backend.posts[0]!.stream.text("Partial answer A");
   });
   fireEvent.click(stop());
-  expect(backend.posts[0]!.stream.signal!.aborted).toBe(false);
+  expect(backend.posts[0]!.stream.signal!.aborted).toBe(true);
+  // No relay takes the released stream's place while the answer is pending.
+  await new Promise((resolve) => setTimeout(resolve, 2300));
+  expect(backend.relays).toHaveLength(0);
   await navigate(B);
   await send("Own B turn");
   await act(async () => {
@@ -468,6 +714,59 @@ test("relay EOF preserves partial text when persistence still has only the previ
   expect(stop()).toBeEnabled();
 });
 
+// A reloaded tab holds the transcript it just loaded, so it asks the relay only for what
+// that transcript lacks; replaying the whole turn put the finished steps on screen twice.
+test("attaching to a running turn asks the relay only for what the loaded transcript lacks", async () => {
+  backend.activity.set(A, true);
+  backend.messagesRev.set(A, 7);
+  await mount();
+  await waitFor(() => expect(backend.relays).toHaveLength(1));
+  expect(
+    backend.requests.some(
+      (r) => r.path === `/coddy/sessions/${A}/composer-stream?since_rev=7`,
+    ),
+  ).toBe(true);
+});
+
+// A queued message is still the operator's until the agent reads it, and taking it
+// back is how it gets edited: the text returns to the composer rather than vanishing.
+test("taking a queued message back puts its text in the composer", async () => {
+  backend.activity.set(A, true);
+  backend.queues.set(A, {
+    messages: [{ id: "q1", text: "Use the EU prices" }],
+    version: 3,
+  });
+  await mount();
+  await screen.findByText("Use the EU prices");
+  fireEvent.click(screen.getByTestId("composer-queue-remove-q1"));
+  await waitFor(() => expect(composer()).toHaveValue("Use the EU prices"));
+  expect(screen.queryByTestId("composer-queue")).not.toBeInTheDocument();
+});
+
+test("a message the agent read before it was taken back does not return", async () => {
+  backend.activity.set(A, true);
+  backend.queues.set(A, {
+    messages: [{ id: "q1", text: "Already read" }],
+    version: 3,
+  });
+  await mount();
+  await screen.findByText("Already read");
+  backend.override = (r) =>
+    r.method === "DELETE" && r.path.includes("/queue/")
+      ? json({ error: { code: "not_found" } }, 404)
+      : undefined;
+  fireEvent.click(screen.getByTestId("composer-queue-remove-q1"));
+  await waitFor(() =>
+    expect(
+      backend.requests.some((r) => r.method === "DELETE" && r.path.includes("/queue/q1")),
+    ).toBe(true),
+  );
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 50));
+  });
+  expect(composer()).toHaveValue("");
+});
+
 test("reconciliation does not repeatedly abort a slow activity read", async () => {
   const activity = deferred<Response>();
   backend.override = (r) =>
@@ -504,7 +803,7 @@ test("a slow queue read cannot block recovery from a missed turn end", async () 
   });
 });
 
-test("a cancel network error preserves a watched relay and a retry can acknowledge it", async () => {
+test("a cancel network error rewatches the turn through a new relay and a retry can acknowledge it", async () => {
   backend.activity.set(A, true);
   backend.override = (r) => {
     if (r.path.endsWith("/cancel")) throw new TypeError("Offline");
@@ -516,11 +815,13 @@ test("a cancel network error preserves a watched relay and a retry can acknowled
   expect(await screen.findByRole("alert")).toHaveTextContent(
     /stop.*try again/i,
   );
-  expect(backend.relays[0]!.stream.signal!.aborted).toBe(false);
+  expect(backend.relays[0]!.stream.signal!.aborted).toBe(true);
+  await waitFor(() => expect(backend.relays).toHaveLength(2));
+  expect(backend.relays[1]!.stream.signal!.aborted).toBe(false);
   delete backend.override;
   fireEvent.click(stop());
   await waitFor(() =>
-    expect(backend.relays[0]!.stream.signal!.aborted).toBe(true),
+    expect(backend.relays[1]!.stream.signal!.aborted).toBe(true),
   );
   expect(stop()).toBeEnabled();
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -951,7 +1252,7 @@ test.each(["turn_started", "ready"])(
   },
 );
 
-test("a hung Stop times out without aborting the turn and becomes retryable", async () => {
+test("a hung Stop times out, keeps the turn watched and becomes retryable", async () => {
   await mount();
   await send("Keep this turn readable");
   backend.override = (r) => {
@@ -965,11 +1266,14 @@ test("a hung Stop times out without aborting the turn and becomes retryable", as
     fireEvent.click(stop());
     await act(async () => { await vi.advanceTimersByTimeAsync(5100); });
     expect(screen.getByRole("alert")).toHaveTextContent(/stop.*try again/i);
-    expect(backend.posts[0]!.stream.signal!.aborted).toBe(false);
+    expect(backend.posts[0]!.stream.signal!.aborted).toBe(true);
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(backend.relays).toHaveLength(1);
+    expect(backend.relays[0]!.stream.signal!.aborted).toBe(false);
     delete backend.override;
     await act(async () => { fireEvent.click(stop()); });
     expect(backend.count(`/coddy/sessions/${A}/cancel`, "POST")).toBe(2);
-    expect(backend.posts[0]!.stream.signal!.aborted).toBe(true);
+    expect(backend.relays[0]!.stream.signal!.aborted).toBe(true);
   } finally {
     vi.useRealTimers();
   }

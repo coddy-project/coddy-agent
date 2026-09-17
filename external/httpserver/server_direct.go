@@ -103,14 +103,19 @@ func resolveDirectYAMLMaxTokens(rm *config.ResolvedLLM) int {
 	return rm.MaxTokens
 }
 
-func maxContextDefault(s *Server) int {
-	maxCtx := 128000
-	if s.activeCfg() != nil {
-		if ent := s.activeCfg().FindModelEntry(strings.TrimSpace(s.activeCfg().Agent.Model)); ent != nil {
-			if ent.MaxContextTokens > 0 {
-				maxCtx = ent.MaxContextTokens
-			}
-		}
+// contextWindowFor is the context window GET /v1/models reports for modelRef:
+// the one the session manager resolves for a session on that model, so the
+// web UI ring and the automatic compaction trigger measure against the same
+// number. An unconfigured model reads as the default.
+func (s *Server) contextWindowFor(cfg *config.Config, modelRef string) int {
+	var tokens int
+	if s.mgr != nil {
+		tokens, _ = s.mgr.ContextWindow(cfg, strings.TrimSpace(modelRef))
+	} else if ent := cfg.FindModelEntry(strings.TrimSpace(modelRef)); ent != nil {
+		tokens = ent.MaxContextTokens
 	}
-	return maxCtx
+	if tokens <= 0 {
+		return config.DefaultContextWindowTokens
+	}
+	return tokens
 }

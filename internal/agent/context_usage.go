@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -33,15 +34,63 @@ func (a *Agent) setContextBreakdown(b *session.ContextBreakdown, persist bool) {
 	if a.server == nil || a.cfg == nil {
 		return
 	}
-	ent := a.cfg.FindModelEntry(a.state.EffectiveModelID(a.cfg))
-	if ent == nil || ent.MaxContextTokens <= 0 {
+	size, _ := a.contextWindow()
+	if size <= 0 {
 		return
 	}
 	_ = a.server.SendSessionUpdate(a.state.GetID(), acp.UsageUpdate{
 		SessionUpdate: acp.UpdateTypeUsage,
 		Used:          cp.EstimatedTotal,
-		Size:          ent.MaxContextTokens,
+		Size:          size,
 	})
+}
+
+// contextWindowState is implemented by session.State: the window of the
+// session's model as its manager resolved it (session.State.ContextWindow),
+// and the window of any other configured model on the same cache.
+type contextWindowState interface {
+	ContextWindow(cfg *config.Config) (tokens int, source string)
+	ContextWindowFor(cfg *config.Config, modelRef string) (tokens int, source string)
+}
+
+// contextWindow is the window the compaction trigger and usage_update measure
+// against: the one GET /v1/models reports to the web UI for the session's
+// model. A state without a manager behind it falls back to the model's
+// max_context_tokens, then the default.
+func (a *Agent) contextWindow() (tokens int, source string) {
+	if cw, ok := a.state.(contextWindowState); ok {
+		return cw.ContextWindow(a.cfg)
+	}
+	ent := a.cfg.FindModelEntry(a.state.EffectiveModelID(a.cfg))
+	switch {
+	case ent == nil:
+		return 0, ""
+	case ent.MaxContextTokens > 0:
+		return ent.MaxContextTokens, session.ContextWindowFromConfig
+	default:
+		return config.DefaultContextWindowTokens, session.ContextWindowDefault
+	}
+}
+
+// contextWindowFor is the window of an arbitrary configured model, resolved the
+// same way: what the compaction summarizer must fit its request into, which is
+// not the session's window when compaction.model names another model.
+func (a *Agent) contextWindowFor(modelRef string) (tokens int, source string) {
+	if strings.TrimSpace(modelRef) == "" || modelRef == a.state.EffectiveModelID(a.cfg) {
+		return a.contextWindow()
+	}
+	if cw, ok := a.state.(contextWindowState); ok {
+		return cw.ContextWindowFor(a.cfg, modelRef)
+	}
+	ent := a.cfg.FindModelEntry(modelRef)
+	switch {
+	case ent == nil:
+		return 0, ""
+	case ent.MaxContextTokens > 0:
+		return ent.MaxContextTokens, session.ContextWindowFromConfig
+	default:
+		return config.DefaultContextWindowTokens, session.ContextWindowDefault
+	}
 }
 
 // refreshConversationContextUsage keeps the non-conversation categories from

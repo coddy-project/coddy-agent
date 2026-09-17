@@ -22,6 +22,10 @@ type Env struct {
 	// require permission. Checked via CommandAllowed().
 	CommandAllowlist []string
 
+	// HTTPAllowlist is tools.http_request.allowlist: destinations an
+	// http_request call reaches without a permission prompt.
+	HTTPAllowlist []string
+
 	// SessionID is the current session identifier (used by plan tools).
 	SessionID string
 
@@ -96,10 +100,36 @@ type Env struct {
 	// runtime; nil when subagents are unavailable (scheduled runs, disabled).
 	SpawnAgent func(ctx context.Context, req SpawnRequest) (string, error)
 
+	// CompactSession folds the older history into a summary for the
+	// compact_context tool, the same work /compact does. Wired by the agent
+	// runtime; nil when compaction is unavailable for this turn.
+	CompactSession func(ctx context.Context, instructions string) (string, error)
+
+	// ContextCompacted is set after a successful compact_context call so the
+	// ReAct loop rebuilds its outgoing message slice from the shortened
+	// transcript before the next model call.
+	ContextCompacted bool
+
+	// FileSession reads and writes how the session is filed - the title it is
+	// listed under and the tags it is grouped by. An update that names nothing
+	// is a read, which is why there is one hook and not two: the tool never
+	// holds a filing it read a moment ago, so it cannot write one that another
+	// surface has already moved. Wired by the agent runtime; nil where no
+	// session backs the run, and session_describe refuses the call rather than
+	// pretending it filed something.
+	FileSession func(SessionFilingUpdate) (SessionFilingResult, error)
+
 	// SubagentDepth is how deep this session sits in a spawn tree: 0 for an
 	// ordinary session, 1 for its children. The runtime uses it to refuse
 	// spawns past subagents.max_depth.
 	SubagentDepth int
+
+	// WebSearch is the resolved tools.websearch section the websearch tool
+	// reads its engine list and bounds from. It travels on the environment
+	// rather than being captured when the registry is built, so a config
+	// reload reaches the next search without rebuilding the tool set. Nil
+	// means the built-in defaults.
+	WebSearch *WebSearchSettings
 
 	// OutputLineLimits caps how many lines each tool result or error may
 	// contribute to the LLM context, keyed by tool name; the empty-string key
@@ -166,4 +196,57 @@ type SpawnRequest struct {
 	ExpectedSeconds int
 	TimeoutSeconds  int
 	NotifyOnFinish  bool
+}
+
+// SessionFiling is how one conversation is filed: the title it is listed under
+// (the pinned one, or the one derived from the first message) and the tags it
+// is grouped by. It is what session_describe reads and reports.
+type SessionFiling struct {
+	Title string
+	Tags  []string
+}
+
+// SessionFilingUpdate names the parts of the filing a call changes. A nil field
+// is left alone: that is what lets a call add a label without touching a title
+// the operator pinned by hand. Tags replaces the whole set, AddTags and
+// RemoveTags change it in place, and the two ways are never combined. An update
+// naming nothing at all reads the filing without writing it.
+type SessionFilingUpdate struct {
+	Title      *string
+	Tags       *[]string
+	AddTags    []string
+	RemoveTags []string
+}
+
+// SessionFilingResult is what a write answers with: the filing the session
+// carries afterwards, and which of its two parts this call actually moved.
+// Changed comes from the writes themselves rather than from comparing a filing
+// read before and after, so a pin cleared behind a derived title of the same
+// words is still reported as a change.
+type SessionFilingResult struct {
+	Filing  SessionFiling
+	Changed []string
+}
+
+// WebSearchSettings is the resolved tools.websearch section as the search tool
+// receives it. The field order is part of the contract: internal/tools/web
+// converts this value to its own Settings type directly, which keeps the
+// engine logic in the package that owns it without importing config here.
+type WebSearchSettings struct {
+	// Engines is the backends to ask, in merge order; empty means the default set.
+	Engines []string
+	// EngineTimeoutSeconds bounds one backend, TotalTimeoutSeconds the whole call.
+	EngineTimeoutSeconds int
+	TotalTimeoutSeconds  int
+	// MaxConcurrentEngines caps the fan-out when many engines are configured.
+	MaxConcurrentEngines int
+	// SnippetChars caps one result's description.
+	SnippetChars int
+	// CacheTTLSeconds is how long one engine's answer is reused; negative
+	// turns caching off.
+	CacheTTLSeconds int
+	// SearXNGURL is an operator's own SearXNG instance, asked over its JSON API.
+	SearXNGURL string
+	// BraveAPIKey routes the Brave backend to the official Search API.
+	BraveAPIKey string
 }

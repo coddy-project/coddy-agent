@@ -26,8 +26,10 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
+	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/todo"
+	toolweb "github.com/EvilFreelancer/coddy-agent/internal/tools/web"
 )
 
 // SessionState is the interface Agent needs from a session.
@@ -54,9 +56,18 @@ type SessionState interface {
 	GetPersistedSessionDir() string
 	AppendPlanDocument(plans.Document)
 	DiscardedPlanSlugs() []string
-	TakePendingPlanContext() string
+	PendingPlanContext() string
+	ClearPendingPlanContext()
 	TakePendingImageParts() []llm.ImagePart
 	GetPermissionMode() string
+	// How the session_describe tool reaches the session's own filing
+	// (session_filing.go). The writers report what they moved and do their own
+	// merging, so the tool never has to read a filing it is about to write.
+	ConversationTitle() string
+	GetTags() []string
+	ReplaceTitlePinned(title string) bool
+	ReplaceTags(tags []string) (stored []string, changed bool)
+	UpdateTags(add, remove []string) (stored []string, changed bool)
 	IsUserCancelledTurn() bool
 	// TakeQueuedMessages drains the follow-ups written while this turn runs
 	// (session/turn_queue.go). The loop reads them between its own steps.
@@ -104,6 +115,12 @@ type Agent struct {
 	// turnHookContext is what UserPromptSubmit hooks handed over for this
 	// turn's system prompt (hooks.go).
 	turnHookContext string
+	// autoCompactSkipLogged records that this turn already logged an
+	// automatic compaction with nothing to fold (compact.go).
+	autoCompactSkipLogged bool
+	// clock is the wall clock the turn context block reads; nil means
+	// time.Now. Tests that assert on a rendered timestamp set it.
+	clock func() time.Time
 }
 
 // NewAgent creates an Agent for a prompt turn.
@@ -225,13 +242,20 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		}
 	}
 
-	// Build the full message list starting with system prompt (refreshed each ReAct turn).
-	messages := a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
+	// Build the full message list starting with the system prompt. It is
+	// rendered once here and then frozen for the whole turn so the provider's
+	// prefix cache keeps the conversation behind it (buildSystemPromptParts).
+	sys := a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles)
+	messages := a.buildMessages(sys.Content)
+	// The hand-off belongs to this turn and to its continuation after a
+	// permission prompt, and to nothing after that.
+	defer a.releasePlanContext()
 
-	// buildSystemPrompt refreshed the context breakdown; compact before the
+	// buildSystemPromptParts refreshed the context breakdown; compact before the
 	// first LLM call when the estimate crossed the auto-compaction threshold.
 	if a.maybeAutoCompact(ctx) {
-		messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
+		sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles)
+		messages = a.buildMessages(sys.Content)
 	}
 
 	maxTurns := a.cfg.Agent.MaxTurns
@@ -251,6 +275,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		CWD:              a.state.GetCWD(),
 		PermissionMode:   effectivePermMode(a.state, a.cfg),
 		CommandAllowlist: a.cfg.Tools.CommandAllowlist,
+		HTTPAllowlist:    a.cfg.Tools.HTTPRequest.Allowlist,
 		SessionID:        a.state.GetID(),
 		SessionDir:       sd,
 		ArchiveActiveMarkdown: func() error {
@@ -272,6 +297,10 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 			a.state.SetMode(strings.TrimSpace(mode))
 			return nil
 		},
+		CompactSession: a.compactFromTool,
+		FileSession: func(upd tooling.SessionFilingUpdate) (tooling.SessionFilingResult, error) {
+			return applySessionFiling(a.state, upd)
+		},
 		PersistPlanDocument: func(doc plans.Document) {
 			a.state.AppendPlanDocument(doc)
 		},
@@ -283,6 +312,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		OutputLineLimits:  a.cfg.Tools.OutputLimits.AsMap(),
 		Background:        a.backgroundPool(sd),
 		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
+		WebSearch:         webSearchSettings(a.cfg),
 	}
 	if a.configReloader != nil {
 		toolEnv.ReloadConfig = func(ctx context.Context) ([]string, error) {
@@ -304,7 +334,26 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	}
 	a.applySubagentEnv(toolEnv, mode)
 
-	return a.runReActLoop(ctx, mode, messages, toolDefs, transport, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns)
+	return a.runReActLoop(ctx, mode, sys, messages, toolDefs, transport, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns)
+}
+
+// releasePlanContext hands back the design plan hand-off once the turn that ran
+// the plan is really over.
+//
+// A turn stopped on a permission prompt is not over: the user answers it later,
+// possibly in another process, and ResumeAfterPermission renders this turn's
+// system prompt again. So the gate left in the bundle is what decides - while
+// one is held, the hand-off stays where the continuation can find it.
+//
+// A process that dies mid-turn with no gate held leaves the record behind, and
+// the next turn of that session carries the plan text once more before
+// releasing it. That is the right way round: the plan was not finished, and
+// one extra turn of context costs less than dropping it.
+func (a *Agent) releasePlanContext() {
+	if sd := strings.TrimSpace(a.state.GetPersistedSessionDir()); sd != "" && session.PendingPermissionHeld(sd) {
+		return
+	}
+	a.state.ClearPendingPlanContext()
 }
 
 // maxEmptyAssistantContinuations bounds how many times the ReAct loop re-prompts a model
@@ -384,6 +433,7 @@ const (
 func (a *Agent) runReActLoop(
 	ctx context.Context,
 	mode string,
+	sys *systemPromptBuild,
 	messages []llm.Message,
 	toolDefs []llm.ToolDefinition,
 	transport llmTransport,
@@ -442,19 +492,35 @@ func (a *Agent) runReActLoop(
 		// that replays the transcript carries it too.
 		a.readQueuedMessages(&messages)
 
-		// System prompt is rebuilt every turn so conditional sections (e.g. todo checklist) match
-		// state after coddy_todo_* tools in the same user turn.
-		if len(messages) > 0 && messages[0].Role == llm.RoleSystem {
-			messages[0].Content = a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles)
+		// The system message stays exactly as the turn rendered it, so the
+		// provider's cached copy of everything behind it survives this step.
+		// What moved since - the wall clock, the todo checklist after a
+		// coddy_todo_* call, the rules a filesystem tool activated - travels in
+		// the turn context block appended after the history at the send
+		// boundary below (turn_context.go).
+		//
+		// The exception is a template under prompts.dir that prints those facts
+		// itself: its own conditionals have to keep matching the state, so it is
+		// re-rendered here as every template was before, and carries no block.
+		if sys.Volatile && len(messages) > 0 && messages[0].Role == llm.RoleSystem {
+			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles)
+			messages[0].Content = sys.Content
 		}
+		turnCtx := a.buildTurnContext(sys)
 
 		// Tool results can grow the context mid-turn; compact between LLM calls
 		// when the refreshed estimate crossed the threshold. Run already checked
 		// before the first call. Ephemeral continuation nudges are not part of
 		// persisted state and are dropped by the rebuild (acceptable: the model
 		// answered or called a tool since then).
+		a.refreshContextBreakdown(sys, turnCtx)
 		if turn > 0 && a.maybeAutoCompact(ctx) {
-			messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
+			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles)
+			messages = a.buildMessages(sys.Content)
+			turnCtx = a.buildTurnContext(sys)
+			// The rebuilt estimate above was taken without the block; the call
+			// below sends it, so the accounting has to see it too.
+			a.refreshContextBreakdown(sys, turnCtx)
 		}
 
 		// Call LLM and stream response.
@@ -544,7 +610,7 @@ func (a *Agent) runReActLoop(
 		// Prune superseded read/grep results from the projection sent to the model;
 		// the working `messages` slice keeps full content (copy-on-write) so state,
 		// the transcript, and later appends stay intact.
-		sendMessages := a.prunedForLLM(messages)
+		sendMessages := withTurnContext(a.prunedForLLM(messages), turnCtx)
 		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, toolDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
@@ -617,7 +683,7 @@ func (a *Agent) runReActLoop(
 				return string(acp.StopReasonRefused), loopAbortError(loopAbort)
 			}
 			loopNudges++
-			messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
+			messages = a.buildMessages(sys.Content)
 			nudge := streamLoopNudge
 			if loopAbort == loopAbortReasoning {
 				nudge = reasoningLoopNudge
@@ -724,6 +790,15 @@ func (a *Agent) runReActLoop(
 			}
 			return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w", streamErr)
 		}
+
+		// What the provider served from its prompt cache. A long conversation
+		// only stays affordable while this is most of the input, which is what
+		// the frozen system prompt and the trailing turn context block are for
+		// (turn_context.go); a provider that reports nothing leaves it at zero.
+		a.log.Debug("llm call usage",
+			"input_tokens", response.InputTokens,
+			"cached_input_tokens", response.CachedInputTokens,
+			"output_tokens", response.OutputTokens)
 
 		// Accumulate and broadcast token usage after each LLM call.
 		totalInputTokens += response.InputTokens
@@ -936,15 +1011,28 @@ func (a *Agent) runReActLoop(
 				return string(acp.StopReasonRefused), fmt.Errorf("stopped by hook: %s", reason)
 			}
 		}
+		// The model folded its own history: the transcript the loop replays is
+		// shorter now, so the outgoing slice is rebuilt from it before the next
+		// call, the way an automatic compaction between steps rebuilds it. Done
+		// after the whole batch, so a tool result already appended is picked up
+		// from the transcript rather than dropped.
+		if toolEnv.ContextCompacted {
+			toolEnv.ContextCompacted = false
+			messages = a.buildMessages(sys.Content)
+			turnCtx = a.buildTurnContext(sys)
+			a.refreshContextBreakdown(sys, turnCtx)
+		}
 		if toolEnv.ConfigReloaded {
 			activeSkills = FilterSkillsForContext(a.state.GetSkills(), contextFiles)
 			toolDefs = a.currentToolDefinitions(mode)
 			toolEnv.PermissionMode = effectivePermMode(a.state, a.cfg)
 			toolEnv.CommandAllowlist = append([]string(nil), a.cfg.Tools.CommandAllowlist...)
+			toolEnv.HTTPAllowlist = append([]string(nil), a.cfg.Tools.HTTPRequest.Allowlist...)
 			toolEnv.SSHConnectTimeout = a.cfg.Tools.SSHConnectTimeout
 			toolEnv.OutputLineLimits = a.cfg.Tools.OutputLimits.AsMap()
 			toolEnv.Background = a.backgroundPool(sd)
 			toolEnv.BackgroundEnabled = a.cfg.Tools.Background.ResolvedEnabled()
+			toolEnv.WebSearch = webSearchSettings(a.cfg)
 			toolEnv.ConfigReloaded = false
 		}
 		// The model made progress (executed tool calls), so reset the empty-turn
@@ -1178,10 +1266,11 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	tool, ok := a.registry.Get(tc.Name)
 	requiresPerm := ok && tool.RequiresPermission
 
-	var sessCmdGrants, sessWriteGrants []string
+	var sessCmdGrants, sessWriteGrants, sessHTTPGrants []string
 	if st := sessionStatePtr(a.state); st != nil {
 		sessCmdGrants = st.GetPermissionCommandGrants()
 		sessWriteGrants = st.GetPermissionWriteGrants()
+		sessHTTPGrants = st.GetPermissionHTTPGrants()
 	}
 
 	if tc.Name == "run_command" {
@@ -1203,6 +1292,11 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 				requiresPerm = true
 			}
 		}
+	} else if tc.Name == toolweb.ToolHTTPRequest {
+		// The gate decides on where the request goes and on what it carries
+		// beyond that - files, a proxy, an unchecked certificate, a file it
+		// writes - so an approved origin never approves an upload by itself.
+		requiresPerm = !permission.HTTPRequestAllowedWithSession(env, sessHTTPGrants, tc.InputJSON)
 	} else if configWriteTool(tc.Name) {
 		// Committing or rolling back the agent's own configuration can start
 		// new MCP processes and change the permission policy itself, so
@@ -1239,6 +1333,11 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 
 	if requiresPerm && !skipPermission {
 		promptBody := permission.PromptBody(tc.Name, tc.InputJSON)
+		if tc.Name == toolweb.ToolHTTPRequest {
+			// Raw arguments would bury the address and the files in JSON;
+			// the prompt shows the request as it would go out.
+			promptBody = permission.HTTPRequestPromptBody(tc.InputJSON, env.CWD)
+		}
 		if tc.Name == "config_commit" {
 			// The commit call itself carries no arguments, so the dialog must
 			// show the staged commands it would apply (secrets redacted) -

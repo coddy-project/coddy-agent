@@ -216,7 +216,7 @@ test("the delete button is named by its tooltip, not by a label", async () => {
 });
 
 // The conversation on screen behind the panel cannot be taken out from under
-// the operator: it has no tick, no row trash, and the header passes over it.
+// the operator: it has no tick, and the header passes over it.
 test("the open conversation is protected from every delete in the table", async () => {
   const calls = stubFetch(["sess_two"]);
   renderTable({ activeSessionId: "sess_one" });
@@ -226,7 +226,6 @@ test("the open conversation is protected from every delete in the table", async 
     "sessions-manager-pick-sess_one",
   ) as HTMLInputElement;
   expect(protectedPick).toBeDisabled();
-  expect(screen.getByTestId("sessions-manager-delete-sess_one")).toBeDisabled();
   expect(protectedPick).toHaveAccessibleName(
     "The conversation that is open cannot be deleted here. Switch to another one first.",
   );
@@ -431,4 +430,329 @@ test("the refresh after a delete uses the current search", async () => {
       .find((u) => u.startsWith("/coddy/sessions?"));
     expect(lastList).toContain("q=release");
   });
+});
+
+// --- tags, the archive, and ordering ---
+
+const archiveRows: SessionManagerRow[] = [
+  {
+    id: "sess_live",
+    title: "Refactor the parser",
+    cwd: "/home/u/projects/coddy",
+    updatedAt: "2026-09-02T10:00:00Z",
+    tags: ["backend", "parser"],
+  },
+  {
+    id: "sess_filed",
+    title: "Old experiment",
+    cwd: "/home/u/projects/site",
+    updatedAt: "2026-08-02T10:00:00Z",
+    archived: true,
+    archivedAt: "2026-09-01T10:00:00Z",
+  },
+];
+
+/**
+ * stubArchiveFetch answers the listing according to the query it is given, so a
+ * test can assert that a control actually reached the server rather than only
+ * that it re-rendered.
+ */
+function stubArchiveFetch() {
+  const calls: Call[] = [];
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    calls.push({ url, ...(init ? { init } : {}) });
+    if (url.startsWith("/coddy/sessions/bulk-delete")) {
+      return {
+        ok: true,
+        json: async () => ({ deleted: [], failed: [] }),
+      } as unknown as Response;
+    }
+    const query = new URLSearchParams(url.split("?")[1] ?? "");
+    const archived = query.get("archived") ?? "exclude";
+    const tags = (query.get("tags") ?? "").trim();
+    let body = archiveRows.filter((r) => {
+      if (archived === "only") {
+        return !!r.archived;
+      }
+      if (archived === "all") {
+        return true;
+      }
+      return !r.archived;
+    });
+    if (tags) {
+      const wanted = tags.split(",");
+      body = body.filter((r) => (r.tags ?? []).some((t) => wanted.includes(t)));
+    }
+    return {
+      ok: true,
+      json: async () => ({ sessions: body, hasMore: false, nextCursor: null }),
+    } as unknown as Response;
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return calls;
+}
+
+test("a row has no delete of its own: the tick and the one button are the whole surface", async () => {
+  stubArchiveFetch();
+  renderTable();
+  await screen.findByTestId("sessions-manager-row-sess_live");
+
+  expect(screen.queryByTestId("sessions-manager-delete-sess_live")).toBeNull();
+  expect(screen.getByTestId("sessions-manager-pick-sess_live")).toBeEnabled();
+});
+
+test("the listing starts on the working list and the archive is one control away", async () => {
+  const calls = stubArchiveFetch();
+  renderTable();
+  await screen.findByTestId("sessions-manager-row-sess_live");
+
+  expect(calls[0]?.url).toContain("archived=exclude");
+  expect(screen.queryByTestId("sessions-manager-row-sess_filed")).toBeNull();
+
+  fireEvent.change(screen.getByTestId("sessions-manager-archive-filter"), {
+    target: { value: "only" },
+  });
+  await screen.findByTestId("sessions-manager-row-sess_filed");
+  expect(screen.queryByTestId("sessions-manager-row-sess_live")).toBeNull();
+
+  fireEvent.change(screen.getByTestId("sessions-manager-archive-filter"), {
+    target: { value: "all" },
+  });
+  await screen.findByTestId("sessions-manager-row-sess_live");
+  expect(
+    screen.getByTestId("sessions-manager-row-sess_filed"),
+  ).toBeInTheDocument();
+});
+
+test("an archived row says so", async () => {
+  stubArchiveFetch();
+  renderTable();
+  await screen.findByTestId("sessions-manager-row-sess_live");
+
+  fireEvent.change(screen.getByTestId("sessions-manager-archive-filter"), {
+    target: { value: "all" },
+  });
+  const filed = await screen.findByTestId("sessions-manager-row-sess_filed");
+  // The archive is a state, so the row wears a mark rather than a chip among
+  // its tags: what it says is its accessible name, not text in the row.
+  expect(
+    within(filed).getByTestId("sessions-manager-archived-sess_filed"),
+  ).toHaveAccessibleName("archived");
+  expect(
+    screen.queryByTestId("sessions-manager-archived-sess_live"),
+  ).toBeNull();
+});
+
+test("emptying the archive is one request with the archived scope", async () => {
+  const calls = stubArchiveFetch();
+  renderTable();
+  await screen.findByTestId("sessions-manager-row-sess_live");
+
+  fireEvent.click(screen.getByTestId("sessions-manager-delete-archived"));
+  await confirmDialog();
+
+  await waitFor(() => {
+    const post = calls.find((c) => c.init?.method === "POST");
+    expect(post?.url).toBe("/coddy/sessions/bulk-delete");
+    expect(JSON.parse(String(post?.init?.body))).toEqual({ scope: "archived" });
+  });
+});
+
+test("cancelling keeps the archive", async () => {
+  const calls = stubArchiveFetch();
+  renderTable();
+  await screen.findByTestId("sessions-manager-row-sess_live");
+
+  fireEvent.click(screen.getByTestId("sessions-manager-delete-archived"));
+  await cancelDialog();
+  await waitFor(() =>
+    expect(calls.some((c) => c.init?.method === "POST")).toBe(false),
+  );
+});
+
+test("a column header orders the whole listing and toggles direction", async () => {
+  const calls = stubArchiveFetch();
+  renderTable();
+  await screen.findByTestId("sessions-manager-row-sess_live");
+
+  fireEvent.click(screen.getByTestId("sessions-manager-sort-title"));
+  await waitFor(() =>
+    expect(calls.at(-1)?.url).toContain("sort=title&order=asc"),
+  );
+
+  fireEvent.click(screen.getByTestId("sessions-manager-sort-title"));
+  await waitFor(() =>
+    expect(calls.at(-1)?.url).toContain("sort=title&order=desc"),
+  );
+
+  // A different column starts from its own natural direction rather than
+  // inheriting the one before it: dates read newest first.
+  fireEvent.click(screen.getByTestId("sessions-manager-sort-updated"));
+  await waitFor(() =>
+    expect(calls.at(-1)?.url).toContain("sort=updated&order=desc"),
+  );
+});
+
+test("the sorted column says which way it points", async () => {
+  stubArchiveFetch();
+  renderTable();
+  await screen.findByTestId("sessions-manager-row-sess_live");
+
+  const updated = screen.getByTestId("sessions-manager-sort-updated");
+  expect(updated.closest("th")).toHaveAttribute("aria-sort", "descending");
+  fireEvent.click(updated);
+  await waitFor(() =>
+    expect(updated.closest("th")).toHaveAttribute("aria-sort", "ascending"),
+  );
+});
+
+test("a tag on a row filters the listing when clicked, and clears again", async () => {
+  const calls = stubArchiveFetch();
+  renderTable();
+  const live = await screen.findByTestId("sessions-manager-row-sess_live");
+
+  fireEvent.click(within(live).getByTestId("sessions-manager-tag-backend"));
+  await waitFor(() => expect(calls.at(-1)?.url).toContain("tags=backend"));
+
+  fireEvent.click(screen.getByTestId("sessions-manager-tag-filter-clear"));
+  await waitFor(() => expect(calls.at(-1)?.url).not.toContain("tags="));
+});
+
+// React double-invokes state updaters under StrictMode to surface impure ones.
+// A handler that queued one state change from inside another updater ran it
+// twice, so clicking the sorted column flipped the direction and flipped it
+// back - the table looked stuck.
+test("clicking the sorted column flips it under StrictMode too", async () => {
+  const calls = stubArchiveFetch();
+  render(
+    <React.StrictMode>
+      <ConfirmProvider>
+        <SessionsManager />
+      </ConfirmProvider>
+    </React.StrictMode>,
+  );
+  await screen.findByTestId("sessions-manager-row-sess_live");
+
+  fireEvent.click(screen.getByTestId("sessions-manager-sort-updated"));
+  await waitFor(() =>
+    expect(calls.at(-1)?.url).toContain("sort=updated&order=asc"),
+  );
+
+  fireEvent.click(screen.getByTestId("sessions-manager-sort-updated"));
+  await waitFor(() =>
+    expect(calls.at(-1)?.url).toContain("sort=updated&order=desc"),
+  );
+});
+
+// The table's contract is that the conversation on screen cannot be deleted
+// from here. Emptying the archive is a server-resolved scope, so the protection
+// has to travel with the request: archiving the open conversation from History
+// and then emptying the archive must not take it.
+test("emptying the archive spares the conversation that is open", async () => {
+  const calls = stubArchiveFetch();
+  renderTable({ activeSessionId: "sess_filed" });
+  await screen.findByTestId("sessions-manager-row-sess_live");
+
+  fireEvent.click(screen.getByTestId("sessions-manager-delete-archived"));
+  await confirmDialog();
+
+  await waitFor(() => {
+    const post = calls.find((c) => c.init?.method === "POST");
+    expect(JSON.parse(String(post?.init?.body))).toEqual({
+      scope: "archived",
+      except: ["sess_filed"],
+    });
+  });
+});
+
+test("with no conversation open the archive scope travels alone", async () => {
+  const calls = stubArchiveFetch();
+  renderTable();
+  await screen.findByTestId("sessions-manager-row-sess_live");
+
+  fireEvent.click(screen.getByTestId("sessions-manager-delete-archived"));
+  await confirmDialog();
+
+  await waitFor(() => {
+    const post = calls.find((c) => c.init?.method === "POST");
+    expect(JSON.parse(String(post?.init?.body))).toEqual({ scope: "archived" });
+  });
+});
+
+// --- Filing a row by hand ---------------------------------------------------
+
+/**
+ * Answers the listing with tagged rows and accepts one PATCH, reporting the
+ * folded set the server would have stored.
+ */
+function stubTagFetch() {
+  const calls: Call[] = [];
+  const tagged: SessionManagerRow[] = [
+    { ...(rows[0] as SessionManagerRow), tags: ["api"] },
+    { ...(rows[1] as SessionManagerRow), tags: ["release"] },
+  ];
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    calls.push({ url, ...(init ? { init } : {}) });
+    if (init?.method === "PATCH") {
+      const sent = JSON.parse(String(init.body)) as { tags?: string[] };
+      return {
+        ok: true,
+        json: async () => ({ tags: sent.tags ?? [] }),
+      } as unknown as Response;
+    }
+    return {
+      ok: true,
+      json: async () => ({
+        sessions: tagged,
+        hasMore: false,
+        nextCursor: null,
+      }),
+    } as unknown as Response;
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return calls;
+}
+
+test("a row carries a way to add a tag, and the editor writes the whole set", async () => {
+  const calls = stubTagFetch();
+  const changed = vi.fn();
+  renderTable({ onSessionTagsChanged: changed });
+  await screen.findByTestId("sessions-manager-row-sess_one");
+
+  fireEvent.click(screen.getByTestId("sessions-manager-tag-add-sess_one"));
+  const input = await screen.findByTestId("session-tag-input");
+  fireEvent.change(input, { target: { value: "Session Store" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+
+  await waitFor(() => {
+    expect(calls.some((c) => c.init?.method === "PATCH")).toBe(true);
+  });
+  const patch = calls.find((c) => c.init?.method === "PATCH");
+  expect(patch?.url).toBe("/coddy/sessions/sess_one");
+  expect(JSON.parse(String(patch?.init?.body))).toEqual({
+    tags: ["api", "session-store"],
+  });
+  // The row and the drawer behind the panel both take the stored answer.
+  await screen.findByTestId("sessions-manager-tag-session-store");
+  await waitFor(() => {
+    expect(changed).toHaveBeenCalledWith("sess_one", ["api", "session-store"]);
+  });
+});
+
+test("the editor offers a label another row already uses and drops one by its cross", async () => {
+  const calls = stubTagFetch();
+  renderTable();
+  await screen.findByTestId("sessions-manager-row-sess_one");
+
+  fireEvent.click(screen.getByTestId("sessions-manager-tag-add-sess_one"));
+  expect(
+    await screen.findByTestId("session-tag-suggest-release"),
+  ).toBeInTheDocument();
+
+  fireEvent.click(screen.getByTestId("session-tag-remove-api"));
+  await waitFor(() => {
+    expect(calls.some((c) => c.init?.method === "PATCH")).toBe(true);
+  });
+  const patch = calls.find((c) => c.init?.method === "PATCH");
+  expect(JSON.parse(String(patch?.init?.body))).toEqual({ tags: [] });
 });

@@ -50,13 +50,18 @@ func NewLoader(dirs []string) *Loader {
 // This means ${CWD}/.coddy/skills (last by default) has the highest priority.
 func (l *Loader) LoadAll(cwd, agentHome string, installDir ...string) ([]*Skill, error) {
 	var disabled map[string]struct{}
+	var withdrawn map[string]struct{}
 	if len(installDir) > 0 && installDir[0] != "" {
 		disabled = ReadDisabled(installDir[0])
+		withdrawn = DeliveredAndDeleted(installDir[0])
 	}
 
 	// ordered tracks insertion order of first encounter; byName points to the slot
 	// in ordered so a later directory can overwrite the skill for a given name.
-	type slot struct{ name string; skill *Skill }
+	type slot struct {
+		name  string
+		skill *Skill
+	}
 	var ordered []slot
 	byName := make(map[string]int) // canonical name → index in ordered
 	seenPath := make(map[string]bool)
@@ -75,8 +80,14 @@ func (l *Loader) LoadAll(cwd, agentHome string, installDir ...string) ([]*Skill,
 		}
 	}
 
-	// Bundled skills are always prepended (lowest priority, never overridden).
+	// The standard delivery is prepended at the lowest priority, so the copy in
+	// the managed dir overrides it. One the operator deleted from there is left
+	// out: the in-binary copy is a fallback for a home the delivery could not
+	// write, not a way for a deleted skill to come back as an undeletable one.
 	for _, s := range Bundled() {
+		if _, gone := withdrawn[CanonicalCommandName(s)]; gone {
+			continue
+		}
 		addSkill(s)
 	}
 

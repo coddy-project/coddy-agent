@@ -21,48 +21,74 @@ func RenderPrompt(home, cwd string, stickyAuto, mentioned []*Rule) (string, []st
 		b.WriteString(d.Content)
 		parts = append(parts, b.String())
 	}
-	seen := make(map[string]struct{})
-	var dyn []*Rule
-	for _, r := range stickyAuto {
-		if r == nil {
-			continue
-		}
-		if _, ok := seen[r.ID]; ok {
-			continue
-		}
-		seen[r.ID] = struct{}{}
-		dyn = append(dyn, r)
-	}
-	for _, r := range mentioned {
-		if r == nil {
-			continue
-		}
-		if _, ok := seen[r.ID]; ok {
-			continue
-		}
-		seen[r.ID] = struct{}{}
-		dyn = append(dyn, r)
-	}
-	if len(dyn) > 0 {
-		var b strings.Builder
-		b.WriteString("## Active project rules\n\n")
-		for _, r := range dyn {
-			head := r.CanonicalName()
-			if r.Description != "" {
-				b.WriteString("### ")
-				b.WriteString(head)
-				b.WriteString(" (")
-				b.WriteString(r.Description)
-				b.WriteString(")\n\n")
-			} else {
-				b.WriteString("### ")
-				b.WriteString(head)
-				b.WriteString("\n\n")
-			}
-			b.WriteString(r.Content)
-			b.WriteString("\n\n")
-		}
-		parts = append(parts, strings.TrimSpace(b.String()))
+	if section := RenderSection("## Active project rules", append(append([]*Rule(nil), stickyAuto...), mentioned...)); section != "" {
+		parts = append(parts, section)
 	}
 	return strings.TrimSpace(strings.Join(parts, "\n\n")), embedded
+}
+
+// RenderSection renders rules under the given markdown heading, skipping nil
+// entries and repeats of a rule already written. It returns an empty string when
+// nothing is left to write, so a caller can append the result unconditionally.
+// The system prompt uses it for the rules a turn starts with; the turn context
+// block uses it for the ones a tool call activated after that.
+func RenderSection(heading string, rs []*Rule) string {
+	seen := make(map[string]struct{}, len(rs))
+	var dyn []*Rule
+	for _, r := range rs {
+		if r == nil {
+			continue
+		}
+		if _, ok := seen[r.ID]; ok {
+			continue
+		}
+		seen[r.ID] = struct{}{}
+		dyn = append(dyn, r)
+	}
+	if len(dyn) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(heading)
+	b.WriteString("\n\n")
+	for _, r := range dyn {
+		head := r.CanonicalName()
+		if r.Description != "" {
+			b.WriteString("### ")
+			b.WriteString(head)
+			b.WriteString(" (")
+			b.WriteString(r.Description)
+			b.WriteString(")\n\n")
+		} else {
+			b.WriteString("### ")
+			b.WriteString(head)
+			b.WriteString("\n\n")
+		}
+		b.WriteString(r.Content)
+		b.WriteString("\n\n")
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// Added reports the rules present in now but not in before, in the order now
+// holds them. It is how a turn tells the rules a tool call activated apart from
+// the ones the frozen system prompt already carries.
+func Added(before, now []*Rule) []*Rule {
+	had := make(map[string]struct{}, len(before))
+	for _, r := range before {
+		if r != nil {
+			had[r.ID] = struct{}{}
+		}
+	}
+	var out []*Rule
+	for _, r := range now {
+		if r == nil {
+			continue
+		}
+		if _, ok := had[r.ID]; ok {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
 }

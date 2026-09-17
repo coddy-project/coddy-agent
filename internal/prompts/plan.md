@@ -82,7 +82,3 @@ Structure your plans as markdown with:
 {{.Memory}}
 
 {{end}}
-
-## Current UTC time
-
-{{.UTCNow}}

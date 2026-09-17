@@ -1,5 +1,11 @@
 import React from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { ConfirmDialog } from "./ConfirmDialog";
 
@@ -31,9 +37,7 @@ test("renders title, message, and labelled buttons when open", () => {
   expect(
     screen.getByText("This conversation will be permanently deleted."),
   ).toBeTruthy();
-  expect(
-    screen.getByRole("button", { name: "Delete" }),
-  ).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
 });
 
@@ -83,11 +87,7 @@ test("danger variant marks the confirm button as destructive", () => {
 
 test("primary variant marks the confirm button as primary", () => {
   render(
-    <ConfirmDialog
-      {...baseProps}
-      variant="primary"
-      confirmLabel="Continue"
-    />,
+    <ConfirmDialog {...baseProps} variant="primary" confirmLabel="Continue" />,
   );
   const confirm = screen.getByRole("button", { name: "Continue" });
   expect(confirm).not.toHaveClass("confirm-dialog-btn--danger");
@@ -154,4 +154,35 @@ test("focus returns to the opener when the dialog closes", () => {
   } finally {
     opener.remove();
   }
+});
+
+// Cancel keeps the focus by default: an accidental Enter must not confirm a
+// delete nobody meant. A caller that opens the dialog from a control whose
+// whole purpose is that delete can ask for the opposite, so the keyboard can
+// answer the question it just asked.
+test("focus starts on Cancel unless the caller asks otherwise", async () => {
+  render(<ConfirmDialog {...baseProps} variant="danger" />);
+  await waitFor(() =>
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Cancel" }),
+    ),
+  );
+});
+
+test("initialFocus confirm puts Enter on the affirmative button", async () => {
+  const onConfirm = vi.fn();
+  render(
+    <ConfirmDialog
+      {...baseProps}
+      variant="danger"
+      initialFocus="confirm"
+      onConfirm={onConfirm}
+    />,
+  );
+  const confirm = screen.getByRole("button", { name: "Delete" });
+  await waitFor(() => expect(document.activeElement).toBe(confirm));
+
+  // What the focus is for: Enter on the focused button activates it.
+  fireEvent.click(confirm);
+  expect(onConfirm).toHaveBeenCalledTimes(1);
 });

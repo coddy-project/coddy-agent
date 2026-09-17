@@ -3,6 +3,7 @@ package session
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -121,6 +122,10 @@ type State struct {
 	ActiveAutoRules []*rules.Rule
 	// LastContextBreakdown is the latest per-category token estimate for the UI.
 	LastContextBreakdown *ContextBreakdown
+	// contextWindows reads the provider-reported context windows cached by
+	// the manager that registered this session; nil for a state no manager
+	// built. Set at construction and never changed (context_window.go).
+	contextWindows providerContextWindows
 
 	// Plan holds the current todo list entries.
 	Plan []acp.PlanEntry
@@ -131,10 +136,31 @@ type State struct {
 	// TitlePinned, when set, is written to session.json and overrides derived titles from the first user message.
 	TitlePinned string
 
+	// Tags are the session's labels, kept normalized (see NormalizeTags) so
+	// every reader compares the same spelling.
+	Tags []string
+
+	// Archived takes the session out of the working list without removing the
+	// bundle; ArchivedAt records the moment it was put aside.
+	Archived   bool
+	ArchivedAt string
+
+	// Origin names the surface that started the session; see SessionMeta.Origin.
+	Origin string
+
+	// Pinned keeps the session at the top of every listing; PinnedAt records
+	// the moment it was pinned, and PinnedRank the place the operator dragged
+	// it to among the other pins (lower is higher up; 0 means never placed).
+	Pinned     bool
+	PinnedAt   string
+	PinnedRank int
+
 	// MemoryCopilotBlock is per-turn text from the memory copilot (not persisted to session.json).
 	MemoryCopilotBlock string
 
-	// pendingPlanContext is injected into the next agent system prompt (Run plan); not persisted.
+	// pendingPlanContext is injected into the agent system prompt of the turn a
+	// plan run started, and mirrored into the bundle (pending_plan_context.json)
+	// so a turn continued after a restart still carries it.
 	pendingPlanContext string
 
 	// pendingImageParts are image attachments for the next user message (from inline_files in agent mode); not persisted.
@@ -170,6 +196,11 @@ type State struct {
 	PermissionCommandGrants []string
 	// PermissionWriteGrants are keys "toolName|absolutePath" for filesystem tools approved via "allow always".
 	PermissionWriteGrants []string
+	// PermissionHTTPGrants are the http_request approvals given via an "always"
+	// answer: a destination ("origin|..." or "url|...") and what a request to it
+	// carried ("file|...", "proxy|...", "insecure|...", "output|..."). The keys
+	// are built and matched by internal/permission.
+	PermissionHTTPGrants []string
 
 	// activitySeq increments when an agent turn finishes (persisted in session.json).
 	// readActivitySeq is advanced when the user marks the session read (PATCH markActivityRead).
@@ -612,6 +643,18 @@ func (s *State) EffectiveReasoning(cfg *config.Config) string {
 	return cfg.DefaultReasoningLevelFor(ent)
 }
 
+// ContextWindow resolves the context window of the session's effective model:
+// its max_context_tokens, then the window its provider's model listing
+// reported to the manager that owns the session, then
+// config.DefaultContextWindowTokens. It is the window GET /v1/models hands the
+// web UI for the same model. tokens is 0 when the model is not configured.
+func (s *State) ContextWindow(cfg *config.Config) (tokens int, source string) {
+	if s == nil || cfg == nil {
+		return 0, ""
+	}
+	return resolveContextWindow(cfg, s.EffectiveModelID(cfg), s.contextWindows)
+}
+
 // EffectiveModelID returns the model id used for LLM calls for this session.
 func (s *State) EffectiveModelID(cfg *config.Config) string {
 	s.mu.RLock()
@@ -695,6 +738,25 @@ func (s *State) GetMessages() []llm.Message {
 	return msgs
 }
 
+// MessagesRev is the revision of the message history: it moves on every append and
+// every edit. A client that loaded the history at one revision holds everything a
+// stream frame written before it described.
+func (s *State) MessagesRev() uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.msgRev
+}
+
+// MessagesWithRev returns a copy of the history with the revision it reflects, read
+// under one lock so the two cannot come from either side of a change.
+func (s *State) MessagesWithRev() ([]llm.Message, uint64) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	msgs := make([]llm.Message, len(s.Messages))
+	copy(msgs, s.Messages)
+	return msgs, s.msgRev
+}
+
 // GetAgentMemory returns session memory text for prompt templates.
 func (s *State) GetAgentMemory() string {
 	s.mu.RLock()
@@ -725,16 +787,269 @@ func (s *State) GetTitlePinned() string {
 
 // SetTitlePinned sets the pinned title and persists session metadata when a store is attached.
 func (s *State) SetTitlePinned(text string) {
+	_ = s.ReplaceTitlePinned(text)
+}
+
+// ReplaceTitlePinned sets the pinned title and reports whether it moved. A
+// caller that has to say what a write changed gets the answer from the write
+// itself rather than reading the field first, which would be a different value
+// by the time it wrote.
+func (s *State) ReplaceTitlePinned(text string) bool {
+	next := strings.TrimSpace(text)
 	s.mu.Lock()
-	s.TitlePinned = strings.TrimSpace(text)
+	if s.TitlePinned == next {
+		s.mu.Unlock()
+		return false
+	}
+	s.TitlePinned = next
 	s.mu.Unlock()
 	s.touchPersist()
+	return true
+}
+
+// SetTitlePinnedIfUnset names the session only while it has no pinned title of
+// its own, and answers the title it carries afterwards with whether this call
+// wrote it. "Name it unless it has a name" is one step on purpose: the caller
+// is the suggestion a describe call made seconds ago, racing whoever named the
+// session in the meantime, and a read followed by a write is exactly the race
+// it is trying to avoid.
+func (s *State) SetTitlePinnedIfUnset(text string) (title string, written bool) {
+	next := strings.TrimSpace(text)
+	s.mu.Lock()
+	if existing := strings.TrimSpace(s.TitlePinned); existing != "" {
+		s.mu.Unlock()
+		return existing, false
+	}
+	if s.TitlePinned == next {
+		s.mu.Unlock()
+		return next, false
+	}
+	s.TitlePinned = next
+	s.mu.Unlock()
+	s.touchPersist()
+	return next, true
 }
 
 // SetTitlePinnedWithoutPersist restores pinned title from disk without writing.
 func (s *State) SetTitlePinnedWithoutPersist(text string) {
 	s.mu.Lock()
 	s.TitlePinned = strings.TrimSpace(text)
+	s.mu.Unlock()
+}
+
+// GetTags returns a copy of the session tags, so a caller cannot reach back
+// into the state through the slice it was handed.
+func (s *State) GetTags() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.Tags) == 0 {
+		return nil
+	}
+	return append([]string(nil), s.Tags...)
+}
+
+// SetTags replaces the session tags and persists metadata when a store is
+// attached. The values are normalized here, so nothing downstream has to
+// wonder which spelling reached it. Writing the set it already has changes
+// nothing and costs no write.
+func (s *State) SetTags(tags []string) {
+	_, _ = s.ReplaceTags(tags)
+}
+
+// ReplaceTags stores the whole set and answers what the session carries
+// afterwards, with whether this call moved it.
+func (s *State) ReplaceTags(tags []string) (stored []string, changed bool) {
+	next := NormalizeTags(tags)
+	s.mu.Lock()
+	if slices.Equal(s.Tags, next) {
+		s.mu.Unlock()
+		return append([]string(nil), next...), false
+	}
+	s.Tags = next
+	s.mu.Unlock()
+	s.touchPersist()
+	return append([]string(nil), next...), true
+}
+
+// UpdateTags adds and removes labels around the ones the session already
+// carries, and answers the set it holds afterwards. The merge happens under the
+// lock: "keep the rest" is the whole promise of an add, and a caller that reads
+// the tags, merges and writes them back drops whatever another surface filed in
+// between - which is the one thing this shape of call is for.
+func (s *State) UpdateTags(add, remove []string) (stored []string, changed bool) {
+	s.mu.Lock()
+	next := MergeTags(s.Tags, add, remove)
+	if slices.Equal(s.Tags, next) {
+		s.mu.Unlock()
+		return append([]string(nil), next...), false
+	}
+	s.Tags = next
+	s.mu.Unlock()
+	s.touchPersist()
+	return append([]string(nil), next...), true
+}
+
+// SetTagsWithoutPersist restores tags from disk without writing.
+func (s *State) SetTagsWithoutPersist(tags []string) {
+	s.mu.Lock()
+	s.Tags = NormalizeTags(tags)
+	s.mu.Unlock()
+}
+
+// GetArchived reports whether the session was put aside.
+func (s *State) GetArchived() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Archived
+}
+
+// GetArchivedAt returns when the session was archived, empty while it is not.
+func (s *State) GetArchivedAt() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.ArchivedAt
+}
+
+// ArchiveState returns the flag and its stamp together. They are one fact, and
+// a writer that reads them under two locks can be caught between the two halves
+// of a change - persisting "archived with no stamp", or a stamp on a session
+// that is no longer archived.
+func (s *State) ArchiveState() (archived bool, at string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Archived, s.ArchivedAt
+}
+
+// SetArchived moves the session in or out of the archive and persists metadata
+// when a store is attached. The stamp is taken on the way in and cleared on the
+// way out; archiving a session that is already archived leaves the original
+// stamp standing, because that is when it was put aside.
+func (s *State) SetArchived(archived bool) {
+	s.mu.Lock()
+	if s.Archived == archived {
+		// Already where it is being put: nothing to write, and in particular no
+		// new stamp - when it was put aside is when it was put aside.
+		s.mu.Unlock()
+		return
+	}
+	if archived {
+		s.Archived = true
+		s.ArchivedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	} else {
+		s.Archived, s.ArchivedAt = false, ""
+	}
+	s.mu.Unlock()
+	s.touchPersist()
+}
+
+// SetArchivedWithoutPersist restores the archive flag and its stamp from disk
+// without writing.
+func (s *State) SetArchivedWithoutPersist(archived bool, at string) {
+	s.mu.Lock()
+	s.Archived = archived
+	if archived {
+		s.ArchivedAt = strings.TrimSpace(at)
+	} else {
+		s.ArchivedAt = ""
+	}
+	s.mu.Unlock()
+}
+
+// PinState returns the pin flag and its stamp together, for the same reason
+// ArchiveState does: they are one fact and a writer must not catch half of it.
+func (s *State) PinState() (pinned bool, at string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Pinned, s.PinnedAt
+}
+
+// PinPlacement returns the pin, its stamp and its hand-placed rank together:
+// three halves of one fact, for the same reason ArchiveState returns two.
+func (s *State) PinPlacement() (pinned bool, at string, rank int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Pinned, s.PinnedAt, s.PinnedRank
+}
+
+// SetPinnedRank records where among the pins the operator dragged this one.
+// It means nothing for a session that is not pinned, so it is ignored there.
+func (s *State) SetPinnedRank(rank int) {
+	s.mu.Lock()
+	if !s.Pinned || s.PinnedRank == rank {
+		s.mu.Unlock()
+		return
+	}
+	s.PinnedRank = rank
+	s.mu.Unlock()
+	s.touchPersist()
+}
+
+// SetPinned keeps the session at the top of every listing, or lets it back into
+// the order. Pinning a pinned session changes nothing and costs no write, and
+// in particular leaves the original stamp standing.
+func (s *State) SetPinned(pinned bool) {
+	s.mu.Lock()
+	if s.Pinned == pinned {
+		s.mu.Unlock()
+		return
+	}
+	if pinned {
+		s.Pinned = true
+		s.PinnedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	} else {
+		// Unpinning forgets the placement too: pinning again is a new pin, and
+		// a new pin goes where new pins go rather than to a seat it once had.
+		s.Pinned, s.PinnedAt, s.PinnedRank = false, "", 0
+	}
+	s.mu.Unlock()
+	s.touchPersist()
+}
+
+// SetPinnedWithoutPersist restores the pin, its stamp and its rank from disk.
+func (s *State) SetPinnedWithoutPersist(pinned bool, at string, rank int) {
+	s.mu.Lock()
+	s.Pinned = pinned
+	if pinned {
+		s.PinnedAt, s.PinnedRank = strings.TrimSpace(at), rank
+	} else {
+		s.PinnedAt, s.PinnedRank = "", 0
+	}
+	s.mu.Unlock()
+}
+
+// GetOrigin returns the surface that started the session, empty for a session
+// a person opened on this host.
+func (s *State) GetOrigin() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Origin
+}
+
+// SetOrigin records the surface that started the session and persists metadata
+// when a store is attached. It is written once, by the surface that created the
+// session: a conversation does not change where it came from, and a later
+// writer must not relabel somebody else's chat.
+//
+// An empty origin means "not recorded" rather than "opened on this host", which
+// is also what every bundle stored before the field existed carries. That is why
+// the guard here cannot be the whole protection: a caller stamps a session only
+// when it is the one creating it (see the Telegram gateway's ensureSession),
+// and this guard catches the repeat calls that follow.
+func (s *State) SetOrigin(origin string) {
+	s.mu.Lock()
+	if strings.TrimSpace(s.Origin) != "" {
+		s.mu.Unlock()
+		return
+	}
+	s.Origin = strings.TrimSpace(origin)
+	s.mu.Unlock()
+	s.touchPersist()
+}
+
+// SetOriginWithoutPersist restores the origin from disk without writing.
+func (s *State) SetOriginWithoutPersist(origin string) {
+	s.mu.Lock()
+	s.Origin = strings.TrimSpace(origin)
 	s.mu.Unlock()
 }
 
@@ -759,20 +1074,53 @@ func (s *State) ClearMemoryCopilotBlock() {
 	s.mu.Unlock()
 }
 
-// SetPendingPlanContext sets design plan text for the next agent turn system prompt.
+// SetPendingPlanContext sets design plan text for the agent turn about to
+// start, and stores it in the session bundle beside the permission gate. That
+// turn can stop on a permission prompt and be continued after the process has
+// been restarted, and the continuation renders the same system prompt.
 func (s *State) SetPendingPlanContext(text string) {
 	s.mu.Lock()
 	s.pendingPlanContext = strings.TrimSpace(text)
+	text = s.pendingPlanContext
+	dir := strings.TrimSpace(s.SessionDir)
 	s.mu.Unlock()
+	if dir == "" {
+		return
+	}
+	if text == "" {
+		_ = ClearPendingPlanContext(dir)
+		return
+	}
+	_ = WritePendingPlanContext(dir, text)
 }
 
-// TakePendingPlanContext returns and clears pending plan context.
-func (s *State) TakePendingPlanContext() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// PendingPlanContext returns the hand-off of the turn in flight without
+// consuming it. Reading it destructively is what used to lose it: the first
+// system prompt of the turn took it, and everything rendered after a permission
+// prompt - a rebuild after compaction, the continuation the user's answer
+// starts - carried on without it. ClearPendingPlanContext releases it once the
+// turn is really over.
+func (s *State) PendingPlanContext() string {
+	s.mu.RLock()
 	out := s.pendingPlanContext
+	dir := strings.TrimSpace(s.SessionDir)
+	s.mu.RUnlock()
+	if out != "" || dir == "" {
+		return out
+	}
+	// Nothing in memory: this process did not start the turn. The bundle did.
+	return ReadPendingPlanContext(dir)
+}
+
+// ClearPendingPlanContext releases the hand-off, in memory and in the bundle.
+func (s *State) ClearPendingPlanContext() {
+	s.mu.Lock()
 	s.pendingPlanContext = ""
-	return out
+	dir := strings.TrimSpace(s.SessionDir)
+	s.mu.Unlock()
+	if dir != "" {
+		_ = ClearPendingPlanContext(dir)
+	}
 }
 
 // SetSurfaceSystemPrompt records the system prompt block the surface running
@@ -1123,10 +1471,11 @@ func (s *State) CloseAll() {
 }
 
 // RestorePermissionGrantsWithoutPersist loads grants from disk snapshot (session/load).
-func (s *State) RestorePermissionGrantsWithoutPersist(commands, writes []string) {
+func (s *State) RestorePermissionGrantsWithoutPersist(commands, writes, httpKeys []string) {
 	s.mu.Lock()
 	s.PermissionCommandGrants = append([]string(nil), commands...)
 	s.PermissionWriteGrants = append([]string(nil), writes...)
+	s.PermissionHTTPGrants = append([]string(nil), httpKeys...)
 	s.mu.Unlock()
 }
 
@@ -1184,6 +1533,33 @@ func (s *State) GetPermissionWriteGrants() []string {
 	out := make([]string, len(s.PermissionWriteGrants))
 	copy(out, s.PermissionWriteGrants)
 	return out
+}
+
+// GetPermissionHTTPGrants returns a copy of the session's http_request grant keys.
+func (s *State) GetPermissionHTTPGrants() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]string, len(s.PermissionHTTPGrants))
+	copy(out, s.PermissionHTTPGrants)
+	return out
+}
+
+// AddHTTPGrantIfNew appends an http_request grant key if not already present.
+func (s *State) AddHTTPGrantIfNew(key string) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return
+	}
+	s.mu.Lock()
+	for _, g := range s.PermissionHTTPGrants {
+		if g == key {
+			s.mu.Unlock()
+			return
+		}
+	}
+	s.PermissionHTTPGrants = append(s.PermissionHTTPGrants, key)
+	s.mu.Unlock()
+	s.touchPersist()
 }
 
 // AddCommandGrantIfNew appends a command pattern if not already matched by existing grants.
