@@ -159,6 +159,8 @@ function TaskDetail(props: {
   task: BackgroundTask;
   output: string;
   nowMs: number;
+  /** Heading of the agent line; the "Subagent" label unless the panel says otherwise. */
+  agentHeading?: string;
   onBack: () => void;
   onStop: (taskId: string) => void;
   onOpenSession: (sessionId: string) => void;
@@ -219,7 +221,7 @@ function TaskDetail(props: {
             data-testid="bgtask-detail-agent"
           >
             <span className="bgtask-detail-agent-label">
-              {t("tasks.agentHeading")}
+              {props.agentHeading || t("tasks.agentHeading")}
             </span>
             <span
               className="bgtask-detail-agent-name"
@@ -295,6 +297,17 @@ export function BackgroundTasksPanel(props: {
   loading: boolean;
   /** Milliseconds clock from the shell so every ticker advances together. */
   nowMs: number;
+  /**
+   * Extra class for a docked placement: the scheduler shows a job's runs with
+   * this same panel inside its own cluster instead of beside the transcript.
+   */
+  className?: string;
+  /** Panel heading; "Background tasks" unless the caller names it. */
+  title?: string;
+  /** Copy for an empty list; the chat's wording unless the caller names it. */
+  emptyText?: string;
+  /** Heading of the agent line in the detail pane ("Subagent" by default). */
+  agentHeading?: string;
   onClose: () => void;
   onOpenTask: (taskId: string) => void;
   onBackToList: () => void;
@@ -319,12 +332,12 @@ export function BackgroundTasksPanel(props: {
 
   return (
     <aside
-      className="bgtasks-panel"
-      aria-label={t("tasks.panelTitle")}
+      className={["bgtasks-panel", props.className || ""].filter(Boolean).join(" ")}
+      aria-label={props.title || t("tasks.panelTitle")}
       data-testid="bgtasks-panel"
     >
       <div className="sessions-head bgtasks-panel-head">
-        <span>{t("tasks.panelTitle")}</span>
+        <span>{props.title || t("tasks.panelTitle")}</span>
         <button
           type="button"
           className="sessions-close"
@@ -341,6 +354,7 @@ export function BackgroundTasksPanel(props: {
           task={selected}
           output={props.selectedOutput}
           nowMs={props.nowMs}
+          {...(props.agentHeading ? { agentHeading: props.agentHeading } : {})}
           onBack={props.onBackToList}
           onStop={props.onStopTask}
           onOpenSession={props.onOpenSession}
@@ -361,7 +375,7 @@ export function BackgroundTasksPanel(props: {
 
           {!props.listError && !props.loading && props.tasks.length === 0 ? (
             <div className="sessions-empty" data-testid="bgtasks-list-empty">
-              {t("tasks.empty")}
+              {props.emptyText || t("tasks.empty")}
             </div>
           ) : null}
 

@@ -176,6 +176,7 @@ import {
 } from "./skills/workspaceAtRecents";
 import {
   schedulerCancelJob,
+  schedulerClearJobRuns,
   schedulerListJobs,
   schedulerRunJob,
 } from "./scheduler/api";
@@ -187,6 +188,7 @@ import {
   schedulerEditorFromParsedHash,
   setSchedulerCreateHash,
   setSchedulerJobHash,
+  setSchedulerJobRunsHash,
   setSchedulerListHash,
   setSessionTasksHash,
   setSettingsHash,
@@ -239,7 +241,9 @@ const SCHEDULER_JOBS_POLL_MS = 12_000;
 type SchedulerEditorState =
   | null
   | { mode: "create" }
-  | { mode: "edit"; jobId: string };
+  | { mode: "edit"; jobId: string }
+  /** The job's runs panel, docked where the editor docks; taskId is the run open in it. */
+  | { mode: "runs"; jobId: string; taskId: string | null };
 
 type ToolCallUpdate = {
   toolCallId: string;
@@ -838,6 +842,13 @@ export function App() {
   const [schedulerFilterDraft, setSchedulerFilterDraft] = useState("");
   const [schedulerFilterQ, setSchedulerFilterQ] = useState("");
   const schedulerDockClusterRef = useRef<HTMLDivElement>(null);
+  // The runs of the job whose runs panel is open: the background tasks of the
+  // job's session, polled the way the chat's Tasks panel polls its own.
+  const [schedulerRunsTasks, setSchedulerRunsTasks] = useState<BackgroundTask[]>([]);
+  const [schedulerRunsRunning, setSchedulerRunsRunning] = useState(0);
+  const [schedulerRunsOutput, setSchedulerRunsOutput] = useState("");
+  const [schedulerRunsError, setSchedulerRunsError] = useState<string | null>(null);
+  const [schedulerRunsLoading, setSchedulerRunsLoading] = useState(false);
   const [tasksOpen, setTasksOpen] = useState(false);
   const [tasksSelectedId, setTasksSelectedId] = useState<string | null>(null);
   const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([]);
@@ -1134,8 +1145,15 @@ export function App() {
     if (rowTitle) {
       return rowTitle;
     }
-    // A child session has no History row to name it, so name it by its role.
+    // A child session has no History row to name it, so name it by its role;
+    // a run the scheduler started, and a job's own session, by their job.
     if (subagentTranscript) {
+      const sched = subagentTranscript.scheduler;
+      if (sched) {
+        return subagentTranscript.jobSession
+          ? t("chat.schedulerJobSessionTitle", { jobId: sched.jobId })
+          : t("chat.scheduledRunTitle", { jobId: sched.jobId });
+      }
       const name = subagentTranscript.name.trim();
       return name
         ? t("chat.subagentTitle", { name })
@@ -1779,6 +1797,112 @@ export function App() {
     }, SCHEDULER_JOBS_POLL_MS);
     return () => window.clearInterval(id);
   }, [schedulerOpen, schedulerHttpLinked, refreshSchedulerJobs]);
+
+  const schedulerRunsJobId =
+    schedulerEditor?.mode === "runs" ? schedulerEditor.jobId : "";
+  const schedulerRunsTaskId =
+    schedulerEditor?.mode === "runs" ? schedulerEditor.taskId : null;
+  /** The job session the runs live under; empty until the job ran once. */
+  const schedulerRunsSessionId = useMemo(() => {
+    if (!schedulerRunsJobId) {
+      return "";
+    }
+    const job = schedulerJobs.find((j) => j.job_id === schedulerRunsJobId);
+    return (job?.session_id || "").trim();
+  }, [schedulerJobs, schedulerRunsJobId]);
+
+  const refreshSchedulerRuns = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const sid = schedulerRunsSessionId;
+      if (!sid) {
+        setSchedulerRunsTasks([]);
+        setSchedulerRunsRunning(0);
+        setSchedulerRunsError(null);
+        return;
+      }
+      if (!opts?.silent) {
+        setSchedulerRunsLoading(true);
+        setSchedulerRunsError(null);
+      }
+      const res = await listBackgroundTasks(sid);
+      if (!opts?.silent) {
+        setSchedulerRunsLoading(false);
+      }
+      if (!res.ok) {
+        if (!opts?.silent) {
+          setSchedulerRunsError(res.message);
+          setSchedulerRunsTasks([]);
+          setSchedulerRunsRunning(0);
+        }
+        return;
+      }
+      setSchedulerRunsError(null);
+      setSchedulerRunsTasks(res.data.data || []);
+      setSchedulerRunsRunning(res.data.running || 0);
+    },
+    [schedulerRunsSessionId],
+  );
+
+  const refreshSchedulerRunOutput = useCallback(
+    async (taskId: string) => {
+      const sid = schedulerRunsSessionId;
+      if (!sid) {
+        setSchedulerRunsOutput("");
+        return;
+      }
+      const res = await getBackgroundTask(sid, taskId);
+      setSchedulerRunsOutput(res.ok ? res.data.output || "" : "");
+    },
+    [schedulerRunsSessionId],
+  );
+
+  useEffect(() => {
+    if (!schedulerRunsJobId) {
+      setSchedulerRunsTasks([]);
+      setSchedulerRunsRunning(0);
+      setSchedulerRunsOutput("");
+      setSchedulerRunsError(null);
+      return;
+    }
+    void refreshSchedulerRuns();
+  }, [schedulerRunsJobId, schedulerRunsSessionId, refreshSchedulerRuns]);
+
+  useEffect(() => {
+    if (!schedulerRunsJobId || !schedulerRunsSessionId) {
+      return;
+    }
+    const id = window.setInterval(() => {
+      void refreshSchedulerRuns({ silent: true });
+      if (schedulerRunsTaskId) {
+        void refreshSchedulerRunOutput(schedulerRunsTaskId);
+      }
+    }, tasksPollIntervalMs(schedulerRunsRunning));
+    return () => window.clearInterval(id);
+  }, [
+    schedulerRunsJobId,
+    schedulerRunsSessionId,
+    schedulerRunsTaskId,
+    schedulerRunsRunning,
+    refreshSchedulerRuns,
+    refreshSchedulerRunOutput,
+  ]);
+
+  useEffect(() => {
+    if (!schedulerRunsTaskId) {
+      setSchedulerRunsOutput("");
+      return;
+    }
+    void refreshSchedulerRunOutput(schedulerRunsTaskId);
+  }, [schedulerRunsTaskId, refreshSchedulerRunOutput]);
+
+  // A running run keeps the panel's clock ticking like the chat's panel does.
+  useEffect(() => {
+    if (schedulerRunsRunning <= 0) {
+      return;
+    }
+    const id = window.setInterval(() => setBackgroundNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [schedulerRunsRunning]);
 
   useEffect(() => {
     void (async () => {
@@ -4233,6 +4357,73 @@ export function App() {
     [refreshSchedulerJobs],
   );
 
+  const openSchedulerRuns = useCallback((jobId: string) => {
+    const jid = jobId.trim();
+    if (!jid) {
+      return;
+    }
+    setSchedulerEditor({ mode: "runs", jobId: jid, taskId: null });
+    setSchedulerJobRunsHash(jid);
+  }, []);
+
+  const openSchedulerRunTask = useCallback(
+    (taskId: string) => {
+      if (!schedulerRunsJobId) {
+        return;
+      }
+      setSchedulerEditor({ mode: "runs", jobId: schedulerRunsJobId, taskId });
+      setSchedulerJobRunsHash(schedulerRunsJobId, taskId);
+    },
+    [schedulerRunsJobId],
+  );
+
+  const backToSchedulerRuns = useCallback(() => {
+    if (!schedulerRunsJobId) {
+      return;
+    }
+    setSchedulerEditor({ mode: "runs", jobId: schedulerRunsJobId, taskId: null });
+    setSchedulerJobRunsHash(schedulerRunsJobId);
+  }, [schedulerRunsJobId]);
+
+  const closeSchedulerRuns = useCallback(() => {
+    if (!schedulerRunsJobId) {
+      return;
+    }
+    setSchedulerEditor({ mode: "edit", jobId: schedulerRunsJobId });
+    setSchedulerJobHash(schedulerRunsJobId);
+  }, [schedulerRunsJobId]);
+
+  const stopSchedulerRun = useCallback(
+    async (taskId: string) => {
+      const sid = schedulerRunsSessionId;
+      if (!sid) {
+        return;
+      }
+      const res = await stopBackgroundTask(sid, taskId);
+      if (res.ok && schedulerRunsTaskId === taskId) {
+        setSchedulerRunsOutput(res.data.output || "");
+      }
+      void refreshSchedulerRuns({ silent: true });
+      void refreshSchedulerJobs({ silent: true });
+    },
+    [schedulerRunsSessionId, schedulerRunsTaskId, refreshSchedulerRuns, refreshSchedulerJobs],
+  );
+
+  const clearSchedulerRuns = useCallback(async () => {
+    if (!schedulerRunsJobId) {
+      return;
+    }
+    const res = await schedulerClearJobRuns(schedulerRunsJobId);
+    if (!res.ok) {
+      setSchedulerRunsError(res.message);
+      return;
+    }
+    setSchedulerEditor({ mode: "runs", jobId: schedulerRunsJobId, taskId: null });
+    setSchedulerJobRunsHash(schedulerRunsJobId);
+    void refreshSchedulerRuns({ silent: true });
+    void refreshSchedulerJobs({ silent: true });
+  }, [schedulerRunsJobId, refreshSchedulerRuns, refreshSchedulerJobs]);
+
   const openSchedulerFromNav = useCallback(() => {
     if (schedulerHttpLinked !== true) {
       return;
@@ -4846,7 +5037,9 @@ export function App() {
             <SchedulerJobsDrawer
               open={schedulerOpen}
               selectedJobId={
-                schedulerEditor?.mode === "edit" ? schedulerEditor.jobId : null
+                schedulerEditor?.mode === "edit" || schedulerEditor?.mode === "runs"
+                  ? schedulerEditor.jobId
+                  : null
               }
               className="scheduler-dock-drawer"
               onClose={closeSchedulerDrawer}
@@ -4861,6 +5054,7 @@ export function App() {
                 setSchedulerEditor({ mode: "edit", jobId: jid });
                 setSchedulerJobHash(jid);
               }}
+              onOpenRuns={openSchedulerRuns}
               onRunJob={(jid) => void onSchedulerRunJob(jid)}
               onCancelJob={(jid) => void onSchedulerCancelJob(jid)}
               searchDraft={schedulerFilterDraft}
@@ -4868,8 +5062,38 @@ export function App() {
               onSearchClear={() => setSchedulerFilterDraft("")}
             />
 
+            {schedulerEditor?.mode === "runs" ? (
+              <BackgroundTasksPanel
+                open
+                className="scheduler-runs-dock"
+                title={t("scheduler.runsTitle", { jobId: schedulerEditor.jobId })}
+                emptyText={t("scheduler.runsEmpty")}
+                agentHeading={t("scheduler.runsJobHeading")}
+                selectedTaskId={schedulerRunsTaskId}
+                tasks={schedulerRunsTasks}
+                selectedOutput={schedulerRunsOutput}
+                listError={schedulerRunsError}
+                loading={schedulerRunsLoading}
+                nowMs={backgroundNowMs}
+                onClose={closeSchedulerRuns}
+                onOpenTask={openSchedulerRunTask}
+                onBackToList={backToSchedulerRuns}
+                onStopTask={(id) => {
+                  void stopSchedulerRun(id);
+                }}
+                onClearFinished={() => {
+                  void clearSchedulerRuns();
+                }}
+                onOpenSession={openSessionInPlace}
+              />
+            ) : null}
+
             <SchedulerJobEditorSheet
-              open={schedulerHttpLinked === true && !!schedulerEditor}
+              open={
+                schedulerHttpLinked === true &&
+                !!schedulerEditor &&
+                schedulerEditor.mode !== "runs"
+              }
               mode={schedulerEditor?.mode === "create" ? "create" : "edit"}
               jobId={
                 schedulerEditor?.mode === "edit" ? schedulerEditor.jobId : null
@@ -4891,6 +5115,7 @@ export function App() {
                 setSchedulerEditor(null);
                 void refreshSchedulerJobs({ silent: true });
               }}
+              onOpenRuns={openSchedulerRuns}
             />
           </div>
         ) : null}

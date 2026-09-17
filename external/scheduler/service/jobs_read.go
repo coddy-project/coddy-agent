@@ -11,6 +11,15 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/external/scheduler/storage"
 )
 
+// runningCount reports the runs in flight across every job of this process.
+func runningCount() int {
+	rt := CurrentRuntime()
+	if rt == nil {
+		return 0
+	}
+	return rt.RunningCount()
+}
+
 func (o *Service) buildSchedulerInfo() SchedulerInfo {
 	c := o.Cfg
 	return SchedulerInfo{
@@ -18,7 +27,7 @@ func (o *Service) buildSchedulerInfo() SchedulerInfo {
 		Dir:            strings.TrimSpace(c.Scheduler.Dir),
 		Timeout:        strings.TrimSpace(c.Scheduler.Timeout),
 		MaxQueue:       c.Scheduler.MaxQueue,
-		RunsActive:     TrackedJobRunCount(),
+		RunsActive:     runningCount(),
 		RetainSessions: c.SchedulerRetainSessionsEffective(),
 	}
 }
@@ -34,16 +43,19 @@ func (o *Service) jobFromPath(abs string, now time.Time, includeBody bool) (Sche
 	}
 	last, _ := storage.ReadJobState(storage.StatePath(abs))
 	next := storage.NextScheduledDisplayUTC(sch, last, now)
-	_ = CleanupStaleSchedulerLock(abs, StaleLockGraceFromConfig(o.Cfg))
 	out := SchedulerJob{
-		JobID:       jobIDFromMDPath(abs),
-		Description: strings.TrimSpace(fm.Description),
-		Schedule:    strings.TrimSpace(fm.Schedule),
-		Paused:      fm.Paused,
-		CWD:         strings.TrimSpace(fm.CWD),
-		Model:       strings.TrimSpace(fm.Model),
-		Mode:        strings.TrimSpace(fm.Mode),
-		Running:     IsTrackedJob(abs),
+		JobID:          jobIDFromMDPath(abs),
+		Description:    strings.TrimSpace(fm.Description),
+		Schedule:       strings.TrimSpace(fm.Schedule),
+		Paused:         fm.Paused,
+		CWD:            strings.TrimSpace(fm.CWD),
+		Model:          strings.TrimSpace(fm.Model),
+		Mode:           strings.TrimSpace(fm.Mode),
+		Agent:          strings.TrimSpace(fm.Agent),
+		PermissionMode: strings.TrimSpace(fm.PermissionMode),
+		Running:        jobRunning(abs),
+		SessionID:      o.jobSessionIDOf(abs),
+		LastRun:        o.lastRunOf(abs),
 	}
 	if includeBody {
 		out.Body = body

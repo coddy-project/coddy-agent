@@ -94,7 +94,7 @@ func (s *Server) coddyQueuePost(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, session.ErrQueueFull):
 		s.queueError(w, http.StatusConflict, "queue_full", err)
 		return
-	case errors.Is(err, session.ErrSubagentReadOnly):
+	case isSubagentReadOnly(err):
 		s.queueError(w, http.StatusConflict, "subagent_read_only", err)
 		return
 	case err != nil:

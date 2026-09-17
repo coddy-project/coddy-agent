@@ -172,19 +172,20 @@ type State struct {
 	// SessionDir is the persisted session bundle directory (<sessionsRoot>/<id>/).
 	SessionDir string
 
-	// Scheduler run metadata (cron / coddy_scheduler_job_run); written to session.json when SchedulerRun is true.
-	SchedulerRun        bool
-	SchedulerJobID      string
-	SchedulerStartedAt  string // RFC3339 UTC
-	SchedulerEndedAt    string // RFC3339 UTC when terminal
-	SchedulerStopStatus string // running | completed | failed | cancelled
+	// Scheduler job session: the session every run of one scheduler job is a
+	// child of. It never runs a turn of its own - a read-only transcript for
+	// every surface - and is written to session.json as schedulerRun and
+	// schedulerJobId, which is what keeps it out of the working list.
+	SchedulerRun   bool
+	SchedulerJobID string
 
 	// PermissionMode is the session-level override for tools.permission_mode.
 	// Empty means use the config default. Values: "ask", "accept_edits", "bypass".
 	PermissionMode string
 
 	// subagent is set for a child session spawned by another session (see
-	// subagent.go); nil for ordinary chats and scheduler runs.
+	// subagent.go), a scheduled run included; nil for ordinary chats and for
+	// the job session a scheduled run hangs under.
 	subagent *SubagentMeta
 
 	// sessionMCPDecls are the ACP client-supplied MCP declarations this session
@@ -271,53 +272,39 @@ func (s *State) GetPersistedSessionDir() string {
 	return s.SessionDir
 }
 
-// SetSchedulerRunMeta configures this state as a persisted scheduler run (writes scheduler* fields in session.json via Save).
-func (s *State) SetSchedulerRunMeta(jobID string, startedRFC3339UTC string) {
+// SetSchedulerJobWithoutPersist marks this state as the session of a scheduler
+// job. It does not persist by itself: the manager saves the state right after
+// building it, and a load restores the mark from session.json.
+func (s *State) SetSchedulerJobWithoutPersist(jobID string) {
 	s.mu.Lock()
 	s.SchedulerRun = true
 	s.SchedulerJobID = strings.TrimSpace(jobID)
-	s.SchedulerStartedAt = strings.TrimSpace(startedRFC3339UTC)
-	s.SchedulerEndedAt = ""
-	s.SchedulerStopStatus = "running"
 	s.mu.Unlock()
 }
 
-// FinishSchedulerRun marks the scheduler run terminal (call before final Save).
-func (s *State) FinishSchedulerRun(endedRFC3339UTC, status string) {
-	s.mu.Lock()
-	s.SchedulerEndedAt = strings.TrimSpace(endedRFC3339UTC)
-	s.SchedulerStopStatus = strings.TrimSpace(status)
-	s.mu.Unlock()
-}
-
-func (s *State) GetSchedulerRun() bool {
+// IsSchedulerJob reports whether this session belongs to a scheduler job: the
+// parent of that job's runs, never a chat.
+func (s *State) IsSchedulerJob() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.SchedulerRun
 }
 
+// GetSchedulerJobID returns the scheduler job this session belongs to, or ""
+// for an ordinary session.
 func (s *State) GetSchedulerJobID() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.SchedulerJobID
 }
 
-func (s *State) GetSchedulerStartedAt() string {
+// IsReadOnlyTranscript reports whether no surface may start a turn on this
+// session: a child spawned by another session (its one turn is its own task
+// turn) and the session of a scheduler job (nothing ever talks to it).
+func (s *State) IsReadOnlyTranscript() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.SchedulerStartedAt
-}
-
-func (s *State) GetSchedulerEndedAt() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.SchedulerEndedAt
-}
-
-func (s *State) GetSchedulerStopStatus() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.SchedulerStopStatus
+	return s.subagent != nil || s.SchedulerRun
 }
 
 // GetSkills returns the loaded skills.
@@ -402,6 +389,32 @@ type SubagentMeta struct {
 	// FallbackModels are the models[].model ids the child's provider moves to
 	// when the one before them fails before answering. Not persisted.
 	FallbackModels []string
+	// Scheduler is set when the child is a run the scheduler started rather
+	// than a delegate a model spawned: the job it belongs to, and how the run
+	// was triggered. Persisted, so a transcript read from disk still says
+	// which job it was.
+	Scheduler *SchedulerRunMeta
+}
+
+// SchedulerRunMeta is the origin of a scheduled run.
+type SchedulerRunMeta struct {
+	// JobID is the scheduler job (the file basename under scheduler.dir).
+	JobID string
+	// Trigger is "cron" for a run the tick started, "manual" for one asked
+	// for through the API or a tool.
+	Trigger string
+	// FireSlot is the UTC minute the cron fire was committed for; zero for a
+	// manual run.
+	FireSlot time.Time
+}
+
+// clone copies the origin so a caller never shares a pointer with the state.
+func (m *SchedulerRunMeta) clone() *SchedulerRunMeta {
+	if m == nil {
+		return nil
+	}
+	out := *m
+	return &out
 }
 
 // SubagentKindMemory is the Kind of the memory subagent, the child a user
@@ -413,9 +426,22 @@ const SubagentKindMemory = "memory"
 func (s *State) SetSubagentMeta(meta SubagentMeta) {
 	meta.Tools = append([]string(nil), meta.Tools...)
 	meta.FallbackModels = append([]string(nil), meta.FallbackModels...)
+	meta.Scheduler = meta.Scheduler.clone()
 	s.mu.Lock()
 	s.subagent = &meta
 	s.mu.Unlock()
+}
+
+// SetSubagentTools replaces the child's effective tool set. The manager calls
+// it for a run whose set is decided only once its MCP clients are up, before
+// the run's turn starts.
+func (s *State) SetSubagentTools(tools []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.subagent == nil {
+		return
+	}
+	s.subagent.Tools = append([]string(nil), tools...)
 }
 
 // Subagent returns a copy of the child-run metadata, or nil for an ordinary
@@ -429,6 +455,7 @@ func (s *State) Subagent() *SubagentMeta {
 	out := *s.subagent
 	out.Tools = append([]string(nil), s.subagent.Tools...)
 	out.FallbackModels = append([]string(nil), s.subagent.FallbackModels...)
+	out.Scheduler = s.subagent.Scheduler.clone()
 	return &out
 }
 

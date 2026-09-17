@@ -215,11 +215,15 @@ def wait_log_patterns(log_path: Path, patterns: list[str], timeout_sec: float) -
     return log_path.read_text(encoding="utf-8", errors="replace")
 
 
-def assert_no_stale_lock(job_md: Path) -> None:
-    lock_path = job_md.parent / f"{job_md.stem}.lock"
-    wait_until(lambda: not lock_path.exists(), 30.0, what="stale scheduler lock cleared")
-    if lock_path.exists():
-        raise AssertionError(f"scheduler lock still present: {lock_path}")
+def assert_job_session_recorded(job_md: Path) -> str:
+    """The job's sidecar names the job session its runs are children of."""
+    state_path = job_md.parent / f"{job_md.stem}.state"
+    wait_until(state_path.is_file, 30.0, what="scheduler job .state written")
+    record = json.loads(state_path.read_text(encoding="utf-8"))
+    session_id = str(record.get("session_id") or "").strip()
+    if not session_id:
+        raise AssertionError(f"scheduler sidecar {state_path} names no job session: {record}")
+    return session_id
 
 
 def ensure_job_file_written(home_scheduler: Path, work: Path) -> Path:
@@ -351,7 +355,7 @@ STEP 3 - Reply single line OK when both steps succeeded.
         if not jst.get("last_scheduled_utc"):
             raise AssertionError(".state missing last_scheduled_utc")
 
-        assert_no_stale_lock(job_md)
+        assert_job_session_recorded(job_md)
         print("ok acp e2e scheduler agent", flush=True)
         return 0
     finally:
@@ -435,7 +439,7 @@ STEP 3: reply OK
     )
     state_p = job_md.parent / (job_md.stem + ".state")
     wait_until(lambda: state_p.is_file(), 120.0, what="basename.state http")
-    assert_no_stale_lock(job_md)
+    assert_job_session_recorded(job_md)
     print("ok http scheduler agent e2e", flush=True)
     return 0
 

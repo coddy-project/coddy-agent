@@ -22,8 +22,8 @@ func (m *Manager) RunPlan(ctx context.Context, sessionID, slug string, sender ac
 	if state == nil {
 		return nil, fmt.Errorf("session not found: %s", sessionID)
 	}
-	if state.IsSubagentRun() {
-		return nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, sessionID, subagentParentOf(state))
+	if err := readOnlyRefusal(state, sessionID); err != nil {
+		return nil, err
 	}
 	if err := refuseAskModePlanRun(state, slug); err != nil {
 		return nil, err

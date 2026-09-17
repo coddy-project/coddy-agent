@@ -145,6 +145,9 @@ func (m *Manager) CreateBranchSession(params CreateBranchParams) (*CreateBranchR
 	if snap.Meta.IsSubagentRun() {
 		return nil, fmt.Errorf("%w: %s cannot be branched", ErrSubagentReadOnly, srcID)
 	}
+	if snap.Meta.SchedulerRun {
+		return nil, fmt.Errorf("%w: %s is the session of scheduler job %q and cannot be branched", ErrSchedulerSessionReadOnly, srcID, snap.Meta.SchedulerJobID)
+	}
 
 	// Collect the messages up to (not including) the Nth user message.
 	prefix, preview := sliceMessagesBeforeUserN(snap.Messages, params.UserMessageIndex)

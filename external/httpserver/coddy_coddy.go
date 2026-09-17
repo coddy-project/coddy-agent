@@ -1163,10 +1163,15 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 		"messagesRev": rev,
 	}
 	// A child session is a read-only transcript: the SPA drops the composer
-	// and links back to the parent chat and to the task in its drawer.
+	// and links back to the parent chat and to the task in its drawer, or to
+	// the job's runs for a scheduled run. The session of a scheduler job is
+	// read-only too, and names its job.
 	if meta := st.Subagent(); meta != nil {
 		out["readOnly"] = true
-		out["subagent"] = subagentLink(meta.ParentSessionID, meta.Name, meta.TaskID)
+		out["subagent"] = subagentMetaLink(meta)
+	} else if st.IsSchedulerJob() {
+		out["readOnly"] = true
+		out["schedulerJob"] = map[string]interface{}{"jobId": st.GetSchedulerJobID()}
 	}
 	// An archived session is where the composer learns it must not offer a
 	// prompt. It cannot be read off the session listing: that skips the archive,

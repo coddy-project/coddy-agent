@@ -125,14 +125,14 @@ Compiled in with the `scheduler` tag and registered only while the scheduler is 
 |---|---|---|---|---|
 | `coddy_scheduler_jobs_list` | List every job file | `include_body` | none | agent |
 | `coddy_scheduler_job_get` | Load one job | `job_id` | none | agent |
-| `coddy_scheduler_job_runs` | List the persisted runs of a job with their session ids | `job_id`, `limit` | none | agent |
-| `coddy_scheduler_job_create` | Create a job file | `job_id`, `description`, `schedule`, `paused`, `cwd`, `model`, `mode`, `body` | always | agent |
-| `coddy_scheduler_job_replace` | Replace every field of a job | `job_id`, `description`, `schedule`, `paused`, `cwd`, `model`, `mode`, `body` | always | agent |
-| `coddy_scheduler_job_patch` | Change only the given fields, optionally renaming the job | `job_id`, `new_job_id`, `description`, `schedule`, `paused`, `cwd`, `model`, `mode`, `body` | always | agent |
+| `coddy_scheduler_job_runs` | List the runs of a job, newest first: the task under the job session, the run session that holds the transcript, trigger, status and timing | `job_id`, `limit` | none | agent |
+| `coddy_scheduler_job_create` | Create a job file | `job_id`, `description`, `schedule`, `paused`, `cwd`, `model`, `mode`, `agent`, `permission_mode`, `body` | always | agent |
+| `coddy_scheduler_job_replace` | Replace every field of a job | `job_id`, `description`, `schedule`, `paused`, `cwd`, `model`, `mode`, `agent`, `permission_mode`, `body` | always | agent |
+| `coddy_scheduler_job_patch` | Change only the given fields, optionally renaming the job | `job_id`, `new_job_id`, `description`, `schedule`, `paused`, `cwd`, `model`, `mode`, `agent`, `permission_mode`, `body` | always | agent |
 | `coddy_scheduler_job_pause`, `coddy_scheduler_job_resume` | Set or clear `paused` | `job_id` | always | agent |
-| `coddy_scheduler_job_delete` | Delete a job and its `.state` and `.lock` sidecars when idle | `job_id` | always | agent |
-| `coddy_scheduler_job_run` | Trigger one asynchronous run now | `job_id` | always | agent |
-| `coddy_scheduler_job_cancel` | Cancel the active run of a job | `job_id` | always | agent |
+| `coddy_scheduler_job_delete` | Delete a job, its `.state` sidecar and its run history when no run is in flight | `job_id` | always | agent |
+| `coddy_scheduler_job_run` | Start one run now, as a background agent task under the job session; answers with the task and the run session | `job_id` | always | agent |
+| `coddy_scheduler_job_cancel` | Stop the run of a job that is in flight | `job_id` | always | agent |
 
 ## Memory subagent
 

@@ -205,7 +205,7 @@ func (a *Agent) pruneMemoryRuns(pool *bgtask.Pool, sessionID string, rt Subagent
 				continue
 			}
 		}
-		if err := pool.Remove(sessionID, snap.ID); err != nil {
+		if err := pool.Forget(sessionID, snap.ID); err != nil {
 			a.log.Warn("memory run retention: task record kept", "session_id", sessionID, "task", snap.ID, "error", err)
 		}
 	}

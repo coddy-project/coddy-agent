@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
@@ -81,11 +82,14 @@ func (s *Server) coddyBranchCreate(w http.ResponseWriter, r *http.Request) {
 	// A child transcript is read-only; forking it would reopen it as a
 	// writable session. The manager refuses too, this answers before the
 	// workspace rollback runs.
-	if st := s.mgr.SessionByID(id); st != nil && st.IsSubagentRun() {
+	if st := s.mgr.SessionByID(id); st != nil && st.IsReadOnlyTranscript() {
 		writeSubagentsError(w, http.StatusConflict, subagentReadOnlyMessage(st))
 		return
 	} else if snap, err := fs.ReadSnapshot(id); err == nil && snap.Meta.IsSubagentRun() {
 		writeSubagentsError(w, http.StatusConflict, "subagent sessions are read-only transcripts; branch the parent session "+snap.Meta.ParentSessionID+" instead")
+		return
+	} else if err == nil && snap.Meta.SchedulerRun {
+		writeSubagentsError(w, http.StatusConflict, "the session of scheduler job "+strconv.Quote(snap.Meta.SchedulerJobID)+" is read-only and cannot be branched")
 		return
 	}
 

@@ -366,15 +366,15 @@ Controls the bundled single-page UI (only meaningful in binaries built with -tag
 
 ### `scheduler`
 
-Cron-driven scheduled jobs (used only by binaries built with -tags scheduler). Jobs are flat *.md files with YAML frontmatter under scheduler.dir; five-field crontab in UTC.
+Cron-driven scheduled jobs (used only by binaries built with -tags scheduler). Jobs are flat *.md files with YAML frontmatter under scheduler.dir; five-field crontab in UTC. A run is a background agent task under the job's own session, which is the job's run history.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `scheduler.enable` | boolean | false | Run the scheduler daemon and expose the coddy_scheduler_* tools. Can also be forced per process with coddy serve --scheduler (or coddy acp -scheduler). |
 | `scheduler.dir` | string | "" | Directory with *.md job definitions. Empty resolves to ${CODDY_HOME}/scheduler. |
-| `scheduler.max_queue` | integer | 10 | Concurrent scheduled runs; when saturated, extra firings are skipped until a slot frees. |
-| `scheduler.timeout` | string | 30m | Wall-clock limit for one scheduled agent run, as a Go duration (e.g. "30m", "1h30m"). |
-| `scheduler.retain_sessions` | integer | 5 | Completed scheduler-run session directories kept per job_id under sessions.dir; older runs are pruned. |
+| `scheduler.max_queue` | integer | 10 | Runs in flight across all jobs at once; a due slot past the cap is skipped until a run finishes, and a manual run past it is refused. |
+| `scheduler.timeout` | string | 30m | Wall-clock limit for one run, as a Go duration (e.g. "30m", "1h30m"); the background task pool still caps it at tools.background.max_timeout_seconds. |
+| `scheduler.retain_sessions` | integer | 5 | Finished runs kept per job_id (their task records and transcripts under the job session); older runs are removed when a run finishes. |
 
 ### `gateways`
 

@@ -71,8 +71,8 @@ func (m *Manager) queueSession(sessionID string) (*State, error) {
 	if st == nil {
 		return nil, fmt.Errorf("session not found: %s", id)
 	}
-	if st.IsSubagentRun() {
-		return nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, id, subagentParentOf(st))
+	if err := readOnlyRefusal(st, id); err != nil {
+		return nil, err
 	}
 	return st, nil
 }
