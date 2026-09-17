@@ -8199,6 +8199,78 @@ html:not([data-theme="light"]) .context-usage-note--error {
   border-color: color-mix(in srgb, #ff9f0a 45%, transparent);
 }
 
+/* Subagents tab: the definition catalog reuses the MCP list chrome, so only
+   what has no MCP counterpart is defined here.
+
+   A definition's absolute path and its comma-separated tool list are long and
+   unbreakable. A <code> does not wrap on its own, so without these rules one
+   row widens the whole fieldset past the settings panel and the row
+   descriptions lose their ellipsis. */
+.settings-subagents-section .subagents-catalog-box,
+.settings-subagents-section .subagents-list,
+.settings-subagents-section .mcp-list-item {
+  min-inline-size: 0;
+  max-width: 100%;
+}
+
+.subagents-workspace code,
+.settings-subagents-section .subagents-file,
+.settings-subagents-section .subagents-facts code {
+  overflow-wrap: anywhere;
+}
+
+.subagents-file {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.74rem;
+  color: color-mix(in srgb, var(--text) 52%, transparent);
+}
+
+.subagents-declared {
+  margin: 6px 0 0;
+  font-size: 0.78rem;
+  color: color-mix(in srgb, var(--text) 72%, transparent);
+}
+
+.subagents-declared summary {
+  cursor: pointer;
+  width: fit-content;
+  color: color-mix(in srgb, var(--text) 60%, transparent);
+}
+
+.subagents-facts {
+  margin: 6px 0 0;
+}
+
+.subagents-facts > div {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+/* Declaration labels run longer than the MCP ones ("permissions",
+   "инструменты"); at 72px they would wrap mid-word. */
+.subagents-facts dt {
+  flex: 0 0 104px;
+  color: color-mix(in srgb, var(--text) 52%, transparent);
+}
+
+.subagents-facts dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.subagents-facts code {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.74rem;
+}
+
+.subagents-badge-pending {
+  color: #ff9f0a;
+  border-color: color-mix(in srgb, #ff9f0a 45%, transparent);
+}
+
 .mcp-command {
   font-family: var(--mono, ui-monospace, monospace);
   font-size: 0.74rem;
@@ -8470,6 +8542,13 @@ html:not([data-theme="light"]) .context-usage-note--error {
   max-width: 720px;
   min-width: 0;
   box-sizing: border-box;
+}
+
+.subagent-permissions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
 }
 
 .permission-prompt-frame {

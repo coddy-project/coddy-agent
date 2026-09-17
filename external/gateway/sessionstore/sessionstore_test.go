@@ -43,6 +43,50 @@ func TestSessionKey_GroupAdmin(t *testing.T) {
 	}
 }
 
+// A background subagent asks about a session, not a chat: the store is how the
+// bot finds the chat that conversation lives in, including after a restart.
+func TestKeyForFindsTheChatOfASession(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gateway_sessions.json")
+	s := sessionstore.NewPersisted(path)
+	group := sessionstore.SessionKey("tg", -100, 42, config.IsolationIndividual, true)
+	id := s.Get(group)
+	s.Get(sessionstore.SessionKey("tg", -1, 7, config.IsolationShared, false))
+
+	reloaded := sessionstore.NewPersisted(path)
+	key, ok := reloaded.KeyFor(id)
+	if !ok || key != group {
+		t.Fatalf("KeyFor(%q) = %q, %v; want %q", id, key, ok, group)
+	}
+	if _, ok := reloaded.KeyFor("sess_nobody"); ok {
+		t.Fatal("a session no chat holds was found")
+	}
+	if _, ok := reloaded.KeyFor(""); ok {
+		t.Fatal("an empty session id was found")
+	}
+}
+
+func TestChatIDOfEveryKeyShape(t *testing.T) {
+	for _, tc := range []struct {
+		key  string
+		want int64
+	}{
+		{sessionstore.SessionKey("tg", -1, 42, config.IsolationShared, false), 42},
+		{sessionstore.SessionKey("tg", -100, 42, config.IsolationShared, true), -100},
+		{sessionstore.SessionKey("tg", -100, 42, config.IsolationAdmin, true), -100},
+		{sessionstore.SessionKey("tg", -100, 42, config.IsolationIndividual, true), -100},
+	} {
+		got, ok := sessionstore.ChatID(tc.key)
+		if !ok || got != tc.want {
+			t.Fatalf("ChatID(%q) = %d, %v; want %d", tc.key, got, ok, tc.want)
+		}
+	}
+	for _, bad := range []string{"", "tg", "tg:user:", "tg:room:5", "tg:chat:not-a-number"} {
+		if _, ok := sessionstore.ChatID(bad); ok {
+			t.Fatalf("ChatID(%q) accepted a key that names no chat", bad)
+		}
+	}
+}
+
 func TestStore_GetAndReset(t *testing.T) {
 	s := sessionstore.New()
 	id1 := s.Get("tg:user:1")

@@ -622,6 +622,10 @@ type PermissionOption struct {
 type PermissionResult struct {
 	Outcome  string `json:"outcome"`
 	OptionID string `json:"optionId"`
+	// Reason explains a refusal the user never saw - a subagent's prompt that
+	// reached nobody, say. It is local to this process (the wire shape is
+	// fixed by the protocol) and only ever widens what the model is told.
+	Reason string `json:"-"`
 }
 
 // UnmarshalJSON accepts both response shapes seen from ACP clients.

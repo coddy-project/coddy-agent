@@ -33,8 +33,12 @@ func Serve(ctx context.Context, opts Options) error {
 				config.TelegramBotTokenEnvVar + " environment variable")
 		}
 		storePath := filepath.Join(opts.Cfg.ResolvedSessionsRoot(), "gateway_sessions.json")
-		adapters = append(adapters, telegram.New(&opts.Cfg.Gateways.Telegram, opts.Mgr, opts.DefaultCWD,
-			logger.Component(opts.Log, logger.ComponentGatewayTelegram), storePath, opts.Mirror))
+		bot := telegram.New(&opts.Cfg.Gateways.Telegram, opts.Mgr, opts.DefaultCWD,
+			logger.Component(opts.Log, logger.ComponentGatewayTelegram), storePath, opts.Mirror)
+		if opts.Prompts != nil {
+			bot.SetPromptSurfaces(opts.Prompts)
+		}
+		adapters = append(adapters, bot)
 	}
 
 	if len(adapters) == 0 {

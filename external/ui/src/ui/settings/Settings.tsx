@@ -115,6 +115,12 @@ export function Settings(props: {
   activeSessionId?: string;
   /** Session ids the table removed, so the shell can drop them from History. */
   onSessionsDeleted?: (ids: string[]) => void;
+  /**
+   * Workspace of the viewed session. The Subagents tab lists the definitions of
+   * that workspace, because spawn_agent resolves them against the session's own
+   * cwd.
+   */
+  workspacePath?: string | undefined;
   onSessionTagsChanged?: (id: string, tags: string[]) => void;
 }) {
   const [schema, setSchema] = useState<JsonSchema | null>(null);
@@ -284,6 +290,7 @@ export function Settings(props: {
                 {...(props.onSessionsDeleted
                   ? { onSessionsDeleted: props.onSessionsDeleted }
                   : {})}
+                workspacePath={props.workspacePath}
                 {...(props.onSessionTagsChanged
                   ? { onSessionTagsChanged: props.onSessionTagsChanged }
                   : {})}

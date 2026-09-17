@@ -295,6 +295,12 @@ func newTurnAgent(mgr *session.Manager, app *App, st *session.State, snd acp.Upd
 	// The manager owns child sessions, so a turn on this surface can spawn
 	// subagents like every other surface.
 	loop.SetSubagentRuntime(mgr)
+	// A background subagent outlives this turn; while the console is open it
+	// asks through the same modal. One-shot print mode exits with its turn and
+	// has no console, so its detached children are refused with a reason.
+	if app != nil {
+		loop.SetDetachedPermissionBroker(app)
+	}
 	loop.SetConfigReloader(func(ctx context.Context) ([]string, error) {
 		warnings, err := mgr.ReloadConfigForSession(ctx, st)
 		if err == nil && app != nil {

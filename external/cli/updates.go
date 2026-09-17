@@ -33,11 +33,10 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 			}
 			a.stopUsageResume()
 			// A permission or question modal belonging to this turn is now
-			// orphaned (the worker already unblocked via ctx cancellation).
-			switch a.modal.(type) {
-			case *permissionModal, *questionModal:
-				a.closeModal()
-			}
+			// orphaned (the worker already unblocked via ctx cancellation). A
+			// background subagent's prompt is not this turn's: its asker is
+			// still waiting, so it stays on screen.
+			a.dropAbandonedGate()
 			if fn := a.pendingSwitch; fn != nil {
 				a.pendingSwitch = nil
 				fn()
@@ -71,6 +70,9 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		// (providers[].usage_limits_panel): a cache read brings the line up
 		// or takes it down without waiting for the next turn.
 		a.refreshUsage(usageProviderOf(a.modelID), false)
+		return
+	case gateWithdrawn:
+		a.dropAbandonedGate()
 		return
 	case sessionSwitched:
 		a.switching = false

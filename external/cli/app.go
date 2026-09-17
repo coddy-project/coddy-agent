@@ -131,6 +131,12 @@ type App struct {
 	workStop  context.CancelFunc
 
 	modal tui.Component
+	// gateCtx is the context of the asker behind the permission or question
+	// modal on screen, gateStop the watch that takes it down when that asker
+	// gives up, and gates the ones waiting behind it (gates.go).
+	gateCtx  context.Context
+	gateStop func() bool
+	gates    []pendingGate
 
 	mdTheme tui.MarkdownTheme
 
@@ -616,32 +622,38 @@ func (a *App) closeModal() {
 	// The gate is answered; the status line goes back to the gated step itself
 	// (an approved tool only starts executing now, so its clock restarts too).
 	a.unblockStatus()
+	a.releaseGate()
 	a.modal = nil
 	a.editorWrap.Clear()
 	a.editorWrap.AddChild(a.editor)
 	a.screen.SetFocus(a.editor)
+	a.openNextGate()
 }
 
 func (a *App) openPermissionModal(req permRequest) {
-	a.blockStatus("Waiting for your approval")
-	m := newPermissionModal(a.theme, req.params, a.screen.RequestRender)
-	m.OnDone = func(res *acp.PermissionResult) {
-		req.reply <- res
-		a.closeModal()
-		a.screen.RequestRender()
-	}
-	a.openModal(m)
+	a.showGate(req.ctx, func() {
+		a.blockStatus("Waiting for your approval")
+		m := newPermissionModal(a.theme, req.params, a.screen.RequestRender)
+		m.OnDone = func(res *acp.PermissionResult) {
+			req.reply <- res
+			a.closeModal()
+			a.screen.RequestRender()
+		}
+		a.openModal(m)
+	})
 }
 
 func (a *App) openQuestionModal(req questRequest) {
-	a.blockStatus("Waiting for your answer")
-	m := newQuestionModal(a.theme, req.params, a.screen.RequestRender)
-	m.OnDone = func(res *acp.QuestionResult) {
-		req.reply <- res
-		a.closeModal()
-		a.screen.RequestRender()
-	}
-	a.openModal(m)
+	a.showGate(req.ctx, func() {
+		a.blockStatus("Waiting for your answer")
+		m := newQuestionModal(a.theme, req.params, a.screen.RequestRender)
+		m.OnDone = func(res *acp.QuestionResult) {
+			req.reply <- res
+			a.closeModal()
+			a.screen.RequestRender()
+		}
+		a.openModal(m)
+	})
 }
 
 // --- submit / turn ---

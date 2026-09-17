@@ -74,6 +74,14 @@ type Bot struct {
 	// conversation on a browser's screen as it happens; on its own the bot
 	// runs against a mirror that hands the sender straight back.
 	mirror session.TurnMirror
+
+	// asks holds the subagent permission requests waiting for a tap
+	// (permission.go); promptSurfaces is where the bot offers to ask about
+	// detached subagents, and api the connected client they are asked through.
+	asks           *chatPermissions
+	promptSurfaces PromptSurfaces
+	apiMu          sync.Mutex
+	api            *tgbotapi.BotAPI
 }
 
 // New creates a Bot. cwd is the default working directory for agent sessions.
@@ -91,6 +99,7 @@ func New(cfg *config.TelegramGatewayConfig, runner SessionRunner, cwd string, lo
 		store:   store,
 		workers: make(map[string]chan workerJob),
 		mirror:  mirror,
+		asks:    newChatPermissions(),
 	}
 	return b
 }
@@ -122,6 +131,17 @@ func (b *Bot) Start(ctx context.Context) error {
 	}
 	b.botName = bot.Self.UserName
 	b.log.Info("telegram bot connected", "username", b.botName)
+
+	// From here on a background subagent of one of these chats can be asked
+	// about in the chat. A stopped bot receives no taps, so on the way out it
+	// withdraws the offer and every request still waiting.
+	b.setAPI(bot)
+	defer b.setAPI(nil)
+	defer b.asks.stop()
+	if b.promptSurfaces != nil {
+		withdraw := b.promptSurfaces.AddDetachedPermissionApprover(b)
+		defer withdraw()
+	}
 
 	if _, err := bot.Request(tgbotapi.NewSetMyCommands(
 		tgbotapi.BotCommand{Command: "start", Description: "Greeting and quick intro"},
@@ -393,7 +413,7 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 
 	// Rich Messages: stream an ephemeral draft preview in private chats (drafts are
 	// private-only); group chats receive the final sendRichMessage without streaming.
-	sender := newSender(bot, chatID, msg.MessageID, b.log, richConfig{
+	sender := b.chatSender(bot, chatID, msg.MessageID, richConfig{
 		enabled:    rich,
 		allowDraft: rich && !isGroup,
 		draftID:    b.draftSeq.Add(1),
@@ -432,6 +452,14 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 			"stop_reason", stopReason,
 		)
 	}
+}
+
+// chatSender builds the sender of one turn in chatID, able to ask the chat about
+// a subagent's permission request.
+func (b *Bot) chatSender(bot *tgbotapi.BotAPI, chatID int64, replyTo int, rich richConfig) *Sender {
+	s := newSender(bot, chatID, replyTo, b.log, rich)
+	s.asks = b.asks
+	return s
 }
 
 // shouldRespond checks whether the bot should process a group message.

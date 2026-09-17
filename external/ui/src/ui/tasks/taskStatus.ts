@@ -150,6 +150,23 @@ export function tasksPollIntervalMs(runningCount: number): number {
 }
 
 /**
+ * A background subagent is blocked on a permission prompt its parent chat can
+ * answer. The task keeps reporting itself as running while it waits - it is,
+ * and its timeout still applies - so "waiting" is a state on top of running,
+ * not instead of it. A prompt missing either id cannot be answered, so it is
+ * not one.
+ */
+export function isAwaitingPermission(task: BackgroundTask): boolean {
+  const pending = task.pending_permission;
+  return (
+    task.running &&
+    !!pending &&
+    !!(pending.sessionId || "").trim() &&
+    !!(pending.toolCall?.toolCallId || "").trim()
+  );
+}
+
+/**
  * Ordered purely by when the task was started, newest first. Running tasks are
  * not floated to the top: they already live in their own section, and mixing
  * two orderings makes a list that never sits still to read.

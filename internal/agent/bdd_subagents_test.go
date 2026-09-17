@@ -209,6 +209,10 @@ type recordingClient struct {
 	inFlight    int
 	maxInFlight int
 	answer      string // allow | allow_always | reject
+	// hold keeps every prompt open until the relay withdraws it, the way a
+	// person who has not answered yet does: the scenario about a turn ending
+	// with a prompt still on screen needs the prompt to outlive the turn.
+	hold bool
 }
 
 func (c *recordingClient) SendSessionUpdate(_ string, u interface{}) error {
@@ -218,7 +222,7 @@ func (c *recordingClient) SendSessionUpdate(_ string, u interface{}) error {
 	return nil
 }
 
-func (c *recordingClient) RequestPermission(_ context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+func (c *recordingClient) RequestPermission(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
 	c.mu.Lock()
 	c.inFlight++
 	if c.inFlight > c.maxInFlight {
@@ -226,7 +230,15 @@ func (c *recordingClient) RequestPermission(_ context.Context, params acp.Permis
 	}
 	c.perms = append(c.perms, params)
 	answer := c.answer
+	hold := c.hold
 	c.mu.Unlock()
+	if hold {
+		<-ctx.Done()
+		c.mu.Lock()
+		c.inFlight--
+		c.mu.Unlock()
+		return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
+	}
 	// Hold the prompt open until a second child is queued on the parent's
 	// arbiter (or briefly, when no other child is coming), so the overlap the
 	// serialisation scenario checks is a fact, not a matter of timing.
@@ -257,6 +269,30 @@ func (c *recordingClient) permissions() []acp.PermissionRequestParams {
 	return append([]acp.PermissionRequestParams(nil), c.perms...)
 }
 
+// ---- detached permission surface ----
+
+// featureDetachedBroker stands in for the HTTP server's task-row prompt: it
+// records what a detached child asked and answers allow, so the scenario can
+// assert both that the prompt was published and that the child went on to run
+// the tool it was blocked on.
+type featureDetachedBroker struct {
+	mu       sync.Mutex
+	requests []DetachedPermissionRequest
+}
+
+func (b *featureDetachedBroker) RequestDetachedPermission(_ context.Context, req DetachedPermissionRequest) (*acp.PermissionResult, error) {
+	b.mu.Lock()
+	b.requests = append(b.requests, req)
+	b.mu.Unlock()
+	return &acp.PermissionResult{Outcome: "selected", OptionID: "allow"}, nil
+}
+
+func (b *featureDetachedBroker) seen() []DetachedPermissionRequest {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]DetachedPermissionRequest(nil), b.requests...)
+}
+
 // ---- feature state ----
 
 type subagentsFeatureState struct {
@@ -282,6 +318,11 @@ type subagentsFeatureState struct {
 	waitResults  []string
 	lastChildID  string
 	lastTaskID   string
+
+	// broker stands in for a surface that can still show a prompt after the
+	// parent turn ended; nil means no such surface, which is the console and
+	// ACP case.
+	broker *featureDetachedBroker
 }
 
 func (s *subagentsFeatureState) reset() error {
@@ -310,6 +351,7 @@ func (s *subagentsFeatureState) reset() error {
 	s.waitResults = nil
 	s.lastChildID = ""
 	s.lastTaskID = ""
+	s.broker = nil
 	s.parent = nil
 	s.client = &recordingClient{answer: "allow"}
 	return nil
@@ -410,6 +452,11 @@ func (s *subagentsFeatureState) parentSessionWithPermission(mode string) error {
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
 		loop := NewAgent(s.cfg, st, snd, slog.Default())
 		loop.SetSubagentRuntime(s.mgr)
+		// Read at turn time, so the surface may be declared by a Given that
+		// runs after the session is created.
+		if s.broker != nil {
+			loop.SetDetachedPermissionBroker(s.broker)
+		}
 		loop.SetProviderFactory(func(llm.ProviderInput) (llm.Provider, error) { return s.providerFor(st), nil })
 		return loop.Run(ctx, prompt)
 	}
@@ -566,6 +613,56 @@ func (s *subagentsFeatureState) spawnBackgroundCommandLater(agent, answer string
 	}
 	s.mu.Unlock()
 	return s.spawnWith(agent, true)
+}
+
+func (s *subagentsFeatureState) clientHoldsPrompts() error {
+	s.client.mu.Lock()
+	s.client.hold = true
+	s.client.mu.Unlock()
+	return nil
+}
+
+// spawnBackgroundAskingDuringTurn spawns a detached child that asks for its
+// command at once, and ends the parent turn only when that prompt is on the
+// parent's client - the order a background child usually produces, made a fact
+// here rather than a race - then waits for the child to settle.
+func (s *subagentsFeatureState) spawnBackgroundAskingDuringTurn(agent, answer string) error {
+	s.mu.Lock()
+	s.childSteps = func() []scriptStep {
+		return []scriptStep{toolStep(commandCall("call_cmd", "echo bdd-subagent-command", false)), answerStep(answer)}
+	}
+	s.mu.Unlock()
+	untilChildAsks := func(messages []llm.Message, defs []llm.ToolDefinition, onChunk func(llm.StreamChunk)) *llm.Response {
+		deadline := time.Now().Add(testWait)
+		for len(s.client.permissions()) == 0 && time.Now().Before(deadline) {
+			time.Sleep(5 * time.Millisecond)
+		}
+		return answerStep("parent done")(messages, defs, onChunk)
+	}
+	results, err := s.runParentTurn(toolStep(spawnCall("call_spawn", agent, true)), untilChildAsks)
+	if err != nil {
+		return err
+	}
+	res, ok := results["call_spawn"]
+	if !ok {
+		return fmt.Errorf("spawn_agent produced no tool result")
+	}
+	s.spawnResults = append(s.spawnResults, res)
+	s.noteLastAgentTask()
+	return s.waitForAgentTasksToSettle()
+}
+
+// waitForAgentTasksToSettle waits for every agent task of the parent to end.
+func (s *subagentsFeatureState) waitForAgentTasksToSettle() error {
+	for _, t := range bgtask.Default().List(s.parent.ID) {
+		if t.Kind != bgtask.KindAgent {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		_, _ = bgtask.Default().Wait(ctx, s.parent.ID, t.ID, 30*time.Second)
+		cancel()
+	}
+	return nil
 }
 
 func (s *subagentsFeatureState) spawnForegroundLeavingBackgroundCommand(agent, answer string) error {
@@ -1029,6 +1126,65 @@ func (s *subagentsFeatureState) childCommandRefused(text string) error {
 	return fmt.Errorf("the child transcript holds no tool result containing %q", text)
 }
 
+func (s *subagentsFeatureState) detachedSurfaceAvailable() error {
+	s.broker = &featureDetachedBroker{}
+	return nil
+}
+
+func (s *subagentsFeatureState) detachedPromptPublished() error {
+	if s.broker == nil {
+		return fmt.Errorf("no detached surface was declared")
+	}
+	seen := s.broker.seen()
+	if len(seen) == 0 {
+		return fmt.Errorf("the detached surface was never asked")
+	}
+	for _, req := range seen {
+		if req.ChildSessionID == s.lastChildID && req.Params.SessionID == s.lastChildID {
+			if strings.TrimSpace(req.TaskID) == "" {
+				return fmt.Errorf("the detached prompt names no task: %+v", req)
+			}
+			if req.ParentSessionID != s.parent.ID {
+				return fmt.Errorf("the detached prompt names parent %q, want %q", req.ParentSessionID, s.parent.ID)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("no detached prompt for child %q: %+v", s.lastChildID, seen)
+}
+
+func (s *subagentsFeatureState) detachedPromptTitled(name string) error {
+	if s.broker == nil {
+		return fmt.Errorf("no detached surface was declared")
+	}
+	want := "[subagent " + name + "]"
+	for _, req := range s.broker.seen() {
+		if strings.HasPrefix(req.Params.ToolCall.Title, want) {
+			return nil
+		}
+	}
+	return fmt.Errorf("no detached prompt titled %q", want)
+}
+
+func (s *subagentsFeatureState) childCommandRanAfterApproval() error {
+	snap, err := s.childSnapshot()
+	if err != nil {
+		return err
+	}
+	for _, m := range snap.Messages {
+		if m.Role != llm.RoleTool {
+			continue
+		}
+		if strings.Contains(m.Content, permissionNotGrantedPrefix) || strings.Contains(m.Content, permissionDeniedByUser) {
+			return fmt.Errorf("the command was refused after the prompt was allowed: %q", m.Content)
+		}
+		if strings.Contains(m.Content, "bdd-subagent-command") {
+			return nil
+		}
+	}
+	return fmt.Errorf("the child transcript holds no result of the approved command")
+}
+
 func (s *subagentsFeatureState) neverTwoPromptsInFlight() error {
 	s.client.mu.Lock()
 	defer s.client.mu.Unlock()
@@ -1111,6 +1267,8 @@ func initializeSubagentsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the parent model spawns "([^"]*)" in the foreground and the child runs a command before answering "([^"]*)"$`, s.spawnForegroundCommand)
 	sc.Step(`^the parent model spawns "([^"]*)" in the background and the child runs a command before answering "([^"]*)"$`, s.spawnBackgroundCommandLater)
 	sc.Step(`^the parent model spawns "([^"]*)" in the foreground and the child starts a background command before answering "([^"]*)"$`, s.spawnForegroundLeavingBackgroundCommand)
+	sc.Step(`^the parent's client holds every prompt open until it is withdrawn$`, s.clientHoldsPrompts)
+	sc.Step(`^the parent model spawns "([^"]*)" in the background and the child asks to run a command before the parent turn ends, answering "([^"]*)"$`, s.spawnBackgroundAskingDuringTurn)
 	sc.Step(`^the parent model spawns two "([^"]*)" children that each run a command before answering$`, s.spawnTwoWithCommands)
 	sc.Step(`^in a new turn the parent model spawns "([^"]*)" in the foreground and the child runs a command before answering "([^"]*)"$`, s.laterTurnSpawnsCommand)
 	sc.Step(`^the parent waits for that task with background_wait$`, s.waitForLastTask)
@@ -1147,6 +1305,10 @@ func initializeSubagentsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the parent's client was asked to approve the command on behalf of subagent "([^"]*)"$`, s.clientAskedForCommandOnBehalfOf)
 	sc.Step(`^the parent's client was not asked about the command$`, s.clientNotAsked)
 	sc.Step(`^the child's command was refused as "([^"]*)"$`, s.childCommandRefused)
+	sc.Step(`^a surface that can answer a detached subagent's prompt$`, s.detachedSurfaceAvailable)
+	sc.Step(`^the detached prompt was published for the child session$`, s.detachedPromptPublished)
+	sc.Step(`^the detached prompt is titled for subagent "([^"]*)"$`, s.detachedPromptTitled)
+	sc.Step(`^the child's command ran after the detached prompt was allowed$`, s.childCommandRanAfterApproval)
 	sc.Step(`^the parent's client never saw two permission prompts in flight at once$`, s.neverTwoPromptsInFlight)
 	sc.Step(`^both spawn_agent tool results contain "([^"]*)"$`, s.bothResultsContain)
 	sc.Step(`^the child session owns no running task$`, s.childOwnsNoRunningTask)
