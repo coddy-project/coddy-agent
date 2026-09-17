@@ -108,6 +108,9 @@ func doTickAtMinute(rt *Runtime, log *slog.Logger, evalMinute time.Time) {
 
 // warnTimeoutCap says at start when scheduler.timeout is above what the pool
 // will honour: every task is capped by tools.background.max_timeout_seconds.
+// It reads the configuration the daemon started with; a reload that moves
+// either knob is not re-checked, which is what a one-shot start diagnostic
+// is. The supervisor starts a fresh daemon when scheduler.timeout changes.
 func warnTimeoutCap(cfg *config.Config, log *slog.Logger) {
 	if cfg == nil {
 		return

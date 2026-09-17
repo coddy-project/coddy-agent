@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/external/scheduler/storage"
+	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 )
 
 // Trigger values a run carries: how it was started.
@@ -60,6 +61,10 @@ type Runtime interface {
 	RunningRun(jobPath string) (RunRef, bool)
 	// RunningCount reports how many runs are in flight across every job.
 	RunningCount() int
+	// Pool is the background task pool the runs are tasks of: what the run
+	// rows are read from, so the service and the daemon never disagree on
+	// which pool holds a run in flight.
+	Pool() *bgtask.Pool
 	// ClearRuns removes every finished run of a job - task record and
 	// transcript - and reports how many went.
 	ClearRuns(jobPath string) (int, error)

@@ -161,6 +161,18 @@ func RunEntryOf(store *session.FileStore, snap bgtask.Snapshot, jobSessionID str
 	return entry
 }
 
+// runPool is the pool the run rows are read from: the daemon's when one runs
+// here, the process default otherwise (a process without a daemon holds no
+// run in flight, and the bundle has the rest).
+func runPool() *bgtask.Pool {
+	if rt := CurrentRuntime(); rt != nil {
+		if pool := rt.Pool(); pool != nil {
+			return pool
+		}
+	}
+	return bgtask.Default()
+}
+
 // runRows lists the runs of a job by its path, newest first, at most limit.
 func (o *Service) runRows(abs string, limit int) []SchedulerRunEntry {
 	store := o.sessionStore()
@@ -168,7 +180,7 @@ func (o *Service) runRows(abs string, limit int) []SchedulerRunEntry {
 	if jobSessionID == "" {
 		return []SchedulerRunEntry{}
 	}
-	snaps := RunsOf(store, bgtask.Default(), jobSessionID)
+	snaps := RunsOf(store, runPool(), jobSessionID)
 	if limit > 0 && len(snaps) > limit {
 		snaps = snaps[:limit]
 	}

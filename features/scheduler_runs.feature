@@ -86,3 +86,15 @@ Feature: Scheduled jobs run as background subagent tasks
     Then the manual run is refused because scheduler.max_queue runs are in flight
     When the run in flight is released
     Then the job "first" is no longer running
+
+  Scenario: A run that could not be created leaves the job ready for the next one
+    Given a user-scope subagent definition "narrow" allowing only "no_such_tool" with the role "You cannot."
+    And a scheduler with a job "brittle" running the agent "narrow"
+    When the job "brittle" is run by hand and the model answers "never"
+    Then the run of "brittle" is recorded as "failed"
+    And the job "brittle" is no longer running
+    When the definition "narrow" is rewritten to allow "read"
+    And the job "brittle" is run by hand and the model answers "second time"
+    Then the job "brittle" has 2 runs
+    And the run of "brittle" is recorded as "succeeded"
+    And the run's transcript ends with "second time"

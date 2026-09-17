@@ -509,6 +509,30 @@ link (the route change is what opens the scheduler, the same way the nav rail
 does), and the checkpoint stays committed before the run is created, the
 trade-off the design took over re-firing a slot twice.
 
+### Iteration 4 (Coddy on `neuraldeep/qwen3.8-27b`, implementation review, 2026-09-18)
+
+Verdict: mergeable with the minor points; no blocking defect found after
+tracing every acquisition and release pair. Folded in:
+
+- the run rows are read from the daemon's own pool (`Runtime.Pool`) rather
+  than the process default, so the service and the daemon cannot disagree on
+  which pool holds a run in flight;
+- the three sweeps over a job's history (retention after a run, Clear, the
+  delete of a job) are serialised by one mutex, so a Clear that lands while
+  retention runs reports what it removed;
+- a scenario covers a run whose creation fails (a definition whose allowlist
+  admits no tool): the task settles as failed, the job is released and the
+  next run of the same job goes through once the definition is fixed;
+- `retain` lost its unused parameter, `warnTimeoutCap` says it is a start
+  diagnostic that does not track reloads.
+
+Answered, no change: the watcher waits on a background context on purpose,
+because a stopped daemon cancels its runs and that cancellation is what
+settles them, while the pool's hard timeout is what guarantees settlement;
+the run label keeps its `UTC` suffix, which the page and the screenshots
+show; `SchedulerRunMeta.clone` copies the struct it points at, so the copy
+shares nothing with the state.
+
 ## 7. Risks
 
 - **Behaviour change under `permission_mode`.** The default keeps the old

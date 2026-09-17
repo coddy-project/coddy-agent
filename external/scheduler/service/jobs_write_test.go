@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/external/scheduler/storage"
+	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
@@ -103,6 +104,8 @@ func (r *runningStubRuntime) RunningRun(jobPath string) (RunRef, bool) {
 	}
 	return RunRef{}, false
 }
+
+func (r *runningStubRuntime) Pool() *bgtask.Pool { return bgtask.Default() }
 
 func TestDeleteAndRenameAreBlockedWhileTheJobRuns(t *testing.T) {
 	root := t.TempDir()

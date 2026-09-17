@@ -802,6 +802,9 @@ func initializeSchedulerRunsScenario(sc *godog.ScenarioContext) {
 	})
 	sc.Step(`^the run in flight is released$`, s.releaseInFlight)
 	sc.Step(`^a workspace definition "([^"]*)" under \.coddy/agents of the job's workspace$`, s.projectDefinition)
+	sc.Step(`^the definition "([^"]*)" is rewritten to allow "([^"]*)"$`, func(name, tools string) error {
+		return s.definition(name, tools, "You can now.")
+	})
 	sc.Step(`^a scheduler with max_queue (\d+) and the jobs "([^"]*)" and "([^"]*)"$`, s.jobsWithMaxQueue)
 	sc.Step(`^the manual run is refused because the definition is not approved$`, func() error {
 		if !errors.Is(s.lastErr, schedservice.ErrRunRefused) || !strings.Contains(s.lastErr.Error(), "not approved") {

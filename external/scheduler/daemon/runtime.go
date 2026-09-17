@@ -37,6 +37,11 @@ type Runtime struct {
 	mu      sync.Mutex
 	running map[string]*runningEntry
 	slots   chan struct{}
+
+	// historyMu serialises the sweeps over a job session's runs (retention
+	// after a run, Clear from the API, the delete of a job), so two of them
+	// never drop the same run at once and a Clear reports what it removed.
+	historyMu sync.Mutex
 }
 
 // runningEntry is one reserved job: the run's ids once the launch returned,
@@ -287,6 +292,11 @@ func mcpServerNames(cfg *config.Config, cwd string, log *slog.Logger) []string {
 // watch waits for the run to settle, logs the outcome, applies retention,
 // lets the job session go and releases the reservation - in that order, so a
 // run of the same job cannot start while the job session is being released.
+//
+// The wait is deliberately not bound to the daemon's context: a stopped daemon
+// cancels its runs, which is what settles them, and the bookkeeping below has
+// to run for a run that settled that way too. The pool's own hard timeout is
+// what guarantees every task settles, so the wait cannot hang for good.
 func (r *Runtime) watch(abs string, ref schedservice.RunRef, release func()) {
 	snap, err := r.pool.Wait(context.Background(), ref.JobSessionID, ref.TaskID, 0)
 	status := string(snap.Status)
@@ -304,7 +314,7 @@ func (r *Runtime) watch(abs string, ref schedservice.RunRef, release func()) {
 	r.log.Info("scheduler_run_finish", attrs...)
 
 	if c := r.cfg(); c != nil {
-		if perr := r.retain(abs, ref.JobSessionID, c.SchedulerRetainSessionsEffective()); perr != nil {
+		if perr := r.retain(ref.JobSessionID, c.SchedulerRetainSessionsEffective()); perr != nil {
 			r.log.Warn("scheduler_run_retain", "job_id", ref.JobID, "error", perr)
 		}
 	}
@@ -356,6 +366,11 @@ func (r *Runtime) RunningCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return len(r.running)
+}
+
+// Pool implements schedservice.Runtime.
+func (r *Runtime) Pool() *bgtask.Pool {
+	return r.pool
 }
 
 // jobSessionID names the job session of a job, "" before its first run.
@@ -411,10 +426,12 @@ func (r *Runtime) dropRun(jobSessionID string, snap bgtask.Snapshot) error {
 }
 
 // retain keeps the newest keep finished runs of a job and drops the rest.
-func (r *Runtime) retain(abs, jobSessionID string, keep int) error {
+func (r *Runtime) retain(jobSessionID string, keep int) error {
 	if keep < 0 {
 		keep = 0
 	}
+	r.historyMu.Lock()
+	defer r.historyMu.Unlock()
 	var firstErr error
 	finished := 0
 	for _, snap := range r.runsOf(jobSessionID) {
@@ -429,7 +446,6 @@ func (r *Runtime) retain(abs, jobSessionID string, keep int) error {
 			firstErr = err
 		}
 	}
-	_ = abs
 	return firstErr
 }
 
@@ -439,6 +455,8 @@ func (r *Runtime) ClearRuns(jobPath string) (int, error) {
 	if jobSessionID == "" {
 		return 0, nil
 	}
+	r.historyMu.Lock()
+	defer r.historyMu.Unlock()
 	cleared := 0
 	var firstErr error
 	for _, snap := range r.runsOf(jobSessionID) {
@@ -462,6 +480,8 @@ func (r *Runtime) DeleteJobHistory(jobPath string) error {
 	if jobSessionID == "" {
 		return nil
 	}
+	r.historyMu.Lock()
+	defer r.historyMu.Unlock()
 	store := r.mgr.FileStore()
 	if store == nil || !store.HasPersistedSnapshot(jobSessionID) {
 		r.mgr.ForgetLiveSession(jobSessionID)
