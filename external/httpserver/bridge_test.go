@@ -562,6 +562,7 @@ func TestOpenAIFinishReasonMapsEveryStopVocabulary(t *testing.T) {
 		"end_turn": "stop", "cancelled": "stop", "agent_refused": "stop", "": "stop",
 		"max_tokens": "length", "max_turns": "length", "length": "length",
 		"tool_use": "tool_calls", "tool_calls": "tool_calls",
+		"content_filter": "content_filter",
 	} {
 		if got := openAIFinishReason(stop); got != want {
 			t.Fatalf("openAIFinishReason(%q) = %q, want %q", stop, got, want)

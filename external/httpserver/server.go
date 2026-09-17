@@ -41,8 +41,9 @@ type Server struct {
 	mux                  *http.ServeMux
 	providerFactory      func(*config.Config) (llm.Provider, error)
 	agentProviderFactory func(llm.ProviderInput) (llm.Provider, error)
-	// makeLLMFromYAML builds an LLM backend for a configured models[].model selector (direct completion). Tests override.
-	makeLLMFromYAML func(*config.Config, string) (llm.Provider, error)
+	// makeLLMFromYAML builds an LLM backend for a configured models[].model selector (direct completion)
+	// with the generation options of the one request applied on top. Tests override.
+	makeLLMFromYAML func(*config.Config, string, llm.RequestOptions) (llm.Provider, error)
 	// drives lists the machine's drive roots for the folder picker's volume
 	// level (Windows only; empty elsewhere). Tests override.
 	drives func() []string
@@ -240,7 +241,7 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 	}, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
 }
 
-func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string) (llm.Provider, error) {
+func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string, opts llm.RequestOptions) (llm.Provider, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config unavailable")
 	}
@@ -252,8 +253,7 @@ func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string) (llm.Provider, e
 	if err != nil {
 		return nil, err
 	}
-	maxTok := resolveDirectYAMLMaxTokens(rm)
-	return llm.NewProvider(llm.WithAgentResilience(llm.ProviderInput{
+	in := llm.ProviderInput{
 		Name:          rm.ProviderName,
 		Type:          rm.ProviderType,
 		Model:         rm.Model,
@@ -261,11 +261,13 @@ func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string) (llm.Provider, e
 		BaseURL:       rm.BaseURL,
 		ProxyURL:      rm.ProxyURL,
 		AuthPath:      rm.AuthPath,
-		MaxTokens:     maxTok,
+		MaxTokens:     resolveDirectYAMLMaxTokens(rm),
 		Temperature:   rm.Temperature,
 		DisableStream: !rm.Stream,
 		Timeout:       time.Duration(rm.TimeoutMS) * time.Millisecond,
-	}, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
+	}
+	opts.Apply(&in)
+	return llm.NewProvider(llm.WithAgentResilience(in, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
 }
 
 func (s *Server) redirectDocsTrailingSlash(w http.ResponseWriter, r *http.Request) {
@@ -363,9 +365,18 @@ type chatCompletionRequest struct {
 	Model    string          `json:"model"`
 	Messages []openAIMessage `json:"messages"`
 	Stream   bool            `json:"stream"`
-	MaxTok   int             `json:"max_tokens"`
-	Temp     float64         `json:"temperature"`
-	Metadata json.RawMessage `json:"metadata,omitempty"`
+	// MaxTokens and MaxCompletionTokens are one output cap under OpenAI's
+	// older and newer names, and Temperature replaces the model's own: a
+	// direct model sends them for this request, a profile turn runs on its
+	// model's configured values.
+	MaxTokens           *int     `json:"max_tokens,omitempty"`
+	MaxCompletionTokens *int     `json:"max_completion_tokens,omitempty"`
+	Temperature         *float64 `json:"temperature,omitempty"`
+	// ReasoningEffort is OpenAI's reasoning_effort: a level the direct model
+	// offers, in place of its reasoning_default. A profile turn reads the level
+	// from metadata.reasoning instead.
+	ReasoningEffort *string         `json:"reasoning_effort,omitempty"`
+	Metadata        json.RawMessage `json:"metadata,omitempty"`
 	// StreamOptions is OpenAI's stream_options; include_usage asks for the
 	// usage chunk after the choice finishes.
 	StreamOptions *chatStreamOptions `json:"stream_options,omitempty"`
@@ -494,8 +505,16 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// session is created or touched, so a refused tool list leaves nothing
 	// behind. A profile turn never reads them.
 	var clientTools []llm.ToolDefinition
+	var genOpts llm.RequestOptions
 	if !httpModelIsCoddyProfile(model) {
 		clientTools, err = openAIToolsToLLM(req.Tools, req.ToolChoice)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+			return
+		}
+		// Refused here for the same reason: an option the provider cannot
+		// send as asked must not cost a session, nor reach the provider.
+		genOpts, err = directRequestOptions(s.activeCfg(), model, req)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
 			return
@@ -680,7 +699,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	turnCtx, cancelTurn := context.WithCancel(ctx)
 	st.SetCancel(cancelTurn)
 	defer cancelTurn()
-	directRes, err := s.runDirectYAMLCompletion(turnCtx, st, sessionID, model, bridge, clientTools)
+	directRes, err := s.runDirectYAMLCompletion(turnCtx, st, sessionID, model, bridge, clientTools, genOpts)
 	if err != nil {
 		if errors.Is(err, context.Canceled) && req.Stream {
 			meta := metadataResponse(s.activeCfg(), model)
@@ -699,6 +718,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	meta := metadataResponse(s.activeCfg(), model)
+	if genOpts.ReasoningEffort != "" {
+		// The level the provider was asked for, the model's default included,
+		// so a caller comparing model and level pairs can tell which ran.
+		meta["reasoning_effort"] = genOpts.ReasoningEffort
+	}
 	if stop := directStopReason(directRes); stop != "" {
 		// The strict stream finishes its choice with this: tool_use becomes
 		// finish_reason tool_calls, max_tokens becomes length.
@@ -1232,7 +1256,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	respTurnCtx, respCancelTurn := context.WithCancel(ctx)
 	st.SetCancel(respCancelTurn)
 	defer respCancelTurn()
-	if _, err := s.runDirectYAMLCompletion(respTurnCtx, st, sid, model, bridge, nil); err != nil {
+	if _, err := s.runDirectYAMLCompletion(respTurnCtx, st, sid, model, bridge, nil, llm.RequestOptions{}); err != nil {
 		if errors.Is(err, context.Canceled) && body.Stream {
 			meta := metadataResponse(s.activeCfg(), model)
 			_ = bridge.FinishStreamWithMetadata(meta)
