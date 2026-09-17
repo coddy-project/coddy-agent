@@ -16,6 +16,7 @@ import { schemaFieldDesc, schemaFieldLabel } from "./schemaI18n";
 import { SettingsArraySection } from "./SettingsArraySection";
 import { SessionsManager } from "../sessions/SessionsManager";
 import { SkillsSection } from "./SkillsSection";
+import { SubagentsSection } from "./SubagentsSection";
 import type { SectionDescriptor } from "./settingsSections";
 import { useT } from "../i18n/I18nProvider";
 
@@ -191,6 +192,8 @@ export function SettingsSection(props: {
   activeSessionId?: string;
   /** Session ids the table removed, so the shell can drop them from History. */
   onSessionsDeleted?: (ids: string[]) => void;
+  /** Workspace of the viewed session; the Subagents tab asks about it. */
+  workspacePath?: string | undefined;
   onSessionTagsChanged?: (id: string, tags: string[]) => void;
 }) {
   const {
@@ -265,6 +268,29 @@ export function SettingsSection(props: {
   // edit the settings document at all.
   if (section.kind === "mcp") {
     return <MCPSection />;
+  }
+
+  // Subagents edits its config section like any object tab, and additionally
+  // lists the definitions of the viewed session's workspace, read-only: a
+  // project-scope one is approved from a terminal on the machine running
+  // coddy (`coddy agents trust <name>`), and the list says so.
+  if (section.kind === "subagents") {
+    const sub = props_.subagents;
+    if (!sub) {
+      return (
+        <p className="settings-muted">
+          {t("settings.error.sectionSchemaUnavailable")}
+        </p>
+      );
+    }
+    return (
+      <SubagentsSection
+        schema={sub}
+        value={asObject(doc.subagents)}
+        onChange={(v) => setKey("subagents", v)}
+        workspacePath={props.workspacePath}
+      />
+    );
   }
 
   const key = section.schemaKey ?? section.id;

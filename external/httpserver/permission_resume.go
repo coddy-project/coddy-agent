@@ -122,8 +122,10 @@ func (s *Server) runPermissionResume(ctx context.Context, sessionID, toolCallID 
 	})
 	ag.SetProviderFactory(s.agentProviderFactory)
 	// A resumed turn keeps running the ReAct loop, so it may spawn subagents
-	// like the turn it continues.
+	// like the turn it continues - including detached ones, whose later
+	// prompts outlive this turn too and go wherever every other turn's do.
 	ag.SetSubagentRuntime(s.mgr)
+	ag.SetDetachedPermissionBroker(s.detachedPromptBroker())
 	// The resumed turn calls the model like any other: its release refreshes
 	// the provider usage.
 	session.MarkTurnRan(ctx)

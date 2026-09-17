@@ -7,6 +7,7 @@ export type SectionKind =
   | "group"
   | "skills"
   | "mcp"
+  | "subagents"
   | "appearance"
   | "sessions";
 
@@ -176,6 +177,19 @@ export function deriveSettingsSections(
         label: labelFor(key, sub),
         description: descFor(key, sub),
         kind: "mcp",
+        schemaKey: key,
+      });
+      return;
+    }
+    // Subagents is a hybrid tab: the generated form for the config section,
+    // plus the definition catalog with the per-workspace approvals, which are
+    // receipts rather than configuration.
+    if (key === "subagents") {
+      out.push({
+        id: key,
+        label: labelFor(key, sub),
+        description: descFor(key, sub),
+        kind: "subagents",
         schemaKey: key,
       });
       return;

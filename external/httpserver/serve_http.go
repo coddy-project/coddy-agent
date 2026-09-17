@@ -39,6 +39,7 @@ func Serve(ctx context.Context, opts Options) error {
 	llm.LogNeuralDeepAuthNotices(log, opts.Cfg)
 
 	s := New(opts.Cfg, opts.Mgr, log, opts.DefaultCWD)
+	s.SetDetachedPrompts(opts.DetachedPrompts)
 	s.SetExtraAuthTokens(opts.ExtraAuthTokens)
 	if err := s.SetExtraLogin(opts.ExtraLogin.User, opts.ExtraLogin.Password); err != nil {
 		return fmt.Errorf("httpserver: %s / %s: %w", LoginUserEnvVar, LoginPasswordEnvVar, err)

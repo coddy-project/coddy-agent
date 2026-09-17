@@ -8,7 +8,17 @@ Copies ``examples/agents_fixture/.coddy/agents`` (the project-scope
 file to the subagent with ``spawn_agent``. Then it drives the REST surface the
 tasks drawer and the transcript view use: the agent task row and its child
 session id, the read-only child transcript with its parent link, the sessions
-list with and without ``include_subagents``, and the subagent catalog.
+list with and without ``include_subagents``, and the subagent catalog with the
+bounds each definition declares.
+
+A second phase covers a detached child's permission prompt: the fixture
+``echo-runner`` (``permission_mode: ask``, ``background: true``) is approved
+and asked to run a command in the background, the parent's own stream is read
+to its end without answering anything, and the prompt is then found on the
+agent task row as ``pending_permission``, replayed by ``GET /coddy/events`` as
+``subagent_permission``, answered with ``POST /coddy/sessions/{child}/permission``
+against the child session, and announced settled; the run ends ``succeeded``
+with the command's output in its report.
 
 Environment:
 
@@ -35,12 +45,16 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any, Tuple
+from typing import Any, Iterable, Tuple
 
 SESSION_ID = "http-e2e-subagents"
 AGENT = "marker-reporter"
 MARKER = "MARKER: coddy-subagent-e2e-http"
 REPORT_HEADER = "=== subagent report ==="
+# The detached-prompt phase runs in a session of its own, so its task rows are
+# not mixed with the marker run's.
+DETACHED_SESSION_ID = "http-e2e-subagents-detached"
+DETACHED_AGENT = "echo-runner"
 
 
 def http_json(
@@ -63,6 +77,30 @@ def http_json(
     except urllib.error.HTTPError as e:
         raw = e.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"http {method} {url} failed: {e.code} {raw}") from e
+
+
+def sse_events(resp: Any) -> Iterable[Tuple[str, str]]:
+    """Yield (event, data) pairs from a text/event-stream response."""
+    event = ""
+    data_lines: list[str] = []
+    while True:
+        raw = resp.readline()
+        if not raw:
+            break
+        line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
+        if line == "":
+            if data_lines:
+                yield event or "message", "\n".join(data_lines)
+            event = ""
+            data_lines = []
+            continue
+        if line.startswith(":"):
+            continue
+        if line.startswith("event:"):
+            event = line[len("event:") :].strip()
+            continue
+        if line.startswith("data:"):
+            data_lines.append(line[len("data:") :].lstrip())
 
 
 def coddy_base(base: str) -> str:
@@ -222,6 +260,19 @@ def main() -> int:
     if entry.get("trust") != "trusted":
         print(f"catalog lists {AGENT} with trust {entry.get('trust')!r}, want trusted", file=sys.stderr)
         return 1
+    # The catalog carries what the definition declares, so a surface can show
+    # what it is approving: the fixture narrows to three read-only tools and
+    # leaves the rest to inherit, which the row reports by leaving it out.
+    if entry.get("tools") != ["read", "glob", "grep"]:
+        print(f"catalog row for {AGENT} does not carry its tools: {entry.get('tools')!r}", file=sys.stderr)
+        return 1
+    for absent in ("permission_mode", "disallowed_tools", "background"):
+        if entry.get(absent):
+            print(f"catalog row for {AGENT} declares {absent}={entry.get(absent)!r}, but the file does not", file=sys.stderr)
+            return 1
+    if not int(entry.get("role_bytes") or 0) > 0:
+        print(f"catalog row for {AGENT} reports no role_bytes: {entry}", file=sys.stderr)
+        return 1
 
     prompt = (
         "Do exactly this, autonomously and without asking questions.\n"
@@ -332,8 +383,202 @@ def main() -> int:
     if home and not check_on_disk(home, task_id, child_id):
         return 1
 
-    print(f"ok http subagents e2e ({task_id} -> {child_id})")
+    detached = detached_permission_phase(base, coddy, yaml_model, profile, work)
+    if detached is None:
+        return 1
+
+    print(f"ok http subagents e2e ({task_id} -> {child_id}; detached prompt {detached})")
     return 0
+
+
+def detached_permission_phase(base: str, coddy: str, yaml_model: str, profile: str, work: str) -> str | None:
+    """A background child narrowed to ``ask`` needs an answer after the parent's
+    reply. Returns ``"<task> -> <child>"`` or None on any unmet expectation."""
+    nonce = f"detached-e2e-{os.getpid()}-{int(time.time())}"
+    headers = {"X-Coddy-Session-ID": DETACHED_SESSION_ID}
+    tasks_url = f"{coddy}/coddy/sessions/{DETACHED_SESSION_ID}/background-tasks"
+
+    code, trusted = http_json(
+        "POST", f"{coddy}/coddy/subagents/{DETACHED_AGENT}/trust", {"cwd": work}, {}
+    )
+    if code != 200:
+        print("bad subagent trust code for the detached fixture", code, file=sys.stderr)
+        return None
+    receipt = trusted.get("item") if isinstance(trusted.get("item"), dict) else trusted
+    if receipt.get("trusted") is not True:
+        print(f"trust route did not report the detached fixture trusted: {trusted}", file=sys.stderr)
+        return None
+    if receipt.get("permission_mode") != "ask" or receipt.get("background") is not True:
+        print(f"catalog row for {DETACHED_AGENT} does not carry its declared bounds: {receipt}", file=sys.stderr)
+        return None
+
+    prompt = (
+        "Do exactly this, autonomously and without asking questions.\n"
+        f"1. Call spawn_agent ONCE with agent \"{DETACHED_AGENT}\", description \"run the command\", "
+        "background true, and this prompt:\n"
+        f"   Run the shell command `echo {nonce}` with the run_command tool, then reply with its output.\n"
+        "2. Do not wait for the task: do not call background_wait, background_output or any other tool. "
+        "Reply with the single word STARTED, then stop."
+    )
+    # The parent's own stream is read like a browser reads it, to its end and
+    # without answering anything. A child that asks while the parent is still
+    # replying arrives here as a permission event of the finished turn; ending
+    # the turn on it is the order the detached prompt has to survive.
+    body = {"model": profile, "stream": True, "input": prompt, "metadata": {"model": yaml_model}}
+    req = urllib.request.Request(f"{base}/responses", data=json.dumps(body).encode("utf-8"), method="POST")
+    req.add_header("Accept", "text/event-stream")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("X-Coddy-Session-ID", DETACHED_SESSION_ID)
+    completed = False
+    failed = ""
+    inline_prompts = 0
+    try:
+        with urllib.request.urlopen(req, timeout=600) as resp:
+            for event, data in sse_events(resp):
+                if event == "permission":
+                    inline_prompts += 1
+                elif event == "error":
+                    failed = data[:300]
+                elif event == "response.completed" or data.strip() == "[DONE]":
+                    completed = True
+                    break
+    except urllib.error.HTTPError as e:
+        print(f"parent stream failed: {e.code} {e.read().decode('utf-8', errors='replace')[:300]}", file=sys.stderr)
+        return None
+    if failed:
+        print(f"the parent turn failed: {failed}", file=sys.stderr)
+        return None
+    if not completed:
+        print("the parent stream ended without [DONE]", file=sys.stderr)
+        return None
+
+    # The prompt waits on the agent task row of the parent session, addressed
+    # to the child session, with the ids a client needs to place and answer it.
+    task: dict[str, Any] = {}
+    pending: dict[str, Any] = {}
+    deadline = time.time() + 240
+    while time.time() < deadline:
+        code, listing = http_json("GET", tasks_url, None, headers)
+        if code != 200:
+            print("bad background task list code", code, file=sys.stderr)
+            return None
+        rows = [
+            r
+            for r in (listing.get("data") or [])
+            if r.get("kind") == "agent" and (r.get("agent") or {}).get("name") == DETACHED_AGENT
+        ]
+        for row in rows:
+            p = row.get("pending_permission")
+            if isinstance(p, dict) and str(p.get("sessionId") or "").strip() and str(((p.get("toolCall") or {}).get("toolCallId")) or "").strip():
+                task, pending = row, p
+                break
+        if pending:
+            break
+        if rows and all(r.get("running") is False for r in rows):
+            print(f"the detached run ended without asking: {rows[-1].get('status')!r}", file=sys.stderr)
+            return None
+        time.sleep(0.5)
+    if not pending:
+        print(f"no pending_permission appeared on the {DETACHED_AGENT} task row", file=sys.stderr)
+        return None
+    task_id = str(task.get("id") or "")
+    child_id = str((task.get("agent") or {}).get("session_id") or "")
+    tool_call_id = str((pending.get("toolCall") or {}).get("toolCallId") or "")
+    if pending.get("sessionId") != child_id:
+        print(f"pending_permission is addressed to {pending.get('sessionId')!r}, want the child {child_id!r}", file=sys.stderr)
+        return None
+    if pending.get("parent_session_id") != DETACHED_SESSION_ID or pending.get("task_id") != task_id or pending.get("agent_name") != DETACHED_AGENT:
+        print(f"pending_permission does not name its parent, task and agent: {pending}", file=sys.stderr)
+        return None
+    title = str((pending.get("toolCall") or {}).get("title") or "")
+    if not title.startswith(f"[subagent {DETACHED_AGENT}]"):
+        print(f"pending_permission title does not name the subagent: {title!r}", file=sys.stderr)
+        return None
+    option_ids = [str(o.get("optionId") or "") for o in (pending.get("options") or [])]
+    if "allow" not in option_ids or "reject" not in option_ids or any(o.startswith("allow_always") for o in option_ids):
+        print(f"pending_permission offers {option_ids}, want allow and reject and no standing grant", file=sys.stderr)
+        return None
+    if not str(pending.get("asked_at") or "").strip():
+        print(f"pending_permission carries no asked_at: {pending}", file=sys.stderr)
+        return None
+
+    # A client connecting now hears about the waiting prompt before ready, and
+    # once it is answered - against the child session - hears it settled.
+    ev = urllib.request.Request(f"{coddy}/coddy/events", method="GET")
+    ev.add_header("Accept", "text/event-stream")
+    with urllib.request.urlopen(ev, timeout=60) as resp:
+        replayed = False
+        for event, data in sse_events(resp):
+            if event == "subagent_permission":
+                frame = json.loads(data)
+                if frame.get("phase") == "asked" and frame.get("childSessionId") == child_id and frame.get("toolCallId") == tool_call_id:
+                    replayed = True
+                    if frame.get("parentSessionId") != DETACHED_SESSION_ID or not isinstance(frame.get("request"), dict):
+                        print(f"asked frame lacks the parent or the request: {frame}", file=sys.stderr)
+                        return None
+            elif event == "ready":
+                break
+        if not replayed:
+            print("GET /coddy/events did not replay the waiting prompt before ready", file=sys.stderr)
+            return None
+        code, _ = http_json(
+            "POST",
+            f"{coddy}/coddy/sessions/{child_id}/permission",
+            {"toolCallId": tool_call_id, "optionId": "allow"},
+            {"X-Coddy-Session-ID": child_id},
+        )
+        if code != 204:
+            print("bad permission answer code against the child session", code, file=sys.stderr)
+            return None
+        settled = False
+        for event, data in sse_events(resp):
+            if event != "subagent_permission":
+                continue
+            frame = json.loads(data)
+            if frame.get("phase") == "settled" and frame.get("childSessionId") == child_id and frame.get("toolCallId") == tool_call_id:
+                settled = True
+                break
+        if not settled:
+            print("GET /coddy/events did not announce the prompt settled", file=sys.stderr)
+            return None
+
+    # Allowed, the child runs its command and the run ends with the output in
+    # its report; the row no longer carries a prompt.
+    final: dict[str, Any] = {}
+    output = ""
+    deadline = time.time() + 240
+    while time.time() < deadline:
+        code, single = http_json("GET", f"{tasks_url}/{task_id}", None, headers)
+        if code != 200:
+            print("bad background task get code", code, file=sys.stderr)
+            return None
+        final = single.get("task") or {}
+        output = str(single.get("output") or "")
+        if final.get("running") is False:
+            break
+        time.sleep(0.5)
+    if final.get("status") != "succeeded":
+        print(f"detached task {task_id} ended as {final.get('status')!r}, want succeeded: {output[-400:]!r}", file=sys.stderr)
+        return None
+    if final.get("pending_permission"):
+        print(f"the answered prompt is still on the task row: {final.get('pending_permission')}", file=sys.stderr)
+        return None
+    if nonce not in output:
+        print(f"task output does not carry the command output {nonce!r}: {output[-400:]!r}", file=sys.stderr)
+        return None
+    code, child = http_json("GET", f"{coddy}/coddy/sessions/{child_id}/messages", None, {})
+    if code != 200:
+        print("bad child messages code", code, file=sys.stderr)
+        return None
+    child_text = transcript_text(child.get("messages") or [])
+    if "permission not granted" in child_text or "permission denied by user" in child_text:
+        print("the child's command was refused although the prompt was allowed", file=sys.stderr)
+        return None
+    if nonce not in child_text:
+        print(f"child transcript does not contain the command output {nonce!r}", file=sys.stderr)
+        return None
+    print(f"detached prompt: {inline_prompts} inline prompt(s) on the parent stream, answered on the task row", file=sys.stderr)
+    return f"{task_id} -> {child_id}"
 
 
 if __name__ == "__main__":

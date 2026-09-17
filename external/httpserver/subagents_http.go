@@ -79,8 +79,19 @@ func (c subagentCatalog) entry(def *subagents.Definition) subagents.CatalogEntry
 	return rows[0]
 }
 
+// writeSubagentsError answers with a JSON error body. The message is marshalled
+// rather than formatted, so a path or a name carrying a character Go quotes
+// differently from JSON still leaves the body parseable, and the content type
+// says JSON because the SPA reads these bodies with res.json().
 func writeSubagentsError(w http.ResponseWriter, code int, msg string) {
-	http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, msg), code)
+	body, err := json.Marshal(map[string]interface{}{"error": map[string]string{"message": msg}})
+	if err != nil {
+		body = []byte(`{"error":{"message":"request failed"}}`)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(code)
+	_, _ = w.Write(append(body, '\n'))
 }
 
 // coddySubagentsList answers GET /coddy/subagents: every definition visible

@@ -60,6 +60,10 @@ type Handler struct {
 	// eventsState is the background subscription to the server's event stream
 	// (events.go), which is how this client hears about a shared session.
 	eventsState
+
+	// detachedPromptsState holds the permission prompts of background
+	// subagents the server announced on that stream (detached_prompts.go).
+	detachedPromptsState
 }
 
 type sessionState struct {
@@ -244,6 +248,8 @@ func (h *Handler) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 	}
 
 	h.log.Info("remote session created", "id", id, "remote", h.opts.BaseURL)
+	// A reopened session may have a background subagent already waiting.
+	h.offerDetachedPromptsFor(id)
 	return &acp.SessionNewResult{
 		SessionID:     id,
 		Modes:         h.modeState(st),
@@ -272,6 +278,9 @@ func (h *Handler) HandleSessionLoad(ctx context.Context, params acp.SessionLoadP
 	}
 	h.mu.Unlock()
 	h.replayMessages(id, msgs.Messages)
+	// A background subagent of this session may have asked before the console
+	// opened it; the server announced that prompt then, and it is shown now.
+	h.offerDetachedPromptsFor(id)
 	return &acp.SessionLoadResult{
 		Modes:         h.modeState(st),
 		ConfigOptions: h.configOptions(st),

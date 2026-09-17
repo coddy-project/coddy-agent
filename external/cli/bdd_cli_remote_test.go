@@ -34,9 +34,20 @@ type fakeRemoteServer struct {
 	ts     *httptest.Server
 	answer string
 
+	// events feeds GET /coddy/events after its ready frame.
+	events chan string
+
 	mu        sync.Mutex
 	turns     []fakeRemoteTurn
 	authFails int
+	// permissions records what was posted to POST /coddy/sessions/{id}/permission.
+	permissions []fakeRemotePermission
+}
+
+type fakeRemotePermission struct {
+	sessionID  string
+	toolCallID string
+	optionID   string
 }
 
 type fakeRemoteTurn struct {
@@ -46,8 +57,42 @@ type fakeRemoteTurn struct {
 }
 
 func newFakeRemoteServer(answer string) *fakeRemoteServer {
-	f := &fakeRemoteServer{answer: answer}
+	f := &fakeRemoteServer{answer: answer, events: make(chan string, 8)}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /coddy/events", f.withAuth(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		fl, _ := w.(http.Flusher)
+		_, _ = fmt.Fprint(w, "event: ready\ndata: {}\n\n")
+		if fl != nil {
+			fl.Flush()
+		}
+		for {
+			select {
+			case frame := <-f.events:
+				if frame == "" {
+					return // Disconnect; the next connection replays an empty snapshot.
+				}
+				_, _ = fmt.Fprint(w, frame)
+				if fl != nil {
+					fl.Flush()
+				}
+			case <-r.Context().Done():
+				return
+			}
+		}
+	}))
+	mux.HandleFunc("POST /coddy/sessions/{id}/permission", f.withAuth(func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			ToolCallID string `json:"toolCallId"`
+			OptionID   string `json:"optionId"`
+		}
+		_ = json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in)
+		f.mu.Lock()
+		f.permissions = append(f.permissions, fakeRemotePermission{sessionID: r.PathValue("id"), toolCallID: in.ToolCallID, optionID: in.OptionID})
+		f.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	}))
 	mux.HandleFunc("GET /v1/models", f.withAuth(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"object":"list","default_agent_model":"remote/deep-1","data":[
@@ -150,7 +195,16 @@ func (s *cliRemoteState) shutdown() {
 		case <-time.After(2 * time.Second):
 		}
 	}
+	if s.app != nil {
+		// The console's events subscription holds a request open; the real
+		// console closes its backend on exit (runInteractive), so the harness
+		// does too before the server waits for its requests to finish.
+		if c, ok := s.app.mgr.(interface{ Close() }); ok {
+			c.Close()
+		}
+	}
 	if s.server != nil {
+		s.server.ts.CloseClientConnections()
 		s.server.ts.Close()
 	}
 }
@@ -254,6 +308,92 @@ func (s *cliRemoteState) fakeServerReceivedTurn() error {
 	return fmt.Errorf("the fake server never received a turn")
 }
 
+const remoteWriterChild = "sess_remote_writer"
+
+// serverAnnouncesBackgroundSubagent pushes the frame the server sends once a
+// background subagent of the console's session waits for a permission.
+func (s *cliRemoteState) serverAnnouncesBackgroundSubagent(name, command string) error {
+	body, err := json.Marshal(map[string]interface{}{
+		"object":          "coddy.subagent_permission",
+		"phase":           "asked",
+		"parentSessionId": s.app.sessionID,
+		"childSessionId":  remoteWriterChild,
+		"taskId":          "bg_1",
+		"toolCallId":      "call_remote_writer",
+		"agentName":       name,
+		"request": map[string]interface{}{
+			"sessionId": remoteWriterChild,
+			"toolCall": map[string]interface{}{
+				"toolCallId": "call_remote_writer",
+				"title":      "[subagent " + name + "] Run: " + command,
+				"status":     "pending",
+			},
+			"options": []map[string]string{
+				{"optionId": "allow", "name": "Allow", "kind": "allow_once"},
+				{"optionId": "reject", "name": "Reject", "kind": "reject_once"},
+			},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	s.server.events <- "event: subagent_permission\ndata: " + string(body) + "\n\n"
+	return nil
+}
+
+func (s *cliRemoteState) screenShowsModalNamingSubagent(name string) error {
+	if err := s.waitScreen("Permission required", 5*time.Second); err != nil {
+		return err
+	}
+	return s.waitScreen("[subagent "+name+"]", 2*time.Second)
+}
+
+func (s *cliRemoteState) operatorConfirmsHighlighted() error {
+	s.app.OnTerminalInput([]byte("\r"))
+	return nil
+}
+
+func (s *cliRemoteState) reconnectAfterPermissionSettled() error {
+	s.server.events <- ""
+	return nil
+}
+
+func (s *cliRemoteState) obsoletePermissionCloses() error {
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if !strings.Contains(s.screenText(), "Permission required") {
+			s.server.mu.Lock()
+			defer s.server.mu.Unlock()
+			if len(s.server.permissions) != 0 {
+				return fmt.Errorf("the console answered an obsolete permission")
+			}
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("the obsolete permission stayed open after reconnect")
+}
+
+func (s *cliRemoteState) serverReceivesChildAnswer(option string) error {
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		s.server.mu.Lock()
+		posted := append([]fakeRemotePermission(nil), s.server.permissions...)
+		s.server.mu.Unlock()
+		for _, p := range posted {
+			if p.sessionID != remoteWriterChild || p.toolCallID != "call_remote_writer" {
+				return fmt.Errorf("the answer went to %+v, want the child session %s", p, remoteWriterChild)
+			}
+			if p.optionID != option {
+				return fmt.Errorf("the server received %q, want %q", p.optionID, option)
+			}
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("the server never received an answer; last frame:\n%s", s.screenText())
+}
+
 func (s *cliRemoteState) operatorRunsRemoteOneShot(prompt string) error {
 	if s.server == nil {
 		return fmt.Errorf("no fake server")
@@ -319,6 +459,12 @@ func initializeCLIRemoteScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the operator submits "([^"]*)"$`, s.operatorSubmits)
 	sc.Step(`^the transcript shows the assistant text "([^"]*)"$`, s.transcriptShowsAssistant)
 	sc.Step(`^the fake server received a turn for the console session$`, s.fakeServerReceivedTurn)
+	sc.Step(`^the server announces that the background subagent "([^"]*)" of the console session asks to run "([^"]*)"$`, s.serverAnnouncesBackgroundSubagent)
+	sc.Step(`^the screen shows a permission modal naming the subagent "([^"]*)"$`, s.screenShowsModalNamingSubagent)
+	sc.Step(`^the operator confirms the highlighted option$`, s.operatorConfirmsHighlighted)
+	sc.Step(`^the connection drops and the permission is settled elsewhere before reconnect$`, s.reconnectAfterPermissionSettled)
+	sc.Step(`^the obsolete permission modal closes without posting an answer$`, s.obsoletePermissionCloses)
+	sc.Step(`^the server receives the answer "([^"]*)" for that subagent's child session$`, s.serverReceivesChildAnswer)
 	sc.Step(`^the operator runs a remote one-shot prompt "([^"]*)"$`, s.operatorRunsRemoteOneShot)
 	sc.Step(`^the one-shot output contains "([^"]*)"$`, s.oneShotOutputContains)
 	sc.Step(`^the one-shot run ends cleanly$`, s.oneShotEndsCleanly)

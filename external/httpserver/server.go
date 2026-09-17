@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
@@ -78,6 +79,10 @@ type Server struct {
 
 	composerRelayMu sync.Mutex
 	composerRelays  map[string]*composerStreamRelay
+
+	// detachedPrompts is the broker turns this server builds itself hand their
+	// detached subagents; nil means this server alone (SetDetachedPrompts).
+	detachedPrompts agent.DetachedPermissionBroker
 
 	// events fans server-wide turn lifecycle events out to GET /coddy/events subscribers.
 	events             *serverEventsHub

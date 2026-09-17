@@ -86,6 +86,29 @@ Feature: Interactive console TUI
     When the operator confirms the highlighted permission option
     Then the stub turn observes the permission outcome "selected" with option "allow"
 
+  Scenario: A background subagent asks in the console after the turn that spawned it ended
+    Given the session permission mode is "ask"
+    When the console app starts
+    And the operator submits the prompt "audit the layout in the background"
+    And the stub turn streams the text "The writer keeps working in the background."
+    And the background subagent "writer" asks for permission to run "echo checked"
+    Then the screen shows a permission modal naming the subagent "writer"
+    When the operator answers the subagent's permission with the highlighted option
+    Then the background subagent "writer" is answered "allow"
+
+  Scenario: A subagent's prompt waits for the prompt already on screen
+    Given the session permission mode is "ask"
+    When the console app starts
+    And the operator submits the prompt "run a command"
+    And the stub turn requests permission for the tool "run_command"
+    And the background subagent "writer" asks for permission to run "echo checked"
+    Then the screen shows a permission modal with an allow option
+    When the operator confirms the highlighted permission option
+    Then the stub turn observes the permission outcome "selected" with option "allow"
+    And the screen shows a permission modal naming the subagent "writer"
+    When the operator answers the subagent's permission with the highlighted option
+    Then the background subagent "writer" is answered "allow"
+
   Scenario: A prompt written during a turn is queued for the agent to read
     When the console app starts
     And the operator submits the prompt "read the readme"

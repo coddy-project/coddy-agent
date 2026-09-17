@@ -268,6 +268,16 @@ comes from the agent's `permission.Options`), the question tool (single or
 multi-select via space, custom free-text answers), model/mode/theme/session
 selectors (`→ ` cursor, type-to-filter, `(i/n)` scroll indicator).
 
+A background subagent keeps working after the turn that spawned it has ended,
+and when it needs a permission it asks through the same modal, titled
+`[subagent <name>] …`, between turns too. A permission or question that
+arrives while another one is on screen waits for it instead of replacing it,
+and a prompt whose asker gave up (the subagent was stopped or timed out) is
+taken down. A subagent's prompt still open when the turn that spawned it ends
+closes with that turn and reopens at once as the subagent's own, so it is
+answered once. One-shot print mode exits with its turn, so a background
+subagent there is refused with a reason instead.
+
 The question modal spends every row on its option label and prints the
 description of the highlighted option under the list, word-wrapped over the
 whole width, so a sentence-long answer stays readable instead of being cut at
@@ -352,7 +362,10 @@ agents trust` on the server, or `POST /coddy/subagents/{name}/trust`); the
 local `coddy agents` subcommands do not take `--remote`. A child's permission
 prompts reach the remote console like the parent's own, prefixed
 `[subagent <name>]`, and the status line reads `Running subagent <name>` while
-the child runs. The footer shows the local folder; the trust receipt is keyed
+the child runs. A background child that asks after the turn ended reaches the
+console too: the server announces the prompt on its events stream and the
+console opens the modal for the sessions it opened, answering the child
+session; answered first in a browser or a chat, the modal closes. After reconnecting, the console reconciles the complete pending-request snapshot: prompts answered while offline close, while requests still waiting remain open without duplicate modals. An interrupted snapshot does not dismiss a pending request. The footer shows the local folder; the trust receipt is keyed
 by the server-side session workspace (the server's default cwd for a session
 the console created). A dropped connection leaves the server turn and its
 child running; `/resume` shows the outcome once it ends, and an answer to a

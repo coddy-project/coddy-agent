@@ -11,9 +11,8 @@ import type {
 } from "./permissionTypes";
 import { questionPromptFocusComposer } from "./QuestionPromptSection";
 import { permissionOptionLabel } from "./permissionOptionLabel";
+import { submitPermissionChoice } from "./permissionSubmit";
 import { useT } from "../i18n/I18nProvider";
-
-const HDR = "X-Coddy-Session-ID";
 
 export type PermissionPromptSectionProps = {
   itemId: string;
@@ -35,19 +34,14 @@ export function PermissionPromptSection(props: PermissionPromptSectionProps) {
 
   const choose = useCallback(
     async (optionId: string, label: string) => {
-      const sid = payload.sessionId.trim();
-      const tcid = payload.toolCall.toolCallId.trim();
       setSubmitting(true);
       try {
         try {
-          await fetch(`/coddy/sessions/${encodeURIComponent(sid)}/permission`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              [HDR]: sid,
-            },
-            body: JSON.stringify({ toolCallId: tcid, optionId }),
-          });
+          await submitPermissionChoice(
+            payload.sessionId,
+            payload.toolCall.toolCallId,
+            optionId,
+          );
         } catch {
           // still unblock transcript on transient network errors
         }
