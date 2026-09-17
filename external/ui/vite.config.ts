@@ -74,4 +74,16 @@ export default defineConfig({
       },
     },
   },
+  // The SharedWorker that holds GET /coddy/events for every tab
+  // (src/ui/chat/eventsWorker.ts). It is its own script by necessity, so it gets a
+  // fixed name next to app.js for go:embed. IIFE, not ES: the file then has no
+  // import or export and runs whether a browser honours `type: "module"` or not.
+  worker: {
+    format: "iife",
+    rollupOptions: {
+      output: {
+        entryFileNames: "events-worker.js",
+      },
+    },
+  },
 } as any);

@@ -40,7 +40,7 @@ ENV GOARCH=${TARGETARCH}
 ENV VERSION=${VERSION}
 ENV BUILD_TAGS=${BUILD_TAGS}
 
-COPY --from=ui-builder /ui/index.html /ui/styles.css /ui/app.js /src/external/ui/
+COPY --from=ui-builder /ui/index.html /ui/styles.css /ui/app.js /ui/events-worker.js /src/external/ui/
 
 RUN mkdir -p /out \
 	/out/ssl-certs \

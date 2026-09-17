@@ -274,6 +274,15 @@ export function onLocalApiUnauthorized(cb: () => void): () => void {
   };
 }
 
+/**
+ * notifyLocalApiUnauthorized tells the listeners that a local API call was refused
+ * with 401. The fetch shim calls it for the page's own requests; the shared events
+ * stream calls it for a refusal another context received on this page's behalf.
+ */
+export function notifyLocalApiUnauthorized(): void {
+  unauthorizedListeners.forEach((cb) => cb());
+}
+
 /** isAuthPath reports the sign-in routes, which never signal a lost session. */
 export function isAuthPath(path: string): boolean {
   return path.startsWith("/coddy/auth/");
@@ -322,7 +331,7 @@ export function installRemoteFetchShim(): void {
       }
       return nativeFetch(input, init).then((res) => {
         if (res.status === 401) {
-          unauthorizedListeners.forEach((cb) => cb());
+          notifyLocalApiUnauthorized();
         }
         return res;
       });

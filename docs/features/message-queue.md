@@ -39,7 +39,7 @@ The composer stays live while the agent works. With text in the field, the round
 
 Queued messages stack above the composer in the order the agent will read them, each with a cross in its corner that takes it back - and puts the text back into the field, so taking a message back is how it gets edited. A message the agent read before the cross was pressed is already in the conversation, and nothing returns. A message the agent has just read leaves the stack and appears in the conversation in the same breath.
 
-The browser checks the selected session's activity and queue when opening it and reconnecting, but skips both reads while its own prompt request awaits admission. Stop and queueing remain available for a running turn even when that tab has lost its stream reader or the session is outside the current History page. Stop waits for the cancellation request to succeed before aborting the local reader; a failed request shows an error and leaves the controls available for another attempt. The server may still need time to release the turn after acknowledging Stop; an old turn-end event overlapping the next pending or admitted prompt requires a fresh activity read before the browser declares idle.
+The browser checks the selected session's activity and queue when opening it and reconnecting, but skips both reads while its own prompt request awaits admission. Stop and queueing remain available for a running turn even when that tab has lost its stream reader or the session is outside the current History page. Stop sends the cancellation request and closes the tab's own reader right away, so the request never waits for the connection that reader holds when other tabs have taken the rest a browser allows to one host; a failed request shows an error, the tab rejoins the running turn, and the controls stay available for another attempt. The server may still need time to release the turn after acknowledging Stop; an old turn-end event overlapping the next pending or admitted prompt requires a fresh activity read before the browser declares idle.
 
 ![The primary control with a draft written during a turn](../assets/message-queue/message-queue-draft-armed-dark-1280.png)
 
@@ -52,7 +52,7 @@ A session is not owned by the tab that opened it. Two browsers, a third window o
 That works whether or not a client is reading the stream of the turn that is running. Every change travels down two paths:
 
 - the **turn's own stream**, so the client driving the turn and anyone teed onto it (`GET /coddy/sessions/{id}/composer-stream`) has it immediately;
-- **`GET /coddy/events`**, the server-wide stream every browser holds open and the console subscribes to under `--remote`, which carries `event: message_queue` with the session id, the whole queue and its version.
+- **`GET /coddy/events`**, the server-wide stream every browser holds open (one connection shared by its tabs) and the console subscribes to under `--remote`, which carries `event: message_queue` with the session id, the whole queue and its version.
 
 The answer to whichever request made the change carries the same list and version, so it is a third delivery of the same fact rather than a separate truth.
 
