@@ -150,7 +150,7 @@ Where it is applied:
 
 - **`buildSystemPrompt`** (`internal/agent/system_prompt.go`), last step before the context breakdown — covers agent, plan, and ask modes, a user's own **`prompts.dir`** template, and the render fallback;
 - **`buildCompactionRequest`** (`internal/agent/compact.go`) — the summarizer is its own request with its own system prompt;
-- the auxiliary HTTP prompts: chat-title generation (`external/httpserver/coddy_coddy.go`), prompt enhancement (`external/httpserver/enhance_prompt.go`) and the memory copilot (`external/memory/copilot.go`).
+- the auxiliary HTTP prompts: chat-title generation (`external/httpserver/coddy_coddy.go`) and prompt enhancement (`external/httpserver/enhance_prompt.go`); the memory subagent's template (`external/memory/prompts/memory_agent.md`) is rendered by `buildSystemPromptParts` through the `PromptTemplate` of its child session, so it opens with the identity line by itself.
 
 Two properties the tests lock (`internal/prompts/identity_test.go`, `internal/agent/identity_prompt_test.go`):
 
@@ -272,7 +272,7 @@ Plus MCP tools (**`serverName__toolName`**). When ready to ship implementation w
 
 ### Ask Mode
 
-Embedded **`ask.md`** describes a read-only assistant: it answers from the repository and the web and never mutates anything. The registry allowlist (**`internal/agent.ToolSetForMode("ask")`**) is **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`** and **`load_skill`**; there is no shell, no plan, todo or config tool, no **`spawn_agent`**, and **MCP** tools are never appended. Unlike plan mode the allowlist is also enforced at execution time, so a call replayed from history is refused with a read-only notice. A plan mention or **`runPlanSlug`** metadata never starts a plan run in ask mode, and the memory copilot runs recall-only. A subagent child never runs in ask mode unless its parent's turn was already in ask mode, which cannot spawn.
+Embedded **`ask.md`** describes a read-only assistant: it answers from the repository and the web and never mutates anything. The registry allowlist (**`internal/agent.ToolSetForMode("ask")`**) is **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`** and **`load_skill`**; there is no shell, no plan, todo or config tool, no **`spawn_agent`**, and **MCP** tools are never appended. Unlike plan mode the allowlist is also enforced at execution time, so a call replayed from history is refused with a read-only notice. A plan mention or **`runPlanSlug`** metadata never starts a plan run in ask mode, and the memory subagent runs recall-only. A subagent child never runs in ask mode unless its parent's turn was already in ask mode, which cannot spawn.
 
 ## Built-in Tools Specification
 

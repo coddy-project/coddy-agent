@@ -51,6 +51,12 @@ func (a *Agent) buildTurnContext(frozen *systemPromptBuild) string {
 		parts = append(parts, section)
 	}
 
+	// A memory report that landed after the system prompt was frozen
+	// (memory_run.go): rendered here until a rebuild carries it.
+	if section := a.memoryTurnContextSection(frozen); section != "" {
+		parts = append(parts, section)
+	}
+
 	return turnContextOpenTag + "\n" + turnContextPreamble + "\n\n" +
 		strings.Join(parts, "\n\n") + "\n" + turnContextCloseTag
 }

@@ -1613,3 +1613,44 @@ func TestSurfaceSystemPromptLastsExactlyOneTurn(t *testing.T) {
 		}
 	}
 }
+
+// RemoveRetiredChild deletes the bundle of a retired child and refuses a live
+// one; retention of memory runs is what calls it. A system child loads no
+// skills and no rules catalog.
+func TestRemoveRetiredChildRefusesLiveAndRemovesRetired(t *testing.T) {
+	m, store, root := newSubagentTestManager(t)
+	parent := newParent(t, m, filepath.Join(root, "work"))
+
+	child, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
+		ID: session.NewSessionID(), ParentSessionID: parent.ID, Name: "memory", TaskID: "bg_1", CWD: parent.CWD, Mode: "agent", Depth: 1, Kind: session.SubagentKindMemory,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child.Subagent().Kind != session.SubagentKindMemory {
+		t.Fatalf("child kind = %q, want memory", child.Subagent().Kind)
+	}
+	if len(child.GetSkills()) != 0 {
+		t.Fatalf("a system child must load no skills, got %d", len(child.GetSkills()))
+	}
+	if err := m.RemoveRetiredChild(child.ID, nil); !errors.Is(err, session.ErrChildLive) {
+		t.Fatalf("RemoveRetiredChild(live) = %v, want ErrChildLive", err)
+	}
+	if err := m.RemoveRetiredChild(parent.ID, nil); err == nil || errors.Is(err, session.ErrChildLive) {
+		t.Fatalf("RemoveRetiredChild(parent) = %v, want a refusal that is not ErrChildLive", err)
+	}
+	m.RetireSubagentSession(child.ID)
+	dir := store.SessionPath(child.ID)
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("the child bundle must exist before removal: %v", err)
+	}
+	if err := m.RemoveRetiredChild(child.ID, nil); err != nil {
+		t.Fatalf("RemoveRetiredChild(retired) = %v", err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("the child bundle must be gone, stat = %v", err)
+	}
+	if err := m.RemoveRetiredChild(child.ID, nil); err != nil {
+		t.Fatalf("removing a bundle that is already gone must be a no-op, got %v", err)
+	}
+}

@@ -1113,6 +1113,7 @@ export const messagesEn: Record<string, string> = {
   "tasks.status.stopped": "Stopped",
   "tasks.status.orphaned": "Orphaned",
   "tasks.badge.agent": "agent",
+  "tasks.badge.memory": "memory",
   "tasks.agentHeading": "Subagent",
   "tasks.openTranscript": "Open transcript",
   "tasks.openTranscriptUnavailable": "The child session is not known yet",
@@ -1135,14 +1136,6 @@ export const messagesEn: Record<string, string> = {
   "messages.compactionLabel": "context compacted",
   "messages.compactionSummaryAriaLabel": "Context compacted summary",
   "messages.compactionBodyAriaLabel": "Compacted context summary",
-  "messages.memoryInProgress": "memory...",
-  "messages.memoryCompleted": "memory",
-  "messages.memoryInProgressAriaLabel": "Memory in progress",
-  "messages.memorySummaryAriaLabel": "Memory copilot summary",
-  "messages.memoryContentAriaLabel": "Memory copilot content",
-  "messages.memoryMarkedSaved": "Marked saved ({title}).",
-  "messages.memoryMarkedSavedDefaultTitle": "note",
-  "messages.memoryEmpty": "No relevant notes matched this turn.",
   // Human labels for the tool ids that reach the transcript. The row then reads as
   // what the agent is doing rather than as the function it called; a tool without an
   // entry (an MCP server's own tools) keeps its raw id.

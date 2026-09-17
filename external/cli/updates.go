@@ -3,8 +3,11 @@
 package cli
 
 import (
+	"fmt"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/remote"
+	"strings"
+	"time"
 )
 
 // applyLoopMessage applies one queued update to the UI tree. Runs on the UI
@@ -210,28 +213,53 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		}
 	case acp.AvailableCommandsUpdate:
 		a.refreshServerCommands(u.AvailableCommands)
-	case acp.MemoryPhaseUpdate:
-		if u.Status == "started" {
-			a.appendStatus(roleDim, "memory: "+u.Phase+"...")
-			a.curMemory = nil
-			a.setStatus(newWorkingStatus("Working with memory", ""))
-		} else if a.turnActive {
-			a.setStatus(newWaitingStatus())
-		}
+	case acp.MemoryRunUpdate:
+		a.applyMemoryRun(u)
 	case acp.MessageQueueUpdate:
 		// The queue changes from outside this goroutine - another surface, or
 		// the agent reading a batch - so the widget follows the update rather
 		// than what this console last sent. The version orders the two streams
 		// the same update can arrive down.
 		a.queue.Apply(u.Messages, u.Version)
-	case acp.MemoryMessageChunkUpdate:
-		// Memory copilot deltas render as a dim italic stream under the
-		// phase status line (collapses with ctrl+t like thinking).
-		if a.curMemory == nil {
-			a.curMemory = newAssistantMessage(a.theme, a.mdTheme, a.hideThink)
-			a.chat.AddChild(a.curMemory)
+	}
+}
+
+// applyMemoryRun renders the memory subagent's run: the status phrase while
+// the turn waits for its report, and one dim line when the run settled or
+// could not start. The report itself is in the child transcript (the Tasks
+// drawer of the web UI opens it; on disk it is the child bundle under the
+// session's subagents folder).
+func (a *App) applyMemoryRun(u acp.MemoryRunUpdate) {
+	switch u.Status {
+	case "started":
+		if a.turnActive {
+			a.setStatus(newWorkingStatus("Working with memory", ""))
 		}
-		a.curMemory.AppendThinking(u.Delta)
+		return
+	case "finished", "skipped":
+		if a.turnActive {
+			a.setStatus(newWaitingStatus())
+		}
+		a.appendStatus(roleDim, memoryRunLine(u))
+	}
+}
+
+// memoryRunLine is the one line the console prints about a settled memory
+// run, or about one that could not start.
+func memoryRunLine(u acp.MemoryRunUpdate) string {
+	if u.Status == "skipped" {
+		return "memory: skipped - " + strings.TrimSpace(u.Reason)
+	}
+	elapsed := (time.Duration(u.DurationMs) * time.Millisecond).Round(100 * time.Millisecond)
+	switch {
+	case u.Delivered:
+		return fmt.Sprintf("memory: recalled in %s (task %s)", elapsed, u.TaskID)
+	case u.TaskStatus == "succeeded":
+		return fmt.Sprintf("memory: finished in %s, nothing reached this turn (task %s)", elapsed, u.TaskID)
+	case strings.TrimSpace(u.Reason) != "":
+		return fmt.Sprintf("memory: %s after %s (task %s) - %s", u.TaskStatus, elapsed, u.TaskID, strings.TrimSpace(u.Reason))
+	default:
+		return fmt.Sprintf("memory: %s after %s (task %s)", u.TaskStatus, elapsed, u.TaskID)
 	}
 }
 

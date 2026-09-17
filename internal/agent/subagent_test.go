@@ -425,6 +425,9 @@ func TestSubagentSenderRendersProgressLog(t *testing.T) {
 			Content: acp.ContentBlock{Type: acp.ContentTypeReasoning, Text: "thinking hard"}},
 		text("hello wor"),
 		text("ld\nsecond"),
+		// The pending row streamed with the name, then the complete call: one
+		// announcement in the log.
+		start("c1", "read"),
 		start("c1", "read"),
 		status("c1", "in_progress"),
 		status("c1", "completed"),

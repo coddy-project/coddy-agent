@@ -30,14 +30,14 @@ function IconStop() {
  * so the badge is the at-a-glance cue that this row is a child agent, not a
  * shell command, and that its detail pane opens a transcript.
  */
-function AgentBadge(props: { taskId: string }) {
+function AgentBadge(props: { taskId: string; system?: boolean }) {
   const { t } = useT();
   return (
     <span
       className="bgtask-kind-badge"
       data-testid={`bgtask-agent-badge-${props.taskId}`}
     >
-      {t("tasks.badge.agent")}
+      {t(props.system ? "tasks.badge.memory" : "tasks.badge.agent")}
     </span>
   );
 }
@@ -77,7 +77,9 @@ function RunningCard(props: {
           >
             {task.label}
           </span>
-          {isAgentTask(task) ? <AgentBadge taskId={task.id} /> : null}
+          {isAgentTask(task) ? (
+            <AgentBadge taskId={task.id} system={!!task.agent?.system} />
+          ) : null}
         </button>
         <button
           type="button"
@@ -141,7 +143,9 @@ function FinishedRow(props: {
         aria-hidden="true"
       />
       <span className="bgtask-finished-label">{task.label}</span>
-      {isAgentTask(task) ? <AgentBadge taskId={task.id} /> : null}
+      {isAgentTask(task) ? (
+            <AgentBadge taskId={task.id} system={!!task.agent?.system} />
+          ) : null}
       <span className="bgtask-finished-meta">
         {typeof task.exit_code === "number" && task.status !== "succeeded"
           ? `${taskStatusLabel(task.status).toLowerCase()} · ${clock}`

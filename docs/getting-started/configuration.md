@@ -244,7 +244,7 @@ prompts:
   #   {{.Tools}}    - markdown list of tool names and short descriptions for the current mode
   #   {{.Skills}}   - markdown block for active skills (omit section when empty via {{if .Skills}})
   #   {{.TodoList}} - current session todo checklist as markdown lines (empty until coddy todo tools update state)
-  #   {{.Memory}}   - session agent memory plus optional long-term recall when memory.enable is true
+  #   {{.Memory}}   - session agent memory plus the memory subagent's report when memory.enable is true
   #   {{.UTCNow}}   - date and time in UTC (RFC3339), refreshed whenever the system prompt is rendered
   #
   # Built-in templates order: Tools, Skills, Memory (session notes plus optional recall).
@@ -277,15 +277,19 @@ compaction:
   fallback_models: []      # tried in order when the summarizer above them fails; the session
                            # model is the last resort whether or not it is listed
 
-# Optional long-term memory copilot (Go: config.MemoryConfig, internal/config/memory.go; logic in external/memory).
-# Implementation is always linked; enable at runtime with memory.enable.
+# Optional long-term memory subagent (Go: config.MemoryConfig, internal/config/memory.go; logic in external/memory).
+# Linked with the memory build tag; enable at runtime with memory.enable. Every user turn then starts a memory
+# subagent in the background task pool (docs/features/memory.md).
 memory:
   enable: false
-  # Exact id from models[]. Used only for recall and persist tool-calling passes, not for the main assistant model.
-  # Example: "rpa/qwen3.6-35b-a3b". Empty means fall back to agent.model / session override.
+  # Exact id from models[]. The memory subagent runs on it; the main assistant model is unaffected.
+  # Example: "rpa/qwen3.6-35b-a3b". Empty means the session's model.
   model: ""
   dir: "" # long-term memory root; empty = $CODDY_HOME/memory. Supports ${CODDY_HOME} and ~ when set.
-  recall_max_turns: 6
+  wait_seconds: 20      # how long a turn waits for the report before its first model call; 0 never waits
+  timeout_seconds: 300  # hard limit of one memory run
+  keep_runs: 20         # finished memory runs kept per session in the Tasks drawer; 0 keeps all
+  recall_max_turns: 6   # the child's round cap is the larger of the two
   persist_max_turns: 12
   copilot_max_tokens: 4096
   max_search_hits: 8

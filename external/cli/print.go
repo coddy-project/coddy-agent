@@ -7,10 +7,19 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
+)
+
+// The memory run accessors of the agent package; tests swap them to stand a
+// run in for the real pool.
+var (
+	memoryRunsInFlight = agent.MemoryRunsInFlight
+	waitMemoryRuns     = agent.WaitMemoryRuns
 )
 
 // PrintOptions configures a one-shot non-interactive prompt run (-p/--prompt).
@@ -92,6 +101,28 @@ func (p *printSender) RequestQuestion(_ context.Context, _ acp.QuestionRequestPa
 	return &acp.QuestionResult{}, nil
 }
 
+// waitForMemoryRun keeps a one-shot print alive while the memory subagent
+// of its turn is still running: the process has nothing else to do, and a
+// `remember X` must not lose X to an exit. The wait is bounded by the run's
+// own timeout, and after the drain grace a line on stderr says why the
+// process is still there.
+func waitForMemoryRun(ctx context.Context, cfg *config.Config, errOut io.Writer) {
+	if memoryRunsInFlight() == 0 {
+		return
+	}
+	if waitMemoryRuns(ctx, agent.MemoryDrainGrace) {
+		return
+	}
+	timeout := time.Duration(config.MemoryDefaultTimeoutSeconds) * time.Second
+	if cfg != nil {
+		timeout = time.Duration(cfg.Memory.EffectiveTimeoutSeconds()) * time.Second
+	}
+	if errOut != nil {
+		_, _ = fmt.Fprintln(errOut, "waiting for the memory subagent to finish before exiting")
+	}
+	waitMemoryRuns(ctx, timeout)
+}
+
 // PrintPrompt runs one prompt turn without a TUI and streams the assistant
 // text to opts.Out. The session persists like any other surface, so a later
 // `coddy -c` (interactive or print) continues it.
@@ -155,6 +186,7 @@ func PrintPrompt(ctx context.Context, mgr backend, opts PrintOptions) error {
 	if snd.wrote {
 		_, _ = io.WriteString(opts.Out, "\n")
 	}
+	waitForMemoryRun(ctx, cfg, opts.ErrOut)
 	if err != nil {
 		return err
 	}

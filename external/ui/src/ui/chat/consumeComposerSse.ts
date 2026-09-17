@@ -1,3 +1,4 @@
+import type { MemoryRunEvt } from "./memoryRun";
 import type { MutableRefObject } from "react";
 import {
   namedErrorEventMessage,
@@ -43,26 +44,6 @@ function todoPlanFromToolStatus(u: ToolCallStatusUpdate) {
   return normalizeTodoPlanSnapshot(u._meta?.coddy?.todoPlan);
 }
 
-export type MemoryPhaseEvt = {
-  memoryRowId: string;
-  phase: string;
-  status: string;
-  userTurnIndex?: number;
-  durationMs?: number;
-  persistSaved?: boolean;
-  persistRelativePath?: string;
-  persistTitle?: string;
-  persistSavedBody?: string;
-  recallReadPaths?: string[];
-};
-
-export type MemoryChunkEvt = {
-  memoryRowId: string;
-  phase: string;
-  kind: string;
-  delta: string;
-};
-
 /**
  * Shortest gap between the first reasoning frame and the end of thinking that is
  * still a measurement rather than one flush of a non-streamed response.
@@ -74,56 +55,6 @@ export const toolFlushFallbackMs = 250;
 
 function reasoningDurationCacheKey(text: string): string {
   return text.trim().replace(/\s+/g, " ");
-}
-
-function freezeMemoryWallWhenThinkingAfterRecall(
-  items: TranscriptItem[],
-  freezeAtMs: number,
-): TranscriptItem[] {
-  let userIdx = -1;
-  for (let i = items.length - 1; i >= 0; i--) {
-    const it = items[i];
-    if (it && it.type === "user_message") {
-      userIdx = i;
-      break;
-    }
-  }
-  if (userIdx < 0) return items;
-
-  let memIdx = -1;
-  let thinkingIdx = -1;
-  for (let i = userIdx + 1; i < items.length; i++) {
-    const it = items[i];
-    if (!it) continue;
-    if (it.type === "user_message") break;
-    if (it.type === "memory_copilot") memIdx = i;
-    if (
-      it.type === "thinking" &&
-      "status" in it &&
-      it.status === "in_progress"
-    ) {
-      thinkingIdx = i;
-      break;
-    }
-  }
-  if (memIdx < 0 || thinkingIdx < 0) return items;
-
-  const m = items[memIdx];
-  if (!m || m.type !== "memory_copilot") return items;
-
-  const memBusy =
-    m.memoryStatus === "in_progress" ||
-    m.recallStatus === "in_progress" ||
-    m.persistStatus === "in_progress";
-  if (!memBusy || typeof m.memoryWallLiveCapMs === "number") return items;
-
-  const startMs = m.memoryWallStartedAtMs;
-  if (typeof startMs !== "number") return items;
-
-  const cap = Math.max(0, freezeAtMs - startMs);
-  const next = [...items];
-  next[memIdx] = { ...m, memoryWallLiveCapMs: cap };
-  return next;
 }
 
 export type ConsumeComposerSseParams = {
@@ -141,13 +72,10 @@ export type ConsumeComposerSseParams = {
   }>;
   reasoningDurationMsByContentRef: MutableRefObject<Map<string, number>>;
   newId: (prefix: string) => string;
-  applyMemoryPhaseToItems: (
+  /** Coddy extension. The memory subagent run of the turn (`event: memory_run`). */
+  applyMemoryRunToItems: (
     prev: TranscriptItem[],
-    p: MemoryPhaseEvt,
-  ) => TranscriptItem[];
-  applyMemoryChunkToItems: (
-    prev: TranscriptItem[],
-    p: MemoryChunkEvt,
+    e: MemoryRunEvt,
   ) => TranscriptItem[];
   /** Coddy extension. Fired when the `question` tool blocks for answers (matches session/request_question payload shape). */
   onQuestion?: (payload: Record<string, unknown>) => void;
@@ -199,8 +127,7 @@ export async function consumeComposerSseReader(
     tokenBaselineRef,
     reasoningDurationMsByContentRef,
     newId,
-    applyMemoryPhaseToItems,
-    applyMemoryChunkToItems,
+    applyMemoryRunToItems,
     onQuestion,
     onPermission,
     onProviderUsage,
@@ -390,7 +317,7 @@ export async function consumeComposerSseReader(
               ? { ...it, content: it.content + delta }
               : it,
           );
-          return freezeMemoryWallWhenThinkingAfterRecall(next, freezeAt);
+          return next;
         });
       };
       const finishThinking = () => {
@@ -660,36 +587,26 @@ export async function consumeComposerSseReader(
             continue;
           }
 
-          if (ev.event === "memory_phase") {
+          if (ev.event === "memory_run") {
             try {
-              const raw = JSON.parse(ev.data) as MemoryPhaseEvt;
+              const raw = JSON.parse(ev.data) as MemoryRunEvt;
               applyStreamItems((prev) =>
-                applyMemoryPhaseToItems(prev, {
-                  memoryRowId: String(raw.memoryRowId || ""),
-                  phase: String(raw.phase || ""),
+                applyMemoryRunToItems(prev, {
                   status: String(raw.status || ""),
-                  ...(typeof raw.userTurnIndex === "number"
-                    ? { userTurnIndex: raw.userTurnIndex }
+                  ...(raw.taskId ? { taskId: String(raw.taskId) } : {}),
+                  ...(raw.childSessionId
+                    ? { childSessionId: String(raw.childSessionId) }
+                    : {}),
+                  ...(raw.taskStatus
+                    ? { taskStatus: String(raw.taskStatus) }
                     : {}),
                   ...(typeof raw.durationMs === "number"
                     ? { durationMs: raw.durationMs }
                     : {}),
-                  ...(typeof raw.persistSaved === "boolean"
-                    ? { persistSaved: raw.persistSaved }
+                  ...(typeof raw.delivered === "boolean"
+                    ? { delivered: raw.delivered }
                     : {}),
-                  ...(raw.persistRelativePath
-                    ? { persistRelativePath: raw.persistRelativePath }
-                    : {}),
-                  ...(raw.persistTitle
-                    ? { persistTitle: raw.persistTitle }
-                    : {}),
-                  ...(raw.persistSavedBody
-                    ? { persistSavedBody: raw.persistSavedBody }
-                    : {}),
-                  ...(Array.isArray(raw.recallReadPaths) &&
-                  raw.recallReadPaths.length > 0
-                    ? { recallReadPaths: raw.recallReadPaths }
-                    : {}),
+                  ...(raw.reason ? { reason: String(raw.reason) } : {}),
                 }),
               );
             } catch {
@@ -697,24 +614,6 @@ export async function consumeComposerSseReader(
             }
             continue;
           }
-
-          if (ev.event === "memory_chunk") {
-            try {
-              const raw = JSON.parse(ev.data) as MemoryChunkEvt;
-              applyStreamItems((prev) =>
-                applyMemoryChunkToItems(prev, {
-                  memoryRowId: String(raw.memoryRowId || ""),
-                  phase: String(raw.phase || ""),
-                  kind: String(raw.kind || ""),
-                  delta: typeof raw.delta === "string" ? raw.delta : "",
-                }),
-              );
-            } catch {
-              // ignore
-            }
-            continue;
-          }
-
           if (ev.event === "permission") {
             try {
               // The gate row is applied straight away, outside the rAF-batched
@@ -934,52 +833,26 @@ export async function consumeComposerSseReader(
             continue;
           }
 
-          if (ev.event === "memory_phase") {
+          if (ev.event === "memory_run") {
             try {
-              const raw = JSON.parse(ev.data) as MemoryPhaseEvt;
+              const raw = JSON.parse(ev.data) as MemoryRunEvt;
               applyStreamItems((prev) =>
-                applyMemoryPhaseToItems(prev, {
-                  memoryRowId: String(raw.memoryRowId || ""),
-                  phase: String(raw.phase || ""),
+                applyMemoryRunToItems(prev, {
                   status: String(raw.status || ""),
-                  ...(typeof raw.userTurnIndex === "number"
-                    ? { userTurnIndex: raw.userTurnIndex }
+                  ...(raw.taskId ? { taskId: String(raw.taskId) } : {}),
+                  ...(raw.childSessionId
+                    ? { childSessionId: String(raw.childSessionId) }
+                    : {}),
+                  ...(raw.taskStatus
+                    ? { taskStatus: String(raw.taskStatus) }
                     : {}),
                   ...(typeof raw.durationMs === "number"
                     ? { durationMs: raw.durationMs }
                     : {}),
-                  ...(typeof raw.persistSaved === "boolean"
-                    ? { persistSaved: raw.persistSaved }
+                  ...(typeof raw.delivered === "boolean"
+                    ? { delivered: raw.delivered }
                     : {}),
-                  ...(raw.persistRelativePath
-                    ? { persistRelativePath: raw.persistRelativePath }
-                    : {}),
-                  ...(raw.persistTitle
-                    ? { persistTitle: raw.persistTitle }
-                    : {}),
-                  ...(raw.persistSavedBody
-                    ? { persistSavedBody: raw.persistSavedBody }
-                    : {}),
-                  ...(Array.isArray(raw.recallReadPaths) &&
-                  raw.recallReadPaths.length > 0
-                    ? { recallReadPaths: raw.recallReadPaths }
-                    : {}),
-                }),
-              );
-            } catch {
-              // ignore
-            }
-            continue;
-          }
-          if (ev.event === "memory_chunk") {
-            try {
-              const raw = JSON.parse(ev.data) as MemoryChunkEvt;
-              applyStreamItems((prev) =>
-                applyMemoryChunkToItems(prev, {
-                  memoryRowId: String(raw.memoryRowId || ""),
-                  phase: String(raw.phase || ""),
-                  kind: String(raw.kind || ""),
-                  delta: typeof raw.delta === "string" ? raw.delta : "",
+                  ...(raw.reason ? { reason: String(raw.reason) } : {}),
                 }),
               );
             } catch {

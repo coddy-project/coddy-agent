@@ -427,7 +427,15 @@ func runInteractive(ctx context.Context, app *App, term *tui.ProcessTerminal, re
 		app.populateHeader()
 	}
 
-	return app.Run(ctx)
+	runErr := app.Run(ctx)
+	// The console does not drain the pool: a memory run still persisting
+	// would die with the process. Give it the drain grace, as coddy serve
+	// does before it stops the pool.
+	if agent.MemoryRunsInFlight() > 0 {
+		_, _ = fmt.Fprintln(os.Stderr, "finishing the memory subagent of the last turn...")
+		agent.WaitMemoryRuns(context.Background(), agent.MemoryDrainGrace)
+	}
+	return runErr
 }
 
 // isolatedLogger forces log output away from the terminal: exactly one file

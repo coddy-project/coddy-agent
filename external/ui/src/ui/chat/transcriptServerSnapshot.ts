@@ -42,12 +42,10 @@ export function transcriptItemsLooselyEqual(
         (b as Extract<TranscriptItem, { type: "system_notice" }>).message ===
         a.message
       );
-    case "memory_copilot":
+    case "memory_run":
       return (
-        (b as Extract<TranscriptItem, { type: "memory_copilot" }>).memoryRowId ===
-          a.memoryRowId &&
-        (b as Extract<TranscriptItem, { type: "memory_copilot" }>).userTurnIndex ===
-          a.userTurnIndex
+        (b as Extract<TranscriptItem, { type: "memory_run" }>).taskId ===
+        a.taskId
       );
     case "permission_prompt": {
       const asv = a as Extract<TranscriptItem, { type: "permission_prompt" }>;

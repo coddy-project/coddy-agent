@@ -317,8 +317,7 @@ const (
 	UpdateTypeTokenUsage              = "token_usage"
 	UpdateTypeUsage                   = "usage_update"
 	UpdateTypeProviderUsage           = "provider_usage"
-	UpdateTypeMemoryPhase             = "memory_phase"
-	UpdateTypeMemoryMessageChunk      = "memory_message_chunk"
+	UpdateTypeMemoryRun               = "memory_run"
 	UpdateTypeAvailableCommandsUpdate = "available_commands_update"
 	UpdateTypeMessageQueue            = "message_queue"
 )
@@ -563,30 +562,27 @@ type UsageWallet struct {
 	SpentRub30d float64 `json:"spentRub30d"`
 }
 
-// MemoryPhaseUpdate marks start or completion of a memory copilot sub-phase.
-type MemoryPhaseUpdate struct {
-	SessionUpdate string `json:"sessionUpdate"` // "memory_phase"
-	MemoryRowID   string `json:"memoryRowId"`
-	Phase         string `json:"phase"`  // "memory" (single pass) | "recall" | "persist" (legacy replay)
-	Status        string `json:"status"` // "started" | "completed"
-	UserTurnIndex int    `json:"userTurnIndex,omitempty"`
-	DurationMs    int64  `json:"durationMs,omitempty"`
-	// Recall-only populates when Phase is recall and Status is completed (coddy_memory_read paths).
-	RecallReadPaths []string `json:"recallReadPaths,omitempty"`
-	// Persist-only populates when Phase is persist and Status is completed.
-	PersistSaved        bool   `json:"persistSaved,omitempty"`
-	PersistSavedBody    string `json:"persistSavedBody,omitempty"` // markdown persisted when PersistSaved true (truncated for wire)
-	PersistRelativePath string `json:"persistRelativePath,omitempty"`
-	PersistTitle        string `json:"persistTitle,omitempty"`
-}
-
-// MemoryMessageChunkUpdate streams memory copilot model deltas to the client (not part of llm.Messages).
-type MemoryMessageChunkUpdate struct {
-	SessionUpdate string `json:"sessionUpdate"` // "memory_message_chunk"
-	MemoryRowID   string `json:"memoryRowId"`
-	Phase         string `json:"phase"` // "memory" | "recall" | "persist"
-	Kind          string `json:"kind"`  // "text" | "reasoning"
-	Delta         string `json:"delta"`
+// MemoryRunUpdate reports the memory subagent run of a user turn: "started"
+// once its task is launched, "finished" once the task settled, "skipped" when
+// no run could be launched. Nothing of the report travels on it: the child
+// transcript and the task log hold the text, and the Tasks drawer is the
+// record. It is neither persisted nor replayed.
+type MemoryRunUpdate struct {
+	SessionUpdate string `json:"sessionUpdate"` // "memory_run"
+	Status        string `json:"status"`        // "started" | "finished" | "skipped"
+	// TaskID and ChildSessionID name the pool task and the child session of
+	// the run; empty on a skip.
+	TaskID         string `json:"taskId,omitempty"`
+	ChildSessionID string `json:"childSessionId,omitempty"`
+	// TaskStatus is the pool's verdict on "finished": succeeded, failed,
+	// timed_out or stopped.
+	TaskStatus string `json:"taskStatus,omitempty"`
+	DurationMs int64  `json:"durationMs,omitempty"`
+	// Delivered says whether a non-empty report reached the main model in
+	// this turn, through the system prompt or a later step's turn context.
+	Delivered bool `json:"delivered,omitempty"`
+	// Reason explains a skip, or a run that ended with an error.
+	Reason string `json:"reason,omitempty"`
 }
 
 // ---- ACP session/request_permission ----

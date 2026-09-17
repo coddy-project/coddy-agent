@@ -24,6 +24,10 @@ type Subagent struct {
 	Name            string
 	ParentSessionID string
 	Depth           int
+	// Kind marks a child the runtime started on its own behalf ("memory");
+	// empty for a spawn_agent child. A hook that treats memory writes
+	// differently keys on it.
+	Kind string
 }
 
 // Event is one occurrence the runner dispatches: its name, the subject the
@@ -77,11 +81,15 @@ func (s Session) payload(event string, fields map[string]interface{}) map[string
 		"turn":            s.Turn,
 	}
 	if s.Subagent != nil {
-		p["subagent"] = map[string]interface{}{
+		sub := map[string]interface{}{
 			"name":              s.Subagent.Name,
 			"parent_session_id": s.Subagent.ParentSessionID,
 			"depth":             s.Subagent.Depth,
 		}
+		if s.Subagent.Kind != "" {
+			sub["kind"] = s.Subagent.Kind
+		}
+		p["subagent"] = sub
 	}
 	for k, v := range fields {
 		p[k] = v

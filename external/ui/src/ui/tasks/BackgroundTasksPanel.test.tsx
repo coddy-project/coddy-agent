@@ -288,6 +288,22 @@ test("agent tasks carry an agent badge in both sections", () => {
   expect(screen.queryByTestId("bgtask-agent-badge-bg_2")).toBeNull();
 });
 
+test("a memory run carries the memory badge instead of the agent one", () => {
+  renderPanel({
+    tasks: [
+      agentTask({
+        id: "bg_9",
+        label: "memory: what did we decide",
+        agent: { name: "memory", session_id: "sess_mem", system: true },
+      }),
+    ],
+  });
+
+  expect(screen.getByTestId("bgtask-agent-badge-bg_9")).toHaveTextContent(
+    "memory",
+  );
+});
+
 test("an agent task's detail names the subagent and opens its transcript", () => {
   const onOpenSession = vi.fn();
   const { container } = renderPanel({

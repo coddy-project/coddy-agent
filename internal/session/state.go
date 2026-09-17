@@ -389,12 +389,30 @@ type SubagentMeta struct {
 	Role string
 	// Tools is the effective tool set the child may call. Not persisted.
 	Tools []string
+	// Kind marks a child the runtime started on its own behalf (SubagentKindMemory);
+	// empty for a spawn_agent child. The tool registration, the system flag
+	// of the task and the manager's shortcuts key on it. Not persisted.
+	Kind string
+	// PromptTemplate, when set, is the system prompt template source a system
+	// child renders instead of the mode template. Not persisted.
+	PromptTemplate string
+	// MaxTokens clamps the child's completion size; 0 keeps the model's own
+	// bound. Not persisted.
+	MaxTokens int
+	// FallbackModels are the models[].model ids the child's provider moves to
+	// when the one before them fails before answering. Not persisted.
+	FallbackModels []string
 }
+
+// SubagentKindMemory is the Kind of the memory subagent, the child a user
+// turn starts to recall and persist long-term memory.
+const SubagentKindMemory = "memory"
 
 // SetSubagentMeta marks the session as a child run. It does not persist by
 // itself: the manager saves the state right after building it.
 func (s *State) SetSubagentMeta(meta SubagentMeta) {
 	meta.Tools = append([]string(nil), meta.Tools...)
+	meta.FallbackModels = append([]string(nil), meta.FallbackModels...)
 	s.mu.Lock()
 	s.subagent = &meta
 	s.mu.Unlock()
@@ -410,6 +428,7 @@ func (s *State) Subagent() *SubagentMeta {
 	}
 	out := *s.subagent
 	out.Tools = append([]string(nil), s.subagent.Tools...)
+	out.FallbackModels = append([]string(nil), s.subagent.FallbackModels...)
 	return &out
 }
 

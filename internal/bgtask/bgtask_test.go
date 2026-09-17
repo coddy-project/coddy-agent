@@ -1347,3 +1347,157 @@ func TestDeriveLabelForAnAgentTask(t *testing.T) {
 		t.Fatalf("label without a name = %q, want %q", got, "agent")
 	}
 }
+
+// --- system tasks: admitted past the per-session cap, never counted, removable one by one ---
+
+func systemAgentSpec(sessionID string) Spec {
+	return Spec{
+		SessionID: sessionID,
+		Kind:      KindAgent,
+		Label:     "memory: what did we decide",
+		Agent:     &AgentInfo{Name: "memory", SessionID: "sess_mem", System: true},
+	}
+}
+
+func TestSystemTasksAreAdmittedPastThePerSessionCapAndNotCounted(t *testing.T) {
+	runner := &stubRunner{}
+	p := newTestPool(t, runner, Config{MaxConcurrent: 1})
+
+	first, err := p.Start(Spec{SessionID: "s1", Command: "sleep 1"})
+	if err != nil {
+		t.Fatalf("Start(): %v", err)
+	}
+	// The model's slot is taken; a system task is admitted anyway.
+	sysHandle := &stubHandle{release: make(chan struct{})}
+	sys, err := p.Launch(systemAgentSpec("s1"), func(string, io.Writer) (Handle, error) { return sysHandle, nil })
+	if err != nil {
+		t.Fatalf("a system task must be admitted past the per-session cap, got %v", err)
+	}
+	if !sys.SystemTask() {
+		t.Fatal("the snapshot of a system task must say so")
+	}
+	// A second model task is still refused: the system task did not free the slot.
+	if _, err := p.Start(Spec{SessionID: "s1", Command: "sleep 2"}); !errors.Is(err, ErrPoolFull) {
+		t.Fatalf("second model task: err = %v, want ErrPoolFull", err)
+	}
+	if got := p.RunningCount("s1"); got != 1 {
+		t.Fatalf("RunningCount = %d, want 1 (the system task is not the model's)", got)
+	}
+	// With the model's task done, a new one is admitted while the system task still runs.
+	runner.last().finish(0)
+	waitForStatus(t, p, "s1", first.ID, StatusSucceeded)
+	if _, err := p.Start(Spec{SessionID: "s1", Command: "sleep 3"}); err != nil {
+		t.Fatalf("a model task must be admitted while only a system task runs, got %v", err)
+	}
+	sysHandle.finish(0)
+	waitForStatus(t, p, "s1", sys.ID, StatusSucceeded)
+}
+
+func TestRemoveDropsAFinishedTaskAndItsRecord(t *testing.T) {
+	dir := t.TempDir()
+	runner := &stubRunner{}
+	p := newTestPool(t, runner, Config{})
+	p.SetSessionDir("s1", dir)
+
+	running, err := p.Start(Spec{SessionID: "s1", Command: "sleep 1"})
+	if err != nil {
+		t.Fatalf("Start(): %v", err)
+	}
+	if err := p.Remove("s1", running.ID); !errors.Is(err, ErrTaskRunning) {
+		t.Fatalf("Remove(running) = %v, want ErrTaskRunning", err)
+	}
+	if err := p.Remove("s1", "bg_404"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Remove(unknown) = %v, want ErrNotFound", err)
+	}
+
+	runner.last().finish(0)
+	waitUntilFinished(t, p, "s1", running.ID, StatusSucceeded)
+	taskDir := filepath.Join(dir, backgroundDirName, running.ID)
+	if _, err := os.Stat(filepath.Join(taskDir, metaFileName)); err != nil {
+		t.Fatalf("the finished task must have a record before removal: %v", err)
+	}
+	if err := p.Remove("s1", running.ID); err != nil {
+		t.Fatalf("Remove(finished) = %v", err)
+	}
+	if _, err := p.Get("s1", running.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("a removed task must be gone from the pool, Get = %v", err)
+	}
+	if _, err := os.Stat(taskDir); !os.IsNotExist(err) {
+		t.Fatalf("a removed task must lose its record directory, stat = %v", err)
+	}
+
+	// A record left by an earlier process is removed the same way, and one
+	// that says it is still running (an orphan) is refused.
+	finishedAt := time.Now()
+	code := 0
+	for _, id := range []string{"bg_77", "bg_78"} {
+		if err := os.MkdirAll(filepath.Join(dir, backgroundDirName, id), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writePersistedSnapshot(dir, Snapshot{ID: "bg_77", SessionID: "s1", Status: StatusSucceeded, ExitCode: &code, FinishedAt: &finishedAt, StartedAt: finishedAt})
+	writePersistedSnapshot(dir, Snapshot{ID: "bg_78", SessionID: "s1", Status: StatusRunning, StartedAt: finishedAt})
+	if err := p.Remove("s1", "bg_77"); err != nil {
+		t.Fatalf("Remove(persisted finished) = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, backgroundDirName, "bg_77")); !os.IsNotExist(err) {
+		t.Fatalf("the persisted record must be gone, stat = %v", err)
+	}
+	if err := p.Remove("s1", "bg_78"); !errors.Is(err, ErrTaskRunning) {
+		t.Fatalf("Remove(persisted running) = %v, want ErrTaskRunning", err)
+	}
+}
+
+func TestSystemFlagPersistsWithTheTaskRecord(t *testing.T) {
+	dir := t.TempDir()
+	pool := NewWithRunner(Config{}, &stubRunner{})
+	pool.SetSessionDir("s", dir)
+	h := &stubHandle{release: make(chan struct{})}
+	snap, err := pool.Launch(systemAgentSpec("s"), func(string, io.Writer) (Handle, error) { return h, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.finish(0)
+	if _, err := pool.Wait(context.Background(), "s", snap.ID, 2*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, backgroundDirName, snap.ID, metaFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record map[string]interface{}
+	if err := json.Unmarshal(raw, &record); err != nil {
+		t.Fatal(err)
+	}
+	agent, _ := record["agent"].(map[string]interface{})
+	if agent["system"] != true || agent["name"] != "memory" {
+		t.Fatalf("persisted agent identity = %v, want the system flag and the name", record["agent"])
+	}
+	loaded := LoadPersisted(dir)
+	if len(loaded) != 1 || !loaded[0].SystemTask() {
+		t.Fatalf("LoadPersisted lost the system flag: %+v", loaded)
+	}
+}
+
+// A note written after the task settled still reaches the record on disk:
+// the sink reopens its mirror for that write.
+func TestOutputSinkWritesAfterCloseReachTheFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), outputFileName)
+	sink := NewOutputSink(0)
+	if err := sink.AttachFile(path); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = sink.Write([]byte("while running\n"))
+	sink.Close()
+	_, _ = sink.Write([]byte("report delivered to the turn (system prompt)\n"))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "while running\nreport delivered to the turn (system prompt)\n" {
+		t.Fatalf("file = %q", string(data))
+	}
+	if !strings.Contains(sink.Text(), "report delivered") {
+		t.Fatal("the in-memory window must carry the late line too")
+	}
+}

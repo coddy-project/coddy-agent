@@ -269,6 +269,9 @@ type MemoryJSON struct {
 	Enabled          bool   `json:"enable,omitempty"`
 	Model            string `json:"model,omitempty"`
 	Dir              string `json:"dir,omitempty"`
+	WaitSeconds      *int   `json:"wait_seconds,omitempty"`
+	TimeoutSeconds   int    `json:"timeout_seconds,omitempty"`
+	KeepRuns         *int   `json:"keep_runs,omitempty"`
 	RecallMaxTurns   int    `json:"recall_max_turns,omitempty"`
 	PersistMaxTurns  int    `json:"persist_max_turns,omitempty"`
 	CopilotMaxTokens int    `json:"copilot_max_tokens,omitempty"`
@@ -520,6 +523,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	}
 	out.Memory = MemoryJSON{
 		Enabled: c.Memory.Enabled, Model: c.Memory.Model, Dir: c.Memory.Dir,
+		WaitSeconds: cloneIntPtr(c.Memory.WaitSeconds), TimeoutSeconds: c.Memory.TimeoutSeconds, KeepRuns: cloneIntPtr(c.Memory.KeepRuns),
 		RecallMaxTurns: c.Memory.RecallMaxTurns, PersistMaxTurns: c.Memory.PersistMaxTurns,
 		CopilotMaxTokens: c.Memory.CopilotMaxTokens, MaxSearchHits: c.Memory.MaxSearchHits,
 	}
@@ -735,6 +739,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	}
 	cfg.Memory = MemoryConfig{
 		Enabled: j.Memory.Enabled, Model: j.Memory.Model, Dir: j.Memory.Dir,
+		WaitSeconds: cloneIntPtr(j.Memory.WaitSeconds), TimeoutSeconds: j.Memory.TimeoutSeconds, KeepRuns: cloneIntPtr(j.Memory.KeepRuns),
 		RecallMaxTurns: j.Memory.RecallMaxTurns, PersistMaxTurns: j.Memory.PersistMaxTurns,
 		CopilotMaxTokens: j.Memory.CopilotMaxTokens, MaxSearchHits: j.Memory.MaxSearchHits,
 	}

@@ -1131,6 +1131,7 @@ export const messagesRu: Record<string, string> = {
   "tasks.status.stopped": "Остановлена",
   "tasks.status.orphaned": "Осиротела",
   "tasks.badge.agent": "агент",
+  "tasks.badge.memory": "память",
   "tasks.agentHeading": "Субагент",
   "tasks.openTranscript": "Открыть транскрипт",
   "tasks.openTranscriptUnavailable": "Дочерняя сессия ещё не известна",
@@ -1153,14 +1154,6 @@ export const messagesRu: Record<string, string> = {
   "messages.compactionLabel": "контекст сжат",
   "messages.compactionSummaryAriaLabel": "Сводка сжатого контекста",
   "messages.compactionBodyAriaLabel": "Содержимое сжатого контекста",
-  "messages.memoryInProgress": "память…",
-  "messages.memoryCompleted": "память",
-  "messages.memoryInProgressAriaLabel": "Работа с памятью",
-  "messages.memorySummaryAriaLabel": "Сводка копилот памяти",
-  "messages.memoryContentAriaLabel": "Содержимое copilot памяти",
-  "messages.memoryMarkedSaved": "Отмечено как сохранённое ({title}).",
-  "messages.memoryMarkedSavedDefaultTitle": "заметка",
-  "messages.memoryEmpty": "Подходящих заметок для этого хода не найдено.",
   // Человеческие названия инструментов: строка читается как действие агента, а не как
   // имя функции. Инструмент без записи (свои инструменты MCP-серверов) остаётся с
   // исходным идентификатором.

@@ -243,13 +243,8 @@ func (t *turnStream) onFrame(f sseFrame) error {
 		if json.Unmarshal([]byte(f.data), &u) == nil {
 			_ = t.sender.SendSessionUpdate(t.sessionID, u)
 		}
-	case "memory_phase":
-		var u acp.MemoryPhaseUpdate
-		if json.Unmarshal([]byte(f.data), &u) == nil {
-			_ = t.sender.SendSessionUpdate(t.sessionID, u)
-		}
-	case "memory_chunk":
-		var u acp.MemoryMessageChunkUpdate
+	case "memory_run":
+		var u acp.MemoryRunUpdate
 		if json.Unmarshal([]byte(f.data), &u) == nil {
 			_ = t.sender.SendSessionUpdate(t.sessionID, u)
 		}

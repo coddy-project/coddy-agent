@@ -244,6 +244,13 @@ func (s *subagentSender) SendSessionUpdate(_ string, update interface{}) error {
 		s.line.WriteString(u.Content.Text)
 		s.flushLines(false)
 	case acp.ToolCallUpdate:
+		// A provider that streams the call's name before its arguments
+		// announces the same call twice (the pending row, then the complete
+		// call); the log names it once.
+		if _, seen := s.toolName[u.ToolCallID]; seen && u.ToolCallID != "" {
+			s.toolName[u.ToolCallID] = u.Title
+			return nil
+		}
 		s.flushLines(true)
 		s.toolName[u.ToolCallID] = u.Title
 		_, _ = fmt.Fprintf(s.out, "→ %s\n", u.Title)
@@ -326,12 +333,22 @@ func (h *subagentHandle) Stop(time.Duration) error {
 func (h *subagentHandle) PID() int                    { return 0 }
 func (h *subagentHandle) ProcessStartedAt() time.Time { return time.Time{} }
 
-// subagentRun is the bookkeeping of one spawn from the parent's side.
+// subagentRun is the bookkeeping of one child run from the parent's side: a
+// spawn_agent child (def set) or a system child such as the memory subagent
+// (def nil, system true).
 type subagentRun struct {
-	def     *subagents.Definition
+	def *subagents.Definition
+	// name is the child's name: the definition's, or the system agent's.
+	name string
+	// system marks a run the runtime started on its own behalf: no
+	// SubagentStart/SubagentStop hooks, no limiter, no permission relay.
+	system  bool
 	childID string
 	taskID  string
 	prompt  string
+	// out is the task's output sink; the parent writes where the memory
+	// report went into it.
+	out io.Writer
 	// parentMode is the mode the spawning turn was admitted in; the parent's
 	// hook runner is keyed by it.
 	parentMode string
@@ -343,6 +360,22 @@ type subagentRun struct {
 	status     string // end_turn | cancelled | failed | ...
 	err        error
 	mu         sync.Mutex
+}
+
+// agentName is the child's name for the log, the report and the envelope:
+// what the launcher set, or the definition's name for a run built from a
+// definition alone.
+func (r *subagentRun) agentName() string {
+	if r == nil {
+		return ""
+	}
+	if r.name != "" {
+		return r.name
+	}
+	if r.def != nil {
+		return r.def.Name
+	}
+	return ""
 }
 
 // subagentDepth is how deep this agent's session sits in a spawn tree.
@@ -573,12 +606,6 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
 	pool := a.backgroundPool(sd)
 
-	base := ctx
-	if background {
-		base = context.WithoutCancel(ctx)
-	}
-	runCtx, cancel := context.WithCancel(base)
-	handle := &subagentHandle{cancel: cancel, done: make(chan struct{})}
 	arbiter := acquireArbiter(parentID)
 	relay := &permissionRelay{
 		parent:              a.server,
@@ -586,50 +613,17 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 		agentName:           def.Name,
 		childPermissionMode: childPerm,
 		turnCtx:             ctx,
-		childCtx:            runCtx,
 		arbiter:             arbiter,
 	}
-	run := &subagentRun{def: def, childID: childID, prompt: prompt, parentMode: mode, handle: handle, startedAt: time.Now()}
-
-	var finishOnce sync.Once
-	finish := func() {
-		finishOnce.Do(func() {
-			// Work the child launched settles before its transcript is sealed.
-			pool.StopSession(childID)
-			rt.RetireSubagentSession(childID)
-			releaseArbiter(parentID)
-			release()
-			cancel()
-		})
+	modelNote := ""
+	if unknownModel != "" {
+		modelNote = fmt.Sprintf("model %q is not configured; using the parent's model %q", unknownModel, model)
 	}
-
-	spec := bgtask.Spec{
-		SessionID:       parentID,
-		Kind:            bgtask.KindAgent,
-		Label:           label,
-		CWD:             cwd,
-		ToolCallID:      a.currentToolCallID,
-		ExpectedSeconds: req.ExpectedSeconds,
-		TimeoutSeconds:  timeout,
-		NotifyOnFinish:  notify,
-		Agent:           &bgtask.AgentInfo{Name: def.Name, SessionID: childID},
-	}
-	// The callback hands the handle back at once and does everything that can
-	// block (session creation, MCP dialing, the turn itself) on the run
-	// goroutine, so the pool's Stop and timeout reach a child that is still
-	// being created. The task id is known before anything starts.
-	snap, err := pool.Launch(spec, func(taskID string, out io.Writer) (bgtask.Handle, error) {
-		run.taskID = taskID
-		run.sender = newSubagentSender(out, relay)
-		_, _ = fmt.Fprintf(out, "subagent %s (task %s, session %s) starting\n", def.Name, taskID, childID)
-		if unknownModel != "" {
-			_, _ = fmt.Fprintf(out, "model %q is not configured; using the parent's model %q\n", unknownModel, model)
-		}
-		childSpec := session.SubagentSpec{
+	snap, run, err := a.launchChildRun(ctx, rt, childLaunch{
+		spec: session.SubagentSpec{
 			ID:               childID,
 			ParentSessionID:  parentID,
 			Name:             def.Name,
-			TaskID:           taskID,
 			CWD:              cwd,
 			Mode:             childMode,
 			PermissionMode:   childPerm,
@@ -641,12 +635,24 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 			MaxTurns:         def.MaxTurns,
 			ConnectMCP:       connectMCP,
 			ClientMCPServers: a.parentSessionMCPDeclarations(),
-		}
-		go a.executeSubagentRun(runCtx, rt, run, childSpec, out, finish)
-		return handle, nil
+		},
+		def:             def,
+		prompt:          prompt,
+		parentMode:      mode,
+		label:           label,
+		timeoutSeconds:  timeout,
+		expectedSeconds: req.ExpectedSeconds,
+		detached:        background,
+		notify:          notify,
+		toolCallID:      a.currentToolCallID,
+		relay:           relay,
+		modelNote:       modelNote,
+		cleanup: func() {
+			releaseArbiter(parentID)
+			release()
+		},
 	})
 	if err != nil {
-		finish()
 		if errors.Is(err, bgtask.ErrPoolFull) {
 			return "", fmt.Errorf("cannot start subagent %q: %w; that is the per-session tools.background.max_concurrent limit, wait for a task with background_wait or background_list, then try again", def.Name, err)
 		}
@@ -681,6 +687,118 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	return b.String(), nil
 }
 
+// childLaunch is what a launcher decided about a child run before the pool is
+// involved: the session to build, the task to register and the parent-side
+// bookkeeping. spawnSubagentInMode fills it for a definition the model
+// chose; the memory runtime fills it for the system child of a user turn.
+type childLaunch struct {
+	spec session.SubagentSpec
+	// def is the definition behind a spawn_agent child; nil for a system child.
+	def *subagents.Definition
+	// prompt is the child's task text.
+	prompt string
+	// parentMode is the mode the launching turn was admitted in.
+	parentMode string
+	// label is the task label and the child session title.
+	label string
+	// timeoutSeconds is the run's hard limit; expectedSeconds the estimate.
+	timeoutSeconds, expectedSeconds int
+	// detached runs the child on a context that outlives the launching tool
+	// call (a background spawn, every memory run).
+	detached bool
+	// notify wakes the parent when the task finishes (background spawns only).
+	notify bool
+	// toolCallID links the task to the transcript row that started it.
+	toolCallID string
+	// relay forwards the child's permission prompts; nil denies them all.
+	relay *permissionRelay
+	// modelNote is written into the task log when the definition named a
+	// model that is not configured.
+	modelNote string
+	// system marks the runtime's own child (see subagentRun.system).
+	system bool
+	// cleanup runs once with the run's finish: what the launcher acquired
+	// (a limiter slot, an arbiter, an in-flight slot) is released here.
+	cleanup func()
+}
+
+// launchChildRun registers the child's task with the pool and starts the run
+// goroutine. The callback hands the handle back at once and does everything
+// that can block (session creation, MCP dialing, the turn itself) on that
+// goroutine, so the pool's Stop and timeout reach a child that is still being
+// created. The task id is known before anything starts. A refused launch has
+// already run the cleanup when this returns.
+func (a *Agent) launchChildRun(ctx context.Context, rt SubagentRuntime, l childLaunch) (bgtask.Snapshot, *subagentRun, error) {
+	parentID := strings.TrimSpace(l.spec.ParentSessionID)
+	childID := strings.TrimSpace(l.spec.ID)
+	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
+	pool := a.backgroundPool(sd)
+
+	base := ctx
+	if l.detached {
+		base = context.WithoutCancel(ctx)
+	}
+	runCtx, cancel := context.WithCancel(base)
+	handle := &subagentHandle{cancel: cancel, done: make(chan struct{})}
+	if l.relay != nil {
+		l.relay.childCtx = runCtx
+	}
+	run := &subagentRun{
+		def:        l.def,
+		name:       l.spec.Name,
+		system:     l.system,
+		childID:    childID,
+		prompt:     l.prompt,
+		parentMode: l.parentMode,
+		handle:     handle,
+		startedAt:  time.Now(),
+	}
+
+	var finishOnce sync.Once
+	finish := func() {
+		finishOnce.Do(func() {
+			// Work the child launched settles before its transcript is sealed.
+			pool.StopSession(childID)
+			rt.RetireSubagentSession(childID)
+			if l.cleanup != nil {
+				l.cleanup()
+			}
+			cancel()
+		})
+	}
+
+	agentInfo := &bgtask.AgentInfo{Name: l.spec.Name, SessionID: childID, System: l.system}
+	spec := bgtask.Spec{
+		SessionID:       parentID,
+		Kind:            bgtask.KindAgent,
+		Label:           l.label,
+		CWD:             l.spec.CWD,
+		ToolCallID:      l.toolCallID,
+		ExpectedSeconds: l.expectedSeconds,
+		TimeoutSeconds:  l.timeoutSeconds,
+		NotifyOnFinish:  l.notify,
+		Agent:           agentInfo,
+	}
+	snap, err := pool.Launch(spec, func(taskID string, out io.Writer) (bgtask.Handle, error) {
+		run.taskID = taskID
+		run.out = out
+		run.sender = newSubagentSender(out, l.relay)
+		_, _ = fmt.Fprintf(out, "subagent %s (task %s, session %s) starting\n", l.spec.Name, taskID, childID)
+		if l.modelNote != "" {
+			_, _ = fmt.Fprintln(out, l.modelNote)
+		}
+		childSpec := l.spec
+		childSpec.TaskID = taskID
+		go a.executeSubagentRun(runCtx, rt, run, childSpec, out, finish)
+		return handle, nil
+	})
+	if err != nil {
+		finish()
+		return snap, run, err
+	}
+	return snap, run, nil
+}
+
 // executeSubagentRun creates the child session, drives its one turn and
 // records the outcome. It runs on its own goroutine; the pool supervises
 // through the handle, and a Stop or timeout that lands while the session is
@@ -694,7 +812,7 @@ func (a *Agent) executeSubagentRun(ctx context.Context, rt SubagentRuntime, run 
 			run.status = "failed"
 			run.err = fmt.Errorf("subagent panicked: %v", r)
 			run.mu.Unlock()
-			a.log.Error("subagent run panicked", "agent", run.def.Name, "session", run.childID, "panic", r)
+			a.log.Error("subagent run panicked", "agent", run.agentName(), "session", run.childID, "panic", r)
 		}
 		run.sender.Flush()
 		_, _ = io.WriteString(out, formatSubagentReport(run, st))
@@ -745,8 +863,11 @@ func (a *Agent) executeSubagentRun(ctx context.Context, rt SubagentRuntime, run 
 		exit = 0
 	}
 	// SubagentStop hooks in the parent see the outcome before the report is
-	// sealed, so a foreground parent reads a report the hook already saw.
-	a.runSubagentStopHooks(context.WithoutCancel(ctx), run.parentMode, run.def.Name, run.childID, run.taskID, run.status, run.report, run.turns)
+	// sealed, so a foreground parent reads a report the hook already saw. A
+	// system child is not a delegation, so no hook describes it.
+	if !run.system {
+		a.runSubagentStopHooks(context.WithoutCancel(ctx), run.parentMode, run.agentName(), run.childID, run.taskID, run.status, run.report, run.turns)
+	}
 }
 
 // parentSessionMCPDeclarations returns the ACP client-supplied MCP declarations
@@ -765,7 +886,7 @@ func formatSubagentReport(run *subagentRun, st *session.State) string {
 	var b strings.Builder
 	b.WriteString("\n=== subagent report ===\n")
 	fmt.Fprintf(&b, "agent: %s | task: %s | session: %s | outcome: %s | turns: %d | duration: %s\n",
-		run.def.Name, run.taskID, run.childID, run.status, run.turns, humanSecondsAgent(int(time.Since(run.startedAt).Round(time.Second)/time.Second)))
+		run.agentName(), run.taskID, run.childID, run.status, run.turns, humanSecondsAgent(int(time.Since(run.startedAt).Round(time.Second)/time.Second)))
 	if run.err != nil {
 		fmt.Fprintf(&b, "error: %v\n", run.err)
 	}
@@ -799,7 +920,7 @@ func formatForegroundResult(run *subagentRun, snap bgtask.Snapshot) string {
 		status = run.status
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "<subagent task=%q session=%q agent=%q status=%q turns=\"%d\">\n", run.taskID, run.childID, run.def.Name, status, turns)
+	fmt.Fprintf(&b, "<subagent task=%q session=%q agent=%q status=%q turns=\"%d\">\n", run.taskID, run.childID, run.agentName(), status, turns)
 	b.WriteString(wrapXMLCDATA(report))
 	b.WriteString("\n</subagent>\n")
 	if runErr != nil {

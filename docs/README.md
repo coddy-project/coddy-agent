@@ -53,7 +53,7 @@ What the agent can do and how each capability is configured.
 - [Message queue](features/message-queue.md) - Writing a follow-up while the agent works, when the running turn reads it, taking one back, the composer and console surfaces, the queue routes.
 - [Background tasks](features/background-tasks.md) - Detached commands, the task pool, timeouts, adoption of long foreground commands, program-wide permission grants.
 - [Context compaction](features/compaction.md) - /compact and automatic summarisation at a threshold, the kept recent turns, result eviction with keep_result.
-- [Long-term memory](features/memory.md) - The memory copilot, what it recalls and saves, the storage layout, configuration and cost.
+- [Long-term memory](features/memory.md) - The memory subagent that runs per turn in the task pool, what it recalls and saves, how the report reaches the turn, the storage layout, configuration and cost.
 - [Session export](features/session-export.md) - /export and coddy sessions export, formats, path rules, trimming options, the JSON document.
 
 ## Reference

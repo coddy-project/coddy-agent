@@ -237,7 +237,7 @@ const PREPARING: LiveStatus = { kind: "waiting", key: WAITING_KEY, target: "" };
 
 type ToolItem = Extract<TranscriptItem, { type: "tool_call" }>;
 type ThinkingItem = Extract<TranscriptItem, { type: "thinking" }>;
-type MemoryItem = Extract<TranscriptItem, { type: "memory_copilot" }>;
+type MemoryItem = Extract<TranscriptItem, { type: "memory_run" }>;
 
 /**
  * Current live status for a running turn. Scans backward and stops at the last
@@ -280,7 +280,7 @@ export function deriveLiveStatus(
       } else if (
         it.type === "tool_call" ||
         it.type === "thinking" ||
-        it.type === "memory_copilot"
+        it.type === "memory_run"
       ) {
         sawStep = true;
       }
@@ -321,13 +321,8 @@ export function deriveLiveStatus(
           waitingFrom = it.startedAtMs + it.durationMs;
         }
         break;
-      case "memory_copilot":
-        if (
-          !memory &&
-          (it.memoryStatus === "in_progress" ||
-            it.recallStatus === "in_progress" ||
-            it.persistStatus === "in_progress")
-        ) {
+      case "memory_run":
+        if (!memory && it.status === "started") {
           memory = it;
         }
         break;
@@ -385,15 +380,15 @@ export function deriveLiveStatus(
     };
   }
 
-  // Below tool/thinking on purpose: recall and persist stay flagged busy after the main
-  // model has moved on (see memoryWallLiveCapMs in types.ts).
+  // Below tool/thinking on purpose: the memory run keeps going in the background
+  // after the main model has moved on, and the model's own step is the news then.
   if (memory) {
     return {
       kind: "memory",
       key: "status.memory",
       target: "",
-      ...(typeof memory.memoryWallStartedAtMs === "number"
-        ? { startedAtMs: memory.memoryWallStartedAtMs }
+      ...(typeof memory.startedAtMs === "number"
+        ? { startedAtMs: memory.startedAtMs }
         : {}),
     };
   }

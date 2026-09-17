@@ -177,6 +177,10 @@ tools:
 
 Setting `enable: false` removes the `background` option from `run_command` and does not register the background tools at all. Subagent runs (`docs/features/subagents.md`) live in the same pool, so `max_concurrent`, `max_timeout_seconds` and `output_buffer_bytes` bound them too; `subagents.*` adds the process-wide cap on child runs, the nesting depth and the default run timeout.
 
+## System tasks
+
+A task the runtime starts on its own behalf, today the memory subagent of a user turn ([Long-term memory](memory.md)), is a `kind: agent` task whose `agent` object carries `system: true`. It is admitted past `tools.background.max_concurrent` and never counted toward it, because that cap bounds the work the model starts and a run per turn would refuse the model's next command; the model-facing tools (`background_list`, `background_output`, `background_wait`, `background_stop`) omit it and refuse its id, while the REST rows and the Tasks drawer show it with a `memory` badge. Drain stops it like any task, after a grace for a run that is still persisting.
+
 ## Subagent runs
 
 The pool deliberately knows nothing about shells. What a task *is* comes from whoever starts it: the `CommandRunner` for a shell command, or a launch callback for work the pool cannot describe as a command:

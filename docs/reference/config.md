@@ -270,17 +270,20 @@ Summarizes older conversation history so long sessions keep fitting the model co
 
 ### `memory`
 
-Optional memory copilot (implementation in external/memory; enable at runtime with memory.enable).
+Optional memory subagent (implementation in external/memory; enable at runtime with memory.enable).
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `memory.enable` | boolean | false | Turn on the memory copilot. |
-| `memory.model` | string | "" | Exact models[].model id used only for recall/persist LLM calls; empty falls back to agent.model or the session override. |
-| `memory.fallback_models` | list of strings |  | Memory copilot models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so one unreachable deployment does not take the memory pass down with it. |
+| `memory.enable` | boolean | false | Run the memory subagent on every user turn (needs the memory build tag). |
+| `memory.model` | string | "" | Exact models[].model id the memory subagent runs on; empty uses the session's model. |
+| `memory.fallback_models` | list of strings |  | Memory subagent models tried in order when the one before them fails before answering (models[].model ids). The session's own model is the last resort whether or not it is listed, so one unreachable deployment does not take the memory run down with it. |
 | `memory.dir` | string | "" | Long-term memory root. Empty resolves to ${CODDY_HOME}/memory. Supports ${CODDY_HOME} and ~. |
-| `memory.recall_max_turns` | integer | 6 | Bounds recall-side LLM rounds in the memory loop. |
-| `memory.persist_max_turns` | integer | 12 | Bounds persist-side LLM rounds in the memory loop. |
-| `memory.copilot_max_tokens` | integer | 4096 | Completion token cap for memory copilot LLM calls. |
+| `memory.wait_seconds` | integer or null | 20 | How long a user turn waits for the memory subagent's report before its first model call. An explicit 0 never waits: the report then reaches the turn only through a later step, or stays in the Tasks drawer. |
+| `memory.timeout_seconds` | integer | 300 | Hard limit of one memory run in seconds, capped by tools.background.max_timeout_seconds like every task of the pool. |
+| `memory.keep_runs` | integer or null | 20 | Finished memory runs kept per session, task record and child transcript alike; the oldest beyond this number are removed when a run finishes. An explicit 0 keeps every run. |
+| `memory.recall_max_turns` | integer | 6 | Bounds the memory subagent's ReAct rounds together with persist_max_turns; the child's cap is the larger of the two. |
+| `memory.persist_max_turns` | integer | 12 | Bounds the memory subagent's ReAct rounds together with recall_max_turns; the child's cap is the larger of the two. |
+| `memory.copilot_max_tokens` | integer | 4096 | Completion token cap for the memory model's calls. |
 | `memory.max_search_hits` | integer | 8 | Maximum snippets returned by memory_search. |
 
 ### `httpserver`
@@ -591,7 +594,7 @@ Collapses unmarked `read`/`grep` tool results to short placeholders when buildin
 
 ### `memory`
 
-Long-term memory copilot (`config.MemoryConfig`, `internal/config/memory.go`; implementation in `external/memory`, `memory` build tag).
+The long-term memory subagent (`config.MemoryConfig`, `internal/config/memory.go`; implementation in `external/memory`, `memory` build tag): the child run every user turn starts in the task pool, the wait for its report, the retention of finished runs ([Long-term memory](../features/memory.md)).
 
 ### `httpserver`
 

@@ -35,6 +35,9 @@ var ErrPoolFull = errors.New("background task pool is full for this session")
 // ErrNotFound is returned when a task id is unknown to the pool.
 var ErrNotFound = errors.New("background task not found")
 
+// ErrTaskRunning is returned by Remove for a task that has not finished.
+var ErrTaskRunning = errors.New("background task is still running")
+
 // ErrDraining is returned once the process is shutting down, so a turn racing
 // drain cannot start work nothing will clean up.
 var ErrDraining = errors.New("background task pool is shutting down")
@@ -311,7 +314,12 @@ func (p *Pool) start(spec Spec, launch LaunchFunc) (Snapshot, error) {
 		p.mu.Unlock()
 		return Snapshot{}, ErrDraining
 	}
-	if p.runningForSession(spec.SessionID) >= p.cfg.MaxConcurrent {
+	// The per-session cap bounds the work the model starts. A system task
+	// (the memory subagent) is the runtime's own errand: it is admitted past
+	// the cap and, in runningForSession, never counted toward it, so a run
+	// per user turn cannot refuse the model's next command.
+	system := spec.Agent != nil && spec.Agent.System
+	if !system && p.runningForSession(spec.SessionID) >= p.cfg.MaxConcurrent {
 		p.mu.Unlock()
 		return Snapshot{}, fmt.Errorf("%w (limit %d)", ErrPoolFull, p.cfg.MaxConcurrent)
 	}
@@ -771,18 +779,79 @@ func (p *Pool) ClearFinished(sessionID string) int {
 	return cleared
 }
 
-// RunningCount reports how many tasks of a session are still in flight.
+// RunningCount reports how many tasks the model started in a session are
+// still in flight. System tasks are not the model's and are not counted.
 func (p *Pool) RunningCount(sessionID string) int {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.runningForSession(strings.TrimSpace(sessionID))
 }
 
-// runningForSession must be called with the pool lock held.
+// Remove drops one finished task: its entry in the pool and its record under
+// the session bundle, so a task list the operator or a retention rule prunes
+// does not grow it back on the next poll. A record left by an earlier process
+// is removed the same way. A task that is still running answers
+// ErrTaskRunning and stays; an id nobody knows answers ErrNotFound.
+func (p *Pool) Remove(sessionID, taskID string) error {
+	sessionID = strings.TrimSpace(sessionID)
+	taskID = strings.TrimSpace(taskID)
+	if sessionID == "" || taskID == "" {
+		return fmt.Errorf("%w: %s", ErrNotFound, taskID)
+	}
+	key := taskKey(sessionID, taskID)
+
+	p.mu.Lock()
+	sessionDir := p.sessionDirs[sessionID]
+	t, live := p.tasks[key]
+	if live {
+		t.mu.Lock()
+		finished := t.snap.Status.Finished()
+		t.mu.Unlock()
+		if !finished {
+			p.mu.Unlock()
+			return fmt.Errorf("%w: %s", ErrTaskRunning, taskID)
+		}
+		delete(p.tasks, key)
+		kept := p.order[:0]
+		for _, k := range p.order {
+			if k != key {
+				kept = append(kept, k)
+			}
+		}
+		p.order = kept
+	}
+	p.mu.Unlock()
+
+	if live {
+		if t.dir != "" {
+			_ = os.RemoveAll(t.dir)
+		}
+		return nil
+	}
+	if sessionDir == "" {
+		return fmt.Errorf("%w: %s", ErrNotFound, taskID)
+	}
+	dir := filepath.Join(sessionDir, backgroundDirName, taskID)
+	data, err := os.ReadFile(filepath.Join(dir, metaFileName)) // #nosec G304 -- path is derived from the session bundle we own
+	if err != nil {
+		return fmt.Errorf("%w: %s", ErrNotFound, taskID)
+	}
+	snap, err := unmarshalPersistedSnapshot(data)
+	if err != nil {
+		return fmt.Errorf("%w: %s", ErrNotFound, taskID)
+	}
+	if !snap.Status.Finished() {
+		return fmt.Errorf("%w: %s", ErrTaskRunning, taskID)
+	}
+	return os.RemoveAll(dir)
+}
+
+// runningForSession must be called with the pool lock held. It counts the
+// tasks the per-session cap applies to, so a system task is skipped.
 func (p *Pool) runningForSession(sessionID string) int {
 	count := 0
 	for _, t := range p.tasks {
-		if t.snap.SessionID != sessionID {
+		if t.snap.SessionID != sessionID || t.snap.SystemTask() {
 			continue
 		}
 		t.mu.Lock()

@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""ACP long-term memory copilot E2E (uses default coddy binary from `make build`).
+"""ACP long-term memory E2E (uses default coddy binary from `make build`).
 
-Verifies the memory subsystem behaves like an internal voice (not main-agent tools):
+Verifies the memory subagent behaves like an internal voice (not main-agent tools):
 
-- Pre-seeded global markdown is found via the memory copilot (RECALL path) and influences the main reply without read_file to that path.
-- After a second turn that asks the model to surface a new memorable fact, the memory copilot (PERSIST path) may write a new .md under
+- Pre-seeded global markdown is found by the memory subagent (RECALL) and influences the main reply without read_file to that path.
+- After a second turn that asks the model to surface a new memorable fact, the memory subagent (PERSIST) may write a new .md under
   $CODDY_HOME/memory or <cwd>/memory and a third question recalls it.
-- Optional prune step: user text nudges the memory copilot to remove a disposable global note; file must disappear.
+- Every turn's run is a child session bundle under <session>/subagents/, named memory; the script asserts one exists.
+- Optional prune step: user text nudges the memory subagent to remove a disposable global note; file must disappear.
 
 Environment (paths):
 
@@ -42,6 +43,15 @@ def same_id(a: Any, b: Any) -> bool:
         return float(a) == float(b)
     except (TypeError, ValueError):
         return False
+
+
+def _is_memory_child(session_json: Path) -> bool:
+    """True for the session.json of a child bundle the memory subagent ran in."""
+    try:
+        meta = json.loads(session_json.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, ValueError):
+        return False
+    return meta.get("subagentName") == "memory"
 
 
 def repo_root() -> Path:
@@ -413,9 +423,22 @@ def main() -> None:
             else:
                 print("OK: disposable global note removed.", file=sys.stderr)
 
+        memory_children = [
+            p
+            for p in Path(session_root).rglob("subagents/*/session.json")
+            if _is_memory_child(p)
+        ]
+        if not memory_children:
+            print(
+                f"FAIL: no memory child session bundle under {session_root} (the memory subagent never ran?)",
+                file=sys.stderr,
+            )
+            exit_code = exit_code or 13
+
         print(
             "summary:",
             {
+                "memory_child_bundles": len(memory_children),
                 "token_found_turn1": token in text1,
                 "fruit_persisted": fruit_word.upper() in blob,
                 "fruit_recalled_turn3": fruit_word.upper() in text3.upper(),

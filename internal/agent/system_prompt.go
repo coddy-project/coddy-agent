@@ -109,6 +109,10 @@ type systemPromptBuild struct {
 	// before every call, as it did for every template before, and sends no turn
 	// context block: the template is already carrying what the block would say.
 	Volatile bool
+	// MemoryRecall is the memory subagent's report this build rendered into
+	// the Memory slot, so the turn context knows whether a later report is
+	// already in the frozen prompt (memory_run.go).
+	MemoryRecall string
 }
 
 // buildSystemPrompt constructs the system prompt for the current mode and skills.
@@ -126,8 +130,19 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition, userText string, contextFiles []string) *systemPromptBuild {
 	promptsDir := a.cfg.Prompts.ResolvedDir(a.state.GetCWD())
 	clock := a.now().UTC()
+	if a.subagent != nil && strings.TrimSpace(a.subagent.PromptTemplate) != "" {
+		return a.buildTemplatedChildPrompt(mode, toolDefs, clock)
+	}
 	promptTodoMD := checklistMarkdownFromPlan(a.state.GetPlan())
-	mem := formatMergedMemory(strings.TrimSpace(a.state.GetAgentMemory()), strings.TrimSpace(a.state.GetMemoryCopilotBlock()))
+	// A memory report that settled since the last render lands in the store
+	// here, so a template re-rendered every step (a volatile one under
+	// prompts.dir) and a rebuild after a compaction carry it through
+	// {{.Memory}}; a frozen prompt gets it through the turn context instead.
+	if a.memoryRun != nil {
+		a.deliverMemoryReport("system prompt")
+	}
+	recall := strings.TrimSpace(a.state.GetMemoryCopilotBlock())
+	mem := formatMergedMemory(strings.TrimSpace(a.state.GetAgentMemory()), recall)
 	planCtx := ""
 	if mode == "agent" {
 		// Read, never taken. The turn it belongs to renders this prompt more
@@ -199,6 +214,40 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 		Clock:         clock,
 		RendersRules:  rendersRules,
 		Volatile:      prompts.RendersVolatile(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile()),
+		MemoryRecall:  recall,
+	}
+	a.refreshContextBreakdown(build, "")
+	return build
+}
+
+// buildTemplatedChildPrompt renders the system prompt of a system child that
+// carries a template of its own (the memory subagent): the template with the
+// working directory and the tool list, then the environment block, the hook
+// context and the identity line as for every prompt. Skills, rules, project
+// instructions, the subagent catalog and the session memory are not
+// rendered: the child's task is not the workspace's, and a template that
+// does not print them must not be handed them through the back door.
+func (a *Agent) buildTemplatedChildPrompt(mode string, toolDefs []llm.ToolDefinition, clock time.Time) *systemPromptBuild {
+	toolsMD := tools.FormatDefinitionsForPrompt(toolDefs)
+	full, err := prompts.RenderSource(a.subagent.Kind, a.subagent.PromptTemplate, prompts.TemplateData{
+		CWD:          a.state.GetCWD(),
+		Tools:        toolsMD,
+		SubagentRole: a.subagentRoleBlock(),
+		UTCNow:       clock.Format(time.RFC3339),
+	})
+	if err != nil {
+		a.log.Warn("child prompt template failed to render; using the role alone", "kind", a.subagent.Kind, "error", err)
+		full = a.subagentRoleBlock()
+	}
+	full = joinNonEmptyPromptBlocks(full, a.environment.PromptContext())
+	full = joinNonEmptyPromptBlocks(full, a.hookContextBlock())
+	full = prompts.WithIdentity(full)
+	build := &systemPromptBuild{
+		Mode:     mode,
+		Content:  full,
+		ToolsMD:  toolsMD,
+		ToolDefs: toolDefs,
+		Clock:    clock,
 	}
 	a.refreshContextBreakdown(build, "")
 	return build

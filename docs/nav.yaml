@@ -114,7 +114,7 @@ groups:
         summary: /compact and automatic summarisation at a threshold, the kept recent turns, result eviction with keep_result.
       - path: features/memory.md
         title: Long-term memory
-        summary: The memory copilot, what it recalls and saves, the storage layout, configuration and cost.
+        summary: The memory subagent that runs per turn in the task pool, what it recalls and saves, how the report reaches the turn, the storage layout, configuration and cost.
       - path: features/session-export.md
         title: Session export
         summary: /export and coddy sessions export, formats, path rules, trimming options, the JSON document.

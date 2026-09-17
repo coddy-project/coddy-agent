@@ -118,6 +118,9 @@ type Agent struct {
 	// clock is the wall clock the turn context block reads; nil means
 	// time.Now. Tests that assert on a rendered timestamp set it.
 	clock func() time.Time
+	// memoryRun is the memory subagent this turn started, or nil
+	// (memory_run.go). The Agent lives for one turn, so it needs no reset.
+	memoryRun *memoryTurnRun
 }
 
 // NewAgent creates an Agent for a prompt turn.
@@ -140,6 +143,9 @@ func NewAgent(cfg *config.Config, state SessionState, server acp.UpdateSender, l
 	if st := sessionStatePtr(state); st != nil {
 		a.subagent = st.Subagent()
 	}
+	// The system memory child gets its tools here, in its own registry;
+	// nothing else ever sees them.
+	a.registerMemoryChildTools()
 	return a
 }
 
@@ -217,6 +223,9 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	})
 	a.setHookTurn(session.CountUserTurns(a.state.GetMessages()))
 	a.runMemoryBeforeTurn(ctx, userText, mode)
+	// A report that lands after this turn returned is history in the Tasks
+	// drawer, never the next turn's context.
+	defer a.finishMemoryTurn()
 
 	// Collect context files from the prompt for skill filtering.
 	contextFiles := extractContextFiles(prompt)
@@ -1671,13 +1680,64 @@ func (a *Agent) getProvider(mode string) (llmTransport, error) {
 	if mk == nil {
 		mk = llm.NewProvider
 	}
-	in := a.turnProviderInput(rm)
+	in := a.childProviderInput(a.turnProviderInput(rm))
 	in.ReasoningEffort = a.state.EffectiveReasoning(a.cfg)
 	provider, err := mk(in)
 	if err != nil {
 		return llmTransport{}, err
 	}
+	provider = a.withChildFallbacks(provider, modelID, mk)
 	return llmTransport{provider: provider, streaming: rm.Stream}, nil
+}
+
+// childProviderInput applies what a system child's spec says about its
+// model calls: the completion cap of memory.copilot_max_tokens, clamped the
+// way the copilot pass clamped it.
+func (a *Agent) childProviderInput(in llm.ProviderInput) llm.ProviderInput {
+	if a.subagent == nil || a.subagent.MaxTokens <= 0 {
+		return in
+	}
+	if in.MaxTokens <= 0 || in.MaxTokens > a.subagent.MaxTokens {
+		in.MaxTokens = a.subagent.MaxTokens
+	}
+	return in
+}
+
+// withChildFallbacks wraps a child's provider in the fallback chain its spec
+// names (memory.fallback_models, then the session's model): a call that
+// fails before producing any output moves to the next model, a stream that
+// broke after output does not. An entry that resolves to nothing is skipped
+// and logged; an ordinary session, or a child without fallbacks, gets its
+// provider back untouched.
+func (a *Agent) withChildFallbacks(primary llm.Provider, modelID string, mk func(llm.ProviderInput) (llm.Provider, error)) llm.Provider {
+	if a.subagent == nil || len(a.subagent.FallbackModels) == 0 {
+		return primary
+	}
+	candidates := []llm.FallbackCandidate{{Provider: primary, Model: modelID}}
+	seen := map[string]bool{modelID: true}
+	for _, ref := range a.subagent.FallbackModels {
+		ref = strings.TrimSpace(ref)
+		if ref == "" || seen[ref] {
+			continue
+		}
+		seen[ref] = true
+		rm, err := a.cfg.ResolveLLM(ref)
+		if err != nil {
+			a.log.Warn("fallback model unavailable; skipped", "model", ref, "error", err)
+			continue
+		}
+		in := a.childProviderInput(a.turnProviderInput(rm))
+		in.ReasoningEffort = a.state.EffectiveReasoning(a.cfg)
+		provider, err := mk(in)
+		if err != nil {
+			a.log.Warn("fallback model unavailable; skipped", "model", ref, "error", err)
+			continue
+		}
+		candidates = append(candidates, llm.FallbackCandidate{Provider: provider, Model: ref})
+	}
+	return llm.NewFallbackChain(candidates, func(from, to string, err error) {
+		a.log.Warn("model failed before answering; falling back to the next one", "model", from, "next", to, "error", err)
+	})
 }
 
 // turnProviderInput is llmProviderInput plus the bounds of a user turn: the

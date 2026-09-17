@@ -47,8 +47,7 @@ async function drive(
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map() },
     newId: (p) => `${p}-${idc++}`,
-    applyMemoryPhaseToItems: (prev) => prev,
-    applyMemoryChunkToItems: (prev) => prev,
+    applyMemoryRunToItems: (prev) => prev,
   };
   const res = await consumeComposerSseReader(params);
   res.flushToolQueue();
@@ -174,8 +173,7 @@ test("a provider_usage frame on the turn stream reaches the usage callback", asy
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map() },
     newId: (p) => `${p}-x`,
-    applyMemoryPhaseToItems: (prev) => prev,
-    applyMemoryChunkToItems: (prev) => prev,
+    applyMemoryRunToItems: (prev) => prev,
     onProviderUsage: (u) => seen.push(`${u.provider}:${u.plan ?? ""}`),
   });
   expect(seen).toEqual(["neuraldeep:pro"]);
