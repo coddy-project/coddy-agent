@@ -132,3 +132,61 @@ func TestSplitWords(t *testing.T) {
 		}
 	}
 }
+
+// The answer and the call ordinal that names the completion are taken under
+// one lock, so two completions served at once never share an id.
+func TestPickCountsOnce(t *testing.T) {
+	stub := &Server{Answers: []string{"a", "b"}}
+	if answer, call := stub.pick("x"); answer != "a" || call != 1 {
+		t.Fatalf("first pick: %q %d", answer, call)
+	}
+	if answer, call := stub.pick("y"); answer != "b" || call != 2 {
+		t.Fatalf("second pick: %q %d", answer, call)
+	}
+	if stub.Calls() != 2 {
+		t.Fatalf("calls = %d", stub.Calls())
+	}
+}
+
+// Coddy appends its runtime state as one more user message; the person's
+// words are the newest user message that is not such a block.
+func TestLastUserTextSkipsTurnContext(t *testing.T) {
+	block := "<turn_context>\nRuntime state refreshed by Coddy for this step.\n\n## Current UTC time\n\n2026-09-17T21:31:10Z\n</turn_context>"
+	var req chatRequest
+	body := `{"messages":[
+		{"role":"system","content":"sys"},
+		{"role":"user","content":"hello"},
+		{"role":"assistant","content":"hi"},
+		{"role":"user","content":"tell me more"},
+		{"role":"user","content":` + strconvQuote(block) + `}]}`
+	if err := json.Unmarshal([]byte(body), &req); err != nil {
+		t.Fatal(err)
+	}
+	if got := req.lastUserText(); got != "tell me more" {
+		t.Fatalf("lastUserText = %q", got)
+	}
+	if got := stripTurnContext("before " + block + " after"); strings.TrimSpace(got) != "before  after" && got != "before  after" {
+		t.Fatalf("stripTurnContext = %q", got)
+	}
+	if got := stripTurnContext("open <turn_context> never closed"); got != "open " {
+		t.Fatalf("unclosed block = %q", got)
+	}
+	stub := &Server{}
+	srv := httptest.NewServer(stub.Handler())
+	defer srv.Close()
+	resp := post(t, srv.URL, body)
+	defer func() { _ = resp.Body.Close() }()
+	var out struct {
+		Choices []struct {
+			Message struct{ Content string } `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || len(out.Choices) != 1 || out.Choices[0].Message.Content != "You said: tell me more" {
+		t.Fatalf("echo answers the person, not the runtime block: %v %+v", err, out)
+	}
+}
+
+func strconvQuote(s string) string {
+	raw, _ := json.Marshal(s)
+	return string(raw)
+}
