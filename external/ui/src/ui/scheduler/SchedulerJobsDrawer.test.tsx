@@ -1,6 +1,6 @@
 import React from "react";
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, expect, test } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, expect, test, vi } from "vitest";
 import { SchedulerJobsDrawer } from "./SchedulerJobsDrawer";
 import type { SchedulerJob } from "./types";
 
@@ -14,7 +14,11 @@ const baseJob = (id: string): SchedulerJob => ({
   running: false,
 });
 
-function renderDrawer(selectedJobId: string | null, jobs: SchedulerJob[]) {
+function renderDrawer(
+  selectedJobId: string | null,
+  jobs: SchedulerJob[],
+  onOpenRuns: (jobId: string) => void = () => {},
+) {
   return render(
     <SchedulerJobsDrawer
       open
@@ -26,6 +30,7 @@ function renderDrawer(selectedJobId: string | null, jobs: SchedulerJob[]) {
       loading={false}
       onAddJob={() => {}}
       onOpenJob={() => {}}
+      onOpenRuns={onOpenRuns}
       onRunJob={() => {}}
       onCancelJob={() => {}}
       searchDraft=""
@@ -97,4 +102,62 @@ test("a running job's Stop carries the drawn stop square", () => {
   const stop = screen.getByTestId("scheduler-stop-busy");
   expect(stop.querySelector(".composer-send-glyph .composer-stop-square")).toBeTruthy();
   expect(stop.textContent?.trim()).toBe("");
+});
+
+// Every row opens the job's runs: a real href for new-tab gestures, and the
+// in-place handler for a plain click. The list stays a list of jobs; the
+// history of one job is the panel that link opens.
+test("job row carries a Runs control with the runs hash", () => {
+  const onOpenRuns = vi.fn();
+  renderDrawer(null, [baseJob("nightly")], onOpenRuns);
+  const runs = screen.getByTestId("scheduler-runs-nightly");
+  expect(runs).toHaveAttribute("href", "#/scheduler/jobs/nightly/runs");
+  fireEvent.click(runs);
+  expect(onOpenRuns).toHaveBeenCalledWith("nightly");
+});
+
+test("job row shows the last run's status and clock, and nothing before the first run", () => {
+  renderDrawer(null, [
+    {
+      ...baseJob("quiet"),
+    },
+    {
+      ...baseJob("nightly"),
+      last_run: {
+        task_id: "bg_4",
+        session_id: "sess_run",
+        job_session_id: "sess_job",
+        status: "failed",
+        running: false,
+        started_at: "2026-09-18T10:00:00Z",
+        ended_at: "2026-09-18T10:03:00Z",
+        elapsed_seconds: 180,
+      },
+    },
+  ]);
+  expect(screen.queryByTestId("scheduler-last-run-quiet")).toBeNull();
+  const mark = screen.getByTestId("scheduler-last-run-nightly");
+  expect(mark.textContent).toContain("Failed");
+  expect(mark.querySelector(".bgtask-dot--danger")).toBeTruthy();
+});
+
+test("a running last run reads as running", () => {
+  renderDrawer(null, [
+    {
+      ...baseJob("busy"),
+      running: true,
+      last_run: {
+        task_id: "bg_5",
+        session_id: "sess_run",
+        job_session_id: "sess_job",
+        status: "running",
+        running: true,
+        started_at: "2026-09-18T10:00:00Z",
+        elapsed_seconds: 12,
+      },
+    },
+  ]);
+  const mark = screen.getByTestId("scheduler-last-run-busy");
+  expect(mark.textContent).toContain("Running");
+  expect(mark.querySelector(".bgtask-dot--running")).toBeTruthy();
 });

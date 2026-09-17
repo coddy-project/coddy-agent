@@ -856,6 +856,13 @@ export const messagesEn: Record<string, string> = {
   "chat.subagentReadOnly.openParent": "Open parent chat",
   "chat.subagentTitle": "Subagent {name}",
   "chat.subagentTitleUnnamed": "Subagent transcript",
+  "chat.scheduledRunReadOnly.notice":
+    "Read-only transcript of a run of scheduler job {jobId}.",
+  "chat.scheduledRunReadOnly.openRuns": "Open the job's runs",
+  "chat.schedulerJobSession.notice":
+    "This session belongs to scheduler job {jobId} and holds its runs; nothing is prompted here.",
+  "chat.scheduledRunTitle": "Run of {jobId}",
+  "chat.schedulerJobSessionTitle": "Job {jobId}",
   "chat.heroTitle": "What do you want to {verb}?",
   "chat.heroVerb.know": "know",
   "chat.heroVerb.build": "build",
@@ -1083,6 +1090,23 @@ export const messagesEn: Record<string, string> = {
     "No spaces - use hyphens (example: daily-report)",
   "scheduler.validation.invalidJobId":
     "Only letters, digits, and hyphens (example: daily-report)",
+  "scheduler.runs": "Runs",
+  "scheduler.openRuns": "Open the runs of {jobId}",
+  "scheduler.runsTitle": "Runs of {jobId}",
+  "scheduler.runsEmpty": "No runs yet. Run the job now or wait for its schedule.",
+  "scheduler.runsJobHeading": "Job",
+  "scheduler.lastRun.running": "Running",
+  "scheduler.field.agent": "agent (optional)",
+  "scheduler.field.agentHelp":
+    "Subagent definition the run is made under: its role, tool allowlist, model and permission narrowing apply.",
+  "scheduler.field.agentPlaceholder": "general agent",
+  "scheduler.field.permissionMode": "permission mode",
+  "scheduler.field.permissionModeHelp":
+    "What the run may do without asking. Nobody answers a prompt, so a gated call is denied under ask or accept_edits.",
+  "scheduler.permission.default": "bypass (default: unattended)",
+  "scheduler.permission.acceptEdits": "accept_edits",
+  "scheduler.permission.ask": "ask",
+  "scheduler.permission.bypass": "bypass",
 
   "tasks.panelTitle": "Background tasks",
   "tasks.closePanel": "Close background tasks",

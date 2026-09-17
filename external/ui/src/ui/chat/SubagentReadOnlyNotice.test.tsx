@@ -45,3 +45,45 @@ test("falls back to generic copy without a name and hides the link without a par
   );
   expect(screen.queryByTestId("subagent-readonly-parent-link")).toBeNull();
 });
+
+test("a scheduled run names its job and links to the job's runs", () => {
+  render(
+    <SubagentReadOnlyNotice
+      meta={{
+        parentSessionId: "sess_job",
+        name: "nightly",
+        taskId: "bg_2",
+        scheduler: { jobId: "nightly", trigger: "cron" },
+      }}
+    />,
+  );
+  expect(screen.getByTestId("subagent-readonly-notice")).toHaveTextContent(
+    "Read-only transcript of a run of scheduler job nightly.",
+  );
+  expect(screen.queryByTestId("subagent-readonly-parent-link")).toBeNull();
+  expect(screen.getByTestId("subagent-readonly-runs-link")).toHaveAttribute(
+    "href",
+    "#/scheduler/jobs/nightly/runs/bg_2",
+  );
+});
+
+test("the session of a scheduler job says so and links to the runs list", () => {
+  render(
+    <SubagentReadOnlyNotice
+      meta={{
+        parentSessionId: "",
+        name: "",
+        taskId: "",
+        scheduler: { jobId: "nightly", trigger: "" },
+        jobSession: true,
+      }}
+    />,
+  );
+  expect(screen.getByTestId("subagent-readonly-notice")).toHaveTextContent(
+    "This session belongs to scheduler job nightly and holds its runs",
+  );
+  expect(screen.getByTestId("subagent-readonly-runs-link")).toHaveAttribute(
+    "href",
+    "#/scheduler/jobs/nightly/runs",
+  );
+});

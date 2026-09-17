@@ -65,3 +65,22 @@ export function SchedulerIconTrash(props: { className?: string }) {
     </svg>
   );
 }
+
+/** Runs of a job - a list with a clock, the history the panel opens. */
+export function SchedulerIconRuns(props: { className?: string }) {
+  return (
+    <svg
+      {...common}
+      className={props.className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4 6h9M4 12h6M4 18h5" />
+      <circle cx="17" cy="15" r="4.5" />
+      <path d="M17 12.8v2.4l1.6 1" />
+    </svg>
+  );
+}
