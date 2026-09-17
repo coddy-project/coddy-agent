@@ -261,3 +261,38 @@ func newStandFrom(t *testing.T, fake *Server) string {
 	})
 	return srv.URL
 }
+
+// A username that does not start with an ASCII letter is capitalised whole,
+// not cut inside its first rune.
+func TestInjectMessage_FirstNameFromUnicodeUsername(t *testing.T) {
+	s := newStand(t, Options{})
+	s.fake.InjectMessage(IncomingMessage{Text: "привет", UserID: 7, Username: "ёжик"})
+	_, body := s.call("getUpdates", url.Values{"timeout": {"0"}})
+	from := updates(t, body)[0]["message"].(map[string]any)["from"].(map[string]any)
+	if from["first_name"] != "Ёжик" {
+		t.Fatalf("first_name = %q", from["first_name"])
+	}
+	if first, rest := firstRune(""); first != "" || rest != "" {
+		t.Fatalf("firstRune(\"\") = %q %q", first, rest)
+	}
+}
+
+// A negative offset reads from the end of the queue and forgets what came
+// before it, the way api.telegram.org documents it.
+func TestGetUpdates_NegativeOffset(t *testing.T) {
+	s := newStand(t, Options{})
+	for _, text := range []string{"one", "two", "three"} {
+		s.fake.InjectMessage(IncomingMessage{Text: text})
+	}
+	_, body := s.call("getUpdates", url.Values{"offset": {"-1"}, "timeout": {"0"}})
+	if got := updates(t, body); len(got) != 1 || got[0]["update_id"] != float64(3) {
+		t.Fatalf("offset -1: %v", got)
+	}
+	if s.fake.PendingUpdates() != 1 {
+		t.Fatalf("older updates should be forgotten: %d pending", s.fake.PendingUpdates())
+	}
+	_, body = s.call("getUpdates", url.Values{"offset": {"-5"}, "timeout": {"0"}})
+	if got := updates(t, body); len(got) != 1 {
+		t.Fatalf("an offset past the start keeps everything: %v", got)
+	}
+}

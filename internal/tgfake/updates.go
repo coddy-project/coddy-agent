@@ -59,7 +59,8 @@ func (in *IncomingMessage) normalize() {
 	}
 	if in.FirstName == "" {
 		if in.Username != "" {
-			in.FirstName = strings.ToUpper(in.Username[:1]) + in.Username[1:]
+			first, rest := firstRune(in.Username)
+			in.FirstName = strings.ToUpper(first) + rest
 		} else {
 			in.FirstName = defaultFirstName
 		}
@@ -224,8 +225,17 @@ func (s *Server) deliverableLocked(u Update) bool {
 }
 
 // takeUpdatesLocked confirms everything below offset and returns up to limit
-// of what is left. Subscription changes affect only new updates. Caller holds s.mu.
+// of what is left. A negative offset counts from the end of the queue, as on
+// api.telegram.org: -1 keeps the newest update and forgets the rest.
+// Subscription changes affect only new updates. Caller holds s.mu.
 func (s *Server) takeUpdatesLocked(offset, limit int) []Update {
+	if offset < 0 {
+		if from := len(s.pending) + offset; from > 0 {
+			offset = s.pending[from].UpdateID
+		} else {
+			offset = 0
+		}
+	}
 	kept := s.pending[:0]
 	for _, u := range s.pending {
 		if u.UpdateID >= offset {
@@ -250,6 +260,17 @@ func (s *Server) PendingUpdates() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.pending)
+}
+
+// firstRune splits a string after its first character, so a name that does
+// not start with an ASCII letter is capitalised without cutting a rune.
+func firstRune(s string) (first, rest string) {
+	for i := range s {
+		if i > 0 {
+			return s[:i], s[i:]
+		}
+	}
+	return s, ""
 }
 
 // utf16Len is the length Telegram measures entities in.

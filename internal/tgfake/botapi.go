@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // serveBotAPI answers /bot<token>/<method>. Anything else under / is a 404
@@ -190,6 +191,10 @@ func (s *Server) sendMessage(w http.ResponseWriter, method string, params url.Va
 		s.writeError(w, method, params, http.StatusBadRequest, "Bad Request: message text is empty", 0)
 		return
 	}
+	if utf8.RuneCountInString(text) > messageTextMax {
+		s.writeError(w, method, params, http.StatusBadRequest, "Bad Request: message is too long", 0)
+		return
+	}
 	markup := parseKeyboard(params.Get("reply_markup"))
 	if problem := validateKeyboard(markup); problem != "" {
 		s.writeError(w, method, params, http.StatusBadRequest, problem, 0)
@@ -197,16 +202,18 @@ func (s *Server) sendMessage(w http.ResponseWriter, method string, params url.Va
 	}
 	s.mu.Lock()
 	chat := s.ensureChatLocked(chatID, "", "", nil)
-	msg := &Message{
-		From: s.botUser(),
-		Chat: chat.wire(),
-		Date: s.now().Unix(),
-		Text: text,
+	quoted, problem := replyTargetLocked(chat, params)
+	if problem != "" {
+		s.mu.Unlock()
+		s.writeError(w, method, params, http.StatusBadRequest, problem, 0)
+		return
 	}
-	if id := atoi(params.Get("reply_to_message_id")); id != 0 {
-		if target := chat.byID[id]; target != nil {
-			msg.ReplyToMessage = target.quoted()
-		}
+	msg := &Message{
+		From:           s.botUser(),
+		Chat:           chat.wire(),
+		Date:           s.now().Unix(),
+		Text:           text,
+		ReplyToMessage: quoted,
 	}
 	msg.ReplyMarkup = markup
 	stored := chat.appendLocked(msg, true, params.Get("parse_mode"), false)
@@ -240,6 +247,11 @@ func (s *Server) editMessage(w http.ResponseWriter, method string, params url.Va
 		if newText == "" {
 			s.mu.Unlock()
 			s.writeError(w, method, params, http.StatusBadRequest, "Bad Request: message text is empty", 0)
+			return
+		}
+		if utf8.RuneCountInString(newText) > messageTextMax {
+			s.mu.Unlock()
+			s.writeError(w, method, params, http.StatusBadRequest, "Bad Request: message is too long", 0)
 			return
 		}
 	}
@@ -307,8 +319,17 @@ func (s *Server) answerCallbackQuery(w http.ResponseWriter, method string, param
 	}
 	answer := CallbackAnswer{ID: id, Text: params.Get("text"), ShowAlert: params.Get("show_alert") == "true"}
 	s.mu.Lock()
-	// The query names no chat; the tap that minted it does.
-	if chat := s.chats[s.cbqChat[id]]; chat != nil {
+	// The query names no chat; the tap that minted it does. A query the fake
+	// never issued (or one minted before a Reset) is refused the way Telegram
+	// refuses an answer to a query it does not know.
+	chatID, known := s.cbqChat[id]
+	if !known {
+		s.mu.Unlock()
+		s.writeError(w, method, params, http.StatusBadRequest,
+			"Bad Request: query is too old and response timeout expired or query ID is invalid", 0)
+		return
+	}
+	if chat := s.chats[chatID]; chat != nil {
 		chat.callbacks = append(chat.callbacks, answer)
 	}
 	s.mu.Unlock()
@@ -338,15 +359,13 @@ func (s *Server) sendRichMessage(w http.ResponseWriter, method string, params ur
 	}
 	s.mu.Lock()
 	chat := s.ensureChatLocked(chatID, "", "", nil)
-	msg := &Message{From: s.botUser(), Chat: chat.wire(), Date: s.now().Unix(), Text: body}
-	var reply struct {
-		MessageID int `json:"message_id"`
+	quoted, problem := replyTargetLocked(chat, params)
+	if problem != "" {
+		s.mu.Unlock()
+		s.writeError(w, method, params, http.StatusBadRequest, problem, 0)
+		return
 	}
-	if json.Unmarshal([]byte(params.Get("reply_parameters")), &reply) == nil && reply.MessageID != 0 {
-		if target := chat.byID[reply.MessageID]; target != nil {
-			msg.ReplyToMessage = target.quoted()
-		}
-	}
+	msg := &Message{From: s.botUser(), Chat: chat.wire(), Date: s.now().Unix(), Text: body, ReplyToMessage: quoted}
 	stored := chat.appendLocked(msg, true, "", true)
 	result := stored.clone()
 	s.mu.Unlock()
@@ -420,6 +439,43 @@ func (s *Server) respond(w http.ResponseWriter, method string, params url.Values
 func chatIDOf(params url.Values) (int64, bool) {
 	id, err := strconv.ParseInt(strings.TrimSpace(params.Get("chat_id")), 10, 64)
 	return id, err == nil && id != 0
+}
+
+// messageTextMax is Telegram's limit on the text of one message, in
+// characters: what makes a bot split a long answer, and what a fake that
+// accepted any length would let a streaming path get wrong unnoticed.
+const messageTextMax = 4096
+
+// replyTargetLocked resolves the message a send replies to, named by
+// reply_parameters (Bot API 7) or by the older reply_to_message_id. Telegram
+// refuses a reply to a message that is not in the chat unless
+// allow_sending_without_reply is set, in which case the message goes out
+// unthreaded; the fake does the same. It returns the quote to attach, or the
+// error description. Caller holds s.mu.
+func replyTargetLocked(chat *chatState, params url.Values) (*Message, string) {
+	var reply struct {
+		MessageID                int  `json:"message_id"`
+		AllowSendingWithoutReply bool `json:"allow_sending_without_reply"`
+	}
+	if raw := strings.TrimSpace(params.Get("reply_parameters")); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &reply); err != nil {
+			return nil, "Bad Request: can't parse reply parameters JSON object"
+		}
+	} else {
+		reply.MessageID = atoi(params.Get("reply_to_message_id"))
+		reply.AllowSendingWithoutReply = params.Get("allow_sending_without_reply") == "true"
+	}
+	if reply.MessageID == 0 {
+		return nil, ""
+	}
+	target := chat.byID[reply.MessageID]
+	if target == nil || target.deleted {
+		if reply.AllowSendingWithoutReply {
+			return nil, ""
+		}
+		return nil, "Bad Request: message to be replied not found"
+	}
+	return target.quoted(), ""
 }
 
 // parseKeyboard reads reply_markup; a markup of another kind (a reply

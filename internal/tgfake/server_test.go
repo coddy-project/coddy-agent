@@ -362,3 +362,85 @@ func TestPage(t *testing.T) {
 		}
 	}
 }
+
+// Telegram counts the 4096-character limit in characters, not bytes: 4096
+// Cyrillic letters (8192 bytes) go through, one more is refused - on a send
+// and on an edit alike. A fake that took any length would let a streaming path
+// that splits by the wrong unit look correct on the stand.
+func TestMessageTooLongIsRefused(t *testing.T) {
+	s := newStand(t, Options{})
+	fits := strings.Repeat("я", 4096)
+	status, _ := s.call("sendMessage", url.Values{"chat_id": {"4242"}, "text": {fits}})
+	if status != http.StatusOK {
+		t.Fatalf("4096 characters: %d", status)
+	}
+	status, body := s.call("sendMessage", url.Values{"chat_id": {"4242"}, "text": {fits + "я"}})
+	if status != http.StatusBadRequest || !strings.Contains(body["description"].(string), "message is too long") {
+		t.Fatalf("4097 characters: %d %v", status, body)
+	}
+	status, body = s.call("editMessageText", url.Values{"chat_id": {"4242"}, "message_id": {"1"}, "text": {fits + "я"}})
+	if status != http.StatusBadRequest || !strings.Contains(body["description"].(string), "message is too long") {
+		t.Fatalf("4097-character edit: %d %v", status, body)
+	}
+	if msgs := s.fake.Chat(4242).Messages; len(msgs) != 1 || msgs[0].Edited {
+		t.Fatalf("a refused send or edit must leave the chat alone: %+v", msgs)
+	}
+}
+
+// A reply names a message the chat holds; Telegram refuses any other target
+// unless the bot said it may send without the reply, in which case the
+// message goes out unthreaded. Both spellings of the parameter are read.
+func TestReplyToMissingMessageIsRefused(t *testing.T) {
+	s := newStand(t, Options{})
+	s.fake.InjectMessage(IncomingMessage{Text: "hi"})
+	status, body := s.call("sendMessage", url.Values{"chat_id": {"4242"}, "text": {"answer"}, "reply_to_message_id": {"99"}})
+	if status != http.StatusBadRequest || !strings.Contains(body["description"].(string), "message to be replied not found") {
+		t.Fatalf("reply to a message never sent: %d %v", status, body)
+	}
+	status, body = s.call("sendMessage", url.Values{"chat_id": {"4242"}, "text": {"answer"}, "reply_to_message_id": {"99"}, "allow_sending_without_reply": {"true"}})
+	if status != http.StatusOK || result(t, body)["reply_to_message"] != nil {
+		t.Fatalf("allow_sending_without_reply should send unthreaded: %d %v", status, body)
+	}
+	status, body = s.call("sendRichMessage", url.Values{"chat_id": {"4242"}, "rich_message": {`{"markdown":"answer"}`}, "reply_parameters": {`{"message_id":99}`}})
+	if status != http.StatusBadRequest || !strings.Contains(body["description"].(string), "message to be replied not found") {
+		t.Fatalf("rich reply to a message never sent: %d %v", status, body)
+	}
+	status, body = s.call("sendRichMessage", url.Values{"chat_id": {"4242"}, "rich_message": {`{"markdown":"answer"}`}, "reply_parameters": {`{"message_id":99,"allow_sending_without_reply":true}`}})
+	if status != http.StatusOK || result(t, body)["reply_to_message"] != nil {
+		t.Fatalf("rich allow_sending_without_reply should send unthreaded: %d %v", status, body)
+	}
+	status, body = s.call("sendMessage", url.Values{"chat_id": {"4242"}, "text": {"threaded"}, "reply_parameters": {`{"message_id":1}`}})
+	if status != http.StatusOK || result(t, body)["reply_to_message"].(map[string]any)["text"] != "hi" {
+		t.Fatalf("reply_parameters on sendMessage: %d %v", status, body)
+	}
+	s.call("deleteMessage", url.Values{"chat_id": {"4242"}, "message_id": {"1"}})
+	if status, _ = s.call("sendMessage", url.Values{"chat_id": {"4242"}, "text": {"late"}, "reply_to_message_id": {"1"}}); status != http.StatusBadRequest {
+		t.Fatalf("a deleted message is not there to reply to: %d", status)
+	}
+	if status, _ = s.call("sendMessage", url.Values{"chat_id": {"4242"}, "text": {"x"}, "reply_parameters": {`nope`}}); status != http.StatusBadRequest {
+		t.Fatalf("broken reply_parameters: %d", status)
+	}
+}
+
+// answerCallbackQuery names a query the fake handed out; any other id is what
+// Telegram calls too old or invalid, and a Reset forgets the ids with the rest.
+func TestAnswerCallbackQuery_UnknownIDIsRefused(t *testing.T) {
+	s := newStand(t, Options{})
+	status, body := s.call("answerCallbackQuery", url.Values{"callback_query_id": {"cbq-99"}})
+	if status != http.StatusBadRequest || !strings.Contains(body["description"].(string), "query ID is invalid") {
+		t.Fatalf("unknown query: %d %v", status, body)
+	}
+	s.fake.InjectMessage(IncomingMessage{Text: "/mode"})
+	s.call("sendMessage", url.Values{"chat_id": {"4242"}, "text": {"menu"}, "reply_markup": {`{"inline_keyboard":[[{"text":"Plan","callback_data":"mode:plan"}]]}`}})
+	_, cbq, err := s.fake.InjectCallback(IncomingCallback{Label: "Plan"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, _ := s.call("answerCallbackQuery", url.Values{"callback_query_id": {cbq}}); status != http.StatusOK {
+		t.Fatalf("a query the fake issued: %d", status)
+	}
+	s.fake.Reset()
+	if status, _ := s.call("answerCallbackQuery", url.Values{"callback_query_id": {cbq}}); status != http.StatusBadRequest {
+		t.Fatalf("a query from before Reset: %d", status)
+	}
+}
