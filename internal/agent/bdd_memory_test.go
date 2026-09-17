@@ -46,6 +46,11 @@ type memoryFeatureState struct {
 	memoryModel    string
 	fallbackModels []string
 	askMode        bool
+	// childBroken makes every model call of a memory child fail before
+	// output, the shape of an exhausted account, whatever the chain tries.
+	childBroken bool
+	addendum    string
+	addendumCap int
 
 	mu             sync.Mutex
 	parentProvider *scriptedProvider
@@ -86,6 +91,9 @@ func (s *memoryFeatureState) reset() error {
 	s.memoryModel = ""
 	s.fallbackModels = nil
 	s.askMode = false
+	s.childBroken = false
+	s.addendum = ""
+	s.addendumCap = 0
 	s.parentProvider = nil
 	s.childProviders = map[string]*scriptedProvider{}
 	s.childSteps = nil
@@ -137,6 +145,17 @@ func (s *memoryFeatureState) memoryModelWithFallback(model, fallback string) err
 	return nil
 }
 
+func (s *memoryFeatureState) everyChildModelAnswers(_ string) error {
+	s.childBroken = true
+	return nil
+}
+
+func (s *memoryFeatureState) memoryAdditionalPromptWithNoCap(text string) error {
+	s.addendum = text
+	s.addendumCap = 0
+	return nil
+}
+
 func (s *memoryFeatureState) buildConfig() *config.Config {
 	cfg := &config.Config{
 		Paths:     config.Paths{Home: s.home, CWD: s.cwd, ConfigPath: filepath.Join(s.home, "config.yaml")},
@@ -155,6 +174,8 @@ func (s *memoryFeatureState) buildConfig() *config.Config {
 	wait := s.waitSeconds
 	cfg.Memory.WaitSeconds = &wait
 	cfg.Memory.KeepRuns = s.keepRuns
+	cfg.Memory.AdditionalPrompt = s.addendum
+	cfg.Memory.AdditionalPromptMaxChars = s.addendumCap
 	cfg.Memory.ApplyDefaults()
 	cfg.Subagents.ApplyDefaults(cfg.Paths)
 	cfg.Hooks.ApplyDefaults(cfg.Paths)
@@ -168,7 +189,7 @@ func (s *memoryFeatureState) buildConfig() *config.Config {
 func (s *memoryFeatureState) providerFor(st *session.State, in llm.ProviderInput) llm.Provider {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if strings.Contains(in.Model, "broken") {
+	if strings.Contains(in.Model, "broken") || (s.childBroken && st.IsSubagentRun()) {
 		return &brokenProvider{state: s}
 	}
 	if strings.Contains(in.Model, "partial") {
@@ -644,6 +665,78 @@ func (s *memoryFeatureState) clientReceivedMemoryRun(status string) error {
 	return nil
 }
 
+// The finished update of a failed run names the provider's error, the one
+// the console line and the drawer row show.
+func (s *memoryFeatureState) clientReceivedMemoryRunFailedNaming(taskStatus, text string) error {
+	u := s.memoryRunUpdate("finished")
+	if u == nil {
+		return fmt.Errorf("the parent's client received no memory_run update with status finished")
+	}
+	if u.TaskStatus != taskStatus {
+		return fmt.Errorf("memory_run finished taskStatus = %q, want %q", u.TaskStatus, taskStatus)
+	}
+	if !strings.Contains(u.Reason, text) {
+		return fmt.Errorf("memory_run finished reason = %q, want it to name %q", u.Reason, text)
+	}
+	return nil
+}
+
+func (s *memoryFeatureState) memoryTaskRecordNamesError(text string) error {
+	t, err := s.lastMemoryTask()
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(t.Error, text) {
+		return fmt.Errorf("memory task error = %q, want it to name %q", t.Error, text)
+	}
+	return nil
+}
+
+func (s *memoryFeatureState) parentAnsweredTheUser() error {
+	if s.turnErr != nil {
+		return fmt.Errorf("the parent turn failed: %v", s.turnErr)
+	}
+	msgs := s.parent.GetMessages()
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == llm.RoleAssistant && strings.TrimSpace(msgs[i].Content) != "" {
+			if msgs[i].Content != "parent answer" {
+				return fmt.Errorf("the parent's reply = %q, want %q", msgs[i].Content, "parent answer")
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("the parent produced no reply")
+}
+
+// The operator's addendum is a section of the child's system prompt under
+// its own heading, after the memory role and before the tool list.
+func (s *memoryFeatureState) childPromptCarriesOperatorInstructions(text string) error {
+	p, err := s.childProvider()
+	if err != nil {
+		return err
+	}
+	sp, ok := p.firstSystemPrompt()
+	if !ok {
+		return fmt.Errorf("the memory child received no system prompt")
+	}
+	heading := "## Operator instructions"
+	at := strings.Index(sp, heading)
+	if at < 0 {
+		return fmt.Errorf("the child prompt has no %q section:\n%s", heading, sp)
+	}
+	section := sp[at:]
+	if end := strings.Index(section, "\n## "); end > 0 {
+		section = section[:end]
+	}
+	if !strings.Contains(section, text) {
+		return fmt.Errorf("the operator section lacks %q:\n%s", text, section)
+	}
+	if role := strings.Index(sp, "memory subagent"); role < 0 || role > at {
+		return fmt.Errorf("the operator section must follow the memory role:\n%s", sp)
+	}
+	return nil
+}
+
 func (s *memoryFeatureState) clientReceivedMemoryRunDelivered(status string, delivered string) error {
 	u := s.memoryRunUpdate(status)
 	if u == nil {
@@ -895,6 +988,8 @@ func initializeMemoryScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^memory keeps (\d+) runs$`, s.memoryKeepsRuns)
 	sc.Step(`^the background task pool allows (\d+) task per session$`, s.poolAllows)
 	sc.Step(`^the memory model is "([^"]*)" with the fallback "([^"]*)"$`, s.memoryModelWithFallback)
+	sc.Step(`^every model the memory child could run on answers "([^"]*)"$`, s.everyChildModelAnswers)
+	sc.Step(`^the memory additional prompt is "([^"]*)" with no cap$`, s.memoryAdditionalPromptWithNoCap)
 	sc.Step(`^a parent agent session in that workspace$`, s.parentSession)
 	sc.Step(`^a parent agent session in that workspace in ask mode$`, s.parentSessionInAskMode)
 
@@ -917,6 +1012,10 @@ func initializeMemoryScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a later parent request carries "([^"]*)" in its turn context$`, s.laterRequestCarriesInTurnContext)
 	sc.Step(`^the parent's client received a memory_run update with status "([^"]*)"$`, s.clientReceivedMemoryRun)
 	sc.Step(`^the parent's client received a memory_run update with status "([^"]*)" and delivered (true|false)$`, s.clientReceivedMemoryRunDelivered)
+	sc.Step(`^the parent's client received a memory_run update with status "finished", task status "([^"]*)" and a reason naming "([^"]*)"$`, s.clientReceivedMemoryRunFailedNaming)
+	sc.Step(`^the memory task record names the error "([^"]*)"$`, s.memoryTaskRecordNamesError)
+	sc.Step(`^the parent answered the user$`, s.parentAnsweredTheUser)
+	sc.Step(`^the memory child's system prompt carries "([^"]*)" under the operator instructions$`, s.childPromptCarriesOperatorInstructions)
 	sc.Step(`^the memory task log says the report was delivered to the turn$`, s.taskLogSaysDelivered)
 	sc.Step(`^the memory task log says the turn ended before the report$`, s.taskLogSaysTurnEnded)
 	sc.Step(`^the memory task log contains "([^"]*)"$`, s.taskLogContains)

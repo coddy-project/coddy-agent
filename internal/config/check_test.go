@@ -636,3 +636,32 @@ func TestUnsentModelSettingsNameCodexMaxTokensOnly(t *testing.T) {
 		t.Fatalf("a config without unsent settings logged %q", buf.String())
 	}
 }
+
+// A memory addendum longer than its cap is a warning at the key, with the
+// counts and the fix; a text within the cap says nothing.
+func TestCheckWarnsWhenTheMemoryAddendumIsCut(t *testing.T) {
+	src := "memory:\n  enable: true\n  additional_prompt: \"Only deal with the notes, never the task\"\n  additional_prompt_max_chars: 10\n"
+	var hit *Finding
+	findings := checkConfigBytes([]byte(src), Paths{})
+	for _, f := range findings {
+		if strings.Contains(f.Message, "memory.additional_prompt is 40 characters") {
+			cp := f
+			hit = &cp
+		}
+	}
+	if hit == nil {
+		t.Fatalf("no warning about the cut addendum in %+v", findings)
+	}
+	if hit.Severity != SeverityWarning || hit.Line != 3 {
+		t.Fatalf("finding = %+v, want a warning on line 3", *hit)
+	}
+	if !strings.Contains(hit.Message, "reads the first 10") || !strings.Contains(hit.Fix, "additional_prompt_max_chars") {
+		t.Fatalf("finding = %+v, want the cap in the message and the fix", *hit)
+	}
+	src = "memory:\n  enable: true\n  additional_prompt: \"short\"\n  additional_prompt_max_chars: 10\n"
+	for _, f := range checkConfigBytes([]byte(src), Paths{}) {
+		if strings.Contains(f.Message, "memory.additional_prompt") {
+			t.Fatalf("a text within the cap was reported: %+v", f)
+		}
+	}
+}

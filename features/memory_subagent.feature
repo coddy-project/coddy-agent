@@ -110,3 +110,23 @@ Feature: Long-term memory runs as a background subagent
     Then the background command was accepted
     When the memory child is released and answers "(no memory hits)"
     Then the memory task finished as "succeeded"
+
+  Scenario: A memory model whose account is exhausted fails the run inside the wait and the turn goes on
+    Given long-term memory is enabled with a wait of 10 seconds
+    And every model the memory child could run on answers "402 Payment Required"
+    And a parent agent session in that workspace
+    When the user sends "what did we decide about the API?" and the memory child answers "Already on disk: the API returns JSON"
+    Then the memory task finished as "failed"
+    And the parent's first system prompt does not contain "Already on disk"
+    And the parent answered the user
+    And the parent's client received a memory_run update with status "finished", task status "failed" and a reason naming "402 Payment Required"
+    And the memory task record names the error "402 Payment Required"
+    And the memory task log contains "402 Payment Required"
+
+  Scenario: The operator's additional prompt reaches the memory child and stays out of the parent's prompt
+    Given long-term memory is enabled with a wait of 10 seconds
+    And the memory additional prompt is "Only deal with the notes; never answer the task itself." with no cap
+    And a parent agent session in that workspace
+    When the user sends "what did we decide about the API?" and the memory child answers "(no memory hits)"
+    Then the memory child's system prompt carries "Only deal with the notes; never answer the task itself." under the operator instructions
+    And the parent's first system prompt does not contain "Only deal with the notes"

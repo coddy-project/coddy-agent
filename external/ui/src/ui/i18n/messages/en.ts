@@ -351,25 +351,44 @@ export const messagesEn: Record<string, string> = {
 
   "settings.schema.memory.enable.label": "Enabled",
   "settings.schema.memory.enable.desc":
-    "Turns on the memory copilot for eligible builds.",
+    "Runs the memory subagent on every user turn (binaries built with the memory tag).",
   "settings.schema.memory.model.label": "Memory model",
   "settings.schema.memory.model.desc":
-    "Logical model override for memory LLM calls; empty uses agent model.",
+    "Model the memory subagent runs on; empty uses the session's model.",
+  "settings.schema.memory.fallback_models.label": "Fallback memory models",
+  "settings.schema.memory.fallback_models.desc":
+    "Tried in order when the model before them fails before answering; the session's own model is the last resort.",
   "settings.schema.memory.dir.label": "Memory root",
   "settings.schema.memory.dir.desc":
     "Filesystem root for memory markdown; empty uses ${CODDY_HOME}/memory.",
+  "settings.schema.memory.wait_seconds.label": "Wait for the report (seconds)",
+  "settings.schema.memory.wait_seconds.desc":
+    "How long a turn waits for the memory subagent's report before its first model call; 0 never waits (default 20).",
+  "settings.schema.memory.timeout_seconds.label": "Run timeout (seconds)",
+  "settings.schema.memory.timeout_seconds.desc":
+    "Hard limit of one memory run, capped by the background task pool's maximum (default 300).",
+  "settings.schema.memory.keep_runs.label": "Runs kept per session",
+  "settings.schema.memory.keep_runs.desc":
+    "Finished memory runs kept in the Tasks drawer per session, task record and child transcript alike; 0 keeps all (default 20).",
   "settings.schema.memory.recall_max_turns.label": "Recall max turns",
   "settings.schema.memory.recall_max_turns.desc":
-    "Bounds recall-side LLM rounds in the memory loop.",
+    "Bounds the memory subagent's rounds together with persist max turns; the cap is the larger of the two.",
   "settings.schema.memory.persist_max_turns.label": "Persist max turns",
   "settings.schema.memory.persist_max_turns.desc":
-    "Bounds persist-side LLM rounds in the memory loop.",
-  "settings.schema.memory.copilot_max_tokens.label": "Copilot max tokens",
+    "Bounds the memory subagent's rounds together with recall max turns; the cap is the larger of the two.",
+  "settings.schema.memory.copilot_max_tokens.label": "Max tokens per call",
   "settings.schema.memory.copilot_max_tokens.desc":
-    "Completion token cap for memory copilot calls.",
+    "Completion token cap for the memory model's calls.",
   "settings.schema.memory.max_search_hits.label": "Max search hits",
   "settings.schema.memory.max_search_hits.desc":
     "Maximum snippets returned by memory search tools.",
+  "settings.schema.memory.additional_prompt.label": "Additional instructions",
+  "settings.schema.memory.additional_prompt.desc":
+    "Your own instructions for the memory subagent, a section of its system prompt; the main agent never sees them.",
+  "settings.schema.memory.additional_prompt_max_chars.label":
+    "Additional instructions cap (characters)",
+  "settings.schema.memory.additional_prompt_max_chars.desc":
+    "Longer instructions are cut at this many characters, with a warning in the log; 0 means no cap.",
 
   "settings.schema.compaction.enable.label": "Enabled",
   "settings.schema.compaction.enable.desc":

@@ -21,6 +21,8 @@ In agent and plan mode the child has the full tool set. In **ask mode** the run 
 
 The child runs on `memory.model` when that names a configured model, otherwise on the session's model, and always in agent mode with the six memory tools and nothing else: no shell, no filesystem tools, no MCP servers. Its completions are capped at `copilot_max_tokens` and its ReAct rounds at the larger of `recall_max_turns` and `persist_max_turns`. A model that is down or overloaded need not cost the run: `memory.fallback_models` is the chain tried after `memory.model`, and the session's own model is the last resort whether or not it is listed. The chain moves to the next model when a call failed before producing any output (the model is down, unauthorised, out of quota); a stream that broke after text was already delivered follows the ordinary retry policy instead, so no answer is streamed twice ([issue #247](https://github.com/coddy-project/coddy-agent/issues/247)).
 
+The child's system prompt is the template `external/memory/prompts/memory_agent.md`, built into the binary. `memory.additional_prompt` adds a section of your own to it, **Operator instructions**, after the memory role and before the tool list: a place to pin behaviour in your words, such as "only deal with the notes; never answer the task itself", or to name the language the notes are written in. The main agent never sees that text, and ask mode renders it the same way. `memory.additional_prompt_max_chars` cuts a longer text at that many characters, with a warning in the agent log at every launch that reads the cut text and a finding in `coddy -t`; `0` keeps it whole ([issue #266](https://github.com/coddy-project/coddy-agent/issues/266)). The user message itself reaches the child cut at 32 KiB, the bound a `spawn_agent` prompt has.
+
 ## The wait and the report
 
 The run is a background task, so the turn does not depend on it. What the turn does is wait, once, for the report:
@@ -31,11 +33,13 @@ The run is a background task, so the turn does not depend on it. What the turn d
 
 `wait_seconds: 0` never waits, so the report can only reach a turn through a later step. A run that failed, timed out, was stopped or produced no final message injects nothing; the agent log and the task record say why. The task log records where the report went: `report delivered to the turn (system prompt)`, `report delivered to the turn (turn context)` or `turn ended before the report`.
 
+A memory model whose account is unauthorised, out of quota or rate-limited cannot hold the turn: a call that fails before any output moves the chain to the next model, and when every model failed the run ends `failed` inside the wait, with the provider's error on the task record. The `finished` update names it in `reason`, the console prints it (`memory: failed after 1.2s (task bg_3) - 402 Payment Required: subscription expired`), the drawer row shows it, and the main model starts without memory context. A rate limit is retried under `agent.llm_retry_max` like any call, and the child never waits for a quota reset: `agent.wait_for_limit_reset` applies to top-level turns only. A model that accepts the connection and then sends nothing is cut by `agent.llm_first_token_timeout_ms` and `agent.llm_stream_idle_timeout_ms`, and the run's own `timeout_seconds` is the last bound ([issue #221](https://github.com/coddy-project/coddy-agent/issues/221)).
+
 ## Watching a run
 
 A memory run is an ordinary task of the session, flagged as a **system task**: the Tasks drawer of the web UI lists it with the label `memory: <first line of your message>` and a `memory` badge where a `spawn_agent` child shows `agent`, the detail pane shows its progress log (the tool calls, the child's text, the `=== subagent report ===` block, then the delivery line above) and **Open transcript** opens the child session read-only, with the composer replaced by a link back to the chat. Finished runs stay in the drawer's finished list; `memory.keep_runs` bounds how many a session keeps (default 20, `0` keeps every run): when a run finishes, the oldest beyond that number are removed, task record and child bundle alike. Deleting the session removes its memory children with it.
 
-On the wire the run is one update, `memory_run` (ACP `sessionUpdate`, HTTP SSE event of the same name): `started` with the `taskId` and `childSessionId`, `finished` with the task's `taskStatus`, `durationMs` and `delivered` (whether a non-empty report reached the model in this turn), or `skipped` with a `reason`. `finished` is sent while the turn is running, at the delivery or at the turn's end when the run had already settled; a run that outlives the turn sends nothing more, because the turn's stream is gone. No text travels on it, it is not persisted and not replayed: a client that reconnects mid-run, or one that wants a run the turn did not wait out, reads `GET /coddy/sessions/{id}/background-tasks` ([ACP protocol](../reference/acp-protocol.md), [HTTP API](../reference/http-api.md)). The web UI shows `Working with memory` on its live status line between the two updates and adds nothing to the transcript. The console sets the same status while the turn waits and prints one dim line when the run settles (`memory: recalled in 3.2s (task bg_3)`, `memory: finished in 3.2s, nothing reached this turn (task bg_3)`, `memory: skipped - <reason>`); the transcript is the child bundle under the session's `subagents/` folder.
+On the wire the run is one update, `memory_run` (ACP `sessionUpdate`, HTTP SSE event of the same name): `started` with the `taskId` and `childSessionId`, `finished` with the task's `taskStatus`, `durationMs` and `delivered` (whether a non-empty report reached the model in this turn), or `skipped` with a `reason`. `finished` is sent while the turn is running, at the delivery or at the turn's end when the run had already settled; a run that outlives the turn sends nothing more, because the turn's stream is gone. No text travels on it, it is not persisted and not replayed: a client that reconnects mid-run, or one that wants a run the turn did not wait out, reads `GET /coddy/sessions/{id}/background-tasks` ([ACP protocol](../reference/acp-protocol.md), [HTTP API](../reference/http-api.md)). The web UI shows `Working with memory` on its live status line between the two updates and adds nothing to the transcript. The console sets the same status while the turn waits and prints one dim line when the run settles (`memory: recalled in 3.2s (task bg_3)`, `memory: finished in 3.2s, nothing reached this turn (task bg_3)`, `memory: failed after 1.2s (task bg_3) - <error>`, `memory: skipped - <reason>`); the transcript is the child bundle under the session's `subagents/` folder.
 
 The model-facing pool tools do not see the run: `background_list` omits system tasks, and `background_output`, `background_wait` and `background_stop` refuse their ids. A parent that waited on a memory run would stall its own turn on work that was never meant to wake it.
 
@@ -111,6 +115,8 @@ memory:
   persist_max_turns: 12
   copilot_max_tokens: 4096 # completion cap of the memory model's calls
   max_search_hits: 8
+  additional_prompt: ""    # your own instructions for the memory subagent only; the main agent never sees them
+  additional_prompt_max_chars: 0 # cut that text at so many characters (a warning is logged); 0 keeps it whole
 ```
 
 | Key | Default | Meaning |
@@ -125,8 +131,14 @@ memory:
 | `recall_max_turns`, `persist_max_turns` | `6`, `12` | bound the child's ReAct rounds; the effective cap is the larger of the two |
 | `copilot_max_tokens` | `4096` | completion cap for the memory model's calls |
 | `max_search_hits` | `8` | snippets returned by `coddy_memory_search` |
+| `additional_prompt` | `""` | your own instructions for the memory subagent, rendered as its **Operator instructions** section; the main agent never sees them |
+| `additional_prompt_max_chars` | `0` | cut `additional_prompt` at that many characters, with a warning in the agent log and a `coddy -t` finding; `0` keeps it whole |
 
-The field table is in the [config.yaml reference](../reference/config.md#memory); `config.example.yaml` carries the same block with comments.
+The field table is in the [config.yaml reference](../reference/config.md#memory); `config.example.yaml` carries the same block with comments. The web UI edits the same keys under **Settings → Long-term memory**.
+
+![Settings → Long-term memory: the wait, the timeout, the runs kept, and the operator's additional instructions with their cap](../assets/memory/memory-settings-dark-1280.png)
+
+*Settings → Long-term memory: the operator's additional instructions and their cap, next to the wait, the timeout and the runs kept*
 
 ## Cost and latency
 

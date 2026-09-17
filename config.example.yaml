@@ -444,6 +444,9 @@ tools:
 #   persist_max_turns: 12
 #   copilot_max_tokens: 4096
 #   max_search_hits: 8
+#   additional_prompt: ""          # your own instructions for the memory subagent only, e.g. "only deal with the
+#                                  # notes; never answer the task itself"; the main agent never sees them
+#   additional_prompt_max_chars: 0 # cut additional_prompt at this many characters (a warning is logged); 0 = no cap
 
 # Messenger gateways (external/gateway/; build with: go build -tags gateway.telegram or -tags gateway).
 # The bot is not a command of its own: set enable: true and `coddy serve` polls

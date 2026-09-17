@@ -286,6 +286,8 @@ Optional memory subagent (implementation in external/memory; enable at runtime w
 | `memory.persist_max_turns` | integer | 12 | Bounds the memory subagent's ReAct rounds together with recall_max_turns; the child's cap is the larger of the two. |
 | `memory.copilot_max_tokens` | integer | 4096 | Completion token cap for the memory model's calls. |
 | `memory.max_search_hits` | integer | 8 | Maximum snippets returned by memory_search. |
+| `memory.additional_prompt` | string | "" | Operator instructions for the memory subagent alone: a section of its system prompt that the main agent never sees. Empty adds nothing. |
+| `memory.additional_prompt_max_chars` | integer | 0 | Cap on additional_prompt in characters; a longer text is cut there, the agent log says so and coddy -t reports it. 0 means no cap. |
 
 ### `httpserver`
 

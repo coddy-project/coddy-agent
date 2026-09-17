@@ -3,6 +3,7 @@ package config
 import (
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 )
 
 // Defaults of the memory subagent knobs that have one.
@@ -60,6 +61,16 @@ type MemoryConfig struct {
 
 	// MaxSearchHits is the maximum number of snippets returned by memory_search.
 	MaxSearchHits int `yaml:"max_search_hits"`
+
+	// AdditionalPrompt is the operator's own instructions for the memory
+	// subagent: a section of its system prompt and nothing else reads it
+	// (issue #266). Empty adds nothing.
+	AdditionalPrompt string `yaml:"additional_prompt"`
+
+	// AdditionalPromptMaxChars caps additional_prompt in characters; a longer
+	// text is cut there, the launch says so in the agent log and the config
+	// check reports it. 0 means no cap.
+	AdditionalPromptMaxChars int `yaml:"additional_prompt_max_chars"`
 }
 
 // Normalize trims string fields in place.
@@ -72,6 +83,7 @@ func (m *MemoryConfig) Normalize(p Paths) {
 	if m.Dir != "" {
 		m.Dir = filepath.Clean(ExpandPathVars(m.Dir, p))
 	}
+	m.AdditionalPrompt = strings.TrimSpace(m.AdditionalPrompt)
 }
 
 // ApplyDefaults sets zero values to safe defaults. The pointer fields stay
@@ -119,6 +131,18 @@ func (m *MemoryConfig) EffectiveKeepRuns() int {
 		return MemoryDefaultKeepRuns
 	}
 	return max(*m.KeepRuns, 0)
+}
+
+// EffectiveAdditionalPrompt is additional_prompt as the memory subagent
+// reads it: trimmed, and cut at additional_prompt_max_chars characters when
+// a cap is set. The second result says whether the cap cut anything.
+func (m *MemoryConfig) EffectiveAdditionalPrompt() (string, bool) {
+	text := strings.TrimSpace(m.AdditionalPrompt)
+	if m.AdditionalPromptMaxChars <= 0 || utf8.RuneCountInString(text) <= m.AdditionalPromptMaxChars {
+		return text, false
+	}
+	runes := []rune(text)
+	return strings.TrimSpace(string(runes[:m.AdditionalPromptMaxChars])), true
 }
 
 // EffectiveMaxTurns is the memory subagent's ReAct round cap: the larger of

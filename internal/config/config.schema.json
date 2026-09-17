@@ -1072,6 +1072,16 @@
           "type": "integer",
           "description": "Maximum snippets returned by memory_search.",
           "default": 8
+        },
+        "additional_prompt": {
+          "type": "string",
+          "description": "Operator instructions for the memory subagent alone: a section of its system prompt that the main agent never sees. Empty adds nothing.",
+          "default": ""
+        },
+        "additional_prompt_max_chars": {
+          "type": "integer",
+          "description": "Cap on additional_prompt in characters; a longer text is cut there, the agent log says so and coddy -t reports it. 0 means no cap.",
+          "default": 0
         }
       }
     },

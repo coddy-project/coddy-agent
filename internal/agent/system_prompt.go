@@ -229,10 +229,12 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 // does not print them must not be handed them through the back door.
 func (a *Agent) buildTemplatedChildPrompt(mode string, toolDefs []llm.ToolDefinition, clock time.Time) *systemPromptBuild {
 	toolsMD := tools.FormatDefinitionsForPrompt(toolDefs)
+	// The template frames the child itself, so the role slot carries the
+	// role text alone: for the memory child, the operator's additional_prompt.
 	full, err := prompts.RenderSource(a.subagent.Kind, a.subagent.PromptTemplate, prompts.TemplateData{
 		CWD:          a.state.GetCWD(),
 		Tools:        toolsMD,
-		SubagentRole: a.subagentRoleBlock(),
+		SubagentRole: strings.TrimSpace(a.subagent.Role),
 		UTCNow:       clock.Format(time.RFC3339),
 	})
 	if err != nil {

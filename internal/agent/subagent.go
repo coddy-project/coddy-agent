@@ -466,18 +466,21 @@ func (s *subagentSender) RequestQuestion(context.Context, acp.QuestionRequestPar
 
 // subagentHandle is the pool's view of a child run: Stop cancels the child,
 // Wait blocks until the run settled, and there is no OS process behind it.
+// A run that failed hands its error to the pool through Wait, so the task
+// record says why (the drawer row, the console line, the memory_run update).
 type subagentHandle struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 	mu     sync.Mutex
 	exit   int
+	err    error
 }
 
 func (h *subagentHandle) Wait() (int, error) {
 	<-h.done
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.exit, nil
+	return h.exit, h.err
 }
 
 func (h *subagentHandle) Stop(time.Duration) error {
@@ -1025,6 +1028,9 @@ func executeChildRun(ctx context.Context, rt SubagentRuntime, run *subagentRun, 
 		finish()
 		run.handle.mu.Lock()
 		run.handle.exit = exit
+		if run.status == "failed" && run.err != nil {
+			run.handle.err = run.err
+		}
 		run.handle.mu.Unlock()
 		close(run.handle.done)
 	}()

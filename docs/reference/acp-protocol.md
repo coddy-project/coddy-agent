@@ -584,6 +584,7 @@ When `memory.enable` is true, every user turn starts a **memory subagent**: a ch
 ```json
 {"sessionUpdate": "memory_run", "status": "started", "taskId": "bg_3", "childSessionId": "sess_9f1c2a7d4e5b6c8d9e0f1a2b"}
 {"sessionUpdate": "memory_run", "status": "finished", "taskId": "bg_3", "childSessionId": "sess_9f1c2a7d4e5b6c8d9e0f1a2b", "taskStatus": "succeeded", "durationMs": 3210, "delivered": true}
+{"sessionUpdate": "memory_run", "status": "finished", "taskId": "bg_4", "childSessionId": "sess_0a1b2c3d4e5f60718293a4b5", "taskStatus": "failed", "durationMs": 1200, "reason": "402 Payment Required: subscription expired"}
 {"sessionUpdate": "memory_run", "status": "skipped", "reason": "memory runs in flight for this session: 2 of 2"}
 ```
 

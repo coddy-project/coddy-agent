@@ -46,6 +46,7 @@ func TestMemoryConfigValidateRejectsNegativeBounds(t *testing.T) {
 		"wait":    {Enabled: true, WaitSeconds: &neg},
 		"timeout": {Enabled: true, TimeoutSeconds: -5},
 		"keep":    {Enabled: true, KeepRuns: &neg},
+		"cap":     {Enabled: true, AdditionalPromptMaxChars: -1},
 	}
 	for name, m := range cases {
 		err := m.Validate(&Config{})
@@ -56,5 +57,32 @@ func TestMemoryConfigValidateRejectsNegativeBounds(t *testing.T) {
 	ok := MemoryConfig{Enabled: true}
 	if err := ok.Validate(&Config{}); err != nil {
 		t.Fatalf("a memory block without bounds must validate, got %v", err)
+	}
+}
+
+// The operator's addendum for the memory subagent: trimmed, cut at the rune
+// cap (0 means no cap), and reported as cut so the launch can say so once.
+func TestMemoryConfigEffectiveAdditionalPrompt(t *testing.T) {
+	cases := []struct {
+		name      string
+		text      string
+		capChars  int
+		want      string
+		truncated bool
+	}{
+		{name: "empty", text: "  ", capChars: 10, want: "", truncated: false},
+		{name: "no cap", text: "Only deal with the notes.", capChars: 0, want: "Only deal with the notes.", truncated: false},
+		{name: "under the cap", text: "Only notes.", capChars: 11, want: "Only notes.", truncated: false},
+		{name: "cut at runes not bytes", text: "Только заметки, ничего больше", capChars: 6, want: "Только", truncated: true},
+		{name: "cut trims the tail", text: "Only notes. Never the task.", capChars: 12, want: "Only notes.", truncated: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := MemoryConfig{AdditionalPrompt: tc.text, AdditionalPromptMaxChars: tc.capChars}
+			got, truncated := m.EffectiveAdditionalPrompt()
+			if got != tc.want || truncated != tc.truncated {
+				t.Fatalf("EffectiveAdditionalPrompt() = %q, %v; want %q, %v", got, truncated, tc.want, tc.truncated)
+			}
+		})
 	}
 }

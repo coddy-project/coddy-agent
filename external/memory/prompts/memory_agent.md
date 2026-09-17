@@ -31,6 +31,12 @@ PERSIST report (plain text, no tool calls): briefly what you verified on disk an
 Secrets: never store API keys, tokens, passwords or one-off credentials in a note.
 
 When you are done with tools in your chosen mode, answer with plain text only (no tool calls).
+{{if .SubagentRole}}
+
+## Operator instructions
+
+{{.SubagentRole}}
+{{end}}
 {{if .Tools}}
 
 ## Available tools

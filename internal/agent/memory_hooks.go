@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 
@@ -65,6 +66,13 @@ func (a *Agent) runMemoryBeforeTurn(ctx context.Context, userText, mode string) 
 	} else if m != "" {
 		a.log.Warn("memory.model is not configured; the session's model runs the memory subagent", "model", m, "using", model)
 	}
+	// A cut addendum is said at every launch that reads it: the run is one
+	// per turn already, and a silent cut is what the cap must not be.
+	addendum, cut := cfg.Memory.EffectiveAdditionalPrompt()
+	if cut {
+		a.log.Warn("memory.additional_prompt is longer than additional_prompt_max_chars; the memory subagent reads the first characters only",
+			"session_id", parentID, "max_chars", cfg.Memory.AdditionalPromptMaxChars, "chars", utf8.RuneCountInString(cfg.Memory.AdditionalPrompt))
+	}
 	childID := session.NewSessionID()
 	label := memoryTaskLabel(userText)
 	// The deadline is taken before the launch: the child is created on the
@@ -83,6 +91,7 @@ func (a *Agent) runMemoryBeforeTurn(ctx context.Context, userText, mode string) 
 			PermissionMode:  effectivePermMode(a.state, cfg),
 			SelectedModelID: model,
 			Title:           label,
+			Role:            addendum,
 			Tools:           memory.ToolNames(readOnly),
 			Depth:           a.subagentDepth() + 1,
 			MaxTurns:        cfg.Memory.EffectiveMaxTurns(),
