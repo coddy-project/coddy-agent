@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -415,7 +416,17 @@ func isRetryableLLMError(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	// Ahead of the deadline gate: a dial that ran out of time matches
+	// context.DeadlineExceeded just like the caller's own timer does, and
+	// the caller's timer is already ruled out by the ctx.Err() check in
+	// callWithRetry before this classification runs.
+	if isDialFailure(err) {
+		return true
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
 	var reset *QuotaResetError
@@ -463,12 +474,32 @@ func isTransientTransportError(err error) bool {
 		"http2: server sent GOAWAY",
 		"connection reset by peer",
 		"unexpected EOF",
+		// The connection opened but the server never finished the handshake,
+		// so the request itself was never sent.
+		"net/http: TLS handshake timeout",
 	} {
 		if strings.Contains(s, needle) {
 			return true
 		}
 	}
 	return false
+}
+
+// isDialFailure reports a connection that was never established: a dial
+// that timed out or found no route, or a name lookup that failed for the
+// moment. The request did not leave the client, so repeating it cannot
+// duplicate work. A name that does not resolve at all is configuration, not
+// a network hiccup. Callers rule out a canceled context first.
+func isDialFailure(err error) bool {
+	var op *net.OpError
+	if !errors.As(err, &op) || op.Op != "dial" {
+		return false
+	}
+	var dns *net.DNSError
+	if errors.As(err, &dns) && dns.IsNotFound {
+		return false
+	}
+	return true
 }
 
 func httpStatusFromError(err error) int {
