@@ -122,6 +122,18 @@ func (r *stubRunner) HandleSessionSetConfigOption(_ context.Context, params acp.
 	return nil, fmt.Errorf("unknown model value: %q", params.Value)
 }
 
+// HandleSessionList answers with the sessions on disk; the order is not
+// something this spec asserts on.
+func (r *stubRunner) HandleSessionList(context.Context, acp.SessionListParams) (*acp.SessionListResult, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]acp.SessionListInfo, 0, len(r.onDisk))
+	for id, st := range r.onDisk {
+		out = append(out, acp.SessionListInfo{SessionID: id, CWD: st.CWD})
+	}
+	return &acp.SessionListResult{Sessions: out}, nil
+}
+
 func (r *stubRunner) Cfg() *config.Config {
 	r.mu.Lock()
 	defer r.mu.Unlock()

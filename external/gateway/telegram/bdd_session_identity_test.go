@@ -108,6 +108,16 @@ func (r *scriptedRunner) HandleSessionSetConfigOption(context.Context, acp.Sessi
 	return &acp.SessionSetConfigOptionResult{}, nil
 }
 
+func (r *scriptedRunner) HandleSessionList(context.Context, acp.SessionListParams) (*acp.SessionListResult, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]acp.SessionListInfo, 0, len(r.live))
+	for id, st := range r.live {
+		out = append(out, acp.SessionListInfo{SessionID: id, CWD: st.CWD})
+	}
+	return &acp.SessionListResult{Sessions: out}, nil
+}
+
 func (r *scriptedRunner) Cfg() *config.Config {
 	r.mu.Lock()
 	defer r.mu.Unlock()

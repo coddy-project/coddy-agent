@@ -137,4 +137,35 @@ final="sendMessage"
 curl -sf "$ORIGIN/sim/outbox/count?method=$final" | grep -Eq '"count":[1-9]' \
   || { echo "no $final in the outbox" >&2; exit 1; }
 
+# /resume: the chat leaves its session with /clear, comes back to it from the
+# keyboard, and the next message lands in the bundle it came back to.
+say() {
+  curl -sf -X POST -H 'Content-Type: application/json' \
+    -d "{\"chat_id\":4242,\"user_id\":4242,\"username\":\"alice\",\"text\":\"$1\"}" \
+    "$ORIGIN/sim/message" >/dev/null
+}
+wait_chat() {
+  for _ in $(seq 1 120); do
+    if curl -sf "$ORIGIN/sim/chat/4242?format=text" | grep -qF -- "$1"; then return 0; fi
+    sleep 0.25
+  done
+  echo "the chat never showed: $1" >&2
+  curl -s "$ORIGIN/sim/chat/4242?format=text" >&2 || true
+  return 1
+}
+first="$(grep -o '"tg:user:4242":"[^"]*"' "$HOME_DIR/sessions/gateway_sessions.json" | cut -d'"' -f4)"
+[[ -n "$first" ]] || { echo "no session mapped for the chat in gateway_sessions.json" >&2; exit 1; }
+say "/clear"
+wait_chat "New session started"
+say "/resume"
+wait_chat "Resume a session"
+curl -sf -X POST -H 'Content-Type: application/json' \
+  -d "{\"chat_id\":4242,\"user_id\":4242,\"data\":\"resume:s:$first\"}" \
+  "$ORIGIN/sim/callback" >/dev/null
+wait_chat "Resumed:"
+say "back again"
+wait_chat "bot: You said: back again"
+grep -qF "back again" "$HOME_DIR/sessions/$first/messages.json" \
+  || { echo "the message after /resume did not land in $first" >&2; exit 1; }
+
 echo "ok telegram offline stand"

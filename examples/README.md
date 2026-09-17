@@ -47,7 +47,7 @@ pty (see the CLI section below):
 
 ```bash
 ./examples/build_coddy.sh
-./examples/test_gateway.sh                        # boots tgfake --llm and coddy serve --gateway, sends "hello", checks the reply
+./examples/test_gateway.sh                        # boots tgfake --llm and coddy serve --gateway, sends "hello", checks the reply, /clear then /resume back
 TG_E2E_KEEP=1 ./examples/test_gateway.sh             # leaves both running and prints the chat page URL
 RICH_MESSAGES=true ./examples/test_gateway.sh
 ```

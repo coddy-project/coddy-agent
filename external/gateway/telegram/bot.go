@@ -34,6 +34,9 @@ type SessionRunner interface {
 	ForgetLiveSession(sessionID string)
 	HandleSessionSetMode(ctx context.Context, params acp.SessionSetModeParams) error
 	HandleSessionSetConfigOption(ctx context.Context, params acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error)
+	// HandleSessionList lists the sessions the server keeps, the most
+	// recently updated first; /resume offers them to the chat.
+	HandleSessionList(ctx context.Context, params acp.SessionListParams) (*acp.SessionListResult, error)
 	Cfg() *config.Config
 }
 
@@ -126,6 +129,7 @@ func (b *Bot) Start(ctx context.Context) error {
 		tgbotapi.BotCommand{Command: "mode", Description: "Switch session mode (agent / plan / ask)"},
 		tgbotapi.BotCommand{Command: "model", Description: "Switch LLM model"},
 		tgbotapi.BotCommand{Command: "context", Description: "Show context window usage"},
+		tgbotapi.BotCommand{Command: "resume", Description: "Continue another session (pick from the list or name it)"},
 		tgbotapi.BotCommand{Command: "clear", Description: "Start a new session (forget context)"},
 	)); err != nil {
 		b.log.Warn("telegram: set commands", "err", err)
@@ -318,6 +322,7 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 				"/mode — switch session mode (agent / plan / ask)\n"+
 				"/model — switch LLM model\n"+
 				"/context — show context window usage\n"+
+				"/resume [id or title] — continue another session\n"+
 				"/clear — start a new session (forgets previous context)\n"+
 				"/help — show this message\n\n"+
 				"In group chats mention me (@"+b.botName+") or reply to my message to talk to me.")
@@ -333,6 +338,10 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 	}
 	if isCommand(msg, "context") {
 		b.handleContextCommand(ctx, bot, msg, key)
+		return
+	}
+	if isCommand(msg, "resume") {
+		b.handleResumeCommand(ctx, bot, msg, key)
 		return
 	}
 
@@ -430,7 +439,7 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 func (b *Bot) shouldRespond(msg *tgbotapi.Message, text string) bool {
 	if msg.IsCommand() {
 		switch strings.ToLower(msg.Command()) {
-		case "clear", "start", "help", "mode", "model", "context":
+		case "clear", "start", "help", "mode", "model", "context", "resume":
 			return true
 		}
 	}
