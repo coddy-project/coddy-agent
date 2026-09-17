@@ -106,6 +106,8 @@ Abstracted interface for LLM backends. Configured via `config.yaml`.
 
 Every error a provider returns is prefixed with the **`providers[].name`** it came from and the address that request actually reached (**`provider_label.go`**), because the address is not always the one the user has in mind - **`type: openai`** with no **`api_base`** talks to **`https://api.openai.com/v1`**. The label sits outside the resilient wrapper, so retry classification still reads the untouched upstream error, and it wraps rather than replaces the cause, so **`errors.Is`** and **`errors.As`** keep working.
 
+The resilient wrapper (**`resilient.go`**) repeats a call up to **`agent.llm_retry_max`** times when **`isRetryableLLMError`** says the failure belongs to the attempt, not to the request: HTTP **`429`**, **`408`**, **`500`**, **`502`**, **`503`** and **`504`**; a transport failure with no status while nothing reached the caller (an unexpected EOF, a connection reset, an http2 stream error or **`GOAWAY`**); and a request that never left the client - a TLS handshake that timed out or a dial that did not complete (**`isDialFailure`**: a timeout, no route, a temporary DNS failure). The dial check runs ahead of the **`context.DeadlineExceeded`** gate, because a dial timeout matches that sentinel just like the caller's own timer; the caller's timer is ruled out earlier by the **`ctx.Err()`** check in **`callWithRetry`**. A cancellation, an unknown host and any failure after deltas were emitted stay final.
+
 Supported backends (see **`docs/getting-started/configuration.md`** for shapes):
 - OpenAI and OpenAI-compatible HTTP APIs (**`type: openai`**)
 - Anthropic (**`type: anthropic`**)

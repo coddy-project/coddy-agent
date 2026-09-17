@@ -161,6 +161,33 @@ agent:
 
 A top-level turn then waits for the reset, reports `Usage limit reached · resuming at 20:59` every 20 seconds, and re-issues the same call; Escape stops the wait like any turn. A key the hub rejects reads `key rejected` in the footer and is repaired with `coddy providers login neuraldeep`. See [Console (TUI)](../surfaces/console.md) and the [`agent` reference](../reference/config.md#agent).
 
+## A turn fails with a network error before the provider answers
+
+**Symptom.** A turn ends with `LLM error: provider "<name>" (<address>): ...` and the message closes with `net/http: TLS handshake timeout`, `dial tcp ...: i/o timeout`, `connect: no route to host` or `connection reset by peer`.
+
+**Cause.** The connection to the provider did not come up, or was cut before any output arrived: a saturated or flapping link (a large download in a background task on the same machine is enough), a VPN that reconnects, a proxy that stalls. Such a request never reached the server, so Coddy repeats it up to `agent.llm_retry_max` times (3 by default) with a backoff that starts at `agent.llm_retry_base_ms` and doubles. The error reaches the turn only when every attempt failed. Two failures of the same family are not repeated: a host name that does not resolve at all (`no such host`), which is a wrong `api_base` rather than weather, and a stream cut after text was already shown, since a replay would show that text twice.
+
+**Fix.** Check that the address in the error is the one you mean, then whether it answers from this machine:
+
+```bash
+coddy --dry-run          # asks every provider for its model list at the configured address
+```
+
+When the error still arrives after the retries, the link stayed down longer than the backoff covers. For an unstable link raise the budget; for a provider reachable only through a proxy set `proxy` on its row:
+
+```yaml
+agent:
+  llm_retry_max: 5
+  llm_retry_base_ms: 2000
+providers:
+  - name: my-proxy
+    type: openai
+    api_base: https://llm.example.com/v1
+    proxy: socks5h://127.0.0.1:1080
+```
+
+Field reference: [`agent`](../reference/config.md#agent), [`providers`](../reference/config.md#providers).
+
 ## `coddy update` refuses to overwrite a packaged binary
 
 **Symptom.** `coddy update` changes nothing, names the package that owns the installation, prints the package manager command and exits 1; or it points at `brew upgrade`.
