@@ -4,8 +4,12 @@
 Verifies the memory subagent behaves like an internal voice (not main-agent tools):
 
 - Pre-seeded global markdown is found by the memory subagent (RECALL) and influences the main reply without read_file to that path.
-- After a second turn that asks the model to surface a new memorable fact, the memory subagent (PERSIST) may write a new .md under
-  $CODDY_HOME/memory or <cwd>/memory and a third question recalls it.
+- A second turn asks, in so many words, to remember a fact stated in the user message (a favorite fruit named by a codeword):
+  the memory subagent (PERSIST) must write it under $CODDY_HOME/memory or <cwd>/memory. The fact is in the user text on
+  purpose: the memory subagent works from the user message alone and never sees the assistant's reply, so a fact the
+  assistant invents in its answer is not something PERSIST can be asked to keep (issue #235).
+- A third question is asked in a fresh session of the same process, where the codeword was never said: the reply can only
+  come from the note on disk, so this checks recall through the memory subagent and not the conversation history.
 - Every turn's run is a child session bundle under <session>/subagents/, named memory; the script asserts one exists.
 - Optional prune step: user text nudges the memory subagent to remove a disposable global note; file must disappear.
 
@@ -278,6 +282,7 @@ def main() -> None:
     assert proc.stdin is not None
     nid = [1]
     exit_code = 0
+    sid2 = ""
 
     try:
         r0, _ = rpc_call(
@@ -334,12 +339,13 @@ def main() -> None:
         time.sleep(0.4)
         mid_paths = set(list_memory_markdown(global_mem, project_mem))
 
-        # Turn 2: ask model to invent a stable new fact so the persist pass may save notes; then verify grep.
+        # Turn 2: an explicit request to remember a fact the user states, the codeword included.
+        # PERSIST runs on the user message alone, so the fact has to be in it (issue #235);
+        # the memory run may finish after the reply, hence the poll below.
         p2 = (
-            f"Second memory exercise. Pick exactly one whimsical favorite fruit for this test user "
-            f"and state it as a single sentence that includes the codeword {fruit_word} verbatim.\n"
-            "After stating it, add one line explaining that this fact should be remembered for future sessions.\n"
-            "Still avoid tools unless absolutely required."
+            f"Remember durably for future sessions: my favorite fruit is the one whose codeword is {fruit_word}. "
+            f"Save that codeword exactly as written. Reply with one short line confirming it, "
+            "and avoid tools unless absolutely required."
         )
         rp2, backlog2 = rpc_call(
             proc,
@@ -364,21 +370,29 @@ def main() -> None:
         if fruit_word.upper() not in blob:
             print(
                 f"FAIL: codeword {fruit_word} not found under memory dirs after turn 2 "
-                f"(persist or search indexing may have failed). Files: {sorted(after_paths)}",
+                f"(the memory subagent did not persist the fact the user asked to remember). Files: {sorted(after_paths)}",
                 file=sys.stderr,
             )
             exit_code = 12
 
-        # Turn 3: ask without repeating codeword; recall should still surface fruit_word from disk.
+        # Turn 3 runs in a fresh session of the same process (same home, same cwd):
+        # the codeword was never said there, so the reply can only come from the
+        # note on disk, through the memory subagent's recall.
+        r2s, _ = rpc_call(proc, "session/new", {"cwd": work, "mcpServers": []}, nid)
+        if "error" in r2s:
+            print("session/new (2) error:", jd(r2s), file=sys.stderr)
+            sys.exit(1)
+        sid2 = r2s["result"]["sessionId"]
+        print("fresh sessionId=", sid2, file=sys.stderr)
         p3 = (
             "Third check, answer briefly.\n"
-            "What codeword starting with MEMFRUIT_ did you mention as part of the favorite-fruit line in the prior turn?\n"
+            "What is the codeword of my favorite fruit? It starts with MEMFRUIT_.\n"
             "Reply with that single token only on the first line."
         )
         rp3, backlog3 = rpc_call(
             proc,
             "session/prompt",
-            {"sessionId": sid, "prompt": [{"type": "text", "text": p3}]},
+            {"sessionId": sid2, "prompt": [{"type": "text", "text": p3}]},
             nid,
         )
         if "error" in rp3:
@@ -388,7 +402,7 @@ def main() -> None:
         print("--- assistant turn 3 ---\n", text3, "\n", file=sys.stderr, sep="")
         if fruit_word not in text3 and fruit_word.upper() not in text3.upper():
             print(
-                f"FAIL: expected model to recall {fruit_word} in turn 3 answer.",
+                f"FAIL: expected the fresh session to recall {fruit_word} from disk in turn 3.",
                 file=sys.stderr,
             )
             exit_code = 13
@@ -405,7 +419,7 @@ def main() -> None:
             rp4, backlog4 = rpc_call(
                 proc,
                 "session/prompt",
-                {"sessionId": sid, "prompt": [{"type": "text", "text": p4}]},
+                {"sessionId": sid2, "prompt": [{"type": "text", "text": p4}]},
                 nid,
             )
             if "error" in rp4:
@@ -425,12 +439,13 @@ def main() -> None:
 
         memory_children = [
             p
-            for p in Path(session_root).rglob("subagents/*/session.json")
+            for root in (Path(session_root) / sid, Path(session_root) / sid2)
+            for p in root.rglob("subagents/*/session.json")
             if _is_memory_child(p)
         ]
         if not memory_children:
             print(
-                f"FAIL: no memory child session bundle under {session_root} (the memory subagent never ran?)",
+                f"FAIL: no memory child session bundle under {session_root} for {sid} or {sid2} (the memory subagent never ran?)",
                 file=sys.stderr,
             )
             exit_code = exit_code or 13
@@ -441,7 +456,7 @@ def main() -> None:
                 "memory_child_bundles": len(memory_children),
                 "token_found_turn1": token in text1,
                 "fruit_persisted": fruit_word.upper() in blob,
-                "fruit_recalled_turn3": fruit_word.upper() in text3.upper(),
+                "fruit_recalled_fresh_session": fruit_word.upper() in text3.upper(),
                 "seed_files_before": len(before_paths),
                 "memory_files_mid": len(mid_paths),
                 "memory_files_after": len(after_paths),
@@ -452,6 +467,10 @@ def main() -> None:
     finally:
         proc.stdin.close()
         proc.wait(timeout=900)
+        # The fresh session gets a generated id, so it is not the folder the next
+        # run clears; remove it here unless the bundles are wanted.
+        if sid2 and not args.keep_session:
+            shutil.rmtree(os.path.join(session_root, sid2), ignore_errors=True)
         if cleanup_work and Path(work).exists():
             shutil.rmtree(work, ignore_errors=True)
         if not args.keep_coddy_home and Path(coddy_home).exists():
