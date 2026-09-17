@@ -74,6 +74,7 @@ import {
   type ToolsPermissionPolicy,
 } from "./chat/toolsPermissionPolicy";
 import { reattachLocalQuestionPrompts } from "./chat/transcriptQuestionReattach";
+import { retireRelayedPermissionPrompts } from "./chat/relayedPermissionPrompts";
 import { pickRicherToolArgs } from "./chat/toolCallArgs";
 import { normalizeTodoPlanSnapshot } from "./chat/todoToolPreview";
 import {
@@ -880,6 +881,7 @@ export function App() {
     providerUsage: (usage: ProviderUsage) => void;
     configReloaded: () => void;
     messageQueue: (sid: string, queue: QueuedMessageEvent) => void;
+    subagentPermission: (parentSid: string) => void;
     ready: () => void;
   }>({
     turnStarted: () => {},
@@ -887,6 +889,7 @@ export function App() {
     providerUsage: () => {},
     configReloaded: () => {},
     messageQueue: () => {},
+    subagentPermission: () => {},
     ready: () => {},
   });
   // Provider account usage for the composer pill and banner: read over REST
@@ -2051,6 +2054,9 @@ export function App() {
     if (!sessionId.trim()) {
       return;
     }
+    // A background subagent waiting for a permission answer is still a running
+    // task, so the fast cadence also brings its prompt into the chat when the
+    // events stream is down, and takes it away once answered.
     const id = window.setInterval(() => {
       void refreshBackgroundTasks({ silent: true });
       if (tasksOpen && tasksSelectedId) {
@@ -2496,6 +2502,13 @@ export function App() {
     // browser or from a console attached over --remote.
     messageQueue: (sid: string, queue: QueuedMessageEvent) =>
       applyQueue(sid, queue.messages, queue.version),
+    // A background subagent of the chat on screen started or stopped waiting
+    // for an answer; its prompt lives on the task row the chat renders.
+    subagentPermission: (parentSid: string) => {
+      if (parentSid.trim() === viewedSessionIdRef.current.trim()) {
+        void refreshBackgroundTasks({ silent: true });
+      }
+    },
     ready: () => {
       // Recovery can miss the idle edge. Retire pending acknowledgements too,
       // so an old Stop cannot re-establish the fence after this reconnect.
@@ -2524,6 +2537,8 @@ export function App() {
       onConfigReloaded: () => serverEventHandlersRef.current.configReloaded(),
       onMessageQueue: (sid, queue) =>
         serverEventHandlersRef.current.messageQueue(sid, queue),
+      onSubagentPermission: (parentSid) =>
+        serverEventHandlersRef.current.subagentPermission(parentSid),
       onConnectedChange: setServerEventsConnected,
       onReady: () => serverEventHandlersRef.current.ready(),
       signal: ctl.signal,
@@ -3773,7 +3788,9 @@ export function App() {
         finishThinking();
         const errText = streamErrorMessage;
         applyStreamItems((prev) => {
-          const withoutEmptyAssistant = prev.filter(
+          const withoutEmptyAssistant = retireRelayedPermissionPrompts(
+            prev,
+          ).filter(
             (it) =>
               !(
                 it.type === "assistant_message" &&
@@ -3798,6 +3815,10 @@ export function App() {
 
       flushToolQueue();
       finishThinking();
+      // A prompt this turn relayed on behalf of a subagent ended with the
+      // stream that carried it: the relay withdrew it and, for a background
+      // child, raised it again as the card at the end of the chat.
+      applyStreamItems(retireRelayedPermissionPrompts);
       ensureAssistant({
         streaming: false,
         createdAtUtc: new Date().toISOString(),
@@ -5235,6 +5256,10 @@ export function App() {
               initialSection={settingsSection}
               activeSessionId={sidebarActiveId}
               onSessionsDeleted={onSessionsDeletedInSettings}
+              // spawn_agent resolves definitions against the session's own
+              // cwd: the viewed session's workspace is the one the Subagents
+              // tab lists.
+              workspacePath={workspaceCtx?.path || undefined}
               onSessionTagsChanged={(id: string, tags: string[]) =>
                 setSessions((prev) =>
                   prev.map((s) => (s.id === id ? { ...s, tags } : s)),
@@ -5271,6 +5296,9 @@ export function App() {
             sessionId={sessionId}
             backgroundTasks={backgroundTasks}
             onOpenBackgroundTasks={openTasksFromNav}
+            onBackgroundTasksChanged={() => {
+              void refreshBackgroundTasks({ silent: true });
+            }}
             backgroundTasksByToolCallId={backgroundTasksByToolCallId}
             backgroundNowMs={backgroundNowMs}
             onOpenBackgroundTask={openBackgroundTask}

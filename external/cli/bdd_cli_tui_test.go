@@ -27,6 +27,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/rules"
@@ -121,14 +122,16 @@ type cliTUIState struct {
 	directives chan stubDirective
 	turnEnds   chan struct{}
 
-	permOutcome  string
-	permOption   string
-	questionAns  [][]string
-	prompts      []string
-	sawCancel    bool
-	activeToolID string
-	toolSeq      int
-	blockedCh    chan struct{}
+	permOutcome string
+	permOption  string
+	// detachedAnswers carries what a background subagent's prompt returned.
+	detachedAnswers chan *acp.PermissionResult
+	questionAns     [][]string
+	prompts         []string
+	sawCancel       bool
+	activeToolID    string
+	toolSeq         int
+	blockedCh       chan struct{}
 
 	prevSessionID string
 
@@ -170,6 +173,7 @@ func (s *cliTUIState) reset() {
 	s.home, s.cwd = "", ""
 	s.cfg, s.store, s.app = nil, nil, nil
 	s.permOutcome, s.permOption = "", ""
+	s.detachedAnswers = nil
 	s.questionAns = nil
 	s.prompts = nil
 	s.sawCancel = false
@@ -848,6 +852,73 @@ func (s *cliTUIState) operatorAllowsPermissionKeepingTurn() error {
 	return fmt.Errorf("permission result never arrived")
 }
 
+// backgroundSubagentAsks raises a prompt the way the relay does once the turn
+// that spawned the subagent is over: straight to the console's broker, under the
+// child's own session, with the subagent named in the title.
+func (s *cliTUIState) backgroundSubagentAsks(name, command string) error {
+	answers := make(chan *acp.PermissionResult, 1)
+	s.mu.Lock()
+	s.detachedAnswers = answers
+	s.mu.Unlock()
+	req := agent.DetachedPermissionRequest{
+		ParentSessionID: s.app.sessionID,
+		ChildSessionID:  "sess_bdd_writer",
+		TaskID:          "bg_1",
+		AgentName:       name,
+		Params: acp.PermissionRequestParams{
+			SessionID: "sess_bdd_writer",
+			ToolCall: acp.PermissionToolCall{
+				ToolCallID: "call_detached",
+				Title:      "[subagent " + name + "] Run: " + command,
+				Status:     "pending",
+			},
+			Options: []acp.PermissionOption{
+				{OptionID: "allow", Name: "Allow", Kind: "allow_once"},
+				{OptionID: "reject", Name: "Reject", Kind: "reject_once"},
+			},
+			EffectivePermissionMode: config.PermModeAsk,
+		},
+	}
+	go func() {
+		res, err := s.app.RequestDetachedPermission(s.runCtx, req)
+		if err != nil {
+			res = nil
+		}
+		answers <- res
+	}()
+	return nil
+}
+
+func (s *cliTUIState) screenShowsModalNamingSubagent(name string) error {
+	if err := s.waitScreen("Permission required", 3*time.Second); err != nil {
+		return err
+	}
+	return s.waitScreen("[subagent "+name+"]", 3*time.Second)
+}
+
+func (s *cliTUIState) operatorAnswersSubagentPermission() error {
+	s.press("\r")
+	return nil
+}
+
+func (s *cliTUIState) backgroundSubagentAnswered(name, option string) error {
+	s.mu.Lock()
+	answers := s.detachedAnswers
+	s.mu.Unlock()
+	if answers == nil {
+		return fmt.Errorf("the subagent %q never asked", name)
+	}
+	select {
+	case res := <-answers:
+		if res == nil || res.OptionID != option {
+			return fmt.Errorf("the subagent %q was answered %+v, want %q", name, res, option)
+		}
+		return nil
+	case <-time.After(3 * time.Second):
+		return fmt.Errorf("the subagent %q was never answered; last frame:\n%s", name, s.screenText())
+	}
+}
+
 func (s *cliTUIState) stubObservesPermissionOutcome(outcome, option string) error {
 	s.mu.Lock()
 	gotOutcome, gotOption := s.permOutcome, s.permOption
@@ -1352,6 +1423,10 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the screen shows a permission modal with an allow option$`, s.screenShowsPermissionModalWithAllow)
 	sc.Step(`^the operator confirms the highlighted permission option$`, s.operatorConfirmsPermissionOption)
 	sc.Step(`^the stub turn observes the permission outcome "([^"]*)" with option "([^"]*)"$`, s.stubObservesPermissionOutcome)
+	sc.Step(`^the background subagent "([^"]*)" asks for permission to run "([^"]*)"$`, s.backgroundSubagentAsks)
+	sc.Step(`^the screen shows a permission modal naming the subagent "([^"]*)"$`, s.screenShowsModalNamingSubagent)
+	sc.Step(`^the operator answers the subagent's permission with the highlighted option$`, s.operatorAnswersSubagentPermission)
+	sc.Step(`^the background subagent "([^"]*)" is answered "([^"]*)"$`, s.backgroundSubagentAnswered)
 	sc.Step(`^the stub turn blocks until cancelled$`, s.stubBlocksUntilCancelled)
 	sc.Step(`^the screen shows the queued message "([^"]*)"$`, s.screenShowsQueuedMessage)
 	sc.Step(`^the screen shows nothing queued$`, s.screenShowsNothingQueued)

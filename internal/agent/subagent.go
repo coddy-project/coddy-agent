@@ -40,6 +40,51 @@ func (a *Agent) SetSubagentRuntime(rt SubagentRuntime) {
 	a.subagentRuntime = rt
 }
 
+// DetachedPermissionRequest is one prompt from a child whose parent turn has
+// already ended. It carries the ids the surface needs to show it against the
+// right task and to route the answer back.
+type DetachedPermissionRequest struct {
+	ParentSessionID string
+	ChildSessionID  string
+	TaskID          string
+	AgentName       string
+	// Params.SessionID is the child's id: the answer is posted against the
+	// session that is actually waiting, not against the finished parent turn.
+	Params acp.PermissionRequestParams
+}
+
+// DetachedPermissionBroker shows a detached child's permission prompt where the
+// person reading the parent conversation is, and blocks until it is answered or
+// ctx - the run's own context - ends.
+//
+// Same shape as SubagentRuntime: the agent declares what it needs, the surface
+// implements it. Only a surface that can ask somebody after a turn has ended
+// provides one: the interactive console asks through its modal, and coddy serve
+// offers the prompt to every surface of the process at once (the web chat of
+// the parent session, a console attached over --remote, the Telegram chat that
+// owns the session), the first answer winning. A surface that cannot (ACP,
+// print mode, a scheduled run) leaves it unset, and the relay refuses with a
+// reason the child can report instead of silently reading as "the user said
+// no".
+type DetachedPermissionBroker interface {
+	RequestDetachedPermission(ctx context.Context, req DetachedPermissionRequest) (*acp.PermissionResult, error)
+}
+
+// ErrNoDetachedApprover is what a broker answers when nothing that could show
+// the prompt is attached right now - in coddy serve, no surface is up, or none
+// of them owns the parent conversation. The relay reads it exactly like a
+// missing broker.
+var ErrNoDetachedApprover = errors.New("no surface can show a detached subagent's permission prompt")
+
+// SetDetachedPermissionBroker wires the surface that can answer a detached
+// child's prompt.
+func (a *Agent) SetDetachedPermissionBroker(b DetachedPermissionBroker) {
+	if a == nil {
+		return
+	}
+	a.detachedPermissions = b
+}
+
 // Mandatory exclusions from every child's tool set: a child cannot ask the
 // user, cannot rewrite the agent's own configuration, and cannot leave plan
 // mode on the operator's behalf.
@@ -123,13 +168,21 @@ func releaseArbiter(parentID string) {
 }
 
 // permissionRelay forwards a child's permission requests to the parent's
-// sender while the parent turn that spawned the child is still alive, and
-// fails closed afterwards. It is created per spawn, so a child spawned by a
-// later turn carries that turn's context.
+// sender while the parent turn that spawned the child is still alive, and to
+// the surface's detached-permission broker once that turn has ended (failing
+// closed, with a reason, when there is none). It is created per spawn, so a
+// child spawned by a later turn carries that turn's context.
 type permissionRelay struct {
 	parent          acp.UpdateSender
 	parentSessionID string
+	childSessionID  string
 	agentName       string
+	// taskID is assigned inside the pool's launch callback, before the run
+	// goroutine starts, so the goroutine sees it without a lock.
+	taskID string
+	// broker answers prompts raised after turnCtx is done; nil on a surface
+	// that cannot show one.
+	broker DetachedPermissionBroker
 	// childPermissionMode is the child's effective mode, stamped on every
 	// forwarded request so a sender never mistakes it for the parent's.
 	childPermissionMode string
@@ -138,16 +191,41 @@ type permissionRelay struct {
 	arbiter             *permissionArbiter
 }
 
-func deniedPermission() *acp.PermissionResult {
-	return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}
+func deniedPermission(reason string) *acp.PermissionResult {
+	return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject", Reason: reason}
 }
 
-// Request forwards one permission prompt. The parent context ending, the child
-// being stopped, or the caller's own context ending all resolve as a denial
-// without leaving a goroutine parked on the transport.
+// Reasons a child's prompt is refused without anyone answering it. The child
+// is told which, so it reports honestly instead of claiming the user refused.
+const (
+	permissionReasonNoClient   = "no interactive client is attached to the session that spawned this subagent, so nobody could be asked. Do not retry the same call; finish and report what you could not do"
+	permissionReasonNoApprover = "this subagent is running detached: the turn that spawned it has ended and no interactive client is attached, so nobody could be asked. Do not retry the same call; finish and report what you could not do"
+	permissionReasonUnanswered = "the approval request was raised but nobody answered it before the run ended"
+	permissionReasonStopped    = "the run was stopped while waiting for approval"
+)
+
+// relayedPermissionTitle prefixes a forwarded prompt with the subagent it is
+// asked on behalf of, so whoever answers knows it is not the parent asking.
+func relayedPermissionTitle(agentName, title string) string {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = "Run a tool"
+	}
+	return fmt.Sprintf("[subagent %s] %s", agentName, title)
+}
+
+// Request forwards one permission prompt. While the parent turn is alive it
+// goes to the parent's client; once that turn is over - a detached run's
+// normal state - it goes to the broker, and a prompt still unanswered on the
+// parent's screen when the turn ends moves there too. The child being stopped
+// or the caller's own context ending resolve as a denial without leaving a
+// goroutine parked on the transport.
 func (r *permissionRelay) Request(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
-	if r == nil || r.parent == nil || r.turnCtx.Err() != nil {
-		return deniedPermission(), nil
+	if r == nil || r.parent == nil {
+		return deniedPermission(permissionReasonNoClient), nil
+	}
+	if r.turnCtx.Err() != nil {
+		return r.requestDetached(ctx, params)
 	}
 	r.arbiter.waiting.Add(1)
 	select {
@@ -155,19 +233,34 @@ func (r *permissionRelay) Request(ctx context.Context, params acp.PermissionRequ
 		r.arbiter.waiting.Add(-1)
 	case <-r.turnCtx.Done():
 		r.arbiter.waiting.Add(-1)
-		return deniedPermission(), nil
+		return r.requestDetached(ctx, params)
 	case <-r.childCtx.Done():
 		r.arbiter.waiting.Add(-1)
-		return deniedPermission(), nil
+		return deniedPermission(permissionReasonStopped), nil
 	case <-ctx.Done():
 		r.arbiter.waiting.Add(-1)
-		return deniedPermission(), nil
+		return deniedPermission(permissionReasonStopped), nil
 	}
-	defer func() { <-r.arbiter.slot }()
+	// The slot is handed back on every exit, and before any detached wait: that
+	// wait can last minutes, and a sibling's live prompt must not queue behind
+	// it.
+	slotHeld := true
+	releaseSlot := func() {
+		if slotHeld {
+			slotHeld = false
+			<-r.arbiter.slot
+		}
+	}
+	defer releaseSlot()
 	if r.turnCtx.Err() != nil {
-		return deniedPermission(), nil
+		releaseSlot()
+		return r.requestDetached(ctx, params)
 	}
 
+	// The prompt as it arrived, kept for the broker: the parent-facing copy
+	// below is addressed, titled and narrowed for the parent's client, and
+	// requestDetached does the same for the child-addressed one.
+	asked := params
 	params.SessionID = r.parentSessionID
 	// The stamp is the stricter of what arrived and this child's own mode: a
 	// grandchild's prompt crosses two relays, and the intermediate child must
@@ -177,11 +270,7 @@ func (r *permissionRelay) Request(ctx context.Context, params acp.PermissionRequ
 	// ever cover that one run; the parent-facing modal offers the honest
 	// choices, allow once or reject.
 	params.Options = relayedPermissionOptions(params.Options)
-	title := strings.TrimSpace(params.ToolCall.Title)
-	if title == "" {
-		title = "Run a tool"
-	}
-	params.ToolCall.Title = fmt.Sprintf("[subagent %s] %s", r.agentName, title)
+	params.ToolCall.Title = relayedPermissionTitle(r.agentName, params.ToolCall.Title)
 
 	reqCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancel()
@@ -197,22 +286,86 @@ func (r *permissionRelay) Request(ctx context.Context, params acp.PermissionRequ
 	// A forwarded prompt is never persisted by the parent-facing senders (the
 	// HTTP bridge skips the pending record for a stamped request), so giving
 	// up leaves nothing behind but the cancelled forward.
-	abandon := func() *acp.PermissionResult {
+	abandon := func(reason string) *acp.PermissionResult {
 		cancel()
-		return deniedPermission()
+		return deniedPermission(reason)
 	}
 	select {
 	case out := <-done:
 		if out.err != nil || out.res == nil {
-			return abandon(), nil
+			return abandon(permissionReasonUnanswered), nil
 		}
 		return out.res, nil
 	case <-r.turnCtx.Done():
-		return abandon(), nil
+		// An answer that landed in the same instant is the person's answer and
+		// is kept: handing the prompt over after it would ask a second time.
+		select {
+		case out := <-done:
+			if out.err == nil && out.res != nil {
+				return out.res, nil
+			}
+		default:
+		}
+		// The parent turn ended with the prompt still on its screen, and that
+		// screen goes away with the stream that carried it: the parent's client
+		// can no longer answer. Withdraw that copy - the console takes its modal
+		// down, the bridge unregisters its wait, a chat marks its message as no
+		// longer waiting - and raise the prompt where the conversation is still
+		// read, exactly like a prompt asked after the turn had ended. The
+		// person answers it once, as the detached prompt; where no broker
+		// exists nobody can, and the child is told so. An answer that arrives
+		// between this check and the cancel is lost with the forward, and the
+		// prompt is asked once more: never executed on nobody's word.
+		cancel()
+		releaseSlot()
+		return r.requestDetached(ctx, asked)
 	case <-r.childCtx.Done():
-		return abandon(), nil
+		return abandon(permissionReasonStopped), nil
 	case <-ctx.Done():
-		return abandon(), nil
+		return abandon(permissionReasonStopped), nil
+	}
+}
+
+// requestDetached hands the prompt to the broker, which shows it where the
+// parent conversation is read, and blocks until it is answered, the child is
+// stopped, or the run's own deadline passes.
+//
+// It deliberately does not take the arbiter slot. The arbiter serialises
+// prompts inside one parent chat because the parent holds a single pending
+// record; a detached prompt is keyed by its own child session instead, and a
+// wait that can last minutes must not block a sibling's live prompt.
+func (r *permissionRelay) requestDetached(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	if r.broker == nil {
+		return deniedPermission(permissionReasonNoApprover), nil
+	}
+	params.SessionID = r.childSessionID
+	params.EffectivePermissionMode = subagents.NarrowPermissionMode(r.childPermissionMode, params.EffectivePermissionMode)
+	params.Options = relayedPermissionOptions(params.Options)
+	params.ToolCall.Title = relayedPermissionTitle(r.agentName, params.ToolCall.Title)
+
+	// The wait ends with the run: the pool's timeout, an explicit stop and
+	// shutdown all cancel the child's context, whatever the caller passed.
+	waitCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stopWatching := context.AfterFunc(r.childCtx, cancel)
+	defer stopWatching()
+
+	res, err := r.broker.RequestDetachedPermission(waitCtx, DetachedPermissionRequest{
+		ParentSessionID: r.parentSessionID,
+		ChildSessionID:  r.childSessionID,
+		TaskID:          r.taskID,
+		AgentName:       r.agentName,
+		Params:          params,
+	})
+	switch {
+	case errors.Is(err, ErrNoDetachedApprover):
+		return deniedPermission(permissionReasonNoApprover), nil
+	case err == nil && res != nil:
+		return res, nil
+	case r.childCtx.Err() != nil || ctx.Err() != nil:
+		return deniedPermission(permissionReasonStopped), nil
+	default:
+		return deniedPermission(permissionReasonUnanswered), nil
 	}
 }
 
@@ -583,7 +736,9 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	relay := &permissionRelay{
 		parent:              a.server,
 		parentSessionID:     parentID,
+		childSessionID:      childID,
 		agentName:           def.Name,
+		broker:              a.detachedPermissions,
 		childPermissionMode: childPerm,
 		turnCtx:             ctx,
 		childCtx:            runCtx,
@@ -620,6 +775,9 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	// being created. The task id is known before anything starts.
 	snap, err := pool.Launch(spec, func(taskID string, out io.Writer) (bgtask.Handle, error) {
 		run.taskID = taskID
+		// Assigned before the run goroutine is started below, so it is visible
+		// there without a lock; a detached prompt names the task it belongs to.
+		relay.taskID = taskID
 		run.sender = newSubagentSender(out, relay)
 		_, _ = fmt.Fprintf(out, "subagent %s (task %s, session %s) starting\n", def.Name, taskID, childID)
 		if unknownModel != "" {

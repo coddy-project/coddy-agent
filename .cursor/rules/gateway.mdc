@@ -51,7 +51,7 @@ type SessionRunner interface {
 - Subsequent tokens → `editMessageText`, throttled to ~1.5 s to avoid Telegram rate limits.
 - Tool execution in progress → replaces live message with "⚙️ toolname…" indicator; this line is NOT included in the final `Flush()` output.
 - `Flush()` → replaces the live message with the final formatted text, converted to Telegram legacy Markdown via `markdown.go`.
-- `RequestPermission` auto-approves (the admin configured the bot deliberately).
+- `RequestPermission` auto-approves the chat agent's own requests (the admin configured the bot deliberately). A subagent's request stamped below `bypass` is asked in the chat instead (`permission.go`: inline **Allow** / **Reject** buttons, `perm:<token>:<i>` callbacks answered only by the person whose session asked); the `Bot` is also a `DetachedPermissionBroker` offered to `serve.Runtime` (`gateway.Options.Prompts`), so a background subagent of a chat session asks there after the turn ended.
 
 ## Answering through a surface
 

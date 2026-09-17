@@ -194,6 +194,9 @@ func (h *Handler) Close() {
 	h.usageClosed = true
 	h.usageMu.Unlock()
 	h.StopEvents()
+	// The subagent prompts this client offered run on the control context,
+	// which is cancelled above, so none can post an answer after Close.
+	h.detachedWG.Wait()
 }
 
 // usageIsClosed reports whether Close ran.

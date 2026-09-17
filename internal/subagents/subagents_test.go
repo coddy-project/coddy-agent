@@ -1,6 +1,7 @@
 package subagents
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -549,6 +550,74 @@ func TestCatalogAndPromptBlockHideHiddenDefinitions(t *testing.T) {
 			t.Fatalf("listing missing %q:\n%s", want, listing)
 		}
 	}
+}
+
+// An approval surface decides on the bounds, not on the name: the catalog has
+// to carry what the definition declares about the child's reach. The role body
+// itself never travels - only its size - because a client would render it
+// before anyone approved the file.
+func TestCatalogCarriesTheDeclaredBounds(t *testing.T) {
+	home := t.TempDir()
+	cwd := t.TempDir()
+	writeDef(t, cwd, ".coddy/agents/reviewer.md", reviewerDef)
+	writeDef(t, cwd, ".coddy/agents/runner.md", "---\ndescription: runs things\ndisallowed_tools: run_command\ntimeout_seconds: 90\nbackground: true\n---\nGo.\n")
+	defs := NewLoader([]string{"${CWD}/.coddy/agents"}, "allow").Load(cwd, home)
+	entries := BuildCatalog(defs, "allow", CanonicalWorkspace(cwd), NewTrustStore(home))
+
+	byName := map[string]CatalogEntry{}
+	for _, e := range entries {
+		byName[e.Name] = e
+	}
+	reviewer, ok := byName["reviewer"]
+	if !ok {
+		t.Fatalf("catalog does not list reviewer: %+v", entries)
+	}
+	if strings.Join(reviewer.Tools, ",") != "read,grep,glob" {
+		t.Fatalf("reviewer tools = %v", reviewer.Tools)
+	}
+	if reviewer.PermissionMode != "accept_edits" || reviewer.MaxTurns != 8 {
+		t.Fatalf("reviewer bounds = %+v", reviewer)
+	}
+	if reviewer.RoleBytes == 0 || strings.Contains(string(mustJSON(t, reviewer)), "You review code") {
+		t.Fatalf("the role body must be reported by size only: %+v", reviewer)
+	}
+	runner := byName["runner"]
+	if strings.Join(runner.DisallowedTools, ",") != "run_command" || runner.TimeoutSeconds != 90 || !runner.Background {
+		t.Fatalf("runner bounds = %+v", runner)
+	}
+
+	// A definition that declares no bounds must not claim empty ones: the
+	// client reads an absent field as "inherits", which is what nil means.
+	// The built-ins that always sit below the directories are the live case -
+	// general restricts nothing at all.
+	if encoded := string(mustJSON(t, byName["general"])); strings.Contains(encoded, `"tools"`) {
+		t.Fatalf("general restricts no tools, so the row must not carry the key: %s", encoded)
+	}
+	bare := BuildCatalog([]*Definition{{Name: "bare", Description: "d"}}, "allow", CanonicalWorkspace(cwd), NewTrustStore(home))
+	encoded := string(mustJSON(t, bare[0]))
+	for _, absent := range []string{"tools", "disallowed_tools", "permission_mode", "timeout_seconds", "max_turns", "background", "role_bytes"} {
+		if strings.Contains(encoded, `"`+absent+`"`) {
+			t.Fatalf("a definition declaring no %s must not serialise one: %s", absent, encoded)
+		}
+	}
+
+	// The entry owns its slices: a caller editing what it was handed must not
+	// reach back into the immutable definition.
+	reviewer.Tools[0] = "run_command"
+	for _, d := range defs {
+		if d.Name == "reviewer" && d.Tools[0] != "read" {
+			t.Fatalf("editing a catalog entry changed the definition: %v", d.Tools)
+		}
+	}
+}
+
+func mustJSON(t *testing.T, v interface{}) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }
 
 func TestVisibleNamesForErrors(t *testing.T) {

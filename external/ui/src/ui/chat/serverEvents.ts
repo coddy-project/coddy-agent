@@ -18,6 +18,11 @@ export type ServerEventHandlers = {
    *  follow-up onto the turn it is watching. Carries the whole queue and its
    *  version; the caller keeps the highest version it has seen. */
   onMessageQueue?: (sessionId: string, queue: QueuedMessageEvent) => void;
+  /** A background subagent of this parent session started waiting for a
+   *  permission answer, or stopped waiting (answered anywhere, withdrawn, its
+   *  run ended). The prompt itself waits on the subagent's task row, so the
+   *  chat of that session re-reads its tasks. */
+  onSubagentPermission?: (parentSessionId: string) => void;
   /** The connect/reconnect replay is complete; reconcile activity and queues over REST. */
   onReady?: () => void;
   /** Called whenever the subscription goes up or down, so callers can fall back to polling. */
@@ -43,6 +48,7 @@ export type ServerEvent =
   | { type: "provider_usage"; sessionId: string; usage: ProviderUsage }
   | { type: "message_queue"; sessionId: string; queue: QueuedMessageEvent }
   | { type: "config_reloaded" }
+  | { type: "subagent_permission"; parentSessionId: string }
   | { type: "ready" };
 
 /** One session's message queue as the server event carries it. */
@@ -114,6 +120,17 @@ function sessionIdOf(data: string): string {
   }
 }
 
+function parentSessionIdOf(data: string): string {
+  try {
+    const parsed = JSON.parse(data) as { parentSessionId?: unknown };
+    return typeof parsed.parentSessionId === "string"
+      ? parsed.parentSessionId.trim()
+      : "";
+  } catch {
+    return "";
+  }
+}
+
 /** parseServerEvent reads one SSE block of the stream; null for anything a client ignores. */
 export function parseServerEvent(ev: {
   event: string;
@@ -133,6 +150,13 @@ export function parseServerEvent(ev: {
     case "config_reloaded":
       // Nothing to parse: the payload is the announcement itself.
       return { type: "config_reloaded" };
+    case "subagent_permission": {
+      // A frame naming no parent belongs to no chat.
+      const parent = parentSessionIdOf(ev.data);
+      return parent
+        ? { type: "subagent_permission", parentSessionId: parent }
+        : null;
+    }
     case "turn_started":
     case "turn_ended": {
       const sid = sessionIdOf(ev.data);
@@ -160,6 +184,9 @@ export function dispatchServerEvent(
       return;
     case "config_reloaded":
       h.onConfigReloaded?.();
+      return;
+    case "subagent_permission":
+      h.onSubagentPermission?.(event.parentSessionId);
       return;
     case "turn_started":
       h.onTurnStarted(event.sessionId);
