@@ -4337,3 +4337,103 @@ func TestChatCompletionsDirectReasoningEffortPrecedence(t *testing.T) {
 		t.Fatalf("reasoning, temperature and cap did not all reach the provider: %s", last)
 	}
 }
+
+// TestChatCompletionsDirectCodexFinishReasons follows a Codex response's
+// terminal state to the finish_reason an OpenAI client reads: an output cap is
+// length, the content filter is content_filter, and a stream cut before any
+// terminal event is an error, never a finished choice.
+func TestChatCompletionsDirectCodexFinishReasons(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		codexSSE(w, "response.output_text.delta", map[string]any{"delta": "Partial answer"})
+		incomplete := func(reason string) {
+			codexSSE(w, "response.incomplete", map[string]any{"response": map[string]any{
+				"status": "incomplete", "incomplete_details": map[string]any{"reason": reason},
+			}})
+		}
+		switch prompt := gjson.GetBytes(raw, "input.0.content.0.text").String(); prompt {
+		case "cap":
+			incomplete("max_output_tokens")
+		case "filter":
+			incomplete("content_filter")
+		case "cut":
+			// The connection closes cleanly with no terminal event.
+		default:
+			codexSSE(w, "response.completed", map[string]any{"response": map[string]any{"status": "completed"}})
+		}
+	}))
+	defer backend.Close()
+	t.Setenv("CODDY_CODEX_BASE_URL", backend.URL)
+
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	authPath := config.CodexAuthPath(home, "codex")
+	if err := os.MkdirAll(filepath.Dir(authPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	auth := fmt.Sprintf(`{"auth_mode":"chatgpt","tokens":{"access_token":%q,"refresh_token":"rt","account_id":"acct"}}`,
+		codexE2ETestJWT(map[string]any{"exp": 4_102_444_800}))
+	if err := os.WriteFile(authPath, []byte(auth), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: home, CWD: root},
+		Providers: []config.ProviderConfig{{Name: "codex", Type: "codex"}},
+		Models:    []config.ModelEntry{{Model: "codex/gpt-5.5"}},
+		Agent:     config.Agent{Model: "codex/gpt-5.5", LLMRetryMax: new(int)},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, nil, slog.Default(), root, &session.FileStore{Root: filepath.Join(root, "sessions")})
+	srv := New(cfg, mgr, slog.Default(), root)
+	t.Cleanup(srv.Drain)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	post := func(prompt string, stream bool) (int, string) {
+		t.Helper()
+		body := fmt.Sprintf(`{"model":"codex/gpt-5.5","messages":[{"role":"user","content":%q}],"stream":%v}`, prompt, stream)
+		res, err := http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := ioReadAllClose(res.Body)
+		return res.StatusCode, string(raw)
+	}
+	finishes := func(sse string) []string {
+		var out []string
+		for _, f := range parseSSEFrames(sse) {
+			if f.event == "" && f.data != "[DONE]" {
+				if reason := gjson.Get(f.data, "choices.0.finish_reason"); reason.Type == gjson.String {
+					out = append(out, reason.String())
+				}
+			}
+		}
+		return out
+	}
+
+	for prompt, want := range map[string]string{"done": "stop", "cap": "length", "filter": "content_filter"} {
+		code, body := post(prompt, false)
+		if code != http.StatusOK || gjson.Get(body, "choices.0.finish_reason").String() != want {
+			t.Fatalf("%s (JSON): %d %s, want finish_reason %q", prompt, code, body, want)
+		}
+		if got := gjson.Get(body, "choices.0.message.content").String(); got != "Partial answer" {
+			t.Fatalf("%s (JSON): content %q, want the text the model wrote", prompt, got)
+		}
+		_, sse := post(prompt, true)
+		if got := finishes(sse); len(got) != 1 || got[0] != want {
+			t.Fatalf("%s (stream): finish reasons %v, want [%s]:\n%s", prompt, got, want, sse)
+		}
+	}
+
+	code, body := post("cut", false)
+	if code != http.StatusInternalServerError || !strings.Contains(gjson.Get(body, "error.message").String(), "stream truncated") {
+		t.Fatalf("cut (JSON): %d %s, want a 500 naming the truncation", code, body)
+	}
+	_, sse := post("cut", true)
+	if got := finishes(sse); len(got) != 0 {
+		t.Fatalf("cut (stream): a truncated answer finished its choice with %v:\n%s", got, sse)
+	}
+	if !strings.Contains(sse, "stream truncated") {
+		t.Fatalf("cut (stream): the truncation never reached the client:\n%s", sse)
+	}
+}
