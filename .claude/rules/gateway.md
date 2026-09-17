@@ -15,13 +15,13 @@ Built with **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (
 |---------|------|
 | `external/gateway` | `Adapter` interface, `Hub`, `IncomingMessage`, `OutgoingMessage` |
 | `external/gateway/access` | `CanAccess`, `EffectiveAccess`, `EffectiveIsolation` — ACL helpers |
-| `external/gateway/sessionstore` | `Store`: maps stable chat/user keys to Coddy session IDs; persisted to `gateway_sessions.json` |
+| `external/gateway/sessionstore` | `Store`: maps stable chat/user keys to Coddy session IDs (`Get` mints, `Reset` replaces for `/clear`, `Bind` points a chat at an existing session for `/resume`); persisted to `gateway_sessions.json` |
 | `external/gateway/proxyutil` | `BuildHTTPClient` — HTTP/SOCKS5 proxy support for outbound adapter requests |
-| `external/gateway/telegram` | `Bot` (polling, dispatch, ACL), `Sender` (streaming output), `commands.go` (inline keyboards), `prompt.go` (what the model is told about answering here), `markdown.go` (md → Telegram format) |
+| `external/gateway/telegram` | `Bot` (polling, dispatch, ACL), `Sender` (streaming output), `commands.go` (inline keyboards for `/mode` and `/model`, the callback dispatcher, `callbackValue` for payloads over 64 bytes), `resume.go` (`/resume`: the session picker over `HandleSessionList`, the query matcher, the `resume:s:` / `resume:p:` callbacks), `prompt.go` (what the model is told about answering here), `markdown.go` (md → Telegram format) |
 
 ## Session store
 
-`sessionstore.NewPersisted(path)` loads/saves a JSON map of key→session-ID on every mutation. The file lives at `$CODDY_HOME/sessions/gateway_sessions.json` (set in `external/gateway/start.go`). On restart the bot reloads the map so existing conversations continue where they left off.
+`sessionstore.NewPersisted(path)` loads/saves a JSON map of key→session-ID on every mutation. The file lives at `$CODDY_HOME/sessions/gateway_sessions.json` (set in `external/gateway/start.go`). On restart the bot reloads the map so existing conversations continue where they left off. `/resume` writes the same map through `Bind`, so a chat moved to another session stays there across a restart; the session it left is not forgotten, because `/resume` is a switch the chat may reverse a moment later, while `/clear` ends a conversation and `ForgetLiveSession` belongs to it.
 
 `newID()` mints ids through `session.NewSessionID()`: a chat conversation is an ordinary Coddy session with an ordinary `sess_` id, so `GET /coddy/sessions` lists it beside the sessions started in a terminal or a browser.
 
@@ -36,9 +36,12 @@ type SessionRunner interface {
     ForgetLiveSession(sessionID string)
     HandleSessionSetMode(ctx context.Context, params acp.SessionSetModeParams) error
     HandleSessionSetConfigOption(ctx context.Context, params acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error)
+    HandleSessionList(ctx context.Context, params acp.SessionListParams) (*acp.SessionListResult, error)
     Cfg() *config.Config
 }
 ```
+
+`/resume` resolves its choice against `HandleSessionList` and never hands the manager an id that listing did not return: `EnsureHTTPSession` creates a session for an unknown id, and a typo must not become an empty bundle.
 
 ## Telegram Sender streaming
 
@@ -73,9 +76,9 @@ Enabled per-bot with `gateways.telegram.rich_messages: true` (`config.TelegramGa
 
 The adapter's logger arrives tagged with the `gateway.telegram` component (`internal/logger.Component`, applied in `external/gateway/start.go`; the hub itself is `gateway`), so `logger.levels` can raise one bot to `debug` while the rest of the process stays at `info`. Tag once, at construction - `Component` on an already-tagged logger prints two `component` attributes.
 
-The whole command path logs at `debug`: `telegram: update` per arriving message or callback, `telegram: update ignored`/`update rejected` with a `reason` for every silent drop, `telegram: command`, the `mode`/`model`/`context` menus with the session they belong to, and `telegram: callback` with the resolved value. A switch that lands is `info` (`telegram: model applied`, `telegram: mode applied`), matching `telegram: session cleared`; a failure is `warn`. Nothing in the adapter may log through `slog.Default` - a record that skips `b.log` misses the configured sink and carries no component. Operator guide: `docs/surfaces/gateway.md` (Debugging a chat).
+The whole command path logs at `debug`: `telegram: update` per arriving message or callback, `telegram: update ignored`/`update rejected` with a `reason` for every silent drop, `telegram: command`, the `mode`/`model`/`context`/`resume` menus with the session they belong to (`telegram: resume query` for the words after `/resume` and how many sessions matched), and `telegram: callback` with the resolved value. A switch that lands is `info` (`telegram: model applied`, `telegram: mode applied`, `telegram: session resumed`), matching `telegram: session cleared`; a failure is `warn`. Nothing in the adapter may log through `slog.Default` - a record that skips `b.log` misses the configured sink and carries no component. Operator guide: `docs/surfaces/gateway.md` (Debugging a chat).
 
-Inline-keyboard payloads must survive the round trip. `callback_data` is capped at 64 bytes, so `modelCallbackValue` sends a model id verbatim when it fits and a digest when it does not (never a truncated id, which resolves to nothing), and `resolveModelCallback` maps the payload back against the configured models. The keyboard also outlives the process that sent it, so `handleCallback` calls `ensureSession` before configuring anything: after a restart the session is on disk, and the manager only configures live ones.
+Inline-keyboard payloads must survive the round trip. `callback_data` is capped at 64 bytes, so `callbackValue` sends a model id or a session id verbatim when it fits next to its prefix and a digest when it does not (never a truncated id, which resolves to nothing), and `resolveModelCallback` / `resolveResumeCallback` map the payload back against the configured models or the current session listing. The keyboard also outlives the process that sent it, so `handleCallback` calls `ensureSession` before configuring anything: after a restart the session is on disk, and the manager only configures live ones. A resume tap is dispatched before that call: it names the session the chat moves to, and loading the chat's current one first would mint a session for a chat that never spoke.
 
 ## Proxy
 

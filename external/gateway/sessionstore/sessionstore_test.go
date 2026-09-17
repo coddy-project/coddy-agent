@@ -83,3 +83,29 @@ func TestPeekDoesNotMintAMapping(t *testing.T) {
 		t.Fatalf("Peek = %q, want the id Get minted (%q)", got, id)
 	}
 }
+
+// Bind maps a chat to a session that already exists - what /resume does - and
+// the mapping is on disk for the next process like one Get or Reset wrote.
+func TestBindPersistsTheChosenID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gateway_sessions.json")
+	s := sessionstore.NewPersisted(path)
+
+	s.Bind("tg:user:1", "sess_aaaaaaaaaaaaaaaaaaaaaaaa")
+	if got := s.Get("tg:user:1"); got != "sess_aaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Fatalf("Get after Bind = %q", got)
+	}
+	again := sessionstore.NewPersisted(path)
+	if got := again.Peek("tg:user:1"); got != "sess_aaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Fatalf("a fresh store over the same file reads %q, Bind was not persisted", got)
+	}
+
+	// Nothing may map a chat to no session, and no chat is called "".
+	s.Bind("tg:user:1", "  ")
+	if got := s.Peek("tg:user:1"); got != "sess_aaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Fatalf("Bind with an empty id changed the mapping to %q", got)
+	}
+	s.Bind("", "sess_bbbbbbbbbbbbbbbbbbbbbbbb")
+	if got := s.Peek(""); got != "" {
+		t.Fatalf("Bind with an empty key stored %q", got)
+	}
+}
