@@ -320,8 +320,12 @@ func (a *App) adoptSession(id string, modes *acp.ModeState, opts []acp.ConfigOpt
 	}
 	a.sessionID = id
 	if switched {
-		// The tasks on screen were the other session's.
+		// The tasks on screen were the other session's, and so were the turn's clock
+		// and tokens. The next turn_progress the console hears restores both from the
+		// server's figures (applyTurnProgress), so nothing is lost by dropping them,
+		// and the line never pairs one session's clock with another's tokens.
 		a.resetTasks()
+		a.turnStartedAt, a.turnTokens = time.Time{}, 0
 	}
 	a.reasoning = ""
 	if modes != nil {

@@ -331,3 +331,23 @@ func TestMemoryRunLine(t *testing.T) {
 		}
 	}
 }
+
+// The turn's clock and tokens are the numbers of the session on screen. A switch drops
+// them - the next turn_progress of whichever turn the console then hears restores both
+// from the server's figures - or the line would pair one session's clock with another
+// session's tokens.
+func TestASessionSwitchDropsTheTurnNumbersAndTheNextProgressRestoresThem(t *testing.T) {
+	a := newRemoteControlStand(t).app
+	a.sessionID = sharedControlSession
+	a.turnStartedAt, a.turnTokens = time.Now().Add(-5*time.Minute), 1200
+
+	a.adoptSession("sess_other", nil, nil)
+	if !a.turnStartedAt.IsZero() || a.turnTokens != 0 {
+		t.Fatalf("the other session's numbers stayed: started %v, %d tokens", a.turnStartedAt, a.turnTokens)
+	}
+
+	a.applyTurnProgress(acp.TurnProgressUpdate{ElapsedMs: 42_000, OutputTokens: 77})
+	if got := time.Since(a.turnStartedAt).Round(time.Second); got != 42*time.Second || a.turnTokens != 77 {
+		t.Fatalf("after the next turn_progress: clock %v, %d tokens", got, a.turnTokens)
+	}
+}
