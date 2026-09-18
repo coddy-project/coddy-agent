@@ -8,11 +8,14 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"golang.org/x/net/http/httpproxy"
 
 	"github.com/EvilFreelancer/coddy-agent/external/httpserver"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -146,6 +149,69 @@ func TestProviderUnreachableIsAnError(t *testing.T) {
 	p := find(t, rep, "providers[local]")
 	if p.Status != StatusError || !strings.Contains(p.Message, "cannot reach") {
 		t.Errorf("provider check %+v", p)
+	}
+}
+
+// TestProviderUnreachableNamesTheRoute checks the hint of a provider that
+// cannot be reached: it names the way the request went - a row's own proxy,
+// a direct connection, or the proxy the environment named - and never the
+// credentials a proxy URL carries.
+func TestProviderUnreachableNamesTheRoute(t *testing.T) {
+	cut := errors.New(`Get "https://llm.example.com/v1/models": dial tcp: connection refused`)
+	env := func(proxy string) func(*url.URL) (*url.URL, error) {
+		return (&httpproxy.Config{HTTPProxy: proxy, HTTPSProxy: proxy}).ProxyFunc()
+	}
+	cases := []struct {
+		name, proxy, envProxy string
+		want, never           []string
+	}{
+		{
+			name: "own proxy", proxy: "http://alice:s3cret@10.0.0.2:3128", envProxy: "http://10.0.0.9:8080",
+			want:  []string{"through proxy http://10.0.0.2:3128"},
+			never: []string{"alice", "s3cret", "10.0.0.9"},
+		},
+		{
+			name: "none", proxy: "none", envProxy: "http://10.0.0.9:8080",
+			want:  []string{"went direct", "proxy: none"},
+			never: []string{"through proxy", "10.0.0.9"},
+		},
+		{
+			name: "inherit with an environment proxy", envProxy: "http://corp:pw@10.0.0.9:8080",
+			want:  []string{"through the proxy HTTPS_PROXY names (http://10.0.0.9:8080)", "proxy: none"},
+			never: []string{"corp", "pw@"},
+		},
+		{
+			name: "inherit said out loud", proxy: "inherit", envProxy: "http://10.0.0.9:8080",
+			want: []string{"through the proxy HTTPS_PROXY names (http://10.0.0.9:8080)"},
+		},
+		{
+			name:  "inherit without an environment proxy",
+			never: []string{"proxy"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			prov := &config.ProviderConfig{Name: "p", Type: "openai", APIBase: "https://llm.example.com/v1", Proxy: tc.proxy}
+			fix := "check api_base and that the server is running"
+			if route := providerRoute(prov, prov.APIBase, env(tc.envProxy)); route != "" {
+				fix += "; " + route
+			}
+			for _, w := range tc.want {
+				if !strings.Contains(fix, w) {
+					t.Errorf("fix %q does not say %q", fix, w)
+				}
+			}
+			for _, n := range tc.never {
+				if strings.Contains(fix, n) {
+					t.Errorf("fix %q says %q", fix, n)
+				}
+			}
+		})
+	}
+	// The hint the probe prints is built from the same route.
+	_, fix := classifyProviderError(&config.ProviderConfig{Name: "p", Type: "openai", APIBase: "https://llm.example.com/v1", Proxy: "none"}, "https://llm.example.com/v1", cut)
+	if !strings.Contains(fix, "went direct") {
+		t.Errorf("classifyProviderError fix %q does not name the route", fix)
 	}
 }
 

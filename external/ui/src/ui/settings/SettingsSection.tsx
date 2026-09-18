@@ -4,6 +4,7 @@ import { CodexAuthField } from "./CodexAuthField";
 import { NeuralDeepAuthField } from "./NeuralDeepAuthField";
 import { ModelField } from "./ModelField";
 import { ModelPicker } from "./ModelPicker";
+import { ProviderProxyField } from "./ProviderProxyField";
 import { ReasoningLevelsField } from "./ReasoningLevelsField";
 import {
   defaultForSchema,
@@ -154,7 +155,27 @@ function neuralDeepAPIBaseOverride(ctx: FieldOverrideContext) {
   );
 }
 
+// Every provider type has the proxy switch and URL field, codex included: its
+// sign-in and its requests take the row's route like any other.
+function providerProxyOverride(ctx: FieldOverrideContext) {
+  return (
+    <ProviderProxyField
+      value={ctx.value}
+      onChange={ctx.onChange}
+      label={schemaFieldLabel("providers", "proxy", ctx.schema.title, "proxy")}
+      description={schemaFieldDesc(
+        "providers",
+        "proxy",
+        ctx.schema.description,
+      )}
+    />
+  );
+}
+
 function providerFieldOverride(ctx: FieldOverrideContext) {
+  if (ctx.path === "proxy") {
+    return providerProxyOverride(ctx);
+  }
   const providerType =
     ctx.parentObj?.type === undefined || ctx.parentObj.type === null
       ? ""

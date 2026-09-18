@@ -103,6 +103,12 @@ func TestProviderConfigValidateProxy(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "empty", proxy: "", wantErr: false},
+		{name: "inherit", proxy: "inherit", wantErr: false},
+		{name: "inherit_any_case", proxy: "Inherit", wantErr: false},
+		{name: "none", proxy: "none", wantErr: false},
+		{name: "none_any_case_and_spaces", proxy: "  NONE ", wantErr: false},
+		{name: "direct_is_not_a_keyword", proxy: "direct", wantErr: true},
+		{name: "unknown_word", proxy: "off", wantErr: true},
 		{name: "http", proxy: "http://127.0.0.1:8080", wantErr: false},
 		{name: "https", proxy: "https://proxy.example:8443", wantErr: false},
 		{name: "socks5", proxy: "socks5://127.0.0.1:1080", wantErr: false},
@@ -128,5 +134,118 @@ func TestProviderConfigValidateProxy(t *testing.T) {
 				t.Fatalf("Validate: %v", err)
 			}
 		})
+	}
+}
+
+func TestParseProviderProxy(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		in      string
+		mode    config.ProviderProxyMode
+		url     string
+		errHas  string
+		errMiss string
+	}{
+		{in: "", mode: config.ProviderProxyModeInherit},
+		{in: "  ", mode: config.ProviderProxyModeInherit},
+		{in: "inherit", mode: config.ProviderProxyModeInherit},
+		{in: "INHERIT", mode: config.ProviderProxyModeInherit},
+		{in: "none", mode: config.ProviderProxyModeNone},
+		{in: " None ", mode: config.ProviderProxyModeNone},
+		{in: "http://127.0.0.1:3128", mode: config.ProviderProxyModeURL, url: "http://127.0.0.1:3128"},
+		{in: "HTTPS://Proxy.Example:8443", mode: config.ProviderProxyModeURL, url: "https://Proxy.Example:8443"},
+		{in: "socks5h://u:p@127.0.0.1:1080", mode: config.ProviderProxyModeURL, url: "socks5h://u:p@127.0.0.1:1080"},
+		// The word an http_request call uses for the same thing is named in
+		// the error, so the operator finds the provider spelling.
+		{in: "direct", errHas: `use "none"`},
+		{in: "ftp://127.0.0.1:21", errHas: "unsupported scheme"},
+		{in: "http://", errHas: "host is required"},
+		// A URL that does not parse never echoes itself: it may carry a
+		// password, and the message reaches coddy -t and the settings screen.
+		{in: "http://user:s3cret@proxy:%zz", errHas: "not a valid URL", errMiss: "s3cret"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.in, func(t *testing.T) {
+			t.Parallel()
+			mode, u, err := config.ParseProviderProxy(tt.in)
+			if tt.errHas != "" {
+				if err == nil {
+					t.Fatalf("ParseProviderProxy(%q) = %v, %v, want an error", tt.in, mode, u)
+				}
+				if !strings.Contains(err.Error(), tt.errHas) {
+					t.Fatalf("error %q does not say %q", err, tt.errHas)
+				}
+				if tt.errMiss != "" && strings.Contains(err.Error(), tt.errMiss) {
+					t.Fatalf("error %q repeats %q", err, tt.errMiss)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParseProviderProxy(%q): %v", tt.in, err)
+			}
+			if mode != tt.mode {
+				t.Fatalf("mode = %v, want %v", mode, tt.mode)
+			}
+			got := ""
+			if u != nil {
+				got = u.String()
+			}
+			if got != tt.url {
+				t.Fatalf("url = %q, want %q", got, tt.url)
+			}
+		})
+	}
+}
+
+func TestProviderConfigNormalizeSpellsProxyKeywordsInLowerCase(t *testing.T) {
+	t.Parallel()
+	for in, want := range map[string]string{
+		" NONE ":                                "none",
+		"Inherit":                               "inherit",
+		"":                                      "",
+		" http://User:Pass@Proxy.Example:3128 ": "http://User:Pass@Proxy.Example:3128",
+	} {
+		p := config.ProviderConfig{Name: "p", Type: "openai", Proxy: in}
+		p.Normalize()
+		if p.Proxy != want {
+			t.Errorf("Normalize(%q) = %q, want %q", in, p.Proxy, want)
+		}
+	}
+}
+
+// TestProviderProxyKeywordSurvivesSettingsSave walks the PUT /coddy/config
+// path for a row set to none and one that says inherit out loud: parse the
+// JSON the settings screen sends, render the file, load it again.
+func TestProviderProxyKeywordSurvivesSettingsSave(t *testing.T) {
+	body := `{
+		"providers": [
+			{"name": "local", "type": "openai", "api_base": "http://127.0.0.1:8080/v1", "proxy": "none"},
+			{"name": "corp", "type": "openai", "api_key": "sk-x", "proxy": "inherit"}
+		],
+		"models": [{"model": "local/m"}],
+		"agent": {"model": "local/m"}
+	}`
+	cfg, err := config.ParseAndValidateConfigJSON([]byte(body), config.Paths{})
+	if err != nil {
+		t.Fatalf("ParseAndValidateConfigJSON: %v", err)
+	}
+	yb, err := config.MarshalConfigYAML(cfg)
+	if err != nil {
+		t.Fatalf("MarshalConfigYAML: %v", err)
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, yb, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := config.LoadWithPaths(config.Paths{Home: dir, CWD: dir, ConfigPath: path})
+	if err != nil {
+		t.Fatalf("LoadWithPaths: %v\n%s", err, yb)
+	}
+	if got := reloaded.FindProvider("local").Proxy; got != "none" {
+		t.Errorf("local proxy after the save = %q, want none\n%s", got, yb)
+	}
+	if got := reloaded.FindProvider("corp").Proxy; got != "inherit" {
+		t.Errorf("corp proxy after the save = %q, want inherit\n%s", got, yb)
 	}
 }

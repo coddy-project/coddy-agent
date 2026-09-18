@@ -57,7 +57,7 @@ func (c UCICommand) RedactedString() string {
 	if tokens, err := parseDottedConfigPath(c.Path); err == nil {
 		keys = configPathKeys(tokens)
 	}
-	if configSecretPath(keys) {
+	if configSecretPath(keys) && !publicConfigValue(keys, strings.Trim(c.Value, `"'`)) {
 		return c.Op + " " + c.Path + "=" + redactedConfigValue
 	}
 	var decoded interface{}
@@ -81,6 +81,9 @@ func redactSecretJSON(v *interface{}, path []string) bool {
 		for key, child := range node {
 			next := appendPath(path, key)
 			if configSecretPath(next) {
+				if v, ok := child.(string); ok && publicConfigValue(next, v) {
+					continue
+				}
 				node[key] = redactedConfigValue
 				changed = true
 				continue

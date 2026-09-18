@@ -169,9 +169,14 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.providers.api_key_command.label": "API key command",
   "settings.schema.providers.api_key_command.desc":
     "Optional credential-helper command. When api_key is empty it is run via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and its trimmed stdout is used as the key (like git/docker credential helpers or AWS credential_process). On failure resolution falls back to the conventional NAME_API_KEY variable.",
-  "settings.schema.providers.proxy.label": "HTTP or SOCKS proxy",
+  "settings.schema.providers.proxy.label": "Proxy URL",
   "settings.schema.providers.proxy.desc":
-    "Optional per-provider outbound proxy. Use http:// or https:// for an HTTP proxy, or socks5:// / socks5h:// for SOCKS5 (socks5h resolves hostnames via the proxy). Leave empty for a direct connection.",
+    "Optional proxy for this provider only: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5 (with SOCKS the proxy resolves host names). A URL here replaces the system proxy for this provider. Left empty, the provider follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).",
+  "settings.providerProxy.ignoreSystem": "Ignore system proxy",
+  "settings.providerProxy.ignoreSystemDesc":
+    "Connect directly: this provider's requests ignore HTTPS_PROXY, HTTP_PROXY and NO_PROXY of the Coddy process. Saved as proxy: none, in place of a proxy URL.",
+  "settings.providerProxy.placeholderSystem": "Follows the system proxy",
+  "settings.providerProxy.placeholderDirect": "Direct connection",
   "settings.schema.providers.timeout_ms.label": "Request timeout ms",
   "settings.schema.providers.timeout_ms.desc":
     "Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout.",

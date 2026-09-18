@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -192,5 +193,50 @@ func TestCodexAuthDeviceHTTPFlow(t *testing.T) {
 	}
 	if !status.Connected || status.Source != "coddy" {
 		t.Fatalf("saved status = %+v", status)
+	}
+}
+
+// TestCodexAuthDeviceStartGoesThroughTheRowsProxy pins that the Settings
+// sign-in of a codex row asks the OAuth issuer through the proxy the row
+// names, like every other request of that row.
+func TestCodexAuthDeviceStartGoesThroughTheRowsProxy(t *testing.T) {
+	issuer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/accounts/deviceauth/usercode" {
+			_, _ = fmt.Fprint(w, `{"device_auth_id":"device-proxy","user_code":"PRXY","interval":"5"}`)
+			return
+		}
+		// Nobody confirms in the browser.
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer issuer.Close()
+	proxy := newForwardingProxy()
+	defer proxy.close()
+
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: t.TempDir()},
+		Providers: []config.ProviderConfig{{Name: "codex", Type: "codex", Proxy: proxy.srv.URL}},
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), t.TempDir(), nil)
+	srv := New(cfg, mgr, slog.Default(), t.TempDir())
+	srv.codexAuthIssuer = issuer.URL
+	ts := httptest.NewServer(srv.Handler())
+	defer func() {
+		ts.Close()
+		srv.Drain()
+	}()
+
+	res, err := http.Post(ts.URL+"/coddy/providers/codex/codex-auth/device", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("start status = %d", res.StatusCode)
+	}
+	if carried := proxy.carried(); !slices.Contains(carried, "/api/accounts/deviceauth/usercode") {
+		t.Fatalf("the device start did not go through the row's proxy; it carried %v", carried)
 	}
 }

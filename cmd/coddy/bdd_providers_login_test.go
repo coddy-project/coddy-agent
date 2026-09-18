@@ -14,10 +14,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -35,6 +38,8 @@ const (
 
 type loginFlowState struct {
 	hub         *httptest.Server
+	hubCalls    atomic.Int32
+	proxy       *forwardingProxy
 	home        string
 	stdout      string
 	runErr      error
@@ -56,6 +61,7 @@ func (s *loginFlowState) reset() error {
 		return err
 	}
 	s.home = home
+	s.hubCalls.Store(0)
 	s.stdout = ""
 	s.runErr = nil
 	s.opened = nil
@@ -81,6 +87,10 @@ func (s *loginFlowState) close() {
 	if s.hub != nil {
 		s.hub.Close()
 		s.hub = nil
+	}
+	if s.proxy != nil {
+		s.proxy.close()
+		s.proxy = nil
 	}
 	if s.home != "" {
 		_ = os.RemoveAll(s.home)
@@ -149,8 +159,89 @@ func (s *loginFlowState) standInHub() error {
 			},
 		})
 	})
-	s.hub = httptest.NewServer(mux)
+	s.hub = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.hubCalls.Add(1)
+		mux.ServeHTTP(w, r)
+	}))
 	return os.Setenv(llm.EnvNeuralDeepHubURL, s.hub.URL)
+}
+
+// forwardingProxy is a plain HTTP proxy for a provider row that names one:
+// it relays every absolute-form request to its target directly and records
+// the paths it carried, so a call that went around it shows up as a hub call
+// the proxy never saw.
+type forwardingProxy struct {
+	srv    *httptest.Server
+	direct *http.Transport
+	mu     sync.Mutex
+	paths  []string
+}
+
+func newForwardingProxy() *forwardingProxy {
+	p := &forwardingProxy{direct: &http.Transport{}}
+	p.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !r.URL.IsAbs() {
+			http.Error(w, "not a proxy request", http.StatusBadRequest)
+			return
+		}
+		p.mu.Lock()
+		p.paths = append(p.paths, r.URL.Path)
+		p.mu.Unlock()
+		out, err := http.NewRequestWithContext(r.Context(), r.Method, r.URL.String(), r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		out.Header = r.Header.Clone()
+		out.ContentLength = r.ContentLength
+		resp, err := p.direct.RoundTrip(out)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		defer func() { _ = resp.Body.Close() }()
+		for k, vs := range resp.Header {
+			for _, v := range vs {
+				w.Header().Add(k, v)
+			}
+		}
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, resp.Body)
+	}))
+	return p
+}
+
+func (p *forwardingProxy) carried() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.paths...)
+}
+
+func (p *forwardingProxy) close() {
+	p.srv.Close()
+	p.direct.CloseIdleConnections()
+}
+
+func (s *loginFlowState) providerNamesAProxy() error {
+	s.proxy = newForwardingProxy()
+	body := "providers:\n  - name: neuraldeep\n    type: neuraldeep\n    proxy: " + s.proxy.srv.URL + "\n"
+	return os.WriteFile(filepath.Join(s.home, "config.yaml"), []byte(body), 0o644)
+}
+
+func (s *loginFlowState) everyHubCallWentThroughTheProxy() error {
+	if s.runErr != nil {
+		return fmt.Errorf("sign-in failed: %w", s.runErr)
+	}
+	carried := s.proxy.carried()
+	for _, want := range []string{"/api/cli/device/start", "/api/cli/device/token", "/api/cli/whoami", "/api/cli/status"} {
+		if !slices.Contains(carried, want) {
+			return fmt.Errorf("the proxy did not carry %s; it carried %v", want, carried)
+		}
+	}
+	if got := int(s.hubCalls.Load()); got != len(carried) {
+		return fmt.Errorf("the hub answered %d calls and the proxy carried %d: some went around it", got, len(carried))
+	}
+	return nil
 }
 
 func (s *loginFlowState) noLocalBrowser() error {
@@ -348,6 +439,8 @@ func initializeLoginFlowScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^a stand-in NeuralDeep hub that serves both sign-in flows$`, s.standInHub)
 	sc.Step(`^this machine has no local browser$`, s.noLocalBrowser)
+	sc.Step(`^the neuraldeep provider in config\.yaml names a proxy of its own$`, s.providerNamesAProxy)
+	sc.Step(`^every call the sign-in made to the hub went through that proxy$`, s.everyHubCallWentThroughTheProxy)
 	sc.Step(`^this machine has a local browser$`, s.aLocalBrowser)
 	sc.Step(`^I run the terminal sign-in to NeuralDeep$`, s.runSignIn)
 	sc.Step(`^I run the terminal sign-in to NeuralDeep with --browser$`, s.runSignInBrowser)

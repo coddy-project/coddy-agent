@@ -165,9 +165,14 @@ export const messagesRu: Record<string, string> = {
     "Команда получения API-ключа",
   "settings.schema.providers.api_key_command.desc":
     "Необязательная команда для получения ключа. Когда api_key пуст, она запускается через обнаруженный шелл хоста (pwsh, powershell или cmd на Windows; bash или sh в остальных случаях), и её вывод без краевых пробелов используется как ключ (как git/docker credential helpers или AWS credential_process). При ошибке используется стандартная переменная NAME_API_KEY.",
-  "settings.schema.providers.proxy.label": "HTTP- или SOCKS-прокси",
+  "settings.schema.providers.proxy.label": "URL прокси",
   "settings.schema.providers.proxy.desc":
-    "Необязательный исходящий прокси для провайдера. http:// или https:// — HTTP-прокси, socks5:// / socks5h:// — SOCKS5 (socks5h резолвит имена хостов через прокси). Пусто — прямое соединение.",
+    "Необязательный прокси только для этого провайдера. Для HTTP-прокси подходят http:// и https://, для SOCKS5 подходят socks5:// и socks5h://, в обоих случаях имена хостов разрешает сам прокси. Указанный URL заменяет системный прокси для этого провайдера. Пока поле пустое, провайдер ходит через системный прокси (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).",
+  "settings.providerProxy.ignoreSystem": "Игнорировать системный прокси",
+  "settings.providerProxy.ignoreSystemDesc":
+    "Подключаться напрямую. Запросы этого провайдера не учитывают HTTPS_PROXY, HTTP_PROXY и NO_PROXY процесса Coddy. В конфиге сохраняется значение none вместо URL прокси.",
+  "settings.providerProxy.placeholderSystem": "Через системный прокси",
+  "settings.providerProxy.placeholderDirect": "Прямое подключение",
   "settings.schema.providers.timeout_ms.label": "Таймаут запроса, мс",
   "settings.schema.providers.timeout_ms.desc":
     "Необязательный предел на каждый HTTP-запрос к LLM этого провайдера, включая чтение потокового тела ответа. 0 (по умолчанию) — без клиентского таймаута.",

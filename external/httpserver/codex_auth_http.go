@@ -89,7 +89,7 @@ func (s *Server) coddyProviderCodexAuthDevicePost(w http.ResponseWriter, r *http
 	if !ok {
 		return
 	}
-	client, err := llm.HTTPClientForOptionalProxy(provider.Proxy)
+	client, err := llm.HTTPClientForProviderProxy(provider.Proxy)
 	if err != nil {
 		writeCoddyConfigErr(w, http.StatusBadRequest, err.Error())
 		return

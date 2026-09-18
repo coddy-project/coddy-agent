@@ -13,10 +13,12 @@ type ResolvedLLM struct {
 	Model        string
 	APIKey       string
 	BaseURL      string
-	ProxyURL     string
-	AuthPath     string
-	MaxTokens    int
-	Temperature  float64
+	// ProxyURL is providers[].proxy as written: a keyword (inherit, none) or
+	// a proxy URL; see ParseProviderProxy.
+	ProxyURL    string
+	AuthPath    string
+	MaxTokens   int
+	Temperature float64
 	// TimeoutMS, when positive, bounds each HTTP request to this provider
 	// (providers[].timeout_ms), including the streamed body read.
 	TimeoutMS int

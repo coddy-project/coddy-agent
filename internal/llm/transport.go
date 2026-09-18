@@ -6,11 +6,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/net/http2"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
 // The LLM transports: what every provider's HTTP client is built on.
@@ -194,22 +198,65 @@ func (b *idleBody) Close() error {
 
 // Shared transports, one per proxy setting: a provider is built for every
 // turn, and a transport of its own per turn would open a fresh TLS session
-// for each request and keep the previous one idling.
+// for each request and keep the previous one idling. Every request a
+// provider row makes - its completions, its model list, its account usage,
+// a sign-in - goes through the transport of the row's setting, so the route
+// is decided in this one place.
 var (
 	transportsMu sync.Mutex
 	transports   = map[string]http.RoundTripper{}
 )
 
-// providerTransport returns the shared transport for proxyURL (empty means
-// the environment's proxy settings, as http.DefaultTransport reads them).
-func providerTransport(proxyURL string) (http.RoundTripper, error) {
-	key := strings.TrimSpace(proxyURL)
+// proxyFunc is the Proxy field of an http.Transport.
+type proxyFunc = func(*http.Request) (*url.URL, error)
+
+// environmentProxy, when set, stands in for the environment's proxy: net/http
+// reads HTTPS_PROXY once per process and never applies it to a loopback
+// address, so a test cannot stage it with the real variables. Unset, which
+// it always is outside tests, a provider that inherits its proxy asks
+// net/http.
+var environmentProxy atomic.Pointer[proxyFunc]
+
+// proxyFromEnvironment is the Proxy of the transport that inherits the
+// environment's proxy. It asks per request, so a stand-in set after the
+// shared transport was built still applies.
+func proxyFromEnvironment(r *http.Request) (*url.URL, error) {
+	if f := environmentProxy.Load(); f != nil {
+		return (*f)(r)
+	}
+	return http.ProxyFromEnvironment(r)
+}
+
+// EnvironmentProxyFor names the proxy a provider that inherits its route uses
+// for a request to target, the way its transport asks for it, or nil when
+// that request goes direct (no variable set, NO_PROXY, a loopback address).
+// Diagnostics use it so what they report is what the requests did.
+func EnvironmentProxyFor(target *url.URL) (*url.URL, error) {
+	return proxyFromEnvironment(&http.Request{URL: target, Header: http.Header{}})
+}
+
+// providerTransport returns the shared transport for a providers[].proxy
+// setting, read by config.ParseProviderProxy: empty and "inherit" share the
+// one that follows the environment's proxy, "none" has one that connects
+// directly, and every proxy URL one of its own.
+func providerTransport(setting string) (http.RoundTripper, error) {
+	mode, proxyURL, err := config.ParseProviderProxy(setting)
+	if err != nil {
+		return nil, err
+	}
+	var key string
+	switch mode {
+	case config.ProviderProxyModeNone:
+		key = config.ProviderProxyNone
+	case config.ProviderProxyModeURL:
+		key = proxyURL.String()
+	}
 	transportsMu.Lock()
 	defer transportsMu.Unlock()
 	if t, ok := transports[key]; ok {
 		return t, nil
 	}
-	t, err := newProviderTransport(key)
+	t, err := newProviderTransport(mode, proxyURL)
 	if err != nil {
 		return nil, err
 	}
@@ -217,22 +264,21 @@ func providerTransport(proxyURL string) (http.RoundTripper, error) {
 	return t, nil
 }
 
-func newProviderTransport(proxyURL string) (*http.Transport, error) {
-	var t *http.Transport
-	if proxyURL == "" {
-		base, ok := http.DefaultTransport.(*http.Transport)
-		if !ok {
-			return nil, fmt.Errorf("default transport is not *http.Transport")
-		}
-		t = base.Clone()
-	} else {
-		hc, err := HTTPClientForOptionalProxy(proxyURL)
-		if err != nil {
+func newProviderTransport(mode config.ProviderProxyMode, proxyURL *url.URL) (*http.Transport, error) {
+	base, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil, fmt.Errorf("default transport is not *http.Transport")
+	}
+	t := base.Clone()
+	switch mode {
+	case config.ProviderProxyModeInherit:
+		t.Proxy = proxyFromEnvironment
+	case config.ProviderProxyModeNone:
+		// No Proxy function at all: nothing in the environment is read.
+		t.Proxy = nil
+	case config.ProviderProxyModeURL:
+		if err := routeThroughProxy(t, proxyURL); err != nil {
 			return nil, err
-		}
-		var ok bool
-		if t, ok = hc.Transport.(*http.Transport); !ok {
-			return nil, fmt.Errorf("proxy transport is not *http.Transport")
 		}
 	}
 	if err := enableHTTP2Liveness(t, http2ReadIdleTimeout, http2PingTimeout); err != nil {
@@ -244,8 +290,8 @@ func newProviderTransport(proxyURL string) (*http.Transport, error) {
 // providerHTTPClient is the client NewProvider hands the SDKs: the shared
 // transport for the proxy setting, the stall guard when a stream idle
 // timeout is set, and the request timeout when one is configured.
-func providerHTTPClient(proxyURL string, timeout, streamIdle time.Duration) (*http.Client, error) {
-	rt, err := providerTransport(proxyURL)
+func providerHTTPClient(proxySetting string, timeout, streamIdle time.Duration) (*http.Client, error) {
+	rt, err := providerTransport(proxySetting)
 	if err != nil {
 		return nil, err
 	}

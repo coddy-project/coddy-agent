@@ -60,6 +60,18 @@ https://github.com/user-attachments/assets/55e9e66f-8a8d-47be-af75-596b8b00fafa
 - Connected state comes from **`GET /coddy/providers/{name}/neuraldeep-auth`** (masked key only), read for the endpoint currently picked (**`?api_base=`**). When the stored login was issued by the other deployment's hub (**`hub`** differs from **`endpoint_hub`**), a note under the status says requests with it are rejected and asks to sign in again for this endpoint; the note is suppressed while an explicit key shadows the login. A login already in progress keeps polling if the endpoint is changed meanwhile (the key comes from the hub the flow started with), and the status read afterwards flags the mismatch. **Sign Out** best-effort revokes the key on the hub, then deletes the local credential through **`DELETE`**.
 - The key never enters the settings document or browser; it is stored by the server under **`$CODDY_HOME/providers/<name>/neuraldeep-auth.json`**. Tier models are added under **Logical models** (the model picker fetches the provider catalog using this login); the CLI flow (**`coddy providers login neuraldeep`**) appends them to the config automatically.
 
+## Settings: provider proxy
+
+![A provider row set to connect directly, its proxy URL field disabled](../assets/settings-provider-proxy-dark-1280.png)
+
+*A provider row set to connect directly, its proxy URL field disabled*
+
+- Every row in **Settings → LLM Providers**, codex included, carries an **Ignore system proxy** switch above the **Proxy URL** field (**`ProviderProxyField`**). Both edit **`providers[].proxy`**, the route of every request of the row: its completions, its model list, its account usage and its sign-in ([Provider proxy](../getting-started/configuration.md#provider-proxy)).
+- The switch writes **`none`**: the row connects directly and ignores **`HTTPS_PROXY`**, **`HTTP_PROXY`** and **`NO_PROXY`** of the Coddy process. While it is on, the URL field is disabled and reads **Direct connection**.
+- With the switch off, a URL in the field sends every request of the row through that proxy, and an empty field (or a stored **`inherit`**) reads **Follows the system proxy**, the default route.
+- Turning the switch off brings back what the row held before it went on, for as long as the form is open. The document keeps one value, so after **Save** a row set to **`none`** no longer remembers the URL it replaced.
+- The value travels through **`GET`** / **`PUT /coddy/config`** as written. A value that is neither a keyword nor a proxy URL is refused on **Save**, and the error names the accepted ones.
+
 ## Settings: boolean switch fields
 
 - Every on/off option in the settings forms renders through the shared **`SwitchField`** (**`external/ui/src/ui/settings/SwitchField.tsx`**): the **`Switch`** control, its label, and the optional description on one two-column grid (**`.settings-switch-field`**). This covers the schema-driven booleans of **`SchemaForm`** (for example **Logical models → Multimodal** and **Stream responses**, **Tools and permissions → Background tasks → Enabled**, **System** gateway flags) and the **Skills → Skill auto-discovery** row.

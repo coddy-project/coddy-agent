@@ -141,11 +141,14 @@ type ProviderInput struct {
 	// diagnostic only: every error the provider returns is prefixed with it
 	// and the address it reached, so a user running several providers can
 	// tell which entry of their config failed. Empty leaves errors bare.
-	Name     string
-	Type     string
-	Model    string
-	APIKey   string
-	BaseURL  string
+	Name    string
+	Type    string
+	Model   string
+	APIKey  string
+	BaseURL string
+	// ProxyURL is the row's providers[].proxy setting as written: empty or
+	// "inherit" follows the environment's proxy, "none" connects directly,
+	// and a proxy URL goes through that proxy (config.ParseProviderProxy).
 	ProxyURL string
 	// AuthPath is the Coddy-managed OAuth credential file for providers that use
 	// browser sign-in instead of an API key.
@@ -234,8 +237,9 @@ func neuralDeepEffectiveKey(explicit, authPath string) string {
 // NewProvider creates the appropriate Provider from a model definition.
 func NewProvider(p ProviderInput) (Provider, error) {
 	// Never the SDK default client: the shared transport carries the HTTP/2
-	// liveness pings and the stall guard (transport.go), and the proxy
-	// setting is honoured either way (the environment's when none is set).
+	// liveness pings and the stall guard (transport.go), and it is the route
+	// the row's proxy setting chose (the environment's proxy unless it says
+	// otherwise).
 	hc, err := providerHTTPClient(p.ProxyURL, p.Timeout, p.StreamIdleTimeout)
 	if err != nil {
 		return nil, err
