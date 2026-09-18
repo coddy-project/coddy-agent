@@ -165,13 +165,52 @@ func classifyProviderError(prov *config.ProviderConfig, base string, err error) 
 		return fmt.Sprintf("%s answered HTTP 404 to the model list", base), fix
 	case "":
 		fix := "check api_base and that the server is running"
-		if strings.TrimSpace(prov.Proxy) != "" {
-			fix += "; the request went through proxy " + prov.Proxy
+		if route := providerRoute(prov, base, llm.EnvironmentProxyFor); route != "" {
+			fix += "; " + route
 		}
 		return fmt.Sprintf("cannot reach %s: %s", base, shortErr(err)), fix
 	default:
 		return fmt.Sprintf("%s answered HTTP %s to the model list", base, code), "check api_base and the server's logs"
 	}
+}
+
+// providerRoute names the way a provider's request went, for the fix of a
+// server it could not reach: through the row's own proxy, direct, or through
+// the proxy the environment names for that address - the one an operator is
+// least likely to suspect. envProxy is how the row's transport picks the
+// environment's proxy (llm.EnvironmentProxyFor). No credential of a proxy URL
+// is ever shown.
+func providerRoute(prov *config.ProviderConfig, base string, envProxy func(*url.URL) (*url.URL, error)) string {
+	mode, proxyURL, err := config.ParseProxySetting(prov.Proxy)
+	if err != nil {
+		return ""
+	}
+	switch mode {
+	case config.ProxyModeURL:
+		return "the request went through proxy " + proxyAddress(proxyURL)
+	case config.ProxyModeNone:
+		return "the request went direct (proxy: none ignores the environment's proxy)"
+	}
+	target, err := url.Parse(base)
+	if err != nil || target.Host == "" {
+		return ""
+	}
+	via, err := envProxy(target)
+	if err != nil || via == nil {
+		return ""
+	}
+	name := "HTTP_PROXY"
+	if target.Scheme == "https" {
+		name = "HTTPS_PROXY"
+	}
+	return fmt.Sprintf("the request went through the proxy %s names (%s); set proxy: none on the provider to connect directly",
+		name, proxyAddress(via))
+}
+
+// proxyAddress is a proxy URL cut to its scheme and host: a user name can
+// carry a token as much as a password can.
+func proxyAddress(u *url.URL) string {
+	return u.Scheme + "://" + u.Host
 }
 
 // credentialFix names the credential a provider type actually uses.

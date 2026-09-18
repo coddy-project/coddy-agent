@@ -17,7 +17,7 @@ import (
 )
 
 func codexLogin(cfg *config.Config, prov *config.ProviderConfig, name, authPath string, noConfig bool) error {
-	client, err := llm.HTTPClientForOptionalProxy(prov.Proxy)
+	client, err := llm.HTTPClientForProviderProxy(prov.Proxy)
 	if err != nil {
 		return err
 	}

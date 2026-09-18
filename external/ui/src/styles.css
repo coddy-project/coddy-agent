@@ -7552,8 +7552,11 @@ html:not([data-theme="light"]) .context-usage-note--error {
   font-size: 0.9rem;
 }
 
-/* Read-only settings inputs (e.g. NeuralDeep's fixed API base) read as disabled. */
-.settings-input[readonly] {
+/* Read-only settings inputs (e.g. NeuralDeep's fixed API base) read as disabled,
+   and so do disabled ones (the provider proxy URL while the row connects
+   directly). */
+.settings-input[readonly],
+.settings-input:disabled {
   background: var(--coddy-surface-muted);
   color: var(--muted);
   cursor: not-allowed;

@@ -89,12 +89,9 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 		return nil, &UnsupportedProviderError{Provider: in.Type}
 	}
 
-	hc, err := HTTPClientForOptionalProxy(in.ProxyURL)
+	hc, err := HTTPClientForProviderProxy(in.ProxyURL)
 	if err != nil {
 		return nil, err
-	}
-	if hc == nil {
-		hc = &http.Client{}
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, modelListTimeout)
@@ -219,12 +216,9 @@ func fetchCodexCatalog(ctx context.Context, in ProviderInput) ([]codexModelCache
 // credential used for completions. The base URL is a parameter only for tests;
 // fetchCodexCatalog always supplies the fixed official Codex backend.
 func fetchCodexCatalogOnline(ctx context.Context, in ProviderInput, baseURL string) ([]codexModelCacheEntry, error) {
-	hc, err := HTTPClientForOptionalProxy(in.ProxyURL)
+	hc, err := HTTPClientForProviderProxy(in.ProxyURL)
 	if err != nil {
 		return nil, err
-	}
-	if hc == nil {
-		hc = &http.Client{}
 	}
 	ctx, cancel := context.WithTimeout(ctx, modelListTimeout)
 	defer cancel()

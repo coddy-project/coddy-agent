@@ -305,7 +305,7 @@ func NeuralDeepUsageForProvider(ctx context.Context, provider config.ProviderCon
 		}
 		return nil, &NeuralDeepUsageError{Kind: NeuralDeepUsageUnauthorized, Detail: "no credential: sign in with coddy providers login " + provider.Name}
 	}
-	hc, err := HTTPClientForOptionalProxy(provider.Proxy)
+	hc, err := HTTPClientForProviderProxy(provider.Proxy)
 	if err != nil {
 		return nil, &NeuralDeepUsageError{Kind: NeuralDeepUsageUnavailable, Detail: redactNeuralDeepSecrets(err.Error())}
 	}

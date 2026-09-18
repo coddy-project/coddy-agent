@@ -188,6 +188,16 @@ providers:
     proxy: socks5h://127.0.0.1:1080
 ```
 
+The opposite case is as common: the machine names a proxy in `HTTPS_PROXY` - a corporate one, a local forwarder, a variable left over from another setup - and that proxy stalls or breaks the handshake while the provider itself is reachable directly. Every row follows that variable unless it says otherwise, so set `proxy: none` on the row that should go direct; the other rows keep the proxy. `coddy --dry-run` names the proxy the environment chose when a provider cannot be reached. More in [Provider proxy](configuration.md#provider-proxy).
+
+```yaml
+providers:
+  - name: local
+    type: openai
+    api_base: http://192.168.1.20:8000/v1
+    proxy: none
+```
+
 Field reference: [`agent`](../reference/config.md#agent), [`providers`](../reference/config.md#providers).
 
 ## A turn never answers, or ends with `stream stalled`

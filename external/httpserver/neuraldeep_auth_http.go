@@ -144,10 +144,13 @@ func (s *Server) coddyProviderNeuralDeepAuthDelete(w http.ResponseWriter, r *htt
 		if hub == "" {
 			hub = s.neuralDeepHubFor(provider.APIBase)
 		}
-		client, _ := llm.HTTPClientForOptionalProxy(provider.Proxy)
-		revokeCtx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-		_ = llm.RevokeNeuralDeepKey(revokeCtx, hub, key, client)
-		cancel()
+		// The revoke goes the row's own way or not at all: a default client
+		// would take the route the row's proxy setting ruled out.
+		if client, err := llm.HTTPClientForProviderProxy(provider.Proxy); err == nil {
+			revokeCtx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+			_ = llm.RevokeNeuralDeepKey(revokeCtx, hub, key, client)
+			cancel()
+		}
 	}
 	if err := llm.RemoveNeuralDeepAuth(path); err != nil {
 		writeCoddyConfigErr(w, http.StatusInternalServerError, "could not remove NeuralDeep credentials")
@@ -167,7 +170,7 @@ func (s *Server) coddyProviderNeuralDeepAuthDevicePost(w http.ResponseWriter, r 
 	if !ok {
 		return
 	}
-	client, err := llm.HTTPClientForOptionalProxy(provider.Proxy)
+	client, err := llm.HTTPClientForProviderProxy(provider.Proxy)
 	if err != nil {
 		writeCoddyConfigErr(w, http.StatusBadRequest, err.Error())
 		return

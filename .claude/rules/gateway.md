@@ -83,7 +83,7 @@ Inline-keyboard payloads must survive the round trip. `callback_data` is capped 
 
 ## Proxy
 
-`proxyutil.BuildHTTPClient(url)` handles http, https, socks5, socks5h. An empty string returns `http.DefaultClient` unchanged. The Telegram adapter passes `cfg.Proxy` to this function in `Start()`.
+`proxyutil.BuildHTTPClient(setting)` reads `gateways.telegram.proxy` with `config.ParseProxySetting`, the parser `providers[].proxy` uses: an empty value or `inherit` returns `http.DefaultClient` unchanged, which follows `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` of the process (never a direct connection, whatever an old description said); `none` returns a client with no proxy function; an http, https, socks5 or socks5h URL routes through that proxy (x/net/proxy handles socks5 and socks5h alike: the proxy resolves host names). The Telegram adapter passes `cfg.Proxy` to this function in `Start()`, and the `--dry-run` getMe probe builds the same route with `llm.HTTPClientForOptionalProxy`. The route against real proxy variables is tested in a child process (`TestBuildHTTPClientFollowsTheProcessEnvironment`): net/http reads them once per process and never proxies loopback, so a scenario on the fake Bot API cannot tell `none` from an unset value.
 
 ## Bot API origin
 
