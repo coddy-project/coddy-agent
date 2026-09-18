@@ -706,7 +706,7 @@ func (a *Agent) parentToolNames(mode string) []string {
 // spawnSubagent is the Env.SpawnAgent hook. See docs/plans/subagents.md 3.3
 // for the order of decisions; every refusal names the knob that applies.
 func (a *Agent) spawnSubagent(ctx context.Context, req tooling.SpawnRequest) (string, error) {
-	return a.spawnSubagentInMode(ctx, req, a.state.GetMode())
+	return a.spawnSubagentInMode(ctx, req, a.state.EffectiveMode())
 }
 
 // spawnSubagentInMode is spawnSubagent for a turn pinned to mode (see

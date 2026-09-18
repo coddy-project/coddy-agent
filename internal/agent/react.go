@@ -59,6 +59,14 @@ type SessionState interface {
 	ClearPendingPlanContext()
 	TakePendingImageParts() []llm.ImagePart
 	GetPermissionMode() string
+	// The settings the running turn works with (session/settings_state.go):
+	// its own when a --once / --count override, a skill or the model's
+	// switch_model set one, the session's otherwise. SettingsRevision moves
+	// whenever one a model request reads changes.
+	EffectiveMode() string
+	EffectivePermissionMode() string
+	SettingsRevision() uint64
+	SetTurnSetting(setting, value string)
 	// How the session_describe tool reaches the session's own filing
 	// (session_filing.go). The writers report what they moved and do their own
 	// merging, so the tool never has to read a filing it is about to write.
@@ -171,7 +179,7 @@ func (a *Agent) SetConfigReloader(reload func(context.Context) ([]string, error)
 
 // Run executes the ReAct loop and returns the stop reason.
 func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, error) {
-	mode := a.state.GetMode()
+	mode := a.state.EffectiveMode()
 	// A new user turn starts its account of time spent on usage limits
 	// (limit_wait.go); the built-ins below never touch it.
 	a.limitLedger = &limitWaitLedger{}
@@ -522,6 +530,10 @@ func (a *Agent) runReActLoop(
 	// The turn's account of time spent on usage limits (limit_wait.go).
 	limitWait := a.limitLedgerFor()
 
+	// What the transport was built for, to notice a change between requests.
+	transportRev := a.state.SettingsRevision()
+	transportKey := a.transportKey()
+
 	for turn := 0; turn < maxTurns; turn++ {
 		if ctx.Err() != nil {
 			return string(acp.StopReasonCancelled), nil
@@ -533,6 +545,22 @@ func (a *Agent) runReActLoop(
 		// after it. It is appended before the rebuild below, so a compaction
 		// that replays the transcript carries it too.
 		a.readQueuedMessages(&messages)
+
+		// A model or a reasoning level changed since the transport was built -
+		// by the operator, a --once override, the model's own switch_model -
+		// takes effect from this request, never inside a stream.
+		if rev := a.state.SettingsRevision(); rev != transportRev {
+			transportRev = rev
+			if key := a.transportKey(); key != transportKey {
+				next, err := a.getProvider(mode)
+				if err != nil {
+					a.log.Warn("settings changed mid-turn but the new model is unavailable; keeping the current one", "error", err)
+				} else {
+					a.log.Info("model settings changed mid-turn", "from", transportKey, "to", key)
+					transport, transportKey = next, key
+				}
+			}
+		}
 
 		// The system message stays exactly as the turn rendered it, so the
 		// provider's cached copy of everything behind it survives this step.
@@ -1261,6 +1289,10 @@ func loopAbortError(c loopAbortChannel) error {
 
 // executeToolCall runs a single tool call and reports updates to the client.
 func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools.Env, mode, sessionID string, skipPermission bool) (string, error) {
+	// The permission mode is read on every call, not once per turn: the
+	// operator may have switched the session to bypass from the previous
+	// call's dialog, and the rest of the batch runs under that.
+	env.PermissionMode = effectivePermMode(a.state, a.cfg)
 	env.ToolCallID = strings.TrimSpace(tc.ID)
 	a.currentToolCallID = env.ToolCallID
 	defer func() {
@@ -1815,6 +1847,12 @@ func (a *Agent) getProvider(mode string) (llmTransport, error) {
 	return llmTransport{provider: provider, streaming: rm.Stream}, nil
 }
 
+// transportKey names what a model request is built for: the model and the
+// reasoning level. The transport is rebuilt only when it changes.
+func (a *Agent) transportKey() string {
+	return a.state.EffectiveModelID(a.cfg) + "|" + a.state.EffectiveReasoning(a.cfg)
+}
+
 // childProviderInput applies what a system child's spec says about its
 // model calls: the completion cap of memory.copilot_max_tokens, clamped the
 // way the copilot pass clamped it.
@@ -2019,7 +2057,7 @@ func configWriteTool(name string) bool {
 
 // effectivePermMode returns the session-level permission mode override, falling back to the config default.
 func effectivePermMode(state SessionState, cfg *config.Config) string {
-	if m := state.GetPermissionMode(); m != "" {
+	if m := state.EffectivePermissionMode(); m != "" {
 		return m
 	}
 	return cfg.Tools.ResolvedPermMode()

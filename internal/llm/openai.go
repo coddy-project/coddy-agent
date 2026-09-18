@@ -129,11 +129,24 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition,
 		Messages: oaiMessages,
 	}
 
+	// "off" is the pseudo level that turns thinking off. Qwen3 has a real
+	// switch in its chat template, and the request is then an ordinary chat
+	// request; any other model it is offered for takes the "none" tier.
+	effort := p.reasoningEffort
+	qwenOff := false
+	if effort == reasoningOff {
+		if isQwenChatTemplateModel(p.model) {
+			effort, qwenOff = "", true
+		} else {
+			effort = "none"
+		}
+	}
+
 	// reasoning_effort is only valid for reasoning models; callers pass an empty string for
 	// non-reasoning models. Reasoning models also reject max_tokens (require
 	// max_completion_tokens) and a custom temperature, so the reasoning path differs.
-	if p.reasoningEffort != "" {
-		params.ReasoningEffort = openai.ReasoningEffort(p.reasoningEffort)
+	if effort != "" {
+		params.ReasoningEffort = openai.ReasoningEffort(effort)
 		if p.maxTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(p.maxTokens))
 		}
@@ -157,6 +170,11 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition,
 		}
 		if p.temp > 0 || p.tempSet {
 			params.Temperature = openai.Float(p.temp)
+		}
+		if qwenOff {
+			params.SetExtraFields(map[string]any{
+				"chat_template_kwargs": map[string]any{"enable_thinking": false},
+			})
 		}
 	}
 
@@ -189,6 +207,10 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition,
 
 	return params
 }
+
+// reasoningOff is config.ReasoningOff, the level that turns thinking off
+// (the llm package does not import config).
+const reasoningOff = "off"
 
 // isQwenChatTemplateModel matches Qwen3-family models whose thinking mode is
 // controlled by the chat template (chat_template_kwargs.enable_thinking) rather

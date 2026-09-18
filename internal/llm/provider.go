@@ -164,7 +164,7 @@ type ProviderInput struct {
 	// a set temperature is sent as is, zero included, and next to a reasoning
 	// level too, where a configured one is left out.
 	TemperatureSet bool
-	// ReasoningEffort is the reasoning level name ("minimal"|"low"|"medium"|"high"), or empty.
+	// ReasoningEffort is the reasoning level name ("minimal"|"low"|"medium"|"high"), "off" to turn thinking off, or empty.
 	// OpenAI maps it to reasoning_effort; Anthropic maps it to an extended-thinking token budget.
 	ReasoningEffort string
 	// RetryMax is the number of retries after the first failed attempt (default 3).

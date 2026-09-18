@@ -184,7 +184,18 @@ type State struct {
 
 	// PermissionMode is the session-level override for tools.permission_mode.
 	// Empty means use the config default. Values: "ask", "accept_edits", "bypass".
+	// It lives in process memory only: a restart returns to the configuration.
 	PermissionMode string
+
+	// turn holds the settings that belong to turns rather than to the session
+	// (settings_state.go): overrides armed by --once / --count=N, what the
+	// running turn holds, what the last operator turn held. settingsMu guards
+	// it alone; it is never taken together with mu.
+	settingsMu sync.Mutex
+	turn       turnSettings
+	// settingsRev is the number of the last change of a setting a model
+	// request reads (SettingsRevision).
+	settingsRev atomic.Uint64
 
 	// subagent is set for a child session spawned by another session (see
 	// subagent.go), a scheduled run included; nil for ordinary chats and for
@@ -599,6 +610,7 @@ func (s *State) SetMode(mode string) {
 	s.mu.Lock()
 	s.Mode = Mode(mode)
 	s.mu.Unlock()
+	s.bumpSettingsRevision()
 	s.touchPersist()
 }
 
@@ -614,6 +626,7 @@ func (s *State) SetPermissionMode(mode string) {
 	s.mu.Lock()
 	s.PermissionMode = mode
 	s.mu.Unlock()
+	s.bumpSettingsRevision()
 	s.touchPersist()
 }
 
@@ -636,6 +649,7 @@ func (s *State) SetSelectedModelID(id string) {
 	s.mu.Lock()
 	s.SelectedModelID = id
 	s.mu.Unlock()
+	s.bumpSettingsRevision()
 	s.touchPersist()
 }
 
@@ -673,12 +687,15 @@ func (s *State) SetSelectedReasoning(level string) {
 	s.mu.Lock()
 	s.SelectedReasoning = level
 	s.mu.Unlock()
+	s.bumpSettingsRevision()
 	s.touchPersist()
 }
 
 // EffectiveReasoning returns the reasoning level for LLM calls for this session.
-// Returns empty when the effective model has no reasoning support. A valid session
-// selection wins; otherwise the model's configured default is used (may be empty).
+// Returns empty when the effective model has no reasoning support. The running
+// turn's own level wins, then the session's selection when the model offers it
+// ("off" included where the provider can turn thinking off), then the model's
+// default level.
 func (s *State) EffectiveReasoning(cfg *config.Config) string {
 	if cfg == nil {
 		return ""
@@ -687,17 +704,23 @@ func (s *State) EffectiveReasoning(cfg *config.Config) string {
 	if ent == nil {
 		return ""
 	}
-	levels := cfg.ReasoningLevelsFor(ent)
-	if len(levels) == 0 {
+	choices := cfg.ReasoningChoicesFor(ent)
+	if len(choices) == 0 {
 		return ""
+	}
+	if turn := s.TurnSetting(SettingReasoning); turn != "" {
+		if turn == config.ReasoningDefault {
+			return cfg.DefaultReasoningLevelFor(ent)
+		}
+		if containsLevel(choices, turn) {
+			return turn
+		}
 	}
 	s.mu.RLock()
 	sel := strings.TrimSpace(s.SelectedReasoning)
 	s.mu.RUnlock()
-	for _, lv := range levels {
-		if lv == sel {
-			return sel
-		}
+	if containsLevel(choices, sel) {
+		return sel
 	}
 	return cfg.DefaultReasoningLevelFor(ent)
 }
@@ -716,6 +739,10 @@ func (s *State) ContextWindow(cfg *config.Config) (tokens int, source string) {
 
 // EffectiveModelID returns the model id used for LLM calls for this session.
 func (s *State) EffectiveModelID(cfg *config.Config) string {
+	// The running turn's own model wins while the configuration still knows it.
+	if turn := s.TurnSetting(SettingModel); turn != "" && cfg != nil && cfg.FindModelEntry(turn) != nil {
+		return turn
+	}
 	s.mu.RLock()
 	sel := s.SelectedModelID
 	s.mu.RUnlock()
@@ -1440,14 +1467,15 @@ func (s *State) ReplaceMessagesWithoutPersist(msgs []llm.Message) {
 	s.mu.Unlock()
 }
 
-// RestoreMetaWithoutPersist restores mode, model/reasoning/memory, and permission mode from disk (no persistence callback).
-func (s *State) RestoreMetaWithoutPersist(mode Mode, selectedModelID, selectedReasoning, agentMemory, permissionMode string) {
+// RestoreMetaWithoutPersist restores mode, model/reasoning and memory from disk
+// (no persistence callback). The permission-mode override is never restored:
+// it lasts as long as the process.
+func (s *State) RestoreMetaWithoutPersist(mode Mode, selectedModelID, selectedReasoning, agentMemory string) {
 	s.mu.Lock()
 	s.Mode = mode
 	s.SelectedModelID = selectedModelID
 	s.SelectedReasoning = selectedReasoning
 	s.AgentMemory = agentMemory
-	s.PermissionMode = permissionMode
 	s.mu.Unlock()
 }
 

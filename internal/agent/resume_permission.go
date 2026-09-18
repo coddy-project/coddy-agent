@@ -29,7 +29,7 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 	if err != nil {
 		return "", err
 	}
-	mode := a.state.GetMode()
+	mode := a.state.EffectiveMode()
 	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
 	toolEnv := a.buildToolEnv(mode, sd)
 	if !permission.Approved(perm) {

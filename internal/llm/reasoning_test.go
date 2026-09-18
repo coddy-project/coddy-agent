@@ -316,3 +316,48 @@ func TestRequestOptionsCapAgainstAnthropicThinking(t *testing.T) {
 		t.Fatalf("reasoning level not applied: %+v", in)
 	}
 }
+
+// TestBuildParamsReasoningOff pins what the "off" pseudo level becomes on each
+// wire: Qwen3 turns the chat-template switch off and sends no effort, another
+// OpenAI-compatible model is asked for "none", Anthropic sends no thinking
+// block, and the Codex backend is asked for "none".
+func TestBuildParamsReasoningOff(t *testing.T) {
+	msgs := []Message{{Role: RoleUser, Content: "hi"}}
+
+	qwen := newOpenAIProvider("qwen3.6-35b-a3b", "", "", nil, 1024, 0.5, "off")
+	qpar := qwen.buildParams(msgs, nil, true)
+	if qpar.ReasoningEffort != "" {
+		t.Errorf("qwen off: reasoning_effort = %q, want empty", qpar.ReasoningEffort)
+	}
+	if !qpar.MaxTokens.Valid() {
+		t.Error("qwen off: expected max_tokens, the request is a plain chat request")
+	}
+	qb, err := json.Marshal(qpar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(qb), `"chat_template_kwargs":{"enable_thinking":false}`) {
+		t.Errorf("qwen off must turn thinking off in the template: %s", qb)
+	}
+
+	gpt := newOpenAIProvider("gpt-5.1", "", "", nil, 1024, 0.5, "off")
+	gb, err := json.Marshal(gpt.buildParams(msgs, nil, true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(gb), `"reasoning_effort":"none"`) {
+		t.Errorf("off on an OpenAI reasoning model asks for none: %s", gb)
+	}
+	if strings.Contains(string(gb), "chat_template_kwargs") {
+		t.Errorf("chat_template_kwargs must not leak to non-qwen models: %s", gb)
+	}
+
+	claude := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0.7, "off")
+	if params := claude.buildParams("", nil, nil); params.Thinking.OfEnabled != nil {
+		t.Error("anthropic off must not enable thinking")
+	}
+
+	if got := codexReasoningEffort("off"); got != "none" {
+		t.Errorf("codex off = %q, want none", got)
+	}
+}
