@@ -166,6 +166,18 @@ The panel is **docked inside the session**, to the right of the transcript, at `
 
 Layout, colour, and mobile contracts are in `DESIGN.md` (**Background tasks panel**, **Background task on a transcript row**).
 
+## In the console
+
+The agent reaches the pool through its tools; the operator reaches it with `/tasks`, which opens the session's tasks in the place of the editor ([Console](../surfaces/console.md#commands-and-keys)). A row says the same three things a card of the web UI says - the tag (`shell`, the agent's name, `memory`), the title, how the task is going - in the same order, newest first. **enter** opens a task: the command, the child session of an agent run, the error it ended with, the last lines of the output, read again while the task runs. **s** stops a running task and everything it started, **r** reads again, **escape** steps back.
+
+While a turn runs the status line counts the running tasks (`2m 05s · 1.2k tokens · 1 running task · Responding`), and once the turn has ended the footer keeps the count with the command that lists it (`1 task running (/tasks)`), because a background task outlives the turn that started it. Neither count includes [system tasks](#system-tasks).
+
+The console reads the tasks through three methods of its backend: `session.Manager` answers from the pool of this process and from the bundle of an earlier one (`bgtask.Pool.SessionTasks`, the same read the HTTP rows use), and under `--remote` `remote.Handler` answers from the three REST routes above, so the overlay lists and stops the processes of the server the agent runs on. An unreachable server keeps the last rows on screen: unreachable is not "no tasks".
+
+![The /tasks overlay of the console listing a running command](../assets/cli-tui/15-tasks-overlay.png)
+
+*`/tasks` in the console: a running command, its tag, its clock against the estimate*
+
 ## Configuration
 
 See `tools.background` in `docs/reference/config.md`:
@@ -223,4 +235,5 @@ A **scheduled run** ([Scheduler](../operate/scheduler.md)) is the same kind of t
 - Edge cases live in ordinary unit tests: timeout resolution, the concurrency cap, output-window truncation, orphan marking, id uniqueness across restarts (`internal/bgtask`), grant refusal for metacharacters (`internal/permission`), and the UI helpers (`external/ui/src/ui/tasks/`).
 - The liveness probe has its own tests in `internal/platform`: `procgroup_test.go` for what both platforms owe (a running process is found, an exited one is not, probing is repeatable), and `procgroup_windows_test.go` for what only Windows can get wrong — reporting a killed process alive because its handle is still open, accepting a creation time the record does not describe, and killing a pid on such a record. Reading a bundle written before `process_started_at` existed is pinned in `internal/bgtask` (`TestLoadPersistedLeavesALegacyRecordWithoutAProcessIdentity`).
 - Subagent runs on the pool are specified in `features/subagents.feature` (`internal/agent/bdd_subagents_test.go`), `features/subagents_http.feature` (`external/httpserver/bdd_subagents_test.go`, including a detached prompt announced on the events stream and answered through the child session), `features/subagents_detached_prompts.feature` (`internal/serve`) and `features/subagents_web_ui.feature` (the prompt answered in the parent chat); `Pool.Launch` ordering and `Snapshot.Agent` persistence are unit tests in `internal/bgtask`. See `docs/features/subagents.md`.
+- The console side is specified in `features/cli_tui.feature` (the overlay over a real pooled command: list, output, stop; the status line's turn numbers) and `features/cli_remote.feature` (the same overlay and the `turn_progress` line against a fake remote server), with the overlay's rendering and keys, the running count and the poll cadence in `external/cli/tasks_test.go`. `examples/cli/capture_tasks.py` drives the real binary in a pty against a scripted model and renders the captures of this page and of the console guide.
 - End-to-end against a real model: `examples/httpserver/http_e2e_background.py`, `examples/httpserver/http_e2e_background_reap.py` (kills its own coddy mid-task and makes a fresh one clean up after it), and `examples/acp/acp_e2e_background.py`.

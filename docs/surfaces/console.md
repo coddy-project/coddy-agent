@@ -140,7 +140,7 @@ throttle with immediate renders after keystrokes.
 ## Commands and keys
 
 Slash commands: client-side `/model`, `/reasoning [level]`, `/mode`, `/resume`,
-`/new`, `/theme`, `/hotkeys`, `/queue`, `/quit`; server-driven `/compact`, `/export`,
+`/new`, `/theme`, `/hotkeys`, `/queue`, `/usage`, `/tasks`, `/quit`; server-driven `/compact`, `/export`,
 `/plugin`, and every loaded skill (from the ACP available-commands catalog).
 Enter on a slash suggestion applies and submits in one stroke. `/export [md|html|json|jsonl]
 [path]` writes the transcript into the workspace (`docs/features/session-export.md`);
@@ -153,6 +153,25 @@ time, the live requests-per-minute, the cooldown, the wallet with the last
 floor deferred the read, and the snapshot's age. Under `--remote` the
 server's own key is read, so a `key rejected` line there is informational
 (sign in on the server).
+
+`/tasks` opens the background tasks of the session in the place of the editor
+([Background tasks](../features/background-tasks.md#in-the-console)). The
+agent has had `background_list`, `background_output` and `background_stop`
+all along; this is the operator's side of the same pool. Every task is one
+row: a status mark, a tag that says what stands behind it (`shell` for a
+command, the agent's name for a subagent run, `memory` for the memory run of
+a turn), the title - the command, or what the agent was asked to do - and how
+it is going (`1m 08s · est. 5m 00s`, `failed · 1m 30s · exit 2`), newest
+first, the way the web UI's Tasks panel lists them. **enter** opens the task
+under the cursor: its command, the child session of an agent run, the error
+it ended with and the last lines of its output, read again while the task
+runs. **s** stops the task under the cursor or the open one, process group
+and all; **r** reads everything again; **escape** leaves an open task first,
+then the overlay. Under `--remote` the rows, the output and the stop go
+through the server's REST routes, so the overlay manages the processes of the
+machine the agent runs on. The list refreshes every 2.5 s while the overlay is
+open, a turn runs or a task runs, and every 15 s otherwise; between turns the
+footer keeps saying how many tasks still run.
 
 Submitting while a turn is running does not refuse the prompt: it joins the
 session's message queue, which the running turn reads at its next step
@@ -497,6 +516,18 @@ and is visible via `coddy mcp list` (approve with `coddy mcp trust <name>`).
 ![The turn resuming after the reset](../assets/cli-tui/12-usage-resuming.png)
 
 *The turn resuming after the reset*
+
+![The status line of a running turn: 2s, 64 tokens, 1 running task, Responding](../assets/cli-tui/14-turn-progress.png)
+
+*The status line of a running turn leads with its clock, the tokens generated in it and the running background task; the footer names the task as well*
+
+![The /tasks overlay listing a running command](../assets/cli-tui/15-tasks-overlay.png)
+
+*`/tasks`: the background tasks of the session in the place of the editor*
+
+![A task opened in the /tasks overlay: its command and the last lines of its output](../assets/cli-tui/16-tasks-output.png)
+
+*A task opened with enter: the command, the last lines of its output, and `s` to stop it*
 
 Two capture sets exist, and they answer different questions.
 

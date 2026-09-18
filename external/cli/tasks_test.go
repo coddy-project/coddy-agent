@@ -5,10 +5,12 @@ package cli
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
@@ -177,5 +179,175 @@ func TestOnlyToolsThatStartOrEndTasksTriggerARead(t *testing.T) {
 		if toolTouchesTasks(name) {
 			t.Errorf("%s cannot change the session's tasks", name)
 		}
+	}
+}
+
+// The overlay reads a task the way the web UI's card does: a tag that says what stands
+// behind it, the work as the title, a meta line.
+
+func agentRow(id, name, label string, system bool, status bgtask.Status) bgtask.Snapshot {
+	row := taskRow(id, status, time.Minute)
+	row.Kind, row.Command, row.Label = bgtask.KindAgent, "", label
+	row.Agent = &bgtask.AgentInfo{Name: name, SessionID: "sess_child_" + id, System: system}
+	return row
+}
+
+func TestTaskTagAndTitleMatchTheWebCards(t *testing.T) {
+	cases := []struct {
+		row   bgtask.Snapshot
+		tag   string
+		title string
+	}{
+		{taskRow("bg_1", bgtask.StatusRunning, time.Minute), "shell", "make bg_1"},
+		{agentRow("bg_2", "general", "agent general: review the diff: handlers first", false, bgtask.StatusRunning), "general", "review the diff: handlers first"},
+		{agentRow("bg_3", "memory", "memory: what did we decide", true, bgtask.StatusRunning), "memory", "what did we decide"},
+		{agentRow("bg_4", "general", "agent general", false, bgtask.StatusRunning), "general", "Subagent run"},
+		// A scheduled run is labelled by the scheduler, colon and all.
+		{agentRow("bg_5", "general", "nightly: refresh the changelog", false, bgtask.StatusRunning), "general", "nightly: refresh the changelog"},
+	}
+	for _, c := range cases {
+		if got := taskTag(c.row); got != c.tag {
+			t.Errorf("taskTag(%s) = %q, want %q", c.row.ID, got, c.tag)
+		}
+		if got := taskTitle(c.row); got != c.title {
+			t.Errorf("taskTitle(%s) = %q, want %q", c.row.ID, got, c.title)
+		}
+	}
+}
+
+func TestTaskMetaLine(t *testing.T) {
+	now := time.Date(2026, 9, 18, 10, 1, 5, 0, time.UTC)
+	running := bgtask.Snapshot{Status: bgtask.StatusRunning, StartedAt: now.Add(-65 * time.Second), ExpectedSeconds: 300}
+	if got := taskMetaLine(running, now); got != "1m 05s · est. 5m 00s" {
+		t.Errorf("running meta = %q", got)
+	}
+	overdue := bgtask.Snapshot{Status: bgtask.StatusRunning, StartedAt: now.Add(-400 * time.Second), ExpectedSeconds: 300}
+	if got := taskMetaLine(overdue, now); got != "6m 40s · est. 5m 00s · overdue" {
+		t.Errorf("overdue meta = %q", got)
+	}
+	ended := now.Add(-5 * time.Second)
+	code := 2
+	failed := bgtask.Snapshot{Kind: bgtask.KindCommand, Status: bgtask.StatusFailed, StartedAt: ended.Add(-90 * time.Second), FinishedAt: &ended, ExitCode: &code}
+	if got := taskMetaLine(failed, now); got != "failed · 1m 30s · exit 2" {
+		t.Errorf("failed meta = %q", got)
+	}
+	// No shell stands behind an agent run, so its synthetic exit code is not shown.
+	zero := 0
+	agent := bgtask.Snapshot{Kind: bgtask.KindAgent, Status: bgtask.StatusSucceeded, StartedAt: ended.Add(-200 * time.Second), FinishedAt: &ended, ExitCode: &zero}
+	if got := taskMetaLine(agent, now); got != "succeeded · 3m 20s" {
+		t.Errorf("agent meta = %q", got)
+	}
+}
+
+func plainLines(lines []string) string {
+	return tui.StripTerminalSequences(strings.Join(lines, "\n"))
+}
+
+func TestTasksModalListsTasksAndOpensOne(t *testing.T) {
+	var opened, stopped []string
+	closed := false
+	m := newTasksModal(newTheme("dark"), func() {})
+	m.OnOpen = func(id string) { opened = append(opened, id) }
+	m.OnStop = func(id string) { stopped = append(stopped, id) }
+	m.OnClose = func() { closed = true }
+	m.SetRows([]bgtask.Snapshot{
+		taskRow("bg_2", bgtask.StatusRunning, time.Minute),
+		agentRow("bg_3", "explore", "agent explore: map the session package", false, bgtask.StatusRunning),
+		taskRow("bg_1", bgtask.StatusSucceeded, time.Hour),
+	})
+
+	text := plainLines(m.Render(100))
+	for _, want := range []string{"Background tasks", "2 running", "3 in total", "shell", "make bg_2", "explore", "map the session package", "succeeded"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("the list is missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "agent explore:") {
+		t.Fatalf("the title repeats what the tag says:\n%s", text)
+	}
+
+	// s stops the selected running task; on a finished one it does nothing.
+	m.HandleInput([]byte("s"))
+	m.HandleInput([]byte("\x1b[B")) // down
+	m.HandleInput([]byte("\x1b[B")) // down: the finished task
+	m.HandleInput([]byte("s"))
+	if len(stopped) != 1 || stopped[0] != "bg_2" {
+		t.Fatalf("stopped = %v, want only the running task under the cursor", stopped)
+	}
+
+	// enter opens the task under the cursor in place; its output arrives later.
+	m.HandleInput([]byte("\r"))
+	if len(opened) != 1 || opened[0] != "bg_1" {
+		t.Fatalf("opened = %v", opened)
+	}
+	m.SetOutput("bg_1", "built ok\nbuild/coddy 46 MB", false)
+	detail := plainLines(m.Render(100))
+	for _, want := range []string{"make bg_1", "$ make bg_1", "built ok", "build/coddy 46 MB", "esc back"} {
+		if !strings.Contains(detail, want) {
+			t.Fatalf("the open task is missing %q:\n%s", want, detail)
+		}
+	}
+	// Output for another task is not this view's.
+	m.SetOutput("bg_2", "not mine", false)
+	if strings.Contains(plainLines(m.Render(100)), "not mine") {
+		t.Fatal("the open task shows another task's output")
+	}
+
+	// esc goes back to the list first, then closes the overlay.
+	m.HandleInput([]byte("\x1b"))
+	if closed || !strings.Contains(plainLines(m.Render(100)), "3 in total") {
+		t.Fatal("esc on an open task did not return to the list")
+	}
+	m.HandleInput([]byte("\x1b"))
+	if !closed {
+		t.Fatal("esc on the list did not close the overlay")
+	}
+}
+
+func TestTasksModalSaysSoWhenThereIsNothing(t *testing.T) {
+	m := newTasksModal(newTheme("dark"), func() {})
+	m.SetRows(nil)
+	if text := plainLines(m.Render(80)); !strings.Contains(text, "No background tasks in this session yet") {
+		t.Fatalf("empty overlay:\n%s", text)
+	}
+}
+
+func TestSlashTasksOpensTheOverlayReadsOutputAndStops(t *testing.T) {
+	b := &tasksBackend{
+		rows:    []bgtask.Snapshot{taskRow("bg_1", bgtask.StatusRunning, time.Minute)},
+		outputs: map[string]string{"bg_1": "=== RUN TestSuite\nok pkg/a"},
+	}
+	a := newTasksApp(t, b)
+
+	if !a.dispatchSlash("/tasks") {
+		t.Fatal("/tasks was not handled by the console")
+	}
+	modal, ok := a.modal.(*tasksModal)
+	if !ok {
+		t.Fatalf("modal = %T, want the tasks overlay", a.modal)
+	}
+	pumpUntil(t, a, "the overlay to list the task", func() bool {
+		return strings.Contains(plainLines(modal.Render(100)), "make bg_1")
+	})
+
+	modal.HandleInput([]byte("\r"))
+	pumpUntil(t, a, "the output to arrive", func() bool {
+		return strings.Contains(plainLines(modal.Render(100)), "ok pkg/a")
+	})
+
+	modal.HandleInput([]byte("s"))
+	pumpUntil(t, a, "the stop to reach the backend", func() bool {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		return len(b.stopped) == 1
+	})
+	pumpUntil(t, a, "the overlay to show the task stopped", func() bool {
+		return strings.Contains(plainLines(modal.Render(100)), "stopped")
+	})
+
+	modal.HandleInput([]byte("\x1b"))
+	modal.HandleInput([]byte("\x1b"))
+	if a.modal != nil {
+		t.Fatal("the overlay stayed open after esc")
 	}
 }

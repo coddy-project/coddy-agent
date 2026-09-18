@@ -35,6 +35,28 @@ Feature: Console connected to a remote coddy server
     When the connection drops and the permission is settled elsewhere before reconnect
     Then the obsolete permission modal closes without posting an answer
 
+  Scenario: The console lists and stops the background tasks of the remote session
+    Given a fake remote coddy server that answers "the build runs in the background"
+    And the remote session has a running background task "make test" that printed "ok  pkg/a"
+    And a console app connected to that remote server
+    When the console app starts
+    And the operator submits "/tasks"
+    Then the tasks overlay lists the remote task "make test" as running
+    When the operator opens the selected task
+    Then the tasks overlay shows the remote output "ok  pkg/a"
+    When the operator stops the task from the overlay
+    Then the server is asked to stop that task
+    And the tasks overlay lists the remote task as stopped
+
+  Scenario: The progress of a remote turn leads the console status line
+    Given a fake remote coddy server that holds its turn after reporting 1200 generated tokens
+    And a console app connected to that remote server
+    When the console app starts
+    And the operator submits "run the long build"
+    Then the console status line shows "1.2k tokens"
+    When the fake server lets the turn end
+    Then the transcript shows the assistant text "done remotely"
+
   Scenario: A one-shot print run works against the remote server
     Given a fake remote coddy server that answers "printed remotely"
     When the operator runs a remote one-shot prompt "sum it up"

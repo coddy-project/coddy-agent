@@ -22,6 +22,7 @@ import (
 	"github.com/cucumber/godog"
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
+	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/remote"
 )
@@ -42,6 +43,17 @@ type fakeRemoteServer struct {
 	authFails int
 	// permissions records what was posted to POST /coddy/sessions/{id}/permission.
 	permissions []fakeRemotePermission
+
+	// task is the one background task the server reports for every session, with
+	// the output it printed; stops records the ids the console asked to stop.
+	task       *bgtask.Snapshot
+	taskOutput string
+	stops      []string
+
+	// progressTokens, when above zero, makes a turn report that many generated
+	// tokens and then wait for holdTurn before it answers.
+	progressTokens int
+	holdTurn       chan struct{}
 }
 
 type fakeRemotePermission struct {
@@ -116,6 +128,20 @@ func newFakeRemoteServer(answer string) *fakeRemoteServer {
 		})
 		f.mu.Unlock()
 		w.Header().Set("Content-Type", "text/event-stream")
+		if f.progressTokens > 0 {
+			// What the agent loop publishes while a call streams: the turn's clock
+			// and the tokens generated so far.
+			_, _ = fmt.Fprintf(w, "event: turn_progress\ndata: {\"sessionUpdate\":\"turn_progress\",\"startedAt\":%q,\"elapsedMs\":2000,\"outputTokens\":%d,\"estimated\":true}\n\n",
+				time.Now().Add(-2*time.Second).UTC().Format(time.RFC3339Nano), f.progressTokens)
+			if fl, ok := w.(http.Flusher); ok {
+				fl.Flush()
+			}
+			select {
+			case <-f.holdTurn:
+			case <-r.Context().Done():
+				return
+			}
+		}
 		chunk, _ := json.Marshal(map[string]interface{}{
 			"object":  "chat.completion.chunk",
 			"choices": []map[string]interface{}{{"delta": map[string]string{"content": f.answer}}},
@@ -124,6 +150,36 @@ func newFakeRemoteServer(answer string) *fakeRemoteServer {
 		_, _ = fmt.Fprintf(w, "data: %s\n\n", chunk)
 		_, _ = fmt.Fprintf(w, "event: coddy_meta\ndata: {\"metadata\":{\"model\":\"remote/deep-1\",\"api_model\":\"deep-1\"}}\n\n")
 		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
+	}))
+	// The three background-task routes of external/httpserver/background_http.go.
+	taskAnswer := func(w http.ResponseWriter) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"object": "coddy.background_task", "task": f.task, "output": f.taskOutput})
+	}
+	mux.HandleFunc("GET /coddy/sessions/{id}/background-tasks", f.withAuth(func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		rows := []bgtask.Snapshot{}
+		if f.task != nil {
+			rows = append(rows, *f.task)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"object": "coddy.background_task_list", "data": rows})
+	}))
+	mux.HandleFunc("GET /coddy/sessions/{id}/background-tasks/{task}", f.withAuth(func(w http.ResponseWriter, _ *http.Request) {
+		taskAnswer(w)
+	}))
+	mux.HandleFunc("POST /coddy/sessions/{id}/background-tasks/{task}/stop", f.withAuth(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.stops = append(f.stops, r.PathValue("task"))
+		if f.task != nil {
+			now := time.Now()
+			f.task.Status, f.task.FinishedAt = bgtask.StatusStopped, &now
+		}
+		f.mu.Unlock()
+		taskAnswer(w)
 	}))
 	mux.HandleFunc("GET /coddy/commands", f.withAuth(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -277,6 +333,70 @@ func (s *cliRemoteState) screenShowsRemoteBanner() error {
 func (s *cliRemoteState) footerNamesRemoteModel() error {
 	// The footer renders the selector as "(provider) model".
 	return s.waitScreen("(remote) deep-1", 2*time.Second)
+}
+
+func (s *cliRemoteState) remoteSessionHasRunningTask(command, output string) error {
+	s.server.mu.Lock()
+	defer s.server.mu.Unlock()
+	s.server.task = &bgtask.Snapshot{ID: "bg_1", SessionID: "remote", Kind: bgtask.KindCommand, Label: command,
+		Command: command, Status: bgtask.StatusRunning, StartedAt: time.Now().Add(-time.Minute)}
+	s.server.taskOutput = output
+	return nil
+}
+
+func (s *cliRemoteState) overlayListsRemoteTaskRunning(title string) error {
+	if err := s.waitScreen(title, 3*time.Second); err != nil {
+		return err
+	}
+	return s.waitScreen("1 running", 3*time.Second)
+}
+
+func (s *cliRemoteState) operatorOpensSelectedTask() error {
+	s.app.OnTerminalInput([]byte("\r"))
+	return nil
+}
+
+func (s *cliRemoteState) overlayShowsRemoteOutput(text string) error {
+	return s.waitScreen(text, 3*time.Second)
+}
+
+func (s *cliRemoteState) operatorStopsTaskFromOverlay() error {
+	s.app.OnTerminalInput([]byte("s"))
+	return nil
+}
+
+func (s *cliRemoteState) serverAskedToStopTask() error {
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		s.server.mu.Lock()
+		stops := append([]string(nil), s.server.stops...)
+		s.server.mu.Unlock()
+		if len(stops) == 1 && stops[0] == "bg_1" {
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("the server was never asked to stop bg_1")
+}
+
+func (s *cliRemoteState) overlayListsRemoteTaskStopped() error {
+	return s.waitScreen("stopped", 3*time.Second)
+}
+
+func (s *cliRemoteState) fakeServerHoldsTurnAfterProgress(tokens int) error {
+	s.server = newFakeRemoteServer("done remotely")
+	s.server.progressTokens = tokens
+	s.server.holdTurn = make(chan struct{})
+	return nil
+}
+
+func (s *cliRemoteState) consoleStatusLineShows(text string) error {
+	return s.waitScreen(text, 3*time.Second)
+}
+
+func (s *cliRemoteState) fakeServerLetsTurnEnd() error {
+	close(s.server.holdTurn)
+	return nil
 }
 
 func (s *cliRemoteState) operatorSubmits(text string) error {
@@ -457,6 +577,16 @@ func initializeCLIRemoteScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the screen shows the remote server banner$`, s.screenShowsRemoteBanner)
 	sc.Step(`^the footer names the remote default model$`, s.footerNamesRemoteModel)
 	sc.Step(`^the operator submits "([^"]*)"$`, s.operatorSubmits)
+	sc.Step(`^the remote session has a running background task "([^"]*)" that printed "([^"]*)"$`, s.remoteSessionHasRunningTask)
+	sc.Step(`^the tasks overlay lists the remote task "([^"]*)" as running$`, s.overlayListsRemoteTaskRunning)
+	sc.Step(`^the operator opens the selected task$`, s.operatorOpensSelectedTask)
+	sc.Step(`^the tasks overlay shows the remote output "([^"]*)"$`, s.overlayShowsRemoteOutput)
+	sc.Step(`^the operator stops the task from the overlay$`, s.operatorStopsTaskFromOverlay)
+	sc.Step(`^the server is asked to stop that task$`, s.serverAskedToStopTask)
+	sc.Step(`^the tasks overlay lists the remote task as stopped$`, s.overlayListsRemoteTaskStopped)
+	sc.Step(`^a fake remote coddy server that holds its turn after reporting (\d+) generated tokens$`, s.fakeServerHoldsTurnAfterProgress)
+	sc.Step(`^the console status line shows "([^"]*)"$`, s.consoleStatusLineShows)
+	sc.Step(`^the fake server lets the turn end$`, s.fakeServerLetsTurnEnd)
 	sc.Step(`^the transcript shows the assistant text "([^"]*)"$`, s.transcriptShowsAssistant)
 	sc.Step(`^the fake server received a turn for the console session$`, s.fakeServerReceivedTurn)
 	sc.Step(`^the server announces that the background subagent "([^"]*)" of the console session asks to run "([^"]*)"$`, s.serverAnnouncesBackgroundSubagent)

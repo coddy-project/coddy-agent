@@ -290,3 +290,15 @@ Feature: Interactive console TUI
     Then the usage report shows "usage limits panel is switched off"
     And the footer does not show the neuraldeep usage
     And the stand-in limits API was never asked
+
+  Scenario: The operator lists the background tasks of the session, reads one and stops it
+    When the console app starts
+    And the session runs the background command "echo tests started; sleep 30"
+    And the operator submits the command "/tasks"
+    Then the tasks overlay lists "echo tests started; sleep 30" as running
+    And the footer names 1 running task
+    When the operator opens the selected task
+    Then the tasks overlay shows the output "tests started"
+    When the operator stops the task from the overlay
+    Then the background command is stopped
+    And the tasks overlay lists the task as stopped

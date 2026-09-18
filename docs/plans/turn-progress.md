@@ -104,7 +104,7 @@ whose row says `running` (or any row, for the total), system tasks left out (one
 An overlay in the place of the editor, like `/resume`, with the tasks in one order - by start
 time, newest first, as in the SPA. Enter opens a task: its status line and the tail of its
 output, refreshed while it runs; `s` stops it; escape goes back. The console reaches the tasks
-through two new `backend` methods: the in-process pool locally, the REST routes under
+through three new `backend` methods: the in-process pool locally, the REST routes under
 `--remote`. The footer names running tasks between turns, so the operator knows there is
 something to open.
 

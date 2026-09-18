@@ -22,6 +22,16 @@ Keys are parsed into the `ctrl+x` / `shift+enter` / `alt+backspace` notation of 
 | tab | open the suggestion menu for the word at the cursor; inserts a tab when there is nothing to suggest |
 | `/` at the start of the draft, `@` before a path | open the command menu and the file mention menu as you type |
 
+Inside the `/tasks` overlay ([Background tasks](../features/background-tasks.md#in-the-console)):
+
+| Key | Action |
+|---|---|
+| up / down | move between the tasks |
+| enter | open the task under the cursor: its command and the last lines of its output |
+| s | stop the task under the cursor, or the open one, if it is still running |
+| r | read the tasks, and the open task's output, again |
+| escape | leave the open task; on the list, close the overlay |
+
 Editing keys inside the draft:
 
 | Key | Action |

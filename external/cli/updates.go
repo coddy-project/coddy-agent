@@ -63,6 +63,12 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		a.tasksTimer = nil
 		a.refreshTasks()
 		return
+	case taskOutputLoaded:
+		a.applyTaskOutputLoaded(u)
+		return
+	case taskStopped:
+		a.applyTaskStopped(u)
+		return
 	case configReloaded:
 		// The process configuration changed for every session, so the header
 		// and footer always re-read it; the option set is per session and is

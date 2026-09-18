@@ -66,6 +66,9 @@ func (a *App) dispatchSlash(text string) bool {
 	case "usage":
 		a.showUsage()
 		return true
+	case "tasks":
+		a.openTasksOverlay()
+		return true
 	case "quit", "exit":
 		a.requestQuit(nil)
 		return true
@@ -200,6 +203,7 @@ func (a *App) showHotkeys() {
 		"up/down prompt history · / commands · @ file mention",
 		"!!<command> run it here, hidden from the agent",
 		"/usage provider quota, resets and wallet",
+		"/tasks background tasks: enter output · s stop · r refresh · escape back",
 	}
 	a.appendStatus(roleDim, strings.Join(lines, "\n"))
 }
