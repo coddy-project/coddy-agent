@@ -3548,10 +3548,15 @@ a.rail-brand {
   content: "";
 }
 
+/* Centred on the first line - half the label's 20px line box - never on the height
+   of .thinking-left. A tool row's box is taller than its label's line (the 12px target
+   and duration sit lower on the shared baseline) and a phone wraps a chip onto a second
+   line; centred on the box, the chevron sank below the label on exactly those rows.
+   DESIGN.md (Chevron), toolRowBaselineCss.test.ts. */
 .thinking-chevron {
   position: absolute;
   left: 0;
-  top: 50%;
+  top: 10px;
   width: 16px;
   height: 14px;
   display: inline-flex;
