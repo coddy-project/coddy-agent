@@ -111,7 +111,11 @@ Already on disk:
   the system message would make **`messages[0]`** a new one on every turn and cost the cached
   conversation each time. It joins the block on the first request when the run settled inside
   **`memory.wait_seconds`**, on a later step otherwise, and stays for the rest of the turn; the
-  **`{{.Memory}}`** slot of the templates holds the session notes alone.
+  **`{{.Memory}}`** slot of the templates holds the session notes alone;
+- the **background tasks still running** in this session, one line each in the wording of
+  **`background_list`** (**`backgroundTasksSection`**, [background-tasks.md](../features/background-tasks.md)),
+  so the model knows what it left running without a call. Finished and system tasks are left out,
+  and the section is not written with **`tools.background.enable`** false.
 
 The block is never persisted: it is appended at the **`provider.Stream`** send boundary, next to the
 read/grep eviction projection, and the working message slice the loop keeps appending to never sees
@@ -120,7 +124,8 @@ them is a cache hit.
 
 **`UTCNow`** and **`TodoList`** stay available to a template under **`prompts.dir`**, which may still
 render them - at the cost of that cache, on every request. Such a template gets no clock and no
-checklist after the history; with long-term memory on, its block carries the memory report alone.
+checklist after the history; its block carries the two sections no template prints, the memory
+report and the running background tasks, and is left out when there is neither.
 
 ### The other half: read/grep eviction
 
