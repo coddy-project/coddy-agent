@@ -758,16 +758,31 @@ type QuestionResult struct {
 // ---- Content blocks ----
 
 // ContentBlock is a polymorphic content item used in prompts and messages.
+//
+// A "resource_link" block (ACP's baseline reference to something the agent
+// can fetch itself) carries its fields at the top level: URI, Name and the
+// optional MimeType, Title, Description and Size.
 type ContentBlock struct {
 	Type     string    `json:"type"`
 	Text     string    `json:"text,omitempty"`
 	Resource *Resource `json:"resource,omitempty"`
+
+	URI         string `json:"uri,omitempty"`
+	Name        string `json:"name,omitempty"`
+	MimeType    string `json:"mimeType,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	Size        *int64 `json:"size,omitempty"`
 }
 
 // Content block type values for agent_message_chunk (MessageChunkUpdate).
 const (
 	ContentTypeText      = "text"
 	ContentTypeReasoning = "reasoning"
+	// ContentTypeResource embeds a resource's contents; ContentTypeResourceLink
+	// only names one (URI, Name) for the agent to read.
+	ContentTypeResource     = "resource"
+	ContentTypeResourceLink = "resource_link"
 )
 
 // Resource is a file or other resource referenced in a content block.
@@ -775,6 +790,25 @@ type Resource struct {
 	URI      string `json:"uri"`
 	MimeType string `json:"mimeType,omitempty"`
 	Text     string `json:"text,omitempty"`
+
+	// Mention describes a resource the agent resolved from an "@" reference.
+	// It stays in the process: the model reads it as attributes of the
+	// attachment element, and no client is ever sent it.
+	Mention *ResourceMention `json:"-"`
+}
+
+// ResourceMention is what the attachment element of a resolved mention says
+// besides the path and the body.
+type ResourceMention struct {
+	// Kind is the mention kind (internal/mention Kind*); empty for a file.
+	Kind string
+	// Name is the label; empty means the base name of the path.
+	Name string
+	// Typed is the reference as the user wrote it, without the "@".
+	Typed string
+	// Path is the local file or folder the mention read, empty for a meta
+	// mention. Rules scoped to paths see it the way they see a file:// URI.
+	Path string
 }
 
 // ---- fs methods (agent calls these on client) ----

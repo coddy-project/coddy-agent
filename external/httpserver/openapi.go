@@ -620,6 +620,52 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/mentions": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Candidates for an \"@\" mention in a draft",
+					"description": "What the **`@`** picker offers for **`q`**, the text after **`@`** (a leading **`\"`** opens a quoted path). " +
+						"Without a scheme it ranks the files and folders of the session **cwd** against **`q`** (fuzzy: the file name first, then path segments, then letters in order; inside a git checkout the index follows **`.gitignore`** and keeps dotfiles) and merges in the rules, subagents and plans whose names match. " +
+						"**`q`** starting with **`/`**, **`~`**, **`./`**, **`../`** or a drive letter browses the folder typed so far, filtered by the name after its last separator. " +
+						"**`session:`**, **`rule:`** and **`agent:`** list that kind. An empty **`q`** offers the three scheme hints and the top of the workspace. " +
+						"**`refresh=1`** rebuilds the workspace index even when the last build is fresh (the picker just opened). **`total`** counts every match before the cut to **`limit`**; **`indexing`** says the first index of the workspace is still being built.",
+					"operationId": "searchMentions",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "X-Coddy-Session-ID", "in": "header", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session the draft belongs to: its **cwd**, rules and plans answer. Without it the server's default cwd is searched.",
+						},
+						map[string]interface{}{
+							"name": "q", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "The text after **`@`**.",
+						},
+						map[string]interface{}{
+							"name": "limit", "in": "query", "required": false,
+							"schema":      map[string]interface{}{"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
+							"description": "Most candidates to return.",
+						},
+						map[string]interface{}{
+							"name": "refresh", "in": "query", "required": false,
+							"schema":      map[string]interface{}{"type": "string", "enum": []interface{}{"", "1", "true", "yes", "0", "false"}},
+							"description": "Rebuild the workspace index before answering.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Ranked candidates",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/CoddyMentions"},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/workspace/file": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Read one workspace text file as display lines",
@@ -3319,6 +3365,40 @@ func openAPISpec() map[string]interface{} {
 						"page_size": map[string]string{"type": "integer"},
 					},
 					"required": []string{"object", "items", "total", "has_more", "page", "page_size"},
+				},
+				"CoddyMentionCandidate": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"kind": map[string]interface{}{
+							"type": "string",
+							"enum": []interface{}{"file", "directory", "session", "rule", "agent", "plan", "scheme"},
+						},
+						"insert": map[string]interface{}{
+							"type":        "string",
+							"description": "Text that replaces **`@`** plus the query in the draft, **`@`** included; add a space after it unless **`continue`** is set.",
+						},
+						"label":  map[string]string{"type": "string"},
+						"detail": map[string]string{"type": "string"},
+						"continue": map[string]interface{}{
+							"type":        "boolean",
+							"description": "Choosing the row keeps the picker open: a folder to look into, or a scheme hint.",
+						},
+					},
+					"required": []string{"kind", "insert", "label"},
+				},
+				"CoddyMentions": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object": map[string]string{"type": "string", "example": "coddy.mentions"},
+						"items": map[string]interface{}{
+							"type":  "array",
+							"items": map[string]interface{}{"$ref": "#/components/schemas/CoddyMentionCandidate"},
+						},
+						"total":           map[string]string{"type": "integer"},
+						"indexing":        map[string]string{"type": "boolean"},
+						"index_truncated": map[string]string{"type": "boolean"},
+					},
+					"required": []string{"object", "items", "total", "indexing", "index_truncated"},
 				},
 				"CoddyWorkspaceFile": map[string]interface{}{
 					"type": "object",

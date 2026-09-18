@@ -44,7 +44,7 @@ func nestedToken(dir string) string {
 func TestScopedAgentsRuleHiddenUntilToolTouchesItsDirectory(t *testing.T) {
 	a, tmp := scopedRulesProject(t, "internal/agent", "external/httpserver")
 
-	before := a.buildSystemPrompt("agent", nil, nil, "", nil)
+	before := a.buildSystemPrompt("agent", nil, nil, nil)
 	if !strings.Contains(before, "ROOT_AGENTS_TOKEN") {
 		t.Fatal("root AGENTS.md must always be in the prompt")
 	}
@@ -56,7 +56,7 @@ func TestScopedAgentsRuleHiddenUntilToolTouchesItsDirectory(t *testing.T) {
 
 	a.activateScopedRulesForToolCall("read", `{"path":"internal/agent/react.go"}`, tmp)
 
-	after := a.buildSystemPrompt("agent", nil, nil, "", nil)
+	after := a.buildSystemPrompt("agent", nil, nil, nil)
 	if !strings.Contains(after, nestedToken("internal/agent")) {
 		t.Fatal("nested AGENTS.md missing after a read inside its directory")
 	}
@@ -69,12 +69,12 @@ func TestScopedAgentsRuleStaysActiveOnLaterTurns(t *testing.T) {
 	a, tmp := scopedRulesProject(t, "internal/agent")
 
 	a.activateScopedRulesForToolCall("edit", `{"path":"internal/agent/react.go","oldString":"a","newString":"b"}`, tmp)
-	if !strings.Contains(a.buildSystemPrompt("agent", nil, nil, "", nil), nestedToken("internal/agent")) {
+	if !strings.Contains(a.buildSystemPrompt("agent", nil, nil, nil), nestedToken("internal/agent")) {
 		t.Fatal("rule missing right after activation")
 	}
 	// A later turn working elsewhere must not drop it.
 	a.activateScopedRulesForToolCall("read", `{"path":"docs/features/rules.md"}`, tmp)
-	later := a.buildSystemPrompt("agent", nil, nil, "", []string{filepath.Join(tmp, "docs", "rules.md")})
+	later := a.buildSystemPrompt("agent", nil, nil, []string{filepath.Join(tmp, "docs", "rules.md")})
 	if !strings.Contains(later, nestedToken("internal/agent")) {
 		t.Fatal("activation must stick for the rest of the session")
 	}
@@ -83,7 +83,7 @@ func TestScopedAgentsRuleStaysActiveOnLaterTurns(t *testing.T) {
 func TestScopedAgentsRuleActivatesFromAttachedContextFile(t *testing.T) {
 	a, tmp := scopedRulesProject(t, "internal/agent")
 
-	prompt := a.buildSystemPrompt("agent", nil, nil, "", []string{filepath.Join(tmp, "internal", "agent", "react.go")})
+	prompt := a.buildSystemPrompt("agent", nil, nil, []string{filepath.Join(tmp, "internal", "agent", "react.go")})
 	if !strings.Contains(prompt, nestedToken("internal/agent")) {
 		t.Fatal("an attached file:// path inside the directory must activate its AGENTS.md")
 	}
@@ -93,7 +93,7 @@ func TestScopedAgentsRuleNotActivatedByRunCommand(t *testing.T) {
 	a, tmp := scopedRulesProject(t, "internal/agent")
 
 	a.activateScopedRulesForToolCall("run_command", `{"command":"go test ./internal/agent"}`, tmp)
-	if strings.Contains(a.buildSystemPrompt("agent", nil, nil, "", nil), nestedToken("internal/agent")) {
+	if strings.Contains(a.buildSystemPrompt("agent", nil, nil, nil), nestedToken("internal/agent")) {
 		t.Fatal("run_command must not activate scoped rules")
 	}
 }
@@ -102,7 +102,7 @@ func TestScopedAgentsRuleAncestorChain(t *testing.T) {
 	a, tmp := scopedRulesProject(t, "a", "a/b", "a/b/c", "a/other")
 
 	a.activateScopedRulesForToolCall("read", `{"path":"a/b/c/f.go"}`, tmp)
-	prompt := a.buildSystemPrompt("agent", nil, nil, "", nil)
+	prompt := a.buildSystemPrompt("agent", nil, nil, nil)
 	for _, d := range []string{"a", "a/b", "a/b/c"} {
 		if !strings.Contains(prompt, nestedToken(d)) {
 			t.Fatalf("ancestor AGENTS.md for %q must activate too", d)
@@ -117,7 +117,7 @@ func TestScopedAgentsRuleMoveActivatesBothEnds(t *testing.T) {
 	a, tmp := scopedRulesProject(t, "src", "dst")
 
 	a.activateScopedRulesForToolCall("mv", `{"src":"src/x.go","dst":"dst/x.go"}`, tmp)
-	prompt := a.buildSystemPrompt("agent", nil, nil, "", nil)
+	prompt := a.buildSystemPrompt("agent", nil, nil, nil)
 	for _, d := range []string{"src", "dst"} {
 		if !strings.Contains(prompt, nestedToken(d)) {
 			t.Fatalf("mv must activate the AGENTS.md of %q", d)

@@ -32,7 +32,8 @@ Feature: Rules from the shared .agents/rules folder
     Then the first request carries neither "GO_RULE_TOKEN" nor "HTTP_RULE_TOKEN"
     And every request after the read carries "GO_RULE_TOKEN" and "HTTP_RULE_TOKEN"
 
-  Scenario: A mention-only Cursor rule enters the prompt when the user names it
+  Scenario: A mention-only Cursor rule rides in the user's message when the user names it
     Given a coddy agent session in that project
     When the user asks "deploy it, follow @runbook" and the model answers
-    Then the request carries "RUNBOOK_RULE_TOKEN"
+    Then the user's message carries "RUNBOOK_RULE_TOKEN"
+    And the system prompt carries neither "RUNBOOK_RULE_TOKEN"

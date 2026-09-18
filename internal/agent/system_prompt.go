@@ -112,8 +112,8 @@ type systemPromptBuild struct {
 }
 
 // buildSystemPrompt constructs the system prompt for the current mode and skills.
-func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition, userText string, contextFiles []string) string {
-	return a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles).Content
+func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition, contextFiles []string) string {
+	return a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles).Content
 }
 
 // buildSystemPromptParts renders the system message for the turn. It is built
@@ -126,7 +126,7 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 // report, which moves between turns: a recall answers one message, and a
 // report rendered here would make every turn's system message a new one and
 // cost the cached copy of the whole conversation each time.
-func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition, userText string, contextFiles []string) *systemPromptBuild {
+func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition, contextFiles []string) *systemPromptBuild {
 	promptsDir := a.cfg.Prompts.ResolvedDir(a.state.GetCWD())
 	clock := a.now().UTC()
 	if a.subagent != nil && strings.TrimSpace(a.subagent.PromptTemplate) != "" {
@@ -160,7 +160,7 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 	var renderedRules []*rules.Rule
 	rendersRules := prompts.RendersRules(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile())
 	if rs, ok := a.state.(rulesState); ok {
-		rulesMD, embeddedDocs, renderedRules = buildRulesPromptMarkdown(rs, a.cfg.Paths.Home, contextFiles, userText, a.agentsOnDemand())
+		rulesMD, embeddedDocs, renderedRules = buildRulesPromptMarkdown(rs, a.cfg.Paths.Home, contextFiles, a.agentsOnDemand())
 		if !rendersRules {
 			embeddedDocs = nil
 		}

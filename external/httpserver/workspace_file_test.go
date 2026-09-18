@@ -162,3 +162,68 @@ func TestCoddyWorkspaceFileGetUnreadableIs500(t *testing.T) {
 		t.Fatalf("status %d, want 500", status)
 	}
 }
+
+type mentionsBody struct {
+	Object string `json:"object"`
+	Items  []struct {
+		Kind     string `json:"kind"`
+		Insert   string `json:"insert"`
+		Label    string `json:"label"`
+		Continue bool   `json:"continue"`
+	} `json:"items"`
+	Total int `json:"total"`
+}
+
+func getMentions(t *testing.T, ts *httptest.Server, query url.Values) (int, mentionsBody) {
+	t.Helper()
+	rsp, err := http.Get(ts.URL + "/coddy/mentions?" + query.Encode())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rsp.Body.Close() }()
+	var body mentionsBody
+	if rsp.StatusCode == http.StatusOK {
+		if err := json.NewDecoder(rsp.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return rsp.StatusCode, body
+}
+
+// GET /coddy/mentions ranks the workspace against the text after "@",
+// browses a folder typed by its absolute path, and offers the scheme hints
+// for an empty query.
+func TestCoddyMentionsGet(t *testing.T) {
+	ts, _ := newWorkspaceFileTestServer(t, map[string]string{
+		"internal/agent/react.go":      "x",
+		"internal/agent/react_test.go": "x",
+		"docs/react-notes.md":          "x",
+		"my notes.md":                  "x",
+	})
+
+	code, body := getMentions(t, ts, url.Values{"q": {"react.go"}})
+	if code != http.StatusOK || body.Object != "coddy.mentions" || len(body.Items) == 0 || body.Items[0].Insert != "@internal/agent/react.go" {
+		t.Fatalf("ranked search: %d %+v", code, body)
+	}
+	code, body = getMentions(t, ts, url.Values{"q": {"my no"}})
+	if code != http.StatusOK || len(body.Items) == 0 || body.Items[0].Insert != `@"my notes.md"` {
+		t.Fatalf("a path with a space is inserted quoted: %d %+v", code, body)
+	}
+	code, body = getMentions(t, ts, url.Values{"q": {""}})
+	if code != http.StatusOK || len(body.Items) < 3 || body.Items[0].Kind != "scheme" || !body.Items[0].Continue {
+		t.Fatalf("empty query offers the scheme hints: %d %+v", code, body)
+	}
+	if runtime.GOOS != "windows" {
+		outside := t.TempDir()
+		if err := os.WriteFile(filepath.Join(outside, "far.txt"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		code, body = getMentions(t, ts, url.Values{"q": {outside + "/f"}})
+		if code != http.StatusOK || len(body.Items) != 1 || body.Items[0].Insert != "@"+outside+"/far.txt" {
+			t.Fatalf("absolute browse: %d %+v", code, body)
+		}
+	}
+	if code, _ := getMentions(t, ts, url.Values{"q": {"x"}, "limit": {"0"}}); code != http.StatusBadRequest {
+		t.Fatalf("limit 0: status %d, want 400", code)
+	}
+}

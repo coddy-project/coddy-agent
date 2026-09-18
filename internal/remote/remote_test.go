@@ -416,9 +416,20 @@ func TestAFailedPermissionAnswerFailsTheTurnInsteadOfDeadlocking(t *testing.T) {
 	}
 }
 
-func TestResourceBlocksReachTheRemoteInput(t *testing.T) {
+// An editor's embedded resource reaches the server as an attachment whose
+// literal body is the resource text, never as text inside the input: the
+// server resolves the "@" references of what was typed and must not scan a
+// file's contents for them. A resource_link names something on the editor's
+// machine and travels as the link it is.
+func TestResourceBlocksReachTheRemoteAsAttachments(t *testing.T) {
 	var got struct {
-		Input string `json:"input"`
+		Input       string `json:"input"`
+		Attachments []struct {
+			Path   string `json:"path"`
+			Source struct {
+				Literal string `json:"literal"`
+			} `json:"source"`
+		} `json:"attachments"`
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&got)
@@ -436,14 +447,18 @@ func TestResourceBlocksReachTheRemoteInput(t *testing.T) {
 		SessionID: "sess_test",
 		Prompt: []acp.ContentBlock{
 			{Type: "text", Text: "explain this"},
-			{Type: "resource", Resource: &acp.Resource{URI: "file:///a.go", Text: "package a"}},
+			{Type: "resource", Resource: &acp.Resource{URI: "file:///a.go", Text: "package a // @/etc/passwd"}},
+			{Type: "resource_link", URI: "file:///b/", Name: "b"},
 		},
 	}, sender, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(got.Input, "explain this") || !strings.Contains(got.Input, "package a") || !strings.Contains(got.Input, "file:///a.go") {
-		t.Fatalf("input %q lacks the resource block", got.Input)
+	if strings.Contains(got.Input, "package a") || !strings.HasPrefix(got.Input, "explain this") || !strings.Contains(got.Input, "[b](file:///b/)") {
+		t.Fatalf("input %q", got.Input)
+	}
+	if len(got.Attachments) != 1 || got.Attachments[0].Path != "file:///a.go" || got.Attachments[0].Source.Literal != "package a // @/etc/passwd" {
+		t.Fatalf("attachments %+v", got.Attachments)
 	}
 }
 

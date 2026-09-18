@@ -15,6 +15,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/mention"
 	"github.com/EvilFreelancer/coddy-agent/internal/rules"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/shell"
 )
@@ -119,6 +120,12 @@ func (a *Agent) activatedRulesSection(frozen *systemPromptBuild) string {
 		return ""
 	}
 	added := rules.Added(frozen.RenderedRules, rs.GetActiveAutoRules())
+	if len(added) == 0 {
+		return ""
+	}
+	// A follow-up the turn read mid-way may have carried a rule in its own
+	// message (mentions.go); the history already holds that one.
+	added = withoutRules(added, rulesInHistory(rs.GetMessages(), rs.GetCWD(), mention.HomeDir(), nil, added))
 	return rules.RenderSection("## Project rules activated by this turn", added)
 }
 

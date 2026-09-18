@@ -235,6 +235,9 @@ type State struct {
 	// queueNotify is what the manager installed to announce a change; it runs
 	// after every mutation, with queueMu released.
 	queueNotify func()
+	// queueMentions resolves the "@" references of a follow-up the turn reads
+	// (SetQueuedMentionResolver); turn-scoped like the queue.
+	queueMentions func([]acp.ContentBlock) []acp.ContentBlock
 
 	// turnSender is where the current turn publishes its updates, kept so a
 	// queue change made from outside the turn's goroutine reaches the clients
