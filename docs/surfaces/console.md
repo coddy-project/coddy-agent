@@ -165,7 +165,9 @@ it is going (`1m 08s · est. 5m 00s`, `failed · 1m 30s · exit 2`), newest
 first, the way the web UI's Tasks panel lists them. **enter** opens the task
 under the cursor: its command, the child session of an agent run, the error
 it ended with and the last lines of its output, read again while the task
-runs. **s** stops the task under the cursor or the open one, process group
+runs and once more when it ends, for what it printed last. One output read is
+in flight at a time, like the list read, so a slow server does not collect a
+queue of them. **s** stops the task under the cursor or the open one, process group
 and all; **r** reads everything again; **escape** leaves an open task first,
 then the overlay. Under `--remote` the rows, the output and the stop go
 through the server's REST routes, so the overlay manages the processes of the
