@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { Chevron } from "../components/Chevron";
 import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
@@ -38,7 +38,7 @@ function IconStop() {
  * button stretched over the card, so a click anywhere expands the card in place; Stop
  * sits above that surface and keeps working on its own. There is no second pane: the
  * open card shows the command, the captured output and how the run ended right where
- * it stands in the list.
+ * it stands in the list, and any number of cards can be open at once.
  */
 function TaskCard(props: {
   task: BackgroundTask;
@@ -67,6 +67,7 @@ function TaskCard(props: {
         .filter(Boolean)
         .join(" ")}
       data-testid={`bgtask-card-${task.id}`}
+      data-task-card={task.id}
     >
       <div className="bgtask-card-summary">
         <div className="bgtask-card-head">
@@ -194,7 +195,7 @@ function TaskCardBody(props: {
           <button
             type="button"
             className="scheduler-btn bgtask-open-transcript"
-            data-testid="bgtask-open-transcript"
+            data-testid={`bgtask-open-transcript-${task.id}`}
             disabled={agentSid === null}
             title={
               agentSid === null
@@ -243,7 +244,7 @@ function TaskCardBody(props: {
       <pre
         ref={preRef}
         className="bgtask-card-output"
-        data-testid="bgtask-output"
+        data-testid={`bgtask-output-${task.id}`}
         onScroll={(ev) => {
           const el = ev.currentTarget;
           setFollow(el.scrollHeight - el.scrollTop - el.clientHeight < 24);
@@ -264,19 +265,30 @@ function TaskCardBody(props: {
   );
 }
 
+/** How often the output of an open card is read again while its task runs. */
+const OPEN_CARD_POLL_MS = 2500;
+
+/**
+ * A card the shell asks the panel to open: "Open in Tasks" on a transcript row, or a
+ * link that names a task. `seq` tells a repeated request for the same task from the
+ * request the panel has already honoured.
+ */
+export type TaskFocus = { taskId: string; seq: number };
+
 /**
  * Background tasks of the session that owns this chat. The panel is docked
  * inside the session on purpose: a task belongs to the conversation that
  * started it, so there is never a question of which session a process came
  * from.
+ *
+ * Which cards are open is the panel's own business: the reader opens as many as they
+ * like, and the address says only that the panel is showing. The panel reads the output
+ * of every open card through `loadOutput`, again while the card's task runs and once
+ * more when it ends.
  */
 export function BackgroundTasksPanel(props: {
   open: boolean;
-  /** The one card that is expanded, or null. */
-  selectedTaskId: string | null;
   tasks: BackgroundTask[];
-  /** Captured output of the expanded card. */
-  selectedOutput: string;
   listError: string | null;
   loading: boolean;
   /** Milliseconds clock from the shell so every ticker advances together. */
@@ -290,47 +302,178 @@ export function BackgroundTasksPanel(props: {
   title?: string;
   /** Copy for an empty list; the chat's wording unless the caller names it. */
   emptyText?: string;
+  /** A card to open on the shell's behalf. */
+  focus?: TaskFocus | null;
+  /** Reads the captured output of one task; null when it cannot be read right now. */
+  loadOutput: (taskId: string) => Promise<string | null>;
   onClose: () => void;
-  /** Expands a card; the route carries its id, so a reload opens it again. */
-  onOpenTask: (taskId: string) => void;
-  /** Folds the open card. */
-  onBackToList: () => void;
-  onStopTask: (taskId: string) => void;
+  onStopTask: (taskId: string) => void | Promise<void>;
   onClearFinished: () => void;
   /** Routes to another session: the child transcript behind an agent task. */
   onOpenSession: (sessionId: string) => void;
 }) {
   const { t } = useT();
   const [finishedOpen, setFinishedOpen] = useState(false);
+  const [openIds, setOpenIds] = useState<readonly string[]>([]);
+  const [outputs, setOutputs] = useState<Record<string, string>>({});
+  const loadOutputRef = useRef(props.loadOutput);
+  loadOutputRef.current = props.loadOutput;
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const readOutput = useCallback(async (taskId: string) => {
+    const text = await loadOutputRef.current(taskId);
+    // An unreadable answer keeps what the card already shows.
+    if (text === null || !mountedRef.current) {
+      return;
+    }
+    setOutputs((prev) =>
+      prev[taskId] === text ? prev : { ...prev, [taskId]: text },
+    );
+  }, []);
+
+  const openCard = useCallback(
+    (taskId: string) => {
+      setOpenIds((prev) => (prev.includes(taskId) ? prev : [...prev, taskId]));
+      void readOutput(taskId);
+    },
+    [readOutput],
+  );
+
+  const toggleCard = (taskId: string) => {
+    if (openIds.includes(taskId)) {
+      setOpenIds((prev) => prev.filter((id) => id !== taskId));
+      return;
+    }
+    openCard(taskId);
+  };
+
+  // The shell points at a card: open it, its section with it, and bring it into view.
+  const focusSeq = props.focus?.seq;
+  const focusTaskId = props.focus?.taskId;
+  const honouredFocusRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (
+      !props.open ||
+      !focusTaskId ||
+      focusSeq === undefined ||
+      honouredFocusRef.current === focusSeq ||
+      !props.tasks.some((task) => task.id === focusTaskId)
+    ) {
+      return;
+    }
+    honouredFocusRef.current = focusSeq;
+    const task = props.tasks.find((row) => row.id === focusTaskId);
+    if (task && !task.running) {
+      setFinishedOpen(true);
+    }
+    openCard(focusTaskId);
+    const handle = window.requestAnimationFrame(() => {
+      for (const el of document.querySelectorAll("[data-task-card]")) {
+        if (el.getAttribute("data-task-card") === focusTaskId) {
+          el.scrollIntoView?.({ block: "nearest" });
+        }
+      }
+    });
+    return () => window.cancelAnimationFrame(handle);
+  }, [props.open, props.tasks, focusTaskId, focusSeq, openCard]);
+
+  // While an open card's task runs its output is read again; when the task ends between
+  // two reads the card reads what it printed last.
+  const running = new Set(
+    props.tasks.filter((task) => task.running).map((task) => task.id),
+  );
+  const openRunningKey = openIds
+    .filter((id) => running.has(id))
+    .sort()
+    .join("\n");
+  useEffect(() => {
+    if (!props.open || !openRunningKey) {
+      return;
+    }
+    const ids = openRunningKey.split("\n");
+    const handle = window.setInterval(() => {
+      for (const id of ids) {
+        void readOutput(id);
+      }
+    }, OPEN_CARD_POLL_MS);
+    return () => {
+      window.clearInterval(handle);
+      // These cards were running a moment ago: whichever of them has ended since
+      // reads its final output.
+      for (const id of ids) {
+        void readOutput(id);
+      }
+    };
+  }, [props.open, openRunningKey, readOutput]);
+
+  // An open card whose task has just ended moves under the Finished counter; the
+  // section opens with it, or the card the reader was watching would vanish.
+  const runningKey = [...running].sort().join("\n");
+  const wasRunningRef = useRef<ReadonlySet<string>>(new Set());
+  useEffect(() => {
+    const now = new Set(runningKey ? runningKey.split("\n") : []);
+    const ended = [...wasRunningRef.current].filter((id) => !now.has(id));
+    wasRunningRef.current = now;
+    if (ended.some((id) => openIds.includes(id))) {
+      setFinishedOpen(true);
+    }
+    // openIds is read, not watched: only a task ending is the trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runningKey]);
+
+  // A task that left the list (Clear, retention) takes its card state with it.
+  const knownKey = props.tasks
+    .map((task) => task.id)
+    .sort()
+    .join("\n");
+  useEffect(() => {
+    const known = new Set(knownKey ? knownKey.split("\n") : []);
+    setOpenIds((prev) =>
+      prev.every((id) => known.has(id))
+        ? prev
+        : prev.filter((id) => known.has(id)),
+    );
+    setOutputs((prev) => {
+      const stale = Object.keys(prev).filter((id) => !known.has(id));
+      if (stale.length === 0) {
+        return prev;
+      }
+      const next = { ...prev };
+      for (const id of stale) {
+        delete next[id];
+      }
+      return next;
+    });
+  }, [knownKey]);
 
   if (!props.open) {
     return null;
   }
 
-  const { running, finished } = groupTasks(props.tasks);
-  const selectedId = props.selectedTaskId;
-  // A finished task that is open - from the route, or from "Open in Tasks" on a
-  // transcript row - brings its section with it.
-  const selectedIsFinished =
-    selectedId !== null && finished.some((task) => task.id === selectedId);
-  const historyOpen = finishedOpen || selectedIsFinished;
+  const { running: live, finished } = groupTasks(props.tasks);
   const shown = finished.slice(0, FINISHED_RENDER_CAP);
-  const toggle = (taskId: string) => {
-    if (taskId === selectedId) {
-      props.onBackToList();
-    } else {
-      props.onOpenTask(taskId);
-    }
+  const stop = (taskId: string) => {
+    void Promise.resolve(props.onStopTask(taskId)).then(() => {
+      if (openIds.includes(taskId)) {
+        void readOutput(taskId);
+      }
+    });
   };
   const card = (task: BackgroundTask) => (
     <TaskCard
       key={task.id}
       task={task}
       nowMs={props.nowMs}
-      open={task.id === selectedId}
-      output={task.id === selectedId ? props.selectedOutput : ""}
-      onToggle={toggle}
-      onStop={props.onStopTask}
+      open={openIds.includes(task.id)}
+      output={outputs[task.id] ?? ""}
+      onToggle={toggleCard}
+      onStop={stop}
       onOpenSession={props.onOpenSession}
     />
   );
@@ -378,7 +521,7 @@ export function BackgroundTasksPanel(props: {
         {/* No heading over the live cards: a card that is not under the
             finished counter below is running, and saying so twice only
             costs a line of the panel. */}
-        {running.map(card)}
+        {live.map(card)}
 
         {finished.length > 0 ? (
           <>
@@ -387,16 +530,10 @@ export function BackgroundTasksPanel(props: {
                 type="button"
                 className="bgtask-section-toggle"
                 data-testid="bgtask-finished-toggle"
-                aria-expanded={historyOpen}
-                onClick={() => {
-                  // Folding the history folds the card that kept it open.
-                  if (historyOpen && selectedIsFinished) {
-                    props.onBackToList();
-                  }
-                  setFinishedOpen(!historyOpen);
-                }}
+                aria-expanded={finishedOpen}
+                onClick={() => setFinishedOpen((v) => !v)}
               >
-                <Chevron open={historyOpen} />
+                <Chevron open={finishedOpen} />
                 {t("tasks.sectionFinished", { count: finished.length })}
               </button>
               <button
@@ -409,7 +546,7 @@ export function BackgroundTasksPanel(props: {
               </button>
             </div>
 
-            {historyOpen ? (
+            {finishedOpen ? (
               <div
                 className="bgtask-finished-list"
                 data-testid="bgtask-finished-list"

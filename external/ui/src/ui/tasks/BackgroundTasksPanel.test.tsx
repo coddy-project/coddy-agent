@@ -1,6 +1,13 @@
 import React from "react";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { BackgroundTasksPanel } from "./BackgroundTasksPanel";
 import type { BackgroundTask } from "./types";
 
@@ -61,24 +68,26 @@ function agentTask(over: Partial<BackgroundTask> = {}): BackgroundTask {
 
 type Props = React.ComponentProps<typeof BackgroundTasksPanel>;
 
+/** Outputs by task id, served the way the shell's loader serves them. */
+function outputsOf(outputs: Record<string, string>) {
+  return vi.fn(async (taskId: string) => outputs[taskId] ?? "");
+}
+
 function renderPanel(over: Partial<Props> = {}) {
   const props: Props = {
     open: true,
-    selectedTaskId: null,
     tasks: [task()],
-    selectedOutput: "",
     listError: null,
     loading: false,
     nowMs: START_MS + 30_000,
+    loadOutput: outputsOf({}),
     onClose: () => {},
-    onOpenTask: () => {},
-    onBackToList: () => {},
     onStopTask: () => {},
     onClearFinished: () => {},
     onOpenSession: () => {},
     ...over,
   };
-  return render(<BackgroundTasksPanel {...props} />);
+  return { ...render(<BackgroundTasksPanel {...props} />), props };
 }
 
 test("a closed panel renders nothing", () => {
@@ -148,14 +157,13 @@ test("a finished card says how the task ended and when", () => {
 
 test("only a running task offers Stop, and Stop is not part of the card's own control", () => {
   const onStopTask = vi.fn();
-  const onOpenTask = vi.fn();
-  renderPanel({ tasks: [task(), done("bg_2")], onStopTask, onOpenTask });
+  renderPanel({ tasks: [task(), done("bg_2")], onStopTask });
 
   const stop = screen.getByTestId("bgtask-stop-bg_1");
   expect(screen.getByTestId("bgtask-open-bg_1").contains(stop)).toBe(false);
   fireEvent.click(stop);
   expect(onStopTask).toHaveBeenCalledWith("bg_1");
-  expect(onOpenTask).not.toHaveBeenCalled();
+  expect(screen.queryByTestId("bgtask-body-bg_1")).toBeNull();
 
   fireEvent.click(screen.getByTestId("bgtask-finished-toggle"));
   expect(screen.queryByTestId("bgtask-stop-bg_2")).toBeNull();
@@ -169,15 +177,12 @@ test("Clear is offered only when there is history to clear", () => {
   rerender(
     <BackgroundTasksPanel
       open
-      selectedTaskId={null}
       tasks={[task(), done("bg_2")]}
-      selectedOutput=""
       listError={null}
       loading={false}
       nowMs={START_MS + 30_000}
+      loadOutput={outputsOf({})}
       onClose={() => {}}
-      onOpenTask={() => {}}
-      onBackToList={() => {}}
       onStopTask={() => {}}
       onClearFinished={onClearFinished}
       onOpenSession={() => {}}
@@ -188,24 +193,13 @@ test("Clear is offered only when there is history to clear", () => {
 });
 
 test("the progress bar appears only when the model gave an estimate", () => {
-  const { rerender } = renderPanel({ tasks: [task()] });
+  const { rerender, props } = renderPanel({ tasks: [task()] });
   expect(screen.queryByRole("progressbar")).toBeNull();
 
   rerender(
     <BackgroundTasksPanel
-      open
-      selectedTaskId={null}
+      {...props}
       tasks={[task({ expected_seconds: 120 })]}
-      selectedOutput=""
-      listError={null}
-      loading={false}
-      nowMs={START_MS + 30_000}
-      onClose={() => {}}
-      onOpenTask={() => {}}
-      onBackToList={() => {}}
-      onStopTask={() => {}}
-      onClearFinished={() => {}}
-      onOpenSession={() => {}}
     />,
   );
   expect(screen.getByRole("progressbar")).toHaveAttribute(
@@ -260,71 +254,162 @@ test("a card names what runs in a tag on the left and the work in its title", ()
   expect(parts.indexOf("tag")).toBeLessThan(parts.indexOf("title"));
 });
 
-test("the card is one control: a click expands it in place, another folds it", () => {
-  const onOpenTask = vi.fn();
-  const onBackToList = vi.fn();
-  const { rerender } = renderPanel({ onOpenTask, onBackToList });
+test("the card is one control: a click expands it in place, another folds it", async () => {
+  const loadOutput = outputsOf({ bg_1: "compiling package…" });
+  renderPanel({ loadOutput });
 
   const opener = screen.getByTestId("bgtask-open-bg_1");
   expect(opener.getAttribute("aria-expanded")).toBe("false");
   expect(screen.queryByTestId("bgtask-body-bg_1")).toBeNull();
-  fireEvent.click(opener);
-  expect(onOpenTask).toHaveBeenCalledWith("bg_1");
 
-  rerender(
-    <BackgroundTasksPanel
-      open
-      selectedTaskId="bg_1"
-      tasks={[task()]}
-      selectedOutput="compiling package…"
-      listError={null}
-      loading={false}
-      nowMs={START_MS + 30_000}
-      onClose={() => {}}
-      onOpenTask={onOpenTask}
-      onBackToList={onBackToList}
-      onStopTask={() => {}}
-      onClearFinished={() => {}}
-      onOpenSession={() => {}}
-    />,
-  );
-  expect(
-    screen.getByTestId("bgtask-open-bg_1").getAttribute("aria-expanded"),
-  ).toBe("true");
-  expect(screen.getByTestId("bgtask-body-bg_1")).toBeInTheDocument();
+  fireEvent.click(opener);
+  expect(opener.getAttribute("aria-expanded")).toBe("true");
+  expect(await screen.findByText("compiling package…")).toBeInTheDocument();
+  expect(loadOutput).toHaveBeenCalledWith("bg_1");
   // The list stays: there is no second pane and nothing to go back from.
   expect(screen.queryByTestId("bgtask-detail")).toBeNull();
   expect(screen.queryByTestId("bgtask-back")).toBeNull();
-  fireEvent.click(screen.getByTestId("bgtask-open-bg_1"));
-  expect(onBackToList).toHaveBeenCalledTimes(1);
+
+  fireEvent.click(opener);
+  expect(opener.getAttribute("aria-expanded")).toBe("false");
+  expect(screen.queryByTestId("bgtask-body-bg_1")).toBeNull();
 });
 
-test("an expanded command card shows the command with a copy control, the output and how it ended", () => {
+test("any number of cards stay open side by side, each with its own output", async () => {
   renderPanel({
-    selectedTaskId: "bg_2",
-    tasks: [task(), done("bg_2", { elapsed_seconds: 95 })],
-    selectedOutput: "ok  pkg/a 0.4s\nok  pkg/b 1.2s",
+    tasks: [task(), agentTask(), done("bg_2")],
+    loadOutput: outputsOf({
+      bg_1: "compiling package…",
+      bg_7: "→ read",
+      bg_2: "ok  pkg/a 0.4s",
+    }),
   });
 
-  // A finished task that is open brings its section with it.
-  expect(screen.getByTestId("bgtask-finished-list")).toBeInTheDocument();
+  fireEvent.click(screen.getByTestId("bgtask-open-bg_1"));
+  fireEvent.click(screen.getByTestId("bgtask-open-bg_7"));
+  fireEvent.click(screen.getByTestId("bgtask-finished-toggle"));
+  fireEvent.click(screen.getByTestId("bgtask-open-bg_2"));
+
+  expect(await screen.findByText("compiling package…")).toBeInTheDocument();
+  expect(await screen.findByText("→ read")).toBeInTheDocument();
+  expect(await screen.findByText("ok pkg/a 0.4s")).toBeInTheDocument();
+  for (const id of ["bg_1", "bg_7", "bg_2"]) {
+    expect(screen.getByTestId(`bgtask-body-${id}`)).toBeInTheDocument();
+  }
+
+  // Folding one leaves the others as they were.
+  fireEvent.click(screen.getByTestId("bgtask-open-bg_7"));
+  expect(screen.queryByTestId("bgtask-body-bg_7")).toBeNull();
+  expect(screen.getByTestId("bgtask-body-bg_1")).toBeInTheDocument();
+  expect(screen.getByTestId("bgtask-body-bg_2")).toBeInTheDocument();
+});
+
+test("an expanded command card shows the command with a copy control, the output and how it ended", async () => {
+  renderPanel({
+    tasks: [task(), done("bg_2", { elapsed_seconds: 95 })],
+    loadOutput: outputsOf({ bg_2: "ok  pkg/a 0.4s\nok  pkg/b 1.2s" }),
+  });
+  fireEvent.click(screen.getByTestId("bgtask-finished-toggle"));
+  fireEvent.click(screen.getByTestId("bgtask-open-bg_2"));
+
   expect(screen.getByTestId("bgtask-command-bg_2")).toHaveTextContent(
     "make build TAGS=http",
   );
   expect(screen.getByTestId("bgtask-copy-command-bg_2")).toBeEnabled();
-  expect(screen.getByTestId("bgtask-output")).toHaveTextContent(
-    "ok pkg/b 1.2s",
+  await waitFor(() =>
+    expect(screen.getByTestId("bgtask-output-bg_2")).toHaveTextContent(
+      "ok pkg/b 1.2s",
+    ),
   );
   const foot = screen.getByTestId("bgtask-foot-bg_2");
   expect(foot).toHaveTextContent("Exit code 0");
   expect(foot).toHaveTextContent("1m35s");
-  // Only one card is open at a time.
-  expect(screen.queryByTestId("bgtask-body-bg_1")).toBeNull();
 });
 
-test("a failed run reads its error and its exit code in the card", () => {
+test("a card the shell points at opens on its own, its section with it", async () => {
+  // "Open in Tasks" on a transcript row, or an old link that named a task.
+  const loadOutput = outputsOf({ bg_2: "ok  pkg/a 0.4s" });
+  const { rerender, props } = renderPanel({
+    tasks: [task(), done("bg_2")],
+    loadOutput,
+  });
+  expect(screen.queryByTestId("bgtask-finished-list")).toBeNull();
+
+  rerender(
+    <BackgroundTasksPanel {...props} focus={{ taskId: "bg_2", seq: 1 }} />,
+  );
+  expect(screen.getByTestId("bgtask-finished-list")).toBeInTheDocument();
+  expect(screen.getByTestId("bgtask-body-bg_2")).toBeInTheDocument();
+  expect(await screen.findByText("ok pkg/a 0.4s")).toBeInTheDocument();
+
+  // The reader folds it; the same pointer does not force it open again...
+  fireEvent.click(screen.getByTestId("bgtask-open-bg_2"));
+  rerender(
+    <BackgroundTasksPanel {...props} focus={{ taskId: "bg_2", seq: 1 }} />,
+  );
+  expect(screen.queryByTestId("bgtask-body-bg_2")).toBeNull();
+  // ...a new one does.
+  rerender(
+    <BackgroundTasksPanel {...props} focus={{ taskId: "bg_2", seq: 2 }} />,
+  );
+  expect(screen.getByTestId("bgtask-body-bg_2")).toBeInTheDocument();
+});
+
+test("the output of an open running card is read again while it runs, and once more when it ends", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    let text = "step 1";
+    const loadOutput = vi.fn(async () => text);
+    const { rerender, props } = renderPanel({ loadOutput });
+    fireEvent.click(screen.getByTestId("bgtask-open-bg_1"));
+    expect(await screen.findByText("step 1")).toBeInTheDocument();
+
+    text = "step 1\nstep 2";
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2600);
+    });
+    expect(await screen.findByText(/step 2/)).toBeInTheDocument();
+
+    // The task ends between two polls: the card reads its final output once more.
+    text = "step 1\nstep 2\ndone";
+    const calls = loadOutput.mock.calls.length;
+    rerender(
+      <BackgroundTasksPanel
+        {...props}
+        loadOutput={loadOutput}
+        tasks={[done("bg_1")]}
+      />,
+    );
+    expect(await screen.findByText(/done/)).toBeInTheDocument();
+    expect(loadOutput.mock.calls.length).toBeGreaterThan(calls);
+
+    // A finished card is not polled.
+    const settled = loadOutput.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8000);
+    });
+    expect(loadOutput.mock.calls.length).toBe(settled);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("stopping an open card reads what the task printed last", async () => {
+  let text = "running…";
+  const loadOutput = vi.fn(async () => text);
+  const onStopTask = vi.fn(async () => {
+    text = "running…\nterminated";
+  });
+  renderPanel({ loadOutput, onStopTask });
+  fireEvent.click(screen.getByTestId("bgtask-open-bg_1"));
+  expect(await screen.findByText("running…")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByTestId("bgtask-stop-bg_1"));
+  expect(await screen.findByText(/terminated/)).toBeInTheDocument();
+});
+
+test("a failed run reads its error and its exit code in the card", async () => {
   renderPanel({
-    selectedTaskId: "bg_1",
     tasks: [
       task({
         running: false,
@@ -337,6 +422,8 @@ test("a failed run reads its error and its exit code in the card", () => {
       }),
     ],
   });
+  fireEvent.click(screen.getByTestId("bgtask-finished-toggle"));
+  fireEvent.click(screen.getByTestId("bgtask-open-bg_1"));
 
   expect(screen.getByTestId("bgtask-meta-bg_1")).toHaveTextContent(/^Failed/);
   expect(
@@ -347,25 +434,26 @@ test("a failed run reads its error and its exit code in the card", () => {
   expect(foot).toHaveTextContent("1m30s");
 });
 
-test("a running card has no ending to report yet", () => {
-  renderPanel({ selectedTaskId: "bg_1", selectedOutput: "compiling…" });
-  expect(screen.getByTestId("bgtask-output")).toHaveTextContent("compiling…");
+test("a running card has no ending to report yet", async () => {
+  renderPanel({ loadOutput: outputsOf({ bg_1: "compiling…" }) });
+  fireEvent.click(screen.getByTestId("bgtask-open-bg_1"));
+  expect(await screen.findByText("compiling…")).toBeInTheDocument();
   expect(screen.queryByTestId("bgtask-foot-bg_1")).toBeNull();
 });
 
-test("a task with no output yet says so", () => {
-  renderPanel({ selectedTaskId: "bg_1", selectedOutput: "   " });
-  expect(screen.getByTestId("bgtask-output")).toHaveTextContent(
-    "(no output yet)",
+test("a task with no output yet says so", async () => {
+  renderPanel({ loadOutput: outputsOf({ bg_1: "   " }) });
+  fireEvent.click(screen.getByTestId("bgtask-open-bg_1"));
+  await waitFor(() =>
+    expect(screen.getByTestId("bgtask-output-bg_1")).toHaveTextContent(
+      "(no output yet)",
+    ),
   );
 });
 
 test("marks truncated output in the card", () => {
-  renderPanel({
-    selectedTaskId: "bg_1",
-    tasks: [task({ output_truncated: true })],
-  });
-
+  renderPanel({ tasks: [task({ output_truncated: true })] });
+  fireEvent.click(screen.getByTestId("bgtask-open-bg_1"));
   expect(screen.getByText("truncated")).toBeInTheDocument();
 });
 
@@ -376,15 +464,12 @@ test("empty and error states replace the sections", () => {
   rerender(
     <BackgroundTasksPanel
       open
-      selectedTaskId={null}
       tasks={[]}
-      selectedOutput=""
       listError="HTTP 500"
       loading={false}
       nowMs={START_MS}
+      loadOutput={outputsOf({})}
       onClose={() => {}}
-      onOpenTask={() => {}}
-      onBackToList={() => {}}
       onStopTask={() => {}}
       onClearFinished={() => {}}
       onOpenSession={() => {}}
@@ -396,10 +481,9 @@ test("empty and error states replace the sections", () => {
   expect(screen.queryByTestId("bgtasks-list-empty")).toBeNull();
 });
 
-test("an expanded subagent card opens the child transcript and shows the run's log, not a command", () => {
+test("an expanded subagent card opens the child transcript and shows the run's log, not a command", async () => {
   const onOpenSession = vi.fn();
   renderPanel({
-    selectedTaskId: "bg_7",
     tasks: [
       agentTask({
         running: false,
@@ -409,20 +493,26 @@ test("an expanded subagent card opens the child transcript and shows the run's l
         finished_at: new Date(START_MS + 200_000).toISOString(),
       }),
     ],
-    selectedOutput: "→ read\n=== subagent report ===\nstatus: succeeded",
+    loadOutput: outputsOf({
+      bg_7: "→ read\n=== subagent report ===\nstatus: succeeded",
+    }),
     onOpenSession,
   });
+  fireEvent.click(screen.getByTestId("bgtask-finished-toggle"));
+  fireEvent.click(screen.getByTestId("bgtask-open-bg_7"));
 
   // No shell stands behind an agent run: no command block, no exit code.
   expect(screen.queryByTestId("bgtask-command-bg_7")).toBeNull();
-  expect(screen.getByTestId("bgtask-output")).toHaveTextContent(
-    "=== subagent report ===",
+  await waitFor(() =>
+    expect(screen.getByTestId("bgtask-output-bg_7")).toHaveTextContent(
+      "=== subagent report ===",
+    ),
   );
   const foot = screen.getByTestId("bgtask-foot-bg_7");
   expect(foot).not.toHaveTextContent("Exit code");
   expect(foot).toHaveTextContent("3m20s");
 
-  const transcript = screen.getByTestId("bgtask-open-transcript");
+  const transcript = screen.getByTestId("bgtask-open-transcript-bg_7");
   expect(transcript).toHaveTextContent("Show transcript");
   fireEvent.click(transcript);
   expect(onOpenSession).toHaveBeenCalledWith("sess_0a1b2c");
@@ -431,12 +521,12 @@ test("an expanded subagent card opens the child transcript and shows the run's l
 test("Show transcript stays disabled until the child session is known", () => {
   const onOpenSession = vi.fn();
   renderPanel({
-    selectedTaskId: "bg_7",
     tasks: [agentTask({ agent: { name: "explore" } })],
     onOpenSession,
   });
+  fireEvent.click(screen.getByTestId("bgtask-open-bg_7"));
 
-  const button = screen.getByTestId("bgtask-open-transcript");
+  const button = screen.getByTestId("bgtask-open-transcript-bg_7");
   expect(button).toBeDisabled();
   fireEvent.click(button);
   expect(onOpenSession).not.toHaveBeenCalled();

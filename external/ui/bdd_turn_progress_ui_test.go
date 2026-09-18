@@ -83,6 +83,12 @@ func TestBackgroundTasksWebUIFeature(t *testing.T) {
 			sc.Step(`^an open subagent card offers the child transcript and shows the run's log$`, func() error {
 				return runVitestScenario(panel, "an expanded subagent card opens the child transcript and shows the run's log, not a command")
 			})
+			sc.Step(`^any number of cards stay open at once, each with its own output$`, func() error {
+				return runVitestScenario(panel, "any number of cards stay open side by side, each with its own output")
+			})
+			sc.Step(`^a card the shell points at opens on its own$`, func() error {
+				return runVitestScenario(panel, "a card the shell points at opens on its own, its section with it")
+			})
 			sc.Step(`^Stop on a running card stops the task without opening the card$`, func() error {
 				return runVitestScenario(panel, "only a running task offers Stop, and Stop is not part of the card's own control")
 			})

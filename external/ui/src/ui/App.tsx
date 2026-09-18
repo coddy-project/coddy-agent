@@ -199,7 +199,10 @@ import {
 } from "./scheduler/hashRoute";
 import { SchedulerJobEditorSheet } from "./scheduler/SchedulerJobEditorSheet";
 import { SchedulerJobsDrawer } from "./scheduler/SchedulerJobsDrawer";
-import { BackgroundTasksPanel } from "./tasks/BackgroundTasksPanel";
+import {
+  BackgroundTasksPanel,
+  type TaskFocus,
+} from "./tasks/BackgroundTasksPanel";
 import {
   clearFinishedBackgroundTasks,
   getBackgroundTask,
@@ -875,14 +878,26 @@ export function App() {
   // job's session, polled the way the chat's Tasks panel polls its own.
   const [schedulerRunsTasks, setSchedulerRunsTasks] = useState<BackgroundTask[]>([]);
   const [schedulerRunsRunning, setSchedulerRunsRunning] = useState(0);
-  const [schedulerRunsOutput, setSchedulerRunsOutput] = useState("");
   const [schedulerRunsError, setSchedulerRunsError] = useState<string | null>(null);
   const [schedulerRunsLoading, setSchedulerRunsLoading] = useState(false);
   const [tasksOpen, setTasksOpen] = useState(false);
-  const [tasksSelectedId, setTasksSelectedId] = useState<string | null>(null);
+  // A card the shell asks the Tasks panel to open ("Open in Tasks" on a transcript
+  // row, a link that names a task). Which cards are open otherwise is the panel's own
+  // business and is not part of the address.
+  const [tasksFocus, setTasksFocus] = useState<TaskFocus | null>(null);
+  const tasksFocusSeqRef = useRef(0);
+  const focusBackgroundTask = useCallback((taskId: string | null) => {
+    const id = (taskId || "").trim();
+    if (!id) {
+      return;
+    }
+    tasksFocusSeqRef.current += 1;
+    setTasksFocus({ taskId: id, seq: tasksFocusSeqRef.current });
+  }, []);
+  const [schedulerRunsFocus, setSchedulerRunsFocus] =
+    useState<TaskFocus | null>(null);
   const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([]);
   const [backgroundRunning, setBackgroundRunning] = useState(0);
-  const [backgroundOutput, setBackgroundOutput] = useState("");
   const [backgroundListError, setBackgroundListError] = useState<string | null>(
     null,
   );
@@ -1436,15 +1451,15 @@ export function App() {
     [sessionId, t],
   );
 
-  const refreshBackgroundTaskOutput = useCallback(
-    async (taskId: string) => {
+  // The Tasks panel reads the output of every card it has open through this.
+  const loadBackgroundTaskOutput = useCallback(
+    async (taskId: string): Promise<string | null> => {
       const sid = sessionId.trim();
       if (!sid || !taskId) {
-        setBackgroundOutput("");
-        return;
+        return null;
       }
       const res = await getBackgroundTask(sid, taskId);
-      setBackgroundOutput(res.ok ? res.data.output || "" : "");
+      return res.ok ? res.data.output || "" : null;
     },
     [sessionId],
   );
@@ -1455,11 +1470,8 @@ export function App() {
       if (!sid || !taskId) {
         return;
       }
-      const res = await stopBackgroundTask(sid, taskId);
-      if (res.ok) {
-        setBackgroundOutput(res.data.output || "");
-      }
-      void refreshBackgroundTasks({ silent: true });
+      await stopBackgroundTask(sid, taskId);
+      await refreshBackgroundTasks({ silent: true });
     },
     [sessionId, refreshBackgroundTasks],
   );
@@ -1470,7 +1482,6 @@ export function App() {
       return;
     }
     await clearFinishedBackgroundTasks(sid);
-    setTasksSelectedId(null);
     void refreshBackgroundTasks({ silent: true });
   }, [sessionId, refreshBackgroundTasks]);
 
@@ -1541,7 +1552,14 @@ export function App() {
       setSchedulerOpen(false);
       setSchedulerEditor(null);
       setTasksOpen(p.tasksOpen);
-      setTasksSelectedId(p.taskId);
+      if (p.tasksOpen && p.taskId) {
+        // A link that names a task opens its card once; the address goes back to
+        // saying only that the panel is showing.
+        focusBackgroundTask(p.taskId);
+        setSessionTasksHash(p.sessionId, null, {
+          historySidebar: !!p.historyOpen,
+        });
+      }
       setSessionsOpen(!!p.historyOpen);
       return;
     }
@@ -1550,7 +1568,6 @@ export function App() {
       setSchedulerOpen(false);
       setSchedulerEditor(null);
       setTasksOpen(false);
-      setTasksSelectedId(null);
       setSessionId("");
       viewedSessionIdRef.current = "";
       setActiveDraftId(p.draftId.trim());
@@ -1568,7 +1585,6 @@ export function App() {
       setSchedulerOpen(false);
       setSchedulerEditor(null);
       setTasksOpen(false);
-      setTasksSelectedId(null);
       return;
     }
     if (p.branch === "swarm") {
@@ -1577,7 +1593,6 @@ export function App() {
       setSchedulerOpen(false);
       setSchedulerEditor(null);
       setTasksOpen(false);
-      setTasksSelectedId(null);
       setSessionsOpen(false);
       return;
     }
@@ -1588,7 +1603,6 @@ export function App() {
       setSchedulerOpen(false);
       setSchedulerEditor(null);
       setTasksOpen(false);
-      setTasksSelectedId(null);
       setSessionsOpen(false);
       return;
     }
@@ -1615,7 +1629,6 @@ export function App() {
       setSchedulerOpen(true);
       setSessionsOpen(false);
       setTasksOpen(false);
-      setTasksSelectedId(null);
       setSchedulerEditor(schedulerEditorFromParsedHash(p));
       return;
     }
@@ -1626,7 +1639,6 @@ export function App() {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setTasksOpen(false);
-    setTasksSelectedId(null);
     setSessionsOpen(!!p.historyOpen);
   }, [schedulerHttpLinked]);
 
@@ -1636,7 +1648,6 @@ export function App() {
       setSchedulerOpen(false);
       setSchedulerEditor(null);
       setTasksOpen(false);
-      setTasksSelectedId(null);
       viewedSessionIdRef.current = id.trim();
       setSessionHashInLocation(id, opts);
       setSessionId(id);
@@ -1649,7 +1660,6 @@ export function App() {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setTasksOpen(false);
-    setTasksSelectedId(null);
     viewedSessionIdRef.current = "";
     setSessionHashInLocation("");
     setSessionId("");
@@ -1660,7 +1670,6 @@ export function App() {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setTasksOpen(false);
-    setTasksSelectedId(null);
     if (sessionsOpen) {
       setHistoryHash();
       return;
@@ -1682,7 +1691,6 @@ export function App() {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setTasksOpen(false);
-    setTasksSelectedId(null);
     if (parseAppHash().branch === "settings") {
       const sid = sessionId.trim();
       if (sid) {
@@ -1763,7 +1771,6 @@ export function App() {
     if (!sessionId.trim()) {
       setBackgroundTasks([]);
       setBackgroundRunning(0);
-      setBackgroundOutput("");
       return;
     }
     void refreshBackgroundTasks({ silent: !tasksOpen });
@@ -1778,27 +1785,9 @@ export function App() {
     // events stream is down, and takes it away once answered.
     const id = window.setInterval(() => {
       void refreshBackgroundTasks({ silent: true });
-      if (tasksOpen && tasksSelectedId) {
-        void refreshBackgroundTaskOutput(tasksSelectedId);
-      }
     }, tasksPollIntervalMs(backgroundRunning));
     return () => window.clearInterval(id);
-  }, [
-    sessionId,
-    tasksOpen,
-    tasksSelectedId,
-    backgroundRunning,
-    refreshBackgroundTasks,
-    refreshBackgroundTaskOutput,
-  ]);
-
-  useEffect(() => {
-    if (!tasksOpen || !tasksSelectedId) {
-      setBackgroundOutput("");
-      return;
-    }
-    void refreshBackgroundTaskOutput(tasksSelectedId);
-  }, [tasksOpen, tasksSelectedId, refreshBackgroundTaskOutput]);
+  }, [sessionId, backgroundRunning, refreshBackgroundTasks]);
 
   // Elapsed labels must advance between polls, so the clock ticks on its own
   // while something is actually running.
@@ -1829,8 +1818,21 @@ export function App() {
 
   const schedulerRunsJobId =
     schedulerEditor?.mode === "runs" ? schedulerEditor.jobId : "";
-  const schedulerRunsTaskId =
+  // A link that names a run opens its card once, like a task link in a chat.
+  const schedulerRunsLinkedTaskId =
     schedulerEditor?.mode === "runs" ? schedulerEditor.taskId : null;
+  useEffect(() => {
+    if (!schedulerRunsJobId || !schedulerRunsLinkedTaskId) {
+      return;
+    }
+    tasksFocusSeqRef.current += 1;
+    setSchedulerRunsFocus({
+      taskId: schedulerRunsLinkedTaskId,
+      seq: tasksFocusSeqRef.current,
+    });
+    setSchedulerEditor({ mode: "runs", jobId: schedulerRunsJobId, taskId: null });
+    setSchedulerJobRunsHash(schedulerRunsJobId);
+  }, [schedulerRunsJobId, schedulerRunsLinkedTaskId]);
   /** The job session the runs live under; empty until the job ran once. */
   const schedulerRunsSessionId = useMemo(() => {
     if (!schedulerRunsJobId) {
@@ -1872,15 +1874,14 @@ export function App() {
     [schedulerRunsSessionId],
   );
 
-  const refreshSchedulerRunOutput = useCallback(
-    async (taskId: string) => {
+  const loadSchedulerRunOutput = useCallback(
+    async (taskId: string): Promise<string | null> => {
       const sid = schedulerRunsSessionId;
-      if (!sid) {
-        setSchedulerRunsOutput("");
-        return;
+      if (!sid || !taskId) {
+        return null;
       }
       const res = await getBackgroundTask(sid, taskId);
-      setSchedulerRunsOutput(res.ok ? res.data.output || "" : "");
+      return res.ok ? res.data.output || "" : null;
     },
     [schedulerRunsSessionId],
   );
@@ -1889,7 +1890,6 @@ export function App() {
     if (!schedulerRunsJobId) {
       setSchedulerRunsTasks([]);
       setSchedulerRunsRunning(0);
-      setSchedulerRunsOutput("");
       setSchedulerRunsError(null);
       return;
     }
@@ -1902,27 +1902,14 @@ export function App() {
     }
     const id = window.setInterval(() => {
       void refreshSchedulerRuns({ silent: true });
-      if (schedulerRunsTaskId) {
-        void refreshSchedulerRunOutput(schedulerRunsTaskId);
-      }
     }, tasksPollIntervalMs(schedulerRunsRunning));
     return () => window.clearInterval(id);
   }, [
     schedulerRunsJobId,
     schedulerRunsSessionId,
-    schedulerRunsTaskId,
     schedulerRunsRunning,
     refreshSchedulerRuns,
-    refreshSchedulerRunOutput,
   ]);
-
-  useEffect(() => {
-    if (!schedulerRunsTaskId) {
-      setSchedulerRunsOutput("");
-      return;
-    }
-    void refreshSchedulerRunOutput(schedulerRunsTaskId);
-  }, [schedulerRunsTaskId, refreshSchedulerRunOutput]);
 
   // A running run keeps the panel's clock ticking like the chat's panel does.
   useEffect(() => {
@@ -2893,7 +2880,6 @@ export function App() {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setTasksOpen(false);
-    setTasksSelectedId(null);
     if (fadeOutTimerRef.current !== null) {
       clearTimeout(fadeOutTimerRef.current);
       fadeOutTimerRef.current = null;
@@ -4405,25 +4391,6 @@ export function App() {
     setSchedulerJobRunsHash(jid);
   }, []);
 
-  const openSchedulerRunTask = useCallback(
-    (taskId: string) => {
-      if (!schedulerRunsJobId) {
-        return;
-      }
-      setSchedulerEditor({ mode: "runs", jobId: schedulerRunsJobId, taskId });
-      setSchedulerJobRunsHash(schedulerRunsJobId, taskId);
-    },
-    [schedulerRunsJobId],
-  );
-
-  const backToSchedulerRuns = useCallback(() => {
-    if (!schedulerRunsJobId) {
-      return;
-    }
-    setSchedulerEditor({ mode: "runs", jobId: schedulerRunsJobId, taskId: null });
-    setSchedulerJobRunsHash(schedulerRunsJobId);
-  }, [schedulerRunsJobId]);
-
   const closeSchedulerRuns = useCallback(() => {
     if (!schedulerRunsJobId) {
       return;
@@ -4438,14 +4405,11 @@ export function App() {
       if (!sid) {
         return;
       }
-      const res = await stopBackgroundTask(sid, taskId);
-      if (res.ok && schedulerRunsTaskId === taskId) {
-        setSchedulerRunsOutput(res.data.output || "");
-      }
-      void refreshSchedulerRuns({ silent: true });
+      await stopBackgroundTask(sid, taskId);
+      await refreshSchedulerRuns({ silent: true });
       void refreshSchedulerJobs({ silent: true });
     },
-    [schedulerRunsSessionId, schedulerRunsTaskId, refreshSchedulerRuns, refreshSchedulerJobs],
+    [schedulerRunsSessionId, refreshSchedulerRuns, refreshSchedulerJobs],
   );
 
   const clearSchedulerRuns = useCallback(async () => {
@@ -4469,7 +4433,6 @@ export function App() {
     }
     setSessionsOpen(false);
     setTasksOpen(false);
-    setTasksSelectedId(null);
     setSchedulerOpen(true);
     setSchedulerEditor(null);
     setSchedulerListHash();
@@ -4485,13 +4448,11 @@ export function App() {
     setSchedulerEditor(null);
     setSettingsRoute(false);
     setTasksOpen(true);
-    setTasksSelectedId(null);
     setSessionTasksHash(sid);
   }, [sessionId]);
 
   const closeTasksDrawer = useCallback(() => {
     setTasksOpen(false);
-    setTasksSelectedId(null);
     if (sessionsOpen) {
       setHistoryHash();
       return;
@@ -4508,6 +4469,7 @@ export function App() {
     }
   }, [sessionId, sessionsOpen]);
 
+  // "Open in Tasks" on a transcript row: the panel opens with that task's card open.
   const openBackgroundTask = useCallback(
     (taskId: string) => {
       const sid = sessionId.trim();
@@ -4515,19 +4477,11 @@ export function App() {
         return;
       }
       setTasksOpen(true);
-      setTasksSelectedId(taskId);
-      setSessionTasksHash(sid, taskId);
-    },
-    [sessionId],
-  );
-
-  const backToBackgroundTaskList = useCallback(() => {
-    const sid = sessionId.trim();
-    setTasksSelectedId(null);
-    if (sid) {
+      focusBackgroundTask(taskId);
       setSessionTasksHash(sid);
-    }
-  }, [sessionId]);
+    },
+    [sessionId, focusBackgroundTask],
+  );
 
   /** Opens a session in this tab: the child transcript behind an agent task,
    *  or the parent chat from a read-only notice. Same path as a History pick,
@@ -4605,7 +4559,6 @@ export function App() {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setTasksOpen(false);
-    setTasksSelectedId(null);
     setSessionsOpen(false);
     setSettingsRoute(false);
     window.location.hash = appNavHrefSwarm();
@@ -4615,7 +4568,6 @@ export function App() {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setTasksOpen(false);
-    setTasksSelectedId(null);
     setSessionsOpen(false);
     setSettingsHash();
   }, []);
@@ -4633,7 +4585,6 @@ export function App() {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setTasksOpen(false);
-    setTasksSelectedId(null);
     setSettingsRoute(false);
     setSessionsOpen(true);
     setHistoryHash();
@@ -5107,18 +5058,14 @@ export function App() {
                 className="scheduler-runs-dock"
                 title={t("scheduler.runsTitle", { jobId: schedulerEditor.jobId })}
                 emptyText={t("scheduler.runsEmpty")}
-                selectedTaskId={schedulerRunsTaskId}
+                focus={schedulerRunsFocus}
                 tasks={schedulerRunsTasks}
-                selectedOutput={schedulerRunsOutput}
+                loadOutput={loadSchedulerRunOutput}
                 listError={schedulerRunsError}
                 loading={schedulerRunsLoading}
                 nowMs={backgroundNowMs}
                 onClose={closeSchedulerRuns}
-                onOpenTask={openSchedulerRunTask}
-                onBackToList={backToSchedulerRuns}
-                onStopTask={(id) => {
-                  void stopSchedulerRun(id);
-                }}
+                onStopTask={stopSchedulerRun}
                 onClearFinished={() => {
                   void clearSchedulerRuns();
                 }}
@@ -5193,18 +5140,14 @@ export function App() {
         {tasksPanelOpen ? (
           <BackgroundTasksPanel
             open
-            selectedTaskId={tasksSelectedId}
+            focus={tasksFocus}
             tasks={backgroundTasks}
-            selectedOutput={backgroundOutput}
+            loadOutput={loadBackgroundTaskOutput}
             listError={backgroundListError}
             loading={backgroundListLoading}
             nowMs={backgroundNowMs}
             onClose={closeTasksDrawer}
-            onOpenTask={openBackgroundTask}
-            onBackToList={backToBackgroundTaskList}
-            onStopTask={(id) => {
-              void stopBackgroundTaskById(id);
-            }}
+            onStopTask={stopBackgroundTaskById}
             onClearFinished={() => {
               void clearFinishedTasks();
             }}
