@@ -140,9 +140,16 @@ func (f *footer) Render(width int) []string {
 	}
 	// Background tasks outlive the turn that started them, and the status line that
 	// counts them goes away with the turn. The footer keeps saying what still runs,
-	// and names the command that lists it.
+	// and names the command that lists it. The segment closes the line and is the part
+	// of it that changes what the operator does next, so when the line does not fit it
+	// is the path and the title that give way - a macOS temp folder or a deep monorepo
+	// path would otherwise push the count off the screen.
 	if f.runningTasks > 0 {
-		line1 += " • " + itoa(f.runningTasks) + " " + plural(f.runningTasks, "task", "tasks") + " running (/tasks)"
+		tasks := " • " + itoa(f.runningTasks) + " " + plural(f.runningTasks, "task", "tasks") + " running (/tasks)"
+		if room := width - tui.VisibleWidth(tasks); room >= 8 && tui.VisibleWidth(line1) > room {
+			line1 = tui.TruncateToWidth(line1, room, "...")
+		}
+		line1 += tasks
 	}
 
 	left := ""

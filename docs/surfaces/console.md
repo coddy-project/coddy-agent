@@ -98,7 +98,8 @@ Top to bottom:
 - **Footer**: dim `cwd (git-branch) • title [• plan] [• N tasks running (/tasks)]`,
   then `↑in ↓out  N.N%/ctx (auto)` left and `(provider) model [• reasoning]`
   right. The running-task note stays after the turn that started the tasks has
-  ended, which is when the status line that counted them is gone.
+  ended, which is when the status line that counted them is gone. When the
+  line does not fit, the path and the title give way and the note stays.
   A third line appears while the active model's provider reports account
   usage (today: `neuraldeep`, read from the hub's `GET /v1/limits`):
   `Pro • 3h 3% (resets 20:59) • week 7% (resets Mon 03:00) • wallet -1 229 ₽`,
