@@ -131,6 +131,12 @@ from it is not. The proxy authenticates to the node on the caller's behalf, so a
 reachable through a mount is something the relay authorises for them; membership decisions
 are not that.
 
+A browser that works through the relay hears the relay's CORS answer (`swarm.cors`) and
+nothing else: the `Access-Control-*` headers of a node's own answer stay behind the mount. A
+node that browsers also reach directly has `httpserver.cors` on, and passed through, its
+headers would sit next to the relay's - a browser refuses a response that names the allowed
+origin twice. The same rule keeps a node's policy from opening a relay whose own CORS is off.
+
 A hand-written path is capped at the same hop budget the fan-out uses, so a client cannot
 walk a ring indefinitely by writing hops out one after another.
 

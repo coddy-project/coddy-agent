@@ -142,6 +142,19 @@ func (s *Server) handleMount(w http.ResponseWriter, r *http.Request) {
 		// small events, and buffering them would turn a live transcript into a
 		// long silence followed by a wall of text.
 		FlushInterval: -1,
+		// The browser is talking to the relay's origin, so the relay's CORS answer
+		// (corsMiddleware) is the only one that means anything. A node that browsers
+		// also reach directly has httpserver.cors on and answers with headers of its
+		// own; passed through, they land next to the relay's, and a browser refuses a
+		// response that names the allowed origin twice - "*, *" included.
+		ModifyResponse: func(res *http.Response) error {
+			for name := range res.Header {
+				if strings.HasPrefix(strings.ToLower(name), "access-control-") {
+					res.Header.Del(name)
+				}
+			}
+			return nil
+		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			// Once the node's headers are out the response is committed and
 			// there is no way to turn a failure into a status code; the stream
