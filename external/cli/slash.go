@@ -154,8 +154,7 @@ func (a *App) switchTheme(name string) {
 	a.editor = tui.NewEditor(a.term, tui.EditorTheme{BorderColor: a.theme.FgFn(roleBorderMuted)}, 0)
 	a.editor.OnSubmit = a.onSubmit
 	a.editor.OnChange = a.onEditorChange
-	provider := newCompletionProvider(a.config().Paths.CWD, a.slashCatalog)
-	a.editor.SetAutocomplete(provider, selectListTheme(a.theme), tui.SelectListLayout{MinPrimaryColumnWidth: 12, MaxPrimaryColumnWidth: 32}, a.screen.RequestRender)
+	a.editor.SetAutocomplete(a.newCompletion(), selectListTheme(a.theme), tui.SelectListLayout{MinPrimaryColumnWidth: 12, MaxPrimaryColumnWidth: 40}, a.screen.RequestRender)
 
 	root := a.screen.Root
 	root.Clear()

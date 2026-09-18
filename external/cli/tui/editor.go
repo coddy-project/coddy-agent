@@ -29,6 +29,23 @@ type AutocompleteItem struct {
 	Value       string
 	Label       string
 	Description string
+	// TruncateLeft keeps the end of a label too wide for its column: a path
+	// keeps its file name.
+	TruncateLeft bool
+}
+
+// AutocompleteTotaler is an optional AutocompleteProvider extension: how many
+// candidates matched before the suggestions were cut, shown next to the
+// scroll position so a long list never looks complete when it is not.
+type AutocompleteTotaler interface {
+	SuggestionsTotal() int
+}
+
+// AutocompleteDismisser is an optional AutocompleteProvider extension told
+// when escape closed the list, so an answer that lands later does not reopen
+// it.
+type AutocompleteDismisser interface {
+	AutocompleteDismissed()
 }
 
 // AutocompleteProvider supplies suggestions for the editor content.
@@ -189,6 +206,9 @@ func (e *Editor) HandleInput(data []byte) {
 			return
 		case "escape":
 			e.closeAutocomplete()
+			if d, ok := e.provider.(AutocompleteDismisser); ok {
+				d.AutocompleteDismissed()
+			}
 			return
 		}
 	}
@@ -653,6 +673,12 @@ func (e *Editor) notifyChange() {
 
 // --- autocomplete ---
 
+// RefreshAutocomplete recomputes the suggestions for the current content,
+// for a provider whose answer arrived after the keystroke that asked for it.
+func (e *Editor) RefreshAutocomplete() {
+	e.refreshAutocomplete(false)
+}
+
 func (e *Editor) refreshAutocomplete(force bool) {
 	if e.provider == nil {
 		return
@@ -666,11 +692,32 @@ func (e *Editor) refreshAutocomplete(force bool) {
 	for _, it := range items {
 		sel = append(sel, SelectItem(it))
 	}
+	keep := -1
+	if e.acOpen && e.acList != nil {
+		// A list refreshed under the cursor keeps the selected row when it is
+		// still there, so an answer landing late does not jump the selection.
+		if cur := e.acList.SelectedItem(); cur != nil {
+			for i, it := range sel {
+				if it.Value == cur.Value {
+					keep = i
+					break
+				}
+			}
+		}
+	}
 	if e.acList == nil {
 		e.acList = NewSelectList(sel, e.acMaxRows, e.acStyle, e.acLayout)
 	} else {
 		e.acList.SetItems(sel)
 	}
+	if keep > 0 {
+		e.acList.SetSelectedIndex(keep)
+	}
+	total := 0
+	if t, ok := e.provider.(AutocompleteTotaler); ok {
+		total = t.SuggestionsTotal()
+	}
+	e.acList.SetTotal(total)
 	e.acOpen = true
 	if force && len(items) == 1 {
 		e.applyCompletion(sel[0])

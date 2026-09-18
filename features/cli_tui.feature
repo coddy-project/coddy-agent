@@ -317,3 +317,30 @@ Feature: Interactive console TUI
     And the operator submits the command "/tasks"
     Then the tasks overlay lists "sleep 30" as running
     And the tasks overlay says the selected task wakes the agent
+
+  Scenario: The @ list completes an absolute path outside the workspace
+    Given a folder outside the workspace holding the file "far-notes.md"
+    When the console app starts
+    And the operator types the mention "@<outside folder>/far"
+    Then the mention list offers "far-notes.md"
+    When the operator takes the highlighted mention
+    Then the editor holds "@<outside folder>/far-notes.md "
+
+  Scenario: The @ list offers a file written after the console started
+    Given a file "old_notes.md" appears in the workspace
+    When the console app starts
+    And the operator types the mention "@"
+    And the operator presses escape
+    And a file "fresh_notes.md" appears in the workspace
+    And the operator types the mention " @fresh"
+    Then the mention list offers "fresh_notes.md"
+
+  Scenario: The @ list searches the whole workspace and says how much it cut
+    Given the workspace holds 120 files and "zz/deep/target_handler.go"
+    When the console app starts
+    And the operator types the mention "@targhand"
+    Then the mention list offers "target_handler.go"
+    When the operator takes the highlighted mention
+    Then the editor holds "@zz/deep/target_handler.go "
+    When the operator types the mention "@file"
+    Then the mention list offers "of 120, type to narrow"

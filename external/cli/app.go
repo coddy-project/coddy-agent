@@ -49,6 +49,8 @@ type App struct {
 
 	// remoteURL is set when mgr talks to a remote coddy serve server.
 	remoteURL string
+	// completion is the editor's autocomplete; rebuilt with the editor.
+	completion *completionProvider
 	// configOpts is the last adopted session option set (model catalog).
 	configOpts []acp.ConfigOption
 	// toolFullCache and toolFullPending back the async remote ctrl+o expand.
@@ -258,8 +260,51 @@ func (a *App) buildTree() {
 	root.AddChild(a.foot)
 	a.screen.SetFocus(a.editor)
 
-	provider := newCompletionProvider(a.config().Paths.CWD, a.slashCatalog)
-	a.editor.SetAutocomplete(provider, selectListTheme(a.theme), tui.SelectListLayout{MinPrimaryColumnWidth: 12, MaxPrimaryColumnWidth: 32}, a.screen.RequestRender)
+	a.editor.SetAutocomplete(a.newCompletion(), selectListTheme(a.theme), tui.SelectListLayout{MinPrimaryColumnWidth: 12, MaxPrimaryColumnWidth: 40}, a.screen.RequestRender)
+}
+
+// mentionConsoleWait is how long the console waits for the first index of a
+// workspace before it shows what it has; the list fills in when the build
+// lands (completionProvider.watchIndex).
+const mentionConsoleWait = 150 * time.Millisecond
+
+// newCompletion builds the editor's autocomplete: the slash catalog, and the
+// "@" search of the session the draft belongs to, asked in-process or, in
+// remote mode, of the server that runs the session.
+func (a *App) newCompletion() *completionProvider {
+	if a.completion != nil {
+		a.completion.Close()
+	}
+	search := func(ctx context.Context, query string, refresh bool) (session.MentionSearchResult, error) {
+		return a.mgr.SearchMentions(ctx, session.MentionSearch{
+			SessionID: a.sessionID,
+			CWD:       a.config().Paths.CWD,
+			Query:     query,
+			Limit:     mentionListLimit,
+			Refresh:   refresh,
+			Wait:      mentionConsoleWait,
+		})
+	}
+	p := newCompletionProvider(a.slashCatalog, search, a.remoteURL != "")
+	p.watchIndex(a.postUI, func() {
+		if a.editor != nil {
+			a.editor.RefreshAutocomplete()
+			a.screen.RequestRender()
+		}
+	})
+	a.completion = p
+	return p
+}
+
+// uiCall is work posted to the UI loop from another goroutine.
+type uiCall func()
+
+// postUI runs fn on the UI loop.
+func (a *App) postUI(fn func()) {
+	select {
+	case a.updatesCh <- updateMsg{update: uiCall(fn)}:
+	case <-a.closed:
+	}
 }
 
 // Start begins a session (new or pinned) and populates the header.

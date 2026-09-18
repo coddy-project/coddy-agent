@@ -21,6 +21,9 @@ type SelectItem struct {
 	Value       string
 	Label       string
 	Description string
+	// TruncateLeft cuts a label too wide for its column from the left, so a
+	// path keeps its file name.
+	TruncateLeft bool
 }
 
 // SelectListTheme styles SelectList rows.
@@ -48,6 +51,9 @@ type SelectListLayout struct {
 type SelectList struct {
 	items         []SelectItem
 	filteredItems []SelectItem
+	// total is how many items matched before the list was cut (0: the list
+	// is complete); the scroll line then says "(3/50 of 1204)".
+	total         int
 	selectedIndex int
 	maxVisible    int
 	theme         SelectListTheme
@@ -75,6 +81,10 @@ func (s *SelectList) SetItems(items []SelectItem) {
 	s.filteredItems = items
 	s.selectedIndex = 0
 }
+
+// SetTotal records how many items matched before the list was cut; a total
+// above the item count keeps the scroll line on screen.
+func (s *SelectList) SetTotal(total int) { s.total = total }
 
 // SetFilter keeps items whose value starts with filter, or whose label
 // contains it (case-insensitive) so titled rows stay searchable.
@@ -181,8 +191,13 @@ func (s *SelectList) Render(width int) []string {
 		}
 		lines = append(lines, s.renderItem(item, i == s.selectedIndex, width, desc, primaryColumnWidth))
 	}
-	if startIndex > 0 || endIndex < len(s.filteredItems) {
-		scrollText := "  (" + strconv.Itoa(s.selectedIndex+1) + "/" + strconv.Itoa(len(s.filteredItems)) + ")"
+	cut := s.total > len(s.filteredItems)
+	if startIndex > 0 || endIndex < len(s.filteredItems) || cut {
+		scrollText := "  (" + strconv.Itoa(s.selectedIndex+1) + "/" + strconv.Itoa(len(s.filteredItems))
+		if cut {
+			scrollText += " of " + strconv.Itoa(s.total) + ", type to narrow"
+		}
+		scrollText += ")"
 		lines = append(lines, s.theme.ScrollInfo(TruncateToWidth(scrollText, width-2, "")))
 	}
 	return append(lines, s.descriptionBlock(width)...)
@@ -215,7 +230,7 @@ func (s *SelectList) renderItem(item SelectItem, isSelected bool, width int, des
 	if desc != "" && width > 40 {
 		effective := max(1, min(primaryColumnWidth, width-prefixWidth-4))
 		maxPrimaryWidth := max(1, effective-primaryColumnGap)
-		value := TruncateToWidth(s.displayValue(item), maxPrimaryWidth, "")
+		value := s.truncateLabel(item, maxPrimaryWidth, "")
 		valueWidth := VisibleWidth(value)
 		spacing := strings.Repeat(" ", max(1, effective-valueWidth))
 		descStart := prefixWidth + valueWidth + len(spacing)
@@ -230,7 +245,7 @@ func (s *SelectList) renderItem(item SelectItem, isSelected bool, width int, des
 	}
 
 	maxWidth := width - prefixWidth - 2
-	value := TruncateToWidth(s.displayValue(item), maxWidth, "...")
+	value := s.truncateLabel(item, maxWidth, "...")
 	if isSelected {
 		return s.theme.SelectedText(prefix + value)
 	}
@@ -256,6 +271,16 @@ func (s *SelectList) primaryColumnWidth() int {
 		widest = max(widest, VisibleWidth(s.displayValue(it))+primaryColumnGap)
 	}
 	return max(lo, min(widest, hi))
+}
+
+func (s *SelectList) truncateLabel(item SelectItem, maxWidth int, ellipsis string) string {
+	if item.TruncateLeft {
+		if ellipsis == "" {
+			ellipsis = "…"
+		}
+		return TruncateLeftToWidth(s.displayValue(item), maxWidth, ellipsis)
+	}
+	return TruncateToWidth(s.displayValue(item), maxWidth, ellipsis)
 }
 
 func (s *SelectList) displayValue(item SelectItem) string {

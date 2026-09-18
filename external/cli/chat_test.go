@@ -46,6 +46,21 @@ func TestUserMessageStartsWithASeparatorRow(t *testing.T) {
 
 // The `!!` prefix is recognised at the very start of the submitted buffer
 // only: everything else keeps travelling to the model as ordinary text.
+// A folder whose path holds a space is inserted quoted, with the quote closed
+// ahead of the cursor: sent as it stands, the text still names the folder,
+// and the file picked next takes that quote over instead of doubling it.
+func TestQuotedFolderMentionIsClosedAheadOfTheCursor(t *testing.T) {
+	p := &completionProvider{}
+	lines, line, col := p.Apply([]string{`see @my`}, 0, len(`see @my`), tui.AutocompleteItem{Value: `@"my folder/`})
+	if lines[0] != `see @"my folder/"` || col != len(`see @"my folder/`) {
+		t.Fatalf("folder step: %q, cursor %d", lines[0], col)
+	}
+	lines, _, col = p.Apply(lines, line, col, tui.AutocompleteItem{Value: `@"my folder/a b.md"`})
+	if lines[0] != `see @"my folder/a b.md" ` || col != len(lines[0]) {
+		t.Fatalf("file step: %q, cursor %d", lines[0], col)
+	}
+}
+
 func TestParseLocalCommandRecognisesOnlyTheLeadingPrefix(t *testing.T) {
 	cases := []struct {
 		name    string

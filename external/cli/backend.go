@@ -52,6 +52,10 @@ type backend interface {
 	BackgroundTasks(ctx context.Context, sessionID string) ([]bgtask.Snapshot, error)
 	BackgroundTaskOutput(ctx context.Context, sessionID, taskID string, tailLines int) (string, bgtask.Snapshot, error)
 	StopBackgroundTask(ctx context.Context, sessionID, taskID string) (bgtask.Snapshot, error)
+	// SearchMentions answers the "@" picker: in-process the manager's search
+	// over the session's workspace, over --remote the server's
+	// GET /coddy/mentions, so the candidates are where the session runs.
+	SearchMentions(ctx context.Context, req session.MentionSearch) (session.MentionSearchResult, error)
 }
 
 // Interface conformance is pinned where the concrete types are visible:
