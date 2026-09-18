@@ -163,6 +163,12 @@ func (a *App) switchTheme(name string) {
 	root.AddChild(a.chat)
 	root.AddChild(a.status)
 	root.AddChild(a.plan)
+	// The queue is state like the usage line: the same widget goes back on the
+	// screen, repainted in the new palette. Leaving it out of the rebuilt tree
+	// hid every follow-up waiting for the running turn until the next restart.
+	a.queue.theme = a.theme
+	a.queue.SetRows(a.queue.rows)
+	root.AddChild(a.queue)
 	a.editorWrap = &tui.Container{}
 	a.editorWrap.AddChild(a.editor)
 	root.AddChild(a.editorWrap)
