@@ -357,6 +357,14 @@ func BackgroundReapTool() *tooling.Tool {
 
 // formatTaskLine renders one task the way the model reads it: identity, state,
 // how long it has taken, and how that compares to what was promised.
+// FormatBackgroundTask renders one task the way background_list shows it to the model:
+// id, status, label, elapsed against the estimate, and the hints that say a task is
+// overdue or has gone quiet. The turn context lists the running tasks with the same
+// line, so the model reads one vocabulary wherever it meets a task.
+func FormatBackgroundTask(t bgtask.Snapshot, now time.Time) string {
+	return formatTaskLine(t, now)
+}
+
 func formatTaskLine(t bgtask.Snapshot, now time.Time) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s [%s] %s", t.ID, t.Status, t.Label)
