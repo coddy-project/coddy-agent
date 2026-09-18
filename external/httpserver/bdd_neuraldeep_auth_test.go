@@ -140,13 +140,6 @@ func standInHub(key string) *httptest.Server {
 	return self
 }
 
-func (s *neuralDeepBDDState) hubURL() string {
-	if s.hub == nil {
-		return ""
-	}
-	return s.hub.URL
-}
-
 func (s *neuralDeepBDDState) close() {
 	if s.ts != nil {
 		s.ts.Close()

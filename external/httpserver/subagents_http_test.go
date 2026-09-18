@@ -92,7 +92,7 @@ func (r *subagentEdgeRig) request(t *testing.T, method, path string, payload int
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var out map[string]interface{}
 	_ = json.NewDecoder(resp.Body).Decode(&out)
 	return resp.StatusCode, out

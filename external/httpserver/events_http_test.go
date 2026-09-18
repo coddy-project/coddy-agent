@@ -59,7 +59,7 @@ func subscribeEvents(t *testing.T, ts *httptest.Server, query string) (*bufio.Re
 	}
 	return bufio.NewReader(res.Body), func() {
 		cancel()
-		res.Body.Close()
+		_ = res.Body.Close()
 	}
 }
 
@@ -146,7 +146,7 @@ func TestCoddyEventsStreamAcceptsAccessTokenQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res.Body.Close()
+	_ = res.Body.Close()
 	if res.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status %d without a token, want 401", res.StatusCode)
 	}

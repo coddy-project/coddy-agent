@@ -174,7 +174,7 @@ func (s *sessMgmtState) request(method, path string, payload interface{}) (int, 
 	if err != nil {
 		return 0, nil, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	var parsed map[string]interface{}
 	_ = json.NewDecoder(res.Body).Decode(&parsed)
 	return res.StatusCode, parsed, nil

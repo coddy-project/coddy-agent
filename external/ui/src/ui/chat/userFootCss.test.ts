@@ -16,7 +16,7 @@ function block(css: string, selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const m = new RegExp(`^${escaped}\\s*\\{([^}]+)\\}`, "m").exec(css);
   expect(m, `missing rule ${selector}`).not.toBeNull();
-  return m![1];
+  return m![1] ?? "";
 }
 
 // Regression: the copy control and the timestamp under a user bubble hugged

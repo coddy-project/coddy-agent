@@ -11,8 +11,8 @@ test("buildGutterRows numbers only first visual row per logical line", () => {
   expect(rows.filter((r) => r.showNumber).map((r) => r.logicalLine)).toEqual([
     0, 1, 2,
   ]);
-  expect(rows[2].showNumber).toBe(false);
-  expect(rows[3].showNumber).toBe(false);
+  expect(rows[2]?.showNumber).toBe(false);
+  expect(rows[3]?.showNumber).toBe(false);
 });
 
 test("measureLineVisualRows ceil rounds partial lines up", () => {

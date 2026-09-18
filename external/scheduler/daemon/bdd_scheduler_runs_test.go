@@ -389,14 +389,6 @@ func (s *schedulerRunsState) runInFlight(jobID string) error {
 	})
 }
 
-func (s *schedulerRunsState) manualRunRefusedBusy(jobID string) error {
-	_, err := s.svc.TriggerJobRun(jobID)
-	if !errors.Is(err, schedservice.ErrJobBusy) {
-		return fmt.Errorf("manual run error = %v, want ErrJobBusy", err)
-	}
-	return nil
-}
-
 func (s *schedulerRunsState) releaseInFlight() error {
 	if s.release == nil {
 		return fmt.Errorf("no run is held")

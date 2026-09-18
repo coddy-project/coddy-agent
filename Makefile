@@ -1,4 +1,4 @@
-.PHONY: build build-acp test test-matrix print-test-tag-sets test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check site-schema site-schema-check docs docs-check docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check
+.PHONY: build build-acp ui-deps ui-build ui-test ui-typecheck test test-matrix print-test-tag-sets print-full-tags print-lint-tags-no-ui test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check site-schema site-schema-check docs docs-check docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -53,9 +53,20 @@ endif
 # Run npm from inside external/ui (cd + &&) rather than `npm --prefix`: some npm
 # builds (notably on Windows) resolve `--prefix` for the install target but still
 # read package.json from the cwd, failing with ENOENT on the repo root.
-ui-build:
+ui-deps:
 	cd external/ui && npm install --no-fund --no-audit
+
+ui-build: ui-deps
 	cd external/ui && npm run build:go
+
+# The SPA's own vitest suite, part of `make test`.
+ui-test: ui-deps
+	cd external/ui && npm test
+
+# The TypeScript compiler over the SPA sources, no emit: the type gate of
+# `make lint`. vite only transpiles, so a type error ships unless this runs.
+ui-typecheck: ui-deps
+	cd external/ui && npm run typecheck
 
 # Build the coddy CLI (skills commands + ACP entrypoint; optional modules via TAGS).
 build:
@@ -193,12 +204,13 @@ test-opencode-rules:
 
 # ---- Tests ----
 #
-# Two speeds. `make test` is the express run: one `go test` over the whole tree
-# with every optional module compiled in (FULL_TAGS, what the shipped binary
-# contains), after the UI assets it embeds are built. Run it locally before a
-# push. `make test-matrix` walks every tag combination in TEST_TAG_SETS - the
-# lean untagged build with its stubs, single tags, pairs, the shipped set - and
-# is what CI runs on every pull request, one job per combination
+# Two speeds. `make test` is the express run: the SPA's vitest suite, then one
+# `go test` over the whole tree with every optional module compiled in
+# (FULL_TAGS, what the shipped binary contains), after the UI assets it embeds
+# are built. Run it locally before a push. `make test-matrix` walks every tag
+# combination in TEST_TAG_SETS - the lean untagged build with its stubs, single
+# tags, pairs, the shipped set - and is what CI runs on every pull request, one
+# job per combination
 # (.github/workflows/tests-on-pr.yaml reads the list through
 # print-test-tag-sets, so this variable is the only place it is written down).
 # Locally, reach for a single combination instead: go test -tags=<set> ./...
@@ -234,14 +246,15 @@ TEST_TAG_SETS := \
 	http,scheduler,ui,memory,cli,swarm \
 	$(FULL_TAGS_CSV)
 
-# Express run: the whole tree once, with every optional module compiled in.
-test: test-opencode-rules ui-build
+# Express run: the SPA suite, then the whole Go tree once with every optional
+# module compiled in.
+test: test-opencode-rules ui-build ui-test
 	go test -tags=$(FULL_TAGS_CSV) ./...
 
 # Full matrix: every combination in TEST_TAG_SETS, in sequence. CI's job; run
 # it locally only when a build-tag boundary moved and one combination is not
 # enough.
-test-matrix: test-opencode-rules ui-build
+test-matrix: test-opencode-rules ui-build ui-test
 	go test ./...
 	@set -e; for tags in $(TEST_TAG_SETS); do \
 		echo "go test -tags=$$tags ./..."; \
@@ -287,19 +300,37 @@ check-windows:
 clean:
 	rm -rf $(BUILD_DIR) $(DIST_DIR)
 
-# Run the linter (requires golangci-lint). The second pass compiles the
-# cli-tagged console surface, which the untagged pass never sees.
-lint:
-	golangci-lint run ./...
-	golangci-lint run --build-tags cli ./external/cli/... ./cmd/coddy/...
-	golangci-lint run --build-tags swarm ./external/swarm/... ./cmd/coddy/...
-	golangci-lint run --build-tags gateway ./external/gateway/... ./cmd/coddy/...
+# ---- Lint ----
+#
+# Three golangci-lint passes reach every Go file of the host platform: the
+# untagged tree (every stub), every tag but ui (the files that exist only
+# without the SPA: http && !ui, swarm && !ui, and every single-tag surface),
+# and the shipped set (the embedded SPA and the http && ui handlers, which is
+# why the assets are built first). The TypeScript pass closes the gate over
+# the SPA sources. The CI lint job reads the two tag lists through
+# print-full-tags and print-lint-tags-no-ui, so FULL_TAGS is the only place
+# they are written down.
+LINT_TAGS_NO_UI := $(filter-out ui,$(FULL_TAGS))
+LINT_TAGS_NO_UI_CSV := $(subst $(space),$(comma),$(strip $(LINT_TAGS_NO_UI)))
 
-# Run the linter against the Windows build, which lint above never compiles.
-lint-windows:
+print-full-tags:
+	@printf '%s\n' "$(FULL_TAGS_CSV)"
+
+print-lint-tags-no-ui:
+	@printf '%s\n' "$(LINT_TAGS_NO_UI_CSV)"
+
+lint: ui-build
+	golangci-lint run ./...
+	golangci-lint run --build-tags $(LINT_TAGS_NO_UI_CSV) ./...
+	golangci-lint run --build-tags $(FULL_TAGS_CSV) ./...
+	$(MAKE) ui-typecheck
+
+# The same three passes against the Windows build, which lint above never
+# compiles.
+lint-windows: ui-build
 	GOOS=windows golangci-lint run ./...
-	GOOS=windows golangci-lint run --build-tags cli ./external/cli/... ./cmd/coddy/...
-	GOOS=windows golangci-lint run --build-tags gateway ./external/gateway/... ./cmd/coddy/...
+	GOOS=windows golangci-lint run --build-tags $(LINT_TAGS_NO_UI_CSV) ./...
+	GOOS=windows golangci-lint run --build-tags $(FULL_TAGS_CSV) ./...
 
 # Enable the repo's git hooks (pre-commit runs scripts/checks.sh). One-time per clone.
 # Bypass a single commit with: git commit --no-verify

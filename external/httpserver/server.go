@@ -509,7 +509,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	last := msgs[len(msgs)-1]
-	if last.Role != llm.RoleUser && !(last.Role == llm.RoleTool && !httpModelIsCoddyProfile(model)) {
+	if last.Role != llm.RoleUser && (last.Role != llm.RoleTool || httpModelIsCoddyProfile(model)) {
 		if httpModelIsCoddyProfile(model) {
 			http.Error(w, `{"error":{"message":"last message must be user"}}`, http.StatusBadRequest)
 		} else {

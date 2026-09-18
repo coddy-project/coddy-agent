@@ -29,7 +29,7 @@ test("parseDiffPatch produces one hunk", () => {
 
 test("parseDiffPatch assigns correct line kinds and numbers", () => {
   const d = parseDiffPatch(SIMPLE_PATCH);
-  const lines = d.hunks[0].lines;
+  const lines = d.hunks[0]?.lines ?? [];
   expect(lines[0]).toMatchObject({ kind: "ctx", oldNo: 1, newNo: 1, content: "line1" });
   expect(lines[1]).toMatchObject({ kind: "del", oldNo: 2, newNo: null, content: "removed" });
   expect(lines[2]).toMatchObject({ kind: "add", oldNo: null, newNo: 2, content: "added a" });
@@ -52,14 +52,14 @@ test("parseDiffPatch handles multiple hunks", () => {
   ].join("\n");
   const d = parseDiffPatch(patch);
   expect(d.hunks).toHaveLength(2);
-  expect(d.hunks[1].lines[0]).toMatchObject({ kind: "ctx", oldNo: 10, newNo: 10 });
-  expect(d.hunks[1].lines[1]).toMatchObject({ kind: "del", oldNo: 11, newNo: null });
+  expect(d.hunks[1]?.lines[0]).toMatchObject({ kind: "ctx", oldNo: 10, newNo: 10 });
+  expect(d.hunks[1]?.lines[1]).toMatchObject({ kind: "del", oldNo: 11, newNo: null });
 });
 
 test("parseDiffPatch skips backslash no-newline markers", () => {
   const patch = "@@ -1 +1 @@\n-old\n\\ No newline at end of file\n+new";
   const d = parseDiffPatch(patch);
-  expect(d.hunks[0].lines).toHaveLength(2);
+  expect(d.hunks[0]?.lines).toHaveLength(2);
 });
 
 test("flattenDiffLines returns all lines across hunks", () => {
@@ -93,12 +93,12 @@ test("parseDiffPatch detects V4A format and extracts file path", () => {
 test("parseDiffPatch V4A produces one hunk", () => {
   const d = parseDiffPatch(V4A_PATCH);
   expect(d.hunks).toHaveLength(1);
-  expect(d.hunks[0].header).toBe("@@");
+  expect(d.hunks[0]?.header).toBe("@@");
 });
 
 test("parseDiffPatch V4A assigns correct line kinds", () => {
   const d = parseDiffPatch(V4A_PATCH);
-  const lines = d.hunks[0].lines;
+  const lines = d.hunks[0]?.lines ?? [];
   expect(lines[0]).toMatchObject({ kind: "ctx", content: "asd" });
   expect(lines[1]).toMatchObject({ kind: "del", oldNo: 2, newNo: null, content: "zxc" });
   expect(lines[2]).toMatchObject({ kind: "add", oldNo: null, newNo: 2, content: "something else" });
@@ -109,7 +109,7 @@ test("parseDiffPatch V4A falls back to provided filePath when no *** Update File
   const patch = "@@\n+new line";
   const d = parseDiffPatch(patch, "fallback.ts");
   expect(d.filePath).toBe("fallback.ts");
-  expect(d.hunks[0].lines[0]).toMatchObject({ kind: "add", content: "new line" });
+  expect(d.hunks[0]?.lines[0]).toMatchObject({ kind: "add", content: "new line" });
 });
 
 test("parseDiffPatch V4A with context in @@ header", () => {
@@ -123,7 +123,7 @@ test("parseDiffPatch V4A with context in @@ header", () => {
   ].join("\n");
   const d = parseDiffPatch(patch);
   expect(d.filePath).toBe("src/main.ts");
-  expect(d.hunks[0].header).toBe("@@ function foo() {");
-  expect(d.hunks[0].lines[0]).toMatchObject({ kind: "del", content: "  return 1;" });
-  expect(d.hunks[0].lines[1]).toMatchObject({ kind: "add", content: "  return 2;" });
+  expect(d.hunks[0]?.header).toBe("@@ function foo() {");
+  expect(d.hunks[0]?.lines[0]).toMatchObject({ kind: "del", content: "  return 1;" });
+  expect(d.hunks[0]?.lines[1]).toMatchObject({ kind: "add", content: "  return 2;" });
 });;

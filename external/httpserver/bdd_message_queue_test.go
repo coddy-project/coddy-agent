@@ -174,7 +174,7 @@ func (s *queueHTTPState) turnIsRunning() error {
 		if err != nil {
 			return
 		}
-		defer res.Body.Close()
+		defer func() { _ = res.Body.Close() }()
 		_, _ = io.ReadAll(res.Body)
 	}()
 	select {
@@ -201,7 +201,7 @@ func (s *queueHTTPState) secondClientStopsTurn() error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("cancel answered %d", res.StatusCode)
 	}
@@ -228,7 +228,7 @@ func (s *queueHTTPState) nextPromptIsAccepted() error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		return err
@@ -254,7 +254,7 @@ func (s *queueHTTPState) call(method, suffix string, body []byte) error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	raw, err := io.ReadAll(res.Body)
 	if err != nil {
 		return err
@@ -382,13 +382,13 @@ func (s *queueHTTPState) watchTurn() error {
 	}
 	if res.StatusCode != http.StatusOK {
 		cancel()
-		res.Body.Close()
+		_ = res.Body.Close()
 		return fmt.Errorf("composer stream answered %d", res.StatusCode)
 	}
 	s.watchBody = newSSEStream(bufio.NewReader(res.Body), "the composer stream")
 	s.closeWatch = func() {
 		cancel()
-		res.Body.Close()
+		_ = res.Body.Close()
 	}
 	return nil
 }
@@ -416,13 +416,13 @@ func (s *queueHTTPState) subscribeEvents() error {
 	}
 	if res.StatusCode != http.StatusOK {
 		cancel()
-		res.Body.Close()
+		_ = res.Body.Close()
 		return fmt.Errorf("events stream answered %d", res.StatusCode)
 	}
 	s.eventsBody = newSSEStream(bufio.NewReader(res.Body), "the event stream")
 	s.closeEvents = func() {
 		cancel()
-		res.Body.Close()
+		_ = res.Body.Close()
 	}
 	return s.awaitEvents("event: ready", "")
 }

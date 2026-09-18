@@ -275,7 +275,7 @@ func (s *mcpE2EState) sendAgentPrompt() error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	body, _ := io.ReadAll(res.Body)
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("POST /v1/responses status %d: %s", res.StatusCode, body)
@@ -300,7 +300,7 @@ func (s *mcpE2EState) disableToolViaAPI(tool, server string) error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	body, _ := io.ReadAll(res.Body)
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("disable tool status %d: %s", res.StatusCode, body)
@@ -344,7 +344,7 @@ func (s *mcpE2EState) finalAnswerContains(token string) error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	raw, _ := io.ReadAll(res.Body)
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("messages status %d: %s", res.StatusCode, raw)

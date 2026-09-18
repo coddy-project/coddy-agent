@@ -123,7 +123,7 @@ func (s *hooksHTTPState) do(method, path string, body interface{}) error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	s.status = res.StatusCode
 	s.body = nil
 	data, _ := io.ReadAll(res.Body)

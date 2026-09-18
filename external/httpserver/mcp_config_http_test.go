@@ -78,7 +78,7 @@ agent:
 	if err != nil {
 		t.Fatal(err)
 	}
-	response.Body.Close()
+	_ = response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("PUT /coddy/config status = %d", response.StatusCode)
 	}
@@ -109,13 +109,14 @@ func TestHTTPSettingsMCPHelperProcess(t *testing.T) {
 			continue
 		}
 		result := map[string]interface{}{}
-		if request["method"] == "tools/list" {
+		switch request["method"] {
+		case "tools/list":
 			result["tools"] = []interface{}{map[string]interface{}{
 				"name":        "probe",
 				"description": "Reports that the settings MCP is connected.",
 				"inputSchema": map[string]interface{}{"type": "object"},
 			}}
-		} else if request["method"] == "initialize" {
+		case "initialize":
 			result = map[string]interface{}{
 				"protocolVersion": "2024-11-05",
 				"capabilities":    map[string]interface{}{},
