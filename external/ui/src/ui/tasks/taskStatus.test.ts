@@ -4,6 +4,7 @@ import {
   TASKS_POLL_ACTIVE_MS,
   TASKS_POLL_IDLE_MS,
   agentTaskName,
+  countRunningTasks,
   agentTranscriptSessionId,
   displayElapsedSeconds,
   estimateProgress,
@@ -318,5 +319,37 @@ describe("tasks awaiting a permission answer", () => {
         }),
       ),
     ).toBe(false);
+  });
+});
+
+describe("countRunningTasks", () => {
+  const row = (over: Partial<BackgroundTask>): BackgroundTask =>
+    ({
+      id: "bg_1",
+      session_id: "s",
+      command: "make test",
+      status: "running",
+      running: true,
+      ...over,
+    }) as BackgroundTask;
+
+  test("counts the rows that say running", () => {
+    expect(
+      countRunningTasks([
+        row({ id: "bg_1" }),
+        row({ id: "bg_2", status: "succeeded", running: false }),
+        row({ id: "bg_3" }),
+      ]),
+    ).toBe(2);
+  });
+
+  test("leaves out the memory run the runtime starts for every turn", () => {
+    expect(
+      countRunningTasks([
+        row({ id: "bg_1", agent: { name: "memory", system: true } }),
+        row({ id: "bg_2", agent: { name: "explore" } }),
+      ]),
+    ).toBe(1);
+    expect(countRunningTasks([])).toBe(0);
   });
 });

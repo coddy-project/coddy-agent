@@ -30,6 +30,7 @@ import { EnvHealthBanner } from "./env/EnvHealthBanner";
 import { isNoLiveTurnRelayError } from "./chat/composerStreamError";
 import { subscribeSharedServerEvents } from "./chat/sharedServerEvents";
 import { useSessionTurnActivity } from "./chat/useSessionTurnActivity";
+import { mergeTurnProgress, type TurnProgress } from "./chat/turnProgress";
 import type { QueuedMessageEvent } from "./chat/serverEvents";
 import { QueueDeliveryOrder } from "./chat/messageQueueState";
 import { useProviderUsage } from "./chat/useProviderUsage";
@@ -678,9 +679,35 @@ export function App() {
     },
     [],
   );
+  // The running turn's clock and generated tokens per session, from the turn's own
+  // stream and from the activity read that covers a tab which joined late.
+  const [turnProgressBySid, setTurnProgressBySid] = useState<
+    Record<string, TurnProgress>
+  >({});
+  const applyTurnProgress = useStableHandler(
+    (sid: string, next: TurnProgress, source: "stream" | "activity") => {
+      const key = sid.trim();
+      if (!key) return;
+      setTurnProgressBySid((prev) => {
+        const merged = mergeTurnProgress(prev[key], next, source);
+        return merged === prev[key] ? prev : { ...prev, [key]: merged };
+      });
+    },
+  );
+  const clearTurnProgress = useStableHandler((sid: string) => {
+    const key = sid.trim();
+    setTurnProgressBySid((prev) => {
+      if (!(key in prev)) return prev;
+      const { [key]: _ended, ...rest } = prev;
+      return rest;
+    });
+  });
+
   const turnActivity = useSessionTurnActivity({
     sessionId,
     connected: serverEventsConnected,
+    onTurnProgress: (sid, progress) =>
+      applyTurnProgress(sid, progress, "activity"),
     postPending: (sid) => pendingPostBySidRef.current.has(sid),
     onQueueRead: (sid) => {
       const fence = queueOrderRef.current.capture(sid);
@@ -703,6 +730,8 @@ export function App() {
 
   function reconcileEndedTurn(sid: string) {
     removeActiveComposer(sid);
+    // The next turn starts its own clock; what this one reached is history.
+    clearTurnProgress(sid);
     if (
       sid !== viewedSessionIdRef.current.trim() &&
       !streamShadowBySidRef.current.has(sid)
@@ -3488,6 +3517,11 @@ export function App() {
             applyQueue(key, q.messages, q.version, queueEpoch);
           }
         },
+        onTurnProgress: (progress) => {
+          if (ownsRelay() && !fetchCtl.signal.aborted) {
+            applyTurnProgress(key, progress, "stream");
+          }
+        },
       });
       if (!ownsRelay() || fetchCtl.signal.aborted) return;
 
@@ -3975,6 +4009,11 @@ export function App() {
         onMessageQueue: (q) => {
           if (ownsPost() && !abortCtl.signal.aborted) {
             applyQueue(streamKey, q.messages, q.version, queueEpoch);
+          }
+        },
+        onTurnProgress: (progress) => {
+          if (ownsPost() && !abortCtl.signal.aborted) {
+            applyTurnProgress(streamKey, progress, "stream");
           }
         },
       });
@@ -5193,6 +5232,7 @@ export function App() {
             onUnarchiveSession={() => void unarchiveViewedSession()}
             onOpenSession={openSessionInPlace}
             pathRoots={transcriptPathRoots}
+            turnProgress={turnProgressBySid[sessionId.trim()] ?? null}
             workspaceCtx={workspaceCtx}
             worktreePref={worktreePref}
             workspaceLocked={items.length > 0}

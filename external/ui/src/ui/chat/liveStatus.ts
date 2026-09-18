@@ -36,7 +36,26 @@ export type LiveStatus = {
   target: string;
   /** Wall clock ms to count elapsed from; omitted when the start is unknown. */
   startedAtMs?: number;
+  /**
+   * When the turn's user message was created. It stands in for the turn's start until
+   * the server's turn_progress names the real one (an older server never does). A
+   * follow-up read from the message queue is a user message too, so on that fallback
+   * the clock restarts from the follow-up.
+   */
+  turnStartedAtMs?: number;
 };
+
+/**
+ * Whether a step shows a clock of its own after the phrase. The turn's clock leads the
+ * line and covers the model's own phases - waiting, thinking, writing - so only a step
+ * that runs something other than the model (a tool call, the memory run) keeps a second
+ * one. The two operator gates never count: nothing runs while the operator decides.
+ */
+export function stepShowsItsOwnClock(
+  kind: LiveStatusKind | undefined,
+): boolean {
+  return kind === "tool" || kind === "memory";
+}
 
 /** Waiting longer than this reads as "slower than usual". */
 export const WAITING_SLOW_MS = 15_000;
@@ -331,13 +350,26 @@ export function deriveLiveStatus(
     }
   }
 
+  const turn =
+    turnStartedAtMs !== undefined ? { turnStartedAtMs } : ({} as const);
+
   // Blocked on the user: the gated tool row still reads in_progress, but nothing is
-  // running, so no elapsed counter (same reasoning as ToolCallMessage's frozen timer).
+  // running, so no step counter (same reasoning as ToolCallMessage's frozen timer).
   if (permissionPending) {
-    return { kind: "permission", key: "status.awaitingPermission", target: "" };
+    return {
+      kind: "permission",
+      key: "status.awaitingPermission",
+      target: "",
+      ...turn,
+    };
   }
   if (questionPending) {
-    return { kind: "question", key: "status.awaitingAnswer", target: "" };
+    return {
+      kind: "question",
+      key: "status.awaitingAnswer",
+      target: "",
+      ...turn,
+    };
   }
 
   const tool = toolRunning ?? toolPending;
@@ -366,6 +398,7 @@ export function deriveLiveStatus(
       ...(typeof tool.startedAtMs === "number"
         ? { startedAtMs: tool.startedAtMs }
         : {}),
+      ...turn,
     };
   }
 
@@ -377,6 +410,7 @@ export function deriveLiveStatus(
       ...(typeof thinking.startedAtMs === "number"
         ? { startedAtMs: thinking.startedAtMs }
         : {}),
+      ...turn,
     };
   }
 
@@ -390,16 +424,23 @@ export function deriveLiveStatus(
       ...(typeof memory.startedAtMs === "number"
         ? { startedAtMs: memory.startedAtMs }
         : {}),
+      ...turn,
     };
   }
 
   if (writing) {
-    return { kind: "writing", key: "status.writing", target: "" };
+    return { kind: "writing", key: "status.writing", target: "", ...turn };
   }
 
   const startedAtMs = waitingFrom ?? turnStartedAtMs;
   if (startedAtMs === undefined) {
     return PREPARING;
   }
-  return { kind: "waiting", key: WAITING_KEY, target: "", startedAtMs };
+  return {
+    kind: "waiting",
+    key: WAITING_KEY,
+    target: "",
+    startedAtMs,
+    ...turn,
+  };
 }

@@ -567,3 +567,127 @@ test("the empty hero has no scroll-to-bottom button", () => {
   render(<ChatScreen {...scrollBase} sessionId="" title="" items={[]} />);
   expect(screen.queryByTestId("chat-scroll-bottom")).toBeNull();
 });
+
+// The live line and the chip share one count of running tasks (taskStatus.ts).
+function turnLineScreen(
+  over: Partial<React.ComponentProps<typeof ChatScreen>>,
+): React.ReactElement {
+  const finished: BackgroundTask = {
+    id: "bg_1",
+    session_id: "sess_turn",
+    kind: "command",
+    label: "go build ./...",
+    command: "go build ./...",
+    status: "succeeded",
+    started_at: "2026-09-18T10:00:00Z",
+    timeout_seconds: 900,
+    output_bytes: 0,
+    output_truncated: false,
+    elapsed_seconds: 5,
+    overdue: false,
+    running: false,
+  };
+  return (
+    <ChatScreen
+      title="Build"
+      sessionId="sess_turn"
+      heroAccentVerb="know"
+      heroComposerFocusEpoch={0}
+      onTitleSave={() => {}}
+      items={[{ type: "user_message", id: "u1", content: "build it" }]}
+      draft=""
+      tokenUsage={null}
+      mode="agent"
+      modes={["agent"]}
+      onModeChange={() => {}}
+      onDraftChange={() => {}}
+      onSend={() => {}}
+      generating={true}
+      onStop={() => {}}
+      backgroundTasks={[finished]}
+      onOpenBackgroundTasks={() => {}}
+      {...over}
+    />
+  );
+}
+
+test("the live line of a running turn carries the server's clock and token count", () => {
+  render(
+    turnLineScreen({
+      turnProgress: {
+        startedAtMs: Date.now() - 125_000,
+        outputTokens: 1_200,
+        estimated: true,
+      },
+    }),
+  );
+  expect(screen.getByTestId("typing-dots-turn-elapsed").textContent).toBe(
+    "2m 05s",
+  );
+  expect(screen.getByTestId("typing-dots-turn-tokens").textContent).toBe(
+    "1.2k tokens",
+  );
+});
+
+test("until the server reports progress the turn clock counts from the user's message", () => {
+  render(
+    turnLineScreen({
+      items: [
+        {
+          type: "user_message",
+          id: "u1",
+          content: "build it",
+          createdAtUtc: new Date(Date.now() - 57_000).toISOString(),
+        },
+      ],
+    }),
+  );
+  expect(screen.getByTestId("typing-dots-turn-elapsed").textContent).toBe(
+    "57s",
+  );
+  expect(screen.queryByTestId("typing-dots-turn-tokens")).toBeNull();
+});
+
+test("with a turn and tasks both running, the live line names the tasks and the chip steps aside", () => {
+  const onOpen = vi.fn();
+  const running: BackgroundTask = {
+    id: "bg_2",
+    session_id: "sess_turn",
+    kind: "command",
+    label: "make test",
+    command: "make test",
+    status: "running",
+    started_at: "2026-09-18T10:00:00Z",
+    timeout_seconds: 900,
+    output_bytes: 0,
+    output_truncated: false,
+    elapsed_seconds: 5,
+    overdue: false,
+    running: true,
+  };
+  const memory: BackgroundTask = {
+    ...running,
+    id: "bg_3",
+    kind: "agent",
+    agent: { name: "memory", system: true },
+  };
+  render(
+    turnLineScreen({
+      backgroundTasks: [running, memory],
+      onOpenBackgroundTasks: onOpen,
+    }),
+  );
+  // The memory run of the turn is a system task and is not counted.
+  expect(screen.getByTestId("typing-dots-turn-tasks").textContent).toBe(
+    "1 running task",
+  );
+  expect(screen.queryByTestId("bgtask-chip")).toBeNull();
+  fireEvent.click(screen.getByTestId("typing-dots-turn-tasks"));
+  expect(onOpen).toHaveBeenCalledTimes(1);
+});
+
+test("a running turn with nothing but finished tasks keeps the chip, the line says nothing of tasks", () => {
+  render(turnLineScreen({}));
+  expect(screen.queryByTestId("typing-dots-turn-tasks")).toBeNull();
+  expect(screen.getByTestId("bgtask-chip")).toBeInTheDocument();
+});

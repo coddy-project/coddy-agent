@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -19,7 +20,8 @@ import { Composer } from "./Composer";
 import type { QueuedMessage } from "./Composer";
 import { MessageList } from "../messages/MessageList";
 import type { BackgroundTask } from "../tasks/types";
-import { isAwaitingPermission } from "../tasks/taskStatus";
+import { countRunningTasks, isAwaitingPermission } from "../tasks/taskStatus";
+import type { TurnProgress } from "./turnProgress";
 import { BackgroundTasksChip } from "../tasks/BackgroundTasksChip";
 import { SubagentPermissionCards } from "./SubagentPermissionCard";
 import { SubagentReadOnlyNotice } from "./SubagentReadOnlyNotice";
@@ -121,6 +123,8 @@ export function ChatScreen(props: {
   /** Roots this session works in - its own directory, then its worktrees -
    *  which tool rows spell paths against. */
   pathRoots?: readonly string[];
+  /** The running turn's clock and generated tokens as the server reports them. */
+  turnProgress?: TurnProgress | null;
   /** Workspace context chips (folder / branch / worktree) above the composer field. */
   workspaceCtx?: import("./workspaceContext").WorkspaceContext | null;
   worktreePref?: boolean;
@@ -143,6 +147,11 @@ export function ChatScreen(props: {
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const composerHostRef = useRef<HTMLDivElement | null>(null);
   const isEmpty = props.items.length === 0;
+  // One count for the live line, the header control and the chip.
+  const runningTasks = useMemo(
+    () => countRunningTasks(props.backgroundTasks ?? []),
+    [props.backgroundTasks],
+  );
   const showSkeleton = isEmpty && !!props.sessionLoading;
   const stickToBottomRef = useRef(true);
   const prevItemsForScrollRef = useRef<TranscriptItem[]>([]);
@@ -588,6 +597,13 @@ export function ChatScreen(props: {
                 {...(props.pathRoots !== undefined
                   ? { pathRoots: props.pathRoots }
                   : {})}
+                {...(props.turnProgress
+                  ? { turnProgress: props.turnProgress }
+                  : {})}
+                {...(runningTasks > 0 ? { runningTasks } : {})}
+                {...(props.onOpenBackgroundTasks
+                  ? { onOpenTasks: props.onOpenBackgroundTasks }
+                  : {})}
                 {...(props.onRetryLast
                   ? { onRetryLast: props.onRetryLast }
                   : {})}
@@ -641,7 +657,11 @@ export function ChatScreen(props: {
                   onAnswered={() => props.onBackgroundTasksChanged?.()}
                 />
               ) : null}
-              {props.backgroundTasks && props.onOpenBackgroundTasks ? (
+              {/* With a turn running and tasks running, the live line right above
+                  carries the same count and opens the same panel. */}
+              {props.backgroundTasks &&
+              props.onOpenBackgroundTasks &&
+              !(props.generating === true && runningTasks > 0) ? (
                 <BackgroundTasksChip
                   tasks={props.backgroundTasks}
                   onOpen={props.onOpenBackgroundTasks}

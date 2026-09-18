@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { QueuedMessageEvent } from "./serverEvents";
+import { turnProgressFromActivity, type TurnProgress } from "./turnProgress";
 
 const HDR = "X-Coddy-Session-ID";
 const RECONCILE_MS = 2000;
@@ -11,6 +12,12 @@ type Options = {
   postPending: (sid: string) => boolean;
   onQueueRead: (sid: string) => (queue: QueuedMessageEvent) => void;
   onReconcile: (sid: string, active: boolean, wasActive: boolean) => void;
+  /**
+   * The running turn's clock and tokens as the activity answer carries them. The relay
+   * does not replay a turn_progress frame the transcript snapshot covers, so a tab that
+   * joined late reads them here.
+   */
+  onTurnProgress?: (sid: string, progress: TurnProgress) => void;
 };
 
 /** Server admission is independent of a browser's POST/relay connection. A lost
@@ -106,6 +113,8 @@ export function useSessionTurnActivity(options: Options) {
                 return;
               const wasActive = get(key) === true;
               observe(key, data.turnActive);
+              const progress = turnProgressFromActivity(data, Date.now());
+              if (progress) callbacks.current.onTurnProgress?.(key, progress);
               if (notify)
                 callbacks.current.onReconcile(key, data.turnActive, wasActive);
             }),

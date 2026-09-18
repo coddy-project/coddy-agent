@@ -1530,4 +1530,6 @@ export const messagesEn: Record<string, string> = {
   "status.waitingModel": "Waiting for the model",
   "status.waitingSlow": "The model is taking longer than usual",
   "status.waitingStuck": "Still no response from the server",
+  "status.turnTokens.one": "{shown} token",
+  "status.turnTokens.other": "{shown} tokens",
 };

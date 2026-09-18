@@ -1,3 +1,4 @@
+import { countRunningTasks } from "./taskStatus";
 import type { BackgroundTask } from "./types";
 import { useT } from "../i18n/I18nProvider";
 
@@ -14,7 +15,7 @@ export function BackgroundTasksChip(props: {
   onOpen: () => void;
 }) {
   const { t, tp } = useT();
-  const running = props.tasks.filter((task) => task.running).length;
+  const running = countRunningTasks(props.tasks);
   const total = props.tasks.length;
 
   // Nothing has ever run in this chat, so there is nothing to open.

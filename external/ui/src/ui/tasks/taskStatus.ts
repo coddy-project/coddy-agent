@@ -213,3 +213,19 @@ export function agentTranscriptSessionId(task: BackgroundTask): string | null {
   const sid = (task.agent?.session_id || "").trim();
   return sid ? sid : null;
 }
+
+/**
+ * Tasks running right now, as every surface of a chat counts them: the live status
+ * line, the header control and the chip. A system task - the memory run the runtime
+ * starts for every turn - is left out, like `Pool.RunningCount` leaves it out on the
+ * server, or the line would read one running task on every single turn.
+ */
+export function countRunningTasks(tasks: readonly BackgroundTask[]): number {
+  let running = 0;
+  for (const task of tasks) {
+    if (task.running && !task.agent?.system) {
+      running++;
+    }
+  }
+  return running;
+}

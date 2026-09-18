@@ -2880,6 +2880,50 @@ a.rail-brand {
   user-select: none;
 }
 
+/* The turn's own numbers lead the line: its clock, the tokens generated in it, the
+   background tasks running right now. Each item is closed by a middle dot, so the
+   phrase that follows reads as the last segment: "2m 05s · 1.2k tokens · Reading …". */
+.typing-dots-turn {
+  display: inline-flex;
+  align-items: baseline;
+  flex: none;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.typing-dots-turn-item::after {
+  content: "\00b7";
+  margin: 0 5px;
+  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
+}
+
+.typing-dots-turn-time {
+  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+}
+
+/* The running-tasks segment opens the Tasks panel. It is text in a line of text, so
+   it carries no chrome of its own - the accent says it is the one live control. */
+.typing-dots-turn-tasks {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: color-mix(in srgb, var(--accent) 80%, var(--text));
+  cursor: pointer;
+  user-select: none;
+}
+
+.typing-dots-turn-tasks:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.typing-dots-turn-tasks:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
 .typing-dots-status-text {
   display: inline-flex;
   align-items: baseline;
@@ -2926,6 +2970,18 @@ a.rail-brand {
 @media (max-width: 480px) {
   .typing-dots-status {
     font-size: 12px;
+    /* The turn's numbers and a long phrase do not fit one phone line; the phrase
+       drops under the numbers instead of pushing the row past the column. */
+    flex-wrap: wrap;
+    row-gap: 1px;
+  }
+
+  .typing-dots {
+    align-items: flex-start;
+  }
+
+  .typing-dots-dot {
+    margin-top: 5px;
   }
 }
 

@@ -1581,4 +1581,8 @@ export const messagesRu: Record<string, string> = {
   "status.waitingModel": "Жду ответ модели",
   "status.waitingSlow": "Модель отвечает дольше обычного",
   "status.waitingStuck": "Ответа от сервера всё ещё нет",
+  "status.turnTokens.one": "{shown} токен",
+  "status.turnTokens.few": "{shown} токена",
+  "status.turnTokens.many": "{shown} токенов",
+  "status.turnTokens.other": "{shown} токена",
 };
