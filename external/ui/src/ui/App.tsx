@@ -710,7 +710,9 @@ export function App() {
     sessionId,
     connected: serverEventsConnected,
     onTurnProgress: (sid, progress) =>
-      applyTurnProgress(sid, progress, "activity"),
+      progress
+        ? applyTurnProgress(sid, progress, "activity")
+        : clearTurnProgress(sid),
     postPending: (sid) => pendingPostBySidRef.current.has(sid),
     onQueueRead: (sid) => {
       const fence = queueOrderRef.current.capture(sid);
