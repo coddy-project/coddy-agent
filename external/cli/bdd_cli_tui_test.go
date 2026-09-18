@@ -32,6 +32,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/docs"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/rules"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
@@ -1631,6 +1632,53 @@ func (s *cliTUIState) editorHolds(text string) error {
 	return fmt.Errorf("editor holds %q, want %q", s.app.editor.Text(), want)
 }
 
+// --- built-in documentation (F1, /docs) ---
+
+func (s *cliTUIState) operatorPressesF1() error {
+	s.press("\x1bOP")
+	return nil
+}
+
+func (s *cliTUIState) helpLists(text string) error {
+	return s.waitScreen(text, 3*time.Second)
+}
+
+func (s *cliTUIState) operatorTypesIntoHelp(text string) error {
+	s.typeText(text)
+	return s.waitScreen("› "+text, 2*time.Second)
+}
+
+func (s *cliTUIState) operatorOpensHelpEntry() error {
+	s.press("\r")
+	return nil
+}
+
+func (s *cliTUIState) helpShowsPageAtSection(page, section string) error {
+	if err := s.waitScreen("Coddy docs › "+page, 3*time.Second); err != nil {
+		return err
+	}
+	// The section's heading is on screen: the view scrolled to it.
+	return s.waitScreen(section, 2*time.Second)
+}
+
+func (s *cliTUIState) operatorTurnsToNextHelpPage() error {
+	s.typeText("n")
+	return nil
+}
+
+func (s *cliTUIState) helpShowsPageAfter(page string) error {
+	lib, err := docs.Default()
+	if err != nil {
+		return err
+	}
+	for i, p := range lib.Pages() {
+		if p.Title == page && i+1 < len(lib.Pages()) {
+			return s.waitScreen("Coddy docs › "+lib.Pages()[i+1].Title, 3*time.Second)
+		}
+	}
+	return fmt.Errorf("no page titled %q, or it is the last", page)
+}
+
 func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	s := &cliTUIState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -1695,6 +1743,14 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the screen shows the queued message "([^"]*)"$`, s.screenShowsQueuedMessage)
 	sc.Step(`^the screen shows nothing queued$`, s.screenShowsNothingQueued)
 	sc.Step(`^the operator presses escape$`, s.operatorPressesEscape)
+	sc.Step(`^the operator presses F1$`, s.operatorPressesF1)
+	sc.Step(`^the help lists the page "([^"]*)"$`, s.helpLists)
+	sc.Step(`^the help lists the section "([^"]*)"$`, s.helpLists)
+	sc.Step(`^the operator types "([^"]*)" into the help$`, s.operatorTypesIntoHelp)
+	sc.Step(`^the operator opens the selected help entry$`, s.operatorOpensHelpEntry)
+	sc.Step(`^the help shows the page "([^"]*)" at the section "([^"]*)"$`, s.helpShowsPageAtSection)
+	sc.Step(`^the operator turns to the next page of the help$`, s.operatorTurnsToNextHelpPage)
+	sc.Step(`^the help shows the page after "([^"]*)"$`, s.helpShowsPageAfter)
 	sc.Step(`^the stub turn observes cancellation$`, s.stubObservesCancellation)
 	sc.Step(`^the transcript shows an interrupt notice$`, s.transcriptShowsInterruptNotice)
 	sc.Step(`^the operator switches the model to the second configured model$`, s.operatorSwitchesToSecondModel)

@@ -19,6 +19,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/mention"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -567,7 +568,7 @@ func TestSearchMentionsSchemes(t *testing.T) {
 	}
 
 	res, _ := m.SearchMentions(context.Background(), session.MentionSearch{SessionID: sid})
-	if got := candidateInserts(res); len(got) < 4 || got[0] != "@session:" || got[1] != "@rule:" || got[2] != "@agent:" || got[3] != "@a.go" {
+	if got := candidateInserts(res); len(got) < 5 || got[0] != "@session:" || got[1] != "@rule:" || got[2] != "@agent:" || got[3] != "@coddy:" || got[4] != "@a.go" {
 		t.Fatalf("empty query: %q", got)
 	}
 	res, _ = m.SearchMentions(context.Background(), session.MentionSearch{SessionID: sid, Query: "session:auth"})
@@ -577,6 +578,37 @@ func TestSearchMentionsSchemes(t *testing.T) {
 	res, _ = m.SearchMentions(context.Background(), session.MentionSearch{SessionID: sid, Query: "agent:expl"})
 	if got := candidateInserts(res); len(got) != 1 || got[0] != "@agent:explore" {
 		t.Fatalf("agent search: %q", got)
+	}
+}
+
+// "@coddy:" lists the pages of the built-in documentation, finds a page by
+// its slug or title, a section after "#", and sections by their words.
+func TestSearchMentionsDocumentation(t *testing.T) {
+	root := t.TempDir()
+	m, sid := mentionTestManager(t, root)
+	search := func(q string) []session.MentionCandidate {
+		t.Helper()
+		res, _ := m.SearchMentions(context.Background(), session.MentionSearch{SessionID: sid, Query: q})
+		return res.Items
+	}
+	all := search("coddy:")
+	if len(all) == 0 || all[0].Insert != "@coddy:getting-started/quickstart" || all[0].Kind != mention.KindDoc || all[0].Detail != "Quickstart" {
+		t.Fatalf("coddy: lists the pages in map order: %+v", all)
+	}
+	if got := search("coddy:mentions"); len(got) == 0 || got[0].Insert != "@coddy:features/mentions" {
+		t.Fatalf("a page by its name: %+v", got)
+	}
+	if got := search("coddy:features/mentions#compl"); len(got) == 0 || got[0].Insert != "@coddy:features/mentions#completion" || got[0].Detail != "Mentions > Completion" {
+		t.Fatalf("a section after #: %+v", got)
+	}
+	found := false
+	for _, c := range search("coddy:proxy") {
+		if strings.Contains(c.Insert, "#") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("sections found by their words: %+v", search("coddy:proxy"))
 	}
 }
 

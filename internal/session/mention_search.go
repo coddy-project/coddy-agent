@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/docs"
 	"github.com/EvilFreelancer/coddy-agent/internal/mention"
 	"github.com/EvilFreelancer/coddy-agent/internal/plans"
 	"github.com/EvilFreelancer/coddy-agent/internal/rules"
@@ -320,6 +321,8 @@ func schemeHint(sc mention.Scheme) string {
 		return "a project rule"
 	case mention.SchemeAgent:
 		return "a subagent"
+	case mention.SchemeCoddy:
+		return "a page of Coddy's documentation"
 	}
 	return ""
 }
@@ -402,8 +405,11 @@ func (m *Manager) sessionsMentionable(st *State) bool {
 	return st == nil || !IsGatewayOrigin(st.GetOrigin())
 }
 
-// searchScheme lists one kind: "@session:", "@rule:", "@agent:".
+// searchScheme lists one kind: "@session:", "@rule:", "@agent:", "@coddy:".
 func (m *Manager) searchScheme(_ context.Context, st *State, cwd string, sc mention.Scheme, q string, limit int) MentionSearchResult {
+	if sc == mention.SchemeCoddy {
+		return docCandidates(q, limit)
+	}
 	var items []MentionCandidate
 	switch sc {
 	case mention.SchemeSession:
@@ -435,6 +441,100 @@ func (m *Manager) searchScheme(_ context.Context, st *State, cwd string, sc ment
 		items = items[:0]
 		for _, h := range hits {
 			items = append(items, h.c)
+		}
+	}
+	total := len(items)
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	if items == nil {
+		items = []MentionCandidate{}
+	}
+	return MentionSearchResult{Items: items, Total: total}
+}
+
+// docCandidates completes "@coddy:": the pages of the built-in documentation
+// in map order for an empty query; the pages whose slug or title the query
+// matches, then the sections its words find; the sections of one page once
+// the query names it and a "#".
+func docCandidates(q string, limit int) MentionSearchResult {
+	lib, err := docs.Default()
+	if err != nil {
+		return MentionSearchResult{Items: []MentionCandidate{}}
+	}
+	pageRow := func(p *docs.Page) MentionCandidate {
+		return MentionCandidate{Kind: mention.KindDoc, Insert: "@coddy:" + p.Slug, Label: p.Slug, Detail: p.Title}
+	}
+	sectionRow := func(p *docs.Page, anchor, heading string) MentionCandidate {
+		ref := docs.Ref(p.Slug, anchor)
+		return MentionCandidate{Kind: mention.KindDoc, Insert: "@coddy:" + ref, Label: ref, Detail: p.Title + " > " + heading}
+	}
+	q = strings.TrimSpace(q)
+	var items []MentionCandidate
+	switch pageRef, sectionQuery, hasSection := strings.Cut(q, "#"); {
+	case q == "":
+		for _, p := range lib.Pages() {
+			items = append(items, pageRow(p))
+		}
+	case hasSection:
+		page, _, err := lib.Resolve(pageRef)
+		if err != nil {
+			break
+		}
+		type scored struct {
+			c MentionCandidate
+			s int
+		}
+		var hits []scored
+		for _, h := range page.Sections() {
+			c := sectionRow(page, h.Anchor, h.Text)
+			if sectionQuery == "" {
+				hits = append(hits, scored{c, 0})
+				continue
+			}
+			s1, ok1 := mention.Score(sectionQuery, h.Anchor)
+			s2, ok2 := mention.Score(sectionQuery, h.Text)
+			if ok1 || ok2 {
+				hits = append(hits, scored{c, max(s1, s2)})
+			}
+		}
+		sort.SliceStable(hits, func(i, j int) bool { return hits[i].s > hits[j].s })
+		for _, h := range hits {
+			items = append(items, h.c)
+		}
+	default:
+		type scored struct {
+			p *docs.Page
+			s int
+		}
+		var pages []scored
+		for _, p := range lib.Pages() {
+			s1, ok1 := mention.Score(q, p.Slug)
+			s2, ok2 := mention.Score(q, p.Title)
+			if ok1 || ok2 {
+				pages = append(pages, scored{p, max(s1, s2)})
+			}
+		}
+		sort.SliceStable(pages, func(i, j int) bool { return pages[i].s > pages[j].s })
+		seen := map[string]bool{}
+		for _, h := range pages {
+			items = append(items, pageRow(h.p))
+			seen[h.p.Slug] = true
+		}
+		// The words of the query find sections too: "@coddy:proxy" offers
+		// the proxy sections of the gateway and configuration pages.
+		for _, h := range lib.Search(strings.NewReplacer("/", " ", "-", " ", "_", " ").Replace(q), limit) {
+			ref := h.Ref()
+			if seen[ref] {
+				continue
+			}
+			seen[ref] = true
+			page, _ := lib.Page(h.Slug)
+			if h.Anchor == "" {
+				items = append(items, pageRow(page))
+				continue
+			}
+			items = append(items, sectionRow(page, h.Anchor, h.Heading))
 		}
 	}
 	total := len(items)

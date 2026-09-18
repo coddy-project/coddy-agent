@@ -17,7 +17,8 @@ import (
 )
 
 // Scheme names a meta reference: "@session:<id>", "@rule:<name>",
-// "@agent:<name>". A token without a scheme is a path.
+// "@agent:<name>", "@coddy:<page>#<section>". A token without a scheme is a
+// path.
 type Scheme string
 
 // The meta schemes the grammar recognises. Anything else before a colon is
@@ -26,10 +27,13 @@ const (
 	SchemeSession Scheme = "session"
 	SchemeRule    Scheme = "rule"
 	SchemeAgent   Scheme = "agent"
+	// SchemeCoddy names a page of Coddy's own documentation, built into the
+	// binary: "@coddy:features/mentions#completion".
+	SchemeCoddy Scheme = "coddy"
 )
 
 // Schemes lists the meta schemes in the order a picker offers them.
-var Schemes = []Scheme{SchemeSession, SchemeRule, SchemeAgent}
+var Schemes = []Scheme{SchemeSession, SchemeRule, SchemeAgent, SchemeCoddy}
 
 // ParseScheme reports whether s names a meta scheme.
 func ParseScheme(s string) (Scheme, bool) {
@@ -219,9 +223,11 @@ func parseURL(text string, at int) (Token, bool) {
 	return Token{Start: at, End: end, URL: u}, true
 }
 
-// parseScheme reads "@session:<ref>", "@rule:<ref>" and "@agent:<ref>". A
-// reference is a run of letters, digits, "_", "-" and "."; a trailing "." is
-// the end of a sentence, not part of the name.
+// parseScheme reads "@session:<ref>", "@rule:<ref>", "@agent:<ref>" and
+// "@coddy:<ref>". A reference is a run of letters, digits, "_", "-" and ".";
+// a documentation page also takes "/" and "#" (features/mentions#completion).
+// A trailing ".", and for a page a trailing "/" or "#", is the end of a
+// sentence or of an unfinished reference, not part of the name.
 func parseScheme(text string, at int) (Token, bool) {
 	rest := text[at+1:]
 	colon := strings.IndexByte(rest, ':')
@@ -233,16 +239,22 @@ func parseScheme(text string, at int) (Token, bool) {
 		return Token{}, false
 	}
 	refStart := at + 1 + colon + 1
+	page := scheme == SchemeCoddy
 	k := refStart
 	for k < len(text) {
 		c := text[k]
-		if c == '_' || c == '-' || c == '.' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+		if c == '_' || c == '-' || c == '.' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(page && (c == '/' || c == '#')) {
 			k++
 			continue
 		}
 		break
 	}
-	ref := strings.TrimRight(text[refStart:k], ".")
+	trim := "."
+	if page {
+		trim = "./#"
+	}
+	ref := strings.TrimRight(text[refStart:k], trim)
 	if ref == "" {
 		return Token{}, false
 	}

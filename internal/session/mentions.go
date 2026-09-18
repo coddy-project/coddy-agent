@@ -23,6 +23,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/docs"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/mention"
 	"github.com/EvilFreelancer/coddy-agent/internal/plans"
@@ -247,6 +248,9 @@ func (r *mentionResolver) resolveToken(text string, tok mention.Token) (res *acp
 		return res, -1, ok
 	case mention.SchemeAgent:
 		res, ok = r.resolveAgent(tok.Ref, typed)
+		return res, -1, ok
+	case mention.SchemeCoddy:
+		res, ok = r.resolveDoc(tok.Ref, typed)
 		return res, -1, ok
 	}
 	for i, rd := range tok.Readings {
@@ -809,6 +813,39 @@ func RuleAttachmentPath(cwd, home string, rule *rules.Rule) string {
 		return loc.Display
 	}
 	return "rule:" + rule.CanonicalName()
+}
+
+// resolveDoc attaches a page of Coddy's own documentation, or one section of
+// it: "@coddy:features/mentions#completion". The documentation is the one
+// built into this binary, so it is mentionable from every surface and every
+// session, a subagent's task included.
+func (r *mentionResolver) resolveDoc(ref, typed string) (*acp.Resource, bool) {
+	lib, err := docs.Default()
+	if err != nil {
+		return nil, false
+	}
+	page, anchor, err := lib.Resolve(ref)
+	if err != nil {
+		return nil, false
+	}
+	uri := docs.LinkScheme + docs.Ref(page.Slug, anchor)
+	if !r.claim(mention.KindDoc + "|" + uri) {
+		return nil, false
+	}
+	if r.dry {
+		return &acp.Resource{URI: uri, Mention: &acp.ResourceMention{Kind: mention.KindDoc, Typed: typed}}, true
+	}
+	text, name := page.Markdown, page.Title
+	if anchor != "" {
+		h, section, _ := page.Section(anchor)
+		text, name = section, page.Title+" > "+h.Text
+	}
+	return &acp.Resource{
+		URI:      uri,
+		MimeType: "text/markdown; charset=utf-8",
+		Text:     text,
+		Mention:  &acp.ResourceMention{Kind: mention.KindDoc, Name: name, Typed: typed},
+	}, true
 }
 
 // resolveAgent attaches the user's request to involve a subagent.

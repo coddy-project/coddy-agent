@@ -15,6 +15,7 @@ import {
 } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
+import { docsHrefFromCoddyLink } from "../scheduler/hashRoute";
 
 type CodeProps = {
   className?: string | undefined;
@@ -30,6 +31,12 @@ type PreProps = {
 type AProps = {
   href?: string | undefined;
   children?: unknown;
+};
+
+type ImgProps = {
+  src?: string | undefined;
+  alt?: string | undefined;
+  title?: string | undefined;
 };
 
 function normalizeText(children: unknown): string {
@@ -156,6 +163,16 @@ export const Markdown = memo(function Markdown(props: { text: string }) {
             </span>
           );
         }
+        // A page of the built-in documentation, as pages link to each other
+        // and as the agent quotes them: open it in the reader.
+        const docsHref = docsHrefFromCoddyLink(href);
+        if (docsHref) {
+          return (
+            <a href={docsHref} className="md-docs-link">
+              {p.children as any}
+            </a>
+          );
+        }
         const external = /^https?:\/\//i.test(href);
         return (
           <a
@@ -168,12 +185,20 @@ export const Markdown = memo(function Markdown(props: { text: string }) {
           </a>
         );
       },
+      img: (p: ImgProps) => (
+        <img
+          src={p.src}
+          alt={p.alt || ""}
+          {...(p.title ? { title: p.title } : {})}
+          loading="lazy"
+        />
+      ),
     }),
     [],
   );
 
   const urlTransform = useCallback((url: string) => {
-    if (url.startsWith("coddy-skill:")) {
+    if (url.startsWith("coddy-skill:") || url.startsWith("coddy:")) {
       return url;
     }
     return defaultUrlTransform(url);

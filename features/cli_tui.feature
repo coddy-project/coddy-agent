@@ -344,3 +344,27 @@ Feature: Interactive console TUI
     Then the editor holds "@zz/deep/target_handler.go "
     When the operator types the mention "@file"
     Then the mention list offers "of 120, type to narrow"
+
+  Scenario: F1 opens the built-in documentation, finds a section and reads it
+    When the console app starts
+    And the operator presses F1
+    Then the help lists the page "Quickstart"
+    When the operator types "telegram proxy" into the help
+    Then the help lists the section "Telegram gateway › Proxy"
+    When the operator opens the selected help entry
+    Then the help shows the page "Telegram gateway" at the section "Proxy"
+    When the operator turns to the next page of the help
+    Then the help shows the page after "Telegram gateway"
+    When the operator presses escape
+    And the operator presses escape
+    Then the editor accepts new input
+
+  Scenario: /docs opens a page by its reference
+    When the console app starts
+    And the operator submits the command "/docs features/mentions#completion"
+    Then the help shows the page "Mentions" at the section "Completion"
+
+  Scenario: The @ list completes a page of the documentation
+    When the console app starts
+    And the operator types the mention "@coddy:mentions"
+    Then the mention list offers "features/mentions"

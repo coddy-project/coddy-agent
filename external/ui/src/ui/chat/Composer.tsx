@@ -1828,6 +1828,8 @@ export function Composer(props: {
         return t("composer.mentionKindPlan");
       case "scheme":
         return t("composer.mentionKindScheme");
+      case "doc":
+        return t("composer.mentionKindDoc");
       default:
         return t("composer.mentionKindFile");
     }
@@ -1849,6 +1851,8 @@ export function Composer(props: {
           return t("composer.mentionSchemeRule");
         case "agent:":
           return t("composer.mentionSchemeAgent");
+        case "coddy:":
+          return t("composer.mentionSchemeCoddy");
       }
     }
     return row.detail ?? "";

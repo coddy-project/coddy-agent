@@ -182,6 +182,23 @@ List subagent definitions and approve or revoke project\-scope ones.
 .B "hooks list | trust | untrust"
 List lifecycle hooks and approve or revoke project\-scope hook files.
 .TP
+.B "docs list | search | show"
+Read the documentation built into this binary, the same pages as
+.I https://coddy.dev/docs
+for this version, with no network access.
+.B list
+prints the contents,
+.BI "search " words
+the best matching sections
+.RB ( \-\-limit
+bounds them), and
+.BI "show " page\fR[\fB#\fIsection\fR]
+a page or one of its sections as Markdown, for example
+.BR "coddy docs show features/mentions#completion" .
+The console opens the same documentation on
+.BR F1 ,
+the web UI on its Docs screen.
+.TP
 .B update
 Install the latest release. See
 .B SELF\-UPDATE

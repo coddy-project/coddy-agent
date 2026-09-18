@@ -8,7 +8,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"unicode"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/docs"
 )
 
 // Problem is one finding of a check: the file it concerns and what is wrong.
@@ -95,51 +96,21 @@ func CheckLinks(root string, files []string) []Problem {
 	return problems
 }
 
-// headingAnchors returns the GitHub-style anchors of every heading in a file.
+// headingAnchors returns the GitHub-style anchors of every heading in a file,
+// read the way the binary's documentation reader reads them (internal/docs),
+// so an anchor this check accepts is one every reader finds.
 func headingAnchors(path string) map[string]bool {
 	out := map[string]bool{}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return out
 	}
-	text := fencedRE.ReplaceAllString(string(data), "")
-	if !strings.Contains(text, "\n#") && !strings.HasPrefix(text, "#") {
-		return out
-	}
-	seen := map[string]int{}
-	for _, line := range strings.Split(text, "\n") {
-		if !strings.HasPrefix(line, "#") {
-			continue
-		}
-		title := strings.TrimLeft(line, "#")
-		if !strings.HasPrefix(title, " ") {
-			continue
-		}
-		slug := Slug(strings.TrimSpace(title))
-		if n := seen[slug]; n > 0 {
-			out[fmt.Sprintf("%s-%d", slug, n)] = true
-		} else {
-			out[slug] = true
-		}
-		seen[slug]++
+	for _, a := range docs.HeadingAnchors(string(data)) {
+		out[a] = true
 	}
 	return out
 }
 
 // Slug converts a heading to the anchor GitHub generates for it: inline
 // markup removed, lower-cased, punctuation dropped, spaces turned into hyphens.
-func Slug(heading string) string {
-	// Drop inline markup that GitHub does not render into the anchor.
-	r := strings.NewReplacer("`", "", "*", "", "[", "", "]", "", "(", "", ")", "")
-	h := strings.ToLower(r.Replace(heading))
-	var b strings.Builder
-	for _, c := range h {
-		switch {
-		case unicode.IsLetter(c) || unicode.IsDigit(c) || c == '_' || c == '-':
-			b.WriteRune(c)
-		case c == ' ':
-			b.WriteRune('-')
-		}
-	}
-	return b.String()
-}
+func Slug(heading string) string { return docs.Anchor(heading) }

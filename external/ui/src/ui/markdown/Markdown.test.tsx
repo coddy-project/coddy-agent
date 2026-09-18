@@ -192,3 +192,27 @@ test("inline code styles use grey fill without border in css", () => {
   expect(css).not.toMatch(/\.md-inline-code-inner/);
   expect(css).not.toMatch(/\.md-inline-code-tip/);
 });
+
+// A page of the built-in documentation links to another as
+// coddy:<slug>#<anchor>, and the agent quotes pages the same way: the link
+// opens the reader in the app instead of being dropped as an unknown scheme.
+test("coddy: links open the documentation reader", () => {
+  render(
+    <Markdown text="See [Completion](coddy:features/mentions#completion) and [config](coddy:reference/config)." />,
+  );
+  const section = screen.getByText("Completion").closest("a");
+  expect(section?.getAttribute("href")).toBe("#/docs/features/mentions#completion");
+  expect(section?.getAttribute("target")).toBeNull();
+  expect(screen.getByText("config").closest("a")?.getAttribute("href")).toBe(
+    "#/docs/reference/config",
+  );
+});
+
+test("images are loaded lazily and fit the column", () => {
+  const { container } = render(
+    <Markdown text="![shot](https://raw.githubusercontent.com/x/y/main/a.png)" />,
+  );
+  expect(container.querySelector("img")?.getAttribute("loading")).toBe("lazy");
+  const css = readFileSync(stylesPath, "utf8");
+  expect(css).toMatch(/\.md img\s*\{[^}]*max-width:\s*100%/);
+});

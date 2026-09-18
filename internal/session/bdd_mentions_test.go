@@ -290,6 +290,15 @@ func (s *mentionsFeatureState) attachesSubagent(name string) error {
 	return fmt.Errorf("no subagent attachment for %q; the prompt has:\n%s", name, s.describe())
 }
 
+func (s *mentionsFeatureState) attachesDocumentation(ref, body string) error {
+	for _, r := range s.resources() {
+		if r.URI == "coddy:"+ref && r.Mention != nil && r.Mention.Kind == mention.KindDoc && strings.Contains(r.Text, body) {
+			return nil
+		}
+	}
+	return fmt.Errorf("no documentation attachment %q holding %q; the prompt has:\n%s", ref, body, s.describe())
+}
+
 func initializeMentionsScenario(sc *godog.ScenarioContext) {
 	s := &mentionsFeatureState{}
 	sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
@@ -312,6 +321,7 @@ func initializeMentionsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the prompt attaches the folder "([^"]*)" listing "([^"]*)" and "([^"]*)"$`, s.attachesFolderListing)
 	sc.Step(`^the prompt attaches the earlier session holding "([^"]*)" and "([^"]*)"$`, s.attachesEarlierSession)
 	sc.Step(`^the prompt attaches the subagent "([^"]*)" asking to hand the work to spawn_agent$`, s.attachesSubagent)
+	sc.Step(`^the prompt attaches the documentation "([^"]*)" holding "([^"]*)"$`, s.attachesDocumentation)
 }
 
 func TestMentionsFeature(t *testing.T) {
