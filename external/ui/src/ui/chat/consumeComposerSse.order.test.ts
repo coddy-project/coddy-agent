@@ -429,8 +429,11 @@ test("turn_progress reaches the caller on this machine's clock, replayed frames 
   } finally {
     vi.useRealTimers();
   }
+  // The frame also names its turn and dates itself on the server's clock, which is
+  // what lets the shell order it against an activity read.
+  const turn = Date.parse("2026-09-18T12:00:00Z");
   expect(seen).toEqual([
-    { startedAtMs: now - 45_000, outputTokens: 0, estimated: false },
-    { startedAtMs: now - 45_000, outputTokens: 433, estimated: true },
+    { startedAtMs: now - 45_000, outputTokens: 0, estimated: false, serverStartedAtMs: turn, serverElapsedMs: 40_000 },
+    { startedAtMs: now - 45_000, outputTokens: 433, estimated: true, serverStartedAtMs: turn, serverElapsedMs: 45_000 },
   ]);
 });
