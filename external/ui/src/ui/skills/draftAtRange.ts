@@ -9,7 +9,24 @@
 import { blockquoteLine, inMarkdownFenceBeforeCaret } from "./draftSlash";
 
 /** Same class the **`@`** picker accepts for a path filter (mirrors draftAt MENU_PATH_CHAR). */
-const RANGE_PATH_CHAR = /^[\p{L}\p{N}_.\\/ \-]+$/u;
+const RANGE_PATH_CHAR = /^[\p{L}\p{N}_.\\/ ~+\-]+$/u;
+
+/** "@session:", "@rule:" and "@agent:" name a kind to search, not a file to cut lines from. */
+const MENTION_SCHEMES = new Set(["session", "rule", "agent"]);
+
+/**
+ * The preview reads workspace files only (**`GET /coddy/workspace/file`**), so
+ * a path that leaves the workspace keeps the panel closed. Its range still
+ * reaches the model: the server resolves it at send time.
+ */
+function leavesWorkspace(path: string): boolean {
+  return (
+    path.startsWith("/") ||
+    path.startsWith("\\") ||
+    path.startsWith("~") ||
+    path.split(/[\\/]/).includes("..")
+  );
+}
 
 /** What may follow the colon while the range is still being typed. */
 const RANGE_SUFFIX_RE = /^(\d{0,9})(?:-(\d{0,9}))?$/u;
@@ -83,7 +100,8 @@ export function atRangeDraftAtCaret(text: string, caret: number): AtRangeDraft {
     const path = rawPath.trim();
     if (
       path === "" ||
-      path.includes("..") ||
+      MENTION_SCHEMES.has(path) ||
+      leavesWorkspace(path) ||
       path.endsWith("/") ||
       !RANGE_PATH_CHAR.test(rawPath)
     ) {

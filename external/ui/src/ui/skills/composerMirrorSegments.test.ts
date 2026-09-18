@@ -92,6 +92,17 @@ test("known skill chip shows even after selection when caret is after space", ()
   });
 });
 
+test("meta references and quoted paths chip as whole tokens", () => {
+  const s = 'ask @session:sess_1 and @"a b.md"';
+  const segs = segmentComposerMirrorSpans(s, s.length, null, null);
+  expect(segs).toEqual([
+    { type: "text", value: "ask " },
+    { type: "at", literal: "@session:sess_1", pathRel: "session:sess_1" },
+    { type: "text", value: " and " },
+    { type: "at", literal: '@"a b.md"', pathRel: "a b.md" },
+  ]);
+});
+
 test("a line-range mention renders as one chip with the full literal", () => {
   const s = "fix @Dockerfile:21-31 please";
   const segs = segmentComposerMirrorSpans(s, 0, null, null);

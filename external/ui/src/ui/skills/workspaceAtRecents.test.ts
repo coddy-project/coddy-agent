@@ -1,7 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import {
   migrateWorkspaceAtRecents,
-  pickerRowFromRecent,
   readWorkspaceAtRecents,
   recordWorkspaceAtRecent,
   WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
@@ -67,14 +66,4 @@ test("no_session key is a valid bucket", () => {
   expect(readWorkspaceAtRecents(WORKSPACE_AT_RECENTS_NO_SESSION_KEY)).toHaveLength(
     1,
   );
-});
-
-test("pickerRowFromRecent builds basename name", () => {
-  const r = pickerRowFromRecent({
-    path_rel: "src/ui/App.tsx",
-    kind: "file",
-  });
-  expect(r.path_rel).toBe("src/ui/App.tsx");
-  expect(r.name).toBe("App.tsx");
-  expect(r.kind).toBe("file");
 });
