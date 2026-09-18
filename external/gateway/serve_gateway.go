@@ -38,6 +38,9 @@ func Serve(ctx context.Context, opts Options) error {
 		if opts.Prompts != nil {
 			bot.SetPromptSurfaces(opts.Prompts)
 		}
+		if opts.Wakes != nil {
+			bot.SetWakeSurfaces(opts.Wakes)
+		}
 		adapters = append(adapters, bot)
 	}
 

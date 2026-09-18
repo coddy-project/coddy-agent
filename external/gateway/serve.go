@@ -37,4 +37,8 @@ type Options struct {
 	// Prompts is where a bot offers to ask about a detached subagent of one of
 	// its chats. Nil means such a prompt is never shown in a chat.
 	Prompts PromptSurfaces
+	// Wakes is where a bot offers to run the turn a finished background task
+	// starts in the session one of its chats is bound to, so the answer lands
+	// in that chat. Nil means a woken turn never reaches a chat.
+	Wakes agent.WakeSurfaces
 }
