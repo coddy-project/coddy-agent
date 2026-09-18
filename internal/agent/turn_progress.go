@@ -154,7 +154,11 @@ func (p *turnProgress) publish(now time.Time) {
 	if p.state != nil {
 		p.state.SetTurnOutputTokens(tokens, estimated)
 	}
-	elapsed := now.Sub(p.startedAt)
+	// A client orders what it hears by the turn's age: this frame against the
+	// activity read, which takes the age first and the count second. Dating the
+	// frame after the count is stored keeps a read that saw the older count older
+	// than the frame that replaced it.
+	elapsed := time.Since(p.startedAt)
 	if elapsed < 0 {
 		elapsed = 0
 	}

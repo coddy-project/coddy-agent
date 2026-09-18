@@ -14,14 +14,32 @@ export type TurnProgress = {
   outputTokens: number;
   /** An estimate is part of `outputTokens`. */
   estimated: boolean;
+  /**
+   * The server's name for the turn: its start on the SERVER's clock. Every reading of
+   * one turn carries the same one, so it tells two turns apart where arrival times
+   * cannot. Never a clock to show - the two machines may disagree about the time.
+   */
+  serverStartedAtMs?: number;
+  /**
+   * How old the turn was, on the server's clock, when this reading was taken. It dates
+   * the reading: of two readings of one turn, the larger one is the newer.
+   */
+  serverElapsedMs?: number;
 };
 
 /**
- * Two starts closer than this are the same turn: the start is rebuilt from
- * "now minus the elapsed time the server reported", so it moves by the latency of
- * whichever request carried it.
+ * For readings that do not name their turn: two starts closer than this are the same
+ * turn. The start is rebuilt from "now minus the elapsed time the server reported", so
+ * it moves by the latency of whichever request carried it.
  */
 export const SAME_TURN_SLACK_MS = 2_000;
+
+/**
+ * A start this much earlier than the known one replaces it. Latency only ever puts the
+ * counted-back start later than the real one, so the earlier reading is the closer one;
+ * below this the clock would not read differently and the line is left alone.
+ */
+const EARLIER_START_MS = 250;
 
 function finiteNonNegative(value: unknown): number | null {
   const n = Number(value);
@@ -38,24 +56,30 @@ function build(
 ): TurnProgress | null {
   let startedAtMs: number | null = null;
   const elapsedMs = finiteNonNegative(elapsed);
+  const serverStart =
+    typeof startedAt === "string" && startedAt ? Date.parse(startedAt) : NaN;
   if (elapsedMs !== null) {
     // The server's own measure of the turn's age. Counting back from the local
     // clock keeps the line right when the two machines disagree about the time.
     startedAtMs = nowMs - ageMs - elapsedMs;
-  } else if (typeof startedAt === "string" && startedAt) {
-    const at = Date.parse(startedAt);
-    if (Number.isFinite(at) && at <= nowMs) {
-      startedAtMs = at;
-    }
+  } else if (Number.isFinite(serverStart) && serverStart <= nowMs) {
+    startedAtMs = serverStart;
   }
   if (startedAtMs === null) {
     return null;
   }
-  return {
+  const progress: TurnProgress = {
     startedAtMs,
     outputTokens: Math.floor(finiteNonNegative(tokens) ?? 0),
     estimated: estimated === true,
   };
+  if (Number.isFinite(serverStart)) {
+    progress.serverStartedAtMs = serverStart;
+  }
+  if (elapsedMs !== null) {
+    progress.serverElapsedMs = elapsedMs;
+  }
+  return progress;
 }
 
 /**
@@ -107,36 +131,56 @@ export function turnProgressFromActivity(
   );
 }
 
+function sameTurn(prev: TurnProgress, next: TurnProgress): boolean {
+  if (
+    prev.serverStartedAtMs !== undefined &&
+    next.serverStartedAtMs !== undefined
+  ) {
+    return prev.serverStartedAtMs === next.serverStartedAtMs;
+  }
+  return Math.abs(prev.startedAtMs - next.startedAtMs) <= SAME_TURN_SLACK_MS;
+}
+
 /**
  * Folds a new reading into what the tab already shows.
  *
- * The stream is ordered, so a frame is taken as it is - the exact count that follows an
- * estimate may be lower, and that correction is the truth. The activity read is the
- * recovery path and races the stream, so within one turn it only ever raises the count.
- * The start of a turn is kept once known, so the clock does not shift by a request's
- * latency every second.
+ * The activity read is the recovery path and races the stream: an answer read before
+ * the stream's last frame may arrive after it. Readings that carry the server's date
+ * are ordered by it - the newer one wins, whichever way it came, and an exact count
+ * that follows a higher estimate is the truth. Readings without a date fall back to the
+ * rule that the stream is taken as it is and an activity read only ever raises the
+ * count. The start of a turn is kept once known, so the clock does not shift by a
+ * request's latency every second; only a clearly earlier start replaces it.
  */
 export function mergeTurnProgress(
   prev: TurnProgress | null | undefined,
   next: TurnProgress,
   source: "stream" | "activity",
 ): TurnProgress {
-  if (
-    !prev ||
-    Math.abs(prev.startedAtMs - next.startedAtMs) > SAME_TURN_SLACK_MS
-  ) {
+  if (!prev || !sameTurn(prev, next)) {
     return next;
   }
-  if (source === "activity" && next.outputTokens <= prev.outputTokens) {
+  const dated =
+    prev.serverElapsedMs !== undefined && next.serverElapsedMs !== undefined;
+  if (dated) {
+    if ((next.serverElapsedMs ?? 0) < (prev.serverElapsedMs ?? 0)) {
+      return prev;
+    }
+  } else if (source === "activity" && next.outputTokens <= prev.outputTokens) {
     return prev;
   }
+  const startedAtMs =
+    next.startedAtMs < prev.startedAtMs - EARLIER_START_MS
+      ? next.startedAtMs
+      : prev.startedAtMs;
   if (
     prev.outputTokens === next.outputTokens &&
-    prev.estimated === next.estimated
+    prev.estimated === next.estimated &&
+    startedAtMs === prev.startedAtMs
   ) {
     return prev;
   }
-  return { ...next, startedAtMs: prev.startedAtMs };
+  return { ...next, startedAtMs };
 }
 
 /** 0, 433, 1.2k, 13.5k, 240k, 1.2M - the width of the number never jumps around. */

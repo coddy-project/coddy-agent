@@ -26,6 +26,8 @@ describe("turnProgressFromFrame", () => {
       startedAtMs: NOW - 45_000,
       outputTokens: 433,
       estimated: true,
+      serverStartedAtMs: Date.parse("2026-09-18T11:00:00Z"),
+      serverElapsedMs: 45_000,
     });
   });
 
@@ -79,6 +81,8 @@ describe("turnProgressFromActivity", () => {
       startedAtMs: NOW - 45_000,
       outputTokens: 1200,
       estimated: false,
+      serverStartedAtMs: Date.parse("2026-09-18T10:00:00Z"),
+      serverElapsedMs: 45_000,
     });
   });
 
@@ -137,6 +141,93 @@ describe("mergeTurnProgress", () => {
     const next = { startedAtMs: NOW, outputTokens: 0, estimated: false };
     expect(mergeTurnProgress(prev, next, "activity")).toBe(next);
     expect(mergeTurnProgress(null, next, "stream")).toBe(next);
+  });
+
+  // The server names the turn (its start) and dates every reading (the turn's age on
+  // its own clock), so the tab does not have to guess either from arrival times.
+  const TURN = Date.parse("2026-09-18T10:00:00Z");
+  const exact = {
+    startedAtMs: NOW - 45_000,
+    outputTokens: 900,
+    estimated: false,
+    serverStartedAtMs: TURN,
+    serverElapsedMs: 11_000,
+  };
+
+  test("an activity answer that was read before the stream's correction does not undo it", () => {
+    // The call ended on 900 exact tokens; an activity answer read a moment earlier,
+    // while the estimate stood at 1200, arrives after the frame. No frame follows
+    // while a long tool runs, so the stale estimate would stay on the line.
+    expect(
+      mergeTurnProgress(
+        exact,
+        {
+          startedAtMs: NOW - 44_900,
+          outputTokens: 1200,
+          estimated: true,
+          serverStartedAtMs: TURN,
+          serverElapsedMs: 10_500,
+        },
+        "activity",
+      ),
+    ).toBe(exact);
+  });
+
+  test("a newer activity read lowers the count for a tab that missed the correction", () => {
+    const stale = { ...exact, outputTokens: 1200, estimated: true };
+    const got = mergeTurnProgress(
+      stale,
+      { ...exact, startedAtMs: NOW - 44_900, serverElapsedMs: 12_000 },
+      "activity",
+    );
+    expect(got.outputTokens).toBe(900);
+    expect(got.estimated).toBe(false);
+    expect(got.serverElapsedMs).toBe(12_000);
+    expect(got.startedAtMs).toBe(stale.startedAtMs);
+  });
+
+  test("an answer processed seconds late is still the same turn", () => {
+    // A throttled tab handles the answer six seconds after the server wrote it: the
+    // start counted back from "now" lands six seconds late, and the clock must not
+    // jump to it.
+    const got = mergeTurnProgress(
+      exact,
+      {
+        ...exact,
+        startedAtMs: exact.startedAtMs + 6_000,
+        outputTokens: 950,
+        serverElapsedMs: 13_000,
+      },
+      "stream",
+    );
+    expect(got.startedAtMs).toBe(exact.startedAtMs);
+    expect(got.outputTokens).toBe(950);
+  });
+
+  test("a reading that puts the start earlier is closer to the truth and moves the clock", () => {
+    // Latency only ever makes the counted-back start later than the real one.
+    const got = mergeTurnProgress(
+      exact,
+      {
+        ...exact,
+        startedAtMs: exact.startedAtMs - 1_500,
+        outputTokens: 950,
+        serverElapsedMs: 13_000,
+      },
+      "stream",
+    );
+    expect(got.startedAtMs).toBe(exact.startedAtMs - 1_500);
+  });
+
+  test("the next turn is told by the server's start, however soon it follows", () => {
+    const next = {
+      startedAtMs: exact.startedAtMs + 1_200,
+      outputTokens: 0,
+      estimated: false,
+      serverStartedAtMs: TURN + 46_200,
+      serverElapsedMs: 0,
+    };
+    expect(mergeTurnProgress(exact, next, "stream")).toBe(next);
   });
 
   test("an unchanged reading keeps the same object, so nothing re-renders", () => {

@@ -1011,6 +1011,9 @@ func (s *Server) addTurnProgress(out map[string]interface{}, id string) {
 		return
 	}
 	out["turnStartedAt"] = startedAt.UTC().Format(time.RFC3339Nano)
+	// The age is taken before the count is read, and the loop dates a frame after it
+	// stored the count (agent/turn_progress.go): a client that orders the two by age
+	// never takes an answer that saw the older count for the newer one.
 	elapsed := time.Since(startedAt)
 	if elapsed < 0 {
 		elapsed = 0
