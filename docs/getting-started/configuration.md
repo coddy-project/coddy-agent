@@ -498,7 +498,8 @@ gateways:
     # Bot token from @BotFather. Never hard-code; always use an env reference.
     token: "${TELEGRAM_BOT_TOKEN}"
 
-    # Optional outbound proxy for Telegram API requests (http, https, socks5, socks5h).
+    # How the bot reaches the Bot API: inherit (the default) follows HTTPS_PROXY,
+    # none connects directly, or a proxy URL (http, https, socks5, socks5h).
     # proxy: "socks5h://127.0.0.1:1080"
 
     # Telegram user IDs with admin privileges.
@@ -538,7 +539,7 @@ gateways:
     #     access: "admins"
 ```
 
-`token` is validated at startup when `enable: true`. `proxy` is optional (empty = direct connection). The other fields apply defaults if omitted: `default_access: "all"`, `default_isolation: "individual"`.
+`token` is validated at startup when `enable: true`. `proxy` is optional and reads like a provider's: empty or `inherit` follows the environment's proxy (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`), `none` connects directly, a URL goes through that proxy ([Provider proxy](#provider-proxy)). The other fields apply defaults if omitted: `default_access: "all"`, `default_isolation: "individual"`.
 
 See **[docs/surfaces/gateway.md](../surfaces/gateway.md)** for the full configuration guide, running instructions, and how to add adapters for other messengers.
 
@@ -646,7 +647,7 @@ providers:
     proxy: socks5h://127.0.0.1:1080
 ```
 
-The setting belongs to its row alone, so rows with different routes live side by side in one file. It covers the requests the Coddy process sends; the page a sign-in opens in your browser and whatever an **`api_key_command`** does are outside it. A changed value applies to the requests the row starts after it; a sign-in already waiting for the browser finishes on the route it started with. The environment variables are read once per process, so a change to them needs a restart. The keywords are accepted in any case and written back in lower case; anything else that is not a proxy URL is a configuration error that names the accepted values (the **`direct`** of an **`http_request`** call is not one of them). In the web UI the row shows the **Ignore system proxy** switch, which writes **`none`**, above the **Proxy URL** field ([Web UI](../surfaces/web-ui.md#settings-provider-proxy)). When a provider cannot be reached, **`coddy --dry-run`** names the route the request took in its hint - the row's proxy, a direct connection, or the proxy the environment named - with the credentials left out.
+The setting belongs to its row alone, so rows with different routes live side by side in one file. The Telegram gateway's **`gateways.telegram.proxy`** takes the same values for the bot's own requests ([Telegram gateway](../surfaces/gateway.md#proxy)). It covers the requests the Coddy process sends; the page a sign-in opens in your browser and whatever an **`api_key_command`** does are outside it. A changed value applies to the requests the row starts after it; a sign-in already waiting for the browser finishes on the route it started with. The environment variables are read once per process, so a change to them needs a restart. The keywords are accepted in any case and written back in lower case; anything else that is not a proxy URL is a configuration error that names the accepted values (the **`direct`** of an **`http_request`** call is not one of them). In the web UI the row shows the **Ignore system proxy** switch, which writes **`none`**, above the **Proxy URL** field ([Web UI](../surfaces/web-ui.md#settings-provider-proxy)). When a provider cannot be reached, **`coddy --dry-run`** names the route the request took in its hint - the row's proxy, a direct connection, or the proxy the environment named - with the credentials left out.
 
 ### `openai`
 Standard OpenAI API. Supports the current reasoning families (`gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`) as well as the older `o`-series and `gpt-4` ids.

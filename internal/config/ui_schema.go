@@ -208,7 +208,7 @@ func UISchemaMap() map[string]interface{} {
 		"api_key_command": strProp("API key command",
 			"Optional credential-helper command. When api_key is empty it is run via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and its trimmed stdout is used as the key (like git/docker credential helpers or AWS credential_process). On failure resolution falls back to the conventional NAME_API_KEY variable."),
 		// The settings screen renders this field as the "Ignore system proxy"
-		// switch (the keyword none) above the URL (ProviderProxyField).
+		// switch (the keyword none) above the URL (ProxySettingField).
 		"proxy": strProp("Proxy URL",
 			"Optional proxy for this provider only: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5 (with SOCKS the proxy resolves host names). A URL here replaces the system proxy for this provider. Left empty, the provider follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY); none connects directly."),
 		"timeout_ms": intProp("Request timeout ms",
@@ -320,8 +320,10 @@ func UISchemaMap() map[string]interface{} {
 			"BotFather token. Optional here — leave empty to read it from the TELEGRAM_BOT_TOKEN environment variable (e.g. via .env). Secret: when set it is stored in config.yaml and shown in full."),
 		"rich_messages": boolProp("Rich messages",
 			"Use Bot API 10.1 Rich Messages: the agent's native Markdown renders verbatim, tool activity streams as a Thinking placeholder, and executed tools show in a collapsible block. Falls back to legacy formatting if unsupported."),
-		"proxy": strProp("Proxy",
-			"Optional outbound proxy for Telegram API requests. Use http, https, socks5, or socks5h."),
+		// Rendered as the "Ignore system proxy" switch above the URL, like a
+		// provider's proxy (ProxySettingField).
+		"proxy": strProp("Proxy URL",
+			"Optional proxy for the Bot API requests: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5 (with SOCKS the proxy resolves host names). A URL here replaces the system proxy for the bot. Left empty, the bot follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY); none connects directly."),
 		"admins": map[string]interface{}{
 			"type":        "array",
 			"title":       "Admins",

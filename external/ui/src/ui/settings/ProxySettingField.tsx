@@ -3,8 +3,8 @@ import React, { type ChangeEvent } from "react";
 import { SwitchField } from "./SwitchField";
 import { useT } from "../i18n/I18nProvider";
 
-/** Whether a providers[].proxy value is the keyword kw, in any case. */
-export function isProviderProxyKeyword(
+/** Whether a proxy setting is the keyword kw, in any case. */
+export function isProxyKeyword(
   value: string,
   kw: "none" | "inherit",
 ): boolean {
@@ -12,9 +12,10 @@ export function isProviderProxyKeyword(
 }
 
 /**
- * ProviderProxyField edits providers[].proxy, which picks one of three routes
- * for every request of the row: the system proxy (no value, or "inherit"), a
- * direct connection ("none"), or a proxy URL. The switch owns "none"; the URL
+ * ProxySettingField edits a proxy setting - providers[].proxy, or
+ * gateways.telegram.proxy, which reads the same way - that picks one of three
+ * routes for every request it covers: the system proxy (no value, or
+ * "inherit"), a direct connection ("none"), or a proxy URL. The switch owns "none"; the URL
  * field owns the rest and is disabled while the switch is on. Turning the
  * switch off brings back the last value the row held that was not "none",
  * however it got there (typed, pasted, reloaded), for as long as the form is
@@ -22,17 +23,21 @@ export function isProviderProxyKeyword(
  * no longer knows the URL it replaced. The item form mounts afresh for every
  * row it edits, so that memory never crosses from one provider to another.
  */
-export function ProviderProxyField(props: {
+export function ProxySettingField(props: {
   value: unknown;
   onChange: (next: unknown) => void;
   /** Label and description of the URL field (the schema's, localized). */
   label: string;
   description?: string | undefined;
+  /** Dictionary key of the switch description, naming whose requests go direct. */
+  switchDescriptionKey?: string | undefined;
 }) {
   const { value, onChange, label, description } = props;
+  const switchDescriptionKey =
+    props.switchDescriptionKey ?? "settings.providerProxy.ignoreSystemDesc";
   const { t } = useT();
   const stored = typeof value === "string" ? value : "";
-  const direct = isProviderProxyKeyword(stored, "none");
+  const direct = isProxyKeyword(stored, "none");
   const beforeDirect = React.useRef(direct ? "" : stored);
   React.useEffect(() => {
     if (!direct) {
@@ -40,15 +45,15 @@ export function ProviderProxyField(props: {
     }
   }, [direct, stored]);
   const urlText =
-    direct || isProviderProxyKeyword(stored, "inherit") ? "" : stored;
+    direct || isProxyKeyword(stored, "inherit") ? "" : stored;
   return (
     <>
       <SwitchField
         checked={direct}
         onChange={(on) => onChange(on ? "none" : beforeDirect.current)}
         label={t("settings.providerProxy.ignoreSystem")}
-        description={t("settings.providerProxy.ignoreSystemDesc")}
-        dataTestId="provider-proxy-direct"
+        description={t(switchDescriptionKey)}
+        dataTestId="proxy-setting-direct"
       />
       <div className="settings-row">
         <span className="settings-label">{label}</span>
@@ -67,7 +72,7 @@ export function ProviderProxyField(props: {
           }
           title={description}
           aria-label={label}
-          data-testid="provider-proxy-url"
+          data-testid="proxy-setting-url"
           onChange={(e: ChangeEvent<HTMLInputElement>) =>
             onChange(e.target.value)
           }

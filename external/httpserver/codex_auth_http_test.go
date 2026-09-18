@@ -18,6 +18,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/proxytest"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -209,12 +210,12 @@ func TestCodexAuthDeviceStartGoesThroughTheRowsProxy(t *testing.T) {
 		w.WriteHeader(http.StatusForbidden)
 	}))
 	defer issuer.Close()
-	proxy := newForwardingProxy()
-	defer proxy.close()
+	proxy := proxytest.New()
+	defer proxy.Close()
 
 	cfg := &config.Config{
 		Paths:     config.Paths{Home: t.TempDir()},
-		Providers: []config.ProviderConfig{{Name: "codex", Type: "codex", Proxy: proxy.srv.URL}},
+		Providers: []config.ProviderConfig{{Name: "codex", Type: "codex", Proxy: proxy.URL()}},
 	}
 	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
 		return "", nil
@@ -236,7 +237,7 @@ func TestCodexAuthDeviceStartGoesThroughTheRowsProxy(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("start status = %d", res.StatusCode)
 	}
-	if carried := proxy.carried(); !slices.Contains(carried, "/api/accounts/deviceauth/usercode") {
+	if carried := proxy.Carried(); !slices.Contains(carried, "/api/accounts/deviceauth/usercode") {
 		t.Fatalf("the device start did not go through the row's proxy; it carried %v", carried)
 	}
 }

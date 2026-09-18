@@ -66,7 +66,7 @@ https://github.com/user-attachments/assets/55e9e66f-8a8d-47be-af75-596b8b00fafa
 
 *A provider row set to connect directly, its proxy URL field disabled*
 
-- Every row in **Settings → LLM Providers**, codex included, carries an **Ignore system proxy** switch above the **Proxy URL** field (**`ProviderProxyField`**). Both edit **`providers[].proxy`**, the route of every request of the row: its completions, its model list, its account usage and its sign-in ([Provider proxy](../getting-started/configuration.md#provider-proxy)).
+- Every row in **Settings → LLM Providers**, codex included, carries an **Ignore system proxy** switch above the **Proxy URL** field (**`ProxySettingField`**). Both edit **`providers[].proxy`**, the route of every request of the row: its completions, its model list, its account usage and its sign-in ([Provider proxy](../getting-started/configuration.md#provider-proxy)). The Telegram bot's **`gateways.telegram.proxy`** reads the same way and has the same pair in **Settings → System**, under the gateways block ([Telegram gateway](gateway.md#proxy)).
 - The switch writes **`none`**: the row connects directly and ignores **`HTTPS_PROXY`**, **`HTTP_PROXY`** and **`NO_PROXY`** of the Coddy process. While it is on, the URL field is disabled and reads **Direct connection**.
 - With the switch off, a URL in the field sends every request of the row through that proxy, and an empty field (or a stored **`inherit`**) reads **Follows the system proxy**, the default route.
 - Turning the switch off brings back what the row held before it went on, for as long as the form is open. The document keeps one value, so after **Save** a row set to **`none`** no longer remembers the URL it replaced.

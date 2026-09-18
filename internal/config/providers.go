@@ -42,7 +42,7 @@ type ProviderConfig struct {
 	// Proxy is how every request of this provider is routed: empty or
 	// "inherit" follows the environment's proxy (HTTPS_PROXY, HTTP_PROXY,
 	// NO_PROXY), "none" connects directly, and an http, https, socks5 or
-	// socks5h URL goes through that proxy. See ParseProviderProxy.
+	// socks5h URL goes through that proxy. See ParseProxySetting.
 	Proxy string `yaml:"proxy"`
 	// TimeoutMS, when positive, bounds each LLM HTTP request to this provider,
 	// including the streamed body read. 0 (the default) sets no client timeout,
@@ -157,7 +157,7 @@ func (p *ProviderConfig) Normalize() {
 	p.APIBase = strings.TrimSpace(p.APIBase)
 	p.APIKey = strings.TrimSpace(p.APIKey)
 	p.APIKeyCommand = strings.TrimSpace(p.APIKeyCommand)
-	p.Proxy = normalizeProviderProxy(p.Proxy)
+	p.Proxy = normalizeProxySetting(p.Proxy)
 }
 
 // Validate checks a single provider after Normalize.
@@ -174,7 +174,7 @@ func (p *ProviderConfig) Validate() error {
 	if _, ok := AllowedLLMProviderTypes[p.Type]; !ok {
 		return fmt.Errorf("providers[%s]: unsupported type %q", p.Name, p.Type)
 	}
-	if err := validateProviderProxy(p.Proxy); err != nil {
+	if err := validateProxySetting(p.Proxy); err != nil {
 		// The message opens with "proxy:", so the path it names is the key
 		// itself and coddy -t points at that line with the key's own doc.
 		return fmt.Errorf("providers[%s].%w", p.Name, err)

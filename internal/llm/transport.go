@@ -236,19 +236,19 @@ func EnvironmentProxyFor(target *url.URL) (*url.URL, error) {
 }
 
 // providerTransport returns the shared transport for a providers[].proxy
-// setting, read by config.ParseProviderProxy: empty and "inherit" share the
+// setting, read by config.ParseProxySetting: empty and "inherit" share the
 // one that follows the environment's proxy, "none" has one that connects
 // directly, and every proxy URL one of its own.
 func providerTransport(setting string) (http.RoundTripper, error) {
-	mode, proxyURL, err := config.ParseProviderProxy(setting)
+	mode, proxyURL, err := config.ParseProxySetting(setting)
 	if err != nil {
 		return nil, err
 	}
 	var key string
 	switch mode {
-	case config.ProviderProxyModeNone:
-		key = config.ProviderProxyNone
-	case config.ProviderProxyModeURL:
+	case config.ProxyModeNone:
+		key = config.ProxyNone
+	case config.ProxyModeURL:
 		key = proxyURL.String()
 	}
 	transportsMu.Lock()
@@ -264,19 +264,19 @@ func providerTransport(setting string) (http.RoundTripper, error) {
 	return t, nil
 }
 
-func newProviderTransport(mode config.ProviderProxyMode, proxyURL *url.URL) (*http.Transport, error) {
+func newProviderTransport(mode config.ProxyMode, proxyURL *url.URL) (*http.Transport, error) {
 	base, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
 		return nil, fmt.Errorf("default transport is not *http.Transport")
 	}
 	t := base.Clone()
 	switch mode {
-	case config.ProviderProxyModeInherit:
+	case config.ProxyModeInherit:
 		t.Proxy = proxyFromEnvironment
-	case config.ProviderProxyModeNone:
+	case config.ProxyModeNone:
 		// No Proxy function at all: nothing in the environment is read.
 		t.Proxy = nil
-	case config.ProviderProxyModeURL:
+	case config.ProxyModeURL:
 		if err := routeThroughProxy(t, proxyURL); err != nil {
 			return nil, err
 		}

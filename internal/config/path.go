@@ -545,7 +545,7 @@ func publicConfigValue(path []string, value string) bool {
 		return false
 	}
 	v := strings.TrimSpace(value)
-	return v == "" || strings.EqualFold(v, ProviderProxyInherit) || strings.EqualFold(v, ProviderProxyNone)
+	return v == "" || strings.EqualFold(v, ProxyInherit) || strings.EqualFold(v, ProxyNone)
 }
 
 // publicConfigScalar is publicConfigValue for a document node.

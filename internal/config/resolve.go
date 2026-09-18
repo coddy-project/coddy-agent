@@ -14,7 +14,7 @@ type ResolvedLLM struct {
 	APIKey       string
 	BaseURL      string
 	// ProxyURL is providers[].proxy as written: a keyword (inherit, none) or
-	// a proxy URL; see ParseProviderProxy.
+	// a proxy URL; see ParseProxySetting.
 	ProxyURL    string
 	AuthPath    string
 	MaxTokens   int

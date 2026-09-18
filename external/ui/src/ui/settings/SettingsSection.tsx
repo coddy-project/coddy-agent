@@ -4,7 +4,7 @@ import { CodexAuthField } from "./CodexAuthField";
 import { NeuralDeepAuthField } from "./NeuralDeepAuthField";
 import { ModelField } from "./ModelField";
 import { ModelPicker } from "./ModelPicker";
-import { ProviderProxyField } from "./ProviderProxyField";
+import { ProxySettingField } from "./ProxySettingField";
 import { ReasoningLevelsField } from "./ReasoningLevelsField";
 import {
   defaultForSchema,
@@ -159,7 +159,7 @@ function neuralDeepAPIBaseOverride(ctx: FieldOverrideContext) {
 // sign-in and its requests take the row's route like any other.
 function providerProxyOverride(ctx: FieldOverrideContext) {
   return (
-    <ProviderProxyField
+    <ProxySettingField
       value={ctx.value}
       onChange={ctx.onChange}
       label={schemaFieldLabel("providers", "proxy", ctx.schema.title, "proxy")}
@@ -168,6 +168,32 @@ function providerProxyOverride(ctx: FieldOverrideContext) {
         "proxy",
         ctx.schema.description,
       )}
+    />
+  );
+}
+
+// The Telegram bot's proxy reads like a provider's, so it gets the same
+// switch and URL field (System tab, gateways block).
+function gatewaysFieldOverride(ctx: FieldOverrideContext) {
+  if (ctx.path !== "telegram.proxy") {
+    return null;
+  }
+  return (
+    <ProxySettingField
+      value={ctx.value}
+      onChange={ctx.onChange}
+      label={schemaFieldLabel(
+        "system.gateways",
+        "telegram.proxy",
+        ctx.schema.title,
+        "proxy",
+      )}
+      description={schemaFieldDesc(
+        "system.gateways",
+        "telegram.proxy",
+        ctx.schema.description,
+      )}
+      switchDescriptionKey="settings.gatewayProxy.ignoreSystemDesc"
     />
   );
 }
@@ -439,6 +465,9 @@ export function SettingsSection(props: {
                 schema={sub}
                 value={asObject(doc[ck])}
                 onChange={(v) => setKey(ck, v)}
+                fieldOverride={
+                  ck === "gateways" ? gatewaysFieldOverride : undefined
+                }
                 i18nDomain={`system.${ck}`}
               />
             </div>

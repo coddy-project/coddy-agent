@@ -67,7 +67,7 @@ The active YAML file covers these areas (full field tables: https://coddy.dev/do
 - `httpserver` - OpenAI-compatible HTTP API: `enable` (omitted means true), bind address (empty means 127.0.0.1), auth token, `login` (the optional web UI sign-in: `enable`, `user`, `password_hash`, `session_ttl_hours` - write it with `coddy serve set-password`, never by hand, and never a plaintext password), CORS, UI (tag `http`);
 - `swarm` - relay that nodes register into and that chains into other relays: `enable`, bind address, client and pairing tokens, TLS, upstreams, and the `join` list this process registers itself into (tag `swarm`; `join` is honoured whether or not this process relays);
 - `scheduler` - cron scheduler: `enable`, job directory (`dir`), `max_queue` (runs in flight across all jobs), `timeout` (one run's wall-clock limit) and `retain_sessions` (finished runs kept per job, with their transcripts). A run is a background agent task under the job's own session; a job file may also name a subagent definition (`agent`) and a `permission_mode` (tag `scheduler`);
-- `gateways` - messenger bots such as Telegram: `gateways.telegram.enable`, token, access control (tag `gateway`).
+- `gateways` - messenger bots such as Telegram: `gateways.telegram.enable`, token, access control, and `proxy`, read like a provider's (`inherit` follows `HTTPS_PROXY`, `none` connects directly, or a URL) (tag `gateway`).
 
 These four are the subsystems `coddy serve` runs. Each is governed by its own
 `enable`, and one process runs every one that is on, sharing a single session

@@ -496,9 +496,11 @@ export const messagesEn: Record<string, string> = {
     "Rich messages",
   "settings.schema.system.gateways.telegram.rich_messages.desc":
     "Use Bot API 10.1 Rich Messages: the agent's native Markdown renders verbatim, tool activity streams as a Thinking placeholder, and executed tools show in a collapsible block. Falls back to legacy formatting if unsupported.",
-  "settings.schema.system.gateways.telegram.proxy.label": "Proxy",
+  "settings.schema.system.gateways.telegram.proxy.label": "Proxy URL",
   "settings.schema.system.gateways.telegram.proxy.desc":
-    "Optional outbound proxy for Telegram API requests. Use http, https, socks5, or socks5h.",
+    "Optional proxy for the Bot API requests: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5 (with SOCKS the proxy resolves host names). A URL here replaces the system proxy for the bot. Left empty, the bot follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).",
+  "settings.gatewayProxy.ignoreSystemDesc":
+    "Connect directly: the bot's requests ignore HTTPS_PROXY, HTTP_PROXY and NO_PROXY of the Coddy process. Saved as proxy: none, in place of a proxy URL.",
   "settings.schema.system.gateways.telegram.admins.label": "Admins",
   "settings.schema.system.gateways.telegram.admins.desc":
     "Telegram user IDs with elevated rights; admins always pass access checks.",

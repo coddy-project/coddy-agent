@@ -136,7 +136,8 @@ func validateSubconfigs(cfg *Config) error {
 	cfg.HTTPServer.Normalize()
 	cfg.Gateways.Telegram.Normalize()
 	if err := cfg.Gateways.Telegram.Validate(); err != nil {
-		return fmt.Errorf("gateways.telegram: %w", err)
+		// The error already names its key under gateways.telegram.
+		return err
 	}
 	if err := cfg.HTTPServer.Validate(); err != nil {
 		return fmt.Errorf("httpserver: %w", err)

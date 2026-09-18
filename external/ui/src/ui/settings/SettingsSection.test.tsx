@@ -10,6 +10,8 @@ import {
 import { SettingsSection } from "./SettingsSection";
 import type { JsonSchema } from "./SchemaForm";
 import type { SectionDescriptor } from "./settingsSections";
+import { messagesEn } from "../i18n/messages/en";
+import { messagesRu } from "../i18n/messages/ru";
 
 afterEach(() => {
   cleanup();
@@ -1053,4 +1055,111 @@ test("renaming the provider while it connects directly keeps the URL the switch 
   });
   fireEvent.click(screen.getByRole("switch", { name: "Ignore system proxy" }));
   expect(firstProxy(doc)).toBe("http://a:3128");
+});
+
+const systemSection: SectionDescriptor = {
+  id: "system",
+  label: "System",
+  kind: "group",
+  childKeys: ["gateways"],
+};
+
+const gatewaysRootSchema: JsonSchema = {
+  type: "object",
+  properties: {
+    gateways: {
+      type: "object",
+      title: "Messenger gateways",
+      properties: {
+        telegram: {
+          type: "object",
+          title: "Telegram",
+          properties: {
+            enable: { type: "boolean", title: "Enabled" },
+            token: { type: "string", title: "Bot token" },
+            proxy: { type: "string", title: "Proxy" },
+          },
+          "x-coddy-property-order": ["enable", "token", "proxy"],
+        },
+      },
+    },
+  },
+} as unknown as JsonSchema;
+
+function GatewaysHarness(props: {
+  proxy?: string;
+  onDoc: (doc: Record<string, unknown>) => void;
+}) {
+  const [doc, setDoc] = React.useState<Record<string, unknown>>({
+    gateways: {
+      telegram: {
+        enable: true,
+        token: "123:abc",
+        ...(props.proxy === undefined ? {} : { proxy: props.proxy }),
+      },
+    },
+  });
+  return (
+    <SettingsSection
+      section={systemSection}
+      schema={gatewaysRootSchema}
+      doc={doc}
+      setDoc={(next) => {
+        props.onDoc(next);
+        setDoc(next);
+      }}
+    />
+  );
+}
+
+function telegramProxy(doc: Record<string, unknown>): unknown {
+  const gateways = doc.gateways as Record<string, unknown> | undefined;
+  const telegram = gateways?.telegram as Record<string, unknown> | undefined;
+  return telegram?.proxy;
+}
+
+test("the Telegram proxy has the Ignore system proxy switch too", () => {
+  let doc: Record<string, unknown> = {};
+  render(
+    <GatewaysHarness
+      proxy="socks5h://127.0.0.1:1080"
+      onDoc={(next) => {
+        doc = next;
+      }}
+    />,
+  );
+
+  const direct = screen.getByRole("switch", { name: "Ignore system proxy" });
+  const url = screen.getByLabelText("Proxy URL") as HTMLInputElement;
+  expect(url.value).toBe("socks5h://127.0.0.1:1080");
+
+  fireEvent.click(direct);
+  expect(telegramProxy(doc)).toBe("none");
+  expect(url).toBeDisabled();
+  expect(document.body.textContent).toContain("the bot's requests ignore");
+
+  fireEvent.click(direct);
+  expect(telegramProxy(doc)).toBe("socks5h://127.0.0.1:1080");
+});
+
+test("the proxy copy says an empty value follows the system proxy, in every language", () => {
+  // Sentence by sentence: the one about an empty field names HTTPS_PROXY
+  // and never promises a direct connection.
+  for (const [messages, empty, direct] of [
+    [messagesEn, /empty/i, /direct/i],
+    [messagesRu, /пуст/i, /прям/i],
+  ] as const) {
+    for (const key of [
+      "settings.schema.providers.proxy.desc",
+      "settings.schema.system.gateways.telegram.proxy.desc",
+    ]) {
+      const sentences = (messages[key] ?? "").split(/[.;]/);
+      const aboutEmpty = sentences.filter((s) => empty.test(s));
+      expect(aboutEmpty.length, key).toBeGreaterThan(0);
+      for (const sentence of aboutEmpty) {
+        expect(sentence, key).toContain("HTTPS_PROXY");
+        expect(sentence, key).not.toMatch(direct);
+      }
+    }
+  }
 });

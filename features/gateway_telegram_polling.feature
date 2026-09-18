@@ -55,3 +55,20 @@ Feature: The Telegram bot polls a Bot API server
     When the bot is started
     And the bot is stopped
     Then Start returned without error
+
+  Scenario: A bot set to connect directly reaches the Bot API
+    gateways.telegram.proxy takes the words a provider's proxy takes, none
+    included, and the bot still starts and polls with it. That none goes past
+    HTTPS_PROXY while no value follows it is pinned against the real
+    variables by the proxyutil tests: a stand-in on loopback is never
+    proxied, so no scenario here can tell the two routes apart.
+
+    Given the gateway's proxy is "none"
+    When the bot is started
+    Then the Bot API received "getMe"
+
+  Scenario: A bot with a proxy of its own reaches the Bot API through it
+    Given the gateway has a proxy of its own
+    When the bot is started
+    Then the Bot API received "getMe"
+    And the gateway's proxy carried the call to "getMe"

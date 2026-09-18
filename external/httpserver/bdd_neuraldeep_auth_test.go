@@ -26,6 +26,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/proxytest"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -40,7 +41,7 @@ type neuralDeepBDDState struct {
 	hubMirror *httptest.Server
 	api       *httptest.Server
 	// proxy is the provider row's own proxy, when the scenario names one.
-	proxy *forwardingProxy
+	proxy *proxytest.Proxy
 	server    *Server
 	ts        *httptest.Server
 	loginID   string
@@ -149,7 +150,7 @@ func (s *neuralDeepBDDState) close() {
 		s.ts = nil
 	}
 	if s.proxy != nil {
-		s.proxy.close()
+		s.proxy.Close()
 		s.proxy = nil
 	}
 	if s.server != nil {
@@ -328,8 +329,8 @@ func (s *neuralDeepBDDState) startServerWithProvider() error {
 }
 
 func (s *neuralDeepBDDState) startServerWithProxiedProvider() error {
-	s.proxy = newForwardingProxy()
-	return s.startServerWith(config.ProviderConfig{Name: "neuraldeep", Type: "neuraldeep", Proxy: s.proxy.srv.URL})
+	s.proxy = proxytest.New()
+	return s.startServerWith(config.ProviderConfig{Name: "neuraldeep", Type: "neuraldeep", Proxy: s.proxy.URL()})
 }
 
 func (s *neuralDeepBDDState) startServerWith(prov config.ProviderConfig) error {
@@ -350,63 +351,8 @@ func (s *neuralDeepBDDState) startServerWith(prov config.ProviderConfig) error {
 	return nil
 }
 
-// forwardingProxy is a plain HTTP proxy for a provider row that names one:
-// it relays every absolute-form request to its target directly and records
-// the paths it carried.
-type forwardingProxy struct {
-	srv    *httptest.Server
-	direct *http.Transport
-	mu     sync.Mutex
-	paths  []string
-}
-
-func newForwardingProxy() *forwardingProxy {
-	p := &forwardingProxy{direct: &http.Transport{}}
-	p.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !r.URL.IsAbs() {
-			http.Error(w, "not a proxy request", http.StatusBadRequest)
-			return
-		}
-		p.mu.Lock()
-		p.paths = append(p.paths, r.URL.Path)
-		p.mu.Unlock()
-		out, err := http.NewRequestWithContext(r.Context(), r.Method, r.URL.String(), r.Body)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		out.Header = r.Header.Clone()
-		out.ContentLength = r.ContentLength
-		resp, err := p.direct.RoundTrip(out)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		defer func() { _ = resp.Body.Close() }()
-		for k, vs := range resp.Header {
-			for _, v := range vs {
-				w.Header().Add(k, v)
-			}
-		}
-		w.WriteHeader(resp.StatusCode)
-		_, _ = io.Copy(w, resp.Body)
-	}))
-	return p
-}
-
-func (p *forwardingProxy) carried() []string {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return append([]string(nil), p.paths...)
-}
-
-func (p *forwardingProxy) close() {
-	p.srv.Close()
-	p.direct.CloseIdleConnections()
-}
-
 func (s *neuralDeepBDDState) signInReachedHubThroughProxy() error {
-	carried := s.proxy.carried()
+	carried := s.proxy.Carried()
 	for _, want := range []string{"/api/cli/device/start", "/api/cli/device/token"} {
 		if !slices.Contains(carried, want) {
 			return fmt.Errorf("the proxy did not carry %s; it carried %v", want, carried)

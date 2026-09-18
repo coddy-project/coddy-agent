@@ -111,7 +111,8 @@ func (b *Bot) Name() string { return "telegram" }
 func (b *Bot) Start(ctx context.Context) error {
 	httpClient, err := proxyutil.BuildHTTPClient(b.cfg.Proxy)
 	if err != nil {
-		return fmt.Errorf("telegram: proxy: %w", err)
+		// The error names the proxy itself ("proxy: unknown value; ...").
+		return fmt.Errorf("telegram: %w", err)
 	}
 	token := b.cfg.EffectiveToken()
 	if token == "" {

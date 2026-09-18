@@ -462,7 +462,8 @@ tools:
 #   telegram:
 #     enable: false
 #     token: "${TELEGRAM_BOT_TOKEN}"   # optional: omit to read TELEGRAM_BOT_TOKEN from env/.env
-#     # proxy: "socks5h://127.0.0.1:1080"  # optional outbound proxy (http, https, socks5, socks5h)
+#     # proxy: none                        # inherit (default: HTTPS_PROXY), none (direct), or a URL
+#     # proxy: "socks5h://127.0.0.1:1080"  # http, https, socks5, socks5h
 #     # proxy: "http://proxy.example.com:3128"
 #     rich_messages: true             # Bot API 10.1 Rich Messages: native Markdown, streamed
 #                                     # "Thinking…" while tools run, collapsible tool list.

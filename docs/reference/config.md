@@ -387,7 +387,7 @@ Messenger bot adapters (used only by binaries built with -tags gateway or -tags 
 | `gateways.telegram` | object |  | Telegram bot adapter. |
 | `gateways.telegram.enable` | boolean | false | Poll Telegram in this coddy serve process. |
 | `gateways.telegram.token` | string | "" | Bot token from @BotFather. Leave empty to read the TELEGRAM_BOT_TOKEN environment variable (e.g. via ~/.coddy/.env). |
-| `gateways.telegram.proxy` | string | "" | Optional outbound proxy for Telegram API requests: http, https, socks5, or socks5h URL. |
+| `gateways.telegram.proxy` | string | inherit | inherit (the default, the same as leaving the key out), none, or a proxy URL: http://, https://, socks5:// or socks5h://, read like providers[].proxy. inherit follows the proxy the environment of the Coddy process names - HTTPS_PROXY, HTTP_PROXY and NO_PROXY, never for a loopback address; ALL_PROXY is not read. none connects the bot directly and ignores those variables. A proxy URL sends every Bot API request through that proxy; with SOCKS the proxy resolves host names. |
 | `gateways.telegram.rich_messages` | boolean | false | Use Bot API 10.1 Rich Messages (native Markdown, streamed thinking placeholder, collapsible tool list). Falls back to legacy formatting when unsupported. |
 | `gateways.telegram.admins` | list of integers |  | Telegram user IDs with elevated rights; admins always pass access checks. |
 | `gateways.telegram.default_access` | string | all | Fallback access level for chats without an override: "all", "admins", or "group:<name>". |

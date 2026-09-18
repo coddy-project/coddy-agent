@@ -2,21 +2,21 @@ package llm
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
-	"strings"
 
 	xproxy "golang.org/x/net/proxy"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
 // HTTPClientForProviderProxy returns the client for the requests a provider
 // row makes outside a completion - the model list, the account usage, a
 // sign-in - over the shared transport its completions use, so the row's
 // providers[].proxy applies to every request it makes. The setting is read
-// by config.ParseProviderProxy: empty or "inherit" follows the environment's
+// by config.ParseProxySetting: empty or "inherit" follows the environment's
 // proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY), "none" connects directly, and
 // an http, https, socks5 or socks5h URL goes through that proxy.
 func HTTPClientForProviderProxy(setting string) (*http.Client, error) {
@@ -27,32 +27,29 @@ func HTTPClientForProviderProxy(setting string) (*http.Client, error) {
 	return &http.Client{Transport: rt}, nil
 }
 
-// HTTPClientForOptionalProxy returns a client that sends its requests through
-// the given proxy URL, for a caller that is not a provider row (the
-// dry-run's Telegram probe, whose proxy knows no keywords). An empty
-// proxyURL returns nil, nil, so the caller keeps its default client and with
-// it the environment's proxy. Supported schemes are http, https, socks5 and
-// socks5h.
-func HTTPClientForOptionalProxy(proxyURL string) (*http.Client, error) {
-	proxyURL = strings.TrimSpace(proxyURL)
-	if proxyURL == "" {
-		return nil, nil
-	}
-	u, err := url.Parse(proxyURL)
+// HTTPClientForOptionalProxy returns the client for the proxy setting of a
+// caller that is not a provider row (the dry-run's Telegram probe), read by
+// config.ParseProxySetting like providers[].proxy: an empty value or
+// "inherit" returns nil, nil, so the caller keeps its default client and
+// with it the environment's proxy; "none" returns a client that connects
+// directly; a URL returns a client through that proxy. It builds a transport
+// of its own rather than sharing a provider's.
+func HTTPClientForOptionalProxy(setting string) (*http.Client, error) {
+	mode, u, err := config.ParseProxySetting(setting)
 	if err != nil {
-		// The parse error quotes the URL, and with it any password.
-		var ue *url.Error
-		if errors.As(err, &ue) {
-			err = ue.Err
-		}
-		return nil, fmt.Errorf("proxy url: %w", err)
+		return nil, err
+	}
+	if mode == config.ProxyModeInherit {
+		return nil, nil
 	}
 	base, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
 		return nil, fmt.Errorf("default transport is not *http.Transport")
 	}
 	t := base.Clone()
-	if err := routeThroughProxy(t, u); err != nil {
+	if mode == config.ProxyModeNone {
+		t.Proxy = nil
+	} else if err := routeThroughProxy(t, u); err != nil {
 		return nil, err
 	}
 	return &http.Client{Transport: t}, nil

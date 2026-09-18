@@ -148,7 +148,7 @@ type ProviderInput struct {
 	BaseURL string
 	// ProxyURL is the row's providers[].proxy setting as written: empty or
 	// "inherit" follows the environment's proxy, "none" connects directly,
-	// and a proxy URL goes through that proxy (config.ParseProviderProxy).
+	// and a proxy URL goes through that proxy (config.ParseProxySetting).
 	ProxyURL string
 	// AuthPath is the Coddy-managed OAuth credential file for providers that use
 	// browser sign-in instead of an API key.

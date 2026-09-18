@@ -28,6 +28,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/proxytest"
 )
 
 const (
@@ -39,7 +40,7 @@ const (
 type loginFlowState struct {
 	hub         *httptest.Server
 	hubCalls    atomic.Int32
-	proxy       *forwardingProxy
+	proxy       *proxytest.Proxy
 	home        string
 	stdout      string
 	runErr      error
@@ -89,7 +90,7 @@ func (s *loginFlowState) close() {
 		s.hub = nil
 	}
 	if s.proxy != nil {
-		s.proxy.close()
+		s.proxy.Close()
 		s.proxy = nil
 	}
 	if s.home != "" {
@@ -166,65 +167,9 @@ func (s *loginFlowState) standInHub() error {
 	return os.Setenv(llm.EnvNeuralDeepHubURL, s.hub.URL)
 }
 
-// forwardingProxy is a plain HTTP proxy for a provider row that names one:
-// it relays every absolute-form request to its target directly and records
-// the paths it carried, so a call that went around it shows up as a hub call
-// the proxy never saw.
-type forwardingProxy struct {
-	srv    *httptest.Server
-	direct *http.Transport
-	mu     sync.Mutex
-	paths  []string
-}
-
-func newForwardingProxy() *forwardingProxy {
-	p := &forwardingProxy{direct: &http.Transport{}}
-	p.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !r.URL.IsAbs() {
-			http.Error(w, "not a proxy request", http.StatusBadRequest)
-			return
-		}
-		p.mu.Lock()
-		p.paths = append(p.paths, r.URL.Path)
-		p.mu.Unlock()
-		out, err := http.NewRequestWithContext(r.Context(), r.Method, r.URL.String(), r.Body)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		out.Header = r.Header.Clone()
-		out.ContentLength = r.ContentLength
-		resp, err := p.direct.RoundTrip(out)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		defer func() { _ = resp.Body.Close() }()
-		for k, vs := range resp.Header {
-			for _, v := range vs {
-				w.Header().Add(k, v)
-			}
-		}
-		w.WriteHeader(resp.StatusCode)
-		_, _ = io.Copy(w, resp.Body)
-	}))
-	return p
-}
-
-func (p *forwardingProxy) carried() []string {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return append([]string(nil), p.paths...)
-}
-
-func (p *forwardingProxy) close() {
-	p.srv.Close()
-	p.direct.CloseIdleConnections()
-}
-
 func (s *loginFlowState) providerNamesAProxy() error {
-	s.proxy = newForwardingProxy()
-	body := "providers:\n  - name: neuraldeep\n    type: neuraldeep\n    proxy: " + s.proxy.srv.URL + "\n"
+	s.proxy = proxytest.New()
+	body := "providers:\n  - name: neuraldeep\n    type: neuraldeep\n    proxy: " + s.proxy.URL() + "\n"
 	return os.WriteFile(filepath.Join(s.home, "config.yaml"), []byte(body), 0o644)
 }
 
@@ -232,7 +177,7 @@ func (s *loginFlowState) everyHubCallWentThroughTheProxy() error {
 	if s.runErr != nil {
 		return fmt.Errorf("sign-in failed: %w", s.runErr)
 	}
-	carried := s.proxy.carried()
+	carried := s.proxy.Carried()
 	for _, want := range []string{"/api/cli/device/start", "/api/cli/device/token", "/api/cli/whoami", "/api/cli/status"} {
 		if !slices.Contains(carried, want) {
 			return fmt.Errorf("the proxy did not carry %s; it carried %v", want, carried)

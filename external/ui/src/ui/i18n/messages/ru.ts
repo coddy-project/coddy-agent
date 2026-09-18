@@ -500,9 +500,11 @@ export const messagesRu: Record<string, string> = {
     "Rich messages",
   "settings.schema.system.gateways.telegram.rich_messages.desc":
     "Использовать Rich Messages Bot API 10.1: встроенный Markdown агента рендерится дословно, активность инструментов стримится как плейсхолдер Thinking, а выполненные инструменты показываются сворачиваемым блоком. При отсутствии поддержки откатывается к прежнему форматированию.",
-  "settings.schema.system.gateways.telegram.proxy.label": "Прокси",
+  "settings.schema.system.gateways.telegram.proxy.label": "URL прокси",
   "settings.schema.system.gateways.telegram.proxy.desc":
-    "Необязательный исходящий прокси для запросов к Telegram API. http, https, socks5 или socks5h.",
+    "Необязательный прокси для запросов к Bot API. Для HTTP-прокси подходят http:// и https://, для SOCKS5 подходят socks5:// и socks5h://, в обоих случаях имена хостов разрешает сам прокси. Указанный URL заменяет системный прокси для бота. Пока поле пустое, бот ходит через системный прокси (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).",
+  "settings.gatewayProxy.ignoreSystemDesc":
+    "Подключаться напрямую. Запросы бота не учитывают HTTPS_PROXY, HTTP_PROXY и NO_PROXY процесса Coddy. В конфиге сохраняется значение none вместо URL прокси.",
   "settings.schema.system.gateways.telegram.admins.label": "Администраторы",
   "settings.schema.system.gateways.telegram.admins.desc":
     "Идентификаторы пользователей Telegram с расширенными правами; администраторы всегда проходят проверку доступа.",

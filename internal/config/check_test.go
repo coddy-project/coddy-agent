@@ -146,6 +146,22 @@ func TestCheckProviderProxyWordPointsAtTheKey(t *testing.T) {
 	}
 }
 
+// TestCheckTelegramProxyWordPointsAtTheKey is the same for the Telegram
+// gateway, whose proxy reads like a provider's.
+func TestCheckTelegramProxyWordPointsAtTheKey(t *testing.T) {
+	rep := checkYAML(t, withModeline("gateways:\n  telegram:\n    enable: true\n    proxy: direct\n"))
+	f := onlyError(t, rep)
+	if f.Line != 5 || f.Column != 12 {
+		t.Errorf("position %d:%d, want 5:12", f.Line, f.Column)
+	}
+	if !strings.HasPrefix(f.Message, "gateways.telegram.proxy: unknown value") {
+		t.Errorf("message %q does not open with the key", f.Message)
+	}
+	if !strings.HasPrefix(f.Doc, "inherit (the default") {
+		t.Errorf("doc %q is not the description of gateways.telegram.proxy", f.Doc)
+	}
+}
+
 func TestCheckEnumSuggestsTheClosestValue(t *testing.T) {
 	rep := checkYAML(t, withModeline("tools:\n  permission_mode: bypas\n"))
 	f := onlyError(t, rep)

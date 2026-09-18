@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -137,24 +138,24 @@ func TestProviderConfigValidateProxy(t *testing.T) {
 	}
 }
 
-func TestParseProviderProxy(t *testing.T) {
+func TestParseProxySetting(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		in      string
-		mode    config.ProviderProxyMode
+		mode    config.ProxyMode
 		url     string
 		errHas  string
 		errMiss string
 	}{
-		{in: "", mode: config.ProviderProxyModeInherit},
-		{in: "  ", mode: config.ProviderProxyModeInherit},
-		{in: "inherit", mode: config.ProviderProxyModeInherit},
-		{in: "INHERIT", mode: config.ProviderProxyModeInherit},
-		{in: "none", mode: config.ProviderProxyModeNone},
-		{in: " None ", mode: config.ProviderProxyModeNone},
-		{in: "http://127.0.0.1:3128", mode: config.ProviderProxyModeURL, url: "http://127.0.0.1:3128"},
-		{in: "HTTPS://Proxy.Example:8443", mode: config.ProviderProxyModeURL, url: "https://Proxy.Example:8443"},
-		{in: "socks5h://u:p@127.0.0.1:1080", mode: config.ProviderProxyModeURL, url: "socks5h://u:p@127.0.0.1:1080"},
+		{in: "", mode: config.ProxyModeInherit},
+		{in: "  ", mode: config.ProxyModeInherit},
+		{in: "inherit", mode: config.ProxyModeInherit},
+		{in: "INHERIT", mode: config.ProxyModeInherit},
+		{in: "none", mode: config.ProxyModeNone},
+		{in: " None ", mode: config.ProxyModeNone},
+		{in: "http://127.0.0.1:3128", mode: config.ProxyModeURL, url: "http://127.0.0.1:3128"},
+		{in: "HTTPS://Proxy.Example:8443", mode: config.ProxyModeURL, url: "https://Proxy.Example:8443"},
+		{in: "socks5h://u:p@127.0.0.1:1080", mode: config.ProxyModeURL, url: "socks5h://u:p@127.0.0.1:1080"},
 		// The word an http_request call uses for the same thing is named in
 		// the error, so the operator finds the provider spelling.
 		{in: "direct", errHas: `use "none"`},
@@ -167,10 +168,10 @@ func TestParseProviderProxy(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {
 			t.Parallel()
-			mode, u, err := config.ParseProviderProxy(tt.in)
+			mode, u, err := config.ParseProxySetting(tt.in)
 			if tt.errHas != "" {
 				if err == nil {
-					t.Fatalf("ParseProviderProxy(%q) = %v, %v, want an error", tt.in, mode, u)
+					t.Fatalf("ParseProxySetting(%q) = %v, %v, want an error", tt.in, mode, u)
 				}
 				if !strings.Contains(err.Error(), tt.errHas) {
 					t.Fatalf("error %q does not say %q", err, tt.errHas)
@@ -181,7 +182,7 @@ func TestParseProviderProxy(t *testing.T) {
 				return
 			}
 			if err != nil {
-				t.Fatalf("ParseProviderProxy(%q): %v", tt.in, err)
+				t.Fatalf("ParseProxySetting(%q): %v", tt.in, err)
 			}
 			if mode != tt.mode {
 				t.Fatalf("mode = %v, want %v", mode, tt.mode)
@@ -248,4 +249,113 @@ func TestProviderProxyKeywordSurvivesSettingsSave(t *testing.T) {
 	if got := reloaded.FindProvider("corp").Proxy; got != "inherit" {
 		t.Errorf("corp proxy after the save = %q, want inherit\n%s", got, yb)
 	}
+}
+
+// TestTelegramGatewayProxyTakesTheProviderWords covers gateways.telegram.proxy,
+// which reads its value the way providers[].proxy does: inherit and none in
+// any case, written back in lower case, or a proxy URL; anything else is an
+// error at the key that names the accepted words.
+func TestTelegramGatewayProxyTakesTheProviderWords(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		in, want, errHas string
+	}{
+		{in: "", want: ""},
+		{in: "inherit", want: "inherit"},
+		{in: " NONE ", want: "none"},
+		{in: "socks5h://User:Pass@127.0.0.1:1080", want: "socks5h://User:Pass@127.0.0.1:1080"},
+		{in: "direct", errHas: `gateways.telegram.proxy: unknown value; use "none"`},
+		{in: "ftp://127.0.0.1:21", errHas: "gateways.telegram.proxy: unsupported scheme"},
+	} {
+		c := config.TelegramGatewayConfig{Enabled: true, Proxy: tc.in}
+		c.Normalize()
+		err := c.Validate()
+		if tc.errHas != "" {
+			if err == nil || !strings.Contains(err.Error(), tc.errHas) {
+				t.Errorf("proxy %q: err = %v, want one containing %q", tc.in, err, tc.errHas)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("proxy %q: %v", tc.in, err)
+		}
+		if c.Proxy != tc.want {
+			t.Errorf("proxy %q normalized to %q, want %q", tc.in, c.Proxy, tc.want)
+		}
+	}
+}
+
+// TestProxyDescriptionsSayWhatAnEmptyValueDoes is the regression for the
+// Telegram proxy described as "empty = direct connection": an empty proxy
+// setting follows the environment's proxy, and every description of one -
+// the JSON schema that feeds coddy -t, editors and the generated reference
+// page, and the settings form schema - has to say so and name the way to go
+// direct. Read sentence by sentence: the one about an empty value or
+// inherit follows HTTPS_PROXY and never goes direct, and the one about none
+// does.
+func TestProxyDescriptionsSayWhatAnEmptyValueDoes(t *testing.T) {
+	t.Parallel()
+	var doc map[string]any
+	if err := json.Unmarshal(config.ConfigSchemaJSON(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	ui := config.UISchemaMap()
+	for _, tc := range []struct {
+		where string
+		node  map[string]any
+	}{
+		{"config.schema.json providers[].proxy", schemaAt(t, doc, "properties", "providers", "items", "properties", "proxy")},
+		{"config.schema.json gateways.telegram.proxy", schemaAt(t, doc, "properties", "gateways", "properties", "telegram", "properties", "proxy")},
+		{"settings schema providers[].proxy", schemaAt(t, ui, "properties", "providers", "items", "properties", "proxy")},
+		{"settings schema gateways.telegram.proxy", schemaAt(t, ui, "properties", "gateways", "properties", "telegram", "properties", "proxy")},
+	} {
+		desc, _ := tc.node["description"].(string)
+		var saysFollows, saysNoneDirect bool
+		for _, sentence := range descriptionSentences(desc) {
+			low := strings.ToLower(sentence)
+			aboutEmpty := strings.Contains(low, "empty") || strings.Contains(low, "inherit follows")
+			if aboutEmpty && strings.Contains(low, "direct") {
+				t.Errorf("%s says an empty value goes direct: %q", tc.where, sentence)
+			}
+			if aboutEmpty && strings.Contains(low, "follows") && strings.Contains(sentence, "HTTPS_PROXY") {
+				saysFollows = true
+			}
+			if strings.Contains(low, "none connects") && strings.Contains(low, "direct") {
+				saysNoneDirect = true
+			}
+		}
+		if !saysFollows {
+			t.Errorf("%s does not say an empty value follows HTTPS_PROXY: %q", tc.where, desc)
+		}
+		if !saysNoneDirect {
+			t.Errorf("%s does not say none connects directly: %q", tc.where, desc)
+		}
+	}
+	for _, path := range [][]string{
+		{"properties", "providers", "items", "properties", "proxy"},
+		{"properties", "gateways", "properties", "telegram", "properties", "proxy"},
+	} {
+		if got := schemaAt(t, doc, path...)["default"]; got != "inherit" {
+			t.Errorf("config.schema.json %v default = %v, want inherit", path, got)
+		}
+	}
+}
+
+// descriptionSentences splits a description at the ends of its sentences and
+// clauses.
+func descriptionSentences(desc string) []string {
+	return strings.FieldsFunc(desc, func(r rune) bool { return r == '.' || r == ';' })
+}
+
+// schemaAt walks nested schema maps by key.
+func schemaAt(t *testing.T, node map[string]any, keys ...string) map[string]any {
+	t.Helper()
+	for _, k := range keys {
+		next, ok := node[k].(map[string]any)
+		if !ok {
+			t.Fatalf("schema has no %q object on the way to %v", k, keys)
+		}
+		node = next
+	}
+	return node
 }

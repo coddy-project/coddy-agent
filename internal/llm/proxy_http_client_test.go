@@ -15,6 +15,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/proxytest"
 )
 
 func TestHTTPClientForProviderProxy(t *testing.T) {
@@ -63,23 +65,34 @@ func TestHTTPClientForProviderProxy(t *testing.T) {
 	})
 }
 
-// TestHTTPClientForOptionalProxy covers the URL-only helper callers other
-// than a provider row use: no keywords, nil for an empty value.
+// TestHTTPClientForOptionalProxy covers the helper callers other than a
+// provider row use: nil for the environment's proxy, a direct client for
+// none, a proxied one for a URL, each on a transport of its own.
 func TestHTTPClientForOptionalProxy(t *testing.T) {
 	t.Parallel()
-	for _, empty := range []string{"", "  \t  "} {
-		c, err := HTTPClientForOptionalProxy(empty)
+	for _, inherit := range []string{"", "  \t  ", "inherit", "INHERIT"} {
+		c, err := HTTPClientForOptionalProxy(inherit)
 		if err != nil || c != nil {
-			t.Fatalf("HTTPClientForOptionalProxy(%q) = %v, %v, want nil, nil", empty, c, err)
+			t.Fatalf("HTTPClientForOptionalProxy(%q) = %v, %v, want nil, nil", inherit, c, err)
 		}
 	}
-	for _, bad := range []string{"http://%zz", "ftp://127.0.0.1:21", "none"} {
+	for _, bad := range []string{"http://%zz", "ftp://127.0.0.1:21", "direct"} {
 		if _, err := HTTPClientForOptionalProxy(bad); err == nil {
 			t.Fatalf("HTTPClientForOptionalProxy(%q) accepted it", bad)
 		}
 	}
 	if _, err := HTTPClientForOptionalProxy("http://user:s3cret@proxy:%zz"); err == nil || strings.Contains(err.Error(), "s3cret") {
 		t.Fatalf("a URL that does not parse: err = %v, want an error without the password", err)
+	}
+	direct, err := HTTPClientForOptionalProxy("none")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr, ok := direct.Transport.(*http.Transport); !ok || tr.Proxy != nil {
+		t.Fatalf("none gives transport %T with a proxy function, want a direct one", direct.Transport)
+	}
+	if shared, _ := providerTransport("none"); direct.Transport == shared {
+		t.Fatal("none shares a provider's transport")
 	}
 	for _, ok := range []string{"http://127.0.0.1:3128", "socks5://127.0.0.1:1080"} {
 		c, err := HTTPClientForOptionalProxy(ok)
@@ -170,6 +183,10 @@ const (
 	providerProxyChildEnv     = "CODDY_TEST_PROVIDER_PROXY_CHILD"
 	providerProxyChildTarget  = "CODDY_TEST_PROVIDER_PROXY_TARGET"
 	providerProxyChildSetting = "CODDY_TEST_PROVIDER_PROXY_SETTING"
+	// providerProxyChildClient picks the client the child asks with: empty
+	// for a provider row's (ListModels), "optional" for the helper callers
+	// other than a provider row use (the dry-run's Telegram probe).
+	providerProxyChildClient = "CODDY_TEST_PROVIDER_PROXY_CLIENT"
 )
 
 // TestProviderProxyFollowsTheProcessEnvironment runs a model list in a child
@@ -219,22 +236,25 @@ func TestProviderProxyFollowsTheProcessEnvironment(t *testing.T) {
 	target := "http://0.0.0.0:" + port + "/v1"
 
 	for _, tc := range []struct {
-		name, setting, noProxy string
-		proxied, direct        int32
+		name, client, setting, noProxy string
+		proxied, direct                int32
 	}{
 		{name: "unset follows HTTP_PROXY", proxied: 1},
 		{name: "inherit follows HTTP_PROXY", setting: "inherit", proxied: 1},
 		{name: "inherit honours NO_PROXY", setting: "inherit", noProxy: "0.0.0.0", direct: 1},
 		{name: "none ignores HTTP_PROXY", setting: "none", direct: 1},
+		{name: "the optional helper follows HTTP_PROXY when unset", client: "optional", proxied: 1},
+		{name: "the optional helper ignores HTTP_PROXY with none", client: "optional", setting: "none", direct: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			direct.Store(0)
 			proxied.Store(0)
 			cmd := exec.Command(os.Args[0], "-test.run=^TestProviderProxyFollowsTheProcessEnvironment$", "-test.count=1")
-			cmd.Env = append(withoutProxyVariables(os.Environ()),
+			cmd.Env = append(proxytest.WithoutProxyVariables(os.Environ()),
 				providerProxyChildEnv+"=1",
 				providerProxyChildTarget+"="+target,
 				providerProxyChildSetting+"="+tc.setting,
+				providerProxyChildClient+"="+tc.client,
 				"HTTP_PROXY="+envProxy.URL,
 				"HTTPS_PROXY="+envProxy.URL,
 				"NO_PROXY="+tc.noProxy,
@@ -252,38 +272,50 @@ func TestProviderProxyFollowsTheProcessEnvironment(t *testing.T) {
 	}
 }
 
-// withoutProxyVariables drops the proxy variables of the parent's
-// environment, in either case, so the child sees only the ones the test sets.
-func withoutProxyVariables(env []string) []string {
-	out := make([]string, 0, len(env))
-	for _, kv := range env {
-		name, _, _ := strings.Cut(kv, "=")
-		switch strings.ToUpper(name) {
-		case "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "REQUEST_METHOD":
-			continue
-		}
-		out = append(out, kv)
-	}
-	return out
-}
-
-// providerProxyChild is the child side: one model list with the setting the
-// parent chose, then exit with its outcome.
+// providerProxyChild is the child side: one request with the setting and
+// the client the parent chose, then exit with its outcome.
 func providerProxyChild() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	listed, err := ListModels(ctx, ProviderInput{
-		Type:     "openai",
-		APIKey:   "k",
-		BaseURL:  os.Getenv(providerProxyChildTarget),
-		ProxyURL: os.Getenv(providerProxyChildSetting),
-	})
-	if err == nil && (len(listed) != 1 || listed[0].ID != "m") {
-		err = fmt.Errorf("model list = %+v, want the one model m", listed)
+	target, setting := os.Getenv(providerProxyChildTarget), os.Getenv(providerProxyChildSetting)
+	var err error
+	if os.Getenv(providerProxyChildClient) == "optional" {
+		err = optionalClientGet(ctx, setting, target+"/models")
+	} else {
+		var listed []ModelEntry
+		listed, err = ListModels(ctx, ProviderInput{Type: "openai", APIKey: "k", BaseURL: target, ProxyURL: setting})
+		if err == nil && (len(listed) != 1 || listed[0].ID != "m") {
+			err = fmt.Errorf("model list = %+v, want the one model m", listed)
+		}
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 	os.Exit(0)
+}
+
+// optionalClientGet asks url the way the dry-run's Telegram probe does: the
+// helper's client, or a default one when it hands back nil.
+func optionalClientGet(ctx context.Context, setting, url string) error {
+	hc, err := HTTPClientForOptionalProxy(setting)
+	if err != nil {
+		return err
+	}
+	if hc == nil {
+		hc = &http.Client{}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return err
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("status %d", resp.StatusCode)
+	}
+	return nil
 }

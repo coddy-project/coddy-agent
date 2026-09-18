@@ -181,14 +181,14 @@ func classifyProviderError(prov *config.ProviderConfig, base string, err error) 
 // environment's proxy (llm.EnvironmentProxyFor). No credential of a proxy URL
 // is ever shown.
 func providerRoute(prov *config.ProviderConfig, base string, envProxy func(*url.URL) (*url.URL, error)) string {
-	mode, proxyURL, err := config.ParseProviderProxy(prov.Proxy)
+	mode, proxyURL, err := config.ParseProxySetting(prov.Proxy)
 	if err != nil {
 		return ""
 	}
 	switch mode {
-	case config.ProviderProxyModeURL:
+	case config.ProxyModeURL:
 		return "the request went through proxy " + proxyAddress(proxyURL)
-	case config.ProviderProxyModeNone:
+	case config.ProxyModeNone:
 		return "the request went direct (proxy: none ignores the environment's proxy)"
 	}
 	target, err := url.Parse(base)

@@ -279,6 +279,13 @@ func TestTelegramTokenProbe(t *testing.T) {
 	if c := find(t, run(t, "gateways:\n  telegram:\n    enable: true\n", nil), "gateways.telegram"); c.Status != StatusError || !strings.Contains(c.Message, "no token") {
 		t.Errorf("missing token %+v", c)
 	}
+	// A bot set to connect directly is accepted and probed. The route of the
+	// probe's client against real proxy variables is pinned in internal/llm
+	// (TestProviderProxyFollowsTheProcessEnvironment, the optional helper).
+	status = http.StatusOK
+	if c := find(t, run(t, body+"    proxy: none\n", nil), "gateways.telegram"); c.Status != StatusOK || !strings.Contains(c.Message, "@dry_bot") {
+		t.Errorf("token with proxy none %+v", c)
+	}
 }
 
 func TestMCPCommandLookup(t *testing.T) {
