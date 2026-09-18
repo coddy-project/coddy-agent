@@ -6,8 +6,7 @@ export function inMarkdownFenceBeforeCaret(
   const head = text.slice(0, caret);
   const lines = head.split(/\r?\n/);
   let inFence = false;
-  for (let li = 0; li < lines.length; li++) {
-    const line = lines[li];
+  for (const line of lines) {
     const trimmedLead = line.replace(/^[ \t]+/, "");
     if (trimmedLead.startsWith("```")) {
       inFence = !inFence;

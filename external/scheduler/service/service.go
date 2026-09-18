@@ -22,13 +22,6 @@ func NewService(cfg *config.Config, log *slog.Logger, processCWD string) *Servic
 	return &Service{Cfg: cfg, Log: log, ProcessCWD: processCWD}
 }
 
-func (o *Service) slog() *slog.Logger {
-	if o == nil || o.Log == nil {
-		return slog.Default()
-	}
-	return o.Log
-}
-
 func (o *Service) requireEnabled() error {
 	if o == nil || o.Cfg == nil || !o.Cfg.SchedulerEffectiveEnabled() {
 		return ErrSchedulerDisabled

@@ -50,7 +50,9 @@ test("highlights active line after caret moves", () => {
       onChange={() => {}}
     />,
   );
-  const ta = screen.getByRole("textbox", { name: /plan body/i });
+  const ta = screen.getByRole("textbox", {
+    name: /plan body/i,
+  }) as HTMLTextAreaElement;
   ta.focus();
   ta.setSelectionRange(8, 8);
   fireEvent.select(ta);

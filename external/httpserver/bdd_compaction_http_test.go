@@ -194,7 +194,7 @@ func (s *compactHTTPFeatureState) sendCompactPrompt() error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	s.status = res.StatusCode
 	var raw bytes.Buffer
 	if _, err := raw.ReadFrom(res.Body); err != nil {
@@ -284,7 +284,7 @@ func (s *compactHTTPFeatureState) postCompactEndpoint() error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	s.status = res.StatusCode
 	s.body = nil
 	var parsed map[string]interface{}
@@ -330,7 +330,7 @@ func (s *compactHTTPFeatureState) transcriptJSON() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("GET messages status %d", res.StatusCode)
 	}
@@ -400,7 +400,7 @@ func (s *compactHTTPFeatureState) statsMatchCompactedContext() error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("GET stats status %d", res.StatusCode)
 	}

@@ -32,7 +32,7 @@ func TestHTTPWithoutEmbeddedUIServesPlain404OnRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusNotFound {
 		t.Fatalf("status %d, want 404", res.StatusCode)
 	}

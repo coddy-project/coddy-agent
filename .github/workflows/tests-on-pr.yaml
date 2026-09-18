@@ -14,7 +14,8 @@ defaults:
 jobs:
   # The tag combinations are written down once, in the Makefile (TEST_TAG_SETS),
   # and read from there so this file cannot drift from `make test-matrix`. The
-  # OpenCode rules plugin test rides along: it needs Node and nothing else.
+  # OpenCode rules plugin test and the SPA's vitest suite ride along: they need
+  # Node and nothing else, and they run once rather than in every combination.
   plan:
     name: Test matrix
     runs-on: ubuntu-latest
@@ -29,9 +30,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: external/ui/package-lock.json
 
       - name: Test the OpenCode rules plugin
         run: make test-opencode-rules
+
+      - name: Test the web UI
+        run: make ui-test
 
       - name: Read the tag combinations
         id: sets
@@ -244,6 +250,12 @@ jobs:
       - name: Check the generated pages, the links and the assets
         run: make docs-check
 
+  # The passes of `make lint` and `make lint-windows`: the untagged tree, every
+  # tag but ui, and the shipped set, each for the host and for the Windows
+  # build, then the TypeScript check of the web UI. The two tag lists come from
+  # the Makefile (print-full-tags, print-lint-tags-no-ui), so they cannot drift
+  # from what `make lint` compiles; the shipped set embeds the SPA, so the
+  # assets are built first.
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -258,11 +270,39 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: external/ui/package-lock.json
+
+      - name: Build the embedded UI
+        run: make ui-build
+
+      - name: Read the lint tag lists
+        id: tags
+        run: |
+          echo "full=$(make -s print-full-tags)" >> "$GITHUB_OUTPUT"
+          echo "no_ui=$(make -s print-lint-tags-no-ui)" >> "$GITHUB_OUTPUT"
+
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
           version: v2.12.2
           args: ./...
+
+      - name: Run golangci-lint with every tag but ui
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.12.2
+          args: --build-tags ${{ steps.tags.outputs.no_ui }} ./...
+
+      - name: Run golangci-lint with the shipped tag set
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.12.2
+          args: --build-tags ${{ steps.tags.outputs.full }} ./...
 
       - name: Run golangci-lint against the Windows build
         uses: golangci/golangci-lint-action@v7
@@ -272,16 +312,21 @@ jobs:
           version: v2.12.2
           args: ./...
 
-      - name: Run golangci-lint over the cli-tagged console surface
-        uses: golangci/golangci-lint-action@v7
-        with:
-          version: v2.12.2
-          args: --build-tags cli ./external/cli/... ./cmd/coddy/...
-
-      - name: Run golangci-lint over the cli surface for the Windows build
+      - name: Run golangci-lint with every tag but ui against the Windows build
         uses: golangci/golangci-lint-action@v7
         env:
           GOOS: windows
         with:
           version: v2.12.2
-          args: --build-tags cli ./external/cli/... ./cmd/coddy/...
+          args: --build-tags ${{ steps.tags.outputs.no_ui }} ./...
+
+      - name: Run golangci-lint with the shipped tag set against the Windows build
+        uses: golangci/golangci-lint-action@v7
+        env:
+          GOOS: windows
+        with:
+          version: v2.12.2
+          args: --build-tags ${{ steps.tags.outputs.full }} ./...
+
+      - name: Type-check the web UI
+        run: make ui-typecheck

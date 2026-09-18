@@ -1,10 +1,13 @@
 /**
  * Payload for interactive question tool (matches server SSE and POST /question).
  */
-export type CoddyQuestionOption = { label: string; description?: string };
+export type CoddyQuestionOption = {
+  label: string;
+  description?: string | undefined;
+};
 
 export type CoddyQuestionItem = {
-  header?: string;
+  header?: string | undefined;
   question: string;
   options: CoddyQuestionOption[];
   multiple?: boolean;
@@ -14,7 +17,7 @@ export type CoddyQuestionItem = {
 export type CoddyQuestionPayload = {
   sessionId: string;
   requestId: string;
-  toolCallId?: string;
+  toolCallId?: string | undefined;
   questions: CoddyQuestionItem[];
 };
 

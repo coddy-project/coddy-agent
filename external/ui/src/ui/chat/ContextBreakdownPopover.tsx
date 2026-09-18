@@ -56,7 +56,7 @@ export function ContextBreakdownPopover(props: {
   contextIdle?: boolean;
   contextPct?: number | null;
   maxContextTokens: number;
-  breakdown?: ContextBreakdown | null;
+  breakdown?: ContextBreakdown | null | undefined;
   /** Account usage of the selected model's provider, listed under the context window. */
   usage?: ProviderUsage | null;
   modelId?: string;

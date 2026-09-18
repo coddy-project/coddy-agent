@@ -6,7 +6,7 @@ This page is the detailed reference for local builds. For a short version, see [
 
 - **Go** - match `go` in [`go.mod`](../../go.mod) (currently **1.25**).
 - **Git** - the Makefile embeds a version string from tags or `git describe` when available.
-- **Node.js and npm** - required only when you build with both **`http`** and **`ui`**, because the Makefile runs **`ui-build`** (see [`Makefile`](../../Makefile)) to produce the assets that **`go:embed`** picks up.
+- **Node.js and npm** - required when you build with both **`http`** and **`ui`**, because the Makefile runs **`ui-build`** (see [`Makefile`](../../Makefile)) to produce the assets that **`go:embed`** picks up, and by **`make test`** and **`make lint`**, which run the SPA's vitest suite and its TypeScript check.
 
 Optional:
 

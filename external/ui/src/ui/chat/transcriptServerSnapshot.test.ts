@@ -8,7 +8,11 @@ import {
 } from "./transcriptServerSnapshot";
 import type { TranscriptItem } from "./types";
 
-const u = (id: string, text: string): TranscriptItem => ({
+// The user-message variant on its own, so a test can spread a row and add
+// `files` without the literal being checked against every other row kind.
+type UserMessageItem = Extract<TranscriptItem, { type: "user_message" }>;
+
+const u = (id: string, text: string): UserMessageItem => ({
   id,
   type: "user_message",
   content: text,

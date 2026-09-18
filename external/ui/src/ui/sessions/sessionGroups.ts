@@ -152,8 +152,12 @@ function groupByTime(rows: readonly SessionRow[], now: number): SessionGroup[] {
       undated.rows.push(row);
       continue;
     }
-    const bucket =
-      buckets.find((b) => ms >= b.from) ?? buckets[buckets.length - 1];
+    const bucket = buckets.find((b) => ms >= b.from);
+    if (!bucket) {
+      // Unreachable while the last bucket opens at negative infinity.
+      undated.rows.push(row);
+      continue;
+    }
     let group = byKey.get(bucket.key);
     if (!group) {
       group = { key: bucket.key, labelKey: bucket.labelKey, rows: [] };

@@ -7,7 +7,7 @@ paths:
 # Code style (Go)
 
 1. **`gofmt`** / **`go fmt`** - format before committing when you touch files.
-2. **`make lint`** - **`golangci-lint run ./...`** is the repo gate (see **`Makefile`**).
+2. **`make lint`** - the repo gate (see **`Makefile`**): `golangci-lint` over the untagged tree, over every tag but `ui` and over the shipped tag set, then `tsc --noEmit` over the SPA sources (`make ui-typecheck`).
 3. Comments in code - **English only**.
 4. Follow existing patterns in neighboring files (imports grouping, naming, error handling).
 

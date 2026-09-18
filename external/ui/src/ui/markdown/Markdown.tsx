@@ -28,7 +28,7 @@ type PreProps = {
 };
 
 type AProps = {
-  href?: string;
+  href?: string | undefined;
   children?: unknown;
 };
 
@@ -172,11 +172,11 @@ export const Markdown = memo(function Markdown(props: { text: string }) {
     [],
   );
 
-  const urlTransform = useCallback((url: string, key: string, node: any) => {
+  const urlTransform = useCallback((url: string) => {
     if (url.startsWith("coddy-skill:")) {
       return url;
     }
-    return defaultUrlTransform(url, key, node);
+    return defaultUrlTransform(url);
   }, []);
 
   return (

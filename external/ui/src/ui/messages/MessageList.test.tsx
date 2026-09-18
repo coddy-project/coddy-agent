@@ -381,7 +381,9 @@ test("only the answer that hands the turn back carries an action row", () => {
   expect(container.querySelectorAll(".msg-assistant-foot")).toHaveLength(1);
   // The copy button and the minute both belong to the closing answer, not to the
   // answers the turn left behind between tool calls.
-  const closing = screen.getByText("Done.").closest(".msg-assistant")!;
+  const closing = screen
+    .getByText("Done.")
+    .closest<HTMLElement>(".msg-assistant")!;
   expect(within(closing).getByTestId("assistant-message-copy")).toBeTruthy();
   const intermediate = screen
     .getByText("Reading the file.")

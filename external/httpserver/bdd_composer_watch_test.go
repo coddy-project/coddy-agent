@@ -169,7 +169,7 @@ func (s *composerWatchState) scriptStartsNonStreamingTurn() error {
 		if err != nil {
 			return
 		}
-		defer res.Body.Close()
+		defer func() { _ = res.Body.Close() }()
 		body, _ := io.ReadAll(res.Body)
 		s.scriptStatus = res.StatusCode
 		s.scriptBody = string(body)
@@ -204,7 +204,7 @@ func (s *composerWatchState) clientLoadsTranscript() error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	var body struct {
 		Messages    []map[string]any `json:"messages"`
 		MessagesRev *uint64          `json:"messagesRev"`
@@ -235,7 +235,7 @@ func (s *composerWatchState) clientSubscribesAfterTranscript() error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return errStatus("composer stream not served", res.StatusCode, "")
 	}
@@ -277,7 +277,7 @@ func (s *composerWatchState) secondClientSubscribes() error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return errStatus("composer stream not served", res.StatusCode, "")
 	}
@@ -336,13 +336,13 @@ func (s *composerWatchState) subscribesToServerEvents() error {
 	}
 	if res.StatusCode != http.StatusOK {
 		cancel()
-		res.Body.Close()
+		_ = res.Body.Close()
 		return errStatus("events stream", res.StatusCode, "")
 	}
 	s.eventsBody = bufio.NewReader(res.Body)
 	s.closeEvents = func() {
 		cancel()
-		res.Body.Close()
+		_ = res.Body.Close()
 	}
 	// Drain the connect-time snapshot so later reads see only new events.
 	return s.awaitEventFrame("event: ready")
