@@ -6,7 +6,7 @@
 #
 # Knobs (env vars) so the gate has one shared policy:
 #
-#   CODDY_HOOK_LINT   0|1              (default: 1)   run `make lint` (golangci-lint)
+#   CODDY_HOOK_LINT   0|1              (default: 1)   run `make lint` (golangci-lint over every build, then the SPA type check)
 #
 #   CODDY_HOOK_TESTS  off|fast|full|matrix  (default: off) additionally run tests:
 #       off     no tests (lint only — the quick default)
