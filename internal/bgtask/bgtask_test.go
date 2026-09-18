@@ -1233,6 +1233,65 @@ func TestLaunchHandsTheAssignedIDToTheCallback(t *testing.T) {
 	}
 }
 
+// An agent run reports what its model calls spent while it runs; the row carries the
+// latest figures, a snapshot taken earlier keeps its own, and the record the bundle
+// keeps after the run ends has the final ones.
+func TestAgentUsageFollowsTheRunIntoTheRecord(t *testing.T) {
+	pool := NewWithRunner(Config{}, &stubRunner{})
+	dir := t.TempDir()
+	pool.SetSessionDir("s", dir)
+	t.Cleanup(func() { pool.StopSession("s") })
+
+	h := &stubHandle{release: make(chan struct{})}
+	snap, err := pool.Launch(Spec{
+		SessionID: "s",
+		Kind:      KindAgent,
+		Agent:     &AgentInfo{Name: "reviewer", Model: "rpa/qwen3.6-35b-a3b"},
+	}, func(_ string, out io.Writer) (Handle, error) {
+		h.out = out
+		return h, nil
+	})
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	if snap.Agent.Model != "rpa/qwen3.6-35b-a3b" {
+		t.Fatalf("model lost on the snapshot: %+v", snap.Agent)
+	}
+
+	if !pool.SetAgentUsage("s", snap.ID, 1200, 80) {
+		t.Fatal("SetAgentUsage did not find the running task")
+	}
+	mid, _ := pool.Get("s", snap.ID)
+	if mid.Agent.InputTokens != 1200 || mid.Agent.OutputTokens != 80 {
+		t.Fatalf("usage = %+v", mid.Agent)
+	}
+	pool.SetAgentUsage("s", snap.ID, 2600, 190)
+	if mid.Agent.InputTokens != 1200 {
+		t.Fatalf("an earlier snapshot changed under its reader: %+v", mid.Agent)
+	}
+
+	h.finish(0)
+	if _, err := pool.Wait(context.Background(), "s", snap.ID, 2*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	var recorded *Snapshot
+	for _, row := range LoadPersisted(dir) {
+		if row.ID == snap.ID {
+			recorded = &row
+		}
+	}
+	if recorded == nil || recorded.Agent == nil {
+		t.Fatalf("no record for %s", snap.ID)
+	}
+	if recorded.Agent.Model != "rpa/qwen3.6-35b-a3b" || recorded.Agent.InputTokens != 2600 || recorded.Agent.OutputTokens != 190 {
+		t.Fatalf("record = %+v", recorded.Agent)
+	}
+
+	if pool.SetAgentUsage("s", "bg_missing", 1, 1) {
+		t.Fatal("SetAgentUsage reported a task that does not exist")
+	}
+}
+
 func TestLaunchRefusalNeverInvokesTheCallback(t *testing.T) {
 	pool := NewWithRunner(Config{MaxConcurrent: 1}, &stubRunner{})
 	t.Cleanup(func() { pool.StopSession("s") })

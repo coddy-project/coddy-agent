@@ -191,13 +191,15 @@ func RunScheduledJob(ctx context.Context, cfg *config.Config, rt SubagentRuntime
 		CWD:            spec.CWD,
 		TimeoutSeconds: spec.TimeoutSeconds,
 		NotifyOnFinish: false,
-		Agent:          &bgtask.AgentInfo{Name: name, SessionID: runID},
+		// An empty model follows the config; the row names the one that runs.
+		Agent: &bgtask.AgentInfo{Name: name, SessionID: runID, Model: session.ResolveModelID(cfg, model)},
 	}
 	snap, err := pool.Launch(taskSpec, func(taskID string, out io.Writer) (bgtask.Handle, error) {
 		run.taskID = taskID
 		// No relay: the scheduler has no parent chat to forward a prompt to,
 		// so a request the gate raises under ask or accept_edits is denied.
 		run.sender = newSubagentSender(out, nil)
+		run.sender.onUsage = func(in, outTokens int) { pool.SetAgentUsage(jobSessionID, taskID, in, outTokens) }
 		_, _ = fmt.Fprintf(out, "scheduled run of job %s (%s, task %s, session %s) starting\n", jobID, spec.Trigger, taskID, runID)
 		if unknownModel != "" {
 			_, _ = fmt.Fprintf(out, "model %q is not configured; using the configured model\n", unknownModel)

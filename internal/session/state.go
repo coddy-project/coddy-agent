@@ -713,7 +713,15 @@ func (s *State) EffectiveModelID(cfg *config.Config) string {
 	s.mu.RLock()
 	sel := s.SelectedModelID
 	s.mu.RUnlock()
-	if sel != "" {
+	return ResolveModelID(cfg, sel)
+}
+
+// ResolveModelID is the model a session selecting this one runs on: the selection
+// when the config knows it, the config's agent model when nothing is selected. A
+// caller that names what a session will run before the session exists (the row of a
+// scheduled run) asks here, so it names the same model the session then picks.
+func ResolveModelID(cfg *config.Config, selected string) string {
+	if sel := strings.TrimSpace(selected); sel != "" {
 		return normalizeModelID(cfg, sel)
 	}
 	return normalizeModelID(cfg, strings.TrimSpace(cfg.Agent.Model))

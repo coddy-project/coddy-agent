@@ -562,6 +562,55 @@ func (s *subagentsFeatureState) spawnForeground(agent, answer string) error {
 	return s.spawnWith(agent, false)
 }
 
+// spawnForegroundCounted is a foreground spawn whose child answers in one call the
+// provider reports usage for.
+func (s *subagentsFeatureState) spawnForegroundCounted(agent, answer string, input, output int) error {
+	s.mu.Lock()
+	s.childSteps = func() []scriptStep {
+		return []scriptStep{func(_ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) *llm.Response {
+			onChunk(llm.StreamChunk{TextDelta: answer})
+			return &llm.Response{Content: answer, StopReason: "end_turn", InputTokens: input, OutputTokens: output}
+		}}
+	}
+	s.mu.Unlock()
+	return s.spawnWith(agent, false)
+}
+
+func (s *subagentsFeatureState) lastAgentTask() (bgtask.Snapshot, error) {
+	var found *bgtask.Snapshot
+	for _, t := range bgtask.Default().List(s.parent.ID) {
+		if t.Kind == bgtask.KindAgent && t.Agent != nil {
+			found = &t
+		}
+	}
+	if found == nil {
+		return bgtask.Snapshot{}, fmt.Errorf("no agent task for the parent session")
+	}
+	return *found, nil
+}
+
+func (s *subagentsFeatureState) agentTaskNamesModel(model string) error {
+	t, err := s.lastAgentTask()
+	if err != nil {
+		return err
+	}
+	if t.Agent.Model != model {
+		return fmt.Errorf("agent task names model %q, want %q", t.Agent.Model, model)
+	}
+	return nil
+}
+
+func (s *subagentsFeatureState) agentTaskRecordsTokens(input, output int) error {
+	t, err := s.lastAgentTask()
+	if err != nil {
+		return err
+	}
+	if t.Agent.InputTokens != input || t.Agent.OutputTokens != output {
+		return fmt.Errorf("agent task records %d input and %d output tokens, want %d and %d", t.Agent.InputTokens, t.Agent.OutputTokens, input, output)
+	}
+	return nil
+}
+
 func (s *subagentsFeatureState) spawnBackground(agent, answer string) error {
 	s.setChildAnswer(answer)
 	return s.spawnWith(agent, true)
@@ -1262,6 +1311,9 @@ func initializeSubagentsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the parent model receives its first request$`, s.parentFirstRequest)
 	sc.Step(`^the parent model spawns "([^"]*)" in the foreground and the child answers "([^"]*)"$`, s.spawnForeground)
 	sc.Step(`^the parent model spawns "([^"]*)" in the background and the child answers "([^"]*)"$`, s.spawnBackground)
+	sc.Step(`^the parent model spawns "([^"]*)" in the foreground and the child answers "([^"]*)" after reading (\d+) tokens and writing (\d+)$`, s.spawnForegroundCounted)
+	sc.Step(`^the agent task of the parent session names the model "([^"]*)"$`, s.agentTaskNamesModel)
+	sc.Step(`^the agent task of the parent session records (\d+) input and (\d+) output tokens$`, s.agentTaskRecordsTokens)
 	sc.Step(`^the parent model spawns "([^"]*)" in the background and the child waits to be released$`, s.spawnBackgroundWaiting)
 	sc.Step(`^the parent model spawns "([^"]*)" again in the background$`, s.spawnBackgroundAgain)
 	sc.Step(`^the parent model spawns "([^"]*)" in the foreground and the child runs a command before answering "([^"]*)"$`, s.spawnForegroundCommand)

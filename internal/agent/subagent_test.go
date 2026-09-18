@@ -976,6 +976,47 @@ func TestSubagentSenderRendersProgressLog(t *testing.T) {
 	}
 }
 
+// The child's calls are counted as they come: the input every call sent, summed, and
+// the output its turns have generated, the call in flight included through
+// turn_progress. A second turn (a Stop hook follow-up) adds to the first, and every
+// change reaches the task row.
+func TestSubagentSenderCountsWhatTheChildSpent(t *testing.T) {
+	var buf bytes.Buffer
+	s := newSubagentSender(&buf, nil)
+	type usage struct{ in, out int }
+	var seen []usage
+	s.onUsage = func(in, out int) { seen = append(seen, usage{in, out}) }
+
+	first := "2026-09-18T10:00:00Z"
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: first, OutputTokens: 0})
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: first, OutputTokens: 45, Estimated: true})
+	_ = s.SendSessionUpdate("child", acp.TokenUsageUpdate{InputTokens: 1200, OutputTokens: 40, TotalTokens: 1240})
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: first, OutputTokens: 40})
+	_ = s.SendSessionUpdate("child", acp.TokenUsageUpdate{InputTokens: 1300, OutputTokens: 60, TotalTokens: 2600})
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: first, OutputTokens: 100})
+
+	second := "2026-09-18T10:01:00Z"
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: second, OutputTokens: 0})
+	_ = s.SendSessionUpdate("child", acp.TokenUsageUpdate{InputTokens: 1500, OutputTokens: 20, TotalTokens: 1520})
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: second, OutputTokens: 20})
+
+	if len(seen) == 0 {
+		t.Fatal("the task row never heard of the child's usage")
+	}
+	if got := seen[len(seen)-1]; got != (usage{4000, 120}) {
+		t.Fatalf("last usage = %+v, want 4000 in and 120 out", got)
+	}
+	// The opening frame of a turn carries nothing new and is not reported; the
+	// estimate of the call in flight is, while it streams.
+	if seen[0] != (usage{0, 45}) {
+		t.Fatalf("usage while streaming = %+v, want the estimate", seen[0])
+	}
+	// Nothing is written to the task's log for it.
+	if strings.Contains(buf.String(), "1200") {
+		t.Fatalf("usage leaked into the task log: %q", buf.String())
+	}
+}
+
 func TestSubagentSenderRefusesQuestionsAndRelaysPermissions(t *testing.T) {
 	var out bytes.Buffer
 	s := newSubagentSender(&out, &permissionRelay{turnCtx: context.Background(), childCtx: context.Background()})

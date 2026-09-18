@@ -532,6 +532,25 @@ func (p *Pool) Get(sessionID, taskID string) (Snapshot, error) {
 	return t.Snapshot(p.now()), nil
 }
 
+// SetAgentUsage records what an agent task's model calls have spent so far. The
+// row gets a new AgentInfo rather than an edited one, so a snapshot already handed
+// out never changes under its reader. It reports whether the task was found.
+func (p *Pool) SetAgentUsage(sessionID, taskID string, inputTokens, outputTokens int) bool {
+	t, err := p.lookup(sessionID, taskID)
+	if err != nil {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.snap.Agent == nil {
+		return false
+	}
+	next := *t.snap.Agent
+	next.InputTokens, next.OutputTokens = max(0, inputTokens), max(0, outputTokens)
+	t.snap.Agent = &next
+	return true
+}
+
 // Output returns the retained output window for a task. A positive tailLines
 // trims the result to that many trailing lines.
 func (p *Pool) Output(sessionID, taskID string, tailLines int) (string, Snapshot, error) {
@@ -933,6 +952,7 @@ func cloneAgentInfo(in *AgentInfo) *AgentInfo {
 	out := *in
 	out.Name = strings.TrimSpace(out.Name)
 	out.SessionID = strings.TrimSpace(out.SessionID)
+	out.Model = strings.TrimSpace(out.Model)
 	return &out
 }
 

@@ -376,11 +376,30 @@ func (r *permissionRelay) requestDetached(ctx context.Context, params acp.Permis
 type subagentSender struct {
 	out   io.Writer
 	relay *permissionRelay
+	// onUsage hears what the child's model calls have spent so far, whenever it
+	// changes: the launcher hands it to the task row (bgtask.Pool.SetAgentUsage).
+	// Set before the child starts and never changed.
+	onUsage func(inputTokens, outputTokens int)
 
 	mu       sync.Mutex
 	line     strings.Builder
 	toolName map[string]string
+	usage    childUsage
 }
+
+// childUsage counts the child's tokens the way its task row shows them. Input is
+// summed from token_usage, one figure per completed call. Output comes from
+// turn_progress, which already folds the provider's exact figures with an estimate
+// of the call in flight, so the row moves while a long call streams; a turn is told
+// from the next by its start, and the output of the turns that ended is kept.
+type childUsage struct {
+	input      int
+	outputDone int
+	turn       string
+	turnOutput int
+}
+
+func (u childUsage) output() int { return u.outputDone + u.turnOutput }
 
 func newSubagentSender(out io.Writer, relay *permissionRelay) *subagentSender {
 	return &subagentSender{out: out, relay: relay, toolName: map[string]string{}}
@@ -390,11 +409,39 @@ func newSubagentSender(out io.Writer, relay *permissionRelay) *subagentSender {
 // flushed per line so the operator can follow the child in the Tasks panel.
 func (s *subagentSender) SendSessionUpdate(_ string, update interface{}) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	counted, changed := s.count(update)
+	s.render(update)
+	s.mu.Unlock()
+	if changed && s.onUsage != nil {
+		s.onUsage(counted.input, counted.output())
+	}
+	return nil
+}
+
+// count folds a usage update into the child's account. Callers hold mu.
+func (s *subagentSender) count(update interface{}) (childUsage, bool) {
+	before := s.usage
+	switch u := update.(type) {
+	case acp.TokenUsageUpdate:
+		s.usage.input += max(0, u.InputTokens)
+	case acp.TurnProgressUpdate:
+		if u.StartedAt != s.usage.turn {
+			s.usage.outputDone += s.usage.turnOutput
+			s.usage.turn, s.usage.turnOutput = u.StartedAt, 0
+		}
+		s.usage.turnOutput = max(0, u.OutputTokens)
+	default:
+		return s.usage, false
+	}
+	return s.usage, s.usage.input != before.input || s.usage.output() != before.output()
+}
+
+// render writes the update to the task log. Callers hold mu.
+func (s *subagentSender) render(update interface{}) {
 	switch u := update.(type) {
 	case acp.MessageChunkUpdate:
 		if u.Content.Type != acp.ContentTypeText || u.Content.Text == "" {
-			return nil
+			return
 		}
 		s.line.WriteString(u.Content.Text)
 		s.flushLines(false)
@@ -404,7 +451,7 @@ func (s *subagentSender) SendSessionUpdate(_ string, update interface{}) error {
 		// call); the log names it once.
 		if _, seen := s.toolName[u.ToolCallID]; seen && u.ToolCallID != "" {
 			s.toolName[u.ToolCallID] = u.Title
-			return nil
+			return
 		}
 		s.flushLines(true)
 		s.toolName[u.ToolCallID] = u.Title
@@ -420,7 +467,6 @@ func (s *subagentSender) SendSessionUpdate(_ string, update interface{}) error {
 			_, _ = fmt.Fprintf(s.out, "✗ %s (%s)\n", name, u.Status)
 		}
 	}
-	return nil
 }
 
 // flushLines writes complete lines of buffered assistant text; force writes a
@@ -953,7 +999,7 @@ func (a *Agent) launchChildRun(ctx context.Context, rt SubagentRuntime, l childL
 		})
 	}
 
-	agentInfo := &bgtask.AgentInfo{Name: l.spec.Name, SessionID: childID, System: l.system}
+	agentInfo := &bgtask.AgentInfo{Name: l.spec.Name, SessionID: childID, System: l.system, Model: l.spec.SelectedModelID}
 	spec := bgtask.Spec{
 		SessionID:       parentID,
 		Kind:            bgtask.KindAgent,
@@ -975,6 +1021,7 @@ func (a *Agent) launchChildRun(ctx context.Context, rt SubagentRuntime, l childL
 			l.relay.taskID = taskID
 		}
 		run.sender = newSubagentSender(out, l.relay)
+		run.sender.onUsage = func(in, outTokens int) { pool.SetAgentUsage(parentID, taskID, in, outTokens) }
 		_, _ = fmt.Fprintf(out, "subagent %s (task %s, session %s) starting\n", l.spec.Name, taskID, childID)
 		if l.modelNote != "" {
 			_, _ = fmt.Fprintln(out, l.modelNote)
