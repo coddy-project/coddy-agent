@@ -152,7 +152,7 @@ Hard timeout 30m.
 Keep working; follow it with background_list or background_output, and collect the report with background_wait.
 ```
 
-With `notify_on_finish: true` the last line instead tells the model it will be woken with the outcome. From here the run is an ordinary task: `background_list` shows it, `background_output` streams the child's progress log, `background_wait` blocks for it and returns the log ending in the report block, and `background_stop` cancels the child.
+With `notify_on_finish: true` the last line instead tells the model it will be woken with the outcome - where something can wake it: `coddy -p` runs no waker and a child's transcript closes with its turn, so there the line says that nothing will wake the model, and the task records no wake ([Background tasks](background-tasks.md#which-process-wakes-the-agent)). From here the run is an ordinary task: `background_list` shows it, `background_output` streams the child's progress log, `background_wait` blocks for it and returns the log ending in the report block, and `background_stop` cancels the child.
 
 Refusals are returned as tool errors that name the knob that applies: an unknown name (with the list of visible definitions), a project file without a receipt (with the approval commands), `subagents.max_depth` reached, a prompt over 32 KiB, `subagents.max_concurrent` runs already in flight, the pool's own per-session limit (`tools.background.max_concurrent`), and the pool draining for shutdown. With `subagents.enable: false` the tool is not registered at all. A surface without a session manager is never advertised the tool, and a call anyway answers that subagents are not available in this session.
 
@@ -285,7 +285,7 @@ Subagents live where the session manager lives. With the console or `coddy acp` 
   ```
 
 - a connection drop leaves the server turn, its foreground child and any open prompt running server-side (turns are detached from the request); the remote console reports the stream error, `/resume` shows the outcome once the turn ends, and a prompt answered after the server withdrew it is ignored rather than failing the turn;
-- a woken turn (`notify_on_finish` on a detached spawn or a background command) runs on the server with a non-interactive sender: it is published to the session's composer relay, and a gated tool call inside it is denied unless the server's own permission mode is bypass.
+- a woken turn (`notify_on_finish` on a detached spawn or a background command) runs on the server: in the Telegram chat bound to the session, or on the session's composer relay, where the web UI and a console following the turn over `--remote` can answer its permission prompts; with neither up, a gated tool call inside it is denied unless the server's own permission mode is bypass ([Background tasks](background-tasks.md#under-coddy-serve)).
 
 The executable checks are the scenario "A subagent's permission prompt reaches the remote client even when the server bypasses its own" in `features/remote_client.feature`, the live `examples/acp/acp_e2e_remote_subagents.py` and the subagent step of `examples/cli/cli_e2e_remote.py`.
 

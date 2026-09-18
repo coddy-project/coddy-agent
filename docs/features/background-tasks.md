@@ -29,15 +29,65 @@ A long job is only useful unattended if something restarts the conversation when
 
 The opt-in is the point. The model decides which results are worth a turn, so a batch of quick commands cannot each spend one behind the operator's back; everything else simply lands in the history for the model to read later.
 
-- The woken turn starts from a plain statement of the outcome — id, status, exit code, runtime, and any error — and is told to read the output with `background_output` rather than having a wall of text pasted into the prompt. It is also told explicitly that a task which failed, timed out, or was stopped did not succeed.
-- **Tasks finishing together cost one turn.** A short settle window batches a burst, so three results arrive as one turn with three lines instead of three turns.
-- The turn goes through the session manager's normal prompt path, so it takes the **composer turn lock**. That lock refuses rather than queues: a session with a turn already in flight answers `ErrSessionTurnBusy` at once. Waiting is therefore the waker's job — it **retries the same batch** (1 s, doubling to a 15 s ceiling) until the session goes idle, and only then starts the turn.
-- **A task that dies inside its own turn is still reported.** This is the ordinary case, not an exotic one: the model starts a task, keeps talking, and anything that fails in the first seconds finishes while the launching turn is still open. The outcome waits for that turn and arrives after it, rather than being dropped. Anything that finished during the wait joins the same batch, so a long turn still costs one wake. A session whose turn never ends gives up after 30 minutes and logs `background_wake_abandoned`; every other turn failure is logged as `background_wake_failed` and not retried, because it would only spin.
-- Nobody is attached to a woken turn. On `coddy serve` it is published to the session's **composer relay** (a watching SPA or `--remote` client can follow it) through a **non-interactive** sender: a gated tool call inside it is **denied** unless the server's own `tools.permission_mode` is `bypass`, exactly like a permission resume. Unattended work that needs gated tools runs under `bypass` or `accept_edits` on purpose, not by accident.
-- **Shutdown does not wake anything.** Drain stops running tasks, and a stop is terminal; without that guard every task killed by shutdown would start a turn nobody will read.
-- A woken turn can start another notifying task, which is a legitimate pattern for unattended work and also a way to burn a night of tokens on a loop. `maxWakesPerSession` (50 per process, `internal/agent/background_notify.go`) is the backstop; reaching it stops starting turns and logs `background_wake_capped`. The budget counts turns that actually ran — an attempt refused by a busy session or by shutdown is refunded, so waiting out one long turn cannot exhaust it.
+### Which process wakes the agent
 
-Wiring lives in `Server.attachBackgroundWaker` (`external/httpserver/background_http.go`), which subscribes under a **keyed** pool subscription so rebuilding the server replaces the watcher instead of stacking another.
+Every process that runs turns attaches one waker to its task pool, under one **keyed** subscription (`bgtask.WakeWatcherKey`), so rebuilding a surface replaces the watcher instead of stacking another:
+
+| Process | Where the woken turn runs |
+|---|---|
+| bare `coddy` (the console) | in the console, on its own UI goroutine, like a typed prompt: a gated tool opens the permission modal |
+| `coddy acp` | through the manager, with the editor as the sender: the updates land in the thread the editor has open, and a gated tool is asked there |
+| `coddy serve` | the surface that owns the session - the Telegram chat bound to it - or else the HTTP server, or, with neither up, the manager itself (see below) |
+| `coddy -p`, a subagent, a scheduled run | nowhere: nothing will start the turn |
+
+**The tool only promises what will happen.** `run_command` and `spawn_agent` ask the pool whether a waker is subscribed (`Pool.CanWake`) and whether the session can take a turn at all. Where it can, the result says *You will be woken with the outcome when it finishes* and the task records `notify_on_finish`; where it cannot, the result says that nothing will wake the model and names `background_list`, `background_wait` and `background_output` instead, and the task records no wake it would not get. A child's or a scheduled run's transcript is sealed when its turn returns, so a task started there never wakes anything.
+
+### What the woken turn looks like
+
+The woken turn starts from a plain statement of the outcome, which is what the model reads: every task with its id, status, label, exit code, runtime and any error, the tool that has the detail (`background_output`), and the reminder that a task which failed, timed out or was stopped did not succeed.
+
+Nobody typed that message, and no surface shows it as if somebody had. The first message of a woken turn is persisted with a marker - `background_wake` in `messages.json` and in `GET /coddy/sessions/{id}/messages`, the tasks with their outcome - and the turn opens with a `background_wake` session update before the message is written, so a client that reloads between the two sees the wake once. As the turn begins, the pool marks its tasks as having woken the agent (`woke_agent` on the task row, kept in the task's record).
+
+Where the task list sits next to the conversation, the woken turn shows nothing of its own and reads as the agent carrying on:
+
+- **Web UI**: nothing stands where a user bubble would, and the answer follows the previous turn; the task's card keeps its bell ([Which tasks wake the agent](#which-tasks-wake-the-agent)). The wake still counts as a turn: an edit of a later message and a branch after it are numbered the way the server numbers them, and a failed woken turn offers no retry, since there is nothing typed to send again.
+- **Console**: the same, live and when `/resume` replays the session; the task's row in `/tasks` says `woke the agent`.
+
+The text-only surfaces have no task list beside the chat, so a line says what woke the agent, the outcome in words:
+
+- **ACP**: the `background_wake` session update, followed by a quoted line of agent text for an editor that renders only the standard updates, *Woken by a finished background task: bg_3 make test, failed, exit 2, 1m 30s*; `session/load` replays it the same way.
+- **Telegram**: a message of its own above the answer, *🔔 Woken by a finished background task: bg_3 make test, failed, exit 2, 1m 30s*.
+
+### Under `coddy serve`
+
+The process owns the waker (`serve.Runtime`), whichever surfaces are enabled, and a woken turn goes to the surface that should run it:
+
+1. **The Telegram chat bound to the session.** The turn runs exactly like a message the person sent: the chat's own sender, mirrored into the HTTP relay so a browser watching the session follows it. The chat receives the line about the wake and then the answer, whether or not the HTTP server is running. Permission semantics are the chat's: the chat's agent is allowed what it asks, a subagent is asked about in the chat.
+2. **The HTTP server.** The turn runs through the session's composer relay, so the web UI and a console attached over `--remote` follow it. Its permission prompts are **asked**, not refused: the prompt goes to the relay and is persisted as the session's pending prompt, the web UI shows it (and restores it after a reload), a following console shows it in its modal, and the first answer through `POST /coddy/sessions/{id}/permission` settles it. It waits the way the prompt of a browser turn whose tab was closed waits. A question inside a woken turn is still refused: nothing persists one for a client that arrives later.
+3. **Nobody.** With neither surface up - a `coddy serve` running only its scheduler, or a bot whose chat has moved to another session - the runtime still runs the turn it promised, through the manager, and the transcript keeps the outcome for whoever opens the session next. A gated tool call inside it is **denied** unless `tools.permission_mode` is `bypass`: no surface can answer.
+
+`GET /coddy/events` announces a woken turn as `background_wake`, with the tasks. A console attached over `--remote` reads only the turns it starts, so this is how it learns there is one worth following: it attaches to the session's composer relay and renders the turn - the answer, and a permission prompt, which it withdraws again if the web UI answers first. A console that opens the session while such a turn is already running - it was closed when the task ended - learns it from `GET /coddy/sessions/{id}/activity` (`backgroundWake`) and follows the turn from where the transcript it loaded ends, so a prompt that waited for somebody is answered there; after a dropped connection the snapshot of the events stream announces the wake again, and the console picks the same turn up after the last frame it showed.
+
+### Timing and limits
+
+- **Tasks finishing together cost one turn.** A short settle window batches a burst, so three results arrive as one turn with three lines instead of three turns.
+- The turn takes the **composer turn lock**, which refuses rather than queues: a session with a turn already in flight answers `ErrSessionTurnBusy` at once. Waiting is therefore the waker's job - it **retries the same batch** (1 s, doubling to a 15 s ceiling) until the session goes idle, and only then starts the turn. The HTTP server takes the lock before it registers the woken turn's relay, so a refused attempt never cuts the watchers of the turn that is running.
+- **A task that dies inside its own turn is still reported.** This is the ordinary case, not an exotic one: the model starts a task, keeps talking, and anything that fails in the first seconds finishes while the launching turn is still open. The outcome waits for that turn and arrives after it, rather than being dropped. Anything that finished during the wait joins the same batch, so a long turn still costs one wake. A session whose turn never ends gives up after 30 minutes and logs `background_wake_abandoned`; every other turn failure is logged as `background_wake_failed` and not retried, because it would only spin.
+- **The console holds a wake for a session it is not showing.** A task of a session the operator left with `/new` or `/resume` waits for them to come back to it - the waker's busy retry - and the console says once where it is waiting.
+- **Shutdown does not wake anything.** Drain stops running tasks, and a stop is terminal; without that guard every task killed by shutdown would start a turn nobody will read.
+- A woken turn can start another notifying task, which is a legitimate pattern for unattended work and also a way to burn a night of tokens on a loop. `maxWakesPerSession` (50 per process, `internal/agent/background_notify.go`) is the backstop; reaching it stops starting turns and logs `background_wake_capped`. The budget counts turns that actually ran - an attempt refused by a busy session or by shutdown is refunded, so waiting out one long turn cannot exhaust it.
+
+### Which tasks wake the agent
+
+A running task that will start a turn when it ends says so everywhere it is listed: a **bell** after its title on its card in the Tasks panel (hover: *Wakes the agent when it ends*), `wakes the agent` in its row of the console's `/tasks`, and `wakes you when it ends` in `background_list` and in the turn context, so the model does not spend a turn waiting on a task it will be woken for.
+
+A finished task keeps the mark when its end did start a turn: the bell stays on its card (hover: *Woke the agent when it ended*) and its row in `/tasks` says `woke the agent`. The web UI and the console tell what woke the agent there, since the woken turn itself shows nothing. A task that was to wake the agent and has not - the turn has not begun yet, or never will because the process went away - carries no mark once it has ended.
+
+![The Tasks panel with a bell on the running build, which will wake the agent, and on the failed test run, which did](../assets/background-tasks/background-tasks-wake-bell-dark-1280.png)
+
+*The failed test run woke the agent, and the transcript simply carries on with its answer; the build still running will wake it again*
+
+Implementation: `internal/agent/background_notify.go` (`BackgroundWaker`, `Wake`, `WakeInstruction`), `internal/serve/wake.go` (the process owner under `coddy serve`), `Server.RunBackgroundWake` (`external/httpserver/background_http.go`), `Bot.RunBackgroundWake` (`external/gateway/telegram/wake.go`), `App.attachBackgroundWaker` (`external/cli/background.go`), `acpWakeRunner` (`cmd/coddy/acp_wake.go`) and the follower of `internal/remote/follow.go`. Design record: `docs/plans/background-wake.md`.
 
 ## Timeouts
 
@@ -154,19 +204,21 @@ The SPA **polls** these endpoints rather than listening on SSE: a background tas
 
 The panel is **docked inside the session**, to the right of the transcript, at `#/s/<sessionId>/tasks` (and `#/s/<sessionId>/tasks/<task_id>` for one task). The route carries the chat, so a reload restores both the conversation and the panel. That placement is the answer to "which session spawned this process": the panel is part of the conversation that started the tasks, so there is nothing to label.
 
-- **Every task is the same card**, whatever it is and whether it runs or has finished: a status dot, a **tag** that says what stands behind it (`shell` for a command, the agent's name for a subagent run, `memory` for the memory run of a turn), the title - the command, or what the agent was asked to do - and a line under it: elapsed against the estimate while it runs, how long it ran and when it ended afterwards (`20s · 12:50`). How the task ended is the dot's colour; the card says it in words only when opened. A subagent run, a scheduled run and the memory run also name, on the right of that line, the model they run on and the tokens their calls have spent (`qwen3.8-27b · 212k tokens`), updated while they run; hovering the card shows the full model id and the input and output tokens apart. A running card adds a Stop control and, **only** when the model supplied an estimate, a progress bar. Running tasks stand at the top of the panel under no heading; anything above the **Finished N** counter is running.
+- **Every task is the same card**, whatever it is and whether it runs or has finished: a status dot, a **tag** that says what stands behind it (`shell` for a command, the agent's name for a subagent run, `memory` for the memory run of a turn), the title - the command, or what the agent was asked to do - and a line under it: elapsed against the estimate while it runs, how long it ran and when it ended afterwards (`20s · 12:50`). How the task ended is the dot's colour; the card says it in words only when opened. A subagent run, a scheduled run and the memory run also name, on the right of that line, the model they run on and the tokens their calls have spent (`qwen3.8-27b · 212k tokens`), updated while they run; hovering the card shows the full model id and the input and output tokens apart. A running card adds a Stop control, a **bell** after the title when the task will wake the agent when it ends (hover: *Wakes the agent when it ends*) and, **only** when the model supplied an estimate, a progress bar; a finished card keeps the bell when its end did wake the agent (hover: *Woke the agent when it ended*). Running tasks stand at the top of the panel under no heading; anything above the **Finished N** counter is running.
 - **A click anywhere on a card opens it in place.** There is no second pane: the open card shows the command with a copy button (or **Show transcript** for an agent run), the error if the run ended with one (not the bare `exit status 2` of a command, which only repeats the exit code), the captured output in a box that scrolls on its own, and at the bottom how the task ended, its exit code and how long it ran (`Failed · Exit code 2 · Duration 10s`). Open as many cards as you like: each keeps reading its own output while its task runs. Which cards are open is not part of the address, which says only that the panel is showing.
 - **Finished N** is a counter, not a list. Expanding it shows the finished cards; the rest stay on disk. That is how "keep every log" and "do not load the app" hold at once: the list is counted, the cards render on demand, and a task's output is fetched only when its card is opened.
 - **Clear** drops the finished history for this session (`DELETE /coddy/sessions/{id}/background-tasks`). Running tasks are untouched.
 - Ordering is **purely by start time**, newest first, among the live cards and inside the finished history alike. Running tasks are not floated to the top of the history: they stand above the counter already, and mixing two orderings makes a list that never sits still to read.
 - The **opener** is the **Tasks** control at the right edge of the chat header. The header is sticky, so the control does not scroll away with the transcript, and it is there from the first message: a chat that has not run a task reads `Tasks`, one that has reads how many run out of how many there are (`Tasks 1 / 3`, then `Tasks 0 / 3` once everything has finished). A click opens the panel and a second one closes it. While a turn runs, the [live status line](../surfaces/web-ui.md#live-status-next-to-the-typing-dots) names the running tasks as well, and the name is a button to the same panel. Neither number counts [system tasks](#system-tasks), so the memory run of every turn does not read as a task the model started. The control is deliberately not in the nav rail: background tasks belong to one chat.
 
-![The Tasks panel opened from the control in the chat header: two running cards, and a finished command opened in place](../assets/background-tasks-header-opener-dark-1280.png)
+![The Tasks panel opened from the control in the chat header: two running cards, and a finished command opened in place](../assets/background-tasks/background-tasks-header-opener-dark-1280.png)
 
 *The Tasks panel opened from the control in the chat header: a subagent and a command still running, and a finished build opened in place with its command, output and exit code*
 - A transcript tool row that started a task names itself a background run and shows the task's clock where an ordinary row shows its duration, plus **Open in Tasks** and **Stop** when expanded. It says nothing about how the run ended: the status, the estimate, the exit code and the error are read on the task's card in the panel, which is what **Open in Tasks** opens: the panel comes up with that card already open.
 
-Layout, colour, and mobile contracts are in `DESIGN.md` (**Background tasks panel**, **Background task on a transcript row**).
+- A turn the agent was woken into shows nothing of its own, neither a user bubble nor a note: the answer follows the previous turn, and the bell on the task's card says what woke the agent ([Waking the agent](#what-the-woken-turn-looks-like)).
+
+Layout, colour, and mobile contracts are in `DESIGN.md` (**Background tasks panel**, **Background task on a transcript row**, **Woken turn**).
 
 ## In the console
 

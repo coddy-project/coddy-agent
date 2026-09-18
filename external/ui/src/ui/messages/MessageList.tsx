@@ -13,6 +13,7 @@ import { AssistantMessage } from "./AssistantMessage";
 import { SystemNoticeMessage } from "./SystemNoticeMessage";
 import { ThinkingMessage } from "./ThinkingMessage";
 import { CompactionMessage } from "./CompactionMessage";
+import { opensTurn } from "../chat/backgroundWake";
 import { ToolCallMessage } from "./ToolCallMessage";
 import type { BackgroundTask } from "../tasks/types";
 import type { TurnProgress } from "../chat/turnProgress";
@@ -91,12 +92,17 @@ export function MessageList(props: {
     return byId;
   }, [props.items]);
 
+  // The server numbers every user-role message of the transcript, a woken
+  // turn's first message included, so the wake counts here too: an edit of a
+  // later message must name the message the server knows by that index.
   const userMsgIndices = useMemo(() => {
     const m = new Map<string, number>();
     let idx = 0;
     for (const it of props.items) {
       if (it.type === "user_message") {
         m.set(it.id, idx++);
+      } else if (it.type === "background_wake") {
+        idx++;
       }
     }
     return m;
@@ -116,7 +122,7 @@ export function MessageList(props: {
     for (let i = props.items.length - 1; i >= 0; i--) {
       const item = props.items[i];
       if (!item) continue;
-      if (item.type === "user_message") {
+      if (opensTurn(item)) {
         seenInTurn = false;
         inRunningTurn = false;
         continue;
@@ -187,6 +193,13 @@ export function MessageList(props: {
         }
         if (it.type === "compaction") {
           return <CompactionMessage key={it.id} summary={it.summary} />;
+        }
+        if (it.type === "background_wake") {
+          // Nobody typed the first message of a turn a finished background
+          // task started, and nothing stands in its place: the agent's answer
+          // reads as the work carrying on, and the task's card in the Tasks
+          // panel keeps a bell for what woke it.
+          return null;
         }
         if (it.type === "memory_run") {
           // The memory subagent's run is the live status line's business and

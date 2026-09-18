@@ -590,6 +590,34 @@ When `memory.enable` is true, every user turn starts a **memory subagent**: a ch
 
 A client shows a `Working with memory` phrase between `started` and `finished`, and drops it when the turn ends: it must not wait for `finished`, because a run that outlives the turn never sends it. The console prints one line when the run settles inside the turn. The updates `memory_phase` and `memory_message_chunk` of earlier releases no longer exist.
 
+### `background_wake` - A turn nobody typed
+
+A task the model started with `notify_on_finish` wakes the agent when it ends ([Background tasks](../features/background-tasks.md#waking-the-agent-when-a-task-finishes)). Under `coddy acp` the woken turn runs with the client as its sender: its `session/update` notifications arrive outside any `session/prompt` the client sent, and a gated tool inside it is asked with `session/request_permission` like any other. The turn opens with this update, sent before its first message is persisted and in its place: the message is the instruction the model reads, and it is not sent as a `user_message_chunk`, live or on `session/load`.
+
+| Field | Meaning |
+|---|---|
+| `tasks` | every task the turn reports, in the order they finished |
+| `tasks[].id` | the task id (`bg_3`) |
+| `tasks[].kind` | `command` or `agent` |
+| `tasks[].label` | the command, or the description of a subagent run |
+| `tasks[].agent` | the subagent definition behind an agent run |
+| `tasks[].status` | `succeeded`, `failed`, `timed_out` or `stopped` |
+| `tasks[].exitCode` | the exit code of a command; an agent run's is the pool's and says nothing |
+| `tasks[].durationMs` | how long the task ran |
+| `tasks[].error` | what went wrong, when the pool recorded something |
+
+```json
+{"sessionUpdate": "background_wake", "tasks": [{"id": "bg_3", "kind": "command", "label": "make test", "status": "failed", "exitCode": 2, "durationMs": 90000, "error": "exit status 2"}]}
+```
+
+An editor that renders only the standard updates would show an answer nobody asked for, so `coddy acp` follows the update with the same wake as a quoted `agent_message_chunk` at the head of the answer, live and on `session/load`:
+
+```text
+> Woken by a finished background task: bg_3 make test, failed, exit 2, 1m 30s
+```
+
+`coddy acp --remote` replays a woken turn of the server the same way on `session/load`; it does not follow the server's woken turns live.
+
 ### `current_mode_update` - Mode changed
 
 ```json

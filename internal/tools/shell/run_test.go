@@ -422,6 +422,20 @@ func TestFormatTaskLineDescribesTheTask(t *testing.T) {
 	if strings.Contains(doneLine, "overdue") {
 		t.Fatalf("finished line %q must not be overdue", doneLine)
 	}
+
+	// A running task the model will be woken for says so, so the model does
+	// not spend a turn waiting on it; once it has ended there is nothing left
+	// to wake, and the line says nothing of it.
+	waking := running
+	waking.NotifyOnFinish = true
+	if line := formatTaskLine(waking, start.Add(10*time.Second)); !strings.Contains(line, "wakes you when it ends") {
+		t.Fatalf("waking line %q does not say it wakes the model", line)
+	}
+	woke := done
+	woke.NotifyOnFinish = true
+	if line := formatTaskLine(woke, start.Add(time.Hour)); strings.Contains(line, "wakes you") {
+		t.Fatalf("finished line %q still promises a wake", line)
+	}
 }
 
 // The operator path is the console's `!!` prefix: same shell and process
@@ -610,5 +624,71 @@ func TestBackgroundToolsHideSystemTasksFromTheModel(t *testing.T) {
 	// The refusals changed nothing: the run is still going.
 	if got, _ := pool.Get("s1", snap.ID); got.Status.Finished() {
 		t.Fatalf("the system task was stopped by a refused tool call: %+v", got)
+	}
+}
+
+// A surface with nothing subscribed to wake the agent - coddy -p - must not
+// answer notify_on_finish with a promise it cannot keep: the model would end its
+// turn waiting for a turn that never comes. Where a waker is subscribed the
+// promise stands, and the task records the wake it will get.
+func TestBackgroundNotifyIsHonestAboutWhetherAnythingCanWake(t *testing.T) {
+	args, err := json.Marshal(runCommandArgs{Command: "sleep 0", Background: true, NotifyOnFinish: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	newEnv := func() *tooling.Env {
+		return &tooling.Env{
+			SessionID:         "s1",
+			CWD:               t.TempDir(),
+			BackgroundEnabled: true,
+			Background:        bgtask.NewWithRunner(bgtask.Config{}, bgtask.NewCommandRunner()),
+			WakeableSession:   true,
+		}
+	}
+
+	env := newEnv()
+	t.Cleanup(func() { env.Background.StopSession(env.SessionID) })
+	out, err := executeRunCommandWithShell(context.Background(), string(args), env, platform.CurrentShell())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "You will be woken") {
+		t.Fatalf("a pool nothing watches still promised a wake:\n%s", out)
+	}
+	for _, want := range []string{"Nothing will wake you", ToolBackgroundWait, ToolBackgroundOutput} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("result %q does not mention %q", out, want)
+		}
+	}
+	if tasks := env.Background.List(env.SessionID); len(tasks) != 1 || tasks[0].NotifyOnFinish {
+		t.Fatalf("tasks = %+v, want one task that does not claim a wake", tasks)
+	}
+
+	woken := newEnv()
+	t.Cleanup(func() { woken.Background.StopSession(woken.SessionID) })
+	woken.Background.SubscribeKeyed(bgtask.WakeWatcherKey, func(bgtask.Snapshot) {})
+	out, err = executeRunCommandWithShell(context.Background(), string(args), woken, platform.CurrentShell())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "You will be woken") {
+		t.Fatalf("a watched pool must still promise the wake it will deliver:\n%s", out)
+	}
+	if tasks := woken.Background.List(woken.SessionID); len(tasks) != 1 || !tasks[0].NotifyOnFinish {
+		t.Fatalf("tasks = %+v, want one task recorded as waking the agent", tasks)
+	}
+
+	// A child or a scheduled run is sealed when its turn returns: the request
+	// is refused in the same words even where a waker is subscribed.
+	sealed := newEnv()
+	sealed.WakeableSession = false
+	t.Cleanup(func() { sealed.Background.StopSession(sealed.SessionID) })
+	sealed.Background.SubscribeKeyed(bgtask.WakeWatcherKey, func(bgtask.Snapshot) {})
+	out, err = executeRunCommandWithShell(context.Background(), string(args), sealed, platform.CurrentShell())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "You will be woken") || !strings.Contains(out, "Nothing will wake you") {
+		t.Fatalf("a sealed session was promised a wake:\n%s", out)
 	}
 }

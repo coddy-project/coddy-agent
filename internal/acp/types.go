@@ -321,6 +321,7 @@ const (
 	UpdateTypeAvailableCommandsUpdate = "available_commands_update"
 	UpdateTypeMessageQueue            = "message_queue"
 	UpdateTypeTurnProgress            = "turn_progress"
+	UpdateTypeBackgroundWake          = "background_wake"
 )
 
 // QueuedMessage is one follow-up waiting for the running turn to read it.
@@ -606,6 +607,32 @@ type MemoryRunUpdate struct {
 	Delivered bool `json:"delivered,omitempty"`
 	// Reason explains a skip, or a run that ended with an error.
 	Reason string `json:"reason,omitempty"`
+}
+
+// BackgroundWakeUpdate opens a turn nobody typed: background tasks the model
+// asked to be notified about (notify_on_finish) finished, and the process
+// started a turn to report them. It is sent once, before the turn's first
+// message, in place of a message from the user: a client knows the turn was
+// not typed, and shows nothing for it or a one-line note naming the tasks;
+// session/load replays it in the same place.
+type BackgroundWakeUpdate struct {
+	SessionUpdate string               `json:"sessionUpdate"` // "background_wake"
+	Tasks         []BackgroundWakeTask `json:"tasks"`
+}
+
+// BackgroundWakeTask is one finished task a woken turn reports.
+type BackgroundWakeTask struct {
+	ID string `json:"id"`
+	// Kind is "command" or "agent".
+	Kind  string `json:"kind,omitempty"`
+	Label string `json:"label,omitempty"`
+	// Agent names the subagent definition of an agent run.
+	Agent string `json:"agent,omitempty"`
+	// Status is succeeded, failed, timed_out or stopped.
+	Status     string `json:"status"`
+	ExitCode   *int   `json:"exitCode,omitempty"`
+	DurationMs int64  `json:"durationMs"`
+	Error      string `json:"error,omitempty"`
 }
 
 // ---- ACP session/request_permission ----

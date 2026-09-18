@@ -133,6 +133,10 @@ type Snapshot struct {
 	OutputBytes     int64      `json:"output_bytes"`
 	OutputTruncated bool       `json:"output_truncated"`
 	NotifyOnFinish  bool       `json:"notify_on_finish,omitempty"`
+	// WokeAgent is set once the task's outcome started a turn: notify_on_finish
+	// kept its promise (Pool.MarkWokeAgent). A finished task keeps its bell in
+	// the Tasks panel and in /tasks on it.
+	WokeAgent bool `json:"woke_agent,omitempty"`
 
 	// Agent identifies the subagent behind a KindAgent task, including the
 	// child session that holds its transcript. Nil for commands.

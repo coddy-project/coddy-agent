@@ -472,3 +472,40 @@ test("a whitespace-only assistant row takes no place in the transcript", () => {
   const { container } = render(<MessageList items={items} />);
   expect(container.querySelectorAll(".msg-assistant-stack")).toHaveLength(0);
 });
+
+test("a woken turn shows neither a note nor a user bubble, only the agent carrying on", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "start the tests" },
+    { id: "a1", type: "assistant_message", content: "Started them in the background." },
+    {
+      id: "w1",
+      type: "background_wake",
+      tasks: [
+        { id: "bg_3", kind: "command", label: "make test", status: "failed", exitCode: 2, durationMs: 90000 },
+      ],
+    },
+    { id: "a2", type: "assistant_message", content: "The tests failed." },
+  ];
+  const { container } = render(<MessageList items={items} />);
+  expect(screen.getByText("The tests failed.")).toBeInTheDocument();
+  // One user bubble: the one somebody typed. Nothing names the wake.
+  expect(container.querySelectorAll(".msg-user")).toHaveLength(1);
+  expect(container.textContent).not.toContain("bg_3");
+  expect(container.textContent).not.toContain("make test");
+  expect(container.querySelector('[role="note"]')).toBeNull();
+});
+
+test("a message typed after a wake is edited by the index the server knows it by", () => {
+  const onEdit = vi.fn();
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "start the tests" },
+    { id: "w1", type: "background_wake", tasks: [{ id: "bg_3", status: "failed" }] },
+    { id: "u2", type: "user_message", content: "fix it" },
+  ];
+  render(<MessageList items={items} onEdit={onEdit} />);
+  const edits = screen.getAllByTestId("user-message-edit");
+  expect(edits).toHaveLength(2);
+  fireEvent.click(edits[1]!);
+  // The server counts the wake as user message 1, so "fix it" is message 2.
+  expect(onEdit).toHaveBeenCalledWith("fix it", 2);
+});

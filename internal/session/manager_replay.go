@@ -16,6 +16,14 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 		msg := msgs[i]
 		switch msg.Role {
 		case llm.RoleUser:
+			// A woken turn's first message was not typed by anybody: it is
+			// replayed as the wake it stands for, so a client shows what it
+			// showed live - nothing, or a one-line note - instead of a
+			// message from the user.
+			if msg.BackgroundWake != nil {
+				_ = m.server.SendSessionUpdate(sessionID, BackgroundWakeUpdate(msg.BackgroundWake))
+				continue
+			}
 			content := strings.TrimSpace(msg.Content)
 			if content != "" {
 				_ = m.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{

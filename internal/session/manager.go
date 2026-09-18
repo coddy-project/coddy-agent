@@ -55,6 +55,9 @@ type Manager struct {
 	// turnStarted is when each of those sessions went from no turn to one. A
 	// client that joins a turn late counts its clock from here.
 	turnStarted map[string]time.Time
+	// turnWakes is the wake of each of those turns that finished background
+	// tasks started, for a client that joins it after TurnPhaseWoken went out.
+	turnWakes map[string]*llm.BackgroundWake
 
 	// turnObservers receive the started/ended edges of activeTurns (see turn_events.go).
 	turnObserverMu  sync.Mutex
@@ -693,6 +696,14 @@ type PromptRunOpts struct {
 	// costs that turn its cached prefix, deliberately.
 	SurfaceSystemPrompt string
 
+	// BackgroundWake says the prompt was not typed by anybody: finished
+	// background tasks the model asked to be notified about started this
+	// turn, and the prompt is the instruction that reports them. The turn's
+	// first message is persisted with the marker, the agent tells the clients
+	// before it (acp.BackgroundWakeUpdate), and the turn observers hear a
+	// TurnPhaseWoken event once the turn holds the session.
+	BackgroundWake *llm.BackgroundWake
+
 	// subagentTurn marks the one prompt a child session may run: its own task
 	// turn, started by the subagent runtime. Every other prompt against a child
 	// is refused with ErrSubagentReadOnly (see RunSubagentTurn).
@@ -930,6 +941,15 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if opts != nil && strings.TrimSpace(opts.SurfaceSystemPrompt) != "" {
 		state.SetSurfaceSystemPrompt(opts.SurfaceSystemPrompt)
 		defer state.SetSurfaceSystemPrompt("")
+	}
+	// A turn no person started says so, the same way: held for this turn
+	// only, taken by the agent for the first message, and announced to the
+	// observers once the turn holds the session.
+	if opts != nil && opts.BackgroundWake != nil {
+		state.SetTurnWake(opts.BackgroundWake)
+		defer state.SetTurnWake(nil)
+		defer m.holdTurnWake(params.SessionID, opts.BackgroundWake)()
+		m.publishWokenTurn(params.SessionID, opts.BackgroundWake)
 	}
 
 	sessionDir := strings.TrimSpace(state.GetPersistedSessionDir())

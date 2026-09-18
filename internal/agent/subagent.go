@@ -820,18 +820,19 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 			def.Name, cfg.Subagents.EffectiveMaxConcurrent())
 	}
 
+	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
+	pool := a.backgroundPool(sd)
+
 	// Only a session somebody can wake registers a wake: a child and a
-	// scheduled run are sealed when their turn returns.
-	notify := req.NotifyOnFinish && background && a.subagent == nil
+	// scheduled run are sealed when their turn returns, and a process with
+	// no waker (coddy -p) has nobody to start the turn.
+	notify := req.NotifyOnFinish && background && a.subagent == nil && pool.CanWake()
 	label := firstLine(req.Description)
 	if label == "" {
 		label = firstLine(req.Prompt)
 	}
 	label = capRunes("agent "+def.Name+": "+label, maxTaskLabelRunes)
 	timeout := subagents.ResolveTimeoutSeconds(req.TimeoutSeconds, def.TimeoutSeconds, req.ExpectedSeconds, cfg.Subagents.EffectiveDefaultTimeoutSeconds())
-
-	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
-	pool := a.backgroundPool(sd)
 
 	arbiter := acquireArbiter(parentID)
 	relay := &permissionRelay{
@@ -908,9 +909,15 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	var b strings.Builder
 	fmt.Fprintf(&b, "Started subagent %s as background task %s (child session %s).\n", def.Name, snap.ID, childID)
 	fmt.Fprintf(&b, "Hard timeout %s.\n", humanSecondsAgent(snap.TimeoutSeconds))
-	if snap.NotifyOnFinish {
+	switch {
+	case snap.NotifyOnFinish:
 		b.WriteString("You will be woken with the outcome when it finishes, so you can end your turn now.")
-	} else {
+	case req.NotifyOnFinish:
+		// Nothing here will start that turn - a child's transcript closes
+		// with its turn, and coddy -p has no waker - so the run is real and
+		// only the notice is not.
+		b.WriteString("Nothing will wake you when it finishes here, so notify_on_finish was ignored: follow it with background_list or background_output, and collect the report with background_wait.")
+	default:
 		b.WriteString("Keep working; follow it with background_list or background_output, and collect the report with background_wait.")
 	}
 	return b.String(), nil

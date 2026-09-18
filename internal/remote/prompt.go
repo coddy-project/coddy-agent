@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -201,6 +202,14 @@ type turnStream struct {
 	done       bool
 	turnErr    string
 	stopReason string
+
+	// follow marks a turn this client did not start (follow.go). Its
+	// permission prompts are asked aside, without holding up the stream: a
+	// browser watching the same turn may answer first, and the stream says so
+	// with the tool call's final status, which withdraws the question here.
+	follow bool
+	asksMu sync.Mutex
+	asks   map[string]context.CancelFunc
 }
 
 // onFrame translates one SSE frame into ACP updates or answer round-trips.
@@ -217,6 +226,7 @@ func (t *turnStream) onFrame(f sseFrame) error {
 		var u acp.ToolCallStatusUpdate
 		if json.Unmarshal([]byte(f.data), &u) == nil {
 			_ = t.sender.SendSessionUpdate(t.sessionID, u)
+			t.settleAsk(u)
 		}
 	case "plan":
 		var u acp.PlanUpdate
@@ -257,7 +267,18 @@ func (t *turnStream) onFrame(f sseFrame) error {
 		if json.Unmarshal([]byte(f.data), &u) == nil {
 			_ = t.sender.SendSessionUpdate(t.sessionID, u)
 		}
+	case "background_wake":
+		// The first frame of a turn a finished background task started.
+		var u acp.BackgroundWakeUpdate
+		if json.Unmarshal([]byte(f.data), &u) == nil {
+			u.SessionUpdate = acp.UpdateTypeBackgroundWake
+			_ = t.sender.SendSessionUpdate(t.sessionID, u)
+		}
 	case "permission":
+		if t.follow {
+			t.askAside(f.data)
+			return nil
+		}
 		return t.onPermission(f.data)
 	case "question":
 		return t.onQuestion(f.data)
@@ -341,6 +362,64 @@ func (t *turnStream) onPermission(data string) error {
 		return fmt.Errorf("permission answer: %w", perr)
 	}
 	return nil
+}
+
+// askAside is onPermission for a followed turn: the question is put to the
+// surface on a goroutine of its own, so the stream keeps being read, and it is
+// withdrawn when the tool call reaches its final status - somebody else
+// answered - or when the follower stops.
+func (t *turnStream) askAside(data string) {
+	var params acp.PermissionRequestParams
+	if err := json.Unmarshal([]byte(data), &params); err != nil {
+		return
+	}
+	callID := params.ToolCall.ToolCallID
+	ctx, cancel := context.WithCancel(t.ctx)
+	t.asksMu.Lock()
+	if t.asks == nil {
+		t.asks = map[string]context.CancelFunc{}
+	}
+	if prev := t.asks[callID]; prev != nil {
+		prev()
+	}
+	t.asks[callID] = cancel
+	t.asksMu.Unlock()
+	go func() {
+		defer cancel()
+		res, err := t.sender.RequestPermission(ctx, params)
+		if ctx.Err() != nil || err != nil || res == nil {
+			return
+		}
+		optionID := res.OptionID
+		if optionID == "" && res.Outcome == "allow" {
+			optionID = "allow"
+		}
+		if optionID == "" {
+			return
+		}
+		answer := map[string]string{"toolCallId": callID, "optionId": optionID}
+		path := "/coddy/sessions/" + url.PathEscape(t.sessionID) + "/permission"
+		if perr := t.h.postJSON(ctx, path, answer, nil); perr != nil && !isStaleAnswer(perr) {
+			t.h.log.Warn("remote woken turn: permission answer failed", "session", t.sessionID, "toolCallId", callID, "error", perr)
+		}
+	}()
+}
+
+// settleAsk withdraws the question asked aside for a tool call that reached
+// its final status: it was answered, here or elsewhere.
+func (t *turnStream) settleAsk(u acp.ToolCallStatusUpdate) {
+	switch u.Status {
+	case "completed", "failed", "cancelled":
+	default:
+		return
+	}
+	t.asksMu.Lock()
+	cancel := t.asks[u.ToolCallID]
+	delete(t.asks, u.ToolCallID)
+	t.asksMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 // onQuestion forwards the question to the surface and posts the answers back.

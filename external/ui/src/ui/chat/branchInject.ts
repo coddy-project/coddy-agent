@@ -37,6 +37,12 @@ export function injectBranchNavItems(
   let userMsgCount = 0;
   for (const item of items) {
     result.push(item);
+    // The wake a woken turn opens with is a user message on the server, so it
+    // takes an index of its own; nothing branches from it.
+    if (item.type === "background_wake") {
+      userMsgCount++;
+      continue;
+    }
     if (item.type === "user_message") {
       const bp = byUserIdx.get(userMsgCount);
       if (bp) {

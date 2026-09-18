@@ -60,6 +60,10 @@ type Message struct {
 	// Messages before the last summary stay in the persisted transcript for UI
 	// replay but are excluded from LLM prompts (see session.MessagesForLLM).
 	CompactionSummary bool `json:"compaction_summary,omitempty"`
+	// BackgroundWake marks a user-role message no person typed: the one a
+	// finished notify_on_finish task started a turn with (excluded from what
+	// the provider is sent; the Content still is).
+	BackgroundWake *BackgroundWake `json:"background_wake,omitempty"`
 }
 
 // PlanDocumentSnapshot is a persisted design plan row in the session transcript.

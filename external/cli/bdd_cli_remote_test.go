@@ -54,6 +54,10 @@ type fakeRemoteServer struct {
 	// tokens and then wait for holdTurn before it answers.
 	progressTokens int
 	holdTurn       chan struct{}
+
+	// woken holds the frames of the turn the server woke on its own, served
+	// on the composer relay of the session it woke.
+	woken string
 }
 
 type fakeRemotePermission struct {
@@ -104,6 +108,15 @@ func newFakeRemoteServer(answer string) *fakeRemoteServer {
 		f.permissions = append(f.permissions, fakeRemotePermission{sessionID: r.PathValue("id"), toolCallID: in.ToolCallID, optionID: in.OptionID})
 		f.mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
+	}))
+	// The composer relay of a session: the woken turn's frames, then the end.
+	mux.HandleFunc("GET /coddy/sessions/{id}/composer-stream", f.withAuth(func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		frames := f.woken
+		f.mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprint(w, frames)
 	}))
 	mux.HandleFunc("GET /v1/models", f.withAuth(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -430,6 +443,48 @@ func (s *cliRemoteState) fakeServerReceivedTurn() error {
 
 const remoteWriterChild = "sess_remote_writer"
 
+// serverWakesConsoleSession plays what coddy serve does when a task of the
+// console's session ends: the woken turn runs on the relay, and the events
+// stream says so.
+func (s *cliRemoteState) serverWakesConsoleSession(label string, code int) error {
+	task := map[string]interface{}{"id": "bg_1", "kind": "command", "label": label, "status": "failed", "exitCode": code, "durationMs": 90000}
+	wake, err := json.Marshal(map[string]interface{}{"sessionUpdate": "background_wake", "tasks": []interface{}{task}})
+	if err != nil {
+		return err
+	}
+	chunk, err := json.Marshal(map[string]interface{}{
+		"object":  "chat.completion.chunk",
+		"choices": []map[string]interface{}{{"delta": map[string]string{"content": fmt.Sprintf("The build failed with exit %d.", code)}}},
+	})
+	if err != nil {
+		return err
+	}
+	s.server.mu.Lock()
+	s.server.woken = fmt.Sprintf("id: 1\nevent: background_wake\ndata: %s\n\nid: 2\ndata: %s\n\nid: 3\ndata: [DONE]\n\n", wake, chunk)
+	s.server.mu.Unlock()
+	event, err := json.Marshal(map[string]interface{}{
+		"object": "coddy.background_wake", "sessionId": s.app.sessionID, "phase": "woken",
+		"at": time.Now().UTC().Format(time.RFC3339Nano), "tasks": []interface{}{task},
+	})
+	if err != nil {
+		return err
+	}
+	s.server.events <- "event: background_wake\ndata: " + string(event) + "\n\n"
+	return nil
+}
+
+// wokenTurnShowsNothingBeforeTheAnswer checks that the turn the server woke
+// reads as the agent carrying on: the frame that opens it leaves no row.
+func (s *cliRemoteState) wokenTurnShowsNothingBeforeTheAnswer() error {
+	text := s.screenText()
+	for _, unwanted := range []string{"Woken by", "bg_1"} {
+		if strings.Contains(text, unwanted) {
+			return fmt.Errorf("the woken turn shows %q:\n%s", unwanted, text)
+		}
+	}
+	return nil
+}
+
 // serverAnnouncesBackgroundSubagent pushes the frame the server sends once a
 // background subagent of the console's session waits for a permission.
 func (s *cliRemoteState) serverAnnouncesBackgroundSubagent(name, command string) error {
@@ -595,6 +650,8 @@ func initializeCLIRemoteScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the connection drops and the permission is settled elsewhere before reconnect$`, s.reconnectAfterPermissionSettled)
 	sc.Step(`^the obsolete permission modal closes without posting an answer$`, s.obsoletePermissionCloses)
 	sc.Step(`^the server receives the answer "([^"]*)" for that subagent's child session$`, s.serverReceivesChildAnswer)
+	sc.Step(`^the server wakes the console session because "([^"]*)" failed with exit (\d+)$`, s.serverWakesConsoleSession)
+	sc.Step(`^the woken turn shows nothing before the agent's answer$`, s.wokenTurnShowsNothingBeforeTheAnswer)
 	sc.Step(`^the operator runs a remote one-shot prompt "([^"]*)"$`, s.operatorRunsRemoteOneShot)
 	sc.Step(`^the one-shot output contains "([^"]*)"$`, s.oneShotOutputContains)
 	sc.Step(`^the one-shot run ends cleanly$`, s.oneShotEndsCleanly)

@@ -32,6 +32,9 @@ type turnDone struct {
 	sessionID string
 	stop      string
 	err       error
+	// woken marks the turn a finished background task started: a busy
+	// refusal of it is the waker's to retry, not a failure to report.
+	woken bool
 }
 
 // App is the interactive console application: one UI goroutine over a
@@ -118,6 +121,10 @@ type App struct {
 	sessionID string
 	modeID    string
 	modelID   string
+
+	// wakesHeld remembers the wakes of other sessions the operator has been
+	// told about (background.go), so a held wake is announced once.
+	wakesHeld map[string]bool
 	reasoning string
 	// reasoningMu serializes backend updates without blocking the UI goroutine
 	// while an earlier update is in flight.
@@ -715,6 +722,20 @@ func (a *App) submitPrompt(text string) {
 		return
 	}
 	a.chat.AddChild(newUserMessage(a.theme, text))
+	a.startTurnWorker(acp.SessionPromptParams{
+		SessionID: a.sessionID,
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: text}},
+	}, nil, nil)
+}
+
+// startTurnWorker runs one prompt on the manager and posts turnDone when it
+// returns. The caller has already rendered whatever announces the turn; this
+// owns the shared turn state, which is why it runs on the UI goroutine.
+//
+// done, when non-nil, also receives the turn's error once turnDone is posted: a
+// background wake waits on it (background.go), so the waker starts at most one
+// turn at a time and hears a busy session as busy.
+func (a *App) startTurnWorker(params acp.SessionPromptParams, opts *session.PromptRunOpts, done chan<- error) {
 	if a.remoteURL == "" {
 		a.setQueueRows(nil)
 	}
@@ -727,22 +748,23 @@ func (a *App) submitPrompt(text string) {
 	a.turnActive = true
 	// A running turn is when tasks appear: read them on the fast cadence.
 	a.armTasksPoll()
-	sessionID := a.sessionID
+	sessionID := params.SessionID
 	a.turnSessionID = sessionID
+	woken := opts != nil && opts.BackgroundWake != nil
 	a.workers.Add(1)
 	go func() {
 		defer a.workers.Done()
-		res, err := a.mgr.HandleSessionPromptWithSender(a.workCtx, acp.SessionPromptParams{
-			SessionID: sessionID,
-			Prompt:    []acp.ContentBlock{{Type: "text", Text: text}},
-		}, a.Sender(), nil)
+		res, err := a.mgr.HandleSessionPromptWithSender(a.workCtx, params, a.Sender(), opts)
 		stop := ""
 		if res != nil {
 			stop = string(res.StopReason)
 		}
 		select {
-		case a.updatesCh <- updateMsg{sessionID: sessionID, update: turnDone{sessionID: sessionID, stop: stop, err: err}}:
+		case a.updatesCh <- updateMsg{sessionID: sessionID, update: turnDone{sessionID: sessionID, stop: stop, err: err, woken: woken}}:
 		case <-a.closed:
+		}
+		if done != nil {
+			done <- err
 		}
 	}()
 }

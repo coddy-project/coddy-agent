@@ -51,6 +51,18 @@ func (s *Server) coddyEventsStream(w http.ResponseWriter, r *http.Request) {
 			Phase:     session.TurnPhaseStarted,
 			At:        at,
 		}))
+		// A turn finished background tasks started says so again, dated at
+		// the same start: a client that follows only its own turns and the
+		// woken ones - a console over --remote that has just reconnected -
+		// finds it here, and knows it from a turn it already followed.
+		if wake := s.mgr.TurnWake(id); wake != nil {
+			_, _ = w.Write(turnEventFrame(session.TurnEvent{
+				SessionID: id,
+				Phase:     session.TurnPhaseWoken,
+				At:        at,
+				Wake:      wake,
+			}))
+		}
 	}
 	// A subagent already waiting for an answer is part of the snapshot too: a
 	// console attached after it asked has no other way to find the prompt. A

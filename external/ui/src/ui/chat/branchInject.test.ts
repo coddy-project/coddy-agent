@@ -72,3 +72,15 @@ test("injects at multiple branch points", () => {
   const navItems = result.filter((i) => i.type === "branch_nav");
   expect(navItems).toHaveLength(2);
 });
+
+test("a wake takes an index of its own, so a branch after it lands on its message", () => {
+  const items: TranscriptItem[] = [
+    { id: "u0", type: "user_message", content: "start the tests" },
+    { id: "w1", type: "background_wake", tasks: [{ id: "bg_3", status: "failed" }] },
+    { id: "u2", type: "user_message", content: "fix it" },
+  ];
+  const out = injectBranchNavItems(items, [
+    { userMessageIndex: 2, currentIndex: 0, total: 2, sessions: [{ sessionId: "a" }, { sessionId: "b" }] },
+  ]);
+  expect(out.map((it) => it.id)).toEqual(["u0", "w1", "u2", "branch-nav-2"]);
+});

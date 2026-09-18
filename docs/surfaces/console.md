@@ -164,7 +164,9 @@ command, the agent's name for a subagent run, `memory` for the memory run of
 a turn), the title - the command, or what the agent was asked to do - and how
 it is going (`1m 08s · est. 5m 00s`, `1m 30s` once it has ended), with the
 model and the tokens of an agent run (`44s · qwen3.8-27b · 88.7k tokens`),
-newest first, the way the web UI's Tasks panel lists them. How a task ended
+newest first, the way the web UI's Tasks panel lists them. A running task that
+will wake the agent when it ends says `wakes the agent` in its row, where the
+web UI's card has its bell. How a task ended
 is its mark (`✓`, `✗`, `■`); the open task says it in words. **enter** opens
 the task under the cursor: how it ended with the exit code and the duration
 (`failed · exit 2 · 1m 30s`), its command, the child session of an agent run,
@@ -179,6 +181,19 @@ through the server's REST routes, so the overlay manages the processes of the
 machine the agent runs on. The list refreshes every 2.5 s while the overlay is
 open, a turn runs or a task runs, and every 15 s otherwise; between turns the
 footer keeps saying how many tasks still run.
+
+A task the agent started with `notify_on_finish` wakes it in this console
+when it ends ([Background tasks](../features/background-tasks.md#waking-the-agent-when-a-task-finishes)).
+The woken turn runs like a typed one - the status line, the queue, a gated tool
+asking in the permission modal - and shows nothing where the operator's message
+would stand: the agent's answer follows the previous turn, as the work carrying
+on, live and when `/resume` replays the session. `/tasks` is where the task
+says it: `wakes the agent` while it runs, `woke the agent` once its end has
+started the turn. A wake that lands while a turn, a `!!` command or a session
+switch is in progress waits for it to end; one for a session the console has
+left with `/new` or `/resume` waits until the operator comes back to that
+session, and a dim line says once where it is waiting. `coddy -p` runs no
+waker, so there the tool tells the model that nothing will wake it.
 
 Submitting while a turn is running does not refuse the prompt: it joins the
 session's message queue, which the running turn reads at its next step
@@ -406,7 +421,16 @@ session; answered first in a browser or a chat, the modal closes. After reconnec
 by the server-side session workspace (the server's default cwd for a session
 the console created). A dropped connection leaves the server turn and its
 child running; `/resume` shows the outcome once it ends, and an answer to a
-prompt the server has already withdrawn is ignored. Quitting the console
+prompt the server has already withdrawn is ignored. A turn the server woke on
+its own in a session the console has open - a finished `notify_on_finish` task -
+is followed on the session's composer relay, announced by `background_wake` on
+the events stream - or, for a console that opens the session (`/resume`,
+`--session-id`) while that turn is already running, by the `backgroundWake` of
+the session's activity, and after a reconnect by the events stream's snapshot,
+which picks the same turn up after the last frame shown: the answer and a
+permission prompt reach the console as for a turn it started, and a prompt answered first in a browser
+closes again. The console's own waker stays off under `--remote`: the tasks run
+in the server's pool, and the server wakes the agent. Quitting the console
 mid-turn waits briefly for the remote cancel to reach the server. See
 `docs/features/subagents.md`, Remote mode.
 
@@ -535,6 +559,10 @@ and is visible via `coddy mcp list` (approve with `coddy mcp trust <name>`).
 ![A task opened in the /tasks overlay: its command and the last lines of its output](../assets/cli-tui/16-tasks-output.png)
 
 *A task opened with enter: the command, the last lines of its output, and `s` to stop it*
+
+![The /tasks overlay after a background wake: the running build wakes the agent, the failed test run woke it](../assets/cli-tui/17-tasks-wake.png)
+
+*After a wake: the agent's answer follows its previous turn with nothing in between, and `/tasks` says which task woke it and which one will*
 
 Two capture sets exist, and they answer different questions.
 

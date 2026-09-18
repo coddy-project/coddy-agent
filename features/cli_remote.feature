@@ -57,6 +57,16 @@ Feature: Console connected to a remote coddy server
     When the fake server lets the turn end
     Then the transcript shows the assistant text "done remotely"
 
+  Scenario: A turn the server woke in the console's session renders in the console
+    Given a fake remote coddy server that answers "the build runs in the background"
+    And a console app connected to that remote server
+    When the console app starts
+    And the operator submits "run the build in the background"
+    Then the transcript shows the assistant text "the build runs in the background"
+    When the server wakes the console session because "make test" failed with exit 2
+    Then the transcript shows the assistant text "The build failed with exit 2."
+    And the woken turn shows nothing before the agent's answer
+
   Scenario: A one-shot print run works against the remote server
     Given a fake remote coddy server that answers "printed remotely"
     When the operator runs a remote one-shot prompt "sum it up"

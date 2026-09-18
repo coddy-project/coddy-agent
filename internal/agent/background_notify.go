@@ -9,7 +9,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -42,13 +44,69 @@ const (
 	wakeBusyGiveUpAfter = 30 * time.Minute
 )
 
-// RunTurnFunc runs an autonomous agent turn for a session.
+// RunTurnFunc runs the autonomous turn a wake asks for.
 //
 // It takes the composer turn lock, which refuses rather than queues: a session
 // with a turn already in flight answers session.ErrSessionTurnBusy, and the
-// waker treats that as "try again shortly", not as a lost wake. Every other
-// error is the turn's own and ends the attempt.
-type RunTurnFunc func(ctx context.Context, sessionID, instruction string) error
+// waker treats that as "try again shortly", not as a lost wake. A surface that
+// cannot run the turn right now for a reason of its own (the console showing
+// another session) answers the same error to be asked again. Every other error
+// is the turn's own and ends the attempt.
+type RunTurnFunc func(ctx context.Context, wake Wake) error
+
+// Wake is one turn finished background tasks start: the session they belong to
+// and the tasks, in the order they finished. A surface runs it as the prompt
+// PromptParams builds with the options RunOpts builds, adding its own.
+type Wake struct {
+	SessionID string
+	Tasks     []bgtask.Snapshot
+}
+
+// Instruction is the user-role message the woken turn starts from.
+func (w Wake) Instruction() string { return WakeInstruction(w.Tasks) }
+
+// PromptParams is the prompt of the woken turn.
+func (w Wake) PromptParams() acp.SessionPromptParams {
+	return acp.SessionPromptParams{
+		SessionID: w.SessionID,
+		Prompt:    []acp.ContentBlock{{Type: acp.ContentTypeText, Text: w.Instruction()}},
+	}
+}
+
+// RunOpts are the prompt options every woken turn carries: the marker its first
+// message is persisted with, and no provider usage refresh - nobody watches a
+// woken turn's footer.
+func (w Wake) RunOpts() *session.PromptRunOpts {
+	return &session.PromptRunOpts{SkipUsagePublish: true, BackgroundWake: w.Record(time.Now())}
+}
+
+// Record is the marker the woken turn's first message is persisted with: each
+// task with what a surface needs to name it and say how it ended.
+func (w Wake) Record(now time.Time) *llm.BackgroundWake {
+	rec := &llm.BackgroundWake{Tasks: make([]llm.BackgroundWakeTask, 0, len(w.Tasks))}
+	for _, t := range w.Tasks {
+		task := llm.BackgroundWakeTask{
+			ID:         t.ID,
+			Kind:       string(t.Kind),
+			Label:      strings.TrimSpace(t.Label),
+			Status:     string(t.Status),
+			DurationMs: t.Elapsed(now).Milliseconds(),
+			Error:      strings.TrimSpace(t.Error),
+		}
+		if task.Label == "" {
+			task.Label = strings.TrimSpace(t.Command)
+		}
+		if t.ExitCode != nil {
+			code := *t.ExitCode
+			task.ExitCode = &code
+		}
+		if t.Agent != nil {
+			task.Agent = strings.TrimSpace(t.Agent.Name)
+		}
+		rec.Tasks = append(rec.Tasks, task)
+	}
+	return rec
+}
 
 // BackgroundWaker turns finished background tasks into agent turns, so a
 // session keeps moving while nobody is watching it.
@@ -93,7 +151,9 @@ func NewBackgroundWaker(log *slog.Logger, run RunTurnFunc) *BackgroundWaker {
 
 // BackgroundWakerKey identifies the waker's pool subscription, so rebuilding
 // the component that owns it replaces the watcher instead of stacking another.
-const BackgroundWakerKey = "agent.background_waker"
+// It is the pool's own name for the subscription, which is how a caller with
+// nothing but a pool can tell whether a wake is possible at all (CanWake).
+const BackgroundWakerKey = bgtask.WakeWatcherKey
 
 // Attach subscribes the waker to a pool, replacing any previous waker.
 func (w *BackgroundWaker) Attach(pool *bgtask.Pool) {
@@ -196,7 +256,7 @@ func (w *BackgroundWaker) startTurn(sessionID string, batch []bgtask.Snapshot) b
 		batch = w.absorbPending(sessionID, batch)
 
 		w.log.Info("background_wake_start", "session_id", sessionID, "tasks", len(batch), "attempt", attempt)
-		err := w.run(context.Background(), sessionID, WakeInstruction(batch))
+		err := w.run(context.Background(), Wake{SessionID: sessionID, Tasks: batch})
 		switch {
 		case err == nil:
 			w.log.Info("background_wake_finish", "session_id", sessionID)
@@ -278,4 +338,54 @@ func WakeInstruction(batch []bgtask.Snapshot) string {
 	b.WriteString("Continue the work this task was part of, and report the outcome honestly: ")
 	b.WriteString("a task that failed, timed out, or was stopped did not succeed.")
 	return b.String()
+}
+
+// takeTurnWake returns the wake this turn was started for, once, or nil for a
+// turn somebody typed. The manager holds it on the session for the length of
+// the turn (session.PromptRunOpts.BackgroundWake).
+func (a *Agent) takeTurnWake() *llm.BackgroundWake {
+	st := sessionStatePtr(a.state)
+	if st == nil {
+		return nil
+	}
+	return st.TakeTurnWake()
+}
+
+// markWokeTasks records in the process's task pool, where every tool and
+// spawn_agent start their tasks, that the tasks of this wake woke the agent.
+func (a *Agent) markWokeTasks(wake *llm.BackgroundWake) {
+	ids := make([]string, 0, len(wake.Tasks))
+	for _, t := range wake.Tasks {
+		ids = append(ids, t.ID)
+	}
+	bgtask.Default().MarkWokeAgent(a.state.GetID(), ids...)
+}
+
+// WakeRank orders the surfaces a process offers a woken turn to.
+type WakeRank int
+
+const (
+	// WakeOwner is a surface that owns particular conversations - a messenger
+	// chat bound to the session - and runs their woken turns where the person
+	// reading them is.
+	WakeOwner WakeRank = iota
+	// WakeHost is a surface that can run any session's woken turn where
+	// watchers can follow it: the HTTP server's composer relay.
+	WakeHost
+)
+
+// WakeSurface runs a woken turn when it is the surface that should.
+type WakeSurface interface {
+	// RunBackgroundWake runs the turn and reports handled, or reports
+	// handled=false without running anything so the next surface is asked.
+	// The error of a handled wake is the turn's, with the RunTurnFunc
+	// contract: session.ErrSessionTurnBusy asks to be tried again.
+	RunBackgroundWake(ctx context.Context, wake Wake) (handled bool, err error)
+}
+
+// WakeSurfaces is where a surface offers itself to run woken turns; `coddy
+// serve` passes its runtime. The returned function withdraws exactly that
+// offer.
+type WakeSurfaces interface {
+	AddWakeSurface(surface WakeSurface, rank WakeRank) (withdraw func())
 }

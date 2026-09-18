@@ -302,3 +302,18 @@ Feature: Interactive console TUI
     When the operator stops the task from the overlay
     Then the background command is stopped
     And the tasks overlay lists the task as stopped
+
+  Scenario: A finished background task wakes the console into a turn that carries on the work
+    When the console app starts
+    And the session runs the background command "echo tests failed; exit 2" that wakes the agent
+    Then the woken turn was handed the outcome of that task
+    When the stub turn streams the text "The build failed."
+    Then the transcript shows the assistant text "The build failed."
+    And the transcript shows nothing of the woken turn the operator did not type
+
+  Scenario: The tasks overlay says which running task will wake the agent
+    When the console app starts
+    And the session runs the background command "sleep 30" that wakes the agent
+    And the operator submits the command "/tasks"
+    Then the tasks overlay lists "sleep 30" as running
+    And the tasks overlay says the selected task wakes the agent

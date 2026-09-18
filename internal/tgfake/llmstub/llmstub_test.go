@@ -137,10 +137,10 @@ func TestSplitWords(t *testing.T) {
 // one lock, so two completions served at once never share an id.
 func TestPickCountsOnce(t *testing.T) {
 	stub := &Server{Answers: []string{"a", "b"}}
-	if answer, call := stub.pick("x"); answer != "a" || call != 1 {
+	if answer, _, call := stub.pick("x"); answer != "a" || call != 1 {
 		t.Fatalf("first pick: %q %d", answer, call)
 	}
-	if answer, call := stub.pick("y"); answer != "b" || call != 2 {
+	if answer, _, call := stub.pick("y"); answer != "b" || call != 2 {
 		t.Fatalf("second pick: %q %d", answer, call)
 	}
 	if stub.Calls() != 2 {
@@ -189,4 +189,122 @@ func TestLastUserTextSkipsTurnContext(t *testing.T) {
 func strconvQuote(s string) string {
 	raw, _ := json.Marshal(s)
 	return string(raw)
+}
+
+// A rule with a tool makes the model act: the first request of a turn whose
+// prompt matches gets the tool call, and the request that carries the tool's
+// result gets the rule's answer. Coddy's <turn_context> message after the
+// result does not hide it.
+func TestToolRuleCallsTheToolThenAnswersItsResult(t *testing.T) {
+	stub := &Server{Rules: []Rule{{
+		Match:  "start the tests",
+		Tool:   &ToolCall{Name: "run_command", Arguments: json.RawMessage(`{"command":"make test","background":true}`)},
+		Answer: "Started them in the background.",
+	}}}
+	srv := httptest.NewServer(stub.Handler())
+	defer srv.Close()
+
+	type toolCall struct {
+		ID       string `json:"id"`
+		Type     string `json:"type"`
+		Function struct {
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+		} `json:"function"`
+	}
+	blocking := func(messages string) (string, []toolCall, string) {
+		resp := post(t, srv.URL, `{"model":"x","messages":`+messages+`}`)
+		defer func() { _ = resp.Body.Close() }()
+		var out struct {
+			Choices []struct {
+				FinishReason string `json:"finish_reason"`
+				Message      struct {
+					Content   *string    `json:"content"`
+					ToolCalls []toolCall `json:"tool_calls"`
+				} `json:"message"`
+			} `json:"choices"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || len(out.Choices) != 1 {
+			t.Fatalf("completion: %v %+v", err, out)
+		}
+		c := out.Choices[0]
+		content := ""
+		if c.Message.Content != nil {
+			content = *c.Message.Content
+		}
+		return content, c.Message.ToolCalls, c.FinishReason
+	}
+
+	_, calls, finish := blocking(`[{"role":"user","content":"please start the tests"},{"role":"user","content":"<turn_context>state</turn_context>"}]`)
+	if finish != "tool_calls" || len(calls) != 1 || calls[0].Function.Name != "run_command" || calls[0].Type != "function" || calls[0].ID == "" {
+		t.Fatalf("first request answered %q with %+v, want the tool call", finish, calls)
+	}
+	if calls[0].Function.Arguments != `{"command":"make test","background":true}` {
+		t.Fatalf("arguments = %s", calls[0].Function.Arguments)
+	}
+
+	content, calls, finish := blocking(`[{"role":"user","content":"please start the tests"},` +
+		`{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"run_command","arguments":"{}"}}]},` +
+		`{"role":"tool","tool_call_id":"call_1","content":"Started background task bg_1"},` +
+		`{"role":"user","content":"<turn_context>state</turn_context>"}]`)
+	if finish != "stop" || len(calls) != 0 || content != "Started them in the background." {
+		t.Fatalf("the request with the result answered %q %+v %q, want the text", finish, calls, content)
+	}
+
+	// Streamed, the call arrives as one tool_calls delta and a tool_calls finish.
+	resp := post(t, srv.URL, `{"model":"x","stream":true,"messages":[{"role":"user","content":"start the tests now"}]}`)
+	defer func() { _ = resp.Body.Close() }()
+	var sawCall, sawFinish bool
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := strings.TrimPrefix(scanner.Text(), "data: ")
+		if line == "" || line == "[DONE]" {
+			continue
+		}
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					ToolCalls []struct {
+						Index    int `json:"index"`
+						Function struct {
+							Name      string `json:"name"`
+							Arguments string `json:"arguments"`
+						} `json:"function"`
+					} `json:"tool_calls"`
+				} `json:"delta"`
+				FinishReason *string `json:"finish_reason"`
+			} `json:"choices"`
+		}
+		if json.Unmarshal([]byte(line), &chunk) != nil {
+			continue
+		}
+		for _, c := range chunk.Choices {
+			if len(c.Delta.ToolCalls) == 1 && c.Delta.ToolCalls[0].Function.Name == "run_command" &&
+				c.Delta.ToolCalls[0].Function.Arguments == `{"command":"make test","background":true}` {
+				sawCall = true
+			}
+			if c.FinishReason != nil && *c.FinishReason == "tool_calls" {
+				sawFinish = true
+			}
+		}
+	}
+	if !sawCall || !sawFinish {
+		t.Fatalf("stream: call %v, finish %v", sawCall, sawFinish)
+	}
+}
+
+// Rules read from a JSON script carry the tool too, arguments as an object.
+func TestToolRuleDecodesFromAScript(t *testing.T) {
+	var rules []Rule
+	raw := `[{"match":"start","tool":{"name":"run_command","arguments":{"command":"exit 2","notify_on_finish":true}},"answer":"ok"}]`
+	if err := json.Unmarshal([]byte(raw), &rules); err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 1 || rules[0].Tool == nil || rules[0].Tool.Name != "run_command" {
+		t.Fatalf("rules = %+v", rules)
+	}
+	var args map[string]any
+	if err := json.Unmarshal(rules[0].Tool.Arguments, &args); err != nil || args["notify_on_finish"] != true {
+		t.Fatalf("arguments = %s (%v)", rules[0].Tool.Arguments, err)
+	}
 }
