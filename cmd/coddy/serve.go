@@ -422,7 +422,7 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 					Cfg: rt.Cfg(), Mgr: rt.Mgr, Log: rt.Log,
 					DefaultCWD: rt.Paths.CWD, Home: deps.home,
 					ListenAddr: deps.httpAddr, ExtraAuthTokens: deps.httpAuthTokens,
-					ExtraLogin: deps.httpLogin, DetachedPrompts: rt,
+					ExtraLogin: deps.httpLogin, DetachedPrompts: rt, Wakes: rt,
 					OnServer: func(s *httpserver.Server) {
 						if s == nil {
 							rt.SetTurnMirror(nil)
@@ -451,7 +451,7 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 			Run: func(ctx context.Context) error {
 				return gateway.Serve(ctx, gateway.Options{
 					Cfg: rt.Cfg(), Mgr: rt.Mgr, Log: rt.Log,
-					DefaultCWD: rt.Paths.CWD, Mirror: rt, Prompts: rt,
+					DefaultCWD: rt.Paths.CWD, Mirror: rt, Prompts: rt, Wakes: rt,
 				})
 			},
 		},

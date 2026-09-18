@@ -40,6 +40,10 @@ type Runtime struct {
 	approvers   map[uint64]agent.DetachedPermissionBroker
 	approverSeq uint64
 
+	// wakes are the surfaces that offered to run the turn a finished
+	// background task starts (wake.go).
+	wakes wakeSurfaces
+
 	// cfg is what the process loaded. Once a manager exists it owns the live
 	// pointer, because every reload path replaces it there.
 	cfg *config.Config
@@ -255,6 +259,9 @@ func (r *Runtime) Init(opts Options) error {
 		mgr.SetPreferredSessionID(pid)
 	}
 	r.Mgr = mgr
+	// A task that asked to be notified wakes the agent whichever surfaces are
+	// enabled; they offer to run the turn as they come up (AddWakeSurface).
+	r.attachWaker()
 	return nil
 }
 
