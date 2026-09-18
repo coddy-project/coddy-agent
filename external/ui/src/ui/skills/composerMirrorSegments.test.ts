@@ -1,5 +1,8 @@
 import { expect, test } from "vitest";
-import { segmentComposerMirrorSpans } from "./composerMirrorSegments";
+import {
+  segmentComposerMirrorSpans,
+  type MentionMark,
+} from "./composerMirrorSegments";
 
 test("mirror chip only around caret slash token rest is plain text", () => {
   const s = "asddf /foo /ba";
@@ -110,5 +113,54 @@ test("a line-range mention renders as one chip with the full literal", () => {
     { type: "text", value: "fix " },
     { type: "at", literal: "@Dockerfile:21-31", pathRel: "Dockerfile" },
     { type: "text", value: " please" },
+  ]);
+});
+
+function marks(entries: Record<string, MentionMark>) {
+  return new Map(Object.entries(entries));
+}
+
+test("with the server's marks, a token that names nothing stays text", () => {
+  const s = "npm install @google/genai and read @README.md please";
+  const segs = segmentComposerMirrorSpans(
+    s,
+    s.length,
+    null,
+    null,
+    undefined,
+    marks({
+      "@google/genai": { typed: "", kind: "" },
+      "@README.md": { typed: "@README.md", kind: "file" },
+    }),
+  );
+  expect(segs).toEqual([
+    { type: "text", value: "npm install @google/genai and read " },
+    { type: "at", literal: "@README.md", pathRel: "README.md" },
+    { type: "text", value: " please" },
+  ]);
+});
+
+test("the chip covers the part of a token that resolves", () => {
+  // "b.go" could continue the path; the server found src/a.go alone.
+  const s = "compare @src/a.go b.go now";
+  const segs = segmentComposerMirrorSpans(
+    s,
+    s.length,
+    null,
+    null,
+    undefined,
+    marks({ "@src/a.go b.go": { typed: "@src/a.go", kind: "file" } }),
+  );
+  expect(segs).toEqual([
+    { type: "text", value: "compare " },
+    { type: "at", literal: "@src/a.go", pathRel: "src/a.go" },
+    { type: "text", value: " b.go now" },
+  ]);
+});
+
+test("a token the server has not answered for yet stays text", () => {
+  const s = "read @README.md please";
+  expect(segmentComposerMirrorSpans(s, s.length, null, null, undefined, marks({}))).toEqual([
+    { type: "text", value: s },
   ]);
 });

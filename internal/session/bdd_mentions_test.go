@@ -37,6 +37,7 @@ type mentionsFeatureState struct {
 	earlierID string
 	pages     map[string]string
 	seen      []acp.ContentBlock
+	checked   []session.CheckedMention
 }
 
 func (s *mentionsFeatureState) tempDir() (string, error) {
@@ -168,6 +169,43 @@ func (s *mentionsFeatureState) userSends(text string) error {
 	return nil
 }
 
+func (s *mentionsFeatureState) attachesOnly(uri, body string) error {
+	res := s.resources()
+	if len(res) != 1 || res[0].URI != uri || !strings.Contains(res[0].Text, body) {
+		return fmt.Errorf("want only %s holding %q, got:\n%s", uri, body, s.describe())
+	}
+	return nil
+}
+
+func (s *mentionsFeatureState) composerChecks(text string) error {
+	s.checked = s.mgr.CheckMentions(context.Background(), session.MentionCheck{SessionID: s.sessionID, Text: text})
+	if len(s.checked) == 0 {
+		return fmt.Errorf("the check read no mention in %q", text)
+	}
+	return nil
+}
+
+func (s *mentionsFeatureState) checkMarks(typed, kind string) error {
+	for _, c := range s.checked {
+		if c.Typed == typed && c.Kind == kind {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s is not marked as a %s: %+v", typed, kind, s.checked)
+}
+
+func (s *mentionsFeatureState) checkLeavesUnmarked(token string) error {
+	for _, c := range s.checked {
+		if c.Token == token {
+			if c.Typed != "" || c.Kind != "" {
+				return fmt.Errorf("%s is marked: %+v", token, c)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("the check did not read %s as a token: %+v", token, s.checked)
+}
+
 func (s *mentionsFeatureState) resources() []*acp.Resource {
 	var out []*acp.Resource
 	for _, b := range s.seen {
@@ -267,6 +305,10 @@ func initializeMentionsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the prompt attaches the outside file holding "([^"]*)"$`, s.attachesOutsideFile)
 	sc.Step(`^the prompt attaches a file holding "([^"]*)" mentioned as "([^"]*)"$`, s.attachesFileMentionedAs)
 	sc.Step(`^the prompt attaches "([^"]*)" holding "([^"]*)"$`, s.attachesHolding)
+	sc.Step(`^the prompt attaches only "([^"]*)" holding "([^"]*)"$`, s.attachesOnly)
+	sc.Step(`^the composer checks the draft "(.*)"$`, s.composerChecks)
+	sc.Step(`^the check marks "([^"]*)" as a mention of a (\w+)$`, s.checkMarks)
+	sc.Step(`^the check leaves "([^"]*)" unmarked$`, s.checkLeavesUnmarked)
 	sc.Step(`^the prompt attaches the folder "([^"]*)" listing "([^"]*)" and "([^"]*)"$`, s.attachesFolderListing)
 	sc.Step(`^the prompt attaches the earlier session holding "([^"]*)" and "([^"]*)"$`, s.attachesEarlierSession)
 	sc.Step(`^the prompt attaches the subagent "([^"]*)" asking to hand the work to spawn_agent$`, s.attachesSubagent)

@@ -772,6 +772,7 @@ An **`@`** at line start or after whitespace, an opening bracket or a quote open
 - **Taking a row** replaces **`@`** plus the query with its **`insert`**. A folder or a scheme hint (**`continue`**) adds no space and the picker stays open on the new query; anything else ends the mention with a space.
 - **Cut list**: when the server matched more than it returned, **`.mention-more`** on the right of the title row (**`.mention-title`**) says **50 of 1204, type to narrow** (**`composer.mentionMore`**): the rows scroll, the title is what the reader sees when the picker opens. The **`.at-range-menu-hint`** footer (a **`:`** after a file picks lines) shows only while a file row is listed.
 - **Empty query**: recent picks of the session (**`localStorage`**) first, then the server's scheme hints and the top of the workspace; **`Type after @ to search`** only when the list is empty, **`Nothing matches`** for a query with no match.
+- **Chips in the draft**: a typed mention takes the **`composer-at-chip-inline`** chip only once **`POST /coddy/mentions/check`** has said sending would attach it, and only over the part that resolves; a token that names nothing (**`@google/genai`** in **`npm install @google/genai`**, a handle) keeps the text colour. The draft at the caret keeps its chip while the picker is open on it, and a picked row is chipped at once.
 
 ### Line-range picker (**`@path:N-M`**)
 

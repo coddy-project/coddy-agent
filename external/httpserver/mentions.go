@@ -9,6 +9,7 @@ package httpserver
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -50,5 +51,46 @@ func (s *Server) coddyMentionsGet(w http.ResponseWriter, r *http.Request) {
 		"total":           res.Total,
 		"indexing":        res.Indexing,
 		"index_truncated": res.IndexTruncated,
+	})
+}
+
+// POST /coddy/mentions/check tells the composer which "@" mentions of a draft
+// sending would attach, and over which part of each token, so it highlights
+// those and leaves a package name ("npm install @google/genai") or a handle
+// as the text it is. The resolver runs dry: nothing is read or fetched.
+func (s *Server) coddyMentionsCheckPost(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Text string `json:"text"`
+	}
+	body := http.MaxBytesReader(w, r.Body, session.MaxMentionCheckBytes+4096)
+	if err := json.NewDecoder(body).Decode(&req); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			http.Error(w, `{"error":{"message":"the draft is too long to check"}}`, http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, `{"error":{"message":"invalid JSON body"}}`, http.StatusBadRequest)
+		return
+	}
+	if len(req.Text) > session.MaxMentionCheckBytes {
+		http.Error(w, `{"error":{"message":"the draft is too long to check"}}`, http.StatusRequestEntityTooLarge)
+		return
+	}
+	cwd, ok := s.resolveSessionCWD(w, r)
+	if !ok {
+		return
+	}
+	mentions := s.mgr.CheckMentions(r.Context(), session.MentionCheck{
+		SessionID: strings.TrimSpace(r.Header.Get("X-Coddy-Session-ID")),
+		CWD:       cwd,
+		Text:      req.Text,
+	})
+	if mentions == nil {
+		mentions = []session.CheckedMention{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"object":   "coddy.mention_check",
+		"mentions": mentions,
 	})
 }

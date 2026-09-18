@@ -26,6 +26,14 @@ func RegisterURLFetcher(f URLFetcher) {
 	urlFetcherMu.Unlock()
 }
 
+// CanFetchURL reports whether a fetcher is registered, that is whether a URL
+// mention would be read at all.
+func CanFetchURL() bool {
+	urlFetcherMu.RLock()
+	defer urlFetcherMu.RUnlock()
+	return urlFetcher != nil
+}
+
 // FetchURL reads rawURL with the registered fetcher. ok is false when no
 // fetcher is registered.
 func FetchURL(ctx context.Context, rawURL string) (text string, ok bool, err error) {

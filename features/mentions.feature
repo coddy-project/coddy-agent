@@ -33,6 +33,16 @@ Feature: "@" mentions in a prompt
     When the user sends "fix the typos in @"notes/my draft.md" please"
     Then the prompt attaches "notes/my draft.md" holding "DRAFT_TOKEN"
 
+  Scenario: A package name names no file and stays text
+    When the user sends "npm install @google/genai and wire it into @README.md"
+    Then the prompt attaches only "README.md" holding "README_TOKEN"
+
+  Scenario: The composer marks only what a sent prompt would attach
+    When the composer checks the draft "npm install @google/genai, compare @src/app.go notes, then read @README.md"
+    Then the check marks "@README.md" as a mention of a file
+    And the check marks "@src/app.go" as a mention of a file
+    And the check leaves "@google/genai" unmarked
+
   Scenario: A folder is attached as its listing
     When the user sends "what lives in @src/ ?"
     Then the prompt attaches the folder "src/" listing "app.go" and "util/help.go"

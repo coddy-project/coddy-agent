@@ -19,6 +19,8 @@ An `@` in a prompt points the agent at something: a file, a line range, a folder
 
 A mention starts at an `@` that opens a line or follows whitespace, an opening bracket or a quote, so `user@example.com` is not one. Inside a fenced code block, an inline code span (`` `@Override` ``) or a quoted line (`> ...`) an `@` is prose.
 
+An `@` that names nothing on disk is not a mention either: `npm install @google/genai` names a package, and unless the workspace holds a `google/genai`, nothing is attached and the web composer does not highlight it.
+
 Where a mention typed in prose ends is not always obvious: `@README.md.` may be a file named `README.md.` or `README.md` at the end of a sentence, and `@notes draft.md` a name with a space or a file followed by a word. The grammar lists every reading, longest first, and the one that exists on disk wins. A mention that names nothing - `@username` in a chat, a path that is not there - stays prose and attaches nothing.
 
 Windows paths (`@C:\Users\me\x.txt`) and scoped package folders (`@node_modules/@types/node/index.d.ts`) read as paths. The grammar lives in `internal/mention/grammar.go`; the web composer highlights with a twin of it (`external/ui/src/ui/skills/draftAt.ts`), and both are held to the same cases (`internal/mention/testdata/grammar_cases.json`).
@@ -104,7 +106,7 @@ The composer's picker shows each candidate with its kind - file, folder, session
 
 *`@session:` lists the other sessions, this workspace's first, with a title, an id and when they last ran; picking one attaches a digest of its latest messages*
 
-The composer sends its text as typed: the server resolves the mentions, so a draft means the same thing in the browser as in the console.
+The composer sends its text as typed: the server resolves the mentions, so a draft means the same thing in the browser as in the console. It highlights a mention only once the server has said sending would attach it (`POST /coddy/mentions/check`, the same resolver run without reading anything), over exactly the part that resolves: `@google/genai` in `npm install @google/genai` stays plain text, and in `compare @src/a.go b.go` only `@src/a.go` is marked.
 
 ### In an editor over ACP
 

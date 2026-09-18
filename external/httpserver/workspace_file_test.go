@@ -5,6 +5,7 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -225,5 +227,48 @@ func TestCoddyMentionsGet(t *testing.T) {
 	}
 	if code, _ := getMentions(t, ts, url.Values{"q": {"x"}, "limit": {"0"}}); code != http.StatusBadRequest {
 		t.Fatalf("limit 0: status %d, want 400", code)
+	}
+}
+
+// POST /coddy/mentions/check tells the composer which mentions of a draft
+// sending would attach: a package name stays unmarked, a file is marked.
+func TestCoddyMentionsCheckPost(t *testing.T) {
+	ts, _ := newWorkspaceFileTestServer(t, map[string]string{"README.md": "x"})
+	post := func(body string) (int, string) {
+		t.Helper()
+		rsp, err := http.Post(ts.URL+"/coddy/mentions/check", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = rsp.Body.Close() }()
+		b, _ := io.ReadAll(rsp.Body)
+		return rsp.StatusCode, string(b)
+	}
+	code, body := post(`{"text":"npm install @google/genai and read @README.md"}`)
+	var got struct {
+		Object   string `json:"object"`
+		Mentions []struct {
+			Token string `json:"token"`
+			Typed string `json:"typed"`
+			Kind  string `json:"kind"`
+		} `json:"mentions"`
+	}
+	if code != http.StatusOK || json.Unmarshal([]byte(body), &got) != nil {
+		t.Fatalf("check: %d %s", code, body)
+	}
+	if got.Object != "coddy.mention_check" || len(got.Mentions) != 2 ||
+		got.Mentions[0].Token != "@google/genai" || got.Mentions[0].Typed != "" ||
+		got.Mentions[1].Typed != "@README.md" || got.Mentions[1].Kind != "file" {
+		t.Fatalf("check: %s", body)
+	}
+	if code, body := post(`{"text":"no mentions here"}`); code != http.StatusOK || !strings.Contains(body, `"mentions":[]`) {
+		t.Fatalf("a draft without mentions: %d %s", code, body)
+	}
+	if code, _ := post(`{"text":`); code != http.StatusBadRequest {
+		t.Fatalf("broken JSON: status %d, want 400", code)
+	}
+	huge, _ := json.Marshal(map[string]string{"text": strings.Repeat("a", session.MaxMentionCheckBytes+1)})
+	if code, _ := post(string(huge)); code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("an oversized draft: status %d, want 413", code)
 	}
 }

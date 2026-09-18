@@ -141,6 +141,11 @@ type mentionResolver struct {
 	// seen holds the key of every attachment already in the prompt, so a
 	// reference repeated in one message is read once.
 	seen map[string]bool
+	// dry resolves without reading: a file is looked at, never opened; a
+	// folder is not listed; a session is found, not summarised; a page is
+	// not fetched. CheckMentions runs it, so what the composer marks is what
+	// sending would attach.
+	dry bool
 }
 
 // ResolvePromptMentions returns blocks with an attachment resource after each
@@ -190,7 +195,7 @@ func (r *mentionResolver) resolve(blocks []acp.ContentBlock) []acp.ContentBlock 
 			continue
 		}
 		for _, tok := range mention.Parse(b.Text) {
-			if res, ok := r.resolveToken(b.Text, tok); ok {
+			if res, _, ok := r.resolveToken(b.Text, tok); ok {
 				out = append(out, acp.ContentBlock{Type: acp.ContentTypeResource, Resource: res})
 			}
 		}
@@ -214,6 +219,10 @@ func (r *mentionResolver) resourceKey(res *acp.Resource) string {
 }
 
 func (r *mentionResolver) claim(key string) bool {
+	if r.dry {
+		// A check marks every mention, the repeated one too.
+		return true
+	}
 	if r.seen[key] {
 		return false
 	}
@@ -221,36 +230,43 @@ func (r *mentionResolver) claim(key string) bool {
 	return true
 }
 
-func (r *mentionResolver) resolveToken(text string, tok mention.Token) (*acp.Resource, bool) {
+// resolveToken reads one token. reading is the index of the path reading
+// that won, -1 for a meta reference or a web page.
+func (r *mentionResolver) resolveToken(text string, tok mention.Token) (res *acp.Resource, reading int, ok bool) {
 	typed := text[tok.Start+1 : tok.End]
 	if tok.URL != "" {
-		return r.resolveURL(tok.URL)
+		res, ok = r.resolveURL(tok.URL)
+		return res, -1, ok
 	}
 	switch tok.Scheme {
 	case mention.SchemeSession:
-		return r.resolveSession(tok.Ref, typed)
+		res, ok = r.resolveSession(tok.Ref, typed)
+		return res, -1, ok
 	case mention.SchemeRule:
-		return r.resolveRule(tok.Ref, typed)
+		res, ok = r.resolveRule(tok.Ref, typed)
+		return res, -1, ok
 	case mention.SchemeAgent:
-		return r.resolveAgent(tok.Ref, typed)
+		res, ok = r.resolveAgent(tok.Ref, typed)
+		return res, -1, ok
 	}
-	for _, reading := range tok.Readings {
+	for i, rd := range tok.Readings {
 		// The label is the path as typed, without its quotes or the range
 		// the lines attribute carries: what ForDisplay matches the text by.
-		if res, ok, stop := r.resolvePath(reading, reading.Path); stop {
-			return res, ok
+		if res, ok, stop := r.resolvePath(rd, rd.Path); stop {
+			return res, i, ok
 		}
 	}
 	// A bare word that names no path may still name a mention-only rule:
 	// "@deploy" the way Cursor spells it.
-	if !tok.Quoted && len(tok.Readings) > 0 {
-		if name := tok.Readings[len(tok.Readings)-1].Path; isBareName(name) {
+	if last := len(tok.Readings) - 1; !tok.Quoted && last >= 0 {
+		if name := tok.Readings[last].Path; isBareName(name) {
 			if rule := findMentionRule(r.rules, name); rule != nil {
-				return r.ruleResource(rule, name)
+				res, ok = r.ruleResource(rule, name)
+				return res, last, ok
 			}
 		}
 	}
-	return nil, false
+	return nil, -1, false
 }
 
 // isBareName reports whether a token is a plain name rather than a path.
@@ -304,10 +320,14 @@ func (r *mentionResolver) resolvePath(reading mention.PathReading, typed string)
 		if !r.claim(key) {
 			return nil, false, true
 		}
+		listing := ""
+		if !r.dry {
+			listing = r.listFolder(loc, display)
+		}
 		return &acp.Resource{
 			URI:      display,
 			MimeType: "text/plain; charset=utf-8",
-			Text:     r.listFolder(loc, display),
+			Text:     listing,
 			Mention:  &acp.ResourceMention{Kind: mention.KindDirectory, Typed: typed, Path: loc.Abs},
 		}, true, true
 	}
@@ -319,7 +339,9 @@ func (r *mentionResolver) resolvePath(reading mention.PathReading, typed string)
 	if res == nil {
 		return nil, false, true
 	}
-	res.Text = readMentionFile(loc, info, reading.Range)
+	if !r.dry {
+		res.Text = readMentionFile(loc, info, reading.Range)
+	}
 	return res, true, true
 }
 
@@ -534,6 +556,12 @@ func (r *mentionResolver) resolveURL(u string) (*acp.Resource, bool) {
 	if !r.claim(mention.KindURL + "|" + u) {
 		return nil, false
 	}
+	if r.dry {
+		if !mention.CanFetchURL() {
+			return nil, false
+		}
+		return &acp.Resource{URI: u, Mention: &acp.ResourceMention{Kind: mention.KindURL, Name: u}}, true
+	}
 	ctx := r.ctx
 	if ctx == nil {
 		ctx = context.Background()
@@ -567,6 +595,9 @@ func (r *mentionResolver) resolveSession(ref, typed string) (*acp.Resource, bool
 	key := mention.KindSession + "|" + id
 	if !r.claim(key) {
 		return nil, false
+	}
+	if r.dry {
+		return &acp.Resource{URI: "session:" + id, Mention: &acp.ResourceMention{Kind: mention.KindSession, Typed: typed}}, true
 	}
 	digest, title, err := r.sessionDigest(id)
 	if err != nil {

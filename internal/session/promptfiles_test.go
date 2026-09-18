@@ -627,6 +627,56 @@ func TestFolderMentionListsWhatIsOnDiskNow(t *testing.T) {
 	}
 }
 
+// The composer's check reads a draft the way sending it would, and reads
+// nothing it names: every mention that would attach is marked over the
+// reading that wins, a mention repeated in the draft is marked each time, and
+// one that names nothing - a package, a handle - is left unmarked.
+func TestCheckMentionsMarksWhatSendingWouldAttach(t *testing.T) {
+	root := t.TempDir()
+	for _, f := range []string{"src/a.go", "notes/my draft.md"} {
+		p := filepath.Join(root, f)
+		_ = os.MkdirAll(filepath.Dir(p), 0o755)
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m, sid := mentionTestManager(t, root)
+	other, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := m.SessionByID(other.SessionID)
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "earlier work"})
+	if err := m.FileStore().Save(st); err != nil {
+		t.Fatal(err)
+	}
+	text := strings.Join([]string{
+		"npm i @types/node",
+		"compare @src/a.go b.go",
+		"lines @src/a.go:1-1",
+		`quoted @"notes/my draft.md"`,
+		"folder @src/",
+		"session @session:" + other.SessionID,
+		"handle @user",
+		"code `@src/a.go`",
+		"again @src/a.go",
+	}, "\n")
+	got := m.CheckMentions(context.Background(), session.MentionCheck{SessionID: sid, Text: text})
+	want := []session.CheckedMention{
+		{Token: "@types/node"},
+		{Token: "@src/a.go b.go", Typed: "@src/a.go", Kind: "file"},
+		{Token: "@src/a.go:1-1", Typed: "@src/a.go:1-1", Kind: "file"},
+		{Token: `@"notes/my draft.md"`, Typed: `@"notes/my draft.md"`, Kind: "file"},
+		{Token: "@src/", Typed: "@src/", Kind: "directory"},
+		{Token: "@session:" + other.SessionID, Typed: "@session:" + other.SessionID, Kind: "session"},
+		{Token: "@user"},
+		{Token: "@src/a.go", Typed: "@src/a.go", Kind: "file"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("check:\n got %+v\nwant %+v", got, want)
+	}
+}
+
 // A rule kept in two trees (.cursor/rules/x.mdc and .claude/rules/x.md) is one
 // name to "@rule:", so the picker offers it once, and a rule without a
 // description adds nothing to the kind its row already names.

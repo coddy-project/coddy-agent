@@ -1811,6 +1811,45 @@ test("the server's answer keeps the row the arrows moved to among the recent pic
   vi.unstubAllGlobals();
 });
 
+test("the composer chips only the mentions the server says a send would attach", async () => {
+  stubShell(true);
+  const checks: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: string, init?: RequestInit) => {
+      if (String(input) === "/coddy/mentions/check") {
+        checks.push(String(init?.body ?? ""));
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            object: "coddy.mention_check",
+            mentions: [
+              { token: "@google/genai" },
+              { token: "@README.md", typed: "@README.md", kind: "file" },
+            ],
+          }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ items: [], total: 0 }) });
+    }),
+  );
+  render(<MentionHarness onChange={() => {}} />);
+  typeDraft(
+    screen.getByRole("textbox", { name: "Message" }),
+    "npm install @google/genai and read @README.md please",
+  );
+  // A package name is not a file: only the mention that resolves is a chip.
+  await waitFor(() => {
+    expect(
+      screen.getAllByTestId("composer-at-chip").map((el) => el.textContent),
+    ).toEqual(["@README.md"]);
+  });
+  expect(JSON.parse(checks[checks.length - 1] ?? "{}")).toEqual({
+    text: "npm install @google/genai and read @README.md please",
+  });
+  vi.unstubAllGlobals();
+});
+
 test("a folder row keeps the picker open on what it holds", async () => {
   stubShell(true);
   const urls = stubMentionsFetch({

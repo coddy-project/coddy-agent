@@ -666,6 +666,48 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/mentions/check": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Which \"@\" mentions of a draft resolve",
+					"description": "The composer highlights a mention only once the server says sending would attach it. **`text`** is read with the grammar and the resolver a sent prompt goes through, run dry: a file is looked at and never read, a folder is not listed, a session is found and not summarised, a page is not fetched. " +
+						"**`mentions`** lists every **`@`** token of the draft in document order (one in a fenced block, an inline code span or a quoted line is prose and is left out). **`token`** is the whole token as the grammar reads it; **`typed`** is the part that resolves - **`@src/a.go`** of **`@src/a.go b.go`** - and **`kind`** what it names. Both are absent for a token that names nothing, such as **`@google/genai`** in **`npm install @google/genai`**. " +
+						"A draft over 256 KiB yields **413**.",
+					"operationId": "checkMentions",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "X-Coddy-Session-ID", "in": "header", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session the draft would be sent to: its **cwd**, rules, plans and scope answer. Without it the server's default cwd is used, as for a first message.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":       "object",
+									"properties": map[string]interface{}{"text": map[string]string{"type": "string"}},
+									"required":   []string{"text"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "The mentions of the draft",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/CoddyMentionCheck"},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"413": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/workspace/file": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Read one workspace text file as display lines",
@@ -3399,6 +3441,29 @@ func openAPISpec() map[string]interface{} {
 						"index_truncated": map[string]string{"type": "boolean"},
 					},
 					"required": []string{"object", "items", "total", "indexing", "index_truncated"},
+				},
+				"CoddyMentionCheck": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object": map[string]string{"type": "string", "example": "coddy.mention_check"},
+						"mentions": map[string]interface{}{
+							"type": "array",
+							"items": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"token": map[string]string{"type": "string", "description": "The whole token, \"@\" included."},
+									"typed": map[string]string{"type": "string", "description": "The part of the token that resolves; absent when it names nothing."},
+									"kind": map[string]interface{}{
+										"type":        "string",
+										"enum":        []interface{}{"file", "directory", "session", "rule", "agent", "plan", "url"},
+										"description": "What **`typed`** names; absent when the token names nothing.",
+									},
+								},
+								"required": []string{"token"},
+							},
+						},
+					},
+					"required": []string{"object", "mentions"},
 				},
 				"CoddyWorkspaceFile": map[string]interface{}{
 					"type": "object",

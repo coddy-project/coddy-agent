@@ -35,7 +35,11 @@ import {
   slashMenuDraftAtCaret,
 } from "../skills/draftSlash";
 import { filterCommandRows } from "../skills/commandRows";
-import { segmentComposerMirrorSpans } from "../skills/composerMirrorSegments";
+import {
+  segmentComposerMirrorSpans,
+  type MentionMark,
+  type MentionMarks,
+} from "../skills/composerMirrorSegments";
 import {
   readWorkspaceAtRecents,
   recordWorkspaceAtRecent,
@@ -230,6 +234,8 @@ type SlashRow = { name: string; description: string };
 
 /** How many "@" candidates one query asks for; the total is shown when cut. */
 const MENTION_PICKER_LIMIT = 50;
+/** Pause in typing before the draft's mentions are checked with the server. */
+const MENTION_CHECK_DELAY_MS = 150;
 
 /** Floating slash menu anchored to **`composer-field-wrap`** (viewport-relative). */
 type PickerFloatRect = {
@@ -1222,6 +1228,63 @@ export function Composer(props: {
     ],
   );
 
+  /**
+   * What the server said about the "@" tokens of the draft
+   * (**`POST /coddy/mentions/check`**), keyed by the whole token: the mirror
+   * chips a mention only when sending would attach it, over the part that
+   * resolves, so a package in "npm install @google/genai" stays text.
+   */
+  const [mentionMarks, setMentionMarks] = useState<MentionMarks>(
+    () => new Map(),
+  );
+  const mentionCheckGenRef = useRef(0);
+  useEffect(() => {
+    mentionCheckGenRef.current++;
+    setMentionMarks(new Map());
+  }, [props.sessionId]);
+  useEffect(() => {
+    const text = props.value;
+    const gen = ++mentionCheckGenRef.current;
+    if (!text.includes("@")) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      const sid = (props.sessionId || "").trim();
+      if (sid) {
+        headers["X-Coddy-Session-ID"] = sid;
+      }
+      void fetch("/coddy/mentions/check", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ text }),
+      })
+        .then(async (res) => {
+          if (!res.ok) {
+            return;
+          }
+          const body = (await res.json()) as {
+            mentions?: { token: string; typed?: string; kind?: string }[];
+          };
+          if (gen !== mentionCheckGenRef.current) {
+            return;
+          }
+          const next = new Map<string, MentionMark>();
+          for (const m of body.mentions || []) {
+            next.set(m.token, { typed: m.typed ?? "", kind: m.kind ?? "" });
+          }
+          setMentionMarks(next);
+        })
+        .catch(() => {
+          // The marks of the last check stay: a chip does not blink out
+          // because one request failed.
+        });
+    }, MENTION_CHECK_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [props.value, props.sessionId]);
+
   const maskComposerText = props.value.length > 0;
   const composerSegments = useMemo(
     () =>
@@ -1231,8 +1294,16 @@ export function Composer(props: {
         slashNoMatch,
         atNoMatch,
         props.knownSkillNames,
+        mentionMarks,
       ),
-    [props.value, caretPos, slashNoMatch, atNoMatch, props.knownSkillNames],
+    [
+      props.value,
+      caretPos,
+      slashNoMatch,
+      atNoMatch,
+      props.knownSkillNames,
+      mentionMarks,
+    ],
   );
 
   useLayoutEffect(() => {
@@ -1326,6 +1397,13 @@ export function Composer(props: {
       row,
     );
     props.onChange(next);
+    if (!row.continue && row.kind !== "scheme") {
+      // A row the server offered names something: chip it now rather than
+      // after the next check.
+      setMentionMarks((prev) =>
+        new Map(prev).set(row.insert, { typed: row.insert, kind: row.kind }),
+      );
+    }
     const recentKind = recentKindOf(row);
     if (recentKind) {
       recordWorkspaceAtRecent(
