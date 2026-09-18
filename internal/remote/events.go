@@ -130,6 +130,9 @@ func (h *Handler) applyEventFrame(f sseFrame) {
 	case "subagent_permission":
 		h.applyDetachedPromptEvent(f.data)
 		return
+	case "background_wake":
+		h.applyWakeEvent(f.data)
+		return
 	}
 	if f.event != "message_queue" {
 		return

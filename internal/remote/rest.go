@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
 // restTimeout bounds plain REST calls; streaming requests manage their own
@@ -279,14 +280,21 @@ type messageRow struct {
 		} `json:"function"`
 	} `json:"tool_calls,omitempty"`
 	CompactionSummary bool `json:"compaction_summary,omitempty"`
+	// BackgroundWake marks the first message of a turn a finished background
+	// task started; it is replayed as the wake, not as a user message.
+	BackgroundWake *llm.BackgroundWake `json:"background_wake,omitempty"`
 }
 
 type messagesResponse struct {
-	Messages          []messageRow `json:"messages"`
-	SelectedModelID   string       `json:"selectedModelId,omitempty"`
-	SelectedReasoning string       `json:"selectedReasoning,omitempty"`
-	Model             string       `json:"model,omitempty"`
-	Mode              string       `json:"mode,omitempty"`
+	Messages []messageRow `json:"messages"`
+	// MessagesRev is the revision of the history these messages were read at:
+	// a follower of the session's running turn passes it back as since_rev,
+	// so the relay leaves out what the transcript already holds.
+	MessagesRev       uint64 `json:"messagesRev"`
+	SelectedModelID   string `json:"selectedModelId,omitempty"`
+	SelectedReasoning string `json:"selectedReasoning,omitempty"`
+	Model             string `json:"model,omitempty"`
+	Mode              string `json:"mode,omitempty"`
 }
 
 func (h *Handler) sessionMessages(ctx context.Context, id string) (*messagesResponse, error) {
