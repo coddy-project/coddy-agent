@@ -15,7 +15,6 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
-	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 // registerBackgroundRoutes wires the background task surface the tasks panel
@@ -28,47 +27,68 @@ func (s *Server) registerBackgroundRoutes() {
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/background-tasks/{task_id}/stop", s.coddyBackgroundTaskStop)
 }
 
-// attachBackgroundWaker lets a finished task that asked for it start an
-// autonomous turn, which is what makes a session usable while nobody watches
-// it. The turn goes through the manager's normal prompt path, so it takes the
-// composer turn lock and waits for any turn already in flight.
-func (s *Server) attachBackgroundWaker() {
-	waker := agent.NewBackgroundWaker(s.log, func(ctx context.Context, sessionID, instruction string) error {
-		if bgtask.Default().Draining() {
-			return nil
-		}
-		if s.mgr.SessionByID(sessionID) == nil {
-			if _, err := s.mgr.HandleSessionLoad(ctx, acp.SessionLoadParams{
-				SessionID: sessionID,
-			}); err != nil {
-				return err
-			}
-		}
-		s.bgWG.Add(1)
-		defer s.bgWG.Done()
-		st := s.mgr.SessionByID(sessionID)
-		if st == nil {
-			return fmt.Errorf("background wake: session %s is not live", sessionID)
-		}
-		// Nobody is attached to a woken turn, so it runs like a permission
-		// resume: published to the session's composer relay (a watching SPA
-		// or remote client can follow it) through a non-interactive sender,
-		// which denies gated tools instead of waving them through unless the
-		// server's own permission mode is bypass.
-		rel := s.beginComposerRelay(sessionID)
-		defer s.endComposerRelay(sessionID, rel)
-		bridge := NewRelaySender(s.activeCfg(), rel, st.GetMode())
-		bridge.SetSessionDir(strings.TrimSpace(st.GetPersistedSessionDir()))
-		defer func() { _ = bridge.FinishStream() }()
-		// Nobody watches a wake turn's footer: no usage refresh.
-		_, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
-			SessionID: sessionID,
-			Prompt:    []acp.ContentBlock{{Type: acp.ContentTypeText, Text: instruction}},
-		}, bridge, &session.PromptRunOpts{SkipUsagePublish: true})
+// AttachBackgroundWaker subscribes a waker of this server's own, for a process
+// in which nothing else owns one - a test that drives the HTTP surface alone.
+// `coddy serve` does not call it: its runtime owns the process waker and hands
+// a woken turn to this server through RunBackgroundWake.
+func (s *Server) AttachBackgroundWaker() {
+	agent.NewBackgroundWaker(s.log, func(ctx context.Context, wake agent.Wake) error {
+		_, err := s.RunBackgroundWake(ctx, wake)
 		return err
-	})
-	waker.Attach(bgtask.Default())
+	}).Attach(bgtask.Default())
 }
+
+// RunBackgroundWake runs the turn finished background tasks started, through
+// this server: it can run any session's, so it always handles the wake.
+//
+// The turn takes the composer turn lock before anything else, like a turn a
+// client posted: registering the relay first would evict the relay of a turn
+// that is still running, and the watchers of that turn would lose it to a wake
+// that is about to be refused as busy and tried again.
+//
+// Its frames go to the session's composer relay, so a browser or a console
+// following the session watches it, and its first message is the wake itself
+// (agent.Wake.RunOpts). Nobody started it, but somebody can answer for it: a
+// permission prompt goes to the relay and is persisted as the session's pending
+// prompt, and whoever shows it first - the web UI, a console following the turn
+// - answers it through POST /coddy/sessions/{id}/permission. It waits the way
+// the prompt of a browser turn whose tab was closed does. A question is still
+// refused: nothing persists one for a client that arrives later.
+func (s *Server) RunBackgroundWake(ctx context.Context, wake agent.Wake) (bool, error) {
+	if bgtask.Default().Draining() {
+		return true, nil
+	}
+	sessionID := strings.TrimSpace(wake.SessionID)
+	if s.mgr.SessionByID(sessionID) == nil {
+		if _, err := s.mgr.HandleSessionLoad(ctx, acp.SessionLoadParams{
+			SessionID: sessionID,
+		}); err != nil {
+			return true, err
+		}
+	}
+	st := s.mgr.SessionByID(sessionID)
+	if st == nil {
+		return true, fmt.Errorf("background wake: session %s is not live", sessionID)
+	}
+	unlock, err := s.mgr.AcquireComposerTurnLock(sessionID, st)
+	if err != nil {
+		return true, err
+	}
+	defer unlock()
+	s.bgWG.Add(1)
+	defer s.bgWG.Done()
+	rel := s.beginComposerRelay(sessionID)
+	defer s.endComposerRelay(sessionID, rel)
+	bridge := NewWakeRelaySender(s.activeCfg(), rel, st.GetMode())
+	bridge.SetSessionDir(strings.TrimSpace(st.GetPersistedSessionDir()))
+	defer func() { _ = bridge.FinishStream() }()
+	opts := wake.RunOpts()
+	opts.SkipTurnLock = true
+	_, err = s.mgr.HandleSessionPromptWithSender(ctx, wake.PromptParams(), bridge, opts)
+	return true, err
+}
+
+var _ agent.WakeSurface = (*Server)(nil)
 
 func (s *Server) coddyBackgroundTasksClear(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("id"))

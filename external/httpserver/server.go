@@ -176,9 +176,10 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		s.removeConfigObserver = mgr.AddConfigObserver(s.ReplaceConfig)
 	}
 	// A fresh server means this process intends to serve again, so reopen the
-	// task pool a previous Drain closed.
+	// task pool a previous Drain closed. Who wakes the agent when a task ends
+	// is the process's decision: `coddy serve` offers this server to its
+	// runtime (Serve), a test attaches the server's own waker.
 	bgtask.Default().SetDraining(false)
-	s.attachBackgroundWaker()
 	s.mux.HandleFunc("GET /v1/models", s.handleModels)
 	s.mux.HandleFunc("POST /v1/chat/completions", s.handleChatCompletions)
 	s.mux.HandleFunc("POST /v1/responses", s.handleResponsesCreate)

@@ -64,13 +64,21 @@ func turnEventFrame(ev session.TurnEvent) []byte {
 		"phase":     string(ev.Phase),
 		"at":        ev.At.UTC().Format(time.RFC3339Nano),
 	}
+	name := "turn_started"
+	switch ev.Phase {
+	case session.TurnPhaseEnded:
+		name = "turn_ended"
+	case session.TurnPhaseWoken:
+		// The turn holding the session was started by finished background
+		// tasks. The tasks travel with it: a client that follows only its own
+		// turns decides from this frame whether the turn is worth following.
+		name = "background_wake"
+		payload["object"] = "coddy.background_wake"
+		payload["tasks"] = session.BackgroundWakeUpdate(ev.Wake).Tasks
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil
-	}
-	name := "turn_started"
-	if ev.Phase == session.TurnPhaseEnded {
-		name = "turn_ended"
 	}
 	frame := make([]byte, 0, len(body)+len(name)+16)
 	frame = append(frame, "event: "...)

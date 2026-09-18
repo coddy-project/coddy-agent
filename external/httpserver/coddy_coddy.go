@@ -1019,6 +1019,12 @@ func (s *Server) addTurnProgress(out map[string]interface{}, id string) {
 		elapsed = 0
 	}
 	out["turnElapsedMs"] = elapsed.Milliseconds()
+	// A turn finished background tasks started carries the tasks, in the shape
+	// of the background_wake frame: a client resuming the session mid-turn
+	// learns that nobody typed it, and a console over --remote follows it.
+	if wake := s.mgr.TurnWake(id); wake != nil {
+		out["backgroundWake"] = map[string]interface{}{"tasks": session.BackgroundWakeUpdate(wake).Tasks}
+	}
 	if st := s.mgr.SessionByID(id); st != nil {
 		if progress, running := st.TurnProgress(); running {
 			out["turnOutputTokens"] = progress.OutputTokens
@@ -1069,6 +1075,10 @@ func llmMsgsToCoddyOpenAIForSession(sessionID string, msgs []llm.Message) []map[
 		}
 		if m.CompactionSummary {
 			item["compaction_summary"] = true
+		}
+		if m.Role == llm.RoleUser && m.BackgroundWake != nil {
+			// Nobody typed this message: a woken turn opened with it.
+			item["background_wake"] = m.BackgroundWake
 		}
 		if m.Role == llm.RoleUser && len(m.ImageParts) > 0 {
 			files := make([]map[string]interface{}, 0, len(m.ImageParts))

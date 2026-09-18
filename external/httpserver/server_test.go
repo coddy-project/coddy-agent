@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -29,6 +30,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
@@ -3770,6 +3772,10 @@ func TestBackgroundWakeSurvivesATurnStillInFlight(t *testing.T) {
 	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), root, &session.FileStore{Root: sessRoot})
 	srv := New(cfg, mgr, slog.Default(), root)
 	defer srv.Drain()
+	// Nothing else in this test owns a waker; `coddy serve` hands the server's
+	// wake path to its runtime instead.
+	srv.AttachBackgroundWaker()
+	defer bgtask.Default().SubscribeKeyed(bgtask.WakeWatcherKey, nil)
 
 	res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: root})
 	if err != nil {
@@ -4523,5 +4529,72 @@ func TestChatCompletionsDirectCodexFinishReasons(t *testing.T) {
 	}
 	if !strings.Contains(sse, "stream truncated") {
 		t.Fatalf("cut (stream): the truncation never reached the client:\n%s", sse)
+	}
+}
+
+// A wake that lands while a turn holds the session is refused as busy - the
+// waker asks again - and must leave that turn's relay alone: its watchers keep
+// their stream, and a watcher that arrives later can still attach to it.
+func TestBackgroundWakeOnABusySessionLeavesTheRunningRelay(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: filepath.Join(root, "home"), CWD: root},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100}},
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), root, &session.FileStore{Root: filepath.Join(root, "sessions")})
+	srv := New(cfg, mgr, slog.Default(), root)
+	defer srv.Drain()
+	res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := mgr.SessionByID(res.SessionID)
+
+	// A composer turn in flight: it holds the lock and publishes to its relay.
+	unlock, err := mgr.AcquireComposerTurnLock(res.SessionID, st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	running := srv.beginComposerRelay(res.SessionID)
+	defer func() {
+		unlock()
+		srv.endComposerRelay(res.SessionID, running)
+	}()
+
+	end := time.Now()
+	handled, err := srv.RunBackgroundWake(context.Background(), agent.Wake{SessionID: res.SessionID, Tasks: []bgtask.Snapshot{{
+		ID: "bg_1", SessionID: res.SessionID, Status: bgtask.StatusFailed, StartedAt: end.Add(-time.Second), FinishedAt: &end,
+	}}})
+	if !handled || !errors.Is(err, session.ErrSessionTurnBusy) {
+		t.Fatalf("wake on a busy session = %v, %v; want handled and ErrSessionTurnBusy", handled, err)
+	}
+	if srv.peekComposerRelay(res.SessionID) != running {
+		t.Fatal("the refused wake evicted the running turn's relay")
+	}
+}
+
+// Only the first message of a woken turn carries the marker in the transcript
+// a reloaded tab reads; a message somebody typed carries none.
+func TestSessionMessagesMarkOnlyTheWake(t *testing.T) {
+	two := 2
+	rows := llmMsgsToCoddyOpenAIForSession("sess_x", []llm.Message{
+		{Role: llm.RoleUser, Content: "start the tests"},
+		{Role: llm.RoleUser, Content: "A background task you asked to be notified about has finished.", BackgroundWake: &llm.BackgroundWake{
+			Tasks: []llm.BackgroundWakeTask{{ID: "bg_1", Status: "failed", ExitCode: &two, DurationMs: 1200}},
+		}},
+	})
+	if _, ok := rows[0]["background_wake"]; ok {
+		t.Fatalf("a typed message is marked as a wake: %+v", rows[0])
+	}
+	raw, err := json.Marshal(rows[1]["background_wake"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"id":"bg_1"`) || !strings.Contains(string(raw), `"exit_code":2`) || !strings.Contains(string(raw), `"duration_ms":1200`) {
+		t.Fatalf("background_wake = %s", raw)
 	}
 }
