@@ -60,3 +60,40 @@ func TestSessionTurnActiveInProcessTrimsSessionID(t *testing.T) {
 		t.Fatal("session id should be compared trimmed")
 	}
 }
+
+func TestTurnStartedAtIsKeptForTheWholeTurnAndMatchesTheEvent(t *testing.T) {
+	m := &Manager{}
+	var started TurnEvent
+	remove := m.AddTurnObserver(func(ev TurnEvent) {
+		if ev.Phase == TurnPhaseStarted {
+			started = ev
+		}
+	})
+	defer remove()
+
+	if _, ok := m.TurnStartedAt("sess_clock"); ok {
+		t.Fatal("an idle session has no turn start")
+	}
+	outer := m.markTurnActive("sess_clock")
+	at, ok := m.TurnStartedAt("sess_clock")
+	if !ok || at.IsZero() {
+		t.Fatalf("running turn start = %v, %v", at, ok)
+	}
+	if !started.At.Equal(at) {
+		t.Fatalf("turn_started carries %v, the registry %v", started.At, at)
+	}
+
+	// The inner admission of the same turn (RunPlan) must not restart the clock.
+	inner := m.markTurnActive("sess_clock")
+	if again, _ := m.TurnStartedAt("sess_clock"); !again.Equal(at) {
+		t.Fatalf("nested admission moved the start from %v to %v", at, again)
+	}
+	inner()
+	if again, ok := m.TurnStartedAt("sess_clock"); !ok || !again.Equal(at) {
+		t.Fatal("inner release dropped the start of the outer turn")
+	}
+	outer()
+	if _, ok := m.TurnStartedAt("sess_clock"); ok {
+		t.Fatal("the start outlived the turn")
+	}
+}

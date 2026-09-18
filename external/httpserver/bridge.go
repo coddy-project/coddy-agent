@@ -200,6 +200,8 @@ func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
 		return s.writeNamedEventJSON("available_commands", u)
 	case acp.MessageQueueUpdate:
 		return s.writeNamedEventJSON("message_queue", u)
+	case acp.TurnProgressUpdate:
+		return s.writeNamedEventJSON("turn_progress", u)
 	default:
 		return nil
 	}

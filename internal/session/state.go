@@ -237,6 +237,13 @@ type State struct {
 	// queue change made from outside the turn's goroutine reaches the clients
 	// watching that turn. Turn-scoped, never persisted.
 	turnSender acp.UpdateSender
+
+	// progress is the running turn's clock and token count (turn_progress.go).
+	// It has a lock of its own: the loop writes it while a call streams, and
+	// nothing there should wait on a reader of the history.
+	progressMu  sync.Mutex
+	progress    TurnProgress
+	progressSet bool
 }
 
 // GetID returns the session ID.

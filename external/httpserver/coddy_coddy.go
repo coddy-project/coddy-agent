@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -995,8 +996,32 @@ func (s *Server) coddySessionActivityGet(w http.ResponseWriter, r *http.Request)
 		"readActivitySeq": readSeq,
 		"unreadComplete":  actSeq > readSeq && !turnActive,
 	}
+	s.addTurnProgress(out, id)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
+}
+
+// addTurnProgress puts the clock and the token count of the turn id is running in this
+// process into an activity answer. A client that joins the turn late reads them here: the
+// composer relay does not replay a turn_progress frame the client's transcript snapshot
+// already covers. A turn held by another process leaves the fields out.
+func (s *Server) addTurnProgress(out map[string]interface{}, id string) {
+	startedAt, ok := s.mgr.TurnStartedAt(id)
+	if !ok {
+		return
+	}
+	out["turnStartedAt"] = startedAt.UTC().Format(time.RFC3339Nano)
+	elapsed := time.Since(startedAt)
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	out["turnElapsedMs"] = elapsed.Milliseconds()
+	if st := s.mgr.SessionByID(id); st != nil {
+		if progress, running := st.TurnProgress(); running {
+			out["turnOutputTokens"] = progress.OutputTokens
+			out["turnTokensEstimated"] = progress.Estimated
+		}
+	}
 }
 
 func llmMsgsToCoddyOpenAI(msgs []llm.Message) []map[string]interface{} {

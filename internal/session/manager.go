@@ -52,6 +52,9 @@ type Manager struct {
 	// See turn_active.go for why it is a count rather than a set.
 	activeTurnMu sync.Mutex
 	activeTurns  map[string]int
+	// turnStarted is when each of those sessions went from no turn to one. A
+	// client that joins a turn late counts its clock from here.
+	turnStarted map[string]time.Time
 
 	// turnObservers receive the started/ended edges of activeTurns (see turn_events.go).
 	turnObserverMu  sync.Mutex
@@ -759,12 +762,19 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 	// Before the lock, not after: a turn queued behind another one is already
 	// active as far as a client watching the session is concerned.
 	clearActive := m.markTurnActive(sessionID)
+	// The turn's clock starts where the registry says the session became busy,
+	// so the progress the loop reports and the turn_started event agree.
+	turnStartedAt, _ := m.TurnStartedAt(sessionID)
+	state.BeginTurnProgress(turnStartedAt)
 	unlock := func() {}
 	if !adm.skipLock {
 		var err error
 		unlock, err = m.acquireTurnLockWithReloadDrain(sessionID, state)
 		if err != nil {
 			clearActive()
+			if !m.SessionTurnActiveInProcess(sessionID) {
+				state.EndTurnProgress(turnStartedAt)
+			}
 			return nil, nil, err
 		}
 	}
@@ -810,6 +820,11 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 			}
 			unlock()
 			clearActive()
+			// Only the outer release ends the turn; an inner one (RunPlan)
+			// leaves the session busy and the progress standing.
+			if !m.SessionTurnActiveInProcess(sessionID) {
+				state.EndTurnProgress(turnStartedAt)
+			}
 		})
 	}
 	if hook := m.testHooks.beforeTurnAdmissionRecheck; hook != nil {

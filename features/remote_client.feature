@@ -16,6 +16,12 @@ Feature: Remote client for the coddy HTTP API
     And the turn ends with stop reason "end_turn"
     And the session is persisted on the remote server
 
+  Scenario: The progress of a remote turn reaches the client
+    Given the remote agent reports 433 generated tokens 45 s into the turn before replying "remote says hi"
+    And the client starts a session
+    When the client sends the prompt "hello over http"
+    Then the client receives a turn progress update with 433 tokens and 45 s elapsed
+
   Scenario: The remote model catalog backs the session options
     When the client starts a session
     Then the session model options come from the remote server catalog

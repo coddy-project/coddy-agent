@@ -99,6 +99,8 @@ type remoteClientState struct {
 	askPermission  bool
 	recordToolCall bool
 	stopReason     string
+	// progress, when set, is the turn_progress update the runner sends first.
+	progress *acp.TurnProgressUpdate
 
 	client    *remote.Handler
 	sender    *recordingClientSender
@@ -125,6 +127,7 @@ func (s *remoteClientState) reset() error {
 	s.subagentPermission = false
 	s.recordToolCall = false
 	s.stopReason = ""
+	s.progress = nil
 	s.client = nil
 	s.sender = nil
 	s.sessionID = ""
@@ -252,6 +255,9 @@ func (s *remoteClientState) startServer(token string) error {
 			})
 			st.AddMessage(llm.Message{Role: llm.RoleTool, ToolCallID: "tool-1", Content: "file body"})
 		}
+		if s.progress != nil {
+			_ = snd.SendSessionUpdate(st.ID, *s.progress)
+		}
 		if s.replyText != "" {
 			_ = snd.SendSessionUpdate(st.ID, acp.MessageChunkUpdate{
 				SessionUpdate: acp.UpdateTypeAgentMessageChunk,
@@ -298,6 +304,32 @@ func (s *remoteClientState) connectClient(token string) error {
 func (s *remoteClientState) agentReplies(text string) error {
 	s.replyText = text
 	return nil
+}
+
+func (s *remoteClientState) agentReportsProgress(tokens, elapsedSec int, text string) error {
+	s.replyText = text
+	s.progress = &acp.TurnProgressUpdate{
+		SessionUpdate: acp.UpdateTypeTurnProgress,
+		StartedAt:     time.Now().Add(-time.Duration(elapsedSec) * time.Second).UTC().Format(time.RFC3339Nano),
+		ElapsedMs:     int64(elapsedSec) * 1000,
+		OutputTokens:  tokens,
+		Estimated:     true,
+	}
+	return nil
+}
+
+func (s *remoteClientState) clientReceivedProgress(tokens, elapsedSec int) error {
+	for _, u := range s.sender.snapshot() {
+		p, ok := u.(acp.TurnProgressUpdate)
+		if !ok {
+			continue
+		}
+		if p.OutputTokens != tokens || p.ElapsedMs != int64(elapsedSec)*1000 || !p.Estimated || p.StartedAt == "" {
+			return fmt.Errorf("turn progress reached the client as %+v", p)
+		}
+		return nil
+	}
+	return fmt.Errorf("the client saw no turn progress update")
 }
 
 func (s *remoteClientState) agentAsksPermission(text string) error {
@@ -564,6 +596,8 @@ func initializeRemoteClientScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a remote client connected with the token "([^"]*)"$`, s.connectClient)
 	sc.Step(`^the remote agent replies with "([^"]*)"$`, s.agentReplies)
 	sc.Step(`^the remote agent asks permission before replying "([^"]*)"$`, s.agentAsksPermission)
+	sc.Step(`^the remote agent reports (\d+) generated tokens (\d+) s into the turn before replying "([^"]*)"$`, s.agentReportsProgress)
+	sc.Step(`^the client receives a turn progress update with (\d+) tokens and (\d+) s elapsed$`, s.clientReceivedProgress)
 	sc.Step(`^the remote agent relays a subagent permission prompt before replying "([^"]*)"$`, s.agentRelaysSubagentPermission)
 	sc.Step(`^the remote server runs with permission mode "([^"]*)"$`, s.serverPermissionMode)
 	sc.Step(`^the client received a permission request titled "([^"]*)"$`, s.clientReceivedPermissionTitled)

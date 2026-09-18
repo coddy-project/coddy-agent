@@ -1,6 +1,9 @@
 package session
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 // SessionTurnActiveInProcess reports whether a prompt turn for sessionID is running in
 // THIS process.
@@ -16,6 +19,22 @@ func (m *Manager) SessionTurnActiveInProcess(sessionID string) bool {
 	m.activeTurnMu.Lock()
 	defer m.activeTurnMu.Unlock()
 	return m.activeTurns[id] > 0
+}
+
+// TurnStartedAt reports when sessionID went from no turn to the one it is running in
+// THIS process; ok is false when it runs none.
+//
+// A client that attaches to a turn in flight - a reloaded tab, a console reconnecting -
+// counts the turn's clock from here instead of from the moment it attached.
+func (m *Manager) TurnStartedAt(sessionID string) (time.Time, bool) {
+	id := strings.TrimSpace(sessionID)
+	if id == "" {
+		return time.Time{}, false
+	}
+	m.activeTurnMu.Lock()
+	defer m.activeTurnMu.Unlock()
+	at, ok := m.turnStarted[id]
+	return at, ok
 }
 
 // markTurnActive registers a running turn for sessionID and returns its release closure.
@@ -36,9 +55,16 @@ func (m *Manager) markTurnActive(sessionID string) func() {
 	}
 	m.activeTurns[id]++
 	first := m.activeTurns[id] == 1
+	startedAt := time.Now().UTC()
+	if first {
+		if m.turnStarted == nil {
+			m.turnStarted = make(map[string]time.Time)
+		}
+		m.turnStarted[id] = startedAt
+	}
 	m.activeTurnMu.Unlock()
 	if first {
-		m.publishTurnEvent(id, TurnPhaseStarted)
+		m.publishTurnEventAt(id, TurnPhaseStarted, startedAt)
 	}
 
 	released := false
@@ -52,6 +78,7 @@ func (m *Manager) markTurnActive(sessionID string) func() {
 		last := m.activeTurns[id] <= 1
 		if last {
 			delete(m.activeTurns, id)
+			delete(m.turnStarted, id)
 		} else {
 			m.activeTurns[id]--
 		}
