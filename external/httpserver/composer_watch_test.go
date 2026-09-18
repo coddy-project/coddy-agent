@@ -107,7 +107,7 @@ func TestResponsesNonStreamProfileTurnIsWatchable(t *testing.T) {
 	<-turn.started
 
 	sub := subscribeComposerStream(t, ts, sid)
-	defer sub.Body.Close()
+	defer func() { _ = sub.Body.Close() }()
 	close(turn.release)
 
 	watched, err := io.ReadAll(sub.Body)
@@ -122,7 +122,7 @@ func TestResponsesNonStreamProfileTurnIsWatchable(t *testing.T) {
 	}
 
 	res := <-resCh
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	body, _ := io.ReadAll(res.Body)
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("POST status %d: %s", res.StatusCode, body)
@@ -153,7 +153,7 @@ func TestChatCompletionsNonStreamProfileTurnIsWatchable(t *testing.T) {
 	<-turn.started
 
 	sub := subscribeComposerStream(t, ts, sid)
-	defer sub.Body.Close()
+	defer func() { _ = sub.Body.Close() }()
 	close(turn.release)
 
 	watched, err := io.ReadAll(sub.Body)
@@ -165,7 +165,7 @@ func TestChatCompletionsNonStreamProfileTurnIsWatchable(t *testing.T) {
 	}
 
 	res := <-resCh
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	body, _ := io.ReadAll(res.Body)
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("POST status %d: %s", res.StatusCode, body)
@@ -197,7 +197,7 @@ func TestNonStreamProfileTurnErrorReachesWatchers(t *testing.T) {
 	<-turn.started
 
 	sub := subscribeComposerStream(t, ts, sid)
-	defer sub.Body.Close()
+	defer func() { _ = sub.Body.Close() }()
 	close(turn.release)
 
 	watched, err := io.ReadAll(sub.Body)
@@ -212,7 +212,7 @@ func TestNonStreamProfileTurnErrorReachesWatchers(t *testing.T) {
 	}
 
 	res := <-resCh
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	body, _ := io.ReadAll(res.Body)
 	if res.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("POST status %d: %s", res.StatusCode, body)
@@ -248,7 +248,7 @@ func TestNonStreamProfileTurnOnBusySessionConflicts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	body, _ := io.ReadAll(res.Body)
 
 	if res.StatusCode != http.StatusConflict {
@@ -288,7 +288,7 @@ func TestNonStreamProfileTurnDiesWithItsRequest(t *testing.T) {
 		res, err := ts.Client().Do(req)
 		if err == nil {
 			_, _ = io.Copy(io.Discard, res.Body)
-			res.Body.Close()
+			_ = res.Body.Close()
 		}
 	}()
 

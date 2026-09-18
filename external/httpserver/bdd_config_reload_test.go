@@ -186,14 +186,14 @@ func (s *configReloadState) subscribe() error {
 	}
 	if res.StatusCode != http.StatusOK {
 		cancel()
-		res.Body.Close()
+		_ = res.Body.Close()
 		return errStatus("events stream", res.StatusCode, "")
 	}
 	c := &eventsClient{
 		body: bufio.NewReader(res.Body),
 		close: func() {
 			cancel()
-			res.Body.Close()
+			_ = res.Body.Close()
 		},
 	}
 	s.browsers = append(s.browsers, c)

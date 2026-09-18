@@ -35,7 +35,7 @@ func TestComposerStreamAnswersImmediatelyWhenNoTurnRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Fatal(err)
@@ -99,7 +99,7 @@ func TestComposerStreamWaitsWhileTurnActive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	line, err := bufio.NewReader(res.Body).ReadString('\n')
 	if err != nil {

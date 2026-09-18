@@ -151,7 +151,7 @@ func TestEmbeddedUIPublicAssetsCacheControl(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer res.Body.Close()
+			defer func() { _ = res.Body.Close() }()
 			if cc := res.Header.Get("Cache-Control"); cc != "no-cache" {
 				t.Fatalf("Cache-Control %q for %s, want no-cache", cc, path)
 			}

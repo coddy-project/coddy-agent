@@ -81,7 +81,7 @@ func postFolderJSON(t *testing.T, ts *httptest.Server, dir, name string) (int, m
 	if err != nil {
 		t.Fatalf("POST folders: %v", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	var body map[string]interface{}
 	_ = json.NewDecoder(res.Body).Decode(&body)
 	return res.StatusCode, body
@@ -93,7 +93,7 @@ func getFoldersJSON(t *testing.T, ts *httptest.Server, path string) (int, map[st
 	if err != nil {
 		t.Fatalf("GET folders: %v", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	var body map[string]interface{}
 	_ = json.NewDecoder(res.Body).Decode(&body)
 	return res.StatusCode, body

@@ -1131,7 +1131,7 @@ func (s *Server) coddySessionAssetThumbnailGet(w http.ResponseWriter, r *http.Re
 		http.Error(w, `{"error":{"message":"thumbnail unavailable"}}`, http.StatusInternalServerError)
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	info, err := f.Stat()
 	if err != nil || info.IsDir() {
 		http.NotFound(w, r)
