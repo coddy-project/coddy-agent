@@ -117,23 +117,12 @@ func newBackgroundTaskRow(snap bgtask.Snapshot, now time.Time) backgroundTaskRow
 	return row
 }
 
-// backgroundRowsForSession merges the live pool with what the session bundle
-// recorded, so tasks from a previous process still appear (as orphaned) instead
-// of vanishing from the drawer after a restart.
+// backgroundRowsForSession renders every task of the session: the live pool and, under
+// it, what the bundle recorded for an earlier process (bgtask.Pool.SessionTasks).
 func backgroundRowsForSession(sessionID, sessionDir string, now time.Time) []backgroundTaskRow {
-	live := bgtask.Default().List(sessionID)
-	seen := make(map[string]bool, len(live))
-	rows := make([]backgroundTaskRow, 0, len(live))
-	for _, snap := range live {
-		seen[snap.ID] = true
-		rows = append(rows, newBackgroundTaskRow(snap, now))
-	}
-
-	for _, snap := range bgtask.LoadPersisted(sessionDir) {
-		if seen[snap.ID] {
-			continue
-		}
-		snap.SessionID = sessionID
+	snaps := bgtask.Default().SessionTasks(sessionID, sessionDir)
+	rows := make([]backgroundTaskRow, 0, len(snaps))
+	for _, snap := range snaps {
 		rows = append(rows, newBackgroundTaskRow(snap, now))
 	}
 	return rows
@@ -184,22 +173,13 @@ func (s *Server) coddyBackgroundTaskGet(w http.ResponseWriter, r *http.Request) 
 		tail = n
 	}
 
-	output, snap, err := bgtask.Default().Output(id, taskID, tail)
+	// The pool forgets tasks from an earlier process; the session bundle still has
+	// the record and the log, and SessionTaskOutput reads whichever knows the task.
+	output, snap, err := bgtask.Default().SessionTaskOutput(id, sessionDir, taskID, tail)
 	if err != nil {
-		// The pool forgets tasks from an earlier process; the session bundle
-		// still has the record and the log.
-		row, ok := findPersistedTask(sessionDir, taskID)
-		if !ok {
-			http.Error(w, `{"error":{"message":"background task not found"}}`, http.StatusNotFound)
-			return
-		}
-		row.SessionID = id
-		persisted, dropped, _ := bgtask.PersistedOutput(sessionDir, taskID)
-		row.OutputTruncated = row.OutputTruncated || dropped
-		writeBackgroundTask(w, id, newBackgroundTaskRow(row, now), tailLines(persisted, tail))
+		http.Error(w, `{"error":{"message":"background task not found"}}`, http.StatusNotFound)
 		return
 	}
-
 	writeBackgroundTask(w, id, newBackgroundTaskRow(snap, now), output)
 }
 
@@ -237,26 +217,4 @@ func writeBackgroundTask(w http.ResponseWriter, sessionID string, row background
 		"task":      row,
 		"output":    output,
 	})
-}
-
-func findPersistedTask(sessionDir, taskID string) (bgtask.Snapshot, bool) {
-	for _, snap := range bgtask.LoadPersisted(sessionDir) {
-		if snap.ID == taskID {
-			return snap, true
-		}
-	}
-	return bgtask.Snapshot{}, false
-}
-
-// tailLines trims text to its last n lines, matching what the pool does for a
-// live task so both paths answer the same shape.
-func tailLines(text string, n int) string {
-	if n <= 0 || text == "" {
-		return text
-	}
-	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
-	if len(lines) <= n {
-		return strings.Join(lines, "\n")
-	}
-	return strings.Join(lines[len(lines)-n:], "\n")
 }

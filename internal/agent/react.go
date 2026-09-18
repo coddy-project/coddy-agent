@@ -95,6 +95,8 @@ type Agent struct {
 	detachedPermissions DetachedPermissionBroker
 	// subagent is set when this session is itself a child run (see subagent.go).
 	subagent *session.SubagentMeta
+	// progress is the running turn's clock and token count (turn_progress.go).
+	progress *turnProgress
 	// limitWaitHeartbeat overrides how often a waiting turn re-sends its
 	// countdown (tests); zero means limitWaitHeartbeat.
 	limitWaitHeartbeat time.Duration
@@ -225,6 +227,10 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
 	})
 	a.setHookTurn(session.CountUserTurns(a.state.GetMessages()))
+	// The turn's clock is announced before anything slow happens - the memory
+	// run below, the first model call - so a surface counts from the start.
+	a.beginTurnProgress()
+	defer a.endTurnProgress()
 	a.runMemoryBeforeTurn(ctx, userText, mode)
 	// A report that lands after this turn returned is history in the Tasks
 	// drawer, never the next turn's context.
@@ -465,6 +471,11 @@ func (a *Agent) runReActLoop(
 	// of dead-ending silently.
 	var turnHadVisibleText bool
 
+	// Run opened the turn's progress already; a loop entered another way (a
+	// resumed permission) opens its own.
+	a.beginTurnProgress()
+	defer a.endTurnProgress()
+
 	// Runaway-loop protection. The tool detector spans the whole user turn (a model
 	// can repeat the same call across ReAct rounds, not only inside one response);
 	// the stream detectors are per LLM call and created below. loopNudges is the
@@ -591,6 +602,7 @@ func (a *Agent) runReActLoop(
 			stopFirstTokenTimer()
 			streamedAny = true
 			reasoningBuf.WriteString(d)
+			a.progress.streamed(d)
 			// The clock measures wall time between the first reasoning delta and the
 			// first answer text. A blocking response replays both back to back once
 			// generation has already finished, so the only honest reading is none:
@@ -610,6 +622,7 @@ func (a *Agent) runReActLoop(
 			if markReasonEnd && strings.TrimSpace(delta) != "" {
 				maybeMarkReasonEnd(now)
 			}
+			a.progress.streamed(delta)
 			_ = a.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 				SessionUpdate: acp.UpdateTypeAgentMessageChunk,
 				Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: delta},
@@ -626,6 +639,7 @@ func (a *Agent) runReActLoop(
 		callStart := time.Now()
 		var firstChunkAt time.Time
 		var chunkCount int
+		a.progress.beginCall()
 		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, toolDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
@@ -660,6 +674,12 @@ func (a *Agent) runReActLoop(
 			// the arguments can take seconds to stream, and without the row the
 			// transcript stands still with nothing but a Stop button. The row is
 			// keyed by the call id, so the complete call updates it in place.
+			// A call's arguments are output like any text, and often most of
+			// it (a write carries the whole file). They are not streamed as
+			// deltas, so they enter the count when the call is complete.
+			if chunk.ToolCall != nil {
+				a.progress.streamed(chunk.ToolCall.Name + chunk.ToolCall.InputJSON)
+			}
 			announce := chunk.ToolCall
 			if announce == nil {
 				announce = chunk.ToolCallNamed
@@ -833,6 +853,7 @@ func (a *Agent) runReActLoop(
 			OutputTokens:  response.OutputTokens,
 			TotalTokens:   totalInputTokens + totalOutputTokens,
 		})
+		a.progress.finishCall(response.OutputTokens)
 
 		if sd != "" {
 			now := time.Now().UTC()

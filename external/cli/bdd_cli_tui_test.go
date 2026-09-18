@@ -17,6 +17,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,6 +30,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
+	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/rules"
@@ -119,6 +122,10 @@ type cliTUIState struct {
 	runCancel context.CancelFunc
 	appDone   chan error
 
+	// bgSessionID and bgTaskID name the pooled command a scenario started.
+	bgSessionID string
+	bgTaskID    string
+
 	directives chan stubDirective
 	turnEnds   chan struct{}
 
@@ -194,6 +201,13 @@ func (s *cliTUIState) reset() {
 }
 
 func (s *cliTUIState) shutdown() {
+	// A pooled command of the scenario must not outlive it: the pool is the
+	// process's own, shared by every scenario of the suite.
+	if s.bgSessionID != "" {
+		bgtask.Default().StopSession(s.bgSessionID)
+		bgtask.Default().ReleaseSession(s.bgSessionID)
+		s.bgSessionID, s.bgTaskID = "", ""
+	}
 	if s.app != nil {
 		s.app.requestQuit(nil)
 	}
@@ -565,6 +579,69 @@ func (s *cliTUIState) usageClockMoves(seconds int) error {
 	return nil
 }
 
+// sessionRunsBackgroundCommand starts a real command in the process's task pool under
+// the console's session, the way run_command with background: true does.
+func (s *cliTUIState) sessionRunsBackgroundCommand(command string) error {
+	if runtime.GOOS == "windows" {
+		return godog.ErrSkip
+	}
+	sessionID := s.app.sessionID
+	snap, err := bgtask.Default().Start(bgtask.Spec{SessionID: sessionID, Command: command, CWD: s.cfg.Paths.CWD})
+	if err != nil {
+		return err
+	}
+	s.bgTaskID = snap.ID
+	s.bgSessionID = sessionID
+	return nil
+}
+
+func (s *cliTUIState) tasksOverlayListsRunning(title string) error {
+	if err := s.waitScreen("Background tasks", 3*time.Second); err != nil {
+		return err
+	}
+	if err := s.waitScreen(title, 3*time.Second); err != nil {
+		return err
+	}
+	return s.waitScreen("1 running", 3*time.Second)
+}
+
+func (s *cliTUIState) footerNamesRunningTasks(n int) error {
+	return s.waitScreen(fmt.Sprintf("%d task running (/tasks)", n), 3*time.Second)
+}
+
+func (s *cliTUIState) operatorOpensSelectedTask() error {
+	s.press("\r")
+	return nil
+}
+
+func (s *cliTUIState) tasksOverlayShowsOutput(text string) error {
+	return s.waitScreen(text, 5*time.Second)
+}
+
+func (s *cliTUIState) operatorStopsTaskFromOverlay() error {
+	s.press("s")
+	return nil
+}
+
+func (s *cliTUIState) backgroundCommandIsStopped() error {
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		snap, err := bgtask.Default().Get(s.app.sessionID, s.bgTaskID)
+		if err != nil {
+			return err
+		}
+		if snap.Status == bgtask.StatusStopped {
+			return nil
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return fmt.Errorf("task %s was never stopped", s.bgTaskID)
+}
+
+func (s *cliTUIState) tasksOverlayListsStopped() error {
+	return s.waitScreen("stopped", 5*time.Second)
+}
+
 func (s *cliTUIState) operatorSubmitsCommand(text string) error {
 	s.typeText(text)
 	s.press("\r")
@@ -734,6 +811,38 @@ func (s *cliTUIState) footerShowsTokenUsage() error {
 		SessionUpdate: "token_usage", InputTokens: 1200, OutputTokens: 40, TotalTokens: 1240,
 	})
 	return s.waitScreen("↑1.2k", 2*time.Second)
+}
+
+// agentReportsTurnTokens is what the agent loop publishes while a call streams and
+// after it: the turn's own numbers, which lead the status line.
+func (s *cliTUIState) agentReportsTurnTokens(tokens int) error {
+	return s.app.Sender().SendSessionUpdate(s.app.sessionID, acp.TurnProgressUpdate{
+		SessionUpdate: acp.UpdateTypeTurnProgress,
+		StartedAt:     time.Now().UTC().Format(time.RFC3339Nano),
+		OutputTokens:  tokens,
+		Estimated:     true,
+	})
+}
+
+// statusLineLeadsWithTurnClock waits for "<clock> · <phrase>". The clock is matched,
+// not spelled out: a slow runner may draw its first frame a second into the turn.
+func (s *cliTUIState) statusLineLeadsWithTurnClock(phrase string) error {
+	pattern := regexp.MustCompile(`\d+s · ` + regexp.QuoteMeta(phrase))
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if pattern.MatchString(s.screenText()) {
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("no turn clock before %q; last frame:\n%s", phrase, s.screenText())
+}
+
+func (s *cliTUIState) statusLineShowsNoTokenCount() error {
+	if text := s.screenText(); strings.Contains(text, " tokens") || strings.Contains(text, " token ·") {
+		return fmt.Errorf("the status line names tokens before the model produced any:\n%s", text)
+	}
+	return nil
 }
 
 func (s *cliTUIState) stubStartsToolCall(tool, argKey, argVal string) error {
@@ -1418,6 +1527,9 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the tool box shows the expand hint$`, s.toolBoxShowsExpandHint)
 	sc.Step(`^the stub tool call completes without ending the turn$`, s.stubToolCompletesWithoutEndingTurn)
 	sc.Step(`^the status line shows "([^"]*)"$`, s.statusLineShows)
+	sc.Step(`^the status line leads with the turn clock before "([^"]*)"$`, s.statusLineLeadsWithTurnClock)
+	sc.Step(`^the status line shows no token count yet$`, s.statusLineShowsNoTokenCount)
+	sc.Step(`^the agent reports (\d+) tokens generated in this turn$`, s.agentReportsTurnTokens)
 	sc.Step(`^the session permission mode is "([^"]*)"$`, s.permissionModeIs)
 	sc.Step(`^the stub turn requests permission for the tool "([^"]*)"$`, s.stubRequestsPermission)
 	sc.Step(`^the screen shows a permission modal with an allow option$`, s.screenShowsPermissionModalWithAllow)
@@ -1475,6 +1587,14 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the transcript shows a usage notice containing "([^"]*)"$`, s.transcriptShowsUsageNotice)
 	sc.Step(`^the usage clock moves (\d+) seconds forward$`, s.usageClockMoves)
 	sc.Step(`^the operator submits the command "([^"]*)"$`, s.operatorSubmitsCommand)
+	sc.Step(`^the session runs the background command "([^"]*)"$`, s.sessionRunsBackgroundCommand)
+	sc.Step(`^the tasks overlay lists "([^"]*)" as running$`, s.tasksOverlayListsRunning)
+	sc.Step(`^the footer names (\d+) running task$`, s.footerNamesRunningTasks)
+	sc.Step(`^the operator opens the selected task$`, s.operatorOpensSelectedTask)
+	sc.Step(`^the tasks overlay shows the output "([^"]*)"$`, s.tasksOverlayShowsOutput)
+	sc.Step(`^the operator stops the task from the overlay$`, s.operatorStopsTaskFromOverlay)
+	sc.Step(`^the background command is stopped$`, s.backgroundCommandIsStopped)
+	sc.Step(`^the tasks overlay lists the task as stopped$`, s.tasksOverlayListsStopped)
 	sc.Step(`^the usage report shows "([^"]*)"$`, s.usageReportShows)
 	sc.Step(`^the operator switches the model to "([^"]*)"$`, s.operatorSwitchesModelTo)
 	sc.Step(`^the footer names the model "([^"]*)"$`, s.footerNamesModel)

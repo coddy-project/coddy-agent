@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { QueuedMessageEvent } from "./serverEvents";
+import { turnProgressFromActivity, type TurnProgress } from "./turnProgress";
 
 const HDR = "X-Coddy-Session-ID";
 const RECONCILE_MS = 2000;
@@ -11,6 +12,15 @@ type Options = {
   postPending: (sid: string) => boolean;
   onQueueRead: (sid: string) => (queue: QueuedMessageEvent) => void;
   onReconcile: (sid: string, active: boolean, wasActive: boolean) => void;
+  /**
+   * The running turn's clock and tokens as the activity answer carries them. The relay
+   * does not replay a turn_progress frame the transcript snapshot covers, so a tab that
+   * joined late reads them here. Null says the answer found the session idle: whatever
+   * progress the tab holds belongs to a turn that is over. It is said on every such
+   * read, not only on one that reconciles - the first read to see the turn gone may be
+   * one that notifies nobody, and then no reconcile runs for that turn at all.
+   */
+  onTurnProgress?: (sid: string, progress: TurnProgress | null) => void;
 };
 
 /** Server admission is independent of a browser's POST/relay connection. A lost
@@ -106,6 +116,9 @@ export function useSessionTurnActivity(options: Options) {
                 return;
               const wasActive = get(key) === true;
               observe(key, data.turnActive);
+              const progress = turnProgressFromActivity(data, Date.now());
+              if (progress || !data.turnActive)
+                callbacks.current.onTurnProgress?.(key, progress);
               if (notify)
                 callbacks.current.onReconcile(key, data.turnActive, wasActive);
             }),

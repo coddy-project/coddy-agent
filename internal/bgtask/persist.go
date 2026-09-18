@@ -197,3 +197,59 @@ func PersistedOutput(sessionDir, taskID string) (text string, truncated bool, ok
 	}
 	return decodeOutput(data), true, true
 }
+
+// SessionTasks lists every task of a session: what this pool holds, and under it what
+// the session bundle recorded for an earlier process, so a task that outlived or died
+// with that process still appears (as orphaned) instead of vanishing after a restart.
+// The pool wins where both know a task. Every surface that shows a session's tasks -
+// the HTTP rows, the console - reads this one list.
+func (p *Pool) SessionTasks(sessionID, sessionDir string) []Snapshot {
+	live := p.List(sessionID)
+	seen := make(map[string]bool, len(live))
+	rows := make([]Snapshot, 0, len(live))
+	for _, snap := range live {
+		seen[snap.ID] = true
+		rows = append(rows, snap)
+	}
+	for _, snap := range LoadPersisted(sessionDir) {
+		if seen[snap.ID] {
+			continue
+		}
+		snap.SessionID = sessionID
+		rows = append(rows, snap)
+	}
+	return rows
+}
+
+// SessionTaskOutput reads the captured output of one task of a session, from the pool
+// or, for a task of an earlier process, from the log the bundle kept. tailLines trims
+// it to its last lines the way Pool.Output does; zero returns everything.
+func (p *Pool) SessionTaskOutput(sessionID, sessionDir, taskID string, tailLines int) (string, Snapshot, error) {
+	output, snap, err := p.Output(sessionID, taskID, tailLines)
+	if err == nil {
+		return output, snap, nil
+	}
+	for _, row := range LoadPersisted(sessionDir) {
+		if row.ID != taskID {
+			continue
+		}
+		row.SessionID = sessionID
+		persisted, dropped, _ := PersistedOutput(sessionDir, taskID)
+		row.OutputTruncated = row.OutputTruncated || dropped
+		return TailLines(persisted, tailLines), row, nil
+	}
+	return "", Snapshot{}, ErrNotFound
+}
+
+// TailLines trims text to its last n lines, matching what the pool does for a live
+// task so a recorded log answers in the same shape. n <= 0 returns the text whole.
+func TailLines(text string, n int) string {
+	if n <= 0 || text == "" {
+		return text
+	}
+	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	if len(lines) <= n {
+		return strings.Join(lines, "\n")
+	}
+	return strings.Join(lines[len(lines)-n:], "\n")
+}

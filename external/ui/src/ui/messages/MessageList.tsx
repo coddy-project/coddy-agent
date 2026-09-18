@@ -15,8 +15,28 @@ import { ThinkingMessage } from "./ThinkingMessage";
 import { CompactionMessage } from "./CompactionMessage";
 import { ToolCallMessage } from "./ToolCallMessage";
 import type { BackgroundTask } from "../tasks/types";
+import type { TurnProgress } from "../chat/turnProgress";
 import { TypingDotsMessage } from "./TypingDotsMessage";
 import { UserMessage } from "./UserMessage";
+
+/**
+ * The turn's clock and tokens for the live line: what the server reported, and until it
+ * has (an older server never does) the creation time of the turn's user message.
+ */
+function turnLineProps(
+  progress: TurnProgress | null | undefined,
+  fallbackStartedAtMs: number | undefined,
+): { turnStartedAtMs?: number; turnTokens?: number } {
+  if (progress) {
+    return {
+      turnStartedAtMs: progress.startedAtMs,
+      turnTokens: progress.outputTokens,
+    };
+  }
+  return typeof fallbackStartedAtMs === "number"
+    ? { turnStartedAtMs: fallbackStartedAtMs }
+    : {};
+}
 
 export function MessageList(props: {
   items: TranscriptItem[];
@@ -49,6 +69,12 @@ export function MessageList(props: {
   /** Roots this session works in - its own directory, then its worktrees -
    *  which tool rows spell paths against. */
   pathRoots?: readonly string[];
+  /** The running turn's clock and generated tokens as the server reports them. */
+  turnProgress?: TurnProgress | null;
+  /** Background tasks running right now, system runs left out. */
+  runningTasks?: number;
+  /** Opens the Tasks panel from the live line's running-tasks segment. */
+  onOpenTasks?: () => void;
 }) {
   const permissionWaitingToolCallIds = useMemo(
     () => permissionPendingToolCallIds(props.items),
@@ -335,6 +361,9 @@ export function MessageList(props: {
           {...(typeof liveStatus?.startedAtMs === "number"
             ? { startedAtMs: liveStatus.startedAtMs }
             : {})}
+          {...turnLineProps(props.turnProgress, liveStatus?.turnStartedAtMs)}
+          {...(props.runningTasks ? { runningTasks: props.runningTasks } : {})}
+          {...(props.onOpenTasks ? { onOpenTasks: props.onOpenTasks } : {})}
         />
       ) : null}
     </>

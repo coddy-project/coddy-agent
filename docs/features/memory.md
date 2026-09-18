@@ -43,17 +43,17 @@ The memory subagent itself is a separate conversation with a short prompt of its
 
 ## Watching a run
 
-A memory run is an ordinary task of the session, flagged as a **system task**: the Tasks drawer of the web UI lists it with the label `memory: <first line of your message>` and a `memory` badge where a `spawn_agent` child shows `agent`, the detail pane shows its progress log (the tool calls, the child's text, the `=== subagent report ===` block, then the delivery line above) and **Open transcript** opens the child session read-only, with the composer replaced by a link back to the chat. Finished runs stay in the drawer's finished list; `memory.keep_runs` bounds how many a session keeps (default 20, `0` keeps every run): when a run finishes, the oldest beyond that number are removed, task record and child bundle alike. Deleting the session removes its memory children with it.
+A memory run is an ordinary task of the session, flagged as a **system task**: the Tasks drawer of the web UI lists it as a card tagged `memory` where a `spawn_agent` child carries its agent's name, titled with the first line of your message; the open card shows its progress log (the tool calls, the child's text, the `=== subagent report ===` block, then the delivery line above) and **Show transcript** opens the child session read-only, with the composer replaced by a link back to the chat. Finished runs stay in the drawer's finished list; `memory.keep_runs` bounds how many a session keeps (default 20, `0` keeps every run): when a run finishes, the oldest beyond that number are removed, task record and child bundle alike. Deleting the session removes its memory children with it.
 
 On the wire the run is one update, `memory_run` (ACP `sessionUpdate`, HTTP SSE event of the same name): `started` with the `taskId` and `childSessionId`, `finished` with the task's `taskStatus`, `durationMs` and `delivered` (whether a non-empty report reached the model in this turn), or `skipped` with a `reason`. `finished` is sent while the turn is running, at the delivery or at the turn's end when the run had already settled; a run that outlives the turn sends nothing more, because the turn's stream is gone. No text travels on it, it is not persisted and not replayed: a client that reconnects mid-run, or one that wants a run the turn did not wait out, reads `GET /coddy/sessions/{id}/background-tasks` ([ACP protocol](../reference/acp-protocol.md), [HTTP API](../reference/http-api.md)). The web UI shows `Working with memory` on its live status line between the two updates and adds nothing to the transcript. The console sets the same status while the turn waits and prints one dim line when the run settles (`memory: recalled in 3.2s (task bg_3)`, `memory: finished in 3.2s, nothing reached this turn (task bg_3)`, `memory: failed after 1.2s (task bg_3) - <error>`, `memory: skipped - <reason>`); the transcript is the child bundle under the session's `subagents/` folder.
 
 The model-facing pool tools do not see the run: `background_list` omits system tasks, and `background_output`, `background_wait` and `background_stop` refuse their ids. A parent that waited on a memory run would stall its own turn on work that was never meant to wake it.
 
-![The Tasks drawer with a memory run in flight: the memory badge and the elapsed time](../assets/memory/memory-tasks-running-dark-1280.png)
+![The Tasks drawer with a memory run in flight: the memory tag and the elapsed time](../assets/memory/memory-tasks-running-dark-1280.png)
 
-*The Tasks drawer with a memory run in flight: the `memory` badge and the elapsed time*
+*The Tasks drawer with a memory run in flight: the `memory` tag and the elapsed time*
 
-![The finished run: the child's log, the report block and the delivery line](../assets/memory/memory-tasks-detail-dark-1280.png)
+![The card of a finished memory run opened in place: the child's log, the report block and the delivery line](../assets/memory/memory-tasks-detail-dark-1280.png)
 
 *The finished run: the child's log, the report block and the line saying the report reached the turn*
 

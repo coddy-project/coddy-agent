@@ -59,6 +59,16 @@ Feature: Interactive console TUI
     When the stub tool call completes without ending the turn
     Then the status line shows "Waiting for the model"
 
+  Scenario: The status line leads with the turn's clock and the tokens generated in it
+    When the console app starts
+    And the operator submits the prompt "run the long build"
+    Then the status line leads with the turn clock before "Waiting for the model"
+    And the status line shows no token count yet
+    When the agent reports 1200 tokens generated in this turn
+    Then the status line shows "1.2k tokens · Waiting for the model"
+    When the stub turn starts a tool call named "read" with argument path "README.md"
+    Then the status line shows "1.2k tokens · Reading README.md"
+
   Scenario: The status line names the subagent that is running
     When the console app starts
     And the operator submits the prompt "delegate the review"
@@ -280,3 +290,15 @@ Feature: Interactive console TUI
     Then the usage report shows "usage limits panel is switched off"
     And the footer does not show the neuraldeep usage
     And the stand-in limits API was never asked
+
+  Scenario: The operator lists the background tasks of the session, reads one and stops it
+    When the console app starts
+    And the session runs the background command "echo tests started; sleep 30"
+    And the operator submits the command "/tasks"
+    Then the tasks overlay lists "echo tests started; sleep 30" as running
+    And the footer names 1 running task
+    When the operator opens the selected task
+    Then the tasks overlay shows the output "tests started"
+    When the operator stops the task from the overlay
+    Then the background command is stopped
+    And the tasks overlay lists the task as stopped

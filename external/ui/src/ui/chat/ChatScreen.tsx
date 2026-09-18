@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -19,8 +20,8 @@ import { Composer } from "./Composer";
 import type { QueuedMessage } from "./Composer";
 import { MessageList } from "../messages/MessageList";
 import type { BackgroundTask } from "../tasks/types";
-import { isAwaitingPermission } from "../tasks/taskStatus";
-import { BackgroundTasksChip } from "../tasks/BackgroundTasksChip";
+import { countRunningTasks, isAwaitingPermission } from "../tasks/taskStatus";
+import type { TurnProgress } from "./turnProgress";
 import { SubagentPermissionCards } from "./SubagentPermissionCard";
 import { SubagentReadOnlyNotice } from "./SubagentReadOnlyNotice";
 import { ArchivedSessionNotice } from "./ArchivedSessionNotice";
@@ -111,9 +112,12 @@ export function ChatScreen(props: {
   /** Background tasks of this session keyed by the tool call that started them. */
   backgroundTasksByToolCallId?: Map<string, BackgroundTask>;
   backgroundNowMs?: number;
-  /** Every background task of this chat, for the opener under the transcript. */
+  /** Every background task of this chat, for the header control and the live line. */
   backgroundTasks?: BackgroundTask[];
   onOpenBackgroundTasks?: () => void;
+  /** The Tasks panel is showing, for the header control's expanded state. */
+  backgroundTasksOpen?: boolean;
+  onCloseBackgroundTasks?: () => void;
   /** Re-read the task rows: a background subagent's prompt was answered here. */
   onBackgroundTasksChanged?: () => void;
   onOpenBackgroundTask?: (taskId: string) => void;
@@ -121,6 +125,8 @@ export function ChatScreen(props: {
   /** Roots this session works in - its own directory, then its worktrees -
    *  which tool rows spell paths against. */
   pathRoots?: readonly string[];
+  /** The running turn's clock and generated tokens as the server reports them. */
+  turnProgress?: TurnProgress | null;
   /** Workspace context chips (folder / branch / worktree) above the composer field. */
   workspaceCtx?: import("./workspaceContext").WorkspaceContext | null;
   worktreePref?: boolean;
@@ -143,6 +149,11 @@ export function ChatScreen(props: {
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const composerHostRef = useRef<HTMLDivElement | null>(null);
   const isEmpty = props.items.length === 0;
+  // One count for the live line and the header control.
+  const runningTasks = useMemo(
+    () => countRunningTasks(props.backgroundTasks ?? []),
+    [props.backgroundTasks],
+  );
   const showSkeleton = isEmpty && !!props.sessionLoading;
   const stickToBottomRef = useRef(true);
   const prevItemsForScrollRef = useRef<TranscriptItem[]>([]);
@@ -577,6 +588,19 @@ export function ChatScreen(props: {
                   title={props.title}
                   editable={true}
                   onTitleSave={props.onTitleSave}
+                  {...(props.onOpenBackgroundTasks
+                    ? {
+                        tasks: props.backgroundTasks ?? [],
+                        // The header control is where the panel was opened
+                        // from, so a second click puts it away again.
+                        onOpenTasks:
+                          props.backgroundTasksOpen === true &&
+                          props.onCloseBackgroundTasks
+                            ? props.onCloseBackgroundTasks
+                            : props.onOpenBackgroundTasks,
+                        tasksOpen: props.backgroundTasksOpen === true,
+                      }
+                    : {})}
                 />
               </div>
             </div>
@@ -587,6 +611,13 @@ export function ChatScreen(props: {
                 generating={props.generating === true}
                 {...(props.pathRoots !== undefined
                   ? { pathRoots: props.pathRoots }
+                  : {})}
+                {...(props.turnProgress
+                  ? { turnProgress: props.turnProgress }
+                  : {})}
+                {...(runningTasks > 0 ? { runningTasks } : {})}
+                {...(props.onOpenBackgroundTasks
+                  ? { onOpenTasks: props.onOpenBackgroundTasks }
                   : {})}
                 {...(props.onRetryLast
                   ? { onRetryLast: props.onRetryLast }
@@ -639,12 +670,6 @@ export function ChatScreen(props: {
                 <SubagentPermissionCards
                   tasks={props.backgroundTasks}
                   onAnswered={() => props.onBackgroundTasksChanged?.()}
-                />
-              ) : null}
-              {props.backgroundTasks && props.onOpenBackgroundTasks ? (
-                <BackgroundTasksChip
-                  tasks={props.backgroundTasks}
-                  onOpen={props.onOpenBackgroundTasks}
                 />
               ) : null}
             </div>

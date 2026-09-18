@@ -5,11 +5,15 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/remote"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
@@ -223,4 +227,36 @@ func TestRemoteControlsQueueRecoveryCrossedByLowFrame(t *testing.T) {
 	locked = false
 	awaitRecoveryQueue(t, f, 1)
 	assertRecoveryQueue(t, f, 1, "q_after_restart")
+}
+
+// /theme rebuilds the screen from its parts. The queue is one of them: a follow-up
+// waiting for the running turn must still be on screen in the new palette.
+func TestThemeSwitchKeepsTheQueuedMessagesOnScreen(t *testing.T) {
+	home := t.TempDir()
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: home, CWD: home},
+		Models: []config.ModelEntry{{Model: "stub/model", MaxTokens: 100, MaxContextTokens: 1000}},
+		Agent:  config.Agent{Model: "stub/model"},
+	}
+	mgr := session.NewManager(cfg, nil, nil, slog.New(slog.DiscardHandler), home, nil)
+	a := newApp(cfg, mgr, slog.New(slog.DiscardHandler), &bddTerminal{cols: 100, rows: 30}, "dark", true)
+	t.Cleanup(a.Close)
+	a.queue.SetRows([]acp.QueuedMessage{{ID: "q_1", Text: "also run the linter"}})
+
+	screen := func() string {
+		return tui.StripTerminalSequences(strings.Join(a.screen.Root.Render(100), "\n"))
+	}
+	if !strings.Contains(screen(), "also run the linter") {
+		t.Fatalf("the queue is not on screen before the switch:\n%s", screen())
+	}
+	a.switchTheme("light")
+	if !strings.Contains(screen(), "also run the linter") {
+		t.Fatalf("the theme switch dropped the queued message from the screen:\n%s", screen())
+	}
+	// A message queued after the switch shows up too: the widget on screen is the
+	// one the app keeps writing to.
+	a.queue.SetRows([]acp.QueuedMessage{{ID: "q_1", Text: "also run the linter"}, {ID: "q_2", Text: "then push"}})
+	if !strings.Contains(screen(), "then push") {
+		t.Fatalf("a message queued after the switch never reached the screen:\n%s", screen())
+	}
 }

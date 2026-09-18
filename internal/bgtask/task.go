@@ -69,6 +69,15 @@ type AgentInfo struct {
 	// hidden from the model-facing pool tools, and is told apart in the
 	// Tasks drawer by this flag rather than by its name.
 	System bool `json:"system,omitempty"`
+	// Model is the model the child runs on, as the runtime resolved it at the
+	// launch: the definition's, the job's or the parent's.
+	Model string `json:"model,omitempty"`
+	// InputTokens and OutputTokens are what the child's model calls have spent so
+	// far: the input every call sent, summed, and the output generated, the call in
+	// flight estimated until the provider reports it. The run reports them as it
+	// goes (Pool.SetAgentUsage); the record keeps the final figures.
+	InputTokens  int `json:"input_tokens,omitempty"`
+	OutputTokens int `json:"output_tokens,omitempty"`
 }
 
 // Spec describes work handed to the pool.

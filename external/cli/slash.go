@@ -66,6 +66,9 @@ func (a *App) dispatchSlash(text string) bool {
 	case "usage":
 		a.showUsage()
 		return true
+	case "tasks":
+		a.openTasksOverlay()
+		return true
 	case "quit", "exit":
 		a.requestQuit(nil)
 		return true
@@ -141,8 +144,10 @@ func (a *App) switchTheme(name string) {
 	previous := a.foot
 	a.foot = newFooter(a.theme, a.config().Paths.CWD)
 	if previous != nil {
-		// The usage line is state, not chrome: it survives the theme.
+		// The usage line and the running-task count are state, not chrome: they
+		// survive the theme.
 		a.foot.usages, a.foot.now = previous.usages, previous.now
+		a.foot.runningTasks = previous.runningTasks
 	}
 	a.refreshFooterModel()
 	a.foot.SetSession("", a.modeID)
@@ -158,6 +163,12 @@ func (a *App) switchTheme(name string) {
 	root.AddChild(a.chat)
 	root.AddChild(a.status)
 	root.AddChild(a.plan)
+	// The queue is state like the usage line: the same widget goes back on the
+	// screen, repainted in the new palette. Leaving it out of the rebuilt tree
+	// hid every follow-up waiting for the running turn until the next restart.
+	a.queue.theme = a.theme
+	a.queue.SetRows(a.queue.rows)
+	root.AddChild(a.queue)
 	a.editorWrap = &tui.Container{}
 	a.editorWrap.AddChild(a.editor)
 	root.AddChild(a.editorWrap)
@@ -198,6 +209,7 @@ func (a *App) showHotkeys() {
 		"up/down prompt history · / commands · @ file mention",
 		"!!<command> run it here, hidden from the agent",
 		"/usage provider quota, resets and wallet",
+		"/tasks background tasks: enter output · s stop · r refresh · escape back",
 	}
 	a.appendStatus(roleDim, strings.Join(lines, "\n"))
 }

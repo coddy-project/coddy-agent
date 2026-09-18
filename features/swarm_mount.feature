@@ -32,3 +32,10 @@ Feature: Driving one node through a relay
   Scenario: A mount still needs the client token
     When I call "/coddy/sessions" on node "nas02" without any credential
     Then the request is rejected as unauthorized
+
+  Scenario: A browser hears the relay's CORS answer once, whatever the node says
+    Given the relay allows the browser origin "https://app.example"
+    And the node answers with CORS headers of its own
+    When a browser at "https://app.example" calls "/coddy/sessions" on node "nas02" with the client token
+    Then the response comes from the node
+    And the response allows the origin "https://app.example" exactly once

@@ -233,6 +233,15 @@ func (t *turnStream) onFrame(f sseFrame) error {
 		if json.Unmarshal([]byte(f.data), &u) == nil {
 			_ = t.sender.SendSessionUpdate(t.sessionID, u)
 		}
+	case "turn_progress":
+		// The turn's clock travels as a duration next to the start, so the
+		// console counts from its own now minus ElapsedMs whatever the two
+		// machines' clocks say. This stream is the turn's own, so a frame is
+		// as fresh as the network is.
+		var u acp.TurnProgressUpdate
+		if json.Unmarshal([]byte(f.data), &u) == nil {
+			_ = t.sender.SendSessionUpdate(t.sessionID, u)
+		}
 	case "provider_usage":
 		var u acp.ProviderUsageUpdate
 		if json.Unmarshal([]byte(f.data), &u) == nil {

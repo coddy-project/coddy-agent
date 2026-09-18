@@ -237,6 +237,13 @@ type State struct {
 	// queue change made from outside the turn's goroutine reaches the clients
 	// watching that turn. Turn-scoped, never persisted.
 	turnSender acp.UpdateSender
+
+	// progress is the running turn's clock and token count (turn_progress.go).
+	// It has a lock of its own: the loop writes it while a call streams, and
+	// nothing there should wait on a reader of the history.
+	progressMu  sync.Mutex
+	progress    TurnProgress
+	progressSet bool
 }
 
 // GetID returns the session ID.
@@ -706,7 +713,15 @@ func (s *State) EffectiveModelID(cfg *config.Config) string {
 	s.mu.RLock()
 	sel := s.SelectedModelID
 	s.mu.RUnlock()
-	if sel != "" {
+	return ResolveModelID(cfg, sel)
+}
+
+// ResolveModelID is the model a session selecting this one runs on: the selection
+// when the config knows it, the config's agent model when nothing is selected. A
+// caller that names what a session will run before the session exists (the row of a
+// scheduled run) asks here, so it names the same model the session then picks.
+func ResolveModelID(cfg *config.Config, selected string) string {
+	if sel := strings.TrimSpace(selected); sel != "" {
 		return normalizeModelID(cfg, sel)
 	}
 	return normalizeModelID(cfg, strings.TrimSpace(cfg.Agent.Model))

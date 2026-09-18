@@ -26,12 +26,21 @@ export type BackgroundTask = {
   tool_call_id?: string;
   /**
    * Present on `kind: "agent"` rows: the definition name and the child session
-   * the run is persisted under. `session_id` is what "Open transcript" routes
+   * the run is persisted under. `session_id` is what "Show transcript" routes
    * to; a snapshot may carry the name alone when the child does not exist yet.
    * `system` marks a run the runtime started on its own behalf (the memory
    * subagent of a turn) rather than a delegation the model asked for.
    */
-  agent?: { name: string; session_id?: string; system?: boolean };
+  agent?: {
+    name: string;
+    session_id?: string;
+    system?: boolean;
+    /** The model the child runs on. */
+    model?: string;
+    /** What the child's model calls have spent so far: input summed over calls, output generated. */
+    input_tokens?: number;
+    output_tokens?: number;
+  };
   status: BackgroundTaskStatus;
   exit_code?: number;
   error?: string;

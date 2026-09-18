@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, test } from "vitest";
 
 import {
   deriveLiveStatus,
   formatElapsedSeconds,
   statusKeyForTool,
+  stepShowsItsOwnClock,
   truncateStatusTarget,
   waitingStatusKey,
 } from "./liveStatus";
@@ -408,5 +409,48 @@ describe("formatElapsedSeconds", () => {
     expect(formatElapsedSeconds(3_600_000)).toBe("1h 00m");
     expect(formatElapsedSeconds(-1)).toBe("");
     expect(formatElapsedSeconds(NaN)).toBe("");
+  });
+});
+
+describe("the turn's start, for a line that has not heard from the server yet", () => {
+  test("is the creation time of the turn's user message, whatever step is running", () => {
+    const createdAtUtc = new Date(Date.now() - 90_000).toISOString();
+    const items: TranscriptItem[] = [
+      { id: "u0", type: "user_message", content: "earlier", createdAtUtc: new Date(Date.now() - 900_000).toISOString() },
+      { id: "a0", type: "assistant_message", content: "earlier answer" },
+      { id: "u1", type: "user_message", content: "go", createdAtUtc },
+      {
+        id: "t1",
+        type: "tool_call",
+        toolCallId: "c1",
+        title: "run_command",
+        status: "in_progress",
+        startedAtMs: Date.now() - 5_000,
+      },
+    ];
+    const status = deriveLiveStatus(items);
+    expect(status.kind).toBe("tool");
+    expect(status.turnStartedAtMs).toBe(Date.parse(createdAtUtc));
+  });
+
+  test("is absent when the message carries no usable time", () => {
+    const items: TranscriptItem[] = [
+      { id: "u1", type: "user_message", content: "go" },
+    ];
+    expect(deriveLiveStatus(items).turnStartedAtMs).toBeUndefined();
+    expect(
+      deriveLiveStatus([
+        { id: "u1", type: "user_message", content: "go", createdAtUtc: new Date(Date.now() + 3_600_000).toISOString() },
+      ]).turnStartedAtMs,
+    ).toBeUndefined();
+  });
+
+  test("only a tool call and the memory run keep a clock of their own", () => {
+    expect(stepShowsItsOwnClock("tool")).toBe(true);
+    expect(stepShowsItsOwnClock("memory")).toBe(true);
+    for (const kind of ["waiting", "thinking", "writing", "permission", "question"] as const) {
+      expect(stepShowsItsOwnClock(kind)).toBe(false);
+    }
+    expect(stepShowsItsOwnClock(undefined)).toBe(false);
   });
 });

@@ -38,10 +38,18 @@ func (s *Server) coddyEventsStream(w http.ResponseWriter, r *http.Request) {
 	// rather than lost; a repeated turn_started is idempotent for every consumer.
 	_, _ = io.WriteString(w, "retry: 3000\n\n")
 	for _, id := range s.mgr.ActiveTurnSessionIDs() {
+		// The turn's own start, not the moment this client connected: a console
+		// reconnecting mid-turn counts the turn's clock from "at". A turn that
+		// ended between the two reads is announced as just started, and its
+		// turn_ended follows on the subscription taken above.
+		at, ok := s.mgr.TurnStartedAt(id)
+		if !ok {
+			at = time.Now().UTC()
+		}
 		_, _ = w.Write(turnEventFrame(session.TurnEvent{
 			SessionID: id,
 			Phase:     session.TurnPhaseStarted,
-			At:        time.Now().UTC(),
+			At:        at,
 		}))
 	}
 	// A subagent already waiting for an answer is part of the snapshot too: a

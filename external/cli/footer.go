@@ -26,10 +26,12 @@ type footer struct {
 	title     string
 	modeID    string
 
-	tokensIn   int
-	tokensOut  int
-	ctxPercent float64
-	ctxMax     int
+	tokensIn  int
+	tokensOut int
+	// runningTasks is how many background tasks of the session run right now.
+	runningTasks int
+	ctxPercent   float64
+	ctxMax       int
 
 	provider  string
 	model     string
@@ -58,6 +60,9 @@ func (f *footer) AddTokens(in, out int) { f.tokensIn += in; f.tokensOut += out }
 
 // ResetTokens clears accumulated counters (new/switched session).
 func (f *footer) ResetTokens() { f.tokensIn, f.tokensOut = 0, 0 }
+
+// SetRunningTasks updates how many background tasks of the session run right now.
+func (f *footer) SetRunningTasks(n int) { f.runningTasks = n }
 
 // SetContext updates the context-window occupancy.
 func (f *footer) SetContext(percent float64, maxTokens int) {
@@ -132,6 +137,19 @@ func (f *footer) Render(width int) []string {
 	}
 	if f.modeID == "plan" || f.modeID == "ask" {
 		line1 += " • " + f.modeID
+	}
+	// Background tasks outlive the turn that started them, and the status line that
+	// counts them goes away with the turn. The footer keeps saying what still runs,
+	// and names the command that lists it. The segment closes the line and is the part
+	// of it that changes what the operator does next, so when the line does not fit it
+	// is the path and the title that give way - a macOS temp folder or a deep monorepo
+	// path would otherwise push the count off the screen.
+	if f.runningTasks > 0 {
+		tasks := " • " + itoa(f.runningTasks) + " " + plural(f.runningTasks, "task", "tasks") + " running (/tasks)"
+		if room := width - tui.VisibleWidth(tasks); room >= 8 && tui.VisibleWidth(line1) > room {
+			line1 = tui.TruncateToWidth(line1, room, "...")
+		}
+		line1 += tasks
 	}
 
 	left := ""

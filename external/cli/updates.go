@@ -21,7 +21,11 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		// otherwise the editor would refuse prompts forever.
 		if u.sessionID == a.turnSessionID {
 			a.turnActive = false
+			a.turnStartedAt = time.Time{}
+			a.turnTokens = 0
 			a.stopSpinner()
+			// What the turn left running is what the footer names from here on.
+			a.refreshTasks()
 			// A remote EOF/error only ends our request. The server may still
 			// own a turn and queue (or already have admitted another client).
 			if u.sessionID == a.sessionID {
@@ -51,6 +55,19 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		} else if u.stop == "cancelled" {
 			a.appendStatus(roleDim, "Operation aborted")
 		}
+		return
+	case tasksLoaded:
+		a.applyTasksLoaded(u)
+		return
+	case tasksPollDue:
+		a.tasksTimer = nil
+		a.refreshTasks()
+		return
+	case taskOutputLoaded:
+		a.applyTaskOutputLoaded(u)
+		return
+	case taskStopped:
+		a.applyTaskStopped(u)
 		return
 	case configReloaded:
 		// The process configuration changed for every session, so the header
@@ -178,6 +195,9 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 			a.chat.AddChild(tb)
 		}
 		a.applyToolStatus(tb, u)
+		if toolTouchesTasks(tb.name) && (u.Status == "completed" || u.Status == "failed") {
+			a.refreshTasks()
+		}
 	case acp.PlanUpdate:
 		entries := make([]planEntry, 0, len(u.Entries))
 		for _, e := range u.Entries {
@@ -186,6 +206,8 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		a.plan.SetEntries(entries)
 	case acp.TokenUsageUpdate:
 		a.foot.AddTokens(u.InputTokens, u.OutputTokens)
+	case acp.TurnProgressUpdate:
+		a.applyTurnProgress(u)
 	case acp.UsageUpdate:
 		percent := 0.0
 		if u.Size > 0 {
@@ -284,12 +306,12 @@ func (a *App) applyMessageChunk(u acp.MessageChunkUpdate) {
 			a.curAssistant.AppendThinking(u.Content.Text)
 			// setStatus keeps the existing start time when the verb repeats, so the
 			// counter measures the whole reasoning block rather than one chunk.
-			a.setStatus(newWorkingStatus("Thinking…", ""))
+			a.setStatus(newModelStatus("Thinking…"))
 		default:
 			a.curAssistant.AppendText(u.Content.Text)
 			// The SPA hides the dots entirely once assistant text streams; a console
 			// spinner has nowhere to hide, so it names what is happening instead.
-			a.setStatus(newWorkingStatus("Responding", ""))
+			a.setStatus(newModelStatus("Responding"))
 		}
 	}
 }

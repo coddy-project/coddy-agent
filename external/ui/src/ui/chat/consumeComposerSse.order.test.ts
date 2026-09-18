@@ -397,3 +397,43 @@ test("a permission card renders below the tool row that raised it", async () => 
     "permission_prompt",
   ]);
 });
+
+test("turn_progress reaches the caller on this machine's clock, replayed frames aged", async () => {
+  vi.stubGlobal("requestAnimationFrame", () => 0);
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-09-18T10:00:45Z"));
+  const now = Date.now();
+  const seen: Array<{ startedAtMs: number; outputTokens: number; estimated: boolean }> = [];
+  const frame = (payload: object, age?: number) =>
+    `event: turn_progress\n${age === undefined ? "" : `age: ${age}\n`}data: ${JSON.stringify(payload)}\n\n`;
+  const params: ConsumeComposerSseParams = {
+    reader: mockReader(
+      frame({ sessionUpdate: "turn_progress", startedAt: "2026-09-18T12:00:00Z", elapsedMs: 40_000, outputTokens: 0, estimated: false }, 5_000) +
+        frame({ sessionUpdate: "turn_progress", startedAt: "2026-09-18T12:00:00Z", elapsedMs: 45_000, outputTokens: 433, estimated: true }) +
+        `data: [DONE]\n\n`,
+    ),
+    dec: new TextDecoder(),
+    carry: { buf: "" },
+    assistantId: "a-init",
+    applyStreamItems: () => {},
+    setTokenUsage: () => {},
+    setContextUsage: () => {},
+    tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
+    reasoningDurationMsByContentRef: { current: new Map() },
+    newId: (p) => p,
+    applyMemoryRunToItems: (prev) => prev,
+    onTurnProgress: (p) => seen.push(p),
+  };
+  try {
+    await consumeComposerSseReader(params);
+  } finally {
+    vi.useRealTimers();
+  }
+  // The frame also names its turn and dates itself on the server's clock, which is
+  // what lets the shell order it against an activity read.
+  const turn = Date.parse("2026-09-18T12:00:00Z");
+  expect(seen).toEqual([
+    { startedAtMs: now - 45_000, outputTokens: 0, estimated: false, serverStartedAtMs: turn, serverElapsedMs: 40_000 },
+    { startedAtMs: now - 45_000, outputTokens: 433, estimated: true, serverStartedAtMs: turn, serverElapsedMs: 45_000 },
+  ]);
+});

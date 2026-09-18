@@ -105,7 +105,9 @@ export function estimateProgress(
 export function taskTimingLine(task: BackgroundTask, nowMs: number): string {
   const parts = [formatDuration(displayElapsedSeconds(task, nowMs))];
   if (task.expected_seconds && task.expected_seconds > 0) {
-    parts.push(t("tasks.estimate", { value: formatDuration(task.expected_seconds) }));
+    parts.push(
+      t("tasks.estimate", { value: formatDuration(task.expected_seconds) }),
+    );
   }
   // An agent task has no process behind it, so its exit code is synthetic:
   // the status already says how the run ended, and "exit 0" would only
@@ -121,6 +123,138 @@ export function taskTimingLine(task: BackgroundTask, nowMs: number): string {
     parts.push(t("tasks.overdue"));
   }
   return parts.join(" · ");
+}
+
+/**
+ * The word in a card's tag: what stands behind the task. A subagent run is known by its
+ * agent's name, the memory run of a turn by what it is, a shell command by being one.
+ */
+export function taskTag(task: BackgroundTask): string {
+  if (task.agent?.system) {
+    return t("tasks.tag.memory");
+  }
+  if (isAgentTask(task)) {
+    return agentTaskName(task) || t("tasks.tag.agent");
+  }
+  return t("tasks.tag.shell");
+}
+
+/**
+ * The title of a card: the work itself. The pool labels an agent run
+ * `agent <name>: <description>` and a memory run `memory: <first line>`; the tag already
+ * says the first half, so the title keeps the second. A run nobody described gets a
+ * plain name rather than an empty title.
+ */
+export function taskTitle(task: BackgroundTask): string {
+  const label = (task.label || "").trim();
+  if (!isAgentTask(task)) {
+    return label || (task.command || "").trim();
+  }
+  const colon = label.indexOf(":");
+  const head = colon >= 0 ? label.slice(0, colon).trim().toLowerCase() : "";
+  const name = (agentTaskName(task) || "").toLowerCase();
+  if (colon >= 0 && (head === "memory" || head === `agent ${name}`)) {
+    return label.slice(colon + 1).trim() || t("tasks.untitledAgentRun");
+  }
+  if (!label || label.toLowerCase() === `agent ${name}`) {
+    return t("tasks.untitledAgentRun");
+  }
+  return label;
+}
+
+/** Wall clock of a finished task, HH:MM in the reader's locale; "" while it runs. */
+export function taskFinishedClock(task: BackgroundTask): string {
+  const ended = task.finished_at ? new Date(task.finished_at) : null;
+  if (!ended || Number.isNaN(ended.getTime())) {
+    return "";
+  }
+  return ended.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * The line under a card's title. A running task counts against its estimate; a finished
+ * one says how it ended, how long it took and when. The exit code is left to the foot of
+ * the open card, where the whole ending is read.
+ */
+/**
+ * What an agent run's card says about its model calls: the model it runs on, by its
+ * short name (the vendor prefix of `vendor/model` dropped, the full id kept for a
+ * tooltip), and the tokens the calls have spent - input and output together, the way
+ * a run's cost adds up. Null for a command, and for an agent row that names neither
+ * (a server older than the fields).
+ */
+export type AgentUsage = {
+  model: string;
+  modelId: string;
+  tokens: number;
+  inputTokens: number;
+  outputTokens: number;
+};
+
+export function agentUsage(task: BackgroundTask): AgentUsage | null {
+  const agent = task.agent;
+  if (!agent) {
+    return null;
+  }
+  const modelId = (agent.model || "").trim();
+  const inputTokens = Math.max(0, Math.floor(Number(agent.input_tokens) || 0));
+  const outputTokens = Math.max(
+    0,
+    Math.floor(Number(agent.output_tokens) || 0),
+  );
+  if (!modelId && inputTokens + outputTokens === 0) {
+    return null;
+  }
+  const slash = modelId.lastIndexOf("/");
+  return {
+    model:
+      slash >= 0 && slash < modelId.length - 1
+        ? modelId.slice(slash + 1)
+        : modelId,
+    modelId,
+    tokens: inputTokens + outputTokens,
+    inputTokens,
+    outputTokens,
+  };
+}
+
+/**
+ * The meta line of a folded card. A running task says how long it has run and against
+ * what estimate; a finished one how long it ran and when it ended. How it ended is not
+ * written here: the dot in front of the title says it in colour, and an open card
+ * names it first in its foot, next to the exit code and the duration.
+ */
+export function taskMetaLine(task: BackgroundTask, nowMs: number): string {
+  if (task.running) {
+    return taskTimingLine(task, nowMs);
+  }
+  const parts = [formatDuration(displayElapsedSeconds(task, nowMs))];
+  const clock = taskFinishedClock(task);
+  if (clock) {
+    parts.push(clock);
+  }
+  return parts.join(" · ");
+}
+
+/**
+ * The error an open card shows above its output, or null. A command that exits
+ * non-zero is recorded with the error "exit status N", which only repeats the exit code
+ * the card's foot already names; any other error - a signal, a failed start, a panic of
+ * a subagent - is news and is shown.
+ */
+export function taskErrorText(task: BackgroundTask): string | null {
+  const error = (task.error || "").trim();
+  if (!error) {
+    return null;
+  }
+  const restated = /^exit status (-?\d+)$/i.exec(error);
+  if (restated && Number(restated[1]) === task.exit_code) {
+    return null;
+  }
+  return error;
 }
 
 /**
@@ -212,4 +346,34 @@ export function agentTranscriptSessionId(task: BackgroundTask): string | null {
   }
   const sid = (task.agent?.session_id || "").trim();
   return sid ? sid : null;
+}
+
+/**
+ * How many tasks a chat has and how many of them run right now, as its surfaces count
+ * them: the live status line and the control in the chat header. A system task - the
+ * memory run the runtime starts for every turn - is left out of both numbers, like
+ * `Pool.RunningCount` leaves it out on the server: it is not work the model or the
+ * operator started, and counting it would make every turn read as one running task.
+ */
+export function countTasks(tasks: readonly BackgroundTask[]): {
+  running: number;
+  total: number;
+} {
+  let running = 0;
+  let total = 0;
+  for (const task of tasks) {
+    if (task.agent?.system) {
+      continue;
+    }
+    total++;
+    if (task.running) {
+      running++;
+    }
+  }
+  return { running, total };
+}
+
+/** The running half of `countTasks`. */
+export function countRunningTasks(tasks: readonly BackgroundTask[]): number {
+  return countTasks(tasks).running;
 }

@@ -95,7 +95,7 @@ test("translatePlural declines russian counts by CLDR category, not by count ===
   expect(translatePlural("permission.meta.lines", 5)).toBe("5 строк");
   expect(translatePlural("permission.meta.lines", 11)).toBe("11 строк");
   expect(translatePlural("permission.meta.lines", 21)).toBe("21 строка");
-  expect(translatePlural("tasks.chip.total", 2)).toBe("2 фоновые задачи");
+  expect(translatePlural("tasks.running", 2)).toBe("Выполняются 2 задачи");
 });
 
 test("translatePlural falls back to english, then to the key", () => {

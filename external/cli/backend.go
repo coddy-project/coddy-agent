@@ -6,6 +6,7 @@ import (
 	"context"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -44,6 +45,13 @@ type backend interface {
 	// sender when it lands. A provider type without a usage source answers
 	// Unsupported.
 	ProviderUsageForSession(ctx context.Context, sessionID, name string, refresh bool) (*acp.ProviderUsageUpdate, error)
+	// The background tasks of a session: what the status line counts and what the
+	// /tasks overlay lists, reads and stops (tasks.go). In-process they come from the
+	// task pool and the session bundle, over --remote from the server's REST routes;
+	// an unknown task is bgtask.ErrNotFound in both.
+	BackgroundTasks(ctx context.Context, sessionID string) ([]bgtask.Snapshot, error)
+	BackgroundTaskOutput(ctx context.Context, sessionID, taskID string, tailLines int) (string, bgtask.Snapshot, error)
+	StopBackgroundTask(ctx context.Context, sessionID, taskID string) (bgtask.Snapshot, error)
 }
 
 // Interface conformance is pinned where the concrete types are visible:

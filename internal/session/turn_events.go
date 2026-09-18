@@ -57,8 +57,14 @@ func (m *Manager) AddTurnObserver(fn func(TurnEvent)) (remove func()) {
 	}
 }
 
-// publishTurnEvent fans a phase edge out to the registered observers.
+// publishTurnEvent fans a phase edge that happens now out to the registered observers.
 func (m *Manager) publishTurnEvent(sessionID string, phase TurnPhase) {
+	m.publishTurnEventAt(sessionID, phase, time.Now().UTC())
+}
+
+// publishTurnEventAt fans a phase edge out with the moment it happened at, so the
+// started edge carries the same instant the registry keeps as the turn's start.
+func (m *Manager) publishTurnEventAt(sessionID string, phase TurnPhase, at time.Time) {
 	m.turnObserverMu.Lock()
 	fns := make([]func(TurnEvent), 0, len(m.turnObservers))
 	for _, fn := range m.turnObservers {
@@ -68,7 +74,7 @@ func (m *Manager) publishTurnEvent(sessionID string, phase TurnPhase) {
 	if len(fns) == 0 {
 		return
 	}
-	ev := TurnEvent{SessionID: sessionID, Phase: phase, At: time.Now().UTC()}
+	ev := TurnEvent{SessionID: sessionID, Phase: phase, At: at}
 	for _, fn := range fns {
 		// Delivered on the calling goroutine, so a session's started edge always reaches an
 		// observer before its ended edge. That ordering is the whole point of the event, so

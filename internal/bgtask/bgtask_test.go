@@ -1233,6 +1233,65 @@ func TestLaunchHandsTheAssignedIDToTheCallback(t *testing.T) {
 	}
 }
 
+// An agent run reports what its model calls spent while it runs; the row carries the
+// latest figures, a snapshot taken earlier keeps its own, and the record the bundle
+// keeps after the run ends has the final ones.
+func TestAgentUsageFollowsTheRunIntoTheRecord(t *testing.T) {
+	pool := NewWithRunner(Config{}, &stubRunner{})
+	dir := t.TempDir()
+	pool.SetSessionDir("s", dir)
+	t.Cleanup(func() { pool.StopSession("s") })
+
+	h := &stubHandle{release: make(chan struct{})}
+	snap, err := pool.Launch(Spec{
+		SessionID: "s",
+		Kind:      KindAgent,
+		Agent:     &AgentInfo{Name: "reviewer", Model: "rpa/qwen3.6-35b-a3b"},
+	}, func(_ string, out io.Writer) (Handle, error) {
+		h.out = out
+		return h, nil
+	})
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	if snap.Agent.Model != "rpa/qwen3.6-35b-a3b" {
+		t.Fatalf("model lost on the snapshot: %+v", snap.Agent)
+	}
+
+	if !pool.SetAgentUsage("s", snap.ID, 1200, 80) {
+		t.Fatal("SetAgentUsage did not find the running task")
+	}
+	mid, _ := pool.Get("s", snap.ID)
+	if mid.Agent.InputTokens != 1200 || mid.Agent.OutputTokens != 80 {
+		t.Fatalf("usage = %+v", mid.Agent)
+	}
+	pool.SetAgentUsage("s", snap.ID, 2600, 190)
+	if mid.Agent.InputTokens != 1200 {
+		t.Fatalf("an earlier snapshot changed under its reader: %+v", mid.Agent)
+	}
+
+	h.finish(0)
+	if _, err := pool.Wait(context.Background(), "s", snap.ID, 2*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	var recorded *Snapshot
+	for _, row := range LoadPersisted(dir) {
+		if row.ID == snap.ID {
+			recorded = &row
+		}
+	}
+	if recorded == nil || recorded.Agent == nil {
+		t.Fatalf("no record for %s", snap.ID)
+	}
+	if recorded.Agent.Model != "rpa/qwen3.6-35b-a3b" || recorded.Agent.InputTokens != 2600 || recorded.Agent.OutputTokens != 190 {
+		t.Fatalf("record = %+v", recorded.Agent)
+	}
+
+	if pool.SetAgentUsage("s", "bg_missing", 1, 1) {
+		t.Fatal("SetAgentUsage reported a task that does not exist")
+	}
+}
+
 func TestLaunchRefusalNeverInvokesTheCallback(t *testing.T) {
 	pool := NewWithRunner(Config{MaxConcurrent: 1}, &stubRunner{})
 	t.Cleanup(func() { pool.StopSession("s") })
@@ -1580,5 +1639,101 @@ func TestReleaseSessionLeavesARunningTaskAlone(t *testing.T) {
 	p.ReleaseSession("s1")
 	if _, err := p.Get("s1", snap.ID); err != nil {
 		t.Fatalf("a running task must survive a release: %v", err)
+	}
+}
+
+// writePersistedTask puts one task record, and optionally its log, into a session
+// bundle the way an earlier process left it.
+func writePersistedTask(t *testing.T, sessionDir string, record Snapshot, output string) {
+	t.Helper()
+	taskDir := filepath.Join(sessionDir, backgroundDirName, record.ID)
+	if err := os.MkdirAll(taskDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(): %v", err)
+	}
+	data, err := json.Marshal(record)
+	if err != nil {
+		t.Fatalf("Marshal(): %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(taskDir, metaFileName), data, 0o644); err != nil {
+		t.Fatalf("WriteFile(meta): %v", err)
+	}
+	if output != "" {
+		if err := os.WriteFile(filepath.Join(taskDir, outputFileName), []byte(output), 0o644); err != nil {
+			t.Fatalf("WriteFile(output): %v", err)
+		}
+	}
+}
+
+func TestSessionTasksMergesTheBundleOfAnEarlierProcessUnderTheLivePool(t *testing.T) {
+	sessionDir := t.TempDir()
+	// What an earlier coddy left behind: a finished task and one it died under. They
+	// are in the bundle before the pool learns the directory, which is how it knows
+	// to number its own tasks past them.
+	ended := time.Now().Add(-59 * time.Minute)
+	writePersistedTask(t, sessionDir, Snapshot{ID: "bg_1", SessionID: "old", Kind: KindCommand, Command: "go build ./...",
+		Status: StatusSucceeded, StartedAt: time.Now().Add(-time.Hour), FinishedAt: &ended}, "built\n")
+	writePersistedTask(t, sessionDir, Snapshot{ID: "bg_2", SessionID: "old", Kind: KindCommand, Command: "npm run watch",
+		Status: StatusRunning, StartedAt: time.Now().Add(-time.Hour)}, "")
+	p := newTestPool(t, &stubRunner{}, Config{MaxConcurrent: 4})
+	p.SetSessionDir("s1", sessionDir)
+
+	live, err := p.Start(Spec{SessionID: "s1", Command: "make test"})
+	if err != nil {
+		t.Fatalf("Start(): %v", err)
+	}
+
+	rows := p.SessionTasks("s1", sessionDir)
+	byID := map[string]Snapshot{}
+	for _, row := range rows {
+		byID[row.ID] = row
+	}
+	if len(rows) != 3 {
+		t.Fatalf("SessionTasks() = %d rows, want the live task and the two recorded ones: %+v", len(rows), rows)
+	}
+	if byID[live.ID].Status.Finished() {
+		t.Fatalf("the live task reads %q", byID[live.ID].Status)
+	}
+	if byID["bg_1"].Status != StatusSucceeded || byID["bg_2"].Status != StatusOrphaned {
+		t.Fatalf("recorded rows = %q / %q, want succeeded / orphaned", byID["bg_1"].Status, byID["bg_2"].Status)
+	}
+	// A recorded row belongs to the session it is read for, whatever id the
+	// bundle was written under.
+	if byID["bg_1"].SessionID != "s1" {
+		t.Fatalf("recorded row session = %q, want s1", byID["bg_1"].SessionID)
+	}
+	// The live pool wins: its own record on disk is not listed a second time.
+	seen := 0
+	for _, row := range rows {
+		if row.ID == live.ID {
+			seen++
+		}
+	}
+	if seen != 1 {
+		t.Fatalf("the live task is listed %d times", seen)
+	}
+}
+
+func TestSessionTaskOutputFallsBackToTheRecordedLog(t *testing.T) {
+	sessionDir := t.TempDir()
+	p := newTestPool(t, &stubRunner{}, Config{MaxConcurrent: 4})
+	p.SetSessionDir("s1", sessionDir)
+	ended := time.Now().Add(-59 * time.Minute)
+	writePersistedTask(t, sessionDir, Snapshot{ID: "bg_9", SessionID: "old", Kind: KindCommand, Command: "go vet ./...",
+		Status: StatusFailed, StartedAt: time.Now().Add(-time.Hour), FinishedAt: &ended},
+		"line 1\nline 2\nline 3\n")
+
+	output, snap, err := p.SessionTaskOutput("s1", sessionDir, "bg_9", 2)
+	if err != nil {
+		t.Fatalf("SessionTaskOutput(): %v", err)
+	}
+	if output != "line 2\nline 3" {
+		t.Fatalf("output = %q, want the last two lines", output)
+	}
+	if snap.Status != StatusFailed || snap.SessionID != "s1" {
+		t.Fatalf("snapshot = %+v", snap)
+	}
+
+	if _, _, err := p.SessionTaskOutput("s1", sessionDir, "bg_missing", 0); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("a task neither the pool nor the bundle knows = %v, want ErrNotFound", err)
 	}
 }
