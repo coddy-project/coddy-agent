@@ -162,10 +162,14 @@ all along; this is the operator's side of the same pool. Every task is one
 row: a status mark, a tag that says what stands behind it (`shell` for a
 command, the agent's name for a subagent run, `memory` for the memory run of
 a turn), the title - the command, or what the agent was asked to do - and how
-it is going (`1m 08s · est. 5m 00s`, `failed · 1m 30s · exit 2`), newest
-first, the way the web UI's Tasks panel lists them. **enter** opens the task
-under the cursor: its command, the child session of an agent run, the error
-it ended with and the last lines of its output, read again while the task
+it is going (`1m 08s · est. 5m 00s`, `1m 30s` once it has ended), with the
+model and the tokens of an agent run (`44s · qwen3.8-27b · 88.7k tokens`),
+newest first, the way the web UI's Tasks panel lists them. How a task ended
+is its mark (`✓`, `✗`, `■`); the open task says it in words. **enter** opens
+the task under the cursor: how it ended with the exit code and the duration
+(`failed · exit 2 · 1m 30s`), its command, the child session of an agent run,
+the error it ended with unless that is only the exit code again, and the last
+lines of its output, read again while the task
 runs and once more when it ends, for what it printed last. One output read is
 in flight at a time, like the list read, so a slow server does not collect a
 queue of them. **s** stops the task under the cursor or the open one, process group
