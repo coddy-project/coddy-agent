@@ -168,6 +168,9 @@ type State struct {
 	// surfaceSystemPrompt is the block the surface running the current turn
 	// contributed to the system prompt; turn-scoped and never persisted.
 	surfaceSystemPrompt string
+	// turnWake is the background wake the current turn was started for, until
+	// the agent takes it to mark the turn's first message; turn-scoped.
+	turnWake *llm.BackgroundWake
 
 	// SessionDir is the persisted session bundle directory (<sessionsRoot>/<id>/).
 	SessionDir string
@@ -1200,6 +1203,27 @@ func (s *State) GetSurfaceSystemPrompt() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.surfaceSystemPrompt
+}
+
+// SetTurnWake records that the current turn was started by finished background
+// tasks rather than by somebody typing. The agent takes it once, when it turns
+// the prompt into the turn's first message (TakeTurnWake); the manager clears
+// whatever is left when the turn is released. Nil clears it.
+func (s *State) SetTurnWake(wake *llm.BackgroundWake) {
+	s.mu.Lock()
+	s.turnWake = wake
+	s.mu.Unlock()
+}
+
+// TakeTurnWake returns the wake the current turn was started for and forgets
+// it, so a continuation of the same admitted turn (a queued follow-up) is not
+// marked a second time. Nil for a turn somebody typed.
+func (s *State) TakeTurnWake() *llm.BackgroundWake {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	wake := s.turnWake
+	s.turnWake = nil
+	return wake
 }
 
 // SetTurnSender records where the running turn publishes its session updates.

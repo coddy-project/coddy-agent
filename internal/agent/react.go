@@ -220,11 +220,23 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	if note := filePathsNote(imageParts); note != "" {
 		messageContent = userText + "\n\n" + note
 	}
+	// A turn finished background tasks started opens with the wake. The pool
+	// marks the tasks that woke the agent first, so a surface that reads its
+	// task list again on the wake finds the mark; the clients hear the wake
+	// before the message is persisted, like every frame a message describes;
+	// and the message keeps the marker, so no surface shows the instruction
+	// as something the operator typed, after a reload either.
+	wake := a.takeTurnWake()
+	if wake != nil {
+		a.markWokeTasks(wake)
+		_ = a.server.SendSessionUpdate(a.state.GetID(), session.BackgroundWakeUpdate(wake))
+	}
 	a.state.AddMessage(llm.Message{
-		Role:       llm.RoleUser,
-		Content:    messageContent,
-		ImageParts: imageParts,
-		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+		Role:           llm.RoleUser,
+		Content:        messageContent,
+		ImageParts:     imageParts,
+		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
+		BackgroundWake: wake,
 	})
 	a.setHookTurn(session.CountUserTurns(a.state.GetMessages()))
 	// The turn's clock is announced before anything slow happens - the memory
