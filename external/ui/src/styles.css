@@ -10630,76 +10630,6 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   min-height: 0;
 }
 
-.bgtask-list .session-item.bgtask-row {
-  padding: 0;
-  margin-bottom: 6px;
-  border-radius: 14px;
-  overflow: hidden;
-}
-
-.bgtask-row-main {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: block;
-  box-sizing: border-box;
-  padding: 10px 8px 10px 12px;
-  text-align: left;
-  text-decoration: none;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-
-.bgtask-row-text-block {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-
-.bgtask-row-title-line {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  width: 100%;
-}
-
-.bgtask-row-label {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: 13px;
-  font-weight: 600;
-  font-family: var(--mono, ui-monospace, monospace);
-  color: color-mix(in srgb, var(--text) 95%, var(--coddy-blend-base));
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.bgtask-row-status {
-  flex: 0 0 auto;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 1px 6px;
-  border-radius: 6px;
-  color: var(--coddy-chip-badge-fg);
-  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
-}
-
-.bgtask-row-meta {
-  font-size: 12px;
-  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.bgtask-row.is-overdue .bgtask-row-meta {
-  color: color-mix(in srgb, #ff9f0a 70%, var(--text));
-}
-
 /* Status dot, same vocabulary as the MCP server rows. */
 .bgtask-dot {
   flex: 0 0 auto;
@@ -10767,176 +10697,23 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   transition: width 0.6s linear;
 }
 
-.bgtask-row.is-overdue .bgtask-progress-fill {
-  background: #ff9f0a;
-}
-
-.bgtask-row-actions {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  padding: 6px 8px 6px 0;
-}
-
+/* Stop sits on the title row of a card and is sized to it: at the composer's 34px it
+   outweighed the title and pushed the row's height around. It stands above the card's
+   stretched opener (see .bgtask-card-open), so it keeps working on its own. */
 .bgtask-stop-icon.composer-icon {
-  width: 34px;
-  height: 34px;
-  min-width: 34px;
-  min-height: 34px;
+  position: relative;
+  z-index: 1;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
 }
 
-/* Detail pane: replaces the list inside the same drawer. */
-.bgtask-detail {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  flex: 1 1 auto;
-  gap: 10px;
-  padding: 0 12px 12px;
-}
-
-.bgtask-detail-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.bgtask-back {
-  border: none;
-  background: transparent;
-  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
-  font: inherit;
-  font-size: 12px;
-  padding: 6px 0;
-  min-height: 36px;
-  cursor: pointer;
-}
-
-.bgtask-back:hover {
-  color: var(--text);
-}
-
-.bgtask-detail-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-
-.bgtask-detail-title-line {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  flex-wrap: wrap;
-}
-
-.bgtask-detail-status {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.bgtask-detail-timing {
-  font-size: 12px;
-  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
-}
-
-.bgtask-detail-command,
-.bgtask-detail-output {
-  margin: 0;
-  border-radius: 10px;
-  border: 1px solid var(--coddy-glass-panel-border);
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
-  font-family: var(--mono, ui-monospace, monospace);
-  font-size: 12px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.bgtask-detail-command {
-  padding: 8px 10px;
-  max-height: 92px;
-  overflow-y: auto;
-}
-
-.bgtask-detail-error {
-  font-size: 12px;
-  color: color-mix(in srgb, #ff453a 75%, var(--text));
-}
-
-.bgtask-detail-output-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
-}
-
-.bgtask-detail-truncated {
-  text-transform: none;
-  letter-spacing: 0;
-  color: color-mix(in srgb, #ff9f0a 70%, var(--text));
-}
-
-.bgtask-detail-output {
-  flex: 1 1 auto;
-  min-height: 120px;
-  padding: 10px;
-  overflow: auto;
-}
-
-.bgtask-detail-stop.scheduler-btn {
-  min-height: 36px;
-}
-
-/* Agent rows: a subagent run in the pool, told apart from shell commands by a
-   small badge after the label (the label itself reads "agent <name>: ..."). */
-.bgtask-kind-badge {
-  flex: 0 0 auto;
-  padding: 0 6px;
-  border-radius: 999px;
-  font-family: inherit;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1.6;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: color-mix(in srgb, var(--accent) 80%, var(--text));
-  background: color-mix(in srgb, var(--accent) 14%, var(--coddy-blend-base));
-}
-
-/* Detail pane of an agent task: the subagent name stands where a command
-   would, next to the button that opens the child transcript. */
-.bgtask-detail-agent {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  min-width: 0;
-}
-
-.bgtask-detail-agent-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
-}
-
-.bgtask-detail-agent-name {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-family: var(--mono, ui-monospace, monospace);
-  font-size: 13px;
-  font-weight: 600;
-  color: color-mix(in srgb, var(--text) 95%, var(--coddy-blend-base));
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.bgtask-stop-icon.composer-icon .composer-stop-square {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
 }
 
 .bgtask-open-transcript.scheduler-btn:disabled {
@@ -10944,20 +10721,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   cursor: not-allowed;
 }
 
-@media (max-width: 1199px) {
-  /* Comfortable touch targets on phones. */
-  .bgtask-row-main {
-    padding: 12px 8px 12px 12px;
-  }
 
-  .bgtask-back {
-    min-height: 40px;
-  }
-
-  .bgtask-detail-output {
-    min-height: 160px;
-  }
-}
 
 /* Tab controls hanging off the card above them, like the More / Less row: the
    body is a flex column with an 8px gap, and these cancel it. */
@@ -11085,13 +10849,18 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 
 
-/* Live task card. */
+/* One card for every task - a shell command, a subagent run, the memory run of a
+   turn, running or finished. Same parts in the same place: status dot, a tag that says
+   what stands behind the task, the title, a meta line, and the body once it is open. */
 .bgtask-card {
   border-radius: 12px;
   border: 0.5px solid var(--coddy-glass-panel-border);
   background: var(--coddy-surface-raised);
-  padding: 10px 12px;
   margin-bottom: 8px;
+  overflow: hidden;
+  /* The list is a flex column with a scroll of its own; a card that clips its
+     overflow would otherwise be squeezed flat when an open one needs the room. */
+  flex: none;
 }
 
 /* The live cards carry no heading any more, and the heading is what used to
@@ -11101,11 +10870,28 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   margin-top: 10px;
 }
 
+/* The summary is the card's click surface: the opener button inside it is stretched
+   over the whole of it, so a click anywhere but Stop expands the card. */
+.bgtask-card-summary {
+  position: relative;
+  padding: 10px 12px;
+  transition: background-color 0.12s ease;
+}
+
+.bgtask-card-summary:hover {
+  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
+}
+
+.bgtask-card.is-open .bgtask-card-summary {
+  background: color-mix(in srgb, var(--text) 3%, var(--coddy-blend-base));
+}
+
 .bgtask-card-head {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
+  min-height: 24px;
 }
 
 .bgtask-card-open {
@@ -11123,21 +10909,59 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   cursor: pointer;
 }
 
+.bgtask-card-open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.bgtask-card-open:focus-visible {
+  outline: none;
+}
+
+.bgtask-card-open:focus-visible::after {
+  outline: 1.5px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 12px;
+}
+
+/* What stands behind the task: the agent's name, "memory", "shell". It leads the
+   title, so a column of cards reads by kind at a glance. */
+.bgtask-tag {
+  flex: 0 0 auto;
+  max-width: 45%;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  color: color-mix(in srgb, var(--accent) 80%, var(--text));
+  background: color-mix(in srgb, var(--accent) 14%, var(--coddy-blend-base));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .bgtask-card-label {
   min-width: 0;
   font-size: 13px;
   font-weight: 600;
-  font-family: var(--mono, ui-monospace, monospace);
   color: color-mix(in srgb, var(--text) 95%, var(--coddy-blend-base));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.bgtask-card.is-finished .bgtask-card-label {
+  color: color-mix(in srgb, var(--text) 82%, var(--coddy-blend-base));
+}
+
+/* Under the title, indented to it: past the dot (9px) and the gap (8px). */
 .bgtask-card-meta {
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
   color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
-  padding-top: 4px;
+  padding: 3px 0 0 17px;
 }
 
 .bgtask-card.is-overdue .bgtask-card-meta {
@@ -11145,68 +10969,113 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 }
 
 .bgtask-card .bgtask-progress {
-  margin-top: 8px;
+  margin: 8px 0 1px 17px;
 }
 
 .bgtask-card.is-overdue .bgtask-progress-fill {
   background: #ff9f0a;
 }
 
-/* Finished history: one scannable line per task. */
-.bgtask-finished-list {
+/* The open card: command or the way to the transcript, the error, the output, the
+   ending. It is outside the stretched opener, so its text selects and its controls
+   click. */
+.bgtask-card-body {
   display: flex;
   flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
   border-top: 0.5px solid
     color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
 }
 
-.bgtask-finished-row {
+.bgtask-card-command {
+  position: relative;
+}
+
+.bgtask-card-command-text,
+.bgtask-card-output {
+  margin: 0;
+  border-radius: 10px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Room on the right for the copy control, which sits in the block's corner. */
+.bgtask-card-command-text {
+  padding: 8px 40px 8px 10px;
+  max-height: 92px;
+  overflow-y: auto;
+}
+
+.bgtask-card-command .md-copy {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+}
+
+.bgtask-card-actions {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 100%;
-  min-width: 0;
-  border: none;
-  border-bottom: 0.5px solid
-    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
-  background: transparent;
-  font: inherit;
-  text-align: left;
-  padding: 8px 2px;
-  min-height: 34px;
-  cursor: pointer;
 }
 
-.bgtask-finished-row:hover {
-  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
-}
-
-.bgtask-finished-label {
-  flex: 1 1 auto;
-  min-width: 0;
+.bgtask-card-error {
   font-size: 12px;
-  font-family: var(--mono, ui-monospace, monospace);
-  color: color-mix(in srgb, var(--text) 82%, var(--coddy-blend-base));
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: color-mix(in srgb, #ff453a 75%, var(--text));
 }
 
-.bgtask-finished-meta {
-  flex: 0 0 auto;
+.bgtask-card-output-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
   font-size: 11px;
-  color: color-mix(in srgb, var(--text) 48%, var(--coddy-blend-base));
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+}
+
+.bgtask-card-truncated {
+  text-transform: none;
+  letter-spacing: 0;
+  color: color-mix(in srgb, #ff9f0a 70%, var(--text));
+}
+
+/* A box of its own height with its own scroll: a chatty task must not turn the
+   panel into one endless column. */
+.bgtask-card-output {
+  padding: 10px;
+  min-height: 56px;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.bgtask-card-foot {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+}
+
+/* Finished history: the same cards, behind the counter. */
+.bgtask-finished-list {
+  display: flex;
+  flex-direction: column;
+  padding-top: 4px;
+}
+
+.bgtask-finished-list .bgtask-dot {
+  box-shadow: none;
 }
 
 .bgtask-finished-more {
   font-size: 11px;
   color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
   padding: 10px 2px 2px;
-}
-
-.bgtasks-panel .bgtask-detail {
-  flex: 1 1 auto;
-  min-height: 0;
 }
 
 @media (max-width: 1199px) {
@@ -11221,8 +11090,20 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
     z-index: 70;
   }
 
-  .bgtask-finished-row {
-    min-height: 40px;
+  /* A thumb needs more of a card to land on, and more of the output to read. */
+  .bgtask-card-summary {
+    padding: 12px;
+  }
+
+  .bgtask-stop-icon.composer-icon {
+    width: 30px;
+    height: 30px;
+    min-width: 30px;
+    min-height: 30px;
+  }
+
+  .bgtask-card-output {
+    max-height: 46vh;
   }
 }
 

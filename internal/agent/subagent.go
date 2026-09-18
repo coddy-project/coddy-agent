@@ -1141,7 +1141,7 @@ func formatForegroundResult(run *subagentRun, snap bgtask.Snapshot) string {
 		fmt.Fprintf(&b, "The subagent did not succeed (status %s); treat its report accordingly.\n", snap.Status)
 	}
 	b.WriteString("The user did not see this report: restate what matters in your own reply. ")
-	fmt.Fprintf(&b, "The full transcript is session %s (Tasks panel → Open transcript).", run.childID)
+	fmt.Fprintf(&b, "The full transcript is session %s (Tasks panel → Show transcript).", run.childID)
 	return b.String()
 }
 

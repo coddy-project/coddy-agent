@@ -5107,7 +5107,6 @@ export function App() {
                 className="scheduler-runs-dock"
                 title={t("scheduler.runsTitle", { jobId: schedulerEditor.jobId })}
                 emptyText={t("scheduler.runsEmpty")}
-                agentHeading={t("scheduler.runsJobHeading")}
                 selectedTaskId={schedulerRunsTaskId}
                 tasks={schedulerRunsTasks}
                 selectedOutput={schedulerRunsOutput}

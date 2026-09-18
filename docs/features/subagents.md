@@ -139,7 +139,7 @@ A **foreground** spawn (the default) blocks the tool call until the child's turn
 …the child's last assistant message…
 ]]>
 </subagent>
-The user did not see this report: restate what matters in your own reply. The full transcript is session sess_9f1c… (Tasks panel → Open transcript).
+The user did not see this report: restate what matters in your own reply. The full transcript is session sess_9f1c… (Tasks panel → Show transcript).
 ```
 
 `status` is the pool's verdict for the task (`succeeded`, `failed`, `timed_out`, `stopped`); when it is anything but `succeeded` a line says so and tells the model to treat the report accordingly, and a run that ended with an error names it. `turns` is the number of assistant rounds in the child's transcript. The report is wrapped in CDATA so nothing the child wrote can break the envelope.
@@ -220,7 +220,7 @@ Every run creates a child session with an ordinary session id, generated before 
 
 - **Hidden from History.** Child sessions stay out of every default listing: the web UI History, `GET /coddy/sessions`, `coddy sessions list`, `coddy -c`, and ACP `session/list`. `GET /coddy/sessions?include_subagents=true` includes them.
 - **Read-only transcripts.** Resuming or messaging a child is out of scope. Any prompt against a child session that is not the child's own task turn (a composer `POST /v1/responses`, an ACP `session/prompt`, a console prompt, a run-plan request, the background waker) is refused with `subagent sessions are read-only transcripts: <child> belongs to <parent>`; over HTTP that is a **409** naming the parent. The SPA renders the child's transcript with the composer replaced by a notice linking back to the parent chat.
-- **From the Tasks panel.** An agent task shows an `agent` badge with the agent name, the detail pane shows the role name instead of a shell command, and **Open transcript** routes to `#/s/<child id>`. The live progress log in the output pane is the report while it runs; the transcript shows the child's tool calls and its final answer.
+- **From the Tasks panel.** The card of an agent task carries the agent's name as its tag and the description of the run as its title. Opened, it shows **Show transcript**, which routes to `#/s/<child id>`, where a shell task shows its command. The live progress log in the card's output box is the report while it runs; the transcript shows the child's tool calls and its final answer.
 - **Deletion cascades.** `DELETE /coddy/sessions/{id}` removes the whole tree through one path: the requested session plus every descendant, found by walking the `subagents/` folders of its bundle, root to leaf. Every node's representing task is stopped and awaited first (a child's task lives under its parent, so this reaches a running child and a running descendant alike), then any remaining tasks of every node, and only then are the bundles removed deepest first, the requested session last. Before any of that, an active turn of any node is cancelled and awaited and a turn arriving during the deletion is refused; a turn that ignores its cancellation past the settle timeout (15 s) aborts the deletion with nothing removed (HTTP `409`). The tree is rescanned after it is marked until no new descendant appears, so a child created while the deletion starts is removed with it rather than orphaned. Nothing writes into a removed bundle afterwards.
 
 ## Scheduled runs
@@ -260,11 +260,11 @@ agent: explore | task: bg_3 | session: sess_9f1c… | outcome: end_turn | turns:
 
 The runtime starts one child of its own: with `memory.enable` on, every user turn launches the **memory subagent**, which recalls and persists the long-term notes ([Long-term memory](memory.md)). It is built on the same machinery as a `spawn_agent` child - a task of kind `agent` in the pool, a child session inside the parent's bundle, the same transcript and log - through a launcher of its own, so not every spawn rule holds for it:
 
-- its task row carries `agent.system: true` and the name `memory`; the Tasks drawer shows a `memory` badge where a delegation shows `agent`, and the model-facing pool tools omit it and refuse its id;
+- its task row carries `agent.system: true` and the name `memory`; the Tasks drawer tags its card `memory` where a delegation carries its agent's name, and the model-facing pool tools omit it and refuse its id;
 - it is admitted past `tools.background.max_concurrent` and never counted against it, and `subagents.max_concurrent` does not count it either; its own bounds are two runs per session and sixteen per process;
 - it has six tools its parent does not have, the one exception to the rule that a child's set only narrows: the set is fixed in code, granted only to this child, never through a definition file, and it reaches nothing but the two note roots. Its mode is always `agent`; an ask-mode turn narrows it to the three recall tools;
 - `SubagentStart` and `SubagentStop` do not fire for it (they describe delegations the model chose); inside the child the ordinary events fire with `"kind": "memory"` in the `subagent` block of the payload;
-- it takes no permission relay (nothing in its set is gated) and no definition, so a definition file named `memory` stays legal and is a different child, told apart in the drawer by the badge.
+- it takes no permission relay (nothing in its set is gated) and no definition, so a definition file named `memory` stays legal and is a different child, told apart in the drawer by the tag.
 
 ## Remote mode
 
@@ -331,9 +331,9 @@ The Subagents tab is shown under [Scopes and project trust](#scopes-and-project-
 
 *The Tasks drawer with a subagent run in progress*
 
-![The finished run with its report](../assets/subagents/tasks-detail-agent-finished-dark.png)
+![The card of a finished run opened in place: Show transcript, the log and the report](../assets/subagents/tasks-detail-agent-finished-dark.png)
 
-*The finished run with its report*
+*The card of a finished run opened in place: Show transcript, the progress log and the report*
 
 ![The child session opened read-only from the task row](../assets/subagents/child-transcript-readonly-dark.png)
 

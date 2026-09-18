@@ -126,6 +126,75 @@ export function taskTimingLine(task: BackgroundTask, nowMs: number): string {
 }
 
 /**
+ * The word in a card's tag: what stands behind the task. A subagent run is known by its
+ * agent's name, the memory run of a turn by what it is, a shell command by being one.
+ */
+export function taskTag(task: BackgroundTask): string {
+  if (task.agent?.system) {
+    return t("tasks.tag.memory");
+  }
+  if (isAgentTask(task)) {
+    return agentTaskName(task) || t("tasks.tag.agent");
+  }
+  return t("tasks.tag.shell");
+}
+
+/**
+ * The title of a card: the work itself. The pool labels an agent run
+ * `agent <name>: <description>` and a memory run `memory: <first line>`; the tag already
+ * says the first half, so the title keeps the second. A run nobody described gets a
+ * plain name rather than an empty title.
+ */
+export function taskTitle(task: BackgroundTask): string {
+  const label = (task.label || "").trim();
+  if (!isAgentTask(task)) {
+    return label || (task.command || "").trim();
+  }
+  const colon = label.indexOf(":");
+  const head = colon >= 0 ? label.slice(0, colon).trim().toLowerCase() : "";
+  const name = (agentTaskName(task) || "").toLowerCase();
+  if (colon >= 0 && (head === "memory" || head === `agent ${name}`)) {
+    return label.slice(colon + 1).trim() || t("tasks.untitledAgentRun");
+  }
+  if (!label || label.toLowerCase() === `agent ${name}`) {
+    return t("tasks.untitledAgentRun");
+  }
+  return label;
+}
+
+/** Wall clock of a finished task, HH:MM in the reader's locale; "" while it runs. */
+export function taskFinishedClock(task: BackgroundTask): string {
+  const ended = task.finished_at ? new Date(task.finished_at) : null;
+  if (!ended || Number.isNaN(ended.getTime())) {
+    return "";
+  }
+  return ended.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * The line under a card's title. A running task counts against its estimate; a finished
+ * one says how it ended, how long it took and when. The exit code is left to the foot of
+ * the open card, where the whole ending is read.
+ */
+export function taskMetaLine(task: BackgroundTask, nowMs: number): string {
+  if (task.running) {
+    return taskTimingLine(task, nowMs);
+  }
+  const parts = [
+    taskStatusLabel(task.status),
+    formatDuration(displayElapsedSeconds(task, nowMs)),
+  ];
+  const clock = taskFinishedClock(task);
+  if (clock) {
+    parts.push(clock);
+  }
+  return parts.join(" · ");
+}
+
+/**
  * Overdue is recomputed client-side so the badge appears between polls rather
  * than only after the next refresh.
  */

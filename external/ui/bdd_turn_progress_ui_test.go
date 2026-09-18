@@ -49,6 +49,7 @@ func TestTurnProgressWebUIFeature(t *testing.T) {
 func TestBackgroundTasksWebUIFeature(t *testing.T) {
 	const header = "src/ui/chat/ChatHeader.test.tsx"
 	const screen = "src/ui/chat/ChatScreen.test.tsx"
+	const panel = "src/ui/tasks/BackgroundTasksPanel.test.tsx"
 	suite := godog.TestSuite{
 		Name: "background_tasks_web_ui",
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
@@ -66,6 +67,24 @@ func TestBackgroundTasksWebUIFeature(t *testing.T) {
 			})
 			sc.Step(`^the transcript ends with the conversation and the header control is the way to the tasks$`, func() error {
 				return runVitestScenario(screen, "the transcript ends with the conversation: the way to the tasks is the header control")
+			})
+			sc.Step(`^running and finished tasks are the same card with a dot, a tag, a title and a meta line$`, func() error {
+				return runVitestScenario(panel, "running tasks stand above the counter, finished ones behind it, all as the same card")
+			})
+			sc.Step(`^a card names what runs in a tag on the left and the work in its title$`, func() error {
+				return runVitestScenario(panel, "a card names what runs in a tag on the left and the work in its title")
+			})
+			sc.Step(`^a click on a card expands it in place and another folds it$`, func() error {
+				return runVitestScenario(panel, "the card is one control: a click expands it in place, another folds it")
+			})
+			sc.Step(`^an open command card shows the command with a copy control, the output and how it ended$`, func() error {
+				return runVitestScenario(panel, "an expanded command card shows the command with a copy control, the output and how it ended")
+			})
+			sc.Step(`^an open subagent card offers the child transcript and shows the run's log$`, func() error {
+				return runVitestScenario(panel, "an expanded subagent card opens the child transcript and shows the run's log, not a command")
+			})
+			sc.Step(`^Stop on a running card stops the task without opening the card$`, func() error {
+				return runVitestScenario(panel, "only a running task offers Stop, and Stop is not part of the card's own control")
 			})
 		},
 		Options: &godog.Options{

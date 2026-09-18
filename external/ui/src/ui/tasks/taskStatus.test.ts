@@ -14,6 +14,9 @@ import {
   isOverdue,
   groupTasks,
   sortTasksByStart,
+  taskMetaLine,
+  taskTag,
+  taskTitle,
   taskStatusLabel,
   taskTimingLine,
   taskTone,
@@ -80,7 +83,11 @@ describe("displayElapsedSeconds", () => {
   });
 
   test("a finished task keeps what the server measured", () => {
-    const t = task({ running: false, status: "succeeded", elapsed_seconds: 30 });
+    const t = task({
+      running: false,
+      status: "succeeded",
+      elapsed_seconds: 30,
+    });
     expect(displayElapsedSeconds(t, START_MS + 9_000_000)).toBe(30);
   });
 
@@ -96,7 +103,11 @@ describe("estimateProgress", () => {
   });
 
   test("is null once the task finished", () => {
-    const t = task({ running: false, status: "succeeded", expected_seconds: 60 });
+    const t = task({
+      running: false,
+      status: "succeeded",
+      expected_seconds: 60,
+    });
     expect(estimateProgress(t, START_MS + 5_000)).toBeNull();
   });
 
@@ -141,12 +152,18 @@ describe("isOverdue", () => {
 
 describe("taskTimingLine", () => {
   test("running task shows elapsed and the estimate", () => {
-    const line = taskTimingLine(task({ expected_seconds: 120 }), START_MS + 30_000);
+    const line = taskTimingLine(
+      task({ expected_seconds: 120 }),
+      START_MS + 30_000,
+    );
     expect(line).toBe("30s · est. 2m");
   });
 
   test("overdue running task says so", () => {
-    const line = taskTimingLine(task({ expected_seconds: 10 }), START_MS + 30_000);
+    const line = taskTimingLine(
+      task({ expected_seconds: 10 }),
+      START_MS + 30_000,
+    );
     expect(line).toContain("overdue");
   });
 
@@ -196,7 +213,10 @@ describe("sortTasksByStart", () => {
       status: "succeeded",
       started_at: new Date(START_MS).toISOString(),
     });
-    const live = task({ id: "live", started_at: new Date(START_MS - 120_000).toISOString() });
+    const live = task({
+      id: "live",
+      started_at: new Date(START_MS - 120_000).toISOString(),
+    });
 
     // The long-running task started first, so it sorts last even though it is
     // still going: sections carry state, ordering carries time.
@@ -210,7 +230,11 @@ describe("sortTasksByStart", () => {
   test("does not mutate the input array", () => {
     const input = [
       task({ id: "a", started_at: new Date(START_MS - 1000).toISOString() }),
-      task({ id: "b", running: false, started_at: new Date(START_MS).toISOString() }),
+      task({
+        id: "b",
+        running: false,
+        started_at: new Date(START_MS).toISOString(),
+      }),
     ];
     const before = input.map((t) => t.id);
     sortTasksByStart(input);
@@ -223,9 +247,19 @@ describe("groupTasks", () => {
     const at = (offset: number) => new Date(START_MS + offset).toISOString();
     const grouped = groupTasks([
       task({ id: "r-old", started_at: at(-90_000) }),
-      task({ id: "f-old", running: false, status: "succeeded", started_at: at(-60_000) }),
+      task({
+        id: "f-old",
+        running: false,
+        status: "succeeded",
+        started_at: at(-60_000),
+      }),
       task({ id: "r-new", started_at: at(-10_000) }),
-      task({ id: "f-new", running: false, status: "failed", started_at: at(-5_000) }),
+      task({
+        id: "f-new",
+        running: false,
+        status: "failed",
+        started_at: at(-5_000),
+      }),
     ]);
 
     expect(grouped.running.map((t) => t.id)).toEqual(["r-new", "r-old"]);
@@ -351,5 +385,113 @@ describe("countRunningTasks", () => {
       ]),
     ).toBe(1);
     expect(countRunningTasks([])).toBe(0);
+  });
+});
+
+describe("what a card says about its task", () => {
+  const base = (over: Partial<BackgroundTask>): BackgroundTask =>
+    ({
+      id: "bg_1",
+      session_id: "s",
+      kind: "command",
+      label: "make test",
+      command: "make test",
+      status: "running",
+      running: true,
+      started_at: "2026-09-18T10:00:00Z",
+      elapsed_seconds: 0,
+      ...over,
+    }) as BackgroundTask;
+
+  test("the tag names what stands behind the task", () => {
+    expect(taskTag(base({}))).toBe("shell");
+    expect(taskTag(base({ kind: "agent", agent: { name: "general" } }))).toBe(
+      "general",
+    );
+    expect(
+      taskTag(base({ kind: "agent", agent: { name: "memory", system: true } })),
+    ).toBe("memory");
+    // An agent row that lost its name still reads as an agent.
+    expect(taskTag(base({ kind: "agent" }))).toBe("agent");
+  });
+
+  test("the title drops the half of the label the tag already says", () => {
+    expect(taskTitle(base({}))).toBe("make test");
+    expect(
+      taskTitle(
+        base({
+          kind: "agent",
+          label: "agent general: review the diff: handlers first",
+          agent: { name: "general" },
+        }),
+      ),
+    ).toBe("review the diff: handlers first");
+    expect(
+      taskTitle(
+        base({
+          kind: "agent",
+          label: "memory: what did we decide",
+          agent: { name: "memory", system: true },
+        }),
+      ),
+    ).toBe("what did we decide");
+  });
+
+  test("a label that is not the pool's prefix is kept whole, a bare one gets a name", () => {
+    // A scheduled run is labelled by the scheduler, colon and all.
+    expect(
+      taskTitle(
+        base({
+          kind: "agent",
+          label: "nightly: refresh the changelog",
+          agent: { name: "general" },
+        }),
+      ),
+    ).toBe("nightly: refresh the changelog");
+    expect(
+      taskTitle(
+        base({
+          kind: "agent",
+          label: "agent general",
+          agent: { name: "general" },
+        }),
+      ),
+    ).toBe("Subagent run");
+    expect(
+      taskTitle(
+        base({
+          kind: "agent",
+          label: "agent general:  ",
+          agent: { name: "general" },
+        }),
+      ),
+    ).toBe("Subagent run");
+    // A command with no label falls back to the command itself.
+    expect(taskTitle(base({ label: "", command: "go vet ./..." }))).toBe(
+      "go vet ./...",
+    );
+  });
+
+  test("the meta line counts while the task runs and sums it up afterwards", () => {
+    const nowMs = Date.parse("2026-09-18T10:01:05Z");
+    expect(taskMetaLine(base({ expected_seconds: 300 }), nowMs)).toBe(
+      "1m5s · est. 5m",
+    );
+    const done = base({
+      running: false,
+      status: "failed",
+      exit_code: 2,
+      elapsed_seconds: 90,
+      finished_at: "2026-09-18T10:01:30Z",
+    });
+    // The exit code is left to the foot of the open card.
+    expect(taskMetaLine(done, nowMs)).toMatch(/^Failed · 1m30s · \d{2}:\d{2}/);
+    expect(taskMetaLine(done, nowMs)).not.toContain("exit");
+    expect(
+      taskMetaLine(
+        base({ running: false, status: "orphaned", elapsed_seconds: 5 }),
+        nowMs,
+      ),
+    ).toBe("Orphaned · 5s");
   });
 });

@@ -16,8 +16,8 @@ test("task colors are derived from theme tokens, not hardcoded greys", () => {
   for (const selector of [
     ".bgtask-card-label {",
     ".bgtask-card-meta {",
-    ".bgtask-finished-label {",
-    ".bgtask-finished-meta {",
+    ".bgtask-card-foot {",
+    ".bgtask-card-output-head {",
   ]) {
     expect(ruleBody(selector)).toContain("var(--text)");
   }
@@ -238,11 +238,51 @@ test("the stop glyph is centred in its circle by the rule, not by luck", () => {
   expect(ruleBody(".composer-icon {")).toMatch(/justify-content:\s*center/);
 });
 
-test("agent rows are told apart with an accent badge derived from theme tokens", () => {
-  const badge = ruleBody(".bgtask-kind-badge {");
-  expect(badge).toContain("var(--accent)");
-  expect(badge).toContain("text-transform: uppercase");
-  expect(ruleBody(".bgtask-detail-agent-name {")).toContain("var(--text)");
+test("the tag that leads a card is derived from theme tokens and never pushes the title out", () => {
+  const tag = ruleBody(".bgtask-tag {");
+  expect(tag).toContain("var(--accent)");
+  // A long agent name gives way to the title instead of taking the row.
+  expect(tag).toContain("max-width:");
+  expect(tag).toContain("text-overflow: ellipsis");
+  // The badge that used to trail an agent's label is gone with the second pane.
+  expect(css).not.toContain(".bgtask-kind-badge");
+  expect(css).not.toContain(".bgtask-detail");
+});
+
+test("the whole summary of a card is its click surface, and Stop stands above it", () => {
+  // The opener is stretched over the summary by a pseudo-element, so there is one
+  // control under the pointer and no button nested in another.
+  const surface = ruleBody(".bgtask-card-open::after {");
+  expect(surface).toContain("position: absolute");
+  expect(surface).toContain("inset: 0");
+  expect(ruleBody(".bgtask-card-summary {")).toContain("position: relative");
+  const stop = ruleBody(".bgtask-stop-icon.composer-icon {");
+  expect(stop).toContain("position: relative");
+  expect(stop).toContain("z-index: 1");
+});
+
+test("a card answers the pointer with a tint from the theme", () => {
+  expect(ruleBody(".bgtask-card-summary:hover {")).toContain("var(--text)");
+});
+
+test("the output of an open card scrolls inside a box of its own height", () => {
+  // The selector also closes the rule it shares with the command block, so the
+  // rule of its own is the last one that opens with it.
+  const at = css.lastIndexOf("\n.bgtask-card-output {");
+  expect(at).toBeGreaterThan(-1);
+  const output = css.slice(at, css.indexOf("}", at));
+  expect(output).toContain("max-height:");
+  expect(output).toContain("overflow: auto");
+});
+
+test("the copy control sits in the corner of the command block, which leaves it room", () => {
+  const copy = ruleBody(".bgtask-card-command .md-copy {");
+  expect(copy).toContain("position: absolute");
+  expect(copy).toContain("right:");
+  const at = css.lastIndexOf("\n.bgtask-card-command-text {");
+  expect(css.slice(at, css.indexOf("}", at))).toMatch(
+    /padding:\s*8px 40px 8px 10px/,
+  );
 });
 
 test("the header control is styled from theme tokens, marks a live session and never shrinks the title away", () => {
@@ -288,4 +328,10 @@ test("the tasks segment of the live line is a bare accent control, its separator
   // A middle dot inside the button would be underlined on hover with it.
   expect(css).not.toContain(".typing-dots-turn-tasks::after");
   expect(ruleBody(".typing-dots-turn-item::after {")).toContain("content:");
+});
+
+test("a card keeps its height when an open neighbour needs the room", () => {
+  // The list scrolls; its cards clip their overflow, so without this they are the
+  // first thing the flex column squeezes.
+  expect(ruleBody(".bgtask-card {")).toContain("flex: none");
 });

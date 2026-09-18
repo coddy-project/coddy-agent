@@ -17,3 +17,15 @@ Feature: The background tasks of a chat in the web UI
 
   Scenario: Nothing is left under the transcript
     Then the transcript ends with the conversation and the header control is the way to the tasks
+
+  Scenario: Every task is the same card
+    Then running and finished tasks are the same card with a dot, a tag, a title and a meta line
+    And a card names what runs in a tag on the left and the work in its title
+
+  Scenario: A card opens in place
+    Then a click on a card expands it in place and another folds it
+    And an open command card shows the command with a copy control, the output and how it ended
+    And an open subagent card offers the child transcript and shows the run's log
+
+  Scenario: Stop stays its own control
+    Then Stop on a running card stops the task without opening the card
