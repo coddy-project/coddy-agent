@@ -105,7 +105,9 @@ export function estimateProgress(
 export function taskTimingLine(task: BackgroundTask, nowMs: number): string {
   const parts = [formatDuration(displayElapsedSeconds(task, nowMs))];
   if (task.expected_seconds && task.expected_seconds > 0) {
-    parts.push(t("tasks.estimate", { value: formatDuration(task.expected_seconds) }));
+    parts.push(
+      t("tasks.estimate", { value: formatDuration(task.expected_seconds) }),
+    );
   }
   // An agent task has no process behind it, so its exit code is synthetic:
   // the status already says how the run ended, and "exit 0" would only
@@ -215,17 +217,31 @@ export function agentTranscriptSessionId(task: BackgroundTask): string | null {
 }
 
 /**
- * Tasks running right now, as every surface of a chat counts them: the live status
- * line, the header control and the chip. A system task - the memory run the runtime
- * starts for every turn - is left out, like `Pool.RunningCount` leaves it out on the
- * server, or the line would read one running task on every single turn.
+ * How many tasks a chat has and how many of them run right now, as its surfaces count
+ * them: the live status line and the control in the chat header. A system task - the
+ * memory run the runtime starts for every turn - is left out of both numbers, like
+ * `Pool.RunningCount` leaves it out on the server: it is not work the model or the
+ * operator started, and counting it would make every turn read as one running task.
  */
-export function countRunningTasks(tasks: readonly BackgroundTask[]): number {
+export function countTasks(tasks: readonly BackgroundTask[]): {
+  running: number;
+  total: number;
+} {
   let running = 0;
+  let total = 0;
   for (const task of tasks) {
-    if (task.running && !task.agent?.system) {
+    if (task.agent?.system) {
+      continue;
+    }
+    total++;
+    if (task.running) {
       running++;
     }
   }
-  return running;
+  return { running, total };
+}
+
+/** The running half of `countTasks`. */
+export function countRunningTasks(tasks: readonly BackgroundTask[]): number {
+  return countTasks(tasks).running;
 }

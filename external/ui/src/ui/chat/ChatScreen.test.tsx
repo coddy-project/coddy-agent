@@ -648,7 +648,7 @@ test("until the server reports progress the turn clock counts from the user's me
   expect(screen.queryByTestId("typing-dots-turn-tokens")).toBeNull();
 });
 
-test("with a turn and tasks both running, the live line names the tasks and the chip steps aside", () => {
+test("the live line of a running turn names the running tasks and opens the Tasks panel", () => {
   const onOpen = vi.fn();
   const running: BackgroundTask = {
     id: "bg_2",
@@ -681,13 +681,37 @@ test("with a turn and tasks both running, the live line names the tasks and the 
   expect(screen.getByTestId("typing-dots-turn-tasks").textContent).toBe(
     "1 running task",
   );
-  expect(screen.queryByTestId("bgtask-chip")).toBeNull();
   fireEvent.click(screen.getByTestId("typing-dots-turn-tasks"));
   expect(onOpen).toHaveBeenCalledTimes(1);
 });
 
-test("a running turn with nothing but finished tasks keeps the chip, the line says nothing of tasks", () => {
-  render(turnLineScreen({}));
-  expect(screen.queryByTestId("typing-dots-turn-tasks")).toBeNull();
-  expect(screen.getByTestId("bgtask-chip")).toBeInTheDocument();
+test("the transcript ends with the conversation: the way to the tasks is the header control", () => {
+  render(turnLineScreen({ generating: false }));
+  expect(screen.queryByTestId("bgtask-chip")).toBeNull();
+  expect(screen.getByTestId("chat-header-tasks")).toBeInTheDocument();
+});
+
+test("the header control opens the Tasks panel and puts it away again", () => {
+  const onOpen = vi.fn();
+  const onClose = vi.fn();
+  const { rerender } = render(
+    turnLineScreen({
+      generating: false,
+      onOpenBackgroundTasks: onOpen,
+      onCloseBackgroundTasks: onClose,
+    }),
+  );
+  fireEvent.click(screen.getByTestId("chat-header-tasks"));
+  expect(onOpen).toHaveBeenCalledTimes(1);
+  rerender(
+    turnLineScreen({
+      generating: false,
+      onOpenBackgroundTasks: onOpen,
+      onCloseBackgroundTasks: onClose,
+      backgroundTasksOpen: true,
+    }),
+  );
+  fireEvent.click(screen.getByTestId("chat-header-tasks"));
+  expect(onClose).toHaveBeenCalledTimes(1);
+  expect(onOpen).toHaveBeenCalledTimes(1);
 });

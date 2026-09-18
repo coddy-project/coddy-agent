@@ -5233,6 +5233,8 @@ export function App() {
             onOpenSession={openSessionInPlace}
             pathRoots={transcriptPathRoots}
             turnProgress={turnProgressBySid[sessionId.trim()] ?? null}
+            backgroundTasksOpen={tasksPanelOpen}
+            onCloseBackgroundTasks={closeTasksDrawer}
             workspaceCtx={workspaceCtx}
             worktreePref={worktreePref}
             workspaceLocked={items.length > 0}

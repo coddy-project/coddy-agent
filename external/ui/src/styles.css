@@ -2293,6 +2293,63 @@ a.rail-brand {
   white-space: nowrap;
 }
 
+/* The Tasks control at the right edge of the sticky header: the opener of the Tasks
+   panel and the one place a chat says how much runs in its background. It is there
+   from the first message, so the header never jumps when the first task starts. */
+.chat-header-tasks {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 26px;
+  margin-left: 10px;
+  padding: 3px 11px 3px 9px;
+  border-radius: 999px;
+  border: 0.5px solid var(--coddy-glass-panel-border);
+  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  font: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.chat-header-tasks:hover,
+.chat-header-tasks[aria-expanded="true"] {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
+}
+
+.chat-header-tasks.is-running {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--accent) 12%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+}
+
+.chat-header-tasks:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* running / total. Tabular digits, so a count that changes does not move the title. */
+.chat-header-tasks-counts {
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+}
+
+/* A phone header has room for the title and little else: once there are counts they
+   speak for themselves, and the word gives way. */
+@media (max-width: 520px) {
+  .chat-header-tasks {
+    min-height: 32px;
+  }
+
+  .chat-header-tasks.has-tasks .chat-header-tasks-label {
+    display: none;
+  }
+}
+
 .chat-title-btn {
   border: 0;
   background: transparent;
@@ -2967,21 +3024,42 @@ a.rail-brand {
   margin: 0 5px;
 }
 
+/* Phone: the numbers and a long phrase do not fit one line. The phrase - what the
+   agent is doing - keeps the first line next to the dots, and the turn's numbers move
+   under it as a caption, so the row never breaks wherever it happens to run out. */
 @media (max-width: 480px) {
-  .typing-dots-status {
-    font-size: 12px;
-    /* The turn's numbers and a long phrase do not fit one phone line; the phrase
-       drops under the numbers instead of pushing the row past the column. */
-    flex-wrap: wrap;
-    row-gap: 1px;
-  }
-
   .typing-dots {
     align-items: flex-start;
   }
 
+  /* Centre the 7px dots on the first text line (12px x 1.3). */
   .typing-dots-dot {
-    margin-top: 5px;
+    margin-top: 4px;
+  }
+
+  .typing-dots-status {
+    font-size: 12px;
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+
+  .typing-dots-status-text {
+    order: 1;
+  }
+
+  .typing-dots-status-time {
+    order: 2;
+  }
+
+  .typing-dots-turn {
+    order: 3;
+    flex-basis: 100%;
+    font-size: 11px;
+  }
+
+  /* Nothing follows the last number on its line, so it closes with no dot. */
+  .typing-dots-turn-item:last-child::after {
+    content: none;
   }
 }
 
@@ -11145,51 +11223,6 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
   .bgtask-finished-row {
     min-height: 40px;
-  }
-}
-
-/* Background tasks opener, under the last message.
-   The tasks belong to this chat and the thing that started them is right above,
-   so the opener sits at the end of the transcript rather than in the global
-   rail. */
-.bgtask-chip-row {
-  display: flex;
-  padding: 6px 0 2px;
-}
-
-.bgtask-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 30px;
-  padding: 4px 12px 4px 10px;
-  border-radius: 999px;
-  border: 0.5px solid var(--coddy-glass-panel-border);
-  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.bgtask-chip:hover {
-  color: var(--text);
-  border-color: color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
-}
-
-.bgtask-chip.is-running {
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--accent) 12%, var(--coddy-blend-base));
-  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
-}
-
-.bgtask-chip-text {
-  white-space: nowrap;
-}
-
-@media (max-width: 1199px) {
-  .bgtask-chip {
-    min-height: 36px;
   }
 }
 

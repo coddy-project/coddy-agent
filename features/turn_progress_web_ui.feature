@@ -18,4 +18,4 @@ Feature: The progress of a running turn in the web UI
 
   Scenario: Running background tasks are named on the line and open the Tasks panel
     Then the live line names the running background tasks and opens the Tasks panel
-    And with a turn and tasks both running the chip under the transcript steps aside
+    And the live line of a running turn counts the tasks without the memory run

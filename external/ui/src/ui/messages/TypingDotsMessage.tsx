@@ -180,12 +180,12 @@ function TypingDotsMessageImpl(props: {
               ) : null}
               {runningTasks > 0 ? (
                 <TurnTasksSegment
-                  label={tp("tasks.chip.running", runningTasks)}
+                  label={tp("tasks.running", runningTasks)}
                   {...(props.onOpenTasks
                     ? {
                         onOpen: props.onOpenTasks,
-                        aria: t("tasks.chip.openAria", {
-                          label: tp("tasks.chip.running", runningTasks),
+                        aria: t("tasks.openAria", {
+                          label: tp("tasks.running", runningTasks),
                         }),
                       }
                     : {})}
@@ -235,16 +235,20 @@ function TurnTasksSegment(props: {
       </span>
     );
   }
+  // The middle dot that closes the segment belongs to the wrapper: inside the button
+  // it would be part of the control, underlined on hover and clickable.
   return (
-    <button
-      type="button"
-      className="typing-dots-turn-item typing-dots-turn-tasks"
-      data-testid="typing-dots-turn-tasks"
-      {...(props.aria ? { "aria-label": props.aria } : {})}
-      onClick={props.onOpen}
-    >
-      {props.label}
-    </button>
+    <span className="typing-dots-turn-item">
+      <button
+        type="button"
+        className="typing-dots-turn-tasks"
+        data-testid="typing-dots-turn-tasks"
+        {...(props.aria ? { "aria-label": props.aria } : {})}
+        onClick={props.onOpen}
+      >
+        {props.label}
+      </button>
+    </span>
   );
 }
 

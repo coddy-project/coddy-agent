@@ -89,16 +89,15 @@ Telegram sender ignores kinds it does not know.
 
 ### Opening the Tasks panel
 
-The chat header gets a control at its right edge: the running dot and `N running`, or the task
-count once everything finished; nothing in a chat that never ran a task. The header is sticky,
-so the opener no longer scrolls away. The chip under the last message stays, and steps aside in
-exactly one case: a turn is running and tasks are running, because the status line right above
-it then carries the same count and opens the same panel. With a turn running and nothing but
-finished tasks the status line says nothing about tasks, so the chip keeps its place.
+The chat header gets a **Tasks** control at its right edge. The header is sticky, so the opener
+no longer scrolls away. The first cut kept the chip under the last message and let it step aside
+while the live line carried the same count; the operator's review removed the chip and asked for
+the control to be there always, so the header does not jump when the first task starts, and to
+say how many tasks run out of how many the chat has: `Tasks`, `Tasks 1 / 3`, `Tasks 0 / 3`.
 
-"Running tasks" means one thing in the status line, the header control and the chip: tasks
-whose row says `running`, system tasks left out (one helper, `countRunningTasks`). Otherwise the
-memory run of every turn would make the line read 1 while the chip reads 2.
+"Running tasks" and the total mean one thing in the status line and the header control: tasks
+whose row says `running` (or any row, for the total), system tasks left out (one helper,
+`countTasks`). Otherwise the memory run of every turn would read as a task the model started.
 
 ### Console: `/tasks`
 

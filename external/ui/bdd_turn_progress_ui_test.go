@@ -30,8 +30,8 @@ func TestTurnProgressWebUIFeature(t *testing.T) {
 			sc.Step(`^the live line names the running background tasks and opens the Tasks panel$`, func() error {
 				return runVitestScenario(dots, "running background tasks are named on the line and open the Tasks panel")
 			})
-			sc.Step(`^with a turn and tasks both running the chip under the transcript steps aside$`, func() error {
-				return runVitestScenario(screen, "with a turn and tasks both running, the live line names the tasks and the chip steps aside")
+			sc.Step(`^the live line of a running turn counts the tasks without the memory run$`, func() error {
+				return runVitestScenario(screen, "the live line of a running turn names the running tasks and opens the Tasks panel")
 			})
 		},
 		Options: &godog.Options{
@@ -43,5 +43,39 @@ func TestTurnProgressWebUIFeature(t *testing.T) {
 	}
 	if suite.Run() != 0 {
 		t.Fatal("turn progress web UI feature failed")
+	}
+}
+
+func TestBackgroundTasksWebUIFeature(t *testing.T) {
+	const header = "src/ui/chat/ChatHeader.test.tsx"
+	const screen = "src/ui/chat/ChatScreen.test.tsx"
+	suite := godog.TestSuite{
+		Name: "background_tasks_web_ui",
+		ScenarioInitializer: func(sc *godog.ScenarioContext) {
+			sc.Step(`^the tasks control is in the header of a chat that never ran a task, without counts$`, func() error {
+				return runVitestScenario(header, "the tasks control is in the header of a chat that never ran a task, without counts")
+			})
+			sc.Step(`^with tasks the header control says how many are running out of how many there are$`, func() error {
+				return runVitestScenario(header, "with tasks the control says how many are running out of how many there are")
+			})
+			sc.Step(`^once everything has finished the header control keeps the total and drops the live mark$`, func() error {
+				return runVitestScenario(header, "once everything has finished the control keeps the total and drops the live mark")
+			})
+			sc.Step(`^the header control opens the Tasks panel and a second click closes it$`, func() error {
+				return runVitestScenario(screen, "the header control opens the Tasks panel and puts it away again")
+			})
+			sc.Step(`^the transcript ends with the conversation and the header control is the way to the tasks$`, func() error {
+				return runVitestScenario(screen, "the transcript ends with the conversation: the way to the tasks is the header control")
+			})
+		},
+		Options: &godog.Options{
+			Format:   "pretty",
+			Paths:    []string{"../../features/background_tasks_web_ui.feature"},
+			TestingT: t,
+			Strict:   true,
+		},
+	}
+	if suite.Run() != 0 {
+		t.Fatal("background tasks web UI feature failed")
 	}
 }

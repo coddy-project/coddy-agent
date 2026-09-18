@@ -22,7 +22,6 @@ import { MessageList } from "../messages/MessageList";
 import type { BackgroundTask } from "../tasks/types";
 import { countRunningTasks, isAwaitingPermission } from "../tasks/taskStatus";
 import type { TurnProgress } from "./turnProgress";
-import { BackgroundTasksChip } from "../tasks/BackgroundTasksChip";
 import { SubagentPermissionCards } from "./SubagentPermissionCard";
 import { SubagentReadOnlyNotice } from "./SubagentReadOnlyNotice";
 import { ArchivedSessionNotice } from "./ArchivedSessionNotice";
@@ -113,9 +112,12 @@ export function ChatScreen(props: {
   /** Background tasks of this session keyed by the tool call that started them. */
   backgroundTasksByToolCallId?: Map<string, BackgroundTask>;
   backgroundNowMs?: number;
-  /** Every background task of this chat, for the opener under the transcript. */
+  /** Every background task of this chat, for the header control and the live line. */
   backgroundTasks?: BackgroundTask[];
   onOpenBackgroundTasks?: () => void;
+  /** The Tasks panel is showing, for the header control's expanded state. */
+  backgroundTasksOpen?: boolean;
+  onCloseBackgroundTasks?: () => void;
   /** Re-read the task rows: a background subagent's prompt was answered here. */
   onBackgroundTasksChanged?: () => void;
   onOpenBackgroundTask?: (taskId: string) => void;
@@ -147,7 +149,7 @@ export function ChatScreen(props: {
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const composerHostRef = useRef<HTMLDivElement | null>(null);
   const isEmpty = props.items.length === 0;
-  // One count for the live line, the header control and the chip.
+  // One count for the live line and the header control.
   const runningTasks = useMemo(
     () => countRunningTasks(props.backgroundTasks ?? []),
     [props.backgroundTasks],
@@ -586,6 +588,19 @@ export function ChatScreen(props: {
                   title={props.title}
                   editable={true}
                   onTitleSave={props.onTitleSave}
+                  {...(props.onOpenBackgroundTasks
+                    ? {
+                        tasks: props.backgroundTasks ?? [],
+                        // The header control is where the panel was opened
+                        // from, so a second click puts it away again.
+                        onOpenTasks:
+                          props.backgroundTasksOpen === true &&
+                          props.onCloseBackgroundTasks
+                            ? props.onCloseBackgroundTasks
+                            : props.onOpenBackgroundTasks,
+                        tasksOpen: props.backgroundTasksOpen === true,
+                      }
+                    : {})}
                 />
               </div>
             </div>
@@ -655,16 +670,6 @@ export function ChatScreen(props: {
                 <SubagentPermissionCards
                   tasks={props.backgroundTasks}
                   onAnswered={() => props.onBackgroundTasksChanged?.()}
-                />
-              ) : null}
-              {/* With a turn running and tasks running, the live line right above
-                  carries the same count and opens the same panel. */}
-              {props.backgroundTasks &&
-              props.onOpenBackgroundTasks &&
-              !(props.generating === true && runningTasks > 0) ? (
-                <BackgroundTasksChip
-                  tasks={props.backgroundTasks}
-                  onOpen={props.onOpenBackgroundTasks}
                 />
               ) : null}
             </div>

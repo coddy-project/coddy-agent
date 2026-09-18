@@ -12,13 +12,6 @@ function ruleBody(selector: string): string {
   return css.slice(open + 1, close);
 }
 
-test("the opener chip is styled from theme tokens and marks a live session", () => {
-  const chip = ruleBody(".bgtask-chip {");
-  expect(chip).toContain("var(--text)");
-  const live = ruleBody(".bgtask-chip.is-running {");
-  expect(live).toContain("var(--accent)");
-});
-
 test("task colors are derived from theme tokens, not hardcoded greys", () => {
   for (const selector of [
     ".bgtask-card-label {",
@@ -106,13 +99,20 @@ function transcriptReservePx(window: Window): number {
     css,
     "the docked layout no longer pads #messages",
   );
-  return declarationPx(capture(/padding-right:\s*([^;]+);/, rule, "reserve"), window);
+  return declarationPx(
+    capture(/padding-right:\s*([^;]+);/, rule, "reserve"),
+    window,
+  );
 }
 
 /** Where the centred transcript stripe ends, measured from the shell's end edge. */
 function stripeEndInsetPx(window: Window): number {
   const stripe = Number(
-    capture(/max-width:\s*([0-9.]+)px/, ruleBody(".messages-inner {"), "stripe"),
+    capture(
+      /max-width:\s*([0-9.]+)px/,
+      ruleBody(".messages-inner {"),
+      "stripe",
+    ),
   );
   const box = window.shellPx - transcriptReservePx(window);
   return window.shellPx - (box + Math.min(stripe, box)) / 2;
@@ -149,7 +149,11 @@ test("the composer stays on the transcript centre line", () => {
     css,
     "the docked layout no longer pads .chat-bottom",
   );
-  const padding = capture(/padding-right:\s*([^;]+);/, rule, "composer reserve");
+  const padding = capture(
+    /padding-right:\s*([^;]+);/,
+    rule,
+    "composer reserve",
+  );
   const gutter = Number(
     capture(
       /--coddy-chat-scrollbar-gutter:\s*([0-9.]+)px/,
@@ -180,10 +184,18 @@ test("one step separates the panel head, the live cards and the counter", () => 
   ).toMatch(new RegExp(`margin-top:\\s*${step}px`));
 
   const cardBelow = Number(
-    capture(/margin-bottom:\s*([0-9.]+)px/, ruleBody(".bgtask-card {"), "card margin"),
+    capture(
+      /margin-bottom:\s*([0-9.]+)px/,
+      ruleBody(".bgtask-card {"),
+      "card margin",
+    ),
   );
   const counterAlone = Number(
-    capture(/padding:\s*([0-9.]+)px/, ruleBody(".bgtask-section-row {"), "counter padding"),
+    capture(
+      /padding:\s*([0-9.]+)px/,
+      ruleBody(".bgtask-section-row {"),
+      "counter padding",
+    ),
   );
   const counterAfterCard = Number(
     capture(
@@ -231,4 +243,49 @@ test("agent rows are told apart with an accent badge derived from theme tokens",
   expect(badge).toContain("var(--accent)");
   expect(badge).toContain("text-transform: uppercase");
   expect(ruleBody(".bgtask-detail-agent-name {")).toContain("var(--text)");
+});
+
+test("the header control is styled from theme tokens, marks a live session and never shrinks the title away", () => {
+  const control = ruleBody(".chat-header-tasks {");
+  expect(control).toContain("var(--text)");
+  // The title is the flexible child of the header; the control keeps its size.
+  expect(control).toContain("flex: none");
+  expect(ruleBody(".chat-header-tasks.is-running {")).toContain(
+    "var(--accent)",
+  );
+});
+
+test("at phone width the counts speak for the control and the word gives way", () => {
+  const phone = css.slice(
+    css.indexOf("@media (max-width: 520px) {\n  .chat-header-tasks"),
+  );
+  const block = phone.slice(0, 260);
+  expect(block).toContain(
+    ".chat-header-tasks.has-tasks .chat-header-tasks-label",
+  );
+  expect(block).toContain("display: none");
+});
+
+test("no opener is left under the transcript", () => {
+  expect(css).not.toContain(".bgtask-chip");
+});
+
+test("on a phone the phrase keeps the first line and the turn's numbers become its caption", () => {
+  const phone = css.slice(
+    css.indexOf("@media (max-width: 480px) {\n  .typing-dots {"),
+  );
+  const block = phone.slice(0, 900);
+  expect(block).toMatch(/\.typing-dots-status-text \{\s*order: 1;/);
+  expect(block).toMatch(
+    /\.typing-dots-turn \{\s*order: 3;\s*flex-basis: 100%;/,
+  );
+});
+
+test("the tasks segment of the live line is a bare accent control, its separator drawn by the wrapper", () => {
+  const segment = ruleBody(".typing-dots-turn-tasks {");
+  expect(segment).toContain("var(--accent)");
+  expect(segment).toContain("background: none");
+  // A middle dot inside the button would be underlined on hover with it.
+  expect(css).not.toContain(".typing-dots-turn-tasks::after");
+  expect(ruleBody(".typing-dots-turn-item::after {")).toContain("content:");
 });

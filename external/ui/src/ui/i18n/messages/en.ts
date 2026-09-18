@@ -1432,11 +1432,13 @@ export const messagesEn: Record<string, string> = {
   "scheduler.cron.invalid": "Invalid cron expression",
 
   "tasks.notReachable": "Coddy is not reachable",
-  "tasks.chip.running.one": "{count} running task",
-  "tasks.chip.running.other": "{count} running tasks",
-  "tasks.chip.total.one": "{count} background task",
-  "tasks.chip.total.other": "{count} background tasks",
-  "tasks.chip.openAria": "Open background tasks: {label}",
+  "tasks.running.one": "{count} running task",
+  "tasks.running.other": "{count} running tasks",
+  "tasks.openAria": "Open background tasks: {label}",
+  "tasks.header.label": "Tasks",
+  "tasks.header.counts": "{running} / {total}",
+  "tasks.header.aria": "Background tasks: {running} running, {total} in total",
+  "tasks.header.ariaEmpty": "Background tasks: none yet",
 
   "swarm.title": "Swarm",
   "swarm.summary.relays.one": "{count} relay",

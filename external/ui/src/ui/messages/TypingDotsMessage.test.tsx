@@ -429,3 +429,19 @@ test("without a known turn start the line counts from when it appeared", () => {
   });
   expect(screen.getByTestId("typing-dots-turn-elapsed").textContent).toBe("2s");
 });
+
+test("the separator after the tasks segment is outside the button, so hover does not underline it", () => {
+  render(
+    <TypingDotsMessage
+      statusKind="thinking"
+      statusKey="status.thinking"
+      turnStartedAtMs={Date.now() - 1_000}
+      runningTasks={2}
+      onOpenTasks={() => {}}
+    />,
+  );
+  const button = screen.getByTestId("typing-dots-turn-tasks");
+  // The middle dot is drawn by ::after of .typing-dots-turn-item.
+  expect(button.className).not.toContain("typing-dots-turn-item");
+  expect(button.parentElement?.className).toContain("typing-dots-turn-item");
+});
