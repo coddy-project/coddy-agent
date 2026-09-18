@@ -141,8 +141,10 @@ func (a *App) switchTheme(name string) {
 	previous := a.foot
 	a.foot = newFooter(a.theme, a.config().Paths.CWD)
 	if previous != nil {
-		// The usage line is state, not chrome: it survives the theme.
+		// The usage line and the running-task count are state, not chrome: they
+		// survive the theme.
 		a.foot.usages, a.foot.now = previous.usages, previous.now
+		a.foot.runningTasks = previous.runningTasks
 	}
 	a.refreshFooterModel()
 	a.foot.SetSession("", a.modeID)

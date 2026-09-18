@@ -63,17 +63,26 @@ Top to bottom:
   received, cut at the first of 10 written lines or 600 characters with
   `... (ctrl+o for the whole prompt)`. The child's report lands below it as
   the box body, so the task and the answer read as one block.
-- **Status**: braille spinner `⠋⠙⠹...` at 80 ms with a live status line naming
-  the current step while a turn runs - verb plus target plus elapsed counter
-  (`Reading README.md · 12s`, `Running npm test · 3s`, `Thinking… · 2s`,
-  `Responding`; `Running subagent reviewer · 40s` while a `spawn_agent` call
-  is in flight). A plain wait escalates with time: `Waiting for the model` →
-  `The model is taking longer than usual` (15 s) → `Still no response from the
-  server` (60 s). While a permission or question modal is open the line shows
-  `Waiting for your approval` / `Waiting for your answer` with **no** counter
-  (nothing is running), and after approval it returns to the gated tool with a
-  restarted counter. Phrase table lives in `external/cli/status.go` (Go twin of
-  the SPA's `liveStatus.ts`).
+- **Status**: braille spinner `⠋⠙⠹...` at 80 ms with a live status line while a
+  turn runs. The line leads with the turn's own numbers: how long the turn has
+  been running, how many tokens the model has generated in it, how many
+  background tasks run right now - `15m 08s · 13.5k tokens · 1 running task ·
+  Thinking…`. Before the first token it is the clock and the phrase alone
+  (`57s · Waiting for the model`), and the tasks appear only while something
+  runs. The tokens are the agent's `turn_progress` update: the provider's
+  figures for the calls that finished plus an estimate of the one in flight, so
+  the count moves while the answer streams; a console attached over `--remote`
+  receives the same update. Then comes the current step - verb plus target -
+  and, for a step that runs something other than the model, a counter of its
+  own (`2m 05s · 1.2k tokens · Running npm test · 45s`, `Running subagent
+  reviewer · 40s` while a `spawn_agent` call is in flight); thinking, responding
+  and waiting are covered by the turn clock. A plain wait escalates with time:
+  `Waiting for the model` → `The model is taking longer than usual` (15 s) →
+  `Still no response from the server` (60 s). While a permission or question
+  modal is open the line shows `Waiting for your approval` / `Waiting for your
+  answer` with **no** step counter (nothing is running), and after approval it
+  returns to the gated tool with a restarted counter. Phrase table lives in
+  `external/cli/status.go` (Go twin of the SPA's `liveStatus.ts`).
 - **Plan widget**: current todo entries (`✓` done, `◐` active, `○` pending,
   `✗` failed) above the editor.
 - **Editor**: multi-line input between full-width `─` rules (green while the
@@ -86,8 +95,10 @@ Top to bottom:
   A mention may narrow a file to a 1-based inclusive line range, `@Dockerfile:21-31`:
   the prompt is hydrated by the same `HydratePromptContentBlocks` path as ACP, so only
   those lines reach the model (see `docs/surfaces/web-ui.md`, **Line ranges**).
-- **Footer**: dim `cwd (git-branch) • title [• plan]`, then
-  `↑in ↓out  N.N%/ctx (auto)` left and `(provider) model [• reasoning]` right.
+- **Footer**: dim `cwd (git-branch) • title [• plan] [• N tasks running (/tasks)]`,
+  then `↑in ↓out  N.N%/ctx (auto)` left and `(provider) model [• reasoning]`
+  right. The running-task note stays after the turn that started the tasks has
+  ended, which is when the status line that counted them is gone.
   A third line appears while the active model's provider reports account
   usage (today: `neuraldeep`, read from the hub's `GET /v1/limits`):
   `Pro • 3h 3% (resets 20:59) • week 7% (resets Mon 03:00) • wallet -1 229 ₽`,

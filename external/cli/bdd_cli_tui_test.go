@@ -17,6 +17,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -736,6 +737,38 @@ func (s *cliTUIState) footerShowsTokenUsage() error {
 	return s.waitScreen("↑1.2k", 2*time.Second)
 }
 
+// agentReportsTurnTokens is what the agent loop publishes while a call streams and
+// after it: the turn's own numbers, which lead the status line.
+func (s *cliTUIState) agentReportsTurnTokens(tokens int) error {
+	return s.app.Sender().SendSessionUpdate(s.app.sessionID, acp.TurnProgressUpdate{
+		SessionUpdate: acp.UpdateTypeTurnProgress,
+		StartedAt:     time.Now().UTC().Format(time.RFC3339Nano),
+		OutputTokens:  tokens,
+		Estimated:     true,
+	})
+}
+
+// statusLineLeadsWithTurnClock waits for "<clock> · <phrase>". The clock is matched,
+// not spelled out: a slow runner may draw its first frame a second into the turn.
+func (s *cliTUIState) statusLineLeadsWithTurnClock(phrase string) error {
+	pattern := regexp.MustCompile(`\d+s · ` + regexp.QuoteMeta(phrase))
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if pattern.MatchString(s.screenText()) {
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("no turn clock before %q; last frame:\n%s", phrase, s.screenText())
+}
+
+func (s *cliTUIState) statusLineShowsNoTokenCount() error {
+	if text := s.screenText(); strings.Contains(text, " tokens") || strings.Contains(text, " token ·") {
+		return fmt.Errorf("the status line names tokens before the model produced any:\n%s", text)
+	}
+	return nil
+}
+
 func (s *cliTUIState) stubStartsToolCall(tool, argKey, argVal string) error {
 	s.directives <- stubDirective{kind: "tool_start", tool: tool, argsKey: argKey, argsVal: argVal}
 	return s.waitScreen(tool, 3*time.Second)
@@ -1418,6 +1451,9 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the tool box shows the expand hint$`, s.toolBoxShowsExpandHint)
 	sc.Step(`^the stub tool call completes without ending the turn$`, s.stubToolCompletesWithoutEndingTurn)
 	sc.Step(`^the status line shows "([^"]*)"$`, s.statusLineShows)
+	sc.Step(`^the status line leads with the turn clock before "([^"]*)"$`, s.statusLineLeadsWithTurnClock)
+	sc.Step(`^the status line shows no token count yet$`, s.statusLineShowsNoTokenCount)
+	sc.Step(`^the agent reports (\d+) tokens generated in this turn$`, s.agentReportsTurnTokens)
 	sc.Step(`^the session permission mode is "([^"]*)"$`, s.permissionModeIs)
 	sc.Step(`^the stub turn requests permission for the tool "([^"]*)"$`, s.stubRequestsPermission)
 	sc.Step(`^the screen shows a permission modal with an allow option$`, s.screenShowsPermissionModalWithAllow)

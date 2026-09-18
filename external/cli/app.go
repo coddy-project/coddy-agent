@@ -13,6 +13,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/shell"
@@ -71,6 +72,17 @@ type App struct {
 	stepBlocked   string
 	turnActive    bool
 	turnSessionID string
+	// The running turn's own numbers, which lead the status line (status.go): when it
+	// started, the tokens the model has generated in it (acp.TurnProgressUpdate) and
+	// the background tasks running right now (tasks.go).
+	turnStartedAt time.Time
+	turnTokens    int
+	runningTasks  int
+	// tasks is the last read of the session's background tasks, newest first;
+	// tasksReading says a read is in flight and tasksTimer stops the armed poll.
+	tasks        []bgtask.Snapshot
+	tasksReading bool
+	tasksTimer   func() bool
 	// Remote activity drives Stop/queue but never owns or releases our worker.
 	remoteTurnActive       bool
 	remoteActivityRevision uint64
@@ -294,11 +306,16 @@ func (a *App) ApplyStartupOptions(ctx context.Context, model, mode, permMode str
 }
 
 func (a *App) adoptSession(id string, modes *acp.ModeState, opts []acp.ConfigOption) {
-	if id != a.sessionID {
+	switched := id != a.sessionID
+	if switched {
 		a.remoteTurnActive, a.remoteActivityRevision = false, 0
 		a.queue.Reset()
 	}
 	a.sessionID = id
+	if switched {
+		// The tasks on screen were the other session's.
+		a.resetTasks()
+	}
 	a.reasoning = ""
 	if modes != nil {
 		a.modeID = modes.CurrentModeID
@@ -419,6 +436,7 @@ func (a *App) Close() {
 		a.workStop()
 		a.stopUsageTimer()
 		a.stopUsageResume()
+		a.stopTasksPoll()
 	})
 }
 
@@ -692,8 +710,12 @@ func (a *App) submitPrompt(text string) {
 	a.curAssistant = nil
 	a.stepStatus = newWaitingStatus()
 	a.stepBlocked = ""
+	a.turnStartedAt = time.Now()
+	a.turnTokens = 0
 	a.startSpinner()
 	a.turnActive = true
+	// A running turn is when tasks appear: read them on the fast cadence.
+	a.armTasksPoll()
 	sessionID := a.sessionID
 	a.turnSessionID = sessionID
 	a.workers.Add(1)

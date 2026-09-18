@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -48,5 +49,20 @@ func TestDetectGitBranchReadsTheBranch(t *testing.T) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	if got := detectGitBranch(t.TempDir()); got != "feature/x" {
 		t.Fatalf("branch = %q, want feature/x", got)
+	}
+}
+
+func TestFooterNamesRunningTasksAndTheCommandThatListsThem(t *testing.T) {
+	f := newFooter(newTheme("dark"), "/work")
+	if got := strings.Join(f.Render(120), "\n"); strings.Contains(got, "running") {
+		t.Fatalf("an idle session names running tasks:\n%s", got)
+	}
+	f.SetRunningTasks(1)
+	if got := f.Render(120)[0]; !strings.Contains(got, "1 task running (/tasks)") {
+		t.Fatalf("footer = %q", got)
+	}
+	f.SetRunningTasks(3)
+	if got := f.Render(120)[0]; !strings.Contains(got, "3 tasks running (/tasks)") {
+		t.Fatalf("footer = %q", got)
 	}
 }

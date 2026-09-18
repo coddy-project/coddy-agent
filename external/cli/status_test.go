@@ -142,8 +142,13 @@ func TestLiveStatusText(t *testing.T) {
 	if got := tool.statusText(12 * time.Second); got != "Reading README.md · 12s" {
 		t.Errorf("tool status = %q", got)
 	}
-	if got := newWorkingStatus("Thinking…", "").statusText(3 * time.Second); got != "Thinking… · 3s" {
-		t.Errorf("bare verb status = %q", got)
+	// The model's own phases are covered by the turn clock that leads the line, so
+	// they carry no second clock of their own.
+	if got := newModelStatus("Thinking…").statusText(3 * time.Second); got != "Thinking…" {
+		t.Errorf("model phase status = %q, want no step counter", got)
+	}
+	if got := newWaitingStatus().statusText(3 * time.Second); got != statusWaitingModel {
+		t.Errorf("waiting status = %q, want no step counter", got)
 	}
 
 	// A non-counting status renders without a counter regardless of elapsed time.
@@ -196,6 +201,68 @@ func TestSetStatusKeepsTheStartOfARepeatedStep(t *testing.T) {
 	}
 }
 
+func TestTurnLine(t *testing.T) {
+	cases := []struct {
+		elapsed time.Duration
+		tokens  int
+		tasks   int
+		want    string
+	}{
+		// Before the first token the line is the clock alone.
+		{57 * time.Second, 0, 0, "57s"},
+		{45 * time.Second, 433, 0, "45s · 433 tokens"},
+		{5 * time.Second, 1, 0, "5s · 1 token"},
+		{125 * time.Second, 1200, 0, "2m 05s · 1.2k tokens"},
+		{908 * time.Second, 13_500, 1, "15m 08s · 13.5k tokens · 1 running task"},
+		{30 * time.Second, 0, 3, "30s · 3 running tasks"},
+	}
+	for _, c := range cases {
+		if got := turnLine(c.elapsed, c.tokens, c.tasks); got != c.want {
+			t.Errorf("turnLine(%v, %d, %d) = %q, want %q", c.elapsed, c.tokens, c.tasks, got, c.want)
+		}
+	}
+}
+
+func TestStatusMessageLeadsWithTheTurnsOwnNumbers(t *testing.T) {
+	a := &App{turnActive: true, turnStartedAt: time.Now().Add(-125 * time.Second), turnTokens: 1200, runningTasks: 1}
+	a.setStatus(liveStatus{verb: "Running", target: "make test", startedAt: time.Now().Add(-45 * time.Second), counts: true})
+	if got := a.statusMessage(); got != "2m 05s · 1.2k tokens · 1 running task · Running make test · 45s" {
+		t.Fatalf("statusMessage() = %q", got)
+	}
+
+	// Waiting on the model before the first token: the clock and the phrase.
+	b := &App{turnActive: true, turnStartedAt: time.Now().Add(-57 * time.Second)}
+	b.stepStatus = newWaitingStatus()
+	b.stepStatus.startedAt = time.Now().Add(-57 * time.Second)
+	if got := b.statusMessage(); got != "57s · "+statusWaitingSlow {
+		t.Fatalf("waiting statusMessage() = %q", got)
+	}
+
+	// An operator gate keeps the turn clock - it is wall time since the prompt -
+	// and still has no step counter.
+	c := &App{turnActive: true, turnStartedAt: time.Now().Add(-30 * time.Second), turnTokens: 80}
+	c.setStatus(newWorkingStatus("Running", "sleep 6"))
+	c.blockStatus("Waiting for your approval")
+	if got := c.statusMessage(); got != "30s · 80 tokens · Waiting for your approval" {
+		t.Fatalf("blocked statusMessage() = %q", got)
+	}
+}
+
+func TestTurnProgressUpdateFeedsTheLine(t *testing.T) {
+	a := &App{turnActive: true, sessionID: "s1", turnSessionID: "s1", turnStartedAt: time.Now().Add(-10 * time.Second)}
+	a.applyTurnProgress(acp.TurnProgressUpdate{OutputTokens: 433, ElapsedMs: 10_000, Estimated: true})
+	if a.turnTokens != 433 {
+		t.Fatalf("turnTokens = %d, want 433", a.turnTokens)
+	}
+	// A turn this console did not time itself - it attached to one another client
+	// started - takes the server's clock.
+	b := &App{remoteTurnActive: true}
+	b.applyTurnProgress(acp.TurnProgressUpdate{OutputTokens: 5, ElapsedMs: 42_000})
+	if got := time.Since(b.turnStartedAt).Round(time.Second); got != 42*time.Second {
+		t.Fatalf("adopted turn clock reads %v, want 42s", got)
+	}
+}
+
 func TestStatusMessageBeforeAnyStep(t *testing.T) {
 	a := &App{}
 	if got := a.statusMessage(); got != statusWaitingModel {
@@ -210,7 +277,7 @@ func TestBlockedQuestionShowsNoCounter(t *testing.T) {
 	a := &App{turnActive: true}
 	a.setStatus(newWorkingStatus(statusVerbForTool("question"), ""))
 	a.blockStatus("Waiting for your answer")
-	if got := a.statusMessage(); strings.Contains(got, "·") {
+	if got := a.statusMessage(); got != "Waiting for your answer" {
 		t.Fatalf("counter ticks while blocked on the operator: %q", got)
 	}
 }

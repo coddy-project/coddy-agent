@@ -59,6 +59,16 @@ Feature: Interactive console TUI
     When the stub tool call completes without ending the turn
     Then the status line shows "Waiting for the model"
 
+  Scenario: The status line leads with the turn's clock and the tokens generated in it
+    When the console app starts
+    And the operator submits the prompt "run the long build"
+    Then the status line leads with the turn clock before "Waiting for the model"
+    And the status line shows no token count yet
+    When the agent reports 1200 tokens generated in this turn
+    Then the status line shows "1.2k tokens · Waiting for the model"
+    When the stub turn starts a tool call named "read" with argument path "README.md"
+    Then the status line shows "1.2k tokens · Reading README.md"
+
   Scenario: The status line names the subagent that is running
     When the console app starts
     And the operator submits the prompt "delegate the review"
