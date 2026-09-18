@@ -258,7 +258,7 @@ The `model` option is present only when the `models` list in the agent config is
 
 ### `session/load`
 
-Reloads a persisted session by `sessionId`. The agent restores `session.json` and `messages.json`, rebuilds skills and MCP connections from the request, replays prior user and assistant turns (and tool call summaries) via `session/update`, sends a `plan` update if `todos/active.md` exists, and sends `available_commands_update` once the response is on the wire.
+Reloads a persisted session by `sessionId`. The agent restores `session.json` and `messages.json`, rebuilds skills and MCP connections from the request, replays prior user and assistant turns (and tool call summaries) via `session/update`, sends a `plan` update if `todos/active.md` exists, and sends `available_commands_update` once the response is on the wire. A replayed user message reads as it was typed: the attachments its mentions brought are collapsed back to those mentions (`@src/app.go:3-5`), never their bodies.
 
 The replay precedes the response here, as ACP requires, and that is safe because the client named the session itself. Reopening a bundle through **`session/new`** (`coddy acp --session-id <id>`) is the other way round: the client only learns the id from the response, so the replay waits for it. Anything written earlier would arrive for a session the client has not registered.
 
@@ -358,6 +358,14 @@ Send a user message, starts the ReAct loop.
 ```
 
 Stop reasons: `end_turn` | `max_tokens` | `max_turns` | `agent_refused` | `cancelled`
+
+**Mentions and context blocks.** Coddy advertises `promptCapabilities.embeddedContext`, so a client such as Zed sends what its mention menu picked as content blocks next to the text:
+
+- a `resource` with `text` is attached as sent (Zed includes unsaved edits). A `file://` one is named by its path - relative when it lies in the session's `cwd` - and a line fragment (`#L10-20`, `#L10:20`, `#L10-L20`, `#L10`) labels the attachment with those lines; a query such as Zed's `?symbol=` is dropped;
+- a `resource` without `text` is read from disk, anywhere the client names it: a file, a line range of it, or a folder's listing. A missing file or lines past the end fail the prompt, since the client asked for them explicitly;
+- a `resource_link` (the block every ACP agent must accept) to a local file or folder is read like a mention of it; a link Coddy cannot open itself - an editor-internal URI, a web address - reaches the model as a line naming it.
+
+`@` mentions typed into a `text` block are resolved the way every surface resolves them - files anywhere on disk, folders, line ranges, `@session:<id>`, `@rule:<name>`, `@agent:<name>`, web pages - into attachments of the same user message ([Mentions](../features/mentions.md)). A mention never fails the prompt: one that names nothing stays prose.
 
 ### Subagent runs and child sessions (Coddy-specific)
 

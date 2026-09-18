@@ -90,11 +90,20 @@ Top to bottom:
   cursor movement with sticky column; prompt history (up/down at edges, cap
   100); large pastes collapse into `[paste #N +K lines]` markers; scrolled
   content shows `─── ↑ N more ───` borders. Autocomplete: `/` commands on the
-  first line, `@` file mentions (workspace walk capped at 50k entries;
-  hidden directories, `node_modules`, and `.coddy` are skipped), `tab` forces file completion.
-  A mention may narrow a file to a 1-based inclusive line range, `@Dockerfile:21-31`:
-  the prompt is hydrated by the same `HydratePromptContentBlocks` path as ACP, so only
-  those lines reach the model (see `docs/surfaces/web-ui.md`, **Line ranges**).
+  first line and `@` mentions anywhere, `tab` forces path completion on a bare word.
+  The `@` list asks the same search the web UI does (`GET /coddy/mentions`,
+  in-process when local): the whole workspace ranked against what was typed, so a
+  fragment of a name finds a file anywhere in the tree; the index is rebuilt when a
+  mention starts, so a file written since the console started is offered and a
+  deleted one is gone; a query starting with `/`, `~`, `./` or `../` browses that
+  folder, anywhere on disk; `@session:`, `@rule:` and `@agent:` list those kinds.
+  A cut list says so on its scroll line, `(3/50 of 1204, type to narrow)`. A folder
+  or a scheme row keeps the list open; a file ends the mention with a space, quoted
+  when its path holds one (a quoted folder closes its quote ahead of the cursor, so
+  the text names it even if no file follows). A mention may narrow a file to a line range,
+  `@Dockerfile:21-31` or `@f.go#L21-31`, absolute paths included. In remote mode the
+  list comes from the server that runs the session. The grammar, what each kind
+  attaches and the limits are in [Mentions](../features/mentions.md).
 - **Footer**: dim `cwd (git-branch) • title [• plan] [• N tasks running (/tasks)]`,
   then `↑in ↓out  N.N%/ctx (auto)` left and `(provider) model [• reasoning]`
   right. The running-task note stays after the turn that started the tasks has
@@ -564,6 +573,10 @@ and is visible via `coddy mcp list` (approve with `coddy mcp trust <name>`).
 
 *After a wake: the agent's answer follows its previous turn with nothing in between, and `/tasks` says which task woke it and which one will*
 
+![The mention list for "@ment": a folder and four files ranked from across the tree, each with its kind](../assets/cli-tui/18-mention-list.png)
+
+*`@ment`: the whole workspace ranked against the fragment, the kind of every row, and how many matched beyond the fifty the list holds*
+
 Two capture sets exist, and they answer different questions.
 
 `docs/assets/screenshot-console-*.png` are photographs of the running console
@@ -588,7 +601,10 @@ turn, so no real key is needed; only their PNGs are kept.
 `13-subagent-delegation` comes from `examples/cli/capture_subagent.py` the
 same way: a local OpenAI-compatible endpoint scripts a `load_skill` call, a
 `spawn_agent` call, the child's report and the parent's answer, so the shot
-needs neither a provider nor a key.
+needs neither a provider nor a key. `18-mention-list` comes from
+`examples/cli/capture_mentions.py`, which lays out the files of this
+repository empty and under git in a temporary folder, with a temporary home,
+and types `@ment` against a provider that is never asked anything.
 
 `docs/assets/pi-tui-reference/` holds captures of the pi original for
 comparison, as described under **Visual model**.
