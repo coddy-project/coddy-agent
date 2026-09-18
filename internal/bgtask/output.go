@@ -18,6 +18,7 @@ type OutputSink struct {
 	total     int64
 	truncated bool
 	file      *os.File
+	path      string
 	lastWrite time.Time
 }
 
@@ -39,6 +40,7 @@ func (s *OutputSink) AttachFile(path string) error {
 	}
 	s.mu.Lock()
 	s.file = file
+	s.path = path
 	s.mu.Unlock()
 	return nil
 }
@@ -50,8 +52,18 @@ func (s *OutputSink) Write(p []byte) (int, error) {
 
 	s.total += int64(len(p))
 	s.lastWrite = time.Now()
-	if s.file != nil {
+	switch {
+	case s.file != nil:
 		_, _ = s.file.Write(p)
+	case s.path != "":
+		// The task settled and its mirror was closed, but a note about it
+		// (where the memory report went) still belongs to its record on
+		// disk: reopen for this write so the log a later process reads says
+		// the same as the window this one serves.
+		if f, err := os.OpenFile(s.path, os.O_WRONLY|os.O_APPEND, 0o644); err == nil { // #nosec G304 -- the path the sink was attached with
+			_, _ = f.Write(p)
+			_ = f.Close()
+		}
 	}
 
 	s.buf = append(s.buf, p...)

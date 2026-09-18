@@ -63,6 +63,7 @@ What an editor leaves in the file is not part of the configuration. A file writt
 
 `--dry-run` looks at the world the file describes, after the same check `--test-config` performs. Every command that takes `-t` takes it too: `coddy --dry-run`, `coddy cli --dry-run`, `coddy acp --dry-run`, `coddy serve --dry-run`, with `--config` and `--home` selecting the file as for a start. The static check runs first, and a file with errors stops there - probing what a broken file names would only bury the first mistake under its consequences. When the file is clean, the configuration is loaded without side effects (no `config.yaml.bak` written or restored) and probed:
 
+- **memory** - `memory.additional_prompt` longer than `memory.additional_prompt_max_chars` is a warning at the key: the memory subagent reads the cut text;
 - **paths** - `sessions.dir`, `logger.file`, `scheduler.dir` and `memory.dir` are fine when missing as long as they can be created (the process makes them at start), and an error when a regular file stands in the way; `prompts.dir` has to exist, and a template missing from it is a warning; `skills.dirs`, `subagents.dirs` and `hooks.files` entries you wrote are warnings when missing, while absent defaults stay quiet; a hook file that exists has to parse; `swarm.tls` must load and every `dial.ca_file` must hold a certificate;
 - **LLM providers** - each provider is asked for its model list, which exercises the address, the proxy and the credential in one request (`coddy providers login` credentials included); a provider aimed at a vendor's official endpoint with nothing to present is reported without a request. Every `models[]` entry is then checked against that list: a model the server does not name is a warning, since some servers serve more than they list. A `max_tokens` on a `codex` model is a warning whatever the provider answers, since no request carries it;
 - **MCP servers** from `config.yaml` - the executable of a stdio server is resolved in `PATH` the way the spawn would, without spawning it; a remote server is asked for any HTTP answer, with its headers. Project-local `.coddy/mcp.json` declarations are not contacted: they sit behind the workspace trust gate;
@@ -246,10 +247,10 @@ prompts:
   #   {{.Tools}}    - markdown list of tool names and short descriptions for the current mode
   #   {{.Skills}}   - markdown block for active skills (omit section when empty via {{if .Skills}})
   #   {{.TodoList}} - current session todo checklist as markdown lines (empty until coddy todo tools update state)
-  #   {{.Memory}}   - session agent memory plus optional long-term recall when memory.enable is true
+  #   {{.Memory}}   - session notes. The memory subagent's report is not rendered here: it travels in the <turn_context> block
   #   {{.UTCNow}}   - date and time in UTC (RFC3339), refreshed whenever the system prompt is rendered
   #
-  # Built-in templates order: Tools, Skills, Memory (session notes plus optional recall).
+  # Built-in templates order: Tools, Skills, Memory (session notes).
   # They deliberately render neither {{.TodoList}} nor {{.UTCNow}}: both move between the steps of a
   # turn, and the system prompt is what the provider's prompt cache keys the whole conversation on.
   # Coddy sends the clock, the checklist and the rules a tool call activated after the history instead,
@@ -279,18 +280,24 @@ compaction:
   fallback_models: []      # tried in order when the summarizer above them fails; the session
                            # model is the last resort whether or not it is listed
 
-# Optional long-term memory copilot (Go: config.MemoryConfig, internal/config/memory.go; logic in external/memory).
-# Implementation is always linked; enable at runtime with memory.enable.
+# Optional long-term memory subagent (Go: config.MemoryConfig, internal/config/memory.go; logic in external/memory).
+# Linked with the memory build tag; enable at runtime with memory.enable. Every user turn then starts a memory
+# subagent in the background task pool (docs/features/memory.md).
 memory:
   enable: false
-  # Exact id from models[]. Used only for recall and persist tool-calling passes, not for the main assistant model.
-  # Example: "rpa/qwen3.6-35b-a3b". Empty means fall back to agent.model / session override.
+  # Exact id from models[]. The memory subagent runs on it; the main assistant model is unaffected.
+  # Example: "rpa/qwen3.6-35b-a3b". Empty means the session's model.
   model: ""
   dir: "" # long-term memory root; empty = $CODDY_HOME/memory. Supports ${CODDY_HOME} and ~ when set.
-  recall_max_turns: 6
+  wait_seconds: 20      # how long a turn waits for the report before its first model call; 0 never waits
+  timeout_seconds: 300  # hard limit of one memory run
+  keep_runs: 20         # finished memory runs kept per session in the Tasks drawer; 0 keeps all
+  recall_max_turns: 6   # the child's round cap is the larger of the two
   persist_max_turns: 12
   copilot_max_tokens: 4096
   max_search_hits: 8
+  additional_prompt: ""          # your own instructions for the memory subagent only; the main agent never sees them
+  additional_prompt_max_chars: 0 # cut additional_prompt at this many characters (a warning is logged); 0 = no cap
 
 # Skills directories (Go: config.Skills, internal/config/skills.go)
 skills:

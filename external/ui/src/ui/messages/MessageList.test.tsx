@@ -166,32 +166,16 @@ test("plan document on a read-only transcript renders without Run plan and Disca
   expect(screen.queryByRole("button", { name: /discard/i })).toBeNull();
 });
 
-test("renders memory copilot foldout", () => {
+test("a memory run renders nothing in the transcript", () => {
   const items: TranscriptItem[] = [
     { id: "u1", type: "user_message", content: "Hi" },
-    {
-      id: "m1",
-      type: "memory_copilot",
-      memoryRowId: "mem-1",
-      userTurnIndex: 1,
-      recallStatus: "completed",
-      persistStatus: "completed",
-      recallText: "- fact",
-      recallReasoning: "",
-      persistText: '{"save":false,"reason":"No durable fact to persist."}',
-      persistReasoning: "",
-      recallDurationMs: 10,
-      persistDurationMs: 5,
-      persistSaved: false,
-    },
+    { id: "m1", type: "memory_run", status: "started", taskId: "bg_1" },
   ];
 
-  render(<MessageList items={items} />);
+  const { container } = render(<MessageList items={items} />);
 
-  expect(screen.getByTestId("memory-copilot-row")).toBeTruthy();
-  expect(document.querySelector(".coddy-memory-recall")).toBeTruthy();
-  expect(screen.getByText("fact")).toBeInTheDocument();
-  expect(screen.getByText(/No durable fact to persist/)).toBeInTheDocument();
+  expect(container.querySelector(".thinking-row")).toBeNull();
+  expect(screen.getByText("Hi")).toBeInTheDocument();
 });
 
 // The live line is on screen for the whole turn and always says what is happening,

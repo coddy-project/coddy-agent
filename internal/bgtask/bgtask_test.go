@@ -1348,6 +1348,105 @@ func TestDeriveLabelForAnAgentTask(t *testing.T) {
 	}
 }
 
+// --- system tasks: admitted past the per-session cap, never counted, removable one by one ---
+
+func systemAgentSpec(sessionID string) Spec {
+	return Spec{
+		SessionID: sessionID,
+		Kind:      KindAgent,
+		Label:     "memory: what did we decide",
+		Agent:     &AgentInfo{Name: "memory", SessionID: "sess_mem", System: true},
+	}
+}
+
+func TestSystemTasksAreAdmittedPastThePerSessionCapAndNotCounted(t *testing.T) {
+	runner := &stubRunner{}
+	p := newTestPool(t, runner, Config{MaxConcurrent: 1})
+
+	first, err := p.Start(Spec{SessionID: "s1", Command: "sleep 1"})
+	if err != nil {
+		t.Fatalf("Start(): %v", err)
+	}
+	// The model's slot is taken; a system task is admitted anyway.
+	sysHandle := &stubHandle{release: make(chan struct{})}
+	sys, err := p.Launch(systemAgentSpec("s1"), func(string, io.Writer) (Handle, error) { return sysHandle, nil })
+	if err != nil {
+		t.Fatalf("a system task must be admitted past the per-session cap, got %v", err)
+	}
+	if !sys.SystemTask() {
+		t.Fatal("the snapshot of a system task must say so")
+	}
+	// A second model task is still refused: the system task did not free the slot.
+	if _, err := p.Start(Spec{SessionID: "s1", Command: "sleep 2"}); !errors.Is(err, ErrPoolFull) {
+		t.Fatalf("second model task: err = %v, want ErrPoolFull", err)
+	}
+	if got := p.RunningCount("s1"); got != 1 {
+		t.Fatalf("RunningCount = %d, want 1 (the system task is not the model's)", got)
+	}
+	// With the model's task done, a new one is admitted while the system task still runs.
+	runner.last().finish(0)
+	waitForStatus(t, p, "s1", first.ID, StatusSucceeded)
+	if _, err := p.Start(Spec{SessionID: "s1", Command: "sleep 3"}); err != nil {
+		t.Fatalf("a model task must be admitted while only a system task runs, got %v", err)
+	}
+	sysHandle.finish(0)
+	waitForStatus(t, p, "s1", sys.ID, StatusSucceeded)
+}
+
+func TestSystemFlagPersistsWithTheTaskRecord(t *testing.T) {
+	dir := t.TempDir()
+	pool := NewWithRunner(Config{}, &stubRunner{})
+	pool.SetSessionDir("s", dir)
+	h := &stubHandle{release: make(chan struct{})}
+	snap, err := pool.Launch(systemAgentSpec("s"), func(string, io.Writer) (Handle, error) { return h, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.finish(0)
+	if _, err := pool.Wait(context.Background(), "s", snap.ID, 2*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, backgroundDirName, snap.ID, metaFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record map[string]interface{}
+	if err := json.Unmarshal(raw, &record); err != nil {
+		t.Fatal(err)
+	}
+	agent, _ := record["agent"].(map[string]interface{})
+	if agent["system"] != true || agent["name"] != "memory" {
+		t.Fatalf("persisted agent identity = %v, want the system flag and the name", record["agent"])
+	}
+	loaded := LoadPersisted(dir)
+	if len(loaded) != 1 || !loaded[0].SystemTask() {
+		t.Fatalf("LoadPersisted lost the system flag: %+v", loaded)
+	}
+}
+
+// A note written after the task settled still reaches the record on disk:
+// the sink reopens its mirror for that write.
+func TestOutputSinkWritesAfterCloseReachTheFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), outputFileName)
+	sink := NewOutputSink(0)
+	if err := sink.AttachFile(path); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = sink.Write([]byte("while running\n"))
+	sink.Close()
+	_, _ = sink.Write([]byte("report delivered to the turn (first request)\n"))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "while running\nreport delivered to the turn (first request)\n" {
+		t.Fatalf("file = %q", string(data))
+	}
+	if !strings.Contains(sink.Text(), "report delivered") {
+		t.Fatal("the in-memory window must carry the late line too")
+	}
+}
+
 // Retention of scheduled runs removes one finished task at a time, in memory
 // and on disk, while the rest of the session's history stays.
 func TestForgetDropsAFinishedTaskFromMemoryAndDisk(t *testing.T) {

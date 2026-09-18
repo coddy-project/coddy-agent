@@ -134,18 +134,18 @@ Compiled in with the `scheduler` tag and registered only while the scheduler is 
 | `coddy_scheduler_job_run` | Start one run now, as a background agent task under the job session; answers with the task and the run session | `job_id` | always | agent |
 | `coddy_scheduler_job_cancel` | Stop the run of a job that is in flight | `job_id` | always | agent |
 
-## Memory copilot
+## Memory subagent
 
-With the `memory` tag, the long-term memory copilot runs its own small model loop before and after a turn and calls these tools itself; they are not in the registry and the main model never sees them (`external/memory/copilot.go`, `external/memory/tools`). The recall phase gets the first three, the persist phase all six. Paths are `scope:relative/path.md` ([Long-term memory](../features/memory.md#the-tools)).
+With the `memory` tag, every user turn starts a memory subagent, a child agent run in the background task pool, and these are its tools: they are registered into that child's registry only (`internal/agent/memory_hooks.go`, `external/memory/tools`), so the main model never sees them. A recall-only child (an ask-mode turn) gets the first three, every other child all six. Paths are `scope:relative/path.md` ([Long-term memory](../features/memory.md#the-tools)).
 
 | Tool | Purpose | Arguments (short) | Permission | Modes |
 |---|---|---|---|---|
-| `coddy_memory_search` | Rank the notes under the chosen roots against a query | `query`, `scope` | none | copilot only |
-| `coddy_memory_list` | List directories and notes one level under a path | `path` | none | copilot only |
-| `coddy_memory_read` | Read one note | `path` | none | copilot only |
-| `coddy_memory_mkdir` | Create nested folders under a scope | `path` | none | copilot only |
-| `coddy_memory_save` | Write or overwrite a note | `title`, `body`, `scope`, `relative_path` | none | copilot only |
-| `coddy_memory_delete` | Delete a note or a folder with everything under it, never a root | `path` | none | copilot only |
+| `coddy_memory_search` | Rank the notes under the chosen roots against a query | `query`, `scope` | none | memory child |
+| `coddy_memory_list` | List directories and notes one level under a path | `path` | none | memory child |
+| `coddy_memory_read` | Read one note | `path` | none | memory child |
+| `coddy_memory_mkdir` | Create nested folders under a scope | `path` | none | memory child |
+| `coddy_memory_save` | Write or overwrite a note | `title`, `body`, `scope`, `relative_path` | none | memory child |
+| `coddy_memory_delete` | Delete a note or a folder with everything under it, never a root | `path` | none | memory child |
 
 ## MCP tools
 

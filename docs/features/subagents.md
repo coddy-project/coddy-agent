@@ -256,6 +256,16 @@ agent: explore | task: bg_3 | session: sess_9f1c… | outcome: end_turn | turns:
 
 `✗ <tool> (failed)` marks a tool call that failed or was refused, including one outside the child's tool set. `outcome` is the child's stop reason (`end_turn`, `cancelled`, `failed`, or another ACP stop reason), `turns` is the number of assistant rounds in the child's transcript (the same count the foreground envelope carries), and an `error:` line precedes the report when the run ended with one.
 
+## System children: the memory subagent
+
+The runtime starts one child of its own: with `memory.enable` on, every user turn launches the **memory subagent**, which recalls and persists the long-term notes ([Long-term memory](memory.md)). It is built on the same machinery as a `spawn_agent` child - a task of kind `agent` in the pool, a child session inside the parent's bundle, the same transcript and log - through a launcher of its own, so not every spawn rule holds for it:
+
+- its task row carries `agent.system: true` and the name `memory`; the Tasks drawer shows a `memory` badge where a delegation shows `agent`, and the model-facing pool tools omit it and refuse its id;
+- it is admitted past `tools.background.max_concurrent` and never counted against it, and `subagents.max_concurrent` does not count it either; its own bounds are two runs per session and sixteen per process;
+- it has six tools its parent does not have, the one exception to the rule that a child's set only narrows: the set is fixed in code, granted only to this child, never through a definition file, and it reaches nothing but the two note roots. Its mode is always `agent`; an ask-mode turn narrows it to the three recall tools;
+- `SubagentStart` and `SubagentStop` do not fire for it (they describe delegations the model chose); inside the child the ordinary events fire with `"kind": "memory"` in the `subagent` block of the payload;
+- it takes no permission relay (nothing in its set is gated) and no definition, so a definition file named `memory` stays legal and is a different child, told apart in the drawer by the badge.
+
 ## Remote mode
 
 Subagents live where the session manager lives. With the console or `coddy acp` in `--remote` mode (`docs/surfaces/console.md`, Remote mode) the manager, the child sessions, the pool tasks and the trust receipts are all on the `coddy serve` host:

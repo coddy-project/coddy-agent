@@ -47,8 +47,7 @@ async function drive(sse: string): Promise<TranscriptItem[]> {
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map() },
     newId: (p) => `${p}-${idc++}`,
-    applyMemoryPhaseToItems: (prev) => prev,
-    applyMemoryChunkToItems: (prev) => prev,
+    applyMemoryRunToItems: (prev) => prev,
   };
   const res = await consumeComposerSseReader(params);
   res.flushToolQueue();
@@ -72,8 +71,7 @@ test("usage_update replaces the displayed current context after compaction", asy
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map() },
     newId: (p) => p,
-    applyMemoryPhaseToItems: (prev) => prev,
-    applyMemoryChunkToItems: (prev) => prev,
+    applyMemoryRunToItems: (prev) => prev,
   };
 
   await consumeComposerSseReader(params);
@@ -257,8 +255,7 @@ test("queued tool rows land even when no animation frame ever comes", async () =
       tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
       reasoningDurationMsByContentRef: { current: new Map() },
       newId: (p) => p,
-      applyMemoryPhaseToItems: (prev) => prev,
-      applyMemoryChunkToItems: (prev) => prev,
+      applyMemoryRunToItems: (prev) => prev,
     };
     await consumeComposerSseReader(params);
     expect(items).toHaveLength(0);
@@ -343,8 +340,7 @@ async function driveWithPrompts(sse: string): Promise<string[]> {
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map() },
     newId: (p) => `${p}-${idc++}`,
-    applyMemoryPhaseToItems: (prev) => prev,
-    applyMemoryChunkToItems: (prev) => prev,
+    applyMemoryRunToItems: (prev) => prev,
     // Mirrors App.tsx: both handlers apply their row straight away, outside the queue.
     onQuestion: (raw) =>
       applyStreamItems((prev) => [

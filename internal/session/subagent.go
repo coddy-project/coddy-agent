@@ -12,6 +12,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 )
 
 // ErrSubagentReadOnly is returned for any prompt against a child session that
@@ -87,6 +88,16 @@ type SubagentSpec struct {
 	// ClientMCPServers are the parent's ACP client-supplied declarations to
 	// redial; they exist nowhere in the configuration.
 	ClientMCPServers []config.MCPServerConfig
+	// Kind marks a system child (SubagentKindMemory); empty for a spawn_agent
+	// child. A system child gets no skills and no rules catalog: its prompt
+	// renders neither, and the I/O would be spent inside the parent's wait.
+	Kind string
+	// PromptTemplate is the system prompt template source of a system child.
+	PromptTemplate string
+	// MaxTokens clamps the child's completion size; 0 keeps the model's bound.
+	MaxTokens int
+	// FallbackModels are the models[].model ids the child falls back to.
+	FallbackModels []string
 	// ResolveTools decides the effective tool set once the child's MCP
 	// clients are up, for a run that has no parent to copy the names from (a
 	// scheduled run). It receives every MCP tool name the child can call and
@@ -98,6 +109,10 @@ type SubagentSpec struct {
 	// its bundle.
 	Scheduler *SchedulerRunMeta
 }
+
+// ErrChildLive is returned by RemoveRetiredChild for a child session that is
+// still live or still owns a running task.
+var ErrChildLive = errors.New("child session is still live")
 
 // CreateSubagentSession builds, registers and persists a child session. The
 // live entry is what transcript reads see while the child runs; afterwards
@@ -125,9 +140,13 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 	}
 
 	active := m.activeCfg()
-	loadedSkills, err := m.loadSkills(cwd, active)
-	if err != nil {
-		m.log.Warn("failed to load skills for subagent", "error", err)
+	system := strings.TrimSpace(spec.Kind) != ""
+	var loadedSkills []*skills.Skill
+	if !system {
+		loadedSkills, err = m.loadSkills(cwd, active)
+		if err != nil {
+			m.log.Warn("failed to load skills for subagent", "error", err)
+		}
 	}
 
 	mode := ModeAgent
@@ -157,12 +176,18 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 		MaxTurns:        spec.MaxTurns,
 		Role:            spec.Role,
 		Tools:           spec.Tools,
+		Kind:            strings.TrimSpace(spec.Kind),
+		PromptTemplate:  spec.PromptTemplate,
+		MaxTokens:       spec.MaxTokens,
+		FallbackModels:  spec.FallbackModels,
 		Scheduler:       spec.Scheduler,
 	})
 	if title := strings.TrimSpace(spec.Title); title != "" {
 		state.SetTitlePinnedWithoutPersist(title)
 	}
-	state.ReplaceRulesCatalog(DiscoverRules(active, cwd))
+	if !system {
+		state.ReplaceRulesCatalog(DiscoverRules(active, cwd))
+	}
 	state.SetPersistHook(m.makePersist(state))
 
 	if err := ctx.Err(); err != nil {
@@ -398,6 +423,62 @@ func (m *Manager) RunSubagentTurn(ctx context.Context, sessionID string, prompt 
 // Callers stop the tasks the child owns before retiring it.
 func (m *Manager) RetireSubagentSession(sessionID string) {
 	m.ForgetLiveSession(strings.TrimSpace(sessionID))
+}
+
+// RemoveRetiredChild deletes the bundle of a finished child session together
+// with any descendants: retention of memory runs uses it to drop the oldest
+// ones. It refuses, with ErrChildLive and nothing removed, a session of the
+// tree that is still live in this process or still owns a running task; a
+// session that is not a child at all is refused too, so a caller can never
+// reach a chat through it.
+func (m *Manager) RemoveRetiredChild(childID string, pool *bgtask.Pool) error {
+	id := strings.TrimSpace(childID)
+	if err := ValidateFolderSessionID(id); err != nil {
+		return err
+	}
+	if m.store == nil || m.store.Root == "" {
+		return fmt.Errorf("session store unavailable")
+	}
+	nodes, err := m.SessionTree(id)
+	if err != nil {
+		return err
+	}
+	dir := m.store.SessionPath(id)
+	if !nodes[0].SubagentRun {
+		// Nothing on disk and nothing live: the bundle is already gone, and
+		// removing it again is a no-op. A session that exists but is not a
+		// child is refused.
+		if _, statErr := os.Stat(dir); os.IsNotExist(statErr) && m.getSession(id) == nil {
+			return nil
+		}
+		return fmt.Errorf("session %s is not a child session", id)
+	}
+	for _, n := range nodes {
+		if m.getSession(n.ID) != nil {
+			return fmt.Errorf("%w: %s", ErrChildLive, n.ID)
+		}
+		if pool == nil {
+			continue
+		}
+		for _, t := range pool.List(n.ID) {
+			if !t.Status.Finished() {
+				return fmt.Errorf("%w: %s owns the running task %s", ErrChildLive, n.ID, t.ID)
+			}
+		}
+	}
+	if _, err := os.Stat(dir); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("remove child session %s: %w", id, err)
+	}
+	for _, n := range nodes {
+		m.store.ForgetChildDir(n.ID)
+	}
+	return nil
 }
 
 // subagentParentOf names the parent for error messages.

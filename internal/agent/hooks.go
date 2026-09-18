@@ -53,6 +53,7 @@ func (a *Agent) buildHookRunner(mode string) *hooks.Runner {
 			Name:            a.subagent.Name,
 			ParentSessionID: a.subagent.ParentSessionID,
 			Depth:           a.subagent.Depth,
+			Kind:            a.subagent.Kind,
 		}
 	}
 	return &hooks.Runner{

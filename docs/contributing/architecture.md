@@ -151,7 +151,7 @@ Built-in implementations are grouped in subfolders under **`internal/tools/`**:
 Agents see:
 
 - **`agent`** mode - every built-in registered by **`internal/tools.NewRegistryFor`** (filesystem, shell, todo, optional scheduler tools, **`websearch`**, **`webfetch`**, **`question`**, **`plan_exit`**, **`spawn_agent`**, etc.) plus MCP tools from connected servers.
-- **`plan`** mode - the allowlisted builtins above plus MCP tools. Built-in writes, todo tools, scheduler, and memory tools are not advertised to the LLM.
+- **`plan`** mode - the allowlisted builtins above plus MCP tools. Built-in writes, todo tools and scheduler tools are not advertised to the LLM. The memory tools are in no ordinary session's registry at all: they are registered into the memory subagent's registry only (**`internal/agent/memory_hooks.go`**).
 
 `run_command`, optional write paths, out-of-tree paths, and interactive **`question`** flows still coordinate with the client (**`session/request_permission`** for destructive paths; HTTP streaming uses **`event: question`** plus **`POST /coddy/sessions/{id}/question`**).
 
@@ -190,7 +190,7 @@ Some features live under **`external/`** and define tools that are **not** regis
 
 1. **One tool per file** - a package-local constructor returns **`*tooling.Tool`** with **`Definition`** (name, description, **`InputSchema`**) and **`Execute`** in one place. **`Execute`** takes **`context.Context`**, JSON args as a string, and **`*tooling.Env`** (use **`CWD`** or other fields when the tool needs session context; pass **`&tooling.Env{}`** when unused).
 2. **JSON schema maps** - prefer **`map[string]interface{}`** for **`InputSchema`** and **`[]interface{}`** for **`required`** and enum lists so OpenAI and Anthropic marshaling stay consistent with existing scheduler tools.
-3. **`register.go`** - collects constructors. **`external/scheduler/tools`** exposes **`RegisterTools`** for the main agent registry. **`external/memory/tools`** exposes **`PersistTools`**, **`RecallTools`**, **`ToolDefinitions`**, and **`Exec`** because the memory copilot runs a separate LLM loop in **`external/memory/copilot.go`**.
+3. **`register.go`** - collects constructors. **`external/scheduler/tools`** exposes **`RegisterTools`** for the main agent registry. **`external/memory/tools`** exposes **`PersistTools`** and **`RecallTools`**, which **`external/memory.Tools`** hands to **`internal/agent`** for the registry of the memory subagent (a child session the runtime starts per user turn), never for an ordinary session.
 4. **Naming** - scheduler files use the **`job_*.go`** prefix; memory tool bodies use the **`mem_*.go`** prefix; **`external/memory/tools`** keeps **`env.go`**, **`names.go`**, **`register.go`** without the **`mem_`** prefix.
 
 ### MCP Client (`internal/mcp`)
@@ -255,7 +255,7 @@ YAML-based configuration. Resolution uses **`CODDY_HOME`** (default **`~/.coddy`
 - Read-only research surface enforced by **`internal/agent.ToolSetForMode("ask")`**
 - **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`**, **`load_skill`** — no shell, no plan or todo tools, no config tools, and no MCP tools
 - Unlike **plan**, the allowlist is also enforced at execution time: a tool call outside the set (for example replayed from history) is refused with a read-only notice instead of being executed; approving such a pending call with **allow always** records no grant either
-- A **`@plans/<slug>.plan.md`** mention or **`runPlanSlug`** metadata never starts a plan run in ask mode (the mention is inlined as reading material, the metadata shortcut is refused), and the memory copilot runs recall-only (no memory writes)
+- A **`@plans/<slug>.plan.md`** mention or **`runPlanSlug`** metadata never starts a plan run in ask mode (the mention is inlined as reading material, the metadata shortcut is refused), and the memory subagent runs recall-only (no memory writes)
 - Suitable for: questions about the codebase, code review and diagnosis, and web research without any mutation surface
 
 Mode switching:
@@ -271,7 +271,7 @@ Top level after **`git clone`** (folder name is arbitrary; **`coddy-agent`** is 
 ├── cmd/coddy/                   # CLI entry (acp, http, sessions, skills)
 ├── internal/                    # core harness (acp, session, agent, config, tools, …)
 ├── external/
-│   ├── memory/                  # long-term memory copilot (`-tags memory`)
+│   ├── memory/                  # long-term memory subagent (`-tags memory`)
 │   ├── httpserver/              # optional REST gateway (build tag http)
 │   ├── ui/                      # Vite SPA sources (embedded when built with http+ui)
 │   ├── scheduler/               # optional cron runner (build tag scheduler)

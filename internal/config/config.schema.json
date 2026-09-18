@@ -1006,18 +1006,18 @@
     },
     "memory": {
       "type": "object",
-      "title": "Long-term memory copilot",
-      "description": "Optional memory copilot (implementation in external/memory; enable at runtime with memory.enable).",
+      "title": "Long-term memory subagent",
+      "description": "Optional memory subagent (implementation in external/memory; enable at runtime with memory.enable).",
       "additionalProperties": false,
       "properties": {
         "enable": {
           "type": "boolean",
-          "description": "Turn on the memory copilot.",
+          "description": "Run the memory subagent on every user turn (needs the memory build tag).",
           "default": false
         },
         "model": {
           "type": "string",
-          "description": "Exact models[].model id used only for recall/persist LLM calls; empty falls back to agent.model or the session override.",
+          "description": "Exact models[].model id the memory subagent runs on; empty uses the session's model.",
           "default": ""
         },
         "fallback_models": {
@@ -1025,32 +1025,63 @@
           "items": {
             "type": "string"
           },
-          "description": "Memory copilot models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so one unreachable deployment does not take the memory pass down with it."
+          "description": "Memory subagent models tried in order when the one before them fails before answering (models[].model ids). The session's own model is the last resort whether or not it is listed, so one unreachable deployment does not take the memory run down with it."
         },
         "dir": {
           "type": "string",
           "description": "Long-term memory root. Empty resolves to ${CODDY_HOME}/memory. Supports ${CODDY_HOME} and ~.",
           "default": ""
         },
+        "wait_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "How long a user turn waits for the memory subagent's report before its first model call. An explicit 0 never waits: the report then reaches the turn only through a later step, or stays in the Tasks drawer.",
+          "default": 20
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "description": "Hard limit of one memory run in seconds, capped by tools.background.max_timeout_seconds like every task of the pool.",
+          "default": 300
+        },
+        "keep_runs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Finished memory runs kept per session, task record and child transcript alike; the oldest beyond this number are removed when a run finishes. An explicit 0 keeps every run.",
+          "default": 20
+        },
         "recall_max_turns": {
           "type": "integer",
-          "description": "Bounds recall-side LLM rounds in the memory loop.",
+          "description": "Bounds the memory subagent's ReAct rounds together with persist_max_turns; the child's cap is the larger of the two.",
           "default": 6
         },
         "persist_max_turns": {
           "type": "integer",
-          "description": "Bounds persist-side LLM rounds in the memory loop.",
+          "description": "Bounds the memory subagent's ReAct rounds together with recall_max_turns; the child's cap is the larger of the two.",
           "default": 12
         },
         "copilot_max_tokens": {
           "type": "integer",
-          "description": "Completion token cap for memory copilot LLM calls.",
+          "description": "Completion token cap for the memory model's calls.",
           "default": 4096
         },
         "max_search_hits": {
           "type": "integer",
           "description": "Maximum snippets returned by memory_search.",
           "default": 8
+        },
+        "additional_prompt": {
+          "type": "string",
+          "description": "Operator instructions for the memory subagent alone: a section of its system prompt that the main agent never sees. Empty adds nothing.",
+          "default": ""
+        },
+        "additional_prompt_max_chars": {
+          "type": "integer",
+          "description": "Cap on additional_prompt in characters; a longer text is cut there, the agent log says so and coddy -t reports it. 0 means no cap.",
+          "default": 0
         }
       }
     },

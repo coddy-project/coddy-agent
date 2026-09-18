@@ -61,7 +61,7 @@ Plan mode restricts what the model is offered; ask mode also restricts what may 
 - MCP tool names are refused the same way, since they are never in the list;
 - approving such a pending call with *allow always* records no grant.
 
-The rest of the boundary follows from it. A `metadata.runPlanSlug` on `POST /v1/responses` with `model` `ask` is answered with `409` before the turn starts, the same hook over ACP is refused with an error, and a `@plans/<slug>.plan.md` mention is inlined as reading material rather than run. The memory copilot recalls but never saves. `spawn_agent` is not offered, so an ask turn cannot delegate. The deterministic operator commands typed as the prompt (`/compact`, `/plugin`) are outside this boundary. The happy paths are `features/ask_mode.feature` and `features/ask_mode_http.feature`.
+The rest of the boundary follows from it. A `metadata.runPlanSlug` on `POST /v1/responses` with `model` `ask` is answered with `409` before the turn starts, the same hook over ACP is refused with an error, and a `@plans/<slug>.plan.md` mention is inlined as reading material rather than run. The memory subagent recalls but never saves. `spawn_agent` is not offered, so an ask turn cannot delegate. The deterministic operator commands typed as the prompt (`/compact`, `/plugin`) are outside this boundary. The happy paths are `features/ask_mode.feature` and `features/ask_mode_http.feature`.
 
 ![The composer in ask mode](../assets/modes-pill-hero-dark-1280.png)
 

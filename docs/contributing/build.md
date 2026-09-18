@@ -197,7 +197,7 @@ Order does not matter for these tags.
 
 | Tag | Enables | Documentation |
 |-----|---------|----------------|
-| **`memory`** | Long-term memory copilot; with **`http`**, **`/coddy/sessions/{id}/memory/*`** REST; toggle runtime behavior with **`memory.enable`** | [`external/memory/README.md`](../../external/memory/README.md) |
+| **`memory`** | The long-term memory subagent; with **`http`**, **`/coddy/sessions/{id}/memory/*`** REST; toggle runtime behavior with **`memory.enable`** | [`external/memory/README.md`](../../external/memory/README.md) |
 | **`http`** | The OpenAI-shaped REST gateway `coddy serve` runs under **`httpserver.enable`**, **`/docs`**, **`/openapi.yaml`** | [`docs/reference/http-api.md`](../reference/http-api.md) · [`external/httpserver/`](../../external/httpserver) |
 | **`ui`** | Embedded SPA on **`/`** (requires **`http`**; **`/`** returns **404** with **`http`** only) | [`docs/surfaces/web-ui.md`](../surfaces/web-ui.md) · [`DESIGN.md`](../../DESIGN.md) |
 | **`scheduler`** | Scheduler daemon hooks, **`coddy_scheduler_*`** tools; with **`http`**, **`/coddy/scheduler`** REST | [`docs/operate/scheduler.md`](../operate/scheduler.md) · [`external/scheduler/README.md`](../../external/scheduler/README.md) |

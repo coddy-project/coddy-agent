@@ -122,12 +122,20 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 // between the steps of a turn throws away the cached copy of everything behind
 // it. What moves while the turn runs - the wall clock, the todo checklist, the
 // rules a tool call activated - travels in the turn context block appended
-// after the history instead (turn_context.go).
+// after the history instead (turn_context.go). So does the memory subagent's
+// report, which moves between turns: a recall answers one message, and a
+// report rendered here would make every turn's system message a new one and
+// cost the cached copy of the whole conversation each time.
 func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition, userText string, contextFiles []string) *systemPromptBuild {
 	promptsDir := a.cfg.Prompts.ResolvedDir(a.state.GetCWD())
 	clock := a.now().UTC()
+	if a.subagent != nil && strings.TrimSpace(a.subagent.PromptTemplate) != "" {
+		return a.buildTemplatedChildPrompt(mode, toolDefs, clock)
+	}
 	promptTodoMD := checklistMarkdownFromPlan(a.state.GetPlan())
-	mem := formatMergedMemory(strings.TrimSpace(a.state.GetAgentMemory()), strings.TrimSpace(a.state.GetMemoryCopilotBlock()))
+	// The session notes only: the memory subagent's report is per-turn text
+	// and never enters the system message (see above).
+	mem := formatSessionNotes(strings.TrimSpace(a.state.GetAgentMemory()))
 	planCtx := ""
 	if mode == "agent" {
 		// Read, never taken. The turn it belongs to renders this prompt more
@@ -204,6 +212,41 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 	return build
 }
 
+// buildTemplatedChildPrompt renders the system prompt of a system child that
+// carries a template of its own (the memory subagent): the template with the
+// working directory and the tool list, then the environment block, the hook
+// context and the identity line as for every prompt. Skills, rules, project
+// instructions, the subagent catalog and the session memory are not
+// rendered: the child's task is not the workspace's, and a template that
+// does not print them must not be handed them through the back door.
+func (a *Agent) buildTemplatedChildPrompt(mode string, toolDefs []llm.ToolDefinition, clock time.Time) *systemPromptBuild {
+	toolsMD := tools.FormatDefinitionsForPrompt(toolDefs)
+	// The template frames the child itself, so the role slot carries the
+	// role text alone: for the memory child, the operator's additional_prompt.
+	full, err := prompts.RenderSource(a.subagent.Kind, a.subagent.PromptTemplate, prompts.TemplateData{
+		CWD:          a.state.GetCWD(),
+		Tools:        toolsMD,
+		SubagentRole: strings.TrimSpace(a.subagent.Role),
+		UTCNow:       clock.Format(time.RFC3339),
+	})
+	if err != nil {
+		a.log.Warn("child prompt template failed to render; using the role alone", "kind", a.subagent.Kind, "error", err)
+		full = a.subagentRoleBlock()
+	}
+	full = joinNonEmptyPromptBlocks(full, a.environment.PromptContext())
+	full = joinNonEmptyPromptBlocks(full, a.hookContextBlock())
+	full = prompts.WithIdentity(full)
+	build := &systemPromptBuild{
+		Mode:     mode,
+		Content:  full,
+		ToolsMD:  toolsMD,
+		ToolDefs: toolDefs,
+		Clock:    clock,
+	}
+	a.refreshContextBreakdown(build, "")
+	return build
+}
+
 // refreshContextBreakdown re-estimates the context UI from a frozen system
 // prompt. The loop calls it every step, because the estimate is what
 // auto-compaction reads and tool results grow between calls while the system
@@ -244,13 +287,11 @@ func checklistMarkdownFromPlan(entries []acp.PlanEntry) string {
 	return strings.TrimSpace(todo.FormatPlanMarkdown(entries))
 }
 
-func formatMergedMemory(sessionNotes, recall string) string {
-	var parts []string
-	if recall != "" {
-		parts = append(parts, recall)
+// formatSessionNotes is the {{.Memory}} slot: the notes of this session, which
+// move rarely. The memory subagent's report is not part of it.
+func formatSessionNotes(sessionNotes string) string {
+	if sessionNotes == "" {
+		return ""
 	}
-	if sessionNotes != "" {
-		parts = append(parts, "Session notes:\n"+sessionNotes)
-	}
-	return strings.Join(parts, "\n\n")
+	return "Session notes:\n" + sessionNotes
 }

@@ -59,10 +59,16 @@ const (
 // Spec before the task is admitted, so every snapshot the pool publishes or
 // persists carries the child session id from the first one.
 type AgentInfo struct {
-	// Name is the subagent definition name.
+	// Name is the subagent definition name, or the name of a system agent.
 	Name string `json:"name"`
 	// SessionID is the child session that holds the run's transcript.
 	SessionID string `json:"session_id,omitempty"`
+	// System marks a run the runtime started on its own behalf (the memory
+	// subagent) rather than a delegation the model asked for. A system task
+	// is admitted past the per-session cap and never counted against it, is
+	// hidden from the model-facing pool tools, and is told apart in the
+	// Tasks drawer by this flag rather than by its name.
+	System bool `json:"system,omitempty"`
 }
 
 // Spec describes work handed to the pool.
@@ -137,6 +143,12 @@ type Snapshot struct {
 	// and stuck at the same time; silence is the only signal available without
 	// knowing what the command is supposed to do.
 	LastOutputAt *time.Time `json:"last_output_at,omitempty"`
+}
+
+// SystemTask reports whether the runtime started this task on its own behalf
+// (see AgentInfo.System).
+func (s Snapshot) SystemTask() bool {
+	return s.Agent != nil && s.Agent.System
 }
 
 // SilentFor reports how long the task has produced nothing. It is zero for a

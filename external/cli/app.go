@@ -85,7 +85,6 @@ type App struct {
 
 	// Streaming state.
 	curAssistant *assistantMessage
-	curMemory    *assistantMessage
 	toolBoxes    map[string]*toolBox
 	lastToolID   string
 
@@ -1152,7 +1151,6 @@ func (a *App) resetTranscript() {
 	a.toolFullCache = map[string]string{}
 	a.toolFullPending = map[string]bool{}
 	a.curAssistant = nil
-	a.curMemory = nil
 	a.lastToolID = ""
 	a.foot.ResetTokens()
 }

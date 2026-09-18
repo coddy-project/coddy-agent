@@ -314,7 +314,12 @@ func (p *Pool) start(spec Spec, launch LaunchFunc) (Snapshot, error) {
 		p.mu.Unlock()
 		return Snapshot{}, ErrDraining
 	}
-	if p.runningForSession(spec.SessionID) >= p.cfg.MaxConcurrent {
+	// The per-session cap bounds the work the model starts. A system task
+	// (the memory subagent) is the runtime's own errand: it is admitted past
+	// the cap and, in runningForSession, never counted toward it, so a run
+	// per user turn cannot refuse the model's next command.
+	system := spec.Agent != nil && spec.Agent.System
+	if !system && p.runningForSession(spec.SessionID) >= p.cfg.MaxConcurrent {
 		p.mu.Unlock()
 		return Snapshot{}, fmt.Errorf("%w (limit %d)", ErrPoolFull, p.cfg.MaxConcurrent)
 	}
@@ -869,18 +874,20 @@ func (p *Pool) ReleaseSession(sessionID string) {
 	delete(p.sessionDirs, sessionID)
 }
 
-// RunningCount reports how many tasks of a session are still in flight.
+// RunningCount reports how many tasks the model started in a session are
+// still in flight. System tasks are not the model's and are not counted.
 func (p *Pool) RunningCount(sessionID string) int {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.runningForSession(strings.TrimSpace(sessionID))
 }
 
-// runningForSession must be called with the pool lock held.
+// runningForSession must be called with the pool lock held. It counts the
+// tasks the per-session cap applies to, so a system task is skipped.
 func (p *Pool) runningForSession(sessionID string) int {
 	count := 0
 	for _, t := range p.tasks {
-		if t.snap.SessionID != sessionID {
+		if t.snap.SessionID != sessionID || t.snap.SystemTask() {
 			continue
 		}
 		t.mu.Lock()

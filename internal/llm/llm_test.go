@@ -1173,3 +1173,109 @@ func TestOpenAICompletionReportsCachedInputTokens(t *testing.T) {
 		t.Fatalf("cached input tokens: got %d, want 768", resp.CachedInputTokens)
 	}
 }
+
+// --- fallback.go: a chain of models that moves on only before any output ---
+
+func TestFallbackChainMovesToTheNextModelWhenACallFailsBeforeOutput(t *testing.T) {
+	broken := &stubProvider{
+		streamFn: func(context.Context, []Message, []ToolDefinition, func(StreamChunk)) (*Response, error) {
+			return nil, errors.New("401 Unauthorized")
+		},
+		completeFn: func(context.Context, []Message, []ToolDefinition) (*Response, error) {
+			return nil, errors.New("401 Unauthorized")
+		},
+	}
+	healthy := &stubProvider{
+		streamFn: func(_ context.Context, _ []Message, _ []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
+			onChunk(StreamChunk{TextDelta: "hello"})
+			return &Response{Content: "hello", StopReason: "end_turn"}, nil
+		},
+		completeFn: func(context.Context, []Message, []ToolDefinition) (*Response, error) {
+			return &Response{Content: "hello", StopReason: "end_turn"}, nil
+		},
+	}
+	var moves []string
+	chain := NewFallbackChain([]FallbackCandidate{
+		{Provider: broken, Model: "a/broken"},
+		{Provider: healthy, Model: "b/healthy"},
+	}, func(from, to string, err error) { moves = append(moves, from+"->"+to+": "+err.Error()) })
+
+	var streamed strings.Builder
+	resp, err := chain.Stream(context.Background(), nil, nil, func(ch StreamChunk) { streamed.WriteString(ch.TextDelta) })
+	if err != nil || resp == nil || resp.Content != "hello" {
+		t.Fatalf("Stream = %+v, %v; want the healthy model's answer", resp, err)
+	}
+	if streamed.String() != "hello" {
+		t.Fatalf("streamed %q, want only the healthy model's text", streamed.String())
+	}
+	if resp, err := chain.Complete(context.Background(), nil, nil); err != nil || resp.Content != "hello" {
+		t.Fatalf("Complete = %+v, %v; want the healthy model's answer", resp, err)
+	}
+	if len(moves) != 2 || !strings.HasPrefix(moves[0], "a/broken->b/healthy: 401") {
+		t.Fatalf("fallback log = %v, want one move per call from a/broken to b/healthy", moves)
+	}
+}
+
+func TestFallbackChainDoesNotJumpModelsAfterOutputWasStreamed(t *testing.T) {
+	partial := &stubProvider{
+		streamFn: func(_ context.Context, _ []Message, _ []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
+			onChunk(StreamChunk{TextDelta: "half an ans"})
+			return &Response{Content: "half an ans"}, errors.New("stream closed mid-answer")
+		},
+	}
+	nextCalled := false
+	next := &stubProvider{
+		streamFn: func(context.Context, []Message, []ToolDefinition, func(StreamChunk)) (*Response, error) {
+			nextCalled = true
+			return &Response{Content: "a second answer"}, nil
+		},
+	}
+	chain := NewFallbackChain([]FallbackCandidate{{Provider: partial, Model: "a"}, {Provider: next, Model: "b"}}, nil)
+	resp, err := chain.Stream(context.Background(), nil, nil, func(StreamChunk) {})
+	if err == nil || !strings.Contains(err.Error(), "mid-answer") {
+		t.Fatalf("a stream that broke after output must fail as it did, got %v", err)
+	}
+	if resp == nil || resp.Content != "half an ans" {
+		t.Fatalf("the partial response must travel with the error, got %+v", resp)
+	}
+	if nextCalled {
+		t.Fatal("the next model must not answer a request the first one already streamed")
+	}
+}
+
+func TestFallbackChainStopsAtACancelledCallerAndAtTheLastModel(t *testing.T) {
+	calls := 0
+	failing := func(context.Context, []Message, []ToolDefinition) (*Response, error) {
+		calls++
+		return nil, errors.New("503")
+	}
+	a := &stubProvider{completeFn: failing}
+	b := &stubProvider{completeFn: failing}
+	chain := NewFallbackChain([]FallbackCandidate{{Provider: a, Model: "a"}, {Provider: b, Model: "b"}}, nil)
+
+	if _, err := chain.Complete(context.Background(), nil, nil); err == nil || calls != 2 {
+		t.Fatalf("both models must be tried and the last error returned, got %v after %d calls", err, calls)
+	}
+
+	calls = 0
+	ctx, cancel := context.WithCancel(context.Background())
+	cancelling := &stubProvider{completeFn: func(context.Context, []Message, []ToolDefinition) (*Response, error) {
+		calls++
+		cancel()
+		return nil, context.Canceled
+	}}
+	chain = NewFallbackChain([]FallbackCandidate{{Provider: cancelling, Model: "a"}, {Provider: b, Model: "b"}}, nil)
+	if _, err := chain.Complete(ctx, nil, nil); err == nil || calls != 1 {
+		t.Fatalf("a cancelled caller must not move to the next model, got %v after %d calls", err, calls)
+	}
+}
+
+func TestFallbackChainOfOneIsTheProviderItself(t *testing.T) {
+	only := &stubProvider{}
+	if got := NewFallbackChain([]FallbackCandidate{{Provider: only, Model: "a"}, {Provider: nil, Model: "dropped"}}, nil); got != Provider(only) {
+		t.Fatalf("a chain of one must be the provider itself, got %T", got)
+	}
+	if got := NewFallbackChain(nil, nil); got != nil {
+		t.Fatalf("an empty chain must be nil, got %T", got)
+	}
+}

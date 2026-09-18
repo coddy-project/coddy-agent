@@ -330,3 +330,18 @@ func TestEveryModeTemplateRendersTheSubagentRole(t *testing.T) {
 		}
 	}
 }
+
+// RenderSource renders a template given as text with the ordinary data, the
+// way a system child with a prompt of its own is rendered.
+func TestRenderSource(t *testing.T) {
+	got, err := prompts.RenderSource("memory", "Dir {{.CWD}}{{if .Tools}}\n\n{{.Tools}}{{end}}", prompts.TemplateData{CWD: "/w", Tools: "- read"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "Dir /w\n\n- read" {
+		t.Fatalf("RenderSource = %q", got)
+	}
+	if _, err := prompts.RenderSource("bad", "{{.CWD", prompts.TemplateData{}); err == nil {
+		t.Fatal("a template that does not parse must be an error")
+	}
+}

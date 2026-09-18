@@ -79,6 +79,18 @@ func startBackgroundCommand(args runCommandArgs, env *tooling.Env) (string, erro
 	return b.String(), nil
 }
 
+// refuseSystemTask answers a task id that names a system task (the memory
+// subagent): the runtime started it on its own behalf, and the model neither
+// reads its log nor waits on or stops it. The drawer and the HTTP routes show
+// it to the operator.
+func refuseSystemTask(pool *bgtask.Pool, sessionID, taskID string) error {
+	snap, err := pool.Get(sessionID, taskID)
+	if err != nil || !snap.SystemTask() {
+		return nil
+	}
+	return fmt.Errorf("task %s is a system task (%s) and is not yours to read or control", snap.ID, snap.Agent.Name)
+}
+
 // requirePool returns the pool for this session, explaining the refusal when
 // background execution is off or unwired.
 func requirePool(env *tooling.Env) (*bgtask.Pool, error) {
@@ -111,7 +123,14 @@ func BackgroundListTool() *tooling.Tool {
 			if err != nil {
 				return "", err
 			}
-			tasks := pool.List(env.SessionID)
+			// System tasks are the runtime's own errands, not the model's
+			// work; the listing is what the model started.
+			tasks := make([]bgtask.Snapshot, 0)
+			for _, t := range pool.List(env.SessionID) {
+				if !t.SystemTask() {
+					tasks = append(tasks, t)
+				}
+			}
 			survivors := pool.Survivors(env.SessionID)
 			if len(tasks) == 0 && len(survivors) == 0 {
 				return "No background tasks in this session.", nil
@@ -167,6 +186,9 @@ func BackgroundOutputTool() *tooling.Tool {
 				return "", err
 			}
 
+			if err := refuseSystemTask(pool, env.SessionID, args.TaskID); err != nil {
+				return "", err
+			}
 			tail := defaultOutputTailLines
 			if args.TailLines != nil {
 				tail = *args.TailLines
@@ -227,6 +249,9 @@ func BackgroundWaitTool() *tooling.Tool {
 				return "", err
 			}
 
+			if err := refuseSystemTask(pool, env.SessionID, args.TaskID); err != nil {
+				return "", err
+			}
 			seconds := args.TimeoutSeconds
 			if seconds <= 0 {
 				seconds = defaultWaitSeconds
@@ -279,6 +304,9 @@ func BackgroundStopTool() *tooling.Tool {
 			}
 			pool, err := requirePool(env)
 			if err != nil {
+				return "", err
+			}
+			if err := refuseSystemTask(pool, env.SessionID, args.TaskID); err != nil {
 				return "", err
 			}
 			snap, err := pool.Stop(env.SessionID, args.TaskID)

@@ -424,21 +424,30 @@ tools:
 #   max_queue: 10        # concurrent scheduled runs (default); when saturated the daemon skips extras until slots free (see logs)
 #   timeout: "30m"       # per scheduled agent run
 
-# Long-term memory copilot (external/memory; always in the binary). Toggle with memory.enable.
-# Stores markdown under memory.dir (default ${CODDY_HOME}/memory) and <session cwd>/memory (project). Injects text into the
-# same {{.Memory}} section as session notes; main agent never sees memory_* tools.
-# memory.model is used ONLY for recall + persist LLM calls. Set it to an exact models[].model id when you want memory
-# pinned independently of agent.model (example: "rpa/qwen3.6-35b-a3b"). Leave empty to reuse the session or agent default model.
+# Long-term memory subagent (external/memory; needs the memory build tag). Toggle with memory.enable.
+# Every user turn starts a memory subagent in the background task pool: a child session that searches, reads and
+# saves markdown under memory.dir (default ${CODDY_HOME}/memory) and <session cwd>/memory (project). Its report reaches
+# the main model in the <turn_context> block after the history, never in the system prompt, so the provider's prompt
+# cache keeps covering the conversation; the main agent never sees the memory_* tools. The run is
+# watched and kept in the Tasks drawer like a spawn_agent child (docs/features/memory.md).
+# memory.model is the model the memory subagent runs on. Set it to an exact models[].model id when you want memory
+# pinned independently of agent.model (example: "rpa/qwen3.6-35b-a3b"). Leave empty to use the session's model.
 # memory:
 #   enable: false
 #   model: ""
-#   fallback_models: []  # tried in order when the model above them fails; the session model is
-#                        # the last resort whether or not it is listed
+#   fallback_models: []  # tried in order when the model above them fails before answering; the session
+#                        # model is the last resort whether or not it is listed
 #   dir: "" # default ${CODDY_HOME}/memory when empty
-#   recall_max_turns: 6
+#   wait_seconds: 20     # how long a turn waits for the report before its first model call; 0 never waits
+#   timeout_seconds: 300 # hard limit of one memory run (capped by tools.background.max_timeout_seconds)
+#   keep_runs: 20        # finished memory runs kept per session in the Tasks drawer; 0 keeps all
+#   recall_max_turns: 6  # the child's round cap is the larger of the two
 #   persist_max_turns: 12
 #   copilot_max_tokens: 4096
 #   max_search_hits: 8
+#   additional_prompt: ""          # your own instructions for the memory subagent only, e.g. "only deal with the
+#                                  # notes; never answer the task itself"; the main agent never sees them
+#   additional_prompt_max_chars: 0 # cut additional_prompt at this many characters (a warning is logged); 0 = no cap
 
 # Messenger gateways (external/gateway/; build with: go build -tags gateway.telegram or -tags gateway).
 # The bot is not a command of its own: set enable: true and `coddy serve` polls

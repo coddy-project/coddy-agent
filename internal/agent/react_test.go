@@ -297,16 +297,14 @@ func TestExtractCommand(t *testing.T) {
 	}
 }
 
-func TestFormatMergedMemory(t *testing.T) {
-	if g := formatMergedMemory("", "facts"); g != "facts" {
+// The {{.Memory}} slot holds the session notes and nothing of the memory
+// subagent: its report is per-turn text and rides in the turn context.
+func TestFormatSessionNotes(t *testing.T) {
+	if g := formatSessionNotes(""); g != "" {
 		t.Fatalf("got %q", g)
 	}
-	if g := formatMergedMemory("note", ""); g != "Session notes:\nnote" {
+	if g := formatSessionNotes("note"); g != "Session notes:\nnote" {
 		t.Fatalf("got %q", g)
-	}
-	want := "facts\n\nSession notes:\nnote"
-	if g := formatMergedMemory("note", "facts"); g != want {
-		t.Fatalf("got %q want %q", g, want)
 	}
 }
 

@@ -350,27 +350,46 @@ export const messagesRu: Record<string, string> = {
 
   "settings.schema.memory.enable.label": "Включено",
   "settings.schema.memory.enable.desc":
-    "Включает копилот памяти для подходящих сборок.",
+    "Запускает субагента памяти на каждом ходе пользователя (сборки с тегом memory).",
   "settings.schema.memory.model.label": "Модель памяти",
   "settings.schema.memory.model.desc":
-    "Логическая модель для вызовов LLM памяти; пусто — модель агента.",
+    "Модель, на которой работает субагент памяти; пусто - модель сессии.",
+  "settings.schema.memory.fallback_models.label": "Резервные модели памяти",
+  "settings.schema.memory.fallback_models.desc":
+    "Пробуются по порядку, когда предыдущая модель отказала до ответа; модель сессии остаётся последним вариантом.",
   "settings.schema.memory.dir.label": "Корень памяти",
   "settings.schema.memory.dir.desc":
-    "Файловый корень markdown-файлов памяти; пусто — ${CODDY_HOME}/memory.",
+    "Файловый корень markdown-файлов памяти; пусто - ${CODDY_HOME}/memory.",
+  "settings.schema.memory.wait_seconds.label": "Ожидание отчёта (секунды)",
+  "settings.schema.memory.wait_seconds.desc":
+    "Сколько ход ждёт отчёт субагента памяти перед первым вызовом модели; 0 не ждёт (по умолчанию 20).",
+  "settings.schema.memory.timeout_seconds.label": "Таймаут прогона (секунды)",
+  "settings.schema.memory.timeout_seconds.desc":
+    "Жёсткий предел одного прогона памяти, не больше максимума пула фоновых задач (по умолчанию 300).",
+  "settings.schema.memory.keep_runs.label": "Прогонов на сессию",
+  "settings.schema.memory.keep_runs.desc":
+    "Сколько завершённых прогонов памяти сессия хранит в панели задач, запись задачи и транскрипт ребёнка вместе; 0 хранит все (по умолчанию 20).",
   "settings.schema.memory.recall_max_turns.label": "Максимум раундов выборки",
   "settings.schema.memory.recall_max_turns.desc":
-    "Предел раундов LLM на стороне выборки в цикле памяти.",
+    "Ограничивает раунды субагента памяти вместе с максимумом раундов сохранения; действует большее из двух.",
   "settings.schema.memory.persist_max_turns.label":
     "Максимум раундов сохранения",
   "settings.schema.memory.persist_max_turns.desc":
-    "Предел раундов LLM на стороне сохранения в цикле памяти.",
+    "Ограничивает раунды субагента памяти вместе с максимумом раундов выборки; действует большее из двух.",
   "settings.schema.memory.copilot_max_tokens.label":
-    "Максимум токенов копилота",
+    "Максимум токенов на вызов",
   "settings.schema.memory.copilot_max_tokens.desc":
-    "Предел токенов завершения для вызовов копилота памяти.",
+    "Предел токенов завершения для вызовов модели памяти.",
   "settings.schema.memory.max_search_hits.label": "Максимум результатов поиска",
   "settings.schema.memory.max_search_hits.desc":
     "Максимум фрагментов, возвращаемых инструментами поиска по памяти.",
+  "settings.schema.memory.additional_prompt.label": "Дополнительные инструкции",
+  "settings.schema.memory.additional_prompt.desc":
+    "Ваши собственные инструкции для субагента памяти, раздел его системного промпта; основной агент их не видит.",
+  "settings.schema.memory.additional_prompt_max_chars.label":
+    "Предел дополнительных инструкций (символы)",
+  "settings.schema.memory.additional_prompt_max_chars.desc":
+    "Более длинные инструкции обрезаются до этого числа символов с предупреждением в логе; 0 без предела.",
 
   "settings.schema.compaction.enable.label": "Включено",
   "settings.schema.compaction.enable.desc":
@@ -1196,6 +1215,7 @@ export const messagesRu: Record<string, string> = {
   "tasks.status.stopped": "Остановлена",
   "tasks.status.orphaned": "Осиротела",
   "tasks.badge.agent": "агент",
+  "tasks.badge.memory": "память",
   "tasks.agentHeading": "Субагент",
   "tasks.openTranscript": "Открыть транскрипт",
   "tasks.openTranscriptUnavailable": "Дочерняя сессия ещё не известна",
@@ -1218,14 +1238,6 @@ export const messagesRu: Record<string, string> = {
   "messages.compactionLabel": "контекст сжат",
   "messages.compactionSummaryAriaLabel": "Сводка сжатого контекста",
   "messages.compactionBodyAriaLabel": "Содержимое сжатого контекста",
-  "messages.memoryInProgress": "память…",
-  "messages.memoryCompleted": "память",
-  "messages.memoryInProgressAriaLabel": "Работа с памятью",
-  "messages.memorySummaryAriaLabel": "Сводка копилот памяти",
-  "messages.memoryContentAriaLabel": "Содержимое copilot памяти",
-  "messages.memoryMarkedSaved": "Отмечено как сохранённое ({title}).",
-  "messages.memoryMarkedSavedDefaultTitle": "заметка",
-  "messages.memoryEmpty": "Подходящих заметок для этого хода не найдено.",
   // Человеческие названия инструментов: строка читается как действие агента, а не как
   // имя функции. Инструмент без записи (свои инструменты MCP-серверов) остаётся с
   // исходным идентификатором.

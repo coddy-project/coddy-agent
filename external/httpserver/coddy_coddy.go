@@ -1198,11 +1198,6 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 		}
 		out["uiLog"] = rows
 	}
-	if sd := strings.TrimSpace(st.GetPersistedSessionDir()); sd != "" {
-		if env, err := session.ReadMemoryTrace(sd); err == nil && env != nil && len(env.Turns) > 0 {
-			out["memoryTurns"] = env.Turns
-		}
-	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
 }

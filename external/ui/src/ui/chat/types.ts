@@ -122,30 +122,18 @@ export type TranscriptItem =
     }
   | {
       id: string;
-      type: "memory_copilot";
-      memoryRowId: string;
-      userTurnIndex: number;
-      /** Single before-main-agent memory pass (preferred). Legacy rows may omit this. */
-      memoryStatus?: "idle" | "in_progress" | "completed";
-      memoryText?: string;
-      recallStatus: "idle" | "in_progress" | "completed";
-      persistStatus: "idle" | "in_progress" | "completed";
-      recallText: string;
-      recallReasoning: string;
-      persistText: string;
-      persistReasoning: string;
-      recallDurationMs?: number;
-      persistDurationMs?: number;
-      /** Wall clock from memory phase start until completed (live until then). */
-      memoryWallStartedAtMs?: number;
-      /** When main-model thinking rows appear while recall/persist SSE is still marked busy, cap the live wall-clock label at this elapsed ms so it does not keep climbing beside thinking (see freezeMemoryWallWhenThinkingAfterRecall). */
-      memoryWallLiveCapMs?: number;
-      memoryWallDurationMs?: number;
-      persistSaved?: boolean;
-      persistRelativePath?: string;
-      persistTitle?: string;
-      /** Markdown body written when PersistSaved (from server, may be truncated). */
-      persistSavedBody?: string;
-      /** scope:relative paths read via coddy_memory_read during recall. */
-      recallReadPaths?: string[];
+      /**
+       * The memory subagent run of the turn, from the `memory_run` events:
+       * nothing renders it, the live status line reads it while it runs. The
+       * run's record is the Tasks drawer and the child transcript it names.
+       */
+      type: "memory_run";
+      status: "started" | "finished" | "skipped";
+      taskId?: string;
+      childSessionId?: string;
+      startedAtMs?: number;
+      taskStatus?: string;
+      durationMs?: number;
+      delivered?: boolean;
+      reason?: string;
     };

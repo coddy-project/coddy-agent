@@ -21,8 +21,8 @@ A session spawned by another one is stored inside it, at `<parent>/subagents/<ch
 | `stats.json` | token totals of the completed model calls |
 | `branches.json` | the branch points of an edited conversation |
 | `diffs/turn_<n>.json` | the workspace files each turn changed, replayed backwards when a branch is created |
-| `background/<task_id>/` | the record and output log of every background task and subagent run |
-| `memory_trace.json` | what the memory copilot did on each turn ([Long-term memory](memory.md)) |
+| `background/<task_id>/` | the record and output log of every background task and subagent run, the memory subagent of each turn included ([Long-term memory](memory.md)) |
+| `subagents/<child id>/` | the bundle of every child session this session spawned: a `spawn_agent` child or the memory subagent of a turn, each a session of its own with this same layout |
 | `ui_log.json`, `permission_grants.json`, `pending_permission.json` | notice rows shown in the transcript, the commands and write targets approved with "allow always", a permission prompt waiting for its answer over HTTP |
 | `pending_plan_context.json` | the design plan text handed to the turn a plan run started, kept until that turn is over. A turn stopped on a permission prompt is continued after the answer arrives, sometimes in another process, and renders the same system prompt again ([Plan mode](modes.md)) |
 

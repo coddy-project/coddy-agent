@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 )
 
 func TestStatusVerbForTool(t *testing.T) {
@@ -244,5 +246,21 @@ func TestUnblockWithoutGateKeepsTheStepClock(t *testing.T) {
 	a.unblockStatus()
 	if !a.stepStatus.startedAt.Equal(first) {
 		t.Fatal("unblockStatus without a gate restarted the step clock")
+	}
+}
+
+// The one line the console prints about a settled memory run.
+func TestMemoryRunLine(t *testing.T) {
+	cases := map[string]acp.MemoryRunUpdate{
+		"memory: recalled in 3.2s (task bg_3)":                                  {Status: "finished", TaskID: "bg_3", TaskStatus: "succeeded", DurationMs: 3210, Delivered: true},
+		"memory: finished in 3.2s, nothing reached this turn (task bg_3)":       {Status: "finished", TaskID: "bg_3", TaskStatus: "succeeded", DurationMs: 3210},
+		"memory: timed_out after 5m0s (task bg_4)":                              {Status: "finished", TaskID: "bg_4", TaskStatus: "timed_out", DurationMs: 300_000},
+		"memory: failed after 1s (task bg_5) - create memory session: no store": {Status: "finished", TaskID: "bg_5", TaskStatus: "failed", DurationMs: 1000, Reason: "create memory session: no store"},
+		"memory: skipped - memory runs in flight for this session: 2 of 2":      {Status: "skipped", Reason: "memory runs in flight for this session: 2 of 2"},
+	}
+	for want, u := range cases {
+		if got := memoryRunLine(u); got != want {
+			t.Errorf("memoryRunLine(%+v) = %q, want %q", u, got, want)
+		}
 	}
 }

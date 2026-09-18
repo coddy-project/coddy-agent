@@ -207,19 +207,16 @@ describe("deriveLiveStatus", () => {
   it("reports memory work below tool and thinking", () => {
     const memory: TranscriptItem = {
       id: "m1",
-      type: "memory_copilot",
-      memoryRowId: "m",
-      userTurnIndex: 0,
-      recallStatus: "in_progress",
-      persistStatus: "idle",
-      recallText: "",
-      recallReasoning: "",
-      persistText: "",
-      persistReasoning: "",
-      memoryWallStartedAtMs: 42,
+      type: "memory_run",
+      status: "started",
+      taskId: "bg_1",
+      startedAtMs: 42,
     };
     expect(deriveLiveStatus([user(), memory]).key).toBe("status.memory");
     expect(deriveLiveStatus([user(), memory]).startedAtMs).toBe(42);
+    expect(
+      deriveLiveStatus([user(), { ...memory, status: "finished" }]).key,
+    ).not.toBe("status.memory");
     expect(
       deriveLiveStatus([
         user(),

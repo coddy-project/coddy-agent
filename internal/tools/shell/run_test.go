@@ -3,8 +3,11 @@ package shell
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -548,5 +551,64 @@ func TestTrimPartialUTF8CutsOnlyBrokenEnds(t *testing.T) {
 				t.Fatalf("trimPartialUTF8(%q, %v, %v) = %q, want %q", tc.in, tc.truncated, tc.midWrite, got, tc.want)
 			}
 		})
+	}
+}
+
+// idleHandle is a task handle with no process behind it: it settles when the
+// test says so, the shape a subagent run has in the pool.
+type idleHandle struct {
+	done chan struct{}
+	once sync.Once
+}
+
+func (h *idleHandle) Wait() (int, error)          { <-h.done; return 0, nil }
+func (h *idleHandle) Stop(time.Duration) error    { h.finish(); return nil }
+func (h *idleHandle) PID() int                    { return 0 }
+func (h *idleHandle) ProcessStartedAt() time.Time { return time.Time{} }
+func (h *idleHandle) finish()                     { h.once.Do(func() { close(h.done) }) }
+
+// The pool tools are the model's view of its own work. A system task (the
+// memory subagent) is the runtime's, so the listing omits it and the tools
+// that read, wait on or stop a task refuse its id.
+func TestBackgroundToolsHideSystemTasksFromTheModel(t *testing.T) {
+	pool := bgtask.NewWithRunner(bgtask.Config{}, bgtask.NewCommandRunner())
+	env := &tooling.Env{SessionID: "s1", BackgroundEnabled: true, Background: pool}
+	h := &idleHandle{done: make(chan struct{})}
+	defer h.finish()
+	snap, err := pool.Launch(bgtask.Spec{
+		SessionID: "s1",
+		Kind:      bgtask.KindAgent,
+		Label:     "memory: what did we decide",
+		Agent:     &bgtask.AgentInfo{Name: "memory", SessionID: "sess_mem", System: true},
+	}, func(string, io.Writer) (bgtask.Handle, error) { return h, nil })
+	if err != nil {
+		t.Fatalf("Launch(): %v", err)
+	}
+
+	list, err := BackgroundListTool().Execute(context.Background(), `{}`, env)
+	if err != nil {
+		t.Fatalf("background_list: %v", err)
+	}
+	if strings.Contains(list, snap.ID) || strings.Contains(list, "memory:") {
+		t.Fatalf("background_list shows the system task: %q", list)
+	}
+	if list != "No background tasks in this session." {
+		t.Fatalf("background_list = %q, want the empty listing", list)
+	}
+
+	args := fmt.Sprintf(`{"task_id":%q,"timeout_seconds":1}`, snap.ID)
+	for name, tool := range map[string]*tooling.Tool{
+		ToolBackgroundOutput: BackgroundOutputTool(),
+		ToolBackgroundWait:   BackgroundWaitTool(),
+		ToolBackgroundStop:   BackgroundStopTool(),
+	} {
+		_, err := tool.Execute(context.Background(), args, env)
+		if err == nil || !strings.Contains(err.Error(), "system task") || !strings.Contains(err.Error(), "memory") {
+			t.Fatalf("%s on a system task: err = %v, want a refusal naming the system task", name, err)
+		}
+	}
+	// The refusals changed nothing: the run is still going.
+	if got, _ := pool.Get("s1", snap.ID); got.Status.Finished() {
+		t.Fatalf("the system task was stopped by a refused tool call: %+v", got)
 	}
 }
