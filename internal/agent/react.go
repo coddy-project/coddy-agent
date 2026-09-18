@@ -67,6 +67,7 @@ type SessionState interface {
 	EffectivePermissionMode() string
 	SettingsRevision() uint64
 	SetTurnSetting(setting, value string)
+	TurnSetting(setting string) string
 	// How the session_describe tool reaches the session's own filing
 	// (session_filing.go). The writers report what they moved and do their own
 	// merging, so the tool never has to read a filing it is about to write.
@@ -217,6 +218,9 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// The bodies of the skills the prompt invokes as /name, and the rules its
 	// mentioned paths activate, ride in this message (mentions.go), never in
 	// the system prompt and never added per request.
+	for _, inv := range invokedSkills(typedText(prompt), a.state.GetSkills()) {
+		a.applySkillSettings(ctx, inv.name, inv.skill)
+	}
 	if extra := invokedSkillBlocks(typedText(prompt), a.state.GetSkills()); len(extra) > 0 {
 		prompt = append(append([]acp.ContentBlock(nil), prompt...), extra...)
 		userText = contentBlocksToText(prompt)
@@ -358,6 +362,10 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		Background:        a.backgroundPool(sd),
 		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
 		WebSearch:         webSearchSettings(a.cfg),
+	}
+	// The model's own model switch; a subagent runs on what its parent chose.
+	if a.subagent == nil && a.settings() != nil {
+		toolEnv.SwitchModel = a.switchModel
 	}
 	if a.configReloader != nil {
 		toolEnv.ReloadConfig = func(ctx context.Context) ([]string, error) {
@@ -1757,20 +1765,9 @@ func (a *Agent) buildMessages(systemPrompt string) []llm.Message {
 // written once, so the next turn replays the same bytes rather than a message
 // that lost the body it was sent with.
 func invokedSkillBlocks(text string, allSkills []*skills.Skill) []acp.ContentBlock {
-	if len(allSkills) == 0 {
-		return nil
-	}
-	names := skills.ParseInvokedCommandNames(text)
-	if len(names) == 0 {
-		return nil
-	}
-	idx := skills.SkillBySlashName(allSkills)
 	var out []acp.ContentBlock
-	for _, n := range names {
-		sk, ok := idx[n]
-		if !ok {
-			continue
-		}
+	for _, inv := range invokedSkills(text, allSkills) {
+		n, sk := inv.name, inv.skill
 		body := strings.TrimSpace(sk.Content)
 		if body == "" {
 			continue
@@ -1783,6 +1780,61 @@ func invokedSkillBlocks(text string, allSkills []*skills.Skill) []acp.ContentBlo
 		}})
 	}
 	return out
+}
+
+// invokedSkill is one skill a prompt invokes, under the name it was invoked by.
+type invokedSkill struct {
+	name  string
+	skill *skills.Skill
+}
+
+// invokedSkills resolves the /name tokens of the typed text to skills, in the
+// order they appear.
+func invokedSkills(text string, allSkills []*skills.Skill) []invokedSkill {
+	if len(allSkills) == 0 {
+		return nil
+	}
+	names := skills.ParseInvokedCommandNames(text)
+	if len(names) == 0 {
+		return nil
+	}
+	idx := skills.SkillBySlashName(allSkills)
+	var out []invokedSkill
+	for _, n := range names {
+		if sk, ok := idx[n]; ok {
+			out = append(out, invokedSkill{name: n, skill: sk})
+		}
+	}
+	return out
+}
+
+// applySkillSettings runs the rest of the turn on the model and reasoning
+// level a skill's frontmatter names, whether the operator invoked the skill
+// or the model loaded it. A setting the turn already holds - the operator's
+// --once, the model's own switch - is not overridden, and a value the
+// configuration cannot honour is logged and skipped: a skill never fails the
+// turn it helps.
+func (a *Agent) applySkillSettings(ctx context.Context, name string, sk *skills.Skill) {
+	if sk == nil || a.subagent != nil || (sk.Model == "" && sk.Reasoning == "") {
+		return
+	}
+	ap := a.settings()
+	if ap == nil {
+		return
+	}
+	ch := session.SettingsChange{Source: "skill:" + name}
+	if m := sk.Model; m != "" && a.state.TurnSetting(session.SettingModel) == "" {
+		ch.Model = &m
+	}
+	if r := sk.Reasoning; r != "" && a.state.TurnSetting(session.SettingReasoning) == "" {
+		ch.Reasoning = &r
+	}
+	if ch.Empty() {
+		return
+	}
+	if _, err := ap.ApplyTurnSettings(ctx, a.state.GetID(), ch); err != nil {
+		a.log.Warn("skill frontmatter settings skipped", "skill", name, "error", err)
+	}
 }
 
 // typedText is what the user wrote: the text blocks of a prompt, without the
@@ -1863,6 +1915,51 @@ func (a *Agent) getProvider(mode string) (llmTransport, error) {
 // surface; without one (a bare agent in a test) the state is written directly.
 type settingsApplier interface {
 	ApplySessionSettings(ctx context.Context, sessionID string, ch session.SettingsChange) (acp.SessionSettings, error)
+	ApplyTurnSettings(ctx context.Context, sessionID string, ch session.SettingsChange) (acp.SessionSettings, error)
+}
+
+// settings returns the manager's setter, or nil when the agent runs without one.
+func (a *Agent) settings() settingsApplier {
+	if ap, ok := a.subagentRuntime.(settingsApplier); ok {
+		return ap
+	}
+	return nil
+}
+
+// switchModel backs the switch_model tool: the model's own choice of model
+// and reasoning level, for the rest of the turn or for the session. It goes
+// through the manager's setter like the operator's command, so it is checked
+// against the configuration, logged and shown on every surface; the loop
+// builds the new transport before its next request.
+func (a *Agent) switchModel(ctx context.Context, req tooling.ModelSwitch) (string, error) {
+	ap := a.settings()
+	if ap == nil {
+		return "", fmt.Errorf("switch_model is not available in this session")
+	}
+	ch := session.SettingsChange{Source: "model"}
+	if req.Model != "" {
+		ch.Model = &req.Model
+	}
+	if req.Reasoning != "" {
+		ch.Reasoning = &req.Reasoning
+	}
+	scope := "for the rest of this turn"
+	var err error
+	if req.Session {
+		scope = "for the rest of the session"
+		_, err = ap.ApplySessionSettings(ctx, a.state.GetID(), ch)
+	} else {
+		_, err = ap.ApplyTurnSettings(ctx, a.state.GetID(), ch)
+	}
+	if err != nil {
+		return "", err
+	}
+	model := a.state.EffectiveModelID(a.cfg)
+	reasoning := a.state.EffectiveReasoning(a.cfg)
+	if reasoning == "" {
+		reasoning = "none offered"
+	}
+	return fmt.Sprintf("Switched %s: model %s, reasoning %s. It applies from your next request.", scope, model, reasoning), nil
 }
 
 // switchPermissionModeFromDialog applies a permission answer that also
@@ -1876,7 +1973,7 @@ func (a *Agent) switchPermissionModeFromDialog(ctx context.Context, env *tools.E
 	if mode == "" || a.subagent != nil {
 		return
 	}
-	if ap, ok := a.subagentRuntime.(settingsApplier); ok {
+	if ap := a.settings(); ap != nil {
 		if _, err := ap.ApplySessionSettings(ctx, a.state.GetID(), session.SettingsChange{PermissionMode: &mode, Source: "permission_dialog"}); err != nil {
 			a.log.Warn("permission dialog: the session's permission mode could not be switched", "mode", mode, "error", err)
 			return

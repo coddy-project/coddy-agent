@@ -261,7 +261,7 @@ func (m *Manager) writeSettings(sessionID string, st *State, ch SettingsChange, 
 		for _, name := range names {
 			st.ArmTurnOverride(name, values[name], ch.Turns)
 		}
-		return settingsNotice(values, names, ch.Turns)
+		return settingsNotice(values, names, turnsScope(ch.Turns))
 	}
 	modeChanged := false
 	for _, name := range names {
@@ -299,19 +299,20 @@ func (m *Manager) writeSettings(sessionID string, st *State, ch SettingsChange, 
 		}
 	}
 	m.sendConfigOptionUpdate(sessionID, st)
-	return settingsNotice(values, names, 0)
+	return settingsNotice(values, names, "for this session")
+}
+
+// turnsScope names a number of turns the way a notice says it.
+func turnsScope(turns int) string {
+	if turns == 1 {
+		return "for the next turn"
+	}
+	return fmt.Sprintf("for the next %d turns", turns)
 }
 
 // settingsNotice renders a change as one line: "Model: x for this session;
-// Reasoning: off for the next 2 turns".
-func settingsNotice(values map[string]string, names []string, turns int) string {
-	scope := "for this session"
-	switch {
-	case turns == 1:
-		scope = "for the next turn"
-	case turns > 1:
-		scope = fmt.Sprintf("for the next %d turns", turns)
-	}
+// Reasoning: off for this session".
+func settingsNotice(values map[string]string, names []string, scope string) string {
 	parts := make([]string, 0, len(names))
 	for _, name := range names {
 		v := values[name]
@@ -533,4 +534,47 @@ func AnnounceSettingsNotice(sender acp.UpdateSender, sessionID, notice string) {
 		SessionUpdate: acp.UpdateTypeAgentMessageChunk,
 		Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: notice},
 	})
+}
+
+// ApplyTurnSettings changes settings for the rest of the running turn only:
+// the model's own switch_model call, the frontmatter of a skill. It validates
+// like ApplySessionSettings, against the model the turn runs on, takes effect
+// from the turn's next model request, and is gone when the turn ends.
+func (m *Manager) ApplyTurnSettings(_ context.Context, sessionID string, ch SettingsChange) (acp.SessionSettings, error) {
+	st := m.getSession(strings.TrimSpace(sessionID))
+	if st == nil {
+		return acp.SessionSettings{}, fmt.Errorf("session not found: %s", sessionID)
+	}
+	if ch.Empty() {
+		return m.settingsSnapshot(sessionID, st), nil
+	}
+	check := ch
+	check.Turns = 1
+	values, err := m.validateSettingsChange(st, check)
+	if err != nil {
+		return acp.SessionSettings{}, err
+	}
+	cfg := m.activeCfg()
+	names := sortedSettings(values)
+	for _, name := range names {
+		st.SetTurnSetting(name, values[name])
+	}
+	// A level the new model does not offer is dropped, so the turn falls
+	// back on the session's level or the model's default.
+	if model, ok := values[SettingModel]; ok && cfg != nil {
+		if _, named := values[SettingReasoning]; !named {
+			if lv := st.TurnSetting(SettingReasoning); lv != "" && lv != config.ReasoningDefault &&
+				!containsLevel(cfg.ReasoningChoicesFor(cfg.FindModelEntry(model)), lv) {
+				st.SetTurnSetting(SettingReasoning, "")
+			}
+		}
+	}
+	notice := settingsNotice(values, names, "for the rest of this turn")
+	source := strings.TrimSpace(ch.Source)
+	if source == "" {
+		source = "unknown"
+	}
+	m.log.Info("turn settings changed", "session", sessionID, "source", source, "change", notice)
+	st.AppendUILogNotice(CountUserTurns(st.GetMessages()), notice)
+	return m.PublishSessionSettings(sessionID, st, notice, source), nil
 }

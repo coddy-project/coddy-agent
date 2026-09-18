@@ -94,6 +94,8 @@ var subagentMandatoryExclusions = []string{
 	"question",
 	"config_set", "config_changes", "config_commit", "config_revert", "config_rollback",
 	"plan_exit",
+	// A child runs on the model its parent (or its definition) chose.
+	"switch_model",
 }
 
 // The process-wide limiter and the per-parent permission arbiters. Both are
@@ -782,12 +784,40 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	// is noted in the task log as well as the agent log.
 	model := a.state.EffectiveModelID(cfg)
 	unknownModel := ""
-	if def.Model != "" {
+	switch {
+	case req.Model != "":
+		// The model chose the child's model itself: an id the configuration
+		// does not know is its mistake to correct, not a silent fallback.
+		if cfg.FindModelEntry(req.Model) == nil {
+			return "", fmt.Errorf("spawn_agent: unknown model %q (configured: %s)", req.Model, strings.Join(configuredModels(cfg), ", "))
+		}
+		model = req.Model
+	case def.Model != "":
 		if cfg.FindModelEntry(def.Model) != nil {
 			model = def.Model
 		} else {
 			unknownModel = def.Model
 			a.log.Warn("subagent definition names an unknown model; the parent's model is used", "agent", def.Name, "model", def.Model, "using", model)
+		}
+	}
+	// The child's reasoning level: the call's, then the definition's, then
+	// its model's default. The call's must be one the model offers; the
+	// definition's is dropped with a warning when it is not.
+	reasoning := ""
+	choices := cfg.ReasoningChoicesFor(cfg.FindModelEntry(model))
+	switch {
+	case req.Reasoning != "":
+		if req.Reasoning != config.ReasoningDefault {
+			if !containsString(choices, req.Reasoning) {
+				return "", fmt.Errorf("spawn_agent: reasoning %q is not offered by model %q (offered: %s, default)", req.Reasoning, model, strings.Join(choices, ", "))
+			}
+			reasoning = req.Reasoning
+		}
+	case def.Reasoning != "" && def.Reasoning != config.ReasoningDefault:
+		if containsString(choices, def.Reasoning) {
+			reasoning = def.Reasoning
+		} else {
+			a.log.Warn("subagent definition names a reasoning level its model does not offer; the default is used", "agent", def.Name, "reasoning", def.Reasoning, "model", model)
 		}
 	}
 
@@ -851,20 +881,21 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	}
 	snap, run, err := a.launchChildRun(ctx, rt, childLaunch{
 		spec: session.SubagentSpec{
-			ID:               childID,
-			ParentSessionID:  parentID,
-			Name:             def.Name,
-			CWD:              cwd,
-			Mode:             childMode,
-			PermissionMode:   childPerm,
-			SelectedModelID:  model,
-			Title:            label,
-			Role:             def.Role,
-			Tools:            effective,
-			Depth:            childDepth,
-			MaxTurns:         def.MaxTurns,
-			ConnectMCP:       connectMCP,
-			ClientMCPServers: a.parentSessionMCPDeclarations(),
+			ID:                childID,
+			ParentSessionID:   parentID,
+			Name:              def.Name,
+			CWD:               cwd,
+			Mode:              childMode,
+			PermissionMode:    childPerm,
+			SelectedModelID:   model,
+			SelectedReasoning: reasoning,
+			Title:             label,
+			Role:              def.Role,
+			Tools:             effective,
+			Depth:             childDepth,
+			MaxTurns:          def.MaxTurns,
+			ConnectMCP:        connectMCP,
+			ClientMCPServers:  a.parentSessionMCPDeclarations(),
 		},
 		def:             def,
 		prompt:          prompt,
@@ -1249,4 +1280,23 @@ func humanSecondsAgent(seconds int) string {
 		}
 		return fmt.Sprintf("%dh", seconds/3600)
 	}
+}
+
+// configuredModels lists the models[].model ids of the configuration.
+func configuredModels(cfg *config.Config) []string {
+	out := make([]string, 0, len(cfg.Models))
+	for i := range cfg.Models {
+		out = append(out, cfg.Models[i].Model)
+	}
+	return out
+}
+
+// containsString reports whether list holds s.
+func containsString(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }

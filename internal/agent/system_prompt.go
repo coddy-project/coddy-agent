@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -73,6 +74,9 @@ func (a *Agent) loadSkillBody(name string) (string, []string, bool) {
 		available = append(available, n)
 	}
 	if sk, ok := idx[strings.TrimSpace(name)]; ok {
+		// A skill the model loads brings its model and reasoning level for
+		// the rest of the turn, as one the operator invokes does.
+		a.applySkillSettings(context.Background(), strings.TrimSpace(name), sk)
 		return strings.TrimSpace(sk.Content), available, true
 	}
 	return "", available, false

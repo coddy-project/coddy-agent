@@ -71,6 +71,9 @@ type SubagentSpec struct {
 	PermissionMode string
 	// SelectedModelID is the child's model, or empty to follow the config.
 	SelectedModelID string
+	// SelectedReasoning is the child's reasoning level, or empty for its
+	// model's default.
+	SelectedReasoning string
 	// Title is pinned as the session title (the task label).
 	Title string
 	// Role is the definition body the child's system prompt carries.
@@ -157,13 +160,14 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 		mode = ModeAsk
 	}
 	state := &State{
-		ID:              id,
-		CWD:             cwd,
-		Mode:            mode,
-		Skills:          loadedSkills,
-		SelectedModelID: strings.TrimSpace(spec.SelectedModelID),
-		PermissionMode:  strings.TrimSpace(spec.PermissionMode),
-		contextWindows:  m,
+		ID:                id,
+		CWD:               cwd,
+		Mode:              mode,
+		Skills:            loadedSkills,
+		SelectedModelID:   strings.TrimSpace(spec.SelectedModelID),
+		SelectedReasoning: strings.TrimSpace(spec.SelectedReasoning),
+		PermissionMode:    strings.TrimSpace(spec.PermissionMode),
+		contextWindows:    m,
 	}
 	// The child metadata is attached before the state is visible anywhere:
 	// every reader that finds the live entry must already see a read-only

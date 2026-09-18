@@ -3077,3 +3077,117 @@ func TestSessionBypassFromTheDialogCoversTheRestOfTheBatch(t *testing.T) {
 		t.Fatalf("tool results that ran = %d, want both calls", results)
 	}
 }
+
+// settingsHarness runs turns through a real session manager, with one scripted
+// provider per configured model, so a test sees which model served a request.
+type settingsHarness struct {
+	mgr       *session.Manager
+	sessionID string
+	mu        sync.Mutex
+	providers map[string]*scriptedProvider
+}
+
+func newSettingsHarness(t *testing.T, models ...string) *settingsHarness {
+	t.Helper()
+	root := t.TempDir()
+	cwd := t.TempDir()
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: root, CWD: cwd, ConfigPath: filepath.Join(root, "config.yaml")},
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Agent:     config.Agent{Model: models[0], MaxTurns: 8},
+	}
+	for _, m := range models {
+		cfg.Models = append(cfg.Models, config.ModelEntry{Model: m, MaxTokens: 100})
+	}
+	cfg.Tools.PermissionMode = config.PermModeBypass
+	cfg.Subagents.ApplyDefaults(cfg.Paths)
+	cfg.Hooks.ApplyDefaults(cfg.Paths)
+	cfg.Prompts.ApplyDefaults()
+	h := &settingsHarness{providers: map[string]*scriptedProvider{}}
+	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
+		loop := NewAgent(cfg, st, snd, slog.Default())
+		loop.SetSubagentRuntime(h.mgr)
+		loop.SetProviderFactory(func(in llm.ProviderInput) (llm.Provider, error) { return h.provider(in.Model), nil })
+		return loop.Run(ctx, prompt)
+	}
+	h.mgr = session.NewManager(cfg, &todoSnapshotSender{}, runner, slog.Default(), cwd, nil)
+	res, err := h.mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.sessionID = res.SessionID
+	return h
+}
+
+// provider returns the scripted provider of an API model id ("a" for fake/a).
+func (h *settingsHarness) provider(apiModel string) *scriptedProvider {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	p, ok := h.providers[apiModel]
+	if !ok {
+		p = &scriptedProvider{}
+		h.providers[apiModel] = p
+	}
+	return p
+}
+
+func (h *settingsHarness) prompt(t *testing.T, text string) {
+	t.Helper()
+	if _, err := h.mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+		SessionID: h.sessionID,
+		Prompt:    []acp.ContentBlock{{Type: acp.ContentTypeText, Text: text}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSwitchModelTakesEffectFromTheNextRequest(t *testing.T) {
+	h := newSettingsHarness(t, "fake/a", "fake/b")
+	h.provider("a").steps = []scriptStep{
+		toolStep(llm.ToolCall{ID: "sw1", Name: "switch_model", InputJSON: `{"model":"fake/b","scope":"turn"}`}),
+	}
+	h.provider("b").steps = []scriptStep{answerStep("done on b")}
+	h.prompt(t, "this needs the stronger model")
+	if a, b := h.provider("a").calls, h.provider("b").calls; a != 1 || b != 1 {
+		t.Fatalf("requests served: a=%d b=%d, want the first on a and the next on b", a, b)
+	}
+	st := h.mgr.SessionByID(h.sessionID)
+	if st.GetSelectedModelID() != "" {
+		t.Fatalf("a turn-scoped switch changed the session model to %q", st.GetSelectedModelID())
+	}
+	// The next turn is back on the session's model.
+	h.provider("a").steps = append(h.provider("a").steps, answerStep("back on a"))
+	h.prompt(t, "and now")
+	if a := h.provider("a").calls; a != 2 {
+		t.Fatalf("the next turn was not served by the session's model: a=%d", a)
+	}
+}
+
+func TestSkillFrontmatterRunsTheTurnOnItsModel(t *testing.T) {
+	h := newSettingsHarness(t, "fake/a", "fake/b")
+	st := h.mgr.SessionByID(h.sessionID)
+	st.ReplaceSkills([]*skills.Skill{{Name: "heavy", FilePath: "/skills/heavy/SKILL.md", Description: "d", Content: "Think hard.", Model: "fake/b"}})
+	h.provider("b").steps = []scriptStep{answerStep("done on b")}
+	h.prompt(t, "/heavy review this")
+	if a, b := h.provider("a").calls, h.provider("b").calls; a != 0 || b != 1 {
+		t.Fatalf("requests served: a=%d b=%d, want the whole turn on the skill's model", a, b)
+	}
+}
+
+func TestSpawnAgentRefusesAModelTheConfigDoesNotKnow(t *testing.T) {
+	h := newSettingsHarness(t, "fake/a")
+	h.provider("a").steps = []scriptStep{
+		toolStep(llm.ToolCall{ID: "sp1", Name: "spawn_agent", InputJSON: `{"agent":"general","prompt":"look around","model":"fake/nope"}`}),
+		answerStep("ok"),
+	}
+	h.prompt(t, "delegate")
+	var result string
+	for _, m := range h.mgr.SessionByID(h.sessionID).GetMessages() {
+		if m.Role == llm.RoleTool && m.ToolCallID == "sp1" {
+			result = m.Content
+		}
+	}
+	if !strings.Contains(result, `unknown model "fake/nope"`) {
+		t.Fatalf("spawn_agent result = %q, want the unknown model named", result)
+	}
+}

@@ -49,6 +49,9 @@ var planToolNames = []string{
 	// Filing the session writes nothing but the session's own title and tags,
 	// and a planning session is one that earns a name as it goes.
 	"session_describe",
+	// Choosing the model and the reasoning level changes nothing outside the
+	// session, and a hard planning step is where a stronger model pays.
+	"switch_model",
 }
 
 // askToolNames is the fixed allowlist for ask mode: repository reads and web
@@ -66,6 +69,8 @@ var askToolNames = []string{
 	// Read-only: lets the assistant pull a catalogued skill's instructions when
 	// skills.auto_discovery is on (the tool is only registered when enabled).
 	"load_skill",
+	// The model and the reasoning level are the session's own settings.
+	"switch_model",
 }
 
 // ToolSetForMode returns the tool allowlist for the session mode. Agent mode is unrestricted.
