@@ -1649,7 +1649,11 @@ func TestSpawnSubagentForegroundForcesNotifyOff(t *testing.T) {
 	}
 
 	// Control: a detached spawn from a root session keeps the flag, so the
-	// foreground case is a decision and not a dropped field.
+	// foreground case is a decision and not a dropped field. The wake is only
+	// promised where something is subscribed to deliver it, which on a surface
+	// is its BackgroundWaker.
+	bgtask.Default().SubscribeKeyed(bgtask.WakeWatcherKey, func(bgtask.Snapshot) {})
+	t.Cleanup(func() { bgtask.Default().SubscribeKeyed(bgtask.WakeWatcherKey, nil) })
 	bg := spawnReq("reviewer")
 	bg.Background = true
 	bg.NotifyOnFinish = true
@@ -1663,6 +1667,31 @@ func TestSpawnSubagentForegroundForcesNotifyOff(t *testing.T) {
 	final := rig.waitTask(rig.lastAgentTask().ID)
 	if !final.NotifyOnFinish {
 		t.Fatalf("background task %s lost notify_on_finish", final.ID)
+	}
+}
+
+// Where nothing is subscribed to wake the agent (coddy -p), a detached spawn
+// that asks for notify_on_finish still runs, but the result says nobody will
+// wake the model and the task does not claim a wake it will not get.
+func TestSpawnSubagentWithoutAWakerDoesNotPromiseAWake(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	rig.approvedDefinition("reviewer", "")
+	rig.setChildProvider(func(*session.State) llm.Provider { return scripted(answerStep("REPORT: quiet")) })
+	bgtask.Default().SubscribeKeyed(bgtask.WakeWatcherKey, nil)
+
+	req := spawnReq("reviewer")
+	req.Background = true
+	req.NotifyOnFinish = true
+	res, err := rig.parentAgent().spawnSubagent(context.Background(), req)
+	if err != nil {
+		t.Fatalf("background spawn: %v", err)
+	}
+	if strings.Contains(res, "You will be woken") || !strings.Contains(res, "Nothing will wake you") {
+		t.Fatalf("a spawn with no waker promised a wake:\n%s", res)
+	}
+	final := rig.waitTask(rig.lastAgentTask().ID)
+	if final.NotifyOnFinish {
+		t.Fatalf("task %s claims a wake nothing will deliver", final.ID)
 	}
 }
 
