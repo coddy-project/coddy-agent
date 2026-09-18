@@ -354,7 +354,9 @@ func taskTitle(row bgtask.Snapshot) string {
 // task runs, the duration once it has ended, and for an agent run the model and the
 // tokens its calls spent. How the task ended is left to the row's mark (✓, ✗, ■) and
 // the exit code to the open task (taskOutcomeLine), as a folded card of the web UI
-// leaves them to its dot and its foot.
+// leaves them to its dot and its foot. A running task that will start a turn when it
+// ends (notify_on_finish) says so, and a task whose end did start one says that, as
+// the web UI's card does with its bell.
 func taskMetaLine(row bgtask.Snapshot, now time.Time) string {
 	elapsed := formatElapsed(row.Elapsed(now))
 	parts := []string{elapsed}
@@ -365,6 +367,11 @@ func taskMetaLine(row bgtask.Snapshot, now time.Time) string {
 		if row.Overdue(now) {
 			parts = append(parts, "overdue")
 		}
+		if row.NotifyOnFinish {
+			parts = append(parts, "wakes the agent")
+		}
+	} else if row.WokeAgent {
+		parts = append(parts, "woke the agent")
 	}
 	return strings.Join(append(parts, agentUsageParts(row)...), " · ")
 }

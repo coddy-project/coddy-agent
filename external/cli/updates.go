@@ -3,11 +3,14 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
-	"github.com/EvilFreelancer/coddy-agent/internal/acp"
-	"github.com/EvilFreelancer/coddy-agent/internal/remote"
 	"strings"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/remote"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 // applyLoopMessage applies one queued update to the UI tree. Runs on the UI
@@ -50,11 +53,20 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 			return
 		}
 		a.curAssistant = nil
+		if u.woken && errors.Is(u.err, session.ErrSessionTurnBusy) {
+			// The waker asks again once the session is free.
+			return
+		}
 		if u.err != nil {
 			a.appendStatus(roleError, "Turn failed: "+u.err.Error())
 		} else if u.stop == "cancelled" {
 			a.appendStatus(roleDim, "Operation aborted")
 		}
+		return
+	case wakeTurn:
+		// A finished background task asks for a turn nobody typed; the
+		// console decides on its own goroutine whether one can start now.
+		a.startWakeTurn(u)
 		return
 	case tasksLoaded:
 		a.applyTasksLoaded(u)
@@ -167,6 +179,8 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 			a.remoteActivityRevision = u.Revision
 			a.remoteTurnActive = u.TurnActive
 		}
+	case remote.FollowUpdate:
+		a.applyFollow(u)
 	case remote.CancelUpdate:
 		if u.Error != "" {
 			a.appendStatus(roleWarning, "Could not stop the turn: "+u.Error+" (escape to retry)")
@@ -175,6 +189,12 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		}
 	case queueResult:
 		a.applyQueueResult(u)
+	case acp.BackgroundWakeUpdate:
+		// A woken turn begins, live or replayed. It shows nothing of its own -
+		// the agent carries on where it stopped - but its answer is a block of
+		// its own, and /tasks reads the task that woke the agent again.
+		a.curAssistant = nil
+		a.refreshTasks()
 	case acp.MessageChunkUpdate:
 		a.applyMessageChunk(u)
 	case acp.ToolCallUpdate:
@@ -371,4 +391,29 @@ func intFromAny(v interface{}) int {
 		return n
 	}
 	return 0
+}
+
+// applyFollow tracks a turn the server started on its own - a background wake -
+// that this console follows over --remote (internal/remote/follow.go). While it
+// runs the status line works as it does for a turn the operator started: the
+// clock and the tokens arrive on the turn's own turn_progress frames. When it
+// ends, the transcript closes the turn and a prompt it left on screen, now
+// answered or withdrawn, is taken down.
+func (a *App) applyFollow(u remote.FollowUpdate) {
+	a.curAssistant = nil
+	if u.Active {
+		if !a.turnActive {
+			a.stepStatus = newWaitingStatus()
+			a.stepBlocked = ""
+			a.turnStartedAt, a.turnTokens = time.Time{}, 0
+			a.startSpinner()
+		}
+		return
+	}
+	if !a.turnActive {
+		a.stopSpinner()
+		a.turnStartedAt, a.turnTokens = time.Time{}, 0
+	}
+	a.dropAbandonedGate()
+	a.refreshTasks()
 }

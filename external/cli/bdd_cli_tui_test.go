@@ -125,6 +125,9 @@ type cliTUIState struct {
 	// bgSessionID and bgTaskID name the pooled command a scenario started.
 	bgSessionID string
 	bgTaskID    string
+	// wakerAttached says the scenario attached the console's waker to the
+	// process pool, which the shutdown takes off again.
+	wakerAttached bool
 
 	directives chan stubDirective
 	turnEnds   chan struct{}
@@ -201,6 +204,12 @@ func (s *cliTUIState) reset() {
 }
 
 func (s *cliTUIState) shutdown() {
+	// The console's waker goes first: a task stopped below must not wake an
+	// app that is already quitting, nor the next scenario's.
+	if s.wakerAttached {
+		bgtask.Default().SubscribeKeyed(bgtask.WakeWatcherKey, nil)
+		s.wakerAttached = false
+	}
 	// A pooled command of the scenario must not outlive it: the pool is the
 	// process's own, shared by every scenario of the suite.
 	if s.bgSessionID != "" {
@@ -285,7 +294,13 @@ func (s *cliTUIState) stubRunner(ctx context.Context, st *session.State, prompt 
 	s.mu.Lock()
 	s.prompts = append(s.prompts, userText)
 	s.mu.Unlock()
-	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: userText, CreatedAt: time.Now().UTC().Format(time.RFC3339)})
+	// Like the agent: a woken turn tells the surface what woke it before its
+	// first message is persisted, and the message keeps the marker.
+	wake := st.TakeTurnWake()
+	if wake != nil {
+		_ = snd.SendSessionUpdate(st.GetID(), session.BackgroundWakeUpdate(wake))
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: userText, CreatedAt: time.Now().UTC().Format(time.RFC3339), BackgroundWake: wake})
 	sessionID := st.GetID()
 	assistant := ""
 	defer func() {
@@ -593,6 +608,63 @@ func (s *cliTUIState) sessionRunsBackgroundCommand(command string) error {
 	s.bgTaskID = snap.ID
 	s.bgSessionID = sessionID
 	return nil
+}
+
+// sessionRunsWakingBackgroundCommand is sessionRunsBackgroundCommand with
+// notify_on_finish, on a console whose waker is attached the way buildApp
+// attaches it.
+func (s *cliTUIState) sessionRunsWakingBackgroundCommand(command string) error {
+	if runtime.GOOS == "windows" {
+		return godog.ErrSkip
+	}
+	s.app.attachBackgroundWaker(bgtask.Default())
+	s.wakerAttached = true
+	sessionID := s.app.sessionID
+	snap, err := bgtask.Default().Start(bgtask.Spec{SessionID: sessionID, Command: command, CWD: s.cfg.Paths.CWD, NotifyOnFinish: true})
+	if err != nil {
+		return err
+	}
+	s.bgTaskID = snap.ID
+	s.bgSessionID = sessionID
+	return nil
+}
+
+// transcriptShowsNothingOfTheWake checks that the woken turn reads as the agent
+// carrying on: neither the instruction the turn started from nor a note about
+// the wake is on screen.
+func (s *cliTUIState) transcriptShowsNothingOfTheWake() error {
+	text := s.screenText()
+	for _, unwanted := range []string{"background task you asked to be notified about", "Woken by", s.bgTaskID} {
+		if strings.Contains(text, unwanted) {
+			return fmt.Errorf("the woken turn shows %q:\n%s", unwanted, text)
+		}
+	}
+	return nil
+}
+
+// wokenTurnWasHandedOutcome waits for the turn the task's end started and checks
+// that its prompt names the task and how it ended.
+func (s *cliTUIState) wokenTurnWasHandedOutcome() error {
+	taskID := s.bgTaskID
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		s.mu.Lock()
+		prompts := append([]string(nil), s.prompts...)
+		s.mu.Unlock()
+		for _, p := range prompts {
+			if strings.Contains(p, taskID) && strings.Contains(p, "did not succeed") {
+				return nil
+			}
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("no turn was handed the outcome of %s: %q", taskID, prompts)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func (s *cliTUIState) tasksOverlaySaysWakes() error {
+	return s.waitScreen("wakes the agent", 3*time.Second)
 }
 
 func (s *cliTUIState) tasksOverlayListsRunning(title string) error {
@@ -1581,6 +1653,10 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the operator types "([^"]*)" without sending it$`, s.operatorTypesWithoutSending)
 	sc.Step(`^the editor borders render in the local shell color$`, s.editorBordersUseLocalShellColor)
 	sc.Step(`^the operator runs a one-shot prompt "([^"]*)"$`, s.operatorRunsOneShot)
+	sc.Step(`^the session runs the background command "([^"]*)" that wakes the agent$`, s.sessionRunsWakingBackgroundCommand)
+	sc.Step(`^the transcript shows nothing of the woken turn the operator did not type$`, s.transcriptShowsNothingOfTheWake)
+	sc.Step(`^the woken turn was handed the outcome of that task$`, s.wokenTurnWasHandedOutcome)
+	sc.Step(`^the tasks overlay says the selected task wakes the agent$`, s.tasksOverlaySaysWakes)
 	sc.Step(`^a coddy console app over a stub agent runner with a neuraldeep provider$`, s.aConsoleAppWithNeuralDeep)
 	sc.Step(`^the stand-in limits API reports the session window at (\d+)%$`, s.standReportsSessionAt)
 	sc.Step(`^the footer shows the neuraldeep usage "([^"]*)"$`, s.footerShowsUsage)

@@ -4,6 +4,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"sync"
@@ -11,8 +12,11 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 func discardLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }
@@ -383,6 +387,137 @@ func TestTaskMetaLine(t *testing.T) {
 		Agent: &bgtask.AgentInfo{Name: "explore", Model: "rpa/qwen3.6-35b-a3b"}}
 	if got := taskMetaLine(live, now); got != "44s · qwen3.6-35b-a3b" {
 		t.Errorf("an agent that has not reported yet: meta = %q", got)
+	}
+	// A running task that will start a turn when it ends says so, and a task
+	// whose end started one says that. A task that was to wake the agent and
+	// has not - the turn has not begun yet - says nothing of it once it ended.
+	waking := bgtask.Snapshot{Kind: bgtask.KindCommand, Status: bgtask.StatusRunning, StartedAt: now.Add(-65 * time.Second), NotifyOnFinish: true}
+	if got := taskMetaLine(waking, now); got != "1m 05s · wakes the agent" {
+		t.Errorf("waking meta = %q", got)
+	}
+	unwoken := failed
+	unwoken.NotifyOnFinish = true
+	if got := taskMetaLine(unwoken, now); got != "1m 30s" {
+		t.Errorf("a finished task that has not woken the agent yet: meta = %q", got)
+	}
+	woke := unwoken
+	woke.WokeAgent = true
+	if got := taskMetaLine(woke, now); got != "1m 30s · woke the agent" {
+		t.Errorf("a finished task that woke the agent: meta = %q", got)
+	}
+}
+
+// A wake that lands while the console is busy, or for a session it is not
+// showing, is handed back to the waker as busy - it asks again - and a wake held
+// for another session is announced once, not on every retry.
+func TestAWakeWaitsForTheConsoleAndForItsSession(t *testing.T) {
+	a := newTestApp(t)
+	a.sessionID = "sess_here"
+	wake := agent.Wake{SessionID: "sess_here", Tasks: []bgtask.Snapshot{{ID: "bg_3", Status: bgtask.StatusFailed}}}
+
+	a.turnActive = true
+	done := make(chan error, 1)
+	a.startWakeTurn(wakeTurn{wake: wake, done: done})
+	if err := <-done; !errors.Is(err, session.ErrSessionTurnBusy) {
+		t.Fatalf("a wake during a turn = %v, want ErrSessionTurnBusy", err)
+	}
+	a.turnActive = false
+
+	a.shellActive = true
+	a.startWakeTurn(wakeTurn{wake: wake, done: done})
+	if err := <-done; !errors.Is(err, session.ErrSessionTurnBusy) {
+		t.Fatalf("a wake during a local command = %v, want ErrSessionTurnBusy", err)
+	}
+	a.shellActive = false
+
+	elsewhere := agent.Wake{SessionID: "sess_left", Tasks: []bgtask.Snapshot{{ID: "bg_7", Status: bgtask.StatusSucceeded}}}
+	for range 3 {
+		a.startWakeTurn(wakeTurn{wake: elsewhere, done: done})
+		if err := <-done; !errors.Is(err, session.ErrSessionTurnBusy) {
+			t.Fatalf("a wake of another session = %v, want ErrSessionTurnBusy", err)
+		}
+	}
+	got := transcriptText(a)
+	if n := strings.Count(got, "bg_7 of session sess_left finished"); n != 1 {
+		t.Fatalf("the held wake was announced %d times:\n%s", n, got)
+	}
+	if a.turnActive {
+		t.Fatal("a held wake started a turn")
+	}
+
+	// Back in that session, the held wake runs, and the console forgets it:
+	// what it remembers is only the wakes still waiting somewhere else.
+	ran := make(chan *session.PromptRunOpts, 1)
+	a.mgr = wakeBackend{ran: ran}
+	a.sessionID = "sess_left"
+	a.startWakeTurn(wakeTurn{wake: elsewhere, done: done})
+	if opts := <-ran; opts == nil || opts.BackgroundWake == nil {
+		t.Fatalf("the held wake ran without its marker: %+v", opts)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("the held wake's turn = %v", err)
+	}
+	if len(a.wakesHeld) != 0 {
+		t.Fatalf("the console still holds %v after the wake ran", a.wakesHeld)
+	}
+}
+
+// wakeBackend is a console backend that runs a turn by returning at once.
+type wakeBackend struct {
+	backend
+	ran chan *session.PromptRunOpts
+}
+
+func (b wakeBackend) HandleSessionPromptWithSender(_ context.Context, _ acp.SessionPromptParams, _ acp.UpdateSender, opts *session.PromptRunOpts) (*acp.SessionPromptResult, error) {
+	b.ran <- opts
+	return &acp.SessionPromptResult{StopReason: acp.StopReasonEndTurn}, nil
+}
+
+// A woken turn refused as busy is the waker's to retry: the transcript does not
+// call it a failed turn. Any other failure of a woken turn is reported.
+func TestABusyWokenTurnIsNotReportedAsFailed(t *testing.T) {
+	a := newTestApp(t)
+	a.sessionID = "sess_here"
+	a.turnActive, a.turnSessionID = true, "sess_here"
+	a.applyLoopMessage(updateMsg{sessionID: "sess_here", update: turnDone{sessionID: "sess_here", err: session.ErrSessionTurnBusy, woken: true}})
+	if got := transcriptText(a); strings.Contains(got, "Turn failed") {
+		t.Fatalf("a busy wake was reported as a failed turn:\n%s", got)
+	}
+	a.turnActive, a.turnSessionID = true, "sess_here"
+	a.applyLoopMessage(updateMsg{sessionID: "sess_here", update: turnDone{sessionID: "sess_here", err: errors.New("model unreachable"), woken: true}})
+	if got := transcriptText(a); !strings.Contains(got, "Turn failed: model unreachable") {
+		t.Fatalf("a woken turn's own failure went unreported:\n%s", got)
+	}
+}
+
+// A woken turn - live, or replayed by /resume - shows nothing of its own: no
+// note and no message the operator did not type, only the agent's answer, in a
+// block of its own rather than at the tail of the answer before it.
+func TestAWakeAddsNothingToTheTranscript(t *testing.T) {
+	a := newTestApp(t)
+	a.sessionID = "sess_here"
+	chunk := func(text string) updateMsg {
+		return updateMsg{sessionID: "sess_here", update: acp.MessageChunkUpdate{
+			SessionUpdate: "agent_message_chunk",
+			Content:       acp.ContentBlock{Type: "text", Text: text},
+		}}
+	}
+	a.applyLoopMessage(chunk("The build runs in the background."))
+	before := transcriptText(a)
+	two := 2
+	a.applyLoopMessage(updateMsg{sessionID: "sess_here", update: acp.BackgroundWakeUpdate{
+		SessionUpdate: acp.UpdateTypeBackgroundWake,
+		Tasks: []acp.BackgroundWakeTask{
+			{ID: "bg_3", Kind: "command", Label: "make test", Status: "failed", ExitCode: &two, DurationMs: 90_000},
+		},
+	}})
+	if got := transcriptText(a); got != before {
+		t.Fatalf("the wake added to the transcript:\n%s\nwas:\n%s", got, before)
+	}
+	a.applyLoopMessage(chunk("The tests failed."))
+	got := transcriptText(a)
+	if !strings.Contains(got, "The tests failed.") || strings.Contains(got, "background.The tests") {
+		t.Fatalf("the woken turn's answer is not a block of its own:\n%s", got)
 	}
 }
 

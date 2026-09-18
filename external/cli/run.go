@@ -283,6 +283,11 @@ func buildApp(cfg *config.Config, store *session.FileStore, log *slog.Logger, te
 	mgr = session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
 	app = newApp(cfg, mgr, log, term, themeName, plain)
 	lateSender.inner = app.Sender()
+	// A task the model started with notify_on_finish begins its own turn in
+	// this console when it ends. A console attached to a remote server does
+	// not attach one (buildRemoteApp): the server's pool runs its tasks and
+	// the server wakes the agent.
+	app.attachBackgroundWaker(bgtask.Default())
 	startScheduler(context.Background(), cfg, mgr, log)
 	return app
 }
