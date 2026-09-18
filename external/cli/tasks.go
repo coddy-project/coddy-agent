@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 )
 
@@ -349,24 +350,67 @@ func taskTitle(row bgtask.Snapshot) string {
 	return label
 }
 
-// taskMetaLine is how the task is going: elapsed against the estimate while it runs,
-// the outcome, the duration and the exit code afterwards. An agent run has no process
-// behind it, so the pool's synthetic exit code for it is left out.
+// taskMetaLine is a row of the /tasks list: elapsed against the estimate while the
+// task runs, the duration once it has ended, and for an agent run the model and the
+// tokens its calls spent. How the task ended is left to the row's mark (✓, ✗, ■) and
+// the exit code to the open task (taskOutcomeLine), as a folded card of the web UI
+// leaves them to its dot and its foot.
 func taskMetaLine(row bgtask.Snapshot, now time.Time) string {
 	elapsed := formatElapsed(row.Elapsed(now))
+	parts := []string{elapsed}
 	if !row.Status.Finished() {
-		parts := []string{elapsed}
 		if row.ExpectedSeconds > 0 {
 			parts = append(parts, "est. "+formatElapsed(time.Duration(row.ExpectedSeconds)*time.Second))
 		}
 		if row.Overdue(now) {
 			parts = append(parts, "overdue")
 		}
-		return strings.Join(parts, " · ")
 	}
-	parts := []string{string(row.Status), elapsed}
+	return strings.Join(append(parts, agentUsageParts(row)...), " · ")
+}
+
+// taskOutcomeLine is the head of an open task: once it has ended, how it ended, the
+// exit code of a command and the duration, in the order of an open card's foot in the
+// web UI. An agent run has no process behind it, so the pool's synthetic exit code for
+// it is left out.
+func taskOutcomeLine(row bgtask.Snapshot, now time.Time) string {
+	if !row.Status.Finished() {
+		return taskMetaLine(row, now)
+	}
+	parts := []string{string(row.Status)}
 	if row.Kind != bgtask.KindAgent && row.ExitCode != nil {
 		parts = append(parts, "exit "+itoa(*row.ExitCode))
 	}
-	return strings.Join(parts, " · ")
+	parts = append(parts, formatElapsed(row.Elapsed(now)))
+	return strings.Join(append(parts, agentUsageParts(row)...), " · ")
+}
+
+// agentUsageParts names what an agent run runs on and what its calls spent: the
+// model without its vendor prefix, and input and output tokens together.
+func agentUsageParts(row bgtask.Snapshot) []string {
+	if row.Agent == nil {
+		return nil
+	}
+	var parts []string
+	if model := strings.TrimSpace(row.Agent.Model); model != "" {
+		if i := strings.LastIndex(model, "/"); i >= 0 && i < len(model)-1 {
+			model = model[i+1:]
+		}
+		parts = append(parts, model)
+	}
+	if tokens := max(0, row.Agent.InputTokens) + max(0, row.Agent.OutputTokens); tokens > 0 {
+		parts = append(parts, tui.FormatTokenCount(tokens)+" "+plural(tokens, "token", "tokens"))
+	}
+	return parts
+}
+
+// taskErrorText is the error an open task shows, or "". A command that exits non-zero
+// is recorded with the error "exit status N", which only repeats the exit code the
+// outcome line names; any other error - a signal, a failed start, a panic - is shown.
+func taskErrorText(row bgtask.Snapshot) string {
+	text := strings.TrimSpace(row.Error)
+	if row.ExitCode != nil && strings.EqualFold(text, "exit status "+itoa(*row.ExitCode)) {
+		return ""
+	}
+	return text
 }

@@ -366,15 +366,64 @@ func TestTaskMetaLine(t *testing.T) {
 	}
 	ended := now.Add(-5 * time.Second)
 	code := 2
+	// A row of the list leaves how the task ended to its mark (✓, ✗, ■) and the exit
+	// code to the open task, the way a folded card of the web UI does.
 	failed := bgtask.Snapshot{Kind: bgtask.KindCommand, Status: bgtask.StatusFailed, StartedAt: ended.Add(-90 * time.Second), FinishedAt: &ended, ExitCode: &code}
-	if got := taskMetaLine(failed, now); got != "failed · 1m 30s · exit 2" {
+	if got := taskMetaLine(failed, now); got != "1m 30s" {
 		t.Errorf("failed meta = %q", got)
 	}
-	// No shell stands behind an agent run, so its synthetic exit code is not shown.
+	// An agent run names the model it runs on and the tokens its calls spent.
 	zero := 0
-	agent := bgtask.Snapshot{Kind: bgtask.KindAgent, Status: bgtask.StatusSucceeded, StartedAt: ended.Add(-200 * time.Second), FinishedAt: &ended, ExitCode: &zero}
-	if got := taskMetaLine(agent, now); got != "succeeded · 3m 20s" {
+	agent := bgtask.Snapshot{Kind: bgtask.KindAgent, Status: bgtask.StatusSucceeded, StartedAt: ended.Add(-200 * time.Second), FinishedAt: &ended, ExitCode: &zero,
+		Agent: &bgtask.AgentInfo{Name: "general", Model: "neuraldeep/qwen3.8-27b", InputTokens: 198_000, OutputTokens: 14_345}}
+	if got := taskMetaLine(agent, now); got != "3m 20s · qwen3.8-27b · 212.3k tokens" {
 		t.Errorf("agent meta = %q", got)
+	}
+	live := bgtask.Snapshot{Kind: bgtask.KindAgent, Status: bgtask.StatusRunning, StartedAt: now.Add(-44 * time.Second),
+		Agent: &bgtask.AgentInfo{Name: "explore", Model: "rpa/qwen3.6-35b-a3b"}}
+	if got := taskMetaLine(live, now); got != "44s · qwen3.6-35b-a3b" {
+		t.Errorf("an agent that has not reported yet: meta = %q", got)
+	}
+}
+
+// The open task says how it ended first, then the exit code of a command, then how
+// long it ran: the foot of an open card in the web UI.
+func TestTaskOutcomeLine(t *testing.T) {
+	now := time.Date(2026, 9, 18, 10, 1, 5, 0, time.UTC)
+	ended := now.Add(-5 * time.Second)
+	code, zero := 2, 0
+	failed := bgtask.Snapshot{Kind: bgtask.KindCommand, Status: bgtask.StatusFailed, StartedAt: ended.Add(-90 * time.Second), FinishedAt: &ended, ExitCode: &code}
+	if got := taskOutcomeLine(failed, now); got != "failed · exit 2 · 1m 30s" {
+		t.Errorf("failed outcome = %q", got)
+	}
+	// No shell stands behind an agent run, so its synthetic exit code is not shown.
+	agent := bgtask.Snapshot{Kind: bgtask.KindAgent, Status: bgtask.StatusSucceeded, StartedAt: ended.Add(-200 * time.Second), FinishedAt: &ended, ExitCode: &zero,
+		Agent: &bgtask.AgentInfo{Name: "general", Model: "rpa/qwen3.6-35b-a3b", InputTokens: 900, OutputTokens: 100}}
+	if got := taskOutcomeLine(agent, now); got != "succeeded · 3m 20s · qwen3.6-35b-a3b · 1k tokens" {
+		t.Errorf("agent outcome = %q", got)
+	}
+	running := bgtask.Snapshot{Status: bgtask.StatusRunning, StartedAt: now.Add(-65 * time.Second)}
+	if got := taskOutcomeLine(running, now); got != "1m 05s" {
+		t.Errorf("running outcome = %q", got)
+	}
+}
+
+// A command that exits non-zero is recorded with the error "exit status N", which the
+// open task already says as "exit N"; any other error is shown.
+func TestTaskErrorText(t *testing.T) {
+	code := 2
+	row := bgtask.Snapshot{Status: bgtask.StatusFailed, ExitCode: &code}
+	for _, tc := range []struct{ err, want string }{
+		{"exit status 2", ""},
+		{" exit status 2 ", ""},
+		{"exit status 1", "exit status 1"},
+		{"signal: killed", "signal: killed"},
+		{"", ""},
+	} {
+		row.Error = tc.err
+		if got := taskErrorText(row); got != tc.want {
+			t.Errorf("taskErrorText(%q) = %q, want %q", tc.err, got, tc.want)
+		}
 	}
 }
 
@@ -396,10 +445,14 @@ func TestTasksModalListsTasksAndOpensOne(t *testing.T) {
 	})
 
 	text := plainLines(m.Render(100))
-	for _, want := range []string{"Background tasks", "2 running", "3 in total", "shell", "make bg_2", "explore", "map the session package", "succeeded"} {
+	for _, want := range []string{"Background tasks", "2 running", "3 in total", "shell", "make bg_2", "explore", "map the session package", "✓"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("the list is missing %q:\n%s", want, text)
 		}
+	}
+	// The mark says how a task ended; the row does not say it again in words.
+	if strings.Contains(text, "succeeded") {
+		t.Fatalf("a row repeats its mark in words:\n%s", text)
 	}
 	if strings.Contains(text, "agent explore:") {
 		t.Fatalf("the title repeats what the tag says:\n%s", text)
@@ -421,7 +474,7 @@ func TestTasksModalListsTasksAndOpensOne(t *testing.T) {
 	}
 	m.SetOutput("bg_1", "built ok\nbuild/coddy 46 MB", false, false)
 	detail := plainLines(m.Render(100))
-	for _, want := range []string{"make bg_1", "$ make bg_1", "built ok", "build/coddy 46 MB", "esc back"} {
+	for _, want := range []string{"make bg_1", "succeeded", "$ make bg_1", "built ok", "build/coddy 46 MB", "esc back"} {
 		if !strings.Contains(detail, want) {
 			t.Fatalf("the open task is missing %q:\n%s", want, detail)
 		}

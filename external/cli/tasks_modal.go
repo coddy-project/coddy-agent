@@ -216,7 +216,7 @@ func (m *tasksModal) buildList() {
 func (m *tasksModal) buildTask(row bgtask.Snapshot) {
 	th := m.theme
 	head := m.statusMark(row) + " " + th.Fg(roleAccent, taskTag(row)) + " " + th.Bold(tui.SanitizeText(taskTitle(row))) +
-		th.Fg(roleMuted, "  "+taskMetaLine(row, m.now()))
+		th.Fg(roleMuted, "  "+taskOutcomeLine(row, m.now()))
 	m.AddChild(tui.NewText(head, 1, 0, nil))
 	if command := strings.TrimSpace(row.Command); command != "" {
 		m.AddChild(tui.NewText(th.Fg(roleDim, "$ ")+tui.SanitizeText(command), 1, 0, nil))
@@ -224,8 +224,8 @@ func (m *tasksModal) buildTask(row bgtask.Snapshot) {
 	if row.Agent != nil && strings.TrimSpace(row.Agent.SessionID) != "" {
 		m.AddChild(tui.NewText(th.Fg(roleDim, "transcript: session "+tui.SanitizeText(row.Agent.SessionID)), 1, 0, nil))
 	}
-	if row.Error != "" {
-		m.AddChild(tui.NewText(th.Fg(roleError, tui.SanitizeText(row.Error)), 1, 0, nil))
+	if text := taskErrorText(row); text != "" {
+		m.AddChild(tui.NewText(th.Fg(roleError, tui.SanitizeText(text)), 1, 0, nil))
 	}
 	m.AddChild(&taskOutput{modal: m})
 	help := "r refresh · esc back"
