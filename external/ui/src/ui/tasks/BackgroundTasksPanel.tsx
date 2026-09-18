@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { formatTurnTokens } from "../chat/turnProgress";
+import { BellIcon } from "../components/BellIcon";
 import { Chevron } from "../components/Chevron";
 import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
 import type { BackgroundTask } from "./types";
@@ -60,6 +61,16 @@ function TaskCard(props: {
   const overdue = isOverdue(task, props.nowMs);
   const title = taskTitle(task);
   const usage = agentUsage(task);
+  // A bell after the title: the running task will wake the agent when it ends,
+  // or the finished one did - the one place the web UI says what woke it, since
+  // the turn it started shows nothing of its own in the transcript.
+  const wakeTitle = task.running
+    ? task.notify_on_finish
+      ? t("tasks.notifyTitle")
+      : ""
+    : task.woke_agent
+      ? t("tasks.wokeTitle")
+      : "";
   // The opener is stretched over the whole summary, so its title is the card's hover
   // text: the work, then for an agent run the full model id and the exact split of
   // the tokens the card shortens.
@@ -119,6 +130,17 @@ function TaskCard(props: {
             >
               {title}
             </span>
+            {wakeTitle ? (
+              <span
+                className="bgtask-notify"
+                role="img"
+                aria-label={wakeTitle}
+                title={wakeTitle}
+                data-testid={`bgtask-notify-${task.id}`}
+              >
+                <BellIcon />
+              </span>
+            ) : null}
           </button>
           {task.running ? (
             <button

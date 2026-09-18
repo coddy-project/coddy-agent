@@ -7,6 +7,7 @@ import type {
   QuestionResolvedState,
 } from "./questionTypes";
 import type { TodoPlanEntry } from "./todoToolPreview";
+import type { BackgroundWakeTask } from "./backgroundWake";
 
 export type TokenUsage = {
   inputTokens: number;
@@ -57,6 +58,19 @@ export type TranscriptItem =
         /** Blob URL while optimistic; session asset URL after backend persistence. */
         previewUrl?: string;
       }[];
+    }
+  | {
+      /**
+       * The first message of a turn nobody typed: background tasks the model
+       * started with notify_on_finish ended and the server woke the agent. It
+       * opens a turn like a user message and renders nothing - the turn reads
+       * as the agent carrying on - built from the `background_wake` frame live
+       * and from the message's `background_wake` field after a reload.
+       */
+      id: string;
+      type: "background_wake";
+      tasks: BackgroundWakeTask[];
+      createdAtUtc?: string;
     }
   | {
       id: string;

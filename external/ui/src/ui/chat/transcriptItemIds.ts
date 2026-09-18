@@ -34,6 +34,11 @@ export function stableUserItemId(userTurnIndex: number): string {
   return `u_${userTurnIndex}`;
 }
 
+/** Stable id for the wake a woken turn opens with, in the slot of its turn. */
+export function stableWakeItemId(userTurnIndex: number): string {
+  return `wake_${userTurnIndex}`;
+}
+
 /**
  * After rebuilding transcript from the server, reuse React keys (and plan expanded)
  * from the previous in-memory list when rows describe the same step.

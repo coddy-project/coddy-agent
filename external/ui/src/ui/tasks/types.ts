@@ -48,6 +48,10 @@ export type BackgroundTask = {
   finished_at?: string;
   expected_seconds?: number;
   timeout_seconds: number;
+  /** The task wakes the agent when it ends (run_command / spawn_agent notify_on_finish). */
+  notify_on_finish?: boolean;
+  /** The task's end started a turn: notify_on_finish kept its promise. */
+  woke_agent?: boolean;
   output_bytes: number;
   output_truncated: boolean;
   /** Server-computed so every client agrees on the clock arithmetic. */

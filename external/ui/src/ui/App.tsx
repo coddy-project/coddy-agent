@@ -55,7 +55,9 @@ import {
   stableThinkingItemId,
   stableToolCallItemId,
   stableUserItemId,
+  stableWakeItemId,
 } from "./chat/transcriptItemIds";
+import { parseBackgroundWakeTasks } from "./chat/backgroundWake";
 import {
   dedupeAdjacentDuplicateThinkingCompleted,
   keepLocalTranscriptIfServerEmpty,
@@ -783,10 +785,13 @@ export function App() {
   }
 
   // Text of the most recent user turn, used to re-run it from the retry button
-  // on a failed/system notice (e.g. "model did not respond").
+  // on a failed/system notice (e.g. "model did not respond"). A turn a finished
+  // background task started has no text anybody typed, so there is nothing to
+  // re-run and no retry is offered.
   const lastUserText = useMemo(() => {
     for (let i = items.length - 1; i >= 0; i--) {
       const it = items[i];
+      if (it && it.type === "background_wake") return "";
       if (it && it.type === "user_message") {
         return typeof it.content === "string" ? it.content : "";
       }
@@ -2541,6 +2546,22 @@ export function App() {
         thinkingInTurn = 0;
         assistantInTurn = 0;
         const cat = readMessageCreatedAtUTC(m as Record<string, unknown>);
+        // Nobody typed the first message of a turn a finished background
+        // task started, and nothing shows in its place: the turn reads as the
+        // agent carrying on. It still opens a turn, so the notices and the
+        // ids of the turn line up with the server's count of user messages.
+        const wakeTasks = parseBackgroundWakeTasks(
+          (m as Record<string, unknown>).background_wake,
+        );
+        if (wakeTasks.length > 0) {
+          next.push({
+            id: stableWakeItemId(userTurnIdx),
+            type: "background_wake",
+            tasks: wakeTasks,
+            ...(cat ? { createdAtUtc: cat } : {}),
+          });
+          continue;
+        }
         const rawContent = m.content || "";
         const parsedAssets = sessionMessageFiles(
           (m as Record<string, unknown>).files,

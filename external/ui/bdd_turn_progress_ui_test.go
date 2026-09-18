@@ -113,3 +113,51 @@ func TestBackgroundTasksWebUIFeature(t *testing.T) {
 		t.Fatal("background tasks web UI feature failed")
 	}
 }
+
+func TestBackgroundWakeWebUIFeature(t *testing.T) {
+	const list = "src/ui/messages/MessageList.test.tsx"
+	suite := godog.TestSuite{
+		Name: "background_wake_web_ui",
+		ScenarioInitializer: func(sc *godog.ScenarioContext) {
+			sc.Step(`^a woken turn shows neither a note nor a user bubble, only the agent carrying on$`, func() error {
+				return runVitestScenario(list, "a woken turn shows neither a note nor a user bubble, only the agent carrying on")
+			})
+			sc.Step(`^a background_wake frame opens the woken turn before anything it says$`, func() error {
+				return runVitestScenario("src/ui/chat/consumeComposerSse.order.test.ts",
+					"a woken turn opens with the wake, before anything it says")
+			})
+			sc.Step(`^the transcript's wake reads the same as the stream's$`, func() error {
+				return runVitestScenario("src/ui/chat/backgroundWake.test.ts",
+					"the stream's camelCase and the transcript's snake_case read the same")
+			})
+			sc.Step(`^a wake from the stream and the same wake from the transcript are one row$`, func() error {
+				return runVitestScenario("src/ui/chat/transcriptServerSnapshot.test.ts",
+					"a wake from the stream and the same wake from the transcript are one row")
+			})
+			sc.Step(`^a message typed after a wake is edited by the index the server knows it by$`, func() error {
+				return runVitestScenario(list, "a message typed after a wake is edited by the index the server knows it by")
+			})
+			sc.Step(`^a branch after a wake lands on its message$`, func() error {
+				return runVitestScenario("src/ui/chat/branchInject.test.ts",
+					"a wake takes an index of its own, so a branch after it lands on its message")
+			})
+			sc.Step(`^a running task that wakes the agent carries a bell after its title$`, func() error {
+				return runVitestScenario("src/ui/tasks/BackgroundTasksPanel.test.tsx",
+					"a running task that wakes the agent carries a bell after its title")
+			})
+			sc.Step(`^a finished task that woke the agent keeps its bell$`, func() error {
+				return runVitestScenario("src/ui/tasks/BackgroundTasksPanel.test.tsx",
+					"a finished task that woke the agent keeps its bell")
+			})
+		},
+		Options: &godog.Options{
+			Format:   "pretty",
+			Paths:    []string{"../../features/background_wake_web_ui.feature"},
+			TestingT: t,
+			Strict:   true,
+		},
+	}
+	if suite.Run() != 0 {
+		t.Fatal("background wake web UI feature failed")
+	}
+}

@@ -437,3 +437,32 @@ test("turn_progress reaches the caller on this machine's clock, replayed frames 
     { startedAtMs: now - 45_000, outputTokens: 433, estimated: true, serverStartedAtMs: turn, serverElapsedMs: 45_000 },
   ]);
 });
+
+test("a woken turn opens with the wake, before anything it says", async () => {
+  const wake = {
+    sessionUpdate: "background_wake",
+    tasks: [
+      { id: "bg_3", kind: "command", label: "make test", status: "failed", exitCode: 2, durationMs: 90000 },
+    ],
+  };
+  const items = await drive(
+    `event: message_queue\ndata: ${JSON.stringify({ sessionUpdate: "message_queue", messages: [], version: 1 })}\n\n` +
+      `event: background_wake\ndata: ${JSON.stringify(wake)}\n\n` +
+      textEvent("The tests failed.") +
+      `data: [DONE]\n\n`,
+  );
+  expect(items.map((it) => it.type)).toEqual(["background_wake", "assistant_message"]);
+  const wakeItem = items[0] as Extract<TranscriptItem, { type: "background_wake" }>;
+  expect(wakeItem.tasks).toEqual([
+    { id: "bg_3", kind: "command", label: "make test", status: "failed", exitCode: 2, durationMs: 90000 },
+  ]);
+  expect((items[1] as Extract<TranscriptItem, { type: "assistant_message" }>).content).toBe("The tests failed.");
+});
+
+test("a wake frame naming no task adds nothing", async () => {
+  const items = await drive(
+    `event: background_wake\ndata: ${JSON.stringify({ sessionUpdate: "background_wake", tasks: [{ status: "failed" }] })}\n\n` +
+      `data: [DONE]\n\n`,
+  );
+  expect(items).toEqual([]);
+});

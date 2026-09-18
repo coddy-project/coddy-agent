@@ -1472,6 +1472,8 @@ export const messagesRu: Record<string, string> = {
   "scheduler.cron.invalid": "Некорректное cron-выражение",
 
   "tasks.notReachable": "Coddy недоступен",
+  "tasks.notifyTitle": "Разбудит агента, когда завершится",
+  "tasks.wokeTitle": "Разбудила агента, когда завершилась",
   "tasks.running.one": "Выполняется {count} задача",
   "tasks.running.few": "Выполняются {count} задачи",
   "tasks.running.many": "Выполняется {count} задач",

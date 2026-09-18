@@ -1,4 +1,5 @@
 import type { MemoryRunEvt } from "./memoryRun";
+import { backgroundWakeItem } from "./backgroundWake";
 import type { MutableRefObject } from "react";
 import {
   namedErrorEventMessage,
@@ -558,6 +559,18 @@ export async function consumeComposerSseReader(
             continue;
           }
 
+          // A turn nobody typed opens with the wake: an item that shows
+          // nothing but opens the turn where the user's message would stand,
+          // before anything the turn says.
+          if (ev.event === "background_wake") {
+            const wake = backgroundWakeItem(ev.data, newId("wake"));
+            if (wake) {
+              applyStreamItems((prev) => [...prev, wake]);
+              assistantSegmentDirty = true;
+            }
+            continue;
+          }
+
           // A queued follow-up the agent has just read enters the conversation
           // here, where it was read - not at the end, where a transcript reload
           // would otherwise be the first place it appears.
@@ -804,6 +817,18 @@ export async function consumeComposerSseReader(
             }
             continue;
           }
+          // A turn nobody typed opens with the wake: an item that shows
+          // nothing but opens the turn where the user's message would stand,
+          // before anything the turn says.
+          if (ev.event === "background_wake") {
+            const wake = backgroundWakeItem(ev.data, newId("wake"));
+            if (wake) {
+              applyStreamItems((prev) => [...prev, wake]);
+              assistantSegmentDirty = true;
+            }
+            continue;
+          }
+
           // A queued follow-up the agent has just read enters the conversation
           // here, where it was read - not at the end, where a transcript reload
           // would otherwise be the first place it appears.

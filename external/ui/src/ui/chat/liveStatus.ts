@@ -286,7 +286,7 @@ export function deriveLiveStatus(
     if (!it) {
       continue;
     }
-    if (it.type === "user_message") {
+    if (it.type === "user_message" || it.type === "background_wake") {
       turnStartedAtMs = parseCreatedAt(it.createdAtUtc);
       break;
     }

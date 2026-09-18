@@ -680,3 +680,39 @@ test("Show transcript stays disabled until the child session is known", () => {
   fireEvent.click(button);
   expect(onOpenSession).not.toHaveBeenCalled();
 });
+
+// A running task that will wake the agent when it ends says so with a bell
+// after its title; one that will not carries none.
+test("a running task that wakes the agent carries a bell after its title", () => {
+  renderPanel({
+    tasks: [
+      task({ id: "bg_1", label: "make test", notify_on_finish: true }),
+      task({ id: "bg_2", label: "make lint" }),
+    ],
+  });
+  const bell = screen.getByTestId("bgtask-notify-bg_1");
+  expect(bell).toHaveAttribute("title", "Wakes the agent when it ends");
+  expect(bell).toHaveAccessibleName("Wakes the agent when it ends");
+  // The bell sits after the title, inside the card's one control.
+  const opener = screen.getByTestId("bgtask-open-bg_1");
+  expect(opener.lastElementChild).toBe(bell);
+  expect(screen.queryByTestId("bgtask-notify-bg_2")).toBeNull();
+});
+
+// The turn a finished task started shows nothing in the transcript, so its card
+// keeps the bell and says it woke the agent. A task that was to wake it and has
+// not - the turn has not begun - carries none once it has ended.
+test("a finished task that woke the agent keeps its bell", () => {
+  renderPanel({
+    tasks: [
+      done("bg_3", { label: "make test", notify_on_finish: true, woke_agent: true }),
+      done("bg_4", { label: "make build", notify_on_finish: true }),
+    ],
+  });
+  fireEvent.click(screen.getByTestId("bgtask-finished-toggle"));
+  const bell = screen.getByTestId("bgtask-notify-bg_3");
+  expect(bell).toHaveAttribute("title", "Woke the agent when it ended");
+  expect(bell).toHaveAccessibleName("Woke the agent when it ended");
+  expect(screen.getByTestId("bgtask-open-bg_3").lastElementChild).toBe(bell);
+  expect(screen.queryByTestId("bgtask-notify-bg_4")).toBeNull();
+});

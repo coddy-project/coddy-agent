@@ -5,6 +5,7 @@ import {
   mergeTranscriptPreferLocalSuffix,
   preserveUserMessageFiles,
   revokeSupersededUserMessagePreviews,
+  transcriptItemsLooselyEqual,
 } from "./transcriptServerSnapshot";
 import type { TranscriptItem } from "./types";
 
@@ -254,3 +255,16 @@ describe("preserveUserMessageFiles", () => {
   });
 });
 
+
+it("a wake from the stream and the same wake from the transcript are one row", () => {
+  const live: TranscriptItem = { id: "wake-7", type: "background_wake", tasks: [{ id: "bg_3", status: "failed" }] };
+  const stored: TranscriptItem = {
+    id: "wake_2",
+    type: "background_wake",
+    tasks: [{ id: "bg_3", status: "failed", exitCode: 2 }],
+    createdAtUtc: "2026-09-18T12:00:00Z",
+  };
+  const other: TranscriptItem = { id: "wake_3", type: "background_wake", tasks: [{ id: "bg_4", status: "failed" }] };
+  expect(transcriptItemsLooselyEqual(stored, live)).toBe(true);
+  expect(transcriptItemsLooselyEqual(other, live)).toBe(false);
+});

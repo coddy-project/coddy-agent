@@ -16,6 +16,12 @@ export function transcriptItemsLooselyEqual(
         (b as Extract<TranscriptItem, { type: "user_message" }>).content.trim() ===
         a.content.trim()
       );
+    case "background_wake":
+      return (
+        (b as Extract<TranscriptItem, { type: "background_wake" }>).tasks
+          .map((t) => t.id)
+          .join(",") === a.tasks.map((t) => t.id).join(",")
+      );
     case "thinking":
       return (
         (b as Extract<TranscriptItem, { type: "thinking" }>).status === a.status &&
