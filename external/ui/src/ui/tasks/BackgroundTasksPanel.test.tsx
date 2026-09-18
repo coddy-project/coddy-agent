@@ -147,13 +147,13 @@ test("a folded finished card leaves how it ended to its dot, the open card names
     tasks: [done("bg_2"), done("bg_3", { status: "failed", exit_code: 2 })],
   });
   fireEvent.click(screen.getByTestId("bgtask-finished-toggle"));
-  // Folded: how long it ran and when it ended; the green or red dot says the rest.
-  expect(screen.getByTestId("bgtask-meta-bg_2")).toHaveTextContent(
-    /^30s · \d{2}:\d{2}$/,
-  );
-  expect(screen.getByTestId("bgtask-meta-bg_3")).toHaveTextContent(
-    /^30s · \d{2}:\d{2}$/,
-  );
+  // Folded: how long it ran and when it ended (the clock in the reader's own
+  // format, 12:00 or 12:00 PM); the green or red dot says the rest.
+  for (const id of ["bg_2", "bg_3"]) {
+    const meta = screen.getByTestId(`bgtask-meta-${id}`);
+    expect(meta).toHaveTextContent(/^30s · \d{1,2}:\d{2}/);
+    expect(meta).not.toHaveTextContent(/Succeeded|Failed/);
+  }
   expect(
     screen.getByTestId("bgtask-card-bg_3").querySelector(".bgtask-dot--danger"),
   ).not.toBeNull();

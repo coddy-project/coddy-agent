@@ -488,7 +488,8 @@ describe("what a card says about its task", () => {
     });
     // How it ended is the dot's to say on a folded card, and the foot's on an open
     // one; the exit code is the foot's alone.
-    expect(taskMetaLine(done, nowMs)).toMatch(/^1m30s · \d{2}:\d{2}$/);
+    expect(taskMetaLine(done, nowMs)).toMatch(/^1m30s · \d{1,2}:\d{2}/);
+    expect(taskMetaLine(done, nowMs)).not.toMatch(/Failed|exit/i);
     expect(
       taskMetaLine(
         base({ running: false, status: "orphaned", elapsed_seconds: 5 }),
