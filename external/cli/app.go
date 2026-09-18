@@ -83,6 +83,13 @@ type App struct {
 	tasks        []bgtask.Snapshot
 	tasksReading bool
 	tasksTimer   func() bool
+	// Output reads of the task open in /tasks: taskOutputSeq numbers them,
+	// taskOutputApplied is the number of the answer on screen - an older answer that
+	// arrives after it is dropped - and taskOutputInflight counts the reads not yet
+	// answered, so the poll does not queue more behind a slow server.
+	taskOutputSeq      int
+	taskOutputApplied  int
+	taskOutputInflight int
 	// Remote activity drives Stop/queue but never owns or releases our worker.
 	remoteTurnActive       bool
 	remoteActivityRevision uint64

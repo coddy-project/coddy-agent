@@ -37,12 +37,25 @@ type tasksBackend struct {
 	listErr error
 	lists   int
 	stopped []string
+	// listedFor names the session of every list read, in order; outputReads counts the
+	// output reads. A gate, when set, holds the matching read until it is closed.
+	listedFor   []string
+	outputReads int
+	listGate    chan struct{}
+	outputGate  chan struct{}
 }
 
-func (b *tasksBackend) BackgroundTasks(context.Context, string) ([]bgtask.Snapshot, error) {
+func (b *tasksBackend) BackgroundTasks(_ context.Context, sessionID string) ([]bgtask.Snapshot, error) {
+	b.mu.Lock()
+	gate := b.listGate
+	b.lists++
+	b.listedFor = append(b.listedFor, sessionID)
+	b.mu.Unlock()
+	if gate != nil {
+		<-gate
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.lists++
 	if b.listErr != nil {
 		return nil, b.listErr
 	}
@@ -50,6 +63,13 @@ func (b *tasksBackend) BackgroundTasks(context.Context, string) ([]bgtask.Snapsh
 }
 
 func (b *tasksBackend) BackgroundTaskOutput(_ context.Context, _ string, taskID string, _ int) (string, bgtask.Snapshot, error) {
+	b.mu.Lock()
+	gate := b.outputGate
+	b.outputReads++
+	b.mu.Unlock()
+	if gate != nil {
+		<-gate
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for _, row := range b.rows {
@@ -151,6 +171,125 @@ func TestOneTaskReadIsInFlightAtATime(t *testing.T) {
 	defer b.mu.Unlock()
 	if b.lists != 1 {
 		t.Fatalf("backend was asked %d times for one refresh", b.lists)
+	}
+}
+
+// A read that was in flight when the operator switched sessions answers for the
+// session they left. The new session's tasks are read as soon as that answer frees the
+// slot, not on the idle poll fifteen seconds later.
+func TestASessionSwitchDuringAReadReadsTheNewSessionAtOnce(t *testing.T) {
+	gate := make(chan struct{})
+	b := &tasksBackend{listGate: gate, rows: []bgtask.Snapshot{taskRow("bg_1", bgtask.StatusRunning, time.Minute)}}
+	a := newTasksApp(t, b)
+	a.refreshTasks()
+
+	a.sessionID = "sess_next"
+	a.resetTasks()
+	close(gate)
+	b.mu.Lock()
+	b.listGate = nil
+	b.mu.Unlock()
+
+	pumpUntil(t, a, "the new session's tasks", func() bool { return a.runningTasks == 1 })
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.listedFor) != 2 || b.listedFor[1] != "sess_next" {
+		t.Fatalf("list reads went to %v, want the second one for the new session", b.listedFor)
+	}
+}
+
+// openTaskInOverlay opens /tasks and the first task in it, and waits for its output.
+func openTaskInOverlay(t *testing.T, a *App, want string) *tasksModal {
+	t.Helper()
+	if !a.dispatchSlash("/tasks") {
+		t.Fatal("/tasks was not handled by the console")
+	}
+	modal := a.modal.(*tasksModal)
+	pumpUntil(t, a, "the overlay to list the task", func() bool { return len(modal.rows) > 0 })
+	modal.HandleInput([]byte("\r"))
+	pumpUntil(t, a, "the output to arrive", func() bool {
+		return strings.Contains(plainLines(modal.Render(100)), want)
+	})
+	return modal
+}
+
+// The task on screen ends between two polls. What it printed after the last read is
+// read once more; a finished task is not polled after that.
+func TestTheOpenTaskReadsWhatItPrintedLastWhenItEnds(t *testing.T) {
+	b := &tasksBackend{
+		rows:    []bgtask.Snapshot{taskRow("bg_1", bgtask.StatusRunning, time.Minute)},
+		outputs: map[string]string{"bg_1": "step 1"},
+	}
+	a := newTasksApp(t, b)
+	modal := openTaskInOverlay(t, a, "step 1")
+
+	b.mu.Lock()
+	now := time.Now()
+	b.rows[0].Status, b.rows[0].FinishedAt = bgtask.StatusSucceeded, &now
+	b.outputs["bg_1"] = "step 1\nall done"
+	b.mu.Unlock()
+	a.refreshTasks()
+	pumpUntil(t, a, "the last lines of the finished task", func() bool {
+		return strings.Contains(plainLines(modal.Render(100)), "all done")
+	})
+
+	b.mu.Lock()
+	settled := b.outputReads
+	b.mu.Unlock()
+	a.refreshTasks()
+	pumpUntil(t, a, "the next poll to settle", func() bool { return !a.tasksReading })
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.outputReads != settled {
+		t.Fatalf("a finished task was read again: %d reads, then %d", settled, b.outputReads)
+	}
+}
+
+// A slow server must not collect a queue of output reads behind the poll, the same as
+// for the list.
+func TestThePollDoesNotStackOutputReads(t *testing.T) {
+	b := &tasksBackend{
+		rows:    []bgtask.Snapshot{taskRow("bg_1", bgtask.StatusRunning, time.Minute)},
+		outputs: map[string]string{"bg_1": "step 1"},
+	}
+	a := newTasksApp(t, b)
+	openTaskInOverlay(t, a, "step 1")
+
+	gate := make(chan struct{})
+	b.mu.Lock()
+	b.outputGate = gate
+	before := b.outputReads
+	b.mu.Unlock()
+	for i := 0; i < 3; i++ {
+		a.refreshTasks()
+		pumpUntil(t, a, "the poll to settle", func() bool { return !a.tasksReading })
+	}
+	// Every read the polls started reaches the backend once the gate opens.
+	close(gate)
+	pumpUntil(t, a, "the output reads to be answered", func() bool { return a.taskOutputInflight == 0 })
+	b.mu.Lock()
+	asked := b.outputReads - before
+	b.mu.Unlock()
+	if asked != 1 {
+		t.Fatalf("three polls behind a slow server asked for the output %d times, want 1", asked)
+	}
+}
+
+// Two reads of one task overlap and the network answers them out of order: the older
+// answer must not replace the newer one.
+func TestALateOutputAnswerDoesNotReplaceANewerOne(t *testing.T) {
+	b := &tasksBackend{
+		rows:    []bgtask.Snapshot{taskRow("bg_1", bgtask.StatusRunning, time.Minute)},
+		outputs: map[string]string{"bg_1": "step 1"},
+	}
+	a := newTasksApp(t, b)
+	modal := openTaskInOverlay(t, a, "step 1")
+
+	row := taskRow("bg_1", bgtask.StatusSucceeded, time.Minute)
+	a.applyTaskOutputLoaded(taskOutputLoaded{sessionID: "sess_tasks", taskID: "bg_1", seq: a.taskOutputSeq + 2, output: "step 1\nall done", snap: row})
+	a.applyTaskOutputLoaded(taskOutputLoaded{sessionID: "sess_tasks", taskID: "bg_1", seq: a.taskOutputSeq + 1, output: "step 1", snap: taskRow("bg_1", bgtask.StatusRunning, time.Minute)})
+	if got := plainLines(modal.Render(100)); !strings.Contains(got, "all done") {
+		t.Fatalf("the older answer replaced the newer one:\n%s", got)
 	}
 }
 
@@ -280,7 +419,7 @@ func TestTasksModalListsTasksAndOpensOne(t *testing.T) {
 	if len(opened) != 1 || opened[0] != "bg_1" {
 		t.Fatalf("opened = %v", opened)
 	}
-	m.SetOutput("bg_1", "built ok\nbuild/coddy 46 MB", false)
+	m.SetOutput("bg_1", "built ok\nbuild/coddy 46 MB", false, false)
 	detail := plainLines(m.Render(100))
 	for _, want := range []string{"make bg_1", "$ make bg_1", "built ok", "build/coddy 46 MB", "esc back"} {
 		if !strings.Contains(detail, want) {
@@ -288,7 +427,7 @@ func TestTasksModalListsTasksAndOpensOne(t *testing.T) {
 		}
 	}
 	// Output for another task is not this view's.
-	m.SetOutput("bg_2", "not mine", false)
+	m.SetOutput("bg_2", "not mine", false, false)
 	if strings.Contains(plainLines(m.Render(100)), "not mine") {
 		t.Fatal("the open task shows another task's output")
 	}

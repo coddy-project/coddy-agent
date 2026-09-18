@@ -41,9 +41,11 @@ type tasksPollDue struct{}
 type taskOutputLoaded struct {
 	sessionID string
 	taskID    string
-	output    string
-	snap      bgtask.Snapshot
-	err       error
+	// seq is the number readTaskOutput gave the read this answers.
+	seq    int
+	output string
+	snap   bgtask.Snapshot
+	err    error
 }
 
 // taskStopped carries the answer to a stop the operator asked for.
@@ -96,26 +98,34 @@ func (a *App) refreshTasks() {
 // applyTasksLoaded adopts a read and arms the next one.
 func (a *App) applyTasksLoaded(u tasksLoaded) {
 	a.tasksReading = false
-	if u.sessionID == strings.TrimSpace(a.sessionID) {
-		if u.err == nil {
-			sortTasksNewestFirst(u.rows)
-			a.tasks = u.rows
-			a.runningTasks = countRunningTasks(u.rows)
-			a.foot.SetRunningTasks(a.runningTasks)
-			if m := a.tasksOverlay(); m != nil {
-				m.SetRows(u.rows)
-				// The task on screen is still writing: read what it printed since.
-				if id := m.OpenTaskID(); id != "" {
-					for _, row := range u.rows {
-						if row.ID == id && !row.Status.Finished() {
-							a.readTaskOutput(id)
-						}
+	if u.sessionID != strings.TrimSpace(a.sessionID) {
+		// The answer is for the session the operator has left, and it held the one
+		// slot while resetTasks asked for the new session's tasks. Read them now
+		// rather than on the next poll, which between turns is fifteen seconds away.
+		a.refreshTasks()
+		if a.tasksReading {
+			return
+		}
+	} else if u.err == nil {
+		sortTasksNewestFirst(u.rows)
+		a.tasks = u.rows
+		a.runningTasks = countRunningTasks(u.rows)
+		a.foot.SetRunningTasks(a.runningTasks)
+		if m := a.tasksOverlay(); m != nil {
+			m.SetRows(u.rows)
+			// The task on screen is still writing: read what it printed since. One
+			// that has ended since the last read is read once more, for what it
+			// printed last.
+			if id := m.OpenTaskID(); id != "" {
+				for _, row := range u.rows {
+					if row.ID == id && (!row.Status.Finished() || !m.OutputFinal()) {
+						a.pollTaskOutput(id)
 					}
 				}
 			}
 		}
-		// An unreadable answer keeps the last rows: unreachable is not "no tasks".
 	}
+	// An unreadable answer keeps the last rows: unreachable is not "no tasks".
 	a.armTasksPoll()
 }
 
@@ -158,12 +168,28 @@ func (a *App) openTasksOverlay() {
 	a.armTasksPoll()
 }
 
-// readTaskOutput reads the output of one task on a worker.
+// pollTaskOutput is the poll's read of the open task: skipped while an earlier read
+// has not been answered, so a slow server does not collect a queue of them - the same
+// rule the list read follows.
+func (a *App) pollTaskOutput(taskID string) {
+	if a.taskOutputInflight > 0 {
+		return
+	}
+	a.readTaskOutput(taskID)
+}
+
+// readTaskOutput reads the output of one task on a worker. Reads the operator asked
+// for - opening a task, r, a stop - always go out, so they may overlap the poll's; each
+// takes a number and applyTaskOutputLoaded drops an answer older than the one on
+// screen.
 func (a *App) readTaskOutput(taskID string) {
 	sessionID := strings.TrimSpace(a.sessionID)
 	if sessionID == "" || a.mgr == nil || a.workCtx == nil {
 		return
 	}
+	a.taskOutputSeq++
+	seq := a.taskOutputSeq
+	a.taskOutputInflight++
 	a.workers.Add(1)
 	go func() {
 		defer a.workers.Done()
@@ -171,7 +197,7 @@ func (a *App) readTaskOutput(taskID string) {
 		defer cancel()
 		output, snap, err := a.mgr.BackgroundTaskOutput(ctx, sessionID, taskID, tasksOutputTail)
 		select {
-		case a.updatesCh <- updateMsg{update: taskOutputLoaded{sessionID: sessionID, taskID: taskID, output: output, snap: snap, err: err}}:
+		case a.updatesCh <- updateMsg{update: taskOutputLoaded{sessionID: sessionID, taskID: taskID, seq: seq, output: output, snap: snap, err: err}}:
 		case <-a.closed:
 		}
 	}()
@@ -201,15 +227,22 @@ func (a *App) stopTask(taskID string) {
 }
 
 func (a *App) applyTaskOutputLoaded(u taskOutputLoaded) {
+	if a.taskOutputInflight > 0 {
+		a.taskOutputInflight--
+	}
 	m := a.tasksOverlay()
 	if m == nil || u.sessionID != strings.TrimSpace(a.sessionID) {
+		return
+	}
+	if u.seq < a.taskOutputApplied {
 		return
 	}
 	if u.err != nil {
 		m.SetNote("Could not read the output of " + u.taskID + ": " + u.err.Error())
 		return
 	}
-	m.SetOutput(u.taskID, u.output, u.snap.OutputTruncated)
+	a.taskOutputApplied = u.seq
+	m.SetOutput(u.taskID, u.output, u.snap.OutputTruncated, u.snap.Status.Finished())
 }
 
 func (a *App) applyTaskStopped(u taskStopped) {

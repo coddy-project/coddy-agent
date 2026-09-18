@@ -35,7 +35,10 @@ type tasksModal struct {
 	output          string
 	outputLoaded    bool
 	outputTruncated bool
-	note            string
+	// outputFinal says the output on screen was read after the task had ended, so
+	// there is nothing left to read.
+	outputFinal bool
+	note        string
 
 	OnOpen    func(taskID string)
 	OnStop    func(taskID string)
@@ -78,14 +81,17 @@ func (m *tasksModal) SetRows(rows []bgtask.Snapshot) {
 }
 
 // SetOutput adopts the output of one task; an answer for a task that is no longer the
-// open one is dropped.
-func (m *tasksModal) SetOutput(taskID, output string, truncated bool) {
+// open one is dropped. final says the task had ended when the output was read.
+func (m *tasksModal) SetOutput(taskID, output string, truncated, final bool) {
 	if taskID != m.openID {
 		return
 	}
-	m.output, m.outputLoaded, m.outputTruncated = output, true, truncated
+	m.output, m.outputLoaded, m.outputTruncated, m.outputFinal = output, true, truncated, final
 	m.rebuild()
 }
+
+// OutputFinal reports whether the open task's output was read after the task ended.
+func (m *tasksModal) OutputFinal() bool { return m.outputFinal }
 
 // SetNote puts one line under the view: what a stop or a failed read said.
 func (m *tasksModal) SetNote(note string) {
@@ -136,7 +142,7 @@ func (m *tasksModal) HandleInput(data []byte) {
 			return
 		case "enter":
 			if row, ok := m.selectedRow(); ok && m.openID == "" {
-				m.openID, m.output, m.outputLoaded, m.outputTruncated, m.note = row.ID, "", false, false, ""
+				m.openID, m.output, m.outputLoaded, m.outputTruncated, m.outputFinal, m.note = row.ID, "", false, false, false, ""
 				m.rebuild()
 				if m.OnOpen != nil {
 					m.OnOpen(row.ID)
@@ -145,7 +151,7 @@ func (m *tasksModal) HandleInput(data []byte) {
 			return
 		case "escape", "ctrl+c":
 			if m.openID != "" {
-				m.openID, m.output, m.outputLoaded, m.note = "", "", false, ""
+				m.openID, m.output, m.outputLoaded, m.outputFinal, m.note = "", "", false, false, ""
 				m.rebuild()
 				return
 			}
