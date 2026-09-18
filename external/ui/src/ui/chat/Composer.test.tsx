@@ -1103,8 +1103,8 @@ test("image attachments render a thumbnail; non-image ones keep the icon", () =>
   const createObjectURL = vi.fn(() => "blob:coddy-thumb-1");
   const revokeObjectURL = vi.fn();
   const urlCtor = URL as unknown as {
-    createObjectURL?: (f: File) => string;
-    revokeObjectURL?: (u: string) => void;
+    createObjectURL?: ((f: File) => string) | undefined;
+    revokeObjectURL?: ((u: string) => void) | undefined;
   };
   const origCreate = urlCtor.createObjectURL;
   const origRevoke = urlCtor.revokeObjectURL;

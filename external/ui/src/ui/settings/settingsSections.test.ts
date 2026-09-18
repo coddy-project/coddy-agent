@@ -88,17 +88,17 @@ test("array sections carry their label field", () => {
   const byId = Object.fromEntries(
     deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
   );
-  expect(byId.providers.kind).toBe("array");
-  expect(byId.providers.labelField).toBe("name");
-  expect(byId.models.kind).toBe("array");
-  expect(byId.models.labelField).toBe("model");
+  expect(byId.providers?.kind).toBe("array");
+  expect(byId.providers?.labelField).toBe("name");
+  expect(byId.models?.kind).toBe("array");
+  expect(byId.models?.labelField).toBe("model");
 });
 
 test("mcp_servers is its own managed tab", () => {
   const byId = Object.fromEntries(
     deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
   );
-  expect(byId.mcp_servers.kind).toBe("mcp");
+  expect(byId.mcp_servers?.kind).toBe("mcp");
 });
 
 test("System group folds the rarely edited tail keys", () => {
@@ -120,9 +120,9 @@ test("skills is its own combined tab; english labels match schema titles", () =>
   const byId = Object.fromEntries(
     deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
   );
-  expect(byId.skills.kind).toBe("skills");
-  expect(byId.agent.kind).toBe("object");
-  expect(byId.agent.label).toBe("ReAct agent");
+  expect(byId.skills?.kind).toBe("skills");
+  expect(byId.agent?.kind).toBe("object");
+  expect(byId.agent?.label).toBe("ReAct agent");
 });
 
 test("known section labels and descriptions follow the active locale", () => {
@@ -130,14 +130,14 @@ test("known section labels and descriptions follow the active locale", () => {
   const byId = Object.fromEntries(
     deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
   );
-  expect(byId.appearance.label).toBe("Оформление");
-  expect(byId.providers.label).toBe("Провайдеры LLM");
-  expect(byId.tools.label).toBe("Инструменты и разрешения");
-  expect(byId.memory.label).toBe("Долговременная память");
-  expect(byId.compaction.label).toBe("Сжатие контекста");
-  expect(byId.compaction.description).toBe("Сжатие истории диалога");
-  expect(byId.subagents.label).toBe("Субагенты");
-  expect(byId.subagents.description).toBe("Пул делегирования и доверие");
+  expect(byId.appearance?.label).toBe("Оформление");
+  expect(byId.providers?.label).toBe("Провайдеры LLM");
+  expect(byId.tools?.label).toBe("Инструменты и разрешения");
+  expect(byId.memory?.label).toBe("Долговременная память");
+  expect(byId.compaction?.label).toBe("Сжатие контекста");
+  expect(byId.compaction?.description).toBe("Сжатие истории диалога");
+  expect(byId.subagents?.label).toBe("Субагенты");
+  expect(byId.subagents?.description).toBe("Пул делегирования и доверие");
 });
 
 // Hybrid tab: the generated form still edits the config section, so the tab
@@ -157,9 +157,9 @@ test("the schema-driven hooks tab gets its own label and blurb", () => {
   const byId = Object.fromEntries(
     deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
   );
-  expect(byId.hooks.kind).toBe("object");
-  expect(byId.hooks.label).toBe("Hooks");
-  expect(byId.hooks.description).toBe("Lifecycle hooks & trust");
+  expect(byId.hooks?.kind).toBe("object");
+  expect(byId.hooks?.label).toBe("Hooks");
+  expect(byId.hooks?.description).toBe("Lifecycle hooks & trust");
 });
 
 test("Appearance and Sessions are present even without a schema", () => {

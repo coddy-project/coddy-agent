@@ -254,15 +254,18 @@ describe("installAuthUnauthorizedWatch", () => {
 
     const stop = installAuthUnauthorizedWatch();
     seen.length = 0;
-    let release: ((r: Response) => void) | null = null;
+    // A holder rather than a plain variable: the assignment happens inside the
+    // executor, which control-flow analysis cannot see, and a `let` would be
+    // narrowed to null at the call below.
+    const gate: { release: ((r: Response) => void) | null } = { release: null };
     hang = new Promise<Response>((resolve) => {
-      release = resolve;
+      gate.release = resolve;
     });
     unauthorizedCb?.();
     unauthorizedCb?.();
     unauthorizedCb?.();
     expect(seen.filter((s) => s.url === "/coddy/auth/me")).toHaveLength(1);
-    release?.(
+    gate.release?.(
       jsonResponse(200, { login_required: true, authenticated: false }),
     );
     hang = null;

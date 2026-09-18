@@ -31,7 +31,7 @@ export type SectionDescriptor = {
  * i18n keys for known section labels and mobile tile blurbs. Unknown schema
  * sections keep their server-provided title and description.
  */
-const SECTION_LABEL_KEYS: Record<string, string> = {
+const SECTION_LABEL_KEYS = {
   appearance: "settings.section.appearance.label",
   sessions_manager: "settings.section.sessions_manager.label",
   providers: "settings.section.providers.label",
@@ -45,7 +45,7 @@ const SECTION_LABEL_KEYS: Record<string, string> = {
   compaction: "settings.section.compaction.label",
   subagents: "settings.section.subagents.label",
   hooks: "settings.section.hooks.label",
-};
+} as const;
 
 /**
  * i18n keys for the mobile tile blurbs, keyed by section id. Schema
@@ -54,7 +54,7 @@ const SECTION_LABEL_KEYS: Record<string, string> = {
  * description. Values are translation keys resolved at render time so a locale
  * switch re-renders the tiles.
  */
-const SECTION_DESC_KEYS: Record<string, string> = {
+const SECTION_DESC_KEYS = {
   appearance: "settings.section.appearance.desc",
   sessions_manager: "settings.section.sessions_manager.desc",
   providers: "settings.section.providers.desc",
@@ -68,7 +68,15 @@ const SECTION_DESC_KEYS: Record<string, string> = {
   compaction: "settings.section.compaction.desc",
   subagents: "settings.section.subagents.desc",
   hooks: "settings.section.hooks.desc",
-};
+} as const;
+
+/** A section id the schema produced may be one the maps above do not know. */
+function lookupSectionKey(
+  keys: Record<string, string>,
+  id: string,
+): string | undefined {
+  return keys[id];
+}
 
 /** Config keys folded into the single "System" tab (rarely edited). */
 export const SYSTEM_KEYS = [
@@ -98,7 +106,7 @@ export function deriveSettingsSections(
   schema: JsonSchema | null | undefined,
 ): SectionDescriptor[] {
   const labelFor = (id: string, sub?: JsonSchema) => {
-    const key = SECTION_LABEL_KEYS[id];
+    const key = lookupSectionKey(SECTION_LABEL_KEYS, id);
     return key ? translate(key) : sub?.title || id;
   };
 
@@ -135,7 +143,7 @@ export function deriveSettingsSections(
   let systemEmitted = false;
 
   const descFor = (id: string, sub?: JsonSchema) => {
-    const key = SECTION_DESC_KEYS[id];
+    const key = lookupSectionKey(SECTION_DESC_KEYS, id);
     if (key) {
       return translate(key);
     }

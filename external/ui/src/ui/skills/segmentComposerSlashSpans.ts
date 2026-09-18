@@ -41,7 +41,7 @@ export function segmentComposerSlashSpans(
     if (prefix !== "") {
       out.push({ type: "text", value: prefix });
     }
-    const literal = m[2];
+    const literal = m[2] ?? "";
     const name = literal.startsWith("/") ? literal.slice(1) : literal;
     out.push({ type: "slash", literal, name });
     last = m.index + m[0].length;
