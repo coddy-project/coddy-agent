@@ -31,7 +31,16 @@ export type BackgroundTask = {
    * `system` marks a run the runtime started on its own behalf (the memory
    * subagent of a turn) rather than a delegation the model asked for.
    */
-  agent?: { name: string; session_id?: string; system?: boolean };
+  agent?: {
+    name: string;
+    session_id?: string;
+    system?: boolean;
+    /** The model the child runs on. */
+    model?: string;
+    /** What the child's model calls have spent so far: input summed over calls, output generated. */
+    input_tokens?: number;
+    output_tokens?: number;
+  };
   status: BackgroundTaskStatus;
   exit_code?: number;
   error?: string;

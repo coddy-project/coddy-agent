@@ -142,16 +142,25 @@ test("expanding the counter reveals the history, newest first", () => {
   ]);
 });
 
-test("a finished card says how the task ended and when", () => {
+test("a folded finished card leaves how it ended to its dot, the open card names it at the foot", () => {
   renderPanel({
     tasks: [done("bg_2"), done("bg_3", { status: "failed", exit_code: 2 })],
   });
   fireEvent.click(screen.getByTestId("bgtask-finished-toggle"));
+  // Folded: how long it ran and when it ended; the green or red dot says the rest.
   expect(screen.getByTestId("bgtask-meta-bg_2")).toHaveTextContent(
-    /^Succeeded · 30s · \d{2}:\d{2}/,
+    /^30s · \d{2}:\d{2}$/,
   );
   expect(screen.getByTestId("bgtask-meta-bg_3")).toHaveTextContent(
-    /^Failed · 30s/,
+    /^30s · \d{2}:\d{2}$/,
+  );
+  expect(
+    screen.getByTestId("bgtask-card-bg_3").querySelector(".bgtask-dot--danger"),
+  ).not.toBeNull();
+
+  fireEvent.click(screen.getByTestId("bgtask-open-bg_3"));
+  expect(screen.getByTestId("bgtask-foot-bg_3")).toHaveTextContent(
+    /^Failed · Exit code 2 · Duration 30s$/,
   );
 });
 
@@ -254,6 +263,61 @@ test("a card names what runs in a tag on the left and the work in its title", ()
   expect(parts.indexOf("tag")).toBeLessThan(parts.indexOf("title"));
 });
 
+test("a folded subagent card names its model and the tokens it spent, a command card neither", () => {
+  renderPanel({
+    tasks: [
+      task(),
+      agentTask({
+        agent: {
+          name: "explore",
+          session_id: "sess_0a1b2c",
+          model: "neuraldeep/qwen3.8-27b",
+          input_tokens: 198_000,
+          output_tokens: 14_345,
+        },
+      }),
+      done("bg_3", {
+        kind: "agent",
+        command: "",
+        label: "agent general: review the diff",
+        agent: {
+          name: "general",
+          session_id: "sess_general",
+          model: "rpa/qwen3.6-35b-a3b",
+          input_tokens: 1_000,
+          output_tokens: 200,
+        },
+      }),
+    ],
+  });
+
+  // Still folded: nothing to open for it.
+  expect(screen.queryByTestId("bgtask-body-bg_7")).toBeNull();
+  const usage = screen.getByTestId("bgtask-usage-bg_7");
+  expect(usage).toHaveTextContent("qwen3.8-27b · 212k tokens");
+  // The short name on the card; the full id and the exact split on hover. The whole
+  // summary is the card's opener, so the hover text is the opener's.
+  expect(screen.getByTestId("bgtask-model-bg_7")).toHaveTextContent(
+    "qwen3.8-27b",
+  );
+  const hover = screen.getByTestId("bgtask-open-bg_7").getAttribute("title");
+  expect(hover).toMatch(/neuraldeep\/qwen3\.8-27b/);
+  expect(hover).toMatch(/198,000/);
+  expect(hover).toMatch(/14,345/);
+  // It is part of the meta line, which keeps saying how the run is going.
+  expect(screen.getByTestId("bgtask-meta-bg_7")).toContainElement(usage);
+  expect(screen.getByTestId("bgtask-meta-bg_7")).toHaveTextContent(/^30s/);
+
+  // A shell command has no model behind it.
+  expect(screen.queryByTestId("bgtask-usage-bg_1")).toBeNull();
+
+  // A finished run keeps what it spent.
+  fireEvent.click(screen.getByTestId("bgtask-finished-toggle"));
+  expect(screen.getByTestId("bgtask-usage-bg_3")).toHaveTextContent(
+    "qwen3.6-35b-a3b · 1.2k tokens",
+  );
+});
+
 test("the card is one control: a click expands it in place, another folds it", async () => {
   const loadOutput = outputsOf({ bg_1: "compiling package…" });
   renderPanel({ loadOutput });
@@ -322,8 +386,7 @@ test("an expanded command card shows the command with a copy control, the output
     ),
   );
   const foot = screen.getByTestId("bgtask-foot-bg_2");
-  expect(foot).toHaveTextContent("Exit code 0");
-  expect(foot).toHaveTextContent("1m35s");
+  expect(foot).toHaveTextContent(/^Succeeded · Exit code 0 · Duration 1m35s$/);
 });
 
 test("a card the shell points at opens on its own, its section with it", async () => {
@@ -492,13 +555,32 @@ test("a failed run reads its error and its exit code in the card", async () => {
   fireEvent.click(screen.getByTestId("bgtask-finished-toggle"));
   fireEvent.click(screen.getByTestId("bgtask-open-bg_1"));
 
-  expect(screen.getByTestId("bgtask-meta-bg_1")).toHaveTextContent(/^Failed/);
+  expect(screen.getByTestId("bgtask-meta-bg_1")).not.toHaveTextContent(
+    "Failed",
+  );
   expect(
     screen.getByText("make: *** [site-docs-check] Error 2"),
   ).toBeInTheDocument();
   const foot = screen.getByTestId("bgtask-foot-bg_1");
-  expect(foot).toHaveTextContent("Exit code 2");
-  expect(foot).toHaveTextContent("1m30s");
+  expect(foot).toHaveTextContent(/^Failed · Exit code 2 · Duration 1m30s$/);
+});
+
+test("a failed command says its exit code once, at the foot", () => {
+  // The pool records a command's non-zero exit as the error "exit status 2"; above
+  // a foot that says "Exit code 2" it only repeats it.
+  renderPanel({
+    tasks: [
+      done("bg_1", { status: "failed", exit_code: 2, error: "exit status 2" }),
+    ],
+  });
+  fireEvent.click(screen.getByTestId("bgtask-finished-toggle"));
+  fireEvent.click(screen.getByTestId("bgtask-open-bg_1"));
+  const card = screen.getByTestId("bgtask-card-bg_1");
+  expect(card).not.toHaveTextContent("exit status 2");
+  expect(card.querySelector(".bgtask-card-error")).toBeNull();
+  expect(screen.getByTestId("bgtask-foot-bg_1")).toHaveTextContent(
+    "Exit code 2",
+  );
 });
 
 test("a running card has no ending to report yet", async () => {
@@ -577,7 +659,7 @@ test("an expanded subagent card opens the child transcript and shows the run's l
   );
   const foot = screen.getByTestId("bgtask-foot-bg_7");
   expect(foot).not.toHaveTextContent("Exit code");
-  expect(foot).toHaveTextContent("3m20s");
+  expect(foot).toHaveTextContent(/^Succeeded · Duration 3m20s$/);
 
   const transcript = screen.getByTestId("bgtask-open-transcript-bg_7");
   expect(transcript).toHaveTextContent("Show transcript");

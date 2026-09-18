@@ -179,19 +179,82 @@ export function taskFinishedClock(task: BackgroundTask): string {
  * one says how it ended, how long it took and when. The exit code is left to the foot of
  * the open card, where the whole ending is read.
  */
+/**
+ * What an agent run's card says about its model calls: the model it runs on, by its
+ * short name (the vendor prefix of `vendor/model` dropped, the full id kept for a
+ * tooltip), and the tokens the calls have spent - input and output together, the way
+ * a run's cost adds up. Null for a command, and for an agent row that names neither
+ * (a server older than the fields).
+ */
+export type AgentUsage = {
+  model: string;
+  modelId: string;
+  tokens: number;
+  inputTokens: number;
+  outputTokens: number;
+};
+
+export function agentUsage(task: BackgroundTask): AgentUsage | null {
+  const agent = task.agent;
+  if (!agent) {
+    return null;
+  }
+  const modelId = (agent.model || "").trim();
+  const inputTokens = Math.max(0, Math.floor(Number(agent.input_tokens) || 0));
+  const outputTokens = Math.max(
+    0,
+    Math.floor(Number(agent.output_tokens) || 0),
+  );
+  if (!modelId && inputTokens + outputTokens === 0) {
+    return null;
+  }
+  const slash = modelId.lastIndexOf("/");
+  return {
+    model:
+      slash >= 0 && slash < modelId.length - 1
+        ? modelId.slice(slash + 1)
+        : modelId,
+    modelId,
+    tokens: inputTokens + outputTokens,
+    inputTokens,
+    outputTokens,
+  };
+}
+
+/**
+ * The meta line of a folded card. A running task says how long it has run and against
+ * what estimate; a finished one how long it ran and when it ended. How it ended is not
+ * written here: the dot in front of the title says it in colour, and an open card
+ * names it first in its foot, next to the exit code and the duration.
+ */
 export function taskMetaLine(task: BackgroundTask, nowMs: number): string {
   if (task.running) {
     return taskTimingLine(task, nowMs);
   }
-  const parts = [
-    taskStatusLabel(task.status),
-    formatDuration(displayElapsedSeconds(task, nowMs)),
-  ];
+  const parts = [formatDuration(displayElapsedSeconds(task, nowMs))];
   const clock = taskFinishedClock(task);
   if (clock) {
     parts.push(clock);
   }
   return parts.join(" · ");
+}
+
+/**
+ * The error an open card shows above its output, or null. A command that exits
+ * non-zero is recorded with the error "exit status N", which only repeats the exit code
+ * the card's foot already names; any other error - a signal, a failed start, a panic of
+ * a subagent - is news and is shown.
+ */
+export function taskErrorText(task: BackgroundTask): string | null {
+  const error = (task.error || "").trim();
+  if (!error) {
+    return null;
+  }
+  const restated = /^exit status (-?\d+)$/i.exec(error);
+  if (restated && Number(restated[1]) === task.exit_code) {
+    return null;
+  }
+  return error;
 }
 
 /**

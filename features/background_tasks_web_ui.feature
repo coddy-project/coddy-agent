@@ -21,6 +21,10 @@ Feature: The background tasks of a chat in the web UI
   Scenario: Every task is the same card
     Then running and finished tasks are the same card with a dot, a tag, a title and a meta line
     And a card names what runs in a tag on the left and the work in its title
+    And a folded card leaves how the task ended to its dot, and an open card names it at its foot with the exit code once
+
+  Scenario: A subagent's card says what it runs on and what it spent
+    Then a folded subagent card names its model and the tokens its calls spent, and a command card neither
 
   Scenario: A card opens in place
     Then a click on a card expands it in place and another folds it

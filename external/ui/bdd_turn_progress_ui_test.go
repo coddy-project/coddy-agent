@@ -74,6 +74,15 @@ func TestBackgroundTasksWebUIFeature(t *testing.T) {
 			sc.Step(`^a card names what runs in a tag on the left and the work in its title$`, func() error {
 				return runVitestScenario(panel, "a card names what runs in a tag on the left and the work in its title")
 			})
+			sc.Step(`^a folded card leaves how the task ended to its dot, and an open card names it at its foot with the exit code once$`, func() error {
+				if err := runVitestScenario(panel, "a folded finished card leaves how it ended to its dot, the open card names it at the foot"); err != nil {
+					return err
+				}
+				return runVitestScenario(panel, "a failed command says its exit code once, at the foot")
+			})
+			sc.Step(`^a folded subagent card names its model and the tokens its calls spent, and a command card neither$`, func() error {
+				return runVitestScenario(panel, "a folded subagent card names its model and the tokens it spent, a command card neither")
+			})
 			sc.Step(`^a click on a card expands it in place and another folds it$`, func() error {
 				return runVitestScenario(panel, "the card is one control: a click expands it in place, another folds it")
 			})

@@ -1226,6 +1226,7 @@ export const messagesRu: Record<string, string> = {
   "tasks.footExitCode": "Код выхода {code}",
   "tasks.footDuration": "Длительность {value}",
   "tasks.openTranscript": "Показать транскрипт",
+  "tasks.agentTokensTitle": "Токены на входе {input}, на выходе {output}",
   "tasks.openTranscriptUnavailable": "Дочерняя сессия ещё не известна",
 
   "messages.preparingResponse": "Готовлю ответ",

@@ -10965,11 +10965,48 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 }
 
 /* Under the title, indented to it: past the dot (9px) and the gap (8px). */
+/* The meta line: how the task is going on the left; for an agent run, the model it
+   runs on and the tokens its calls spent on the right, the way a table of agents
+   reads Model and Tokens across. When the two do not fit side by side the usage
+   drops under the status whole, still at the right edge, rather than cutting the
+   model's name; only a name too long for a line of its own is clipped. */
 .bgtask-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 1px 12px;
+  min-width: 0;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
   padding: 3px 0 0 17px;
+}
+
+.bgtask-card-meta-line {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.bgtask-card-usage {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  margin-left: auto;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
+}
+
+.bgtask-card-model {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bgtask-card-usage-sep,
+.bgtask-card-tokens {
+  flex: none;
+  white-space: pre;
 }
 
 .bgtask-card.is-overdue .bgtask-card-meta {

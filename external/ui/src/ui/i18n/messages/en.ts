@@ -1210,6 +1210,7 @@ export const messagesEn: Record<string, string> = {
   "tasks.footExitCode": "Exit code {code}",
   "tasks.footDuration": "Duration {value}",
   "tasks.openTranscript": "Show transcript",
+  "tasks.agentTokensTitle": "Tokens in {input}, out {output}",
   "tasks.openTranscriptUnavailable": "The child session is not known yet",
 
   "messages.preparingResponse": "Preparing response",

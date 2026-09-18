@@ -4,6 +4,7 @@ import {
   TASKS_POLL_ACTIVE_MS,
   TASKS_POLL_IDLE_MS,
   agentTaskName,
+  agentUsage,
   countRunningTasks,
   agentTranscriptSessionId,
   displayElapsedSeconds,
@@ -14,6 +15,7 @@ import {
   isOverdue,
   groupTasks,
   sortTasksByStart,
+  taskErrorText,
   taskMetaLine,
   taskTag,
   taskTitle,
@@ -484,14 +486,81 @@ describe("what a card says about its task", () => {
       elapsed_seconds: 90,
       finished_at: "2026-09-18T10:01:30Z",
     });
-    // The exit code is left to the foot of the open card.
-    expect(taskMetaLine(done, nowMs)).toMatch(/^Failed · 1m30s · \d{2}:\d{2}/);
-    expect(taskMetaLine(done, nowMs)).not.toContain("exit");
+    // How it ended is the dot's to say on a folded card, and the foot's on an open
+    // one; the exit code is the foot's alone.
+    expect(taskMetaLine(done, nowMs)).toMatch(/^1m30s · \d{2}:\d{2}$/);
     expect(
       taskMetaLine(
         base({ running: false, status: "orphaned", elapsed_seconds: 5 }),
         nowMs,
       ),
-    ).toBe("Orphaned · 5s");
+    ).toBe("5s");
+  });
+});
+
+describe("taskErrorText", () => {
+  const failed = (over: Partial<BackgroundTask> = {}) =>
+    task({ running: false, status: "failed", exit_code: 2, ...over });
+
+  test("an error that only restates the exit code says nothing the foot does not", () => {
+    expect(taskErrorText(failed({ error: "exit status 2" }))).toBeNull();
+    expect(taskErrorText(failed({ error: " Exit status 2 " }))).toBeNull();
+  });
+
+  test("any other error is the card's to show", () => {
+    expect(
+      taskErrorText(failed({ error: "make: *** [site-docs-check] Error 2" })),
+    ).toBe("make: *** [site-docs-check] Error 2");
+    // A different code than the one recorded is news, not a repeat.
+    expect(taskErrorText(failed({ error: "exit status 1" }))).toBe(
+      "exit status 1",
+    );
+    expect(
+      taskErrorText(
+        failed({ exit_code: 1, error: "subagent panicked: nil map" }),
+      ),
+    ).toBe("subagent panicked: nil map");
+    expect(taskErrorText(failed())).toBeNull();
+  });
+});
+
+describe("agentUsage", () => {
+  const agent = (over: Partial<NonNullable<BackgroundTask["agent"]>> = {}) =>
+    task({
+      kind: "agent",
+      agent: { name: "explore", session_id: "sess_1", ...over },
+    });
+
+  test("names the model by its short name and sums the tokens the calls spent", () => {
+    expect(
+      agentUsage(
+        agent({
+          model: "neuraldeep/qwen3.8-27b",
+          input_tokens: 198_000,
+          output_tokens: 14_345,
+        }),
+      ),
+    ).toEqual({
+      model: "qwen3.8-27b",
+      modelId: "neuraldeep/qwen3.8-27b",
+      tokens: 212_345,
+      inputTokens: 198_000,
+      outputTokens: 14_345,
+    });
+  });
+
+  test("a run that has not reported yet names its model alone", () => {
+    expect(agentUsage(agent({ model: "rpa/qwen3.6-35b-a3b" }))).toEqual({
+      model: "qwen3.6-35b-a3b",
+      modelId: "rpa/qwen3.6-35b-a3b",
+      tokens: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+    });
+  });
+
+  test("a command, and an agent row from a server that reports neither, say nothing", () => {
+    expect(agentUsage(task())).toBeNull();
+    expect(agentUsage(agent())).toBeNull();
   });
 });

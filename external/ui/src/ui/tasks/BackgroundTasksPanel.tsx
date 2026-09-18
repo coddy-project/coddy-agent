@@ -1,17 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
+import { formatTurnTokens } from "../chat/turnProgress";
 import { Chevron } from "../components/Chevron";
 import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
 import type { BackgroundTask } from "./types";
 import {
   agentTranscriptSessionId,
+  agentUsage,
   displayElapsedSeconds,
   estimateProgress,
   formatDuration,
   groupTasks,
   isAgentTask,
   isOverdue,
+  taskErrorText,
   taskMetaLine,
+  taskStatusLabel,
   taskTag,
   taskTitle,
   taskTone,
@@ -50,11 +54,28 @@ function TaskCard(props: {
   onStop: (taskId: string) => void;
   onOpenSession: (sessionId: string) => void;
 }) {
-  const { t } = useT();
+  const { t, tp, locale } = useT();
   const task = props.task;
   const progress = estimateProgress(task, props.nowMs);
   const overdue = isOverdue(task, props.nowMs);
   const title = taskTitle(task);
+  const usage = agentUsage(task);
+  // The opener is stretched over the whole summary, so its title is the card's hover
+  // text: the work, then for an agent run the full model id and the exact split of
+  // the tokens the card shortens.
+  const number = new Intl.NumberFormat(locale);
+  const hover = [
+    task.command || task.label,
+    usage?.modelId || "",
+    usage && usage.tokens > 0
+      ? t("tasks.agentTokensTitle", {
+          input: number.format(usage.inputTokens),
+          output: number.format(usage.outputTokens),
+        })
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   return (
     <div
@@ -76,7 +97,7 @@ function TaskCard(props: {
             className="bgtask-card-open"
             data-testid={`bgtask-open-${task.id}`}
             aria-expanded={props.open}
-            title={task.command || task.label}
+            title={hover}
             onClick={() => props.onToggle(task.id)}
           >
             <span
@@ -117,7 +138,36 @@ function TaskCard(props: {
           data-part="meta"
           data-testid={`bgtask-meta-${task.id}`}
         >
-          {taskMetaLine(task, props.nowMs)}
+          <span className="bgtask-card-meta-line">
+            {taskMetaLine(task, props.nowMs)}
+          </span>
+          {usage ? (
+            <span
+              className="bgtask-card-usage"
+              data-testid={`bgtask-usage-${task.id}`}
+            >
+              {usage.model ? (
+                <span
+                  className="bgtask-card-model"
+                  data-testid={`bgtask-model-${task.id}`}
+                >
+                  {usage.model}
+                </span>
+              ) : null}
+              {usage.model && usage.tokens > 0 ? (
+                <span className="bgtask-card-usage-sep" aria-hidden="true">
+                  {" · "}
+                </span>
+              ) : null}
+              {usage.tokens > 0 ? (
+                <span className="bgtask-card-tokens">
+                  {tp("status.turnTokens", usage.tokens, {
+                    shown: formatTurnTokens(usage.tokens),
+                  })}
+                </span>
+              ) : null}
+            </span>
+          ) : null}
         </div>
         {progress !== null ? (
           <div
@@ -150,8 +200,9 @@ function TaskCard(props: {
 /**
  * What an open card adds under its summary: the command with a copy control (a shell
  * task) or the way to the child transcript (an agent run), the error the run ended
- * with, the captured output in a box of its own height, and - once the task has
- * finished - the exit code and how long it ran.
+ * with unless it only repeats the exit code, the captured output in a box of its own
+ * height, and - once the task has finished - a foot that says how it ended, the exit
+ * code and how long it ran.
  */
 function TaskCardBody(props: {
   task: BackgroundTask;
@@ -174,8 +225,11 @@ function TaskCardBody(props: {
     el.scrollTop = el.scrollHeight;
   }, [props.output, follow]);
 
+  const errorText = taskErrorText(task);
   const footParts: string[] = [];
   if (!task.running) {
+    // How the task ended leads the foot: a folded card leaves it to the dot.
+    footParts.push(taskStatusLabel(task.status));
     // An agent run has no process behind it: the pool's exit code for it is
     // synthetic, and the status already says how the run ended.
     if (!agent && typeof task.exit_code === "number") {
@@ -226,9 +280,7 @@ function TaskCardBody(props: {
         </div>
       ) : null}
 
-      {task.error ? (
-        <div className="bgtask-card-error">{task.error}</div>
-      ) : null}
+      {errorText ? <div className="bgtask-card-error">{errorText}</div> : null}
 
       <div className="bgtask-card-output-head">
         <span>{t("tasks.outputHeading")}</span>
