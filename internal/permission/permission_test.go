@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
@@ -510,5 +511,66 @@ func TestHTTPRequestPromptBodyShowsTheRequestAndWhatAnAlwaysAnswerCovers(t *test
 	plain := HTTPRequestPromptBody(`{"url":"https://api.example.com/"}`, cwd)
 	if strings.Contains(plain, "always") {
 		t.Errorf("a request carrying nothing extra explains an always answer:\n%s", plain)
+	}
+}
+
+func optionIDs(opts []acp.PermissionOption) []string {
+	out := make([]string, 0, len(opts))
+	for _, o := range opts {
+		out = append(out, o.OptionID)
+	}
+	return out
+}
+
+func TestOptionsForOffersTheSessionSwitchOnlyWhileAsking(t *testing.T) {
+	write := `{"path":"a.txt","content":"x"}`
+	cmd := `{"command":"git status --short"}`
+	ask := OptionContext{Mode: config.PermModeAsk, SessionSwitch: true}
+	cases := []struct {
+		name, tool, args string
+		oc               OptionContext
+		want             []string
+	}{
+		{"a write while asking", "write", write, ask,
+			[]string{OptionAllow, OptionAllowAlways, OptionAllowSessionAcceptEdits, OptionAllowSessionBypass, OptionReject}},
+		{"a command while asking", "run_command", cmd, ask,
+			[]string{OptionAllow, OptionAllowAlways, OptionAllowAlwaysProgram, OptionAllowSessionBypass, OptionReject}},
+		{"the config commit keeps asking", "config_commit", `{}`, ask,
+			[]string{OptionAllow, OptionAllowAlways, OptionReject}},
+		{"accept_edits is not ask", "run_command", cmd, OptionContext{Mode: config.PermModeAcceptEdits, SessionSwitch: true},
+			[]string{OptionAllow, OptionAllowAlways, OptionAllowAlwaysProgram, OptionReject}},
+		{"a subagent or a hook prompt", "write", write, OptionContext{Mode: config.PermModeAsk},
+			[]string{OptionAllow, OptionAllowAlways, OptionReject}},
+	}
+	for _, c := range cases {
+		if got := optionIDs(OptionsFor(c.tool, c.args, c.oc)); strings.Join(got, ",") != strings.Join(c.want, ",") {
+			t.Errorf("%s: options = %v, want %v", c.name, got, c.want)
+		}
+	}
+	if got := SessionModeOption(&acp.PermissionResult{OptionID: OptionAllowSessionBypass}); got != config.PermModeBypass {
+		t.Errorf("SessionModeOption(bypass) = %q", got)
+	}
+	if got := SessionModeOption(&acp.PermissionResult{OptionID: OptionAllowAlways}); got != "" {
+		t.Errorf("SessionModeOption(allow_always) = %q, want nothing", got)
+	}
+}
+
+func TestAutoApprovesFollowsTheAskersMode(t *testing.T) {
+	cases := []struct {
+		name   string
+		params acp.PermissionRequestParams
+		cfg    string
+		want   bool
+	}{
+		{"session switched to ask on a bypass server", acp.PermissionRequestParams{SessionPermissionMode: "ask"}, "bypass", false},
+		{"session switched to bypass on an ask server", acp.PermissionRequestParams{SessionPermissionMode: "bypass"}, "ask", true},
+		{"a narrowed child under a bypass session", acp.PermissionRequestParams{EffectivePermissionMode: "ask", SessionPermissionMode: "bypass"}, "bypass", false},
+		{"no stamp falls back on the config", acp.PermissionRequestParams{}, "bypass", true},
+		{"no stamp on an ask server", acp.PermissionRequestParams{}, "ask", false},
+	}
+	for _, c := range cases {
+		if got := AutoApproves(c.params, c.cfg); got != c.want {
+			t.Errorf("%s: AutoApproves = %v, want %v", c.name, got, c.want)
+		}
 	}
 }

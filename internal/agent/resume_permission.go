@@ -75,6 +75,9 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 	if st := sessionStatePtr(a.state); st != nil && !refusedByMode {
 		permission.RecordAllowAlways(st, tc.Name, tc.InputJSON, toolEnv.CWD, perm)
 	}
+	if !refusedByMode {
+		a.switchPermissionModeFromDialog(ctx, toolEnv, perm)
+	}
 	if sd != "" {
 		_ = session.ClearPendingPermission(sd)
 	}

@@ -1496,6 +1496,12 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		// Notification hooks learn that a prompt is about to wait for the
 		// operator (a chat ping, a desktop notification); they cannot answer it.
 		a.runNotificationHooks(ctx, mode, hookNotificationPermissionPrompt, tc, promptBody)
+		// The mode this prompt is asked under: the session's, or ask when a
+		// hook forced the prompt - a sender must not wave that one through.
+		askedUnder := env.PermissionMode
+		if hookRes.ask {
+			askedUnder = config.PermModeAsk
+		}
 		permResult, err := a.server.RequestPermission(ctx, acp.PermissionRequestParams{
 			SessionID: sessionID,
 			ToolCall: acp.PermissionToolCall{
@@ -1507,7 +1513,11 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 					{Type: "content", Content: acp.ContentBlock{Type: "text", Text: promptBody}},
 				},
 			},
-			Options: permission.Options(tc.Name, tc.InputJSON),
+			Options: permission.OptionsFor(tc.Name, tc.InputJSON, permission.OptionContext{
+				Mode:          env.PermissionMode,
+				SessionSwitch: a.subagent == nil && !hookRes.ask,
+			}),
+			SessionPermissionMode: askedUnder,
 		})
 
 		if err != nil || !permission.Approved(permResult) {
@@ -1521,6 +1531,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		if st := sessionStatePtr(a.state); st != nil {
 			permission.RecordAllowAlways(st, tc.Name, tc.InputJSON, env.CWD, permResult)
 		}
+		a.switchPermissionModeFromDialog(ctx, env, permResult)
 	}
 
 	// Execute the tool.
@@ -1845,6 +1856,39 @@ func (a *Agent) getProvider(mode string) (llmTransport, error) {
 	}
 	provider = a.withChildFallbacks(provider, modelID, mk)
 	return llmTransport{provider: provider, streaming: rm.Stream}, nil
+}
+
+// settingsApplier is the manager's setter for session settings. The agent
+// reaches it through its subagent runtime, which is the manager on every
+// surface; without one (a bare agent in a test) the state is written directly.
+type settingsApplier interface {
+	ApplySessionSettings(ctx context.Context, sessionID string, ch session.SettingsChange) (acp.SessionSettings, error)
+}
+
+// switchPermissionModeFromDialog applies a permission answer that also
+// switches the session's permission mode ("bypass permissions for this
+// session", "allow edits for this session", #292). The change goes through
+// the manager's setter, so every surface shows it and the log records it,
+// and the tool environment follows at once: the rest of this turn runs under
+// the new mode.
+func (a *Agent) switchPermissionModeFromDialog(ctx context.Context, env *tools.Env, res *acp.PermissionResult) {
+	mode := permission.SessionModeOption(res)
+	if mode == "" || a.subagent != nil {
+		return
+	}
+	if ap, ok := a.subagentRuntime.(settingsApplier); ok {
+		if _, err := ap.ApplySessionSettings(ctx, a.state.GetID(), session.SettingsChange{PermissionMode: &mode, Source: "permission_dialog"}); err != nil {
+			a.log.Warn("permission dialog: the session's permission mode could not be switched", "mode", mode, "error", err)
+			return
+		}
+	} else if st := sessionStatePtr(a.state); st != nil {
+		st.SetPermissionMode(mode)
+		st.ClearTurnOverride(session.SettingPermissionMode)
+		a.log.Info("permission mode switched from the permission dialog", "session", a.state.GetID(), "mode", mode)
+	}
+	if env != nil {
+		env.PermissionMode = effectivePermMode(a.state, a.cfg)
+	}
 }
 
 // transportKey names what a model request is built for: the model and the

@@ -24,6 +24,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/hooks"
 	"github.com/EvilFreelancer/coddy-agent/internal/hooks/hooktest"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/mention"
@@ -3002,5 +3003,77 @@ func TestInterruptedBeforeOutputNamesTheSilence(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "silent for") {
 		t.Fatalf("the error must say how long the model was silent: %v", err)
+	}
+}
+
+// sessionBypassSender answers the first permission prompt with "bypass
+// permissions for this session" and records every prompt it is shown.
+type sessionBypassSender struct {
+	mu       sync.Mutex
+	requests []acp.PermissionRequestParams
+}
+
+func (s *sessionBypassSender) SendSessionUpdate(string, interface{}) error { return nil }
+
+func (s *sessionBypassSender) RequestPermission(_ context.Context, p acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.requests = append(s.requests, p)
+	return &acp.PermissionResult{Outcome: "selected", OptionID: permission.OptionAllowSessionBypass}, nil
+}
+
+func (s *sessionBypassSender) RequestQuestion(context.Context, acp.QuestionRequestParams) (*acp.QuestionResult, error) {
+	return &acp.QuestionResult{}, nil
+}
+
+// TestSessionBypassFromTheDialogCoversTheRestOfTheBatch pins #292: choosing
+// "bypass permissions for this session" approves the call and switches the
+// session, so the next call of the same batch runs without a prompt.
+func TestSessionBypassFromTheDialogCoversTheRestOfTheBatch(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}
+	cfg.Tools.PermissionMode = config.PermModeAsk
+	st := &session.State{ID: "sess_dialog_bypass", CWD: dir, Mode: session.ModeAgent}
+	sender := &sessionBypassSender{}
+	provider := &scriptedProvider{steps: []scriptStep{
+		toolStep(
+			llm.ToolCall{ID: "c1", Name: "run_command", InputJSON: `{"command":"echo first"}`},
+			llm.ToolCall{ID: "c2", Name: "run_command", InputJSON: `{"command":"echo second"}`},
+		),
+		answerStep("done"),
+	}}
+	ag := NewAgent(cfg, st, sender, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "run both"}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(sender.requests) != 1 {
+		t.Fatalf("prompts = %d, want only the first call's", len(sender.requests))
+	}
+	var offered []string
+	for _, o := range sender.requests[0].Options {
+		offered = append(offered, o.OptionID)
+	}
+	if !strings.Contains(strings.Join(offered, ","), permission.OptionAllowSessionBypass) {
+		t.Fatalf("the prompt did not offer the session switch: %v", offered)
+	}
+	if sender.requests[0].SessionPermissionMode != config.PermModeAsk {
+		t.Fatalf("the prompt was stamped %q, want ask", sender.requests[0].SessionPermissionMode)
+	}
+	if got := st.GetPermissionMode(); got != config.PermModeBypass {
+		t.Fatalf("session permission mode = %q, want bypass", got)
+	}
+	var results int
+	for _, m := range st.GetMessages() {
+		if m.Role == llm.RoleTool && (strings.Contains(m.Content, "first") || strings.Contains(m.Content, "second")) {
+			results++
+		}
+	}
+	if results != 2 {
+		t.Fatalf("tool results that ran = %d, want both calls", results)
 	}
 }

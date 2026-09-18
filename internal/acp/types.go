@@ -695,6 +695,14 @@ type PermissionRequestParams struct {
 	// child whose definition narrowed it; when this is set, the sender uses it
 	// instead of looking the session up.
 	EffectivePermissionMode string `json:"-"`
+
+	// SessionPermissionMode is the permission mode the asking session's gate
+	// decided under - the running turn's, the session's override, or the
+	// configuration's - stamped on every request for in-process senders only
+	// (never serialised). A sender that answers bypass itself reads it
+	// instead of the configuration, so a session switched to ask on a server
+	// configured for bypass is still asked (permission.AutoApproves).
+	SessionPermissionMode string `json:"-"`
 }
 
 // PermissionToolCall describes the tool call needing permission.
