@@ -7,6 +7,12 @@ the [configuration reference](../reference/config.md) and the per-surface guides
 ([HTTP API](../reference/http-api.md), [gateway](../surfaces/gateway.md), [swarm](swarm.md),
 [scheduler](scheduler.md)).
 
+The subsystems share more than the manager. A background task the agent started with
+`notify_on_finish` wakes it when it ends whichever subsystems run: the process owns the
+waker, and hands each woken turn to the Telegram chat bound to the session, else to the
+HTTP server, else runs it through the manager itself
+([Background tasks](../features/background-tasks.md#under-coddy-serve)).
+
 This page is about keeping that process running and keeping it current.
 
 ## In the foreground

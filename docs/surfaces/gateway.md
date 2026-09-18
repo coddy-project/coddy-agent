@@ -26,6 +26,7 @@ The messenger gateway lets you drive a Coddy agent directly from a chat applicat
   - [4. Add a build tag](#4-add-a-build-tag)
   - [5. Wire into hub.Start()](#5-wire-into-hubstart)
 - [The same session in the chat and in the browser](#the-same-session-in-the-chat-and-in-the-browser)
+- [Woken turns land in the chat](#woken-turns-land-in-the-chat)
 - [Session lifecycle](#session-lifecycle)
 - [Security notes](#security-notes)
 
@@ -472,6 +473,10 @@ rules.json` matches them by substring (`[{"match": "weather", "answer":
 message, not the `<turn_context>` block Coddy appends to every request. Rules are the
 reliable choice: the title a session derives from its first message is one more
 model call, so a list of answers advances a step earlier than the chat shows.
+A rule can also make the model act: with `"tool": {"name": "run_command",
+"arguments": {...}}` the first request of a matching turn gets that tool call,
+and the request carrying its result gets the rule's `answer` - enough to start
+a background command, or to meet a permission prompt, without a model.
 The streamed answer arrives one word per `--llm-delay`, long enough for the
 live `editMessageText` path, or the draft path with `rich_messages: true`, to
 run.
@@ -480,8 +485,11 @@ run.
 builds `tgfake`, writes a temporary home, boots `coddy serve` against it, sends
 `hello` and checks the reply, then leaves the session with `/clear`, comes back
 to it from the `/resume` keyboard and checks that the next message landed in
-that bundle - and `TG_E2E_KEEP=1` leaves the stand running with the page URL
-printed. It runs in Git Bash on Windows as well.
+that bundle, and finally asks the agent to "start the tests" - a tool rule
+starts a failing command in the background with `notify_on_finish` - and waits
+for the [woken turn](#woken-turns-land-in-the-chat) to reach the chat, the note
+and then the answer, with no HTTP server in the process - and `TG_E2E_KEEP=1`
+leaves the stand running with the page URL printed. It runs in Git Bash on Windows as well.
 
 The variable is not only for the fake: a self-hosted Bot API server
 (`telegram-bot-api` for large files or a local network) is pointed at the same
@@ -696,8 +704,8 @@ conversation and the web UI are two views of one session.
   `GET /coddy/sessions` lists it beside the sessions started in a terminal or
   a browser tab, and opening one loads the same transcript.
 - **A chat turn streams into the browser while it runs.** The gateway publishes
-  its turn into the session's composer relay - the same mechanism a background
-  task's wake turn uses - so a tab watching that session sees the tokens as
+  its turn into the session's composer relay - the relay the HTTP server's own
+  turns and woken turns use - so a tab watching that session sees the tokens as
   they arrive, not after the fact.
 - **The browser watches; the chat answers.** Session updates fan out to both
   surfaces, but permission requests and questions go only to the chat, because
@@ -718,6 +726,33 @@ If a session is deleted from the browser, the chat's mapping in
 `gateway_sessions.json` still points at that id; the next message finds no
 bundle and starts a fresh transcript under it. The conversation resets, which
 is what deleting it meant.
+
+## Woken turns land in the chat
+
+The agent in a chat can start a long command or a subagent in the background
+with `notify_on_finish` and end its turn: when the task ends, the process
+wakes the agent ([Background tasks](../features/background-tasks.md#waking-the-agent-when-a-task-finishes)).
+The woken turn belongs to the chat bound to the session, so the bot runs it
+there, through the chat's own sender, exactly like a message the person sent:
+
+- the chat first receives a note of its own, above the answer:
+  `🔔 Woken by a finished background task: bg_3 make test, failed, exit 2, 1m 30s`
+  (one line per task when several ended together);
+- then the answer streams and is finalized like any other, with the same
+  surface prompt and the same Markdown rendering;
+- a browser watching the session follows it through the composer relay, and
+  the chat's permission rules apply: the chat's agent is allowed what it asks,
+  a subagent is asked about in the chat.
+
+This needs no HTTP server. Under `coddy serve` the process owns the waker and
+offers each woken turn first to the surface that owns the conversation - the
+bot, when a chat is bound to the session - and only then to the HTTP server; a
+`coddy serve --gateway --http=false` wakes the chat all the same. A session no
+chat is bound to (the chat moved away with `/clear` or `/resume`) is not the
+bot's: it runs in the web UI's relay, or with no surface at all through the
+manager, and the chat hears nothing of it. The bot takes a woken turn only
+while it is connected; a woken turn that finds the chat's own turn still
+running waits for it, as it does on every surface.
 
 ## Session lifecycle
 
