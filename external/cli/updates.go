@@ -18,6 +18,9 @@ import (
 func (a *App) applyLoopMessage(msg updateMsg) {
 	// Internal messages first: they carry their own session semantics.
 	switch u := msg.update.(type) {
+	case uiCall:
+		u()
+		return
 	case turnDone:
 		// The turn belongs to the session that started it; clear the running
 		// flag even when the UI has already switched sessions (/new, /resume),

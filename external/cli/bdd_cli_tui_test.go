@@ -144,6 +144,8 @@ type cliTUIState struct {
 	blockedCh       chan struct{}
 
 	prevSessionID string
+	// outside is a folder outside the workspace the "@" scenarios browse.
+	outside string
 
 	printOut  *syncBuffer
 	printDone chan error
@@ -191,6 +193,10 @@ func (s *cliTUIState) reset() {
 	s.toolSeq = 0
 	s.blockedCh = nil
 	s.prevSessionID = ""
+	if s.outside != "" {
+		_ = os.RemoveAll(s.outside)
+	}
+	s.outside = ""
 	s.printOut = nil
 	s.printDone = nil
 	s.mgr = nil
@@ -1551,6 +1557,80 @@ func (s *cliTUIState) editorBordersUseLocalShellColor() error {
 	return fmt.Errorf("no editor border used the bashMode color; frame:\n%s", s.screenText())
 }
 
+// --- "@" mentions in the editor ---
+
+func (s *cliTUIState) withOutside(text string) string {
+	return strings.ReplaceAll(text, "<outside folder>", filepath.ToSlash(s.outside))
+}
+
+func (s *cliTUIState) folderOutsideHolding(name string) error {
+	dir, err := os.MkdirTemp("", "coddy-cli-bdd-outside-*")
+	if err != nil {
+		return err
+	}
+	if real, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = real
+	}
+	s.outside = dir
+	return os.WriteFile(filepath.Join(dir, name), []byte("x\n"), 0o644)
+}
+
+func (s *cliTUIState) workspaceHoldsManyFiles(n int, deep string) error {
+	for i := 0; i < n; i++ {
+		p := filepath.Join(s.cwd, "pkg", fmt.Sprintf("file%03d.go", i))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			return err
+		}
+	}
+	p := filepath.Join(s.cwd, filepath.FromSlash(deep))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(p, []byte("x"), 0o644)
+}
+
+func (s *cliTUIState) fileAppearsInWorkspace(name string) error {
+	return os.WriteFile(filepath.Join(s.cwd, filepath.FromSlash(name)), []byte("x"), 0o644)
+}
+
+// operatorTypesMention types a mention into the editor and waits for the
+// "@" list to open.
+func (s *cliTUIState) operatorTypesMention(text string) error {
+	s.typeText(s.withOutside(text))
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if s.app.editor.AutocompleteOpen() {
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("the @ list never opened; frame:\n%s", s.screenText())
+}
+
+func (s *cliTUIState) mentionListOffers(label string) error {
+	return s.waitScreen(s.withOutside(label), 3*time.Second)
+}
+
+func (s *cliTUIState) operatorTakesHighlightedMention() error {
+	s.press("\t")
+	return nil
+}
+
+func (s *cliTUIState) editorHolds(text string) error {
+	want := s.withOutside(text)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if s.app.editor.Text() == want {
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("editor holds %q, want %q", s.app.editor.Text(), want)
+}
+
 func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	s := &cliTUIState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -1653,6 +1733,13 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the operator types "([^"]*)" without sending it$`, s.operatorTypesWithoutSending)
 	sc.Step(`^the editor borders render in the local shell color$`, s.editorBordersUseLocalShellColor)
 	sc.Step(`^the operator runs a one-shot prompt "([^"]*)"$`, s.operatorRunsOneShot)
+	sc.Step(`^a folder outside the workspace holding the file "([^"]*)"$`, s.folderOutsideHolding)
+	sc.Step(`^the workspace holds (\d+) files and "([^"]*)"$`, s.workspaceHoldsManyFiles)
+	sc.Step(`^a file "([^"]*)" appears in the workspace$`, s.fileAppearsInWorkspace)
+	sc.Step(`^the operator types the mention "([^"]*)"$`, s.operatorTypesMention)
+	sc.Step(`^the mention list offers "([^"]*)"$`, s.mentionListOffers)
+	sc.Step(`^the operator takes the highlighted mention$`, s.operatorTakesHighlightedMention)
+	sc.Step(`^the editor holds "([^"]*)"$`, s.editorHolds)
 	sc.Step(`^the session runs the background command "([^"]*)" that wakes the agent$`, s.sessionRunsWakingBackgroundCommand)
 	sc.Step(`^the transcript shows nothing of the woken turn the operator did not type$`, s.transcriptShowsNothingOfTheWake)
 	sc.Step(`^the woken turn was handed the outcome of that task$`, s.wokenTurnWasHandedOutcome)

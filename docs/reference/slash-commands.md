@@ -62,12 +62,12 @@ The three built-ins are recognised on the whole prompt (`parseCompactCommand`, `
 - after `/export`, `--no-tools` and `--no-thinking` may appear anywhere, the first remaining word is the format when it names one, and the rest joined by single spaces is the target path;
 - the command text is persisted as a user row, so the transcript shows it, and the outcome is stored as an assistant message.
 
-Skills are found by `skills.ParseInvokedCommandNames` over the whole message, line by line:
+Skills are found by `skills.ParseInvokedCommandNames` over the text the user typed (never over the attachments a mention brought), line by line:
 
 - lines inside fenced code blocks and lines starting with `>` are skipped;
 - on the remaining lines, the regular expression `invokedMidLineSlashRE`, `(?:^|[\t ])\/([a-zA-Z0-9][a-zA-Z0-9_-]*)`, takes every `/name` that stands at the start of the line or right after a space or a tab, so `/review` in the middle of a sentence counts, while `x/foo`, `path/to/file` and `https://` do not;
 - the picker form of older SPA drafts, `[/name](coddy-skill:name)`, is accepted as well when both names agree;
 - each name is kept once, in order of appearance, and a name with no matching skill is left alone as plain text, which is why a stray `/tmp` in a prompt is harmless;
-- at LLM call time the bodies of the matched skills are prepended to the last user message (`augmentUserMessageWithInvokedSkills` in `internal/agent/react.go`); the stored history is not changed and the transcript does not show the injected text.
+- when the message is sent, the body of each matched skill is written into it once, as an attachment after the text (`<coddy_attachment path="skill:name" kind="skill">`, `invokedSkillBlocks` in `internal/agent/react.go`). A later turn replays the message with the body it was sent with, so the provider's cached prefix holds and the model keeps the instructions it was given; the transcript still shows the message as typed, the web UI and a reopened console drop the body from the bubble. A follow-up queued mid-turn invokes skills the same way ([Mentions](../features/mentions.md#mentions-and-the-prompt-cache)).
 
 The console's client-side commands are dispatched before any of that: the first whitespace-separated field of the draft, with the leading `/` removed, is matched against the fixed list, and an unknown name falls through to the agent as an ordinary prompt (`dispatchSlash` in `external/cli/slash.go`).

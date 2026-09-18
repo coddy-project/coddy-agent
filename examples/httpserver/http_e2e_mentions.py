@@ -5,12 +5,16 @@
    line-range picker: ``max_lines`` caps ``lines`` while ``total_lines`` counts
    the whole file.
 2. ``POST /v1/responses`` with ``attachments[].source.startLine`` / ``endLine``
-   (what the SPA sends for ``@file:3-4``) persists a user turn whose
+   (an API client's explicit form of ``@file:3-4``) persists a user turn whose
    ``<coddy_attachment>`` carries ``lines="3-4"`` and only those lines; the
    model quotes them back.
-3. The same mention typed into ``input`` alone (no ``attachments``) hydrates the
-   same way through the server-side text grammar.
+3. The same mention typed into ``input`` alone (no ``attachments``, what the
+   composer sends) hydrates the same way through the server-side grammar.
 4. A range that starts past the end of the file is refused with ``400``.
+5. ``GET /coddy/mentions`` ranks the workspace for the composer's picker.
+6. One prompt mentioning a file outside the workspace by its absolute path, a
+   folder and another session persists a user turn carrying all three
+   attachments (``kind="directory"``, ``kind="session"``).
 
 Environment: BASE_URL (ends with /v1), MODEL, WORK_DIR.
 """
@@ -21,6 +25,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -191,6 +196,50 @@ def main() -> int:
     if code != 400 or "line range" not in msg:
         print("range past the end was not refused with 400", code, resp, file=sys.stderr)
         return 1
+
+    # 5. The composer's picker: the workspace ranked against a fragment.
+    q = urllib.parse.urlencode({"q": "mention_lin"})
+    code, found, _ = http_json("GET", f"{origin}/coddy/mentions?{q}", None, headers)
+    items = found.get("items") or []
+    if code != 200 or not items or items[0].get("insert") != f"@{FILE_NAME}":
+        print("mentions search did not rank the file first", code, found, file=sys.stderr)
+        return 1
+
+    # 6. A file outside the workspace, a folder and another session in one prompt.
+    outside = Path(tempfile.mkdtemp(prefix="coddy-http-mentions-outside-")) / "outside_note.txt"
+    outside.write_text("OUTSIDE_TOKEN_71\n", encoding="utf-8")
+    sub = Path(work) / "mention_dir"
+    sub.mkdir(exist_ok=True)
+    (sub / "inner.txt").write_text("x\n", encoding="utf-8")
+    body = {
+        "model": profile,
+        "metadata": {"model": yaml_model},
+        "input": "Reply with the single word OK.",
+    }
+    code, resp, hdr2 = http_json("POST", f"{v1}/responses", body, {})
+    other = (hdr2.get("x-coddy-session-id") or "").strip()
+    if code != 200 or not other:
+        print("second session failed", code, resp, file=sys.stderr)
+        return 1
+    body = {
+        "model": profile,
+        "metadata": {"model": yaml_model},
+        "input": f"Reply with the single word OK. @{outside} @mention_dir/ @session:{other}",
+    }
+    code, resp, _ = http_json("POST", f"{v1}/responses", body, headers)
+    if code != 200:
+        print("meta mentions responses failed", code, resp, file=sys.stderr)
+        return 1
+    code, msgs, _ = http_json("GET", f"{origin}/coddy/sessions/{sid}/messages", None, {})
+    last_user = ""
+    for m in msgs.get("messages") or []:
+        if m.get("role") == "user":
+            last_user = str(m.get("content", ""))
+    for want in (f'path="{outside}"', "OUTSIDE_TOKEN_71", 'path="mention_dir/"', 'kind="directory"', "inner.txt",
+                 f'path="session:{other}"', 'kind="session"'):
+        if want not in last_user:
+            print(f"meta mention turn lacks {want!r}: {last_user[:1200]}", file=sys.stderr)
+            return 1
 
     print("ok http e2e mentions", flush=True)
     return 0

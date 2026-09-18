@@ -3,9 +3,7 @@
 package agent
 
 import (
-	"bytes"
 	"context"
-	"encoding/xml"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -21,6 +19,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
+	"github.com/EvilFreelancer/coddy-agent/internal/mention"
 	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/plans"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
@@ -207,6 +206,17 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 			return a.runExportCommand(ctx, args, userText)
 		}
 	}
+	// The bodies of the skills the prompt invokes as /name, and the rules its
+	// mentioned paths activate, ride in this message (mentions.go), never in
+	// the system prompt and never added per request.
+	if extra := invokedSkillBlocks(typedText(prompt), a.state.GetSkills()); len(extra) > 0 {
+		prompt = append(append([]acp.ContentBlock(nil), prompt...), extra...)
+		userText = contentBlocksToText(prompt)
+	}
+	if withRules := a.attachActivatedRules(prompt); len(withRules) != len(prompt) {
+		prompt = withRules
+		userText = contentBlocksToText(prompt)
+	}
 	// UserPromptSubmit hooks see the prompt before it becomes a message: a
 	// rejected prompt is never added, and the turn ends with the reason. The
 	// attachments that came with it are dropped too, so they do not leak into
@@ -272,7 +282,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// Build the full message list starting with the system prompt. It is
 	// rendered once here and then frozen for the whole turn so the provider's
 	// prefix cache keeps the conversation behind it (buildSystemPromptParts).
-	sys := a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles)
+	sys := a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles)
 	messages := a.buildMessages(sys.Content)
 	// The hand-off belongs to this turn and to its continuation after a
 	// permission prompt, and to nothing after that.
@@ -281,7 +291,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// buildSystemPromptParts refreshed the context breakdown; compact before the
 	// first LLM call when the estimate crossed the auto-compaction threshold.
 	if a.maybeAutoCompact(ctx) {
-		sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles)
+		sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles)
 		messages = a.buildMessages(sys.Content)
 	}
 
@@ -535,7 +545,7 @@ func (a *Agent) runReActLoop(
 		// itself: its own conditionals have to keep matching the state, so it is
 		// re-rendered here as every template was before, and carries no block.
 		if sys.Volatile && len(messages) > 0 && messages[0].Role == llm.RoleSystem {
-			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles)
+			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles)
 			messages[0].Content = sys.Content
 		}
 		turnCtx := a.buildTurnContext(sys)
@@ -547,7 +557,7 @@ func (a *Agent) runReActLoop(
 		// answered or called a tool since then).
 		a.refreshContextBreakdown(sys, turnCtx)
 		if turn > 0 && a.maybeAutoCompact(ctx) {
-			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles)
+			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles)
 			messages = a.buildMessages(sys.Content)
 			turnCtx = a.buildTurnContext(sys)
 			// The rebuilt estimate above was taken without the block; the call
@@ -1683,45 +1693,36 @@ func (a *Agent) buildMessages(systemPrompt string) []llm.Message {
 	// replayed to the LLM; earlier history stays in the transcript for the UI.
 	// Read/grep result eviction is applied at the provider.Stream send boundary
 	// (see runReActLoop), not here, so the working message slice keeps full
-	// content while the projection sent to the model is pruned.
+	// content while the projection sent to the model is pruned. A message is
+	// replayed exactly as it was stored: what a /skill or an @mention brought
+	// was written into it when it was sent (mentions.go), so no request
+	// rewrites an earlier message and the provider's cached prefix holds.
 	history := session.MessagesForLLM(a.state.GetMessages())
-	allSkills := a.state.GetSkills()
 	msgs := make([]llm.Message, 0, len(history)+1)
 	msgs = append(msgs, llm.Message{Role: llm.RoleSystem, Content: systemPrompt})
-
-	// Find the index of the most recent user message to augment it.
-	lastUserIdx := -1
-	for i := len(history) - 1; i >= 0; i-- {
-		if history[i].Role == llm.RoleUser {
-			lastUserIdx = i
-			break
-		}
-	}
-
-	for i, m := range history {
+	for _, m := range history {
 		if !isLLMHistoryMessage(m) {
 			continue
-		}
-		if i == lastUserIdx && len(allSkills) > 0 {
-			if aug := augmentUserMessageWithInvokedSkills(m.Content, allSkills); aug != m.Content {
-				m.Content = aug
-			}
 		}
 		msgs = append(msgs, m)
 	}
 	return msgs
 }
 
-// augmentUserMessageWithInvokedSkills prepends full skill bodies for any /name commands found
-// in userText. The original text is preserved at the end so the LLM sees both the skill context
-// and the user's exact request. Returns userText unchanged when no skills are invoked.
-func augmentUserMessageWithInvokedSkills(userText string, allSkills []*skills.Skill) string {
-	names := skills.ParseInvokedCommandNames(userText)
+// invokedSkillBlocks returns an attachment carrying the body of every skill
+// the typed text invokes as /name. It rides in the message that invoked it,
+// written once, so the next turn replays the same bytes rather than a message
+// that lost the body it was sent with.
+func invokedSkillBlocks(text string, allSkills []*skills.Skill) []acp.ContentBlock {
+	if len(allSkills) == 0 {
+		return nil
+	}
+	names := skills.ParseInvokedCommandNames(text)
 	if len(names) == 0 {
-		return userText
+		return nil
 	}
 	idx := skills.SkillBySlashName(allSkills)
-	var prefix strings.Builder
+	var out []acp.ContentBlock
 	for _, n := range names {
 		sk, ok := idx[n]
 		if !ok {
@@ -1731,16 +1732,27 @@ func augmentUserMessageWithInvokedSkills(userText string, allSkills []*skills.Sk
 		if body == "" {
 			continue
 		}
-		prefix.WriteString("## Invoked skill: /")
-		prefix.WriteString(n)
-		prefix.WriteString("\n\n")
-		prefix.WriteString(body)
-		prefix.WriteString("\n\n---\n\n")
+		out = append(out, acp.ContentBlock{Type: acp.ContentTypeResource, Resource: &acp.Resource{
+			URI:      "skill:" + n,
+			MimeType: "text/markdown; charset=utf-8",
+			Text:     body,
+			Mention:  &acp.ResourceMention{Kind: mention.KindSkill, Name: n},
+		}})
 	}
-	if prefix.Len() == 0 {
-		return userText
+	return out
+}
+
+// typedText is what the user wrote: the text blocks of a prompt, without the
+// attachments resolved for it, so a "/name" inside an attached file invokes
+// nothing.
+func typedText(blocks []acp.ContentBlock) string {
+	var parts []string
+	for _, b := range blocks {
+		if b.Type == acp.ContentTypeText {
+			parts = append(parts, b.Text)
+		}
 	}
-	return prefix.String() + userText
+	return strings.Join(parts, "\n\n")
 }
 
 func isLLMHistoryMessage(m llm.Message) bool {
@@ -1905,75 +1917,48 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 }
 
 // contentBlocksToText converts ACP content blocks to a plain text string.
-// Hydrated attachments become **<coddy_attachment path="..." name="...">…</coddy_attachment>**
-// with file body inside CDATA so the SPA can strip tags for display while the model retains full context.
+// Attachments - a mentioned file, folder, session, rule or subagent, or a
+// resource an editor sent - become <coddy_attachment ...> elements with the
+// body in CDATA (resourceAttachmentXML), so the SPA and the console can
+// collapse them for display while the model retains full context.
 func contentBlocksToText(blocks []acp.ContentBlock) string {
 	var parts []string
 	for _, b := range blocks {
 		switch b.Type {
-		case "text":
+		case acp.ContentTypeText:
 			parts = append(parts, b.Text)
-		case "resource":
+		case acp.ContentTypeResource:
 			if b.Resource != nil {
-				parts = append(parts, resourceBlockToXMLAttachment(b.Resource))
+				parts = append(parts, resourceAttachmentXML(b.Resource))
 			}
 		}
 	}
 	return strings.Join(parts, "\n\n")
 }
 
-func xmlEscapedAttr(s string) string {
-	var buf bytes.Buffer
-	_ = xml.EscapeText(&buf, []byte(s))
-	return buf.String()
-}
-
+// wrapXMLCDATA wraps body in CDATA, split where the body itself holds the
+// terminator sequence.
 func wrapXMLCDATA(body string) string {
-	// Split CDATA if the payload contains the terminator sequence.
 	escaped := strings.ReplaceAll(body, "]]>", "]]]]><![CDATA[>")
 	return "<![CDATA[" + escaped + "]]>"
 }
 
-func resourceBlockToXMLAttachment(res *acp.Resource) string {
-	pathRaw := strings.TrimSpace(res.URI)
-	pathRaw = strings.TrimPrefix(pathRaw, "file://")
-	// A ranged @mention carries its lines as the "#L<start>-<end>" fragment that
-	// internal/session wrote; the same parser takes it back off the path.
-	pathRaw, startLine, endLine := session.SplitLineRangeURI(pathRaw)
-	lines := ""
-	if startLine > 0 {
-		lines = fmt.Sprintf("%d-%d", startLine, endLine)
-	}
-	pathFwd := filepath.ToSlash(pathRaw)
-	name := filepath.Base(pathFwd)
-	if name == "." || name == "/" {
-		name = pathFwd
-	}
-	var b strings.Builder
-	b.WriteString(`<coddy_attachment path="`)
-	b.WriteString(xmlEscapedAttr(pathFwd))
-	b.WriteString(`" name="`)
-	b.WriteString(xmlEscapedAttr(name))
-	if lines != "" {
-		b.WriteString(`" lines="`)
-		b.WriteString(lines)
-	}
-	b.WriteString(`">`)
-	b.WriteByte('\n')
-	b.WriteString(wrapXMLCDATA(res.Text))
-	b.WriteString("\n</coddy_attachment>")
-	return b.String()
-}
-
-// extractContextFiles returns file paths referenced in content blocks.
+// extractContextFiles returns the local files and folders the prompt's
+// attachments read: a file:// resource an editor sent, and every file or
+// folder a mention resolved to. Path-scoped rules activate on them.
 func extractContextFiles(blocks []acp.ContentBlock) []string {
 	var files []string
 	for _, b := range blocks {
-		if b.Type == "resource" && b.Resource != nil {
-			uri := b.Resource.URI
-			if strings.HasPrefix(uri, "file://") {
-				files = append(files, fileURIPath(uri))
-			}
+		if b.Type != acp.ContentTypeResource || b.Resource == nil {
+			continue
+		}
+		if m := b.Resource.Mention; m != nil && m.Path != "" && (m.Kind == mention.KindFile || m.Kind == mention.KindDirectory) {
+			files = append(files, m.Path)
+			continue
+		}
+		if uri := b.Resource.URI; strings.HasPrefix(uri, "file://") {
+			base, _, _ := session.SplitLineRangeURI(uri)
+			files = append(files, fileURIPath(base))
 		}
 	}
 	return files

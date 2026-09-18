@@ -5,6 +5,7 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -160,5 +162,113 @@ func TestCoddyWorkspaceFileGetUnreadableIs500(t *testing.T) {
 	status, _ := getWorkspaceFile(t, ts, "path_rel=locked.txt")
 	if status != http.StatusInternalServerError {
 		t.Fatalf("status %d, want 500", status)
+	}
+}
+
+type mentionsBody struct {
+	Object string `json:"object"`
+	Items  []struct {
+		Kind     string `json:"kind"`
+		Insert   string `json:"insert"`
+		Label    string `json:"label"`
+		Continue bool   `json:"continue"`
+	} `json:"items"`
+	Total int `json:"total"`
+}
+
+func getMentions(t *testing.T, ts *httptest.Server, query url.Values) (int, mentionsBody) {
+	t.Helper()
+	rsp, err := http.Get(ts.URL + "/coddy/mentions?" + query.Encode())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rsp.Body.Close() }()
+	var body mentionsBody
+	if rsp.StatusCode == http.StatusOK {
+		if err := json.NewDecoder(rsp.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return rsp.StatusCode, body
+}
+
+// GET /coddy/mentions ranks the workspace against the text after "@",
+// browses a folder typed by its absolute path, and offers the scheme hints
+// for an empty query.
+func TestCoddyMentionsGet(t *testing.T) {
+	ts, _ := newWorkspaceFileTestServer(t, map[string]string{
+		"internal/agent/react.go":      "x",
+		"internal/agent/react_test.go": "x",
+		"docs/react-notes.md":          "x",
+		"my notes.md":                  "x",
+	})
+
+	code, body := getMentions(t, ts, url.Values{"q": {"react.go"}})
+	if code != http.StatusOK || body.Object != "coddy.mentions" || len(body.Items) == 0 || body.Items[0].Insert != "@internal/agent/react.go" {
+		t.Fatalf("ranked search: %d %+v", code, body)
+	}
+	code, body = getMentions(t, ts, url.Values{"q": {"my no"}})
+	if code != http.StatusOK || len(body.Items) == 0 || body.Items[0].Insert != `@"my notes.md"` {
+		t.Fatalf("a path with a space is inserted quoted: %d %+v", code, body)
+	}
+	code, body = getMentions(t, ts, url.Values{"q": {""}})
+	if code != http.StatusOK || len(body.Items) < 3 || body.Items[0].Kind != "scheme" || !body.Items[0].Continue {
+		t.Fatalf("empty query offers the scheme hints: %d %+v", code, body)
+	}
+	if runtime.GOOS != "windows" {
+		outside := t.TempDir()
+		if err := os.WriteFile(filepath.Join(outside, "far.txt"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		code, body = getMentions(t, ts, url.Values{"q": {outside + "/f"}})
+		if code != http.StatusOK || len(body.Items) != 1 || body.Items[0].Insert != "@"+outside+"/far.txt" {
+			t.Fatalf("absolute browse: %d %+v", code, body)
+		}
+	}
+	if code, _ := getMentions(t, ts, url.Values{"q": {"x"}, "limit": {"0"}}); code != http.StatusBadRequest {
+		t.Fatalf("limit 0: status %d, want 400", code)
+	}
+}
+
+// POST /coddy/mentions/check tells the composer which mentions of a draft
+// sending would attach: a package name stays unmarked, a file is marked.
+func TestCoddyMentionsCheckPost(t *testing.T) {
+	ts, _ := newWorkspaceFileTestServer(t, map[string]string{"README.md": "x"})
+	post := func(body string) (int, string) {
+		t.Helper()
+		rsp, err := http.Post(ts.URL+"/coddy/mentions/check", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = rsp.Body.Close() }()
+		b, _ := io.ReadAll(rsp.Body)
+		return rsp.StatusCode, string(b)
+	}
+	code, body := post(`{"text":"npm install @google/genai and read @README.md"}`)
+	var got struct {
+		Object   string `json:"object"`
+		Mentions []struct {
+			Token string `json:"token"`
+			Typed string `json:"typed"`
+			Kind  string `json:"kind"`
+		} `json:"mentions"`
+	}
+	if code != http.StatusOK || json.Unmarshal([]byte(body), &got) != nil {
+		t.Fatalf("check: %d %s", code, body)
+	}
+	if got.Object != "coddy.mention_check" || len(got.Mentions) != 2 ||
+		got.Mentions[0].Token != "@google/genai" || got.Mentions[0].Typed != "" ||
+		got.Mentions[1].Typed != "@README.md" || got.Mentions[1].Kind != "file" {
+		t.Fatalf("check: %s", body)
+	}
+	if code, body := post(`{"text":"no mentions here"}`); code != http.StatusOK || !strings.Contains(body, `"mentions":[]`) {
+		t.Fatalf("a draft without mentions: %d %s", code, body)
+	}
+	if code, _ := post(`{"text":`); code != http.StatusBadRequest {
+		t.Fatalf("broken JSON: status %d, want 400", code)
+	}
+	huge, _ := json.Marshal(map[string]string{"text": strings.Repeat("a", session.MaxMentionCheckBytes+1)})
+	if code, _ := post(string(huge)); code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("an oversized draft: status %d, want 413", code)
 	}
 }

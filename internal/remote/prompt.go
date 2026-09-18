@@ -20,11 +20,12 @@ import (
 
 // responsesRequest is the POST /v1/responses body a remote turn sends.
 type responsesRequest struct {
-	Model       string            `json:"model"`
-	Input       string            `json:"input"`
-	Stream      bool              `json:"stream"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
-	InlineFiles []inlineFile      `json:"inline_files,omitempty"`
+	Model       string                         `json:"model"`
+	Input       string                         `json:"input"`
+	Stream      bool                           `json:"stream"`
+	Metadata    map[string]string              `json:"metadata,omitempty"`
+	InlineFiles []inlineFile                   `json:"inline_files,omitempty"`
+	Attachments []session.PromptFileAttachment `json:"attachments,omitempty"`
 }
 
 type inlineFile struct {
@@ -91,7 +92,8 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	}
 	defer h.endTurn(st, owned)
 
-	body := responsesRequest{Model: mode, Input: promptInput(params.Prompt), Stream: true}
+	input, attachments := promptInput(params.Prompt)
+	body := responsesRequest{Model: mode, Input: input, Stream: true, Attachments: attachments}
 	if selected != "" {
 		body.Metadata = map[string]string{"model": selected}
 	}
@@ -441,27 +443,44 @@ func (t *turnStream) onQuestion(data string) error {
 	return nil
 }
 
-// promptInput flattens an ACP prompt for the HTTP input field: text blocks
-// verbatim, embedded resource blocks (editor context) inlined with their URI
-// so the remote agent sees the same context a local turn would hydrate.
-func promptInput(blocks []acp.ContentBlock) string {
+// promptInput splits an ACP prompt for POST /v1/responses: the text blocks
+// become the input, a resource the editor embedded travels as an attachment
+// with its text as the literal body - so the server resolves the "@"
+// references of what was typed and never scans a file's contents for them -
+// and a resource_link, which names something on the editor's machine rather
+// than the server's, is written into the input as the link it is.
+func promptInput(blocks []acp.ContentBlock) (string, []session.PromptFileAttachment) {
 	var b strings.Builder
+	var atts []session.PromptFileAttachment
 	for _, blk := range blocks {
 		switch blk.Type {
-		case "text":
+		case acp.ContentTypeText:
 			b.WriteString(blk.Text)
-		case "resource":
+		case acp.ContentTypeResource:
 			if blk.Resource == nil || blk.Resource.Text == "" {
 				continue
 			}
-			b.WriteString("\n\n")
-			if blk.Resource.URI != "" {
-				b.WriteString("[" + blk.Resource.URI + "]\n")
+			uri := strings.TrimSpace(blk.Resource.URI)
+			if uri == "" {
+				uri = "attachment"
 			}
-			b.WriteString(blk.Resource.Text)
+			atts = append(atts, session.PromptFileAttachment{
+				Path:   uri,
+				Source: &session.PromptFileAttachmentSourceField{Literal: blk.Resource.Text},
+			})
+		case acp.ContentTypeResourceLink:
+			label := strings.TrimSpace(blk.Title)
+			if label == "" {
+				label = strings.TrimSpace(blk.Name)
+			}
+			b.WriteString(" [")
+			b.WriteString(label)
+			b.WriteString("](")
+			b.WriteString(strings.TrimSpace(blk.URI))
+			b.WriteString(")")
 		}
 	}
-	return b.String()
+	return b.String(), atts
 }
 
 // planSlug extracts the run-plan slug from ACP prompt _meta.

@@ -225,7 +225,7 @@ func (a *Agent) continueReAct(ctx context.Context, mode string, toolEnv *tools.E
 	if err != nil {
 		return string(acp.StopReasonRefused), fmt.Errorf("no LLM configured: %w", err)
 	}
-	sys := a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles)
+	sys := a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles)
 	messages := a.buildMessages(sys.Content)
 	// The continuation is the last part of the turn that ran the plan, unless
 	// it stops on another gate of its own (react.go).
@@ -234,7 +234,7 @@ func (a *Agent) continueReAct(ctx context.Context, mode string, toolEnv *tools.E
 	// between steps, and the result just approved may be what crossed the
 	// threshold.
 	if a.maybeAutoCompact(ctx) {
-		sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles)
+		sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles)
 		messages = a.buildMessages(sys.Content)
 	}
 	maxTurns := a.cfg.Agent.MaxTurns

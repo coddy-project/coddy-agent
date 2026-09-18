@@ -23,6 +23,12 @@ the `<turn_context>` block that also carries the clock and the todo checklist, a
 system prompt picks it up from the sticky set. See *The turn context block* in
 [react-agent.md](../contributing/react-agent.md).
 
+A rule a **mention** brings never enters the system message at all. A mention-only rule the user
+names, and a path-gated rule or a nested `AGENTS.md` that a mentioned file or folder activates, ride
+in the user's message as attachments (`kind="rule"`), and while that message is in the model's view
+the `{{.Rules}}` block leaves them out; a compaction that folds the message into its summary brings
+them back through the sticky set. See [Mentions](mentions.md#mentions-and-the-prompt-cache).
+
 ## Discovery
 
 When `rules.auto_discover` is true (default), Coddy scans:
@@ -101,15 +107,15 @@ Rule files already on disk may change mode after this release; `coddy rules list
 
 | Rule | Behavior |
 |------|----------|
-| Patterns (`globs` / `paths`), any `alwaysApply` | Body enters **`{{.Rules}}`** the first time a matching file comes into play: a `file://` attachment in the user message, or a filesystem tool call (`read`, `edit`, `grep`, ...) targeting a matching path. Then **sticks** for the rest of the session |
+| Patterns (`globs` / `paths`), any `alwaysApply` | Active the first time a matching file comes into play, then **sticks** for the rest of the session. A filesystem tool call (`read`, `edit`, `grep`, ...) targeting a matching path puts the body in **`{{.Rules}}`**; a mentioned file or folder (`@src/app.go`, an editor's `file://` attachment) puts it in that user message instead |
 | `alwaysApply: true` without patterns | Active immediately for the session |
-| `alwaysApply: false` without patterns | **Never** auto-included. Body only when **`@ruleName`** appears in the user message |
+| `alwaysApply: false` without patterns | **Never** auto-included. Its body rides in the user message that names it: **`@ruleName`** or **`@rule:ruleName`** |
 | No `alwaysApply`, no patterns, `.mdc` | Mention-only (Cursor's default) |
 | No `alwaysApply`, no patterns, `.md` | Active immediately (Claude Code loads it unconditionally) |
 | No frontmatter | Active immediately |
-| Nested `AGENTS.md`, `DESIGN.md` | Read on demand. The first filesystem tool call or `file://` path inside its directory reads it (with every such document on the chain of folders above it) into **`{{.Rules}}`**, then it **sticks** for the session; nothing is read for folders no tool enters |
+| Nested `AGENTS.md`, `DESIGN.md` | Read on demand. The first filesystem tool call inside its directory reads it (with every such document on the chain of folders above it) into **`{{.Rules}}`**, and the first mention of a path there into that user message; then it **sticks** for the session. Nothing is read for folders no tool enters and no mention names |
 
-Mention-only rules use **`@name`** (file stem). They are **not** slash commands and do not appear in the skills catalog. `run_command` activates nothing: a shell string cannot be attributed to a path reliably.
+Mention-only rules use **`@name`** (file stem) or **`@rule:name`**; `@rule:name` also attaches any other rule of the catalog by name. They are **not** slash commands and do not appear in the skills catalog. `run_command` activates nothing: a shell string cannot be attributed to a path reliably.
 
 ## Project docs preamble
 

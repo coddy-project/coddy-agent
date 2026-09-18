@@ -4396,6 +4396,49 @@ a.rail-brand {
   opacity: 0.72;
 }
 
+/* "@" picker: the kind of each candidate - file, folder, session, rule,
+   subagent, plan - as a small label before it. The meta kinds take the
+   accent, so another session or a rule reads apart from a path. */
+.mention-kind {
+  display: inline-block;
+  min-width: 44px;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 6px;
+  font-size: 10px;
+  line-height: 16px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: center;
+  vertical-align: 1px;
+  color: color-mix(in srgb, var(--text) 62%, transparent);
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+}
+
+.mention-kind--session,
+.mention-kind--rule,
+.mention-kind--agent,
+.mention-kind--plan,
+.mention-kind--scheme {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/* "50 of 1204, type to narrow": the list was cut, and typing narrows it.
+   It rides the title row, which is on screen when the picker opens. */
+.mention-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mention-more {
+  text-transform: none;
+  letter-spacing: 0;
+  text-align: right;
+}
+
 .slash-load-more {
   display: block;
   width: 100%;

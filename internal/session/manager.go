@@ -39,6 +39,10 @@ type Manager struct {
 	defaultCWD string
 	store      *FileStore
 
+	// mentionSessions keeps the session listing "@session:" completion reads
+	// (mention_search.go).
+	mentionSessions mentionSessionCache
+
 	// preferredNewSessionID, when non-empty before session/new is handled, selects the id for the next new session (--session-id).
 	preferredNewSessionID string
 
@@ -805,6 +809,13 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 	markedCtx, ran := withTurnRanMarker(ctx)
 	turnCtx, cancel := context.WithCancel(markedCtx)
 	state.SetCancel(cancel)
+	if !adm.noQueue {
+		// A follow-up is typed by the operator, like the prompt it follows:
+		// its references resolve with the operator's scope, bound to the turn.
+		state.SetQueuedMentionResolver(func(blocks []acp.ContentBlock) []acp.ContentBlock {
+			return m.ResolvePromptMentions(turnCtx, state, blocks, m.mentionScope(state, false, state.GetMode() == string(ModeAsk)))
+		})
+	}
 	var finishOnce sync.Once
 	finish := func() {
 		finishOnce.Do(func() {
@@ -821,6 +832,7 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 						"session_id", sessionID, "messages", len(left))
 				}
 				state.SetQueueNotifier(nil)
+				state.SetQueuedMentionResolver(nil)
 				state.SetTurnSender(nil)
 			}
 			// The usage refresh is reserved before the turn is released: a
@@ -990,18 +1002,20 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if err != nil {
 		return nil, fmt.Errorf("session cwd: %w", err)
 	}
-	hydrated, err := HydratePromptContentBlocks(cwdAbs, params.Prompt)
+	hydrated, err := hydrateClientResources(cwdAbs, params.Prompt)
 	if err != nil {
 		return nil, err
 	}
-	if sd := strings.TrimSpace(state.GetPersistedSessionDir()); sd != "" && !subagentTurn {
-		hydrated, err = HydrateSessionPlanMentions(sd, hydrated)
-		if err != nil {
-			return nil, err
-		}
-		if mentionSlug := ExtractRunPlanSlugFromPromptText(contentBlocksToPlainText(hydrated)); mentionSlug != "" && !askMode {
+	if sd := strings.TrimSpace(state.GetPersistedSessionDir()); sd != "" && !subagentTurn && !askMode {
+		if mentionSlug := ExtractRunPlanSlugFromPromptText(contentBlocksToPlainText(hydrated)); mentionSlug != "" {
 			return m.runPlanAdmitted(turnCtx, params.SessionID, mentionSlug, state, sender)
 		}
+	}
+	// The "@" references of the prompt are resolved once, here, into
+	// attachments of this message (mentions.go). A woken turn's prompt is
+	// Coddy's own report of finished tasks, not text anybody typed.
+	if opts == nil || opts.BackgroundWake == nil {
+		hydrated = m.ResolvePromptMentions(turnCtx, state, hydrated, m.mentionScope(state, subagentTurn, askMode))
 	}
 
 	var ranRunner bool
@@ -1047,7 +1061,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		if !more {
 			break
 		}
-		stopReason, err = m.runner(turnCtx, state, QueuedPromptBlocks(queued), sender)
+		stopReason, err = m.runner(turnCtx, state, state.ResolveQueuedMentions(QueuedPromptBlocks(queued)), sender)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) {
 				state.AppendUILogError(CountUserTurns(state.GetMessages()), err.Error())

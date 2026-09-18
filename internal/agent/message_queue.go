@@ -27,9 +27,11 @@ func (a *Agent) readQueuedMessages(messages *[]llm.Message) bool {
 	}
 	sessionID := a.state.GetID()
 	for _, q := range queued {
+		// The follow-up's own mentions resolve now, as it enters the
+		// conversation, and ride in its message (mentions.go).
 		msg := llm.Message{
 			Role:      llm.RoleUser,
-			Content:   q.Text,
+			Content:   a.resolveQueuedMessage(q.Text),
 			CreatedAt: time.Now().UTC().Format(time.RFC3339),
 		}
 		*messages = append(*messages, msg)

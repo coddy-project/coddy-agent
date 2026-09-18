@@ -3851,21 +3851,13 @@ export function App() {
         input: text,
         stream: true,
       };
-      const atts = extractAtFileAttachments(text);
+      // The "@" mentions of the text are resolved by the server, when the
+      // message is sent (internal/session/mentions.go): one grammar for
+      // every surface, so nothing is derived here but the recent picks.
       const profileModel = (PROFILE_MODES as readonly string[]).includes(mode);
-      if (atts.length > 0 && profileModel) {
-        // A ranged mention (@path:21-31) sends the line range; the backend reads
-        // those lines from the file and labels the attachment with them.
-        reqBody.attachments = atts.map((a) =>
-          a.startLine == null || a.endLine == null
-            ? { path: a.path }
-            : {
-                path: a.path,
-                source: { startLine: a.startLine, endLine: a.endLine },
-              },
-        );
+      if (profileModel) {
         const wk = sid.trim() || WORKSPACE_AT_RECENTS_NO_SESSION_KEY;
-        for (const a of atts) {
+        for (const a of extractAtFileAttachments(text)) {
           recordWorkspaceAtRecent(wk, { path_rel: a.path, kind: "file" });
         }
       }

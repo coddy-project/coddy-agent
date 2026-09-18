@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/mention"
 	"github.com/EvilFreelancer/coddy-agent/internal/rules"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
@@ -23,15 +24,20 @@ type rulesState interface {
 // buildRulesPromptMarkdown renders the {{.Rules}} block for one request and
 // reports the project docs it embedded, which the instructions block then
 // leaves alone, plus the rules the block carries. With agentsOnDemand the
-// nested AGENTS.md files on the chain down to every attached file:// path are
-// read here, the same way a filesystem tool call reads them
+// nested AGENTS.md files on the chain down to every context path are read
+// here, the same way a filesystem tool call reads them
 // (activateScopedRulesForToolCall); both stick for the session.
 //
+// A rule whose attachment the model can read in its history - one the user
+// mentioned, or one a mentioned path activated (mentions.go) - is left out:
+// it is already in the conversation, and rendering it here would change the
+// system message the provider has cached. A compaction that folds the
+// message away brings it back.
+//
 // The third return value is the snapshot the turn context block diffs against
-// (rules.Added): a rule this block already gave the model must not be repeated
-// after the history when a tool call later makes it sticky. It covers the
-// @mentioned rules too, which are rendered here but never enter the sticky set.
-func buildRulesPromptMarkdown(st rulesState, home string, contextFiles []string, userText string, agentsOnDemand bool) (string, []string, []*rules.Rule) {
+// (rules.Added): every sticky rule, the ones left out for being in the
+// history included, since the model has all of them already.
+func buildRulesPromptMarkdown(st rulesState, home string, contextFiles []string, agentsOnDemand bool) (string, []string, []*rules.Rule) {
 	catalog := st.GetRulesCatalog()
 	active := st.GetActiveAutoRules()
 	newAuto := rules.MatchAuto(catalog, contextFiles)
@@ -40,11 +46,11 @@ func buildRulesPromptMarkdown(st rulesState, home string, contextFiles []string,
 	}
 	sticky := rules.UnionStable(active, newAuto)
 	st.SetActiveAutoRules(sticky)
-	mentioned := rules.SelectMentioned(catalog, userText)
-	md, embedded := rules.RenderPrompt(home, st.GetCWD(), sticky, mentioned)
+	inHistory := rulesInHistory(st.GetMessages(), st.GetCWD(), mention.HomeDir(), catalog, sticky)
+	md, embedded := rules.RenderPrompt(home, st.GetCWD(), withoutRules(sticky, inHistory), nil)
 	// A copy: the state keeps handing out the live slice, and the snapshot has
 	// to stay what this render carried however the sticky set grows later.
-	return md, embedded, rules.UnionStable(append([]*rules.Rule(nil), sticky...), mentioned)
+	return md, embedded, append([]*rules.Rule(nil), sticky...)
 }
 
 // computeContextBreakdown estimates category sizes for the context UI.

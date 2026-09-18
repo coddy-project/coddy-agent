@@ -20,7 +20,9 @@ Keys are parsed into the `ctrl+x` / `shift+enter` / `alt+backspace` notation of 
 | ctrl+t | collapse or expand thinking blocks |
 | up / down | prompt history on the first / last line of the draft; cursor movement otherwise |
 | tab | open the suggestion menu for the word at the cursor; inserts a tab when there is nothing to suggest |
-| `/` at the start of the draft, `@` before a path | open the command menu and the file mention menu as you type |
+| `/` at the start of the draft, `@` anywhere | open the command menu and the mention menu as you type ([Mentions](../features/mentions.md#in-the-console)) |
+| tab / enter | mention menu open: take the highlighted row; a folder or `@session:` keeps the menu open on what it holds |
+| escape | mention menu open: close it |
 
 Inside the `/tasks` overlay ([Background tasks](../features/background-tasks.md#in-the-console)):
 
@@ -68,10 +70,10 @@ The composer is a plain `textarea`; keys not listed here keep their browser mean
 | Enter | composer, desktop | send when idle: the draft, or the attachments alone when the selected model is multimodal; nothing while a turn is generating |
 | Shift+Enter | composer, desktop | newline (browser default, not intercepted) |
 | Enter | composer, mobile shell (viewports under 1200 px) | newline; sending is the button only |
-| ArrowUp / ArrowDown | slash menu open | move the highlighted row, wrapping at both ends |
+| ArrowUp / ArrowDown | slash or `@` menu open | move the highlighted row, wrapping at both ends |
 | Tab | slash menu open | apply the highlighted command |
-| Tab | `@` file menu open | apply the first match |
-| Enter | slash or `@` menu open | apply, without sending |
+| Tab | `@` mention menu open | apply the highlighted row, also while a turn runs |
+| Enter | slash or `@` menu open | apply, without sending; a folder or a scheme row keeps the `@` menu open |
 | Escape | slash, `@` or line-range picker open | close the picker; the `@path:N-M` picker stays closed for that mention until the draft moves on |
 | Escape | context breakdown popover open | close it |
 | Ctrl+Z / Cmd+Z | composer, right after Improve prompt | restore the draft from before the improvement, once |
@@ -82,4 +84,4 @@ The composer is a plain `textarea`; keys not listed here keep their browser mean
 | Escape | question prompt | skip the questions |
 | Escape / Tab | confirmation dialog | cancel / keep the focus inside the dialog |
 
-Stopping a turn has no key: it is the Stop button in the composer bar. The `@` menu opens as you type an `@` followed by a path, and a `:` after the path turns it into the line-range picker; neither is a binding.
+Stopping a turn has no key: it is the Stop button in the composer bar. The `@` menu opens as you type an `@` ([Mentions](../features/mentions.md#in-the-web-ui)), and a `:` after a file turns it into the line-range picker; neither is a binding.

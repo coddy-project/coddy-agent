@@ -1,0 +1,406 @@
+[
+  {
+    "in": "see @a/b.txt now",
+    "tokens": [
+      {
+        "span": "@a/b.txt",
+        "readings": [
+          "a/b.txt"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "@Dockerfile:21-31 ok",
+    "tokens": [
+      {
+        "span": "@Dockerfile:21-31",
+        "readings": [
+          "Dockerfile#21-31"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "open @x.go:21 now",
+    "tokens": [
+      {
+        "span": "@x.go",
+        "readings": [
+          "x.go"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "see @file.go:21-31x here",
+    "tokens": [
+      {
+        "span": "@file.go",
+        "readings": [
+          "file.go"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "@f.go:31-21 x",
+    "tokens": [
+      {
+        "span": "@f.go",
+        "readings": [
+          "f.go"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "@f.go:0-5 x",
+    "tokens": [
+      {
+        "span": "@f.go",
+        "readings": [
+          "f.go"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "@f.go:1234567890-1234567891 x",
+    "tokens": [
+      {
+        "span": "@f.go",
+        "readings": [
+          "f.go"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "take @f.go:2-4\r\nplease",
+    "tokens": [
+      {
+        "span": "@f.go:2-4",
+        "readings": [
+          "f.go#2-4"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "check @f.go:2-4, then run",
+    "tokens": [
+      {
+        "span": "@f.go:2-4",
+        "readings": [
+          "f.go#2-4"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "look @notes.md :2-4 here",
+    "tokens": [
+      {
+        "span": "@notes.md",
+        "readings": [
+          "notes.md"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "see @f.go#L10-20 and @g.go#L7 and @h.go#L1-L3",
+    "tokens": [
+      {
+        "span": "@f.go#L10-20",
+        "readings": [
+          "f.go#10-20"
+        ]
+      },
+      {
+        "span": "@g.go#L7",
+        "readings": [
+          "g.go#7-7"
+        ]
+      },
+      {
+        "span": "@h.go#L1-L3",
+        "readings": [
+          "h.go#1-3"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "see @f.go#10-20 and @g.go#7 and @README.md#install",
+    "tokens": [
+      {
+        "span": "@f.go#10-20",
+        "readings": [
+          "f.go#10-20"
+        ]
+      },
+      {
+        "span": "@g.go#7",
+        "readings": [
+          "g.go#7-7"
+        ]
+      },
+      {
+        "span": "@README.md",
+        "readings": [
+          "README.md"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "read @https://example.com/docs/a?x=1. and (@http://x.dev/b)",
+    "tokens": [
+      {
+        "span": "@https://example.com/docs/a?x=1",
+        "readings": [
+          "url:https://example.com/docs/a?x=1"
+        ]
+      },
+      {
+        "span": "@http://x.dev/b",
+        "readings": [
+          "url:http://x.dev/b"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "not a page @https:// here",
+    "tokens": []
+  },
+  {
+    "in": "read @README.md.",
+    "tokens": [
+      {
+        "span": "@README.md.",
+        "readings": [
+          "README.md.",
+          "README.md"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "read (@README.md) please",
+    "tokens": [
+      {
+        "span": "@README.md",
+        "readings": [
+          "README.md"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "open @readme copy.md now",
+    "tokens": [
+      {
+        "span": "@readme copy.md",
+        "readings": [
+          "readme copy.md",
+          "readme"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "compare @src/a.go b.go",
+    "tokens": [
+      {
+        "span": "@src/a.go b.go",
+        "readings": [
+          "src/a.go b.go",
+          "src/a.go"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "read @\"my notes/draft one.md\" first",
+    "tokens": [
+      {
+        "span": "@\"my notes/draft one.md\"",
+        "readings": [
+          "my notes/draft one.md"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "read @\"a b.go\":3-4",
+    "tokens": [
+      {
+        "span": "@\"a b.go\":3-4",
+        "readings": [
+          "a b.go#3-4"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "see @/etc/hosts",
+    "tokens": [
+      {
+        "span": "@/etc/hosts",
+        "readings": [
+          "/etc/hosts"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "see @~/notes.md",
+    "tokens": [
+      {
+        "span": "@~/notes.md",
+        "readings": [
+          "~/notes.md"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "see @../sibling/x.go",
+    "tokens": [
+      {
+        "span": "@../sibling/x.go",
+        "readings": [
+          "../sibling/x.go"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "list @src/ now",
+    "tokens": [
+      {
+        "span": "@src/",
+        "readings": [
+          "src/"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "win @C:\\Users\\me\\x.txt",
+    "tokens": [
+      {
+        "span": "@C:\\Users\\me\\x.txt",
+        "readings": [
+          "C:\\Users\\me\\x.txt"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "pkg @node_modules/@types/node/index.d.ts",
+    "tokens": [
+      {
+        "span": "@node_modules/@types/node/index.d.ts",
+        "readings": [
+          "node_modules/@types/node/index.d.ts"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "ask @session:sess_20260918_ab12 and @rule:deploy. and @agent:explore,",
+    "tokens": [
+      {
+        "span": "@session:sess_20260918_ab12",
+        "readings": [
+          "session:sess_20260918_ab12"
+        ]
+      },
+      {
+        "span": "@rule:deploy",
+        "readings": [
+          "rule:deploy"
+        ]
+      },
+      {
+        "span": "@agent:explore",
+        "readings": [
+          "agent:explore"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "@. and @.. and @/ and @~ are prose",
+    "tokens": []
+  },
+  {
+    "in": "mail me at user@example.com",
+    "tokens": []
+  },
+  {
+    "in": "```\n@x.go\n```\n@y.go",
+    "tokens": [
+      {
+        "span": "@y.go",
+        "readings": [
+          "y.go"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "\u003e quoted @x.go\nplain @y.go",
+    "tokens": [
+      {
+        "span": "@y.go",
+        "readings": [
+          "y.go"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "use `@Override` and @z.go",
+    "tokens": [
+      {
+        "span": "@z.go",
+        "readings": [
+          "z.go"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "two @a.go@b.go",
+    "tokens": [
+      {
+        "span": "@a.go",
+        "readings": [
+          "a.go"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "смотри @app.go:3-5 и @заметки/план.md",
+    "tokens": [
+      {
+        "span": "@app.go:3-5",
+        "readings": [
+          "app.go#3-5"
+        ]
+      },
+      {
+        "span": "@заметки/план.md",
+        "readings": [
+          "заметки/план.md"
+        ]
+      }
+    ]
+  }
+]

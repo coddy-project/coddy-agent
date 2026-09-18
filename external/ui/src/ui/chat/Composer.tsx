@@ -35,14 +35,24 @@ import {
   slashMenuDraftAtCaret,
 } from "../skills/draftSlash";
 import { filterCommandRows } from "../skills/commandRows";
-import { segmentComposerMirrorSpans } from "../skills/composerMirrorSegments";
-import { workspacePickRowSubtitle } from "../skills/workspacePickRowSubtitle";
 import {
-  pickerRowFromRecent,
+  segmentComposerMirrorSpans,
+  type MentionMark,
+  type MentionMarks,
+} from "../skills/composerMirrorSegments";
+import {
   readWorkspaceAtRecents,
   recordWorkspaceAtRecent,
   WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
 } from "../skills/workspaceAtRecents";
+import {
+  applyMentionRow,
+  mentionRowFromRecent,
+  mergeMentionRows,
+  recentKindOf,
+  type MentionRow,
+  type MentionSearchBody,
+} from "../skills/mentionRows";
 import {
   shellStackMaxWidthMediaQuery,
   subscribeShellStack,
@@ -222,7 +232,10 @@ export type QueuedMessage = { id: string; text: string };
 
 type SlashRow = { name: string; description: string };
 
-type WorkspaceFileRow = { name: string; path_rel: string; kind: string };
+/** How many "@" candidates one query asks for; the total is shown when cut. */
+const MENTION_PICKER_LIMIT = 50;
+/** Pause in typing before the draft's mentions are checked with the server. */
+const MENTION_CHECK_DELAY_MS = 150;
 
 /** Floating slash menu anchored to **`composer-field-wrap`** (viewport-relative). */
 type PickerFloatRect = {
@@ -415,13 +428,25 @@ export function Composer(props: {
    * Skip reopening `@` on the next picker sync ticks (handles duplicate selection events).
    */
   const deferAtDraftPickerTicksRef = useRef(0);
-  const [atItems, setAtItems] = useState<WorkspaceFileRow[]>([]);
+  const [atItems, setAtItems] = useState<MentionRow[]>([]);
   const [atOpen, setAtOpen] = useState(false);
   const [atPrefix, setAtPrefix] = useState("");
   const [atLoading, setAtLoading] = useState(false);
   const [atErr, setAtErr] = useState<string | null>(null);
-  const [atPage, setAtPage] = useState(1);
-  const [atHasMore, setAtHasMore] = useState(false);
+  /** Matches the server counted before cutting the list to MENTION_PICKER_LIMIT. */
+  const [atTotal, setAtTotal] = useState(0);
+  /** Keyboard-highlighted row of the "@" picker. */
+  const [atActive, setAtActive] = useState(0);
+  /**
+   * The draft the listed rows answer ("@" position and query) and the row the
+   * arrows are on: a second answer for the same draft - the server's after the
+   * recent picks, a retry while the index builds - keeps that row highlighted.
+   */
+  const atItemsDraftRef = useRef<string | null>(null);
+  const atActiveInsertRef = useRef<string | null>(null);
+  /** The first query after the picker opens rebuilds the server's workspace index. */
+  const atRefreshNextRef = useRef(true);
+  const atListRef = useRef<HTMLUListElement>(null);
   const [atReplace, setAtReplace] = useState<{
     from: number;
     to: number;
@@ -765,29 +790,27 @@ export function Composer(props: {
     void fetchCommandsOnce();
   }, [fetchCommandsOnce]);
 
-  const fetchAtPage = useCallback(
-    async (prefix: string, page: number) => {
+  const fetchMentions = useCallback(
+    async (query: string, refresh: boolean) => {
       const sp = new URLSearchParams({
-        page: String(page),
-        page_size: "10",
-        prefix,
-        dirs: "true",
+        q: query,
+        limit: String(MENTION_PICKER_LIMIT),
       });
+      if (refresh) {
+        sp.set("refresh", "1");
+      }
       const headers: Record<string, string> = {};
       const sid = (props.sessionId || "").trim();
       if (sid) {
         headers["X-Coddy-Session-ID"] = sid;
       }
-      const res = await fetch(`/coddy/workspace/files?${sp.toString()}`, {
+      const res = await fetch(`/coddy/mentions?${sp.toString()}`, {
         headers,
       });
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
-      return (await res.json()) as {
-        items: WorkspaceFileRow[];
-        has_more: boolean;
-      };
+      return (await res.json()) as MentionSearchBody;
     },
     [props.sessionId],
   );
@@ -1027,6 +1050,7 @@ export function Composer(props: {
         setAtReplace(null);
         setAtNoMatch(null);
         setAtLoading(false);
+        atRefreshNextRef.current = true;
         return;
       }
       if (atNoMatch && draftExtendsFailedAtPrefix(draft, atNoMatch)) {
@@ -1040,23 +1064,29 @@ export function Composer(props: {
       setAtReplace({ from: draft.atIdx, to: draft.caret });
       setAtPrefix(draft.prefix);
 
-      if (draft.prefix.trim() === "") {
-        bumpAtFetchGen();
-        const wk =
-          (props.sessionId || "").trim() || WORKSPACE_AT_RECENTS_NO_SESSION_KEY;
-        const recents = readWorkspaceAtRecents(wk).map(pickerRowFromRecent);
-        setAtItems(recents);
-        setAtPage(1);
-        setAtHasMore(false);
-        setAtNoMatch(null);
-        setAtLoading(false);
-        setAtErr(null);
-        return;
+      // Recent picks lead an empty query, ahead of the scheme hints and the
+      // top of the workspace the server offers for it.
+      const recent =
+        draft.prefix.trim() === ""
+          ? readWorkspaceAtRecents(
+              (props.sessionId || "").trim() ||
+                WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
+            ).map(mentionRowFromRecent)
+          : [];
+      const draftKey = `${draft.atIdx}\u0000${draft.prefix}`;
+      if (recent.length > 0) {
+        setAtItems(recent);
+        setAtTotal(recent.length);
+        setAtActive(0);
+        atItemsDraftRef.current = draftKey;
+        atActiveInsertRef.current = recent[0]?.insert ?? null;
       }
 
       atFetchGenRef.current += 1;
       const gen = atFetchGenRef.current;
-      void (async () => {
+      const refresh = atRefreshNextRef.current;
+      atRefreshNextRef.current = false;
+      const run = async (attempt: number) => {
         const el = taRef.current;
         const now = el
           ? atMenuDraftAtCaret(el.value, el.selectionStart ?? el.value.length)
@@ -1073,7 +1103,10 @@ export function Composer(props: {
         setAtLoading(true);
         setAtErr(null);
         try {
-          const body = await fetchAtPage(now.prefix.trimEnd(), 1);
+          const body = await fetchMentions(
+            now.prefix.trimEnd(),
+            refresh && attempt === 0,
+          );
           if (gen !== atFetchGenRef.current) {
             return;
           }
@@ -1092,16 +1125,24 @@ export function Composer(props: {
           ) {
             return;
           }
-          const rows = body.items || [];
+          const rows = mergeMentionRows(recent, body.items || []);
+          const kept =
+            atItemsDraftRef.current === draftKey && atActiveInsertRef.current
+              ? rows.findIndex((r) => r.insert === atActiveInsertRef.current)
+              : -1;
           setAtItems(rows);
-          setAtPage(1);
-          setAtHasMore(!!body.has_more);
-          if (rows.length === 0) {
+          setAtTotal(Math.max(body.total ?? rows.length, rows.length));
+          setAtActive(kept >= 0 ? kept : 0);
+          atItemsDraftRef.current = draftKey;
+          if (rows.length === 0 && !body.indexing) {
             setAtNoMatch({ atIdx: after.atIdx, prefix: after.prefix });
-            setAtItems([]);
-            setAtHasMore(false);
           } else {
             setAtNoMatch(null);
+          }
+          // The workspace is still being indexed: ask again shortly rather
+          // than leave the list empty until the next keystroke.
+          if (body.indexing && attempt < 5) {
+            window.setTimeout(() => void run(attempt + 1), 400);
           }
         } catch (e) {
           if (gen !== atFetchGenRef.current) {
@@ -1111,16 +1152,17 @@ export function Composer(props: {
             e instanceof Error ? e.message : t("composer.requestFailed"),
           );
           setAtItems([]);
-          setAtHasMore(false);
+          setAtTotal(0);
           setAtNoMatch(null);
         } finally {
           if (gen === atFetchGenRef.current) {
             setAtLoading(false);
           }
         }
-      })();
+      };
+      void run(0);
     },
-    [fetchAtPage, atNoMatch, props.sessionId, t],
+    [fetchMentions, atNoMatch, props.sessionId, t],
   );
 
   const updatePickerMenus = useCallback(
@@ -1186,6 +1228,63 @@ export function Composer(props: {
     ],
   );
 
+  /**
+   * What the server said about the "@" tokens of the draft
+   * (**`POST /coddy/mentions/check`**), keyed by the whole token: the mirror
+   * chips a mention only when sending would attach it, over the part that
+   * resolves, so a package in "npm install @google/genai" stays text.
+   */
+  const [mentionMarks, setMentionMarks] = useState<MentionMarks>(
+    () => new Map(),
+  );
+  const mentionCheckGenRef = useRef(0);
+  useEffect(() => {
+    mentionCheckGenRef.current++;
+    setMentionMarks(new Map());
+  }, [props.sessionId]);
+  useEffect(() => {
+    const text = props.value;
+    const gen = ++mentionCheckGenRef.current;
+    if (!text.includes("@")) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      const sid = (props.sessionId || "").trim();
+      if (sid) {
+        headers["X-Coddy-Session-ID"] = sid;
+      }
+      void fetch("/coddy/mentions/check", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ text }),
+      })
+        .then(async (res) => {
+          if (!res.ok) {
+            return;
+          }
+          const body = (await res.json()) as {
+            mentions?: { token: string; typed?: string; kind?: string }[];
+          };
+          if (gen !== mentionCheckGenRef.current) {
+            return;
+          }
+          const next = new Map<string, MentionMark>();
+          for (const m of body.mentions || []) {
+            next.set(m.token, { typed: m.typed ?? "", kind: m.kind ?? "" });
+          }
+          setMentionMarks(next);
+        })
+        .catch(() => {
+          // The marks of the last check stay: a chip does not blink out
+          // because one request failed.
+        });
+    }, MENTION_CHECK_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [props.value, props.sessionId]);
+
   const maskComposerText = props.value.length > 0;
   const composerSegments = useMemo(
     () =>
@@ -1195,8 +1294,16 @@ export function Composer(props: {
         slashNoMatch,
         atNoMatch,
         props.knownSkillNames,
+        mentionMarks,
       ),
-    [props.value, caretPos, slashNoMatch, atNoMatch, props.knownSkillNames],
+    [
+      props.value,
+      caretPos,
+      slashNoMatch,
+      atNoMatch,
+      props.knownSkillNames,
+      mentionMarks,
+    ],
   );
 
   useLayoutEffect(() => {
@@ -1276,26 +1383,54 @@ export function Composer(props: {
     });
   };
 
-  const applyAtChoice = (row: WorkspaceFileRow) => {
+  const applyAtChoice = (row: MentionRow) => {
     if (!atReplace) {
       return;
     }
-    deferAtDraftPickerTicksRef.current = 2;
     const { from, to } = atReplace;
-    const insert =
-      row.kind === "dir"
-        ? `@${row.path_rel}`
-        : `@${row.path_rel.replace(/\/$/, "")} `;
-    const next = props.value.slice(0, from) + insert + props.value.slice(to);
-    props.onChange(next);
-    recordWorkspaceAtRecent(
-      (props.sessionId || "").trim() || WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
+    // A folder or a scheme hint is a step, not a finished mention: no space,
+    // and the picker stays open on what it now holds.
+    const { text: next, caret: pos } = applyMentionRow(
+      props.value,
+      from,
+      to,
       row,
     );
+    props.onChange(next);
+    if (!row.continue && row.kind !== "scheme") {
+      // A row the server offered names something: chip it now rather than
+      // after the next check.
+      setMentionMarks((prev) =>
+        new Map(prev).set(row.insert, { typed: row.insert, kind: row.kind }),
+      );
+    }
+    const recentKind = recentKindOf(row);
+    if (recentKind) {
+      recordWorkspaceAtRecent(
+        (props.sessionId || "").trim() || WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
+        { path_rel: row.label, kind: recentKind },
+      );
+    }
+    if (row.continue) {
+      deferAtDraftPickerTicksRef.current = 0;
+      bumpAtFetchGen();
+      requestAnimationFrame(() => {
+        const el = taRef.current;
+        if (!el) {
+          return;
+        }
+        el.focus();
+        el.setSelectionRange(pos, pos);
+        updatePickerMenus(next, pos);
+      });
+      return;
+    }
+    deferAtDraftPickerTicksRef.current = 2;
     setAtOpen(false);
     setAtReplace(null);
     setAtNoMatch(null);
     bumpAtFetchGen();
+    atRefreshNextRef.current = true;
     setSlashOpen(false);
     setSlashReplace(null);
     setSlashNoMatch(null);
@@ -1306,7 +1441,6 @@ export function Composer(props: {
       if (!el) {
         return;
       }
-      const pos = from + insert.length;
       el.focus();
       el.setSelectionRange(pos, pos);
     });
@@ -1400,31 +1534,6 @@ export function Composer(props: {
         );
       } finally {
         setSlashLoading(false);
-      }
-    })();
-  };
-
-  const loadMoreAt = () => {
-    if (!atOpen || atLoading || !atHasMore || atPrefix.trim() === "") {
-      return;
-    }
-    void (async () => {
-      setAtLoading(true);
-      setAtErr(null);
-      try {
-        const nextPage = atPage + 1;
-        const body = await fetchAtPage(atPrefix.trimEnd(), nextPage);
-        const more = body.items || [];
-        setAtItems((prev) => [...prev, ...more]);
-        if (more.length > 0) {
-          setAtNoMatch(null);
-        }
-        setAtPage(nextPage);
-        setAtHasMore(!!body.has_more);
-      } catch (e) {
-        setAtErr(e instanceof Error ? e.message : t("composer.requestFailed"));
-      } finally {
-        setAtLoading(false);
       }
     })();
   };
@@ -1691,6 +1800,60 @@ export function Composer(props: {
     </>
   );
 
+  const atActiveIdx = atItems.length
+    ? Math.min(Math.max(atActive, 0), atItems.length - 1)
+    : 0;
+  atActiveInsertRef.current = atItems[atActiveIdx]?.insert ?? null;
+  // Arrow keys move the highlight; keep it in view inside the scrolling list.
+  useEffect(() => {
+    const row = atListRef.current?.querySelector<HTMLElement>(
+      `[data-at-idx="${atActiveIdx}"]`,
+    );
+    if (row && typeof row.scrollIntoView === "function") {
+      row.scrollIntoView({ block: "nearest" });
+    }
+  }, [atActiveIdx, atOpen]);
+
+  const mentionKindLabel = (kind: string): string => {
+    switch (kind) {
+      case "directory":
+        return t("composer.mentionKindDirectory");
+      case "session":
+        return t("composer.mentionKindSession");
+      case "rule":
+        return t("composer.mentionKindRule");
+      case "agent":
+        return t("composer.mentionKindAgent");
+      case "plan":
+        return t("composer.mentionKindPlan");
+      case "scheme":
+        return t("composer.mentionKindScheme");
+      default:
+        return t("composer.mentionKindFile");
+    }
+  };
+  /**
+   * The dimmer second part of a row. A path's label already is the whole path,
+   * so it has none; a scheme hint's is ours to word; the rest (a session's id
+   * and date, a rule's description) comes from the server.
+   */
+  const mentionRowDetail = (row: MentionRow): string => {
+    if (row.kind === "file" || row.kind === "directory") {
+      return "";
+    }
+    if (row.kind === "scheme") {
+      switch (row.label) {
+        case "session:":
+          return t("composer.mentionSchemeSession");
+        case "rule:":
+          return t("composer.mentionSchemeRule");
+        case "agent:":
+          return t("composer.mentionSchemeAgent");
+      }
+    }
+    return row.detail ?? "";
+  };
+
   const atMenuChrome = (
     <>
       <div className="slash-menu-surface" aria-hidden />
@@ -1698,56 +1861,70 @@ export function Composer(props: {
         className="slash-menu-scroll"
         style={{ maxHeight: pickerFloatRect?.maxH }}
       >
-        <div className="slash-menu-title">
+        <div className="slash-menu-title mention-title">
           {t("composer.workspaceFilesTitle")}
+          {atTotal > atItems.length ? (
+            // In the title, not under the rows: the list scrolls, and a cut
+            // it only admits at its end is one the reader never sees.
+            <span className="mention-more" data-testid="mention-more">
+              {t("composer.mentionMore", {
+                shown: atItems.length,
+                total: atTotal,
+              })}
+            </span>
+          ) : null}
         </div>
-        {atPrefix.trim() === "" && atItems.length === 0 ? (
-          <div className="slash-muted">{t("composer.typeAfterAt")}</div>
-        ) : null}
-        {atLoading && atItems.length === 0 && atPrefix.trim() !== "" ? (
+        {atLoading && atItems.length === 0 ? (
           <div className="slash-muted">{t("composer.loading")}</div>
         ) : null}
         {atErr ? <div className="slash-err">{atErr}</div> : null}
-        {!atLoading &&
-        atItems.length === 0 &&
-        !atErr &&
-        atPrefix.trim() !== "" ? (
-          <div className="slash-muted">{t("composer.noFiles")}</div>
+        {!atLoading && atItems.length === 0 && !atErr ? (
+          <div className="slash-muted">
+            {atPrefix.trim() === ""
+              ? t("composer.typeAfterAt")
+              : t("composer.noFiles")}
+          </div>
         ) : null}
-        <ul className="slash-rows">
-          {atItems.map((row) => (
-            <li key={`${row.kind}:${row.path_rel}`}>
-              <button
-                type="button"
-                role="option"
-                className="slash-row-btn"
-                data-testid={`workspace-file-row-${row.path_rel.replace(/[^a-zA-Z0-9_-]+/g, "_")}`}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  applyAtChoice(row);
-                }}
-              >
-                <span className="slash-row-name">@{row.path_rel}</span>
-                <span className="slash-row-desc">
-                  {workspacePickRowSubtitle(row)}
-                </span>
-              </button>
-            </li>
-          ))}
+        <ul className="slash-rows" ref={atListRef}>
+          {atItems.map((row, idx) => {
+            const detail = mentionRowDetail(row);
+            return (
+              <li key={`${row.kind}:${row.insert}`}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={idx === atActiveIdx}
+                  className={`slash-row-btn mention-row${idx === atActiveIdx ? " is-active" : ""}`}
+                  data-at-idx={idx}
+                  data-testid={`mention-row-${row.kind}-${row.label.replace(/[^a-zA-Z0-9_-]+/g, "_")}`}
+                  onMouseEnter={() => setAtActive(idx)}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    applyAtChoice(row);
+                  }}
+                >
+                  <span className="slash-row-line">
+                    <span
+                      className={`mention-kind mention-kind--${row.kind}`}
+                    >
+                      {mentionKindLabel(row.kind)}
+                    </span>
+                    <span className="slash-row-name">
+                      {row.kind === "scheme" ? `@${row.label}` : row.label}
+                    </span>
+                    {detail ? (
+                      <>
+                        {" "}
+                        <span className="slash-row-desc">{detail}</span>
+                      </>
+                    ) : null}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
         </ul>
-        {atHasMore ? (
-          <button
-            type="button"
-            className="slash-load-more"
-            disabled={atLoading}
-            data-testid="workspace-files-more"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => loadMoreAt()}
-          >
-            {atLoading ? t("composer.loading") : t("composer.more")}
-          </button>
-        ) : null}
-        {atItems.length > 0 ? (
+        {atItems.some((row) => row.kind === "file") ? (
           <div className="slash-muted at-range-menu-hint">
             {t("composer.atRangeMenuHint")}
           </div>
@@ -2156,6 +2333,21 @@ export function Composer(props: {
                   }
                   if (
                     (ev.key === "ArrowDown" || ev.key === "ArrowUp") &&
+                    atOpen &&
+                    atItems.length > 0
+                  ) {
+                    ev.preventDefault();
+                    const len = atItems.length;
+                    setAtActive((i) => {
+                      const cur = Math.min(Math.max(i, 0), len - 1);
+                      return ev.key === "ArrowDown"
+                        ? (cur + 1) % len
+                        : (cur - 1 + len) % len;
+                    });
+                    return;
+                  }
+                  if (
+                    (ev.key === "ArrowDown" || ev.key === "ArrowUp") &&
                     slashOpen &&
                     !atOpen &&
                     slashRows.length > 0 &&
@@ -2171,16 +2363,11 @@ export function Composer(props: {
                     });
                     return;
                   }
-                  if (
-                    ev.key === "Tab" &&
-                    atOpen &&
-                    atItems.length > 0 &&
-                    !props.generating
-                  ) {
+                  if (ev.key === "Tab" && atOpen && atItems.length > 0) {
                     ev.preventDefault();
-                    const row0 = atItems[0];
-                    if (row0) {
-                      applyAtChoice(row0);
+                    const row = atItems[atActiveIdx];
+                    if (row) {
+                      applyAtChoice(row);
                     }
                     return;
                   }
@@ -2201,13 +2388,12 @@ export function Composer(props: {
                     ev.key === "Enter" &&
                     !ev.shiftKey &&
                     atOpen &&
-                    atItems.length > 0 &&
-                    !props.generating
+                    atItems.length > 0
                   ) {
                     ev.preventDefault();
-                    const row0 = atItems[0];
-                    if (row0) {
-                      applyAtChoice(row0);
+                    const row = atItems[atActiveIdx];
+                    if (row) {
+                      applyAtChoice(row);
                     }
                     return;
                   }

@@ -26,6 +26,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
+	"github.com/EvilFreelancer/coddy-agent/internal/mention"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
@@ -648,7 +649,7 @@ func TestComputeContextBreakdownSystemPromptNonZero(t *testing.T) {
 	a := NewAgent(cfg, st, nil, nil)
 	toolsMD := "## Tools\n\ntool_a: does things"
 	_ = toolsMD
-	_ = a.buildSystemPrompt("agent", nil, []llm.ToolDefinition{{Name: "tool_a", Description: "does things"}}, "", nil)
+	_ = a.buildSystemPrompt("agent", nil, []llm.ToolDefinition{{Name: "tool_a", Description: "does things"}}, nil)
 	b := st.GetLastContextBreakdown()
 	if b == nil {
 		t.Fatal("expected breakdown")
@@ -678,7 +679,7 @@ func TestBuildSystemPromptIncludesRuntimeEnvironment(t *testing.T) {
 		Shell: platform.Shell{Kind: platform.ShellPwsh, Path: "pwsh"},
 	}
 
-	prompt := a.buildSystemPrompt("agent", nil, nil, "", nil)
+	prompt := a.buildSystemPrompt("agent", nil, nil, nil)
 	for _, want := range []string{"<os>windows</os>", "<arch>amd64</arch>", "<shell>pwsh</shell>"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("system prompt does not contain %q", want)
@@ -718,7 +719,7 @@ func TestBuildSystemPromptIncludesRulesBlock(t *testing.T) {
 	cfg.Agent.ApplyDefaults()
 	cfg.Prompts.ApplyDefaults()
 	a := NewAgent(cfg, st, nil, nil)
-	prompt := a.buildSystemPrompt("agent", nil, nil, "", []string{filepath.Join(tmp, "main.go")})
+	prompt := a.buildSystemPrompt("agent", nil, nil, []string{filepath.Join(tmp, "main.go")})
 	if !strings.Contains(prompt, "RULE_GLOB_TOKEN") {
 		t.Fatal("expected rule token in prompt")
 	}
@@ -727,7 +728,10 @@ func TestBuildSystemPromptIncludesRulesBlock(t *testing.T) {
 	}
 }
 
-func TestBuildSystemPromptMentionOnlyRule(t *testing.T) {
+// A mention-only rule never enters the system prompt. The user names it, its
+// body rides in that user's message, and the system message stays byte for byte
+// what it was - the provider's cached copy of the conversation behind it holds.
+func TestMentionOnlyRuleRidesInTheUserMessage(t *testing.T) {
 	tmp := t.TempDir()
 	rulePath := filepath.Join(tmp, ".coddy", "rules")
 	if err := os.MkdirAll(rulePath, 0o755); err != nil {
@@ -743,13 +747,20 @@ func TestBuildSystemPromptMentionOnlyRule(t *testing.T) {
 	cfg.Agent.ApplyDefaults()
 	cfg.Prompts.ApplyDefaults()
 	a := NewAgent(cfg, st, nil, nil)
-	without := a.buildSystemPrompt("agent", nil, nil, "hello", nil)
-	if strings.Contains(without, "RULE_MENTION_ONLY") {
+	before := a.buildSystemPrompt("agent", nil, nil, nil)
+	if strings.Contains(before, "RULE_MENTION_ONLY") {
 		t.Fatal("mention-only rule must not appear without @mention")
 	}
-	with := a.buildSystemPrompt("agent", nil, nil, "please @mention_demo now", nil)
-	if !strings.Contains(with, "RULE_MENTION_ONLY") {
-		t.Fatal("expected mention-only rule body with @mention_demo")
+	for _, typed := range []string{"please @mention_demo now", "please @rule:mention_demo now"} {
+		blocks := (*session.Manager)(nil).ResolvePromptMentions(context.Background(), st, []acp.ContentBlock{{Type: "text", Text: typed}}, session.MentionScope{})
+		msg := contentBlocksToText(blocks)
+		if !strings.Contains(msg, "RULE_MENTION_ONLY") || !strings.Contains(msg, `kind="rule"`) {
+			t.Fatalf("%q: the rule must ride in the user message, got:\n%s", typed, msg)
+		}
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: msg})
+		if after := a.buildSystemPrompt("agent", nil, nil, nil); after != before {
+			t.Fatalf("%q: the system prompt moved:\n--- before\n%s\n--- after\n%s", typed, before, after)
+		}
 	}
 }
 
@@ -767,7 +778,7 @@ func TestBuildSystemPromptProjectDocsInRules(t *testing.T) {
 	cfg.Agent.ApplyDefaults()
 	cfg.Prompts.ApplyDefaults()
 	a := NewAgent(cfg, st, nil, nil)
-	prompt := a.buildSystemPrompt("agent", nil, nil, "", nil)
+	prompt := a.buildSystemPrompt("agent", nil, nil, nil)
 	if !strings.Contains(prompt, "AGENTS_DOC_TOKEN") || !strings.Contains(prompt, "DESIGN_DOC_TOKEN") {
 		t.Fatal("expected project docs in rules block")
 	}
@@ -780,14 +791,10 @@ func TestBuildSystemPromptProjectDocsInRules(t *testing.T) {
 
 // --- system_prompt.go: skills injection ------------------------------------
 
-// TestAugmentUserMessageWithInvokedSkills_bodyInjected verifies that when a user
-// explicitly invokes a slash command (/find-skills), its body is prepended to the
-// user message sent to the LLM. The chat display (stored Content) remains unchanged.
-//
-// Regression: previously the body was never emitted because filteredInvoke compared
-// against activeGlobCanon which always included no-glob skills, preventing injection
-// in both the system-prompt ephemeral section and (by extension) the user message.
-func TestAugmentUserMessageWithInvokedSkills_bodyInjected(t *testing.T) {
+// An explicit /name invocation carries the skill's body in the message that
+// invoked it, written once, so a later turn replays the same bytes instead of
+// the message without the body (which cost the provider's cached prefix).
+func TestInvokedSkillBlocks_bodyAttached(t *testing.T) {
 	const body = "UNIQUE_FIND_SKILLS_BODY_TOKEN"
 	sk := &skills.Skill{
 		Name:        "SKILL",
@@ -795,49 +802,78 @@ func TestAugmentUserMessageWithInvokedSkills_bodyInjected(t *testing.T) {
 		Description: "find skills",
 		Content:     body,
 	}
-
-	userText := "/find-skills search pdf"
-	result := augmentUserMessageWithInvokedSkills(userText, []*skills.Skill{sk})
-
-	if !strings.Contains(result, body) {
-		t.Fatalf("expected skill body %q to be prepended to user message; got:\n%s", body, result)
+	blocks := invokedSkillBlocks("/find-skills search pdf", []*skills.Skill{sk})
+	if len(blocks) != 1 || blocks[0].Resource == nil || blocks[0].Resource.Text != body ||
+		blocks[0].Resource.URI != "skill:find-skills" || blocks[0].Resource.Mention.Kind != mention.KindSkill {
+		t.Fatalf("expected one skill attachment carrying the body, got %+v", blocks)
 	}
-	if !strings.Contains(result, userText) {
-		t.Fatalf("expected original user text %q to be preserved in result; got:\n%s", userText, result)
+	msg := contentBlocksToText(append([]acp.ContentBlock{{Type: "text", Text: "/find-skills search pdf"}}, blocks...))
+	if !strings.Contains(msg, `kind="skill"`) || !strings.HasPrefix(msg, "/find-skills search pdf") {
+		t.Fatalf("the typed text comes first and the body rides as an attachment:\n%s", msg)
 	}
-	// Skill body must come BEFORE the original user text.
-	if strings.Index(result, body) > strings.Index(result, userText) {
-		t.Fatalf("skill body should appear before user text in augmented message")
+	if got := mention.ForDisplay(msg); got != "/find-skills search pdf" {
+		t.Fatalf("the transcript shows the message as typed, got %q", got)
 	}
 }
 
-// TestAugmentUserMessageWithInvokedSkills_noSkillMatch returns userText unchanged when
-// the invoked name does not match any loaded skill.
-func TestAugmentUserMessageWithInvokedSkills_noSkillMatch(t *testing.T) {
+// Whatever form a mention was typed in, the transcript shows the message as
+// typed: the attachment it became is left out of the display, never shown a
+// second time under the text with its range repeated.
+func TestMentionsDisplayAsTyped(t *testing.T) {
+	root := t.TempDir()
+	var lines []string
+	for i := 1; i <= 30; i++ {
+		lines = append(lines, fmt.Sprintf("line %d", i))
+	}
+	body := strings.Join(lines, "\n")
+	_ = os.WriteFile(filepath.Join(root, "f.go"), []byte(body), 0o644)
+	_ = os.MkdirAll(filepath.Join(root, "my folder"), 0o755)
+	_ = os.WriteFile(filepath.Join(root, "my folder", "a b.go"), []byte(body), 0o644)
+	for _, typed := range []string{
+		"see @f.go please",
+		"see @f.go:10-20 please",
+		"see @f.go#L10-20 please",
+		"see @f.go#L10-L20 please",
+		"see @f.go#L12 please",
+		"see @f.go#10-20 please",
+		"see @f.go#12 please",
+		`see @"my folder/" please`,
+		`see @"my folder/a b.go" please`,
+		`see @"my folder/a b.go":3-4 please`,
+	} {
+		blocks, err := session.HydratePromptContentBlocks(root, []acp.ContentBlock{{Type: acp.ContentTypeText, Text: typed}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(blocks) != 2 {
+			t.Fatalf("%s: want the text and one attachment, got %d blocks", typed, len(blocks))
+		}
+		msg := contentBlocksToText(blocks)
+		if got := mention.ForDisplay(msg); got != typed {
+			t.Fatalf("%s: the transcript shows %q", typed, got)
+		}
+	}
+}
+
+func TestInvokedSkillBlocks_noSkillMatch(t *testing.T) {
 	sk := &skills.Skill{
 		Name:     "SKILL",
 		FilePath: filepath.Join("skills", "other", "SKILL.md"),
 		Content:  "other body",
 	}
-	userText := "/find-skills pdf"
-	result := augmentUserMessageWithInvokedSkills(userText, []*skills.Skill{sk})
-	if result != userText {
-		t.Fatalf("expected unchanged userText when no skill matches; got:\n%s", result)
+	if blocks := invokedSkillBlocks("/find-skills pdf", []*skills.Skill{sk}); len(blocks) != 0 {
+		t.Fatalf("expected nothing when no skill matches; got %+v", blocks)
 	}
 }
 
-// TestAugmentUserMessageWithInvokedSkills_noSlashCommand returns userText unchanged when
-// the message contains no slash command.
-func TestAugmentUserMessageWithInvokedSkills_noSlashCommand(t *testing.T) {
+func TestInvokedSkillBlocks_noSlashCommand(t *testing.T) {
 	sk := &skills.Skill{
 		Name:     "SKILL",
 		FilePath: filepath.Join("skills", "find-skills", "SKILL.md"),
 		Content:  "body",
 	}
-	userText := "поищи что-нибудь"
-	result := augmentUserMessageWithInvokedSkills(userText, []*skills.Skill{sk})
-	if result != userText {
-		t.Fatalf("expected unchanged userText when no slash command; got:\n%s", result)
+	if blocks := invokedSkillBlocks("поищи что-нибудь", []*skills.Skill{sk}); len(blocks) != 0 {
+		t.Fatalf("expected nothing without a slash command; got %+v", blocks)
 	}
 }
 
@@ -2409,14 +2445,14 @@ func TestBuildSystemPromptCustomTemplateWithoutRulesKeepsInstructions(t *testing
 	cfg.Prompts.Dir = promptsDir
 	a := NewAgent(cfg, st, nil, nil)
 
-	prompt := a.buildSystemPrompt("agent", nil, nil, "", nil)
+	prompt := a.buildSystemPrompt("agent", nil, nil, nil)
 	if n := strings.Count(prompt, "PROJECT_DOC_TOKEN"); n != 1 {
 		t.Fatalf("a template without {{.Rules}} carries the project AGENTS.md %d time(s), want 1:\n%s", n, prompt)
 	}
 
 	// With the built-in template the rules block carries it, exactly once.
 	cfg.Prompts.Dir = ""
-	if n := strings.Count(a.buildSystemPrompt("agent", nil, nil, "", nil), "PROJECT_DOC_TOKEN"); n != 1 {
+	if n := strings.Count(a.buildSystemPrompt("agent", nil, nil, nil), "PROJECT_DOC_TOKEN"); n != 1 {
 		t.Fatalf("the built-in template carries the project AGENTS.md %d time(s), want 1", n)
 	}
 }
@@ -2469,7 +2505,7 @@ func TestBuildTurnContextCarriesClockTodoAndNewlyActivatedRules(t *testing.T) {
 	a := NewAgent(cfg, st, nil, nil)
 	a.clock = func() time.Time { return time.Date(2038, 1, 19, 3, 14, 7, 0, time.UTC) }
 
-	sys := a.buildSystemPromptParts("agent", nil, nil, "", nil)
+	sys := a.buildSystemPromptParts("agent", nil, nil, nil)
 	if strings.Contains(sys.Content, "TURN_CTX_RULE_TOKEN") {
 		t.Fatal("a glob rule reached the system prompt before any tool touched a matching file")
 	}
@@ -2513,14 +2549,14 @@ func TestSystemPromptRebuildKeepsThePlanContext(t *testing.T) {
 	a := NewAgent(cfg, st, nil, nil)
 
 	for i := 1; i <= 3; i++ {
-		if got := a.buildSystemPromptParts("agent", nil, nil, "", nil); !strings.Contains(got.Content, "PLAN_HANDOFF_TOKEN") {
+		if got := a.buildSystemPromptParts("agent", nil, nil, nil); !strings.Contains(got.Content, "PLAN_HANDOFF_TOKEN") {
 			t.Fatalf("build %d lost the plan hand-off", i)
 		}
 	}
 
 	// And it is let go when the turn ends, so the next one starts clean.
 	a.releasePlanContext()
-	if got := a.buildSystemPromptParts("agent", nil, nil, "", nil); strings.Contains(got.Content, "PLAN_HANDOFF_TOKEN") {
+	if got := a.buildSystemPromptParts("agent", nil, nil, nil); strings.Contains(got.Content, "PLAN_HANDOFF_TOKEN") {
 		t.Fatal("the plan hand-off outlived the turn that ran the plan")
 	}
 }
@@ -2578,7 +2614,7 @@ func TestTurnContextCarriesTheChecklistInAgentModeOnly(t *testing.T) {
 	a := NewAgent(cfg, st, nil, nil)
 
 	for mode, want := range map[string]bool{"agent": true, "plan": false, "ask": false} {
-		sys := a.buildSystemPromptParts(mode, nil, nil, "", nil)
+		sys := a.buildSystemPromptParts(mode, nil, nil, nil)
 		block := a.buildTurnContext(sys)
 		if got := strings.Contains(block, "MODE_TODO_TOKEN"); got != want {
 			t.Errorf("%s mode: checklist in the turn context = %v, want %v", mode, got, want)
@@ -2607,7 +2643,7 @@ func TestVolatileCustomTemplateKeepsThePerStepRefresh(t *testing.T) {
 	st := &session.State{ID: "t", CWD: tmp, Mode: session.ModeAgent}
 	a := NewAgent(cfg, st, nil, nil)
 
-	sys := a.buildSystemPromptParts("agent", nil, nil, "", nil)
+	sys := a.buildSystemPromptParts("agent", nil, nil, nil)
 	if !sys.Volatile {
 		t.Fatal("a template printing UTCNow and TodoList must be marked volatile")
 	}
@@ -2617,7 +2653,7 @@ func TestVolatileCustomTemplateKeepsThePerStepRefresh(t *testing.T) {
 
 	// The built-in template is the other way round.
 	cfg.Prompts.Dir = ""
-	builtin := a.buildSystemPromptParts("agent", nil, nil, "", nil)
+	builtin := a.buildSystemPromptParts("agent", nil, nil, nil)
 	if builtin.Volatile {
 		t.Fatal("the built-in agent template must not be volatile")
 	}
@@ -2650,7 +2686,7 @@ func TestTemplateWithoutRulesGetsNoRulesInTheTurnContext(t *testing.T) {
 	st.ReplaceRulesCatalog(session.DiscoverRules(cfg, tmp))
 	a := NewAgent(cfg, st, nil, nil)
 
-	sys := a.buildSystemPromptParts("agent", nil, nil, "", nil)
+	sys := a.buildSystemPromptParts("agent", nil, nil, nil)
 	a.activateScopedRulesForToolCall("read", `{"path":"main.go"}`, tmp)
 	if block := a.buildTurnContext(sys); strings.Contains(block, "NO_RULES_TEMPLATE_TOKEN") {
 		t.Fatalf("a template without {{.Rules}} still received a rule: %q", block)
@@ -2683,7 +2719,7 @@ func TestRuleAlreadyInTheSystemPromptIsNotRepeatedInTheTurnContext(t *testing.T)
 	a := NewAgent(cfg, st, nil, nil)
 
 	// An attachment already made the rule sticky, so the frozen prompt carries it.
-	sys := a.buildSystemPromptParts("agent", nil, nil, "", []string{filepath.Join(tmp, "main.go")})
+	sys := a.buildSystemPromptParts("agent", nil, nil, []string{filepath.Join(tmp, "main.go")})
 	if !strings.Contains(sys.Content, "ALREADY_SENT_RULE_TOKEN") {
 		t.Fatal("the attached file did not activate the glob rule")
 	}
@@ -2710,7 +2746,7 @@ func TestTurnClockDoesNotTickBetweenTheStepsOfATurn(t *testing.T) {
 		return time.Date(2038, 1, 19, 3, 14, 7+ticks, 0, time.UTC)
 	}
 
-	sys := a.buildSystemPromptParts("agent", nil, nil, "", nil)
+	sys := a.buildSystemPromptParts("agent", nil, nil, nil)
 	first := a.buildTurnContext(sys)
 	second := a.buildTurnContext(sys)
 	if first != second {

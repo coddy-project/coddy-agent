@@ -143,21 +143,3 @@ export function migrateWorkspaceAtRecents(fromKey: string, toKey: string): void 
     /* ignore */
   }
 }
-
-/** Shape expected by **`Composer`** workspace rows. */
-export function pickerRowFromRecent(e: WorkspaceAtRecentStored): {
-  name: string;
-  path_rel: string;
-  kind: string;
-} {
-  const path_rel =
-    e.kind === "dir"
-      ? e.path_rel.endsWith("/")
-        ? e.path_rel
-        : `${e.path_rel}/`
-      : e.path_rel.replace(/\/$/, "");
-  const stem = path_rel.replace(/\/+$/, "");
-  const base = stem.split("/").filter(Boolean).pop() || stem;
-  const name = e.kind === "dir" ? `${base}/` : base;
-  return { path_rel, kind: e.kind, name };
-}
