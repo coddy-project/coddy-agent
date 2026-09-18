@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"net/url"
 	"os"
 	"strings"
 )
@@ -49,9 +48,11 @@ type TelegramGatewayConfig struct {
 	Enabled bool   `yaml:"enable"`
 	Token   string `yaml:"token"`
 
-	// Proxy is an optional outbound proxy for Telegram API requests.
-	// Supported schemes: http, https, socks5, socks5h.
-	// Example: "socks5h://127.0.0.1:1080" or "http://proxy.example.com:3128"
+	// Proxy is how the bot reaches the Bot API, read like providers[].proxy
+	// (ParseProxySetting): empty or "inherit" follows the environment's
+	// proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY), "none" connects directly,
+	// and an http, https, socks5 or socks5h URL goes through that proxy.
+	// Example: "none", "socks5h://127.0.0.1:1080", "http://proxy.example.com:3128"
 	Proxy string `yaml:"proxy"`
 
 	// RichMessages enables Bot API 10.1 Rich Messages: the agent's native Markdown
@@ -94,7 +95,7 @@ type TelegramChatConfig struct {
 // Normalize trims whitespace in string fields.
 func (t *TelegramGatewayConfig) Normalize() {
 	t.Token = strings.TrimSpace(t.Token)
-	t.Proxy = strings.TrimSpace(t.Proxy)
+	t.Proxy = normalizeProxySetting(t.Proxy)
 	t.DefaultAccess = AccessLevel(strings.TrimSpace(string(t.DefaultAccess)))
 	t.DefaultIsolation = IsolationMode(strings.TrimSpace(string(t.DefaultIsolation)))
 }
@@ -121,21 +122,14 @@ func (t *TelegramGatewayConfig) EffectiveToken() string {
 // Validate checks the Telegram config when enabled. The token is intentionally not
 // required here: it may be supplied at runtime via the TELEGRAM_BOT_TOKEN environment
 // variable (see EffectiveToken). The gateway logs a clear warning and skips the bot if
-// no token can be resolved at startup.
+// no token can be resolved at startup. An error names the key it is about
+// ("gateways.telegram.proxy: ..."), so coddy -t points at that line.
 func (t *TelegramGatewayConfig) Validate() error {
 	if !t.Enabled {
 		return nil
 	}
-	if t.Proxy != "" {
-		u, err := url.Parse(t.Proxy)
-		if err != nil {
-			return fmt.Errorf("gateways.telegram.proxy: invalid URL: %w", err)
-		}
-		switch strings.ToLower(u.Scheme) {
-		case "http", "https", "socks5", "socks5h":
-		default:
-			return fmt.Errorf("gateways.telegram.proxy: unsupported scheme %q (use http, https, socks5, or socks5h)", u.Scheme)
-		}
+	if err := validateProxySetting(t.Proxy); err != nil {
+		return fmt.Errorf("gateways.telegram.%w", err)
 	}
 	return nil
 }

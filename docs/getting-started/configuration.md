@@ -153,7 +153,7 @@ providers:
     api_key: "${OPENAI_API_KEY}"
     # api_base: ""                    # optional override for OpenAI-compatible base URL
     # api_key_command: "my-cli print-token"  # host shell: pwsh/powershell/cmd on Windows; bash/sh elsewhere
-    # proxy: "http://127.0.0.1:8888"   # optional per-provider HTTP(S) or SOCKS5/SOCKS5h proxy
+    # proxy: none                     # route of this row: inherit (default), none, or a proxy URL
     # timeout_ms: 300000               # optional bound on each LLM request incl. streamed read (0 = no client timeout)
 
   - name: "anthropic"
@@ -498,7 +498,8 @@ gateways:
     # Bot token from @BotFather. Never hard-code; always use an env reference.
     token: "${TELEGRAM_BOT_TOKEN}"
 
-    # Optional outbound proxy for Telegram API requests (http, https, socks5, socks5h).
+    # How the bot reaches the Bot API: inherit (the default) follows HTTPS_PROXY,
+    # none connects directly, or a proxy URL (http, https, socks5, socks5h).
     # proxy: "socks5h://127.0.0.1:1080"
 
     # Telegram user IDs with admin privileges.
@@ -538,7 +539,7 @@ gateways:
     #     access: "admins"
 ```
 
-`token` is validated at startup when `enable: true`. `proxy` is optional (empty = direct connection). The other fields apply defaults if omitted: `default_access: "all"`, `default_isolation: "individual"`.
+`token` is validated at startup when `enable: true`. `proxy` is optional and reads like a provider's: empty or `inherit` follows the environment's proxy (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`), `none` connects directly, a URL goes through that proxy ([Provider proxy](#provider-proxy)). The other fields apply defaults if omitted: `default_access: "all"`, `default_isolation: "individual"`.
 
 See **[docs/surfaces/gateway.md](../surfaces/gateway.md)** for the full configuration guide, running instructions, and how to add adapters for other messengers.
 
@@ -620,18 +621,43 @@ Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, *
 
 YAML split:
 
-- **`providers`**: **`name`** (unique), **`type`**, **`api_key`**, optional **`api_base`** (base URL override for the provider SDK: an OpenAI-compatible endpoint or Ollama host without **`/v1`** for **`type: openai`**, or an Anthropic-compatible gateway/relay for **`type: anthropic`**; for **`type: neuraldeep`** it selects the deployment, **`https://api.neuraldeep.ru/v1`** or **`https://api.neuraldeep.tech/v1`**, and any other value falls back to the first), optional **`proxy`** (per-provider outbound **`http://`**, **`https://`**, **`socks5://`**, or **`socks5h://`** URL; not a global default), optional **`usage_limits_panel`** (boolean, default **`true`**; **`false`** hides the account usage panel of this row on every surface and stops the usage reads behind it, meaningful for **`type: neuraldeep`** today).
+- **`providers`**: **`name`** (unique), **`type`**, **`api_key`**, optional **`api_base`** (base URL override for the provider SDK: an OpenAI-compatible endpoint or Ollama host without **`/v1`** for **`type: openai`**, or an Anthropic-compatible gateway/relay for **`type: anthropic`**; for **`type: neuraldeep`** it selects the deployment, **`https://api.neuraldeep.ru/v1`** or **`https://api.neuraldeep.tech/v1`**, and any other value falls back to the first), optional **`proxy`** (the route of every request of the row: **`inherit`** by default, **`none`** for a direct connection, or an **`http://`**, **`https://`**, **`socks5://`** or **`socks5h://`** proxy URL; see [Provider proxy](#provider-proxy)), optional **`usage_limits_panel`** (boolean, default **`true`**; **`false`** hides the account usage panel of this row on every surface and stops the usage reads behind it, meaningful for **`type: neuraldeep`** today).
 - **`models`**: **`model`** (string **`provider_name/api_model_id`**, session selector and **`agent.model`** value; first segment names **`providers[].name`**, remainder is the API model id), **`max_tokens`**, **`temperature`**, optional **`max_context_tokens`** (the model's context window: what the web UI context ring, the console context percentage and automatic compaction measure against; 0 reads it from the provider's model listing when the provider reports one, else 128000 - see [Context compaction](../features/compaction.md#the-context-window)), optional **`multimodal`** (boolean, default **`false`**; when **`true`** signals that the model accepts image/file inputs — the UI exposes a file attachment button in the composer for this model only), optional **`reasoning_levels`** (string list; overrides the reasoning levels offered for this model — when omitted they are auto-detected from the API model id: **`gpt-5*`** and **`gpt-6*`** → **`minimal,low,medium,high`**, OpenAI **`o`**-series, **`gpt-oss*`**, **`qwen3*`** (qwen3, qwen3.5, qwen3.6, qwen3.8, ...) and Claude extended-thinking models → **`low,medium,high`**; an explicit empty list hides the composer reasoning selector), optional **`reasoning_default`** (the level pre-selected for new chats; must be one of the resolved levels). Reasoning levels map to OpenAI **`reasoning_effort`** and Anthropic extended-thinking **`budget_tokens`**; for **`qwen3*`** models on OpenAI-compatible providers the request also carries **`chat_template_kwargs`** **`{"enable_thinking": true}`** so the chat-template thinking switch stays on. The Codex backend rejects **`max_output_tokens`**, so **`max_tokens`** is not sent for **`codex`** providers; it also rejects the **`minimal`** tier its **`gpt-5*`** and **`gpt-6*`** ids would normally imply, so codex-backed models offer **`none`** in its place (in the composer selector and in **`GET /v1/models`**). Reasoning turns request summaries (**`summary: auto`**) so thinking streams, and encrypted reasoning (**`include: reasoning.encrypted_content`**) so the chain of thought is replayed across tool calls the way the Codex CLI does it. See [config-reference.md](../reference/config.md) for token lifetime and the startup credential report.
+
+### Provider proxy
+
+**`providers[].proxy`** picks the route of every request a provider row makes: its completions, its model list, its account usage and its sign-in.
+
+- No value, or **`inherit`** (the default): the proxy the environment of the Coddy process names. **`HTTPS_PROXY`** covers **`https://`** addresses, **`HTTP_PROXY`** covers **`http://`** ones, **`NO_PROXY`** lists the hosts that go direct, and a loopback address is never proxied. **`ALL_PROXY`** is not read. Coddy has always behaved this way: an empty value never meant a direct connection, whatever older descriptions of the field said.
+- **`none`**: a direct connection. The row ignores those variables, so a provider that is reachable directly keeps working when the machine's proxy is broken, stale or slow - a corporate proxy that inspects TLS, a local forwarder, a variable left over from another setup.
+- A proxy URL (**`http://`**, **`https://`**, **`socks5://`**, **`socks5h://`**): every request of the row goes through that proxy, **`NO_PROXY`** hosts and loopback addresses included. With either SOCKS scheme the proxy resolves host names. Credentials go in the URL (**`http://user:pass@host:3128`**), and a **`$`** in them survives a settings save (see [Environment variable references](#environment-variable-references)).
+
+```yaml
+providers:
+  - name: corp          # needs the machine's proxy: nothing to set
+    type: openai
+    api_key: "${CORP_API_KEY}"
+  - name: local         # reachable directly, HTTPS_PROXY or not
+    type: openai
+    api_base: http://192.168.1.20:8000/v1
+    proxy: none
+  - name: remote        # a proxy of its own, whatever the environment says
+    type: anthropic
+    api_key: "${ANTHROPIC_API_KEY}"
+    proxy: socks5h://127.0.0.1:1080
+```
+
+The setting belongs to its row alone, so rows with different routes live side by side in one file. The Telegram gateway's **`gateways.telegram.proxy`** takes the same values for the bot's own requests ([Telegram gateway](../surfaces/gateway.md#proxy)). It covers the requests the Coddy process sends; the page a sign-in opens in your browser and whatever an **`api_key_command`** does are outside it. A changed value applies to the requests the row starts after it; a sign-in already waiting for the browser finishes on the route it started with. The environment variables are read once per process, so a change to them needs a restart. The keywords are accepted in any case and written back in lower case; anything else that is not a proxy URL is a configuration error that names the accepted values (the **`direct`** of an **`http_request`** call is not one of them). In the web UI the row shows the **Ignore system proxy** switch, which writes **`none`**, above the **Proxy URL** field ([Web UI](../surfaces/web-ui.md#settings-provider-proxy)). When a provider cannot be reached, **`coddy --dry-run`** names the route the request took in its hint - the row's proxy, a direct connection, or the proxy the environment named - with the credentials left out.
 
 ### `openai`
 Standard OpenAI API. Supports the current reasoning families (`gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`) as well as the older `o`-series and `gpt-4` ids.
 
-Provider needs **`api_key`**. Optional **`proxy`** applies only to this provider row (HTTP, HTTPS, SOCKS5, or SOCKS5h). The **`models[].model`** string must start with this provider **`name`** and a slash, then the OpenAI API model id, for example **`openai/gpt-5.6-terra`**. Also set **`max_tokens`**, and **`temperature`** for the non-reasoning ids.
+Provider needs **`api_key`**. Optional **`proxy`** routes this row's requests ([Provider proxy](#provider-proxy)). The **`models[].model`** string must start with this provider **`name`** and a slash, then the OpenAI API model id, for example **`openai/gpt-5.6-terra`**. Also set **`max_tokens`**, and **`temperature`** for the non-reasoning ids.
 
 ### `anthropic`
 Anthropic API. Supports: `claude-3-5-sonnet-*`, `claude-3-5-haiku-*`, `claude-3-opus-*`
 
-Provider needs **`api_key`**. Optional **`api_base`** overrides the Anthropic API base URL (default **`https://api.anthropic.com`**), for example an Anthropic-compatible gateway or relay. Optional **`proxy`** applies only to this provider row. Use **`models[].model`** like **`anthropic/claude-3-5-sonnet-20241022`**, plus **`max_tokens`**, **`temperature`**.
+Provider needs **`api_key`**. Optional **`api_base`** overrides the Anthropic API base URL (default **`https://api.anthropic.com`**), for example an Anthropic-compatible gateway or relay. Optional **`proxy`** routes this row's requests ([Provider proxy](#provider-proxy)). Use **`models[].model`** like **`anthropic/claude-3-5-sonnet-20241022`**, plus **`max_tokens`**, **`temperature`**.
 
 ### `neuraldeep`
 NeuralDeep API via its OpenAI-compatible endpoint.
@@ -640,7 +666,7 @@ Credentials come from either a hub sign-in or a plain key. **`coddy providers lo
 
 While a `neuraldeep` model is active, the console footer, the remote console and the HTTP API show the account's usage (the hub's read-only **`GET /v1/limits`**: session and week windows as percent used with reset times, the wallet in rubles, a hit limit with its reset time), refreshed at session start and after every turn; see **`docs/surfaces/console.md`** (Footer, `/usage`) and **`docs/reference/http-api.md`** (**`GET /coddy/providers/{name}/usage`**). The row's own credential is used, and no dollar figure is ever shown. The panel is on by default; **`usage_limits_panel: false`** on the row (the **Usage limits panel** switch in Settings → LLM Providers) hides it on every surface and stops the **`GET /v1/limits`** reads for that row, for a shared screen or an account that is not yours to watch.
 
-The same API is served from two deployments: **`https://api.neuraldeep.ru/v1`** for Russia and **`https://api.neuraldeep.tech/v1`** for everywhere else. **`api_base`** selects one - leave it empty for the first, and any value that is not one of the two falls back to it (a startup warning says so). The choice travels with the credential: sign-in goes to **`hub.neuraldeep.ru`** or **`hub.neuraldeep.tech`** to match, so pick the endpoint before signing in (**`coddy providers login neuraldeep --api-base https://api.neuraldeep.tech/v1`**, or the endpoint dropdown in Settings). A login with **`--api-base`** also moves an existing provider row to that endpoint (unless **`--no-config`**), so the row and the key agree; in Settings the sign-in follows the dropdown as picked in the form, before Save. A key minted by one hub is not honored by the other; Coddy warns at startup when the stored login and the selected endpoint disagree, and the Settings row shows the same warning live. **`CODDY_NEURALDEEP_BASE_URL`** and **`CODDY_NEURALDEEP_HUB_URL`** still redirect the whole process for stands and tests, and they win over the config. Optional **`proxy`** applies only to this provider row. Use **`models[].model`** like **`neuraldeep/qwen3.6-35b-a3b`**, plus **`max_tokens`**, **`temperature`**.
+The same API is served from two deployments: **`https://api.neuraldeep.ru/v1`** for Russia and **`https://api.neuraldeep.tech/v1`** for everywhere else. **`api_base`** selects one - leave it empty for the first, and any value that is not one of the two falls back to it (a startup warning says so). The choice travels with the credential: sign-in goes to **`hub.neuraldeep.ru`** or **`hub.neuraldeep.tech`** to match, so pick the endpoint before signing in (**`coddy providers login neuraldeep --api-base https://api.neuraldeep.tech/v1`**, or the endpoint dropdown in Settings). A login with **`--api-base`** also moves an existing provider row to that endpoint (unless **`--no-config`**), so the row and the key agree; in Settings the sign-in follows the dropdown as picked in the form, before Save. A key minted by one hub is not honored by the other; Coddy warns at startup when the stored login and the selected endpoint disagree, and the Settings row shows the same warning live. **`CODDY_NEURALDEEP_BASE_URL`** and **`CODDY_NEURALDEEP_HUB_URL`** still redirect the whole process for stands and tests, and they win over the config. Optional **`proxy`** routes this row's requests, the hub sign-in and the usage reads included ([Provider proxy](#provider-proxy)). Use **`models[].model`** like **`neuraldeep/qwen3.6-35b-a3b`**, plus **`max_tokens`**, **`temperature`**.
 
 ### Local OpenAI-compatible servers (Ollama, llama.cpp, LM Studio)
 Use **`type: openai`** and set **`api_base`** to an OpenAI-compatible base URL that already includes **`/v1`**, for example **`http://localhost:11434/v1`** for Ollama.

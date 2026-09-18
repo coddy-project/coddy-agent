@@ -149,8 +149,10 @@ gateways:
     # logs a warning and skips the bot instead of failing config validation.
     token: "${TELEGRAM_BOT_TOKEN}"
 
-    # Optional outbound proxy for Telegram API requests.
-    # Supported schemes: http, https, socks5, socks5h.
+    # How the bot reaches the Bot API (see "Proxy" below). Left out, or inherit,
+    # it follows HTTPS_PROXY, HTTP_PROXY and NO_PROXY of the Coddy process;
+    # none connects directly; a URL (http, https, socks5, socks5h) goes through it.
+    # proxy: none
     # proxy: "socks5h://127.0.0.1:1080"
     # proxy: "http://proxy.example.com:3128"
 
@@ -186,15 +188,20 @@ gateways:
 
 ### Proxy
 
-Set `proxy` to route outbound Telegram API requests through an HTTP or SOCKS5 proxy:
+`proxy` decides how the bot reaches the Bot API, and it reads like a provider's `proxy` ([Provider proxy](../getting-started/configuration.md#provider-proxy)):
+
+- no value, or `inherit` (the default): the proxy the environment of the Coddy process names - `HTTPS_PROXY` for `https://api.telegram.org`, `NO_PROXY` for the hosts that go direct, never for a loopback address; `ALL_PROXY` is not read. An empty field never meant a direct connection: on a machine with `HTTPS_PROXY` set, the bot goes through that proxy;
+- `none`: a direct connection, those variables ignored for the bot;
+- a proxy URL: every Bot API request goes through it.
 
 ```yaml
 gateways:
   telegram:
-    proxy: "socks5h://127.0.0.1:1080"  # or "http://proxy.example.com:3128"
+    proxy: none                       # the machine's proxy cannot reach Telegram
+    # proxy: "socks5h://127.0.0.1:1080"  # or "http://proxy.example.com:3128"
 ```
 
-Supported schemes: `http`, `https`, `socks5`, `socks5h`. `socks5h` resolves hostnames on the proxy side. Leave the field empty (the default) for a direct connection.
+Supported schemes: `http`, `https`, `socks5`, `socks5h`; with either SOCKS scheme the proxy resolves host names. In the web UI the field is the **Ignore system proxy** switch, which writes `none`, above the **Proxy URL** input (**Settings → System**, gateways block). `coddy --dry-run` asks `getMe` the way the bot will, through the same route.
 
 ### Rich Messages
 

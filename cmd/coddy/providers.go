@@ -162,7 +162,7 @@ func neuralDeepLogin(cfg *config.Config, prov *config.ProviderConfig, browser, n
 	if authPath == "" {
 		return fmt.Errorf("providers: could not resolve the credential path for provider %q", prov.Name)
 	}
-	client, err := llm.HTTPClientForOptionalProxy(prov.Proxy)
+	client, err := llm.HTTPClientForProviderProxy(prov.Proxy)
 	if err != nil {
 		return err
 	}
@@ -258,13 +258,18 @@ func providersLogout(cfg *config.Config, name string) error {
 		if loadErr == nil && key != "" {
 			ctx, cancel := context.WithTimeout(context.Background(), neuralDeepLogoutTimeout)
 			defer cancel()
-			client, _ := llm.HTTPClientForOptionalProxy(prov.Proxy)
 			st, _ := llm.InspectNeuralDeepAuth(authPath)
 			hub := st.Hub
 			if hub == "" {
 				hub = llm.NeuralDeepHubFor(prov.APIBase)
 			}
-			if revokeErr := llm.RevokeNeuralDeepKey(ctx, hub, key, client); revokeErr != nil {
+			// The revoke goes the row's own way or not at all: a default
+			// client would take the route the row's proxy setting ruled out.
+			client, revokeErr := llm.HTTPClientForProviderProxy(prov.Proxy)
+			if revokeErr == nil {
+				revokeErr = llm.RevokeNeuralDeepKey(ctx, hub, key, client)
+			}
+			if revokeErr != nil {
 				fmt.Fprintf(os.Stderr, "note: could not revoke the key on the hub (%v); revoke it in the dashboard: %s/app\n", revokeErr, hub)
 			} else {
 				fmt.Println("Revoked the key on the NeuralDeep hub.")

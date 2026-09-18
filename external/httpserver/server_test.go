@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -2076,6 +2077,93 @@ agent:
 	}
 	if mgr.Cfg().Agent.MaxTurns != 12 {
 		t.Fatalf("mgr max_turns %d", mgr.Cfg().Agent.MaxTurns)
+	}
+}
+
+// TestCoddyConfigPutKeepsProviderProxySetting saves provider rows through the
+// settings route the way the settings screen does and reads them back: the
+// "Ignore system proxy" switch writes none, and the value reaches the file,
+// the live config and the next GET unchanged. A word the setting does not
+// know is refused with the ones it does.
+func TestCoddyConfigPutKeepsProviderProxySetting(t *testing.T) {
+	home := t.TempDir()
+	cfgPath := filepath.Join(home, "config.yaml")
+	yml := "providers:\n  - name: local\n    type: openai\n    api_base: http://127.0.0.1:8080/v1\n" +
+		"models:\n  - model: local/m\nagent:\n  model: local/m\n"
+	if err := os.WriteFile(cfgPath, []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	srv := New(cfg, mgr, slog.Default(), home)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	put := func(proxy string) (int, string) {
+		t.Helper()
+		body := `{"providers":[{"name":"local","type":"openai","api_base":"http://127.0.0.1:8080/v1","proxy":` + strconv.Quote(proxy) + `},` +
+			`{"name":"corp","type":"openai","api_key":"k"}],` +
+			`"models":[{"model":"local/m"}],"agent":{"model":"local/m"}}`
+		req, _ := http.NewRequest(http.MethodPut, ts.URL+"/coddy/config", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := ioReadAllClose(res.Body)
+		return res.StatusCode, string(b)
+	}
+
+	if code, b := put("none"); code != http.StatusOK {
+		t.Fatalf("put none: status %d %s", code, b)
+	}
+	if got := srv.activeCfg().FindProvider("local").Proxy; got != "none" {
+		t.Fatalf("live proxy after the save = %q, want none", got)
+	}
+	if got := srv.activeCfg().FindProvider("corp").Proxy; got != "" {
+		t.Fatalf("a row saved without the key got proxy %q", got)
+	}
+	onDisk, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(onDisk), "proxy: none") {
+		t.Fatalf("config.yaml does not carry proxy: none:\n%s", onDisk)
+	}
+	res, err := http.Get(ts.URL + "/coddy/config")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gb, _ := ioReadAllClose(res.Body)
+	var doc struct {
+		Providers []struct {
+			Name  string `json:"name"`
+			Proxy string `json:"proxy"`
+		} `json:"providers"`
+	}
+	if err := json.Unmarshal(gb, &doc); err != nil {
+		t.Fatalf("GET /coddy/config: %v\n%s", err, gb)
+	}
+	got := map[string]string{}
+	for _, p := range doc.Providers {
+		got[p.Name] = p.Proxy
+	}
+	if got["local"] != "none" || got["corp"] != "" {
+		t.Fatalf("GET /coddy/config proxies = %v, want local none and corp unset", got)
+	}
+
+	code, b := put("direct")
+	if code != http.StatusBadRequest {
+		t.Fatalf("put direct: status %d %s, want 400", code, b)
+	}
+	if !strings.Contains(b, `use \"none\"`) && !strings.Contains(b, `use "none"`) {
+		t.Fatalf("the refusal does not name the keyword to use: %s", b)
 	}
 }
 

@@ -21,6 +21,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
+	"github.com/EvilFreelancer/coddy-agent/internal/proxytest"
 	"github.com/EvilFreelancer/coddy-agent/internal/tgfake"
 )
 
@@ -76,6 +77,8 @@ type pollingWorld struct {
 	done       chan error
 	lastUpdate int
 	envSet     bool // CODDY_TELEGRAM_API_BASE was exported for this scenario
+	// proxy is the gateway's own proxy, when the scenario names one.
+	proxy *proxytest.Proxy
 }
 
 func (w *pollingWorld) fakeBotAPI(username string) error {
@@ -113,6 +116,27 @@ func (w *pollingWorld) originFromEnvironment() error {
 	w.bot.apiBase = ""
 	w.envSet = true
 	return os.Setenv(config.TelegramAPIBaseEnv, w.f.srv.URL)
+}
+
+func (w *pollingWorld) gatewayProxyIs(setting string) error {
+	w.bot.cfg.Proxy = setting
+	return nil
+}
+
+func (w *pollingWorld) gatewayHasAProxyOfItsOwn() error {
+	w.proxy = proxytest.New()
+	w.bot.cfg.Proxy = w.proxy.URL()
+	return nil
+}
+
+func (w *pollingWorld) gatewayProxyCarried(method string) error {
+	carried := w.proxy.Carried()
+	for _, path := range carried {
+		if strings.HasSuffix(path, "/"+method) {
+			return nil
+		}
+	}
+	return fmt.Errorf("the gateway's proxy did not carry %s; it carried %v", method, carried)
 }
 
 func (w *pollingWorld) subscribedToMessagesOnly() error {
@@ -306,6 +330,9 @@ func (w *pollingWorld) close() {
 	if w.f != nil {
 		w.f.close()
 	}
+	if w.proxy != nil {
+		w.proxy.Close()
+	}
 	if w.dir != "" {
 		_ = os.RemoveAll(w.dir)
 	}
@@ -326,6 +353,8 @@ func initializePollingScenario(sc *godog.ScenarioContext) {
 	sc.Given(`^the agent answers with "([^"]*)"$`, w.agentAnswersWith)
 	sc.Given(`^the Bot API remembers a subscription to messages only$`, w.subscribedToMessagesOnly)
 	sc.Given(`^the environment names the fake as the Bot API origin$`, w.originFromEnvironment)
+	sc.Given(`^the gateway's proxy is "([^"]*)"$`, w.gatewayProxyIs)
+	sc.Given(`^the gateway has a proxy of its own$`, w.gatewayHasAProxyOfItsOwn)
 
 	sc.When(`^the bot is started$`, w.botStarted)
 	sc.When(`^the user sends "([^"]*)"$`, w.userSends)
@@ -333,6 +362,7 @@ func initializePollingScenario(sc *godog.ScenarioContext) {
 	sc.When(`^the bot is stopped$`, w.botStopped)
 
 	sc.Then(`^the Bot API received "([^"]*)"$`, w.botAPIReceived)
+	sc.Then(`^the gateway's proxy carried the call to "([^"]*)"$`, w.gatewayProxyCarried)
 	sc.Then(`^the bot knows itself as "([^"]*)"$`, w.botKnowsItselfAs)
 	sc.Then(`^the chat shows a bot message containing "([^"]*)"$`, w.chatShowsBotMessage)
 	sc.Then(`^the next poll confirms that update$`, w.nextPollConfirms)

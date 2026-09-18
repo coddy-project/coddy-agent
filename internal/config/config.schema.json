@@ -47,7 +47,8 @@
           },
           "proxy": {
             "type": "string",
-            "description": "Optional per-provider outbound proxy URL: http://, https://, socks5://, or socks5h:// (socks5h resolves hostnames via the proxy)."
+            "description": "inherit (the default, the same as leaving the key out), none, or a proxy URL: http://, https://, socks5:// or socks5h://. inherit follows the proxy the environment of the Coddy process names - HTTPS_PROXY, HTTP_PROXY and NO_PROXY, never for a loopback address; ALL_PROXY is not read. none connects directly and ignores those variables. A proxy URL sends every request of this row through that proxy, NO_PROXY and loopback included; with SOCKS the proxy resolves host names. The setting covers every request of the provider: its completions, its model list, its account usage and its sign-in.",
+            "default": "inherit"
           },
           "timeout_ms": {
             "type": "integer",
@@ -1514,8 +1515,8 @@
             },
             "proxy": {
               "type": "string",
-              "description": "Optional outbound proxy for Telegram API requests: http, https, socks5, or socks5h URL.",
-              "default": ""
+              "description": "inherit (the default, the same as leaving the key out), none, or a proxy URL: http://, https://, socks5:// or socks5h://, read like providers[].proxy. inherit follows the proxy the environment of the Coddy process names - HTTPS_PROXY, HTTP_PROXY and NO_PROXY, never for a loopback address; ALL_PROXY is not read. none connects the bot directly and ignores those variables. A proxy URL sends every Bot API request through that proxy; with SOCKS the proxy resolves host names.",
+              "default": "inherit"
             },
             "rich_messages": {
               "type": "boolean",

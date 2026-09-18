@@ -24,7 +24,11 @@ providers:
     # helpers or AWS credential_process). Lets a provider fetch short-lived or
     # login-issued keys without storing a static secret. Falls back to NAME_API_KEY.
     # api_key_command: "my-cli print-token"
-    # Optional outbound proxy for this provider only (http, https, socks5, socks5h).
+    # Route of every request of this provider (completions, model list, usage, sign-in).
+    # inherit (the default, same as leaving it out) follows HTTPS_PROXY, HTTP_PROXY and
+    # NO_PROXY of the Coddy process; none connects directly and ignores them; a URL
+    # (http, https, socks5, socks5h) sends every request of this row through that proxy.
+    # proxy: none
     # proxy: "http://127.0.0.1:8888"
     # proxy: "socks5h://127.0.0.1:1080"
     # Optional bound on each LLM HTTP request, including the streamed body read.
@@ -458,7 +462,8 @@ tools:
 #   telegram:
 #     enable: false
 #     token: "${TELEGRAM_BOT_TOKEN}"   # optional: omit to read TELEGRAM_BOT_TOKEN from env/.env
-#     # proxy: "socks5h://127.0.0.1:1080"  # optional outbound proxy (http, https, socks5, socks5h)
+#     # proxy: none                        # inherit (default: HTTPS_PROXY), none (direct), or a URL
+#     # proxy: "socks5h://127.0.0.1:1080"  # http, https, socks5, socks5h
 #     # proxy: "http://proxy.example.com:3128"
 #     rich_messages: true             # Bot API 10.1 Rich Messages: native Markdown, streamed
 #                                     # "Thinking…" while tools run, collapsible tool list.
