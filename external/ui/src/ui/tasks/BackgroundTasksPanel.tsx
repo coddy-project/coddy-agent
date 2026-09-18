@@ -304,6 +304,12 @@ export function BackgroundTasksPanel(props: {
   emptyText?: string;
   /** A card to open on the shell's behalf. */
   focus?: TaskFocus | null;
+  /**
+   * The card `focus` named is open. A pointer is good for one use: the shell drops it
+   * here, or the next mount of the panel - which forgets what it has honoured - would
+   * open the card again, in whichever chat is on screen by then.
+   */
+  onFocusHonoured?: (seq: number) => void;
   /** Reads the captured output of one task; null when it cannot be read right now. */
   loadOutput: (taskId: string) => Promise<string | null>;
   onClose: () => void;
@@ -326,12 +332,23 @@ export function BackgroundTasksPanel(props: {
     };
   }, []);
 
+  // Reads of one card overlap - the poll, the final read, the read after Stop - and the
+  // network may answer them out of order. Every read takes a number, and an answer
+  // older than the one the card already shows is dropped: nothing reads a finished
+  // card again, so a stale answer would otherwise stay for good.
+  const readSeqRef = useRef(0);
+  const appliedSeqRef = useRef<Record<string, number>>({});
   const readOutput = useCallback(async (taskId: string) => {
+    const seq = ++readSeqRef.current;
     const text = await loadOutputRef.current(taskId);
     // An unreadable answer keeps what the card already shows.
     if (text === null || !mountedRef.current) {
       return;
     }
+    if ((appliedSeqRef.current[taskId] ?? 0) > seq) {
+      return;
+    }
+    appliedSeqRef.current[taskId] = seq;
     setOutputs((prev) =>
       prev[taskId] === text ? prev : { ...prev, [taskId]: text },
     );
@@ -357,6 +374,8 @@ export function BackgroundTasksPanel(props: {
   const focusSeq = props.focus?.seq;
   const focusTaskId = props.focus?.taskId;
   const honouredFocusRef = useRef<number | undefined>(undefined);
+  const onFocusHonouredRef = useRef(props.onFocusHonoured);
+  onFocusHonouredRef.current = props.onFocusHonoured;
   useEffect(() => {
     if (
       !props.open ||
@@ -373,6 +392,7 @@ export function BackgroundTasksPanel(props: {
       setFinishedOpen(true);
     }
     openCard(focusTaskId);
+    onFocusHonouredRef.current?.(focusSeq);
     const handle = window.requestAnimationFrame(() => {
       for (const el of document.querySelectorAll("[data-task-card]")) {
         if (el.getAttribute("data-task-card") === focusTaskId) {
@@ -434,6 +454,11 @@ export function BackgroundTasksPanel(props: {
     .join("\n");
   useEffect(() => {
     const known = new Set(knownKey ? knownKey.split("\n") : []);
+    for (const id of Object.keys(appliedSeqRef.current)) {
+      if (!known.has(id)) {
+        delete appliedSeqRef.current[id];
+      }
+    }
     setOpenIds((prev) =>
       prev.every((id) => known.has(id))
         ? prev
@@ -457,7 +482,11 @@ export function BackgroundTasksPanel(props: {
   }
 
   const { running: live, finished } = groupTasks(props.tasks);
-  const shown = finished.slice(0, FINISHED_RENDER_CAP);
+  // The cap keeps a long history cheap; a card that is open is shown wherever it
+  // stands, or "Open in Tasks" on an early row would open a card nobody can see.
+  const shown = finished.filter(
+    (task, i) => i < FINISHED_RENDER_CAP || openIds.includes(task.id),
+  );
   const stop = (taskId: string) => {
     void Promise.resolve(props.onStopTask(taskId)).then(() => {
       if (openIds.includes(taskId)) {

@@ -884,15 +884,28 @@ export function App() {
   // A card the shell asks the Tasks panel to open ("Open in Tasks" on a transcript
   // row, a link that names a task). Which cards are open otherwise is the panel's own
   // business and is not part of the address.
-  const [tasksFocus, setTasksFocus] = useState<TaskFocus | null>(null);
+  //
+  // The pointer names its chat and is good for one use. Every session numbers its
+  // tasks from bg_1 and the panel unmounts with the drawer, so a pointer that outlived
+  // its use would open a card on the next mount - in whichever chat is on screen.
+  const [tasksFocus, setTasksFocus] = useState<
+    (TaskFocus & { sid: string }) | null
+  >(null);
   const tasksFocusSeqRef = useRef(0);
-  const focusBackgroundTask = useCallback((taskId: string | null) => {
-    const id = (taskId || "").trim();
-    if (!id) {
-      return;
-    }
-    tasksFocusSeqRef.current += 1;
-    setTasksFocus({ taskId: id, seq: tasksFocusSeqRef.current });
+  const focusBackgroundTask = useCallback(
+    (sid: string, taskId: string | null) => {
+      const id = (taskId || "").trim();
+      const key = sid.trim();
+      if (!id || !key) {
+        return;
+      }
+      tasksFocusSeqRef.current += 1;
+      setTasksFocus({ sid: key, taskId: id, seq: tasksFocusSeqRef.current });
+    },
+    [],
+  );
+  const spendTasksFocus = useCallback((seq: number) => {
+    setTasksFocus((prev) => (prev && prev.seq === seq ? null : prev));
   }, []);
   const [schedulerRunsFocus, setSchedulerRunsFocus] =
     useState<TaskFocus | null>(null);
@@ -1555,7 +1568,7 @@ export function App() {
       if (p.tasksOpen && p.taskId) {
         // A link that names a task opens its card once; the address goes back to
         // saying only that the panel is showing.
-        focusBackgroundTask(p.taskId);
+        focusBackgroundTask(p.sessionId, p.taskId);
         setSessionTasksHash(p.sessionId, null, {
           historySidebar: !!p.historyOpen,
         });
@@ -4397,6 +4410,7 @@ export function App() {
     }
     setSchedulerEditor({ mode: "edit", jobId: schedulerRunsJobId });
     setSchedulerJobHash(schedulerRunsJobId);
+    setSchedulerRunsFocus(null);
   }, [schedulerRunsJobId]);
 
   const stopSchedulerRun = useCallback(
@@ -4453,6 +4467,8 @@ export function App() {
 
   const closeTasksDrawer = useCallback(() => {
     setTasksOpen(false);
+    // A pointer at a task that never showed up does not wait for the next opening.
+    setTasksFocus(null);
     if (sessionsOpen) {
       setHistoryHash();
       return;
@@ -4477,7 +4493,7 @@ export function App() {
         return;
       }
       setTasksOpen(true);
-      focusBackgroundTask(taskId);
+      focusBackgroundTask(sid, taskId);
       setSessionTasksHash(sid);
     },
     [sessionId, focusBackgroundTask],
@@ -5059,6 +5075,11 @@ export function App() {
                 title={t("scheduler.runsTitle", { jobId: schedulerEditor.jobId })}
                 emptyText={t("scheduler.runsEmpty")}
                 focus={schedulerRunsFocus}
+                onFocusHonoured={(seq) =>
+                  setSchedulerRunsFocus((prev) =>
+                    prev && prev.seq === seq ? null : prev,
+                  )
+                }
                 tasks={schedulerRunsTasks}
                 loadOutput={loadSchedulerRunOutput}
                 listError={schedulerRunsError}
@@ -5140,7 +5161,12 @@ export function App() {
         {tasksPanelOpen ? (
           <BackgroundTasksPanel
             open
-            focus={tasksFocus}
+            focus={
+              tasksFocus && tasksFocus.sid === sessionId.trim()
+                ? tasksFocus
+                : null
+            }
+            onFocusHonoured={spendTasksFocus}
             tasks={backgroundTasks}
             loadOutput={loadBackgroundTaskOutput}
             listError={backgroundListError}

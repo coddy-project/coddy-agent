@@ -355,6 +355,45 @@ test("a card the shell points at opens on its own, its section with it", async (
   expect(screen.getByTestId("bgtask-body-bg_2")).toBeInTheDocument();
 });
 
+test("a card the shell points at is shown even when the history is longer than what the list renders", async () => {
+  // "Open in Tasks" on an early row of a long session: the task is far down the
+  // finished list, past the cards the panel renders by default.
+  const history = Array.from({ length: 45 }, (_, i) =>
+    done(`bg_${i + 1}`, {
+      started_at: new Date(START_MS + i * 1000).toISOString(),
+    }),
+  );
+  renderPanel({
+    tasks: history,
+    loadOutput: outputsOf({ bg_1: "the oldest run" }),
+    focus: { taskId: "bg_1", seq: 1 },
+  });
+
+  expect(screen.getByTestId("bgtask-body-bg_1")).toBeInTheDocument();
+  expect(await screen.findByText("the oldest run")).toBeInTheDocument();
+  // The rest of the history past the cap stays on disk, as before.
+  expect(screen.queryByTestId("bgtask-card-bg_2")).toBeNull();
+  expect(screen.getByTestId("bgtask-finished-more")).toBeInTheDocument();
+});
+
+test("the shell is told once the card it pointed at is open, so the pointer is spent", () => {
+  // The panel unmounts with the drawer. A pointer the shell kept would open the same
+  // card again on the next mount - or the card of another chat that has a task with
+  // the same id, since every session numbers its tasks from bg_1.
+  const onFocusHonoured = vi.fn();
+  const { rerender, props } = renderPanel({
+    tasks: [task(), done("bg_2")],
+    focus: { taskId: "bg_2", seq: 7 },
+    onFocusHonoured,
+  });
+  expect(onFocusHonoured).toHaveBeenCalledTimes(1);
+  expect(onFocusHonoured).toHaveBeenCalledWith(7);
+
+  rerender(<BackgroundTasksPanel {...props} focus={null} />);
+  expect(onFocusHonoured).toHaveBeenCalledTimes(1);
+  expect(screen.getByTestId("bgtask-body-bg_2")).toBeInTheDocument();
+});
+
 test("the output of an open running card is read again while it runs, and once more when it ends", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   try {
@@ -392,6 +431,34 @@ test("the output of an open running card is read again while it runs, and once m
   } finally {
     vi.useRealTimers();
   }
+});
+
+test("a read that answers late does not put older output over a newer read", async () => {
+  // Two reads of one card are in flight when its task ends - the poll and the final
+  // read - and the network answers them in the wrong order. Nothing reads a finished
+  // card again, so the stale answer would stay on screen for good.
+  const answers: Array<(text: string) => void> = [];
+  const loadOutput = vi.fn(
+    () => new Promise<string | null>((resolve) => answers.push(resolve)),
+  );
+  renderPanel({ loadOutput, tasks: [done("bg_1")] });
+  fireEvent.click(screen.getByTestId("bgtask-finished-toggle"));
+
+  fireEvent.click(screen.getByTestId("bgtask-open-bg_1"));
+  fireEvent.click(screen.getByTestId("bgtask-open-bg_1"));
+  fireEvent.click(screen.getByTestId("bgtask-open-bg_1"));
+  expect(answers).toHaveLength(2);
+
+  await act(async () => {
+    answers[1]?.("step 1\nstep 2\ndone");
+  });
+  expect(await screen.findByText(/done/)).toBeInTheDocument();
+  await act(async () => {
+    answers[0]?.("step 1");
+  });
+  expect(screen.getByTestId("bgtask-output-bg_1").textContent).toContain(
+    "done",
+  );
 });
 
 test("stopping an open card reads what the task printed last", async () => {
