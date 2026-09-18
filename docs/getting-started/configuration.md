@@ -247,10 +247,10 @@ prompts:
   #   {{.Tools}}    - markdown list of tool names and short descriptions for the current mode
   #   {{.Skills}}   - markdown block for active skills (omit section when empty via {{if .Skills}})
   #   {{.TodoList}} - current session todo checklist as markdown lines (empty until coddy todo tools update state)
-  #   {{.Memory}}   - session agent memory plus the memory subagent's report when memory.enable is true
+  #   {{.Memory}}   - session notes. The memory subagent's report is not rendered here: it travels in the <turn_context> block
   #   {{.UTCNow}}   - date and time in UTC (RFC3339), refreshed whenever the system prompt is rendered
   #
-  # Built-in templates order: Tools, Skills, Memory (session notes plus optional recall).
+  # Built-in templates order: Tools, Skills, Memory (session notes).
   # They deliberately render neither {{.TodoList}} nor {{.UTCNow}}: both move between the steps of a
   # turn, and the system prompt is what the provider's prompt cache keys the whole conversation on.
   # Coddy sends the clock, the checklist and the rules a tool call activated after the history instead,

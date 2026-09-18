@@ -26,14 +26,19 @@ const (
 )
 
 // buildTurnContext renders the block appended after the history on every
-// request of a turn: the wall clock, the live todo checklist, and the rules a
-// tool call activated after the system prompt was frozen. It returns an empty
-// string for a volatile template under prompts.dir, which prints those facts
-// into the system message itself and is re-rendered per step instead; the
-// caller then sends the history alone.
+// request of a turn: the wall clock, the live todo checklist, the rules a
+// tool call activated after the system prompt was frozen, and the memory
+// subagent's report for this turn. A volatile template under prompts.dir
+// prints the clock and the checklist into the system message itself and is
+// re-rendered per step, so its block carries the memory report alone, and
+// nothing at all when there is none; the caller then sends the history alone.
 func (a *Agent) buildTurnContext(frozen *systemPromptBuild) string {
 	if frozen != nil && frozen.Volatile {
-		return ""
+		section := a.memoryTurnContextSection()
+		if section == "" {
+			return ""
+		}
+		return turnContextOpenTag + "\n" + turnContextPreamble + "\n\n" + section + "\n" + turnContextCloseTag
 	}
 	var parts []string
 	parts = append(parts, "## Current UTC time\n\n"+a.turnClock(frozen).Format(time.RFC3339))
@@ -51,9 +56,10 @@ func (a *Agent) buildTurnContext(frozen *systemPromptBuild) string {
 		parts = append(parts, section)
 	}
 
-	// A memory report that landed after the system prompt was frozen
-	// (memory_run.go): rendered here until a rebuild carries it.
-	if section := a.memoryTurnContextSection(frozen); section != "" {
+	// The memory subagent's report for this turn (memory_run.go). It rides
+	// here on every step and never in the system message, so a recall that
+	// differs from the previous turn's does not move the cached prefix.
+	if section := a.memoryTurnContextSection(); section != "" {
 		parts = append(parts, section)
 	}
 

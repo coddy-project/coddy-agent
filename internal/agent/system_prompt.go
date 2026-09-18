@@ -109,10 +109,6 @@ type systemPromptBuild struct {
 	// before every call, as it did for every template before, and sends no turn
 	// context block: the template is already carrying what the block would say.
 	Volatile bool
-	// MemoryRecall is the memory subagent's report this build rendered into
-	// the Memory slot, so the turn context knows whether a later report is
-	// already in the frozen prompt (memory_run.go).
-	MemoryRecall string
 }
 
 // buildSystemPrompt constructs the system prompt for the current mode and skills.
@@ -126,7 +122,10 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 // between the steps of a turn throws away the cached copy of everything behind
 // it. What moves while the turn runs - the wall clock, the todo checklist, the
 // rules a tool call activated - travels in the turn context block appended
-// after the history instead (turn_context.go).
+// after the history instead (turn_context.go). So does the memory subagent's
+// report, which moves between turns: a recall answers one message, and a
+// report rendered here would make every turn's system message a new one and
+// cost the cached copy of the whole conversation each time.
 func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition, userText string, contextFiles []string) *systemPromptBuild {
 	promptsDir := a.cfg.Prompts.ResolvedDir(a.state.GetCWD())
 	clock := a.now().UTC()
@@ -134,15 +133,9 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 		return a.buildTemplatedChildPrompt(mode, toolDefs, clock)
 	}
 	promptTodoMD := checklistMarkdownFromPlan(a.state.GetPlan())
-	// A memory report that settled since the last render lands in the store
-	// here, so a template re-rendered every step (a volatile one under
-	// prompts.dir) and a rebuild after a compaction carry it through
-	// {{.Memory}}; a frozen prompt gets it through the turn context instead.
-	if a.memoryRun != nil {
-		a.deliverMemoryReport("system prompt")
-	}
-	recall := strings.TrimSpace(a.state.GetMemoryCopilotBlock())
-	mem := formatMergedMemory(strings.TrimSpace(a.state.GetAgentMemory()), recall)
+	// The session notes only: the memory subagent's report is per-turn text
+	// and never enters the system message (see above).
+	mem := formatSessionNotes(strings.TrimSpace(a.state.GetAgentMemory()))
 	planCtx := ""
 	if mode == "agent" {
 		// Read, never taken. The turn it belongs to renders this prompt more
@@ -214,7 +207,6 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 		Clock:         clock,
 		RendersRules:  rendersRules,
 		Volatile:      prompts.RendersVolatile(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile()),
-		MemoryRecall:  recall,
 	}
 	a.refreshContextBreakdown(build, "")
 	return build
@@ -295,13 +287,11 @@ func checklistMarkdownFromPlan(entries []acp.PlanEntry) string {
 	return strings.TrimSpace(todo.FormatPlanMarkdown(entries))
 }
 
-func formatMergedMemory(sessionNotes, recall string) string {
-	var parts []string
-	if recall != "" {
-		parts = append(parts, recall)
+// formatSessionNotes is the {{.Memory}} slot: the notes of this session, which
+// move rarely. The memory subagent's report is not part of it.
+func formatSessionNotes(sessionNotes string) string {
+	if sessionNotes == "" {
+		return ""
 	}
-	if sessionNotes != "" {
-		parts = append(parts, "Session notes:\n"+sessionNotes)
-	}
-	return strings.Join(parts, "\n\n")
+	return "Session notes:\n" + sessionNotes
 }

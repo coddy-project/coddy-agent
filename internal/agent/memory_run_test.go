@@ -132,35 +132,46 @@ func TestTemplatedChildPromptRendersOnlyTheTemplate(t *testing.T) {
 			t.Fatalf("the templated prompt carries %q:\n%s", leak, build.Content)
 		}
 	}
-	if build.MemoryRecall != "" {
-		t.Fatalf("a templated child renders no recall, got %q", build.MemoryRecall)
-	}
 }
 
-// The turn context carries the store only while the frozen prompt does not.
-func TestMemoryTurnContextSectionFollowsTheFrozenPrompt(t *testing.T) {
+// The turn context carries this turn's report on every step. The system
+// message never does: a recall differs from turn to turn, and a byte that
+// moves in messages[0] costs the cached copy of the whole conversation.
+func TestMemoryTurnContextSectionCarriesTheStore(t *testing.T) {
 	st := &session.State{ID: "sess_mem_ctx", CWD: t.TempDir(), Mode: session.ModeAgent}
 	a := NewAgent(&config.Config{}, st, &recordingClient{}, nil)
-	frozen := &systemPromptBuild{Mode: "agent"}
-	if got := a.memoryTurnContextSection(frozen); got != "" {
-		t.Fatalf("no memory run: section = %q", got)
+	if got := a.memoryTurnContextSection(); got != "" {
+		t.Fatalf("no memory run and an empty store: section = %q", got)
 	}
-	a.memoryRun = &memoryTurnRun{settled: true, delivered: true}
+	// A turn continued after a permission prompt runs on a fresh agent with
+	// no run of its own; the recall of the turn is still in the session.
 	st.SetMemoryCopilotBlock("Already on disk: pytest")
-	if got := a.memoryTurnContextSection(frozen); !strings.Contains(got, "## Long-term memory") || !strings.Contains(got, "pytest") {
-		t.Fatalf("a report the frozen prompt lacks must be in the section, got %q", got)
+	if got := a.memoryTurnContextSection(); !strings.Contains(got, "pytest") {
+		t.Fatalf("a continued turn must keep the recall of the session, got %q", got)
 	}
-	frozen.MemoryRecall = "Already on disk: pytest"
-	if got := a.memoryTurnContextSection(frozen); got != "" {
-		t.Fatalf("a report the frozen prompt carries must not repeat in the section, got %q", got)
+	st.ClearMemoryCopilotBlock()
+	a.memoryRun = &memoryTurnRun{settled: true, delivered: true}
+	if got := a.memoryTurnContextSection(); got != "" {
+		t.Fatalf("an empty store: section = %q", got)
+	}
+	st.SetMemoryCopilotBlock("Already on disk: pytest")
+	for step := 1; step <= 2; step++ {
+		got := a.memoryTurnContextSection()
+		if !strings.Contains(got, "## Long-term memory") || !strings.Contains(got, "pytest") {
+			t.Fatalf("step %d: the section must carry the report, got %q", step, got)
+		}
+	}
+	frozen := &systemPromptBuild{Mode: "agent"}
+	if block := a.buildTurnContext(frozen); !strings.Contains(block, "## Long-term memory") || !strings.Contains(block, "## Current UTC time") {
+		t.Fatalf("the turn context must carry the clock and the memory section: %q", block)
 	}
 }
 
 // A template under prompts.dir that prints the clock is re-rendered every
-// step and reads the store: a report that settled after the wait lands in it
-// on the next render, delivered as "system prompt", and the turn context
-// carries nothing for a volatile template.
-func TestVolatileTemplateReceivesALateMemoryReport(t *testing.T) {
+// step and gets no clock or checklist after the history. The memory report
+// still stays out of its system message: it rides in a turn context block of
+// its own, delivered at the step after the run settled.
+func TestVolatileTemplateGetsTheReportInItsTurnContext(t *testing.T) {
 	cwd := t.TempDir()
 	promptsDir := t.TempDir()
 	tmpl := "You are Coddy, an AI coding agent.\nNow: {{.UTCNow}}\n{{if .Memory}}## Session memory\n\n{{.Memory}}\n{{end}}"
@@ -193,6 +204,9 @@ func TestVolatileTemplateReceivesALateMemoryReport(t *testing.T) {
 	if strings.Contains(first.Content, "Already on disk") {
 		t.Fatal("the first render carries a report that does not exist yet")
 	}
+	if got := a.buildTurnContext(first); got != "" {
+		t.Fatalf("a volatile template with no report gets no turn context, got %q", got)
+	}
 
 	// The run settles between two steps.
 	run.mu.Lock()
@@ -204,16 +218,17 @@ func TestVolatileTemplateReceivesALateMemoryReport(t *testing.T) {
 	}
 
 	second := a.buildSystemPromptParts("agent", nil, nil, "", nil)
-	if !strings.Contains(second.Content, "Already on disk: the user prefers pytest") {
-		t.Fatalf("the re-rendered volatile prompt lacks the late report:\n%s", second.Content)
+	if strings.Contains(second.Content, "Already on disk") {
+		t.Fatalf("the system message carries the report; it must stay out of the prefix:\n%s", second.Content)
 	}
-	if second.MemoryRecall != "Already on disk: the user prefers pytest" {
-		t.Fatalf("MemoryRecall = %q", second.MemoryRecall)
+	block := a.buildTurnContext(second)
+	if !strings.Contains(block, "## Long-term memory") || !strings.Contains(block, "Already on disk: the user prefers pytest") {
+		t.Fatalf("a volatile template gets the report in its turn context, got %q", block)
 	}
-	if got := a.buildTurnContext(second); got != "" {
-		t.Fatalf("a volatile template gets no turn context, got %q", got)
+	if strings.Contains(block, "## Current UTC time") {
+		t.Fatalf("a volatile template prints the clock itself; the block must not repeat it: %q", block)
 	}
-	if !strings.Contains(log.String(), "report delivered to the turn (system prompt)") {
+	if !strings.Contains(log.String(), "report delivered to the turn (a later step)") {
 		t.Fatalf("task log = %q", log.String())
 	}
 	client.mu.Lock()

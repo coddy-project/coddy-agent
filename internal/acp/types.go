@@ -579,7 +579,8 @@ type MemoryRunUpdate struct {
 	TaskStatus string `json:"taskStatus,omitempty"`
 	DurationMs int64  `json:"durationMs,omitempty"`
 	// Delivered says whether a non-empty report reached the main model in
-	// this turn, through the system prompt or a later step's turn context.
+	// this turn, in the turn context block of the first request or of a
+	// later step.
 	Delivered bool `json:"delivered,omitempty"`
 	// Reason explains a skip, or a run that ended with an error.
 	Reason string `json:"reason,omitempty"`

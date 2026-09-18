@@ -131,7 +131,7 @@ func (a *Agent) runMemoryBeforeTurn(ctx context.Context, userText, mode string) 
 	// A Stop of the turn ends the wait through ctx; the run itself is
 	// detached and goes on.
 	_, _ = mr.pool.Wait(ctx, parentID, snap.ID, time.Until(deadline))
-	a.deliverMemoryReport("system prompt")
+	a.deliverMemoryReport("first request")
 }
 
 // memoryFallbackModels is the chain behind the memory model: the configured

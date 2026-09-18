@@ -1,10 +1,11 @@
 Feature: Long-term memory runs as a background subagent
   Every user turn of an ordinary session starts a memory subagent: a child agent run in the
   background task pool with its own session bundle, its own transcript and its own task log,
-  exactly like a spawn_agent child. The turn waits a bounded time for the child's report and
-  puts it into the system prompt; a report that lands later in the turn travels in the turn
-  context block; a report that lands after the turn is history in the Tasks drawer. The main
-  model never sees the memory tools.
+  exactly like a spawn_agent child. The turn waits a bounded time for the child's report. The
+  report travels in the turn context block appended after the history - on the first request
+  when it is in by then, on a later step otherwise - and never in the system message, so the
+  prefix a provider caches the conversation by does not move with it. A report that lands
+  after the turn is history in the Tasks drawer. The main model never sees the memory tools.
 
   Scenario: A user turn starts a memory run the pool and the bundle record
     Given long-term memory is enabled with a wait of 10 seconds
@@ -15,11 +16,12 @@ Feature: Long-term memory runs as a background subagent
     And the memory child was offered exactly the tools "coddy_memory_search, coddy_memory_list, coddy_memory_read, coddy_memory_mkdir, coddy_memory_save, coddy_memory_delete"
     And the memory child's system prompt carries the memory role and no project instructions
 
-  Scenario: A report that arrives within the wait is in the first system prompt
+  Scenario: A report that arrives within the wait rides in the turn context of the first request
     Given long-term memory is enabled with a wait of 10 seconds
     And a parent agent session in that workspace
     When the user sends "what did we decide about the API?" and the memory child answers "Already on disk: the API returns JSON"
-    Then the parent's first system prompt contains "Already on disk: the API returns JSON"
+    Then the parent's first request carries "Already on disk: the API returns JSON" in its turn context
+    And the parent's first system prompt does not contain "Already on disk"
     And the parent's client received a memory_run update with status "started"
     And the parent's client received a memory_run update with status "finished" and delivered true
     And the memory task log says the report was delivered to the turn
@@ -61,7 +63,7 @@ Feature: Long-term memory runs as a background subagent
     And a parent agent session in that workspace
     When the user sends "what did we decide about the API?" and the memory child answers "Already on disk: the API returns JSON"
     Then the memory child ran on the model "fake/model"
-    And the parent's first system prompt contains "Already on disk: the API returns JSON"
+    And the parent's first request carries "Already on disk: the API returns JSON" in its turn context
 
   Scenario: A memory model that fails after streaming text does not jump models
     Given long-term memory is enabled with a wait of 10 seconds
@@ -130,3 +132,29 @@ Feature: Long-term memory runs as a background subagent
     When the user sends "what did we decide about the API?" and the memory child answers "(no memory hits)"
     Then the memory child's system prompt carries "Only deal with the notes; never answer the task itself." under the operator instructions
     And the parent's first system prompt does not contain "Only deal with the notes"
+
+  Scenario: The system message does not move between turns that recalled different things
+    Given long-term memory is enabled with a wait of 10 seconds
+    And a parent agent session in that workspace
+    When the user sends "what did we decide about the API?" and the memory child answers "Already on disk: the API returns JSON"
+    And the user sends "and what about the database?" and the memory child answers "Already on disk: the database is Postgres"
+    Then the parent's system message is the same in both turns
+    And no parent system message carries "Already on disk"
+    And the first request of the second turn carries "Already on disk: the database is Postgres" in its turn context
+    And the first request of the second turn carries "the API returns JSON" nowhere
+    And the second turn repeats the first turn's conversation byte for byte before its own message
+
+  Scenario: Every step of a turn carries the report after the history
+    Given long-term memory is enabled with a wait of 10 seconds
+    And a parent agent session in that workspace
+    When the user sends "list the tasks" and the memory child answers "Already on disk: the API returns JSON" while the parent takes two steps
+    Then every parent request of that turn carries "Already on disk: the API returns JSON" in its turn context
+    And every parent request of that turn carries the same system message
+
+  Scenario: A turn whose memory run delivers nothing does not inherit the previous turn's report
+    Given long-term memory is enabled with a wait of 10 seconds
+    And a parent agent session in that workspace
+    When the user sends "what did we decide about the API?" and the memory child answers "Already on disk: the API returns JSON"
+    And every model the memory child could run on answers "402 Payment Required"
+    And the user sends "and what about the database?" and the memory child answers "never delivered"
+    Then the first request of the second turn carries "the API returns JSON" nowhere

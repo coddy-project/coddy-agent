@@ -166,10 +166,11 @@ func (mr *memoryTurnRun) finishedUpdate(snap bgtask.Snapshot) acp.MemoryRunUpdat
 }
 
 // deliverMemoryReport hands the report to the main model when the run has
-// settled and nothing was delivered yet: the store the system prompt and the
-// turn context read is filled once, the task log says where the report went,
-// and the finished update goes out. via names the place the report reaches
-// the model through. It reports whether a report is in the store.
+// settled and nothing was delivered yet: the store the turn context reads is
+// filled once, the task log says when the report reached the turn, and the
+// finished update goes out. via names that moment: the first request (the
+// report was in by the end of the wait) or a later step. It reports whether
+// a report is in the store.
 func (a *Agent) deliverMemoryReport(via string) bool {
 	mr := a.memoryRun
 	if mr == nil {
@@ -232,16 +233,18 @@ func (a *Agent) finishMemoryTurn() {
 	mr.note("turn ended before the report; the run goes on")
 }
 
-// memoryTurnContextSection is the turn context's view of the report: a late
-// report is delivered here on every step, and the section is rendered only
-// while the store holds text the frozen system prompt does not carry.
-func (a *Agent) memoryTurnContextSection(frozen *systemPromptBuild) string {
-	if a.memoryRun == nil {
-		return ""
+// memoryTurnContextSection is the report as the turn context carries it, on
+// every step of the turn that has one. A run that settled since the last
+// step is delivered here first. The store is per turn (the loop clears it
+// when a turn starts), so the section is this turn's recall or nothing. It
+// is read from the session, not from the run: a turn continued after a
+// permission prompt runs on a fresh agent, and keeps its recall.
+func (a *Agent) memoryTurnContextSection() string {
+	if a.memoryRun != nil {
+		a.deliverMemoryReport("a later step")
 	}
-	a.deliverMemoryReport("turn context")
 	store := strings.TrimSpace(a.state.GetMemoryCopilotBlock())
-	if store == "" || (frozen != nil && frozen.MemoryRecall == store) {
+	if store == "" {
 		return ""
 	}
 	return "## Long-term memory\n\n" + store

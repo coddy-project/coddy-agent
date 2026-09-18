@@ -54,6 +54,9 @@ type memoryFeatureState struct {
 
 	mu             sync.Mutex
 	parentProvider *scriptedProvider
+	// parentTurns keeps the parent's provider of every turn of the scenario,
+	// in order, so a scenario can compare what two turns sent.
+	parentTurns    []*scriptedProvider
 	childProviders map[string]*scriptedProvider
 	childSteps     func() []scriptStep
 	release        chan struct{}
@@ -95,6 +98,7 @@ func (s *memoryFeatureState) reset() error {
 	s.addendum = ""
 	s.addendumCap = 0
 	s.parentProvider = nil
+	s.parentTurns = nil
 	s.childProviders = map[string]*scriptedProvider{}
 	s.childSteps = nil
 	s.release = make(chan struct{})
@@ -294,6 +298,7 @@ func (s *memoryFeatureState) runTurn(text string, steps ...scriptStep) error {
 func (s *memoryFeatureState) startTurn(text string, steps ...scriptStep) {
 	s.mu.Lock()
 	s.parentProvider = &scriptedProvider{steps: steps}
+	s.parentTurns = append(s.parentTurns, s.parentProvider)
 	s.mu.Unlock()
 	before := len(s.parent.GetMessages())
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -340,6 +345,15 @@ func (s *memoryFeatureState) userSendsAndChildAnswersLate(text, answer string) e
 		return toolStep(llm.ToolCall{ID: "call_list_2", Name: "background_list", InputJSON: "{}"})(messages, defs, onChunk)
 	}
 	return s.runTurn(text, releaseThenList, waitThenList, answerStep("parent answer"))
+}
+
+// The parent takes a tool step before it answers, so the turn has two
+// requests and the report has to ride on both.
+func (s *memoryFeatureState) userSendsAndChildAnswersWhileParentTakesTwoSteps(text, answer string) error {
+	s.setChildSteps(func() []scriptStep { return []scriptStep{answerStep(answer)} })
+	return s.runTurn(text,
+		toolStep(llm.ToolCall{ID: "call_list_1", Name: "background_list", InputJSON: "{}"}),
+		answerStep("parent answer"))
 }
 
 func (s *memoryFeatureState) userSendsAndChildSavesBeforeAnswering(text, answer string) error {
@@ -639,6 +653,169 @@ func (s *memoryFeatureState) parentFirstPromptLacks(text string) error {
 	}
 	if strings.Contains(sp, text) {
 		return fmt.Errorf("the parent's first system prompt carries %q", text)
+	}
+	return nil
+}
+
+// trailingTurnContext is the trailing turn context block of a request, or "".
+func trailingTurnContext(req []llm.Message) string {
+	if len(req) == 0 {
+		return ""
+	}
+	last := req[len(req)-1]
+	if last.Role != llm.RoleUser || !strings.Contains(last.Content, turnContextOpenTag) {
+		return ""
+	}
+	return last.Content
+}
+
+func carriesMemoryInTurnContext(req []llm.Message, text string) bool {
+	block := trailingTurnContext(req)
+	return strings.Contains(block, "## Long-term memory") && strings.Contains(block, text)
+}
+
+// requestsOfTurn copies what the parent's model was sent in one turn.
+func (s *memoryFeatureState) requestsOfTurn(turn int) ([][]llm.Message, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if turn < 0 || turn >= len(s.parentTurns) {
+		return nil, fmt.Errorf("the scenario ran %d parent turns, turn %d was asked for", len(s.parentTurns), turn+1)
+	}
+	p := s.parentTurns[turn]
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.requests) == 0 {
+		return nil, fmt.Errorf("the parent's model received no request in turn %d", turn+1)
+	}
+	return append([][]llm.Message(nil), p.requests...), nil
+}
+
+func (s *memoryFeatureState) parentFirstRequestCarriesInTurnContext(text string) error {
+	reqs, err := s.requestsOfTurn(len(s.parentTurns) - 1)
+	if err != nil {
+		return err
+	}
+	if !carriesMemoryInTurnContext(reqs[0], text) {
+		return fmt.Errorf("the parent's first request lacks %q in its turn context: %q", text, trailingTurnContext(reqs[0]))
+	}
+	return nil
+}
+
+func (s *memoryFeatureState) systemMessageSameInBothTurns() error {
+	first, err := s.requestsOfTurn(0)
+	if err != nil {
+		return err
+	}
+	second, err := s.requestsOfTurn(1)
+	if err != nil {
+		return err
+	}
+	if first[0][0].Role != llm.RoleSystem || second[0][0].Role != llm.RoleSystem {
+		return fmt.Errorf("a turn was sent without a system message")
+	}
+	if first[0][0].Content != second[0][0].Content {
+		return fmt.Errorf("the system message moved between the turns: a provider would re-read the whole conversation")
+	}
+	return nil
+}
+
+func (s *memoryFeatureState) noParentSystemMessageCarries(text string) error {
+	for turn := range s.parentTurns {
+		reqs, err := s.requestsOfTurn(turn)
+		if err != nil {
+			return err
+		}
+		for i, req := range reqs {
+			if len(req) > 0 && req[0].Role == llm.RoleSystem && strings.Contains(req[0].Content, text) {
+				return fmt.Errorf("the system message of request %d in turn %d carries %q", i+1, turn+1, text)
+			}
+		}
+	}
+	return nil
+}
+
+func (s *memoryFeatureState) secondTurnFirstRequestCarriesInTurnContext(text string) error {
+	reqs, err := s.requestsOfTurn(1)
+	if err != nil {
+		return err
+	}
+	if !carriesMemoryInTurnContext(reqs[0], text) {
+		return fmt.Errorf("the first request of the second turn lacks %q in its turn context: %q", text, trailingTurnContext(reqs[0]))
+	}
+	return nil
+}
+
+func (s *memoryFeatureState) secondTurnFirstRequestCarriesNowhere(text string) error {
+	reqs, err := s.requestsOfTurn(1)
+	if err != nil {
+		return err
+	}
+	for i, m := range reqs[0] {
+		if strings.Contains(m.Content, text) {
+			return fmt.Errorf("message %d (%s) of the second turn's first request carries %q", i, m.Role, text)
+		}
+	}
+	return nil
+}
+
+// The second turn's first request starts with the very messages the first
+// turn sent (its turn context aside) and only then adds its own: that is the
+// prefix a provider's cache keeps.
+func (s *memoryFeatureState) secondTurnRepeatsTheFirst() error {
+	first, err := s.requestsOfTurn(0)
+	if err != nil {
+		return err
+	}
+	second, err := s.requestsOfTurn(1)
+	if err != nil {
+		return err
+	}
+	sent := first[len(first)-1]
+	if trailingTurnContext(sent) != "" {
+		sent = sent[:len(sent)-1]
+	}
+	next := second[0]
+	if len(next) <= len(sent) {
+		return fmt.Errorf("the second turn sent %d messages, the first had sent %d", len(next), len(sent))
+	}
+	for i, m := range sent {
+		if next[i].Role != m.Role || next[i].Content != m.Content {
+			return fmt.Errorf("message %d moved between the turns:\nwas %q\nnow %q", i, m.Content, next[i].Content)
+		}
+	}
+	for i, m := range next[:len(next)-1] {
+		if strings.Contains(m.Content, turnContextOpenTag) {
+			return fmt.Errorf("message %d of the second turn carries a turn context block inside the history", i)
+		}
+	}
+	return nil
+}
+
+func (s *memoryFeatureState) everyRequestOfTurnCarriesInTurnContext(text string) error {
+	reqs, err := s.requestsOfTurn(len(s.parentTurns) - 1)
+	if err != nil {
+		return err
+	}
+	if len(reqs) < 2 {
+		return fmt.Errorf("the turn made %d requests, want at least two", len(reqs))
+	}
+	for i, req := range reqs {
+		if !carriesMemoryInTurnContext(req, text) {
+			return fmt.Errorf("request %d of the turn lacks %q in its turn context: %q", i+1, text, trailingTurnContext(req))
+		}
+	}
+	return nil
+}
+
+func (s *memoryFeatureState) everyRequestOfTurnCarriesSameSystemMessage() error {
+	reqs, err := s.requestsOfTurn(len(s.parentTurns) - 1)
+	if err != nil {
+		return err
+	}
+	for i, req := range reqs {
+		if req[0].Content != reqs[0][0].Content {
+			return fmt.Errorf("the system message of request %d differs from the first", i+1)
+		}
 	}
 	return nil
 }
@@ -995,6 +1172,7 @@ func initializeMemoryScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^the user sends "([^"]*)" and the memory child answers "([^"]*)"$`, s.userSendsAndChildAnswers)
 	sc.Step(`^the user sends "([^"]*)" and the memory child answers "([^"]*)" only after the parent's first request$`, s.userSendsAndChildAnswersLate)
+	sc.Step(`^the user sends "([^"]*)" and the memory child answers "([^"]*)" while the parent takes two steps$`, s.userSendsAndChildAnswersWhileParentTakesTwoSteps)
 	sc.Step(`^the user sends "([^"]*)" and the memory child asks to save a note before answering "([^"]*)"$`, s.userSendsAndChildSavesBeforeAnswering)
 	sc.Step(`^the user sends "([^"]*)" and the memory child saves the note "([^"]*)" then answers "([^"]*)"$`, s.userSendsAndChildSavesThenAnswers)
 	sc.Step(`^the user sends "([^"]*)" and the memory child waits to be released$`, s.userSendsAndChildWaits)
@@ -1010,6 +1188,14 @@ func initializeMemoryScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the parent's first system prompt contains "([^"]*)"$`, s.parentFirstPromptContains)
 	sc.Step(`^the parent's first system prompt does not contain "([^"]*)"$`, s.parentFirstPromptLacks)
 	sc.Step(`^a later parent request carries "([^"]*)" in its turn context$`, s.laterRequestCarriesInTurnContext)
+	sc.Step(`^the parent's first request carries "([^"]*)" in its turn context$`, s.parentFirstRequestCarriesInTurnContext)
+	sc.Step(`^the parent's system message is the same in both turns$`, s.systemMessageSameInBothTurns)
+	sc.Step(`^no parent system message carries "([^"]*)"$`, s.noParentSystemMessageCarries)
+	sc.Step(`^the first request of the second turn carries "([^"]*)" in its turn context$`, s.secondTurnFirstRequestCarriesInTurnContext)
+	sc.Step(`^the first request of the second turn carries "([^"]*)" nowhere$`, s.secondTurnFirstRequestCarriesNowhere)
+	sc.Step(`^the second turn repeats the first turn's conversation byte for byte before its own message$`, s.secondTurnRepeatsTheFirst)
+	sc.Step(`^every parent request of that turn carries "([^"]*)" in its turn context$`, s.everyRequestOfTurnCarriesInTurnContext)
+	sc.Step(`^every parent request of that turn carries the same system message$`, s.everyRequestOfTurnCarriesSameSystemMessage)
 	sc.Step(`^the parent's client received a memory_run update with status "([^"]*)"$`, s.clientReceivedMemoryRun)
 	sc.Step(`^the parent's client received a memory_run update with status "([^"]*)" and delivered (true|false)$`, s.clientReceivedMemoryRunDelivered)
 	sc.Step(`^the parent's client received a memory_run update with status "finished", task status "([^"]*)" and a reason naming "([^"]*)"$`, s.clientReceivedMemoryRunFailedNaming)

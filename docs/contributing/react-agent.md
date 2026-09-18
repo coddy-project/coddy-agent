@@ -87,6 +87,10 @@ Runtime state refreshed by Coddy for this step. It is not a message from the use
 ## Project rules activated by this turn
 ### go-files (Go style)
 ...
+
+## Long-term memory
+Already on disk:
+- ...
 </turn_context>
 ```
 
@@ -101,7 +105,13 @@ Runtime state refreshed by Coddy for this step. It is not a message from the use
   **`AGENTS.md`** that a filesystem tool reached mid-turn (**`activateScopedRulesForToolCall`**).
   They are **not** folded back into the frozen prompt; the next turn's prompt picks them up from
   the sticky set, and **`rules.Added`** is what keeps the block down to what the model has not been
-  given yet.
+  given yet;
+- the **memory subagent's report** for this turn, when long-term memory is on
+  ([memory.md](../features/memory.md)). A recall differs from turn to turn, so rendering it into
+  the system message would make **`messages[0]`** a new one on every turn and cost the cached
+  conversation each time. It joins the block on the first request when the run settled inside
+  **`memory.wait_seconds`**, on a later step otherwise, and stays for the rest of the turn; the
+  **`{{.Memory}}`** slot of the templates holds the session notes alone.
 
 The block is never persisted: it is appended at the **`provider.Stream`** send boundary, next to the
 read/grep eviction projection, and the working message slice the loop keeps appending to never sees
@@ -109,7 +119,8 @@ it. Only the last few hundred tokens of a request are therefore uncached; the co
 them is a cache hit.
 
 **`UTCNow`** and **`TodoList`** stay available to a template under **`prompts.dir`**, which may still
-render them - at the cost of that cache, on every request.
+render them - at the cost of that cache, on every request. Such a template gets no clock and no
+checklist after the history; with long-term memory on, its block carries the memory report alone.
 
 ### The other half: read/grep eviction
 

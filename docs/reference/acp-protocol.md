@@ -578,7 +578,7 @@ When `memory.enable` is true, every user turn starts a **memory subagent**: a ch
 | `taskId`, `childSessionId` | the pool task and the child session of the run; empty on a skip |
 | `taskStatus` | the pool's verdict on `finished`: `succeeded`, `failed`, `timed_out`, `stopped` |
 | `durationMs` | how long the run took, on `finished` |
-| `delivered` | whether a non-empty report reached the main model in this turn, through the system prompt or a later step's turn context |
+| `delivered` | whether a non-empty report reached the main model in this turn, in the turn context block of the first request or of a later step |
 | `reason` | why the run was skipped, or the error a failed run ended with |
 
 ```json

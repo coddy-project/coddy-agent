@@ -1434,12 +1434,12 @@ func TestOutputSinkWritesAfterCloseReachTheFile(t *testing.T) {
 	}
 	_, _ = sink.Write([]byte("while running\n"))
 	sink.Close()
-	_, _ = sink.Write([]byte("report delivered to the turn (system prompt)\n"))
+	_, _ = sink.Write([]byte("report delivered to the turn (first request)\n"))
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(data) != "while running\nreport delivered to the turn (system prompt)\n" {
+	if string(data) != "while running\nreport delivered to the turn (first request)\n" {
 		t.Fatalf("file = %q", string(data))
 	}
 	if !strings.Contains(sink.Text(), "report delivered") {
