@@ -175,6 +175,23 @@ func (p *Pool) SubscribeKeyed(key string, fn func(Snapshot)) {
 	p.keyedWatchers[key] = fn
 }
 
+// WakeWatcherKey is the keyed subscription of the component that turns a
+// finished notify_on_finish task into a new agent turn: the console, `coddy
+// acp` and `coddy serve` each install one. The pool owns the name so anything
+// holding a pool - the shell tools, spawn_agent - can ask whether the promise
+// notify_on_finish makes is one this process keeps, without importing the
+// agent package that keeps it.
+const WakeWatcherKey = "agent.background_waker"
+
+// CanWake reports whether a wake watcher is subscribed. A pool without one
+// still runs the task, but nothing will start a turn when it ends, and the
+// caller must say so rather than promise one.
+func (p *Pool) CanWake() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.keyedWatchers[WakeWatcherKey] != nil
+}
+
 // Draining reports whether the pool is closed to new work.
 func (p *Pool) Draining() bool {
 	p.mu.RLock()
@@ -549,6 +566,27 @@ func (p *Pool) SetAgentUsage(sessionID, taskID string, inputTokens, outputTokens
 	next.InputTokens, next.OutputTokens = max(0, inputTokens), max(0, outputTokens)
 	t.snap.Agent = &next
 	return true
+}
+
+// MarkWokeAgent records that these tasks of a session woke the agent: the turn
+// that reports their outcome has begun. The mark is written to each task's
+// record, so it outlives the process, and ids the pool does not hold are
+// skipped. Nobody is notified: the wake watcher would read a finished task
+// arriving again as a second outcome and wake the agent twice.
+func (p *Pool) MarkWokeAgent(sessionID string, taskIDs ...string) {
+	for _, id := range taskIDs {
+		t, err := p.lookup(sessionID, id)
+		if err != nil {
+			continue
+		}
+		t.mu.Lock()
+		marked := t.snap.WokeAgent
+		t.snap.WokeAgent = true
+		t.mu.Unlock()
+		if !marked {
+			p.persist(t)
+		}
+	}
 }
 
 // Output returns the retained output window for a task. A positive tailLines

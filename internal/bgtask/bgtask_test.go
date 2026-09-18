@@ -1737,3 +1737,77 @@ func TestSessionTaskOutputFallsBackToTheRecordedLog(t *testing.T) {
 		t.Fatalf("a task neither the pool nor the bundle knows = %v, want ErrNotFound", err)
 	}
 }
+
+func TestCanWakeReportsWhetherAWakeWatcherIsSubscribed(t *testing.T) {
+	pool := newTestPool(t, &stubRunner{}, Config{})
+	if pool.CanWake() {
+		t.Fatal("a fresh pool has nothing that could wake an agent")
+	}
+
+	pool.SubscribeKeyed(WakeWatcherKey, func(Snapshot) {})
+	if !pool.CanWake() {
+		t.Fatal("a subscribed wake watcher must be visible to CanWake")
+	}
+
+	// The tasks panel and the persistence hook subscribe too, and neither of
+	// them can start a turn: only the wake key counts.
+	pool.SubscribeKeyed(WakeWatcherKey, nil)
+	pool.Subscribe(func(Snapshot) {})
+	pool.SubscribeKeyed("some.other.watcher", func(Snapshot) {})
+	if pool.CanWake() {
+		t.Fatal("an ordinary watcher must not read as a wake watcher")
+	}
+}
+
+// A task whose outcome started a turn is marked as having woken the agent. The
+// mark is on the snapshot and in the record, so the Tasks panel and /tasks keep
+// the bell on it after a restart, and it is set without a notification: the
+// wake watcher would read a finished task arriving again as a second outcome.
+func TestMarkWokeAgentRecordsTheWakeWithoutNotifying(t *testing.T) {
+	runner := &stubRunner{}
+	p := newTestPool(t, runner, Config{})
+	sessionDir := t.TempDir()
+	p.SetSessionDir("s1", sessionDir)
+
+	snap, err := p.Start(Spec{SessionID: "s1", Command: "make test", NotifyOnFinish: true})
+	if err != nil {
+		t.Fatalf("Start(): %v", err)
+	}
+	runner.last().finish(2)
+	if done := waitUntilFinished(t, p, "s1", snap.ID, StatusFailed); done.WokeAgent {
+		t.Fatal("a task that has woken nobody yet reads as having woken the agent")
+	}
+
+	var mu sync.Mutex
+	var notified []Snapshot
+	p.Subscribe(func(s Snapshot) {
+		mu.Lock()
+		notified = append(notified, s)
+		mu.Unlock()
+	})
+
+	// Another session's ids and ids nobody knows are no business of this one.
+	p.MarkWokeAgent("s2", snap.ID)
+	if got, _ := p.Get("s1", snap.ID); got.WokeAgent {
+		t.Fatal("a mark for another session landed on this session's task")
+	}
+	p.MarkWokeAgent("s1", "bg_missing", snap.ID)
+
+	got, err := p.Get("s1", snap.ID)
+	if err != nil || !got.WokeAgent {
+		t.Fatalf("Get() after the mark = %+v, %v, want WokeAgent", got, err)
+	}
+	loaded := LoadPersisted(sessionDir)
+	if len(loaded) != 1 || !loaded[0].WokeAgent {
+		t.Fatalf("LoadPersisted() = %+v, want the record to keep the mark", loaded)
+	}
+	raw, err := json.Marshal(got)
+	if err != nil || !strings.Contains(string(raw), `"woke_agent":true`) {
+		t.Fatalf("snapshot JSON = %s, %v, want woke_agent", raw, err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(notified) != 0 {
+		t.Fatalf("the mark notified the watchers: %+v", notified)
+	}
+}
