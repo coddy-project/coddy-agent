@@ -1250,6 +1250,13 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			// from here; [DONE] alone cannot carry it.
 			meta["stop_reason"] = string(promptRes.StopReason)
 		}
+		if promptRes != nil && promptRes.SettingsNotice != "" {
+			// The input was only settings commands: no turn ran, the text of
+			// the answer is their notice, and nothing of it is in the history
+			// (the transcript's log keeps the notice). The web UI drops the
+			// optimistic rows it drew for the exchange on this flag.
+			meta["settings_only"] = "true"
+		}
 		_ = bridge.FinishStreamWithMetadata(meta)
 		if body.Stream {
 			return

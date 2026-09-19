@@ -1890,9 +1890,9 @@ test("the permission chip names the session's mode and switches it (#292)", () =
   const chip = screen.getByTestId("composer-permission");
   expect(chip.textContent).toBe("Bypass");
   expect(chip.className).toContain("perm-bypass");
-  expect(chip.getAttribute("title")).toContain("Ask");
+  expect(chip.getAttribute("title")).toContain("Ask first");
   fireEvent.click(chip);
-  fireEvent.click(screen.getByRole("menuitem", { name: "Ask" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Ask first" }));
   expect(picked).toEqual(["ask"]);
 });
 

@@ -97,6 +97,10 @@ export type ConsumeComposerSseParams = {
   onSessionSettings?: (event: SessionSettingsEvent) => void;
   /** Coddy extension. The running turn's clock and generated tokens (`event: turn_progress`). */
   onTurnProgress?: (progress: TurnProgress) => void;
+  /** Coddy extension. The input was only settings commands: no turn ran and
+   *  nothing of the exchange is in the history (`coddy_meta` carries
+   *  `settings_only`); the transcript's log keeps the notice. */
+  onSettingsOnly?: () => void;
 };
 
 /** One follow-up still waiting for the running turn to read it. */
@@ -146,6 +150,7 @@ export async function consumeComposerSseReader(
     onMessageQueue,
     onSessionSettings,
     onTurnProgress,
+    onSettingsOnly,
   } = p;
 
       // Streaming assistant segmentation. Text before any tool/thinking stays in
@@ -513,6 +518,20 @@ export async function consumeComposerSseReader(
                   tokenBaselineRef.current.total + (u.totalTokens || 0),
               };
               setTokenUsage(merged);
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "coddy_meta") {
+            try {
+              const raw = JSON.parse(ev.data) as {
+                metadata?: { settings_only?: unknown };
+              };
+              if (String(raw.metadata?.settings_only) === "true") {
+                onSettingsOnly?.();
+              }
             } catch {
               // ignore
             }

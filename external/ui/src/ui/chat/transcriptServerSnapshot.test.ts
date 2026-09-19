@@ -268,3 +268,22 @@ it("a wake from the stream and the same wake from the transcript are one row", (
   expect(transcriptItemsLooselyEqual(stored, live)).toBe(true);
   expect(transcriptItemsLooselyEqual(other, live)).toBe(false);
 });
+
+it("a notice the server wrote mid-turn does not drop the answer still streaming", () => {
+  const user = { id: "u_1", type: "user_message", content: "Please check the build" } as TranscriptItem;
+  const tool = { id: "tc_1", type: "tool_call", toolCallId: "call_1", title: "run_command", status: "completed" } as unknown as TranscriptItem;
+  const live = { id: "a_live", type: "assistant_message", content: "The build check", streaming: true } as TranscriptItem;
+  const notice = {
+    id: "ulog_1",
+    type: "system_notice",
+    level: "notice",
+    message: "Permission mode: bypass for this session",
+  } as TranscriptItem;
+  // The permission answer persisted the notice before the answer was saved.
+  const merged = mergeTranscriptPreferLocalSuffix([user, tool, notice], [user, tool, live]);
+  expect(merged.map((it) => it.id)).toEqual(["u_1", "tc_1", "a_live", "ulog_1"]);
+  // Once both are saved, the server's rows win and the notice stays once.
+  const saved = { id: "as_1", type: "assistant_message", content: "The build check passed." } as TranscriptItem;
+  const later = mergeTranscriptPreferLocalSuffix([user, tool, saved, notice], merged);
+  expect(later.map((it) => it.type)).toEqual(["user_message", "tool_call", "assistant_message", "system_notice"]);
+});

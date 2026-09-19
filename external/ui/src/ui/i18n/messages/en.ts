@@ -994,7 +994,7 @@ export const messagesEn: Record<string, string> = {
   "composer.modePlan": "Plan",
   "composer.permission": "Permissions",
   "composer.permissionTitle": "When tools ask for approval in this session (the configuration's mode: {configured})",
-  "composer.permissionAsk": "Ask",
+  "composer.permissionAsk": "Ask first",
   "composer.permissionAcceptEdits": "Accept edits",
   "composer.permissionBypass": "Bypass",
   "composer.permissionAskHint": "Ask before commands and file writes",

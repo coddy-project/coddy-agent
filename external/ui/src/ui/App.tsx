@@ -3872,6 +3872,7 @@ export function App() {
       };
       const assistantId = newId("a");
       assistantStreamId = assistantId;
+      let settingsOnly = false;
       streamingAssistantBySidRef.current.set(streamKey, assistantId);
       const viewingNow = viewedSessionIdRef.current.trim();
       const baseItems = pickStreamMutationBase({
@@ -4090,9 +4091,31 @@ export function App() {
             applyTurnProgress(streamKey, progress, "stream");
           }
         },
+        onSettingsOnly: () => {
+          settingsOnly = true;
+        },
       });
       if (!ownsPost() || abortCtl.signal.aborted) return;
       assistantStreamId = lastAssistantId;
+      // Only settings commands: the exchange drawn for it is not part of the
+      // conversation. The transcript's log holds the notice, which the reload
+      // below renders in the place a reload of the page would.
+      if (settingsOnly) {
+        applyStreamItems((prev) =>
+          prev.filter(
+            (it) =>
+              it.id !== userItem.id &&
+              !(it.type === "assistant_message" && it.id === lastAssistantId),
+          ),
+        );
+        void loadSessionsList(true);
+        await loadMessages(sidEffective, {
+          skipSetItems: viewedSessionIdRef.current.trim() !== postSessionKey,
+          preserveOnError: true,
+        });
+        completedNormally = true;
+        return;
+      }
 
       const syncAssistantFromServer = async () => {
         try {

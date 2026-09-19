@@ -4729,6 +4729,13 @@ textarea#composer {
 .composer-tabs {
   display: flex;
   gap: 10px;
+  /* Lets the turn-overrides line give way on a narrow shell instead of
+     running past the card; the selector chips keep their size. */
+  min-width: 0;
+}
+
+.composer-tabs > .mode {
+  flex: none;
 }
 
 .mode {
@@ -4791,6 +4798,8 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 /* What --once / --count=N changed for the next turns, next to the selectors. */
 .composer-overrides {
   align-self: center;
+  flex: 0 1 auto;
+  min-width: 0;
   max-width: 240px;
   overflow: hidden;
   font-size: 11px;
@@ -9535,6 +9544,27 @@ html:not([data-theme="light"]) .context-usage-note--error {
 .permission-prompt-btn--allow:hover:not(:disabled) {
   background: rgba(147, 51, 234, 0.34);
   border-color: rgba(196, 181, 253, 0.55);
+}
+
+/* The session-wide switches of #292: not one more allow. */
+.permission-prompt-btn--session-bypass {
+  background: rgba(239, 68, 68, 0.14);
+  border-color: rgba(239, 68, 68, 0.55);
+  color: #b91c1c;
+}
+
+.permission-prompt-btn--session-bypass:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.24);
+  border-color: rgba(239, 68, 68, 0.7);
+}
+
+.permission-prompt-btn--session-edits {
+  background: rgba(234, 179, 8, 0.12);
+  border-color: rgba(234, 179, 8, 0.5);
+}
+
+html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
+  color: #fca5a5;
 }
 
 .permission-prompt-btn--reject {
