@@ -232,6 +232,10 @@ func rewriteLinks(md, slug, ref string) string {
 		if f.step(line) {
 			continue
 		}
+		if video, ok := attachmentVideo(lines, i, slug, ref); ok {
+			lines[i] = video
+			continue
+		}
 		inline := strings.Contains(line, "](")
 		refDef := strings.HasPrefix(line, "[") && strings.Contains(line, "]:")
 		attr := strings.Contains(line, `src="`) || strings.Contains(line, `href="`)
@@ -261,6 +265,31 @@ func rewriteLinks(md, slug, ref string) string {
 		})
 	}
 	return strings.Join(lines, "\n")
+}
+
+var (
+	// attachmentRE is a GitHub attachment on a line of its own: how a page
+	// embeds a video on GitHub (docs/contributing/documentation.md, Videos).
+	attachmentRE = regexp.MustCompile(`^https://github\.com/user-attachments/assets/[0-9a-fA-F-]+$`)
+	// videoCopyRE is the link to the repository copy the caption under it
+	// carries.
+	videoCopyRE = regexp.MustCompile(`\]\(([^)\s]*assets/video/([^)/\s]+\.(?:mp4|webm|mov)))\)`)
+)
+
+// attachmentVideo turns a GitHub attachment line into an embedded video of
+// the repository copy linked in the next few lines. The attachment plays only
+// inside GitHub; the copy is fetched from GitHub at the release, like an
+// image, and never enters the binary. A line with no copy under it stays.
+func attachmentVideo(lines []string, i int, slug, ref string) (string, bool) {
+	if !attachmentRE.MatchString(strings.TrimSpace(lines[i])) {
+		return "", false
+	}
+	for k := i + 1; k < len(lines) && k <= i+4; k++ {
+		if m := videoCopyRE.FindStringSubmatch(lines[k]); m != nil {
+			return "![Video: " + m[2] + "](" + rewriteTarget(m[1], slug, ref, true) + ")", true
+		}
+	}
+	return "", false
 }
 
 func rewriteTarget(target, slug, ref string, image bool) string {

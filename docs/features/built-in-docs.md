@@ -6,7 +6,7 @@ The same pages are open from every surface:
 
 | Where | How | What you get |
 | --- | --- | --- |
-| Web UI | **Docs** in the rail, **F1**, or an address `#/docs/<page>#<section>` | A reader: contents, the page, the sections of the page, search, the page before and after, **Ask the agent about this page** |
+| Web UI | **Docs** in the rail, **F1**, or an address `#/docs/<page>#<section>` | A reader: contents, the page, the sections of the page, search, the page before and after, **Ask the agent** |
 | Console | **F1**, or `/docs [words or page]` | A help screen over the editor: search, then the page opened at the section found |
 | Shell | `coddy docs list`, `coddy docs search <words>`, `coddy docs show <page>[#section]` | The contents, the best sections, a page or a section as Markdown |
 | The agent | the tools `coddy_docs_search` and `coddy_docs_read` | Search and read, in every mode |
@@ -18,7 +18,9 @@ A page is known by its path under `docs/` without `.md`: `features/mentions`, `r
 
 Where a page or a section is asked for by name, Coddy also takes the other ways people write it: the file path with or without `docs/` and `.md`, a `coddy:` or `@coddy:` link, a `coddy.dev/docs` address, a page's file name when only one page has it (`mentions`), and a page's title (`Mentions`). A name that matches nothing is answered with the closest pages; a section the page does not have, with the sections it has.
 
-Inside a page read out of the binary, a link to another page is written `coddy:<page>#<section>`. The web reader opens it in place, the agent passes it to `coddy_docs_read`, and a `coddy:` link in any answer the agent writes opens the reader in the web UI. Images and links to files of the repository point at GitHub at the release the binary was built from (`main` for a development build): the text is in the binary, the screenshots are not, so they show when the machine is online and fall back to their caption when it is not.
+Inside a page read out of the binary, a link to another page is written `coddy:<page>#<section>`. The web reader opens it in place and the agent passes it to `coddy_docs_read`. In the web UI a page named anywhere in a conversation opens the reader: an `@coddy:<page>#<section>` in a message you sent, and a `coddy:` link or an `@coddy:` reference in an answer, which is how the agent is told to point you at a page.
+
+Images, videos and links to files of the repository point at GitHub at the release the binary was built from (`main` for a development build): the text is in the binary, the screenshots and recordings are not, so they show when the machine is online and fall back to their caption when it is not. A recording that GitHub embeds from an attachment plays in the reader from its copy in the repository.
 
 ## Search
 
@@ -31,13 +33,14 @@ The index is built the first time something searches, in about a tenth of a seco
 ![The reader: contents on the left, the page, the sections of the page on the right](../assets/built-in-docs/reader-page-dark-1280.png)
 *The reader at 1280 px: the contents with the page being read, the page, the sections of the page with the one being read marked.*
 
-**Docs** in the rail opens the reader on the page it was last left on, **F1** opens and closes it from anywhere in the app, and an address such as `#/docs/features/mentions#completion` opens that section directly, in a new tab or from a link someone sent. Every page, section and search result is a real link: the browser's Back and Forward move between the pages read, a middle click opens one in a new tab, and the `#` beside a section heading is that section's address. The header stays on screen while the page scrolls; the column on the right follows the section being read.
+**Docs** in the rail opens the reader on the page it was last left on, **F1** opens and closes it from anywhere in the app, and an address such as `#/docs/features/mentions#completion` opens that section directly, in a new tab or from a link someone sent. Every page, section and search result is a real link: the browser's Back and Forward move between the pages read, a middle click opens one in a new tab, and the `#` beside a section heading is that section's address. The header with the search stays put and the page scrolls under it; the column on the right follows the section being read.
 
-![Search results in the contents column, the matched words marked](../assets/built-in-docs/reader-search-dark-1280.png)
-*Typing in the search box replaces the contents with the sections found. Up and Down pick one, Enter opens it at its section, Escape clears the search.*
+![Search results under the search box, the matched words marked](../assets/built-in-docs/reader-search-dark-1280.png)
+*The search box in the header lists the sections found under itself as you type. Up and Down pick one, Enter opens it at its section, Escape clears the search.*
 
 - **Reading like a book.** The foot of every page links the page before and the page after, in the order of the contents.
-- **Ask the agent about this page** opens a new chat with the page mentioned (`@coddy:<page>#<section>`, the section being read when there is one). With text selected on the page, the button asks about the selection: the chat opens with the selection quoted and the section it sits in mentioned, ready for the question.
+- **Ask the agent** opens a new chat with the page mentioned (`@coddy:<page>#<section>`, the section being read when there is one). With text selected on the page, the button asks about the selection: the chat opens with the selection quoted and the section it sits in mentioned, ready for the question.
+- **Images** open over the page on a click, fitted to the window; `+`, `-` and the buttons zoom up to 300%, a click on the image switches between the fitted and the doubled size, and a zoomed image scrolls. Escape closes it.
 - **coddy.dev** above the page opens the public copy of the same page, for sharing with someone who has no Coddy.
 - `/` puts the cursor in the search box.
 

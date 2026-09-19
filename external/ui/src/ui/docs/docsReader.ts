@@ -106,6 +106,6 @@ export function sectionAnchorAt(root: HTMLElement, node: Node): string | null {
 }
 
 /** The snippet of a search hit as plain text, for a title attribute. */
-export function snippetText(snippet: DocsFragment[]): string {
-  return snippet.map((f) => f.text).join("");
+export function snippetText(snippet: DocsFragment[] | null | undefined): string {
+  return (snippet ?? []).map((f) => f.text).join("");
 }

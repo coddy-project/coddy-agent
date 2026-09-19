@@ -28,7 +28,9 @@ func DocsReadTool() *tooling.Tool {
 			Description: "Read a page or one section of Coddy's own documentation, built into this binary. " +
 				"Leave page out for the contents: every page with a one-line summary. " +
 				"A long page comes in parts, each ending with the offset to continue at and the sections of the page, so read the section you need rather than the whole page. " +
-				"Links between pages are written coddy:<page>#<section>; pass one as page to follow it. Tell the user a page's public address, https://coddy.dev/docs/<page>, when they want to read it themselves.",
+				"Links between pages are written coddy:<page>#<section>; pass one as page to follow it. " +
+				"To point the user at a page, write @coddy:<page>#<section> or a Markdown link [title](coddy:<page>#<section>): in the web UI both open that page in its documentation reader. " +
+				"Outside Coddy, or when the user wants to share it, give the public address https://coddy.dev/docs/<page>.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{

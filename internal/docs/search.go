@@ -371,7 +371,9 @@ const (
 func snippet(text string, hit map[string]bool) []Fragment {
 	words := strings.Fields(text)
 	if len(words) == 0 {
-		return nil
+		// A section whose text is all in its subsections: an empty snippet,
+		// which a client reads as a list like any other.
+		return []Fragment{}
 	}
 	isHit := make([]bool, len(words))
 	for i, w := range words {

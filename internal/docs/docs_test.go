@@ -1,6 +1,7 @@
 package docs
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -341,5 +342,43 @@ func TestSnippetMarksTheWordWithoutItsPunctuation(t *testing.T) {
 	}
 	if whole.String() != "Set the (proxy). Then restart." {
 		t.Fatalf("the snippet reads %q", whole.String())
+	}
+}
+
+// A section with no text of its own (a heading whose content is all in its
+// subsections) still has a snippet: an empty list, never null in JSON.
+func TestSnippetOfAnEmptySectionIsAnEmptyList(t *testing.T) {
+	frags := snippet("", map[string]bool{"proxy": true})
+	if frags == nil {
+		t.Fatal("snippet of an empty text is nil")
+	}
+	data, err := json.Marshal(Hit{Snippet: frags})
+	if err != nil || !strings.Contains(string(data), `"Snippet":[]`) {
+		t.Fatalf("JSON %s %v", data, err)
+	}
+}
+
+// A video is a GitHub attachment on a line of its own with the repository
+// copy linked under it. The attachment plays only inside GitHub, so outside
+// it the line becomes an embedded video of the repository copy, pinned to the
+// release like an image; nothing of it is in the binary.
+func TestVideoLinesPlayTheRepositoryCopy(t *testing.T) {
+	fsys := fstest.MapFS{
+		"nav.yaml": {Data: []byte("groups:\n  - id: g\n    title: G\n    summary: s\n    pages:\n      - path: g/p.md\n        title: P\n        summary: s\n")},
+		"g/p.md": {Data: []byte("# P\n\nhttps://github.com/user-attachments/assets/fd4837ae-23d0-400e-8e60-52706755bb4b\n\n*A recording. The file is in the repository as [swarm.mp4](../assets/video/swarm.mp4).*\n\nhttps://github.com/user-attachments/assets/00000000-0000-0000-0000-000000000000\n\nNo copy is linked here.\n")},
+	}
+	lib, err := Load(fsys, "1.1.55")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, _ := lib.Page("g/p")
+	if !strings.Contains(p.Markdown, "![Video: swarm.mp4](https://raw.githubusercontent.com/coddy-project/coddy-agent/1.1.55/docs/assets/video/swarm.mp4)") {
+		t.Fatalf("the attachment line is not the repository copy:\n%s", p.Markdown)
+	}
+	if !strings.Contains(p.Markdown, "[swarm.mp4](https://github.com/coddy-project/coddy-agent/blob/1.1.55/docs/assets/video/swarm.mp4)") {
+		t.Fatalf("the caption link changed:\n%s", p.Markdown)
+	}
+	if !strings.Contains(p.Markdown, "\nhttps://github.com/user-attachments/assets/00000000-0000-0000-0000-000000000000\n") {
+		t.Fatalf("an attachment without a copy is left as it is:\n%s", p.Markdown)
 	}
 }

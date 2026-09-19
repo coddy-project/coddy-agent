@@ -1046,12 +1046,29 @@ Guide: `docs/features/built-in-docs.md`. Visual contract: `DESIGN.md` (**Documen
   the section the address names. **On this page** follows the section being read as
   the page scrolls; below 1280 px it is left out, below 1200 px the contents fold
   into a **Contents** button above the page.
+- The header sits on the columns of the page: the title over the contents, the
+  search box over the text, **Ask the agent** and the close control over the
+  outline. The header does not scroll: the page scrolls in the body under it
+  (**`.docs-body`**), so its scrollbar starts below the search box. The reader
+  grows no wider than its three columns (1350 px) and stays centred, so the
+  outline keeps to the text on a wide window.
 - The search box (**`/`** focuses it; the reader opens with the keyboard on the
-  page, so the arrow and page keys scroll it) searches as it is typed, 120 ms after the last key, and replaces
-  the contents with the hits: page › section, and the snippet with the matched
-  words marked. It is a combobox: Up and Down move the selection
-  (**`aria-activedescendant`**), Enter opens the selected hit, Escape clears.
-- **Ask the agent about this page** starts a new chat (**`askAboutDocs`** in
+  page, so the arrow and page keys scroll it) searches as it is typed, 120 ms after
+  the last key, and drops the hits under itself while the contents stay: page ›
+  section, and the snippet with the matched words marked. It is a combobox: Up and
+  Down move the selection (**`aria-activedescendant`**), Enter opens the selected
+  hit and folds the list away, Escape clears.
+- A click on an image of the page opens it over everything (**`ui/docs/ImageLightbox.tsx`**,
+  rendered into the body): fitted first, **`+`** / **`-`** / the buttons zoom from
+  100% to 300%, a click on the image toggles fitted and 200%, **`0`** fits again,
+  a zoomed image scrolls, Escape or the close control closes it. A video of a page
+  (a Markdown image whose file is **`.mp4`**, **`.webm`** or **`.mov`**, which is
+  what the server makes of a GitHub attachment line) plays in a **`<video>`**
+  fetched from GitHub at the release.
+- **`@coddy:<page>#<section>`** is a link to the reader in a sent message
+  (**`UserMessage.tsx`**) and in an answer (**`markdown/remarkDocMentions.ts`**),
+  read with the grammar of mentions (**`ui/docs/docMentions.ts`**); code stays code.
+- **Ask the agent** starts a new chat (**`askAboutDocs`** in
   **`App.tsx`**) whose draft mentions the page, or the section being read; with
   text selected on the page it quotes the selection and mentions the section the
   selection sits in (**`askDraftFor`**, **`sectionAnchorAt`**). The button keeps

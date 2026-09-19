@@ -40,7 +40,8 @@ export type DocsHit = {
   group: string;
   anchor?: string;
   heading?: string;
-  snippet: DocsFragment[];
+  /** Empty for a section whose text is all in its subsections; older servers sent null. */
+  snippet: DocsFragment[] | null;
 };
 
 export type DocsResult<T> =

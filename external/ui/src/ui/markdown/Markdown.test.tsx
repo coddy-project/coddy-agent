@@ -226,3 +226,30 @@ test("images are loaded lazily and fit the column", () => {
   const css = readFileSync(stylesPath, "utf8");
   expect(css).toMatch(/\.md img\s*\{[^}]*max-width:\s*100%/);
 });
+
+// The agent points at a page as @coddy:<page>#<section>, the way the user
+// mentions one: in an answer that is a link to the reader too.
+test("an @coddy: reference in an answer opens the documentation reader", () => {
+  const { container } = render(
+    <Markdown text={"Read @coddy:operate/swarm#two-transports first. `@coddy:not/in/code` stays code."} />,
+  );
+  const link = container.querySelector("a.md-docs-link");
+  expect(link?.textContent).toBe("@coddy:operate/swarm#two-transports");
+  expect(link?.getAttribute("href")).toBe("#/docs/operate/swarm#two-transports");
+  expect(container.querySelectorAll("a.md-docs-link")).toHaveLength(1);
+});
+
+// A video of the documentation is fetched from GitHub when it plays; the
+// binary carries none.
+test("a video file in an image slot plays in a video element", () => {
+  const { container } = render(
+    <Markdown text="![Video: swarm.mp4](https://raw.githubusercontent.com/x/y/1.1.55/docs/assets/video/swarm.mp4)" />,
+  );
+  const video = container.querySelector("video");
+  expect(video?.getAttribute("src")).toBe(
+    "https://raw.githubusercontent.com/x/y/1.1.55/docs/assets/video/swarm.mp4#t=0.1",
+  );
+  expect(video?.hasAttribute("controls")).toBe(true);
+  expect(video?.getAttribute("preload")).toBe("metadata");
+  expect(container.querySelector("img")).toBeNull();
+});

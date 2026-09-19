@@ -16,6 +16,11 @@ import {
 import { useT } from "../i18n/I18nProvider";
 import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
 import { docsHrefFromCoddyLink } from "../scheduler/hashRoute";
+import { remarkDocMentions } from "./remarkDocMentions";
+
+/** A video file where Markdown has an image: the documentation embeds its
+ *  recordings this way, fetched from GitHub when they play. */
+const VIDEO_SRC = /\.(mp4|webm|mov)(?:[?#]|$)/i;
 
 type CodeProps = {
   className?: string | undefined;
@@ -185,14 +190,25 @@ export const Markdown = memo(function Markdown(props: { text: string }) {
           </a>
         );
       },
-      img: (p: ImgProps) => (
-        <img
-          src={p.src}
-          alt={p.alt || ""}
-          {...(p.title ? { title: p.title } : {})}
-          loading="lazy"
-        />
-      ),
+      img: (p: ImgProps) =>
+        p.src && VIDEO_SRC.test(p.src) ? (
+          <video
+            className="md-video"
+            // #t=0.1 shows a first frame before it plays, not a black box.
+            src={p.src.includes("#") ? p.src : `${p.src}#t=0.1`}
+            controls
+            preload="metadata"
+            playsInline
+            aria-label={p.alt || undefined}
+          />
+        ) : (
+          <img
+            src={p.src}
+            alt={p.alt || ""}
+            {...(p.title ? { title: p.title } : {})}
+            loading="lazy"
+          />
+        ),
     }),
     [],
   );
@@ -207,7 +223,7 @@ export const Markdown = memo(function Markdown(props: { text: string }) {
   return (
     <div className="md">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkDocMentions]}
         rehypePlugins={[[rehypeHighlight, syntaxHighlightOptions]]}
         components={components}
         urlTransform={urlTransform}
