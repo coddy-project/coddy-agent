@@ -48,3 +48,6 @@ Feature: The documentation built into the binary
     And the reader's search opens a hit at its section
     And asking the agent opens a chat with the page mentioned
     And a coddy: link in any message opens the reader
+    And a page mentioned in a sent message opens the reader
+    And /docs in the composer opens the reader on a search instead of reaching the agent
+    And the chat names a documentation lookup by what it does

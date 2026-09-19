@@ -77,6 +77,8 @@ export function ChatScreen(props: {
   onModeChange: (mode: string) => void;
   onDraftChange: (v: string) => void;
   onSend: (text: string, files?: File[]) => void;
+  /** `/docs [page or words]` typed in the composer opens the documentation reader. */
+  onDocsCommand?: (arg: string) => void;
   onContextRingOpen?: () => void;
   generating?: boolean;
   onStop?: () => void;
@@ -520,6 +522,7 @@ export function ChatScreen(props: {
                 onModeChange={props.onModeChange}
                 onChange={props.onDraftChange}
                 onSend={props.onSend}
+                {...(props.onDocsCommand ? { onDocsCommand: props.onDocsCommand } : {})}
                 {...(props.onContextRingOpen
                   ? { onContextRingOpen: props.onContextRingOpen }
                   : {})}
@@ -737,6 +740,7 @@ export function ChatScreen(props: {
                   onModeChange={props.onModeChange}
                   onChange={props.onDraftChange}
                   onSend={props.onSend}
+                  {...(props.onDocsCommand ? { onDocsCommand: props.onDocsCommand } : {})}
                   {...(props.onContextRingOpen
                     ? { onContextRingOpen: props.onContextRingOpen }
                     : {})}

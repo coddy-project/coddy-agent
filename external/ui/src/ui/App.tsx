@@ -202,6 +202,8 @@ import {
   setDocsHash,
 } from "./scheduler/hashRoute";
 import { DocsView } from "./docs/DocsView";
+import { fetchDocsPage } from "./docs/api";
+import { docsCommandOpensPage } from "./docs/docsCommand";
 import { SchedulerJobEditorSheet } from "./scheduler/SchedulerJobEditorSheet";
 import { SchedulerJobsDrawer } from "./scheduler/SchedulerJobsDrawer";
 import {
@@ -4632,7 +4634,8 @@ export function App() {
     window.location.hash = appNavHrefSwarm();
   }, []);
 
-  const openDocsFromNav = useCallback(() => {
+  /** Opens the reader over whatever is on screen, remembering it for the close. */
+  const openDocsAt = useCallback((slug: string | null, anchor: string | null) => {
     if (parseAppHash().branch !== "docs") {
       docsReturnHashRef.current = window.location.hash;
     }
@@ -4641,8 +4644,43 @@ export function App() {
     setTasksOpen(false);
     setSessionsOpen(false);
     setSettingsRoute(false);
-    window.location.hash = appNavHrefDocs(lastDocsSlugRef.current);
+    window.location.hash = appNavHrefDocs(slug, anchor);
   }, []);
+
+  const openDocsFromNav = useCallback(() => {
+    openDocsAt(lastDocsSlugRef.current, null);
+  }, [openDocsAt]);
+
+  // A search /docs <words> brings into the reader; cleared when the reader closes.
+  const [docsSearchSeed, setDocsSearchSeed] = useState<{ query: string; nonce: number } | null>(
+    null,
+  );
+
+  /**
+   * `/docs [page or words]` in the composer, as in the console: the command
+   * alone reopens the book, a page's address or title opens that page (and
+   * section), anything else opens the reader on that search.
+   */
+  const openDocsCommand = useCallback(
+    (arg: string) => {
+      setDraft("");
+      if (!arg) {
+        setDocsSearchSeed(null);
+        openDocsFromNav();
+        return;
+      }
+      void fetchDocsPage(arg).then((res) => {
+        if (res.ok && docsCommandOpensPage(arg, res.data.title)) {
+          setDocsSearchSeed(null);
+          openDocsAt(res.data.slug, res.data.anchor || null);
+          return;
+        }
+        setDocsSearchSeed({ query: arg, nonce: Date.now() });
+        openDocsFromNav();
+      });
+    },
+    [openDocsAt, openDocsFromNav],
+  );
 
   /** Following a link of the reader adds a history entry, so Back returns to
    *  the page before; settling on the first page of the book does not. */
@@ -4659,6 +4697,7 @@ export function App() {
 
   const onCloseDocs = useCallback(() => {
     setDocsRoute(null);
+    setDocsSearchSeed(null);
     const back = docsReturnHashRef.current;
     docsReturnHashRef.current = "";
     if (back && !back.startsWith("#/docs")) {
@@ -5260,6 +5299,7 @@ export function App() {
               anchor={docsRoute.anchor}
               onOpen={openDocsPage}
               onClose={onCloseDocs}
+              {...(docsSearchSeed ? { searchSeed: docsSearchSeed } : {})}
               {...(atSwarmRoot ? {} : { onAsk: askAboutDocs })}
             />
           </div>
@@ -5450,6 +5490,7 @@ export function App() {
             {...(editingFiles.length > 0 ? { editingFiles } : {})}
             onBranchSwitch={(sid) => switchBranch(sid)}
             {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
+            onDocsCommand={openDocsCommand}
             onSend={(text: string, files?: File[]) => {
               // A subagent transcript is read-only: the server answers 409.
               if (subagentTranscript) {

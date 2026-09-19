@@ -60,6 +60,7 @@ import {
   serverSnapshotShellStack,
 } from "../shellBreakpoint";
 import { contextUsagePercent } from "./contextUsage";
+import { parseDocsCommand } from "../docs/docsCommand";
 import {
   filterLlmModels,
   groupLlmModelsByVendor,
@@ -297,6 +298,12 @@ export function Composer(props: {
   onSend: (text: string, files?: File[]) => void;
   generating?: boolean;
   onStop?: () => void;
+  /**
+   * `/docs [page or words]` opens the documentation reader here instead of
+   * going to the agent; absent where there is no reader to open. The argument
+   * is what follows the command, "" for the command alone.
+   */
+  onDocsCommand?: (arg: string) => void;
   /** Follow-ups waiting for the running turn to read them (the message queue). */
   queuedMessages?: QueuedMessage[];
   /** Add the draft to that queue instead of starting a turn. Only while generating. */
@@ -359,7 +366,22 @@ export function Composer(props: {
     props.generating === true &&
     typeof props.onQueue === "function" &&
     props.value.trim().length > 0;
+  /** Runs a `/docs` draft in the browser; false when the draft is anything else. */
+  const openDocsFromDraft = (): boolean => {
+    if (!props.onDocsCommand || sendableAttachedFiles.length > 0) {
+      return false;
+    }
+    const arg = parseDocsCommand(props.value);
+    if (arg === null) {
+      return false;
+    }
+    props.onDocsCommand(arg);
+    return true;
+  };
   const queueDraft = () => {
+    if (openDocsFromDraft()) {
+      return;
+    }
     const txt = props.value.trim();
     if (!txt || !props.onQueue) {
       return;
@@ -401,8 +423,20 @@ export function Composer(props: {
   const [slashActive, setSlashActive] = useState(0);
   /** Built-in deterministic commands (/compact, /plugin) shown as a separate group. */
   const [commandItems, setCommandItems] = useState<SlashRow[]>([]);
-  const commandItemsRef = useRef<SlashRow[]>([]);
   const commandsFetchedRef = useRef(false);
+  // /docs runs in the browser, so the server's catalog does not carry it: it
+  // joins the group only where this composer can open the reader.
+  const hasDocsCommand = !!props.onDocsCommand;
+  const allCommandItems = useMemo(() => {
+    if (!hasDocsCommand || commandItems.some((r) => r.name === "docs")) {
+      return commandItems;
+    }
+    return [...commandItems, { name: "docs", description: t("composer.docsCommand") }].sort(
+      (a, b) => a.name.localeCompare(b.name),
+    );
+  }, [hasDocsCommand, commandItems, t]);
+  const allCommandItemsRef = useRef<SlashRow[]>(allCommandItems);
+  allCommandItemsRef.current = allCommandItems;
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashPrefix, setSlashPrefix] = useState("");
   const [slashLoading, setSlashLoading] = useState(false);
@@ -777,7 +811,6 @@ export function Composer(props: {
       }
       const body = (await res.json()) as { items?: SlashRow[] };
       const rows = body.items || [];
-      commandItemsRef.current = rows;
       setCommandItems(rows);
     } catch {
       // Built-in commands are optional; ignore fetch errors.
@@ -1005,7 +1038,7 @@ export function Composer(props: {
           if (rows.length === 0) {
             // No skills match — but keep the menu open if a built-in command does.
             const cmdMatches = filterCommandRows(
-              commandItemsRef.current,
+              allCommandItemsRef.current,
               after.prefix,
             );
             if (cmdMatches.length === 0) {
@@ -1668,8 +1701,8 @@ export function Composer(props: {
         .join("\n");
 
   const commandMatches = useMemo(
-    () => (slashOpen ? filterCommandRows(commandItems, slashPrefix) : []),
-    [slashOpen, commandItems, slashPrefix],
+    () => (slashOpen ? filterCommandRows(allCommandItems, slashPrefix) : []),
+    [slashOpen, allCommandItems, slashPrefix],
   );
   // Flat, render-ordered list of selectable rows (skills first, then commands),
   // used for arrow-key navigation. The highlighted index is clamped to it.
@@ -2426,6 +2459,9 @@ export function Composer(props: {
                     }
                     // Desktop: Enter or Ctrl+Enter = send.
                     ev.preventDefault();
+                    if (openDocsFromDraft()) {
+                      return;
+                    }
                     if (props.generating) {
                       // A turn is running: the draft joins the queue the turn
                       // reads at its next step instead of being refused.
@@ -2629,6 +2665,9 @@ export function Composer(props: {
                   }
                   if (props.generating) {
                     props.onStop?.();
+                    return;
+                  }
+                  if (openDocsFromDraft()) {
                     return;
                   }
                   const txt = props.value.trim();

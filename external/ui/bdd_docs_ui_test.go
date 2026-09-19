@@ -30,6 +30,22 @@ func TestBuiltinDocsWebUIFeature(t *testing.T) {
 				return runVitestScenario("src/ui/markdown/Markdown.test.tsx",
 					"coddy: links open the documentation reader")
 			})
+			sc.Step(`^a page mentioned in a sent message opens the reader$`, func() error {
+				return runVitestScenario("src/ui/messages/UserMessage.test.tsx",
+					"an @coddy: mention in the sent message opens the documentation reader")
+			})
+			sc.Step(`^/docs in the composer opens the reader on a search instead of reaching the agent$`, func() error {
+				if err := runVitestScenario("src/ui/chat/Composer.test.tsx",
+					"/docs opens the reader with what follows it, and sends nothing"); err != nil {
+					return err
+				}
+				return runVitestScenario("src/ui/docs/DocsView.test.tsx",
+					"/docs in the composer shows the search it was given in the reader")
+			})
+			sc.Step(`^the chat names a documentation lookup by what it does$`, func() error {
+				return runVitestScenario("src/ui/messages/ToolCallMessage.test.tsx",
+					"the documentation tools say what they do and name the query or the page")
+			})
 		},
 		Options: &godog.Options{
 			Format:   "pretty",

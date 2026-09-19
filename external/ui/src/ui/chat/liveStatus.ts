@@ -154,6 +154,10 @@ export function statusKeyForTool(toolName: string): string {
       return "status.delete";
     case "websearch":
       return "status.webSearch";
+    case "coddy_docs_search":
+      return "status.docsSearch";
+    case "coddy_docs_read":
+      return "status.docsRead";
     case "webfetch":
       return "status.webFetch";
     case "http_request":

@@ -8,6 +8,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DocsView } from "./DocsView";
 import { focusAt, scrollToKeep } from "./ImageLightbox";
+import { docsCommandOpensPage, parseDocsCommand } from "./docsCommand";
 import {
   askDraftFor,
   assignHeadingIds,
@@ -232,6 +233,40 @@ describe("DocsView", () => {
     expect((await screen.findByTestId("docs-error")).textContent).toContain(
       "no documentation page",
     );
+  });
+});
+
+describe("/docs in the composer", () => {
+  it("is the command alone or with an argument, nothing else", () => {
+    expect(parseDocsCommand("/docs")).toBe("");
+    expect(parseDocsCommand("  /docs   telegram proxy  ")).toBe("telegram proxy");
+    expect(parseDocsCommand("/docs\nfeatures/mentions")).toBe("features/mentions");
+    expect(parseDocsCommand("/docsify")).toBeNull();
+    expect(parseDocsCommand("see /docs")).toBeNull();
+    expect(parseDocsCommand("/doc")).toBeNull();
+  });
+
+  it("opens a page named by its address or its title, and searches anything else", () => {
+    // The console's rule: a reference, or the exact title of the page it found.
+    expect(docsCommandOpensPage("features/mentions#completion", "Mentions")).toBe(true);
+    expect(docsCommandOpensPage("coddy:features/modes", "Operating modes")).toBe(true);
+    expect(docsCommandOpensPage("operating MODES", "Operating modes")).toBe(true);
+    expect(docsCommandOpensPage("mentions", "Mentions")).toBe(true);
+    expect(docsCommandOpensPage("proxy", "Telegram gateway")).toBe(false);
+  });
+
+  it("shows the search it was given in the reader", async () => {
+    render(
+      <DocsView
+        slug="features/mentions"
+        anchor={null}
+        onOpen={vi.fn()}
+        searchSeed={{ query: "picker", nonce: 1 }}
+      />,
+    );
+    const box = (await screen.findByRole("combobox")) as HTMLInputElement;
+    await waitFor(() => expect(box.value).toBe("picker"));
+    expect(await screen.findByTestId("docs-hits")).toBeTruthy();
   });
 });
 

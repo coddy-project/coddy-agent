@@ -55,6 +55,7 @@ Top to bottom:
   blocks (collapse with `ctrl+t`); tool calls as background-tinted boxes
   (pending → success green tint / error red tint) with a bold title naming
   what the call acts on (`read <path>`, `$ command`, `load_skill <skill>`,
+  `Searching the docs <query>`, `Reading the docs <page>`,
   `spawn_agent <subagent> · <task> · background · timeout 300s`, where each
   part after the subagent appears only when the call passed it), preview
   capped at 10 lines, and `... (ctrl+o to expand)` reading the full result

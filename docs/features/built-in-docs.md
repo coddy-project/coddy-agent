@@ -6,7 +6,7 @@ The same pages are open from every surface:
 
 | Where | How | What you get |
 | --- | --- | --- |
-| Web UI | **Docs** in the rail, **F1**, or an address `#/docs/<page>#<section>` | A reader: contents, the page, the sections of the page, search, the page before and after, **Ask the agent** |
+| Web UI | **Docs** in the rail, **F1**, `/docs [words or page]` in the composer, or an address `#/docs/<page>#<section>` | A reader: contents, the page, the sections of the page, search, the page before and after, **Ask the agent** |
 | Console | **F1**, or `/docs [words or page]` | A help screen over the editor: search, then the page opened at the section found |
 | Shell | `coddy docs list`, `coddy docs search <words>`, `coddy docs show <page>[#section]` | The contents, the best sections, a page or a section as Markdown |
 | The agent | the tools `coddy_docs_search` and `coddy_docs_read` | Search and read, in every mode |
@@ -33,7 +33,7 @@ The index is built the first time something searches, in about a tenth of a seco
 ![The reader: contents on the left, the page, the sections of the page on the right](../assets/built-in-docs/reader-page-dark-1280.png)
 *The reader at 1280 px: the contents with the page being read, the page, the sections of the page with the one being read marked.*
 
-**Docs** in the rail opens the reader on the page it was last left on, **F1** opens and closes it from anywhere in the app, and an address such as `#/docs/features/mentions#completion` opens that section directly, in a new tab or from a link someone sent. Every page, section and search result is a real link: the browser's Back and Forward move between the pages read, a middle click opens one in a new tab, and the `#` beside a section heading is that section's address. The header with the search stays put and the page scrolls under it; the column on the right follows the section being read.
+**Docs** in the rail opens the reader on the page it was last left on, **F1** opens and closes it from anywhere in the app, `/docs` in the composer does what it does in the console (`/docs telegram proxy` opens the reader on that search, `/docs features/mentions#completion` on that section, and nothing goes to the agent), and an address such as `#/docs/features/mentions#completion` opens that section directly, in a new tab or from a link someone sent. Every page, section and search result is a real link: the browser's Back and Forward move between the pages read, a middle click opens one in a new tab, and the `#` beside a section heading is that section's address. The header with the search stays put and the page scrolls under it; the column on the right follows the section being read.
 
 ![Search results under the search box, the matched words marked](../assets/built-in-docs/reader-search-dark-1280.png)
 *The search box in the header lists the sections found under itself as you type. Up and Down pick one, Enter opens it at its section, Escape clears the search.*
@@ -80,7 +80,7 @@ The agent reaches for its documentation when a question is about Coddy itself - 
 | `coddy_docs_search` | `query`, `limit` (8 by default, at most 20) | The best sections, each with the reference to read, the page and section titles and the snippet |
 | `coddy_docs_read` | `page` (a reference, a `coddy:` link or a title; left out for the contents), `offset` | The page or the section, with its reference, its lines and its public address |
 
-Both need no permission and are offered in agent, plan and ask mode, to subagents, and to the built-in `explore` subagent. A page is read in parts of about 24 KB: a long one ends with the line to continue at and the list of its sections, so the model reads the section it needs rather than the whole page.
+Both need no permission and are offered in agent, plan and ask mode, to subagents, and to the built-in `explore` subagent. In the chat a call reads as what it does, with the query or the page beside it: *searching the documentation* and *reading the documentation* in the web UI, *Searching the docs* and *Reading the docs* in the console. A page is read in parts of about 24 KB: a long one ends with the line to continue at and the list of its sections, so the model reads the section it needs rather than the whole page.
 
 ## Mentioning a page
 

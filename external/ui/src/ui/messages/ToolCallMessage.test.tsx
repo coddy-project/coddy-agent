@@ -1698,6 +1698,42 @@ test("collapsing a long result returns it to the top", async () => {
 // The web tools used to print their own arguments back as a JSON object and their
 // answer as raw source: a search as a wall of braces, a fetched page as Markdown
 // nobody rendered. Both are documents and both now read as documents.
+// The model looks things up in Coddy's own documentation often enough that the
+// raw ids read like a leak of the tool catalogue into the chat.
+test("the documentation tools say what they do and name the query or the page", () => {
+  const { unmount } = render(
+    <ToolCallMessage
+      toolCallId="tc-docs-search"
+      title="coddy_docs_search"
+      kind="read"
+      status="completed"
+      argsText={JSON.stringify({ query: "telegram proxy" })}
+      resultText="1. surfaces/gateway#proxy"
+      durationMs={7}
+    />,
+  );
+  expect(screen.getByText("searching the documentation")).toBeInTheDocument();
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent("telegram proxy");
+  expect(screen.queryByText("coddy_docs_search")).toBeNull();
+  unmount();
+
+  render(
+    <ToolCallMessage
+      toolCallId="tc-docs-read"
+      title="coddy_docs_read"
+      kind="read"
+      status="completed"
+      argsText={JSON.stringify({ page: "features/mentions#completion" })}
+      resultText="[Coddy documentation] Mentions > Completion"
+      durationMs={3}
+    />,
+  );
+  expect(screen.getByText("reading the documentation")).toBeInTheDocument();
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent(
+    "features/mentions#completion",
+  );
+});
+
 test("a web search names its query and lists its hits as links", () => {
   render(
     <ToolCallMessage

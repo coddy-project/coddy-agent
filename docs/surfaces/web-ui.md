@@ -1030,6 +1030,14 @@ Guide: `docs/features/built-in-docs.md`. Visual contract: `DESIGN.md` (**Documen
   contents with **`replaceState`**, so Back does not return to an empty reader.
   **F1** again or the **×** control closes it and returns to where it was opened
   from (a chat, the swarm screen, the scheduler); a click on the backdrop closes it too.
+- **`/docs [words or page]`** in the composer is the console's command, run in the
+  browser (**`ui/docs/docsCommand.ts`**, **`Composer`** **`onDocsCommand`**): the
+  draft is cleared and nothing is sent, while a turn runs as well. Alone it
+  reopens the book; an argument with a **`/`**, **`#`** or scheme, or the exact title
+  of the page **`GET /coddy/docs/page`** resolves it to, opens that page at its
+  section; any other words open the reader with the search typed in and its hits
+  open (**`searchSeed`**). The Commands group of the slash menu lists **`/docs`**
+  beside the server's commands.
 - The data comes from **`GET /coddy/docs`** (contents), **`GET /coddy/docs/page`**
   (one page with its headings and neighbours) and **`GET /coddy/docs/search`**
   (**`ui/docs/api.ts`**), through the environment shim like every other route, so

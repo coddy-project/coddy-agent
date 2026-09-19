@@ -50,6 +50,8 @@ export function DocsView(props: {
   onAsk?: (draft: string) => void;
   onClose?: () => void;
   headerSlot?: ReactNode;
+  /** A search to show, from `/docs <words>` in the composer; a new nonce shows it again. */
+  searchSeed?: { query: string; nonce: number };
 }) {
   const { t } = useT();
   const { slug, anchor, onOpen } = props;
@@ -70,6 +72,19 @@ export function DocsView(props: {
   const articleRef = useRef<HTMLElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const searchBoxRef = useRef<HTMLDivElement | null>(null);
+
+  // /docs <words> arrives as a search already typed, its results open under it.
+  const seedQuery = props.searchSeed?.query;
+  const seedNonce = props.searchSeed?.nonce;
+  useEffect(() => {
+    if (seedNonce === undefined || !seedQuery) {
+      return;
+    }
+    setQuery(seedQuery);
+    setHitIndex(0);
+    setResultsOpen(true);
+    searchRef.current?.focus();
+  }, [seedQuery, seedNonce]);
 
   useEffect(() => {
     const ac = new AbortController();
