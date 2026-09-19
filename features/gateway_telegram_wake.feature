@@ -11,7 +11,7 @@ Feature: A turn woken in a chat's session is delivered to the chat
     When the user asks the agent to "start the tests" in the background
     Then the chat shows "Started the tests in the background."
     When the background task ends with exit code 2
-    Then the chat shows "Woken by a finished background task: bg_1"
+    Then the chat shows the wake note of that task
     And the chat shows "failed, exit 2"
     And the chat shows "The tests failed with exit 2."
     And the session keeps the woken turn's first message as a background wake
