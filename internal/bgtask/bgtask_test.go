@@ -1814,6 +1814,22 @@ func TestMarkWokeAgentRecordsTheWakeWithoutNotifying(t *testing.T) {
 	sessionDir := t.TempDir()
 	p.SetSessionDir("s1", sessionDir)
 
+	// The watcher is there before the task ends: the supervisor releases Wait
+	// before it notifies, so a watcher subscribed after Wait could still catch
+	// the finish, carrying whatever the task says by then.
+	var mu sync.Mutex
+	var notified []Snapshot
+	finishSeen := make(chan struct{})
+	var finishOnce sync.Once
+	p.Subscribe(func(s Snapshot) {
+		mu.Lock()
+		notified = append(notified, s)
+		mu.Unlock()
+		if s.Status == StatusFailed {
+			finishOnce.Do(func() { close(finishSeen) })
+		}
+	})
+
 	snap, err := p.Start(Spec{SessionID: "s1", Command: "make test", NotifyOnFinish: true})
 	if err != nil {
 		t.Fatalf("Start(): %v", err)
@@ -1822,14 +1838,14 @@ func TestMarkWokeAgentRecordsTheWakeWithoutNotifying(t *testing.T) {
 	if done := waitUntilFinished(t, p, "s1", snap.ID, StatusFailed); done.WokeAgent {
 		t.Fatal("a task that has woken nobody yet reads as having woken the agent")
 	}
-
-	var mu sync.Mutex
-	var notified []Snapshot
-	p.Subscribe(func(s Snapshot) {
-		mu.Lock()
-		notified = append(notified, s)
-		mu.Unlock()
-	})
+	select {
+	case <-finishSeen:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the finish never reached the watcher")
+	}
+	mu.Lock()
+	notified = nil
+	mu.Unlock()
 
 	// Another session's ids and ids nobody knows are no business of this one.
 	p.MarkWokeAgent("s2", snap.ID)
