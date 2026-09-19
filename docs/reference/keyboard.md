@@ -83,9 +83,12 @@ The composer is a plain `textarea`; keys not listed here keep their browser mean
 
 | Key | Where | Action |
 |---|---|---|
-| Enter | composer, desktop | send when idle: the draft, or the attachments alone when the selected model is multimodal; nothing while a turn is generating |
-| Shift+Enter | composer, desktop | newline (browser default, not intercepted) |
-| Enter | composer, mobile shell (viewports under 1200 px) | newline; sending is the button only |
+| Enter | composer, any device with a keyboard, a narrow window included | send when idle: the draft, or the attachments alone when the selected model is multimodal; while a turn runs, queue the draft for its next step |
+| Shift+Enter | composer | newline (browser default, not intercepted) |
+| Ctrl+Enter / Alt+Enter | composer | newline at the caret, replacing a selection (browsers insert none, so the composer does) |
+| Cmd+Enter | composer | send, like Enter |
+| Enter | composer, touch-only device (no hovering pointer, a coarse one: a phone) | newline; sending is the button, since a phone keyboard has no Shift+Enter |
+| Enter | composer, while an input method is composing | confirms the candidate and never sends |
 | ArrowUp / ArrowDown | slash, `@` or command option menu open | move the highlighted row, wrapping at both ends |
 | Tab | slash menu open | apply the highlighted command |
 | Tab | `@` mention menu open | apply the highlighted row, also while a turn runs |

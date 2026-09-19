@@ -65,7 +65,11 @@ import {
   subscribeShellStack,
   snapshotShellStack,
   serverSnapshotShellStack,
+  subscribeTouchOnly,
+  snapshotTouchOnly,
+  serverSnapshotTouchOnly,
 } from "../shellBreakpoint";
+import { composerEnterAction, insertNewline } from "./composerEnter";
 import { contextUsagePercent } from "./contextUsage";
 import { parseDocsCommand } from "../docs/docsCommand";
 import {
@@ -358,6 +362,12 @@ export function Composer(props: {
     subscribeShellStack,
     snapshotShellStack,
     serverSnapshotShellStack,
+  );
+  // What Enter does follows the input device, not the width (composerEnter.ts).
+  const touchOnly = useSyncExternalStore(
+    subscribeTouchOnly,
+    snapshotTouchOnly,
+    serverSnapshotTouchOnly,
   );
   // The selector chips, so a settings command picked in the / menu can open
   // the menu of its control (settingsControlFor).
@@ -2440,18 +2450,22 @@ export function Composer(props: {
           }}
         >
           <div className="composer-context-row">
-            <EnvironmentChip />
-            {props.workspaceCtx !== undefined && props.onWorkspacePickFolder ? (
-              <WorkspaceChips
-                context={props.workspaceCtx ?? null}
-                worktreePref={props.worktreePref ?? false}
-                onPickFolder={props.onWorkspacePickFolder}
-                onPickBranch={props.onWorkspacePickBranch ?? (() => {})}
-                onWorktreeToggle={props.onWorktreeToggle ?? (() => {})}
-                opensUp={!props.isEmpty}
-                locked={props.workspaceLocked ?? false}
-              />
-            ) : null}
+            {/* One strip for the chips: display: contents on a wide shell, a
+                sideways-scrolling box on a phone (styles.css). */}
+            <div className="composer-context-scroll">
+              <EnvironmentChip />
+              {props.workspaceCtx !== undefined && props.onWorkspacePickFolder ? (
+                <WorkspaceChips
+                  context={props.workspaceCtx ?? null}
+                  worktreePref={props.worktreePref ?? false}
+                  onPickFolder={props.onWorkspacePickFolder}
+                  onPickBranch={props.onWorkspacePickBranch ?? (() => {})}
+                  onWorktreeToggle={props.onWorktreeToggle ?? (() => {})}
+                  opensUp={!props.isEmpty}
+                  locked={props.workspaceLocked ?? false}
+                />
+              ) : null}
+            </div>
             <button
               type="button"
               className="composer-enhance-btn"
@@ -2564,6 +2578,7 @@ export function Composer(props: {
                 id="composer"
                 className={maskComposerText ? "composer-ta-masked" : undefined}
                 rows={props.isEmpty ? 5 : 2}
+                enterKeyHint={touchOnly ? "enter" : "send"}
                 placeholder={
                   props.generating
                     ? t("composer.placeholderQueue")
@@ -2759,16 +2774,41 @@ export function Composer(props: {
                     }
                     return;
                   }
-                  if (ev.key === "Enter") {
-                    if (isMobileShell) {
-                      // On mobile: Enter inserts a newline (browser default). Send is button-only.
-                      return;
-                    }
-                    // Desktop: Shift+Enter = newline (browser default, not intercepted).
-                    if (ev.shiftKey) {
-                      return;
-                    }
-                    // Desktop: Enter or Ctrl+Enter = send.
+                  const enterAction = composerEnterAction(
+                    {
+                      key: ev.key,
+                      shiftKey: ev.shiftKey,
+                      ctrlKey: ev.ctrlKey,
+                      altKey: ev.altKey,
+                      metaKey: ev.metaKey,
+                      isComposing: ev.nativeEvent.isComposing,
+                      keyCode: ev.keyCode,
+                      repeat: ev.repeat,
+                    },
+                    touchOnly,
+                  );
+                  if (enterAction === "newline-insert") {
+                    ev.preventDefault();
+                    const el = ev.currentTarget;
+                    const start = el.selectionStart ?? props.value.length;
+                    const end = el.selectionEnd ?? start;
+                    const next = insertNewline(props.value, start, end);
+                    setCaretPos(next.caret);
+                    preEnhanceRef.current = null;
+                    setEnhanceErr(null);
+                    props.onChange(next.text);
+                    updatePickerMenus(next.text, next.caret);
+                    requestAnimationFrame(() => {
+                      const ta = taRef.current;
+                      if (!ta) {
+                        return;
+                      }
+                      ta.setSelectionRange(next.caret, next.caret);
+                      syncComposerScroll();
+                    });
+                    return;
+                  }
+                  if (enterAction === "send") {
                     ev.preventDefault();
                     if (openDocsFromDraft()) {
                       return;
@@ -2871,28 +2911,6 @@ export function Composer(props: {
                 </button>
               </div>
 
-              {props.onPermissionModeChange ? (
-                <div className="mode">
-                  <button
-                    type="button"
-                    ref={permissionChipRef}
-                    className={`composer-tab mode-btn mode-permission perm-${permissionVal}`}
-                    aria-label={t("composer.permission")}
-                    title={t("composer.permissionTitle", {
-                      configured: displayPermission(
-                        props.configuredPermissionMode || "ask",
-                      ),
-                    })}
-                    aria-haspopup="menu"
-                    aria-expanded={menuOpen === "permission"}
-                    data-testid="composer-permission"
-                    onClick={(e) => toggleMenu("permission", e.currentTarget)}
-                  >
-                    {displayPermission(permissionVal)}
-                  </button>
-                </div>
-              ) : null}
-
               {showLlm && props.onLlmModelChange ? (
                 <div className="mode">
                   <button
@@ -2923,6 +2941,28 @@ export function Composer(props: {
                     onClick={(e) => toggleMenu("reasoning", e.currentTarget)}
                   >
                     {reasoningLabel}
+                  </button>
+                </div>
+              ) : null}
+
+              {props.onPermissionModeChange ? (
+                <div className="mode">
+                  <button
+                    type="button"
+                    ref={permissionChipRef}
+                    className={`composer-tab mode-btn mode-permission perm-${permissionVal}`}
+                    aria-label={t("composer.permission")}
+                    title={t("composer.permissionTitle", {
+                      configured: displayPermission(
+                        props.configuredPermissionMode || "ask",
+                      ),
+                    })}
+                    aria-haspopup="menu"
+                    aria-expanded={menuOpen === "permission"}
+                    data-testid="composer-permission"
+                    onClick={(e) => toggleMenu("permission", e.currentTarget)}
+                  >
+                    {displayPermission(permissionVal)}
                   </button>
                 </div>
               ) : null}

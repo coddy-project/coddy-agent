@@ -21,3 +21,28 @@ export function snapshotShellStack(): boolean {
 export function serverSnapshotShellStack(): boolean {
   return false;
 }
+
+/**
+ * No input can hover and at least one pointer is coarse: a phone or a tablet
+ * without a trackpad. Decides what Enter does in the composer; the layout
+ * follows the width breakpoint above instead.
+ */
+export const touchOnlyMediaQuery = "(any-hover: none) and (any-pointer: coarse)";
+
+/** useSyncExternalStore subscribe for the touch-only query. */
+export function subscribeTouchOnly(cb: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  const mq = window.matchMedia(touchOnlyMediaQuery);
+  mq.addEventListener("change", cb);
+  return () => mq.removeEventListener("change", cb);
+}
+
+/** useSyncExternalStore snapshot (client) for the touch-only query. */
+export function snapshotTouchOnly(): boolean {
+  return typeof window !== "undefined" && window.matchMedia(touchOnlyMediaQuery).matches;
+}
+
+/** useSyncExternalStore snapshot (server) for the touch-only query. */
+export function serverSnapshotTouchOnly(): boolean {
+  return false;
+}

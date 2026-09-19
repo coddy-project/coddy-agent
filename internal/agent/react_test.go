@@ -3055,7 +3055,7 @@ func (s *sessionBypassSender) RequestQuestion(context.Context, acp.QuestionReque
 }
 
 // TestSessionBypassFromTheDialogCoversTheRestOfTheBatch pins #292: choosing
-// "bypass permissions for this session" approves the call and switches the
+// "bypass for this session" approves the call and switches the
 // session, so the next call of the same batch runs without a prompt.
 func TestSessionBypassFromTheDialogCoversTheRestOfTheBatch(t *testing.T) {
 	dir := t.TempDir()

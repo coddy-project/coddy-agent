@@ -791,6 +791,7 @@ export const messagesEn: Record<string, string> = {
   "nav.docs": "Docs",
   "nav.schedulerAriaLabel": "Scheduler jobs",
   "nav.settings": "Settings",
+  "nav.more": "More",
 
   "sessions.history": "History",
   "sessions.closeHistory": "Close history",
@@ -1132,7 +1133,7 @@ export const messagesEn: Record<string, string> = {
   "prompts.otherAriaLabel": "Other, type your answer",
   "prompts.allow": "Allow",
   "prompts.allowAlways": "Allow always",
-  "prompts.allowSessionBypass": "Bypass permissions for this session",
+  "prompts.allowSessionBypass": "Bypass for this session",
   "prompts.allowSessionAcceptEdits": "Allow edits for this session",
   "prompts.allowAlwaysProgram": "Always allow {program}",
   "prompts.allowAlwaysTarget": "Always allow {target}",
