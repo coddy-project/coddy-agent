@@ -109,6 +109,9 @@ groups:
       - path: features/mentions.md
         title: Mentions
         summary: Pointing at things with @ in a prompt - files anywhere on disk, line ranges, folders, other sessions, rules, subagents, web pages - resolved once into the message, with completion on every surface.
+      - path: features/built-in-docs.md
+        title: Built-in documentation
+        summary: This documentation inside the binary - the web UI's reader, F1 in the console, coddy docs, the agent's coddy_docs tools and @coddy:<page> mentions - searched with BM25, with no site involved.
       - path: features/message-queue.md
         title: Message queue
         summary: Writing a follow-up while the agent works, when the running turn reads it, taking one back, the composer and console surfaces, the queue routes.

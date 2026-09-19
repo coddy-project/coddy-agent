@@ -20,7 +20,7 @@ import (
 // text, the man page and the completions carry it too.
 var topLevelCommands = []string{
 	"acp", "cli", "serve", "sessions", "skills", "plugin",
-	"mcp", "providers", "rules", "agents", "hooks", "update",
+	"mcp", "providers", "rules", "agents", "hooks", "docs", "update",
 }
 
 // serveVerbs control a daemon that is already running. They are subcommands of

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  appNavHrefDocs,
   appNavHrefHome,
   appNavHrefHistory,
   appNavHrefScheduler,
@@ -9,8 +10,10 @@ import {
   appNavHrefSession,
   appNavHrefSettings,
   appNavHrefSessionTask,
+  docsHrefFromCoddyLink,
   parseAppHash,
   schedulerEditorFromParsedHash,
+  setDocsHash,
   setHistoryHash,
   setSchedulerCreateHash,
   setSchedulerJobHash,
@@ -367,5 +370,61 @@ describe("background tasks routes", () => {
     expect(appNavHrefSessionTask("demo", "bg_1")).toBe("#/s/demo/tasks/bg_1");
     expect(appNavHrefSessionTask("a/b", "c/d")).toBe("#/s/a%2Fb/tasks/c%2Fd");
     expect(appNavHrefSessionTask("")).toBe("#/");
+  });
+});
+
+describe("documentation routes", () => {
+  test("parses the reader, a page and a section of it", () => {
+    setHash("#/docs");
+    expect(parseAppHash()).toEqual({
+      branch: "docs",
+      slug: null,
+      anchor: null,
+      historyOpen: false,
+    });
+    setHash("#/docs/features/mentions");
+    expect(parseAppHash()).toEqual({
+      branch: "docs",
+      slug: "features/mentions",
+      anchor: null,
+      historyOpen: false,
+    });
+    setHash("#/docs/features/mentions#completion?history=1");
+    expect(parseAppHash()).toEqual({
+      branch: "docs",
+      slug: "features/mentions",
+      anchor: "completion",
+      historyOpen: true,
+    });
+  });
+
+  test("a malformed escape in a pasted address does not break the router", () => {
+    setHash("#/docs/features/%E0%A4%A#bad%zz");
+    expect(parseAppHash()).toEqual({
+      branch: "docs",
+      slug: "features/%E0%A4%A",
+      anchor: "bad%zz",
+      historyOpen: false,
+    });
+  });
+
+  test("builds the addresses a coddy: link and the rail point at", () => {
+    expect(appNavHrefDocs()).toBe("#/docs");
+    expect(appNavHrefDocs("features/mentions")).toBe("#/docs/features/mentions");
+    expect(appNavHrefDocs("features/mentions", "completion")).toBe(
+      "#/docs/features/mentions#completion",
+    );
+    expect(docsHrefFromCoddyLink("coddy:reference/config#agent")).toBe(
+      "#/docs/reference/config#agent",
+    );
+    expect(docsHrefFromCoddyLink("https://example.com")).toBeNull();
+  });
+
+  test("setDocsHash moves to a page without a history entry of its own", () => {
+    setHash("#/docs");
+    setDocsHash("getting-started/install", "macos-homebrew");
+    expect(window.location.hash).toBe(
+      "#/docs/getting-started/install#macos-homebrew",
+    );
   });
 });

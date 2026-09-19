@@ -18,13 +18,14 @@ Made for design documents, specs and the investigation that precedes a change. T
 - `question`, and the read-only `config_get` and `config_changes` (staging and committing a configuration change stay in agent mode);
 - `plan_write`, `plan_list` and `plan_read` for the plan document;
 - `load_skill`, and `spawn_agent`, whose child stays in plan mode;
+- `coddy_docs_search` and `coddy_docs_read` for Coddy's own documentation ([Built-in documentation](built-in-docs.md));
 - the tools of connected MCP servers.
 
 No built-in file writes and no todo tools: once the plan is ready, implementation happens in agent mode.
 
 ### `ask`
 
-Made for questions about the codebase, review, diagnosis and web research. The model is offered `read`, `keep_result`, `glob`, `grep`, `print_tree`, `websearch`, `webfetch`, `question` and `load_skill`, and nothing else: no shell, no plan, todo or config tools, no `spawn_agent`, no MCP tools. The same list is enforced again when a call runs, which is what separates ask from plan (see [Ask mode at execution time](#ask-mode-at-execution-time)).
+Made for questions about the codebase, review, diagnosis and web research. The model is offered `read`, `keep_result`, `glob`, `grep`, `print_tree`, `websearch`, `webfetch`, `question`, `load_skill`, `coddy_docs_search` and `coddy_docs_read`, and nothing else: no shell, no plan, todo or config tools, no `spawn_agent`, no MCP tools. The same list is enforced again when a call runs, which is what separates ask from plan (see [Ask mode at execution time](#ask-mode-at-execution-time)).
 
 ### What they share
 

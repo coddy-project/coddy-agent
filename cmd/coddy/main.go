@@ -149,6 +149,8 @@ func main() {
 		err = runAgents(args[1:])
 	case "hooks":
 		err = runHooks(args[1:])
+	case "docs":
+		err = runDocs(args[1:], os.Stdout)
 	case "update":
 		err = runUpdate(args[1:])
 	default:
@@ -217,6 +219,9 @@ func printUsage(w io.Writer) {
   %[1]s hooks list [--cwd DIR]
   %[1]s hooks trust <file> [--cwd DIR]
   %[1]s hooks untrust <file> [--cwd DIR]
+  %[1]s docs [list] | search <words> [--limit N] | show <page>[#section] (the
+        documentation built into this binary; F1 in the console, Docs in the
+        web UI)
   %[1]s update [flags]
 `, os.Args[0])
 }

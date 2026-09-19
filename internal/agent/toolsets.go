@@ -52,6 +52,9 @@ var planToolNames = []string{
 	// Choosing the model and the reasoning level changes nothing outside the
 	// session, and a hard planning step is where a stronger model pays.
 	"switch_model",
+	// Coddy's own documentation, read out of the binary.
+	"coddy_docs_search",
+	"coddy_docs_read",
 }
 
 // askToolNames is the fixed allowlist for ask mode: repository reads and web
@@ -71,6 +74,10 @@ var askToolNames = []string{
 	"load_skill",
 	// The model and the reasoning level are the session's own settings.
 	"switch_model",
+	// Coddy's own documentation, read out of the binary: "how do I set up
+	// the Telegram bot" is exactly the question ask mode is for.
+	"coddy_docs_search",
+	"coddy_docs_read",
 }
 
 // ToolSetForMode returns the tool allowlist for the session mode. Agent mode is unrestricted.

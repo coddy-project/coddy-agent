@@ -705,6 +705,31 @@ func TestTruncatePromptCutsOnLinesAndOnCharacters(t *testing.T) {
 	}
 }
 
+// The documentation tools say what they do rather than print their ids, and
+// name the query or the page the way run_command names its command.
+func TestToolBoxTitleNamesTheDocumentationTools(t *testing.T) {
+	search := newToolBox(newTheme("dark"), "call-docs-1", "coddy_docs_search", "read", nil)
+	if title := tui.StripTerminalSequences(search.title()); title != "Searching the docs" {
+		t.Fatalf("before its arguments the search box reads %q", title)
+	}
+	// A query is model-supplied: folded onto the title's one row.
+	search.SetArgs(mustJSONObject(t, map[string]string{"query": "telegram\nproxy"}))
+	if title := tui.StripTerminalSequences(search.title()); title != "Searching the docs telegram proxy" {
+		t.Fatalf("search title = %q", title)
+	}
+
+	read := newToolBox(newTheme("dark"), "call-docs-2", "coddy_docs_read", "read", nil)
+	read.SetArgs(mustJSONObject(t, map[string]string{"page": "features/mentions#completion"}))
+	if title := tui.StripTerminalSequences(read.title()); title != "Reading the docs features/mentions#completion" {
+		t.Fatalf("read title = %q", title)
+	}
+	contents := newToolBox(newTheme("dark"), "call-docs-3", "coddy_docs_read", "read", nil)
+	contents.SetArgs("{}")
+	if title := tui.StripTerminalSequences(contents.title()); title != "Reading the docs" {
+		t.Fatalf("the contents read = %q", title)
+	}
+}
+
 // Everything the title carries is model-supplied. SanitizeText keeps newlines
 // and tabs, so a name written with one would split the row the title gets.
 func TestToolBoxTitleKeepsModelNamesOnOneRow(t *testing.T) {

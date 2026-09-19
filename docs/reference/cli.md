@@ -58,6 +58,9 @@ Usage:
   coddy hooks list [--cwd DIR]
   coddy hooks trust <file> [--cwd DIR]
   coddy hooks untrust <file> [--cwd DIR]
+  coddy docs [list] | search <words> [--limit N] | show <page>[#section] (the
+        documentation built into this binary; F1 in the console, Docs in the
+        web UI)
   coddy update [flags]
 ```
 

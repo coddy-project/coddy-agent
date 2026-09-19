@@ -11,8 +11,8 @@ import { blockquoteLine, inMarkdownFenceBeforeCaret } from "./draftSlash";
 /** Same class the **`@`** picker accepts for a path filter (mirrors draftAt MENU_PATH_CHAR). */
 const RANGE_PATH_CHAR = /^[\p{L}\p{N}_.\\/ ~+\-]+$/u;
 
-/** "@session:", "@rule:" and "@agent:" name a kind to search, not a file to cut lines from. */
-const MENTION_SCHEMES = new Set(["session", "rule", "agent"]);
+/** "@session:", "@rule:", "@agent:" and "@coddy:" name a kind to search, not a file to cut lines from. */
+const MENTION_SCHEMES = new Set(["session", "rule", "agent", "coddy"]);
 
 /**
  * The preview reads workspace files only (**`GET /coddy/workspace/file`**), so

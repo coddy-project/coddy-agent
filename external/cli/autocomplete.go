@@ -280,10 +280,10 @@ func mentionItems(res session.MentionSearchResult) []tui.AutocompleteItem {
 		}
 		// The second column names the kind; a path's label already is the whole
 		// path, so only a meta row adds its detail (a session's id and date, a
-		// rule's description).
+		// rule's description, a documentation page's title).
 		desc := mentionKindWord(c.Kind)
 		switch c.Kind {
-		case mention.KindSession, mention.KindRule, mention.KindAgent, session.MentionKindScheme:
+		case mention.KindSession, mention.KindRule, mention.KindAgent, mention.KindDoc, session.MentionKindScheme:
 			if d := tui.SanitizeText(c.Detail); d != "" {
 				desc += " · " + d
 			}
@@ -303,6 +303,8 @@ func mentionKindWord(kind string) string {
 		return "subagent"
 	case session.MentionKindScheme:
 		return "search"
+	case mention.KindDoc:
+		return "docs"
 	case "":
 		return "file"
 	}

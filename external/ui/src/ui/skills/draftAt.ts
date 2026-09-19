@@ -10,11 +10,14 @@
 
 import { blockquoteLine, inMarkdownFenceBeforeCaret } from "./draftSlash";
 
-/** A meta reference: **`@session:<id>`**, **`@rule:<name>`**, **`@agent:<name>`**. */
-export type MentionScheme = "session" | "rule" | "agent";
+/**
+ * A meta reference: **`@session:<id>`**, **`@rule:<name>`**, **`@agent:<name>`**,
+ * **`@coddy:<page>#<section>`** (a page of the built-in documentation).
+ */
+export type MentionScheme = "session" | "rule" | "agent" | "coddy";
 
 /** The meta schemes, in the order a picker offers them (**`mention.Schemes`**). */
-const MENTION_SCHEMES: readonly MentionScheme[] = ["session", "rule", "agent"];
+const MENTION_SCHEMES: readonly MentionScheme[] = ["session", "rule", "agent", "coddy"];
 
 /** One way to read a path token (**`mention.PathReading`**). */
 export type MentionReading = {
@@ -284,6 +287,15 @@ function parseURL(text: string, at: number): MentionToken | null {
   return { start: at, end, kind: "url", url, readings: [] };
 }
 
+/** Drops the trailing **`.`**, **`/`** and **`#`** of a documentation page reference. */
+function trimRightPageRef(s: string): string {
+  let end = s.length;
+  while (end > 0 && "./#".includes(s[end - 1]!)) {
+    end--;
+  }
+  return s.slice(0, end);
+}
+
 /** A character of a meta reference: letters, digits, **`_`**, **`-`** and **`.`** (ASCII). */
 function isRefChar(c: number): boolean {
   return (
@@ -297,8 +309,11 @@ function isRefChar(c: number): boolean {
 }
 
 /**
- * Reads **`@session:<ref>`**, **`@rule:<ref>`** and **`@agent:<ref>`**. A trailing
- * **`.`** is the end of a sentence, not part of the name.
+ * Reads **`@session:<ref>`**, **`@rule:<ref>`**, **`@agent:<ref>`** and
+ * **`@coddy:<ref>`**. A documentation page also takes **`/`** and **`#`**
+ * (**`features/mentions#completion`**). A trailing **`.`**, and for a page a
+ * trailing **`/`** or **`#`**, is the end of a sentence or of an unfinished
+ * reference, not part of the name.
  */
 function parseScheme(text: string, at: number): MentionToken | null {
   const rest = at + 1;
@@ -306,12 +321,17 @@ function parseScheme(text: string, at: number): MentionToken | null {
   if (scheme === undefined) {
     return null;
   }
+  const page = scheme === "coddy";
   const refStart = rest + scheme.length + 1;
   let k = refStart;
-  while (k < text.length && isRefChar(text.charCodeAt(k))) {
+  while (k < text.length) {
+    const c = text.charCodeAt(k);
+    if (!isRefChar(c) && !(page && (c === 0x2f || c === 0x23))) {
+      break;
+    }
     k++;
   }
-  const ref = trimRightDots(text.slice(refStart, k));
+  const ref = page ? trimRightPageRef(text.slice(refStart, k)) : trimRightDots(text.slice(refStart, k));
   if (ref === "") {
     return null;
   }
@@ -711,9 +731,11 @@ function atMenuPrefixOpen(prefix: string): boolean {
     if (!isMentionScheme(prefix.slice(0, colon))) {
       return false;
     }
-    // A reference never holds a space: one after it ends the mention.
+    // A reference never holds a space: one after it ends the mention. A
+    // documentation page also names its section after "#".
+    const page = prefix.slice(0, colon) === "coddy";
     for (const ch of prefix.slice(colon + 1)) {
-      if (ch === " " || !MENU_PATH_CHAR.test(ch)) {
+      if (ch === " " || (!MENU_PATH_CHAR.test(ch) && !(page && ch === "#"))) {
         return false;
       }
     }

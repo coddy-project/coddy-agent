@@ -273,7 +273,7 @@ func TestBuiltinsHaveTheDocumentedShape(t *testing.T) {
 	if len(general.Tools) != 0 {
 		t.Fatalf("general inherits the parent's tools, got allowlist %v", general.Tools)
 	}
-	want := []string{"read", "keep_result", "glob", "grep", "print_tree", "websearch", "webfetch", "load_skill", "background_list", "background_output", "background_wait"}
+	want := []string{"read", "keep_result", "glob", "grep", "print_tree", "websearch", "webfetch", "load_skill", "coddy_docs_search", "coddy_docs_read", "background_list", "background_output", "background_wait"}
 	if strings.Join(explore.Tools, ",") != strings.Join(want, ",") {
 		t.Fatalf("explore tools = %v, want %v", explore.Tools, want)
 	}

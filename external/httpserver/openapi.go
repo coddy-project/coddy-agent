@@ -629,13 +629,71 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/docs": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Contents of the built-in documentation",
+					"description": "Every group of **`docs/nav.yaml`** with its pages, as this binary carries them: the documentation is embedded at build time, so **`version`** is the binary's and no page is fetched from a site. " +
+						"A page's **`slug`** is its path under **`docs/`** without **`.md`**, the same address as **`https://coddy.dev/docs/<slug>`** and **`@coddy:<slug>`**. Pages the map keeps outside **`docs/`** (the contributing guide, the design contract, the agent notes) are not carried.",
+					"operationId": "getDocsContents",
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("The contents", "#/components/schemas/CoddyDocs"),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/docs/page": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "One page of the built-in documentation",
+					"description": "The page **`ref`** names, whole, with its headings and its neighbours in map order. **`ref`** takes a slug (**`features/mentions`**), the file path with or without **`docs/`** and **`.md`**, a **`coddy:`** link, an **`@coddy:`** mention, a **`coddy.dev/docs`** address, a file name only one page has, or a title; a **`#section`** is returned as **`anchor`** for the reader to scroll to. " +
+						"In **`markdown`** a link to another page is written **`coddy:<slug>#<anchor>`**, and an image or a repository file is an address on GitHub at the release the binary was built from (**`main`** for a development build).",
+					"operationId": "getDocsPage",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "ref", "in": "query", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "The page, optionally with **`#section`**.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("The page", "#/components/schemas/CoddyDocsPage"),
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/docs/search": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Search the built-in documentation",
+					"description": "Sections of the documentation ranked against **`q`** with BM25 over the page title, the section heading and the text (the title and the heading weigh more). Words match case-insensitively after a light English stemming, and a word of three letters or more also finds the words it begins, so a query typed letter by letter finds pages before it is finished. " +
+						"At most three sections of one page are returned. A hit without **`anchor`** is the part of a page above its first section. **`snippet`** is the run of the section's text holding the most matched words, split into fragments with **`hit`** set on the matched ones. An empty **`q`** answers no hits.",
+					"operationId": "searchDocs",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "q", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "The words to look for.",
+						},
+						map[string]interface{}{
+							"name": "limit", "in": "query", "required": false,
+							"schema":      map[string]interface{}{"type": "integer", "minimum": 1, "maximum": 50, "default": 10},
+							"description": "Most sections to return.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Ranked sections", "#/components/schemas/CoddyDocsSearch"),
+						"400": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/mentions": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Candidates for an \"@\" mention in a draft",
 					"description": "What the **`@`** picker offers for **`q`**, the text after **`@`** (a leading **`\"`** opens a quoted path). " +
 						"Without a scheme it ranks the files and folders of the session **cwd** against **`q`** (fuzzy: the file name first, then path segments, then letters in order; inside a git checkout the index follows **`.gitignore`** and keeps dotfiles) and merges in the rules, subagents and plans whose names match. " +
 						"**`q`** starting with **`/`**, **`~`**, **`./`**, **`../`** or a drive letter browses the folder typed so far, filtered by the name after its last separator. " +
-						"**`session:`**, **`rule:`** and **`agent:`** list that kind. An empty **`q`** offers the three scheme hints and the top of the workspace. " +
+						"**`session:`**, **`rule:`** and **`agent:`** list that kind; **`coddy:`** lists the pages of the documentation built into the binary, finds pages by slug or title and sections by their words, and after **`<page>#`** the sections of that page. An empty **`q`** offers the four scheme hints and the top of the workspace. " +
 						"**`refresh=1`** rebuilds the workspace index even when the last build is fresh (the picker just opened). **`total`** counts every match before the cut to **`limit`**; **`indexing`** says the first index of the workspace is still being built.",
 					"operationId": "searchMentions",
 					"parameters": []interface{}{
@@ -3421,12 +3479,114 @@ func openAPISpec() map[string]interface{} {
 					},
 					"required": []string{"object", "items", "total", "has_more", "page", "page_size"},
 				},
+				"CoddyDocsPageRef": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"slug":    map[string]string{"type": "string", "example": "features/mentions"},
+						"title":   map[string]string{"type": "string"},
+						"summary": map[string]string{"type": "string"},
+					},
+					"required": []string{"slug", "title"},
+				},
+				"CoddyDocs": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object":  map[string]string{"type": "string", "example": "coddy.docs"},
+						"version": map[string]string{"type": "string", "description": "The version of the binary, which is the version of its documentation."},
+						"groups": map[string]interface{}{
+							"type": "array",
+							"items": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"id":      map[string]string{"type": "string"},
+									"title":   map[string]string{"type": "string"},
+									"summary": map[string]string{"type": "string"},
+									"pages": map[string]interface{}{
+										"type":  "array",
+										"items": map[string]interface{}{"$ref": "#/components/schemas/CoddyDocsPageRef"},
+									},
+								},
+								"required": []string{"id", "title", "summary", "pages"},
+							},
+						},
+					},
+					"required": []string{"object", "version", "groups"},
+				},
+				"CoddyDocsPage": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object":  map[string]string{"type": "string", "example": "coddy.docs_page"},
+						"version": map[string]string{"type": "string"},
+						"slug":    map[string]string{"type": "string"},
+						"title":   map[string]string{"type": "string"},
+						"summary": map[string]string{"type": "string"},
+						"group": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"id":    map[string]string{"type": "string"},
+								"title": map[string]string{"type": "string"},
+							},
+						},
+						"anchor":   map[string]string{"type": "string", "description": "The section the reference named, empty for the page."},
+						"markdown": map[string]string{"type": "string"},
+						"headings": map[string]interface{}{
+							"type": "array",
+							"items": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"level":  map[string]string{"type": "integer"},
+									"text":   map[string]string{"type": "string", "description": "The heading without its inline markup."},
+									"anchor": map[string]string{"type": "string", "description": "The fragment GitHub generates for the heading."},
+								},
+								"required": []string{"level", "text", "anchor"},
+							},
+						},
+						"prev": map[string]interface{}{"$ref": "#/components/schemas/CoddyDocsPageRef", "nullable": true},
+						"next": map[string]interface{}{"$ref": "#/components/schemas/CoddyDocsPageRef", "nullable": true},
+						"url":  map[string]string{"type": "string", "description": "The public address of the page, https://coddy.dev/docs/<slug>."},
+					},
+					"required": []string{"object", "version", "slug", "title", "markdown", "headings", "url"},
+				},
+				"CoddyDocsSearch": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object":  map[string]string{"type": "string", "example": "coddy.docs_search"},
+						"version": map[string]string{"type": "string"},
+						"query":   map[string]string{"type": "string"},
+						"hits": map[string]interface{}{
+							"type": "array",
+							"items": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"slug":    map[string]string{"type": "string"},
+									"title":   map[string]string{"type": "string"},
+									"group":   map[string]string{"type": "string"},
+									"anchor":  map[string]string{"type": "string"},
+									"heading": map[string]string{"type": "string"},
+									"snippet": map[string]interface{}{
+										"type": "array",
+										"items": map[string]interface{}{
+											"type": "object",
+											"properties": map[string]interface{}{
+												"text": map[string]string{"type": "string"},
+												"hit":  map[string]string{"type": "boolean"},
+											},
+											"required": []string{"text"},
+										},
+									},
+								},
+								"required": []string{"slug", "title", "group", "snippet"},
+							},
+						},
+					},
+					"required": []string{"object", "version", "query", "hits"},
+				},
 				"CoddyMentionCandidate": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
 						"kind": map[string]interface{}{
 							"type": "string",
-							"enum": []interface{}{"file", "directory", "session", "rule", "agent", "plan", "scheme"},
+							"enum": []interface{}{"file", "directory", "session", "rule", "agent", "plan", "doc", "scheme"},
 						},
 						"insert": map[string]interface{}{
 							"type":        "string",
@@ -3468,7 +3628,7 @@ func openAPISpec() map[string]interface{} {
 									"typed": map[string]string{"type": "string", "description": "The part of the token that resolves; absent when it names nothing."},
 									"kind": map[string]interface{}{
 										"type":        "string",
-										"enum":        []interface{}{"file", "directory", "session", "rule", "agent", "plan", "url"},
+										"enum":        []interface{}{"file", "directory", "session", "rule", "agent", "plan", "doc", "url"},
 										"description": "What **`typed`** names; absent when the token names nothing.",
 									},
 								},

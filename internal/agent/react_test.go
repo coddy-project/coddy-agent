@@ -24,10 +24,10 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/hooks"
 	"github.com/EvilFreelancer/coddy-agent/internal/hooks/hooktest"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
-	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/mention"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
@@ -184,6 +184,8 @@ func TestToolKind(t *testing.T) {
 		{"read", "read"},
 		{"glob", "read"},
 		{"grep", "read"},
+		{"coddy_docs_search", "read"},
+		{"coddy_docs_read", "read"},
 		{"write", "write"},
 		{"apply_patch", "write"},
 		{"run_command", "run_command"},
@@ -954,7 +956,7 @@ func TestPlanToolSetFiltersToReadWebAndShell(t *testing.T) {
 	for _, d := range filtered {
 		got[d.Name] = true
 	}
-	for _, want := range []string{"read", "glob", "grep", "websearch", "webfetch", "run_command", "question", "plan_write", "plan_list", "plan_read"} {
+	for _, want := range []string{"read", "glob", "grep", "websearch", "webfetch", "run_command", "question", "plan_write", "plan_list", "plan_read", "coddy_docs_search", "coddy_docs_read"} {
 		if !got[want] {
 			t.Errorf("plan toolset should include %q", want)
 		}
@@ -981,7 +983,7 @@ func TestAskToolSetFiltersToReadAndWeb(t *testing.T) {
 	for _, d := range filtered {
 		got[d.Name] = true
 	}
-	for _, want := range []string{"read", "keep_result", "glob", "grep", "print_tree", "websearch", "webfetch", "question"} {
+	for _, want := range []string{"read", "keep_result", "glob", "grep", "print_tree", "websearch", "webfetch", "question", "coddy_docs_search", "coddy_docs_read"} {
 		if !got[want] {
 			t.Errorf("ask toolset should include %q", want)
 		}

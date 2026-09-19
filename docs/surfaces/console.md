@@ -55,6 +55,7 @@ Top to bottom:
   blocks (collapse with `ctrl+t`); tool calls as background-tinted boxes
   (pending → success green tint / error red tint) with a bold title naming
   what the call acts on (`read <path>`, `$ command`, `load_skill <skill>`,
+  `Searching the docs <query>`, `Reading the docs <page>`,
   `spawn_agent <subagent> · <task> · background · timeout 300s`, where each
   part after the subagent appears only when the call passed it), preview
   capped at 10 lines, and `... (ctrl+o to expand)` reading the full result
@@ -96,7 +97,8 @@ Top to bottom:
   fragment of a name finds a file anywhere in the tree; the index is rebuilt when a
   mention starts, so a file written since the console started is offered and a
   deleted one is gone; a query starting with `/`, `~`, `./` or `../` browses that
-  folder, anywhere on disk; `@session:`, `@rule:` and `@agent:` list those kinds.
+  folder, anywhere on disk; `@session:`, `@rule:`, `@agent:` and `@coddy:` (the
+  pages of the built-in documentation) list those kinds.
   A cut list says so on its scroll line, `(3/50 of 1204, type to narrow)`. A folder
   or a scheme row keeps the list open; a file ends the mention with a space, quoted
   when its path holds one (a quoted folder closes its quote ahead of the cursor, so
@@ -157,7 +159,7 @@ Slash commands: the settings commands `/model`, `/reasoning` (`/effort`),
 `/think`, `/nothink`, `/agent`, `/plan`, `/ask` and `/permissions`, each with
 `--once` or `--count=N` for the next turns only
 ([Session settings](../features/session-settings.md)); client-side `/resume`,
-`/new`, `/theme`, `/hotkeys`, `/queue`, `/usage`, `/tasks`, `/quit`; server-driven `/compact`, `/export`,
+`/new`, `/theme`, `/hotkeys`, `/queue`, `/usage`, `/tasks`, `/docs`, `/quit`; server-driven `/compact`, `/export`,
 `/plugin`, and every loaded skill (from the ACP available-commands catalog).
 A bare `/model`, `/reasoning` or `/permissions` opens its picker; with a value
 the command is applied by the session manager, which answers with a notice
@@ -209,6 +211,18 @@ footer keeps saying how many tasks still run.
 
 A task the agent started with `notify_on_finish` wakes it in this console
 when it ends ([Background tasks](../features/background-tasks.md#waking-the-agent-when-a-task-finishes)).
+
+**F1** opens Coddy's own documentation in the place of the editor, read out of
+the binary ([Built-in documentation](../features/built-in-docs.md#the-console-help)):
+typing searches the sections, **enter** opens one at its section, **tab** moves
+between sections, **n** and **p** turn the pages, **escape** goes back.
+`/docs [words or page]` opens the same screen where the terminal keeps F1 for
+itself (GNOME Terminal does), on a search or straight on a page:
+`/docs features/mentions#completion`.
+
+![The console help on F1: the sections a search found](../assets/cli-tui/19-docs-search.png)
+
+*F1, then `telegram proxy`: the sections found, the selected one with its address and snippet*
 The woken turn runs like a typed one - the status line, the queue, a gated tool
 asking in the permission modal - and shows nothing where the operator's message
 would stand: the agent's answer follows the previous turn, as the work carrying
@@ -289,6 +303,7 @@ offers the same tools; under `--remote` the server owns the reload.
 | ctrl+c | clear editor; twice within 2 s exits |
 | ctrl+d | exit when the editor is empty |
 | ctrl+l | model selector |
+| F1 | the built-in documentation: search, read, turn pages (`/docs` too) |
 | ctrl+p / ctrl+shift+p | cycle configured models |
 | shift+tab | cycle and persist the session reasoning level (models with `reasoning_levels`) |
 | ctrl+o | expand header hints + last tool output + last `!!` block |

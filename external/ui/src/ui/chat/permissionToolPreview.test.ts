@@ -258,6 +258,8 @@ test("toolCallTargetIsPath tells a path apart from a command, a pattern or a nam
     { title: "webfetch", argsText: '{"url":"https://coddy.dev/"}' },
     { title: "load_skill", argsText: '{"name":"rpa-bugfix"}' },
     { title: "spawn_agent", argsText: '{"agent":"explore"}' },
+    // A documentation page is named like a path but lives in the binary.
+    { title: "coddy_docs_read", argsText: '{"page":"features/mentions"}' },
     { title: "read", argsText: "" },
   ]) {
     expect(toolCallTargetIsPath(context), context.title).toBe(false);
@@ -292,6 +294,15 @@ test("toolCallTargetText names the one thing each call acts on", () => {
   expect(
     toolCallTargetText({ title: "websearch", argsText: '{"query":"go slog"}' }),
   ).toBe("go slog");
+  expect(
+    toolCallTargetText({ title: "coddy_docs_search", argsText: '{"query":"telegram proxy"}' }),
+  ).toBe("telegram proxy");
+  expect(
+    toolCallTargetText({
+      title: "coddy_docs_read",
+      argsText: '{"page":"features/mentions#completion","offset":40}',
+    }),
+  ).toBe("features/mentions#completion");
   expect(
     toolCallTargetText({
       title: "mv",

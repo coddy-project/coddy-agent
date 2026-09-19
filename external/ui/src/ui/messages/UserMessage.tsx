@@ -9,6 +9,25 @@ import {
 } from "./formatMessageTime";
 import { MessageCopyIconButton } from "./MessageCopyIconButton";
 import { fileTypeIcon } from "./fileTypeIcon";
+import { splitDocMentions } from "../docs/docMentions";
+import { appNavHrefDocs } from "../scheduler/hashRoute";
+
+/** Prose of a sent message with its **`@coddy:`** mentions as links to the reader. */
+function withDocMentions(text: string, keyPrefix: string) {
+  return splitDocMentions(text).map((part, i) => {
+    if (part.type === "text") {
+      return <span key={`${keyPrefix}-${i}`}>{part.value}</span>;
+    }
+    const cut = part.ref.indexOf("#");
+    const href =
+      cut < 0 ? appNavHrefDocs(part.ref) : appNavHrefDocs(part.ref.slice(0, cut), part.ref.slice(cut + 1));
+    return (
+      <a key={`${keyPrefix}-${i}`} className="coddy-doc-mention" href={href}>
+        {part.literal}
+      </a>
+    );
+  });
+}
 
 function fmtBytes(
   n: number,
@@ -102,10 +121,10 @@ export const UserMessage = memo(function UserMessage(props: {
                     {seg.literal}
                   </span>
                 ) : (
-                  <span key={i}>{seg.value}</span>
+                  <span key={i}>{withDocMentions(seg.value, String(i))}</span>
                 ),
               )
-            : display}
+            : withDocMentions(display, "b")}
         </div>
         {props.onEdit ? (
           <button

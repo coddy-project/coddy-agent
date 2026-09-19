@@ -647,6 +647,9 @@ func (a *App) handleGlobalKey(data []byte) bool {
 	case "ctrl+l":
 		a.openModelSelector()
 		return true
+	case "f1":
+		a.openDocsOverlay("")
+		return true
 	case "ctrl+p":
 		a.cycleModel(1)
 		return true
@@ -1326,6 +1329,7 @@ func (a *App) slashCatalog() []tui.AutocompleteItem {
 		tui.AutocompleteItem{Value: "queue", Label: "queue", Description: "List, drop or clear the messages queued for the running turn"},
 		tui.AutocompleteItem{Value: "usage", Label: "usage", Description: "Show the provider's account usage and limits"},
 		tui.AutocompleteItem{Value: "tasks", Label: "tasks", Description: "List the session's background tasks, read their output, stop one"},
+		tui.AutocompleteItem{Value: "docs", Label: "docs", Description: "Search and read Coddy's built-in documentation (F1); /docs <words or page>"},
 		tui.AutocompleteItem{Value: "quit", Label: "quit", Description: "Exit coddy"},
 	)
 	// The settings commands come from the manager's registry, like the
@@ -1369,6 +1373,9 @@ func (a *App) handlePaste(body []byte) {
 	}
 	if qm, ok := a.modal.(*questionModal); ok {
 		qm.InsertPaste(string(body))
+	}
+	if dm, ok := a.modal.(*docsModal); ok {
+		dm.InsertPaste(string(body))
 	}
 }
 

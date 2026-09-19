@@ -33,8 +33,8 @@ type CheckedMention struct {
 	// Typed is the part of Token that resolves - "@src/a.go" of
 	// "@src/a.go b.go" - and is empty when the token names nothing.
 	Typed string `json:"typed,omitempty"`
-	// Kind is what Typed names: file, directory, session, rule, agent, plan or
-	// url.
+	// Kind is what Typed names: file, directory, session, rule, agent, plan,
+	// url or doc.
 	Kind string `json:"kind,omitempty"`
 }
 

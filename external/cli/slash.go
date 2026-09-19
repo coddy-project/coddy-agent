@@ -48,6 +48,9 @@ func (a *App) dispatchSlash(text string) bool {
 	case "tasks":
 		a.openTasksOverlay()
 		return true
+	case "docs", "help":
+		a.openDocsOverlay(strings.Join(fields[1:], " "))
+		return true
 	case "quit", "exit":
 		a.requestQuit(nil)
 		return true
@@ -280,6 +283,7 @@ func (a *App) showHotkeys() {
 		"!!<command> run it here, hidden from the agent",
 		"/usage provider quota, resets and wallet",
 		"/tasks background tasks: enter output · s stop · r refresh · escape back",
+		"F1 or /docs [words] built-in documentation: type to search · enter read · n/p turn pages",
 	}
 	a.appendStatus(roleDim, strings.Join(lines, "\n"))
 }

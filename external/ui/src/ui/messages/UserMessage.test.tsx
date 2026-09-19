@@ -116,3 +116,20 @@ test("image files with previewUrl render a thumbnail chip; others keep the icon"
     screen.getByText("notes.txt").closest(".msg-user-file-chip"),
   ).not.toHaveClass("msg-user-file-chip--image");
 });
+
+// A page of the documentation the user mentioned is a link in the sent
+// bubble: it opens the reader at that page and section.
+test("an @coddy: mention in the sent message opens the documentation reader", () => {
+  render(
+    <UserMessage
+      content="@coddy:operate/swarm как настроить рой? and @coddy:features/mentions#completion, not user@example.com"
+      knownSkillNames={new Set(["demo"])}
+    />,
+  );
+  const links = Array.from(document.querySelectorAll("a.coddy-doc-mention"));
+  expect(links.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
+    ["@coddy:operate/swarm", "#/docs/operate/swarm"],
+    ["@coddy:features/mentions#completion", "#/docs/features/mentions#completion"],
+  ]);
+  expect(screen.getByTestId("user-message-body").textContent).toContain("как настроить рой?");
+});
