@@ -4734,3 +4734,65 @@ func TestSessionMessagesMarkOnlyTheWake(t *testing.T) {
 		t.Fatalf("background_wake = %s", raw)
 	}
 }
+
+// testHomeEnv hands the home TestMain made to the helper processes that
+// re-execute this test binary (the fake MCP servers), so they neither make
+// nor remove one of their own.
+const testHomeEnv = "CODDY_TEST_HTTPSERVER_HOME"
+
+// TestMain points CODDY_HOME at an empty directory of the test run's own
+// for the whole package (see TestTestsDoNotResolveTheOperatorHome). A test
+// that needs a home of its own still sets CODDY_HOME itself. HOME stays the
+// operator's on purpose: tests run git in temp repositories and need its
+// identity, so ~-paths such as the default ~/.agents/skills are not isolated.
+func TestMain(m *testing.M) {
+	if home := os.Getenv(testHomeEnv); home != "" {
+		// A helper process, or a run nested in one: the home is the parent's.
+		_ = os.Setenv("CODDY_HOME", home)
+		os.Exit(m.Run())
+	}
+	home, err := os.MkdirTemp("", "coddy-httpserver-home-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "test home:", err)
+		os.Exit(1)
+	}
+	_ = os.Setenv(testHomeEnv, home)
+	_ = os.Setenv("CODDY_HOME", home)
+	code := m.Run()
+	if err := os.RemoveAll(home); err != nil {
+		fmt.Fprintln(os.Stderr, "test home:", err)
+	}
+	os.Exit(code)
+}
+
+// A test of this package that loads a config without naming a home (the
+// config.Load(path) most of them use) must not read the home of whoever runs
+// the tests: its .env would land in this process, its mcp.json servers would
+// join every session, its hooks and skills would run. The home such a load
+// resolves is the directory TestMain made for the run, under the temp dir.
+func TestTestsDoNotResolveTheOperatorHome(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("agent:\n  model: fake/model\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runHome := os.Getenv(testHomeEnv)
+	if runHome == "" {
+		t.Fatalf("no home of the test run's own; config home = %q", cfg.Paths.Home)
+	}
+	want, err := filepath.EvalSymlinks(runHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp, err := filepath.EvalSymlinks(os.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, err := filepath.EvalSymlinks(cfg.Paths.Home)
+	if err != nil || home != want || !strings.HasPrefix(home, tmp+string(filepath.Separator)) {
+		t.Fatalf("config home = %q (%v), want the run's own %q under %q", cfg.Paths.Home, err, want, tmp)
+	}
+}
