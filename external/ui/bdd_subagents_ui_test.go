@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,10 +22,67 @@ func runVitestScenario(file, name string) error {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "node", "node_modules/vitest/vitest.mjs", "run",
 		file, "--testNamePattern", "^"+regexp.QuoteMeta(name)+"$")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("%s: %w\n%s", name, err, out)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s: %q: %w\n%s", file, name, err, out)
 	}
-	return nil
+	return vitestPassedSome(file, name, out)
+}
+
+var (
+	ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+	// The Tests line of Vitest's summary, e.g. "Tests  1 passed | 62 skipped (63)".
+	vitestTestsPassed = regexp.MustCompile(`(?m)^\s*Tests\s+[1-9]\d* passed\b`)
+)
+
+// vitestPassedSome fails unless Vitest's summary counts a passed test. Vitest
+// exits 0 when the name pattern matches nothing ("Tests  63 skipped (63)"), so
+// the exit status alone lets a step pointing at a renamed test pass.
+func vitestPassedSome(file, name string, out []byte) error {
+	if vitestTestsPassed.Match(ansiEscape.ReplaceAll(out, nil)) {
+		return nil
+	}
+	return fmt.Errorf("%s: no test named %q ran and passed\n%s", file, name, out)
+}
+
+func TestVitestPassedSome(t *testing.T) {
+	cases := []struct {
+		name string
+		out  string
+		ok   bool
+	}{
+		{"one passed", " Test Files  1 passed (1)\n      Tests  1 passed | 62 skipped (63)\n", true},
+		{"several passed", "      Tests  12 passed (12)\n", true},
+		{"colored", "\x1b[2m      Tests \x1b[22m \x1b[1m\x1b[32m1 passed\x1b[39m\x1b[22m\x1b[90m (1)\x1b[39m\n", true},
+		{"nothing matched", " Test Files  1 skipped (1)\n      Tests  63 skipped (63)\n", false},
+		{"only the file passed", " Test Files  1 passed (1)\n", false},
+		{"failed", "      Tests  1 failed | 62 skipped (63)\n", false},
+		{"no summary", "", false},
+	}
+	for _, c := range cases {
+		err := vitestPassedSome("src/x.test.tsx", "a test", []byte(c.out))
+		if (err == nil) != c.ok {
+			t.Errorf("%s: err = %v, want ok = %v", c.name, err, c.ok)
+		}
+		if err != nil && (!strings.Contains(err.Error(), "src/x.test.tsx") || !strings.Contains(err.Error(), `"a test"`)) {
+			t.Errorf("%s: error does not name the file and the test: %v", c.name, err)
+		}
+	}
+}
+
+// A step whose Vitest test was renamed or mistyped must fail: Vitest itself
+// exits 0 when the name pattern matches nothing and every test is skipped.
+func TestRunVitestScenarioFailsWhenNoTestMatches(t *testing.T) {
+	const file, name = "src/ui/chat/backgroundWake.test.ts", "no such test"
+	err := runVitestScenario(file, name)
+	if err == nil {
+		t.Fatal("a name no test carries passed")
+	}
+	for _, want := range []string{file, name} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not name %q: %v", want, err)
+		}
+	}
 }
 
 func TestSubagentsWebUIFeature(t *testing.T) {
