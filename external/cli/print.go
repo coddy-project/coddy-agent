@@ -12,6 +12,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -76,16 +77,16 @@ func (p *printSender) SendSessionUpdate(_ string, update interface{}) error {
 
 func (p *printSender) RequestPermission(_ context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
 	// A subagent's request carries the child's own mode; see sender.go.
-	mode := strings.TrimSpace(params.EffectivePermissionMode)
-	if mode == "" {
+	if params.EffectivePermissionMode == "" && params.SessionPermissionMode == "" {
 		if st := p.mgr.SessionByID(params.SessionID); st != nil {
-			mode = st.GetPermissionMode()
+			params.SessionPermissionMode = st.EffectivePermissionMode()
 		}
 	}
-	if mode == "" && p.cfg != nil && !p.remote {
-		mode = p.cfg.Tools.ResolvedPermMode()
+	cfgMode := ""
+	if p.cfg != nil && !p.remote {
+		cfgMode = p.cfg.Tools.ResolvedPermMode()
 	}
-	if mode == config.PermModeBypass {
+	if permission.AutoApproves(params, cfgMode) {
 		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
 	if p.errOut != nil {

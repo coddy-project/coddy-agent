@@ -66,6 +66,10 @@ func newReasoningApp(t *testing.T) *App {
 	if err := app.Start(context.Background(), "", false); err != nil {
 		t.Fatalf("start app: %v", err)
 	}
+	// Registered after TempDir, so it runs first: a settings change is
+	// written by a worker after the value the test waits for is visible,
+	// and removing the home under that write fails on macOS and Windows.
+	t.Cleanup(func() { app.JoinWorkers(5 * time.Second) })
 	return app
 }
 
@@ -181,7 +185,7 @@ func TestReasoningFailureUsesLevelsAtInvocation(t *testing.T) {
 			a.applyLoopMessage(msg)
 		default:
 		}
-		if strings.Contains(transcriptText(a), "Valid levels:") {
+		if strings.Contains(transcriptText(a), "offered:") {
 			break
 		}
 		time.Sleep(time.Millisecond)
@@ -256,8 +260,9 @@ func TestReasoningSlashReportsAvailableLevelsAndPreservesInvalidSelection(t *tes
 	if got := a.mgr.SessionByID(a.sessionID).GetSelectedReasoning(); got != "" {
 		t.Fatalf("invalid reasoning changed state to %q", got)
 	}
-	status := transcriptText(a)
-	if !strings.Contains(status, "reasoning:") || !strings.Contains(status, "Valid levels:") {
+	// The settings command answers with the levels the model offers.
+	status := strings.Join(strings.Fields(transcriptText(a)), " ")
+	if !strings.Contains(status, `reasoning "ultra" is not offered`) || !strings.Contains(status, "minimal, low, medium, high") {
 		t.Fatalf("invalid-level status %q does not include useful reasoning choices", status)
 	}
 }
@@ -333,5 +338,49 @@ func TestReasoningSelectorAndCommandAreBlockedByLocalShell(t *testing.T) {
 	}
 	if a.modal != nil {
 		t.Fatal("reasoning command opened a selector over a local shell")
+	}
+}
+
+func TestSettingsCommandsInTheConsole(t *testing.T) {
+	a := newReasoningApp(t)
+	// A command followed by a message is the agent's: the manager takes it
+	// before the turn that message starts.
+	if a.dispatchSlash("/model stub/gpt-5.6-terra --once hello") {
+		t.Fatal("a settings command with a message was taken by the console")
+	}
+
+	if !a.dispatchSlash("/permissions bypass") {
+		t.Fatal("/permissions bypass was not handled")
+	}
+	pumpUntil(t, a, "the bypass in the footer", func() bool { return a.foot.permission == "bypass" })
+	footer := strings.Join(a.foot.Render(100), "\n")
+	if !strings.Contains(footer, "bypass") {
+		t.Fatalf("footer does not name the permission mode:\n%s", footer)
+	}
+	if got := transcriptText(a); !strings.Contains(got, "Permission mode: bypass for this session") {
+		t.Fatalf("no notice for the change: %q", got)
+	}
+
+	if !a.dispatchSlash("/plan --once") {
+		t.Fatal("/plan --once was not handled")
+	}
+	pumpUntil(t, a, "the armed plan mode", func() bool {
+		return len(a.foot.overrides) == 1 && a.foot.overrides[0].Value == "plan"
+	})
+	if st := a.mgr.SessionByID(a.sessionID); st.GetMode() != "agent" {
+		t.Fatalf("--once changed the session mode to %q", st.GetMode())
+	}
+	if ov := a.foot.overridesText(); !strings.Contains(ov, "next turn: mode plan") {
+		t.Fatalf("overrides line = %q", ov)
+	}
+
+	// A bare /permissions opens the picker; /mode is gone.
+	a.dispatchSlash("/permissions")
+	if a.modal == nil {
+		t.Fatal("/permissions opened no picker")
+	}
+	a.closeModal()
+	if a.dispatchSlash("/mode plan") {
+		t.Fatal("/mode is still a console command")
 	}
 }

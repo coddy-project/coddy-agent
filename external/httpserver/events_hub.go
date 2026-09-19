@@ -136,6 +136,37 @@ func (s *Server) publishMessageQueueEvent(u acp.MessageQueueUpdate) {
 	}
 }
 
+// sessionSettingsFrame renders a change of a session's settings as one SSE
+// frame: the whole snapshot with its version, what changed and who asked.
+func sessionSettingsFrame(u acp.SessionSettingsUpdate) []byte {
+	body, err := json.Marshal(map[string]interface{}{
+		"object":    "coddy.session_settings",
+		"sessionId": u.Settings.SessionID,
+		"settings":  u.Settings,
+		"notice":    u.Notice,
+		"source":    u.Source,
+	})
+	if err != nil {
+		return nil
+	}
+	frame := make([]byte, 0, len(body)+32)
+	frame = append(frame, "event: session_settings\ndata: "...)
+	frame = append(frame, body...)
+	frame = append(frame, "\n\n"...)
+	return frame
+}
+
+// publishSessionSettingsEvent is the Manager observer this server registers
+// in New; like the queue observer it only renders and hands off.
+func (s *Server) publishSessionSettingsEvent(u acp.SessionSettingsUpdate) {
+	if s.events == nil {
+		return
+	}
+	if frame := sessionSettingsFrame(u); frame != nil {
+		s.events.publish(frame)
+	}
+}
+
 // configReloadedFrame renders a swap of the live configuration as one SSE frame.
 //
 // As thin as turnEventFrame, and for the same reason: what a reload changed is already

@@ -11,6 +11,10 @@ import { parseSSEBlocks } from "./sse";
 import type { TokenUsage, TranscriptItem } from "./types";
 import { turnProgressFromFrame, type TurnProgress } from "./turnProgress";
 import type { ProviderUsage } from "./providerUsage";
+import {
+  sessionSettingsEventOf,
+  type SessionSettingsEvent,
+} from "./sessionSettings";
 import { t } from "../i18n/i18n";
 
 export type ContextUsageUpdate = {
@@ -87,8 +91,16 @@ export type ConsumeComposerSseParams = {
   onProviderUsage?: (usage: ProviderUsage) => void;
   /** Coddy extension. What the session message queue holds now (`event: message_queue`). */
   onMessageQueue?: (queue: QueuedMessageSnapshot) => void;
+  /** Coddy extension. The session's settings changed during this turn - a
+   *  command, the permission dialog, the model's own switch
+   *  (`event: session_settings`). */
+  onSessionSettings?: (event: SessionSettingsEvent) => void;
   /** Coddy extension. The running turn's clock and generated tokens (`event: turn_progress`). */
   onTurnProgress?: (progress: TurnProgress) => void;
+  /** Coddy extension. The input was only settings commands: no turn ran and
+   *  nothing of the exchange is in the history (`coddy_meta` carries
+   *  `settings_only`); the transcript's log keeps the notice. */
+  onSettingsOnly?: () => void;
 };
 
 /** One follow-up still waiting for the running turn to read it. */
@@ -136,7 +148,9 @@ export async function consumeComposerSseReader(
     onPermission,
     onProviderUsage,
     onMessageQueue,
+    onSessionSettings,
     onTurnProgress,
+    onSettingsOnly,
   } = p;
 
       // Streaming assistant segmentation. Text before any tool/thinking stays in
@@ -510,6 +524,20 @@ export async function consumeComposerSseReader(
             continue;
           }
 
+          if (ev.event === "coddy_meta") {
+            try {
+              const raw = JSON.parse(ev.data) as {
+                metadata?: { settings_only?: unknown };
+              };
+              if (String(raw.metadata?.settings_only) === "true") {
+                onSettingsOnly?.();
+              }
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
           if (ev.event === "turn_progress") {
             try {
               const progress = turnProgressFromFrame(
@@ -594,6 +622,14 @@ export async function consumeComposerSseReader(
               }
             } catch {
               // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "session_settings") {
+            const parsed = sessionSettingsEventOf(ev.data);
+            if (parsed) {
+              onSessionSettings?.(parsed);
             }
             continue;
           }
@@ -852,6 +888,14 @@ export async function consumeComposerSseReader(
               }
             } catch {
               // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "session_settings") {
+            const parsed = sessionSettingsEventOf(ev.data);
+            if (parsed) {
+              onSessionSettings?.(parsed);
             }
             continue;
           }

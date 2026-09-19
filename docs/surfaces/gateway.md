@@ -425,19 +425,21 @@ coddy serve --dry-run --config stand.yaml               # ok  gateways.telegram:
 coddy serve --gateway --http=false --config stand.yaml  # telegram: api base override ... telegram bot connected
 ```
 
-Then open `http://127.0.0.1:18790/`, type `hello`, tap a `/mode` button, and
-read the Bot API calls on the right as the log fills on the left.
+Then open `http://127.0.0.1:18790/`, type `hello`, send `/model` and tap a
+model (add a second entry to `models` for the keyboard to offer a choice), try
+a settings command such as `/plan --once What can you do?`, and read the Bot
+API calls on the right as the log fills on the left.
 
-![The chat page of cmd/tgfake on the dark scheme: the person's side of the chat on the left with the bot's /mode keyboard as buttons, every Bot API call the bot made listed on the right](../assets/tgfake-chat-dark-1280.png)
+![The chat page of cmd/tgfake on the dark scheme: the person's side of the chat on the left with the bot's /model keyboard as buttons and a /plan --once message answered, every Bot API call the bot made listed on the right](../assets/tgfake-chat-dark-1280.png)
 
-*The chat page of `cmd/tgfake`: a greeting answered by the scripted model, the `/mode` keyboard with the tap applied, and on the right every Bot API call the bot made, `getUpdates` polls hidden.*
+*The chat page of `cmd/tgfake`: a greeting answered by the scripted model, the `/model` keyboard with the tap applied, a message sent in plan mode for one turn, the notice of a bare `/ask`, and on the right every Bot API call the bot made, `getUpdates` polls hidden.*
 
 The same page is an HTTP API, which is what a script or a coding agent drives:
 
 | Route | Body / answer |
 |-------|---------------|
 | `POST /sim/message` | `{"chat_id": 4242, "user_id": 4242, "username": "alice", "text": "hello"}`; `chat_type: group`, `mention: true` and `reply_to_message_id` for the group paths. A leading `/word` becomes a `bot_command` entity. |
-| `POST /sim/callback` | `{"chat_id": 4242, "label": "Plan"}` taps the button by its text (the `✓` prefix is ignored), or `{"message_id": 4, "data": "mode:plan"}`. |
+| `POST /sim/callback` | `{"chat_id": 4242, "label": "stub/coddy-mini"}` taps the button by its text (the `✓` prefix is ignored), or `{"message_id": 4, "data": "model:stub/coddy-mini"}`. |
 | `GET /sim/chat/4242` | the transcript: messages, keyboards after every edit, drafts, `typing`; `?format=text` for `grep`. |
 | `GET /sim/outbox?method=sendMessage&since=10` | every Bot API call with its parameters and the answer; `/sim/outbox/count?method=...` for a script. |
 | `POST /sim/fault` | `{"method": "sendMessage", "code": 429, "retry_after": 2, "times": 1}` makes the next `sendMessage` fail like a flood; `"method": "*"` fails everything until `DELETE /sim/fault`; `"contains": "<details>"` narrows the fault to calls whose parameters carry that text, which is Telegram refusing one entity rather than the method. |
@@ -510,7 +512,7 @@ In a group the bot **only responds** when explicitly addressed. It will react to
 
 1. A message that **@mentions** the bot (`@coddy_agent_bot hello`)
 2. A **direct reply** to a previous bot message
-3. A bot command (`/clear`, `/resume`, `/mode`, `/model`, `/context`, `/help`, `/start`), with or without the mention
+3. A bot command (`/clear`, `/resume`, `/model`, `/context`, `/help`, `/start`) or a settings command (`/agent`, `/plan`, `/ask`, `/reasoning`, `/think`, `/nothink`), with or without the mention
 
 When `isolation` is `admin`, the bot additionally ignores everyone who is not in the `admins` list.
 
@@ -520,11 +522,14 @@ When `isolation` is `admin`, the bot additionally ignores everyone who is not in
 |---------|-------------|--------|
 | `/start` | all users | Greeting and quick introduction. |
 | `/help` | all users | Lists all available commands. |
-| `/mode` | all permitted users | Opens an inline keyboard to switch the session mode between `agent`, `plan`, and `ask`. |
-| `/model` | all permitted users | Opens an inline keyboard to switch the active LLM model (from the configured `models` list). |
+| `/model [id]` | all permitted users | Bare, opens an inline keyboard to switch the active LLM model (from the configured `models` list); with an id, switches to it at once. |
+| `/agent`, `/plan`, `/ask` | all permitted users | Switch the session mode. |
+| `/reasoning <level>`, `/think [level]`, `/nothink` | all permitted users | Set the reasoning level, or turn thinking on or off where the model's provider can. Not in the command menu. |
 | `/context` | all permitted users | Displays the current session's context window usage broken down by category (conversation, system prompt, tool definitions, rules, skills, MCP). |
 | `/resume [id or title]` | all permitted users | Continues another session. Alone it opens an inline keyboard over the sessions the server keeps, newest first, eight per page, the chat's own session marked; a tap binds the chat to the one chosen. With words after it, the session whose id they are, or whose id starts with them or whose title contains them (those two case-insensitively), is resumed at once; several matches come back as the keyboard, and no match is answered with a message. The session left behind stays loaded. |
 | `/clear` | all permitted users | Starts a new session for the current user/chat context. The old session is removed from memory (persisted history remains on disk); `/resume` brings it back. |
+
+The settings commands take `--once` or `--count=N` to change a setting for the next messages only, and a message may follow them: `/plan --once how would you split this package?` plans one answer and leaves the chat in its mode. A command alone runs no turn and is answered with a line saying what changed. `/permissions` is not a bot command: the bot approves its chat agent's tools itself, so the session's permission mode would only change what other surfaces watching the session ask ([Session settings](../features/session-settings.md)).
 
 ---
 
@@ -633,14 +638,13 @@ type SessionRunner interface {
     EnsureHTTPSession(ctx context.Context, sessionID string, defaultCWD string) (*session.State, error)
     HandleSessionPromptWithSender(ctx context.Context, params acp.SessionPromptParams, sender acp.UpdateSender, opts *session.PromptRunOpts) (*acp.SessionPromptResult, error)
     ForgetLiveSession(sessionID string)
-    HandleSessionSetMode(ctx context.Context, params acp.SessionSetModeParams) error
     HandleSessionSetConfigOption(ctx context.Context, params acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error)
     HandleSessionList(ctx context.Context, params acp.SessionListParams) (*acp.SessionListResult, error)
     Cfg() *config.Config
 }
 ```
 
-`session.Manager` already satisfies this interface — pass it directly. `HandleSessionSetMode` and `HandleSessionSetConfigOption` are needed for `/mode` and `/model` inline keyboard commands; `HandleSessionList` is what `/resume` offers to the chat; `Cfg()` returns the loaded config (used by `/model` to list available models).
+`session.Manager` already satisfies this interface — pass it directly. `HandleSessionSetConfigOption` is what the `/model` inline keyboard calls, and the settings commands (`/agent`, `/model <id> --once`, ...) reach the session as prompt text through `HandleSessionPromptWithSender`, whose manager takes them off the start of the message; `HandleSessionList` is what `/resume` offers to the chat; `Cfg()` returns the loaded config (used by `/model` to list available models).
 
 ### 2. Register in Start()
 

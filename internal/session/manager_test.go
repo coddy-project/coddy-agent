@@ -803,15 +803,19 @@ func TestSessionNewSendsAvailableSlashCommandsUpdate(t *testing.T) {
 		return
 	}
 	// The workspace skill, the standard delivery, and the built-in commands:
-	// compact (while compaction is enabled), export and plugin (always).
-	if want := 4 + len(skills.Bundled()); len(slash.AvailableCommands) != want {
+	// the eight settings commands, compact (while compaction is enabled),
+	// export and plugin (always).
+	if want := 12 + len(skills.Bundled()); len(slash.AvailableCommands) != want {
 		t.Fatalf("expected %d commands, got %+v", want, slash.AvailableCommands)
 	}
 	names := map[string]bool{}
 	for _, c := range slash.AvailableCommands {
 		names[c.Name] = true
+		if c.Name == "model" && (c.Input == nil || !strings.Contains(c.Input.Hint, "--once")) {
+			t.Fatalf("/model carries no argument hint: %+v", c)
+		}
 	}
-	for _, want := range []string{"demo", "configure-coddy", "rpa-feat", "compact", "export", "plugin"} {
+	for _, want := range []string{"demo", "configure-coddy", "rpa-feat", "model", "permissions", "plan", "compact", "export", "plugin"} {
 		if !names[want] {
 			t.Fatalf("expected %q among the commands, got %+v", want, slash.AvailableCommands)
 		}
@@ -1064,4 +1068,372 @@ func TestSessionLoadReplaysMentionsNotAttachmentBodies(t *testing.T) {
 		}
 	}
 	t.Fatal("no user message was replayed")
+}
+
+// ---- session settings commands (settings.go, commands.go) ----
+
+func TestParseSettingsCommands(t *testing.T) {
+	str := func(s string) *string { return &s }
+	cases := []struct {
+		name      string
+		text      string
+		session   session.SettingsChange
+		turns     []session.SettingsChange
+		rest      string
+		wantNames int
+		wantErr   string
+	}{
+		{name: "session model", text: "/model p1/gpt-4o", session: session.SettingsChange{Model: str("p1/gpt-4o")}, wantNames: 1},
+		{name: "once with prompt", text: "/model p1/gpt-4o --once fix the bug",
+			turns: []session.SettingsChange{{Model: str("p1/gpt-4o"), Turns: 1}}, rest: "fix the bug", wantNames: 1},
+		{name: "flag before value", text: "/model --count=3 p1/gpt-4o go",
+			turns: []session.SettingsChange{{Model: str("p1/gpt-4o"), Turns: 3}}, rest: "go", wantNames: 1},
+		{name: "count with a space", text: "/reasoning high --count 2",
+			turns: []session.SettingsChange{{Reasoning: str("high"), Turns: 2}}, wantNames: 1},
+		{name: "chain on one line", text: "/model x --count=3 /nothink --once review\nmore",
+			turns:     []session.SettingsChange{{Model: str("x"), Turns: 3}, {Reasoning: str("off"), Turns: 1}},
+			rest:      "review\nmore",
+			wantNames: 2},
+		{name: "chain over lines", text: "/model x\n/nothink\nreview this",
+			session: session.SettingsChange{Model: str("x"), Reasoning: str("off")}, rest: "review this", wantNames: 2},
+		{name: "think with a level", text: "/think high explain", session: session.SettingsChange{Reasoning: str("high")}, rest: "explain", wantNames: 1},
+		{name: "think without a level", text: "/think explain this", session: session.SettingsChange{Reasoning: str("on")}, rest: "explain this", wantNames: 1},
+		{name: "mode once", text: "/plan --once how does it work", turns: []session.SettingsChange{{Mode: str("plan"), Turns: 1}}, rest: "how does it work", wantNames: 1},
+		{name: "effort alias", text: "/effort low", session: session.SettingsChange{Reasoning: str("low")}, wantNames: 1},
+		{name: "permissions spelling", text: "/permissions accept-edits", session: session.SettingsChange{PermissionMode: str("accept_edits")}, wantNames: 1},
+		{name: "rest is another command", text: "/model x --once /compact", turns: []session.SettingsChange{{Model: str("x"), Turns: 1}}, rest: "/compact", wantNames: 1},
+		{name: "mid-line is prose", text: "hello /model x", rest: "hello /model x"},
+		{name: "not a settings command", text: "/compact keep the api", rest: "/compact keep the api"},
+		{name: "mode is gone", text: "/mode plan", rest: "/mode plan"},
+		{name: "value missing", text: "/model", wantErr: "needs a value"},
+		{name: "value missing before prompt flag", text: "/permissions --once", wantErr: "needs a value"},
+		{name: "count out of range", text: "/model x --count=0", wantErr: "--count"},
+		{name: "unknown flag", text: "/model x --forever", wantErr: "unknown flag"},
+	}
+	eqPtr := func(a, b *string) bool {
+		if a == nil || b == nil {
+			return a == b
+		}
+		return *a == *b
+	}
+	eq := func(a, b session.SettingsChange) bool {
+		return eqPtr(a.Model, b.Model) && eqPtr(a.Reasoning, b.Reasoning) && eqPtr(a.Mode, b.Mode) &&
+			eqPtr(a.PermissionMode, b.PermissionMode) && a.Turns == b.Turns
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			line, err := session.ParseSettingsCommands(c.text)
+			if c.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), c.wantErr) {
+					t.Fatalf("err = %v, want %q", err, c.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(line.Names) != c.wantNames {
+				t.Fatalf("names = %v, want %d", line.Names, c.wantNames)
+			}
+			if line.Rest != c.rest {
+				t.Fatalf("rest = %q, want %q", line.Rest, c.rest)
+			}
+			if !eq(line.Session, c.session) {
+				t.Fatalf("session change = %+v, want %+v", line.Session, c.session)
+			}
+			if len(line.Turns) != len(c.turns) {
+				t.Fatalf("turn changes = %+v, want %+v", line.Turns, c.turns)
+			}
+			for i := range c.turns {
+				if !eq(line.Turns[i], c.turns[i]) {
+					t.Fatalf("turn change %d = %+v, want %+v", i, line.Turns[i], c.turns[i])
+				}
+			}
+		})
+	}
+}
+
+// settingsTestConfig serves a Qwen model (thinking can be switched off), a
+// gpt-5 (it cannot) and a plain one.
+func settingsTestConfig() *config.Config {
+	cfg := testConfig()
+	cfg.Providers = append(cfg.Providers, config.ProviderConfig{Name: "nd", Type: "neuraldeep", APIKey: "k"})
+	cfg.Models = append(cfg.Models,
+		config.ModelEntry{Model: "nd/qwen3.8-27b"},
+		config.ModelEntry{Model: "p1/gpt-5", ReasoningDefault: "medium"},
+	)
+	return cfg
+}
+
+func TestApplySessionSettingsPublishesTheWholeSnapshot(t *testing.T) {
+	sender := &captureSender{}
+	m := session.NewManager(settingsTestConfig(), sender, noopRunner, slog.Default(), "", nil)
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var seen []acp.SessionSettingsUpdate
+	var mu sync.Mutex
+	remove := m.AddSessionSettingsObserver(func(u acp.SessionSettingsUpdate) {
+		mu.Lock()
+		seen = append(seen, u)
+		mu.Unlock()
+	})
+	defer remove()
+
+	model, off := "nd/qwen3.8-27b", "off"
+	snap, err := m.ApplySessionSettings(context.Background(), res.SessionID, session.SettingsChange{Model: &model, Reasoning: &off, Source: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Model != model || snap.Reasoning != "off" || snap.PermissionMode != "ask" || snap.ConfiguredPermissionMode != "ask" {
+		t.Fatalf("snapshot = %+v", snap)
+	}
+	if want := []string{"low", "medium", "high", "off"}; strings.Join(snap.ReasoningChoices, ",") != strings.Join(want, ",") {
+		t.Fatalf("reasoning choices = %v, want %v", snap.ReasoningChoices, want)
+	}
+	mu.Lock()
+	if len(seen) != 1 || seen[0].Settings.Version != snap.Version || seen[0].Source != "test" ||
+		!strings.Contains(seen[0].Notice, "Model: nd/qwen3.8-27b for this session") {
+		mu.Unlock()
+		t.Fatalf("observer saw %+v", seen)
+	}
+	mu.Unlock()
+	st := m.SessionByID(res.SessionID)
+	if log := st.GetUILog(); len(log) == 0 || !strings.Contains(log[len(log)-1].Message, "Reasoning: off") {
+		t.Fatalf("ui log = %+v, want the change noted", log)
+	}
+	var sawOption, sawSnapshot bool
+	sender.mu.Lock()
+	for _, u := range sender.ups {
+		switch u.(type) {
+		case acp.ConfigOptionUpdate:
+			sawOption = true
+		case acp.SessionSettingsUpdate:
+			sawSnapshot = true
+		}
+	}
+	sender.mu.Unlock()
+	if !sawOption || !sawSnapshot {
+		t.Fatalf("sender saw config option update %v, settings snapshot %v", sawOption, sawSnapshot)
+	}
+}
+
+func TestApplySessionSettingsRejectsWhatTheModelCannotDo(t *testing.T) {
+	m := session.NewManager(settingsTestConfig(), noopSender{}, noopRunner, slog.Default(), "", nil)
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	str := func(s string) *string { return &s }
+	cases := []struct {
+		ch   session.SettingsChange
+		want string
+	}{
+		{session.SettingsChange{Model: str("nd/nope")}, "unknown model"},
+		{session.SettingsChange{Model: str("p1/gpt-5"), Reasoning: str("off")}, "cannot be turned off"},
+		{session.SettingsChange{Model: str("p1/gpt-5"), Reasoning: str("ultra")}, "is not offered"},
+		{session.SettingsChange{Reasoning: str("high")}, "offers no reasoning levels"},
+		{session.SettingsChange{Mode: str("build")}, "unknown mode"},
+		{session.SettingsChange{PermissionMode: str("never")}, "unknown permission mode"},
+		{session.SettingsChange{Model: str("p1/gpt-5"), Turns: 99}, "--count"},
+	}
+	for _, c := range cases {
+		if _, err := m.ApplySessionSettings(context.Background(), res.SessionID, c.ch); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%+v: err = %v, want %q", c.ch, err, c.want)
+		}
+	}
+	// Nothing of a rejected change was written.
+	if got := m.SessionByID(res.SessionID).GetSelectedModelID(); got != "" {
+		t.Fatalf("selected model = %q after rejected changes", got)
+	}
+}
+
+func TestSwitchingModelDropsAReasoningLevelItDoesNotOffer(t *testing.T) {
+	m := session.NewManager(settingsTestConfig(), noopSender{}, noopRunner, slog.Default(), "", nil)
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	qwen, off, gpt := "nd/qwen3.8-27b", "off", "p1/gpt-5"
+	if _, err := m.ApplySessionSettings(context.Background(), res.SessionID, session.SettingsChange{Model: &qwen, Reasoning: &off}); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := m.ApplySessionSettings(context.Background(), res.SessionID, session.SettingsChange{Model: &gpt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Reasoning != "medium" {
+		t.Fatalf("reasoning after the switch = %q, want gpt-5's default medium", snap.Reasoning)
+	}
+}
+
+// modelRecorder is a runner that records the model and the mode each turn ran with.
+type modelRecorder struct {
+	mu    sync.Mutex
+	cfg   *config.Config
+	turns []string
+}
+
+func (r *modelRecorder) run(_ context.Context, st *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+	r.mu.Lock()
+	r.turns = append(r.turns, st.EffectiveModelID(r.cfg)+"|"+st.EffectiveMode()+"|"+st.EffectiveReasoning(r.cfg))
+	r.mu.Unlock()
+	return string(acp.StopReasonEndTurn), nil
+}
+
+func (r *modelRecorder) got() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.turns...)
+}
+
+func promptText(text string) []acp.ContentBlock {
+	return []acp.ContentBlock{{Type: acp.ContentTypeText, Text: text}}
+}
+
+func TestTurnOverridesLastTheirOperatorTurns(t *testing.T) {
+	cfg := settingsTestConfig()
+	rec := &modelRecorder{cfg: cfg}
+	m := session.NewManager(cfg, noopSender{}, rec.run, slog.Default(), "", nil)
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	send := func(text string, opts *session.PromptRunOpts) {
+		t.Helper()
+		if _, err := m.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{SessionID: res.SessionID, Prompt: promptText(text)}, noopSender{}, opts); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send("/model nd/qwen3.8-27b --count=2 /plan --once first", nil)
+	// A wake is not the operator's turn: it consumes nothing.
+	send("tasks finished", &session.PromptRunOpts{BackgroundWake: &llm.BackgroundWake{Tasks: []llm.BackgroundWakeTask{{ID: "bg_1", Kind: "command"}}}})
+	send("second", nil)
+	send("third", nil)
+
+	want := []string{
+		"nd/qwen3.8-27b|plan|",
+		"p1/gpt-4o|agent|",
+		"nd/qwen3.8-27b|agent|",
+		"p1/gpt-4o|agent|",
+	}
+	if got := rec.got(); strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("turns ran with %v, want %v", got, want)
+	}
+	st := m.SessionByID(res.SessionID)
+	if st.GetSelectedModelID() != "" || st.GetMode() != "agent" {
+		t.Fatalf("the session itself changed: model %q, mode %q", st.GetSelectedModelID(), st.GetMode())
+	}
+	if len(st.TurnOverrides()) != 0 {
+		t.Fatalf("overrides left after their turns: %+v", st.TurnOverrides())
+	}
+}
+
+func TestSettingsOnlyPromptRunsNoTurn(t *testing.T) {
+	cfg := settingsTestConfig()
+	rec := &modelRecorder{cfg: cfg}
+	sender := &captureSender{}
+	m := session.NewManager(cfg, sender, rec.run, slog.Default(), "", nil)
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := m.HandleSessionPrompt(ctx, acp.SessionPromptParams{SessionID: res.SessionID, Prompt: promptText("/model p3/claude-3")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.HandleSessionPrompt(ctx, acp.SessionPromptParams{SessionID: res.SessionID, Prompt: promptText("/model p2/gpt-4o-mini --once")}); err != nil {
+		t.Fatal(err)
+	}
+	if got := rec.got(); len(got) != 0 {
+		t.Fatalf("settings-only prompts ran turns: %v", got)
+	}
+	st := m.SessionByID(res.SessionID)
+	if len(st.GetMessages()) != 0 {
+		t.Fatalf("settings commands entered the history: %+v", st.GetMessages())
+	}
+	if st.GetSelectedModelID() != "p3/claude-3" {
+		t.Fatalf("session model = %q", st.GetSelectedModelID())
+	}
+	var notices []string
+	sender.mu.Lock()
+	for _, u := range sender.ups {
+		if c, ok := u.(acp.MessageChunkUpdate); ok && c.SessionUpdate == acp.UpdateTypeAgentMessageChunk {
+			notices = append(notices, c.Content.Text)
+		}
+	}
+	sender.mu.Unlock()
+	if len(notices) != 2 || !strings.Contains(notices[1], "for the next turn") {
+		t.Fatalf("notices = %v", notices)
+	}
+	// The armed model runs the next turn, then the session's again.
+	for _, text := range []string{"one", "two"} {
+		if _, err := m.HandleSessionPrompt(ctx, acp.SessionPromptParams{SessionID: res.SessionID, Prompt: promptText(text)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := rec.got(); len(got) != 2 || !strings.HasPrefix(got[0], "p2/gpt-4o-mini|") || !strings.HasPrefix(got[1], "p3/claude-3|") {
+		t.Fatalf("turns ran with %v", got)
+	}
+}
+
+func TestSessionWideChangeEndsATurnOverride(t *testing.T) {
+	m := session.NewManager(settingsTestConfig(), noopSender{}, noopRunner, slog.Default(), "", nil)
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	qwen, claude := "nd/qwen3.8-27b", "p3/claude-3"
+	if _, err := m.ApplySessionSettings(context.Background(), res.SessionID, session.SettingsChange{Model: &qwen, Turns: 5}); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := m.ApplySessionSettings(context.Background(), res.SessionID, session.SettingsChange{Model: &claude})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Overrides) != 0 || snap.Model != claude {
+		t.Fatalf("snapshot after the session change = %+v", snap)
+	}
+}
+
+func TestPermissionModeOverrideDoesNotOutliveTheProcess(t *testing.T) {
+	cfg := settingsTestConfig()
+	root := t.TempDir()
+	store := &session.FileStore{Root: filepath.Join(root, "sessions")}
+	if err := os.MkdirAll(store.Root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", store)
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bypass := "bypass"
+	if _, err := m.ApplySessionSettings(context.Background(), res.SessionID, session.SettingsChange{PermissionMode: &bypass}); err != nil {
+		t.Fatal(err)
+	}
+	st := m.SessionByID(res.SessionID)
+	if err := store.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(store.SessionPath(res.SessionID), "session.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "permissionMode") {
+		t.Fatalf("session.json keeps the override: %s", raw)
+	}
+	fresh := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", store)
+	if _, err := fresh.HandleSessionLoad(context.Background(), acp.SessionLoadParams{SessionID: res.SessionID}); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := fresh.SessionSettings(res.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.PermissionMode != "ask" {
+		t.Fatalf("permission mode after a restart = %q, want the configured ask", snap.PermissionMode)
+	}
 }

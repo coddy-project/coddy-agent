@@ -1225,6 +1225,11 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 		out["model"] = effectiveYAMLModel(s.activeCfg(), st)
 		out["selectedReasoning"] = st.EffectiveReasoning(s.activeCfg())
 		out["mode"] = string(st.GetMode())
+		// The whole snapshot, versioned: what the composer mirrors and what
+		// it names in metadata.settingsVersion when it sends.
+		if snap, err := s.mgr.SessionSettings(id); err == nil {
+			out["settings"] = snap
+		}
 	}
 	if u := st.GetUILog(); len(u) > 0 {
 		rows := make([]map[string]interface{}, 0, len(u))
@@ -1256,13 +1261,19 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 		// pinned title of its own, so a name the operator or the model wrote
 		// during that first turn is not overwritten seconds later by an answer
 		// that was already in flight.
-		TitleIfUnpinned   bool      `json:"titleIfUnpinned"`
-		MarkActivityRead  bool      `json:"markActivityRead"`
-		SelectedModelID   *string   `json:"selectedModelId"`
-		SelectedReasoning *string   `json:"selectedReasoning"`
-		Tags              *[]string `json:"tags"`
-		Archived          *bool     `json:"archived"`
-		Pinned            *bool     `json:"pinned"`
+		TitleIfUnpinned   bool    `json:"titleIfUnpinned"`
+		MarkActivityRead  bool    `json:"markActivityRead"`
+		SelectedModelID   *string `json:"selectedModelId"`
+		SelectedReasoning *string `json:"selectedReasoning"`
+		// Mode and PermissionMode are the operating mode and the permission
+		// mode; Turns > 0 changes the settings of this request for that many
+		// turns instead of for the session (the --count of a command).
+		Mode           *string   `json:"mode"`
+		PermissionMode *string   `json:"permissionMode"`
+		Turns          int       `json:"turns"`
+		Tags           *[]string `json:"tags"`
+		Archived       *bool     `json:"archived"`
+		Pinned         *bool     `json:"pinned"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
@@ -1278,28 +1289,71 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 		"id":     id,
 	}
 	did := false
+	// The settings go through the manager's setter, like every other
+	// surface's, so the change is validated once, logged, and mirrored by
+	// every client watching the session (event: session_settings).
+	change := session.SettingsChange{Source: "web", Turns: body.Turns}
+	clearModel := false
 	if body.SelectedModelID != nil {
-		if err := applySessionYAMLModel(s.activeCfg(), st, *body.SelectedModelID); err != nil {
-			if errors.Is(err, ErrUnknownMetadataModel) {
-				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
-				return
-			}
-			http.Error(w, `{"error":{"message":"invalid selectedModelId"}}`, http.StatusBadRequest)
+		mid := strings.TrimSpace(*body.SelectedModelID)
+		switch {
+		case mid == "":
+			// Clearing the selection goes back to the configured agent model.
+			clearModel = true
+		case s.activeCfg() == nil || s.activeCfg().FindModelEntry(mid) == nil:
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, ErrUnknownMetadataModel.Error()), http.StatusBadRequest)
 			return
-		}
-		did = true
-		resp["selectedModelId"] = strings.TrimSpace(st.GetSelectedModelID())
-		if s.activeCfg() != nil {
-			resp["model"] = effectiveYAMLModel(s.activeCfg(), st)
+		default:
+			change.Model = &mid
 		}
 	}
 	if body.SelectedReasoning != nil {
-		if err := applySessionReasoning(s.activeCfg(), st, *body.SelectedReasoning); err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		level := strings.TrimSpace(*body.SelectedReasoning)
+		if change.Model == nil {
+			if err := applySessionReasoning(s.activeCfg(), st, level); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+				return
+			}
+		}
+		change.Reasoning = &level
+	}
+	change.Mode = body.Mode
+	change.PermissionMode = body.PermissionMode
+	if clearModel {
+		if body.Turns > 0 {
+			http.Error(w, `{"error":{"message":"selectedModelId cannot be cleared for a number of turns"}}`, http.StatusBadRequest)
+			return
+		}
+		st.SetSelectedModelID("")
+		st.ClearTurnOverride(session.SettingModel)
+	}
+	if !change.Empty() || clearModel {
+		var snap acp.SessionSettings
+		var err error
+		if change.Empty() {
+			snap = s.mgr.PublishSessionSettings(id, st, "", "web")
+		} else {
+			snap, err = s.mgr.ApplySessionSettings(r.Context(), id, change)
+		}
+		if err != nil {
+			code := http.StatusBadRequest
+			if isSubagentReadOnly(err) {
+				code = http.StatusConflict
+			}
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), code)
 			return
 		}
 		did = true
-		resp["selectedReasoning"] = strings.TrimSpace(st.GetSelectedReasoning())
+		resp["settings"] = snap
+		if body.SelectedModelID != nil {
+			resp["selectedModelId"] = strings.TrimSpace(st.GetSelectedModelID())
+			if s.activeCfg() != nil {
+				resp["model"] = effectiveYAMLModel(s.activeCfg(), st)
+			}
+		}
+		if body.SelectedReasoning != nil {
+			resp["selectedReasoning"] = strings.TrimSpace(st.GetSelectedReasoning())
+		}
 	}
 	if body.MarkActivityRead {
 		st.MarkActivityReadSynced()

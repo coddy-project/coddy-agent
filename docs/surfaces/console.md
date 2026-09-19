@@ -106,9 +106,13 @@ Top to bottom:
   `@Dockerfile:21-31` or `@f.go#L21-31`, absolute paths included. In remote mode the
   list comes from the server that runs the session. The grammar, what each kind
   attaches and the limits are in [Mentions](../features/mentions.md).
-- **Footer**: dim `cwd (git-branch) • title [• plan] [• N tasks running (/tasks)]`,
+- **Footer**: dim `cwd (git-branch) • title [• plan] [• N tasks running (/tasks)] [• accept edits|bypass]`,
   then `↑in ↓out  N.N%/ctx (auto)` left and `(provider) model [• reasoning]`
-  right. The running-task note stays after the turn that started the tasks has
+  right. The permission mode closes the first line when it is not `ask`,
+  `bypass` in the warning colour, so a session that approves everything never
+  looks like one that asks. A setting changed for a number of turns adds a line
+  in the accent colour under the second one, `next turn: model x • next 3
+  turns: reasoning high` (`this turn` while the running turn holds it). The running-task note stays after the turn that started the tasks has
   ended, which is when the status line that counted them is gone. When the
   line does not fit, the path and the title give way and the note stays.
   A third line appears while the active model's provider reports account
@@ -151,9 +155,21 @@ throttle with immediate renders after keystrokes.
 
 ## Commands and keys
 
-Slash commands: client-side `/model`, `/reasoning [level]`, `/mode`, `/resume`,
+Slash commands: the settings commands `/model`, `/reasoning` (`/effort`),
+`/think`, `/nothink`, `/agent`, `/plan`, `/ask` and `/permissions`, each with
+`--once` or `--count=N` for the next turns only
+([Session settings](../features/session-settings.md)); client-side `/resume`,
 `/new`, `/theme`, `/hotkeys`, `/queue`, `/usage`, `/tasks`, `/docs`, `/quit`; server-driven `/compact`, `/export`,
 `/plugin`, and every loaded skill (from the ACP available-commands catalog).
+A bare `/model`, `/reasoning` or `/permissions` opens its picker; with a value
+the command is applied by the session manager, which answers with a notice
+line, and commands followed by a message apply to the turn that message
+starts. `/mode` is gone: the modes have their own commands.
+
+![The console after /permissions bypass and a chained /model --once and /reasoning --count=3: three notices, bypass in the footer, and the line of turn overrides](../assets/session-settings/session-settings-console-footer-dark.png)
+
+*After `/permissions bypass` and `/model stub/coddy-mini --once /reasoning high --count=3`: a notice per change, `bypass` in the footer, the turn overrides under the model.*
+
 Enter on a slash suggestion applies and submits in one stroke. `/export [md|html|json|jsonl]
 [path]` writes the transcript into the workspace (`docs/features/session-export.md`);
 under `--remote` the file lands on the server. `/usage` forces a fresh read
@@ -324,7 +340,7 @@ half, `!`, which feeds the output back to the model, is still deferred.
   purpose;
 - one at a time: a `!!` line is refused while a turn runs, and while a command
   runs the console refuses prompts, another `!!`, and every modal (`/new`,
-  `/resume`, `/mode`, `/theme`, `ctrl+l`), each with a status line saying so -
+  `/resume`, `/permissions`, `/theme`, `ctrl+l`), each with a status line saying so -
   none of them queue. A modal would swallow `escape`, which is the only key
   that stops the command;
 - the command reads from the null device, not from the terminal: an
@@ -341,7 +357,7 @@ The block belongs to the running console only. Reopening the session with
 
 Modals replace the editor while open: permission requests (the option list
 comes from the agent's `permission.Options`), the question tool (single or
-multi-select via space, custom free-text answers), model/mode/theme/session
+multi-select via space, custom free-text answers), model/reasoning/permission/theme/session
 selectors (`→ ` cursor, type-to-filter, `(i/n)` scroll indicator).
 
 A background subagent keeps working after the turn that spawned it has ended,
@@ -385,7 +401,8 @@ until you choose (mutually exclusive with `--session-id`; `--model`,
 selects). `--model`, `--mode agent|plan|ask`, and
 `--permission-mode ask|accept_edits|bypass` apply through the validated
 manager config-option API before the UI starts, in every launch mode
-(interactive, `--continue`, `--resume`, and `--prompt`). `--theme
+(interactive, `--continue`, `--resume`, and `--prompt`); the permission mode
+is never written to the session, so it lasts as long as the process. `--theme
 dark|light|auto` (auto falls back COLORFGBG → dark). `--plain` disables
 terminal queries, modifyOtherKeys, titles, and OSC 8 for deterministic
 automation. Logging is forced away from the terminal into
@@ -422,13 +439,15 @@ the transcript, tool boxes, thinking, plan updates, token and context stats
 stream back over SSE;
 permission and question modals answer through the server's REST endpoints;
 `ctrl+o` fetches full tool output from the server. The model selector lists
-the remote catalog (`GET /v1/models`), `/mode` picks the agent, plan, or ask
-profile per turn, and `/resume`, `-c`, and `--session-id` operate on the
-server's session list (the local folder filter does not apply). The
-permission mode is governed by the remote server's configuration:
-`--permission-mode` and the `/permissions` option are rejected with a clear
-error. `/reasoning` and `shift+tab` persist the selected reasoning level on
-the server session. Sessions persist only on the server; the startup banner shows
+the remote catalog (`GET /v1/models`), and `/resume`, `-c`, and
+`--session-id` operate on the server's session list (the local folder filter
+does not apply). The settings commands change the server's session through
+the same `PATCH /coddy/sessions/{id}` the browser uses, the permission mode
+included: `/permissions`, `--permission-mode` and the dialog's session switch
+all reach the server, and the footer follows the server's
+`session_settings` events. A change made before the server has the session
+is held and sent as command lines ahead of the first prompt. `/reasoning`
+and `shift+tab` persist the selected reasoning level on the server session. Sessions persist only on the server; the startup banner shows
 `remote: <url>` and the exit hint prints a reconnect command with `--remote`
 included.
 
@@ -620,6 +639,10 @@ needs neither a provider nor a key. `18-mention-list` comes from
 `examples/cli/capture_mentions.py`, which lays out the files of this
 repository empty and under git in a temporary folder, with a temporary home,
 and types `@ment` against a provider that is never asked anything.
+`session-settings-console-footer-dark` comes from
+`examples/cli/capture_settings.py`: `/permissions bypass`, then a chained
+`/model --once /reasoning --count=3`, with a temporary home standing in for
+`HOME` too, so the header lists the bundled skills only.
 
 `docs/assets/pi-tui-reference/` holds captures of the pi original for
 comparison, as described under **Visual model**.

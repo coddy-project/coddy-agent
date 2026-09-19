@@ -14,8 +14,8 @@ import (
 )
 
 // dispatchSlash intercepts client-side slash commands. Returns true when the
-// text was handled locally; /compact, /plugin, and skill commands fall
-// through to the agent.
+// text was handled locally; /compact, /plugin, skill commands and settings
+// commands followed by a message fall through to the agent.
 func (a *App) dispatchSlash(text string) bool {
 	trimmed := strings.TrimSpace(text)
 	if !strings.HasPrefix(trimmed, "/") {
@@ -23,31 +23,10 @@ func (a *App) dispatchSlash(text string) bool {
 	}
 	fields := strings.Fields(trimmed)
 	cmd := strings.TrimPrefix(fields[0], "/")
+	if a.dispatchSettings(trimmed, fields) {
+		return true
+	}
 	switch cmd {
-	case "model":
-		if len(fields) > 1 {
-			a.setModel(fields[1])
-			return true
-		}
-		a.openModelSelector()
-		return true
-	case "reasoning":
-		if a.busyWithLocalShell() {
-			return true
-		}
-		if len(fields) > 1 {
-			a.setReasoning(fields[1])
-			return true
-		}
-		a.openReasoningSelector()
-		return true
-	case "mode":
-		if len(fields) > 1 && session.IsValidMode(fields[1]) {
-			a.applyMode(fields[1])
-			return true
-		}
-		a.openModeSelector()
-		return true
 	case "resume":
 		a.openResumeSelector()
 		return true
@@ -79,28 +58,118 @@ func (a *App) dispatchSlash(text string) bool {
 	return false
 }
 
-// applyMode switches the session mode through the manager.
-func (a *App) applyMode(mode string) {
+// dispatchSettings handles the settings commands (session.ParseSettingsCommands):
+// /model, /reasoning (/effort), /think, /nothink, /agent, /plan, /ask and
+// /permissions, with --once or --count=N. A bare /model, /reasoning or
+// /permissions opens its picker. Commands followed by a message are not
+// taken here: the prompt goes to the agent, whose manager takes them before
+// the turn that message starts, so both halves land in the same turn.
+func (a *App) dispatchSettings(trimmed string, fields []string) bool {
+	cmd, ok := session.LookupSettingsCommand(fields[0])
+	if !ok {
+		return false
+	}
+	if len(fields) == 1 {
+		switch cmd.Setting {
+		case session.SettingModel:
+			a.openModelSelector()
+			return true
+		case session.SettingReasoning:
+			if cmd.Name == "reasoning" {
+				if a.busyWithLocalShell() {
+					return true
+				}
+				a.openReasoningSelector()
+				return true
+			}
+		case session.SettingPermissionMode:
+			a.openPermissionSelector()
+			return true
+		}
+	}
+	line, err := session.ParseSettingsCommands(trimmed)
+	if err != nil {
+		a.appendStatus(roleWarning, err.Error())
+		return true
+	}
+	if line.Empty() || strings.TrimSpace(line.Rest) != "" {
+		return false
+	}
+	if a.busyWithLocalShell() {
+		return true
+	}
+	changes := make([]session.SettingsChange, 0, 1+len(line.Turns))
+	if !line.Session.Empty() {
+		changes = append(changes, line.Session)
+	}
+	changes = append(changes, line.Turns...)
+	a.applySettings(changes...)
+	return true
+}
+
+// applySettings sends settings changes to the manager in order. The notice
+// comes back as a session_settings update (updates.go), which is where the
+// footer follows the change too.
+func (a *App) applySettings(changes ...session.SettingsChange) {
 	sessionID := a.sessionID
+	// A worker, like the turn: the setter writes the session bundle, and
+	// JoinWorkers lets that write finish before the process exits.
+	a.workers.Add(1)
 	go func() {
-		if err := a.mgr.HandleSessionSetMode(context.Background(), acp.SessionSetModeParams{SessionID: sessionID, ModeID: mode}); err != nil {
-			_ = a.Sender().SendSessionUpdate(sessionID, statusErr{msg: "mode: " + err.Error()})
+		defer a.workers.Done()
+		for _, ch := range changes {
+			ch.Source = "console"
+			snap, err := a.mgr.ApplySessionSettings(context.Background(), sessionID, ch)
+			if err != nil {
+				_ = a.Sender().SendSessionUpdate(sessionID, statusErr{msg: err.Error()})
+				return
+			}
+			_ = a.Sender().SendSessionUpdate(sessionID, settingsApplied{settings: snap})
 		}
 	}()
 }
 
-func (a *App) openModeSelector() {
+// settingsApplied is an internal update carrying the snapshot a change
+// answered with, so the footer follows it even when no event arrives (a
+// remote server's events stream that is not connected).
+type settingsApplied struct{ settings acp.SessionSettings }
+
+// applySettingsSnapshot adopts a settings snapshot: the model and the
+// reasoning the footer shows, the mode, the permission mode and the turn
+// overrides. A snapshot older than the one already shown is dropped.
+func (a *App) applySettingsSnapshot(snap acp.SessionSettings) {
+	if snap.Version != 0 && snap.Version < a.settingsVersion {
+		return
+	}
+	a.settingsVersion = snap.Version
+	if snap.Model != "" {
+		a.modelID = snap.Model
+	}
+	a.reasoning = snap.Reasoning
+	if snap.Mode != "" {
+		a.modeID = snap.Mode
+		a.foot.SetSession("", a.modeID)
+	}
+	a.foot.SetSettings(snap.PermissionMode, snap.Overrides)
+	a.refreshFooterModel()
+	a.screen.RequestRender()
+}
+
+// openPermissionSelector is the /permissions picker: when tools ask for
+// approval in this session (#292). The session's choice lasts as long as
+// the process; a restart returns to tools.permission_mode.
+func (a *App) openPermissionSelector() {
 	if a.busyWithLocalShell() {
 		return
 	}
 	items := []tui.SelectItem{
-		{Value: "agent", Label: "agent", Description: "Full tool access"},
-		{Value: "plan", Label: "plan", Description: "Read-only planning tools"},
-		{Value: "ask", Label: "ask", Description: "Read-only research and answers"},
+		{Value: "ask", Label: "ask", Description: "Ask before commands and file writes"},
+		{Value: "accept_edits", Label: "accept_edits", Description: "File writes pass; commands still ask"},
+		{Value: "bypass", Label: "bypass", Description: "Nothing asks for approval"},
 	}
-	sel := newSelectorModal(a.theme, "Select mode", items, 4, a.screen.RequestRender)
+	sel := newSelectorModal(a.theme, "Permission mode", items, 4, a.screen.RequestRender)
 	for i, it := range items {
-		if it.Value == a.modeID {
+		if it.Value == a.foot.permission {
 			sel.list.SetSelectedIndex(i)
 			break
 		}
@@ -111,7 +180,8 @@ func (a *App) openModeSelector() {
 			a.screen.RequestRender()
 			return
 		}
-		a.applyMode(item.Value)
+		mode := item.Value
+		a.applySettings(session.SettingsChange{PermissionMode: &mode})
 	}
 	a.openModal(sel)
 }
@@ -207,7 +277,8 @@ func (a *App) showHotkeys() {
 		"enter send · shift+enter/ctrl+j newline",
 		"escape interrupt · ctrl+c clear/exit · ctrl+d exit",
 		"ctrl+l model selector · ctrl+p cycle models",
-		"shift+tab cycle reasoning · /reasoning [level] · ctrl+t thinking · ctrl+o expand",
+		"shift+tab cycle reasoning · /reasoning [level] · /think · /nothink · ctrl+t thinking · ctrl+o expand",
+		"/agent /plan /ask mode · /permissions ask|accept_edits|bypass · add --once or --count=N for a few turns",
 		"up/down prompt history · / commands · @ file mention",
 		"!!<command> run it here, hidden from the agent",
 		"/usage provider quota, resets and wallet",

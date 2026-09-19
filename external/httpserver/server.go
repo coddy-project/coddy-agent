@@ -97,6 +97,10 @@ type Server struct {
 	// message_queue frames to the events stream, so every client of this
 	// server sees what anyone queued on a shared session.
 	removeQueueObserver func()
+	// removeSettingsObserver detaches the session settings observer that
+	// feeds session_settings frames to the events stream, so a model switched
+	// in a console or an editor is mirrored by every browser tab.
+	removeSettingsObserver func()
 
 	codexAuthIssuer string
 	// codexAuthMu guards both browser-login attempt maps; the attempts share
@@ -120,6 +124,9 @@ func (s *Server) Drain() {
 	}
 	if s.removeQueueObserver != nil {
 		s.removeQueueObserver()
+	}
+	if s.removeSettingsObserver != nil {
+		s.removeSettingsObserver()
 	}
 	if s.removeConfigObserver != nil {
 		s.removeConfigObserver()
@@ -170,6 +177,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		// in the others and in a console attached over --remote, none of which
 		// may be reading the stream of the turn that is running.
 		s.removeQueueObserver = mgr.AddMessageQueueObserver(s.publishMessageQueueEvent)
+		s.removeSettingsObserver = mgr.AddSessionSettingsObserver(s.publishSessionSettingsEvent)
 		// The manager is the one place every reload path passes through - the
 		// settings screen, the agent's config_commit tool, the console - so
 		// following it is how the handlers see an edit no matter who made it.
@@ -569,8 +577,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if httpModelIsCoddyProfile(model) {
-		st.SetMode(model)
-		if _, err := profileMetadataPatch(s.activeCfg(), st, req.Metadata); err != nil {
+		if err := applyProfileSettings(ctx, s.mgr, st, sessionID, model, req.Metadata); err != nil {
 			if errors.Is(err, ErrInvalidMetadataModel) || errors.Is(err, ErrUnknownMetadataModel) {
 				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
 				return
@@ -675,6 +682,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		reply := lastAssistantContent(st)
+		if promptRes != nil && promptRes.SettingsNotice != "" {
+			// Only settings commands: no turn ran, the notice is the answer.
+			reply = promptRes.SettingsNotice
+		}
 		resp := map[string]interface{}{
 			"id":       bridge.ChatID(),
 			"object":   "chat.completion",
@@ -1115,8 +1126,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if httpModelIsCoddyProfile(model) {
-		st.SetMode(model)
-		if _, err := profileMetadataPatch(s.activeCfg(), st, body.Metadata); err != nil {
+		if err := applyProfileSettings(ctx, s.mgr, st, sid, model, body.Metadata); err != nil {
 			if errors.Is(err, ErrInvalidMetadataModel) || errors.Is(err, ErrUnknownMetadataModel) {
 				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
 				return
@@ -1240,11 +1250,21 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			// from here; [DONE] alone cannot carry it.
 			meta["stop_reason"] = string(promptRes.StopReason)
 		}
+		if promptRes != nil && promptRes.SettingsNotice != "" {
+			// The input was only settings commands: no turn ran, the text of
+			// the answer is their notice, and nothing of it is in the history
+			// (the transcript's log keeps the notice). The web UI drops the
+			// optimistic rows it drew for the exchange on this flag.
+			meta["settings_only"] = "true"
+		}
 		_ = bridge.FinishStreamWithMetadata(meta)
 		if body.Stream {
 			return
 		}
 		text := lastAssistantContent(st)
+		if promptRes != nil && promptRes.SettingsNotice != "" {
+			text = promptRes.SettingsNotice
+		}
 		out := map[string]interface{}{
 			"id":       sid,
 			"object":   "response",

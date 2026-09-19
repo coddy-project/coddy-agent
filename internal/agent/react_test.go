@@ -27,6 +27,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/mention"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
@@ -3004,5 +3005,191 @@ func TestInterruptedBeforeOutputNamesTheSilence(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "silent for") {
 		t.Fatalf("the error must say how long the model was silent: %v", err)
+	}
+}
+
+// sessionBypassSender answers the first permission prompt with "bypass
+// permissions for this session" and records every prompt it is shown.
+type sessionBypassSender struct {
+	mu       sync.Mutex
+	requests []acp.PermissionRequestParams
+}
+
+func (s *sessionBypassSender) SendSessionUpdate(string, interface{}) error { return nil }
+
+func (s *sessionBypassSender) RequestPermission(_ context.Context, p acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.requests = append(s.requests, p)
+	return &acp.PermissionResult{Outcome: "selected", OptionID: permission.OptionAllowSessionBypass}, nil
+}
+
+func (s *sessionBypassSender) RequestQuestion(context.Context, acp.QuestionRequestParams) (*acp.QuestionResult, error) {
+	return &acp.QuestionResult{}, nil
+}
+
+// TestSessionBypassFromTheDialogCoversTheRestOfTheBatch pins #292: choosing
+// "bypass permissions for this session" approves the call and switches the
+// session, so the next call of the same batch runs without a prompt.
+func TestSessionBypassFromTheDialogCoversTheRestOfTheBatch(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}
+	cfg.Tools.PermissionMode = config.PermModeAsk
+	st := &session.State{ID: "sess_dialog_bypass", CWD: dir, Mode: session.ModeAgent}
+	sender := &sessionBypassSender{}
+	provider := &scriptedProvider{steps: []scriptStep{
+		toolStep(
+			llm.ToolCall{ID: "c1", Name: "run_command", InputJSON: `{"command":"echo first"}`},
+			llm.ToolCall{ID: "c2", Name: "run_command", InputJSON: `{"command":"echo second"}`},
+		),
+		answerStep("done"),
+	}}
+	ag := NewAgent(cfg, st, sender, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "run both"}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(sender.requests) != 1 {
+		t.Fatalf("prompts = %d, want only the first call's", len(sender.requests))
+	}
+	var offered []string
+	for _, o := range sender.requests[0].Options {
+		offered = append(offered, o.OptionID)
+	}
+	if !strings.Contains(strings.Join(offered, ","), permission.OptionAllowSessionBypass) {
+		t.Fatalf("the prompt did not offer the session switch: %v", offered)
+	}
+	if sender.requests[0].SessionPermissionMode != config.PermModeAsk {
+		t.Fatalf("the prompt was stamped %q, want ask", sender.requests[0].SessionPermissionMode)
+	}
+	if got := st.GetPermissionMode(); got != config.PermModeBypass {
+		t.Fatalf("session permission mode = %q, want bypass", got)
+	}
+	var results int
+	for _, m := range st.GetMessages() {
+		if m.Role == llm.RoleTool && (strings.Contains(m.Content, "first") || strings.Contains(m.Content, "second")) {
+			results++
+		}
+	}
+	if results != 2 {
+		t.Fatalf("tool results that ran = %d, want both calls", results)
+	}
+}
+
+// settingsHarness runs turns through a real session manager, with one scripted
+// provider per configured model, so a test sees which model served a request.
+type settingsHarness struct {
+	mgr       *session.Manager
+	sessionID string
+	mu        sync.Mutex
+	providers map[string]*scriptedProvider
+}
+
+func newSettingsHarness(t *testing.T, models ...string) *settingsHarness {
+	t.Helper()
+	root := t.TempDir()
+	cwd := t.TempDir()
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: root, CWD: cwd, ConfigPath: filepath.Join(root, "config.yaml")},
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Agent:     config.Agent{Model: models[0], MaxTurns: 8},
+	}
+	for _, m := range models {
+		cfg.Models = append(cfg.Models, config.ModelEntry{Model: m, MaxTokens: 100})
+	}
+	cfg.Tools.PermissionMode = config.PermModeBypass
+	cfg.Subagents.ApplyDefaults(cfg.Paths)
+	cfg.Hooks.ApplyDefaults(cfg.Paths)
+	cfg.Prompts.ApplyDefaults()
+	h := &settingsHarness{providers: map[string]*scriptedProvider{}}
+	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
+		loop := NewAgent(cfg, st, snd, slog.Default())
+		loop.SetSubagentRuntime(h.mgr)
+		loop.SetProviderFactory(func(in llm.ProviderInput) (llm.Provider, error) { return h.provider(in.Model), nil })
+		return loop.Run(ctx, prompt)
+	}
+	h.mgr = session.NewManager(cfg, &todoSnapshotSender{}, runner, slog.Default(), cwd, nil)
+	res, err := h.mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.sessionID = res.SessionID
+	return h
+}
+
+// provider returns the scripted provider of an API model id ("a" for fake/a).
+func (h *settingsHarness) provider(apiModel string) *scriptedProvider {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	p, ok := h.providers[apiModel]
+	if !ok {
+		p = &scriptedProvider{}
+		h.providers[apiModel] = p
+	}
+	return p
+}
+
+func (h *settingsHarness) prompt(t *testing.T, text string) {
+	t.Helper()
+	if _, err := h.mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+		SessionID: h.sessionID,
+		Prompt:    []acp.ContentBlock{{Type: acp.ContentTypeText, Text: text}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSwitchModelTakesEffectFromTheNextRequest(t *testing.T) {
+	h := newSettingsHarness(t, "fake/a", "fake/b")
+	h.provider("a").steps = []scriptStep{
+		toolStep(llm.ToolCall{ID: "sw1", Name: "switch_model", InputJSON: `{"model":"fake/b","scope":"turn"}`}),
+	}
+	h.provider("b").steps = []scriptStep{answerStep("done on b")}
+	h.prompt(t, "this needs the stronger model")
+	if a, b := h.provider("a").calls, h.provider("b").calls; a != 1 || b != 1 {
+		t.Fatalf("requests served: a=%d b=%d, want the first on a and the next on b", a, b)
+	}
+	st := h.mgr.SessionByID(h.sessionID)
+	if st.GetSelectedModelID() != "" {
+		t.Fatalf("a turn-scoped switch changed the session model to %q", st.GetSelectedModelID())
+	}
+	// The next turn is back on the session's model.
+	h.provider("a").steps = append(h.provider("a").steps, answerStep("back on a"))
+	h.prompt(t, "and now")
+	if a := h.provider("a").calls; a != 2 {
+		t.Fatalf("the next turn was not served by the session's model: a=%d", a)
+	}
+}
+
+func TestSkillFrontmatterRunsTheTurnOnItsModel(t *testing.T) {
+	h := newSettingsHarness(t, "fake/a", "fake/b")
+	st := h.mgr.SessionByID(h.sessionID)
+	st.ReplaceSkills([]*skills.Skill{{Name: "heavy", FilePath: "/skills/heavy/SKILL.md", Description: "d", Content: "Think hard.", Model: "fake/b"}})
+	h.provider("b").steps = []scriptStep{answerStep("done on b")}
+	h.prompt(t, "/heavy review this")
+	if a, b := h.provider("a").calls, h.provider("b").calls; a != 0 || b != 1 {
+		t.Fatalf("requests served: a=%d b=%d, want the whole turn on the skill's model", a, b)
+	}
+}
+
+func TestSpawnAgentRefusesAModelTheConfigDoesNotKnow(t *testing.T) {
+	h := newSettingsHarness(t, "fake/a")
+	h.provider("a").steps = []scriptStep{
+		toolStep(llm.ToolCall{ID: "sp1", Name: "spawn_agent", InputJSON: `{"agent":"general","prompt":"look around","model":"fake/nope"}`}),
+		answerStep("ok"),
+	}
+	h.prompt(t, "delegate")
+	var result string
+	for _, m := range h.mgr.SessionByID(h.sessionID).GetMessages() {
+		if m.Role == llm.RoleTool && m.ToolCallID == "sp1" {
+			result = m.Content
+		}
+	}
+	if !strings.Contains(result, `unknown model "fake/nope"`) {
+		t.Fatalf("spawn_agent result = %q, want the unknown model named", result)
 	}
 }

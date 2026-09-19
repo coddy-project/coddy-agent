@@ -79,6 +79,9 @@ groups:
       - path: features/modes.md
         title: Operating modes
         summary: agent, plan and ask, which tools each mode allows and how to switch on every surface.
+      - path: features/session-settings.md
+        title: Session settings
+        summary: Switching the model, reasoning level, mode and permission mode from the conversation with /model, /reasoning, /think, /nothink, /agent, /plan, /ask and /permissions, for the session or the next turns, the permission dialog's session switch, and the model switching itself.
       - path: features/sessions.md
         title: Sessions
         summary: Session bundles on disk, resuming, branches from an edited message, todo lists, the sessions CLI.

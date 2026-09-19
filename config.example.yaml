@@ -249,6 +249,8 @@ tools:
   # ask: always prompt for commands and file writes (default)
   # accept_edits: auto-approve file writes; prompt for commands
   # bypass: never ask for permission
+  # A session may switch its own mode until the process restarts (/permissions,
+  # the web composer chip, the permission dialog); the switch is never saved here.
   permission_mode: ask
 
   # Commands that never require user permission.

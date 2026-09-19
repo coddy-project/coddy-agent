@@ -121,12 +121,43 @@ export function dedupeAdjacentDuplicateThinkingCompleted(
  * When the server list is a strict prefix of the local transcript (same rows up to
  * server length), append the local tail so the UI keeps streaming text until reload.
  * When lengths match, replace the last assistant row if local has a longer body.
+ *
+ * Notices the server keeps at the end of a turn (`uiLog`: a settings change made
+ * from the permission dialog, an error) can be persisted while the turn is still
+ * streaming - before the answer the live view is already showing. Such a trailing
+ * notice the local list does not hold yet takes no part in the prefix comparison:
+ * it goes after the local tail, instead of making the snapshot look like a
+ * different transcript and dropping the row the stream is still writing.
  */
 export function mergeTranscriptPreferLocalSuffix(
   serverNext: TranscriptItem[],
   local: TranscriptItem[] | undefined,
 ): TranscriptItem[] {
   if (!local || local.length === 0) return serverNext;
+  const localNotices = new Set(
+    local
+      .filter((it) => it.type === "system_notice")
+      .map((it) => (it as Extract<TranscriptItem, { type: "system_notice" }>).message),
+  );
+  let cut = serverNext.length;
+  while (cut > 0) {
+    const row = serverNext[cut - 1]!;
+    if (row.type !== "system_notice" || localNotices.has(row.message)) break;
+    cut--;
+  }
+  if (cut === serverNext.length) {
+    return mergeServerPrefix(serverNext, local);
+  }
+  const head = serverNext.slice(0, cut);
+  const merged = mergeServerPrefix(head, local);
+  if (merged === head) return serverNext;
+  return [...merged, ...serverNext.slice(cut)];
+}
+
+function mergeServerPrefix(
+  serverNext: TranscriptItem[],
+  local: TranscriptItem[],
+): TranscriptItem[] {
   const minLen = Math.min(serverNext.length, local.length);
   for (let i = 0; i < minLen; i++) {
     if (!transcriptItemsLooselyEqual(serverNext[i]!, local[i]!)) {

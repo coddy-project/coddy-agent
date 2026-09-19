@@ -206,10 +206,23 @@ Coddy returns both **Session Config Options** (preferred by modern ACP clients) 
       ]
     },
     {
+      "id": "reasoning",
+      "name": "Reasoning",
+      "description": "Controls the reasoning effort used for this session.",
+      "category": "thought_level",
+      "type": "select",
+      "currentValue": "medium",
+      "options": [
+        { "value": "low", "name": "low" },
+        { "value": "medium", "name": "medium" },
+        { "value": "high", "name": "high" }
+      ]
+    },
+    {
       "id": "permission_mode",
       "name": "Permission mode",
       "description": "Controls when the agent asks for user approval before running tools.",
-      "category": "permissions",
+      "category": "_permission_mode",
       "type": "select",
       "currentValue": "ask",
       "options": [
@@ -293,7 +306,7 @@ The optional `cwd` narrows the list to one workspace. It names a folder, not a s
 
 When the process is started with a writable sessions root (default **`$CODDY_HOME/sessions`**), each bundle is `<root>/<sessionId>/` with:
 
-- `session.json` - id, cwd, mode, model override, permission mode override (`permissionMode`), agent memory, derived or pinned title (`titlePinned`), timestamps, optional **`activitySeq`** / **`readActivitySeq`** for composer unread sync across HTTP surfaces
+- `session.json` - id, cwd, mode, model override, reasoning level, the permission mode a subagent's child session ran under (`permissionMode`; an ordinary session's override is never written), agent memory, derived or pinned title (`titlePinned`), timestamps, optional **`activitySeq`** / **`readActivitySeq`** for composer unread sync across HTTP surfaces
 - `messages.json` - LLM message history (roles user, assistant, tool)
 - `assets/` - reserved for future session-scoped files
 - `todos/active.md` - current todo checklist synced from plan tools
@@ -407,7 +420,7 @@ When the mode changes, the agent also sends a `session/update` with `config_opti
 
 ### `session/set_config_option`
 
-Change a session configuration option (ACP Session Config Options). Supported options: **`mode`**, **`model`**, **`permission_mode`**.
+Change a session configuration option (ACP Session Config Options). Supported options: **`mode`**, **`model`**, **`reasoning`** (offered when the session's model has levels), **`permission_mode`**. Every change goes through the same setter as the settings commands and the other surfaces, so a browser or a console watching the session sees it ([Session settings](../features/session-settings.md)).
 
 **Request params:**
 ```json
@@ -418,7 +431,9 @@ Change a session configuration option (ACP Session Config Options). Supported op
 }
 ```
 
-Valid `permission_mode` values: `ask` | `accept_edits` | `bypass`. The override is session-scoped and persisted in `session.json`; it takes precedence over the `tools.permission_mode` config file value.
+Valid `permission_mode` values: `ask` | `accept_edits` | `bypass`. The override is session-scoped and takes precedence over the `tools.permission_mode` config file value, but it is kept in the agent's memory only: a restart of the agent returns the session to the configured mode. The option is advertised in the `_permission_mode` category, the reasoning level in `thought_level`.
+
+A change for the next turns only has no config option: send the settings command as the start of the prompt text (`/model <id> --once review this`, `/nothink --count=3`), and the agent takes it off before the turn starts.
 
 **Response result:** full `configOptions` array with updated `currentValue` fields:
 
@@ -447,14 +462,15 @@ All sent via `session/update` method with a `sessionUpdate` discriminator field.
 }
 ```
 
-### `available_commands_update` - Slash commands from skills
+### `available_commands_update` - Slash commands
 
-After **`session/new`** and **`session/load`**, Coddy derives slash commands from the same **`ListSkills`** pipeline as **`GET /coddy/slash-commands`**. The built-in commands lead the list (**`compact`** while compaction is enabled, **`export`**, **`plugin`**; the same rows as **`GET /coddy/commands`**), followed by the skills. The response that registers the session is written before this notification, so clients do not discard the catalog as an update for an unknown session. Rows use ACP **`name`** and **`description`** only (matches [slash commands](https://agentclientprotocol.com/protocol/slash-commands); optional **`input.hint`** is omitted in this MVP). The agent may repeat this notification whenever the catalog changes.
+After **`session/new`** and **`session/load`**, Coddy lists its slash commands. The built-in commands lead the list, the same rows as **`GET /coddy/commands`**: the settings commands (**`model`**, **`reasoning`**, **`think`**, **`nothink`**, **`agent`**, **`plan`**, **`ask`**, **`permissions`**), then **`compact`** while compaction is enabled, **`export`** and **`plugin`**. The skills follow, from the same **`ListSkills`** pipeline as **`GET /coddy/slash-commands`**, without one named like a built-in or its alias. The response that registers the session is written before this notification, so clients do not discard the catalog as an update for an unknown session. Rows use ACP **`name`**, **`description`** and, for a settings command, **`input.hint`** with its argument and flags ([slash commands](https://agentclientprotocol.com/protocol/slash-commands)). The agent may repeat this notification whenever the catalog changes.
 
 ```json
 {
   "sessionUpdate": "available_commands_update",
   "availableCommands": [
+    { "name": "model", "description": "Switch the model for this session, or for the next turns with --once / --count=N", "input": { "hint": "<model id> [--once|--count=N]" } },
     { "name": "demo", "description": "Runs the demo checklist" }
   ]
 }
@@ -662,7 +678,7 @@ Sent after `session/set_config_option`, after `session/set_mode`, or whenever th
     {
       "id": "permission_mode",
       "name": "Permission mode",
-      "category": "permissions",
+      "category": "_permission_mode",
       "type": "select",
       "currentValue": "accept_edits",
       "options": [ ... ]
@@ -673,7 +689,9 @@ Sent after `session/set_config_option`, after `session/set_mode`, or whenever th
 
 ## Permission Requests (Agent -> Client, expects response)
 
-These requests are sent only when `permission_mode` is `ask` (commands and writes) or `accept_edits` (commands only). When `permission_mode` is `bypass`, the agent never sends `session/request_permission`. Set the mode via `session/set_config_option` or `tools.permission_mode` in `config.yaml`.
+These requests are sent only when `permission_mode` is `ask` (commands and writes) or `accept_edits` (commands only). When `permission_mode` is `bypass`, the agent never sends `session/request_permission`. Set the mode via `session/set_config_option`, a `/permissions` command in the prompt, or `tools.permission_mode` in `config.yaml`.
+
+Under `ask`, a request that belongs to the session itself carries two more options of kind `allow_always` before Reject: `allow_session_bypass` (**Bypass permissions for this session**) and, for a file write, `allow_session_accept_edits` (**Allow edits for this session**). Choosing one approves the call and switches the session's permission mode, which the agent announces with `config_option_update`. A request relayed from a subagent, one a hook forced, and `config_commit` / `config_rollback` do not carry them.
 
 
 ```json

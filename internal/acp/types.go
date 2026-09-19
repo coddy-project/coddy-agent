@@ -253,6 +253,11 @@ type ImagePartRef struct {
 // SessionPromptResult is the response to session/prompt.
 type SessionPromptResult struct {
 	StopReason StopReason `json:"stopReason"`
+
+	// SettingsNotice is set when the prompt was only settings commands: no
+	// turn ran, and this is the answer (in-process callers only, never
+	// serialised; a client over the wire got it as an agent message chunk).
+	SettingsNotice string `json:"-"`
 }
 
 // StopReason describes why a prompt turn ended.
@@ -322,7 +327,52 @@ const (
 	UpdateTypeMessageQueue            = "message_queue"
 	UpdateTypeTurnProgress            = "turn_progress"
 	UpdateTypeBackgroundWake          = "background_wake"
+	UpdateTypeSessionSettings         = "session_settings"
 )
+
+// TurnOverride is a setting changed for a number of operator turns rather
+// than for the session (--once, --count=N, a skill's frontmatter, the model's
+// own switch_model call).
+type TurnOverride struct {
+	Setting string `json:"setting"`
+	Value   string `json:"value"`
+	// TurnsLeft counts the turns that have not started yet.
+	TurnsLeft int `json:"turnsLeft"`
+	// Active says the running turn holds this value.
+	Active bool `json:"active,omitempty"`
+}
+
+// SessionSettings is the whole of a session's settings at one moment, what
+// every surface mirrors: the session's own values, the permission mode the
+// configuration would give back after a restart, and what is changed for the
+// running and the next turns.
+type SessionSettings struct {
+	SessionID string `json:"sessionId"`
+	// Version orders snapshots of one session that reach a client down more
+	// than one connection; a client keeps the highest it has seen.
+	Version   uint64 `json:"version"`
+	Model     string `json:"model"`
+	Reasoning string `json:"reasoning,omitempty"`
+	// ReasoningChoices are the levels the session's model offers, "off"
+	// last where its provider can turn thinking off.
+	ReasoningChoices         []string       `json:"reasoningChoices,omitempty"`
+	Mode                     string         `json:"mode"`
+	PermissionMode           string         `json:"permissionMode"`
+	ConfiguredPermissionMode string         `json:"configuredPermissionMode"`
+	Overrides                []TurnOverride `json:"overrides,omitempty"`
+}
+
+// SessionSettingsUpdate announces a change of a session's settings with the
+// whole snapshot, and a one-line notice of what the change was.
+type SessionSettingsUpdate struct {
+	SessionUpdate string          `json:"sessionUpdate"` // "session_settings"
+	Settings      SessionSettings `json:"settings"`
+	// Notice says what changed, for a surface that shows it ("Model:
+	// qwen3.8-27b for the next 2 turns"); empty for a plain resend.
+	Notice string `json:"notice,omitempty"`
+	// Source names who asked for the change.
+	Source string `json:"source,omitempty"`
+}
 
 // QueuedMessage is one follow-up waiting for the running turn to read it.
 type QueuedMessage struct {
@@ -650,6 +700,14 @@ type PermissionRequestParams struct {
 	// child whose definition narrowed it; when this is set, the sender uses it
 	// instead of looking the session up.
 	EffectivePermissionMode string `json:"-"`
+
+	// SessionPermissionMode is the permission mode the asking session's gate
+	// decided under - the running turn's, the session's override, or the
+	// configuration's - stamped on every request for in-process senders only
+	// (never serialised). A sender that answers bypass itself reads it
+	// instead of the configuration, so a session switched to ask on a server
+	// configured for bypass is still asked (permission.AutoApproves).
+	SessionPermissionMode string `json:"-"`
 }
 
 // PermissionToolCall describes the tool call needing permission.

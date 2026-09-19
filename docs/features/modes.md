@@ -72,11 +72,13 @@ The rest of the boundary follows from it. A `metadata.runPlanSlug` on `POST /v1/
 
 | Surface | How |
 |---|---|
-| Web UI | the **Mode** pill in the composer, next to **Model**; the choice travels as the top-level `model` of `POST /v1/responses` |
-| Console | `/mode` in the chat, or `--mode agent\|plan\|ask` at launch, which also combines with `-c`, `--resume` and `-p`; in `--remote` mode `/mode` picks the profile per turn |
+| Web UI | the **Mode** pill in the composer, next to **Model**, or `/agent`, `/plan`, `/ask` typed or picked from the `/` menu; the pill's choice travels as the top-level `model` of `POST /v1/responses` |
+| Console | `/agent`, `/plan` or `/ask` in the chat, or `--mode agent\|plan\|ask` at launch, which also combines with `-c`, `--resume` and `-p`; in `--remote` mode the command switches the server's session |
 | ACP | `session/set_config_option` with `configId` `mode` and `value` `agent`, `plan` or `ask` (preferred), or the legacy `session/set_mode` with `modeId`; the agent answers with `current_mode_update` and `config_option_update`, and `session/new` advertises the three in `configOptions` and `modes` |
 | HTTP API | `model` set to `agent`, `plan` or `ask` on `POST /v1/responses` or `POST /v1/chat/completions`; `GET /v1/models` lists the three with `owned_by` `coddy`, and `metadata.model` picks the backend |
-| Telegram | `/mode` opens an inline keyboard with the three modes |
+| Telegram | `/agent`, `/plan` or `/ask` |
 | Scheduler | `mode:` in the job file frontmatter, `agent` when omitted |
+
+Every command also takes `--once` or `--count=N`, which switches the mode for the next turn or the next N turns and then returns to the session's own: `/plan --once how would you split this package?` plans one answer and leaves the session in agent mode. The commands work the same over ACP and HTTP, sent as the start of the prompt text ([Session settings](session-settings.md)).
 
 A one-shot run picks the mode the same way: `coddy --mode ask -p "..."` answers without touching the workspace. Surface guides: [Console (TUI)](../surfaces/console.md), [Web UI](../surfaces/web-ui.md), [ACP protocol](../reference/acp-protocol.md), [HTTP API](../reference/http-api.md), [Telegram gateway](../surfaces/gateway.md), [Scheduler](../operate/scheduler.md).

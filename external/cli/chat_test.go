@@ -205,7 +205,8 @@ func TestARunningLocalCommandRefusesEverythingElse(t *testing.T) {
 		{"/resume", func(a *App) { a.openResumeSelector() }, "A local command is running"},
 		{"the resume picker", func(a *App) { a.openResumePicker(nil) }, "A local command is running"},
 		{"the model selector", func(a *App) { a.openModelSelector() }, "A local command is running"},
-		{"/mode", func(a *App) { a.openModeSelector() }, "A local command is running"},
+		{"/permissions", func(a *App) { a.openPermissionSelector() }, "A local command is running"},
+		{"/plan", func(a *App) { a.dispatchSlash("/plan") }, "A local command is running"},
 		{"/theme", func(a *App) { a.openThemeSelector() }, "A local command is running"},
 	}
 	for _, tc := range cases {

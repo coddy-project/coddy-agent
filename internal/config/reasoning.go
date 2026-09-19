@@ -12,6 +12,13 @@ const (
 	// ReasoningNone is the lowest tier of the Codex backend, which serves gpt-5*
 	// ids but rejects the "minimal" name for the same idea.
 	ReasoningNone = "none"
+	// ReasoningOff is the pseudo level that turns a model's thinking off. It is
+	// not a tier of any provider: each one maps it to its own switch, and it is
+	// offered only where such a switch exists (ReasoningOffOffered).
+	ReasoningOff = "off"
+	// ReasoningDefault names "the model's default level" in a command; it is
+	// never stored, choosing it clears the session's own selection.
+	ReasoningDefault = "default"
 )
 
 // reasoningWithMinimal is the level set for models that support a minimal tier
@@ -85,6 +92,54 @@ func ReasoningLevelsForProviderType(ent *ModelEntry, providerType string) []stri
 	return remapMinimalToNone(levels)
 }
 
+// ReasoningOffOffered reports whether thinking can really be turned off for
+// this model entry, so "off" may be offered next to its levels.
+//
+// Off is only honest where the provider has a switch for it: the chat-template
+// flag of Qwen3 on an OpenAI-compatible server, Anthropic's thinking block, the
+// Codex backend's "none" tier, and any model whose configured levels include
+// "none". A gpt-5 model's "minimal" still reasons, and the o-series and
+// gpt-oss have no switch at all, so off is not offered there. A model with no
+// levels (none detected, or reasoning_levels: []) has nothing to switch.
+func (c *Config) ReasoningOffOffered(ent *ModelEntry) bool {
+	levels := c.ReasoningLevelsFor(ent)
+	if len(levels) == 0 {
+		return false
+	}
+	for _, lv := range levels {
+		if lv == ReasoningNone {
+			return true
+		}
+	}
+	providerType := ""
+	if c != nil {
+		if prov := c.FindProvider(ent.ProviderName()); prov != nil {
+			providerType = prov.Type
+		}
+	}
+	switch providerType {
+	case "anthropic", "codex":
+		return true
+	case "openai", "neuraldeep":
+		return isQwenThinking(strings.ToLower(strings.TrimSpace(ent.APIModel())))
+	default:
+		return false
+	}
+}
+
+// ReasoningChoicesFor returns what a session may select for this model entry:
+// its levels, then "off" when the provider can turn thinking off.
+func (c *Config) ReasoningChoicesFor(ent *ModelEntry) []string {
+	levels := c.ReasoningLevelsFor(ent)
+	if len(levels) == 0 {
+		return nil
+	}
+	if c.ReasoningOffOffered(ent) {
+		levels = append(levels, ReasoningOff)
+	}
+	return levels
+}
+
 // DefaultReasoningLevelFor returns the pre-selected level for one model entry
 // under the same provider-aware remap as ReasoningLevelsFor.
 func (c *Config) DefaultReasoningLevelFor(ent *ModelEntry) string {
@@ -154,7 +209,10 @@ func isOpenAIOSeries(id string) bool {
 
 // isAnthropicThinking matches Claude families that support extended thinking.
 func isAnthropicThinking(id string) bool {
-	for _, p := range []string{"claude-opus-4", "claude-sonnet-4", "claude-haiku-4", "claude-3-7"} {
+	for _, p := range []string{
+		"claude-opus-4", "claude-sonnet-4", "claude-haiku-4", "claude-3-7",
+		"claude-opus-5", "claude-sonnet-5", "claude-haiku-5", "claude-fable-5",
+	} {
 		if strings.HasPrefix(id, p) {
 			return true
 		}

@@ -1976,3 +1976,116 @@ test("a folder row keeps the picker open on what it holds", async () => {
   });
   vi.unstubAllGlobals();
 });
+
+test("the permission chip names the session's mode and switches it (#292)", () => {
+  const picked: string[] = [];
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan", "ask"]}
+      permissionMode="bypass"
+      configuredPermissionMode="ask"
+      onPermissionModeChange={(m) => picked.push(m)}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const chip = screen.getByTestId("composer-permission");
+  expect(chip.textContent).toBe("Bypass");
+  expect(chip.className).toContain("perm-bypass");
+  expect(chip.getAttribute("title")).toContain("Ask first");
+  fireEvent.click(chip);
+  fireEvent.click(screen.getByRole("menuitem", { name: "Ask first" }));
+  expect(picked).toEqual(["ask"]);
+});
+
+test("the permission chip is not shown without a handler", () => {
+  renderComposer({ isEmpty: false });
+  expect(screen.queryByTestId("composer-permission")).toBeNull();
+});
+
+test("the settings armed for the next turns are shown next to the selectors", () => {
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      settingsOverrides={[
+        { setting: "model", value: "nd/gpt-oss-120b", turnsLeft: 2, active: true },
+        { setting: "reasoning", value: "off", turnsLeft: 1 },
+      ]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const chip = screen.getByTestId("composer-overrides");
+  expect(chip.textContent).toBe("nd/gpt-oss-120b this turn and 2 more +1");
+  expect(chip.getAttribute("title")).toContain("off, 1 turn left");
+});
+
+test("picking /plan in the / menu switches the mode instead of typing it", async () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: true,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+    onchange: null,
+  }));
+  const fetchMock = vi.fn((url: string) => {
+    if (String(url).includes("/coddy/commands")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          object: "coddy.commands",
+          items: [
+            {
+              name: "plan",
+              description: "Plan mode",
+              kind: "setting",
+              hint: "[--once|--count=N]",
+            },
+          ],
+        }),
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      json: async () => ({ items: [], has_more: false, page: 1 }),
+    });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const modes: string[] = [];
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan", "ask"]}
+        onModeChange={(m) => modes.push(m)}
+        onChange={setValue}
+        onSend={() => {}}
+      />
+    );
+  }
+  render(<Harness />);
+  const ta = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+  fireEvent.change(ta, {
+    target: { value: "/pl", selectionStart: 3, selectionEnd: 3 },
+  });
+  const row = await screen.findByTestId("command-row-plan");
+  expect(row.textContent).toContain("[--once|--count=N]");
+  fireEvent.mouseDown(row);
+  expect(modes).toEqual(["plan"]);
+  expect(ta.value).toBe("");
+  vi.unstubAllGlobals();
+});

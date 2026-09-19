@@ -13,6 +13,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -280,14 +281,12 @@ type defaultSender struct {
 func (d *defaultSender) SendSessionUpdate(string, interface{}) error { return nil }
 
 func (d *defaultSender) RequestPermission(_ context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
-	stamped := strings.TrimSpace(params.EffectivePermissionMode)
-	if stamped == config.PermModeBypass {
-		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
+	cfgMode := ""
+	if cfg := d.live(); cfg != nil {
+		cfgMode = cfg.Tools.ResolvedPermMode()
 	}
-	if stamped == "" {
-		if cfg := d.live(); cfg != nil && cfg.Tools.ResolvedPermMode() == config.PermModeBypass {
-			return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
-		}
+	if permission.AutoApproves(params, cfgMode) {
+		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
 	return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
 }

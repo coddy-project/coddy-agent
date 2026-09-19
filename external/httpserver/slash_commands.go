@@ -166,20 +166,31 @@ func (s *Server) coddySlashCommandsGet(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// coddyCommandsGet lists the deterministic built-in slash commands (/compact,
-// /export, /plugin) so the composer can surface a "Commands" group alongside
-// skills. These run without an LLM turn and are not part of
-// /coddy/slash-commands (which is skills only). compact appears only while
-// compaction is enabled.
+// coddyCommandsGet lists the built-in commands for the composer's "Commands"
+// group: the settings commands (/model, /reasoning, /think, /nothink,
+// /agent, /plan, /ask, /permissions) with their argument choices for the
+// session named by X-Coddy-Session-ID, then the deterministic actions
+// (/compact while compaction is enabled, /export, /plugin). None of them runs
+// a turn of the model; they are not part of /coddy/slash-commands (skills).
 func (s *Server) coddyCommandsGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
 		return
 	}
 	cfg := s.activeCfg()
-	items := skills.BuiltinCommands(cfg != nil && cfg.Compaction.IsEnabled())
-	if prefix := strings.TrimSpace(r.URL.Query().Get("prefix")); prefix != "" {
-		items = skills.FilterSummariesByPrefix(items, prefix)
+	var st *session.State
+	if sid := strings.TrimSpace(r.Header.Get("X-Coddy-Session-ID")); sid != "" {
+		st = s.mgr.SessionByID(sid)
+	}
+	items := session.BuiltinCommandRows(cfg, st, session.ActionCommandRows(cfg))
+	if prefix := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(r.URL.Query().Get("prefix")), "/")); prefix != "" {
+		filtered := items[:0:0]
+		for _, it := range items {
+			if strings.HasPrefix(it.Name, prefix) {
+				filtered = append(filtered, it)
+			}
+		}
+		items = filtered
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{

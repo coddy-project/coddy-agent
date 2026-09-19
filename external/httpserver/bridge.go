@@ -15,6 +15,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -219,6 +220,10 @@ func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
 		return s.writeNamedEventJSON("message_queue", u)
 	case acp.TurnProgressUpdate:
 		return s.writeNamedEventJSON("turn_progress", u)
+	case acp.SessionSettingsUpdate:
+		// The session's settings changed during this turn - a command, the
+		// permission dialog, the model's own switch: the client mirrors them.
+		return s.writeNamedEventJSON("session_settings", u)
 	case acp.BackgroundWakeUpdate:
 		// The first frame of a turn nobody typed: what woke the agent.
 		return s.writeNamedEventJSON("background_wake", u)
@@ -335,11 +340,14 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 	// A subagent's request carries the child's own effective mode, which
 	// decides the bypass short-circuit instead of the global setting: a child
 	// narrowed to ask is prompted, or denied when nobody can answer.
-	stamped := strings.TrimSpace(params.EffectivePermissionMode)
-	if stamped == config.PermModeBypass {
-		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
+	// The session's gate stamps the mode it decided under, so a session
+	// switched to ask on a server configured for bypass is asked here too;
+	// the configuration only decides for a request that carries no stamp.
+	cfgMode := ""
+	if s.cfg != nil {
+		cfgMode = s.cfg.Tools.ResolvedPermMode()
 	}
-	if stamped == "" && s.cfg != nil && s.cfg.Tools.ResolvedPermMode() == config.PermModeBypass {
+	if permission.AutoApproves(params, cfgMode) {
 		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
 	if (!s.interactive && !s.asksPermission) || s.w == nil {

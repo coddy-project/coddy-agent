@@ -430,9 +430,9 @@ func TestAnswerCallbackQuery_UnknownIDIsRefused(t *testing.T) {
 	if status != http.StatusBadRequest || !strings.Contains(body["description"].(string), "query ID is invalid") {
 		t.Fatalf("unknown query: %d %v", status, body)
 	}
-	s.fake.InjectMessage(IncomingMessage{Text: "/mode"})
-	s.call("sendMessage", url.Values{"chat_id": {"4242"}, "text": {"menu"}, "reply_markup": {`{"inline_keyboard":[[{"text":"Plan","callback_data":"mode:plan"}]]}`}})
-	_, cbq, err := s.fake.InjectCallback(IncomingCallback{Label: "Plan"})
+	s.fake.InjectMessage(IncomingMessage{Text: "/model"})
+	s.call("sendMessage", url.Values{"chat_id": {"4242"}, "text": {"menu"}, "reply_markup": {`{"inline_keyboard":[[{"text":"coddy-mini","callback_data":"model:stub/coddy-mini"}]]}`}})
+	_, cbq, err := s.fake.InjectCallback(IncomingCallback{Label: "coddy-mini"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -42,7 +42,7 @@ func BuildACPConfigOptions(cfg *config.Config, state *State) []acp.ConfigOption 
 			})
 		}
 
-		current := state.EffectiveModelID(cfg)
+		current := state.SessionModelID(cfg)
 		modelOpt := acp.ConfigOption{
 			ID:           "model",
 			Name:         "Model",
@@ -54,8 +54,8 @@ func BuildACPConfigOptions(cfg *config.Config, state *State) []acp.ConfigOption 
 		}
 		out = append(out, modelOpt)
 
-		if ent := cfg.FindModelEntry(state.EffectiveModelID(cfg)); ent != nil {
-			levels := cfg.ReasoningLevelsFor(ent)
+		if ent := cfg.FindModelEntry(current); ent != nil {
+			levels := cfg.ReasoningChoicesFor(ent)
 			if len(levels) > 0 {
 				reasoningOptions := make([]acp.ConfigOptionValue, 0, len(levels))
 				for _, level := range levels {
@@ -65,12 +65,13 @@ func BuildACPConfigOptions(cfg *config.Config, state *State) []acp.ConfigOption 
 					})
 				}
 				out = append(out, acp.ConfigOption{
-					ID:           "reasoning",
-					Name:         "Reasoning",
-					Description:  "Controls the reasoning effort used for this session.",
-					Category:     "model",
+					ID:          "reasoning",
+					Name:        "Reasoning",
+					Description: "Controls the reasoning effort used for this session.",
+					// thought_level is the ACP category for a reasoning effort.
+					Category:     "thought_level",
 					Type:         "select",
-					CurrentValue: state.EffectiveReasoning(cfg),
+					CurrentValue: state.SessionReasoning(cfg),
 					Options:      reasoningOptions,
 				})
 			}
@@ -82,10 +83,12 @@ func BuildACPConfigOptions(cfg *config.Config, state *State) []acp.ConfigOption 
 		effectivePerm = cfg.Tools.ResolvedPermMode()
 	}
 	permOpt := acp.ConfigOption{
-		ID:           "permission_mode",
-		Name:         "Permission mode",
-		Description:  "Controls when the agent asks for user approval before running tools.",
-		Category:     "permissions",
+		ID:          "permission_mode",
+		Name:        "Permission mode",
+		Description: "Controls when the agent asks for user approval before running tools.",
+		// Not one of the protocol's categories: a leading underscore is the
+		// namespace ACP leaves to an agent's own options.
+		Category:     "_permission_mode",
 		Type:         "select",
 		CurrentValue: effectivePerm,
 		Options: []acp.ConfigOptionValue{

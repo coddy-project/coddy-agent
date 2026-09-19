@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -27,6 +28,47 @@ func (m *Manager) EnqueueTurnMessage(sessionID, text string) (QueuedMessage, []Q
 	// The change announced itself through the notifier the manager installed;
 	// nothing here publishes a second time.
 	return msg, st.QueuedMessages(), nil
+}
+
+// EnqueueFollowUp is EnqueueTurnMessage for text an operator typed while the
+// session works. Settings commands at its start (/model, /permissions ...)
+// are the operator's, not the conversation's: they apply at once and never
+// reach the model, and only the rest of the text is queued. queued is false
+// when nothing was left to queue; notice says what the commands changed.
+func (m *Manager) EnqueueFollowUp(ctx context.Context, sessionID, text, source string) (msg QueuedMessage, queued bool, notice string, err error) {
+	line, err := ParseSettingsCommands(text)
+	if err != nil {
+		return QueuedMessage{}, false, "", err
+	}
+	if line.Empty() {
+		msg, _, err = m.EnqueueTurnMessage(sessionID, text)
+		return msg, err == nil, "", err
+	}
+	st, err := m.queueSession(sessionID)
+	if err != nil {
+		return QueuedMessage{}, false, "", err
+	}
+	rest := strings.TrimSpace(line.Rest)
+	if rest != "" {
+		if len(line.Turns) > 0 {
+			return QueuedMessage{}, false, "", ErrTurnScopedFollowUp
+		}
+		// With nothing running the caller sends the whole text as a prompt,
+		// whose path takes the commands itself; applying them here too
+		// would say everything twice.
+		if !st.MessageQueueOpen() {
+			return QueuedMessage{}, false, "", ErrNoActiveTurn
+		}
+	}
+	taken, err := m.TakeSettingsCommands(ctx, sessionID, []acp.ContentBlock{{Type: acp.ContentTypeText, Text: text}}, source)
+	if err != nil {
+		return QueuedMessage{}, false, "", err
+	}
+	if taken.Handled {
+		return QueuedMessage{}, false, taken.Notice, nil
+	}
+	msg, _, err = m.EnqueueTurnMessage(sessionID, line.Rest)
+	return msg, err == nil, taken.Notice, err
 }
 
 // QueuedTurnMessages lists what the session is holding for its running turn.

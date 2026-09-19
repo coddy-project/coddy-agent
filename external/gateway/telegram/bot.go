@@ -33,7 +33,6 @@ type SessionRunner interface {
 	EnsureHTTPSession(ctx context.Context, sessionID string, defaultCWD string) (*session.State, error)
 	HandleSessionPromptWithSender(ctx context.Context, params acp.SessionPromptParams, sender acp.UpdateSender, opts *session.PromptRunOpts) (*acp.SessionPromptResult, error)
 	ForgetLiveSession(sessionID string)
-	HandleSessionSetMode(ctx context.Context, params acp.SessionSetModeParams) error
 	HandleSessionSetConfigOption(ctx context.Context, params acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error)
 	// HandleSessionList lists the sessions the server keeps, the most
 	// recently updated first; /resume offers them to the chat.
@@ -158,8 +157,10 @@ func (b *Bot) Start(ctx context.Context) error {
 	if _, err := bot.Request(tgbotapi.NewSetMyCommands(
 		tgbotapi.BotCommand{Command: "start", Description: "Greeting and quick intro"},
 		tgbotapi.BotCommand{Command: "help", Description: "Show available commands"},
-		tgbotapi.BotCommand{Command: "mode", Description: "Switch session mode (agent / plan / ask)"},
 		tgbotapi.BotCommand{Command: "model", Description: "Switch LLM model"},
+		tgbotapi.BotCommand{Command: "agent", Description: "Agent mode: every tool (add --once for one message)"},
+		tgbotapi.BotCommand{Command: "plan", Description: "Plan mode: read-only, plans the work"},
+		tgbotapi.BotCommand{Command: "ask", Description: "Ask mode: read-only answers"},
 		tgbotapi.BotCommand{Command: "context", Description: "Show context window usage"},
 		tgbotapi.BotCommand{Command: "resume", Description: "Continue another session (pick from the list or name it)"},
 		tgbotapi.BotCommand{Command: "clear", Description: "Start a new session (forget context)"},
@@ -351,8 +352,10 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 		b.reply(bot, chatID, msg.MessageID,
 			"*Available commands:*\n\n"+
 				"/start — greeting and quick intro\n"+
-				"/mode — switch session mode (agent / plan / ask)\n"+
-				"/model — switch LLM model\n"+
+				"/model — switch LLM model (/model <id> sets it directly)\n"+
+				"/agent, /plan, /ask — switch the session mode\n"+
+				"/think, /nothink, /reasoning <level> — thinking and reasoning level\n"+
+				"Add --once or --count=N to change a setting for the next messages only, and write the message after it.\n"+
 				"/context — show context window usage\n"+
 				"/resume [id or title] — continue another session\n"+
 				"/clear — start a new session (forgets previous context)\n"+
@@ -360,11 +363,7 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 				"In group chats mention me (@"+b.botName+") or reply to my message to talk to me.")
 		return
 	}
-	if isCommand(msg, "mode") {
-		b.handleModeCommand(ctx, bot, msg, key)
-		return
-	}
-	if isCommand(msg, "model") {
+	if isCommand(msg, "model") && strings.TrimSpace(msg.CommandArguments()) == "" {
 		b.handleModelCommand(ctx, bot, msg, key)
 		return
 	}
@@ -378,7 +377,12 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 	}
 
 	// --- Skip other commands and empty messages ---
-	if text == "" || msg.IsCommand() {
+	// A settings command (/model x, /think, /plan --once ...) goes to the
+	// session like a message: the manager takes it off the start of the text
+	// and answers with a notice, or applies it to the turn the rest starts.
+	// /permissions is not one of them here: the bot approves its chat agent
+	// itself, and the mode would only change what other surfaces ask.
+	if text == "" || (msg.IsCommand() && !isSettingsCommand(msg)) {
 		return
 	}
 
@@ -479,7 +483,10 @@ func (b *Bot) chatSender(bot *tgbotapi.BotAPI, chatID int64, replyTo int, rich r
 func (b *Bot) shouldRespond(msg *tgbotapi.Message, text string) bool {
 	if msg.IsCommand() {
 		switch strings.ToLower(msg.Command()) {
-		case "clear", "start", "help", "mode", "model", "context", "resume":
+		case "clear", "start", "help", "model", "context", "resume":
+			return true
+		}
+		if isSettingsCommand(msg) {
 			return true
 		}
 	}
@@ -490,6 +497,17 @@ func (b *Bot) shouldRespond(msg *tgbotapi.Message, text string) bool {
 		return true
 	}
 	return false
+}
+
+// isSettingsCommand reports whether msg starts with a settings command the
+// bot hands to the session (session.LookupSettingsCommand), /permissions
+// aside.
+func isSettingsCommand(msg *tgbotapi.Message) bool {
+	if !msg.IsCommand() {
+		return false
+	}
+	cmd, ok := session.LookupSettingsCommand(msg.Command())
+	return ok && cmd.Setting != session.SettingPermissionMode
 }
 
 func isCommand(msg *tgbotapi.Message, cmd string) bool {

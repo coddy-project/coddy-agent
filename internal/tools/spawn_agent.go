@@ -54,6 +54,15 @@ func SpawnAgentTool() *tooling.Tool {
 						"type":        "integer",
 						"description": "Hard limit for the run; omit to use the definition's or the configured default",
 					},
+					"model": map[string]interface{}{
+						"type": "string",
+						"description": "A configured model id for the child (see switch_model for the list); omit to use the definition's model, then yours. " +
+							"Pick a cheaper, faster model for a search or a routine task and a stronger one for a hard problem",
+					},
+					"reasoning": map[string]interface{}{
+						"type":        "string",
+						"description": "Reasoning level for the child's model (a level it offers, \"off\" or \"default\"); omit to use the definition's, then the model's default",
+					},
 					"notify_on_finish": map[string]interface{}{
 						"type":        "boolean",
 						"description": "For a background run: wake yourself with the outcome when it finishes, so you can end your turn now",
@@ -68,6 +77,8 @@ func SpawnAgentTool() *tooling.Tool {
 
 type spawnAgentArgs struct {
 	Agent           string `json:"agent"`
+	Model           string `json:"model"`
+	Reasoning       string `json:"reasoning"`
 	Prompt          string `json:"prompt"`
 	Description     string `json:"description"`
 	Background      bool   `json:"background"`
@@ -93,6 +104,8 @@ func executeSpawnAgent(ctx context.Context, argsJSON string, env *tooling.Env) (
 	}
 	return env.SpawnAgent(ctx, tooling.SpawnRequest{
 		Agent:           name,
+		Model:           strings.TrimSpace(args.Model),
+		Reasoning:       strings.ToLower(strings.TrimSpace(args.Reasoning)),
 		Prompt:          args.Prompt,
 		Description:     strings.TrimSpace(args.Description),
 		Background:      args.Background,

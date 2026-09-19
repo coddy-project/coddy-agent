@@ -29,7 +29,7 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 	if err != nil {
 		return "", err
 	}
-	mode := a.state.GetMode()
+	mode := a.state.EffectiveMode()
 	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
 	toolEnv := a.buildToolEnv(mode, sd)
 	if !permission.Approved(perm) {
@@ -74,6 +74,9 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 	_, refusedByMode := toolCallRefusedByMode(mode, tc.Name)
 	if st := sessionStatePtr(a.state); st != nil && !refusedByMode {
 		permission.RecordAllowAlways(st, tc.Name, tc.InputJSON, toolEnv.CWD, perm)
+	}
+	if !refusedByMode {
+		a.switchPermissionModeFromDialog(ctx, toolEnv, perm)
 	}
 	if sd != "" {
 		_ = session.ClearPendingPermission(sd)
@@ -160,6 +163,9 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 		WebSearch:         webSearchSettings(a.cfg),
 	}
 	a.applySubagentEnv(env, mode)
+	if a.subagent == nil && a.settings() != nil {
+		env.SwitchModel = a.switchModel
+	}
 	if a.configReloader != nil {
 		env.ReloadConfig = func(ctx context.Context) ([]string, error) {
 			warnings, err := a.configReloader(ctx)

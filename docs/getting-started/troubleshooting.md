@@ -116,7 +116,7 @@ coddy --dry-run              # resolves stdio commands in PATH, contacts remote 
 
 ## The Telegram bot is silent
 
-**Symptom.** The bot never answers, or a `/model` or `/mode` tap changes nothing.
+**Symptom.** The bot never answers, or a `/model` or `/resume` tap changes nothing.
 
 **Cause.** In order of frequency: the binary has no gateway tag (a startup error naming the tag); `gateways.telegram.enable` is true but no token could be resolved (the gateway refuses to start and says to set `gateways.telegram.token` or `TELEGRAM_BOT_TOKEN`); the sender is not allowed - `default_access: admins` or `group:<name>` drops everyone else silently, and `admins` must hold your numeric Telegram user id; the message is in a group and the bot was not addressed (in groups it reacts only to an @mention, a reply to its own message, or `/clear`); another process is polling the same bot, and Telegram hands each update to one long poll only. Text answered but taps ignored, with nothing at `debug`, was the subscription: Telegram remembers the last `allowed_updates` a bot asked for, and a token that once ran under another framework may be subscribed to messages alone. Coddy asks for `message` and `callback_query` on every poll since it hit this itself; `curl https://api.telegram.org/bot<token>/getWebhookInfo` shows what is in force.
 
