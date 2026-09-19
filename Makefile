@@ -1,4 +1,4 @@
-.PHONY: build build-acp ui-deps ui-build ui-test ui-typecheck test test-matrix print-test-tag-sets print-full-tags print-lint-tags-no-ui test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check site-schema site-schema-check docs docs-check docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check
+.PHONY: build build-acp ui-deps ui-build ui-test ui-typecheck test test-matrix test-race print-test-tag-sets print-full-tags print-lint-tags-no-ui test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check site-schema site-schema-check docs docs-check docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -265,6 +265,14 @@ test-matrix: test-opencode-rules ui-build ui-test
 # then every entry of TEST_TAG_SETS.
 print-test-tag-sets:
 	@printf '[""'; for tags in $(TEST_TAG_SETS); do printf ',"%s"' "$$tags"; done; printf ']\n'
+
+# The race detector over the whole tree, with every optional module compiled in
+# but ui (LINT_TAGS_NO_UI below): that tag only embeds the SPA and needs Node,
+# and adds no Go concurrency. CI runs this target on every pull request, and
+# GOFLAGS=-count=3 repeats each test to shake out a race that shows up rarely.
+# Every package is clean under it; a race it reports is fixed, not skipped.
+test-race:
+	go test -race -tags=$(LINT_TAGS_NO_UI_CSV) ./...
 
 # Type-check the Windows build without a Windows machine.
 #

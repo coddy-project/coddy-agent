@@ -41,7 +41,7 @@ Swagger lives at **`/docs/`**, OpenAPI YAML at **`/openapi.yaml`**.
 
 ## Pre-commit gate
 
-A git **`pre-commit`** hook runs the linter before every commit, so nothing lands with lint errors. It is the single enforcement point for humans and coding agents alike. Tests are **opt-in** on commit: **`make test`** (the express run: the SPA's vitest suite, then every optional module compiled in once) belongs before the push, and the per-combination tag matrix (**`make test-matrix`**) runs on GitHub Actions for every pull request.
+A git **`pre-commit`** hook runs the linter before every commit, so nothing lands with lint errors. It is the single enforcement point for humans and coding agents alike. Tests are **opt-in** on commit: **`make test`** (the express run: the SPA's vitest suite, then every optional module compiled in once) belongs before the push, and the per-combination tag matrix (**`make test-matrix`**) runs on GitHub Actions for every pull request, as does **`make test-race`**: the race detector over the whole tree with every tag but `ui`, clean in every package. Run it before the push when a change touches goroutines, locks or a test harness that drives a live loop.
 
 - Enable once per clone: **`make hooks`** (sets **`core.hooksPath=.githooks`**; this is local config and is not committed, so every clone runs it once).
 - On commit, **`.githooks/pre-commit`** calls **`scripts/checks.sh`**, which runs **`make lint`** by default: `golangci-lint` over the untagged tree, over every tag but `ui` and over the shipped tag set, so every Go file of the host platform is compiled once, then `tsc --noEmit` over the SPA sources (**`make ui-typecheck`**). Commits touching only non-code files (docs, etc.) skip the gate.

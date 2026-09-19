@@ -45,6 +45,10 @@ type wakeWorld struct {
 	// failCommand is what the scripted model starts in the background; the
 	// scenario fixes its exit code.
 	failCommand string
+	// taskID is the id the pool gave that task. The pool is the process-wide
+	// bgtask.Default(), whose numbering carries over from an earlier run of
+	// this test (-count=N), so the scenario reads the id instead of naming it.
+	taskID string
 }
 
 func (w *wakeWorld) reset() error {
@@ -81,6 +85,7 @@ func (w *wakeWorld) close() {
 		w.model = nil
 	}
 	w.mgr = nil
+	w.taskID = ""
 	if w.root != "" {
 		_ = os.RemoveAll(w.root)
 		w.root = ""
@@ -168,6 +173,10 @@ func (w *wakeWorld) chatShows(text string) error {
 	return fmt.Errorf("the chat never showed %q:\n%s", text, w.fake.fake.Chat(wakeChatID).Text())
 }
 
+func (w *wakeWorld) chatShowsWakeNote() error {
+	return w.chatShows("Woken by a finished background task: " + w.taskID)
+}
+
 // taskEnds waits for the task the model started to reach its terminal status
 // with the exit code the scenario names.
 func (w *wakeWorld) taskEnds(code int) error {
@@ -182,6 +191,7 @@ func (w *wakeWorld) taskEnds(code int) error {
 				if !task.NotifyOnFinish {
 					return fmt.Errorf("task %s was not recorded as waking the agent", task.ID)
 				}
+				w.taskID = task.ID
 				return nil
 			}
 		}
@@ -198,7 +208,7 @@ func (w *wakeWorld) sessionKeepsWake() error {
 	}
 	for _, m := range st.GetMessages() {
 		if m.BackgroundWake != nil {
-			if len(m.BackgroundWake.Tasks) != 1 || m.BackgroundWake.Tasks[0].ID != "bg_1" || m.BackgroundWake.Tasks[0].Status != "failed" {
+			if len(m.BackgroundWake.Tasks) != 1 || m.BackgroundWake.Tasks[0].ID != w.taskID || m.BackgroundWake.Tasks[0].Status != "failed" {
 				return fmt.Errorf("wake marker = %+v", m.BackgroundWake)
 			}
 			return nil
@@ -231,6 +241,7 @@ func initializeWakeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a telegram chat whose agent is a scripted model$`, w.chatWithScriptedModel)
 	sc.Step(`^the user asks the agent to "([^"]*)" in the background$`, w.userAsks)
 	sc.Step(`^the chat shows "([^"]*)"$`, w.chatShows)
+	sc.Step(`^the chat shows the wake note of that task$`, w.chatShowsWakeNote)
 	sc.Step(`^the background task ends with exit code (\d+)$`, w.taskEnds)
 	sc.Step(`^the session keeps the woken turn's first message as a background wake$`, w.sessionKeepsWake)
 }

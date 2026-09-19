@@ -1292,6 +1292,51 @@ func TestAgentUsageFollowsTheRunIntoTheRecord(t *testing.T) {
 	}
 }
 
+// A running child reports its usage while the model starts more work in the
+// same session, and admission counts that session's tasks, reading every row
+// as it goes. The row's agent info is what SetAgentUsage replaces, so the
+// count has to read it under the row's lock. The race detector is what fails
+// here (make test-race); without it the test only checks the count.
+func TestAgentUsageUpdatesDoNotRaceAdmission(t *testing.T) {
+	pool := NewWithRunner(Config{MaxConcurrent: 64}, &stubRunner{})
+	t.Cleanup(func() { pool.StopSession("s") })
+
+	child, err := pool.Launch(Spec{SessionID: "s", Kind: KindAgent, Agent: &AgentInfo{Name: "reviewer"}},
+		func(string, io.Writer) (Handle, error) { return &stubHandle{release: make(chan struct{})}, nil })
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+
+	stop := make(chan struct{})
+	var reporter sync.WaitGroup
+	reporter.Add(1)
+	go func() {
+		defer reporter.Done()
+		for tokens := 0; ; tokens++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			pool.SetAgentUsage("s", child.ID, tokens, tokens)
+		}
+	}()
+
+	const more = 20
+	for i := range more {
+		if _, err := pool.Launch(Spec{SessionID: "s", Kind: KindAgent, Label: fmt.Sprintf("task %d", i)},
+			func(string, io.Writer) (Handle, error) { return &stubHandle{release: make(chan struct{})}, nil }); err != nil {
+			t.Fatalf("Launch %d: %v", i, err)
+		}
+	}
+	close(stop)
+	reporter.Wait()
+
+	if got := pool.RunningCount("s"); got != more+1 {
+		t.Fatalf("RunningCount = %d, want %d", got, more+1)
+	}
+}
+
 func TestLaunchRefusalNeverInvokesTheCallback(t *testing.T) {
 	pool := NewWithRunner(Config{MaxConcurrent: 1}, &stubRunner{})
 	t.Cleanup(func() { pool.StopSession("s") })
