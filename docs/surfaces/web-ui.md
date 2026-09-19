@@ -131,11 +131,11 @@ Server behaviour, the cookie and the CSRF rule: [HTTP API](../reference/http-api
 
 ![The same shell at 390 px: the rail becomes a top bar](../assets/nav-topbar-mobile-390.png)
 
-*The same shell at 390 px: the rail becomes a top bar*
+*The same shell at 390 px: the rail becomes a top bar, the start screen fits the width*
 
 ![A chat on the mobile shell](../assets/screenshot-mobile-chat.png)
 
-*A chat on the mobile shell*
+*A chat on a phone: both chip rows of the composer are one line and scroll sideways, Send stays in place*
 
 Desktop layout
 
@@ -157,6 +157,19 @@ Mobile layout
 - On mobile the left rail becomes a top bar to preserve horizontal space; the top bar is **`position: fixed`** at the viewport top (**`shell-main`** is padded with **`--coddy-mobile-top-inset`**) while **`body`** scrolls the chat.
 - On mobile the brand stays on a single line.
 - On **`max-width: 1199px`** (phones and tablets alike) the **Settings** drawer keeps one inline inset, **14px**, for every band it stacks: the **SETTINGS** head, the lead paragraph, the section tiles, the opened section and the reload / save footer all start and end on the same edge. Check it by measuring `getBoundingClientRect().left` of `.settings-lead`, `.settings-tile` and `.settings-body` against `.settings.drawer` - the three must agree.
+
+Phone layout (**`max-width: 520px`**)
+
+Tablets and desktops fit every control already; a phone does not, so the narrowest shell gets its own block at the end of **`styles.css`**, and nothing in it applies above **520px**.
+
+- **Top bar.** The brand drops its second word and shows **Coddy** alone, the icons are **40px** with a **4px** gap and keep to the right edge. What does not fit next to the brand folds behind a **More** button (three dots): **History** and **Swarm** always stay in the bar, the others come back as room grows in the order **Settings**, **Scheduler**, **Docs**, **Sign out**, and the menu lists the folded ones as **Docs**, **Scheduler**, **Settings** and, under a separator, **Sign out**. A pick, **Escape** or a press outside closes it; the button is highlighted while a folded panel is open. With 40px icons five items fit from about 290px, so on most phones the menu only appears on a relay or a very narrow screen. The split is **`nav/navOverflow.ts`**, measured by **`NavRail`** on the stacked shell only.
+- **Composer, context row.** The environment, folder, branch and worktree chips sit in their own strip, **`.composer-context-scroll`**, which is **`display: contents`** on wider shells (the row wraps as it always did) and a one-line strip scrolling sideways on a phone. The improve-prompt button stays outside the strip, at the end of the row.
+- **Composer, selector chips.** The attach button of a multimodal model, then mode, model, reasoning and permission (this order on every width) form one strip that scrolls sideways under a fade at its right edge; the context ring and **Send** never shrink, so no chip is ever drawn under them. A long model name ends in an ellipsis.
+- **Start screen.** The hero is one grid track that cannot grow past its container (**`grid-template-columns: minmax(0, 1fr)`**), so the page never scrolls sideways and the title stays centred.
+- **Text fields** are at least **16px** on a phone and on any touch-only device (**`(any-hover: none) and (any-pointer: coarse)`**): iOS Safari zooms the page into a smaller field on focus and does not zoom back. The composer and its highlight mirror change together, since the mirror has to keep the textarea's metrics.
+- The viewport meta carries **`interactive-widget=resizes-content`**, so Android browsers shrink the layout when the on-screen keyboard opens and the docked composer stays above it.
+
+Check it live at **360**, **390** and **430px** on the start screen and in a chat, with the menus closed and with History open: **`document.documentElement.scrollWidth`** equals **`clientWidth`**, the **Send** button's rect intersects no **`.composer-tab`**, and the brand's rect intersects no icon of the top bar. At **768** and **1280px** the layout is the one before this block existed. The CSS contract is pinned by **`phoneLayoutCss.test.ts`**; the scenarios are **`features/web_ui_phone.feature`**.
 
 Header links
 
@@ -224,7 +237,7 @@ Session title
 
 ### Session settings: permission chip, turn overrides, live mirror
 
-![The composer after a bypass from the dialog: a red Bypass chip, and "stub/qwen3.8-demo, 2 turns left" next to the model](../assets/session-settings/session-settings-composer-bypass-dark-1280.png)
+![The composer after a bypass from the dialog: the selectors end with a red Bypass chip, followed by "stub/qwen3.8-27b, 2 turns left"](../assets/session-settings/session-settings-composer-bypass-dark-1280.png)
 
 *The composer after the session was switched to bypass from a permission prompt and the model changed for two turns.*
 
@@ -435,7 +448,7 @@ Shape and glyphs
 
 Behavior
 
-- **Enter** on desktop submits when idle and queues the draft while the session has an active turn; **`Shift+Enter`** inserts a newline. On the mobile shell, **Enter** inserts a newline and the primary button sends or queues.
+- **Enter** submits when idle and queues the draft while the session has an active turn, on every device with a keyboard, a desktop window narrower than **1200px** included; **`Shift+Enter`** inserts a newline, and so do **`Ctrl+Enter`** and **`Alt+Enter`** (browsers insert nothing for those two, so the composer puts the newline at the caret itself). What Enter does follows the input device, not the width: on a **touch-only** device (**`(any-hover: none) and (any-pointer: coarse)`**, a phone) Return inserts a newline and the primary button sends or queues, because a phone keyboard has no Shift+Enter; **`Cmd+Enter`** still sends from an attached keyboard. The textarea's **`enterkeyhint`** says the same to the on-screen keyboard (**`send`**, or **`enter`** on a touch-only device). Enter that confirms an input-method candidate (**`isComposing`**, **`keyCode` 229**) never sends. The rule is **`chat/composerEnter.ts`**.
 - **Stop** sends **`POST /coddy/sessions/{id}/cancel`** and aborts the tab's own reader at once, so the request does not wait for a connection that reader holds. Failure remains visible and retryable, and the tab rejoins the running turn; acknowledgement alone does not mark the turn idle. Partial assistant persistence and transcript merging follow [Parallel sessions and generation cancel](#parallel-sessions-and-generation-cancel).
 - **Improve prompt**: the compact **24×24px** wand button (**`data-testid="composer-enhance-btn"`**) lives at the **right edge** of the workspace-context row, next to the Local / folder / branch / worktree controls — not in the textarea or lower composer bar. At **≤520px**, it is pinned to that row's **top-right corner** above wrapped chips. It has `title` and accessible name **`Improve prompt`**, is disabled for blank drafts and while a request or generation is active, calls **`POST /coddy/enhance-prompt`**, and replaces the draft only on success. **Ctrl+Z** / **⌘Z** restores the pre-improvement draft; a failure leaves it unchanged and displays an inline error.
 
@@ -678,7 +691,7 @@ The inline approval gate is implemented by **PermissionPromptSection** and **Per
 - Render the card only for a pending permission request. Read-only tools render their normal timeline row only; there is no informational no-approval card, checkmark, or explanatory sentence.
 - Header: human action question plus one raw tool-id badge. The preview header is reserved for the path, shell, or operation scope so the tool name is not duplicated.
 - Actions use the server-provided labels unchanged (**Allow**, **Allow always**, optional **Always allow `<program>`**, **Reject**). The options list is rendered from the SSE payload, so a fourth button needs no client change beyond layout.
-- While the session asks, the server adds the session switches before **Reject**: **Bypass permissions for this session** (**`allow_session_bypass`**, drawn in red, **`permission-prompt-btn--session-bypass`**) and, for a file write, **Allow edits for this session** (**`allow_session_accept_edits`**, **`permission-prompt-btn--session-edits`**). Either approves the call and switches the session, and the permission chip follows from the settings event ([Session settings](../features/session-settings.md#switching-from-the-permission-dialog)).
+- While the session asks, the server adds the session switches before **Reject**: **Bypass for this session** (**`allow_session_bypass`**, drawn in red, **`permission-prompt-btn--session-bypass`**) and, for a file write, **Allow edits for this session** (**`allow_session_accept_edits`**, **`permission-prompt-btn--session-edits`**). Either approves the call and switches the session, and the permission chip follows from the settings event ([Session settings](../features/session-settings.md#switching-from-the-permission-dialog)).
 - The program-wide option only reaches the client for **run_command** on a single plain invocation. Its label already names the exact grant (**`curl`**, **`git status`**), so the card must render it verbatim rather than re-deriving a program name.
 - Match the prompt to its **tool_call** by **toolCallId** and prefer that row’s **argsText**; fall back to **Arguments:** content in the permission payload.
 - A turn the server woke on its own asks here too. Its prompt arrives on the composer relay the tab follows, is persisted as the session's pending prompt (so a reload restores it like any other), and the first answer from any client - this tab, another one, a console following the turn - settles it.
@@ -1150,6 +1163,27 @@ These scenarios are intended to be automated via Playwright against the Vite dev
   - Then the nav width toggle is not present
   - And the nav rail height is 78px
   - And sessions can still be opened from the menu button
+
+- A phone fits the start screen and the chat
+  - Given viewport width is 360, 390 or 430px
+  - When the start screen loads, and again in a chat
+  - Then `document.documentElement.scrollWidth` equals `clientWidth`
+  - And the `#btn-send` rect intersects no visible part of a `.composer-tab`
+  - And the `.rail-brand` rect intersects no top bar icon
+  - And every top bar icon lies inside the pill; below about 270px the bar shows History, Settings and More, and More lists Docs and Scheduler
+  - And `textarea#composer` computes to 16px
+  - When the viewport is 768 or 1280px
+  - Then the composer rows wrap and the top bar looks as before the phone block
+
+- Enter follows the input device
+  - Given a desktop browser window 390px wide
+  - When the user types a draft and presses Enter
+  - Then the draft is sent
+  - When the user presses Ctrl+Enter in the middle of a draft
+  - Then a newline appears at the caret and nothing is sent
+  - Given a touch-only device (Playwright context with `isMobile` and `hasTouch`)
+  - When the user presses Return
+  - Then a newline is inserted, and the Send button sends
 
 - Tool calls survive restart
   - Given a session has tool calls executed

@@ -2411,6 +2411,9 @@ a.rail-brand {
 .hero {
   flex: 1;
   display: grid;
+  /* One track that cannot grow past the container: the composer's chips
+     would otherwise widen it, and the page, on a phone. */
+  grid-template-columns: minmax(0, 1fr);
   align-content: center;
   justify-items: center;
   padding: 18px 0 10px;
@@ -2418,6 +2421,7 @@ a.rail-brand {
 
 .hero-composer {
   width: min(720px, 100%);
+  min-width: 0;
 }
 
 .hero-footer {
@@ -4926,18 +4930,11 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   padding: 10px 12px 0;
 }
 
-@media (max-width: 520px) {
-  .composer-context-row {
-    position: relative;
-    padding-right: 44px;
-  }
-
-  .composer-enhance-btn {
-    position: absolute;
-    top: 10px;
-    right: 12px;
-    margin-left: 0;
-  }
+/* The chips' strip. Not a box on a wide shell, so the chips stay flex items
+   of the wrapping row; a phone makes it a sideways-scrolling strip (Phone
+   layout at the end of this file). */
+.composer-context-scroll {
+  display: contents;
 }
 
 .workspace-chip-wrap {
@@ -13274,4 +13271,224 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   justify-content: space-between;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+/* ---------------------------------------------------------------------------
+   Phone layout (max-width: 520px)
+
+   Tablets and desktops fit everything already; a phone does not. The top bar
+   keeps every icon one tap away and lets the brand give way, and the two
+   chip rows of the composer become one-line strips that scroll sideways, so
+   Send is never covered and the docked composer stays short.
+   --------------------------------------------------------------------------- */
+
+@media (max-width: 520px) {
+  /* Top bar: icons never slide over the brand; the brand shrinks and clips. */
+  .rail-column {
+    padding-inline: 8px;
+  }
+
+  .rail-pill {
+    gap: 8px;
+    padding: 8px 10px;
+  }
+
+  /* The narrow rail wraps the brand in a tip host: that host is the flex
+     item of the bar, so it has to shrink too. */
+  .rail-brand-tip-host,
+  .rail-brand {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .rail-brand {
+    padding-inline: 4px;
+  }
+
+  .rail-brand-text {
+    min-width: 0;
+  }
+
+  .rail-brand-sub {
+    display: none;
+  }
+
+  /* Grows so the icons keep to the right edge, never shrinks. */
+  .rail-middle {
+    flex: 1 0 auto;
+    gap: 4px;
+  }
+
+  .rail-link-stack {
+    gap: 4px;
+  }
+
+  .rail-hit-icon,
+  .rail-hit-link {
+    width: 40px;
+    height: 40px;
+  }
+
+  /* Context row: env / folder / branch / worktree in one scrolling strip,
+     the improve-prompt button fixed at the row's end. */
+  .composer-context-row {
+    flex-wrap: nowrap;
+  }
+
+  .composer-context-scroll {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    /* Room for focus rings inside the scroller. */
+    padding: 3px;
+    margin: -3px;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+  }
+
+  .composer-context-scroll::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Trailing room so the last chip can scroll clear of the fade. */
+  .composer-context-scroll::after {
+    content: "";
+    flex: 0 0 12px;
+  }
+
+  .composer-context-scroll > *,
+  .composer-context-chips > * {
+    flex-shrink: 0;
+  }
+
+  .workspace-chip {
+    max-width: 42vw;
+  }
+
+  /* Selector chips: one strip that scrolls under a fade, Send stays put. */
+  .composer-bar {
+    gap: 8px;
+    padding: 8px 10px 10px;
+  }
+
+  .composer-tabs {
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    /* Room for the 3px glow of the plan / ask / bypass chips and focus rings. */
+    padding: 4px;
+    margin: -4px;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+  }
+
+  .composer-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Trailing room so the last chip can scroll clear of the fade. */
+  .composer-tabs::after {
+    content: "";
+    flex: 0 0 12px;
+  }
+
+  .composer-tab {
+    padding: 8px 10px;
+    white-space: nowrap;
+  }
+
+  .composer-tab.mode-llm {
+    max-width: 11em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .composer-overrides {
+    flex: none;
+    max-width: 40vw;
+  }
+}
+
+/* iOS Safari zooms the page into any text field under 16px on focus and
+   does not zoom back. Phones in both orientations and touch tablets. */
+@media (max-width: 520px), (any-hover: none) and (any-pointer: coarse) {
+  /* The mirror draws the mention highlights under the textarea: the two
+     must keep the same metrics. */
+  .composer-mirror-inner,
+  textarea#composer {
+    font-size: 16px;
+  }
+
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+  select,
+  textarea:not(#composer) {
+    font-size: max(16px, 1em);
+  }
+}
+
+/* Top bar More menu (NavRail): the items a phone's bar has no room for,
+   under the three-dots button at the bar's right end. Opaque, because the
+   pill it hangs from already blurs what is behind it. */
+.rail-more-host {
+  position: relative;
+}
+
+.rail-more-menu {
+  position: absolute;
+  top: calc(100% + 14px);
+  right: -6px;
+  z-index: 90;
+  min-width: 210px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-radius: 16px;
+  background: var(--coddy-canvas-gradient-top);
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  box-shadow: var(--shadow);
+}
+
+.rail-more-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.rail-more-item:hover,
+.rail-more-item:focus-visible {
+  background: color-mix(in srgb, var(--text) 7%, var(--coddy-blend-base));
+  outline: none;
+}
+
+.rail-more-item.is-active {
+  color: var(--accent);
+}
+
+.rail-more-sep {
+  height: 1px;
+  margin: 4px 8px;
+  background: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
 }

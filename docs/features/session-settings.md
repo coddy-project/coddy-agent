@@ -52,9 +52,9 @@ A gpt-5 model has no off (`minimal` still thinks), and the o-series and gpt-oss 
 
 ## Switching from the permission dialog
 
-While the session asks (`ask`), a permission prompt that belongs to the session itself carries one more choice: **Bypass permissions for this session** (`allow_session_bypass`), and for a file write also **Allow edits for this session** (`allow_session_accept_edits`). The choice approves the call and switches the session, so the rest of the same turn runs without prompts. A prompt relayed from a subagent, a prompt a hook forced, and a `config_commit` or `config_rollback` do not offer them; those two keep asking even under a bypass switched on in the session, because a commit can rewrite the permission policy itself.
+While the session asks (`ask`), a permission prompt that belongs to the session itself carries one more choice: **Bypass for this session** (`allow_session_bypass`), and for a file write also **Allow edits for this session** (`allow_session_accept_edits`). The choice approves the call and switches the session, so the rest of the same turn runs without prompts. A prompt relayed from a subagent, a prompt a hook forced, and a `config_commit` or `config_rollback` do not offer them; those two keep asking even under a bypass switched on in the session, because a commit can rewrite the permission policy itself.
 
-![A run_command prompt in the web UI with Allow, Allow always, Always allow echo, a red Bypass permissions for this session and Reject](../assets/session-settings/session-settings-permission-dialog-dark-1280.png)
+![A run_command prompt in the web UI with Allow, Allow always, Always allow echo, a red Bypass for this session and Reject](../assets/session-settings/session-settings-permission-dialog-dark-1280.png)
 
 *The permission prompt of a session in `ask`: the session switch sits in red before Reject.*
 
@@ -74,7 +74,7 @@ A model id or a level the configuration does not offer is an error in a `switch_
 
 The composer's **Mode**, **Permissions** and **Model** selectors show the session's settings as the server has them. The permission chip reads **Ask first**, **Accept edits** or **Bypass**, the last in red; a line next to the selectors lists what is changed for the next turns. A change made anywhere else - a command, the dialog, the model's own `switch_model`, a console on the same session - reaches the tab as `event: session_settings` and moves the selectors. A browser that has not seen the latest change yet does not undo it when it sends: the request carries `metadata.settingsVersion`, and an older version leaves the session's settings alone.
 
-![The composer after a bypass from the dialog: a red Bypass chip, and "stub/qwen3.8-demo, 2 turns left" next to the model](../assets/session-settings/session-settings-composer-bypass-dark-1280.png)
+![The composer after a bypass from the dialog: the selectors end with a red Bypass chip, followed by "stub/qwen3.8-27b, 2 turns left"](../assets/session-settings/session-settings-composer-bypass-dark-1280.png)
 
 *The composer after the session was switched to bypass and the model changed for two turns; each change left a SYSTEM line in the transcript.*
 

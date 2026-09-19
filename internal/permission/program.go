@@ -160,7 +160,7 @@ type OptionContext struct {
 
 // OptionsFor is Options with the session-wide switches offered where they
 // apply: while the session asks (mode ask), "allow edits for this session"
-// on a file write and "bypass permissions for this session" on anything but
+// on a file write and "bypass for this session" on anything but
 // the staged-config commit and rollback, which keep asking because a commit
 // can rewrite the permission policy itself.
 func OptionsFor(toolName, argsJSON string, oc OptionContext) []acp.PermissionOption {
@@ -174,7 +174,7 @@ func OptionsFor(toolName, argsJSON string, oc OptionContext) []acp.PermissionOpt
 		extra = append(extra, acp.PermissionOption{OptionID: OptionAllowSessionAcceptEdits, Name: "Allow edits for this session", Kind: "allow_always"})
 	}
 	if name != "config_commit" && name != "config_rollback" {
-		extra = append(extra, acp.PermissionOption{OptionID: OptionAllowSessionBypass, Name: "Bypass permissions for this session", Kind: "allow_always"})
+		extra = append(extra, acp.PermissionOption{OptionID: OptionAllowSessionBypass, Name: "Bypass for this session", Kind: "allow_always"})
 	}
 	if len(extra) == 0 {
 		return options

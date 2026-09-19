@@ -1967,8 +1967,8 @@ func (a *Agent) switchModel(ctx context.Context, req tooling.ModelSwitch) (strin
 }
 
 // switchPermissionModeFromDialog applies a permission answer that also
-// switches the session's permission mode ("bypass permissions for this
-// session", "allow edits for this session", #292). The change goes through
+// switches the session's permission mode ("bypass for this session",
+// "allow edits for this session", #292). The change goes through
 // the manager's setter, so every surface shows it and the log records it,
 // and the tool environment follows at once: the rest of this turn runs under
 // the new mode.
