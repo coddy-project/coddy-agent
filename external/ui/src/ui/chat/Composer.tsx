@@ -2670,7 +2670,11 @@ export function Composer(props: {
                     dismissSlashAtPickers();
                     return;
                   }
-                  if (argOpen && argItems.length > 0) {
+                  // A key an input method is composing with (keyCode 229 in
+                  // Safari) is its own, as it never sends: the list waits.
+                  const imeComposing =
+                    ev.nativeEvent.isComposing || ev.keyCode === 229;
+                  if (argOpen && argItems.length > 0 && !imeComposing) {
                     if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
                       ev.preventDefault();
                       const len = argItems.length;
