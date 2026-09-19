@@ -17,7 +17,8 @@ printing usage.
 Launch: bare `coddy` on a terminal (both stdin and stdout must be ttys —
 pipes and CI keep the usage contract), explicitly `coddy cli [flags]`, or with
 flag-style shortcuts routed to the console: `coddy -c` continues the latest
-session in this folder and `coddy -p "..."` runs one non-interactive prompt.
+session in this folder and `coddy -p "..."` runs one non-interactive prompt
+(`coddy -p -` and `coddy -i FILE` read it from stdin or from a file).
 Startup runs before the terminal enters raw mode: the config, the session
 store, the skills, the rule folders and the configured MCP servers, then
 the first frame. Nothing reads the workspace tree: nested `AGENTS.md` files
@@ -424,6 +425,97 @@ note on stderr. The question tool returns empty answers. `--model`, `--mode`,
 `--permission-mode`, `--session-id`, and `--continue` all combine with
 `--prompt`; `--resume` does not (it needs the interactive picker).
 
+### Prompt from a file or stdin
+
+A prompt does not have to pass through the command line, where the operating
+system caps a single argument (128 KiB on Linux) and `$(< file)` loses the
+file's trailing newlines. coddy reads it itself:
+
+```bash
+coddy -p - < brief.md          # the prompt on stdin
+cat brief.md | coddy -p        # the same: a bare -p reads a pipe
+coddy -i brief.md --mode ask   # the prompt from a named file
+coddy -p -i brief.md           # the same, -p only asks for print mode
+```
+
+The prompt comes from exactly one place: the text after `-p`, stdin (`-p -`,
+`-i -`, or a bare `-p` when stdin is not a terminal), or the file `-i`
+names. `-p -` on a terminal says on stderr that it reads the prompt from it
+and takes what is typed until ctrl+d. A prompt that is itself a coddy flag
+(`-c`, `--mode`) needs the `-p=-c` spelling, since a bare `-p` followed by a
+flag reads the prompt from stdin. It is sent exactly as read, line endings, trailing newlines and quotes
+included, and it is read like typed text: an `@path` mention in it attaches
+that file, and a leading `/skill` or `/model ...` works as it does in the
+editor. A relative `-i` path resolves from the directory the command runs in,
+as any shell argument does (`--cwd` moves the session, not the path).
+Symlinks are followed, a FIFO such as `-i <(make report)` is read to its end,
+and a directory is refused.
+
+### Data piped under a prompt
+
+When the prompt came from the command line or from `-i` and stdin is a pipe or
+a redirected file, coddy reads stdin to its end and attaches it after the
+prompt, the way `codex exec` appends a piped stdin:
+
+```bash
+git diff origin/main...HEAD | coddy -p "Review this change" --mode ask
+make test 2>&1 | coddy -p "Why does the build fail?"
+coddy -p "Summarize the incidents" < app.log
+```
+
+The model reads it as `<coddy_attachment path="stdin" name="stdin"
+kind="stdin">`, and a transcript shows `[stdin]` in its place. It is data: an
+`@` inside it reads no file and fetches no page, a `/command` inside it runs
+nothing, so text from a source you do not control belongs here and not in the
+prompt. A line on stderr says how much was attached, and blank input attaches
+nothing. A terminal, `/dev/null` and a socket on stdin are never attached;
+they are read only when the prompt itself is to come from stdin (`-p -`, and
+for all but a terminal a bare `-p`, so a program that spawns coddy can write
+the prompt into it).
+
+This changes what an existing `coddy -p "..."` sends wherever its stdin
+carries something else. Pass `--no-stdin` (or redirect `< /dev/null`) there:
+
+- in a `while read -r f; do ...; done < list` loop, where the first run would
+  read the rest of the list;
+- behind `ssh host coddy -p ...`, which keeps stdin open (`ssh -n` works too);
+- in a CI runner that feeds the job script to the shell on stdin, as GitLab's
+  runners do: without the flag coddy would read the rest of the script, send it
+  to the model, and the lines after it would never run;
+- in a git hook that receives ref lines on stdin (`pre-push`, `pre-receive`),
+  and in a container started with `docker run -i`;
+- in Windows PowerShell, which has no `<` redirection.
+
+A pipe that stays silent for 3 seconds gets one line on stderr saying the run
+is waiting for input, and the run keeps waiting: a slow producer such as
+`make` still gets its output attached, and a pipe nobody closes shows up as a
+message instead of a silent hang.
+
+### What is refused
+
+The input is read and checked before the configuration loads, before a
+session exists and before any request, so a refused run sends nothing and
+exits 1:
+
+- two prompts (`-p "text" -i brief.md`, `-p - -i brief.md`), a repeated `-p`
+  or `-i`, an empty `-p ""`, or words left after the flags (`coddy -p fix the
+  bug` stops on "the": quote the prompt);
+- a missing or unreadable file, or a directory;
+- text that is not UTF-8 (the error names the byte offset) or that holds a NUL
+  byte. A UTF-8 byte order mark is dropped and UTF-16 with a byte order mark is
+  decoded; any other encoding, UTF-16 without the mark included, needs
+  converting first (`iconv -f cp1251 -t utf-8`);
+- more than 8 MiB of prompt input, the prompt file and stdin together. Nothing
+  is cut short to fit. The limit is on what coddy reads; whether a prompt that
+  large fits is up to the model's context window.
+
+Under `--remote` the client reads everything and sends the prompt as the
+request's `input` and the piped data as a literal attachment of kind `stdin`.
+The server trims whitespace around `input`, so the prompt's own leading and
+trailing newlines do not survive the trip, while the attachment arrives byte
+for byte. An `@` mention in a prompt file resolves on the server, in its
+workspace.
+
 ## Remote mode (`--remote`)
 
 `--remote <target>` points the console (interactive and `-p` print runs) at a
@@ -658,6 +750,15 @@ comparison, as described under **Visual model**.
   `SetProviderUsageClock`; `external/cli/usage_test.go` pins the footer
   wording, the drop order, the blocker copy, the sanitising of hub strings
   and the reset timer.
+- One-shot input: `features/cli_prompt_input.feature`
+  (`external/cli/bdd_prompt_input_test.go`) runs `cli.Run` in the test process
+  with a pipe or a file as its stdin against a scripted model that records
+  every request, and checks the prompt byte for byte, the stdin attachment and
+  the transcript label; `external/cli/prompt_input_test.go` covers the flag
+  rules, the stdin kinds, the decoding and the limit, and asserts that refused
+  input never reaches the model. `examples/cli/cli_e2e_print_input.py` does
+  the same with the built binary and a real shell: pipes, files, a 200 KiB
+  prompt, a `while read` loop, and a bare `-p` on a pty.
 - Real pty, no model: `examples/cli/cli_e2e_startup.py` opens the built
   binary in a pty (pexpect + pyte), waits for the first frame, types into the
   editor, clears it with ctrl+c and exits with the second one, then checks the

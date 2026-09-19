@@ -196,22 +196,26 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// The built-in /compact, /plugin, and /export commands are operator input:
 	// they run deterministically, outside the tool set and the permission
 	// gate. A child's prompt is written by the parent model, so for a subagent
-	// the same text is an ordinary task and never reaches the built-ins.
+	// the same text is an ordinary task and never reaches the built-ins. They
+	// read what the operator typed, never the attachments that came with it:
+	// data piped into a one-shot run is not a /export target or /plugin
+	// arguments.
 	if a.subagent == nil {
+		typed := typedText(prompt)
 		// The built-in /compact command compacts history instead of running the
 		// ReAct loop. The command text is persisted (so it shows in the transcript
 		// like any other message) by runCompactCommand itself.
-		if instructions, ok := parseCompactCommand(userText); ok {
+		if instructions, ok := parseCompactCommand(typed); ok {
 			return a.runCompactCommand(ctx, instructions, userText)
 		}
 		// The built-in /plugin command manages skill plugins and marketplaces
 		// deterministically, without an LLM turn; the command text is persisted too.
-		if args, ok := parsePluginCommand(userText); ok {
+		if args, ok := parsePluginCommand(typed); ok {
 			return a.runPluginCommand(ctx, args, userText)
 		}
 		// The built-in /export command writes the transcript to a file in the
 		// workspace; the command text is persisted after the export is built.
-		if args, ok := parseExportCommand(userText); ok {
+		if args, ok := parseExportCommand(typed); ok {
 			return a.runExportCommand(ctx, args, userText)
 		}
 	}

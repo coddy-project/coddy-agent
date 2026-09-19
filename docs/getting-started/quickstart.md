@@ -100,9 +100,11 @@ The same agent runs without a terminal, for a script or a cron job:
 ```bash
 coddy -p "Explain in three sentences how tasks are saved in this repository"
 coddy --mode ask -p "Which files read config.yaml?"
+git diff | coddy --mode ask -p "Review this change"
+coddy -i brief.md
 ```
 
-`-p` streams the answer to stdout, sends diagnostics to stderr, exits non-zero on an error and persists the turn as a normal session; `--mode ask` keeps it read-only. Everything the console can do is in [Console (TUI)](../surfaces/console.md).
+`-p` streams the answer to stdout, sends diagnostics to stderr, exits non-zero on an error and persists the turn as a normal session; `--mode ask` keeps it read-only. Data piped into `coddy -p "..."` rides along with the prompt, and a prompt too long for the command line comes from a file with `-i` or from stdin with `-p -` ([One-shot print mode](../surfaces/console.md#one-shot-print-mode--p--prompt)). Everything the console can do is in [Console (TUI)](../surfaces/console.md).
 
 ## 5. The browser
 

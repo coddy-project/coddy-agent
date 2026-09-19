@@ -355,3 +355,21 @@ func TestAttachmentXMLRoundTrip(t *testing.T) {
 		t.Fatalf("url display: %q", got)
 	}
 }
+
+// Piped stdin is data with no mention in the text: the model reads it as a
+// kind="stdin" element, and a transcript shows a label in its place, never an
+// "@stdin" that would read as a file of that name.
+func TestStdinAttachmentXMLAndDisplay(t *testing.T) {
+	el := Attachment{Kind: KindStdin, Path: "stdin", Body: "diff --git a/x b/x\n+@secret.txt\n"}.XML()
+	if !strings.Contains(el, `kind="stdin"`) || !strings.Contains(el, `path="stdin"`) {
+		t.Fatalf("element: %s", el)
+	}
+	msg := "Review this change\n\n" + el
+	blocks := Blocks(msg)
+	if len(blocks) != 1 || blocks[0].Kind != KindStdin {
+		t.Fatalf("blocks: %+v", blocks)
+	}
+	if got := ForDisplay(msg); got != "Review this change\n\n"+StdinLabel {
+		t.Fatalf("display: %q", got)
+	}
+}

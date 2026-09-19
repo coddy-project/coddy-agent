@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/mention"
 	"github.com/EvilFreelancer/coddy-agent/internal/plans"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
@@ -477,10 +478,16 @@ func promptInput(blocks []acp.ContentBlock) (string, []session.PromptFileAttachm
 			if uri == "" {
 				uri = "attachment"
 			}
-			atts = append(atts, session.PromptFileAttachment{
+			att := session.PromptFileAttachment{
 				Path:   uri,
 				Source: &session.PromptFileAttachmentSourceField{Literal: blk.Resource.Text},
-			})
+			}
+			// Piped stdin keeps its kind on the wire, so the server builds the
+			// same block a local run does rather than a file named "stdin".
+			if m := blk.Resource.Mention; m != nil && m.Kind == mention.KindStdin {
+				att.Kind = mention.KindStdin
+			}
+			atts = append(atts, att)
 		case acp.ContentTypeResourceLink:
 			label := strings.TrimSpace(blk.Title)
 			if label == "" {

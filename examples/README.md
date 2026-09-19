@@ -122,7 +122,11 @@ CLI twins cover: smoke, models, web, todo, skills slash, rules, mentions (ranged
 background, background wake (`cli_e2e_background_wake.py`: no model at all - the scripted model of
 `cmd/tgfake` - the local console woken into a turn that shows nothing of its own and a `/tasks` row
 that says `woke the agent`, its permission modal, then the same over `--remote` against a
-self-booted `coddy serve`), subagents (`coddy agents trust` then a `spawn_agent` run), toolcalls
+self-booted `coddy serve`), one-shot input (`cli_e2e_print_input.py`: no model at all - a scripted
+model the script serves itself records every request - prompts piped into `-p`, read with `-i` and
+redirected into `-p -` arriving byte for byte, piped data attached under a typed prompt, a
+`while read` loop kept whole by `--no-stdin`, refused input sending nothing, and a bare `-p` on a
+pty), subagents (`coddy agents trust` then a `spawn_agent` run), toolcalls
 persist, compact, plan files, ask mode, scheduler agent, plus
 console-unique permissions (ask-mode modal) and resume (transcript replay).
 REST-only surfaces (`e2e_scheduler_api`, `e2e_remote`,

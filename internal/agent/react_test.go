@@ -2197,6 +2197,29 @@ func TestRunExportCommandWritesTranscriptAndPersistsRows(t *testing.T) {
 	}
 }
 
+// A built-in reads what the operator typed: data piped under "/export
+// chat.md" is not part of the target, so the file is chat.md and nothing
+// made of the attachment's words.
+func TestBuiltinCommandsReadTypedTextOnly(t *testing.T) {
+	ag, _, _, cwd := newExportTestAgent(t)
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{
+		{Type: "text", Text: "/export md chat.md"},
+		session.StdinAttachment("piped words that are no path\n"),
+	})
+	if err != nil || stop != string(acp.StopReasonEndTurn) {
+		t.Fatalf("Run: %v, stop %q", err, stop)
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "chat.md")); err != nil {
+		t.Fatalf("the export did not land on the typed target: %v", err)
+	}
+	entries, _ := os.ReadDir(cwd)
+	for _, e := range entries {
+		if e.Name() != "chat.md" && strings.Contains(e.Name(), "piped") {
+			t.Fatalf("an export target was built from the attachment: %q", e.Name())
+		}
+	}
+}
+
 func TestRunExportCommandRejectsPathOutsideWorkspace(t *testing.T) {
 	ag, st, _, cwd := newExportTestAgent(t)
 

@@ -61,7 +61,7 @@ agent:
 
 | Surface | Start it | What you get | Guide |
 |---|---|---|---|
-| Console | `coddy` | A terminal chat with streamed tool calls, permission prompts, a model picker, `!!` for a local shell, `coddy -c` to continue, `coddy -p "..."` for one-shot answers | [Console](docs/surfaces/console.md), [video](docs/assets/video/console.mp4) |
+| Console | `coddy` | A terminal chat with streamed tool calls, permission prompts, a model picker, `!!` for a local shell, `coddy -c` to continue, `coddy -p "..."` for one-shot answers, `git diff | coddy -p "review"` and `coddy -i brief.md` for piped data and long prompts | [Console](docs/surfaces/console.md), [video](docs/assets/video/console.mp4) |
 | Web UI and HTTP API | `coddy serve` | The embedded single-page app on `http://127.0.0.1:12345/`, OpenAI-compatible `/v1/*` endpoints and the `/coddy` REST surface, Swagger at `/docs/` | [Web UI](docs/surfaces/web-ui.md), [HTTP API](docs/reference/http-api.md), [video](docs/assets/video/web-ui.mp4) |
 | Editors | `coddy acp` | Zed, VS Code, Obsidian and scripts as ACP clients, with Coddy's modes, models, permissions and skills in the editor's composer | [Editors](docs/surfaces/editors.md), [Zed video](docs/assets/video/zed-acp.mp4), [VS Code video](docs/assets/video/vscode-acp.mp4) |
 | Telegram | `coddy serve` with `gateways.telegram.enable` | A bot with per-user sessions, access levels and group isolation; the same chat is live in the web UI | [Telegram gateway](docs/surfaces/gateway.md) |

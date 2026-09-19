@@ -26,7 +26,9 @@ _coddy() {
         '(-h --help)'{-h,--help}'[print the command list]' \
         '(-v --version)'{-v,--version}'[print the version]' \
         '(-c --continue)'{-c,--continue}'[continue the latest session here]' \
-        '(-p --prompt)'{-p,--prompt}'[run one prompt and exit]:prompt:' \
+        '(-p --prompt)'{-p,--prompt}'[run one prompt and exit (- reads it from stdin)]:prompt:' \
+        '(-i --prompt-file)'{-i,--prompt-file}'[run one prompt read from a file (- for stdin)]:prompt file:_files' \
+        '--no-stdin[one-shot run: do not attach piped stdin]' \
         '--resume[pick a session to resume]' \
         '1: :->command' \
         '*:: :->argument'
