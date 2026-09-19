@@ -771,6 +771,32 @@ test("enhance button shares the composer context row with workspace controls", (
   vi.unstubAllGlobals();
 });
 
+test("the context chips sit in their own strip and the enhance button stays outside it", () => {
+  // On a phone the strip scrolls sideways while the enhance button keeps its
+  // place at the row's end, so the button must not be inside the strip.
+  stubMatchMediaMobile(false);
+  render(
+    <Composer
+      value="fix memory thing"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+
+  const button = screen.getByTestId("composer-enhance-btn");
+  const row = button.parentElement!;
+  expect(row).toHaveClass("composer-context-row");
+  const strip = row.querySelector(":scope > .composer-context-scroll");
+  expect(strip).not.toBeNull();
+  expect(strip!.contains(screen.getByRole("button", { name: "Environment" }))).toBe(true);
+  expect(strip!.contains(button)).toBe(false);
+  vi.unstubAllGlobals();
+});
+
 test("enhance button posts the draft and replaces it with the result", async () => {
   stubMatchMediaMobile(false);
   const onChange = vi.fn();
@@ -876,83 +902,111 @@ test("Ctrl+Z restores the draft before prompt enhancement", async () => {
   vi.unstubAllGlobals();
 });
 
-test("desktop: Ctrl+Enter calls onSend", () => {
-  stubMatchMediaMobile(false);
+/**
+ * Answers `matchMedia` per query: `narrow` for the width breakpoint of the
+ * stacked shell, `touchOnly` for the no-hover coarse-pointer query. The Enter
+ * rule follows the input device, the layout follows the width, and a narrow
+ * desktop window is the case where the two differ.
+ */
+function stubViewport(opts: { narrow: boolean; touchOnly: boolean }) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query.includes("max-width")
+      ? opts.narrow
+      : query.includes("hover") || query.includes("pointer")
+        ? opts.touchOnly
+        : false,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }));
+}
+
+function renderEnterComposer(value = "hello") {
   const onSend = vi.fn();
+  const onChange = vi.fn();
   render(
     <Composer
-      value="hello"
+      value={value}
       isEmpty={false}
       mode="agent"
       modes={["agent", "plan"]}
       onModeChange={() => {}}
-      onChange={() => {}}
+      onChange={onChange}
       onSend={onSend}
     />,
   );
-  const ta = screen.getByRole("textbox", { name: "Message" });
-  fireEvent.keyDown(ta, { key: "Enter", ctrlKey: true });
+  const ta = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+  return { onSend, onChange, ta };
+}
+
+test("a narrow desktop window: Enter sends", () => {
+  stubViewport({ narrow: true, touchOnly: false });
+  const { onSend, ta } = renderEnterComposer();
+  expect(fireEvent.keyDown(ta, { key: "Enter" })).toBe(false);
   expect(onSend).toHaveBeenCalledTimes(1);
   expect(onSend).toHaveBeenCalledWith("hello");
   vi.unstubAllGlobals();
 });
 
-test("desktop: Shift+Enter does not call onSend", () => {
-  stubMatchMediaMobile(false);
-  const onSend = vi.fn();
-  render(
-    <Composer
-      value="hello"
-      isEmpty={false}
-      mode="agent"
-      modes={["agent", "plan"]}
-      onModeChange={() => {}}
-      onChange={() => {}}
-      onSend={onSend}
-    />,
-  );
-  const ta = screen.getByRole("textbox", { name: "Message" });
-  fireEvent.keyDown(ta, { key: "Enter", shiftKey: true });
+test("Ctrl+Enter inserts a newline at the caret and does not send", () => {
+  stubViewport({ narrow: false, touchOnly: false });
+  const { onSend, onChange, ta } = renderEnterComposer();
+  ta.setSelectionRange(3, 3);
+  expect(fireEvent.keyDown(ta, { key: "Enter", ctrlKey: true })).toBe(false);
+  expect(onSend).not.toHaveBeenCalled();
+  expect(onChange).toHaveBeenCalledWith("hel\nlo");
+  vi.unstubAllGlobals();
+});
+
+test("Ctrl+Enter replaces a selection with the newline", () => {
+  stubViewport({ narrow: true, touchOnly: false });
+  const { onSend, onChange, ta } = renderEnterComposer();
+  ta.setSelectionRange(1, 4);
+  fireEvent.keyDown(ta, { key: "Enter", ctrlKey: true });
+  expect(onSend).not.toHaveBeenCalled();
+  expect(onChange).toHaveBeenCalledWith("h\no");
+  vi.unstubAllGlobals();
+});
+
+test("Shift+Enter leaves the newline to the browser and does not send", () => {
+  stubViewport({ narrow: false, touchOnly: false });
+  const { onSend, onChange, ta } = renderEnterComposer();
+  expect(fireEvent.keyDown(ta, { key: "Enter", shiftKey: true })).toBe(true);
+  expect(onSend).not.toHaveBeenCalled();
+  expect(onChange).not.toHaveBeenCalled();
+  vi.unstubAllGlobals();
+});
+
+test("Enter that confirms an IME candidate does not send", () => {
+  stubViewport({ narrow: false, touchOnly: false });
+  const { onSend, ta } = renderEnterComposer();
+  fireEvent.keyDown(ta, { key: "Enter", isComposing: true });
+  fireEvent.keyDown(ta, { key: "Enter", keyCode: 229 });
   expect(onSend).not.toHaveBeenCalled();
   vi.unstubAllGlobals();
 });
 
-test("mobile: Enter does not call onSend (newline only)", () => {
-  stubMatchMediaMobile(true);
-  const onSend = vi.fn();
-  render(
-    <Composer
-      value="hello"
-      isEmpty={false}
-      mode="agent"
-      modes={["agent", "plan"]}
-      onModeChange={() => {}}
-      onChange={() => {}}
-      onSend={onSend}
-    />,
-  );
-  const ta = screen.getByRole("textbox", { name: "Message" });
-  fireEvent.keyDown(ta, { key: "Enter" });
+test("a touch-only phone: Return inserts a newline and the Send button sends", () => {
+  stubViewport({ narrow: true, touchOnly: true });
+  const { onSend, ta } = renderEnterComposer();
+  expect(fireEvent.keyDown(ta, { key: "Enter" })).toBe(true);
   expect(onSend).not.toHaveBeenCalled();
-  vi.unstubAllGlobals();
-});
-
-test("mobile: clicking Send button calls onSend", () => {
-  stubMatchMediaMobile(true);
-  const onSend = vi.fn();
-  render(
-    <Composer
-      value="hello"
-      isEmpty={false}
-      mode="agent"
-      modes={["agent", "plan"]}
-      onModeChange={() => {}}
-      onChange={() => {}}
-      onSend={onSend}
-    />,
-  );
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   expect(onSend).toHaveBeenCalledWith("hello");
+  vi.unstubAllGlobals();
+});
+
+test("the keyboard's Enter key is labelled send, or enter on a touch-only phone", () => {
+  stubViewport({ narrow: true, touchOnly: false });
+  const first = renderEnterComposer();
+  expect(first.ta).toHaveAttribute("enterkeyhint", "send");
+  cleanup();
+  stubViewport({ narrow: true, touchOnly: true });
+  const second = renderEnterComposer();
+  expect(second.ta).toHaveAttribute("enterkeyhint", "enter");
   vi.unstubAllGlobals();
 });
 
@@ -2000,6 +2054,41 @@ test("the permission chip names the session's mode and switches it (#292)", () =
   fireEvent.click(chip);
   fireEvent.click(screen.getByRole("menuitem", { name: "Ask first" }));
   expect(picked).toEqual(["ask"]);
+});
+
+test("the selector chips run attach, mode, model, reasoning, permission", () => {
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan", "ask"]}
+      llmModelMultimodal
+      llmModels={["openai/gpt-5"]}
+      llmModel="openai/gpt-5"
+      onLlmModelChange={() => {}}
+      llmReasoningLevels={["low", "medium", "high"]}
+      llmReasoning="medium"
+      onLlmReasoningChange={() => {}}
+      permissionMode="ask"
+      configuredPermissionMode="ask"
+      onPermissionModeChange={() => {}}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const tabs = document.querySelector(".composer-tabs")!;
+  const order = Array.from(tabs.querySelectorAll("button.composer-tab")).map(
+    (b) => b.getAttribute("aria-label"),
+  );
+  expect(order).toEqual([
+    "Attach file",
+    "Mode",
+    "Model",
+    "Reasoning level",
+    "Permissions",
+  ]);
 });
 
 test("the permission chip is not shown without a handler", () => {

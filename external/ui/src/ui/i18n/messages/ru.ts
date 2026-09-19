@@ -803,6 +803,7 @@ export const messagesRu: Record<string, string> = {
   "nav.docs": "Документация",
   "nav.schedulerAriaLabel": "Задачи планировщика",
   "nav.settings": "Настройки",
+  "nav.more": "Ещё",
 
   "sessions.history": "История",
   "sessions.closeHistory": "Закрыть историю",

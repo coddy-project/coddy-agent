@@ -574,3 +574,18 @@ func TestAutoApprovesFollowsTheAskersMode(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionSwitchesAreNamedShort(t *testing.T) {
+	// The prompt is already about permissions, so the switch says what it does
+	// and for how long, nothing more.
+	names := map[string]string{}
+	for _, o := range OptionsFor("write", `{"path":"a.txt","content":"x"}`, OptionContext{Mode: config.PermModeAsk, SessionSwitch: true}) {
+		names[o.OptionID] = o.Name
+	}
+	if got := names[OptionAllowSessionBypass]; got != "Bypass for this session" {
+		t.Errorf("bypass option name = %q, want %q", got, "Bypass for this session")
+	}
+	if got := names[OptionAllowSessionAcceptEdits]; got != "Allow edits for this session" {
+		t.Errorf("accept-edits option name = %q, want %q", got, "Allow edits for this session")
+	}
+}

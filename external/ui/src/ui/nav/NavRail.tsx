@@ -1,4 +1,11 @@
-import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import {
+  Fragment,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useT } from "../i18n/I18nProvider";
 import { signOut, snapshotAuth, subscribeAuth } from "../auth/authState";
 import {
@@ -10,6 +17,12 @@ import {
   appNavHrefSwarm,
 } from "../scheduler/hashRoute";
 import { sameTabInAppNavClick } from "./sameTabInAppNav";
+import {
+  serverSnapshotShellStack,
+  snapshotShellStack,
+  subscribeShellStack,
+} from "../shellBreakpoint";
+import { navSlots, splitNavItems, type NavItemId } from "./navOverflow";
 
 function IconBook(props: { className?: string }) {
   return (
@@ -185,6 +198,23 @@ function IconSidebarExpand(props: { className?: string }) {
   );
 }
 
+function IconMore(props: { className?: string }) {
+  return (
+    <svg
+      className={props.className}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden
+    >
+      <circle cx="5" cy="12" r="1.8" />
+      <circle cx="12" cy="12" r="1.8" />
+      <circle cx="19" cy="12" r="1.8" />
+    </svg>
+  );
+}
+
 export function NavRail(props: {
   onNewChat: () => void;
   onOpenHistory: () => void;
@@ -239,6 +269,110 @@ export function NavRail(props: {
   const showSwarm = props.showSwarm === true;
   const showHistory = props.showHistory !== false;
   const pillWide = props.canWidenRail && props.railLabelsWide;
+  const signedIn = auth.loginRequired && auth.authenticated;
+  // Below 1200px the rail is a top bar; on a phone it folds what does not fit
+  // behind More (navOverflow.ts). The desktop rail never folds.
+  const stacked = useSyncExternalStore(
+    subscribeShellStack,
+    snapshotShellStack,
+    serverSnapshotShellStack,
+  );
+  const pillRef = useRef<HTMLDivElement | null>(null);
+  const middleRef = useRef<HTMLDivElement | null>(null);
+  const moreHostRef = useRef<HTMLDivElement | null>(null);
+  const moreBtnRef = useRef<HTMLButtonElement | null>(null);
+  const [slots, setSlots] = useState<number | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  useLayoutEffect(() => {
+    const pill = pillRef.current;
+    const middle = middleRef.current;
+    if (!stacked || pillWide || !pill || !middle) {
+      setSlots(null);
+      return undefined;
+    }
+    const px = (v: string) => parseFloat(v) || 0;
+    // The room is the pill minus the brand at its natural width, so the
+    // answer does not depend on how many icons are showing.
+    const measure = () => {
+      const brand = pill.querySelector<HTMLElement>(".rail-brand");
+      const hit = middle.querySelector<HTMLElement>(".rail-hit");
+      const slot = hit ? hit.getBoundingClientRect().width : 0;
+      if (pill.clientWidth <= 0 || slot <= 0) {
+        setSlots(null);
+        return;
+      }
+      const pillStyle = getComputedStyle(pill);
+      const inner =
+        pill.clientWidth - px(pillStyle.paddingLeft) - px(pillStyle.paddingRight);
+      const available =
+        inner - px(pillStyle.columnGap) - (brand ? brand.scrollWidth : 0);
+      setSlots(navSlots(available, slot, px(getComputedStyle(middle).columnGap)));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(pill);
+    return () => ro.disconnect();
+  }, [stacked, pillWide]);
+
+  const present: NavItemId[] = [];
+  if (showHistory) present.push("history");
+  if (showScheduler) present.push("scheduler");
+  if (showSwarm) present.push("swarm");
+  if (props.onOpenDocs) present.push("docs");
+  present.push("settings");
+  if (signedIn) present.push("signOut");
+  const { bar, menu } = splitNavItems(present, slots);
+  const inBar = (id: NavItemId) => bar.includes(id);
+  const moreActive = menu.some(
+    (id) =>
+      (id === "scheduler" && props.schedulerOpen) ||
+      (id === "docs" && props.docsOpen === true) ||
+      (id === "settings" && props.settingsOpen),
+  );
+
+  useEffect(() => {
+    if (menu.length === 0 && moreOpen) {
+      setMoreOpen(false);
+    }
+  }, [menu.length, moreOpen]);
+
+  useEffect(() => {
+    if (!moreOpen) {
+      return undefined;
+    }
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") {
+        setMoreOpen(false);
+        moreBtnRef.current?.focus();
+      }
+    };
+    const onDown = (ev: Event) => {
+      const host = moreHostRef.current;
+      if (host && ev.target instanceof Node && host.contains(ev.target)) {
+        return;
+      }
+      setMoreOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onDown);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onDown);
+    };
+  }, [moreOpen]);
+
+  // Only a server that actually dropped the session is worth reloading for:
+  // the cookie is HttpOnly, so reloading after a refusal would sign the
+  // browser straight back in and the button would look broken instead of
+  // refused.
+  const doSignOut = () => {
+    void signOut().then((ok) => {
+      if (ok) {
+        window.location.reload();
+      }
+    });
+  };
   const navBtnCls = pillWide
     ? "rail-hit rail-nav-hit rail-nav-hit-wide"
     : "rail-hit rail-hit-icon rail-nav-hit rail-nav-hit-narrow";
@@ -252,7 +386,7 @@ export function NavRail(props: {
       className={`rail-column ${pillWide ? "rail-column-wide" : ""}`}
       aria-label={t("nav.ariaLabel")}
     >
-      <div className={`rail-pill ${pillWide ? "is-wide" : ""}`}>
+      <div ref={pillRef} className={`rail-pill ${pillWide ? "is-wide" : ""}`}>
         {props.canWidenRail ? (
           pillWide ? (
             <div className="rail-header rail-header-wide">
@@ -335,8 +469,8 @@ export function NavRail(props: {
           </div>
         )}
 
-        <div className="rail-middle">
-          {showHistory ? (
+        <div ref={middleRef} className="rail-middle">
+          {inBar("history") ? (
             <div className="rail-tip-host">
               <a
                 href={appNavHrefHistory()}
@@ -359,7 +493,7 @@ export function NavRail(props: {
             </div>
           ) : null}
 
-          {showScheduler ? (
+          {inBar("scheduler") ? (
             <div className="rail-tip-host">
               <a
                 href={appNavHrefScheduler()}
@@ -389,7 +523,7 @@ export function NavRail(props: {
           {/* Below the spacer, next to Settings: History and Scheduler are
               about the session in front of you, while the swarm is the fleet
               this session happens to live in. */}
-          {showSwarm ? (
+          {inBar("swarm") ? (
             <div className="rail-tip-host">
               <a
                 href={appNavHrefSwarm()}
@@ -414,7 +548,7 @@ export function NavRail(props: {
             </div>
           ) : null}
 
-          {props.onOpenDocs ? (
+          {props.onOpenDocs && inBar("docs") ? (
             <div className="rail-tip-host">
               <a
                 href={appNavHrefDocs()}
@@ -437,45 +571,37 @@ export function NavRail(props: {
             </div>
           ) : null}
 
-          <div className="rail-tip-host">
-            <a
-              href={appNavHrefSettings()}
-              className={`${navBtnCls} ${props.settingsOpen ? "is-active" : ""}`}
-              aria-label={t("nav.settings")}
-              aria-pressed={props.settingsOpen}
-              data-testid="nav-settings"
-              onClick={(ev) => sameTabInAppNavClick(ev, props.onOpenSettings)}
-            >
-              <IconSettings className="rail-svg rail-nav-hit-svg" />
-              {pillWide ? (
-                <span className="rail-nav-label">{t("nav.settings")}</span>
+          {inBar("settings") ? (
+            <div className="rail-tip-host">
+              <a
+                href={appNavHrefSettings()}
+                className={`${navBtnCls} ${props.settingsOpen ? "is-active" : ""}`}
+                aria-label={t("nav.settings")}
+                aria-pressed={props.settingsOpen}
+                data-testid="nav-settings"
+                onClick={(ev) => sameTabInAppNavClick(ev, props.onOpenSettings)}
+              >
+                <IconSettings className="rail-svg rail-nav-hit-svg" />
+                {pillWide ? (
+                  <span className="rail-nav-label">{t("nav.settings")}</span>
+                ) : null}
+              </a>
+              {!pillWide && !props.settingsOpen ? (
+                <span className="rail-tip" role="tooltip">
+                  {t("nav.settings")}
+                </span>
               ) : null}
-            </a>
-            {!pillWide && !props.settingsOpen ? (
-              <span className="rail-tip" role="tooltip">
-                {t("nav.settings")}
-              </span>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
 
-          {auth.loginRequired && auth.authenticated ? (
+          {inBar("signOut") ? (
             <div className="rail-tip-host">
               <button
                 type="button"
                 className={navBtnCls}
                 aria-label={t("auth.signOut.action")}
                 data-testid="nav-sign-out"
-                onClick={() => {
-                  // Only a server that actually dropped the session is worth
-                  // reloading for: the cookie is HttpOnly, so reloading after a
-                  // refusal would sign the browser straight back in and the
-                  // button would look broken instead of refused.
-                  void signOut().then((ok) => {
-                    if (ok) {
-                      window.location.reload();
-                    }
-                  });
-                }}
+                onClick={doSignOut}
               >
                 <IconSignOut className="rail-svg rail-nav-hit-svg" />
                 {pillWide ? (
@@ -490,6 +616,108 @@ export function NavRail(props: {
                     ? t("auth.signOut.tooltipUser", { user: auth.user })
                     : t("auth.signOut.action")}
                 </span>
+              ) : null}
+            </div>
+          ) : null}
+
+          {menu.length > 0 ? (
+            <div className="rail-tip-host rail-more-host" ref={moreHostRef}>
+              <button
+                type="button"
+                ref={moreBtnRef}
+                className={`${navBtnCls} rail-more-btn ${moreActive ? "is-active" : ""}`}
+                aria-label={t("nav.more")}
+                aria-haspopup="menu"
+                aria-expanded={moreOpen}
+                data-testid="nav-more"
+                onClick={() => setMoreOpen((open) => !open)}
+              >
+                <IconMore className="rail-svg rail-nav-hit-svg" />
+              </button>
+              {moreOpen ? (
+                <div className="rail-more-menu" role="menu" aria-label={t("nav.more")}>
+                  {menu.map((id, i) => {
+                    if (id === "docs") {
+                      return (
+                        <a
+                          key="docs"
+                          role="menuitem"
+                          href={appNavHrefDocs()}
+                          className={`rail-more-item ${props.docsOpen ? "is-active" : ""}`}
+                          data-testid="nav-more-docs"
+                          onClick={(ev) => {
+                            setMoreOpen(false);
+                            sameTabInAppNavClick(ev, props.onOpenDocs ?? (() => {}));
+                          }}
+                        >
+                          <IconDocs className="rail-svg" />
+                          <span>{t("nav.docs")}</span>
+                        </a>
+                      );
+                    }
+                    if (id === "scheduler") {
+                      return (
+                        <a
+                          key="scheduler"
+                          role="menuitem"
+                          href={appNavHrefScheduler()}
+                          className={`rail-more-item ${props.schedulerOpen ? "is-active" : ""}`}
+                          data-testid="nav-more-scheduler"
+                          onClick={(ev) => {
+                            setMoreOpen(false);
+                            sameTabInAppNavClick(ev, props.onOpenScheduler);
+                          }}
+                        >
+                          <IconScheduler className="rail-svg" />
+                          <span>{t("nav.scheduler")}</span>
+                        </a>
+                      );
+                    }
+                    if (id === "settings") {
+                      return (
+                        <a
+                          key="settings"
+                          role="menuitem"
+                          href={appNavHrefSettings()}
+                          className={`rail-more-item ${props.settingsOpen ? "is-active" : ""}`}
+                          data-testid="nav-more-settings"
+                          onClick={(ev) => {
+                            setMoreOpen(false);
+                            sameTabInAppNavClick(ev, props.onOpenSettings);
+                          }}
+                        >
+                          <IconSettings className="rail-svg" />
+                          <span>{t("nav.settings")}</span>
+                        </a>
+                      );
+                    }
+                    if (id === "signOut") {
+                      return (
+                        <Fragment key="signOut">
+                          {i > 0 ? <div role="separator" className="rail-more-sep" /> : null}
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="rail-more-item"
+                            data-testid="nav-more-sign-out"
+                            onClick={() => {
+                              setMoreOpen(false);
+                              doSignOut();
+                            }}
+                          >
+                            <IconSignOut className="rail-svg" />
+                            <span>
+                              {auth.user
+                                ? t("auth.signOut.tooltipUser", { user: auth.user })
+                                : t("auth.signOut.action")}
+                            </span>
+                          </button>
+                        </Fragment>
+                      );
+                    }
+                    return null;
+                  })}
+                </div>
               ) : null}
             </div>
           ) : null}
