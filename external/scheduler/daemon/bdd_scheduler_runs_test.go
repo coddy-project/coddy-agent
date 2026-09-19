@@ -49,6 +49,15 @@ type scriptedRunProvider struct {
 	calls   int
 }
 
+// called reports whether the run has reached the model. Stream counts calls
+// under p.mu on the run's goroutine, so a step polling from its own reads it
+// under the same lock.
+func (p *scriptedRunProvider) called() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.calls > 0
+}
+
 func (p *scriptedRunProvider) Complete(ctx context.Context, messages []llm.Message, defs []llm.ToolDefinition) (*llm.Response, error) {
 	return p.Stream(ctx, messages, defs, func(llm.StreamChunk) {})
 }
@@ -385,7 +394,7 @@ func (s *schedulerRunsState) runInFlight(jobID string) error {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		p, ok := s.providers[ref.RunSessionID]
-		return ok && p.calls > 0
+		return ok && p.called()
 	})
 }
 
