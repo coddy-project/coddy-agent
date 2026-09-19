@@ -2952,6 +2952,24 @@ func TestCompactEndpointRefusesAModelItCannotName(t *testing.T) {
 	}
 }
 
+// A model the body cannot name is the request's own fault, answered like
+// malformed JSON before the session is admitted: no turn starts for it, so a
+// busy session does not turn it into a 409.
+func TestCompactEndpointRefusesAnUnknownModelBeforeTheTurn(t *testing.T) {
+	ts, mgr, done := newCompactTestServer(t, config.Compaction{})
+	defer done()
+	sid := compactSeedSession(t, mgr, 3)
+	unlock, err := mgr.AcquireComposerTurnLock(sid, mgr.SessionByID(sid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	code, _ := postCompact(t, ts, sid, `{"model":"nope"}`)
+	if code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", code)
+	}
+}
+
 func TestCompactEndpointUnknownSession(t *testing.T) {
 	ts, _, done := newCompactTestServer(t, config.Compaction{})
 	defer done()

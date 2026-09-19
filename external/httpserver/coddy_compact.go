@@ -35,6 +35,15 @@ func (s *Server) coddySessionCompactPost(w http.ResponseWriter, r *http.Request)
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
 		return
 	}
+	// A summarizer the body cannot name is refused like malformed JSON, before
+	// the session is admitted: no turn starts and none is announced for it.
+	// CompactSession resolves the name again against the config it runs with.
+	if model := strings.TrimSpace(body.Model); model != "" {
+		if _, err := s.activeCfg().MatchModelID(model); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, fmt.Errorf("%w: %v", agent.ErrCompactionModel, err).Error()), http.StatusBadRequest)
+			return
+		}
+	}
 
 	st := s.mgr.SessionByID(id)
 	if st == nil {

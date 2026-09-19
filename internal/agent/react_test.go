@@ -1234,6 +1234,8 @@ func TestParseCompactCommand(t *testing.T) {
 		{in: "/compact focus on file paths", wantOK: true, wantArg: "focus on file paths"},
 		{in: "/compact\nkeep decisions", wantOK: true, wantArg: "keep decisions"},
 		{in: "/compacted", wantOK: false},
+		// The separators draftCommandArg.ts mirrors: a no-break space is not one.
+		{in: "/compact\u00a0--model x", wantOK: false},
 		{in: "hello /compact", wantOK: false},
 		{in: "", wantOK: false},
 	}

@@ -47,7 +47,7 @@ func CompactContextTool(cfg *config.Config) *tooling.Tool {
 					},
 					"model": map[string]interface{}{
 						"type":        "string",
-						"description": "Optional summarizer for this one compaction: one of the configured models. Omit it to use the configured summarizer.",
+						"description": "Optional summarizer for this one compaction: a configured model id from the list above, or a part of one that names exactly one. Omit it to use the configured summarizer.",
 					},
 				},
 			},

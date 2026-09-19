@@ -40,3 +40,31 @@ func TestMatchModelID(t *testing.T) {
 		})
 	}
 }
+
+// A name that is a whole id, or the whole model part of one, in another letter
+// case or without its provider, names that model even when a longer id holds
+// it: "qwen3.8-27b" next to "qwen3.8-27b-noreason" is not ambiguous.
+func TestMatchModelIDPrefersAWholeName(t *testing.T) {
+	cfg := &Config{Models: []ModelEntry{
+		{Model: "openai/gpt-4o"},
+		{Model: "openai/gpt-4o-mini"},
+		{Model: "neuraldeep/qwen3.8-27b"},
+		{Model: "neuraldeep/qwen3.8-27b-noreason"},
+		{Model: "azure/gpt-4o-mini"},
+	}}
+	for _, tc := range []struct{ want, id string }{
+		{want: "OPENAI/GPT-4O", id: "openai/gpt-4o"},
+		{want: "qwen3.8-27b", id: "neuraldeep/qwen3.8-27b"},
+		{want: "QWEN3.8-27B-NOREASON", id: "neuraldeep/qwen3.8-27b-noreason"},
+		{want: "gpt-4o", id: "openai/gpt-4o"},
+	} {
+		got, err := cfg.MatchModelID(tc.want)
+		if err != nil || got != tc.id {
+			t.Errorf("MatchModelID(%q) = %q, %v; want %q", tc.want, got, err, tc.id)
+		}
+	}
+	// The same model name under two providers still needs the provider.
+	if _, err := cfg.MatchModelID("gpt-4o-mini"); err == nil || !strings.Contains(err.Error(), "ambiguous (matches: openai/gpt-4o-mini, azure/gpt-4o-mini)") {
+		t.Errorf("gpt-4o-mini under two providers: err = %v", err)
+	}
+}

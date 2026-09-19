@@ -375,13 +375,14 @@ func (a *Agent) runCompactCommand(ctx context.Context, args compactCommandArgs, 
 // compactArgsProblem is what is wrong with the options of a /compact as typed,
 // or the empty string.
 func compactArgsProblem(args compactCommandArgs) string {
-	switch {
-	case len(args.UnknownOptions) > 0:
-		return "Unknown option: " + strings.Join(args.UnknownOptions, ", ") + "."
-	case args.ModelMissing:
-		return "--model needs a model id."
+	var problems []string
+	if len(args.UnknownOptions) > 0 {
+		problems = append(problems, "Unknown option: "+strings.Join(args.UnknownOptions, ", ")+".")
 	}
-	return ""
+	if args.ModelMissing {
+		problems = append(problems, "--model needs a model id.")
+	}
+	return strings.Join(problems, " ")
 }
 
 // addUserCommandMessage persists the raw text of a built-in slash command

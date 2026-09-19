@@ -145,6 +145,8 @@ func TestRunCompactCommandAnswersWhatItCannotRun(t *testing.T) {
 		{prompt: "/compact --model fake/", want: "ambiguous"},
 		{prompt: "/compact --model", want: "--model needs a model id."},
 		{prompt: "/compact --fast", want: "Unknown option: --fast."},
+		// Both mistakes are named, not only the first one found.
+		{prompt: "/compact --model --fast", want: "Unknown option: --fast. --model needs a model id."},
 	}
 	keep := 1
 	for _, tc := range cases {
@@ -193,6 +195,61 @@ func TestCompactFromToolKeepsTheCallInFlight(t *testing.T) {
 	}
 	if len(visible[1].ToolCalls) != 1 || visible[1].ToolCalls[0].ID != "call_compact" || visible[2].ToolCallID != "call_compact" {
 		t.Fatalf("the tool result is not preceded by its call: %+v", visible)
+	}
+}
+
+// The call may share its assistant message with another one that already has
+// its result: that message is the one kept, so both results keep their call.
+func TestCompactFromToolKeepsASiblingCallAndItsResult(t *testing.T) {
+	st := &session.State{ID: "sess_compact_tool_sibling", CWD: t.TempDir(), Mode: session.ModeAgent}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "read the log and compact"})
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+		{ID: "call_read", Name: "read_file", InputJSON: `{}`},
+		{ID: "call_compact", Name: "compact_context", InputJSON: `{}`},
+	}})
+	st.AddMessage(llm.Message{Role: llm.RoleTool, ToolCallID: "call_read", Content: "a long build log"})
+
+	provider := &compactCannedProvider{t: t, summary: "SUMMARY"}
+	ag := compactTestAgent(t, st, config.Compaction{}, provider)
+
+	out, err := ag.compactFromTool(context.Background(), tooling.CompactRequest{})
+	if err != nil || !strings.Contains(out, "Context compacted: 1 message(s) summarized, 2 kept verbatim.") {
+		t.Fatalf("out = %q, err = %v", out, err)
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleTool, ToolCallID: "call_compact", Content: out})
+
+	// Both directions a provider checks: every result answers a call before
+	// it, and every call has its result.
+	called, answered := map[string]bool{}, map[string]bool{}
+	for _, m := range session.MessagesForLLM(st.GetMessages()) {
+		for _, tc := range m.ToolCalls {
+			called[tc.ID] = true
+		}
+		if m.Role == llm.RoleTool {
+			if !called[m.ToolCallID] {
+				t.Fatalf("tool result %q answers no call in the window", m.ToolCallID)
+			}
+			answered[m.ToolCallID] = true
+		}
+	}
+	if !reflect.DeepEqual(called, answered) || !called["call_read"] || !called["call_compact"] {
+		t.Fatalf("calls %v, results %v", called, answered)
+	}
+}
+
+// A name the tool cannot resolve comes back to the model as the call's error,
+// with the ids it can use instead, and nothing is folded.
+func TestCompactFromToolRefusesAModelItCannotName(t *testing.T) {
+	keep := 1
+	st := seededCompactState(t, 3)
+	ag, first, second := twoModelCompactAgent(t, st, config.Compaction{KeepRecentTurns: &keep})
+
+	_, err := ag.compactFromTool(context.Background(), tooling.CompactRequest{Model: "nope"})
+	if !errors.Is(err, ErrCompactionModel) || !strings.Contains(err.Error(), "configured: fake/model, fake/second-qwen") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(first.requests)+len(second.requests) != 0 {
+		t.Fatal("a summarizer was called for a model that names nothing")
 	}
 }
 
