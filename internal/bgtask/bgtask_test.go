@@ -148,6 +148,9 @@ func TestResolveTimeoutSeconds(t *testing.T) {
 		{name: "estimate buys a multiple of itself", spec: Spec{ExpectedSeconds: 120}, want: 360},
 		{name: "estimate is capped by the ceiling", spec: Spec{ExpectedSeconds: 100000}, want: 3600},
 		{name: "explicit timeout is capped by the ceiling", spec: Spec{TimeoutSeconds: 100000}, want: 3600},
+		{name: "work without a timeout gets none", spec: Spec{NoTimeout: true}, want: 0},
+		{name: "work without a timeout ignores the estimate", spec: Spec{NoTimeout: true, ExpectedSeconds: 30}, want: 0},
+		{name: "work without a timeout keeps the limit it named, past the ceiling", spec: Spec{NoTimeout: true, TimeoutSeconds: 100000}, want: 100000},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1854,5 +1857,71 @@ func TestMarkWokeAgentRecordsTheWakeWithoutNotifying(t *testing.T) {
 	defer mu.Unlock()
 	if len(notified) != 0 {
 		t.Fatalf("the mark notified the watchers: %+v", notified)
+	}
+}
+
+func TestServerTaskRunsUntilStoppedAndCarriesItsURL(t *testing.T) {
+	pool := NewWithRunner(Config{DefaultTimeoutSeconds: 1, MaxTimeoutSeconds: 1}, &stubRunner{})
+	t.Cleanup(func() { pool.StopSession("s") })
+
+	h := &stubHandle{release: make(chan struct{})}
+	snap, err := pool.Launch(Spec{
+		SessionID: "s",
+		Kind:      KindServer,
+		URL:       "http://127.0.0.1:4321/",
+		NoTimeout: true,
+	}, func(string, io.Writer) (Handle, error) { return h, nil })
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	if snap.Kind != KindServer || snap.URL != "http://127.0.0.1:4321/" {
+		t.Fatalf("server identity lost on the snapshot: %+v", snap)
+	}
+	if snap.Label != snap.URL {
+		t.Fatalf("label = %q, want the url", snap.Label)
+	}
+	if snap.TimeoutSeconds != 0 {
+		t.Fatalf("timeout = %d, want 0 (until stopped)", snap.TimeoutSeconds)
+	}
+
+	// The configured ceiling is one second; a server must outlive it.
+	still, err := pool.Wait(context.Background(), "s", snap.ID, 1500*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if still.Status != StatusRunning {
+		t.Fatalf("status after the ceiling = %q, want running", still.Status)
+	}
+
+	stopped, err := pool.Stop("s", snap.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stopped.Status != StatusStopped {
+		t.Fatalf("status = %q, want stopped", stopped.Status)
+	}
+}
+
+func TestServerTaskWithATimeoutEndsAsTimedOut(t *testing.T) {
+	pool := NewWithRunner(Config{}, &stubRunner{})
+	t.Cleanup(func() { pool.StopSession("s") })
+
+	h := &stubHandle{release: make(chan struct{})}
+	snap, err := pool.Launch(Spec{
+		SessionID:      "s",
+		Kind:           KindServer,
+		URL:            "http://127.0.0.1:4321/",
+		NoTimeout:      true,
+		TimeoutSeconds: 1,
+	}, func(string, io.Writer) (Handle, error) { return h, nil })
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	final, err := pool.Wait(context.Background(), "s", snap.ID, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final.Status != StatusTimedOut {
+		t.Fatalf("status = %q, want timed_out", final.Status)
 	}
 }

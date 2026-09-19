@@ -103,6 +103,10 @@ func refuseSystemTask(pool *bgtask.Pool, sessionID, taskID string) error {
 	return fmt.Errorf("task %s is a system task (%s) and is not yours to read or control", snap.ID, snap.Agent.Name)
 }
 
+// RequirePool is requirePool for the tool packages that start background work
+// of their own (the preview server).
+func RequirePool(env *tooling.Env) (*bgtask.Pool, error) { return requirePool(env) }
+
 // requirePool returns the pool for this session, explaining the refusal when
 // background execution is off or unwired.
 func requirePool(env *tooling.Env) (*bgtask.Pool, error) {
@@ -380,6 +384,10 @@ func FormatBackgroundTask(t bgtask.Snapshot, now time.Time) string {
 func formatTaskLine(t bgtask.Snapshot, now time.Time) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s [%s] %s", t.ID, t.Status, t.Label)
+	// A server's address is the one thing anybody wants from its row.
+	if t.URL != "" && t.URL != t.Label {
+		fmt.Fprintf(&b, " at %s", t.URL)
+	}
 
 	elapsed := int(t.Elapsed(now).Round(time.Second) / time.Second)
 	fmt.Fprintf(&b, " (elapsed %s", humanSeconds(elapsed))
@@ -397,7 +405,9 @@ func formatTaskLine(t bgtask.Snapshot, now time.Time) string {
 	if t.NotifyOnFinish && !t.Status.Finished() {
 		b.WriteString(" wakes you when it ends")
 	}
-	if silent := t.SilentFor(now); silent >= stallHintAfter {
+	// A server is silent whenever nobody is looking at the page, which says
+	// nothing about it being stuck.
+	if silent := t.SilentFor(now); silent >= stallHintAfter && t.Kind != bgtask.KindServer {
 		fmt.Fprintf(&b, " silent for %s", humanSeconds(int(silent.Round(time.Second)/time.Second)))
 	}
 	if t.Error != "" {

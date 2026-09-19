@@ -86,6 +86,8 @@ python3 "$HTTP_DIR/http_e2e_rules.py"
 # Ranged @mentions: picker read, attachments[].source lines, typed grammar, 400 past EOF.
 python3 "$HTTP_DIR/http_e2e_mentions.py"
 python3 "$HTTP_DIR/http_e2e_background.py"
+# "Run it on a web server for me": preview_server, the server task, the page over http, stop.
+python3 "$HTTP_DIR/http_e2e_preview_server.py"
 # Self-boots the scripted model of cmd/tgfake and its own coddy serve: no key.
 python3 "$HTTP_DIR/http_e2e_background_wake.py"
 python3 "$HTTP_DIR/http_e2e_subagents.py"

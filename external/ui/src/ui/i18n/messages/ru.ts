@@ -299,6 +299,18 @@ export const messagesRu: Record<string, string> = {
     "Буфер вывода (байт)",
   "settings.schema.tools.background.output_buffer_bytes.desc":
     "Какая часть вывода каждой задачи хранится в памяти для тикера; полный лог всё равно попадает в бандл сессии (по умолчанию 262144).",
+  "settings.schema.tools.preview_server.label": "Сервер предпросмотра",
+  "settings.schema.tools.preview_server.desc":
+    "Инструмент preview_server: статический файловый сервер, который агент поднимает над каталогом проекта на свободном порту, чтобы работу можно было открыть в браузере.",
+  "settings.schema.tools.preview_server.enable.label": "Включено",
+  "settings.schema.tools.preview_server.enable.desc":
+    "Предлагать инструмент preview_server (по умолчанию включено). Отключение фоновых задач отключает и его.",
+  "settings.schema.tools.preview_server.host.label": "Адрес привязки",
+  "settings.schema.tools.preview_server.host.desc":
+    "Адрес, на котором слушает сервер, без порта (по умолчанию 127.0.0.1). Любой адрес, кроме loopback, открывает отдаваемый каталог наружу.",
+  "settings.schema.tools.preview_server.public_host.label": "Публичный хост",
+  "settings.schema.tools.preview_server.public_host.desc":
+    "Хост, который подставляется в выдаваемую агентом ссылку, когда браузер находится на другой машине. Пусто - используется адрес привязки.",
 
   "settings.schema.subagents.desc":
     "Пользовательские дочерние агенты, которым модель может делегировать работу через spawn_agent. Определения хранятся в markdown-файлах с YAML-фронтматтером; каждый запуск выполняется как фоновая задача родительской сессии со своей дочерней сессией и транскриптом.",
@@ -1254,6 +1266,8 @@ export const messagesRu: Record<string, string> = {
   "tasks.tag.shell": "shell",
   "tasks.tag.agent": "агент",
   "tasks.tag.memory": "память",
+  "tasks.tag.server": "сервер",
+  "tasks.openServer": "Открыть в новой вкладке",
   "tasks.untitledAgentRun": "Запуск субагента",
   "tasks.footExitCode": "Код выхода {code}",
   "tasks.footDuration": "Длительность {value}",
@@ -1305,6 +1319,7 @@ export const messagesRu: Record<string, string> = {
   "tool.name.question": "задаю вопрос",
   "tool.name.webfetch": "загружаю страницу",
   "tool.name.http_request": "отправляю http-запрос",
+  "tool.name.preview_server": "запускаю сервер предпросмотра",
   "tool.name.websearch": "ищу в интернете",
   "tool.name.coddy_docs_search": "ищу в документации",
   "tool.name.coddy_docs_read": "читаю документацию",
@@ -1634,6 +1649,7 @@ export const messagesRu: Record<string, string> = {
   "status.docsRead": "Читаю документацию",
   "status.webFetch": "Загружаю страницу",
   "status.httpRequest": "Отправляю запрос",
+  "status.previewServer": "Запускаю сервер предпросмотра",
   "status.plan": "Обновляю план",
   "status.planRead": "Читаю план",
   "status.skill": "Загружаю скил",

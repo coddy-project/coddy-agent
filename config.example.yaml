@@ -309,6 +309,15 @@ tools:
   #   max_timeout_seconds: 3600     # ceiling for any requested or estimated timeout
   #   output_buffer_bytes: 262144   # in-memory output window; full log goes to disk
 
+  # The preview_server tool: a static file server over a project directory, on a
+  # free port, so you can open HTML/JS/CSS work in a browser ("run this on a web
+  # server, I want to try it myself"). It is a background task: it runs until it
+  # is stopped, the session is deleted or coddy exits. Dot-files are never served.
+  # preview_server:
+  #   enable: true
+  #   host: 127.0.0.1       # bind address; 0.0.0.0 inside a container exposes the files
+  #   public_host: ""       # host written into the URL, when the browser is elsewhere
+
   # Web search: which engines the websearch tool asks, in what order their results merge,
   # and what it may spend asking them. Every engine reports its own outcome next to the
   # results ("ok", "empty", or "blocked" with a reason), so a backend that was turned away

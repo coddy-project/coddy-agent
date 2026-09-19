@@ -368,6 +368,7 @@ func (p *Pool) start(spec Spec, launch LaunchFunc) (Snapshot, error) {
 			StartedAt:       startedAt,
 			ExpectedSeconds: spec.ExpectedSeconds,
 			TimeoutSeconds:  timeoutSeconds,
+			URL:             strings.TrimSpace(spec.URL),
 			NotifyOnFinish:  spec.NotifyOnFinish,
 			Agent:           cloneAgentInfo(spec.Agent),
 		},
@@ -423,7 +424,13 @@ func (p *Pool) start(spec Spec, launch LaunchFunc) (Snapshot, error) {
 // optimistic guess does not kill work that was only a little slow, and the
 // result is capped by the configured ceiling. With no estimate at all the
 // configured default applies.
+//
+// Work that asked for no timeout (a server) is outside all of that: it gets the
+// limit it named, uncapped, or none at all. Zero then means "until stopped".
 func resolveTimeoutSeconds(spec Spec, cfg Config) int {
+	if spec.NoTimeout {
+		return max(spec.TimeoutSeconds, 0)
+	}
 	seconds := spec.TimeoutSeconds
 	switch {
 	case seconds > 0:
@@ -458,13 +465,19 @@ func (p *Pool) supervise(t *task, timeout time.Duration) {
 		exited <- exitResult{code: code, err: err}
 	}()
 
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
+	// A task without a limit never arms the timer: a nil channel blocks
+	// forever, so only the exit ends the wait.
+	var expired <-chan time.Time
+	if timeout > 0 {
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		expired = timer.C
+	}
 
 	var result exitResult
 	select {
 	case result = <-exited:
-	case <-timer.C:
+	case <-expired:
 		if handle, ok := t.claimTermination(StatusTimedOut); ok && handle != nil {
 			_ = handle.Stop(defaultStopGrace)
 		}

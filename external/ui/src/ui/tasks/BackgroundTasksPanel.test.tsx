@@ -716,3 +716,73 @@ test("a finished task that woke the agent keeps its bell", () => {
   expect(screen.getByTestId("bgtask-open-bg_3").lastElementChild).toBe(bell);
   expect(screen.queryByTestId("bgtask-notify-bg_4")).toBeNull();
 });
+
+// A preview server (preview_server): the card is the way to the page.
+
+function serverTask(over: Partial<BackgroundTask> = {}): BackgroundTask {
+  // A server row carries no command.
+  const { command: _command, ...row } = task({
+    id: "bg_9",
+    kind: "server",
+    label: "preview demo",
+    url: "http://127.0.0.1:4321/",
+    timeout_seconds: 0,
+    ...over,
+  });
+  return row;
+}
+
+test("a running preview server is tagged as a server and links to its address in a new tab", () => {
+  const onStopTask = vi.fn();
+  renderPanel({ tasks: [serverTask()], onStopTask });
+
+  expect(screen.getByTestId("bgtask-tag-bg_9")).toHaveTextContent("server");
+  expect(screen.getByTestId("bgtask-title-bg_9")).toHaveTextContent(
+    "preview demo",
+  );
+  const link = screen.getByTestId("bgtask-link-bg_9");
+  expect(link).toHaveAttribute("href", "http://127.0.0.1:4321/");
+  expect(link).toHaveAttribute("target", "_blank");
+  expect(link).toHaveAttribute("rel", "noopener noreferrer");
+
+  // The link is not the opener: following it leaves the card folded.
+  fireEvent.click(link);
+  expect(screen.queryByTestId("bgtask-body-bg_9")).toBeNull();
+
+  fireEvent.click(screen.getByTestId("bgtask-stop-bg_9"));
+  expect(onStopTask).toHaveBeenCalledWith("bg_9");
+});
+
+test("an open preview server card shows the address to copy, and a stopped one no dead link or exit code", async () => {
+  renderPanel({
+    tasks: [
+      serverTask(),
+      serverTask({
+        id: "bg_10",
+        label: "preview old",
+        url: "http://127.0.0.1:4000/",
+        running: false,
+        status: "stopped",
+        exit_code: 0,
+        finished_at: new Date(START_MS + 30_000).toISOString(),
+        elapsed_seconds: 30,
+      }),
+    ],
+  });
+
+  fireEvent.click(screen.getByTestId("bgtask-open-bg_9"));
+  expect(await screen.findByTestId("bgtask-url-bg_9")).toHaveTextContent(
+    "http://127.0.0.1:4321/",
+  );
+
+  fireEvent.click(screen.getByTestId("bgtask-finished-toggle"));
+  expect(screen.queryByTestId("bgtask-link-bg_10")).toBeNull();
+  expect(screen.getByTestId("bgtask-meta-bg_10")).not.toHaveTextContent(
+    "exit",
+  );
+});
+
+test("an address that is not http(s) never becomes a link", () => {
+  renderPanel({ tasks: [serverTask({ url: "javascript:alert(1)" })] });
+  expect(screen.queryByTestId("bgtask-link-bg_9")).toBeNull();
+});

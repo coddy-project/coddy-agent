@@ -317,6 +317,9 @@ func taskTag(row bgtask.Snapshot) string {
 		}
 		return "agent"
 	}
+	if row.Kind == bgtask.KindServer {
+		return "server"
+	}
 	return "shell"
 }
 
@@ -325,6 +328,10 @@ func taskTag(row bgtask.Snapshot) string {
 // already, so the title keeps the second. A run nobody described gets a plain name.
 func taskTitle(row bgtask.Snapshot) string {
 	label := strings.TrimSpace(row.Label)
+	// A preview server is its address: that is what the operator opens.
+	if row.Kind == bgtask.KindServer && strings.TrimSpace(row.URL) != "" {
+		return strings.TrimSpace(row.URL)
+	}
 	if row.Kind != bgtask.KindAgent {
 		if label != "" {
 			return label
@@ -385,7 +392,8 @@ func taskOutcomeLine(row bgtask.Snapshot, now time.Time) string {
 		return taskMetaLine(row, now)
 	}
 	parts := []string{string(row.Status)}
-	if row.Kind != bgtask.KindAgent && row.ExitCode != nil {
+	// Neither an agent run nor a preview server has a process behind it.
+	if row.Kind != bgtask.KindAgent && row.Kind != bgtask.KindServer && row.ExitCode != nil {
 		parts = append(parts, "exit "+itoa(*row.ExitCode))
 	}
 	parts = append(parts, formatElapsed(row.Elapsed(now)))
