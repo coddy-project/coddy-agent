@@ -940,17 +940,19 @@ func (p *Pool) RunningCount(sessionID string) int {
 }
 
 // runningForSession must be called with the pool lock held. It counts the
-// tasks the per-session cap applies to, so a system task is skipped.
+// tasks the per-session cap applies to, so a system task is skipped. The
+// session id never changes once a task is registered; the agent info does
+// (SetAgentUsage replaces it), so it is read under the task's lock.
 func (p *Pool) runningForSession(sessionID string) int {
 	count := 0
 	for _, t := range p.tasks {
-		if t.snap.SessionID != sessionID || t.snap.SystemTask() {
+		if t.snap.SessionID != sessionID {
 			continue
 		}
 		t.mu.Lock()
-		running := !t.snap.Status.Finished()
+		counted := !t.snap.SystemTask() && !t.snap.Status.Finished()
 		t.mu.Unlock()
-		if running {
+		if counted {
 			count++
 		}
 	}

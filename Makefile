@@ -270,22 +270,9 @@ print-test-tag-sets:
 # but ui (LINT_TAGS_NO_UI below): that tag only embeds the SPA and needs Node,
 # and adds no Go concurrency. CI runs this target on every pull request, and
 # GOFLAGS=-count=3 repeats each test to shake out a race that shows up rarely.
-#
-# RACE_SKIP_PKGS names the packages that still report data races, relative to
-# the module. They are tested by every other run as usual; a package leaves
-# the list in the change that fixes its races, and one that is not on it,
-# a new package included, is covered without anyone adding it.
-RACE_SKIP_PKGS := \
-	external/httpserver \
-	external/scheduler/daemon \
-	internal/agent \
-	internal/llm
-
+# Every package is clean under it; a race it reports is fixed, not skipped.
 test-race:
-	@set -e; mod=$$(go list -m); \
-	pkgs=$$(go list -tags=$(LINT_TAGS_NO_UI_CSV) ./... | grep -v -x -F $(foreach p,$(RACE_SKIP_PKGS),-e "$$mod/$(p)")); \
-	echo "go test -race -tags=$(LINT_TAGS_NO_UI_CSV) ./... (skipping $(RACE_SKIP_PKGS))"; \
-	go test -race -tags=$(LINT_TAGS_NO_UI_CSV) $$pkgs
+	go test -race -tags=$(LINT_TAGS_NO_UI_CSV) ./...
 
 # Type-check the Windows build without a Windows machine.
 #
