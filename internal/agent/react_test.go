@@ -183,6 +183,8 @@ func TestToolKind(t *testing.T) {
 		{"read", "read"},
 		{"glob", "read"},
 		{"grep", "read"},
+		{"coddy_docs_search", "read"},
+		{"coddy_docs_read", "read"},
 		{"write", "write"},
 		{"apply_patch", "write"},
 		{"run_command", "run_command"},
@@ -953,7 +955,7 @@ func TestPlanToolSetFiltersToReadWebAndShell(t *testing.T) {
 	for _, d := range filtered {
 		got[d.Name] = true
 	}
-	for _, want := range []string{"read", "glob", "grep", "websearch", "webfetch", "run_command", "question", "plan_write", "plan_list", "plan_read"} {
+	for _, want := range []string{"read", "glob", "grep", "websearch", "webfetch", "run_command", "question", "plan_write", "plan_list", "plan_read", "coddy_docs_search", "coddy_docs_read"} {
 		if !got[want] {
 			t.Errorf("plan toolset should include %q", want)
 		}
@@ -980,7 +982,7 @@ func TestAskToolSetFiltersToReadAndWeb(t *testing.T) {
 	for _, d := range filtered {
 		got[d.Name] = true
 	}
-	for _, want := range []string{"read", "keep_result", "glob", "grep", "print_tree", "websearch", "webfetch", "question"} {
+	for _, want := range []string{"read", "keep_result", "glob", "grep", "print_tree", "websearch", "webfetch", "question", "coddy_docs_search", "coddy_docs_read"} {
 		if !got[want] {
 			t.Errorf("ask toolset should include %q", want)
 		}

@@ -198,7 +198,8 @@ func (t *toolBox) bgRole() string {
 
 // title derives the display title from the tool name and streamed args
 // (read/write show the path, run_command shows `$ command`, load_skill and
-// spawn_agent name the skill and the subagent they pulled in).
+// spawn_agent name the skill and the subagent they pulled in, the
+// documentation tools say what they do with the query or the page).
 func (t *toolBox) title() string {
 	var parsed map[string]interface{}
 	arg := func(keys ...string) string {
@@ -229,6 +230,18 @@ func (t *toolBox) title() string {
 		if name := strings.TrimPrefix(arg("name"), "/"); name != "" {
 			return t.theme.Bold(t.name) + " " + t.theme.Fg(roleAccent, titleField(name))
 		}
+	case "coddy_docs_search", "coddy_docs_read":
+		// The status phrase, not the id: looking up Coddy's own documentation is
+		// a step the operator should read at a glance.
+		title := t.theme.Bold(statusVerbForTool(t.name))
+		key := "query"
+		if t.name == "coddy_docs_read" {
+			key = "page"
+		}
+		if target := arg(key); target != "" {
+			title += " " + t.theme.Fg(roleAccent, titleField(target))
+		}
+		return title
 	case "spawn_agent":
 		if t.spawned {
 			title := t.theme.Bold(t.name) + " " + t.theme.Fg(roleAccent, t.spawn.agent)

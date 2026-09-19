@@ -80,6 +80,7 @@ agent:
 - **Hooks**: your own commands at every lifecycle point, in Claude Code's `hooks.json` shape, able to deny, approve or rewrite a tool call ([Hooks](docs/features/hooks.md)).
 - **MCP servers** over stdio, streamable HTTP and SSE, from `config.yaml`, `mcp.json` files or the editor, with a trust gate for what arrives with a checkout ([MCP servers](docs/features/mcp.md)).
 - **Mentions**: `@` points at a file anywhere on disk, a line range, a folder, another session, a rule, a subagent or a web page, with the same fuzzy completion in the console and the browser; each is read once into the message that names it, so the provider's prompt cache holds ([Mentions](docs/features/mentions.md)).
+- **Documentation built in**: this documentation ships inside the binary - a reader in the web UI, F1 in the console, `coddy docs` in the shell - searched offline, and the agent looks itself up with its own `coddy_docs_search` and `coddy_docs_read` tools or a `@coddy:<page>` mention ([Built-in documentation](docs/features/built-in-docs.md)).
 - **Message queue**: a follow-up written while the agent works is read by the running turn at its next step, not after it, and a shared session shows the same queue in every browser and console ([Message queue](docs/features/message-queue.md)).
 - **Background tasks**: detached commands and subagent runs collected later, with a Tasks drawer in the UI ([Background tasks](docs/features/background-tasks.md)).
 - **Context compaction and long-term memory**: `/compact` and automatic summarisation at a threshold, result eviction with `keep_result`, a memory subagent that runs per turn in the background, recalls what the notes hold and saves what you ask it to keep ([Compaction](docs/features/compaction.md), [Memory](docs/features/memory.md)).
@@ -100,6 +101,7 @@ Project trust is one decision for MCP servers, hooks and subagents that arrive w
 | Goal | Start here |
 |---|---|
 | Install and run it for the first time | [Quickstart](docs/getting-started/quickstart.md), [Install](docs/getting-started/install.md) |
+| Read this documentation offline, from the app, the console or the shell | [Built-in documentation](docs/features/built-in-docs.md) |
 | Give it a model or check a config file | [Configuration](docs/getting-started/configuration.md), [config.yaml reference](docs/reference/config.md) |
 | Use it from a terminal, a browser, an editor or Telegram | [Console](docs/surfaces/console.md), [Web UI](docs/surfaces/web-ui.md), [Editors](docs/surfaces/editors.md), [Telegram gateway](docs/surfaces/gateway.md) |
 | Run it as a service or reach it from elsewhere | [coddy serve](docs/operate/serve.md), [Remote mode](docs/operate/remote.md), [Swarm](docs/operate/swarm.md), [Scheduler](docs/operate/scheduler.md) |

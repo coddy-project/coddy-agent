@@ -59,6 +59,7 @@ var fullHints = []string{
 	"ctrl+l to select model",
 	"ctrl+o to expand tools",
 	"ctrl+t to expand thinking",
+	"F1 (or /docs) for the documentation",
 	"/ for commands",
 	"!! to run a local command the agent never sees",
 	"enter to send, shift+enter (ctrl+j) for newline",

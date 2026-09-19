@@ -1,6 +1,6 @@
 import React from "react";
-import { afterEach, describe, expect, it, test } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, test, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { NavRail } from "./NavRail";
 
 afterEach(() => cleanup());
@@ -172,6 +172,24 @@ describe("NavRail on a relay", () => {
       spacer?.compareDocumentPosition(swarm) &&
         spacer.compareDocumentPosition(swarm) &
           Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+        ).toBeTruthy();
+  });
+
+  it("offers the documentation between the swarm and settings", () => {
+    const onOpenDocs = vi.fn();
+    render(<NavRail {...base} showSwarm onOpenDocs={onOpenDocs} docsOpen={false} />);
+    const order = Array.from(
+      document.querySelectorAll("[data-testid^='nav-']"),
+    ).map((e) => e.getAttribute("data-testid"));
+    expect(order.slice(-3)).toEqual(["nav-swarm", "nav-docs", "nav-settings"]);
+    const docs = screen.getByTestId("nav-docs");
+    expect(docs.getAttribute("href")).toBe("#/docs");
+    fireEvent.click(docs);
+    expect(onOpenDocs).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the documentation entry when nothing opens it", () => {
+    render(<NavRail {...base} />);
+    expect(screen.queryByTestId("nav-docs")).toBeNull();
   });
 });

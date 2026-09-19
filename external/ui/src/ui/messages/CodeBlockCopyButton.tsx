@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 
 async function copyTextToClipboard(text: string): Promise<void> {
@@ -33,6 +33,15 @@ export function CodeBlockCopyButton(props: {
 }) {
   const { t } = useT();
   const [copied, setCopied] = useState(false);
+  // The "copied" flash is undone by a timer; one still pending when the block
+  // goes away (a transcript re-render, a closed page) must not fire into it.
+  const resetTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(resetTimer.current), []);
+  const flashCopied = useCallback(() => {
+    setCopied(true);
+    window.clearTimeout(resetTimer.current);
+    resetTimer.current = window.setTimeout(() => setCopied(false), 900);
+  }, []);
 
   const onCopy = useCallback(async () => {
     // Copy the block verbatim; only the decision to copy at all looks at the trim.
@@ -42,8 +51,7 @@ export function CodeBlockCopyButton(props: {
     }
     try {
       await copyTextToClipboard(text);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 900);
+      flashCopied();
     } catch {
       try {
         const ta = document.createElement("textarea");
@@ -55,13 +63,12 @@ export function CodeBlockCopyButton(props: {
         ta.select();
         document.execCommand("copy");
         document.body.removeChild(ta);
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 900);
+        flashCopied();
       } catch {
         setCopied(false);
       }
     }
-  }, [props.textToCopy]);
+  }, [props.textToCopy, flashCopied]);
 
   const disabled = props.textToCopy.trim().length === 0;
 

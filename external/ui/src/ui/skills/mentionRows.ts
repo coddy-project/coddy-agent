@@ -14,6 +14,7 @@ export type MentionKind =
   | "rule"
   | "agent"
   | "plan"
+  | "doc"
   | "scheme";
 
 /** One picker row: **`insert`** replaces **`@`** plus the query in the draft. */

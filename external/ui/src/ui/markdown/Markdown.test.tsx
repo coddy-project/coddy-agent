@@ -192,3 +192,64 @@ test("inline code styles use grey fill without border in css", () => {
   expect(css).not.toMatch(/\.md-inline-code-inner/);
   expect(css).not.toMatch(/\.md-inline-code-tip/);
 });
+
+// A page of the built-in documentation links to another as
+// coddy:<slug>#<anchor>, and the agent quotes pages the same way: the link
+// opens the reader in the app instead of being dropped as an unknown scheme.
+test("coddy: links open the documentation reader", () => {
+  render(
+    <Markdown text="See [Completion](coddy:features/mentions#completion) and [config](coddy:reference/config)." />,
+  );
+  const section = screen.getByText("Completion").closest("a");
+  expect(section?.getAttribute("href")).toBe("#/docs/features/mentions#completion");
+  expect(section?.getAttribute("target")).toBeNull();
+  expect(screen.getByText("config").closest("a")?.getAttribute("href")).toBe(
+    "#/docs/reference/config",
+  );
+});
+
+test("an image or a link cannot carry a script", () => {
+  const { container } = render(
+    <Markdown text="![x](javascript:alert(1)) [y](javascript:alert(2)) [z](coddy:features/modes)" />,
+  );
+  expect(container.querySelector("img")?.getAttribute("src") || "").not.toMatch(/javascript/i);
+  for (const a of Array.from(container.querySelectorAll("a"))) {
+    expect(a.getAttribute("href") || "").not.toMatch(/javascript/i);
+  }
+});
+
+test("images are loaded lazily and fit the column", () => {
+  const { container } = render(
+    <Markdown text="![shot](https://raw.githubusercontent.com/x/y/main/a.png)" />,
+  );
+  expect(container.querySelector("img")?.getAttribute("loading")).toBe("lazy");
+  const css = readFileSync(stylesPath, "utf8");
+  expect(css).toMatch(/\.md img\s*\{[^}]*max-width:\s*100%/);
+});
+
+// The agent points at a page as @coddy:<page>#<section>, the way the user
+// mentions one: in an answer that is a link to the reader too.
+test("an @coddy: reference in an answer opens the documentation reader", () => {
+  const { container } = render(
+    <Markdown text={"Read @coddy:operate/swarm#two-transports first. `@coddy:not/in/code` stays code."} />,
+  );
+  const link = container.querySelector("a.md-docs-link");
+  expect(link?.textContent).toBe("@coddy:operate/swarm#two-transports");
+  expect(link?.getAttribute("href")).toBe("#/docs/operate/swarm#two-transports");
+  expect(container.querySelectorAll("a.md-docs-link")).toHaveLength(1);
+});
+
+// A video of the documentation is fetched from GitHub when it plays; the
+// binary carries none.
+test("a video file in an image slot plays in a video element", () => {
+  const { container } = render(
+    <Markdown text="![Video: swarm.mp4](https://raw.githubusercontent.com/x/y/1.1.55/docs/assets/video/swarm.mp4)" />,
+  );
+  const video = container.querySelector("video");
+  expect(video?.getAttribute("src")).toBe(
+    "https://raw.githubusercontent.com/x/y/1.1.55/docs/assets/video/swarm.mp4#t=0.1",
+  );
+  expect(video?.hasAttribute("controls")).toBe(true);
+  expect(video?.getAttribute("preload")).toBe("metadata");
+  expect(container.querySelector("img")).toBeNull();
+});

@@ -7,7 +7,7 @@ _coddy() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    commands="cli acp serve sessions skills plugin mcp providers rules agents hooks update"
+    commands="cli acp serve sessions skills plugin mcp providers rules agents hooks docs update"
 
     if [ "${COMP_CWORD}" -eq 1 ]; then
         COMPREPLY=($(compgen -W "${commands} -h --help -v --version -c --continue -p --prompt --resume" -- "${cur}"))
@@ -42,6 +42,16 @@ _coddy() {
         agents|hooks)
             [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "list trust untrust" -- "${cur}"))
             [ "${COMP_CWORD}" -gt 2 ] && COMPREPLY=($(compgen -W "--cwd" -- "${cur}"))
+            ;;
+        docs)
+            if [ "${COMP_CWORD}" -eq 2 ]; then
+                COMPREPLY=($(compgen -W "list search show" -- "${cur}"))
+            elif [ "${COMP_WORDS[2]}" = show ] && [ "${COMP_CWORD}" -eq 3 ]; then
+                # The pages the binary carries, from the binary itself.
+                COMPREPLY=($(compgen -W "$(coddy docs list --slugs 2>/dev/null)" -- "${cur}"))
+            elif [ "${COMP_WORDS[2]}" = search ]; then
+                COMPREPLY=($(compgen -W "--limit" -- "${cur}"))
+            fi
             ;;
         update)
             COMPREPLY=($(compgen -W "--check -y --yes --version --repo --no-restart --no-notes" -- "${cur}"))

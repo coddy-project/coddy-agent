@@ -198,7 +198,12 @@ import {
   setSettingsSectionHash,
   stripHistorySidebarFromHash,
   appNavHrefSwarm,
+  appNavHrefDocs,
+  setDocsHash,
 } from "./scheduler/hashRoute";
+import { DocsView } from "./docs/DocsView";
+import { fetchDocsPage } from "./docs/api";
+import { docsCommandOpensPage } from "./docs/docsCommand";
 import { SchedulerJobEditorSheet } from "./scheduler/SchedulerJobEditorSheet";
 import { SchedulerJobsDrawer } from "./scheduler/SchedulerJobsDrawer";
 import {
@@ -853,6 +858,17 @@ export function App() {
   const [schedulerOpen, setSchedulerOpen] = useState(false);
   const [settingsRoute, setSettingsRoute] = useState(false);
   const [swarmRoute, setSwarmRoute] = useState(false);
+  // The documentation reader, open on a page (and section) of the built-in
+  // documentation; null when it is closed. lastDocsSlugRef remembers the page
+  // the reader was left on, so the rail and F1 reopen the book where it was.
+  const [docsRoute, setDocsRoute] = useState<{
+    slug: string | null;
+    anchor: string | null;
+  } | null>(null);
+  const lastDocsSlugRef = useRef<string | null>(null);
+  // Where the reader was opened from (a chat, the swarm, the scheduler), so
+  // closing it goes back there rather than home.
+  const docsReturnHashRef = useRef("");
   // The Swarm entry only appears when the environment answers as a relay: on a
   // plain agent there is no swarm to show.
   const [isSwarmEnv, setIsSwarmEnv] = useState(false);
@@ -1562,6 +1578,20 @@ export function App() {
 
   const applyLocationHash = useCallback(() => {
     const p = parseAppHash();
+    if (p.branch === "docs") {
+      setDocsRoute({ slug: p.slug, anchor: p.anchor });
+      if (p.slug) {
+        lastDocsSlugRef.current = p.slug;
+      }
+      setSwarmRoute(false);
+      setSettingsRoute(false);
+      setSchedulerOpen(false);
+      setSchedulerEditor(null);
+      setTasksOpen(false);
+      setSessionsOpen(false);
+      return;
+    }
+    setDocsRoute(null);
     if (p.branch === "session") {
       setSettingsRoute(false);
       setActiveDraftId("");
@@ -1711,7 +1741,8 @@ export function App() {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setTasksOpen(false);
-    if (parseAppHash().branch === "settings") {
+    setDocsRoute(null);
+    if (parseAppHash().branch === "settings" || parseAppHash().branch === "docs") {
       const sid = sessionId.trim();
       if (sid) {
         setSessionHashInLocation(sid);
@@ -2908,6 +2939,14 @@ export function App() {
     }
     streamShadowBySidRef.current.touch(id);
     evictStaleSessionCaches(id);
+  }
+
+  /** "Ask the agent" in the reader: a fresh chat with the page mentioned and
+   *  the selection quoted, ready to be finished and sent. */
+  function askAboutDocs(draft: string) {
+    goHome();
+    setDocsRoute(null);
+    setDraft(draft);
   }
 
   function goHome() {
@@ -4595,6 +4634,103 @@ export function App() {
     window.location.hash = appNavHrefSwarm();
   }, []);
 
+  /** Opens the reader over whatever is on screen, remembering it for the close. */
+  const openDocsAt = useCallback((slug: string | null, anchor: string | null) => {
+    if (parseAppHash().branch !== "docs") {
+      docsReturnHashRef.current = window.location.hash;
+    }
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    setTasksOpen(false);
+    setSessionsOpen(false);
+    setSettingsRoute(false);
+    window.location.hash = appNavHrefDocs(slug, anchor);
+  }, []);
+
+  const openDocsFromNav = useCallback(() => {
+    openDocsAt(lastDocsSlugRef.current, null);
+  }, [openDocsAt]);
+
+  // A search /docs <words> brings into the reader; cleared when the reader closes.
+  const [docsSearchSeed, setDocsSearchSeed] = useState<{ query: string; nonce: number } | null>(
+    null,
+  );
+
+  /**
+   * `/docs [page or words]` in the composer, as in the console: the command
+   * alone reopens the book, a page's address or title opens that page (and
+   * section), anything else opens the reader on that search.
+   */
+  const openDocsCommand = useCallback(
+    (arg: string) => {
+      setDraft("");
+      if (!arg) {
+        setDocsSearchSeed(null);
+        openDocsFromNav();
+        return;
+      }
+      void fetchDocsPage(arg).then((res) => {
+        if (res.ok && docsCommandOpensPage(arg, res.data.title)) {
+          setDocsSearchSeed(null);
+          openDocsAt(res.data.slug, res.data.anchor || null);
+          return;
+        }
+        setDocsSearchSeed({ query: arg, nonce: Date.now() });
+        openDocsFromNav();
+      });
+    },
+    [openDocsAt, openDocsFromNav],
+  );
+
+  /** Following a link of the reader adds a history entry, so Back returns to
+   *  the page before; settling on the first page of the book does not. */
+  const openDocsPage = useCallback(
+    (slug: string, anchor?: string | null, opts?: { replace?: boolean }) => {
+      if (opts?.replace) {
+        setDocsHash(slug, anchor);
+        return;
+      }
+      window.location.hash = appNavHrefDocs(slug, anchor);
+    },
+    [],
+  );
+
+  const onCloseDocs = useCallback(() => {
+    setDocsRoute(null);
+    setDocsSearchSeed(null);
+    const back = docsReturnHashRef.current;
+    docsReturnHashRef.current = "";
+    if (back && !back.startsWith("#/docs")) {
+      window.location.hash = back;
+      return;
+    }
+    const sid = sessionId.trim();
+    if (sid) {
+      setSessionHashInLocation(sid);
+    } else {
+      clearSessionRoute();
+    }
+  }, [sessionId, clearSessionRoute]);
+
+  // F1 opens the documentation, as it does in the console, and closes it again.
+  const docsOpenRef = useRef(false);
+  docsOpenRef.current = docsRoute !== null;
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== "F1" || e.altKey || e.ctrlKey || e.metaKey) {
+        return;
+      }
+      e.preventDefault();
+      if (docsOpenRef.current) {
+        onCloseDocs();
+      } else {
+        openDocsFromNav();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCloseDocs, openDocsFromNav]);
+
   const openSettingsFromNav = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
@@ -4641,7 +4777,8 @@ export function App() {
     sessionsOpen ||
     (schedulerOpen && schedulerHttpLinked === true) ||
     settingsRoute ||
-    swarmRoute;
+    swarmRoute ||
+    docsRoute !== null;
 
   const filteredSchedulerJobs = useMemo(() => {
     const q = schedulerFilterQ.trim().toLowerCase();
@@ -5010,6 +5147,8 @@ export function App() {
         showSwarm={isSwarmEnv}
         onOpenSwarm={openSwarmFromNav}
         swarmOpen={swarmRoute}
+        onOpenDocs={openDocsFromNav}
+        docsOpen={docsRoute !== null}
         settingsOpen={settingsRoute}
         onOpenSettings={openSettingsFromNav}
         canWidenRail={viewportXL}
@@ -5141,7 +5280,7 @@ export function App() {
           </div>
         ) : null}
 
-        {swarmRoute || (atSwarmRoot && !settingsRoute) ? (
+        {swarmRoute || (atSwarmRoot && !settingsRoute && !docsRoute) ? (
           <div className="swarm-dock-cluster">
             <SwarmView
               onOpenNode={(nodePath: string[]) => openSwarmNode(nodePath)}
@@ -5150,6 +5289,18 @@ export function App() {
                 ? { currentNode: swarmCurrentNode }
                 : {})}
               {...(atSwarmRoot ? { headerSlot: <EnvironmentChip /> } : {})}
+            />
+          </div>
+        ) : null}
+        {docsRoute ? (
+          <div className="docs-dock-cluster">
+            <DocsView
+              slug={docsRoute.slug}
+              anchor={docsRoute.anchor}
+              onOpen={openDocsPage}
+              onClose={onCloseDocs}
+              {...(docsSearchSeed ? { searchSeed: docsSearchSeed } : {})}
+              {...(atSwarmRoot ? {} : { onAsk: askAboutDocs })}
             />
           </div>
         ) : null}
@@ -5339,6 +5490,7 @@ export function App() {
             {...(editingFiles.length > 0 ? { editingFiles } : {})}
             onBranchSwitch={(sid) => switchBranch(sid)}
             {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
+            onDocsCommand={openDocsCommand}
             onSend={(text: string, files?: File[]) => {
               // A subagent transcript is read-only: the server answers 409.
               if (subagentTranscript) {

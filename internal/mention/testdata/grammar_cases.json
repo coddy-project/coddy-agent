@@ -335,6 +335,40 @@
     ]
   },
   {
+    "in": "read @coddy:features/mentions#what-the-model-receives, then @coddy:reference/config. and @coddy:mentions#",
+    "tokens": [
+      {
+        "span": "@coddy:features/mentions#what-the-model-receives",
+        "readings": [
+          "coddy:features/mentions#what-the-model-receives"
+        ]
+      },
+      {
+        "span": "@coddy:reference/config",
+        "readings": [
+          "coddy:reference/config"
+        ]
+      },
+      {
+        "span": "@coddy:mentions",
+        "readings": [
+          "coddy:mentions"
+        ]
+      }
+    ]
+  },
+  {
+    "in": "only coddy: pages take a slash, @rule:deploy/x stops at it",
+    "tokens": [
+      {
+        "span": "@rule:deploy",
+        "readings": [
+          "rule:deploy"
+        ]
+      }
+    ]
+  },
+  {
     "in": "@. and @.. and @/ and @~ are prose",
     "tokens": []
   },
@@ -354,7 +388,7 @@
     ]
   },
   {
-    "in": "\u003e quoted @x.go\nplain @y.go",
+    "in": "> quoted @x.go\nplain @y.go",
     "tokens": [
       {
         "span": "@y.go",

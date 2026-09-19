@@ -340,6 +340,8 @@ describe("statusKeyForTool", () => {
     expect(statusKeyForTool("http_request")).toBe("status.httpRequest");
     expect(statusKeyForTool("spawn_agent")).toBe("status.spawnAgent");
     expect(statusKeyForTool("APPLY_PATCH")).toBe("status.edit");
+    expect(statusKeyForTool("coddy_docs_search")).toBe("status.docsSearch");
+    expect(statusKeyForTool("coddy_docs_read")).toBe("status.docsRead");
     expect(statusKeyForTool("")).toBe("status.tool");
   });
 

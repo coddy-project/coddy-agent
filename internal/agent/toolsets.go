@@ -49,6 +49,9 @@ var planToolNames = []string{
 	// Filing the session writes nothing but the session's own title and tags,
 	// and a planning session is one that earns a name as it goes.
 	"session_describe",
+	// Coddy's own documentation, read out of the binary.
+	"coddy_docs_search",
+	"coddy_docs_read",
 }
 
 // askToolNames is the fixed allowlist for ask mode: repository reads and web
@@ -66,6 +69,10 @@ var askToolNames = []string{
 	// Read-only: lets the assistant pull a catalogued skill's instructions when
 	// skills.auto_discovery is on (the tool is only registered when enabled).
 	"load_skill",
+	// Coddy's own documentation, read out of the binary: "how do I set up
+	// the Telegram bot" is exactly the question ask mode is for.
+	"coddy_docs_search",
+	"coddy_docs_read",
 }
 
 // ToolSetForMode returns the tool allowlist for the session mode. Agent mode is unrestricted.

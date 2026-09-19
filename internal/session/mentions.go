@@ -23,6 +23,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/docs"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/mention"
 	"github.com/EvilFreelancer/coddy-agent/internal/plans"
@@ -45,6 +46,10 @@ const (
 	sessionDigestBytes = 24 << 10
 	// sessionDigestMessageBytes caps one message inside a digest.
 	sessionDigestMessageBytes = 3 << 10
+	// mentionDocBytes caps a page of the built-in documentation: every
+	// guide fits, and a long reference page arrives as its beginning with
+	// the way to read the rest.
+	mentionDocBytes = 64 << 10
 )
 
 // MentionAgent is a subagent a prompt may mention as "@agent:<name>".
@@ -247,6 +252,9 @@ func (r *mentionResolver) resolveToken(text string, tok mention.Token) (res *acp
 		return res, -1, ok
 	case mention.SchemeAgent:
 		res, ok = r.resolveAgent(tok.Ref, typed)
+		return res, -1, ok
+	case mention.SchemeCoddy:
+		res, ok = r.resolveDoc(tok.Ref, typed)
 		return res, -1, ok
 	}
 	for i, rd := range tok.Readings {
@@ -809,6 +817,51 @@ func RuleAttachmentPath(cwd, home string, rule *rules.Rule) string {
 		return loc.Display
 	}
 	return "rule:" + rule.CanonicalName()
+}
+
+// resolveDoc attaches a page of Coddy's own documentation, or one section of
+// it: "@coddy:features/mentions#completion". The documentation is the one
+// built into this binary, so it is mentionable from every surface and every
+// session, a subagent's task included.
+func (r *mentionResolver) resolveDoc(ref, typed string) (*acp.Resource, bool) {
+	lib, err := docs.Default()
+	if err != nil {
+		return nil, false
+	}
+	page, anchor, err := lib.Resolve(ref)
+	if err != nil {
+		return nil, false
+	}
+	uri := docs.LinkScheme + docs.Ref(page.Slug, anchor)
+	if !r.claim(mention.KindDoc + "|" + uri) {
+		return nil, false
+	}
+	if r.dry {
+		return &acp.Resource{URI: uri, Mention: &acp.ResourceMention{Kind: mention.KindDoc, Typed: typed}}, true
+	}
+	rd, err := page.Read(docs.ReadOptions{Anchor: anchor, MaxBytes: mentionDocBytes})
+	if err != nil {
+		return nil, false
+	}
+	text, name := rd.Text, page.Title
+	if rd.Heading != nil {
+		name = page.Title + " > " + rd.Heading.Text
+	}
+	if rd.Next != 0 {
+		// A reference page is longer than a question needs: the attachment
+		// is its beginning, and says how the model reads the rest.
+		text += fmt.Sprintf("\n\n[The page continues at line %d of %d: read the rest with the coddy_docs_read tool (page %q, offset %d) or one section of it (page \"%s#<anchor>\").", rd.Next, rd.Total, docs.Ref(page.Slug, anchor), rd.Next, page.Slug)
+		if anchor == "" {
+			text += " Its sections:\n" + page.Outline()
+		}
+		text += "]"
+	}
+	return &acp.Resource{
+		URI:      uri,
+		MimeType: "text/markdown; charset=utf-8",
+		Text:     text,
+		Mention:  &acp.ResourceMention{Kind: mention.KindDoc, Name: name, Typed: typed},
+	}, true
 }
 
 // resolveAgent attaches the user's request to involve a subagent.
