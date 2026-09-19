@@ -207,7 +207,7 @@ Session title
 *The stream switch of a model row in Settings*
 
 - **New chat** defaults **Model** from cookie **`coddy_llm_model`**, then **`default_agent_model`** from **`GET /v1/models`**, then the first YAML row.
-- **Opening a session** restores **Model** from **`GET /coddy/sessions/{id}/messages`** field **`model`** (session override on disk), not from the cookie.
+- **Opening a session** restores **Model** from **`GET /coddy/sessions/{id}/messages`** field **`model`** (session override on disk) and its **`settings`** snapshot, not from the cookie.
 - Changing **Model** writes the cookie (default for the next **New chat**) and **`PATCH`** **`selectedModelId`** on the active session. ReAct turns still send **`metadata.model`** on **`POST /v1/responses`**.
 - **Many models / long names** — backend ids are **`vendor/model`**. When more than one vendor is configured the menu groups rows under an uppercase vendor header and each row shows only the model name (full id stays in the row tooltip). On desktop the list scrolls with a ~5-row cap. When there are **more than 5** backends a **filter input** appears at the top (auto-focused) that matches the vendor, model name, or full id (case-insensitive); **Enter** picks the first match, **Escape** closes, and an empty result shows a “No models match …” notice. Filter/group/threshold logic is in **`chat/llmModelMenu.ts`** (unit-tested in **`llmModelMenu.test.ts`**; menu wiring covered by **`ComposerModelMenu.test.tsx`**).
 - **Mobile sheet** — on narrow/mobile shells (the **`max-width: 1199px`** shell-stack breakpoint) the **Mode** / **Model** / **Reasoning** menus open as a **full-width bottom sheet** over a dimmed scrim — the same pattern as the slash (**`/`**) and **`@`** pickers — instead of a cramped anchored dropdown. The filter and grouping still apply inside the sheet. Desktop keeps the anchored dropdown.
@@ -221,6 +221,18 @@ Session title
 - A **Reasoning** selector appears in the composer next to **Model** **only** when the active model exposes **`reasoning_levels`** from **`GET /v1/models`** (reasoning models such as gpt-5 / o-series / Claude thinking models). Levels are derived from **`models[].reasoning_levels`** (auto-detected from the model id when unset) and propagated through **`ModelInfo.reasoningLevels`** → **`llmReasoningLevels`** in **`App.tsx`** → **`Composer`**.
 - **New chat** defaults the level from cookie **`coddy_llm_reasoning`**, then the model's **`reasoning_default`**, then **`medium`** (or the first offered level). **Opening a session** restores it from **`GET /coddy/sessions/{id}/messages`** field **`selectedReasoning`**. Switching to a model that does not offer the current level clamps it to a valid one (see **`pickReasoningLevel`** in **`chat/reasoningSelection.ts`**).
 - Changing the level writes the cookie and **`PATCH`** **`selectedReasoning`** on the active session; ReAct turns also send **`metadata.reasoning`** on **`POST /v1/responses`** so a brand-new session applies it on the first turn.
+
+### Session settings: permission chip, turn overrides, live mirror
+
+![The composer after a bypass from the dialog: a red Bypass chip, and "stub/qwen3.8-demo, 2 turns left" next to the model](../assets/session-settings/session-settings-composer-bypass-dark-1280.png)
+
+*The composer after the session was switched to bypass from a permission prompt and the model changed for two turns.*
+
+- The composer mirrors the session's settings snapshot ([Session settings](../features/session-settings.md)): **`settings`** on **`GET /coddy/sessions/{id}/messages`** and on the **`PATCH /coddy/sessions/{id}`** answer, and **`event: session_settings`** on the turn stream and on **`GET /coddy/events`**. **`chat/sessionSettings.ts`** parses it; **`App.tsx`** keeps the highest **`version`** per session (**`isNewerSettings`**), so the same change arriving down both connections, or an answer arriving after the event of a later change, is applied once and never rolled back.
+- **Mode**, **Model** and **Reasoning** follow a change made anywhere - a typed command, the permission dialog, the model's **`switch_model`**, a console or an editor on the same session. Every **`POST /v1/responses`** carries **`metadata.settingsVersion`**, the version the tab last applied; the server ignores the tab's **`model`** / **`reasoning`** / mode when a newer snapshot has been published since, so a stale tab cannot undo a change it has not seen.
+- The **permission chip** (**`data-testid="composer-permission"`**) sits after **Mode**: **Ask first**, **Accept edits** or **Bypass**, the last in red with a glow, its tooltip naming the configuration's mode the session returns to after a restart. Its menu calls **`PATCH`** **`permissionMode`**. On a new chat the pick is held and sent as a **`/permissions <mode>`** line ahead of the first message.
+- The **overrides line** (**`data-testid="composer-overrides"`**) lists what is changed for the next turns (**`stub/qwen3.8-demo, 2 turns left`**, **`plan this turn`**), with the full list in its tooltip; it shrinks with an ellipsis on narrow shells rather than pushing the send button off the bar.
+- A prompt of settings commands only runs no turn: the stream ends with **`coddy_meta.settings_only`**, the tab drops its optimistic user and assistant rows and re-reads the transcript, where each change is one **SYSTEM** notice row.
 
 ### Settings: reasoning levels for a logical model
 
@@ -504,6 +516,7 @@ Wire and draft
 
 Picker and segmentation
 
+- The **Commands** group lists the built-ins from **`GET /coddy/commands`** with their argument hint (**`.slash-row-hint`**). Picking **`/model`**, **`/reasoning`** or **`/permissions`** opens that composer selector instead of inserting text, and picking **`/agent`**, **`/plan`** or **`/ask`** switches the mode; a settings command typed out with its value is sent as prompt text and applied by the server.
 - Menu visibility and **`prefix`** derive from **`slashMenuDraftAtCaret`** in **`external/ui/src/ui/skills/draftSlash.ts`** (line-start or whitespace before **`/`**, optional suffix, not inside fences or blockquotes).
 - Mirror highlighting uses **`segmentComposerSlashSpans`** in **`external/ui/src/ui/skills/segmentComposerSlashSpans.ts`** (mid-line **`/`** supported; **`x/foo`** is not a command token).
 
@@ -665,6 +678,7 @@ The inline approval gate is implemented by **PermissionPromptSection** and **Per
 - Render the card only for a pending permission request. Read-only tools render their normal timeline row only; there is no informational no-approval card, checkmark, or explanatory sentence.
 - Header: human action question plus one raw tool-id badge. The preview header is reserved for the path, shell, or operation scope so the tool name is not duplicated.
 - Actions use the server-provided labels unchanged (**Allow**, **Allow always**, optional **Always allow `<program>`**, **Reject**). The options list is rendered from the SSE payload, so a fourth button needs no client change beyond layout.
+- While the session asks, the server adds the session switches before **Reject**: **Bypass permissions for this session** (**`allow_session_bypass`**, drawn in red, **`permission-prompt-btn--session-bypass`**) and, for a file write, **Allow edits for this session** (**`allow_session_accept_edits`**, **`permission-prompt-btn--session-edits`**). Either approves the call and switches the session, and the permission chip follows from the settings event ([Session settings](../features/session-settings.md#switching-from-the-permission-dialog)).
 - The program-wide option only reaches the client for **run_command** on a single plain invocation. Its label already names the exact grant (**`curl`**, **`git status`**), so the card must render it verbatim rather than re-deriving a program name.
 - Match the prompt to its **tool_call** by **toolCallId** and prefer that row’s **argsText**; fall back to **Arguments:** content in the permission payload.
 - A turn the server woke on its own asks here too. Its prompt arrives on the composer relay the tab follows, is persisted as the session's pending prompt (so a reload restores it like any other), and the first answer from any client - this tab, another one, a console following the turn - settles it.

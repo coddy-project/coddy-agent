@@ -74,6 +74,6 @@ coddy --remote http://127.0.0.1:12346/swarm/nodes/node-a --remote-token "$T"
 - **`--remote` is refused before connecting.** The target must be a bare origin plus a path prefix: no query string, no fragment, no credentials in the URL. The token goes into `--remote-token` or `CODDY_REMOTE_TOKEN`.
 - **`401` on every request.** A node's own token was used where the relay's client token belongs. Through a mount you present the relay's token; the relay presents the node's.
 - **The status dot in a browser stays red with a correct token.** The web UI was opened from another `coddy serve`, and that relay does not list the page's origin in `swarm.cors.allowed_origins`. Open the relay's own address instead, or allow the origin.
-- **`/permissions` and `--permission-mode` are rejected.** The permission mode is the node's; a remote client cannot change it. `/mode` still picks agent, plan or ask per turn.
+- **A bypass switched on from a laptop is gone the next morning.** `/permissions bypass` changes the node's session for every client of it, but only in the node's memory: a restart of the node returns the session to its `tools.permission_mode`. Put a lasting choice in the node's `config.yaml`.
 - **The transcript stops mid-turn after the laptop lost the network.** The turn keeps running on the node; `/resume` or `-c` shows the outcome once it ends, and an answer to a prompt the node has already withdrawn is ignored.
 - **A second client gets `409` on the same session.** A session is one turn at a time; the first client holds the lock until its turn ends.

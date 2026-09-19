@@ -39,6 +39,7 @@ Only `description` is required. `name` defaults to the file stem (or the directo
 | `name` | | Identifier matching `[a-z0-9][a-z0-9_-]*`; what the model passes to `spawn_agent`. |
 | `description` | | One line shown to the parent model so it can pick the agent; cut to 200 characters in the catalog. |
 | `model` | | A `models[].model` id for the child. An unknown id falls back to the parent's model with a warning in the agent log and a note in the task's output log. |
+| `reasoning` | `effort` | A reasoning level the child's model offers, `off` or `default`. A level the model does not offer falls back to its default with a warning in the agent log. |
 | `mode` | | `agent` or `plan`. Empty inherits the parent's mode; a read-only parent (`plan`, and `ask` should a spawn ever originate there) always forces its own mode. The parent's mode is the one its turn started in, not the live session mode, so a mode switch landing mid-turn cannot widen a child. |
 | `tools` | | Allowlist: a YAML list or a comma-separated string (`tools: read, grep`). Entries are exact tool names, a bare `*`, or a `prefix*` pattern, so `context7__*` admits every tool of one MCP server. Empty means everything the parent has. |
 | `disallowed_tools` | `disallowedTools` | Denylist with the same syntax; wins over `tools`. |
@@ -127,6 +128,8 @@ Approval surfaces:
 | `background` | Return the task id at once instead of waiting for the report. Default `false`. A definition with `background: true` forces it on. |
 | `expected_seconds` | The model's own estimate; drives the status ticker and, when no timeout is given, the hard timeout - the same advisory semantics as a backgrounded `run_command`. |
 | `timeout_seconds` | Hard limit for the run. |
+| `model` | A configured model id for the child, over the definition's `model` and the parent's. An id the configuration does not know is refused with the list of configured ones. |
+| `reasoning` | The child's reasoning level: a level its model offers, `off` or `default`; over the definition's `reasoning`. A level the model does not offer is refused. |
 | `notify_on_finish` | For a background run: wake the parent with the outcome when the child finishes (see `docs/features/background-tasks.md`). Forced **off** for a foreground spawn, whose report already comes back in the tool result, and for any spawn made by a child. |
 
 The tool is registered when `subagents.enable` is on and offered in `agent` and `plan` mode, never in `ask` mode. It needs **no permission prompt of its own**: launching a child changes nothing by itself, every tool call the child makes is gated on its own, and project trust is decided inside the runtime hook before anything starts.

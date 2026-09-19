@@ -105,7 +105,7 @@ coddy sessions export <session-id> [--format md|html|json|jsonl] [--out <path>] 
 ## Limitations
 
 - The file lands on the machine that runs the agent. With `coddy serve` on another host, or the console in `--remote` mode, look for it in the server's workspace; the reply prints the full path.
-- The Telegram gateway forwards only its own commands (`/clear`, `/help`, `/mode`, `/model`, `/context`, `/start`) and drops other slash commands, so `/export` is unavailable there.
+- The Telegram gateway answers only its own commands (`/clear`, `/help`, `/model`, `/context`, `/resume`, `/start`) and the settings commands (`/agent`, `/plan`, `/ask`, `/reasoning`, `/think`, `/nothink`), and drops other slash commands, so `/export` is unavailable there.
 - Subagent sessions never run built-in commands: a child prompt that starts with `/export` is an ordinary task for the child.
 
 ## Code
