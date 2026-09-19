@@ -11,6 +11,7 @@ import {
 import type { HeroAccentVerb } from "./heroTitleWords";
 import { useT } from "../i18n/I18nProvider";
 import type { PermissionResolvedState } from "./permissionTypes";
+import type { TurnOverride } from "./sessionSettings";
 import type { QuestionResolvedState } from "./questionTypes";
 import type { TokenUsage, TranscriptItem } from "./types";
 import { UsageBanner } from "./UsageBanner";
@@ -75,6 +76,12 @@ export function ChatScreen(props: {
   llmReasoning?: string;
   onLlmReasoningChange?: (level: string) => void;
   onModeChange: (mode: string) => void;
+  /** The session's permission mode chip and the settings armed for the next
+   *  turns (chat/sessionSettings.ts); passed through to the composer. */
+  permissionMode?: string;
+  configuredPermissionMode?: string;
+  onPermissionModeChange?: ((mode: string) => void) | undefined;
+  settingsOverrides?: TurnOverride[];
   onDraftChange: (v: string) => void;
   onSend: (text: string, files?: File[]) => void;
   onContextRingOpen?: () => void;
@@ -518,6 +525,18 @@ export function ChatScreen(props: {
                     }
                   : {})}
                 onModeChange={props.onModeChange}
+                {...(props.permissionMode !== undefined
+                  ? { permissionMode: props.permissionMode }
+                  : {})}
+                {...(props.configuredPermissionMode !== undefined
+                  ? { configuredPermissionMode: props.configuredPermissionMode }
+                  : {})}
+                {...(props.onPermissionModeChange
+                  ? { onPermissionModeChange: props.onPermissionModeChange }
+                  : {})}
+                {...(props.settingsOverrides
+                  ? { settingsOverrides: props.settingsOverrides }
+                  : {})}
                 onChange={props.onDraftChange}
                 onSend={props.onSend}
                 {...(props.onContextRingOpen
@@ -735,6 +754,18 @@ export function ChatScreen(props: {
                       }
                     : {})}
                   onModeChange={props.onModeChange}
+                  {...(props.permissionMode !== undefined
+                    ? { permissionMode: props.permissionMode }
+                    : {})}
+                  {...(props.configuredPermissionMode !== undefined
+                    ? { configuredPermissionMode: props.configuredPermissionMode }
+                    : {})}
+                  {...(props.onPermissionModeChange
+                    ? { onPermissionModeChange: props.onPermissionModeChange }
+                    : {})}
+                  {...(props.settingsOverrides
+                    ? { settingsOverrides: props.settingsOverrides }
+                    : {})}
                   onChange={props.onDraftChange}
                   onSend={props.onSend}
                   {...(props.onContextRingOpen

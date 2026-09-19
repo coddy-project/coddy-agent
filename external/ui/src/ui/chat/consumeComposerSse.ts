@@ -11,6 +11,10 @@ import { parseSSEBlocks } from "./sse";
 import type { TokenUsage, TranscriptItem } from "./types";
 import { turnProgressFromFrame, type TurnProgress } from "./turnProgress";
 import type { ProviderUsage } from "./providerUsage";
+import {
+  sessionSettingsEventOf,
+  type SessionSettingsEvent,
+} from "./sessionSettings";
 import { t } from "../i18n/i18n";
 
 export type ContextUsageUpdate = {
@@ -87,6 +91,10 @@ export type ConsumeComposerSseParams = {
   onProviderUsage?: (usage: ProviderUsage) => void;
   /** Coddy extension. What the session message queue holds now (`event: message_queue`). */
   onMessageQueue?: (queue: QueuedMessageSnapshot) => void;
+  /** Coddy extension. The session's settings changed during this turn - a
+   *  command, the permission dialog, the model's own switch
+   *  (`event: session_settings`). */
+  onSessionSettings?: (event: SessionSettingsEvent) => void;
   /** Coddy extension. The running turn's clock and generated tokens (`event: turn_progress`). */
   onTurnProgress?: (progress: TurnProgress) => void;
 };
@@ -136,6 +144,7 @@ export async function consumeComposerSseReader(
     onPermission,
     onProviderUsage,
     onMessageQueue,
+    onSessionSettings,
     onTurnProgress,
   } = p;
 
@@ -598,6 +607,14 @@ export async function consumeComposerSseReader(
             continue;
           }
 
+          if (ev.event === "session_settings") {
+            const parsed = sessionSettingsEventOf(ev.data);
+            if (parsed) {
+              onSessionSettings?.(parsed);
+            }
+            continue;
+          }
+
           if (ev.event === "message_queue") {
             try {
               const raw = JSON.parse(ev.data) as {
@@ -852,6 +869,14 @@ export async function consumeComposerSseReader(
               }
             } catch {
               // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "session_settings") {
+            const parsed = sessionSettingsEventOf(ev.data);
+            if (parsed) {
+              onSessionSettings?.(parsed);
             }
             continue;
           }

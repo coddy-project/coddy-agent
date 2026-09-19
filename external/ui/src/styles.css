@@ -4391,6 +4391,13 @@ a.rail-brand {
   font-variant-numeric: tabular-nums;
 }
 
+/* The argument a settings command takes, between its name and description. */
+.slash-row-hint {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+}
+
 .slash-row-desc {
   font-size: 12px;
   opacity: 0.72;
@@ -4758,6 +4765,38 @@ textarea#composer {
 
 .composer-tab.mode-llm {
   border-color: rgba(147, 51, 234, 0.35);
+}
+
+/* The permission chip (#292). Ask is the quiet default; a session that no
+   longer asks says so from the composer, bypass in the danger tone. */
+.composer-tab.mode-permission.perm-accept_edits {
+  border-color: rgba(234, 179, 8, 0.6);
+}
+
+.composer-tab.mode-permission.perm-bypass,
+.mode-item.perm-item.perm-bypass {
+  color: #b91c1c;
+}
+
+.composer-tab.mode-permission.perm-bypass {
+  border-color: rgba(239, 68, 68, 0.7);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.14);
+}
+
+html:not([data-theme="light"]) .composer-tab.mode-permission.perm-bypass,
+html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
+  color: #f87171;
+}
+
+/* What --once / --count=N changed for the next turns, next to the selectors. */
+.composer-overrides {
+  align-self: center;
+  max-width: 240px;
+  overflow: hidden;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mode-menu {
