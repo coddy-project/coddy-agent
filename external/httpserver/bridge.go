@@ -220,6 +220,10 @@ func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
 		return s.writeNamedEventJSON("message_queue", u)
 	case acp.TurnProgressUpdate:
 		return s.writeNamedEventJSON("turn_progress", u)
+	case acp.SessionSettingsUpdate:
+		// The session's settings changed during this turn - a command, the
+		// permission dialog, the model's own switch: the client mirrors them.
+		return s.writeNamedEventJSON("session_settings", u)
 	case acp.BackgroundWakeUpdate:
 		// The first frame of a turn nobody typed: what woke the agent.
 		return s.writeNamedEventJSON("background_wake", u)

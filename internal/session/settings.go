@@ -26,6 +26,9 @@ type SettingsChange struct {
 	// Source names who asked, for the log line and the notice: console, web,
 	// acp, telegram, remote, command, permission_dialog, model, skill:<name>.
 	Source string
+	// Quiet leaves no notice in the transcript's log: a browser re-sending
+	// its selection with a message is not a change anybody asked to see.
+	Quiet bool
 }
 
 // Empty reports whether the change names no setting at all.
@@ -121,6 +124,7 @@ func (m *Manager) PublishSessionSettings(sessionID string, st *State, notice, so
 		Notice:        notice,
 		Source:        source,
 	}
+	st.publishedSettings.Store(snap.Version)
 	sender := st.TurnSender()
 	if sender == nil {
 		sender = m.server
@@ -175,8 +179,12 @@ func (m *Manager) applySessionSettings(_ context.Context, sessionID string, ch S
 	if source == "" {
 		source = "unknown"
 	}
-	m.log.Info("session settings changed", "session", sessionID, "source", source, "change", notice)
-	st.AppendUILogNotice(CountUserTurns(st.GetMessages()), notice)
+	if ch.Quiet {
+		m.log.Debug("session settings changed", "session", sessionID, "source", source, "change", notice)
+	} else {
+		m.log.Info("session settings changed", "session", sessionID, "source", source, "change", notice)
+		st.AppendUILogNotice(CountUserTurns(st.GetMessages()), notice)
+	}
 	return m.PublishSessionSettings(sessionID, st, notice, source), notice, nil
 }
 

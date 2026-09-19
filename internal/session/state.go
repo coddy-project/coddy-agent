@@ -196,6 +196,8 @@ type State struct {
 	// settingsRev is the number of the last change of a setting a model
 	// request reads (SettingsRevision).
 	settingsRev atomic.Uint64
+	// publishedSettings is the version of the last snapshot published.
+	publishedSettings atomic.Uint64
 
 	// subagent is set for a child session spawned by another session (see
 	// subagent.go), a scheduled run included; nil for ordinary chats and for

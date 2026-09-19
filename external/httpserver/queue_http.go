@@ -83,8 +83,13 @@ func (s *Server) coddyQueuePost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":{"message":"invalid JSON body"}}`, http.StatusBadRequest)
 		return
 	}
-	msg, _, err := s.mgr.EnqueueTurnMessage(id, body.Text)
+	// Settings commands at the start of the text apply at once and never
+	// reach the model; only the rest is queued (session.EnqueueFollowUp).
+	msg, queued, notice, err := s.mgr.EnqueueFollowUp(r.Context(), id, body.Text, "web")
 	switch {
+	case errors.Is(err, session.ErrTurnScopedFollowUp):
+		s.queueError(w, http.StatusConflict, "turn_scoped_follow_up", err)
+		return
 	case errors.Is(err, session.ErrNoActiveTurn):
 		// 409 rather than 400: the request is well formed, the session is
 		// simply not working right now. The client sends it as an ordinary
@@ -99,6 +104,23 @@ func (s *Server) coddyQueuePost(w http.ResponseWriter, r *http.Request) {
 		return
 	case err != nil:
 		s.queueError(w, http.StatusBadRequest, "invalid_request", err)
+		return
+	}
+	if !queued {
+		// Only settings commands: nothing waits for the turn, the notice
+		// says what changed.
+		out := map[string]interface{}{
+			"object":    "coddy.message_queue",
+			"sessionId": id,
+			"notice":    notice,
+		}
+		queue, version := st.QueueSnapshot()
+		out["messages"] = session.QueuedMessagesWire(queue)
+		out["version"] = version
+		if snap, err := s.mgr.SessionSettings(id); err == nil {
+			out["settings"] = snap
+		}
+		writeJSON(w, http.StatusOK, out)
 		return
 	}
 	writeQueue(w, http.StatusCreated, id, st, &msg)

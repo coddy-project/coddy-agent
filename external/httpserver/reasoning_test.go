@@ -101,7 +101,7 @@ func TestProfileMetadataPatchReasoning(t *testing.T) {
 	}
 
 	// Valid level for the selected model is applied.
-	if _, err := profileMetadataPatch(cfg, st, json.RawMessage(`{"model":"openai/gpt-5","reasoning":"high"}`)); err != nil {
+	if err := applyProfileSettings(context.Background(), mgr, st, "sess-reasoning", "", json.RawMessage(`{"model":"openai/gpt-5","reasoning":"high"}`)); err != nil {
 		t.Fatalf("patch: %v", err)
 	}
 	if got := st.GetSelectedReasoning(); got != "high" {
@@ -109,20 +109,20 @@ func TestProfileMetadataPatchReasoning(t *testing.T) {
 	}
 
 	// Invalid level is rejected.
-	if _, err := profileMetadataPatch(cfg, st, json.RawMessage(`{"reasoning":"bogus"}`)); err == nil {
+	if err := applyProfileSettings(context.Background(), mgr, st, "sess-reasoning", "", json.RawMessage(`{"reasoning":"bogus"}`)); err == nil {
 		t.Error("expected error for invalid reasoning level")
 	}
 
 	// A level not supported by the current model is rejected (minimal not valid for gpt-4o).
-	if _, err := profileMetadataPatch(cfg, st, json.RawMessage(`{"model":"openai/gpt-4o","reasoning":"high"}`)); err == nil {
+	if err := applyProfileSettings(context.Background(), mgr, st, "sess-reasoning", "", json.RawMessage(`{"model":"openai/gpt-4o","reasoning":"high"}`)); err == nil {
 		t.Error("expected error for reasoning on non-reasoning model")
 	}
 
 	// Auto-detected levels of qwen3 / gpt-oss models are selectable in the same way.
-	if _, err := profileMetadataPatch(cfg, st, json.RawMessage(`{"model":"neuraldeep/qwen3.6-35b-a3b","reasoning":"high"}`)); err != nil {
+	if err := applyProfileSettings(context.Background(), mgr, st, "sess-reasoning", "", json.RawMessage(`{"model":"neuraldeep/qwen3.6-35b-a3b","reasoning":"high"}`)); err != nil {
 		t.Fatalf("qwen patch: %v", err)
 	}
-	if _, err := profileMetadataPatch(cfg, st, json.RawMessage(`{"model":"neuraldeep/gpt-oss-120b","reasoning":"low"}`)); err != nil {
+	if err := applyProfileSettings(context.Background(), mgr, st, "sess-reasoning", "", json.RawMessage(`{"model":"neuraldeep/gpt-oss-120b","reasoning":"low"}`)); err != nil {
 		t.Fatalf("gpt-oss patch: %v", err)
 	}
 	if got := st.GetSelectedReasoning(); got != "low" {

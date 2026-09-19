@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 )
 
 // Command kinds.
@@ -349,4 +350,63 @@ func wordEnd(text string, pos int) int {
 		pos++
 	}
 	return pos
+}
+
+// CommandRow is one built-in command as a catalog lists it: the settings
+// commands and the deterministic actions (/compact, /export, /plugin). The
+// web composer, the console menu and the ACP command list all read it.
+type CommandRow struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	// Kind is CommandKindSetting or CommandKindAction.
+	Kind string `json:"kind"`
+	// Setting is the setting a settings command changes.
+	Setting string `json:"setting,omitempty"`
+	// Hint is the argument hint, for example "<model id> [--once|--count=N]".
+	Hint    string   `json:"hint,omitempty"`
+	Aliases []string `json:"aliases,omitempty"`
+	// Choices are the values the argument may take for the session asked
+	// about: the models, the reasoning levels of its model, the modes.
+	Choices []string `json:"choices,omitempty"`
+	// Value is what a command without an argument sets (/plan -> plan).
+	Value string `json:"value,omitempty"`
+	// DuringTurn says the command may be sent while a turn runs: a settings
+	// command applies at once, an action waits for the turn to end.
+	DuringTurn bool `json:"duringTurn"`
+}
+
+// BuiltinCommandRows lists the built-in commands for a session: the settings
+// commands first, then the actions skills.BuiltinCommands names. st may be
+// nil (no session yet): the reasoning choices then stay empty.
+func BuiltinCommandRows(cfg *config.Config, st *State, actions []CommandRow) []CommandRow {
+	out := make([]CommandRow, 0, len(settingsCommands)+len(actions))
+	for _, c := range settingsCommands {
+		row := CommandRow{
+			Name:        c.Name,
+			Description: c.Description,
+			Kind:        CommandKindSetting,
+			Setting:     c.Setting,
+			Hint:        c.Hint,
+			Aliases:     append([]string(nil), c.Aliases...),
+			DuringTurn:  true,
+		}
+		if c.TakesValue() {
+			row.Choices = c.Choices(cfg, st)
+		} else {
+			row.Value = c.value
+		}
+		out = append(out, row)
+	}
+	return append(out, actions...)
+}
+
+// ActionCommandRows lists the deterministic actions (skills.BuiltinCommands)
+// as catalog rows: /compact while compaction is enabled, /export, /plugin.
+func ActionCommandRows(cfg *config.Config) []CommandRow {
+	sums := skills.BuiltinCommands(cfg != nil && cfg.Compaction.IsEnabled())
+	out := make([]CommandRow, 0, len(sums))
+	for _, s := range sums {
+		out = append(out, CommandRow{Name: s.Name, Description: s.Description, Kind: CommandKindAction})
+	}
+	return out
 }

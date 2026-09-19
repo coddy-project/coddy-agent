@@ -253,6 +253,11 @@ type ImagePartRef struct {
 // SessionPromptResult is the response to session/prompt.
 type SessionPromptResult struct {
 	StopReason StopReason `json:"stopReason"`
+
+	// SettingsNotice is set when the prompt was only settings commands: no
+	// turn ran, and this is the answer (in-process callers only, never
+	// serialised; a client over the wire got it as an agent message chunk).
+	SettingsNotice string `json:"-"`
 }
 
 // StopReason describes why a prompt turn ended.

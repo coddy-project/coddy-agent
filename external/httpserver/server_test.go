@@ -1703,14 +1703,14 @@ func TestCoddyCommandsEndpoint(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	get := func(url string) (int, string, []map[string]string) {
+	get := func(url string) (int, string, []map[string]interface{}) {
 		res, err := http.Get(ts.URL + url)
 		if err != nil {
 			t.Fatal(err)
 		}
 		var body struct {
-			Object string              `json:"object"`
-			Items  []map[string]string `json:"items"`
+			Object string                   `json:"object"`
+			Items  []map[string]interface{} `json:"items"`
 		}
 		if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 			t.Fatal(err)
@@ -1723,11 +1723,22 @@ func TestCoddyCommandsEndpoint(t *testing.T) {
 	if code != http.StatusOK || obj != "coddy.commands" {
 		t.Fatalf("status=%d object=%q", code, obj)
 	}
-	if len(items) != 3 || items[0]["name"] != "compact" || items[1]["name"] != "export" || items[2]["name"] != "plugin" {
-		t.Fatalf("commands = %+v, want compact, export, plugin", items)
+	var names []string
+	for _, it := range items {
+		names = append(names, fmt.Sprint(it["name"]))
+	}
+	want := "model reasoning think nothink agent plan ask permissions compact export plugin"
+	if strings.Join(names, " ") != want {
+		t.Fatalf("commands = %v, want %s", names, want)
+	}
+	if items[0]["kind"] != "setting" || items[len(items)-1]["kind"] != "action" {
+		t.Fatalf("kinds = %v / %v", items[0]["kind"], items[len(items)-1]["kind"])
+	}
+	if items[0]["hint"] != "<model id> [--once|--count=N]" {
+		t.Fatalf("model hint = %v", items[0]["hint"])
 	}
 	for _, it := range items {
-		if strings.TrimSpace(it["description"]) == "" {
+		if strings.TrimSpace(fmt.Sprint(it["description"])) == "" {
 			t.Fatalf("command %q missing description", it["name"])
 		}
 	}

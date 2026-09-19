@@ -971,7 +971,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 			}
 			if taken.Handled {
 				AnnounceSettingsNotice(sender, params.SessionID, taken.Notice)
-				return &acp.SessionPromptResult{StopReason: acp.StopReasonEndTurn}, nil
+				return &acp.SessionPromptResult{StopReason: acp.StopReasonEndTurn, SettingsNotice: taken.Notice}, nil
 			}
 			params.Prompt = taken.Prompt
 			turnSettings = taken.TurnChanges
@@ -1249,12 +1249,28 @@ func (m *Manager) sendAvailableSlashCommands(sessionID string, st *State) {
 		return
 	}
 	sums := skills.ListSkills(st.GetSkills())
-	builtins := skills.BuiltinCommands(m.activeCfg().Compaction.IsEnabled())
+	builtins := BuiltinCommandRows(m.activeCfg(), st, ActionCommandRows(m.activeCfg()))
 	cmds := make([]acp.AvailableCommand, 0, len(sums)+len(builtins))
 	for _, b := range builtins {
-		cmds = append(cmds, acp.AvailableCommand{Name: b.Name, Description: b.Description})
+		cmd := acp.AvailableCommand{Name: b.Name, Description: b.Description}
+		if b.Hint != "" {
+			cmd.Input = &acp.AvailableCommandInput{Hint: b.Hint}
+		}
+		cmds = append(cmds, cmd)
+	}
+	// A built-in wins over a skill of the same name (the prompt path takes
+	// the built-in first), so the skill is not listed twice.
+	taken := make(map[string]bool, len(builtins))
+	for _, b := range builtins {
+		taken[b.Name] = true
+		for _, a := range b.Aliases {
+			taken[a] = true
+		}
 	}
 	for _, s := range sums {
+		if taken[s.Name] {
+			continue
+		}
 		cmds = append(cmds, acp.AvailableCommand{Name: s.Name, Description: s.Description})
 	}
 	_ = m.server.SendSessionUpdate(sessionID, acp.AvailableCommandsUpdate{

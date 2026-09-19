@@ -88,6 +88,13 @@ func (s *State) bumpSettingsRevision() {
 	s.settingsRev.Store(settingsRevisionSeq.Add(1))
 }
 
+// PublishedSettingsVersion is the version of the last settings snapshot
+// published for the session: a client holding an older one has missed a
+// change (applyProfileSettings in the HTTP server ignores what it sends).
+func (s *State) PublishedSettingsVersion() uint64 {
+	return s.publishedSettings.Load()
+}
+
 // SettingsRevision is the number of the last change of a setting a model
 // request reads. Two equal readings mean nothing moved in between.
 func (s *State) SettingsRevision() uint64 {

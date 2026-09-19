@@ -803,15 +803,19 @@ func TestSessionNewSendsAvailableSlashCommandsUpdate(t *testing.T) {
 		return
 	}
 	// The workspace skill, the standard delivery, and the built-in commands:
-	// compact (while compaction is enabled), export and plugin (always).
-	if want := 4 + len(skills.Bundled()); len(slash.AvailableCommands) != want {
+	// the eight settings commands, compact (while compaction is enabled),
+	// export and plugin (always).
+	if want := 12 + len(skills.Bundled()); len(slash.AvailableCommands) != want {
 		t.Fatalf("expected %d commands, got %+v", want, slash.AvailableCommands)
 	}
 	names := map[string]bool{}
 	for _, c := range slash.AvailableCommands {
 		names[c.Name] = true
+		if c.Name == "model" && (c.Input == nil || !strings.Contains(c.Input.Hint, "--once")) {
+			t.Fatalf("/model carries no argument hint: %+v", c)
+		}
 	}
-	for _, want := range []string{"demo", "configure-coddy", "rpa-feat", "compact", "export", "plugin"} {
+	for _, want := range []string{"demo", "configure-coddy", "rpa-feat", "model", "permissions", "plan", "compact", "export", "plugin"} {
 		if !names[want] {
 			t.Fatalf("expected %q among the commands, got %+v", want, slash.AvailableCommands)
 		}
