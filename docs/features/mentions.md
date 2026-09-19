@@ -14,6 +14,7 @@ An `@` in a prompt points the agent at something: a file, a line range, a folder
 | Another session | `@session:sess_3e23…` (an id or a unique prefix of one) | a digest of that session |
 | A rule | `@rule:deploy`, or `@deploy` for a mention-only rule | the rule's body |
 | A subagent | `@agent:explore` | an instruction to hand the work to that subagent with `spawn_agent` |
+| A page of Coddy's documentation | `@coddy:features/mentions`, `@coddy:surfaces/gateway#proxy` | the page, or that section of it ([Built-in documentation](built-in-docs.md)) |
 | A saved design plan | `@plans/auth-refactor.plan.md` | the plan document in ask mode; in agent mode the plan runs ([Modes](modes.md)) |
 | A web page | `@https://go.dev/doc/effective_go` | the page as Markdown (JSON pretty-printed, plain text as it is) |
 
@@ -45,7 +46,7 @@ Workspace: /home/me/project
 </coddy_attachment>
 ```
 
-`kind` names what the attachment is when it is not a file (`directory`, `session`, `rule`, `agent`, `plan`, `skill`, `url`). `mention` is the mention as it was typed when that differs from `path` - `~/notes.md` for `/home/me/notes.md` - and it is what a transcript collapses the attachment back to: the web UI, a console that reopens the session and an editor that loads it show `@~/notes.md` where the message was typed, never the file body.
+`kind` names what the attachment is when it is not a file (`directory`, `session`, `rule`, `agent`, `plan`, `skill`, `url`, `doc`). `mention` is the mention as it was typed when that differs from `path` - `~/notes.md` for `/home/me/notes.md` - and it is what a transcript collapses the attachment back to: the web UI, a console that reopens the session and an editor that loads it show `@~/notes.md` where the message was typed, never the file body.
 
 What each kind carries:
 
@@ -53,6 +54,7 @@ What each kind carries:
 - **A folder** is listed breadth first - the top levels whole, then deeper ones while the listing has room - up to 400 entries, with folders whose contents were cut marked. The folder is read when the message is sent, so one written a moment before is listed whole. Inside a git checkout the listing leaves out what `.gitignore` leaves out; a folder outside any checkout, or one git ignores as a whole, is walked four levels deep, skipping hidden folders, version-control folders and dependency caches (`node_modules`, `.venv`, `__pycache__`, ...).
 - **A session** is a digest of at most 24 KiB: the title, the workspace, when it ran, its compaction summary when it has one, then its latest messages (the user's text and the assistant's answers; tool results are left out and a line names the tools each answer called), plus the path of its full transcript for anything the digest cut. It is context from another conversation, not instructions for this one.
 - **A rule** carries its body and the path of its file.
+- **A documentation page** is the page as the binary carries it, or with `#section` that section and its subsections, up to 64 KiB: every guide fits whole, and a long reference page (the HTTP API, the web UI specification) arrives as its beginning with the line to continue at and its sections, for the model to read the part it needs with `coddy_docs_read`. The page name takes the spellings [Built-in documentation](built-in-docs.md#pages-and-sections) lists (`@coddy:mentions` finds `features/mentions`); a trailing `.`, `/` or `#` ends the mention, and a page or a section that does not exist stays prose.
 - **A subagent** is an instruction: delegate the part of the request meant for it with `spawn_agent`. In ask mode, or for a project definition that awaits approval, the attachment says why it cannot be spawned.
 - **A web page** is fetched when the message is sent, through the webfetch tool's transport and address guard: public addresses only, every redirect vetted, 20 seconds, 64 KiB of text. A page that cannot be read is attached with the reason.
 
@@ -70,7 +72,7 @@ A provider caches a request by its prefix, and the system message opens every re
 
 | Mention | An operator's prompt | A queued follow-up | A subagent's task (written by the parent model) | A Telegram chat |
 | --- | --- | --- | --- | --- |
-| Files, folders, ranges, rules | yes | yes | yes | yes |
+| Files, folders, ranges, rules, documentation pages | yes | yes | yes | yes |
 | Subagents, plans, web pages | yes | yes | no | yes |
 | Other sessions | yes | yes | no | no |
 
@@ -80,7 +82,7 @@ A path outside the workspace is read with the same reach the `read` tool has: a 
 
 ## Completion
 
-The candidates come from one search every surface shares (`GET /coddy/mentions`, `session.Manager.SearchMentions`): the files and folders of the session's workspace ranked against what was typed - the file name first, then path segments, then letters in order, so `@targhand` finds `zz/deep/target_handler.go` - merged with the rules, subagents and plans whose names match. A query that starts with `/`, `~`, `./`, `../` or a drive letter browses that folder instead, filtered by the name typed after its last separator. `@session:`, `@rule:` and `@agent:` list that kind; an empty `@` offers those three first, then the top of the workspace.
+The candidates come from one search every surface shares (`GET /coddy/mentions`, `session.Manager.SearchMentions`): the files and folders of the session's workspace ranked against what was typed - the file name first, then path segments, then letters in order, so `@targhand` finds `zz/deep/target_handler.go` - merged with the rules, subagents and plans whose names match. A query that starts with `/`, `~`, `./`, `../` or a drive letter browses that folder instead, filtered by the name typed after its last separator. `@session:`, `@rule:` and `@agent:` list that kind; `@coddy:` lists the pages of the documentation, finds pages by name and sections by their words (`@coddy:prox`), and after `@coddy:<page>#` the sections of that page. An empty `@` offers those four first, then the top of the workspace.
 
 The workspace index comes from `git ls-files` inside a git checkout (so `.gitignore` decides and dotfiles such as `.github/workflows/ci.yml` stay reachable) and from a walk elsewhere that skips hidden folders and dependency caches, capped at 50,000 entries. It is rebuilt when a mention starts, so a file written a moment ago - by you or by the agent - is offered, and a deleted one is gone.
 

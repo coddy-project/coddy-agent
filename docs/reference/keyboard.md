@@ -14,6 +14,7 @@ Keys are parsed into the `ctrl+x` / `shift+enter` / `alt+backspace` notation of 
 | ctrl+c | clear the editor; on an empty editor, twice within 2 s exits |
 | ctrl+d | exit when the editor is empty |
 | ctrl+l | model selector |
+| F1 | the built-in documentation ([Built-in documentation](../features/built-in-docs.md#the-console-help)); `/docs` where the terminal keeps F1 for itself |
 | ctrl+p / ctrl+shift+p | cycle the configured models forward / backward |
 | shift+tab | cycle the reasoning level (models with `reasoning_levels`) |
 | ctrl+o | expand the header hints, the last tool output and the last `!!` block |
@@ -33,6 +34,21 @@ Inside the `/tasks` overlay ([Background tasks](../features/background-tasks.md#
 | s | stop the task under the cursor, or the open one, if it is still running |
 | r | read the tasks, and the open task's output, again |
 | escape | leave the open task; on the list, close the overlay |
+
+Inside the help that F1 and `/docs` open ([Built-in documentation](../features/built-in-docs.md#the-console-help)):
+
+| Key | Action |
+|---|---|
+| letters, backspace | edit the search (in the list) |
+| up / down | move between the entries; on a page, scroll a line |
+| enter | open the entry at its section; on a page, scroll a line |
+| pgup / pgdn / space | scroll a page by a screen |
+| home / end | the top / the bottom of the page |
+| tab / shift+tab | the next / the previous section of the page |
+| n / p | the next / the previous page of the documentation |
+| / | from a page, back to the search |
+| escape | leave the page; on the list, close the help |
+| F1 / ctrl+c | close the help |
 
 Editing keys inside the draft:
 
@@ -83,5 +99,8 @@ The composer is a plain `textarea`; keys not listed here keep their browser mean
 | Enter | question prompt | send the answer, once every question has one; typed in the composer it still belongs to the composer |
 | Escape | question prompt | skip the questions |
 | Escape / Tab | confirmation dialog | cancel / keep the focus inside the dialog |
+| F1 | anywhere | open the documentation reader, or close it ([Built-in documentation](../features/built-in-docs.md#the-web-ui-reader)) |
+| / | documentation reader, outside a field | put the cursor in its search box |
+| ArrowUp / ArrowDown, Enter, Escape | documentation search box | move the selected hit, open it at its section, clear the search |
 
 Stopping a turn has no key: it is the Stop button in the composer bar. The `@` menu opens as you type an `@` ([Mentions](../features/mentions.md#in-the-web-ui)), and a `:` after a file turns it into the line-range picker; neither is a binding.

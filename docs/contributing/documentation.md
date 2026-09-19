@@ -9,7 +9,7 @@ How the documentation under `docs/` is organised, what a change to Coddy must ca
 | `docs/getting-started/` | Install, configure, update, troubleshoot, the changelog | Guides, read once in order |
 | `docs/surfaces/` | One page per way of talking to the agent: console, web UI, editors, Telegram | Surface pages |
 | `docs/operate/` | Running it as a service, remote mode, swarm, scheduler, security | Operator guides |
-| `docs/features/` | One page per capability: modes, sessions, rules, skills, subagents, hooks, MCP, background tasks, compaction, memory, export | Feature pages |
+| `docs/features/` | One page per capability: modes, sessions, rules, skills, subagents, hooks, MCP, background tasks, compaction, memory, export, the built-in documentation | Feature pages |
 | `docs/reference/` | Complete lists: CLI, `config.yaml`, environment variables, slash commands, keyboard, tools, HTTP API, ACP | Reference pages, generated where the code is the source of truth |
 | `docs/tutorials/` | Task-shaped guides, one page per tutorial | Tutorials |
 | `docs/contributing/` | How Coddy is built, tested, designed and documented | Contributor pages |
@@ -17,6 +17,8 @@ How the documentation under `docs/` is organised, what a change to Coddy must ca
 | `docs/assets/` | What the pages embed: screenshots, videos, brand files | See [the assets index](../assets/INDEX.md) |
 
 The map of all of it is [`docs/nav.yaml`](../nav.yaml): every page with its group, title and a one-line summary. [`docs/README.md`](../README.md) (the hub) is generated from it, and so are the `llms.txt` and `llms-full.txt` published at the site root, and the sidebar of the documentation site will be too. A page that is not in the map does not exist as far as readers and agents are concerned, and `make docs-check` says so. The design records of `docs/plans/` are the one exception: they are internal and stay out of the map.
+
+The pages of the map ship inside the binary ([Built-in documentation](../features/built-in-docs.md)): `docs/embed.go` embeds `nav.yaml` and the Markdown of the group folders, and the web UI's reader, the console's F1 help, `coddy docs` and the agent's `coddy_docs_*` tools all read that copy. Two things follow for a writer. A new group folder under `docs/` has to be added to the pattern in `docs/embed.go`, or `TestDefaultCarriesEveryPageOfTheMap` in `internal/docs` fails. And a page is read outside the repository: relative links to other pages work everywhere (they become `coddy:<slug>#<anchor>`), images and links to files of the repository resolve to GitHub at the release tag, so an image needs a caption that stands on its own, which is what a reader offline and the console see instead of it.
 
 A page that moves takes its address with it: there are no redirect stubs, so an old link breaks, and the coddy.dev address (`coddy.dev/docs/<slug>`) follows the map. Links that leave the repository use that form, and the binary, the schema and the bundled skill print the current addresses.
 

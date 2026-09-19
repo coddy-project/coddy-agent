@@ -536,7 +536,7 @@ Verification use cases
 ## Composer **`@`** mentions
 
 - **`textarea#composer`** keeps plain **`input`** including every literal **`@`** mention, and **`POST /v1/responses`** sends that text as typed: the server resolves the mentions when the message is sent (**`internal/session/mentions.go`**, the grammar in **`internal/mention`**), the same resolver the console, ACP editors and the Telegram bot use. The composer no longer derives **`attachments`** from the draft; **`extractAtFileAttachments`** (**`external/ui/src/ui/skills/draftAt.ts`**) only feeds the recent picks. What a mention attaches and its limits: [Mentions](../features/mentions.md).
-- The **`@`** menu asks **`GET /coddy/mentions`** (**`q`** = the text after **`@`**, **`limit=50`**; the first query after the picker opens adds **`refresh=1`**, so a file written a moment ago is offered). Rows are **`MentionRow`**s (**`external/ui/src/ui/skills/mentionRows.ts`**): **`kind`** (**`file`**, **`directory`**, **`session`**, **`rule`**, **`agent`**, **`plan`**, **`scheme`**), **`insert`** (the text that replaces **`@`** plus the query), **`label`**, **`detail`** and **`continue`**. Each row leads with a kind label (**`.mention-kind`**, the meta kinds on the accent); a **`scheme`** row is **`@session:`**, **`@rule:`** or **`@agent:`** and narrows the search to that kind.
+- The **`@`** menu asks **`GET /coddy/mentions`** (**`q`** = the text after **`@`**, **`limit=50`**; the first query after the picker opens adds **`refresh=1`**, so a file written a moment ago is offered). Rows are **`MentionRow`**s (**`external/ui/src/ui/skills/mentionRows.ts`**): **`kind`** (**`file`**, **`directory`**, **`session`**, **`rule`**, **`agent`**, **`plan`**, **`doc`**, **`scheme`**), **`insert`** (the text that replaces **`@`** plus the query), **`label`**, **`detail`** and **`continue`**. Each row leads with a kind label (**`.mention-kind`**, the meta kinds on the accent); a **`scheme`** row is **`@session:`**, **`@rule:`**, **`@agent:`** or **`@coddy:`** and narrows the search to that kind.
 - Choosing a row replaces **`@`** plus the query with **`insert`**. A **`continue`** row (a folder, a scheme hint) adds no space and keeps the picker open on its new query - **`@src/`** lists what **`src/`** holds; any other row ends the mention with a space, quoted (**`@"my notes.md"`**) when the path holds one. A quoted folder (**`@"my notes/`**) closes its quote ahead of the caret, so the draft names the folder even if no file follows, and the next quoted pick takes that quote over (**`applyMentionRow`** in **`mentionRows.ts`**). A second answer for the same draft - the server's rows after the recent picks, a retry while the index builds - keeps the row the arrows moved to. **`Composer`** defers two **`updatePickerMenus`** ticks after a finished pick so the dropdown does not immediately reopen on the trailing space.
 - **ArrowDown** / **ArrowUp** move the highlight (**`is-active`**, **`aria-selected`**, scrolled into view); **Enter** and **Tab** take the highlighted row. The picker works while a turn runs, so a queued follow-up can mention a file too.
 - A query starting with **`/`**, **`~`**, **`./`** or **`../`** browses that folder on the server, anywhere on disk; a scheme-less query ranks the session's workspace (file name first, then path segments, then letters in order) and merges in the rules, subagents and plans whose names match. When the server matched more than the list holds, **`.mention-more`** (**`data-testid="mention-more"`**) says **`50 of 1204, type to narrow`** on the title row, which stays on screen however far the list scrolls; while the first index of the workspace is still being built the picker asks again every 400 ms, up to five times.
@@ -1011,6 +1011,50 @@ Guide: `docs/operate/swarm.md`. Visual contract: `DESIGN.md` (**Swarm screen**).
 - The environment selector in the map header opens **downward**, because on a
   relay the chip sits at the top of the window rather than in the composer at
   the foot.
+
+## Documentation screen
+
+![The documentation reader at 1280 px](../assets/built-in-docs/reader-page-dark-1280.png)
+
+*The documentation reader: contents, the page, the sections of the page*
+
+Guide: `docs/features/built-in-docs.md`. Visual contract: `DESIGN.md` (**Documentation screen**).
+
+- **Docs** in the rail (above Settings), **F1** anywhere in the app, or an address
+  **`#/docs/<page>#<section>`** opens the reader (**`ui/docs/DocsView.tsx`**) in the
+  same glass dock the swarm screen uses. The rail entry reopens the page the
+  reader was left on; **`#/docs`** alone settles on the first page of the
+  contents with **`replaceState`**, so Back does not return to an empty reader.
+  **F1** again or the **×** control closes it and returns to where it was opened
+  from (a chat, the swarm screen, the scheduler); a click on the backdrop closes it too.
+- The data comes from **`GET /coddy/docs`** (contents), **`GET /coddy/docs/page`**
+  (one page with its headings and neighbours) and **`GET /coddy/docs/search`**
+  (**`ui/docs/api.ts`**), through the environment shim like every other route, so
+  a remote environment shows the documentation of the binary it talks to.
+- Every page, section, hit and neighbour is a real **`href`**: following one adds
+  a history entry (Back and Forward move between pages read), a middle click opens
+  a new tab, and the **`#`** after a section heading is that section's address. A
+  **`coddy:<page>#<section>`** link in any rendered Markdown - a page, or an answer
+  of the agent - becomes **`#/docs/<page>#<section>`** (**`docsHrefFromCoddyLink`**
+  in **`scheduler/hashRoute.ts`**, used by **`markdown/Markdown.tsx`**). A malformed
+  escape in a pasted address is kept as typed rather than taking the router down.
+- Headings get the anchors the server computed, paired by level and text
+  (**`assignHeadingIds`** in **`ui/docs/docsReader.ts`**), then the reader scrolls to
+  the section the address names. **On this page** follows the section being read as
+  the page scrolls; below 1280 px it is left out, below 1200 px the contents fold
+  into a **Contents** button above the page.
+- The search box (**`/`** focuses it; the reader opens with the keyboard on the
+  page, so the arrow and page keys scroll it) searches as it is typed, 120 ms after the last key, and replaces
+  the contents with the hits: page › section, and the snippet with the matched
+  words marked. It is a combobox: Up and Down move the selection
+  (**`aria-activedescendant`**), Enter opens the selected hit, Escape clears.
+- **Ask the agent about this page** starts a new chat (**`askAboutDocs`** in
+  **`App.tsx`**) whose draft mentions the page, or the section being read; with
+  text selected on the page it quotes the selection and mentions the section the
+  selection sits in (**`askDraftFor`**, **`sectionAnchorAt`**). The button keeps
+  the selection by not taking focus on mouse down, and is disabled while the next
+  page loads; the page on screen stays, dimmed, until it arrives. On a relay, where
+  there is no chat, the button is not shown.
 
 ## Swagger
 

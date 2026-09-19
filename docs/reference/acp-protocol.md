@@ -365,7 +365,7 @@ Stop reasons: `end_turn` | `max_tokens` | `max_turns` | `agent_refused` | `cance
 - a `resource` without `text` is read from disk, anywhere the client names it: a file, a line range of it, or a folder's listing. A missing file or lines past the end fail the prompt, since the client asked for them explicitly;
 - a `resource_link` (the block every ACP agent must accept) to a local file or folder is read like a mention of it; a link Coddy cannot open itself - an editor-internal URI, a web address - reaches the model as a line naming it.
 
-`@` mentions typed into a `text` block are resolved the way every surface resolves them - files anywhere on disk, folders, line ranges, `@session:<id>`, `@rule:<name>`, `@agent:<name>`, web pages - into attachments of the same user message ([Mentions](../features/mentions.md)). A mention never fails the prompt: one that names nothing stays prose.
+`@` mentions typed into a `text` block are resolved the way every surface resolves them - files anywhere on disk, folders, line ranges, `@session:<id>`, `@rule:<name>`, `@agent:<name>`, `@coddy:<page>#<section>`, web pages - into attachments of the same user message ([Mentions](../features/mentions.md)). A mention never fails the prompt: one that names nothing stays prose.
 
 ### Subagent runs and child sessions (Coddy-specific)
 

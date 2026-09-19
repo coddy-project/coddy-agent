@@ -63,6 +63,8 @@ The `background_*` tools are registered only while `tools.background` is enabled
 |---|---|---|---|---|
 | `question` | Ask the user one or more multiple-choice questions and wait for the answers | `questions[]` of `header`, `question`, `options[]` (`label`, `description`), `multiple`, `custom` | none (the turn waits for the user) | agent, plan, ask |
 | `load_skill` | Load the full instructions of a catalogued skill by name; registered only while `skills.auto_discovery` is on ([Skills](../features/skills.md)) | `name` | none | agent, plan, ask |
+| `coddy_docs_search` | Search Coddy's own documentation, built into the binary, with BM25 over the sections ([Built-in documentation](../features/built-in-docs.md#the-agents-tools)) | `query`, `limit` | none | agent, plan, ask |
+| `coddy_docs_read` | Read a page or a section of that documentation, or its contents without a page; long pages come in parts | `page`, `offset` | none | agent, plan, ask |
 | `spawn_agent` | Delegate a self-contained task to a subagent, waiting for its report or running it as a background task ([Subagents](../features/subagents.md#the-spawn_agent-tool)) | `agent`, `prompt`, `description`, `background`, `expected_seconds`, `timeout_seconds`, `notify_on_finish` | none itself; the child's own calls prompt through the parent | agent, plan (the child of a plan-mode parent stays in plan mode); hidden in ask, at `subagents.max_depth` and where no runtime exists, such as a scheduled run |
 
 ## Todo checklist
