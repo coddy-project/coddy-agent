@@ -4,7 +4,7 @@ import { useT } from "../i18n/I18nProvider";
 /**
  * ModelPicker selects a default model id from the configured logical models, or
  * lets the user type one manually — a single editable combobox. Used for the
- * ReAct agent and memory default model fields.
+ * ReAct agent, memory, and context compaction model fields.
  */
 export function ModelPicker(props: {
   value: string;

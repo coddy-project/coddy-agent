@@ -1055,6 +1055,11 @@ export const messagesEn: Record<string, string> = {
   "composer.noFiles": "Nothing matches",
   "composer.filterModels": "Filter models",
   "composer.filterModelsPlaceholder": "Filter models…",
+  "composer.commandArgModelsTitle": "Summarizer model",
+  "composer.commandArgOptionsTitle": "Options",
+  "composer.commandArgModelFlagDesc":
+    "The model that writes the summary, for this one compaction",
+  "composer.commandArgAriaLabel": "Complete the command option",
   "composer.noModelsMatch": "No models match “{query}”",
   "composer.vendorOther": "Other",
   "composer.closePicker": "Close picker",

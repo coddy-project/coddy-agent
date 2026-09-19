@@ -400,13 +400,19 @@ func BuiltinCommandRows(cfg *config.Config, st *State, actions []CommandRow) []C
 	return append(out, actions...)
 }
 
+// actionHints are the argument hints of the deterministic actions that take
+// options, keyed by command name.
+var actionHints = map[string]string{
+	"compact": "[--model <id>] [instructions]",
+}
+
 // ActionCommandRows lists the deterministic actions (skills.BuiltinCommands)
 // as catalog rows: /compact while compaction is enabled, /export, /plugin.
 func ActionCommandRows(cfg *config.Config) []CommandRow {
 	sums := skills.BuiltinCommands(cfg != nil && cfg.Compaction.IsEnabled())
 	out := make([]CommandRow, 0, len(sums))
 	for _, s := range sums {
-		out = append(out, CommandRow{Name: s.Name, Description: s.Description, Kind: CommandKindAction})
+		out = append(out, CommandRow{Name: s.Name, Description: s.Description, Kind: CommandKindAction, Hint: actionHints[s.Name]})
 	}
 	return out
 }

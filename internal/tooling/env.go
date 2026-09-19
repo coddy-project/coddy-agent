@@ -103,7 +103,7 @@ type Env struct {
 	// CompactSession folds the older history into a summary for the
 	// compact_context tool, the same work /compact does. Wired by the agent
 	// runtime; nil when compaction is unavailable for this turn.
-	CompactSession func(ctx context.Context, instructions string) (string, error)
+	CompactSession func(ctx context.Context, req CompactRequest) (string, error)
 
 	// ContextCompacted is set after a successful compact_context call so the
 	// ReAct loop rebuilds its outgoing message slice from the shortened
@@ -213,6 +213,15 @@ type SpawnRequest struct {
 	ExpectedSeconds int
 	TimeoutSeconds  int
 	NotifyOnFinish  bool
+}
+
+// CompactRequest is one compact_context call.
+type CompactRequest struct {
+	// Instructions is optional guidance for the summary.
+	Instructions string
+	// Model names the summarizer for this one compaction; empty follows the
+	// configuration (compaction.model, else the session's model).
+	Model string
 }
 
 // ModelSwitch is one switch_model call: a model, a reasoning level, or both,
