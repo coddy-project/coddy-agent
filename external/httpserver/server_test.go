@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -1924,6 +1925,67 @@ func TestResponsesAgentWithAttachmentsHydrate(t *testing.T) {
 	}
 	if blocks[0].Type != "text" || blocks[1].Type != "resource" || blocks[1].Resource == nil || blocks[1].Resource.Text != "inside" {
 		t.Fatalf("blocks %+v", blocks)
+	}
+}
+
+// A remote console sends what was piped into a one-shot run as a literal
+// attachment of kind stdin: the runner gets the same block a local run sends,
+// byte for byte, and a kind the server does not know is a 400.
+func TestResponsesStdinAttachmentKind(t *testing.T) {
+	var mu sync.Mutex
+	var captured []acp.ContentBlock
+	root := t.TempDir()
+	wd := filepath.Join(root, "wd")
+	if err := os.MkdirAll(wd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		mu.Lock()
+		captured = append([]acp.ContentBlock(nil), prompt...)
+		mu.Unlock()
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+		return string(acp.StopReasonEndTurn), nil
+	}
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: filepath.Join(root, "home"), CWD: wd},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100}},
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), wd, &session.FileStore{Root: filepath.Join(root, "sessions")})
+	srv := New(cfg, mgr, slog.Default(), wd)
+	t.Cleanup(srv.Drain)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	post := func(sid, attachments string) int {
+		payload := `{"model":"agent","input":"Review this change","stream":false,"attachments":` + attachments + `}`
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Coddy-Session-ID", sid)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = ioReadAllClose(res.Body)
+		return res.StatusCode
+	}
+
+	piped := "diff --git a/x b/x\r\n+see @note.txt\n\n"
+	literal, _ := json.Marshal(piped)
+	if code := post("sess_http_stdin_1", `[{"path":"stdin","kind":"stdin","source":{"literal":`+string(literal)+`}}]`); code != http.StatusOK {
+		t.Fatalf("status %d", code)
+	}
+	mu.Lock()
+	blocks := append([]acp.ContentBlock(nil), captured...)
+	mu.Unlock()
+	if len(blocks) != 2 || !reflect.DeepEqual(blocks[1], session.StdinAttachment(piped)) {
+		t.Fatalf("blocks %+v", blocks)
+	}
+	if code := post("sess_http_stdin_2", `[{"path":"stdin","kind":"clipboard","source":{"literal":"x"}}]`); code != http.StatusBadRequest {
+		t.Fatalf("an unknown kind answered %d, want 400", code)
+	}
+	if code := post("sess_http_stdin_3", `[{"path":"stdin","kind":"stdin"}]`); code != http.StatusBadRequest {
+		t.Fatalf("a stdin kind without a literal answered %d, want 400", code)
 	}
 }
 

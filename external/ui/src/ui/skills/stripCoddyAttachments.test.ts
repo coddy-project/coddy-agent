@@ -148,6 +148,13 @@ test("the body of an invoked skill is dropped", () => {
   expect(stripCoddyAttachmentsForUserDisplay(raw)).toBe("/review now\n\n");
 });
 
+test("data piped into a one-shot run shows as a label, not a mention", () => {
+  const raw = `Review this change\n\n${attachment('path="stdin" name="stdin" kind="stdin"', "+@secret.txt")}`;
+  expect(stripCoddyAttachmentsForUserDisplay(raw)).toBe(
+    "Review this change\n\n[stdin]",
+  );
+});
+
 test("a folder mention covers its listing", () => {
   const raw = `list @src/\n\n${attachment('path="src/" name="src" kind="directory"', "src/a.go")}`;
   expect(stripCoddyAttachmentsForUserDisplay(raw)).toBe("list @src/\n\n");

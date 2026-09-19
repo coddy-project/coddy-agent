@@ -46,7 +46,7 @@ Workspace: /home/me/project
 </coddy_attachment>
 ```
 
-`kind` names what the attachment is when it is not a file (`directory`, `session`, `rule`, `agent`, `plan`, `skill`, `url`, `doc`). `mention` is the mention as it was typed when that differs from `path` - `~/notes.md` for `/home/me/notes.md` - and it is what a transcript collapses the attachment back to: the web UI, a console that reopens the session and an editor that loads it show `@~/notes.md` where the message was typed, never the file body.
+`kind` names what the attachment is when it is not a file (`directory`, `session`, `rule`, `agent`, `plan`, `skill`, `url`, `doc`, and `stdin` for what was piped into a one-shot run under a typed prompt, which no mention stands for: a transcript shows `[stdin]` in its place, and nothing inside it is resolved as a mention - see [Console](../surfaces/console.md#data-piped-under-a-prompt)). `mention` is the mention as it was typed when that differs from `path` - `~/notes.md` for `/home/me/notes.md` - and it is what a transcript collapses the attachment back to: the web UI, a console that reopens the session and an editor that loads it show `@~/notes.md` where the message was typed, never the file body.
 
 What each kind carries:
 

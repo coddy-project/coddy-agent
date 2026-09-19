@@ -22,7 +22,14 @@ const (
 	// KindDoc carries a page or a section of Coddy's own documentation,
 	// mentioned as "@coddy:<page>#<section>".
 	KindDoc = "doc"
+	// KindStdin carries what was piped into a one-shot run under a typed
+	// prompt (`git diff | coddy -p "review"`): data, not a mention, so no
+	// "@" token stands for it in the text.
+	KindStdin = "stdin"
 )
+
+// StdinLabel is what a transcript shows in place of a KindStdin attachment.
+const StdinLabel = "[stdin]"
 
 // Tag is the element a resolved mention is written as inside the user message.
 const (
@@ -212,6 +219,11 @@ func ForDisplay(s string) string {
 		if (label == "" && blk.Kind == KindRule) || blk.Kind == KindSkill {
 			// A rule a mentioned path pulled in, or the body of a /skill the
 			// text already names: nothing the user typed is missing.
+			continue
+		}
+		if blk.Kind == KindStdin {
+			// Piped data has no mention to collapse to; a label says it came.
+			b.WriteString(StdinLabel)
 			continue
 		}
 		if label == "" {

@@ -27,6 +27,10 @@ var (
 type PrintOptions struct {
 	// Prompt is the user text for the single turn.
 	Prompt string
+	// Stdin is what was piped in under a prompt that came from elsewhere;
+	// it rides after the prompt as a kind="stdin" attachment. Empty sends
+	// nothing.
+	Stdin string
 	// Out receives the streamed assistant text (stdout in the CLI).
 	Out io.Writer
 	// ErrOut receives diagnostics (permission rejections, stop reasons).
@@ -124,6 +128,16 @@ func waitForMemoryRun(ctx context.Context, cfg *config.Config, errOut io.Writer)
 	waitMemoryRuns(ctx, timeout)
 }
 
+// promptBlocks is the prompt a one-shot run sends: the text exactly as read,
+// then the piped data as an attachment nothing scans.
+func promptBlocks(opts PrintOptions) []acp.ContentBlock {
+	blocks := []acp.ContentBlock{{Type: acp.ContentTypeText, Text: opts.Prompt}}
+	if opts.Stdin != "" {
+		blocks = append(blocks, session.StdinAttachment(opts.Stdin))
+	}
+	return blocks
+}
+
 // PrintPrompt runs one prompt turn without a TUI and streams the assistant
 // text to opts.Out. The session persists like any other surface, so a later
 // `coddy -c` (interactive or print) continues it.
@@ -182,7 +196,7 @@ func PrintPrompt(ctx context.Context, mgr backend, opts PrintOptions) error {
 	// A one-shot print has no footer: no usage refresh at the end.
 	result, err := mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 		SessionID: res.SessionID,
-		Prompt:    []acp.ContentBlock{{Type: "text", Text: opts.Prompt}},
+		Prompt:    promptBlocks(opts),
 	}, snd, &session.PromptRunOpts{SkipUsagePublish: true})
 	if snd.wrote {
 		_, _ = io.WriteString(opts.Out, "\n")

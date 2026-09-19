@@ -176,7 +176,10 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintf(w, `Usage:
   %[1]s (no arguments on a terminal: interactive console, build tag cli)
   %[1]s -c | --continue (console: continue the latest session here)
-  %[1]s -p | --prompt "..." (console: one-shot prompt, print the answer)
+  %[1]s -p | --prompt "..." (console: one-shot prompt, print the answer;
+        -p - reads the prompt from stdin, and so does a bare -p when stdin is not a terminal;
+        data piped under a typed prompt is attached to it, --no-stdin leaves it out)
+  %[1]s -i | --prompt-file FILE (console: one-shot prompt read from FILE, - for stdin)
   %[1]s -h | --help
   %[1]s -v | --version
   %[1]s -t | --test-config [--config PATH] [--home DIR] (check config.yaml against

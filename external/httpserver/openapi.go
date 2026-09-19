@@ -3378,6 +3378,13 @@ func openAPISpec() map[string]interface{} {
 								"endLine":   map[string]interface{}{"type": "integer", "minimum": 1},
 							},
 						},
+						"kind": map[string]interface{}{
+							"type": "string",
+							"enum": []string{"stdin"},
+							"description": "What a **`source.literal`** body is when it is not a file's text. **`stdin`** is what was piped into a one-shot run under a typed prompt " +
+								"(**`git diff | coddy -p \"review\" --remote ...`**): the model reads it as **`<coddy_attachment path=\"stdin\" kind=\"stdin\">`**, nothing in it is resolved as a mention or run as a command, " +
+								"and a transcript shows **`[stdin]`** in its place. Any other value, or **`stdin`** without **`source.literal`**, is answered with **400**.",
+						},
 					},
 					"required": []string{"path"},
 				},

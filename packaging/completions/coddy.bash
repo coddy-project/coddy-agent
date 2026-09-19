@@ -8,9 +8,19 @@ _coddy() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
     commands="cli acp serve sessions skills plugin mcp providers rules agents hooks docs update"
+    # The one-shot flags of the console, after `coddy` and after `coddy cli`.
+    local prompt_flags="-p --prompt -i --prompt-file --no-stdin"
+
+    # -i reads the prompt from a file (or - for stdin).
+    case "${prev}" in
+        -i|--prompt-file)
+            COMPREPLY=($(compgen -f -- "${cur}"))
+            return
+            ;;
+    esac
 
     if [ "${COMP_CWORD}" -eq 1 ]; then
-        COMPREPLY=($(compgen -W "${commands} -h --help -v --version -c --continue -p --prompt --resume" -- "${cur}"))
+        COMPREPLY=($(compgen -W "${commands} -h --help -v --version -c --continue ${prompt_flags} --resume" -- "${cur}"))
         return
     fi
 
@@ -56,8 +66,15 @@ _coddy() {
         update)
             COMPREPLY=($(compgen -W "--check -y --yes --version --repo --no-restart --no-notes" -- "${cur}"))
             ;;
-        cli|acp)
+        cli)
+            COMPREPLY=($(compgen -W "-t --test-config --dry-run --config --home --cwd --log-level --log-output --log-file --log-format --remote --remote-token -c --continue ${prompt_flags} --model --mode --permission-mode" -- "${cur}"))
+            ;;
+        acp)
             COMPREPLY=($(compgen -W "-t --test-config --dry-run --config --home --cwd --log-level --log-output --log-file --log-format --remote --remote-token" -- "${cur}"))
+            ;;
+        -*)
+            # `coddy -p ...`: the console's flags.
+            COMPREPLY=($(compgen -W "-c --continue ${prompt_flags} --model --mode --permission-mode --session-id --cwd --remote --remote-token" -- "${cur}"))
             ;;
         serve)
             COMPREPLY=($(compgen -W "status stop restart set-password --user -d --daemon -t --test-config --dry-run --config --home --cwd --sessions-dir --session-id --log-level --log-output --log-file --log-format -H --host -P --port --auth-token --http --gateway --swarm --scheduler --swarm-host --swarm-port --swarm-auth-token --swarm-pairing-token --swarm-allow-insecure" -- "${cur}"))
