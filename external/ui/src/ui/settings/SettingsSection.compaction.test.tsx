@@ -35,6 +35,18 @@ function Harness() {
         setDoc={setDoc}
       />
       <output data-testid="doc">{JSON.stringify(doc)}</output>
+      {/* An edit of the Logical Models tab that is not saved yet. */}
+      <button
+        type="button"
+        onClick={() =>
+          setDoc((d) => ({
+            ...d,
+            models: [...(d.models as unknown[]), { model: "hub/qwen3-coder" }],
+          }))
+        }
+      >
+        add unsaved model
+      </button>
     </>
   );
 }
@@ -57,4 +69,14 @@ test("compaction allows a custom model and clearing the override", () => {
       JSON.parse(screen.getByTestId("doc").textContent!).compaction.model,
     ).toBe(model);
   }
+});
+
+test("compaction offers a model added to the settings document before it is saved", () => {
+  render(<Harness />);
+  fireEvent.click(screen.getByText("add unsaved model"));
+  fireEvent.focus(screen.getByRole("combobox"));
+  fireEvent.mouseDown(screen.getByText("hub/qwen3-coder"));
+  expect(
+    JSON.parse(screen.getByTestId("doc").textContent!).compaction.model,
+  ).toBe("hub/qwen3-coder");
 });

@@ -559,7 +559,7 @@ Verification use cases
 
 ## Composer command options
 
-Once **`/compact`** opens the draft, the composer completes what the command takes. A dash after it (**`/compact --`**) offers the option **`--model`**; after **`--model `** or **`--model=`** the list holds the configured models (the ids the composer's model selector offers, **`props.llmModels`**), narrowed as the id is typed by the same case-insensitive substring match the server uses to resolve the name. **ArrowDown** / **ArrowUp** move the highlight, **Enter** and **Tab** put the row into the draft with a space after it, **Escape** closes the list and leaves the draft alone. Picking **`--model`** opens the models at once.
+Once **`/compact`** opens the draft, the composer completes what the command takes. Two dashes after it (**`/compact --`**) offer the option **`--model`** (a lone **`-`** offers nothing, since the instructions may be a list); after **`--model `** or **`--model=`** the list holds the configured models (the ids the composer's model selector offers, **`props.llmModels`**), narrowed as the id is typed by a case-insensitive substring match, the broadest of the rules the server resolves a name by (a whole id or a model name without its provider wins first, see [Context compaction](../features/compaction.md#the-compact-command)). **ArrowDown** / **ArrowUp** move the highlight, **Enter** and **Tab** put the row into the draft with a space after it, **Escape** closes the list and leaves the draft alone. Picking **`--model`** opens the models at once.
 
 ![The model list under the composer after /compact --model](../assets/compact-model-picker-open-dark-1280.png)
 

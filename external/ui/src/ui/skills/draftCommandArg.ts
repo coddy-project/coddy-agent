@@ -27,6 +27,10 @@ export const COMPACT_FLAGS: readonly string[] = [MODEL_FLAG];
 
 const isSpace = (ch: string | undefined) => ch !== undefined && /\s/.test(ch);
 
+/** What may follow the command word: the separators `parseCompactCommand` cuts at. */
+const isCommandSeparator = (ch: string | undefined) =>
+  ch !== undefined && " \t\n\r".includes(ch);
+
 export function commandArgDraftAtCaret(
   text: string,
   caret: number,
@@ -38,7 +42,10 @@ export function commandArgDraftAtCaret(
   while (isSpace(text[pos])) {
     pos++;
   }
-  if (!text.startsWith(COMMAND, pos) || !isSpace(text[pos + COMMAND.length])) {
+  if (
+    !text.startsWith(COMMAND, pos) ||
+    !isCommandSeparator(text[pos + COMMAND.length])
+  ) {
     return { open: false };
   }
   pos += COMMAND.length;
@@ -64,14 +71,18 @@ export function commandArgDraftAtCaret(
     }
     const token = text.slice(pos, end);
     if (caret <= end) {
-      if (awaitingModel && !token.startsWith("--")) {
-        return {
-          open: true,
-          kind: "model",
-          from: pos,
-          to: end,
-          prefix: text.slice(pos, caret),
-        };
+      if (awaitingModel) {
+        // An option where the model goes leaves `--model` without a value,
+        // which the server refuses: nothing to offer there.
+        return token.startsWith("--")
+          ? { open: false }
+          : {
+              open: true,
+              kind: "model",
+              from: pos,
+              to: end,
+              prefix: text.slice(pos, caret),
+            };
       }
       const valueStart = pos + MODEL_FLAG.length + 1;
       if (token.startsWith(`${MODEL_FLAG}=`) && caret >= valueStart) {
@@ -83,7 +94,9 @@ export function commandArgDraftAtCaret(
           prefix: text.slice(valueStart, caret),
         };
       }
-      if (token.startsWith("-")) {
+      // Only a `--` word is an option; a lone dash may open a list in the
+      // instructions.
+      if (token.startsWith("--")) {
         return {
           open: true,
           kind: "flag",

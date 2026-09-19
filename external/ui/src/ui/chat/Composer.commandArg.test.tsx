@@ -119,7 +119,7 @@ test("arrows move the highlight and Enter puts the model into the draft instead 
   });
 });
 
-test("a dash offers --model, and picking it opens the models", async () => {
+test("two dashes offer --model, and picking it opens the models", async () => {
   stubStackedShell();
   const onChange = vi.fn();
   render(<Harness onChange={onChange} />);
@@ -131,6 +131,10 @@ test("a dash offers --model, and picking it opens the models", async () => {
   });
   fireEvent.keyDown(ta, { key: "Tab" });
   expect(onChange).toHaveBeenLastCalledWith("/compact --model ");
+  await waitFor(() => {
+    expect(screen.getByTestId("command-arg-row-hub_qwen3-coder")).toBeTruthy();
+  });
+  expect(screen.queryByTestId("command-arg-row---model")).toBeNull();
 });
 
 test("Escape closes the list and leaves the draft alone", async () => {

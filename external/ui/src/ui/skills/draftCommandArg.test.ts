@@ -65,6 +65,15 @@ describe("commandArgDraftAtCaret", () => {
     ["a longer command name", "/compacted --model |"],
     ["the command is not the start of the draft", "please /compact --model |"],
     ["the caret is inside the command word", "/comp|act --model x"],
+    // parseCompactCommand takes a space, a tab or a line break after the
+    // command and nothing else: a no-break space leaves a prompt for the model.
+    ["a no-break space follows the command", "/compact\u00a0--model |"],
+    // Only a `--` word is an option to parseCompactCommand: a lone dash may
+    // start a Markdown list in the instructions.
+    ["a single dash is typed", "/compact -|"],
+    ["the instructions are a list", "/compact\n- keep the paths\n-|"],
+    // `--model --model` never runs, so the value slot offers no option.
+    ["an option is typed where the model goes", "/compact --model --|"],
   ])("stays closed when %s", (_name, marked) => {
     expect(at(marked)).toEqual({ open: false });
   });
