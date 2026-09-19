@@ -11120,6 +11120,25 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   white-space: nowrap;
 }
 
+/* The address of a running preview server. Like Stop it sits above the card's
+   stretched opener, so a click opens the page instead of unfolding the card. */
+.bgtask-card-link {
+  position: relative;
+  z-index: 1;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.bgtask-card-link:hover,
+.bgtask-card-link:focus-visible {
+  text-decoration: underline;
+}
+
 .bgtask-card-usage {
   display: inline-flex;
   flex: 0 1 auto;

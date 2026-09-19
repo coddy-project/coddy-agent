@@ -366,6 +366,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		Background:        a.backgroundPool(sd),
 		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
 		WebSearch:         webSearchSettings(a.cfg),
+		PreviewServer:     previewServerSettings(a.cfg),
 	}
 	// The model's own model switch; a subagent runs on what its parent chose.
 	if a.subagent == nil && a.settings() != nil {
@@ -1140,6 +1141,7 @@ func (a *Agent) runReActLoop(
 			toolEnv.Background = a.backgroundPool(sd)
 			toolEnv.BackgroundEnabled = a.cfg.Tools.Background.ResolvedEnabled()
 			toolEnv.WebSearch = webSearchSettings(a.cfg)
+			toolEnv.PreviewServer = previewServerSettings(a.cfg)
 			toolEnv.ConfigReloaded = false
 		}
 		// The model made progress (executed tool calls), so reset the empty-turn
