@@ -33,6 +33,12 @@ func (b *blockedReasoningBackend) HandleSessionSetConfigOption(ctx context.Conte
 	return b.backend.HandleSessionSetConfigOption(ctx, params)
 }
 
+// over puts b in front of inner, in the shape newReasoningAppOver takes.
+func (b *blockedReasoningBackend) over(inner backend) backend {
+	b.backend = inner
+	return b
+}
+
 func waitForReasoningCall(t *testing.T, b *blockedReasoningBackend) string {
 	t.Helper()
 	select {
@@ -45,6 +51,14 @@ func waitForReasoningCall(t *testing.T, b *blockedReasoningBackend) string {
 }
 
 func newReasoningApp(t *testing.T) *App {
+	t.Helper()
+	return newReasoningAppOver(t, nil)
+}
+
+// newReasoningAppOver builds the app over wrap(manager) when wrap is set. The
+// wrapper has to be in place before Start: Start launches workers that read the
+// backend (the task list read), so swapping it afterwards races with them.
+func newReasoningAppOver(t *testing.T, wrap func(backend) backend) *App {
 	t.Helper()
 	home := t.TempDir()
 	cfg := &config.Config{
@@ -61,7 +75,11 @@ func newReasoningApp(t *testing.T) *App {
 	term := &bddTerminal{cols: 100, rows: 35}
 	late := &lateBoundSender{}
 	mgr := session.NewManager(cfg, late, nil, slog.New(slog.DiscardHandler), home, store)
-	app := newApp(cfg, mgr, slog.New(slog.DiscardHandler), term, "dark", true)
+	var be backend = mgr
+	if wrap != nil {
+		be = wrap(mgr)
+	}
+	app := newApp(cfg, be, slog.New(slog.DiscardHandler), term, "dark", true)
 	late.inner = app.Sender()
 	if err := app.Start(context.Background(), "", false); err != nil {
 		t.Fatalf("start app: %v", err)
@@ -129,13 +147,11 @@ func TestReasoningSelectorPersistsAndRefreshesFooter(t *testing.T) {
 }
 
 func TestReasoningSelectionsAreAppliedInInvocationOrder(t *testing.T) {
-	a := newReasoningApp(t)
 	b := &blockedReasoningBackend{
-		backend: a.mgr,
 		started: make(chan string, 2),
 		release: make(chan error, 2),
 	}
-	a.mgr = b
+	a := newReasoningAppOver(t, b.over)
 
 	a.setReasoning("low")
 	if got := waitForReasoningCall(t, b); got != "low" {
@@ -157,13 +173,11 @@ func TestReasoningSelectionsAreAppliedInInvocationOrder(t *testing.T) {
 }
 
 func TestReasoningFailureUsesLevelsAtInvocation(t *testing.T) {
-	a := newReasoningApp(t)
 	b := &blockedReasoningBackend{
-		backend: a.mgr,
 		started: make(chan string, 1),
 		release: make(chan error, 1),
 	}
-	a.mgr = b
+	a := newReasoningAppOver(t, b.over)
 	originalLevels := a.reasoningLevels()
 
 	a.setReasoning("invalid")

@@ -252,19 +252,11 @@ func (s *cliRemoteState) reset() {
 }
 
 func (s *cliRemoteState) shutdown() {
-	if s.app != nil {
-		s.app.requestQuit(nil)
-	}
 	if s.runCancel != nil {
 		s.runCancel()
 	}
-	if s.appDone != nil {
-		select {
-		case <-s.appDone:
-		case <-time.After(2 * time.Second):
-		}
-	}
 	if s.app != nil {
+		closeConsole(s.app, s.appDone != nil)
 		// The console's events subscription holds a request open; the real
 		// console closes its backend on exit (runInteractive), so the harness
 		// does too before the server waits for its requests to finish.
