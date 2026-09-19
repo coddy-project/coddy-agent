@@ -113,7 +113,10 @@ type stubDirective struct {
 type cliTUIState struct {
 	mu   sync.Mutex
 	home string
-	cwd  string
+	// homes is every home the scenario built an app over: a step that
+	// rebuilds the app starts a new one, and the shutdown removes them all.
+	homes []string
+	cwd   string
 
 	cfg   *config.Config
 	store *session.FileStore
@@ -183,7 +186,7 @@ func (s *syncBuffer) String() string {
 }
 
 func (s *cliTUIState) reset() {
-	s.home, s.cwd = "", ""
+	s.home, s.cwd, s.homes = "", "", nil
 	s.cfg, s.store, s.app = nil, nil, nil
 	s.permOutcome, s.permOption = "", ""
 	s.detachedAnswers = nil
@@ -224,17 +227,11 @@ func (s *cliTUIState) shutdown() {
 		bgtask.Default().ReleaseSession(s.bgSessionID)
 		s.bgSessionID, s.bgTaskID = "", ""
 	}
-	if s.app != nil {
-		s.app.requestQuit(nil)
-	}
 	if s.runCancel != nil {
 		s.runCancel()
 	}
-	if s.appDone != nil {
-		select {
-		case <-s.appDone:
-		case <-time.After(2 * time.Second):
-		}
+	if s.app != nil {
+		closeConsole(s.app, s.appDone != nil)
 	}
 	// The stand-in is selected through a process-wide variable: no usage
 	// fetch may outlive the scenario, or it lands on the next one's server.
@@ -249,6 +246,21 @@ func (s *cliTUIState) shutdown() {
 		_ = os.Setenv(llm.EnvNeuralDeepBaseURL, s.prevBaseEnv)
 		_ = os.Setenv("NEURALDEEP_API_KEY", s.prevKeyEnv)
 		s.usageEnvSet = false
+	}
+	// The scenario's homes and outside folder live in the system temp dir. Left
+	// behind, a home per scenario piles up there, and the "@" scenario that
+	// browses an absolute path lists that dir on every key it types. The app's
+	// workers go first: a turn may still be persisting into its home.
+	if s.app != nil {
+		s.app.JoinWorkers(3 * time.Second)
+	}
+	for _, home := range s.homes {
+		_ = os.RemoveAll(home)
+	}
+	s.homes = nil
+	if s.outside != "" {
+		_ = os.RemoveAll(s.outside)
+		s.outside = ""
 	}
 }
 
@@ -468,6 +480,7 @@ func (s *cliTUIState) buildAppWithUsagePanel(neuraldeep, panel bool) error {
 // Its model selection is applied before session.NewManager sees the config.
 func (s *cliTUIState) buildAppWithModels(neuraldeep, panel bool, models []config.ModelEntry, defaultModel string) error {
 	s.home = filepath.Join(os.TempDir(), fmt.Sprintf("coddy-cli-bdd-%d", time.Now().UnixNano()))
+	s.homes = append(s.homes, s.home)
 	s.cwd = filepath.Join(s.home, "work")
 	for _, d := range []string{s.home, s.cwd, filepath.Join(s.home, "sessions")} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
@@ -770,6 +783,39 @@ func (s *cliTUIState) startApp(sessionID string) error {
 	s.appDone = make(chan error, 1)
 	go func() { s.appDone <- s.app.Run(ctx) }()
 	return s.waitScreen("coddy v", 3*time.Second)
+}
+
+// closeConsole closes an app the way runInteractive does, once its loop has
+// returned: Close stops the timers the loop arms, so closing a live loop from
+// the test goroutine races with it. The caller has cancelled Run's context
+// already; ran says whether Run was started at all.
+func closeConsole(app *App, ran bool) {
+	if ran {
+		select {
+		case <-app.doneCh:
+		case <-time.After(2 * time.Second):
+		}
+	}
+	app.Close()
+}
+
+// onLoop runs fn on the console's UI loop and waits for it, up to timeout for
+// the loop to take the call and as long again for fn to return. The editor and
+// the rest of the component tree belong to that goroutine while Run is live, so
+// a step reads them there rather than from the test goroutine.
+func (s *cliTUIState) onLoop(timeout time.Duration, fn func()) error {
+	done := make(chan struct{})
+	select {
+	case s.app.updatesCh <- updateMsg{update: uiCall(func() { fn(); close(done) })}:
+	case <-time.After(timeout):
+		return fmt.Errorf("the console loop took no call within %s", timeout)
+	}
+	select {
+	case <-done:
+		return nil
+	case <-time.After(timeout):
+		return fmt.Errorf("the console loop did not run the call within %s", timeout)
+	}
 }
 
 // screenText returns the current frame stripped of styling.
@@ -1522,19 +1568,30 @@ func (s *cliTUIState) persistedSessionCarriesNoTrace(text string) error {
 
 // waitWorkersIdle blocks until every app worker (the turn, the `!!` poller)
 // has returned, so nothing writes into the session bundle while a step reads
-// it. Unlike App.JoinWorkers it reports a timeout instead of moving on.
+// it. Unlike App.JoinWorkers it reports a timeout instead of moving on. The
+// wait holds the UI loop: the loop is what starts workers (the task list read
+// among them), and a WaitGroup must not see an Add from zero during a Wait.
 func (s *cliTUIState) waitWorkersIdle(timeout time.Duration) error {
-	done := make(chan struct{})
-	go func() {
-		s.app.workers.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-		return nil
-	case <-time.After(timeout):
+	idle := false
+	err := s.onLoop(timeout, func() {
+		done := make(chan struct{})
+		go func() {
+			s.app.workers.Wait()
+			close(done)
+		}()
+		select {
+		case <-done:
+			idle = true
+		case <-time.After(timeout):
+		}
+	})
+	if err != nil {
+		return err
+	}
+	if !idle {
 		return fmt.Errorf("app workers still busy after %s", timeout)
 	}
+	return nil
 }
 
 func (s *cliTUIState) operatorTypesWithoutSending(text string) error {
@@ -1603,7 +1660,11 @@ func (s *cliTUIState) operatorTypesMention(text string) error {
 	s.typeText(s.withOutside(text))
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if s.app.editor.AutocompleteOpen() {
+		open := false
+		if err := s.onLoop(2*time.Second, func() { open = s.app.editor.AutocompleteOpen() }); err != nil {
+			return err
+		}
+		if open {
 			return nil
 		}
 		time.Sleep(15 * time.Millisecond)
@@ -1622,14 +1683,18 @@ func (s *cliTUIState) operatorTakesHighlightedMention() error {
 
 func (s *cliTUIState) editorHolds(text string) error {
 	want := s.withOutside(text)
+	got := ""
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if s.app.editor.Text() == want {
+		if err := s.onLoop(2*time.Second, func() { got = s.app.editor.Text() }); err != nil {
+			return err
+		}
+		if got == want {
 			return nil
 		}
 		time.Sleep(15 * time.Millisecond)
 	}
-	return fmt.Errorf("editor holds %q, want %q", s.app.editor.Text(), want)
+	return fmt.Errorf("editor holds %q, want %q", got, want)
 }
 
 // --- built-in documentation (F1, /docs) ---

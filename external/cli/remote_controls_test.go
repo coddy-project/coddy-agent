@@ -43,8 +43,7 @@ func TestRemoteControlsReconnectReadyRecoversAMissedEnd(t *testing.T) {
 }
 
 func TestRemoteControlsOwnEOFDoesNotClearServerActivityOrQueue(t *testing.T) {
-	f := newRemoteControlStand(t)
-	f.app.mgr = &recordingControlBackend{backend: f.h}
+	f := newRemoteControlStandOver(t, (&recordingControlBackend{}).over)
 	f.turnEvent(t, sharedControlSession, true)
 	f.syncEvents(t, controlQueueFrame(sharedControlSession, nil, 10))
 	f.app.queue.Apply([]acp.QueuedMessage{{ID: "keep"}}, 11)

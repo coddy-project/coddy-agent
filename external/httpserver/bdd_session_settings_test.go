@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cucumber/godog"
 
@@ -286,7 +287,26 @@ func (s *settingsFeatureState) noModelCalled() error {
 	return nil
 }
 
+// browserToldModel waits for the snapshot on the events stream: the answer to
+// the command comes back on the POST, while the stream's reader appends its
+// frame on its own goroutine, so the frame can land after the answer.
 func (s *settingsFeatureState) browserToldModel(want string) error {
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		told, seen := s.toldModel(want)
+		if told {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("no session_settings event named model %q among %d events", want, seen)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// toldModel reports whether a session_settings frame for this session names
+// the model, and how many frames the stream has delivered so far.
+func (s *settingsFeatureState) toldModel(want string) (bool, int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, f := range s.events {
@@ -298,10 +318,10 @@ func (s *settingsFeatureState) browserToldModel(want string) error {
 			Settings  acp.SessionSettings `json:"settings"`
 		}
 		if json.Unmarshal([]byte(f.data), &body) == nil && body.SessionID == s.sessionID && body.Settings.Model == want && body.Settings.Version > 0 {
-			return nil
+			return true, len(s.events)
 		}
 	}
-	return fmt.Errorf("no session_settings event named model %q among %d events", want, len(s.events))
+	return false, len(s.events)
 }
 
 func (s *settingsFeatureState) modelAnswered(name string, want int) error {
