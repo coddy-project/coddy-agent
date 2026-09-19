@@ -205,8 +205,8 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		// The built-in /compact command compacts history instead of running the
 		// ReAct loop. The command text is persisted (so it shows in the transcript
 		// like any other message) by runCompactCommand itself.
-		if instructions, ok := parseCompactCommand(typed); ok {
-			return a.runCompactCommand(ctx, instructions, userText)
+		if args, ok := parseCompactCommand(typed); ok {
+			return a.runCompactCommand(ctx, args, userText)
 		}
 		// The built-in /plugin command manages skill plugins and marketplaces
 		// deterministically, without an LLM turn; the command text is persisted too.

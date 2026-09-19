@@ -2861,8 +2861,12 @@ func TestHTTPAuthComposerStreamQueryToken(t *testing.T) {
 func newCompactTestServer(t *testing.T, comp config.Compaction) (*httptest.Server, *session.Manager, func()) {
 	t.Helper()
 	cfg := &config.Config{
-		Providers:  []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "k"}},
-		Models:     []config.ModelEntry{{Model: "fake/model", MaxTokens: 100, Temperature: 0.2}},
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "k"}},
+		Models: []config.ModelEntry{
+			{Model: "fake/model", MaxTokens: 100, Temperature: 0.2},
+			// A model no session runs on: a summary it wrote was asked for by name.
+			{Model: "fake/second-qwen", MaxTokens: 100},
+		},
 		Agent:      config.Agent{Model: "fake/model"},
 		Compaction: comp,
 	}
@@ -2905,6 +2909,47 @@ func postCompact(t *testing.T, ts *httptest.Server, sessionID, body string) (int
 	var parsed map[string]interface{}
 	_ = json.NewDecoder(res.Body).Decode(&parsed)
 	return res.StatusCode, parsed
+}
+
+func TestCompactEndpointNamedModel(t *testing.T) {
+	ts, mgr, done := newCompactTestServer(t, config.Compaction{})
+	defer done()
+	id := compactSeedSession(t, mgr, 4)
+
+	code, body := postCompact(t, ts, id, `{"model":"qwen"}`)
+	if code != http.StatusOK || body["compacted"] != true {
+		t.Fatalf("status %d body %v", code, body)
+	}
+	if body["model"] != "fake/second-qwen" {
+		t.Fatalf("model = %v, want the one the request named", body["model"])
+	}
+}
+
+func TestCompactEndpointRefusesAModelItCannotName(t *testing.T) {
+	ts, mgr, done := newCompactTestServer(t, config.Compaction{})
+	defer done()
+	id := compactSeedSession(t, mgr, 4)
+
+	for _, tc := range []struct{ model, want string }{
+		{model: "nope", want: `unknown model \"nope\"`},
+		{model: "fake/", want: "ambiguous"},
+	} {
+		res, err := http.Post(ts.URL+"/coddy/sessions/"+id+"/compact", "application/json",
+			strings.NewReader(fmt.Sprintf(`{"model":%q}`, tc.model)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := io.ReadAll(res.Body)
+		_ = res.Body.Close()
+		if res.StatusCode != http.StatusBadRequest || !strings.Contains(string(raw), tc.want) {
+			t.Fatalf("%s: status %d body %s", tc.model, res.StatusCode, raw)
+		}
+	}
+	for _, m := range mgr.SessionByID(id).GetMessages() {
+		if m.CompactionSummary {
+			t.Fatal("a refused request compacted the session")
+		}
+	}
 }
 
 func TestCompactEndpointUnknownSession(t *testing.T) {

@@ -29,6 +29,7 @@ func (s *Server) coddySessionCompactPost(w http.ResponseWriter, r *http.Request)
 	// An empty request body means "no extra instructions"; malformed JSON is an error.
 	var body struct {
 		Instructions string `json:"instructions"`
+		Model        string `json:"model"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
@@ -94,7 +95,11 @@ func (s *Server) coddySessionCompactPost(w http.ResponseWriter, r *http.Request)
 	ag.SetProviderFactory(s.agentProviderFactory)
 
 	// Manual trigger: force compaction (fold whatever exists, even a short chat).
-	res, err := ag.CompactSession(turnCtx, strings.TrimSpace(body.Instructions), true)
+	res, err := ag.CompactSession(turnCtx, agent.CompactOptions{
+		Instructions: strings.TrimSpace(body.Instructions),
+		Model:        strings.TrimSpace(body.Model),
+		Force:        true,
+	})
 	w.Header().Set("Content-Type", "application/json")
 	switch {
 	case errors.Is(err, agent.ErrNothingToCompact):
@@ -104,6 +109,10 @@ func (s *Server) coddySessionCompactPost(w http.ResponseWriter, r *http.Request)
 		})
 	case errors.Is(err, agent.ErrCompactionDisabled):
 		http.Error(w, `{"error":{"message":"compaction is disabled (compaction.enable)"}}`, http.StatusBadRequest)
+	case errors.Is(err, agent.ErrCompactionModel):
+		// The summarizer asked for by name matches no configured model, or
+		// several: the caller's mistake, and nothing was compacted.
+		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
 	case err != nil:
 		s.log.Error("compact: session compaction", "session", id, "error", err)
 		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)

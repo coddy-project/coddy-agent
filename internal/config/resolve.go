@@ -49,6 +49,40 @@ func (c *Config) FindModelEntry(ref string) *ModelEntry {
 	return nil
 }
 
+// MatchModelID resolves a model a person named to a configured models[].model:
+// the exact selector first, else a case-insensitive substring that names
+// exactly one model ("qwen" for "hub/qwen3-coder"). An unknown or an ambiguous
+// name is an error listing the candidates, never a guess.
+func (c *Config) MatchModelID(want string) (string, error) {
+	w := strings.TrimSpace(want)
+	if w == "" {
+		return "", fmt.Errorf("model is empty")
+	}
+	if entry := c.FindModelEntry(w); entry != nil {
+		return entry.Model, nil
+	}
+	needle := strings.ToLower(w)
+	var all, matches []string
+	for i := range c.Models {
+		id := c.Models[i].Model
+		if id == "" {
+			continue
+		}
+		all = append(all, id)
+		if strings.Contains(strings.ToLower(id), needle) {
+			matches = append(matches, id)
+		}
+	}
+	switch len(matches) {
+	case 1:
+		return matches[0], nil
+	case 0:
+		return "", fmt.Errorf("unknown model %q (configured: %s)", w, strings.Join(all, ", "))
+	default:
+		return "", fmt.Errorf("model %q is ambiguous (matches: %s)", w, strings.Join(matches, ", "))
+	}
+}
+
 // ResolveLLM merges provider and model configuration for use with internal/llm.
 func (c *Config) ResolveLLM(modelRef string) (*ResolvedLLM, error) {
 	ref := strings.TrimSpace(modelRef)
