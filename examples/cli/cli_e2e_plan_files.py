@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plan mode: /mode plan writes a plan file with the shared e2e marker."""
+"""Plan mode: /plan writes a plan file with the shared e2e marker."""
 
 from __future__ import annotations
 
@@ -16,10 +16,7 @@ def main() -> int:
     tui = CoddyTUI("plan")
     try:
         tui.wait_for("coddy v", timeout=30)
-        tui.type_text("/mode")
-        tui.send(CR)
-        tui.wait_for("Select mode", timeout=15)
-        tui.send("\x1b[B")  # down to plan
+        tui.type_text("/plan")
         tui.send(CR)
         tui.wait_for("• plan", timeout=15)
         tui.prompt(plan_prompt_text("document the demo workflow"))

@@ -410,3 +410,66 @@ func ActionCommandRows(cfg *config.Config) []CommandRow {
 	}
 	return out
 }
+
+// changeValues lists the values a change names, keyed by setting.
+func changeValues(ch SettingsChange) map[string]string {
+	values := make(map[string]string, 4)
+	if ch.Model != nil {
+		values[SettingModel] = *ch.Model
+	}
+	if ch.Reasoning != nil {
+		v := *ch.Reasoning
+		if v == "" {
+			v = config.ReasoningDefault
+		}
+		values[SettingReasoning] = v
+	}
+	if ch.Mode != nil {
+		values[SettingMode] = *ch.Mode
+	}
+	if ch.PermissionMode != nil {
+		values[SettingPermissionMode] = *ch.PermissionMode
+	}
+	return values
+}
+
+// SettingsChangeNotice describes a change the way the manager's notice does,
+// without validating it: for a client that has to say what it asked for
+// before a server confirms it (a remote session the server has not created).
+func SettingsChangeNotice(ch SettingsChange) string {
+	values := changeValues(ch)
+	scope := "for this session"
+	if ch.Turns > 0 {
+		scope = turnsScope(ch.Turns)
+	}
+	return settingsNotice(values, sortedSettings(values), scope)
+}
+
+// FormatSettingsCommands writes changes back as the command lines that ask
+// for them, one per setting: what a client that holds a change for a session
+// the server has not created yet puts at the start of that session's first
+// prompt, where the server takes it like any other.
+func FormatSettingsCommands(changes []SettingsChange) string {
+	var lines []string
+	for _, ch := range changes {
+		flag := ""
+		if ch.Turns > 0 {
+			flag = " --count=" + strconv.Itoa(ch.Turns)
+		}
+		values := changeValues(ch)
+		for _, name := range sortedSettings(values) {
+			v := values[name]
+			switch name {
+			case SettingModel:
+				lines = append(lines, "/model "+v+flag)
+			case SettingReasoning:
+				lines = append(lines, "/reasoning "+v+flag)
+			case SettingMode:
+				lines = append(lines, "/"+v+flag)
+			case SettingPermissionMode:
+				lines = append(lines, "/permissions "+v+flag)
+			}
+		}
+	}
+	return strings.Join(lines, "\n")
+}

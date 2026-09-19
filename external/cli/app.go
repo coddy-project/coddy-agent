@@ -45,7 +45,9 @@ type App struct {
 	// the UI goroutine and other workers keep reading it, hence the atomic.
 	cfgAt atomic.Pointer[config.Config]
 	mgr   backend
-	log   *slog.Logger
+	// settingsVersion is the version of the last settings snapshot shown.
+	settingsVersion uint64
+	log             *slog.Logger
 
 	// remoteURL is set when mgr talks to a remote coddy serve server.
 	remoteURL string
@@ -1311,9 +1313,6 @@ type sessionSwitched struct{ res *acp.SessionNewResult }
 func (a *App) slashCatalog() []tui.AutocompleteItem {
 	var items []tui.AutocompleteItem
 	items = append(items,
-		tui.AutocompleteItem{Value: "model", Label: "model", Description: "Select model (opens selector UI)"},
-		tui.AutocompleteItem{Value: "reasoning", Label: "reasoning", Description: "Select reasoning level (opens selector UI)"},
-		tui.AutocompleteItem{Value: "mode", Label: "mode", Description: "Switch between agent, plan, and ask mode"},
 		tui.AutocompleteItem{Value: "resume", Label: "resume", Description: "Resume another session"},
 		tui.AutocompleteItem{Value: "new", Label: "new", Description: "Start a new session"},
 		tui.AutocompleteItem{Value: "theme", Label: "theme", Description: "Switch color theme"},
@@ -1323,7 +1322,24 @@ func (a *App) slashCatalog() []tui.AutocompleteItem {
 		tui.AutocompleteItem{Value: "tasks", Label: "tasks", Description: "List the session's background tasks, read their output, stop one"},
 		tui.AutocompleteItem{Value: "quit", Label: "quit", Description: "Exit coddy"},
 	)
-	items = append(items, a.slashServer...)
+	// The settings commands come from the manager's registry, like the
+	// server's rows; a server row never shadows a console command.
+	seen := make(map[string]bool, len(items))
+	for _, it := range items {
+		seen[it.Value] = true
+	}
+	for _, c := range session.SettingsCommands() {
+		if len(a.slashServer) == 0 && !seen[c.Name] {
+			items = append(items, tui.AutocompleteItem{Value: c.Name, Label: c.Name, Description: c.Description})
+			seen[c.Name] = true
+		}
+	}
+	for _, it := range a.slashServer {
+		if !seen[it.Value] {
+			items = append(items, it)
+			seen[it.Value] = true
+		}
+	}
 	return items
 }
 

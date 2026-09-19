@@ -133,6 +133,9 @@ func (h *Handler) applyEventFrame(f sseFrame) {
 	case "background_wake":
 		h.applyWakeEvent(f.data)
 		return
+	case "session_settings":
+		h.applySettingsEvent(f.data)
+		return
 	}
 	if f.event != "message_queue" {
 		return

@@ -45,6 +45,8 @@ type stubRunner struct {
 	cfg    *config.Config
 	live   map[string]*session.State
 	onDisk map[string]*session.State
+	// prompts are the texts handed to the session, in order.
+	prompts []string
 }
 
 func newStubRunner(cfg *config.Config) *stubRunner {
@@ -81,7 +83,14 @@ func (r *stubRunner) restart() {
 	r.live = map[string]*session.State{}
 }
 
-func (r *stubRunner) HandleSessionPromptWithSender(context.Context, acp.SessionPromptParams, acp.UpdateSender, *session.PromptRunOpts) (*acp.SessionPromptResult, error) {
+func (r *stubRunner) HandleSessionPromptWithSender(_ context.Context, params acp.SessionPromptParams, _ acp.UpdateSender, _ *session.PromptRunOpts) (*acp.SessionPromptResult, error) {
+	r.mu.Lock()
+	for _, b := range params.Prompt {
+		if b.Type == acp.ContentTypeText {
+			r.prompts = append(r.prompts, b.Text)
+		}
+	}
+	r.mu.Unlock()
 	return &acp.SessionPromptResult{StopReason: acp.StopReasonEndTurn}, nil
 }
 
@@ -265,6 +274,27 @@ func (w *modelSwitchWorld) sessionModelIs(model string) error {
 
 func (w *modelSwitchWorld) sessionModelIsTheLongOne() error { return w.sessionModelIs(longModelID) }
 
+// sessionReceived asserts the text reached the session as a message: the
+// manager takes a settings command off its start there.
+func (w *modelSwitchWorld) sessionReceived(text string) error {
+	w.runner.mu.Lock()
+	defer w.runner.mu.Unlock()
+	for _, p := range w.runner.prompts {
+		if p == text {
+			return nil
+		}
+	}
+	return fmt.Errorf("the session received %q, not %q", w.runner.prompts, text)
+}
+
+// noKeyboardSent asserts the bot answered without an inline keyboard.
+func (w *modelSwitchWorld) noKeyboardSent() error {
+	if _, err := w.f.tap(modelSwitchChatID, modelSwitchUserID, "rpa/qwen3.6-35b-a3b"); err == nil {
+		return fmt.Errorf("a model keyboard was sent")
+	}
+	return nil
+}
+
 // logRecords returns the parsed JSON log lines emitted so far.
 func (w *modelSwitchWorld) logRecords() []map[string]any {
 	out := []map[string]any{}
@@ -354,6 +384,8 @@ func initializeModelSwitchScenario(sc *godog.ScenarioContext) {
 	sc.When(`^the user taps the button for that long model$`, w.tapLongModelButton)
 
 	sc.Then(`^the session model is "([^"]*)"$`, w.sessionModelIs)
+	sc.Then(`^the session received "([^"]*)"$`, w.sessionReceived)
+	sc.Then(`^no model keyboard was sent$`, w.noKeyboardSent)
 	sc.Then(`^the session model is that long model$`, w.sessionModelIsTheLongOne)
 	sc.Then(`^the log records the command "([^"]*)"$`, w.logRecordsCommand)
 	sc.Then(`^the log records the model menu with the session id$`, w.logRecordsMenuSession)

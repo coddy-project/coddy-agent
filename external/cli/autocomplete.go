@@ -105,7 +105,8 @@ func (p *completionProvider) Suggestions(lines []string, cursorLine, cursorCol i
 
 	// Slash commands: only on the first line, message starting with "/".
 	// An exact value match sorts first so enter picks it over longer
-	// prefix-sharing commands (pi behavior: /mode must not resolve to /model).
+	// prefix-sharing commands (pi behavior: an exact name wins over the longer
+	// names it prefixes).
 	if cursorLine == 0 && strings.HasPrefix(line, "/") && !strings.Contains(before, " ") {
 		p.closeToken()
 		prefix := strings.ToLower(strings.TrimPrefix(before, "/"))

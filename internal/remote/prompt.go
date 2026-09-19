@@ -93,6 +93,11 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	defer h.endTurn(st, owned)
 
 	input, attachments := promptInput(params.Prompt)
+	// Settings asked for before the server had this session travel as the
+	// commands that ask for them, at the start of its first prompt.
+	if pending := h.takePendingSettings(st); pending != "" {
+		input = pending + "\n" + input
+	}
 	body := responsesRequest{Model: mode, Input: input, Stream: true, Attachments: attachments}
 	if selected != "" {
 		body.Metadata = map[string]string{"model": selected}
@@ -258,6 +263,14 @@ func (t *turnStream) onFrame(f sseFrame) error {
 		var u acp.ProviderUsageUpdate
 		if json.Unmarshal([]byte(f.data), &u) == nil {
 			_ = t.sender.SendSessionUpdate(t.sessionID, u)
+		}
+	case "session_settings":
+		// A change of the session's settings during this turn: the same
+		// frame the events stream carries, which is where the console
+		// hears it from (events.go); here it only updates the mirror.
+		var u acp.SessionSettingsUpdate
+		if json.Unmarshal([]byte(f.data), &u) == nil {
+			t.h.mirrorSettings(t.sessionID, u.Settings)
 		}
 	case "available_commands":
 		var u acp.AvailableCommandsUpdate

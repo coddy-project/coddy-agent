@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -122,13 +123,24 @@ func (a *App) enqueuePrompt(text string) {
 	if body == "" {
 		return
 	}
-	sessionID, mgr := a.sessionID, a.mgr
+	sessionID, mgr, local := a.sessionID, a.mgr, a.remoteURL == ""
 	a.runQueueRequest(sessionID, func() queueResult {
-		_, rows, err := mgr.EnqueueTurnMessage(sessionID, body)
+		// Settings commands at the start apply at once and never reach the
+		// model; only the rest waits for the turn (session.EnqueueFollowUp).
+		_, queued, _, err := mgr.EnqueueFollowUp(context.Background(), sessionID, body, "console")
 		if err != nil {
-			err = fmt.Errorf("could not queue the message: %w", err)
+			return queueResult{action: "enqueue", text: body, err: fmt.Errorf("could not queue the message: %w", err)}
 		}
-		return queueResult{action: "enqueue", text: body, rows: rows, err: err}
+		if !queued {
+			return queueResult{action: "settings", text: body}
+		}
+		// Remote rows arrive as versioned backend updates; the in-process
+		// queue is read back here, as the enqueue itself used to answer.
+		var rows []session.QueuedMessage
+		if local {
+			rows, _ = mgr.QueuedTurnMessages(sessionID)
+		}
+		return queueResult{action: "enqueue", text: body, rows: rows}
 	})
 }
 
@@ -200,6 +212,11 @@ func (a *App) applyQueueResult(u queueResult) {
 			}
 		}
 		a.appendStatus(roleWarning, u.err.Error())
+		return
+	}
+	// A text that was only settings commands queued nothing: the notice
+	// arrives as a session_settings update, and the queue is what it was.
+	if u.action == "settings" {
 		return
 	}
 	if a.remoteURL == "" && u.action != "list" {

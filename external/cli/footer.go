@@ -36,6 +36,11 @@ type footer struct {
 	provider  string
 	model     string
 	reasoning string
+	// permission is the session's permission mode; anything but ask is
+	// named on the first line, bypass in the warning colour (#292).
+	permission string
+	// overrides are the settings changed for a number of turns.
+	overrides []acp.TurnOverride
 
 	// usages holds the latest usage update per provider row; the active
 	// model's renders. now is the clock of the reset-time wording (tests pin
@@ -73,6 +78,38 @@ func (f *footer) SetContext(percent float64, maxTokens int) {
 func (f *footer) SetModel(modelID, reasoning string) {
 	f.provider, f.model = splitModelID(modelID)
 	f.reasoning = reasoning
+}
+
+// SetSettings adopts a settings snapshot: the permission mode and the
+// overrides for the running and the next turns.
+func (f *footer) SetSettings(permission string, overrides []acp.TurnOverride) {
+	f.permission = permission
+	f.overrides = append([]acp.TurnOverride(nil), overrides...)
+}
+
+// overridesText renders the turn overrides: "next 2 turns: model x".
+func (f *footer) overridesText() string {
+	if len(f.overrides) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(f.overrides))
+	for _, o := range f.overrides {
+		label := o.Setting
+		if label == "permission_mode" {
+			label = "permissions"
+		}
+		scope := "this turn"
+		switch {
+		case o.Active && o.TurnsLeft > 0:
+			scope = "this turn +" + itoa(o.TurnsLeft)
+		case !o.Active && o.TurnsLeft == 1:
+			scope = "next turn"
+		case !o.Active:
+			scope = "next " + itoa(o.TurnsLeft) + " turns"
+		}
+		parts = append(parts, scope+": "+label+" "+tui.SanitizeText(o.Value))
+	}
+	return strings.Join(parts, " • ")
 }
 
 // SetUsage adopts a provider usage update for its provider row.
@@ -178,9 +215,26 @@ func (f *footer) Render(width int) []string {
 	}
 	line2 := left + strings.Repeat(" ", gap) + right
 
+	// The permission mode closes the first line when it is not the asking
+	// one: bypass in the warning colour, so a session that approves
+	// everything never looks like one that asks.
+	first := th.Fg(roleDim, tui.TruncateToWidth(line1, width, "..."))
+	if f.permission != "" && f.permission != "ask" {
+		seg := " • " + strings.ReplaceAll(f.permission, "_", " ")
+		if room := width - tui.VisibleWidth(seg); room >= 8 {
+			role := roleDim
+			if f.permission == "bypass" {
+				role = roleWarning
+			}
+			first = th.Fg(roleDim, tui.TruncateToWidth(line1, room, "...")) + th.Fg(role, seg)
+		}
+	}
 	lines := []string{
-		th.Fg(roleDim, tui.TruncateToWidth(line1, width, "...")),
+		first,
 		th.Fg(roleDim, tui.TruncateToWidth(line2, width, "")),
+	}
+	if ov := f.overridesText(); ov != "" {
+		lines = append(lines, th.Fg(roleAccent, tui.TruncateToWidth(ov, width, "...")))
 	}
 	if usage := f.usageLine(width); usage != "" {
 		lines = append(lines, usage)

@@ -17,50 +17,6 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-// ── /mode ────────────────────────────────────────────────────────────────────
-
-func (b *Bot) handleModeCommand(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbotapi.Message, key string) {
-	st, err := b.ensureSession(ctx, key)
-	if err != nil {
-		b.reply(bot, msg.Chat.ID, msg.MessageID, "❌ Session error: "+err.Error())
-		return
-	}
-	b.log.Debug("telegram: mode menu", "session", st.GetID(), "current", st.GetMode())
-	kb := buildModeKeyboard(st.GetMode())
-	m := tgbotapi.NewMessage(msg.Chat.ID, modeMenuText(st.GetMode()))
-	m.ReplyToMessageID = msg.MessageID
-	m.ReplyMarkup = kb
-	if _, err := bot.Send(m); err != nil {
-		b.log.Warn("telegram: send mode menu", "err", err)
-	}
-}
-
-func modeMenuText(current string) string {
-	desc := map[string]string{
-		string(session.ModeAgent): "executes tasks with full tool access",
-		string(session.ModePlan):  "designs and plans without code execution",
-		string(session.ModeAsk):   "answers questions with read-only research tools",
-	}
-	return fmt.Sprintf("*Session mode*\n\nCurrent: *%s* — %s\n\nSelect a new mode:", current, desc[current])
-}
-
-func buildModeKeyboard(current string) tgbotapi.InlineKeyboardMarkup {
-	modes := []struct{ id, label string }{
-		{string(session.ModeAgent), "Agent"},
-		{string(session.ModePlan), "Plan"},
-		{string(session.ModeAsk), "Ask"},
-	}
-	row := make([]tgbotapi.InlineKeyboardButton, 0, len(modes))
-	for _, m := range modes {
-		label := m.label
-		if m.id == current {
-			label = "✓ " + label
-		}
-		row = append(row, tgbotapi.NewInlineKeyboardButtonData(label, "mode:"+m.id))
-	}
-	return tgbotapi.NewInlineKeyboardMarkup(row)
-}
-
 // ── /model ───────────────────────────────────────────────────────────────────
 
 func (b *Bot) handleModelCommand(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbotapi.Message, key string) {
@@ -110,7 +66,6 @@ func buildModelKeyboard(models []config.ModelEntry, current string) tgbotapi.Inl
 // ── Callback payloads ────────────────────────────────────────────────────────
 
 const (
-	callbackActionMode  = "mode"
 	callbackActionModel = "model"
 
 	// telegramCallbackDataMax is Telegram's hard limit on callback_data.
@@ -290,10 +245,7 @@ func (b *Bot) handleCallback(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgb
 		"chat", chatID,
 	)
 
-	switch action {
-	case callbackActionMode:
-		b.applyMode(ctx, bot, cbq, sessionID, value)
-	case callbackActionModel:
+	if action == callbackActionModel {
 		b.applyModel(ctx, bot, cbq, sessionID, value)
 	}
 }
@@ -301,34 +253,10 @@ func (b *Bot) handleCallback(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgb
 // knownCallbackAction reports whether action names a keyboard this bot sends.
 func knownCallbackAction(action string) bool {
 	switch action {
-	case callbackActionMode, callbackActionModel, callbackActionResume:
+	case callbackActionModel, callbackActionResume:
 		return true
 	}
 	return false
-}
-
-func (b *Bot) applyMode(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgbotapi.CallbackQuery, sessionID, newMode string) {
-	err := b.runner.HandleSessionSetMode(ctx, acp.SessionSetModeParams{
-		SessionID: sessionID,
-		ModeID:    newMode,
-	})
-	if err != nil {
-		b.log.Warn("telegram: set mode", "err", err, "session", sessionID, "mode", newMode)
-		_, _ = bot.Request(tgbotapi.NewCallbackWithAlert(cbq.ID, "❌ "+err.Error()))
-		return
-	}
-	b.log.Info("telegram: mode applied", "session", sessionID, "mode", newMode)
-	// Update the keyboard in-place so the user sees the new selection immediately.
-	edit := tgbotapi.NewEditMessageTextAndMarkup(
-		cbq.Message.Chat.ID,
-		cbq.Message.MessageID,
-		modeMenuText(newMode),
-		buildModeKeyboard(newMode),
-	)
-	edit.ParseMode = tgbotapi.ModeMarkdown
-	if _, err := bot.Request(edit); err != nil {
-		b.log.Debug("telegram: edit mode message", "err", err)
-	}
 }
 
 func (b *Bot) applyModel(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgbotapi.CallbackQuery, sessionID, newModel string) {

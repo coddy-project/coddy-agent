@@ -258,6 +258,16 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 				tb.SetExpanded(true)
 			}
 		}
+	case acp.SessionSettingsUpdate:
+		// A change of the session's settings, whoever made it: a command
+		// here, the web UI, an editor, the permission dialog, the model's
+		// own switch_model. The notice says what changed.
+		a.applySettingsSnapshot(u.Settings)
+		if notice := strings.TrimSpace(u.Notice); notice != "" {
+			a.appendStatus(roleDim, notice)
+		}
+	case settingsApplied:
+		a.applySettingsSnapshot(u.settings)
 	case acp.AvailableCommandsUpdate:
 		a.refreshServerCommands(u.AvailableCommands)
 	case acp.MemoryRunUpdate:
