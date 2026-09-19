@@ -23,6 +23,29 @@ const httpSettingsMCPHelperEnv = "CODDY_TEST_HTTP_SETTINGS_MCP_HELPER"
 
 func TestCoddyConfigPutConnectsMCPToActiveSession(t *testing.T) {
 	home := t.TempDir()
+	// The helper MCP server is this test binary, named by an absolute path so
+	// the server process finds it from any working directory.
+	helper, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The home of whoever runs the tests, with a global mcp.json of its own:
+	// a server declared there is not one this test configured.
+	operatorHome := t.TempDir()
+	operatorMCP, err := json.Marshal(map[string]interface{}{"mcpServers": map[string]interface{}{
+		"operator-server": map[string]interface{}{
+			"command": helper,
+			"args":    []string{"-test.run=^TestHTTPSettingsMCPHelperProcess$"},
+			"env":     map[string]string{httpSettingsMCPHelperEnv: "1"},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config.GlobalMCPJSONPath(operatorHome), operatorMCP, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODDY_HOME", operatorHome)
 	configPath := filepath.Join(home, "config.yaml")
 	initial := `
 providers:
@@ -38,9 +61,14 @@ agent:
 	if err := os.WriteFile(configPath, []byte(initial), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := config.Load(configPath)
+	// The test's own home, not the one CODDY_HOME names: the global mcp.json
+	// and .env are read from it.
+	cfg, err := config.LoadFromCLI(config.CLIPaths{Home: home, Config: configPath})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if cfg.Paths.Home != home {
+		t.Fatalf("config home = %q, want the test's %q", cfg.Paths.Home, home)
 	}
 	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
 		return string(acp.StopReasonEndTurn), nil
@@ -61,7 +89,7 @@ agent:
 	dto.MCPServers = []config.MCPServerJSON{{
 		Type:    "stdio",
 		Name:    "settings-probe",
-		Command: os.Args[0],
+		Command: helper,
 		Args:    []string{"-test.run=^TestHTTPSettingsMCPHelperProcess$"},
 		Env:     []config.EnvVarJSON{{Name: httpSettingsMCPHelperEnv, Value: "1"}},
 	}}
@@ -81,6 +109,11 @@ agent:
 	_ = response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("PUT /coddy/config status = %d", response.StatusCode)
+	}
+
+	// The save went to the test's own home: the operator's file is untouched.
+	if got, err := os.ReadFile(config.GlobalMCPJSONPath(operatorHome)); err != nil || string(got) != string(operatorMCP) {
+		t.Fatalf("operator mcp.json after the save = %q, %v; want it unchanged", got, err)
 	}
 
 	clients := state.GetMCPClients()
