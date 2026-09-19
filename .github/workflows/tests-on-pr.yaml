@@ -191,6 +191,16 @@ jobs:
       - name: Run console TUI tests (fake terminal, no pty)
         run: go test -tags=cli ./external/cli/...
 
+      # No per-OS code in these, but their tests write files and compare paths:
+      # backslash separators, no POSIX mode bits, a CRLF checkout (Git on this
+      # runner converts line endings). Those expectations broke on Windows
+      # unnoticed while only Linux ran them. internal/session and
+      # internal/tools belong here too and are held back: on Windows the
+      # mentions suite does not resolve a "~" path and the built-in docs suite
+      # reads the CRLF checkout, both open at the time of writing.
+      - name: Run file and path tests
+        run: go test ./cmd/coddy/... ./internal/config/... ./internal/dryrun/... ./internal/swarm/...
+
   # The console is a raw-mode terminal program, and nothing above runs it on
   # macOS, where bare `coddy` opens on a Terminal.app pty. A hang there was
   # reported by users before it was seen in any test. This job runs the
