@@ -26,6 +26,7 @@ Resolved locations use environment variables and flags (see README). In short:
 - **`CODDY_CONFIG`** - explicit path to `config.yaml`. Same as **`--config`**.
 - **`CODEX_HOME`** - Codex CLI state directory read by **`type: codex`** providers when no Coddy-managed credential exists. Default **`~/.codex`**.
 - **`CODDY_CODEX_BASE_URL`** - override for the Codex backend endpoint (default **`https://chatgpt.com/backend-api/codex`**). Process-level on purpose: **`api_base`** stays ignored for **`type: codex`**, so a settings document cannot redirect a ChatGPT OAuth token. Used by the executable specs and by self-hosted Codex gateways.
+- **`CODDY_DEVIN_CLI_CREDENTIALS`** - the Devin CLI **`credentials.toml`** read by **`type: devin`** providers when no Coddy-managed login exists. Default **`~/.local/share/devin/credentials.toml`** (or under **`$XDG_DATA_HOME`**). **`CODDY_DEVIN_API_SERVER_URL`**, **`CODDY_DEVIN_WEBAPP_URL`** and **`CODDY_DEVIN_API_URL`** move the Devin endpoints for the whole process, for stands and tests; see [Devin](../features/devin.md).
 
 If no **`--config`** is given, the loader uses **`$CODDY_HOME/config.yaml`** (default home **`~/.coddy`**). If that file is missing, it tries **`config.yaml`** in the process current working directory (**`$CWD`** at startup). If neither file exists, built-in defaults apply (no error).
 
@@ -169,6 +170,12 @@ providers:
   - name: "codex"
     type: "codex"
 
+  # `coddy providers login devin` signs in to a Devin account in the browser
+  # (or reuses the Devin CLI login with --devin-cli) and adds this row and one
+  # model per family. The session token lives under $CODDY_HOME/providers/devin/.
+  - name: "devin"
+    type: "devin"
+
   - name: "local"
     type: "openai"
     api_base: "http://localhost:11434/v1"
@@ -212,6 +219,10 @@ models:
 
   - model: "codex/gpt-5.6-sol"
     max_tokens: 8192
+
+  - model: "devin/claude-sonnet-5"
+    reasoning_levels: [low, medium, high, xhigh, max]  # each level is a variant of the family
+    reasoning_default: medium
 
 # ReAct loop settings (Go: config.Agent, internal/config/agent.go)
 agent:
@@ -618,7 +629,7 @@ An environment variable named **`CWD`** does not replace the placeholder (a bare
 
 ## Model Provider Reference
 
-Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`anthropic`**, **`neuraldeep`**.
+Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`anthropic`**, **`neuraldeep`**, **`codex`**, **`devin`**.
 
 YAML split:
 
@@ -668,6 +679,11 @@ Credentials come from either a hub sign-in or a plain key. **`coddy providers lo
 While a `neuraldeep` model is active, the console footer, the remote console and the HTTP API show the account's usage (the hub's read-only **`GET /v1/limits`**: session and week windows as percent used with reset times, the wallet in rubles, a hit limit with its reset time), refreshed at session start and after every turn; see **`docs/surfaces/console.md`** (Footer, `/usage`) and **`docs/reference/http-api.md`** (**`GET /coddy/providers/{name}/usage`**). The row's own credential is used, and no dollar figure is ever shown. The panel is on by default; **`usage_limits_panel: false`** on the row (the **Usage limits panel** switch in Settings → LLM Providers) hides it on every surface and stops the **`GET /v1/limits`** reads for that row, for a shared screen or an account that is not yours to watch.
 
 The same API is served from two deployments: **`https://api.neuraldeep.ru/v1`** for Russia and **`https://api.neuraldeep.tech/v1`** for everywhere else. **`api_base`** selects one - leave it empty for the first, and any value that is not one of the two falls back to it (a startup warning says so). The choice travels with the credential: sign-in goes to **`hub.neuraldeep.ru`** or **`hub.neuraldeep.tech`** to match, so pick the endpoint before signing in (**`coddy providers login neuraldeep --api-base https://api.neuraldeep.tech/v1`**, or the endpoint dropdown in Settings). A login with **`--api-base`** also moves an existing provider row to that endpoint (unless **`--no-config`**), so the row and the key agree; in Settings the sign-in follows the dropdown as picked in the form, before Save. A key minted by one hub is not honored by the other; Coddy warns at startup when the stored login and the selected endpoint disagree, and the Settings row shows the same warning live. **`CODDY_NEURALDEEP_BASE_URL`** and **`CODDY_NEURALDEEP_HUB_URL`** still redirect the whole process for stands and tests, and they win over the config. Optional **`proxy`** routes this row's requests, the hub sign-in and the usage reads included ([Provider proxy](#provider-proxy)). Use **`models[].model`** like **`neuraldeep/qwen3.6-35b-a3b`**, plus **`max_tokens`**, **`temperature`**.
+
+### `devin`
+The models of a Devin (Cognition) account, reached the way the Devin CLI reaches them.
+
+**`coddy providers login devin`** signs in through the browser (PKCE, like **`devin auth login`**): the Devin page sends the browser back to a loopback port on this machine, and over SSH you paste the address it ended on into the terminal instead. **`--devin-cli`** reuses the login the Devin CLI already holds and opens no browser. The session token is stored under **`$CODDY_HOME/providers/<name>/devin-auth.json`**; without it the provider falls back to the Devin CLI's **`credentials.toml`**, and an explicit **`api_key`** (or **`api_key_command`** / **`DEVIN_API_KEY`**) wins over both. The login adds one model per family, such as **`devin/claude-opus-5`**, with the family's variants as its **`reasoning_levels`**: level **`high`** is sent as **`claude-opus-5-high`**. **`api_base`** is ignored; optional **`proxy`** routes the sign-in, the catalog and chat ([Provider proxy](#provider-proxy)). The full story, including how levels map to variants and how the output cap is chosen, is on [Devin](../features/devin.md).
 
 ### Local OpenAI-compatible servers (Ollama, llama.cpp, LM Studio)
 Use **`type: openai`** and set **`api_base`** to an OpenAI-compatible base URL that already includes **`/v1`**, for example **`http://localhost:11434/v1`** for Ollama.

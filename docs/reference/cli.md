@@ -50,7 +50,7 @@ Usage:
   coddy plugin remove <name>
   coddy plugin enable <name> | disable <name>
   coddy mcp list | trust <name> | untrust <name> [--cwd DIR]
-  coddy providers list | login <name> [--browser] [--no-config] [--api-base URL] | logout <name> [--home DIR]
+  coddy providers list | login <name> [--browser] [--devin-cli] [--no-config] [--api-base URL] | logout <name> [--home DIR]
   coddy rules list [--cwd DIR]
   coddy agents list [--cwd DIR]
   coddy agents trust <name> [--cwd DIR]
@@ -265,6 +265,8 @@ Usage of providers:
     	neuraldeep: sign in through a loopback browser callback instead of the device flow
   -device
     	neuraldeep: the device flow, which is the default (accepted for compatibility)
+  -devin-cli devin auth login
+    	devin: use the login devin auth login already holds instead of a browser sign-in
   -home string
     	override CODDY_HOME
   -no-config

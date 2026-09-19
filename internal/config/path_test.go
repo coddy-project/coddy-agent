@@ -525,3 +525,37 @@ func TestDryRunUCICommandsLeavesFileUntouched(t *testing.T) {
 		t.Fatalf("dry run changed config: %q", raw)
 	}
 }
+
+// A login that publishes a catalog into a config that does not exist yet
+// must leave a file a person can read: block style, and integers written as
+// integers however large (1048576, not 1.048576e+06, which the schema check
+// then flags on every model).
+func TestCommitUCICommandsFreshConfigIsBlockStyleWithIntegers(t *testing.T) {
+	paths := testPathConfig(t, "")
+	cmds := []UCICommand{
+		{Op: UCIOpSet, Path: "providers[name=devin]", Value: `{"name":"devin","type":"devin"}`},
+		{Op: UCIOpSet, Path: "models[model=devin/fam]", Value: `{"model":"devin/fam","max_context_tokens":1048576,"reasoning_levels":["low","high"]}`},
+		{Op: UCIOpSet, Path: "agent.model", Value: "devin/fam"},
+	}
+	if _, err := CommitUCICommands(paths, cmds); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(paths.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "max_context_tokens: 1048576\n") {
+		t.Fatalf("large integer not written as an integer:\n%s", text)
+	}
+	if strings.Contains(text, "{providers:") || !strings.Contains(text, "\nproviders:\n") {
+		t.Fatalf("fresh config is not in block style:\n%s", text)
+	}
+	cfg, err := LoadWithPaths(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := cfg.FindModelEntry("devin/fam"); m == nil || m.MaxContextTokens != 1048576 {
+		t.Fatalf("model = %+v", m)
+	}
+}

@@ -161,13 +161,19 @@ List merged MCP servers and approve or revoke project\-local
 declarations for a workspace.
 .TP
 .B "providers list | login | logout"
-Manage provider credentials. A login signs in through the device flow: it
-prints a short code and the page that confirms it, so the browser can be on
-any machine. Pass
+Manage provider credentials. A NeuralDeep login signs in through the device
+flow: it prints a short code and the page that confirms it, so the browser can
+be on any machine. Pass
 .B \-\-browser
 for the loopback callback instead, which only completes in a browser running
-on this machine. A login also adds the provider, the models the account can
-use and an
+on this machine. A Devin login opens the Devin sign\-in page and waits for the
+browser to come back to this machine; when the browser runs elsewhere, paste
+the address it ended on into the terminal. With
+.B \-\-devin\-cli
+it uses the login
+.B devin auth login
+already holds and opens no browser. A login also adds the provider, the models
+the account can use and an
 .I agent.model
 to the configuration unless
 .B \-\-no\-config

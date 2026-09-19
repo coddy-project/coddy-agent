@@ -267,6 +267,10 @@ func NewProvider(p ProviderInput) (Provider, error) {
 		// intentionally ignored: OAuth tokens go to the official Codex backend unless
 		// the process itself opts out through CODDY_CODEX_BASE_URL.
 		inner = newCodexProvider(p.Model, p.AuthPath, codexBaseURL(), hc, p.MaxTokens, p.ReasoningEffort)
+	case "devin":
+		// A Devin session token reaches the Devin API server only: api_base is
+		// ignored, and CODDY_DEVIN_API_SERVER_URL moves the process as a whole.
+		inner = newDevinProvider(p, hc)
 	default:
 		return nil, &UnsupportedProviderError{Provider: p.Type}
 	}

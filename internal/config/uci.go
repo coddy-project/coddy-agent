@@ -341,8 +341,14 @@ func decodeUCIValue(raw string, target reflect.Type) (*yaml.Node, error) {
 		return scalarYAMLNode(raw), nil
 	}
 	var decoded interface{}
-	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+	dec := json.NewDecoder(strings.NewReader(raw))
+	// Numbers stay json.Number until jsonNumbersToYAML sorts integers from
+	// floats: a float64 would put 1048576 into the file as 1.048576e+06.
+	dec.UseNumber()
+	if err := dec.Decode(&decoded); err != nil || dec.More() {
 		decoded = raw
+	} else {
+		decoded = jsonNumbersToYAML(decoded)
 	}
 	node := &yaml.Node{}
 	if err := node.Encode(decoded); err != nil {
@@ -351,10 +357,38 @@ func decodeUCIValue(raw string, target reflect.Type) (*yaml.Node, error) {
 	return node, nil
 }
 
+// jsonNumbersToYAML replaces every json.Number of a decoded value with an
+// int64 when it is a whole number that fits, and a float64 otherwise.
+func jsonNumbersToYAML(v interface{}) interface{} {
+	switch x := v.(type) {
+	case json.Number:
+		if i, err := x.Int64(); err == nil {
+			return i
+		}
+		if f, err := x.Float64(); err == nil {
+			return f
+		}
+		return x.String()
+	case map[string]interface{}:
+		for k, e := range x {
+			x[k] = jsonNumbersToYAML(e)
+		}
+		return x
+	case []interface{}:
+		for i, e := range x {
+			x[i] = jsonNumbersToYAML(e)
+		}
+		return x
+	default:
+		return v
+	}
+}
+
 // applyUCICommandsToBytes applies the batch to raw YAML and revalidates the
 // resulting typed config without touching any file.
 func applyUCICommandsToBytes(paths Paths, base []byte, cmds []UCICommand) ([]byte, error) {
-	if len(bytes.TrimSpace(base)) == 0 {
+	fresh := len(bytes.TrimSpace(base)) == 0
+	if fresh {
 		base = []byte("{}\n")
 	}
 	doc, err := parseConfigDocument(base)
@@ -362,6 +396,12 @@ func applyUCICommandsToBytes(paths Paths, base []byte, cmds []UCICommand) ([]byt
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 	root := configDocumentRoot(doc)
+	if fresh {
+		// The "{}" placeholder parses as a flow mapping, and flow style is
+		// inherited by everything added under it: the whole config would be
+		// written on one line.
+		root.Style = 0
+	}
 	for _, cmd := range cmds {
 		if err := applyUCICommand(root, cmd); err != nil {
 			return nil, err

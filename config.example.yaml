@@ -72,6 +72,14 @@ providers:
   # - name: codex
   #   type: codex
 
+  # Devin (Cognition) account. `coddy providers login devin` signs in through
+  # the browser (or reuses `devin auth login` with --devin-cli), stores the
+  # session token under $CODDY_HOME/providers/devin/ and adds this row plus one
+  # model per family. api_base is ignored; an api_key here (a Devin session
+  # token) wins over both logins.
+  # - name: devin
+  #   type: devin
+
   # OpenAI-compatible (DeepSeek, Groq, Together, etc.)
   # Use type openai and include /v1 in api_base.
   # - name: deepseek
@@ -93,6 +101,10 @@ models:
   #   max_tokens: 8192
   #   reasoning_default: medium       # level pre-selected for new chats (must be a valid level)
   #   # reasoning_levels: [low, high] # optional: override the offered levels; [] hides the selector; omit the key to auto-detect from the model id
+
+  # - model: "devin/claude-sonnet-5"  # one entry per Devin family; each level is a variant
+  #   reasoning_levels: [low, medium, high, xhigh, max]
+  #   reasoning_default: medium
 
   # - model: "codex/gpt-5.6-sol"     # provider name / Codex model slug (fetch after Sign In)
   #   max_tokens: 8192                 # retained in config; Codex does not accept max_output_tokens

@@ -541,6 +541,12 @@ func httpStatusFromError(err error) int {
 	if errors.As(err, &ant) && ant.StatusCode > 0 {
 		return ant.StatusCode
 	}
+	var dev *devinAPIError
+	if errors.As(err, &dev) {
+		// Authoritative like the typed stream error above: the server's
+		// message may hold digits of its own (a trace ID).
+		return dev.status
+	}
 	s := err.Error()
 	for _, code := range []int{429, 408, 500, 502, 503, 504} {
 		needle := strconv.Itoa(code)

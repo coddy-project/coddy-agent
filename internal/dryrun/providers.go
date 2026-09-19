@@ -138,6 +138,8 @@ func displayBase(prov *config.ProviderConfig) string {
 		return llm.NeuralDeepDefaultAPIBase()
 	case "codex":
 		return "the Codex backend"
+	case "devin":
+		return llm.DevinAPIServerURL()
 	default:
 		return llm.OpenAIDefaultAPIBase()
 	}
@@ -218,6 +220,8 @@ func credentialFix(prov *config.ProviderConfig) string {
 	switch prov.Type {
 	case "codex":
 		return fmt.Sprintf("run `coddy providers login %s` to sign in again", prov.Name)
+	case "devin":
+		return fmt.Sprintf("run `coddy providers login %s` to sign in again (or `devin auth login`), or check api_key if you set one", prov.Name)
 	case "neuraldeep":
 		return fmt.Sprintf("run `coddy providers login %s` again, or check api_key if you set one", prov.Name)
 	default:
