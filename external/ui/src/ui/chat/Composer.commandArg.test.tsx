@@ -180,8 +180,9 @@ test("says so when no configured model matches", async () => {
   });
 });
 
-// An input method confirming a candidate reports Enter too (keyCode 229 in
-// Safari): the key belongs to it, not to the list, the way it never sends.
+// An input method confirming a candidate reports Enter too (isComposing, or
+// in Safari keyCode 229 right after compositionend): the key belongs to it,
+// not to the list, the way it never sends.
 test("keys an input method is composing with leave the list and the draft alone", async () => {
   stubStackedShell();
   const onChange = vi.fn();
@@ -199,8 +200,11 @@ test("keys an input method is composing with leave the list and the draft alone"
   onChange.mockClear();
   fireEvent.keyDown(ta, { key: "ArrowDown", isComposing: true });
   fireEvent.keyDown(ta, { key: "Enter", isComposing: true });
+  fireEvent.compositionStart(ta);
+  fireEvent.compositionEnd(ta);
   fireEvent.keyDown(ta, { key: "Enter", keyCode: 229 });
   fireEvent.keyDown(ta, { key: "Tab", isComposing: true });
+  fireEvent.keyDown(ta, { key: "Escape", isComposing: true });
 
   expect(onChange).not.toHaveBeenCalled();
   expect(onSend).not.toHaveBeenCalled();

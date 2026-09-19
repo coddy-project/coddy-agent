@@ -285,6 +285,14 @@ function commandGroup(rows: SlashRow[], docsLabel: string | null): SlashRow[] {
   );
 }
 
+/**
+ * How long after compositionend a keyCode 229 keydown still counts as the key
+ * that ended the composition (Safari's order). The keydown follows within a
+ * few milliseconds, a render in between included; a person's next key does
+ * not.
+ */
+const COMPOSITION_END_KEY_WINDOW_MS = 100;
+
 export function Composer(props: {
   value: string;
   isEmpty: boolean;
@@ -513,6 +521,14 @@ export function Composer(props: {
    * Skip reopening `@` on the next picker sync ticks (handles duplicate selection events).
    */
   const deferAtDraftPickerTicksRef = useRef(0);
+  /**
+   * When the last composition ended (performance.now()), or null. Safari ends
+   * a composition before the keydown that ended it arrives, so a keyCode 229
+   * shortly after is that key; the next keydown, a new composition or the
+   * window running out forgets it, since a composition can also end with no
+   * key (a tapped candidate, a blur).
+   */
+  const compositionEndedAtRef = useRef<number | null>(null);
   const [argDraft, setArgDraft] = useState<CommandArgDraft>({ open: false });
   const [argActive, setArgActive] = useState(0);
   const argListRef = useRef<HTMLUListElement>(null);
@@ -2644,7 +2660,29 @@ export function Composer(props: {
                     ...renamePastedImages(images, pastedSeqRef),
                   ]);
                 }}
+                onCompositionStart={() => {
+                  compositionEndedAtRef.current = null;
+                }}
+                onCompositionEnd={() => {
+                  compositionEndedAtRef.current = performance.now();
+                }}
                 onKeyDown={(ev) => {
+                  // A key an input method is composing with is its own: no
+                  // picker takes a row on it, no list closes, Ctrl+Z restores
+                  // nothing, and it never sends. Browsers mark it with
+                  // isComposing; Safari ends the composition first and marks
+                  // the key that ended it only with keyCode 229, which alone
+                  // proves nothing, since Android keyboards send 229 with no
+                  // composition behind it.
+                  const endedAt = compositionEndedAtRef.current;
+                  compositionEndedAtRef.current = null;
+                  const endsComposition =
+                    ev.keyCode === 229 &&
+                    endedAt !== null &&
+                    performance.now() - endedAt < COMPOSITION_END_KEY_WINDOW_MS;
+                  if (ev.nativeEvent.isComposing || endsComposition) {
+                    return;
+                  }
                   if (
                     ev.key === "z" &&
                     (ev.metaKey || ev.ctrlKey) &&
@@ -2670,11 +2708,7 @@ export function Composer(props: {
                     dismissSlashAtPickers();
                     return;
                   }
-                  // A key an input method is composing with (keyCode 229 in
-                  // Safari) is its own, as it never sends: the list waits.
-                  const imeComposing =
-                    ev.nativeEvent.isComposing || ev.keyCode === 229;
-                  if (argOpen && argItems.length > 0 && !imeComposing) {
+                  if (argOpen && argItems.length > 0) {
                     if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
                       ev.preventDefault();
                       const len = argItems.length;
