@@ -598,7 +598,7 @@ func TestSearchMentionsDocumentation(t *testing.T) {
 	if got := search("coddy:mentions"); len(got) == 0 || got[0].Insert != "@coddy:features/mentions" {
 		t.Fatalf("a page by its name: %+v", got)
 	}
-	if got := search("coddy:features/mentions#compl"); len(got) == 0 || got[0].Insert != "@coddy:features/mentions#completion" || got[0].Detail != "Mentions > Completion" {
+	if got := search("coddy:features/mentions#compl"); len(got) == 0 || got[0].Insert != "@coddy:features/mentions#completion" || got[0].Detail != "Mentions › Completion" {
 		t.Fatalf("a section after #: %+v", got)
 	}
 	found := false
@@ -739,5 +739,32 @@ func TestSearchMentionsOffersARuleOnce(t *testing.T) {
 		if n != 1 {
 			t.Fatalf("%s: @rule:release-order offered %d times in %q", q, n, candidateInserts(res))
 		}
+	}
+}
+
+// A long reference page arrives as its beginning, with the offset and the
+// sections to read the rest by; a short page arrives whole.
+func TestDocMentionIsBoundedWithTheWayToReadTheRest(t *testing.T) {
+	root := t.TempDir()
+	m, sid := mentionTestManager(t, root)
+	resolve := func(text string) *acp.Resource {
+		t.Helper()
+		st := m.SessionByID(sid)
+		blocks := m.ResolvePromptMentions(context.Background(), st, []acp.ContentBlock{{Type: acp.ContentTypeText, Text: text}}, session.MentionScope{})
+		for _, b := range blocks {
+			if b.Resource != nil && b.Resource.Mention != nil && b.Resource.Mention.Kind == mention.KindDoc {
+				return b.Resource
+			}
+		}
+		t.Fatalf("no documentation attachment for %q", text)
+		return nil
+	}
+	long := resolve("see @coddy:surfaces/web-ui")
+	if len(long.Text) > 70<<10 || !strings.Contains(long.Text, "coddy_docs_read") || !strings.Contains(long.Text, "#sessions  Sessions") {
+		t.Fatalf("a long page is cut with the way on (%d bytes):\n%s", len(long.Text), long.Text[max(0, len(long.Text)-600):])
+	}
+	short := resolve("see @coddy:mentions")
+	if long.URI != "coddy:surfaces/web-ui" || short.URI != "coddy:features/mentions" || strings.Contains(short.Text, "The page continues") {
+		t.Fatalf("a short page arrives whole: %s %s", short.URI, short.Text[max(0, len(short.Text)-200):])
 	}
 }

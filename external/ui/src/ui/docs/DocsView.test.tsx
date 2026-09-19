@@ -7,7 +7,12 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DocsView } from "./DocsView";
-import { askDraftFor, outlineHeadings, sectionAnchorAt } from "./docsReader";
+import {
+  askDraftFor,
+  assignHeadingIds,
+  outlineHeadings,
+  sectionAnchorAt,
+} from "./docsReader";
 
 const contents = {
   object: "coddy.docs",
@@ -189,6 +194,20 @@ describe("docsReader", () => {
         { level: 3, text: "B", anchor: "b" },
       ]).map((h) => h.anchor),
     ).toEqual(["a", "b"]);
+  });
+
+  it("pairs headings by level and text, so one the server does not count shifts nothing", () => {
+    const root = document.createElement("div");
+    // The quote's heading is drawn by the renderer but is not a heading of the page.
+    root.innerHTML =
+      "<h1>Title</h1><blockquote><h2>Quoted</h2></blockquote><h2>Real <code>x</code> one</h2><h3>Sub</h3>";
+    assignHeadingIds(root, [
+      { level: 1, text: "Title", anchor: "title" },
+      { level: 2, text: "Real x one", anchor: "real-x-one" },
+      { level: 3, text: "Sub", anchor: "sub" },
+    ]);
+    const ids = Array.from(root.querySelectorAll("h1, h2, h3")).map((el) => el.id);
+    expect(ids).toEqual(["title", "", "real-x-one", "sub"]);
   });
 
   it("finds the section a node sits in", () => {

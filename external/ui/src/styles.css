@@ -11215,6 +11215,583 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 /* Docked like Settings: a fixed panel right of the rail with its own scroll, so
    the chat underneath keeps its scroll position instead of the page growing. */
+/* ---- Images in rendered Markdown ---- */
+
+/* A screenshot of the documentation is wider than the column it is read in. */
+.md img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+
+/* ---- Documentation reader (ui/docs/DocsView.tsx) ---- */
+
+/* The same glass dock the swarm screen sits in. */
+.docs-dock-cluster {
+  position: fixed;
+  top: 14px;
+  bottom: 14px;
+  left: calc(var(--rail-shell-track-width) + var(--nav-floating-gutter));
+  right: 14px;
+  z-index: 50;
+  overflow: auto;
+  border-radius: var(--coddy-glass-panel-radius);
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
+}
+
+/* The header runs the full width of the dock; what is under it keeps a
+   1320px column in the middle. */
+.docs-view {
+  --docs-gutter: max(28px, calc((100% - 1320px) / 2 + 28px));
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 0 0 40px;
+  color: var(--text);
+}
+
+.docs-view > :not(.docs-header) {
+  margin-left: var(--docs-gutter);
+  margin-right: var(--docs-gutter);
+}
+
+/* The header stays on screen while the page scrolls under it: "Ask the
+   agent" and the close control are wanted in the middle of a long page. */
+.docs-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 16px var(--docs-gutter) 12px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+}
+
+.docs-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.docs-subtitle {
+  margin: 3px 0 0;
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  font-size: 13px;
+}
+
+.docs-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* A pill, the accent's own action: it starts a conversation. */
+.docs-ask {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 7px 16px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.docs-ask:hover,
+.docs-ask:focus-visible {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+}
+
+.docs-ask:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.docs-error {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--coddy-surface-muted);
+  border: 1px solid var(--coddy-glass-panel-border);
+  color: color-mix(in srgb, var(--diff-del-no) 70%, var(--text));
+  font-size: 13px;
+}
+
+/* Contents, page, and the sections of the page: the page column keeps a
+   reading measure, the two sides take what is left. */
+.docs-layout {
+  display: grid;
+  grid-template-columns: minmax(210px, 240px) minmax(0, 1fr) minmax(170px, 210px);
+  gap: 32px;
+  align-items: start;
+}
+
+/* The padding keeps the focus ring of the search box and of a page inside
+   the scrolling column instead of clipped by it. */
+.docs-sidebar {
+  padding: 3px 6px 3px 3px;
+  margin: -3px -6px -3px -3px;
+}
+
+.docs-sidebar,
+.docs-outline {
+  position: sticky;
+  top: 92px;
+  max-height: calc(100vh - 128px);
+  overflow: auto;
+  font-size: 13px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 20%, transparent) transparent;
+}
+
+.docs-sidebar::-webkit-scrollbar,
+.docs-outline::-webkit-scrollbar,
+.docs-dock-cluster::-webkit-scrollbar {
+  width: 6px;
+}
+
+.docs-sidebar::-webkit-scrollbar-thumb,
+.docs-outline::-webkit-scrollbar-thumb,
+.docs-dock-cluster::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text) 20%, transparent);
+  border-radius: 999px;
+}
+
+/* The field of the swarm screen's search. */
+.docs-search {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 12px;
+  background: var(--coddy-surface-field);
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 14px;
+}
+
+.docs-search:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.docs-toc-toggle {
+  display: none;
+}
+
+.docs-toc-group + .docs-toc-group {
+  margin-top: 16px;
+}
+
+.docs-toc-group-title,
+.docs-outline-title {
+  margin: 0 0 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+}
+
+.docs-toc ul,
+.docs-outline ul,
+.docs-hits {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* A page of the contents reads like a Settings tab: the same radius, tint
+   and accent frame for the one being read. */
+.docs-toc-page {
+  display: block;
+  padding: 5px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  text-decoration: none;
+  line-height: 1.35;
+}
+
+.docs-toc-page:hover:not(.is-active) {
+  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  color: var(--text);
+}
+
+.docs-toc-page.is-active {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.docs-toc-page:focus-visible,
+.docs-outline a:focus-visible,
+.docs-hit:focus-visible,
+.docs-pager-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* On this page: a thin rule on the left, the section being read on it. */
+.docs-outline ul {
+  gap: 0;
+  border-left: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+}
+
+.docs-outline a {
+  display: block;
+  margin-left: -1px;
+  padding: 4px 10px;
+  border-left: 2px solid transparent;
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  text-decoration: none;
+  line-height: 1.35;
+}
+
+.docs-outline a:hover {
+  color: var(--text);
+}
+
+.docs-outline-l3 a {
+  padding-left: 22px;
+  font-size: 12px;
+}
+
+.docs-outline a.is-active {
+  color: var(--text);
+  border-left-color: var(--accent);
+}
+
+.docs-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.docs-hit:hover {
+  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+}
+
+.docs-hit.is-selected {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+.docs-hit-title {
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.docs-hit-heading {
+  font-weight: 400;
+  color: color-mix(in srgb, var(--text) 68%, var(--coddy-blend-base));
+}
+
+.docs-hit-snippet {
+  font-size: 12px;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.docs-hit-snippet mark {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  color: var(--text);
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+.docs-empty {
+  margin: 0 0 0 10px;
+  font-size: 13px;
+  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+}
+
+.docs-article {
+  min-width: 0;
+  max-width: 780px;
+  padding-top: 4px;
+}
+
+/* The page on screen while the next one loads. */
+.docs-article.is-loading {
+  opacity: 0.55;
+  transition: opacity 0.15s;
+}
+
+.docs-ask:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.docs-breadcrumb {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+}
+
+.docs-site-link {
+  flex: 0 0 auto;
+  color: inherit;
+  text-decoration: none;
+}
+
+.docs-site-link:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+/* Reading, not chatting: a larger body, air between blocks, headings that
+   divide the page. Scoped here so the transcript keeps its own density. */
+.docs-article .md {
+  font-size: 15px;
+  line-height: 1.68;
+}
+
+.docs-article .md :where(p + p) {
+  margin-top: 12px;
+}
+
+.docs-article .md :where(p, ul, ol, .md-code, .md-table-scroll, blockquote) {
+  margin-bottom: 14px;
+}
+
+.docs-article .md :where(h1) {
+  margin: 4px 0 16px;
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.docs-article .md :where(h2) {
+  margin: 36px 0 12px;
+  padding-bottom: 8px;
+  font-size: 20px;
+  font-weight: 600;
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+}
+
+.docs-article .md :where(h3) {
+  margin: 28px 0 10px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.docs-article .md :where(h4) {
+  margin: 22px 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.docs-article .md :where(a) {
+  color: color-mix(in srgb, var(--accent) 72%, var(--text));
+  text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  text-underline-offset: 2px;
+}
+
+.docs-article .md :where(a:hover) {
+  text-decoration-color: currentColor;
+}
+
+.docs-article .md img {
+  display: block;
+  margin: 14px 0 6px;
+  border: 1px solid var(--coddy-glass-panel-border);
+}
+
+/* A heading scrolled to by its anchor clears the sticky header. */
+.docs-article h1,
+.docs-article h2,
+.docs-article h3,
+.docs-article h4 {
+  scroll-margin-top: 96px;
+}
+
+/* The "#" after a section heading, GitHub style: the address of the
+   section, shown while the heading is pointed at. */
+.docs-heading-anchor {
+  margin-left: 8px;
+  font-weight: 400;
+  color: color-mix(in srgb, var(--text) 40%, var(--coddy-blend-base));
+  text-decoration: none;
+  opacity: 0;
+  user-select: none;
+  transition: opacity 0.12s;
+}
+
+.docs-article :is(h2, h3, h4):hover .docs-heading-anchor,
+.docs-heading-anchor:focus-visible {
+  opacity: 1;
+}
+
+.docs-heading-anchor:hover {
+  color: var(--accent);
+}
+
+.docs-pager {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 40px;
+  padding-top: 18px;
+  border-top: 1px solid color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+}
+
+.docs-pager-link {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-surface-subtle);
+  color: var(--text);
+  text-decoration: none;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.docs-pager-link:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.docs-pager-next {
+  grid-column: 2;
+  text-align: right;
+}
+
+.docs-pager-dir {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+}
+
+.docs-pager-title {
+  font-weight: 500;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .docs-article.is-loading,
+  .docs-ask,
+  .docs-pager-link,
+  .docs-heading-anchor {
+    transition: none;
+  }
+}
+
+/* The outline goes first when the window narrows; the contents fold into a
+   button above the page on the stacked shell. */
+@media (max-width: 1279px) {
+  .docs-layout {
+    grid-template-columns: minmax(210px, 240px) minmax(0, 1fr);
+  }
+  .docs-outline {
+    display: none;
+  }
+}
+
+@media (max-width: 1199px) {
+  /* Below the top bar the stacked shell puts the rail in, and above the
+     shell's backdrop, which rises to 60 on this shell (as Settings does). */
+  .docs-dock-cluster {
+    z-index: 70;
+    left: max(8px, env(safe-area-inset-left, 0px));
+    right: max(8px, env(safe-area-inset-right, 0px));
+    top: calc(var(--coddy-mobile-top-inset) + 6px);
+    bottom: 8px;
+  }
+  .docs-view {
+    --docs-gutter: 16px;
+    padding-bottom: 28px;
+    gap: 14px;
+  }
+  .docs-header {
+    padding: 12px 16px 10px;
+  }
+  .docs-subtitle {
+    display: none;
+  }
+  .docs-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  .docs-sidebar {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    padding: 0;
+    margin: 0;
+  }
+  .docs-toc-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    box-sizing: border-box;
+    font: inherit;
+    font-size: 14px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--coddy-glass-panel-border);
+    background: var(--coddy-surface-subtle);
+    color: var(--text);
+    cursor: pointer;
+  }
+  .docs-toc {
+    display: none;
+    margin-top: 10px;
+  }
+  .docs-sidebar.is-open .docs-toc {
+    display: block;
+  }
+  .docs-article .md {
+    font-size: 15px;
+  }
+  .docs-article .md :where(h1) {
+    font-size: 24px;
+  }
+  .docs-pager {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .docs-pager-next {
+    grid-column: 1;
+  }
+}
+
 .swarm-dock-cluster {
   position: fixed;
   top: 14px;
@@ -12372,560 +12949,4 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   justify-content: space-between;
   gap: 8px;
   flex-wrap: wrap;
-}
-
-/* ---- Images in rendered Markdown ---- */
-
-/* A screenshot of the documentation is wider than the column it is read in. */
-.md img {
-  max-width: 100%;
-  height: auto;
-  border-radius: 6px;
-}
-
-/* ---- Documentation reader (ui/docs/DocsView.tsx) ---- */
-
-/* The same glass dock the swarm screen sits in. */
-.docs-dock-cluster {
-  position: fixed;
-  top: 14px;
-  bottom: 14px;
-  left: calc(var(--rail-shell-track-width) + var(--nav-floating-gutter));
-  right: 14px;
-  z-index: 50;
-  overflow: auto;
-  border-radius: var(--coddy-glass-panel-radius);
-  border: 1px solid var(--coddy-glass-panel-border);
-  background: var(--coddy-glass-panel-bg);
-  backdrop-filter: var(--coddy-glass-panel-backdrop);
-  box-shadow: var(--coddy-glass-panel-shadow);
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
-}
-
-/* The header runs the full width of the dock; what is under it keeps a
-   1320px column in the middle. */
-.docs-view {
-  --docs-gutter: max(28px, calc((100% - 1320px) / 2 + 28px));
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  padding: 0 0 40px;
-  color: var(--text);
-}
-
-.docs-view > :not(.docs-header) {
-  margin-left: var(--docs-gutter);
-  margin-right: var(--docs-gutter);
-}
-
-/* The header stays on screen while the page scrolls under it: "Ask the
-   agent" and the close control are wanted in the middle of a long page. */
-.docs-header {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  padding: 16px var(--docs-gutter) 12px;
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
-}
-
-.docs-title {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-.docs-subtitle {
-  margin: 3px 0 0;
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
-  font-size: 13px;
-}
-
-.docs-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-/* A pill, the accent's own action: it starts a conversation. */
-.docs-ask {
-  font: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  padding: 7px 16px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  color: var(--text);
-  cursor: pointer;
-  transition:
-    background 0.15s,
-    border-color 0.15s;
-}
-
-.docs-ask:hover,
-.docs-ask:focus-visible {
-  background: color-mix(in srgb, var(--accent) 28%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
-}
-
-.docs-ask:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.docs-error {
-  margin: 0;
-  padding: 8px 12px;
-  border-radius: 10px;
-  background: var(--coddy-surface-muted);
-  border: 1px solid var(--coddy-glass-panel-border);
-  color: color-mix(in srgb, var(--diff-del-no) 70%, var(--text));
-  font-size: 13px;
-}
-
-/* Contents, page, and the sections of the page: the page column keeps a
-   reading measure, the two sides take what is left. */
-.docs-layout {
-  display: grid;
-  grid-template-columns: minmax(210px, 250px) minmax(0, 1fr) minmax(170px, 220px);
-  gap: 32px;
-  align-items: start;
-}
-
-.docs-sidebar,
-.docs-outline {
-  position: sticky;
-  top: 92px;
-  max-height: calc(100vh - 128px);
-  overflow: auto;
-  font-size: 13px;
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--text) 20%, transparent) transparent;
-}
-
-.docs-sidebar::-webkit-scrollbar,
-.docs-outline::-webkit-scrollbar,
-.docs-dock-cluster::-webkit-scrollbar {
-  width: 6px;
-}
-
-.docs-sidebar::-webkit-scrollbar-thumb,
-.docs-outline::-webkit-scrollbar-thumb,
-.docs-dock-cluster::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--text) 20%, transparent);
-  border-radius: 999px;
-}
-
-/* The field of the swarm screen's search. */
-.docs-search {
-  width: 100%;
-  box-sizing: border-box;
-  margin-bottom: 12px;
-  background: var(--coddy-surface-field);
-  border: 1px solid var(--coddy-glass-panel-border);
-  border-radius: 10px;
-  color: var(--text);
-  padding: 8px 12px;
-  font: inherit;
-  font-size: 14px;
-}
-
-.docs-search:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-.docs-toc-toggle {
-  display: none;
-}
-
-.docs-toc-group + .docs-toc-group {
-  margin-top: 16px;
-}
-
-.docs-toc-group-title,
-.docs-outline-title {
-  margin: 0 0 6px 10px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
-}
-
-.docs-toc ul,
-.docs-outline ul,
-.docs-hits {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-/* A page of the contents reads like a Settings tab: the same radius, tint
-   and accent frame for the one being read. */
-.docs-toc-page {
-  display: block;
-  padding: 5px 10px;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
-  text-decoration: none;
-  line-height: 1.35;
-}
-
-.docs-toc-page:hover:not(.is-active) {
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
-  color: var(--text);
-}
-
-.docs-toc-page.is-active {
-  color: var(--text);
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
-}
-
-.docs-toc-page:focus-visible,
-.docs-outline a:focus-visible,
-.docs-hit:focus-visible,
-.docs-pager-link:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-/* On this page: a thin rule on the left, the section being read on it. */
-.docs-outline ul {
-  gap: 0;
-  border-left: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
-}
-
-.docs-outline a {
-  display: block;
-  margin-left: -1px;
-  padding: 4px 10px;
-  border-left: 2px solid transparent;
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
-  text-decoration: none;
-  line-height: 1.35;
-}
-
-.docs-outline a:hover {
-  color: var(--text);
-}
-
-.docs-outline-l3 a {
-  padding-left: 22px;
-  font-size: 12px;
-}
-
-.docs-outline a.is-active {
-  color: var(--text);
-  border-left-color: var(--accent);
-}
-
-.docs-hit {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 8px 10px;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  color: var(--text);
-  text-decoration: none;
-}
-
-.docs-hit:hover {
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
-}
-
-.docs-hit.is-selected {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
-}
-
-.docs-hit-title {
-  font-weight: 500;
-  line-height: 1.3;
-}
-
-.docs-hit-heading {
-  font-weight: 400;
-  color: color-mix(in srgb, var(--text) 68%, var(--coddy-blend-base));
-}
-
-.docs-hit-snippet {
-  font-size: 12px;
-  line-height: 1.45;
-  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.docs-hit-snippet mark {
-  background: color-mix(in srgb, var(--accent) 24%, transparent);
-  color: var(--text);
-  border-radius: 3px;
-  padding: 0 1px;
-}
-
-.docs-empty {
-  margin: 0 0 0 10px;
-  font-size: 13px;
-  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
-}
-
-.docs-article {
-  min-width: 0;
-  max-width: 780px;
-  padding-top: 4px;
-}
-
-.docs-breadcrumb {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 0 0 6px;
-  font-size: 12px;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
-}
-
-.docs-site-link {
-  flex: 0 0 auto;
-  color: inherit;
-  text-decoration: none;
-}
-
-.docs-site-link:hover {
-  color: var(--text);
-  text-decoration: underline;
-}
-
-/* Reading, not chatting: a larger body, air between blocks, headings that
-   divide the page. Scoped here so the transcript keeps its own density. */
-.docs-article .md {
-  font-size: 15px;
-  line-height: 1.68;
-}
-
-.docs-article .md :where(p + p) {
-  margin-top: 12px;
-}
-
-.docs-article .md :where(p, ul, ol, .md-code, .md-table-scroll, blockquote) {
-  margin-bottom: 14px;
-}
-
-.docs-article .md :where(h1) {
-  margin: 4px 0 16px;
-  font-size: 28px;
-  font-weight: 650;
-  letter-spacing: -0.02em;
-}
-
-.docs-article .md :where(h2) {
-  margin: 36px 0 12px;
-  padding-bottom: 8px;
-  font-size: 20px;
-  font-weight: 600;
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
-}
-
-.docs-article .md :where(h3) {
-  margin: 28px 0 10px;
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.docs-article .md :where(h4) {
-  margin: 22px 0 8px;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.docs-article .md :where(a) {
-  color: color-mix(in srgb, var(--accent) 72%, var(--text));
-  text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  text-underline-offset: 2px;
-}
-
-.docs-article .md :where(a:hover) {
-  text-decoration-color: currentColor;
-}
-
-.docs-article .md img {
-  display: block;
-  margin: 14px 0 6px;
-  border: 1px solid var(--coddy-glass-panel-border);
-}
-
-/* A heading scrolled to by its anchor clears the sticky header. */
-.docs-article h1,
-.docs-article h2,
-.docs-article h3,
-.docs-article h4 {
-  scroll-margin-top: 96px;
-}
-
-/* The "#" after a section heading, GitHub style: the address of the
-   section, shown while the heading is pointed at. */
-.docs-heading-anchor {
-  margin-left: 8px;
-  font-weight: 400;
-  color: color-mix(in srgb, var(--text) 40%, var(--coddy-blend-base));
-  text-decoration: none;
-  opacity: 0;
-  user-select: none;
-  transition: opacity 0.12s;
-}
-
-.docs-article :is(h2, h3, h4):hover .docs-heading-anchor,
-.docs-heading-anchor:focus-visible {
-  opacity: 1;
-}
-
-.docs-heading-anchor:hover {
-  color: var(--accent);
-}
-
-.docs-pager {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-top: 40px;
-  padding-top: 18px;
-  border-top: 1px solid color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
-}
-
-.docs-pager-link {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 12px 16px;
-  border-radius: 12px;
-  border: 1px solid var(--coddy-glass-panel-border);
-  background: var(--coddy-surface-subtle);
-  color: var(--text);
-  text-decoration: none;
-  transition:
-    border-color 0.15s,
-    background 0.15s;
-}
-
-.docs-pager-link:hover {
-  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-}
-
-.docs-pager-next {
-  grid-column: 2;
-  text-align: right;
-}
-
-.docs-pager-dir {
-  font-size: 12px;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
-}
-
-.docs-pager-title {
-  font-weight: 500;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .docs-ask,
-  .docs-pager-link,
-  .docs-heading-anchor {
-    transition: none;
-  }
-}
-
-/* The outline goes first when the window narrows; the contents fold into a
-   button above the page on the stacked shell. */
-@media (max-width: 1440px) {
-  .docs-layout {
-    grid-template-columns: minmax(210px, 240px) minmax(0, 1fr);
-  }
-  .docs-outline {
-    display: none;
-  }
-}
-
-@media (max-width: 1199px) {
-  /* Below the top bar the stacked shell puts the rail in, and above the
-     shell's backdrop, which rises to 60 on this shell (as Settings does). */
-  .docs-dock-cluster {
-    z-index: 70;
-    left: max(8px, env(safe-area-inset-left, 0px));
-    right: max(8px, env(safe-area-inset-right, 0px));
-    top: calc(var(--coddy-mobile-top-inset) + 6px);
-    bottom: 8px;
-  }
-  .docs-view {
-    --docs-gutter: 16px;
-    padding-bottom: 28px;
-    gap: 14px;
-  }
-  .docs-header {
-    padding: 12px 16px 10px;
-  }
-  .docs-subtitle {
-    display: none;
-  }
-  .docs-layout {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 12px;
-  }
-  .docs-sidebar {
-    position: static;
-    max-height: none;
-    overflow: visible;
-  }
-  .docs-toc-toggle {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    width: 100%;
-    box-sizing: border-box;
-    font: inherit;
-    font-size: 14px;
-    padding: 8px 12px;
-    border-radius: 10px;
-    border: 1px solid var(--coddy-glass-panel-border);
-    background: var(--coddy-surface-subtle);
-    color: var(--text);
-    cursor: pointer;
-  }
-  .docs-toc {
-    display: none;
-    margin-top: 10px;
-  }
-  .docs-sidebar.is-open .docs-toc {
-    display: block;
-  }
-  .docs-article .md {
-    font-size: 15px;
-  }
-  .docs-article .md :where(h1) {
-    font-size: 24px;
-  }
-  .docs-pager {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .docs-pager-next {
-    grid-column: 1;
-  }
 }

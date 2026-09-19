@@ -47,8 +47,11 @@ func newTestDocsModal(t *testing.T) (*docsModal, *bool) {
 func TestDocsModalListsTheContentsAndSearches(t *testing.T) {
 	m, closed := newTestDocsModal(t)
 	out := plainLines(m.Render(100))
-	if !strings.Contains(out, "First page") || !strings.Contains(out, "guide/two") || !strings.Contains(out, "Where it starts.") {
-		t.Fatalf("the empty query lists the pages with the selected summary:\n%s", out)
+	if !strings.Contains(out, "First page") || !strings.Contains(out, "Second page") || !strings.Contains(out, "guide/one  Where it starts.") {
+		t.Fatalf("the empty query lists the pages, the selected one with its reference and summary:\n%s", out)
+	}
+	if strings.Contains(out, "\x1b") || strings.Contains(out, "[1m") {
+		t.Fatalf("styling leaked into the text:\n%q", out)
 	}
 	for _, r := range "proxies" {
 		m.HandleInput([]byte(string(r)))

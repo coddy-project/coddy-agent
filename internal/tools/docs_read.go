@@ -84,7 +84,7 @@ func formatDocsReading(version string, r docs.Reading) string {
 	}
 	ref := docs.Ref(r.Page.Slug, anchor)
 	fmt.Fprintf(&b, "[Coddy %s documentation] %s\n", version, title)
-	fmt.Fprintf(&b, "reference: %s, lines %d-%d of %d; public address: %s\n\n", ref, r.From, r.To, r.Total, docs.SiteBase+r.Page.Slug)
+	fmt.Fprintf(&b, "reference: %s, lines %d-%d of %d; public address: %s\n\n", ref, r.From, r.To, r.Total, docs.SiteBase+ref)
 	b.WriteString(r.Text)
 	b.WriteByte('\n')
 	if r.Next == 0 {

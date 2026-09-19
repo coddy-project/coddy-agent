@@ -467,7 +467,7 @@ func docCandidates(q string, limit int) MentionSearchResult {
 	}
 	sectionRow := func(p *docs.Page, anchor, heading string) MentionCandidate {
 		ref := docs.Ref(p.Slug, anchor)
-		return MentionCandidate{Kind: mention.KindDoc, Insert: "@coddy:" + ref, Label: ref, Detail: p.Title + " > " + heading}
+		return MentionCandidate{Kind: mention.KindDoc, Insert: "@coddy:" + ref, Label: ref, Detail: p.Title + " › " + heading}
 	}
 	q = strings.TrimSpace(q)
 	var items []MentionCandidate

@@ -60,6 +60,9 @@ func (s *docsToolsState) getsSection(heading, page string) error {
 	if err := s.failed(); err != nil {
 		return err
 	}
+	if !strings.Contains(s.out, "public address: https://coddy.dev/docs/surfaces/gateway#proxy") {
+		return fmt.Errorf("the public address does not name the section:\n%.300s", s.out)
+	}
 	headingLine := regexp.MustCompile(`\n#{2,6} ` + regexp.QuoteMeta(heading) + `\n`)
 	if !strings.Contains(s.out, "] "+page+" > "+heading+"\n") || !headingLine.MatchString(s.out) {
 		return fmt.Errorf("want the section %q of %q:\n%s", heading, page, s.out)

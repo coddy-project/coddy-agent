@@ -46,6 +46,10 @@ const (
 	sessionDigestBytes = 24 << 10
 	// sessionDigestMessageBytes caps one message inside a digest.
 	sessionDigestMessageBytes = 3 << 10
+	// mentionDocBytes caps a page of the built-in documentation: every
+	// guide fits, and a long reference page arrives as its beginning with
+	// the way to read the rest.
+	mentionDocBytes = 64 << 10
 )
 
 // MentionAgent is a subagent a prompt may mention as "@agent:<name>".
@@ -835,10 +839,22 @@ func (r *mentionResolver) resolveDoc(ref, typed string) (*acp.Resource, bool) {
 	if r.dry {
 		return &acp.Resource{URI: uri, Mention: &acp.ResourceMention{Kind: mention.KindDoc, Typed: typed}}, true
 	}
-	text, name := page.Markdown, page.Title
-	if anchor != "" {
-		h, section, _ := page.Section(anchor)
-		text, name = section, page.Title+" > "+h.Text
+	rd, err := page.Read(docs.ReadOptions{Anchor: anchor, MaxBytes: mentionDocBytes})
+	if err != nil {
+		return nil, false
+	}
+	text, name := rd.Text, page.Title
+	if rd.Heading != nil {
+		name = page.Title + " > " + rd.Heading.Text
+	}
+	if rd.Next != 0 {
+		// A reference page is longer than a question needs: the attachment
+		// is its beginning, and says how the model reads the rest.
+		text += fmt.Sprintf("\n\n[The page continues at line %d of %d: read the rest with the coddy_docs_read tool (page %q, offset %d) or one section of it (page \"%s#<anchor>\").", rd.Next, rd.Total, docs.Ref(page.Slug, anchor), rd.Next, page.Slug)
+		if anchor == "" {
+			text += " Its sections:\n" + page.Outline()
+		}
+		text += "]"
 	}
 	return &acp.Resource{
 		URI:      uri,

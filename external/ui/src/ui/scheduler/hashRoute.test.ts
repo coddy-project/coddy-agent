@@ -398,6 +398,16 @@ describe("documentation routes", () => {
     });
   });
 
+  test("a malformed escape in a pasted address does not break the router", () => {
+    setHash("#/docs/features/%E0%A4%A#bad%zz");
+    expect(parseAppHash()).toEqual({
+      branch: "docs",
+      slug: "features/%E0%A4%A",
+      anchor: "bad%zz",
+      historyOpen: false,
+    });
+  });
+
   test("builds the addresses a coddy: link and the rail point at", () => {
     expect(appNavHrefDocs()).toBe("#/docs");
     expect(appNavHrefDocs("features/mentions")).toBe("#/docs/features/mentions");

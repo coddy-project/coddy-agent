@@ -4,7 +4,6 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  useSyncExternalStore,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
@@ -13,11 +12,6 @@ import { useT } from "../i18n/I18nProvider";
 import { Markdown } from "../markdown/Markdown";
 import { appNavHrefDocs } from "../scheduler/hashRoute";
 import { sameTabInAppNavClick } from "../nav/sameTabInAppNav";
-import {
-  serverSnapshotShellStack,
-  snapshotShellStack,
-  subscribeShellStack,
-} from "../shellBreakpoint";
 import {
   fetchDocsContents,
   fetchDocsPage,
@@ -58,11 +52,6 @@ export function DocsView(props: {
 }) {
   const { t } = useT();
   const { slug, anchor, onOpen } = props;
-  const narrow = useSyncExternalStore(
-    subscribeShellStack,
-    snapshotShellStack,
-    serverSnapshotShellStack,
-  );
   const [contents, setContents] = useState<DocsContents | null>(null);
   const [page, setPage] = useState<DocsPage | null>(null);
   const [error, setError] = useState("");
@@ -71,6 +60,8 @@ export function DocsView(props: {
   const [hitIndex, setHitIndex] = useState(0);
   const [tocOpen, setTocOpen] = useState(false);
   const [selection, setSelection] = useState("");
+  // The section being read, followed as the page scrolls ("On this page").
+  const [reading, setReading] = useState<string | null>(null);
   const articleRef = useRef<HTMLElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
@@ -134,11 +125,45 @@ export function DocsView(props: {
     }
   }, [page, slug, anchor, t]);
 
+  // The selected hit stays in view as Up and Down move it.
   useEffect(() => {
-    if (!narrow) {
-      searchRef.current?.focus();
+    document.getElementById(`docs-hit-${hitIndex}`)?.scrollIntoView?.({ block: "nearest" });
+  }, [hitIndex, hits]);
+
+  // "On this page" follows the reader: the section whose heading last went
+  // past the sticky header is the one being read.
+  useEffect(() => {
+    const root = articleRef.current;
+    const scroller = root?.closest(".docs-dock-cluster");
+    setReading(null);
+    if (!root || !scroller || !page) {
+      return undefined;
     }
-  }, [narrow]);
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const top = scroller.getBoundingClientRect().top + 120;
+      let current: string | null = null;
+      root.querySelectorAll("h2[id], h3[id]").forEach((el) => {
+        if (el.getBoundingClientRect().top <= top) {
+          current = el.id;
+        }
+      });
+      setReading(current);
+    };
+    const onScroll = () => {
+      if (!frame) {
+        frame = window.requestAnimationFrame(update);
+      }
+    };
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      scroller.removeEventListener("scroll", onScroll);
+      if (frame) {
+        window.cancelAnimationFrame(frame);
+      }
+    };
+  }, [page]);
 
   // "/" jumps to the search box, as it does on documentation sites.
   useEffect(() => {
@@ -241,8 +266,10 @@ export function DocsView(props: {
     }
   };
 
-  // The page being read stays on screen until the next one arrives.
+  // The page being read stays on screen, dimmed, until the next one arrives.
   const shown = page;
+  const loading = !!slug && (!page || page.slug !== slug);
+  const activeSection = reading ?? anchor;
   const outline = shown ? outlineHeadings(shown.headings) : [];
 
   return (
@@ -260,6 +287,7 @@ export function DocsView(props: {
               type="button"
               className="docs-ask"
               data-testid="docs-ask"
+              disabled={loading}
               // Keep the selection the reader made: a click would clear it.
               onMouseDown={(e) => e.preventDefault()}
               onClick={ask}
@@ -296,6 +324,11 @@ export function DocsView(props: {
             className="docs-search"
             data-testid="docs-search"
             type="search"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-controls="docs-hits"
+            aria-expanded={!!hits && hits.length > 0}
+            aria-activedescendant={hits && hits.length > 0 ? `docs-hit-${hitIndex}` : undefined}
             placeholder={t("docs.search.placeholder")}
             aria-label={t("docs.search.placeholder")}
             value={query}
@@ -308,10 +341,19 @@ export function DocsView(props: {
                 {t("docs.search.empty")}
               </p>
             ) : (
-              <ul className="docs-hits" data-testid="docs-hits" aria-label={t("docs.search.label")}>
+              <ul
+                className="docs-hits"
+                id="docs-hits"
+                role="listbox"
+                data-testid="docs-hits"
+                aria-label={t("docs.search.label")}
+              >
                 {hits.map((h, i) => (
-                  <li key={`${h.slug}#${h.anchor || ""}`}>
+                  <li key={`${h.slug}#${h.anchor || ""}`} role="presentation">
                     <a
+                      id={`docs-hit-${i}`}
+                      role="option"
+                      aria-selected={i === hitIndex}
                       href={appNavHrefDocs(h.slug, h.anchor)}
                       className={`docs-hit${i === hitIndex ? " is-selected" : ""}`}
                       title={snippetText(h.snippet)}
@@ -368,7 +410,12 @@ export function DocsView(props: {
           )}
         </aside>
 
-        <article className="docs-article" ref={articleRef} data-testid="docs-article">
+        <article
+          className={`docs-article${loading ? " is-loading" : ""}`}
+          ref={articleRef}
+          data-testid="docs-article"
+          aria-busy={loading}
+        >
           {shown ? (
             <>
               <p className="docs-breadcrumb">
@@ -428,7 +475,8 @@ export function DocsView(props: {
                 <li key={h.anchor} className={`docs-outline-l${h.level}`}>
                   <a
                     href={appNavHrefDocs(shown!.slug, h.anchor)}
-                    className={h.anchor === anchor ? "is-active" : undefined}
+                    className={h.anchor === activeSection ? "is-active" : undefined}
+                    aria-current={h.anchor === activeSection ? "location" : undefined}
                     onClick={(ev) => sameTabInAppNavClick(ev, () => onOpen(shown!.slug, h.anchor))}
                   >
                     {h.text}

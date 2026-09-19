@@ -33,17 +33,33 @@ export function outlineHeadings(headings: DocsHeading[]): DocsHeading[] {
   return headings.filter((h) => h.level === 2 || h.level === 3);
 }
 
+/** Heading text as both sides spell it: spaces collapsed, emphasis and escape marks dropped. */
+const headingKey = (s: string) =>
+  s
+    .replace(/[*_`\\]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
 /**
- * Gives the headings of a rendered page the anchors the server computed, in
- * document order. Both skip what a fenced block holds, so the n-th heading
- * element is the n-th heading of the page.
+ * Gives the headings of a rendered page the anchors the server computed. The
+ * two lists are walked together and paired by level and text, so a heading
+ * the renderer draws and the server does not count (one inside a quote, an
+ * underlined one) is skipped instead of shifting every anchor after it.
  */
 export function assignHeadingIds(root: HTMLElement, headings: DocsHeading[]): void {
-  const els = root.querySelectorAll("h1, h2, h3, h4, h5, h6");
-  els.forEach((el, i) => {
-    const h = headings[i];
-    if (h) {
-      el.id = h.anchor;
+  // The "#" links of an earlier pass are not part of a heading's text.
+  root.querySelectorAll(".docs-heading-anchor").forEach((a) => a.remove());
+  let next = 0;
+  root.querySelectorAll("h1, h2, h3, h4, h5, h6").forEach((el) => {
+    const level = Number(el.tagName.slice(1));
+    const text = headingKey(el.textContent || "");
+    for (let k = next; k < headings.length; k++) {
+      const h = headings[k]!;
+      if (h.level === level && headingKey(h.text) === text) {
+        el.id = h.anchor;
+        next = k + 1;
+        return;
+      }
     }
   });
 }

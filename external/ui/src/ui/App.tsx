@@ -864,6 +864,9 @@ export function App() {
     anchor: string | null;
   } | null>(null);
   const lastDocsSlugRef = useRef<string | null>(null);
+  // Where the reader was opened from (a chat, the swarm, the scheduler), so
+  // closing it goes back there rather than home.
+  const docsReturnHashRef = useRef("");
   // The Swarm entry only appears when the environment answers as a relay: on a
   // plain agent there is no swarm to show.
   const [isSwarmEnv, setIsSwarmEnv] = useState(false);
@@ -4630,6 +4633,9 @@ export function App() {
   }, []);
 
   const openDocsFromNav = useCallback(() => {
+    if (parseAppHash().branch !== "docs") {
+      docsReturnHashRef.current = window.location.hash;
+    }
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setTasksOpen(false);
@@ -4653,6 +4659,12 @@ export function App() {
 
   const onCloseDocs = useCallback(() => {
     setDocsRoute(null);
+    const back = docsReturnHashRef.current;
+    docsReturnHashRef.current = "";
+    if (back && !back.startsWith("#/docs")) {
+      window.location.hash = back;
+      return;
+    }
     const sid = sessionId.trim();
     if (sid) {
       setSessionHashInLocation(sid);

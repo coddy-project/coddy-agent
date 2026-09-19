@@ -316,22 +316,28 @@ func (r *docsResults) Render(width int) []string {
 	lines := make([]string, 0, room+2)
 	for i := first; i < last; i++ {
 		e := m.entries[i]
-		name := e.title
+		name := tui.SanitizeText(e.title)
 		if e.heading != "" {
-			name += " › " + e.heading
+			name += " › " + tui.SanitizeText(e.heading)
 		}
-		ref := docs.Ref(e.slug, e.anchor)
+		// The group on the right is short; the reference to read is on the
+		// selected row's second line, so a long anchor never eats the title.
+		group := tui.SanitizeText(e.group)
+		space := width - 1 - 2 - tui.VisibleWidth(group) - 2
+		name = tui.TruncateToWidthPad(name, max(space, 8), "…")
 		cursor := "  "
 		if i == m.selected {
 			cursor = th.Fg(roleAccent, "→ ")
 			name = th.Bold(name)
 		}
-		right := th.Fg(roleMuted, ref)
-		space := width - 1 - 2 - tui.VisibleWidth(ref) - 2
-		line := " " + cursor + tui.TruncateToWidthPad(tui.SanitizeText(name), max(space, 8), "…") + "  " + right
+		line := " " + cursor + name + "  " + th.Fg(roleMuted, group)
 		lines = append(lines, tui.TruncateToWidth(line, width, ""))
-		if i == m.selected && strings.TrimSpace(e.snippet) != "" {
-			lines = append(lines, tui.TruncateToWidth("     "+th.Fg(roleDim, tui.SanitizeText(e.snippet)), width, "…"))
+		if i == m.selected {
+			detail := th.Fg(roleAccent, docs.Ref(e.slug, e.anchor))
+			if s := strings.TrimSpace(e.snippet); s != "" {
+				detail += th.Fg(roleDim, "  "+tui.SanitizeText(s))
+			}
+			lines = append(lines, tui.TruncateToWidth("     "+detail, width, "…"))
 		}
 	}
 	if len(m.entries) > room {

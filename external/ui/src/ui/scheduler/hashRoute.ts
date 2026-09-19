@@ -103,6 +103,18 @@ function notifyHashAfterReplaceState() {
   });
 }
 
+/**
+ * decodeURIComponent that keeps a malformed escape as it was typed: an
+ * address pasted from elsewhere must not take the router down.
+ */
+function decodeLoosely(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
 export function parseAppHash(): ParsedAppHash {
   const { path: h, search } = splitHashFragment();
   const historyOpen = historyOpenFromSearch(search);
@@ -121,8 +133,8 @@ export function parseAppHash(): ParsedAppHash {
   if (h === "docs" || h.startsWith("docs/")) {
     const rest = h.slice("docs".length).replace(/^\//, "");
     const cut = rest.indexOf("#");
-    const slug = decodeURIComponent(cut < 0 ? rest : rest.slice(0, cut)).trim();
-    const anchor = cut < 0 ? "" : decodeURIComponent(rest.slice(cut + 1)).trim();
+    const slug = decodeLoosely(cut < 0 ? rest : rest.slice(0, cut)).trim();
+    const anchor = cut < 0 ? "" : decodeLoosely(rest.slice(cut + 1)).trim();
     return {
       branch: "docs",
       slug: slug || null,

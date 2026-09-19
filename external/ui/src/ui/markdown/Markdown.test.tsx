@@ -208,6 +208,16 @@ test("coddy: links open the documentation reader", () => {
   );
 });
 
+test("an image or a link cannot carry a script", () => {
+  const { container } = render(
+    <Markdown text="![x](javascript:alert(1)) [y](javascript:alert(2)) [z](coddy:features/modes)" />,
+  );
+  expect(container.querySelector("img")?.getAttribute("src") || "").not.toMatch(/javascript/i);
+  for (const a of Array.from(container.querySelectorAll("a"))) {
+    expect(a.getAttribute("href") || "").not.toMatch(/javascript/i);
+  }
+});
+
 test("images are loaded lazily and fit the column", () => {
   const { container } = render(
     <Markdown text="![shot](https://raw.githubusercontent.com/x/y/main/a.png)" />,
