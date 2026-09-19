@@ -152,6 +152,7 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 			case anthropic.InputJSONDelta:
 				if acc, ok := toolUseMap[e.Index]; ok {
 					acc.input += d.PartialJSON
+					emit(StreamChunk{ToolCallDelta: &ToolCall{ID: acc.id, Name: acc.name, InputJSON: d.PartialJSON}})
 				}
 			}
 
@@ -162,6 +163,7 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 					id:   cb.ID,
 					name: cb.Name,
 				}
+				emit(StreamChunk{ToolCallNamed: &ToolCall{ID: cb.ID, Name: cb.Name}})
 			}
 
 		case anthropic.MessageDeltaEvent:

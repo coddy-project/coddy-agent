@@ -201,14 +201,19 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 	case acp.MessageChunkUpdate:
 		a.applyMessageChunk(u)
 	case acp.ToolCallUpdate:
+		if _, exists := a.toolBoxes[u.ToolCallID]; exists {
+			break
+		}
 		tb := newToolBox(a.theme, u.ToolCallID, u.Title, u.Kind, a.loadToolResult)
 		a.toolBoxes[u.ToolCallID] = tb
 		a.lastToolID = u.ToolCallID
 		a.chat.AddChild(tb)
 		a.curAssistant = nil
-		// Title is the plain tool name (internal/agent/react.go); the arguments that name
-		// the target arrive on the following in_progress update.
-		a.setStatus(newWorkingStatus(statusVerbForTool(u.Title), ""))
+		verb := statusVerbForTool(u.Title)
+		if isWritingTool(u.Title) {
+			verb = "Generating file arguments"
+		}
+		a.setStatus(newWorkingStatus(verb, ""))
 	case acp.ToolCallStatusUpdate:
 		tb, ok := a.toolBoxes[u.ToolCallID]
 		if !ok {
@@ -369,8 +374,17 @@ func (a *App) applyToolStatus(tb *toolBox, u acp.ToolCallStatusUpdate) {
 	}
 	preview := ""
 	switch u.Status {
+	case "pending":
+		if coddy, ok := u.Meta["coddy"].(map[string]interface{}); ok {
+			if pv, ok := coddy["toolInputProgress"].(map[string]interface{}); ok && isWritingTool(tb.name) && tb.status == "pending" {
+				path, _ := pv["path"].(string)
+				draft, _ := pv["preview"].(string)
+				tb.SetInputProgress(path, draft, intFromAny(pv["bytes"]), intFromAny(pv["lines"]), intFromAny(pv["argumentBytes"]))
+				a.setStatus(newWorkingStatus("Generating file arguments", path))
+			}
+		}
 	case "in_progress":
-		// Content carries the raw argument JSON while streaming.
+		// Content carries the completed argument JSON before execution.
 		for _, item := range u.Content {
 			if item.Content.Text != "" {
 				tb.SetArgs(item.Content.Text)

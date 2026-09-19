@@ -218,9 +218,10 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 
 	// Accumulate tool call deltas by index.
 	type tcBuilder struct {
-		id   string
-		name string
-		args string
+		progressBytes int
+		id            string
+		name          string
+		args          string
 		// Set once the name has been announced, so the arguments streaming in
 		// after it do not repeat the announcement on every delta.
 		named bool
@@ -337,9 +338,13 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 			// the call here is what keeps the transcript from standing still with
 			// nothing but a Stop button; the call itself is still collected from
 			// the builders when the stream ends.
-			if !b.named && b.name != "" {
+			if !b.named && b.name != "" && b.id != "" {
 				b.named = true
 				emit(StreamChunk{ToolCallNamed: &ToolCall{ID: b.id, Name: b.name}})
+			}
+			if b.named && len(b.args) > b.progressBytes {
+				emit(StreamChunk{ToolCallDelta: &ToolCall{ID: b.id, Name: b.name, InputJSON: b.args[b.progressBytes:]}})
+				b.progressBytes = len(b.args)
 			}
 		}
 
