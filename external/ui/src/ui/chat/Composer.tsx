@@ -260,6 +260,21 @@ const MODE_TAB_CLASS: Record<string, string> = {
   ask: "mode-ask",
 };
 
+
+/**
+ * The command group of the / menu: the server's rows, plus /docs where the
+ * composer can open the reader (docsLabel is its description, null where it
+ * cannot), in name order once /docs joins.
+ */
+function commandGroup(rows: SlashRow[], docsLabel: string | null): SlashRow[] {
+  if (docsLabel === null || rows.some((r) => r.name === "docs")) {
+    return rows;
+  }
+  return [...rows, { name: "docs", description: docsLabel }].sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+}
+
 export function Composer(props: {
   value: string;
   isEmpty: boolean;
@@ -446,17 +461,17 @@ export function Composer(props: {
   const commandsFetchedRef = useRef(false);
   // /docs runs in the browser, so the server's catalog does not carry it: it
   // joins the group only where this composer can open the reader.
-  const hasDocsCommand = !!props.onDocsCommand;
-  const allCommandItems = useMemo(() => {
-    if (!hasDocsCommand || commandItems.some((r) => r.name === "docs")) {
-      return commandItems;
-    }
-    return [...commandItems, { name: "docs", description: t("composer.docsCommand") }].sort(
-      (a, b) => a.name.localeCompare(b.name),
-    );
-  }, [hasDocsCommand, commandItems, t]);
-  const allCommandItemsRef = useRef<SlashRow[]>(allCommandItems);
-  allCommandItemsRef.current = allCommandItems;
+  const docsLabel = props.onDocsCommand ? t("composer.docsCommand") : null;
+  const allCommandItems = useMemo(
+    () => commandGroup(commandItems, docsLabel),
+    [commandItems, docsLabel],
+  );
+  // The server's rows as soon as they arrive, before the render that shows
+  // them: a skills answer landing in between must still see the commands, or
+  // the skills-zero auto-close shuts a menu that has a command to offer.
+  const commandItemsRef = useRef<SlashRow[]>([]);
+  const docsLabelRef = useRef(docsLabel);
+  docsLabelRef.current = docsLabel;
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashPrefix, setSlashPrefix] = useState("");
   const [slashLoading, setSlashLoading] = useState(false);
@@ -831,6 +846,7 @@ export function Composer(props: {
       }
       const body = (await res.json()) as { items?: SlashRow[] };
       const rows = body.items || [];
+      commandItemsRef.current = rows;
       setCommandItems(rows);
     } catch {
       // Built-in commands are optional; ignore fetch errors.
@@ -1058,7 +1074,7 @@ export function Composer(props: {
           if (rows.length === 0) {
             // No skills match — but keep the menu open if a built-in command does.
             const cmdMatches = filterCommandRows(
-              allCommandItemsRef.current,
+              commandGroup(commandItemsRef.current, docsLabelRef.current),
               after.prefix,
             );
             if (cmdMatches.length === 0) {
