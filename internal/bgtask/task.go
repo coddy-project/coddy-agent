@@ -59,10 +59,25 @@ const (
 // Spec before the task is admitted, so every snapshot the pool publishes or
 // persists carries the child session id from the first one.
 type AgentInfo struct {
-	// Name is the subagent definition name.
+	// Name is the subagent definition name, or the name of a system agent.
 	Name string `json:"name"`
 	// SessionID is the child session that holds the run's transcript.
 	SessionID string `json:"session_id,omitempty"`
+	// System marks a run the runtime started on its own behalf (the memory
+	// subagent) rather than a delegation the model asked for. A system task
+	// is admitted past the per-session cap and never counted against it, is
+	// hidden from the model-facing pool tools, and is told apart in the
+	// Tasks drawer by this flag rather than by its name.
+	System bool `json:"system,omitempty"`
+	// Model is the model the child runs on, as the runtime resolved it at the
+	// launch: the definition's, the job's or the parent's.
+	Model string `json:"model,omitempty"`
+	// InputTokens and OutputTokens are what the child's model calls have spent so
+	// far: the input every call sent, summed, and the output generated, the call in
+	// flight estimated until the provider reports it. The run reports them as it
+	// goes (Pool.SetAgentUsage); the record keeps the final figures.
+	InputTokens  int `json:"input_tokens,omitempty"`
+	OutputTokens int `json:"output_tokens,omitempty"`
 }
 
 // Spec describes work handed to the pool.
@@ -118,6 +133,10 @@ type Snapshot struct {
 	OutputBytes     int64      `json:"output_bytes"`
 	OutputTruncated bool       `json:"output_truncated"`
 	NotifyOnFinish  bool       `json:"notify_on_finish,omitempty"`
+	// WokeAgent is set once the task's outcome started a turn: notify_on_finish
+	// kept its promise (Pool.MarkWokeAgent). A finished task keeps its bell in
+	// the Tasks panel and in /tasks on it.
+	WokeAgent bool `json:"woke_agent,omitempty"`
 
 	// Agent identifies the subagent behind a KindAgent task, including the
 	// child session that holds its transcript. Nil for commands.
@@ -137,6 +156,12 @@ type Snapshot struct {
 	// and stuck at the same time; silence is the only signal available without
 	// knowing what the command is supposed to do.
 	LastOutputAt *time.Time `json:"last_output_at,omitempty"`
+}
+
+// SystemTask reports whether the runtime started this task on its own behalf
+// (see AgentInfo.System).
+func (s Snapshot) SystemTask() bool {
+	return s.Agent != nil && s.Agent.System
 }
 
 // SilentFor reports how long the task has produced nothing. It is zero for a

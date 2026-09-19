@@ -47,7 +47,10 @@ type mountFeatureState struct {
 
 	status int
 	body   []byte
+	header http.Header
 	chunks []string
+	// nodeCORS makes the node answer with CORS headers of its own.
+	nodeCORS bool
 	// delivered carries the client's word that the chunk the node just wrote
 	// has arrived. The node waits on it before producing the next one, which
 	// is what turns "the relay streams" into something the scenario can prove
@@ -71,6 +74,7 @@ func (s *mountFeatureState) reset() {
 	s.stalled = false
 	s.mu.Unlock()
 	s.status, s.body, s.chunks, s.streamErr = 0, nil, nil, nil
+	s.header, s.nodeCORS = nil, false
 }
 
 // awaitDelivery blocks the node until the client reports the chunk it just
@@ -139,6 +143,11 @@ func (s *mountFeatureState) anAgentNode(name string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/coddy/sessions", func(w http.ResponseWriter, r *http.Request) {
 		s.record(r)
+		if s.nodeCORS {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization")
+		}
 		writeJSON(w, http.StatusOK, map[string]interface{}{"origin": "node:" + name, "sessions": []interface{}{}})
 	})
 	// delivered belongs to this node: the handler closes over it, so a request
@@ -203,6 +212,54 @@ func (s *mountFeatureState) callOnNode(path, node, bearer string) error {
 	defer func() { _ = res.Body.Close() }()
 	s.status = res.StatusCode
 	s.body, _ = io.ReadAll(res.Body)
+	return nil
+}
+
+// relayAllowsOrigin turns the relay's own CORS on. The server keeps the pointer
+// it was built with, so the policy is read on the next request.
+func (s *mountFeatureState) relayAllowsOrigin(origin string) error {
+	s.srv.cfg.Swarm.CORS.Enabled = true
+	s.srv.cfg.Swarm.CORS.AllowedOrigins = []string{origin}
+	return nil
+}
+
+// nodeAnswersWithCORS makes the node behave like a coddy serve whose own
+// httpserver.cors is on - a node that browsers also reach directly.
+func (s *mountFeatureState) nodeAnswersWithCORS() error {
+	s.nodeCORS = true
+	return nil
+}
+
+func (s *mountFeatureState) browserCallsOnNode(origin, path, node string) error {
+	req, err := http.NewRequest(http.MethodGet, s.relay.URL+swarmdto.MountPath+node+path, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+s.client)
+	req.Header.Set("Origin", origin)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	s.status = res.StatusCode
+	s.body, _ = io.ReadAll(res.Body)
+	s.header = res.Header
+	return nil
+}
+
+// A browser refuses a response that names the allowed origin more than once,
+// "*, *" included, so the count is what matters here.
+func (s *mountFeatureState) responseAllowsOriginOnce(origin string) error {
+	got := s.header.Values("Access-Control-Allow-Origin")
+	if len(got) != 1 || got[0] != origin {
+		return fmt.Errorf("Access-Control-Allow-Origin = %q, want exactly [%q]", got, origin)
+	}
+	for _, name := range []string{"Access-Control-Allow-Headers", "Access-Control-Allow-Methods"} {
+		if n := len(s.header.Values(name)); n != 1 {
+			return fmt.Errorf("%s is sent %d times, want once", name, n)
+		}
+	}
 	return nil
 }
 
@@ -353,6 +410,10 @@ func TestSwarmMountFeature(t *testing.T) {
 			ctx.Step(`^the request is refused as not carried$`, st.refusedAsNotCarried)
 			ctx.Step(`^the error names the node "([^"]*)"$`, st.errorNamesNode)
 			ctx.Step(`^the request is rejected as unauthorized$`, st.rejectedUnauthorized)
+			ctx.Step(`^the relay allows the browser origin "([^"]*)"$`, st.relayAllowsOrigin)
+			ctx.Step(`^the node answers with CORS headers of its own$`, st.nodeAnswersWithCORS)
+			ctx.Step(`^a browser at "([^"]*)" calls "([^"]*)" on node "([^"]*)" with the client token$`, st.browserCallsOnNode)
+			ctx.Step(`^the response allows the origin "([^"]*)" exactly once$`, st.responseAllowsOriginOnce)
 			ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
 				st.reset()
 				return ctx, nil
@@ -367,5 +428,30 @@ func TestSwarmMountFeature(t *testing.T) {
 	}
 	if suite.Run() != 0 {
 		t.Fatal("swarm mount feature failed")
+	}
+}
+
+// With the relay's own CORS off, a node's answer must not open the relay to a browser:
+// the node's policy is about the node's address, not the relay's.
+func TestMountDoesNotLendANodesCORSPolicyToTheRelay(t *testing.T) {
+	st := &mountFeatureState{}
+	defer st.reset()
+	if err := st.aRelay("pair-secret", "client-secret"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.anAgentNode("nas02"); err != nil {
+		t.Fatal(err)
+	}
+	st.nodeCORS = true
+	if err := st.browserCallsOnNode("https://app.example", "/coddy/sessions", "nas02"); err != nil {
+		t.Fatal(err)
+	}
+	if st.status != http.StatusOK {
+		t.Fatalf("status = %d", st.status)
+	}
+	for name := range st.header {
+		if strings.HasPrefix(strings.ToLower(name), "access-control-") {
+			t.Fatalf("the relay passed the node's %s through with its own CORS switched off", name)
+		}
 	}
 }

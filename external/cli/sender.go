@@ -4,10 +4,9 @@ package cli
 
 import (
 	"context"
-	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 )
 
 // updateMsg carries one session update into the UI loop.
@@ -62,22 +61,24 @@ func (s *sender) SendControlUpdate(sessionID string, update any) error {
 // effective-mode resolution.
 func (s *sender) RequestPermission(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
 	// A subagent's request arrives under the parent's session id with the
-	// child's own mode stamped on it; that mode decides, not the parent's.
-	mode := strings.TrimSpace(params.EffectivePermissionMode)
-	if mode == "" {
+	// child's own mode stamped on it, and the session's gate stamps the mode
+	// it decided under; those decide (permission.AutoApproves). A request
+	// with neither falls back on the session's own mode.
+	if params.EffectivePermissionMode == "" && params.SessionPermissionMode == "" {
 		if st := s.app.mgr.SessionByID(params.SessionID); st != nil {
-			mode = st.GetPermissionMode()
+			params.SessionPermissionMode = st.EffectivePermissionMode()
 		}
 	}
-	if mode == "" && s.app.remoteURL == "" {
+	cfgMode := ""
+	if s.app.remoteURL == "" {
 		// Local fallback only: a remote server sends a permission event
 		// precisely because ITS policy wants a human answer, so the local
 		// bypass setting must never auto-approve it.
 		if cfg := s.app.config(); cfg != nil {
-			mode = cfg.Tools.ResolvedPermMode()
+			cfgMode = cfg.Tools.ResolvedPermMode()
 		}
 	}
-	if mode == config.PermModeBypass {
+	if permission.AutoApproves(params, cfgMode) {
 		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
 	req := permRequest{ctx: ctx, params: params, reply: make(chan *acp.PermissionResult, 1)}

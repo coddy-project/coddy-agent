@@ -18,13 +18,14 @@ Made for design documents, specs and the investigation that precedes a change. T
 - `question`, and the read-only `config_get` and `config_changes` (staging and committing a configuration change stay in agent mode);
 - `plan_write`, `plan_list` and `plan_read` for the plan document;
 - `load_skill`, and `spawn_agent`, whose child stays in plan mode;
+- `coddy_docs_search` and `coddy_docs_read` for Coddy's own documentation ([Built-in documentation](built-in-docs.md));
 - the tools of connected MCP servers.
 
 No built-in file writes and no todo tools: once the plan is ready, implementation happens in agent mode.
 
 ### `ask`
 
-Made for questions about the codebase, review, diagnosis and web research. The model is offered `read`, `keep_result`, `glob`, `grep`, `print_tree`, `websearch`, `webfetch`, `question` and `load_skill`, and nothing else: no shell, no plan, todo or config tools, no `spawn_agent`, no MCP tools. The same list is enforced again when a call runs, which is what separates ask from plan (see [Ask mode at execution time](#ask-mode-at-execution-time)).
+Made for questions about the codebase, review, diagnosis and web research. The model is offered `read`, `keep_result`, `glob`, `grep`, `print_tree`, `websearch`, `webfetch`, `question`, `load_skill`, `coddy_docs_search` and `coddy_docs_read`, and nothing else: no shell, no plan, todo or config tools, no `spawn_agent`, no MCP tools. The same list is enforced again when a call runs, which is what separates ask from plan (see [Ask mode at execution time](#ask-mode-at-execution-time)).
 
 ### What they share
 
@@ -61,7 +62,7 @@ Plan mode restricts what the model is offered; ask mode also restricts what may 
 - MCP tool names are refused the same way, since they are never in the list;
 - approving such a pending call with *allow always* records no grant.
 
-The rest of the boundary follows from it. A `metadata.runPlanSlug` on `POST /v1/responses` with `model` `ask` is answered with `409` before the turn starts, the same hook over ACP is refused with an error, and a `@plans/<slug>.plan.md` mention is inlined as reading material rather than run. The memory copilot recalls but never saves. `spawn_agent` is not offered, so an ask turn cannot delegate. The deterministic operator commands typed as the prompt (`/compact`, `/plugin`) are outside this boundary. The happy paths are `features/ask_mode.feature` and `features/ask_mode_http.feature`.
+The rest of the boundary follows from it. A `metadata.runPlanSlug` on `POST /v1/responses` with `model` `ask` is answered with `409` before the turn starts, the same hook over ACP is refused with an error, and a `@plans/<slug>.plan.md` mention is inlined as reading material rather than run. The memory subagent recalls but never saves. `spawn_agent` is not offered, so an ask turn cannot delegate. The deterministic operator commands typed as the prompt (`/compact`, `/plugin`) are outside this boundary. The happy paths are `features/ask_mode.feature` and `features/ask_mode_http.feature`.
 
 ![The composer in ask mode](../assets/modes-pill-hero-dark-1280.png)
 
@@ -71,11 +72,13 @@ The rest of the boundary follows from it. A `metadata.runPlanSlug` on `POST /v1/
 
 | Surface | How |
 |---|---|
-| Web UI | the **Mode** pill in the composer, next to **Model**; the choice travels as the top-level `model` of `POST /v1/responses` |
-| Console | `/mode` in the chat, or `--mode agent\|plan\|ask` at launch, which also combines with `-c`, `--resume` and `-p`; in `--remote` mode `/mode` picks the profile per turn |
+| Web UI | the **Mode** pill in the composer, next to **Model**, or `/agent`, `/plan`, `/ask` typed or picked from the `/` menu; the pill's choice travels as the top-level `model` of `POST /v1/responses` |
+| Console | `/agent`, `/plan` or `/ask` in the chat, or `--mode agent\|plan\|ask` at launch, which also combines with `-c`, `--resume` and `-p`; in `--remote` mode the command switches the server's session |
 | ACP | `session/set_config_option` with `configId` `mode` and `value` `agent`, `plan` or `ask` (preferred), or the legacy `session/set_mode` with `modeId`; the agent answers with `current_mode_update` and `config_option_update`, and `session/new` advertises the three in `configOptions` and `modes` |
 | HTTP API | `model` set to `agent`, `plan` or `ask` on `POST /v1/responses` or `POST /v1/chat/completions`; `GET /v1/models` lists the three with `owned_by` `coddy`, and `metadata.model` picks the backend |
-| Telegram | `/mode` opens an inline keyboard with the three modes |
+| Telegram | `/agent`, `/plan` or `/ask` |
 | Scheduler | `mode:` in the job file frontmatter, `agent` when omitted |
+
+Every command also takes `--once` or `--count=N`, which switches the mode for the next turn or the next N turns and then returns to the session's own: `/plan --once how would you split this package?` plans one answer and leaves the session in agent mode. The commands work the same over ACP and HTTP, sent as the start of the prompt text ([Session settings](session-settings.md)).
 
 A one-shot run picks the mode the same way: `coddy --mode ask -p "..."` answers without touching the workspace. Surface guides: [Console (TUI)](../surfaces/console.md), [Web UI](../surfaces/web-ui.md), [ACP protocol](../reference/acp-protocol.md), [HTTP API](../reference/http-api.md), [Telegram gateway](../surfaces/gateway.md), [Scheduler](../operate/scheduler.md).

@@ -16,6 +16,15 @@ Feature: Switching the LLM model from a Telegram chat
     And the user taps the button for "rpa/qwen3.6-35b-a3b"
     Then the session model is "rpa/qwen3.6-35b-a3b"
 
+  Scenario: A model named after /model goes to the session as a settings command
+    When the user sends "/model rpa/qwen3.6-35b-a3b --once"
+    Then the session received "/model rpa/qwen3.6-35b-a3b --once"
+    And no model keyboard was sent
+
+  Scenario: The mode commands go to the session too
+    When the user sends "/plan --once how would you split this service"
+    Then the session received "/plan --once how would you split this service"
+
   Scenario: A button tapped after a gateway restart still applies
     Given the user has been offered the model keyboard
     And the gateway is restarted with the session left on disk

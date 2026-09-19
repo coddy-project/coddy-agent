@@ -197,6 +197,42 @@ httpserver:
 	}
 }
 
+// TestReadConfigPathShowsProxyKeywords checks that config_get hides a proxy
+// URL, which may carry credentials, but shows the keywords a provider's route
+// is set with, so the model can tell a row that connects directly.
+func TestReadConfigPathShowsProxyKeywords(t *testing.T) {
+	paths := testPathConfig(t, `providers:
+  - name: local
+    type: openai
+    proxy: none
+  - name: corp
+    type: openai
+    proxy: http://user:proxy-secret@10.0.0.2:3128
+`)
+	got, err := ReadConfigPath(paths, "providers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(got.Value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(encoded)
+	if strings.Contains(text, "proxy-secret") || !got.Redacted {
+		t.Fatalf("config_get leaked the proxy URL: %s", text)
+	}
+	if !strings.Contains(text, `"proxy":"none"`) {
+		t.Fatalf("config_get hid the none keyword: %s", text)
+	}
+	one, err := ReadConfigPath(paths, "providers.0.proxy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if one.Value != "none" || one.Redacted {
+		t.Fatalf("config_get providers.0.proxy = %+v, want none unredacted", one)
+	}
+}
+
 func TestCommitRejectsUnknownSchemaPathWithoutWriting(t *testing.T) {
 	const original = "agent:\n  max_turns: 13\n"
 	paths := testPathConfig(t, original)
@@ -229,6 +265,10 @@ func TestUCICommandRedactedString(t *testing.T) {
 		{line: "add_list skills.dirs=/opt/skills", want: "add_list skills.dirs=/opt/skills"},
 		{line: "delete mcp_servers[name=x]", want: "delete mcp_servers[name=x]"},
 		{line: "set agent.max_turns=20", want: "set agent.max_turns=20"},
+		// A proxy keyword is no secret: the prompt shows what is being set.
+		{line: "set providers.0.proxy=none", want: "set providers.0.proxy=none"},
+		{line: "set providers[name=corp].proxy=inherit", want: "set providers[name=corp].proxy=inherit"},
+		{line: "set providers.0.proxy=http://user:pass@10.0.0.2:3128", want: "set providers.0.proxy=<redacted>"},
 	}
 	for _, tc := range cases {
 		cmd, err := ParseUCICommand(tc.line)
@@ -483,5 +523,39 @@ func TestDryRunUCICommandsLeavesFileUntouched(t *testing.T) {
 	}
 	if string(raw) != original {
 		t.Fatalf("dry run changed config: %q", raw)
+	}
+}
+
+// A login that publishes a catalog into a config that does not exist yet
+// must leave a file a person can read: block style, and integers written as
+// integers however large (1048576, not 1.048576e+06, which the schema check
+// then flags on every model).
+func TestCommitUCICommandsFreshConfigIsBlockStyleWithIntegers(t *testing.T) {
+	paths := testPathConfig(t, "")
+	cmds := []UCICommand{
+		{Op: UCIOpSet, Path: "providers[name=devin]", Value: `{"name":"devin","type":"devin"}`},
+		{Op: UCIOpSet, Path: "models[model=devin/fam]", Value: `{"model":"devin/fam","max_context_tokens":1048576,"reasoning_levels":["low","high"]}`},
+		{Op: UCIOpSet, Path: "agent.model", Value: "devin/fam"},
+	}
+	if _, err := CommitUCICommands(paths, cmds); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(paths.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "max_context_tokens: 1048576\n") {
+		t.Fatalf("large integer not written as an integer:\n%s", text)
+	}
+	if strings.Contains(text, "{providers:") || !strings.Contains(text, "\nproviders:\n") {
+		t.Fatalf("fresh config is not in block style:\n%s", text)
+	}
+	cfg, err := LoadWithPaths(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := cfg.FindModelEntry("devin/fam"); m == nil || m.MaxContextTokens != 1048576 {
+		t.Fatalf("model = %+v", m)
 	}
 }

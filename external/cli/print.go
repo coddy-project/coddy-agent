@@ -7,16 +7,30 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
+)
+
+// The memory run accessors of the agent package; tests swap them to stand a
+// run in for the real pool.
+var (
+	memoryRunsInFlight = agent.MemoryRunsInFlight
+	waitMemoryRuns     = agent.WaitMemoryRuns
 )
 
 // PrintOptions configures a one-shot non-interactive prompt run (-p/--prompt).
 type PrintOptions struct {
 	// Prompt is the user text for the single turn.
 	Prompt string
+	// Stdin is what was piped in under a prompt that came from elsewhere;
+	// it rides after the prompt as a kind="stdin" attachment. Empty sends
+	// nothing.
+	Stdin string
 	// Out receives the streamed assistant text (stdout in the CLI).
 	Out io.Writer
 	// ErrOut receives diagnostics (permission rejections, stop reasons).
@@ -67,16 +81,16 @@ func (p *printSender) SendSessionUpdate(_ string, update interface{}) error {
 
 func (p *printSender) RequestPermission(_ context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
 	// A subagent's request carries the child's own mode; see sender.go.
-	mode := strings.TrimSpace(params.EffectivePermissionMode)
-	if mode == "" {
+	if params.EffectivePermissionMode == "" && params.SessionPermissionMode == "" {
 		if st := p.mgr.SessionByID(params.SessionID); st != nil {
-			mode = st.GetPermissionMode()
+			params.SessionPermissionMode = st.EffectivePermissionMode()
 		}
 	}
-	if mode == "" && p.cfg != nil && !p.remote {
-		mode = p.cfg.Tools.ResolvedPermMode()
+	cfgMode := ""
+	if p.cfg != nil && !p.remote {
+		cfgMode = p.cfg.Tools.ResolvedPermMode()
 	}
-	if mode == config.PermModeBypass {
+	if permission.AutoApproves(params, cfgMode) {
 		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
 	if p.errOut != nil {
@@ -90,6 +104,38 @@ func (p *printSender) RequestQuestion(_ context.Context, _ acp.QuestionRequestPa
 		_, _ = fmt.Fprintln(p.errOut, "question skipped (non-interactive print mode)")
 	}
 	return &acp.QuestionResult{}, nil
+}
+
+// waitForMemoryRun keeps a one-shot print alive while the memory subagent
+// of its turn is still running: the process has nothing else to do, and a
+// `remember X` must not lose X to an exit. The wait is bounded by the run's
+// own timeout, and after the drain grace a line on stderr says why the
+// process is still there.
+func waitForMemoryRun(ctx context.Context, cfg *config.Config, errOut io.Writer) {
+	if memoryRunsInFlight() == 0 {
+		return
+	}
+	if waitMemoryRuns(ctx, agent.MemoryDrainGrace) {
+		return
+	}
+	timeout := time.Duration(config.MemoryDefaultTimeoutSeconds) * time.Second
+	if cfg != nil {
+		timeout = time.Duration(cfg.Memory.EffectiveTimeoutSeconds()) * time.Second
+	}
+	if errOut != nil {
+		_, _ = fmt.Fprintln(errOut, "waiting for the memory subagent to finish before exiting")
+	}
+	waitMemoryRuns(ctx, timeout)
+}
+
+// promptBlocks is the prompt a one-shot run sends: the text exactly as read,
+// then the piped data as an attachment nothing scans.
+func promptBlocks(opts PrintOptions) []acp.ContentBlock {
+	blocks := []acp.ContentBlock{{Type: acp.ContentTypeText, Text: opts.Prompt}}
+	if opts.Stdin != "" {
+		blocks = append(blocks, session.StdinAttachment(opts.Stdin))
+	}
+	return blocks
 }
 
 // PrintPrompt runs one prompt turn without a TUI and streams the assistant
@@ -150,11 +196,12 @@ func PrintPrompt(ctx context.Context, mgr backend, opts PrintOptions) error {
 	// A one-shot print has no footer: no usage refresh at the end.
 	result, err := mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 		SessionID: res.SessionID,
-		Prompt:    []acp.ContentBlock{{Type: "text", Text: opts.Prompt}},
+		Prompt:    promptBlocks(opts),
 	}, snd, &session.PromptRunOpts{SkipUsagePublish: true})
 	if snd.wrote {
 		_, _ = io.WriteString(opts.Out, "\n")
 	}
+	waitForMemoryRun(ctx, cfg, opts.ErrOut)
 	if err != nil {
 		return err
 	}

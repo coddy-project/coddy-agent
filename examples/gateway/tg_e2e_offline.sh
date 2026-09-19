@@ -63,10 +63,23 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# The scripted model echoes what it is told, except for the background wake
+# step at the end: "start the tests" makes it run a failing command in the
+# background with notify_on_finish, and the turn that wakes it gets an answer.
+RULES="$TMP/rules.json"
+cat >"$RULES" <<'EOF_RULES'
+[
+  {"match": "start the tests",
+   "tool": {"name": "run_command", "arguments": {"command": "echo 'tests failed' >&2; exit 2", "background": true, "notify_on_finish": true, "expected_seconds": 1}},
+   "answer": "Started the tests in the background."},
+  {"match": "background task you asked to be notified about", "answer": "The tests failed with exit 2."}
+]
+EOF_RULES
+
 # Built rather than `go run`: on Windows a kill of the go run parent leaves
 # the child listening.
 go build -o "$TMP/tgfake$EXE" ./cmd/tgfake
-"$TMP/tgfake$EXE" --addr "127.0.0.1:$TG_PORT" --llm --llm-delay "$LLM_DELAY" ${TG_VERBOSE:+--verbose} &
+"$TMP/tgfake$EXE" --addr "127.0.0.1:$TG_PORT" --llm --llm-script "$(hostpath "$RULES")" --llm-delay "$LLM_DELAY" ${TG_VERBOSE:+--verbose} &
 TGFAKE_PID=$!
 for _ in $(seq 1 40); do
   if curl -sf -o /dev/null "$ORIGIN/bot1/getMe"; then break; fi
@@ -167,5 +180,17 @@ say "back again"
 wait_chat "bot: You said: back again"
 grep -qF "back again" "$HOME_DIR/sessions/$first/messages.json" \
   || { echo "the message after /resume did not land in $first" >&2; exit 1; }
+
+# A background wake: the chat's agent starts a failing command in the
+# background and ends its turn; when the command ends, the woken turn comes
+# back to the chat - the note first, then the answer - with no HTTP server in
+# the process.
+say "start the tests"
+# With Rich Messages the answer opens with the tool call's block, so only the
+# words are looked for.
+wait_chat "Started the tests in the background."
+wait_chat "Woken by a finished background task: bg_1"
+wait_chat "failed, exit 2"
+wait_chat "bot: The tests failed with exit 2."
 
 echo "ok telegram offline stand"

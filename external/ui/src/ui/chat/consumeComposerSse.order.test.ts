@@ -47,8 +47,7 @@ async function drive(sse: string): Promise<TranscriptItem[]> {
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map() },
     newId: (p) => `${p}-${idc++}`,
-    applyMemoryPhaseToItems: (prev) => prev,
-    applyMemoryChunkToItems: (prev) => prev,
+    applyMemoryRunToItems: (prev) => prev,
   };
   const res = await consumeComposerSseReader(params);
   res.flushToolQueue();
@@ -72,8 +71,7 @@ test("usage_update replaces the displayed current context after compaction", asy
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map() },
     newId: (p) => p,
-    applyMemoryPhaseToItems: (prev) => prev,
-    applyMemoryChunkToItems: (prev) => prev,
+    applyMemoryRunToItems: (prev) => prev,
   };
 
   await consumeComposerSseReader(params);
@@ -257,8 +255,7 @@ test("queued tool rows land even when no animation frame ever comes", async () =
       tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
       reasoningDurationMsByContentRef: { current: new Map() },
       newId: (p) => p,
-      applyMemoryPhaseToItems: (prev) => prev,
-      applyMemoryChunkToItems: (prev) => prev,
+      applyMemoryRunToItems: (prev) => prev,
     };
     await consumeComposerSseReader(params);
     expect(items).toHaveLength(0);
@@ -343,8 +340,7 @@ async function driveWithPrompts(sse: string): Promise<string[]> {
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map() },
     newId: (p) => `${p}-${idc++}`,
-    applyMemoryPhaseToItems: (prev) => prev,
-    applyMemoryChunkToItems: (prev) => prev,
+    applyMemoryRunToItems: (prev) => prev,
     // Mirrors App.tsx: both handlers apply their row straight away, outside the queue.
     onQuestion: (raw) =>
       applyStreamItems((prev) => [
@@ -400,4 +396,73 @@ test("a permission card renders below the tool row that raised it", async () => 
     "tool:tc-p",
     "permission_prompt",
   ]);
+});
+
+test("turn_progress reaches the caller on this machine's clock, replayed frames aged", async () => {
+  vi.stubGlobal("requestAnimationFrame", () => 0);
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-09-18T10:00:45Z"));
+  const now = Date.now();
+  const seen: Array<{ startedAtMs: number; outputTokens: number; estimated: boolean }> = [];
+  const frame = (payload: object, age?: number) =>
+    `event: turn_progress\n${age === undefined ? "" : `age: ${age}\n`}data: ${JSON.stringify(payload)}\n\n`;
+  const params: ConsumeComposerSseParams = {
+    reader: mockReader(
+      frame({ sessionUpdate: "turn_progress", startedAt: "2026-09-18T12:00:00Z", elapsedMs: 40_000, outputTokens: 0, estimated: false }, 5_000) +
+        frame({ sessionUpdate: "turn_progress", startedAt: "2026-09-18T12:00:00Z", elapsedMs: 45_000, outputTokens: 433, estimated: true }) +
+        `data: [DONE]\n\n`,
+    ),
+    dec: new TextDecoder(),
+    carry: { buf: "" },
+    assistantId: "a-init",
+    applyStreamItems: () => {},
+    setTokenUsage: () => {},
+    setContextUsage: () => {},
+    tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
+    reasoningDurationMsByContentRef: { current: new Map() },
+    newId: (p) => p,
+    applyMemoryRunToItems: (prev) => prev,
+    onTurnProgress: (p) => seen.push(p),
+  };
+  try {
+    await consumeComposerSseReader(params);
+  } finally {
+    vi.useRealTimers();
+  }
+  // The frame also names its turn and dates itself on the server's clock, which is
+  // what lets the shell order it against an activity read.
+  const turn = Date.parse("2026-09-18T12:00:00Z");
+  expect(seen).toEqual([
+    { startedAtMs: now - 45_000, outputTokens: 0, estimated: false, serverStartedAtMs: turn, serverElapsedMs: 40_000 },
+    { startedAtMs: now - 45_000, outputTokens: 433, estimated: true, serverStartedAtMs: turn, serverElapsedMs: 45_000 },
+  ]);
+});
+
+test("a woken turn opens with the wake, before anything it says", async () => {
+  const wake = {
+    sessionUpdate: "background_wake",
+    tasks: [
+      { id: "bg_3", kind: "command", label: "make test", status: "failed", exitCode: 2, durationMs: 90000 },
+    ],
+  };
+  const items = await drive(
+    `event: message_queue\ndata: ${JSON.stringify({ sessionUpdate: "message_queue", messages: [], version: 1 })}\n\n` +
+      `event: background_wake\ndata: ${JSON.stringify(wake)}\n\n` +
+      textEvent("The tests failed.") +
+      `data: [DONE]\n\n`,
+  );
+  expect(items.map((it) => it.type)).toEqual(["background_wake", "assistant_message"]);
+  const wakeItem = items[0] as Extract<TranscriptItem, { type: "background_wake" }>;
+  expect(wakeItem.tasks).toEqual([
+    { id: "bg_3", kind: "command", label: "make test", status: "failed", exitCode: 2, durationMs: 90000 },
+  ]);
+  expect((items[1] as Extract<TranscriptItem, { type: "assistant_message" }>).content).toBe("The tests failed.");
+});
+
+test("a wake frame naming no task adds nothing", async () => {
+  const items = await drive(
+    `event: background_wake\ndata: ${JSON.stringify({ sessionUpdate: "background_wake", tasks: [{ status: "failed" }] })}\n\n` +
+      `data: [DONE]\n\n`,
+  );
+  expect(items).toEqual([]);
 });

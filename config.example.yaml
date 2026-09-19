@@ -24,7 +24,11 @@ providers:
     # helpers or AWS credential_process). Lets a provider fetch short-lived or
     # login-issued keys without storing a static secret. Falls back to NAME_API_KEY.
     # api_key_command: "my-cli print-token"
-    # Optional outbound proxy for this provider only (http, https, socks5, socks5h).
+    # Route of every request of this provider (completions, model list, usage, sign-in).
+    # inherit (the default, same as leaving it out) follows HTTPS_PROXY, HTTP_PROXY and
+    # NO_PROXY of the Coddy process; none connects directly and ignores them; a URL
+    # (http, https, socks5, socks5h) sends every request of this row through that proxy.
+    # proxy: none
     # proxy: "http://127.0.0.1:8888"
     # proxy: "socks5h://127.0.0.1:1080"
     # Optional bound on each LLM HTTP request, including the streamed body read.
@@ -68,6 +72,14 @@ providers:
   # - name: codex
   #   type: codex
 
+  # Devin (Cognition) account. `coddy providers login devin` signs in through
+  # the browser (or reuses `devin auth login` with --devin-cli), stores the
+  # session token under $CODDY_HOME/providers/devin/ and adds this row plus one
+  # model per family. api_base is ignored; an api_key here (a Devin session
+  # token) wins over both logins.
+  # - name: devin
+  #   type: devin
+
   # OpenAI-compatible (DeepSeek, Groq, Together, etc.)
   # Use type openai and include /v1 in api_base.
   # - name: deepseek
@@ -89,6 +101,10 @@ models:
   #   max_tokens: 8192
   #   reasoning_default: medium       # level pre-selected for new chats (must be a valid level)
   #   # reasoning_levels: [low, high] # optional: override the offered levels; [] hides the selector; omit the key to auto-detect from the model id
+
+  # - model: "devin/claude-sonnet-5"  # one entry per Devin family; each level is a variant
+  #   reasoning_levels: [low, medium, high, xhigh, max]
+  #   reasoning_default: medium
 
   # - model: "codex/gpt-5.6-sol"     # provider name / Codex model slug (fetch after Sign In)
   #   max_tokens: 8192                 # retained in config; Codex does not accept max_output_tokens
@@ -245,6 +261,8 @@ tools:
   # ask: always prompt for commands and file writes (default)
   # accept_edits: auto-approve file writes; prompt for commands
   # bypass: never ask for permission
+  # A session may switch its own mode until the process restarts (/permissions,
+  # the web composer chip, the permission dialog); the switch is never saved here.
   permission_mode: ask
 
   # Commands that never require user permission.
@@ -424,21 +442,30 @@ tools:
 #   max_queue: 10        # concurrent scheduled runs (default); when saturated the daemon skips extras until slots free (see logs)
 #   timeout: "30m"       # per scheduled agent run
 
-# Long-term memory copilot (external/memory; always in the binary). Toggle with memory.enable.
-# Stores markdown under memory.dir (default ${CODDY_HOME}/memory) and <session cwd>/memory (project). Injects text into the
-# same {{.Memory}} section as session notes; main agent never sees memory_* tools.
-# memory.model is used ONLY for recall + persist LLM calls. Set it to an exact models[].model id when you want memory
-# pinned independently of agent.model (example: "rpa/qwen3.6-35b-a3b"). Leave empty to reuse the session or agent default model.
+# Long-term memory subagent (external/memory; needs the memory build tag). Toggle with memory.enable.
+# Every user turn starts a memory subagent in the background task pool: a child session that searches, reads and
+# saves markdown under memory.dir (default ${CODDY_HOME}/memory) and <session cwd>/memory (project). Its report reaches
+# the main model in the <turn_context> block after the history, never in the system prompt, so the provider's prompt
+# cache keeps covering the conversation; the main agent never sees the memory_* tools. The run is
+# watched and kept in the Tasks drawer like a spawn_agent child (docs/features/memory.md).
+# memory.model is the model the memory subagent runs on. Set it to an exact models[].model id when you want memory
+# pinned independently of agent.model (example: "rpa/qwen3.6-35b-a3b"). Leave empty to use the session's model.
 # memory:
 #   enable: false
 #   model: ""
-#   fallback_models: []  # tried in order when the model above them fails; the session model is
-#                        # the last resort whether or not it is listed
+#   fallback_models: []  # tried in order when the model above them fails before answering; the session
+#                        # model is the last resort whether or not it is listed
 #   dir: "" # default ${CODDY_HOME}/memory when empty
-#   recall_max_turns: 6
+#   wait_seconds: 20     # how long a turn waits for the report before its first model call; 0 never waits
+#   timeout_seconds: 300 # hard limit of one memory run (capped by tools.background.max_timeout_seconds)
+#   keep_runs: 20        # finished memory runs kept per session in the Tasks drawer; 0 keeps all
+#   recall_max_turns: 6  # the child's round cap is the larger of the two
 #   persist_max_turns: 12
 #   copilot_max_tokens: 4096
 #   max_search_hits: 8
+#   additional_prompt: ""          # your own instructions for the memory subagent only, e.g. "only deal with the
+#                                  # notes; never answer the task itself"; the main agent never sees them
+#   additional_prompt_max_chars: 0 # cut additional_prompt at this many characters (a warning is logged); 0 = no cap
 
 # Messenger gateways (external/gateway/; build with: go build -tags gateway.telegram or -tags gateway).
 # The bot is not a command of its own: set enable: true and `coddy serve` polls
@@ -449,7 +476,8 @@ tools:
 #   telegram:
 #     enable: false
 #     token: "${TELEGRAM_BOT_TOKEN}"   # optional: omit to read TELEGRAM_BOT_TOKEN from env/.env
-#     # proxy: "socks5h://127.0.0.1:1080"  # optional outbound proxy (http, https, socks5, socks5h)
+#     # proxy: none                        # inherit (default: HTTPS_PROXY), none (direct), or a URL
+#     # proxy: "socks5h://127.0.0.1:1080"  # http, https, socks5, socks5h
 #     # proxy: "http://proxy.example.com:3128"
 #     rich_messages: true             # Bot API 10.1 Rich Messages: native Markdown, streamed
 #                                     # "Thinking…" while tools run, collapsible tool list.

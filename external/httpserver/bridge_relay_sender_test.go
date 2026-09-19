@@ -128,7 +128,7 @@ func TestDirectYAMLNonStreamCallsComplete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d", res.StatusCode)
 	}
@@ -258,4 +258,82 @@ func TestSenderIdleKeepaliveIsSilentWithoutAWriter(t *testing.T) {
 	stop := sender.startIdleKeepalive(time.Millisecond)
 	time.Sleep(10 * time.Millisecond)
 	stop()
+}
+
+// The sender of a woken turn asks a permission prompt on the relay - persisted,
+// waiting for the answer the web UI or a following console posts - where the
+// plain relay sender of a headless call refuses it. A question stays refused
+// for both: nothing persists one for a client that arrives later.
+func TestWakeRelaySenderAsksPermissionAndStillRefusesQuestions(t *testing.T) {
+	params := acp.PermissionRequestParams{
+		SessionID: "sess_wake",
+		ToolCall:  acp.PermissionToolCall{ToolCallID: "call_touch", Title: "Run: run_command"},
+		Options:   []acp.PermissionOption{{OptionID: "allow", Name: "Allow", Kind: "allow_once"}},
+	}
+	cfg := &config.Config{}
+	cfg.Tools.PermissionMode = config.PermModeAsk
+
+	plain := NewRelaySender(cfg, &bytes.Buffer{}, "agent")
+	res, err := plain.RequestPermission(context.Background(), params)
+	if err != nil || res == nil || res.OptionID != "reject" {
+		t.Fatalf("a headless relay sender answered %+v, %v; want the refusal", res, err)
+	}
+
+	relay := newComposerStreamRelay()
+	woken := NewWakeRelaySender(cfg, relay, "agent")
+	answered := make(chan *acp.PermissionResult, 1)
+	go func() {
+		res, _ := woken.RequestPermission(context.Background(), params)
+		answered <- res
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		relay.mu.Lock()
+		var asked bool
+		for _, f := range relay.frames {
+			if strings.HasPrefix(string(f.data), "event: permission\n") && strings.Contains(string(f.data), "call_touch") {
+				asked = true
+			}
+		}
+		relay.mu.Unlock()
+		if asked {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the woken turn's prompt never reached the relay")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !CompletePermissionAnswer("sess_wake", "call_touch", &acp.PermissionResult{Outcome: "selected", OptionID: "allow"}) {
+		t.Fatal("nobody waited for the answer")
+	}
+	select {
+	case res := <-answered:
+		if res == nil || res.OptionID != "allow" {
+			t.Fatalf("the woken turn heard %+v, want the answer given", res)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the woken turn never heard the answer")
+	}
+
+	if _, err := woken.RequestQuestion(context.Background(), acp.QuestionRequestParams{SessionID: "sess_wake", RequestID: "q_1"}); err == nil {
+		t.Fatal("a woken turn's question was asked; nothing could restore it for a client that arrives later")
+	}
+}
+
+// The first frame of a woken turn names what woke the agent, on every relay.
+func TestSenderWritesTheBackgroundWakeFrame(t *testing.T) {
+	rec := httptest.NewRecorder()
+	sender := NewSender(&config.Config{}, rec, true, "agent")
+	two := 2
+	if err := sender.SendSessionUpdate("sess_x", acp.BackgroundWakeUpdate{
+		SessionUpdate: acp.UpdateTypeBackgroundWake,
+		Tasks:         []acp.BackgroundWakeTask{{ID: "bg_3", Status: "failed", ExitCode: &two, DurationMs: 90_000}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := rec.Body.String()
+	if !strings.HasPrefix(got, "event: background_wake\ndata: ") || !strings.Contains(got, `"id":"bg_3"`) || !strings.Contains(got, `"exitCode":2`) {
+		t.Fatalf("frame = %q", got)
+	}
 }

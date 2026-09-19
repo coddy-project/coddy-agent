@@ -15,6 +15,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -34,12 +35,16 @@ type Sender struct {
 	// interactive is true when a client is reading the response and can answer a
 	// permission or question request.
 	interactive bool
-	w           io.Writer
-	flusher     http.Flusher
-	chatID      string
-	created     int64
-	model       string
-	sessionDir  string
+	// asksPermission makes a relay sender ask a permission prompt the way an
+	// interactive one does, questions aside: the woken turn's sender
+	// (NewWakeRelaySender).
+	asksPermission bool
+	w              io.Writer
+	flusher        http.Flusher
+	chatID         string
+	created        int64
+	model          string
+	sessionDir     string
 	// lastWrite stamps the most recent frame so the idle keepalive knows whether the
 	// stream has gone quiet. Guarded by mu, like every other write to w.
 	lastWrite time.Time
@@ -161,6 +166,19 @@ func NewRelaySender(cfg *config.Config, relay io.Writer, model string) *Sender {
 	return s
 }
 
+// NewWakeRelaySender is the sender of a turn finished background tasks started
+// (Server.RunBackgroundWake). Every frame goes to the relay, as with
+// NewRelaySender, but a permission prompt is asked rather than refused: it is
+// emitted on the relay and persisted as the session's pending prompt, and the
+// web UI or a console following the turn answers it through the permission
+// endpoint. A question is still refused - nothing persists one for a client
+// that arrives after it was asked.
+func NewWakeRelaySender(cfg *config.Config, relay io.Writer, model string) *Sender {
+	s := NewRelaySender(cfg, relay, model)
+	s.asksPermission = true
+	return s
+}
+
 // SetSessionDir sets the persisted session directory for permission persistence across restarts.
 func (s *Sender) SetSessionDir(dir string) {
 	s.mu.Lock()
@@ -194,14 +212,21 @@ func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
 		return s.writeNamedEventJSON("usage_update", u)
 	case acp.ProviderUsageUpdate:
 		return s.writeNamedEventJSON("provider_usage", u)
-	case acp.MemoryPhaseUpdate:
-		return s.writeNamedEventJSON("memory_phase", u)
-	case acp.MemoryMessageChunkUpdate:
-		return s.writeNamedEventJSON("memory_chunk", u)
+	case acp.MemoryRunUpdate:
+		return s.writeNamedEventJSON("memory_run", u)
 	case acp.AvailableCommandsUpdate:
 		return s.writeNamedEventJSON("available_commands", u)
 	case acp.MessageQueueUpdate:
 		return s.writeNamedEventJSON("message_queue", u)
+	case acp.TurnProgressUpdate:
+		return s.writeNamedEventJSON("turn_progress", u)
+	case acp.SessionSettingsUpdate:
+		// The session's settings changed during this turn - a command, the
+		// permission dialog, the model's own switch: the client mirrors them.
+		return s.writeNamedEventJSON("session_settings", u)
+	case acp.BackgroundWakeUpdate:
+		// The first frame of a turn nobody typed: what woke the agent.
+		return s.writeNamedEventJSON("background_wake", u)
 	default:
 		return nil
 	}
@@ -315,14 +340,17 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 	// A subagent's request carries the child's own effective mode, which
 	// decides the bypass short-circuit instead of the global setting: a child
 	// narrowed to ask is prompted, or denied when nobody can answer.
-	stamped := strings.TrimSpace(params.EffectivePermissionMode)
-	if stamped == config.PermModeBypass {
+	// The session's gate stamps the mode it decided under, so a session
+	// switched to ask on a server configured for bypass is asked here too;
+	// the configuration only decides for a request that carries no stamp.
+	cfgMode := ""
+	if s.cfg != nil {
+		cfgMode = s.cfg.Tools.ResolvedPermMode()
+	}
+	if permission.AutoApproves(params, cfgMode) {
 		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
-	if stamped == "" && s.cfg != nil && s.cfg.Tools.ResolvedPermMode() == config.PermModeBypass {
-		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
-	}
-	if !s.interactive || s.w == nil {
+	if (!s.interactive && !s.asksPermission) || s.w == nil {
 		return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
 	}
 	sid := strings.TrimSpace(params.SessionID)

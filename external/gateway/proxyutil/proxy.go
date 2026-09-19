@@ -1,7 +1,8 @@
 //go:build gateway || gateway.telegram
 
 // Package proxyutil builds HTTP clients with optional proxy support for gateway adapters.
-// Supported schemes: http, https, socks5, socks5h.
+// The proxy setting reads like providers[].proxy (config.ParseProxySetting):
+// inherit, none, or an http, https, socks5 or socks5h URL.
 package proxyutil
 
 import (
@@ -9,22 +10,35 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"golang.org/x/net/proxy"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
-// BuildHTTPClient returns an *http.Client configured to route traffic through proxyURL.
-// An empty proxyURL returns http.DefaultClient unchanged.
-func BuildHTTPClient(proxyURL string) (*http.Client, error) {
-	proxyURL = strings.TrimSpace(proxyURL)
-	if proxyURL == "" {
-		return http.DefaultClient, nil
-	}
-	u, err := url.Parse(proxyURL)
+// BuildHTTPClient returns the *http.Client the gateway reaches its API with.
+// An empty setting or "inherit" returns http.DefaultClient unchanged, which
+// follows the environment's proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY); "none"
+// returns a client that connects directly; a URL routes every request
+// through that proxy.
+func BuildHTTPClient(setting string) (*http.Client, error) {
+	mode, u, err := config.ParseProxySetting(setting)
 	if err != nil {
-		return nil, fmt.Errorf("invalid proxy URL: %w", err)
+		return nil, err
+	}
+	switch mode {
+	case config.ProxyModeInherit:
+		return http.DefaultClient, nil
+	case config.ProxyModeNone:
+		base, ok := http.DefaultTransport.(*http.Transport)
+		if !ok {
+			return nil, fmt.Errorf("default transport is not *http.Transport")
+		}
+		t := base.Clone()
+		// No Proxy function at all: nothing in the environment is read.
+		t.Proxy = nil
+		return &http.Client{Transport: t}, nil
 	}
 	switch strings.ToLower(u.Scheme) {
 	case "http", "https":

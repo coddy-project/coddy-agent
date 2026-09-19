@@ -56,6 +56,10 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 	// Filing the session it runs in: a conversation the model renamed or
 	// tagged is one the operator can find again.
 	r.Register(SessionDescribeTool())
+	// Coddy's own documentation, embedded in the binary: read-only, so
+	// every mode and every child gets it.
+	r.Register(DocsSearchTool())
+	r.Register(DocsReadTool())
 	r.Register(PlanWriteTool())
 	r.Register(PlanListTool())
 	r.Register(PlanReadTool())
@@ -79,8 +83,25 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 	if cfg == nil || cfg.Skills.AutoDiscoveryEnabled() {
 		r.Register(LoadSkillTool())
 	}
+	// The model's own switch between the configured models and reasoning
+	// levels: offered when there is something to switch to.
+	if modelSwitchOffered(cfg) {
+		r.Register(SwitchModelTool(cfg))
+	}
 	registerSchedulerTools(r, cfg)
 	return r
+}
+
+// modelSwitchOffered reports whether switch_model has anything to switch:
+// more than one configured model, or one that offers reasoning levels.
+func modelSwitchOffered(cfg *config.Config) bool {
+	if cfg == nil {
+		return false
+	}
+	if len(cfg.Models) > 1 {
+		return true
+	}
+	return len(cfg.Models) == 1 && len(cfg.ReasoningChoicesFor(&cfg.Models[0])) > 0
 }
 
 // ResolvePath returns an absolute filesystem path resolved against cwd.

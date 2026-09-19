@@ -17,9 +17,22 @@ import (
 
 // Rule maps a prompt to an answer: the first rule whose Match occurs in the
 // last user message (case-insensitive) wins; an empty Match matches all.
+//
+// A rule with a Tool makes the model act before it answers: the first request
+// of the turn gets the tool call, and the request that carries the tool's
+// result gets Answer. That is enough to script a turn that starts work - a
+// background command, a gated tool that asks for permission - without a model.
 type Rule struct {
-	Match  string `json:"match"`
-	Answer string `json:"answer"`
+	Match  string    `json:"match"`
+	Answer string    `json:"answer"`
+	Tool   *ToolCall `json:"tool,omitempty"`
+}
+
+// ToolCall is the call a Rule makes. Arguments is the JSON object the tool is
+// called with; a script writes it as an object, not as an encoded string.
+type ToolCall struct {
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments"`
 }
 
 // Server is the scripted model.
@@ -70,6 +83,20 @@ type chatRequest struct {
 		Role    string          `json:"role"`
 		Content json.RawMessage `json:"content"`
 	} `json:"messages"`
+}
+
+// answersToolResult reports whether the request's newest message - past the
+// <turn_context> block Coddy appends to every request - is a tool result: the
+// model already made its call this turn and now answers what came back.
+func (r *chatRequest) answersToolResult() bool {
+	for i := len(r.Messages) - 1; i >= 0; i-- {
+		m := r.Messages[i]
+		if m.Role == "user" && strings.TrimSpace(stripTurnContext(userText(m.Content))) == "" {
+			continue
+		}
+		return m.Role == "tool"
+	}
+	return false
 }
 
 // lastUserText is the text of the newest user message that a person wrote;
@@ -135,26 +162,27 @@ func stripTurnContext(text string) string {
 
 // Answer picks the reply to a prompt and counts the call.
 func (s *Server) Answer(prompt string) string {
-	answer, _ := s.pick(prompt)
+	answer, _, _ := s.pick(prompt)
 	return answer
 }
 
 // pick chooses the reply and returns the ordinal of the call it counted,
-// under one lock, so two completions served at once get distinct ids.
-func (s *Server) pick(prompt string) (answer string, call int) {
+// under one lock, so two completions served at once get distinct ids. tool is
+// the matched rule's call, nil when the reply is text only.
+func (s *Server) pick(prompt string) (answer string, tool *ToolCall, call int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.calls++
 	lower := strings.ToLower(prompt)
 	for _, r := range s.Rules {
 		if r.Match == "" || strings.Contains(lower, strings.ToLower(r.Match)) {
-			return r.Answer, s.calls
+			return r.Answer, r.Tool, s.calls
 		}
 	}
 	if len(s.Answers) > 0 {
-		return s.Answers[(s.calls-1)%len(s.Answers)], s.calls
+		return s.Answers[(s.calls-1)%len(s.Answers)], nil, s.calls
 	}
-	return "You said: " + strings.TrimSpace(prompt), s.calls
+	return "You said: " + strings.TrimSpace(prompt), nil, s.calls
 }
 
 // Calls is how many completions the stub has answered.
@@ -170,10 +198,14 @@ func (s *Server) completions(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":{"message":"invalid JSON body"}}`, http.StatusBadRequest)
 		return
 	}
-	answer, call := s.pick(req.lastUserText())
+	answer, tool, call := s.pick(req.lastUserText())
 	id := fmt.Sprintf("chatcmpl-tgfake-%d", call)
 	created := time.Now().Unix()
 	usage := map[string]any{"prompt_tokens": 1, "completion_tokens": len(strings.Fields(answer)), "total_tokens": 1 + len(strings.Fields(answer))}
+	if tool != nil && !req.answersToolResult() {
+		s.callTool(w, req.Stream, id, created, fmt.Sprintf("call_llmstub_%d", call), tool)
+		return
+	}
 
 	if !req.Stream {
 		writeJSON(w, map[string]any{
@@ -228,6 +260,56 @@ func (s *Server) completions(w http.ResponseWriter, r *http.Request) {
 		"choices": []map[string]any{}, "usage": usage}) {
 		return
 	}
+	_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+	if flusher != nil {
+		flusher.Flush()
+	}
+}
+
+// callTool answers with one tool call instead of text, in the shape of the
+// request: a whole message, or a stream of one tool_calls delta and a
+// tool_calls finish.
+func (s *Server) callTool(w http.ResponseWriter, stream bool, id string, created int64, callID string, tool *ToolCall) {
+	args := strings.TrimSpace(string(tool.Arguments))
+	if args == "" {
+		args = "{}"
+	}
+	call := map[string]any{
+		"id": callID, "type": "function",
+		"function": map[string]any{"name": tool.Name, "arguments": args},
+	}
+	usage := map[string]any{"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+	if !stream {
+		writeJSON(w, map[string]any{
+			"id": id, "object": "chat.completion", "created": created, "model": s.model(),
+			"choices": []map[string]any{{"index": 0, "finish_reason": "tool_calls",
+				"message": map[string]any{"role": "assistant", "content": nil, "tool_calls": []map[string]any{call}}}},
+			"usage": usage,
+		})
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(http.StatusOK)
+	flusher, _ := w.(http.Flusher)
+	send := func(v any) {
+		raw, _ := json.Marshal(v)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", raw)
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+	chunk := func(delta map[string]any, finish any) map[string]any {
+		return map[string]any{
+			"id": id, "object": "chat.completion.chunk", "created": created, "model": s.model(),
+			"choices": []map[string]any{{"index": 0, "delta": delta, "finish_reason": finish}},
+		}
+	}
+	call["index"] = 0
+	send(chunk(map[string]any{"role": "assistant", "tool_calls": []map[string]any{call}}, nil))
+	send(chunk(map[string]any{}, "tool_calls"))
+	send(map[string]any{"id": id, "object": "chat.completion.chunk", "created": created, "model": s.model(),
+		"choices": []map[string]any{}, "usage": usage})
 	_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 	if flusher != nil {
 		flusher.Flush()

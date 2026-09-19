@@ -60,6 +60,11 @@ type Options struct {
 	// prompts reach every surface of the process and not only this server. Nil
 	// means this server alone.
 	DetachedPrompts agent.DetachedPermissionBroker
+	// Wakes is the process's owner of the background waker: the server offers
+	// itself there as the surface that can run any session's woken turn, and
+	// withdraws the offer when it stops. Nil means this server alone owns a
+	// waker of its own (AttachBackgroundWaker).
+	Wakes agent.WakeSurfaces
 }
 
 // LoginCredentials is one web-UI account in plaintext, as the environment

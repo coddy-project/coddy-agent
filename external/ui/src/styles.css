@@ -2293,6 +2293,63 @@ a.rail-brand {
   white-space: nowrap;
 }
 
+/* The Tasks control at the right edge of the sticky header: the opener of the Tasks
+   panel and the one place a chat says how much runs in its background. It is there
+   from the first message, so the header never jumps when the first task starts. */
+.chat-header-tasks {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 26px;
+  margin-left: 10px;
+  padding: 3px 11px 3px 9px;
+  border-radius: 999px;
+  border: 0.5px solid var(--coddy-glass-panel-border);
+  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  font: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.chat-header-tasks:hover,
+.chat-header-tasks[aria-expanded="true"] {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
+}
+
+.chat-header-tasks.is-running {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--accent) 12%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+}
+
+.chat-header-tasks:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* running / total. Tabular digits, so a count that changes does not move the title. */
+.chat-header-tasks-counts {
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+}
+
+/* A phone header has room for the title and little else: once there are counts they
+   speak for themselves, and the word gives way. */
+@media (max-width: 520px) {
+  .chat-header-tasks {
+    min-height: 32px;
+  }
+
+  .chat-header-tasks.has-tasks .chat-header-tasks-label {
+    display: none;
+  }
+}
+
 .chat-title-btn {
   border: 0;
   background: transparent;
@@ -2880,6 +2937,50 @@ a.rail-brand {
   user-select: none;
 }
 
+/* The turn's own numbers lead the line: its clock, the tokens generated in it, the
+   background tasks running right now. Each item is closed by a middle dot, so the
+   phrase that follows reads as the last segment: "2m 05s · 1.2k tokens · Reading …". */
+.typing-dots-turn {
+  display: inline-flex;
+  align-items: baseline;
+  flex: none;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.typing-dots-turn-item::after {
+  content: "\00b7";
+  margin: 0 5px;
+  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
+}
+
+.typing-dots-turn-time {
+  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+}
+
+/* The running-tasks segment opens the Tasks panel. It is text in a line of text, so
+   it carries no chrome of its own - the accent says it is the one live control. */
+.typing-dots-turn-tasks {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: color-mix(in srgb, var(--accent) 80%, var(--text));
+  cursor: pointer;
+  user-select: none;
+}
+
+.typing-dots-turn-tasks:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.typing-dots-turn-tasks:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
 .typing-dots-status-text {
   display: inline-flex;
   align-items: baseline;
@@ -2923,9 +3024,42 @@ a.rail-brand {
   margin: 0 5px;
 }
 
+/* Phone: the numbers and a long phrase do not fit one line. The phrase - what the
+   agent is doing - keeps the first line next to the dots, and the turn's numbers move
+   under it as a caption, so the row never breaks wherever it happens to run out. */
 @media (max-width: 480px) {
+  .typing-dots {
+    align-items: flex-start;
+  }
+
+  /* Centre the 7px dots on the first text line (12px x 1.3). */
+  .typing-dots-dot {
+    margin-top: 4px;
+  }
+
   .typing-dots-status {
     font-size: 12px;
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+
+  .typing-dots-status-text {
+    order: 1;
+  }
+
+  .typing-dots-status-time {
+    order: 2;
+  }
+
+  .typing-dots-turn {
+    order: 3;
+    flex-basis: 100%;
+    font-size: 11px;
+  }
+
+  /* Nothing follows the last number on its line, so it closes with no dot. */
+  .typing-dots-turn-item:last-child::after {
+    content: none;
   }
 }
 
@@ -3414,10 +3548,15 @@ a.rail-brand {
   content: "";
 }
 
+/* Centred on the first line - half the label's 20px line box - never on the height
+   of .thinking-left. A tool row's box is taller than its label's line (the 12px target
+   and duration sit lower on the shared baseline) and a phone wraps a chip onto a second
+   line; centred on the box, the chevron sank below the label on exactly those rows.
+   DESIGN.md (Chevron), toolRowBaselineCss.test.ts. */
 .thinking-chevron {
   position: absolute;
   left: 0;
-  top: 50%;
+  top: 10px;
   width: 16px;
   height: 14px;
   display: inline-flex;
@@ -3519,102 +3658,6 @@ a.rail-brand {
 
 .thinking-body .md-inline-code {
   color: var(--coddy-md-inline-code-fg);
-}
-
-.coddy-memory-copilot-flat-banner {
-  cursor: default;
-  pointer-events: none;
-  user-select: none;
-}
-
-.coddy-memory-copilot-head-left {
-  min-width: 0;
-}
-
-.coddy-memory-persist-merged.coddy-memory-for-agent :where(.md) {
-  font-size: 13px;
-}
-
-.coddy-memory-copilot-body .coddy-memory-phase:first-child {
-  margin-top: 0;
-}
-
-.coddy-memory-phase-title {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
-  margin-bottom: 6px;
-}
-
-.coddy-memory-stream {
-  margin-top: 4px;
-}
-
-.coddy-memory-reasoning.md-wrap :where(.md) {
-  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
-  font-size: 13px;
-}
-
-.coddy-memory-empty,
-.coddy-memory-saved {
-  margin: 4px 0 0;
-  font-size: 13px;
-  color: color-mix(in srgb, var(--text) 56%, var(--coddy-blend-base));
-}
-
-.coddy-memory-saved {
-  color: rgba(167, 250, 174, 0.55);
-}
-
-.coddy-memory-hint {
-  margin: 4px 0 0;
-  font-size: 12px;
-  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
-}
-
-.coddy-memory-hint.muted {
-  color: color-mix(in srgb, var(--text) 38%, var(--coddy-blend-base));
-}
-
-.coddy-memory-read-files {
-  margin: 0 0 6px;
-}
-
-.coddy-memory-copilot-body .coddy-memory-phase + .coddy-memory-phase {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid
-    color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
-}
-
-.coddy-memory-for-agent :where(.md) {
-  font-size: 13px;
-}
-
-.coddy-memory-persist-summary :where(.md) {
-  font-size: 13px;
-}
-
-.coddy-memory-saved-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: baseline;
-  margin: 0 0 4px;
-  font-size: 13px;
-  color: rgba(167, 250, 174, 0.68);
-}
-
-.coddy-memory-saved-title {
-  font-weight: 600;
-}
-
-.coddy-memory-path {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
 }
 
 .coddy-tool-call-body {
@@ -3935,6 +3978,9 @@ a.rail-brand {
   margin: 12px 0;
 }
 
+/* The block sets its own line box (the code's 12px at 1.5), so a line is
+   18px wherever the block is read - a chat bubble, a documentation page -
+   and the copy button below can sit on the middle of the first line. */
 .md-code pre {
   white-space: pre;
   overflow: auto;
@@ -3942,6 +3988,8 @@ a.rail-brand {
   border: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
   background: var(--coddy-surface-inset);
   padding: 6px 12px 6px;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .md-code pre code {
@@ -4024,9 +4072,12 @@ a.rail-brand {
   font-weight: 700;
 }
 
+/* Centred on the first line of the block: 1px border + 6px padding + half an
+   18px line = 16px, less half the 26px button. A one-line block has it in
+   its middle. */
 .md-copy {
   position: absolute;
-  top: 4px;
+  top: 3px;
   right: 5px;
   display: inline-flex;
   align-items: center;
@@ -4061,6 +4112,8 @@ a.rail-brand {
 .md-copy__glyph {
   display: block;
   flex-shrink: 0;
+  width: 14px;
+  height: 14px;
 }
 
 .token-bar {
@@ -4348,9 +4401,60 @@ a.rail-brand {
   font-variant-numeric: tabular-nums;
 }
 
+/* The argument a settings command takes, between its name and description. */
+.slash-row-hint {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+}
+
 .slash-row-desc {
   font-size: 12px;
   opacity: 0.72;
+}
+
+/* "@" picker: the kind of each candidate - file, folder, session, rule,
+   subagent, plan - as a small label before it. The meta kinds take the
+   accent, so another session or a rule reads apart from a path. */
+.mention-kind {
+  display: inline-block;
+  min-width: 44px;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 6px;
+  font-size: 10px;
+  line-height: 16px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: center;
+  vertical-align: 1px;
+  color: color-mix(in srgb, var(--text) 62%, transparent);
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+}
+
+.mention-kind--session,
+.mention-kind--rule,
+.mention-kind--agent,
+.mention-kind--plan,
+.mention-kind--doc,
+.mention-kind--scheme {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/* "50 of 1204, type to narrow": the list was cut, and typing narrows it.
+   It rides the title row, which is on screen when the picker opens. */
+.mention-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mention-more {
+  text-transform: none;
+  letter-spacing: 0;
+  text-align: right;
 }
 
 .slash-load-more {
@@ -4636,6 +4740,13 @@ textarea#composer {
 .composer-tabs {
   display: flex;
   gap: 10px;
+  /* Lets the turn-overrides line give way on a narrow shell instead of
+     running past the card; the selector chips keep their size. */
+  min-width: 0;
+}
+
+.composer-tabs > .mode {
+  flex: none;
 }
 
 .mode {
@@ -4672,6 +4783,40 @@ textarea#composer {
 
 .composer-tab.mode-llm {
   border-color: rgba(147, 51, 234, 0.35);
+}
+
+/* The permission chip (#292). Ask is the quiet default; a session that no
+   longer asks says so from the composer, bypass in the danger tone. */
+.composer-tab.mode-permission.perm-accept_edits {
+  border-color: rgba(234, 179, 8, 0.6);
+}
+
+.composer-tab.mode-permission.perm-bypass,
+.mode-item.perm-item.perm-bypass {
+  color: #b91c1c;
+}
+
+.composer-tab.mode-permission.perm-bypass {
+  border-color: rgba(239, 68, 68, 0.7);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.14);
+}
+
+html:not([data-theme="light"]) .composer-tab.mode-permission.perm-bypass,
+html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
+  color: #f87171;
+}
+
+/* What --once / --count=N changed for the next turns, next to the selectors. */
+.composer-overrides {
+  align-self: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 240px;
+  overflow: hidden;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mode-menu {
@@ -7514,8 +7659,11 @@ html:not([data-theme="light"]) .context-usage-note--error {
   font-size: 0.9rem;
 }
 
-/* Read-only settings inputs (e.g. NeuralDeep's fixed API base) read as disabled. */
-.settings-input[readonly] {
+/* Read-only settings inputs (e.g. NeuralDeep's fixed API base) read as disabled,
+   and so do disabled ones (the provider proxy URL while the row connects
+   directly). */
+.settings-input[readonly],
+.settings-input:disabled {
   background: var(--coddy-surface-muted);
   color: var(--muted);
   cursor: not-allowed;
@@ -9409,6 +9557,27 @@ html:not([data-theme="light"]) .context-usage-note--error {
   border-color: rgba(196, 181, 253, 0.55);
 }
 
+/* The session-wide switches of #292: not one more allow. */
+.permission-prompt-btn--session-bypass {
+  background: rgba(239, 68, 68, 0.14);
+  border-color: rgba(239, 68, 68, 0.55);
+  color: #b91c1c;
+}
+
+.permission-prompt-btn--session-bypass:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.24);
+  border-color: rgba(239, 68, 68, 0.7);
+}
+
+.permission-prompt-btn--session-edits {
+  background: rgba(234, 179, 8, 0.12);
+  border-color: rgba(234, 179, 8, 0.5);
+}
+
+html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
+  color: #fca5a5;
+}
+
 .permission-prompt-btn--reject {
   background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
   border-color: color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
@@ -10592,76 +10761,6 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   min-height: 0;
 }
 
-.bgtask-list .session-item.bgtask-row {
-  padding: 0;
-  margin-bottom: 6px;
-  border-radius: 14px;
-  overflow: hidden;
-}
-
-.bgtask-row-main {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: block;
-  box-sizing: border-box;
-  padding: 10px 8px 10px 12px;
-  text-align: left;
-  text-decoration: none;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-
-.bgtask-row-text-block {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-
-.bgtask-row-title-line {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  width: 100%;
-}
-
-.bgtask-row-label {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: 13px;
-  font-weight: 600;
-  font-family: var(--mono, ui-monospace, monospace);
-  color: color-mix(in srgb, var(--text) 95%, var(--coddy-blend-base));
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.bgtask-row-status {
-  flex: 0 0 auto;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 1px 6px;
-  border-radius: 6px;
-  color: var(--coddy-chip-badge-fg);
-  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
-}
-
-.bgtask-row-meta {
-  font-size: 12px;
-  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.bgtask-row.is-overdue .bgtask-row-meta {
-  color: color-mix(in srgb, #ff9f0a 70%, var(--text));
-}
-
 /* Status dot, same vocabulary as the MCP server rows. */
 .bgtask-dot {
   flex: 0 0 auto;
@@ -10729,176 +10828,23 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   transition: width 0.6s linear;
 }
 
-.bgtask-row.is-overdue .bgtask-progress-fill {
-  background: #ff9f0a;
-}
-
-.bgtask-row-actions {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  padding: 6px 8px 6px 0;
-}
-
+/* Stop sits on the title row of a card and is sized to it: at the composer's 34px it
+   outweighed the title and pushed the row's height around. It stands above the card's
+   stretched opener (see .bgtask-card-open), so it keeps working on its own. */
 .bgtask-stop-icon.composer-icon {
-  width: 34px;
-  height: 34px;
-  min-width: 34px;
-  min-height: 34px;
+  position: relative;
+  z-index: 1;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
 }
 
-/* Detail pane: replaces the list inside the same drawer. */
-.bgtask-detail {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  flex: 1 1 auto;
-  gap: 10px;
-  padding: 0 12px 12px;
-}
-
-.bgtask-detail-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.bgtask-back {
-  border: none;
-  background: transparent;
-  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
-  font: inherit;
-  font-size: 12px;
-  padding: 6px 0;
-  min-height: 36px;
-  cursor: pointer;
-}
-
-.bgtask-back:hover {
-  color: var(--text);
-}
-
-.bgtask-detail-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-
-.bgtask-detail-title-line {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  flex-wrap: wrap;
-}
-
-.bgtask-detail-status {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.bgtask-detail-timing {
-  font-size: 12px;
-  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
-}
-
-.bgtask-detail-command,
-.bgtask-detail-output {
-  margin: 0;
-  border-radius: 10px;
-  border: 1px solid var(--coddy-glass-panel-border);
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
-  font-family: var(--mono, ui-monospace, monospace);
-  font-size: 12px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.bgtask-detail-command {
-  padding: 8px 10px;
-  max-height: 92px;
-  overflow-y: auto;
-}
-
-.bgtask-detail-error {
-  font-size: 12px;
-  color: color-mix(in srgb, #ff453a 75%, var(--text));
-}
-
-.bgtask-detail-output-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
-}
-
-.bgtask-detail-truncated {
-  text-transform: none;
-  letter-spacing: 0;
-  color: color-mix(in srgb, #ff9f0a 70%, var(--text));
-}
-
-.bgtask-detail-output {
-  flex: 1 1 auto;
-  min-height: 120px;
-  padding: 10px;
-  overflow: auto;
-}
-
-.bgtask-detail-stop.scheduler-btn {
-  min-height: 36px;
-}
-
-/* Agent rows: a subagent run in the pool, told apart from shell commands by a
-   small badge after the label (the label itself reads "agent <name>: ..."). */
-.bgtask-kind-badge {
-  flex: 0 0 auto;
-  padding: 0 6px;
-  border-radius: 999px;
-  font-family: inherit;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1.6;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: color-mix(in srgb, var(--accent) 80%, var(--text));
-  background: color-mix(in srgb, var(--accent) 14%, var(--coddy-blend-base));
-}
-
-/* Detail pane of an agent task: the subagent name stands where a command
-   would, next to the button that opens the child transcript. */
-.bgtask-detail-agent {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  min-width: 0;
-}
-
-.bgtask-detail-agent-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
-}
-
-.bgtask-detail-agent-name {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-family: var(--mono, ui-monospace, monospace);
-  font-size: 13px;
-  font-weight: 600;
-  color: color-mix(in srgb, var(--text) 95%, var(--coddy-blend-base));
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.bgtask-stop-icon.composer-icon .composer-stop-square {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
 }
 
 .bgtask-open-transcript.scheduler-btn:disabled {
@@ -10906,20 +10852,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   cursor: not-allowed;
 }
 
-@media (max-width: 1199px) {
-  /* Comfortable touch targets on phones. */
-  .bgtask-row-main {
-    padding: 12px 8px 12px 12px;
-  }
 
-  .bgtask-back {
-    min-height: 40px;
-  }
-
-  .bgtask-detail-output {
-    min-height: 160px;
-  }
-}
 
 /* Tab controls hanging off the card above them, like the More / Less row: the
    body is a flex column with an 8px gap, and these cancel it. */
@@ -11047,13 +10980,18 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 
 
-/* Live task card. */
+/* One card for every task - a shell command, a subagent run, the memory run of a
+   turn, running or finished. Same parts in the same place: status dot, a tag that says
+   what stands behind the task, the title, a meta line, and the body once it is open. */
 .bgtask-card {
   border-radius: 12px;
   border: 0.5px solid var(--coddy-glass-panel-border);
   background: var(--coddy-surface-raised);
-  padding: 10px 12px;
   margin-bottom: 8px;
+  overflow: hidden;
+  /* The list is a flex column with a scroll of its own; a card that clips its
+     overflow would otherwise be squeezed flat when an open one needs the room. */
+  flex: none;
 }
 
 /* The live cards carry no heading any more, and the heading is what used to
@@ -11063,11 +11001,28 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   margin-top: 10px;
 }
 
+/* The summary is the card's click surface: the opener button inside it is stretched
+   over the whole of it, so a click anywhere but Stop expands the card. */
+.bgtask-card-summary {
+  position: relative;
+  padding: 10px 12px;
+  transition: background-color 0.12s ease;
+}
+
+.bgtask-card-summary:hover {
+  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
+}
+
+.bgtask-card.is-open .bgtask-card-summary {
+  background: color-mix(in srgb, var(--text) 3%, var(--coddy-blend-base));
+}
+
 .bgtask-card-head {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
+  min-height: 24px;
 }
 
 .bgtask-card-open {
@@ -11085,21 +11040,106 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   cursor: pointer;
 }
 
+.bgtask-card-open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.bgtask-card-open:focus-visible {
+  outline: none;
+}
+
+.bgtask-card-open:focus-visible::after {
+  outline: 1.5px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 12px;
+}
+
+/* A task that wakes the agent when it ends (notify_on_finish), or that woke it: a
+   bell right after the title, which gives way before it does. */
+.bgtask-notify {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+  color: color-mix(in srgb, var(--accent) 80%, var(--text));
+}
+
+/* What stands behind the task: the agent's name, "memory", "shell". It leads the
+   title, so a column of cards reads by kind at a glance. */
+.bgtask-tag {
+  flex: 0 0 auto;
+  max-width: 45%;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  color: color-mix(in srgb, var(--accent) 80%, var(--text));
+  background: color-mix(in srgb, var(--accent) 14%, var(--coddy-blend-base));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .bgtask-card-label {
   min-width: 0;
   font-size: 13px;
   font-weight: 600;
-  font-family: var(--mono, ui-monospace, monospace);
   color: color-mix(in srgb, var(--text) 95%, var(--coddy-blend-base));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.bgtask-card.is-finished .bgtask-card-label {
+  color: color-mix(in srgb, var(--text) 82%, var(--coddy-blend-base));
+}
+
+/* Under the title, indented to it: past the dot (9px) and the gap (8px). */
+/* The meta line: how the task is going on the left; for an agent run, the model it
+   runs on and the tokens its calls spent on the right, the way a table of agents
+   reads Model and Tokens across. When the two do not fit side by side the usage
+   drops under the status whole, still at the right edge, rather than cutting the
+   model's name; only a name too long for a line of its own is clipped. */
 .bgtask-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 1px 12px;
+  min-width: 0;
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
   color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
-  padding-top: 4px;
+  padding: 3px 0 0 17px;
+}
+
+.bgtask-card-meta-line {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.bgtask-card-usage {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  margin-left: auto;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
+}
+
+.bgtask-card-model {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bgtask-card-usage-sep,
+.bgtask-card-tokens {
+  flex: none;
+  white-space: pre;
 }
 
 .bgtask-card.is-overdue .bgtask-card-meta {
@@ -11107,68 +11147,113 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 }
 
 .bgtask-card .bgtask-progress {
-  margin-top: 8px;
+  margin: 8px 0 1px 17px;
 }
 
 .bgtask-card.is-overdue .bgtask-progress-fill {
   background: #ff9f0a;
 }
 
-/* Finished history: one scannable line per task. */
-.bgtask-finished-list {
+/* The open card: command or the way to the transcript, the error, the output, the
+   ending. It is outside the stretched opener, so its text selects and its controls
+   click. */
+.bgtask-card-body {
   display: flex;
   flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
   border-top: 0.5px solid
     color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
 }
 
-.bgtask-finished-row {
+.bgtask-card-command {
+  position: relative;
+}
+
+.bgtask-card-command-text,
+.bgtask-card-output {
+  margin: 0;
+  border-radius: 10px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Room on the right for the copy control, which sits in the block's corner. */
+.bgtask-card-command-text {
+  padding: 8px 40px 8px 10px;
+  max-height: 92px;
+  overflow-y: auto;
+}
+
+.bgtask-card-command .md-copy {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+}
+
+.bgtask-card-actions {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 100%;
-  min-width: 0;
-  border: none;
-  border-bottom: 0.5px solid
-    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
-  background: transparent;
-  font: inherit;
-  text-align: left;
-  padding: 8px 2px;
-  min-height: 34px;
-  cursor: pointer;
 }
 
-.bgtask-finished-row:hover {
-  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
-}
-
-.bgtask-finished-label {
-  flex: 1 1 auto;
-  min-width: 0;
+.bgtask-card-error {
   font-size: 12px;
-  font-family: var(--mono, ui-monospace, monospace);
-  color: color-mix(in srgb, var(--text) 82%, var(--coddy-blend-base));
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: color-mix(in srgb, #ff453a 75%, var(--text));
 }
 
-.bgtask-finished-meta {
-  flex: 0 0 auto;
+.bgtask-card-output-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
   font-size: 11px;
-  color: color-mix(in srgb, var(--text) 48%, var(--coddy-blend-base));
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+}
+
+.bgtask-card-truncated {
+  text-transform: none;
+  letter-spacing: 0;
+  color: color-mix(in srgb, #ff9f0a 70%, var(--text));
+}
+
+/* A box of its own height with its own scroll: a chatty task must not turn the
+   panel into one endless column. */
+.bgtask-card-output {
+  padding: 10px;
+  min-height: 56px;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.bgtask-card-foot {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+}
+
+/* Finished history: the same cards, behind the counter. */
+.bgtask-finished-list {
+  display: flex;
+  flex-direction: column;
+  padding-top: 4px;
+}
+
+.bgtask-finished-list .bgtask-dot {
+  box-shadow: none;
 }
 
 .bgtask-finished-more {
   font-size: 11px;
   color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
   padding: 10px 2px 2px;
-}
-
-.bgtasks-panel .bgtask-detail {
-  flex: 1 1 auto;
-  min-height: 0;
 }
 
 @media (max-width: 1199px) {
@@ -11183,53 +11268,20 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
     z-index: 70;
   }
 
-  .bgtask-finished-row {
-    min-height: 40px;
+  /* A thumb needs more of a card to land on, and more of the output to read. */
+  .bgtask-card-summary {
+    padding: 12px;
   }
-}
 
-/* Background tasks opener, under the last message.
-   The tasks belong to this chat and the thing that started them is right above,
-   so the opener sits at the end of the transcript rather than in the global
-   rail. */
-.bgtask-chip-row {
-  display: flex;
-  padding: 6px 0 2px;
-}
+  .bgtask-stop-icon.composer-icon {
+    width: 30px;
+    height: 30px;
+    min-width: 30px;
+    min-height: 30px;
+  }
 
-.bgtask-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 30px;
-  padding: 4px 12px 4px 10px;
-  border-radius: 999px;
-  border: 0.5px solid var(--coddy-glass-panel-border);
-  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.bgtask-chip:hover {
-  color: var(--text);
-  border-color: color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
-}
-
-.bgtask-chip.is-running {
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--accent) 12%, var(--coddy-blend-base));
-  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
-}
-
-.bgtask-chip-text {
-  white-space: nowrap;
-}
-
-@media (max-width: 1199px) {
-  .bgtask-chip {
-    min-height: 36px;
+  .bgtask-card-output {
+    max-height: 46vh;
   }
 }
 
@@ -11242,6 +11294,825 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 /* Docked like Settings: a fixed panel right of the rail with its own scroll, so
    the chat underneath keeps its scroll position instead of the page growing. */
+/* ---- Images in rendered Markdown ---- */
+
+/* A screenshot of the documentation is wider than the column it is read in. */
+.md img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+
+/* ---- Documentation reader (ui/docs/DocsView.tsx) ---- */
+
+/* The same glass dock the swarm screen sits in, but a sheet rather than a
+   floor: it grows no wider than its three columns (240 + 780 + 210, two 32px
+   gaps, 28px either side = 1350px) and stays centred in the space right of
+   the rail, so a wide window neither frames the page in empty glass nor
+   pushes the outline away from the text. The sheet itself does not scroll:
+   its body under the header does (.docs-body). */
+.docs-dock-cluster {
+  position: fixed;
+  top: 14px;
+  bottom: 14px;
+  left: calc(var(--rail-shell-track-width) + var(--nav-floating-gutter));
+  right: 14px;
+  width: min(1350px, calc(100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) - 14px));
+  margin-inline: auto;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--coddy-glass-panel-radius);
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: var(--coddy-glass-panel-shadow);
+}
+
+.docs-view {
+  --docs-inline: 28px;
+  --docs-top: 18px;
+  --docs-bottom: 40px;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  color: var(--text);
+}
+
+/* The header is laid on the columns of the page: the title over the
+   contents, the search over the text, the actions over the outline. It does
+   not scroll: the page scrolls in the body under it, so the scrollbar starts
+   below the search, not beside it. */
+.docs-header {
+  flex: none;
+  position: relative;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: minmax(210px, 240px) minmax(0, 1fr) auto;
+  grid-template-areas: "title search actions";
+  column-gap: 32px;
+  align-items: center;
+  padding: 14px var(--docs-inline) 12px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+}
+
+.docs-title-block {
+  grid-area: title;
+  min-width: 0;
+}
+
+/* Spelled like the head of every other panel (.sessions-head: History,
+   Scheduler, Tasks): small capitals in a 72% text tint. */
+.docs-title {
+  margin: 0;
+  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.docs-subtitle {
+  margin: 2px 0 0;
+  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+/* The search sits over the text column and is as wide as the text. */
+.docs-header-search {
+  grid-area: search;
+  position: relative;
+  width: 100%;
+  max-width: 780px;
+}
+
+.docs-header-actions {
+  grid-area: actions;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* A pill, the accent's own action: it starts a conversation. As tall as the
+   close control beside it (.sessions-close, 30px). */
+.docs-ask {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.docs-ask:hover,
+.docs-ask:focus-visible {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+}
+
+.docs-ask:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.docs-error {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--coddy-surface-muted);
+  border: 1px solid var(--coddy-glass-panel-border);
+  color: color-mix(in srgb, var(--diff-del-no) 70%, var(--text));
+  font-size: 13px;
+}
+
+/* What scrolls: everything under the header. A size container, so the
+   sticky contents and outline can be as tall as the scrollport (100cqh)
+   whatever height the header takes. */
+.docs-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  container-type: size;
+  padding: 0 var(--docs-inline);
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
+}
+
+.docs-body > .docs-error {
+  margin-top: var(--docs-top);
+}
+
+/* Contents, page, and the sections of the page: the page column keeps a
+   reading measure, the two sides take what is left. */
+.docs-layout {
+  box-sizing: border-box;
+  padding: var(--docs-top) 0 var(--docs-bottom);
+  display: grid;
+  grid-template-columns: minmax(210px, 240px) minmax(0, 1fr) minmax(170px, 210px);
+  gap: 32px;
+  align-items: start;
+}
+
+/* The padding keeps the focus ring of a page inside the scrolling column
+   instead of clipped by it. */
+.docs-sidebar {
+  padding: 3px 6px 3px 3px;
+  margin: -3px -6px -3px -3px;
+}
+
+.docs-sidebar,
+.docs-outline {
+  position: sticky;
+  top: var(--docs-top);
+  max-height: calc(100vh - 140px);
+  max-height: calc(100cqh - 2 * var(--docs-top));
+  overflow: auto;
+  font-size: 13px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 20%, transparent) transparent;
+}
+
+.docs-sidebar::-webkit-scrollbar,
+.docs-outline::-webkit-scrollbar,
+.docs-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.docs-sidebar::-webkit-scrollbar-thumb,
+.docs-outline::-webkit-scrollbar-thumb,
+.docs-body::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text) 20%, transparent);
+  border-radius: 999px;
+}
+
+/* The field of the swarm screen's search, with the "/" that focuses it. */
+.docs-search {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--coddy-surface-field);
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 8px 36px 8px 12px;
+  font: inherit;
+  font-size: 14px;
+}
+
+.docs-search:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.docs-search-kbd {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  min-width: 18px;
+  padding: 1px 5px;
+  box-sizing: border-box;
+  border-radius: 5px;
+  border: 1px solid color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+  font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-align: center;
+  pointer-events: none;
+}
+
+/* The results hang under the field, in the menus' glass. */
+.docs-search-results {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: min(62vh, 560px);
+  overflow: auto;
+  padding: 6px;
+  box-sizing: border-box;
+  border-radius: 12px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  /* Opaque: the header around it already blurs, and a blur nested in a blur
+     sees nothing behind it, so a tinted glass here lets the page show
+     through. The canvas colour with a faint text tint on top instead. */
+  background:
+    linear-gradient(
+      color-mix(in srgb, var(--text) 5%, transparent),
+      color-mix(in srgb, var(--text) 5%, transparent)
+    ),
+    var(--bg);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  scrollbar-width: thin;
+}
+
+.docs-search-results .docs-empty {
+  margin: 6px 8px;
+}
+
+.docs-toc-toggle {
+  display: none;
+}
+
+.docs-toc-group + .docs-toc-group {
+  margin-top: 16px;
+}
+
+.docs-toc-group-title,
+.docs-outline-title {
+  margin: 0 0 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+}
+
+.docs-toc ul,
+.docs-outline ul,
+.docs-hits {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* A page of the contents reads like a Settings tab: the same radius, tint
+   and accent frame for the one being read. */
+.docs-toc-page {
+  display: block;
+  padding: 5px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  text-decoration: none;
+  line-height: 1.35;
+}
+
+.docs-toc-page:hover:not(.is-active) {
+  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  color: var(--text);
+}
+
+.docs-toc-page.is-active {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.docs-toc-page:focus-visible,
+.docs-outline a:focus-visible,
+.docs-hit:focus-visible,
+.docs-pager-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* On this page: a thin rule on the left, the section being read on it. */
+.docs-outline ul {
+  gap: 0;
+  border-left: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+}
+
+.docs-outline a {
+  display: block;
+  margin-left: -1px;
+  padding: 4px 10px;
+  border-left: 2px solid transparent;
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  text-decoration: none;
+  line-height: 1.35;
+}
+
+.docs-outline a:hover {
+  color: var(--text);
+}
+
+.docs-outline-l3 a {
+  padding-left: 22px;
+  font-size: 12px;
+}
+
+.docs-outline a.is-active {
+  color: var(--text);
+  border-left-color: var(--accent);
+}
+
+.docs-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.docs-hit:hover {
+  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+}
+
+.docs-hit.is-selected {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+.docs-hit-title {
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.docs-hit-heading {
+  font-weight: 400;
+  color: color-mix(in srgb, var(--text) 68%, var(--coddy-blend-base));
+}
+
+.docs-hit-snippet {
+  font-size: 12px;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.docs-hit-snippet mark {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  color: var(--text);
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+.docs-empty {
+  margin: 0 0 0 10px;
+  font-size: 13px;
+  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+}
+
+.docs-article {
+  min-width: 0;
+  max-width: 780px;
+  padding-top: 4px;
+}
+
+/* The page on screen while the next one loads. */
+.docs-article.is-loading {
+  opacity: 0.55;
+  transition: opacity 0.15s;
+}
+
+.docs-ask:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.docs-breadcrumb {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+}
+
+.docs-site-link {
+  flex: 0 0 auto;
+  color: inherit;
+  text-decoration: none;
+}
+
+.docs-site-link:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+/* Reading, not chatting: a larger body, air between blocks, headings that
+   divide the page. Scoped here so the transcript keeps its own density. */
+.docs-article .md {
+  font-size: 15px;
+  line-height: 1.68;
+}
+
+.docs-article .md :where(p + p) {
+  margin-top: 12px;
+}
+
+.docs-article .md :where(p, ul, ol, .md-code, .md-table-scroll, blockquote) {
+  margin-bottom: 14px;
+}
+
+.docs-article .md :where(h1) {
+  margin: 4px 0 16px;
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.docs-article .md :where(h2) {
+  margin: 36px 0 12px;
+  padding-bottom: 8px;
+  font-size: 20px;
+  font-weight: 600;
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+}
+
+.docs-article .md :where(h3) {
+  margin: 28px 0 10px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.docs-article .md :where(h4) {
+  margin: 22px 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.docs-article .md :where(a) {
+  color: color-mix(in srgb, var(--accent) 72%, var(--text));
+  text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  text-underline-offset: 2px;
+}
+
+.docs-article .md :where(a:hover) {
+  text-decoration-color: currentColor;
+}
+
+.docs-article .md img {
+  display: block;
+  margin: 14px 0 6px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  cursor: zoom-in;
+}
+
+/* A recording of the documentation, fetched from GitHub when it plays. */
+.md video.md-video {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin: 14px 0 6px;
+  border-radius: 10px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: #000;
+}
+
+/* An image opened over everything (ui/docs/ImageLightbox.tsx): the bar with
+   the caption, the zoom and the close control, and a stage that scrolls when
+   the image is larger than the window. */
+.docs-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.docs-lightbox-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  color: var(--text);
+}
+
+.docs-lightbox-caption {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+}
+
+/* The zoom controls take the close control's frame. */
+.docs-lightbox-btn,
+.docs-lightbox-level {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  min-width: 34px;
+  padding: 0 8px;
+  white-space: nowrap;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  background: rgba(20, 20, 22, 0.35);
+  color: color-mix(in srgb, var(--text) 85%, var(--coddy-blend-base));
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.docs-lightbox-level {
+  min-width: 58px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.docs-lightbox-btn:hover:not(:disabled),
+.docs-lightbox-level:hover,
+.docs-lightbox-btn:focus-visible,
+.docs-lightbox-level:focus-visible {
+  background: color-mix(in srgb, var(--text) 12%, rgba(20, 20, 22, 0.35));
+  border-color: color-mix(in srgb, var(--text) 18%, var(--coddy-blend-base));
+  color: var(--text);
+}
+
+.docs-lightbox-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.docs-lightbox-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  overflow: auto;
+  padding: 0 24px 24px;
+}
+
+/* A flex item shrinks to the stage by default, which would undo the zoom. */
+.docs-lightbox-stage img {
+  flex: none;
+  margin: auto;
+  border-radius: 8px;
+  box-shadow: var(--coddy-glass-panel-shadow);
+}
+
+.docs-lightbox-stage img.is-fit {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  cursor: zoom-in;
+}
+
+.docs-lightbox-stage img.is-zoomed {
+  max-width: none;
+  max-height: none;
+  cursor: zoom-out;
+}
+
+/* A page of the documentation named in a sent message or an answer, as
+   @coddy:<page>#<section>: a link to the reader, in the colour the composer
+   gives a mention. */
+.coddy-doc-mention,
+.md a.md-docs-link {
+  color: color-mix(in srgb, var(--accent) 72%, var(--text));
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  text-underline-offset: 2px;
+}
+
+.coddy-doc-mention:hover,
+.md a.md-docs-link:hover {
+  text-decoration-color: currentColor;
+}
+
+/* A heading scrolled to by its anchor keeps the gap the page starts with. */
+.docs-article h1,
+.docs-article h2,
+.docs-article h3,
+.docs-article h4 {
+  scroll-margin-top: var(--docs-top);
+}
+
+/* The "#" after a section heading, GitHub style: the address of the
+   section, shown while the heading is pointed at. */
+.docs-heading-anchor {
+  margin-left: 8px;
+  font-weight: 400;
+  color: color-mix(in srgb, var(--text) 40%, var(--coddy-blend-base));
+  text-decoration: none;
+  opacity: 0;
+  user-select: none;
+  transition: opacity 0.12s;
+}
+
+.docs-article :is(h2, h3, h4):hover .docs-heading-anchor,
+.docs-heading-anchor:focus-visible {
+  opacity: 1;
+}
+
+.docs-heading-anchor:hover {
+  color: var(--accent);
+}
+
+.docs-pager {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 40px;
+  padding-top: 18px;
+  border-top: 1px solid color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+}
+
+.docs-pager-link {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-surface-subtle);
+  color: var(--text);
+  text-decoration: none;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.docs-pager-link:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.docs-pager-next {
+  grid-column: 2;
+  text-align: right;
+}
+
+.docs-pager-dir {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+}
+
+.docs-pager-title {
+  font-weight: 500;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .docs-lightbox-btn,
+  .docs-lightbox-level,
+  .docs-article.is-loading,
+  .docs-ask,
+  .docs-pager-link,
+  .docs-heading-anchor {
+    transition: none;
+  }
+}
+
+/* The outline goes first when the window narrows; the contents fold into a
+   button above the page on the stacked shell. */
+@media (max-width: 1279px) {
+  .docs-layout {
+    grid-template-columns: minmax(210px, 240px) minmax(0, 1fr);
+  }
+  .docs-outline {
+    display: none;
+  }
+}
+
+@media (max-width: 1199px) {
+  /* Below the top bar the stacked shell puts the rail in, and above the
+     shell's backdrop, which rises to 60 on this shell (as Settings does). */
+  .docs-dock-cluster {
+    z-index: 70;
+    left: max(8px, env(safe-area-inset-left, 0px));
+    right: max(8px, env(safe-area-inset-right, 0px));
+    top: calc(var(--coddy-mobile-top-inset) + 6px);
+    bottom: 8px;
+    width: auto;
+    margin-inline: 0;
+  }
+  .docs-view {
+    --docs-inline: 16px;
+    --docs-top: 14px;
+    --docs-bottom: 28px;
+  }
+  .docs-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "title actions"
+      "search search";
+    row-gap: 10px;
+    padding: 12px var(--docs-inline) 10px;
+  }
+  .docs-header-search {
+    max-width: none;
+  }
+  .docs-search-kbd {
+    display: none;
+  }
+  .docs-subtitle {
+    display: none;
+  }
+  .docs-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  .docs-sidebar {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    padding: 0;
+    margin: 0;
+  }
+  .docs-toc-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    box-sizing: border-box;
+    font: inherit;
+    font-size: 14px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--coddy-glass-panel-border);
+    background: var(--coddy-surface-subtle);
+    color: var(--text);
+    cursor: pointer;
+  }
+  .docs-toc {
+    display: none;
+    margin-top: 10px;
+  }
+  .docs-sidebar.is-open .docs-toc {
+    display: block;
+  }
+  .docs-article .md {
+    font-size: 15px;
+  }
+  .docs-article .md :where(h1) {
+    font-size: 24px;
+  }
+  .docs-pager {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .docs-pager-next {
+    grid-column: 1;
+  }
+}
+
 .swarm-dock-cluster {
   position: fixed;
   top: 14px;
@@ -11258,10 +12129,14 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 }
 
 @media (max-width: 1199px) {
+  /* Above the shell's backdrop, which rises to 60 on this shell and which
+     #/swarm opens, and below the top bar the stacked shell puts the rail in,
+     as the settings drawer and the documentation reader sit. */
   .swarm-dock-cluster {
-    left: 8px;
-    right: 8px;
-    top: 8px;
+    z-index: 70;
+    left: max(8px, env(safe-area-inset-left, 0px));
+    right: max(8px, env(safe-area-inset-right, 0px));
+    top: calc(var(--coddy-mobile-top-inset) + 6px);
     bottom: 8px;
   }
 }

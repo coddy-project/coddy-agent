@@ -7,8 +7,12 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 import { Composer } from "./Composer";
+import {
+  recordWorkspaceAtRecent,
+  WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
+} from "../skills/workspaceAtRecents";
 
 afterEach(() => cleanup());
 
@@ -189,6 +193,55 @@ test("send play disabled when input empty", () => {
     expect(onSend).toHaveBeenCalledTimes(1);
     expect(onSend).toHaveBeenCalledWith("test input");
   });
+
+test("the slash menu lists /docs where the reader can open", async () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: true,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+    onchange: null,
+  }));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () =>
+          String(url).includes("/coddy/commands")
+            ? { object: "coddy.commands", items: [{ name: "compact", description: "Summarize" }] }
+            : { items: [], has_more: false, page: 1 },
+      }),
+    ),
+  );
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={setValue}
+        onSend={() => {}}
+        onDocsCommand={() => {}}
+      />
+    );
+  }
+  render(<Harness />);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, { target: { value: "/do", selectionStart: 3, selectionEnd: 3 } });
+  // No skill matches "do", yet the menu stays open on the command.
+  await waitFor(() => {
+    expect(screen.getByTestId("command-row-docs")).toBeTruthy();
+  });
+  expect(screen.getByTestId("command-row-docs").textContent).toContain("documentation");
+  vi.unstubAllGlobals();
+});
 
 test("Tab key selects first slash command from picker", async () => {
   vi.stubGlobal("matchMedia", (query: string) => ({
@@ -420,10 +473,67 @@ test("slash menu shows a Commands group from /coddy/commands", async () => {
     expect(screen.getByTestId("command-row-compact")).toBeTruthy();
   });
   expect(screen.getByTestId("command-row-plugin")).toBeTruthy();
+  // /docs is the browser's own: listed only where it can open the reader.
+  expect(screen.queryByTestId("command-row-docs")).toBeNull();
   expect(screen.getByText("Commands")).toBeTruthy();
   expect(screen.getByTestId("slash-command-row-some-skill")).toBeTruthy();
 
   vi.unstubAllGlobals();
+});
+
+// /docs is the console's help command; in the web UI it opens the reader
+// instead of going to the agent as a prompt.
+describe("/docs", () => {
+  function renderWith(value: string, extra: Partial<Parameters<typeof Composer>[0]> = {}) {
+    const onSend = vi.fn();
+    const onDocsCommand = vi.fn();
+    const onQueue = vi.fn();
+    render(
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={() => {}}
+        onSend={onSend}
+        onQueue={onQueue}
+        onDocsCommand={onDocsCommand}
+        {...extra}
+      />,
+    );
+    return { onSend, onDocsCommand, onQueue };
+  }
+
+  test("opens the reader with what follows it, and sends nothing", () => {
+    const { onSend, onDocsCommand } = renderWith("  /docs telegram proxy ");
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Enter" });
+    expect(onDocsCommand).toHaveBeenCalledWith("telegram proxy");
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  test("the send button does the same", () => {
+    const { onSend, onDocsCommand } = renderWith("/docs");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(onDocsCommand).toHaveBeenCalledWith("");
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  test("works while a turn runs instead of joining the queue", () => {
+    const { onQueue, onDocsCommand } = renderWith("/docs features/mentions#completion", {
+      generating: true,
+    });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Enter" });
+    expect(onDocsCommand).toHaveBeenCalledWith("features/mentions#completion");
+    expect(onQueue).not.toHaveBeenCalled();
+  });
+
+  test("a word that only starts like it is an ordinary prompt", () => {
+    const { onSend, onDocsCommand } = renderWith("/docsify the readme");
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Enter" });
+    expect(onDocsCommand).not.toHaveBeenCalled();
+    expect(onSend).toHaveBeenCalledWith("/docsify the readme");
+  });
 });
 
 test("generating shows stop and calls onStop", () => {
@@ -1103,8 +1213,8 @@ test("image attachments render a thumbnail; non-image ones keep the icon", () =>
   const createObjectURL = vi.fn(() => "blob:coddy-thumb-1");
   const revokeObjectURL = vi.fn();
   const urlCtor = URL as unknown as {
-    createObjectURL?: (f: File) => string;
-    revokeObjectURL?: (u: string) => void;
+    createObjectURL?: ((f: File) => string) | undefined;
+    revokeObjectURL?: ((u: string) => void) | undefined;
   };
   const origCreate = urlCtor.createObjectURL;
   const origRevoke = urlCtor.revokeObjectURL;
@@ -1650,5 +1760,332 @@ test("switching sessions closes the range picker and refetches on the next digit
   await waitFor(() => {
     expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
   });
+  vi.unstubAllGlobals();
+});
+
+// --- "@" mention picker (GET /coddy/mentions) ---
+
+type MentionStubRow = {
+  kind: string;
+  insert: string;
+  label: string;
+  detail?: string;
+  continue?: boolean;
+};
+
+/** Answers GET /coddy/mentions from a map keyed by the query; records every URL. */
+function stubMentionsFetch(answers: Record<string, { items: MentionStubRow[]; total?: number }>) {
+  const urls: string[] = [];
+  const fetchMock = vi.fn((input: string) => {
+    urls.push(String(input));
+    const u = new URL(String(input), "http://x");
+    if (u.pathname === "/coddy/mentions") {
+      const a = answers[u.searchParams.get("q") ?? ""] ?? { items: [] };
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ items: a.items, total: a.total ?? a.items.length }),
+      });
+    }
+    return Promise.resolve({ ok: false, status: 404, json: async () => ({}) });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return urls;
+}
+
+function MentionHarness(props: {
+  onChange: (v: string) => void;
+  generating?: boolean;
+}) {
+  const [value, setValue] = useState("");
+  return (
+    <Composer
+      value={value}
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      generating={props.generating ?? false}
+      onModeChange={() => {}}
+      onChange={(v) => {
+        setValue(v);
+        props.onChange(v);
+      }}
+      onSend={() => {}}
+    />
+  );
+}
+
+function typeDraft(ta: HTMLElement, value: string) {
+  fireEvent.change(ta, {
+    target: { value, selectionStart: value.length, selectionEnd: value.length },
+  });
+}
+
+test("the @ picker asks the server's search and names each candidate's kind", async () => {
+  stubShell(true);
+  const urls = stubMentionsFetch({
+    app: {
+      items: [
+        { kind: "file", insert: "@external/cli/app.go", label: "external/cli/app.go", detail: "external/cli/" },
+        { kind: "session", insert: "@session:sess_1", label: "App refactor", detail: "sess_1" },
+      ],
+      total: 7,
+    },
+  });
+  render(<MentionHarness onChange={() => {}} />);
+  typeDraft(screen.getByRole("textbox", { name: "Message" }), "@app");
+
+  await waitFor(() => {
+    expect(screen.getByTestId("mention-row-file-external_cli_app_go")).toBeTruthy();
+  });
+  const first = urls.find((u) => u.startsWith("/coddy/mentions?"));
+  expect(first).toContain("q=app");
+  // The picker just opened: the server rebuilds its workspace index.
+  expect(first).toContain("refresh=1");
+  expect(screen.getByTestId("mention-row-session-App_refactor")).toHaveTextContent("session");
+  expect(screen.getByTestId("mention-more")).toHaveTextContent("2 of 7, type to narrow");
+  vi.unstubAllGlobals();
+});
+
+test("arrow keys pick the row that enter inserts, with a space after it", async () => {
+  stubShell(true);
+  stubMentionsFetch({
+    rea: {
+      items: [
+        { kind: "file", insert: "@README.md", label: "README.md" },
+        { kind: "file", insert: "@internal/agent/react.go", label: "internal/agent/react.go" },
+      ],
+    },
+  });
+  const onChange = vi.fn();
+  render(<MentionHarness onChange={onChange} generating={true} />);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  typeDraft(ta, "see @rea");
+  await waitFor(() => {
+    expect(screen.getByTestId("mention-row-file-README_md")).toBeTruthy();
+  });
+  fireEvent.keyDown(ta, { key: "ArrowDown" });
+  await waitFor(() => {
+    expect(
+      screen.getByTestId("mention-row-file-internal_agent_react_go"),
+    ).toHaveAttribute("aria-selected", "true");
+  });
+  // The composer takes input while a turn runs, and so does the picker.
+  fireEvent.keyDown(ta, { key: "Enter" });
+  expect(onChange).toHaveBeenLastCalledWith("see @internal/agent/react.go ");
+  vi.unstubAllGlobals();
+});
+
+test("the server's answer keeps the row the arrows moved to among the recent picks", async () => {
+  stubShell(true);
+  localStorage.clear();
+  recordWorkspaceAtRecent(WORKSPACE_AT_RECENTS_NO_SESSION_KEY, { path_rel: "b.go", kind: "file" });
+  recordWorkspaceAtRecent(WORKSPACE_AT_RECENTS_NO_SESSION_KEY, { path_rel: "a.go", kind: "file" });
+  let answer: (v: unknown) => void = () => {};
+  const pending = new Promise((resolve) => {
+    answer = resolve;
+  });
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: string) =>
+      String(input).startsWith("/coddy/mentions?")
+        ? pending.then(() => ({
+            ok: true,
+            json: async () => ({
+              items: [{ kind: "scheme", insert: "@session:", label: "session:", continue: true }],
+              total: 1,
+            }),
+          }))
+        : Promise.resolve({ ok: false, status: 404, json: async () => ({}) }),
+    ),
+  );
+  render(<MentionHarness onChange={() => {}} />);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  typeDraft(ta, "@");
+  await waitFor(() => {
+    expect(screen.getByTestId("mention-row-file-b_go")).toBeTruthy();
+  });
+  fireEvent.keyDown(ta, { key: "ArrowDown" });
+  await waitFor(() => {
+    expect(screen.getByTestId("mention-row-file-b_go")).toHaveAttribute("aria-selected", "true");
+  });
+  answer(null);
+  await waitFor(() => {
+    expect(screen.getByTestId("mention-row-scheme-session_")).toBeTruthy();
+  });
+  expect(screen.getByTestId("mention-row-file-b_go")).toHaveAttribute("aria-selected", "true");
+  localStorage.clear();
+  vi.unstubAllGlobals();
+});
+
+test("the composer chips only the mentions the server says a send would attach", async () => {
+  stubShell(true);
+  const checks: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: string, init?: RequestInit) => {
+      if (String(input) === "/coddy/mentions/check") {
+        checks.push(String(init?.body ?? ""));
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            object: "coddy.mention_check",
+            mentions: [
+              { token: "@google/genai" },
+              { token: "@README.md", typed: "@README.md", kind: "file" },
+            ],
+          }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ items: [], total: 0 }) });
+    }),
+  );
+  render(<MentionHarness onChange={() => {}} />);
+  typeDraft(
+    screen.getByRole("textbox", { name: "Message" }),
+    "npm install @google/genai and read @README.md please",
+  );
+  // A package name is not a file: only the mention that resolves is a chip.
+  await waitFor(() => {
+    expect(
+      screen.getAllByTestId("composer-at-chip").map((el) => el.textContent),
+    ).toEqual(["@README.md"]);
+  });
+  expect(JSON.parse(checks[checks.length - 1] ?? "{}")).toEqual({
+    text: "npm install @google/genai and read @README.md please",
+  });
+  vi.unstubAllGlobals();
+});
+
+test("a folder row keeps the picker open on what it holds", async () => {
+  stubShell(true);
+  const urls = stubMentionsFetch({
+    src: { items: [{ kind: "directory", insert: "@src/", label: "src/", continue: true }] },
+    "src/": { items: [{ kind: "file", insert: "@src/app.go", label: "src/app.go" }] },
+  });
+  const onChange = vi.fn();
+  render(<MentionHarness onChange={onChange} />);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  typeDraft(ta, "@src");
+  await waitFor(() => {
+    expect(screen.getByTestId("mention-row-directory-src_")).toBeTruthy();
+  });
+  fireEvent.keyDown(ta, { key: "Tab" });
+  expect(onChange).toHaveBeenLastCalledWith("@src/");
+  await waitFor(() => {
+    expect(urls.some((u) => u.includes("q=src%2F"))).toBe(true);
+  });
+  vi.unstubAllGlobals();
+});
+
+test("the permission chip names the session's mode and switches it (#292)", () => {
+  const picked: string[] = [];
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan", "ask"]}
+      permissionMode="bypass"
+      configuredPermissionMode="ask"
+      onPermissionModeChange={(m) => picked.push(m)}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const chip = screen.getByTestId("composer-permission");
+  expect(chip.textContent).toBe("Bypass");
+  expect(chip.className).toContain("perm-bypass");
+  expect(chip.getAttribute("title")).toContain("Ask first");
+  fireEvent.click(chip);
+  fireEvent.click(screen.getByRole("menuitem", { name: "Ask first" }));
+  expect(picked).toEqual(["ask"]);
+});
+
+test("the permission chip is not shown without a handler", () => {
+  renderComposer({ isEmpty: false });
+  expect(screen.queryByTestId("composer-permission")).toBeNull();
+});
+
+test("the settings armed for the next turns are shown next to the selectors", () => {
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      settingsOverrides={[
+        { setting: "model", value: "nd/gpt-oss-120b", turnsLeft: 2, active: true },
+        { setting: "reasoning", value: "off", turnsLeft: 1 },
+      ]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const chip = screen.getByTestId("composer-overrides");
+  expect(chip.textContent).toBe("nd/gpt-oss-120b this turn and 2 more +1");
+  expect(chip.getAttribute("title")).toContain("off, 1 turn left");
+});
+
+test("picking /plan in the / menu switches the mode instead of typing it", async () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: true,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+    onchange: null,
+  }));
+  const fetchMock = vi.fn((url: string) => {
+    if (String(url).includes("/coddy/commands")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          object: "coddy.commands",
+          items: [
+            {
+              name: "plan",
+              description: "Plan mode",
+              kind: "setting",
+              hint: "[--once|--count=N]",
+            },
+          ],
+        }),
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      json: async () => ({ items: [], has_more: false, page: 1 }),
+    });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const modes: string[] = [];
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan", "ask"]}
+        onModeChange={(m) => modes.push(m)}
+        onChange={setValue}
+        onSend={() => {}}
+      />
+    );
+  }
+  render(<Harness />);
+  const ta = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+  fireEvent.change(ta, {
+    target: { value: "/pl", selectionStart: 3, selectionEnd: 3 },
+  });
+  const row = await screen.findByTestId("command-row-plan");
+  expect(row.textContent).toContain("[--once|--count=N]");
+  fireEvent.mouseDown(row);
+  expect(modes).toEqual(["plan"]);
+  expect(ta.value).toBe("");
   vi.unstubAllGlobals();
 });

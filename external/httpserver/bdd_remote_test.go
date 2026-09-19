@@ -175,7 +175,7 @@ func (s *remoteFeatureState) do(req *http.Request) error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	s.status = res.StatusCode
 	raw, _ := io.ReadAll(res.Body)
 	s.rawBody = string(raw)

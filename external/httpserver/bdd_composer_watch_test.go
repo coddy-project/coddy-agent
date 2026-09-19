@@ -36,6 +36,8 @@ const watchFeatureReply = "the watched answer"
 const (
 	watchFirstStep  = "the step already persisted"
 	watchSecondStep = "the step still streaming"
+	// watchTurnTokens is what the two-step turn says it has generated so far.
+	watchTurnTokens = 321
 )
 
 type composerWatchState struct {
@@ -61,6 +63,9 @@ type composerWatchState struct {
 
 	eventsBody  *bufio.Reader
 	closeEvents func()
+
+	// activityStartedAt is the turn start GET .../activity reported.
+	activityStartedAt string
 }
 
 func (s *composerWatchState) reset() {
@@ -116,6 +121,15 @@ func (s *composerWatchState) startServer() error {
 				Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: watchFirstStep},
 			})
 			st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: watchFirstStep})
+			// What the agent loop does after a model call: keep the count on the
+			// session for a client that joins late, and tell the ones watching.
+			st.SetTurnOutputTokens(watchTurnTokens, true)
+			_ = sender.SendSessionUpdate(st.GetID(), acp.TurnProgressUpdate{
+				SessionUpdate: acp.UpdateTypeTurnProgress,
+				StartedAt:     time.Now().UTC().Format(time.RFC3339Nano),
+				OutputTokens:  watchTurnTokens,
+				Estimated:     true,
+			})
 			_ = sender.SendSessionUpdate(st.GetID(), acp.MessageChunkUpdate{
 				SessionUpdate: acp.UpdateTypeAgentMessageChunk,
 				Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: watchSecondStep},
@@ -169,7 +183,7 @@ func (s *composerWatchState) scriptStartsNonStreamingTurn() error {
 		if err != nil {
 			return
 		}
-		defer res.Body.Close()
+		defer func() { _ = res.Body.Close() }()
 		body, _ := io.ReadAll(res.Body)
 		s.scriptStatus = res.StatusCode
 		s.scriptBody = string(body)
@@ -204,7 +218,7 @@ func (s *composerWatchState) clientLoadsTranscript() error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	var body struct {
 		Messages    []map[string]any `json:"messages"`
 		MessagesRev *uint64          `json:"messagesRev"`
@@ -235,7 +249,7 @@ func (s *composerWatchState) clientSubscribesAfterTranscript() error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return errStatus("composer stream not served", res.StatusCode, "")
 	}
@@ -277,7 +291,7 @@ func (s *composerWatchState) secondClientSubscribes() error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return errStatus("composer stream not served", res.StatusCode, "")
 	}
@@ -336,13 +350,13 @@ func (s *composerWatchState) subscribesToServerEvents() error {
 	}
 	if res.StatusCode != http.StatusOK {
 		cancel()
-		res.Body.Close()
+		_ = res.Body.Close()
 		return errStatus("events stream", res.StatusCode, "")
 	}
 	s.eventsBody = bufio.NewReader(res.Body)
 	s.closeEvents = func() {
 		cancel()
-		res.Body.Close()
+		_ = res.Body.Close()
 	}
 	// Drain the connect-time snapshot so later reads see only new events.
 	return s.awaitEventFrame("event: ready")
@@ -386,6 +400,93 @@ func (s *composerWatchState) toldTurnEnded() error {
 	return s.awaitEventFrame("turn_ended")
 }
 
+// clientReadsActivity is what a reloaded tab polls: the relay will not replay the
+// progress frames its transcript snapshot already covers, so the numbers come from here.
+func (s *composerWatchState) clientReadsActivity() error {
+	// The turn was admitted a moment ago; let its clock move off zero.
+	time.Sleep(30 * time.Millisecond)
+	res, err := s.ts.Client().Get(s.ts.URL + "/coddy/sessions/" + url.PathEscape(s.sessionID) + "/activity")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	var body struct {
+		TurnActive          bool   `json:"turnActive"`
+		TurnStartedAt       string `json:"turnStartedAt"`
+		TurnElapsedMs       *int64 `json:"turnElapsedMs"`
+		TurnOutputTokens    *int   `json:"turnOutputTokens"`
+		TurnTokensEstimated *bool  `json:"turnTokensEstimated"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		return err
+	}
+	if !body.TurnActive {
+		return fmt.Errorf("the activity does not report the running turn")
+	}
+	started, err := time.Parse(time.RFC3339Nano, body.TurnStartedAt)
+	if err != nil {
+		return fmt.Errorf("turnStartedAt %q: %w", body.TurnStartedAt, err)
+	}
+	if age := time.Since(started); age < 0 || age > time.Minute {
+		return fmt.Errorf("turnStartedAt %v is not the start of this turn", started)
+	}
+	if body.TurnElapsedMs == nil || *body.TurnElapsedMs < 30 {
+		return fmt.Errorf("turnElapsedMs = %v, want the age of the turn", body.TurnElapsedMs)
+	}
+	if body.TurnOutputTokens == nil || *body.TurnOutputTokens != watchTurnTokens {
+		return fmt.Errorf("turnOutputTokens = %v, want %d", body.TurnOutputTokens, watchTurnTokens)
+	}
+	if body.TurnTokensEstimated == nil || !*body.TurnTokensEstimated {
+		return fmt.Errorf("turnTokensEstimated = %v, want true", body.TurnTokensEstimated)
+	}
+	s.activityStartedAt = body.TurnStartedAt
+	return nil
+}
+
+func (s *composerWatchState) activityNamesStartAndTokens() error {
+	if s.activityStartedAt == "" {
+		return fmt.Errorf("the activity was not read")
+	}
+	return nil
+}
+
+// eventsSnapshotCarriesTheSameStart connects mid-turn: the snapshot has to say when the
+// turn started, not when this client connected.
+func (s *composerWatchState) eventsSnapshotCarriesTheSameStart() error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.ts.URL+"/coddy/events", nil)
+	if err != nil {
+		return err
+	}
+	res, err := s.ts.Client().Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	reader := bufio.NewReader(res.Body)
+	var snapshot strings.Builder
+	for !strings.Contains(snapshot.String(), "event: ready") {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("read events snapshot (seen %q): %w", snapshot.String(), err)
+		}
+		snapshot.WriteString(line)
+	}
+	if want := `"at":"` + s.activityStartedAt + `"`; !strings.Contains(snapshot.String(), want) {
+		return fmt.Errorf("the snapshot does not carry the turn start %s: %s", want, snapshot.String())
+	}
+	return nil
+}
+
+func (s *composerWatchState) watcherSawTurnProgress() error {
+	if !strings.Contains(s.watched, "event: turn_progress") ||
+		!strings.Contains(s.watched, fmt.Sprintf(`"outputTokens":%d`, watchTurnTokens)) {
+		return fmt.Errorf("watched stream is missing the turn progress: %s", s.watched)
+	}
+	return nil
+}
+
 func (s *composerWatchState) watcherToldNoActiveStream() error {
 	if !strings.Contains(s.watched, "no_active_stream") {
 		return fmt.Errorf("watcher was not told the session is idle: %s", s.watched)
@@ -426,6 +527,10 @@ func initializeComposerWatchScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the client subscribes to the composer stream after that transcript$`, s.clientSubscribesAfterTranscript)
 	sc.Step(`^the watching client receives the text of the step still streaming$`, s.watcherSawStreamingStep)
 	sc.Step(`^the watching client does not receive the step its transcript already holds$`, s.watcherSkippedPersistedStep)
+	sc.Step(`^a client reads the activity of that session$`, s.clientReadsActivity)
+	sc.Step(`^the activity says when the turn started and how many tokens it has generated$`, s.activityNamesStartAndTokens)
+	sc.Step(`^a client connecting to the server event stream is told the same start$`, s.eventsSnapshotCarriesTheSameStart)
+	sc.Step(`^the watching client receives the progress of the turn$`, s.watcherSawTurnProgress)
 }
 
 func TestComposerLiveWatchFeature(t *testing.T) {

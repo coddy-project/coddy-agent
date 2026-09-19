@@ -6,8 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
 )
 
 // TestDetectGitBranchGivesUpOnAHungGit pins the bound behind the footer's
@@ -48,5 +51,40 @@ func TestDetectGitBranchReadsTheBranch(t *testing.T) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	if got := detectGitBranch(t.TempDir()); got != "feature/x" {
 		t.Fatalf("branch = %q, want feature/x", got)
+	}
+}
+
+func TestFooterNamesRunningTasksAndTheCommandThatListsThem(t *testing.T) {
+	f := newFooter(newTheme("dark"), "/work")
+	if got := strings.Join(f.Render(120), "\n"); strings.Contains(got, "running") {
+		t.Fatalf("an idle session names running tasks:\n%s", got)
+	}
+	f.SetRunningTasks(1)
+	if got := f.Render(120)[0]; !strings.Contains(got, "1 task running (/tasks)") {
+		t.Fatalf("footer = %q", got)
+	}
+	f.SetRunningTasks(3)
+	if got := f.Render(120)[0]; !strings.Contains(got, "3 tasks running (/tasks)") {
+		t.Fatalf("footer = %q", got)
+	}
+}
+
+// A long working directory - a macOS temp folder, a deep monorepo path - must not push
+// the running tasks off the line: the path gives way, the count and the command that
+// lists the tasks stay.
+func TestFooterKeepsTheRunningTasksWhenThePathIsLong(t *testing.T) {
+	cwd := "/var/folders/36/tjdph2t965j8snz9_vkdnw0r0000gn/T/coddy-cli-bdd-1789734719342464000/work"
+	f := newFooter(newTheme("dark"), cwd)
+	f.title = "Session manager walkthrough"
+	f.SetRunningTasks(1)
+	line := f.Render(100)[0]
+	if !strings.Contains(line, "1 task running (/tasks)") {
+		t.Fatalf("the running tasks fell off the footer:\n%s", line)
+	}
+	if got := tui.VisibleWidth(line); got > 100 {
+		t.Fatalf("footer line is %d cells wide, want at most 100", got)
+	}
+	if !strings.Contains(line, "/var/folders") {
+		t.Fatalf("the path vanished instead of giving way:\n%s", line)
 	}
 }

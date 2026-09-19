@@ -24,7 +24,9 @@ func openAPISpec() map[string]interface{} {
 			"description": "OpenAI-compatible endpoints backed by Coddy sessions and agents. **`GET /v1/models`** returns one list: **agent**, **plan**, and **ask** first (**`owned_by`**: **`coddy`**), then every configured **`models[].model`** row (**`id`** is the YAML selector, **`owned_by`** is the provider prefix). " +
 				"Classify POST **model** values: **agent** / **plan** / **ask** run the ReAct agent; a selector with **provider/rest** form (see config) that appears in **`models`** triggers a single direct LLM completion (no tools). " +
 				"**`metadata.model`** may appear only on agent/plan/ask requests to set the session **`SelectedModelID`**; it is **not** allowed on direct completion. " +
-				"**`metadata.reasoning`** (optional, agent/plan/ask only) sets the reasoning level; it must be one of the effective model's **`reasoning_levels`** (or null/empty to clear). Levels map to provider controls (**`reasoning_effort`**; **`qwen3*`** models on OpenAI-compatible providers also pin **`chat_template_kwargs.enable_thinking`** on). " +
+				"**`metadata.reasoning`** (optional, agent/plan/ask only) sets the reasoning level; it must be one of the effective model's **`reasoning_levels`**, or **`off`** where the model's provider can turn thinking off (null/empty clears). Levels map to provider controls (**`reasoning_effort`**; **`qwen3*`** models on OpenAI-compatible providers also pin **`chat_template_kwargs.enable_thinking`**, off included). " +
+				"These values change the session only where they differ from it, quietly (no transcript notice); **`metadata.settingsVersion`**, the **version** of the last settings snapshot the client applied, makes the server ignore them when a newer snapshot has been published since (the model was switched from another surface). " +
+				"An **input** that starts with settings commands (**`/model`**, **`/reasoning`**, **`/think`**, **`/nothink`**, **`/agent`**, **`/plan`**, **`/ask`**, **`/permissions`**, each with **`--once`** or **`--count=N`**) applies them first; when nothing else is left no turn runs and the answer is a one-line notice. " +
 				"JSON and SSE responses include **`metadata`** with the effective YAML model selector (**`metadata.model`**); streamed runs over **`POST /v1/responses`** emit a final **`event: coddy_meta`** JSON payload with the same map before **`data: [DONE]`**, while **`POST /v1/chat/completions`** streams the plain OpenAI contract (see that operation). " +
 				"Optional header **X-Coddy-Session-ID** continues an existing session; omit it to create one according to project docs.",
 			"version": ver,
@@ -148,7 +150,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update**, **plan**, **token_usage** (completed model-call counters), **usage_update** (`used` / `size` for the current context window), **`coddy_meta`** (effective **`metadata`** map last; for agent/plan/ask turns it also carries **`stop_reason`** - `end_turn`, `cancelled`, `max_turns`, ... - so remote clients recover the ACP stop reason), then **`[DONE]`**.",
+							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update**, **plan**, **token_usage** (completed model-call counters), **usage_update** (`used` / `size` for the current context window), **turn_progress** (the running turn's clock and generated tokens: **`startedAt`**, **`elapsedMs`**, **`outputTokens`**, **`estimated`**; sent when the turn starts, at most once a second while a model call streams and after every call, so a client shows the elapsed time alone before the first token and the count after it), **memory_run** (with **`memory.enable`**: the memory subagent run of the turn - **`started`** with its **`taskId`** and **`childSessionId`**, **`finished`** with the task **`taskStatus`**, **`durationMs`** and whether the report was **`delivered`** to the model in this turn, or **`skipped`** with a **`reason`**; no text travels on it, the Tasks drawer and the child transcript are the record), **background_wake** (the first frame of a turn nobody typed: background tasks the model started with **notify_on_finish** ended and the server woke the agent; **`tasks`** lists each with **`id`**, **`kind`**, **`label`**, **`agent`**, **`status`**, **`exitCode`**, **`durationMs`** and **`error`**; the turn's first message is persisted with the same tasks as **`background_wake`**, so no client shows the instruction as a user bubble, live or after a reload - the bundled UI shows nothing in its place, and the task row says **woke_agent**), **session_settings** (the session's whole settings snapshot with its **version**, a **notice** of what changed and its **source**, whenever a setting changes during the stream: a leading settings command, the permission dialog's session switch, the model's **switch_model**), **`coddy_meta`** (effective **`metadata`** map last; for agent/plan/ask turns it also carries **`stop_reason`** - `end_turn`, `cancelled`, `max_turns`, ... - so remote clients recover the ACP stop reason, and **`settings_only`** `\"true\"` when the prompt was settings commands only and no turn ran: the notices were the answer, and the transcript holds them as **uiLog** notices rather than as an exchange), then **`[DONE]`**.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -529,7 +531,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/commands": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List built-in slash commands",
-					"description": "Returns the deterministic built-in commands (**`/compact`**, **`/export`**, **`/plugin`**) that run without an LLM turn, so the composer can show a **Commands** group alongside skills. **`compact`** appears only while **`compaction.enable`** is true; **`export`** and **`plugin`** are always present. Optional **`prefix`** filters by case-insensitive name prefix. These are intentionally not part of **`/coddy/slash-commands`** (skills only).",
+					"description": "Returns the built-in commands that run without an LLM turn, so the composer can show a **Commands** group alongside skills: the settings commands first (**`/model`**, **`/reasoning`**, **`/think`**, **`/nothink`**, **`/agent`**, **`/plan`**, **`/ask`**, **`/permissions`**; **kind** **setting**, with the **setting** they change, an argument **hint**, **aliases**, the **choices** of their argument for the session named by **X-Coddy-Session-ID** or the fixed **value** a command without one sets), then the deterministic actions (**`/compact`** only while **`compaction.enable`** is true, **`/export`**, **`/plugin`**; **kind** **action**). **duringTurn** says a command may be sent while a turn runs. Optional **`prefix`** filters by case-insensitive name prefix. These are intentionally not part of **`/coddy/slash-commands`** (skills only).",
 					"operationId": "listBuiltinCommands",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -554,6 +556,13 @@ func openAPISpec() map[string]interface{} {
 													"properties": map[string]interface{}{
 														"name":        map[string]string{"type": "string"},
 														"description": map[string]string{"type": "string"},
+														"kind":        map[string]interface{}{"type": "string", "enum": []string{"setting", "action"}},
+														"setting":     map[string]interface{}{"type": "string", "enum": []string{"model", "reasoning", "mode", "permission_mode"}},
+														"hint":        map[string]string{"type": "string"},
+														"aliases":     map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+														"choices":     map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+														"value":       map[string]string{"type": "string"},
+														"duringTurn":  map[string]string{"type": "boolean"},
 													},
 												},
 											},
@@ -616,6 +625,152 @@ func openAPISpec() map[string]interface{} {
 						},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/docs": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Contents of the built-in documentation",
+					"description": "Every group of **`docs/nav.yaml`** with its pages, as this binary carries them: the documentation is embedded at build time, so **`version`** is the binary's and no page is fetched from a site. " +
+						"A page's **`slug`** is its path under **`docs/`** without **`.md`**, the same address as **`https://coddy.dev/docs/<slug>`** and **`@coddy:<slug>`**. Pages the map keeps outside **`docs/`** (the contributing guide, the design contract, the agent notes) are not carried.",
+					"operationId": "getDocsContents",
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("The contents", "#/components/schemas/CoddyDocs"),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/docs/page": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "One page of the built-in documentation",
+					"description": "The page **`ref`** names, whole, with its headings and its neighbours in map order. **`ref`** takes a slug (**`features/mentions`**), the file path with or without **`docs/`** and **`.md`**, a **`coddy:`** link, an **`@coddy:`** mention, a **`coddy.dev/docs`** address, a file name only one page has, or a title; a **`#section`** is returned as **`anchor`** for the reader to scroll to. " +
+						"In **`markdown`** a link to another page is written **`coddy:<slug>#<anchor>`**, and an image or a repository file is an address on GitHub at the release the binary was built from (**`main`** for a development build).",
+					"operationId": "getDocsPage",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "ref", "in": "query", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "The page, optionally with **`#section`**.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("The page", "#/components/schemas/CoddyDocsPage"),
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/docs/search": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Search the built-in documentation",
+					"description": "Sections of the documentation ranked against **`q`** with BM25 over the page title, the section heading and the text (the title and the heading weigh more). Words match case-insensitively after a light English stemming, and a word of three letters or more also finds the words it begins, so a query typed letter by letter finds pages before it is finished. " +
+						"At most three sections of one page are returned. A hit without **`anchor`** is the part of a page above its first section. **`snippet`** is the run of the section's text holding the most matched words, split into fragments with **`hit`** set on the matched ones. An empty **`q`** answers no hits.",
+					"operationId": "searchDocs",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "q", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "The words to look for.",
+						},
+						map[string]interface{}{
+							"name": "limit", "in": "query", "required": false,
+							"schema":      map[string]interface{}{"type": "integer", "minimum": 1, "maximum": 50, "default": 10},
+							"description": "Most sections to return.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Ranked sections", "#/components/schemas/CoddyDocsSearch"),
+						"400": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/mentions": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Candidates for an \"@\" mention in a draft",
+					"description": "What the **`@`** picker offers for **`q`**, the text after **`@`** (a leading **`\"`** opens a quoted path). " +
+						"Without a scheme it ranks the files and folders of the session **cwd** against **`q`** (fuzzy: the file name first, then path segments, then letters in order; inside a git checkout the index follows **`.gitignore`** and keeps dotfiles) and merges in the rules, subagents and plans whose names match. " +
+						"**`q`** starting with **`/`**, **`~`**, **`./`**, **`../`** or a drive letter browses the folder typed so far, filtered by the name after its last separator. " +
+						"**`session:`**, **`rule:`** and **`agent:`** list that kind; **`coddy:`** lists the pages of the documentation built into the binary, finds pages by slug or title and sections by their words, and after **`<page>#`** the sections of that page. An empty **`q`** offers the four scheme hints and the top of the workspace. " +
+						"**`refresh=1`** rebuilds the workspace index even when the last build is fresh (the picker just opened). **`total`** counts every match before the cut to **`limit`**; **`indexing`** says the first index of the workspace is still being built.",
+					"operationId": "searchMentions",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "X-Coddy-Session-ID", "in": "header", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session the draft belongs to: its **cwd**, rules and plans answer. Without it the server's default cwd is searched.",
+						},
+						map[string]interface{}{
+							"name": "q", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "The text after **`@`**.",
+						},
+						map[string]interface{}{
+							"name": "limit", "in": "query", "required": false,
+							"schema":      map[string]interface{}{"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
+							"description": "Most candidates to return.",
+						},
+						map[string]interface{}{
+							"name": "refresh", "in": "query", "required": false,
+							"schema":      map[string]interface{}{"type": "string", "enum": []interface{}{"", "1", "true", "yes", "0", "false"}},
+							"description": "Rebuild the workspace index before answering.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Ranked candidates",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/CoddyMentions"},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/mentions/check": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Which \"@\" mentions of a draft resolve",
+					"description": "The composer highlights a mention only once the server says sending would attach it. **`text`** is read with the grammar and the resolver a sent prompt goes through, run dry: a file is looked at and never read, a folder is not listed, a session is found and not summarised, a page is not fetched. " +
+						"**`mentions`** lists every **`@`** token of the draft in document order (one in a fenced block, an inline code span or a quoted line is prose and is left out). **`token`** is the whole token as the grammar reads it; **`typed`** is the part that resolves - **`@src/a.go`** of **`@src/a.go b.go`** - and **`kind`** what it names. Both are absent for a token that names nothing, such as **`@google/genai`** in **`npm install @google/genai`**. " +
+						"A draft over 256 KiB yields **413**.",
+					"operationId": "checkMentions",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "X-Coddy-Session-ID", "in": "header", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session the draft would be sent to: its **cwd**, rules, plans and scope answer. Without it the server's default cwd is used, as for a first message.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":       "object",
+									"properties": map[string]interface{}{"text": map[string]string{"type": "string"}},
+									"required":   []string{"text"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "The mentions of the draft",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/CoddyMentionCheck"},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"413": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -949,7 +1104,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/activity": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Composer activity for a session",
-					"description": "Returns **turnActive** (a turn running in this server process, or the exclusive turn lock held by another one), **activitySeq**, **readActivitySeq**, and **unreadComplete** for multi-surface UI.",
+					"description": "Returns **turnActive** (a turn running in this server process, or the exclusive turn lock held by another one), **activitySeq**, **readActivitySeq**, and **unreadComplete** for multi-surface UI. While this process runs the turn it also carries the turn's progress - **turnStartedAt** (RFC3339), **turnElapsedMs**, **turnOutputTokens** and **turnTokensEstimated**, the numbers of the **turn_progress** stream event - so a client that joins the turn late (a reloaded tab is not replayed the frames its transcript snapshot covers) still shows the right clock and token count. A turn finished background tasks started (**notify_on_finish**) also carries **backgroundWake** (**`{tasks}`**, in the shape of the **background_wake** stream frame), so a client resuming the session mid-turn learns that nobody typed it. A turn held by another process leaves those fields out.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -983,7 +1138,7 @@ func openAPISpec() map[string]interface{} {
 				},
 				"post": map[string]interface{}{
 					"summary":     "Queue a follow-up for the running turn",
-					"description": "Adds **text** to the queue of the turn in flight and answers **201** with the stored **message** (its **id** is what a later **DELETE** names) and the whole **messages** list. A session with no turn running answers **409** with code **no_active_turn**: the caller sends that text as an ordinary prompt through **POST /v1/responses** instead. Past " + strconv.Itoa(session.MaxQueuedMessages) + " waiting messages the answer is **409** with code **queue_full**; a child (subagent) session answers **409** with code **subagent_read_only**. Nothing is persisted: a queued message the turn never read is dropped when the turn ends.",
+					"description": "Adds **text** to the queue of the turn in flight and answers **201** with the stored **message** (its **id** is what a later **DELETE** names) and the whole **messages** list. Settings commands at the start of **text** (**`/model x`**, **`/permissions bypass`** ...) apply at once and never reach the model: only the rest is queued, and a text that was only commands answers **200** with a **notice** and the **settings** snapshot, queuing nothing. A **`--once`** or **`--count=N`** command followed by a message answers **409** with code **turn_scoped_follow_up**: the running turn has no next turn of its own to give it. A session with no turn running answers **409** with code **no_active_turn**: the caller sends that text as an ordinary prompt through **POST /v1/responses** instead. Past " + strconv.Itoa(session.MaxQueuedMessages) + " waiting messages the answer is **409** with code **queue_full**; a child (subagent) session answers **409** with code **subagent_read_only**. Nothing is persisted: a queued message the turn never read is dropped when the turn ends.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -1055,7 +1210,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/background-tasks": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Background tasks of a session",
-					"description": "Lists the tasks of the session: commands the agent started with **run_command** **`background: true`** (**kind** **command**) and subagent runs started with **spawn_agent** (**kind** **agent**, with **agent** **`{name, session_id}`** naming the definition and the child session whose transcript **GET /coddy/sessions/{session_id}/messages** serves). Each row carries **id**, **kind**, **label**, **command**, **status** (**queued**, **running**, **succeeded**, **failed**, **timed_out**, **stopped**, **orphaned**), **started_at**, **finished_at**, **exit_code**, **expected_seconds** (the model's own estimate), **timeout_seconds** (the hard limit), **notify_on_finish** (the task wakes the agent when it ends), plus the server-computed **elapsed_seconds**, **overdue**, and **running**. A running **agent** row also carries **pending_permission** while a **detached** child - one whose spawning turn has ended - is blocked on a permission prompt: the payload of the SSE **permission** event (**sessionId** is the *child* session, **toolCall**, **options**) plus **parent_session_id**, **task_id**, **agent_name** and **asked_at**. The web UI shows it in the chat of the parent session; it is answered through **POST /coddy/sessions/{child}/permission**, announced on **GET /coddy/events** as **subagent_permission**, and never persisted. The task pool lives in the running **coddy** process; tasks recorded by an earlier process are merged in from the session bundle with status **orphaned**. Poll this endpoint for the status ticker: background tasks outlive the SSE stream of the turn that started them.",
+					"description": "Lists the tasks of the session: commands the agent started with **run_command** **`background: true`** (**kind** **command**) and subagent runs started with **spawn_agent** (**kind** **agent**, with **agent** **`{name, session_id, model, input_tokens, output_tokens}`** naming the definition, the child session whose transcript **GET /coddy/sessions/{session_id}/messages** serves, the model the child runs on and what its model calls have spent so far: the input every call sent, summed, and the output generated, the call in flight estimated until the provider reports it; a system run also has **system** **true**). Each row carries **id**, **kind**, **label**, **command**, **status** (**queued**, **running**, **succeeded**, **failed**, **timed_out**, **stopped**, **orphaned**), **started_at**, **finished_at**, **exit_code**, **expected_seconds** (the model's own estimate), **timeout_seconds** (the hard limit), **notify_on_finish** (the task wakes the agent when it ends; recorded only where a wake can happen - a process that runs no waker, a subagent and a scheduled run never set it), **woke_agent** (the task's end started a turn: set when that turn begins, kept in the record, and what the web UI's bell on a finished card stands for), plus the server-computed **elapsed_seconds**, **overdue**, and **running**. A running **agent** row also carries **pending_permission** while a **detached** child - one whose spawning turn has ended - is blocked on a permission prompt: the payload of the SSE **permission** event (**sessionId** is the *child* session, **toolCall**, **options**) plus **parent_session_id**, **task_id**, **agent_name** and **asked_at**. The web UI shows it in the chat of the parent session; it is answered through **POST /coddy/sessions/{child}/permission**, announced on **GET /coddy/events** as **subagent_permission**, and never persisted. The task pool lives in the running **coddy** process; tasks recorded by an earlier process are merged in from the session bundle with status **orphaned**. Poll this endpoint for the status ticker: background tasks outlive the SSE stream of the turn that started them.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -1378,7 +1533,8 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}": map[string]interface{}{
 				"patch": map[string]interface{}{
 					"summary": "Patch session composer metadata",
-					"description": "Set **title** (pinned title), **tags** (the session's labels), **archived** (put the session aside or take it back), **pinned** (hold it at the top of every listing), **selectedModelId** (YAML **`models[].model`** selector for this session), **selectedReasoning** (reasoning level; must be one of the effective model's **`reasoning_levels`**, empty to clear), and/or **markActivityRead** (boolean) to advance the read cursor for **activitySeq**. " +
+					"description": "Set **title** (pinned title), **tags** (the session's labels), **archived** (put the session aside or take it back), **pinned** (hold it at the top of every listing), **selectedModelId** (YAML **`models[].model`** selector for this session, empty to go back to the configured agent model), **selectedReasoning** (reasoning level; one of the effective model's **`reasoning_levels`**, **`off`** where the provider can turn thinking off, empty to clear), **mode** (**agent**, **plan**, **ask**), **permissionMode** (**ask**, **accept_edits**, **bypass**; the session's own, lasting as long as the server process), and/or **markActivityRead** (boolean) to advance the read cursor for **activitySeq**. " +
+						"With **turns** > 0 the settings of the request change for that many turns instead of for the session (the **`--count=N`** of a command). Settings go through the same setter as every other surface: the answer carries the whole **settings** snapshot, and every client watching the session hears **event: session_settings**. " +
 						"**tags** replaces the whole set rather than merging into it, so an empty array clears them; omitting the field leaves them alone. Values are normalized (lower case, inner whitespace as a hyphen, duplicates dropped, at most 8 of at most 32 characters). " +
 						"**titleIfUnpinned** marks **title** as a suggestion rather than a rename: the describe call that names a new chat sends it, and the title is then stored only while the session has no pinned title of its own, so a name written during that first turn (in the chat header, or by the agent's **session_describe** tool) is not overwritten by an answer that was already in flight. The response reports the title the session kept. " +
 						"**markActivityRead** updates only activity counters in **session.json** and does not change **updatedAt** (history order stays stable until new chat content is saved).",
@@ -1405,6 +1561,9 @@ func openAPISpec() map[string]interface{} {
 										"pinned":            map[string]string{"type": "boolean"},
 										"selectedModelId":   map[string]string{"type": "string"},
 										"selectedReasoning": map[string]string{"type": "string"},
+										"mode":              map[string]interface{}{"type": "string", "enum": []string{"agent", "plan", "ask"}},
+										"permissionMode":    map[string]interface{}{"type": "string", "enum": []string{"ask", "accept_edits", "bypass"}},
+										"turns":             map[string]interface{}{"type": "integer", "minimum": 0, "maximum": session.MaxOverrideTurns},
 										"titleIfUnpinned":   map[string]string{"type": "boolean"},
 										"markActivityRead":  map[string]string{"type": "boolean"},
 									},
@@ -1640,9 +1799,10 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/messages": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Read conversation transcript",
-					"description": "Top-level **model** is the effective YAML backend for this session (**`selectedModelId`** when set, else configured **`agent.model`**). **selectedModelId** echoes the stored session override (may be empty). **mode** reports the session profile (`agent`, `plan`, or `ask`) so remote clients restore it on load. Assistant rows in **messages** may include **`model`** (YAML selector used for that reply). User rows with uploaded files include **`files`** metadata; persisted images carry a session-scoped **`preview_url`**. " +
+					"description": "Top-level **model** is the effective YAML backend for this session (**`selectedModelId`** when set, else configured **`agent.model`**). **selectedModelId** echoes the stored session override (may be empty). **mode** reports the session profile (`agent`, `plan`, or `ask`) so remote clients restore it on load. **settings** is the whole settings snapshot of the session (**model**, **reasoning**, **reasoningChoices**, **mode**, **permissionMode**, **configuredPermissionMode**, **overrides**, **version**), the same one **event: session_settings** carries: a composer mirrors it and names its **version** as **`metadata.settingsVersion`** when it sends. **uiLog** holds a **notice** row for every settings change somebody asked for (a command, the permission dialog, the model's **switch_model**). Assistant rows in **messages** may include **`model`** (YAML selector used for that reply). User rows with uploaded files include **`files`** metadata; persisted images carry a session-scoped **`preview_url`**. " +
 						"**user** and **assistant** rows may include **created_at** (RFC3339 UTC) when the server appended that message to history. " +
-						"When long-term memory copilot has run for this session bundle, responses may include **memoryTurns** (persisted observability parallel to Chat Completions transcript; not forwarded to main LLM). " +
+						"A **user** row that opened a turn nobody typed - finished background tasks the model started with **notify_on_finish** woke the agent - carries **`background_wake`** **`{tasks: [{id, kind, label, agent, status, exit_code, duration_ms, error}]}`**; its **content** is the instruction the model read, and a UI does not render the row as a message from the user (the bundled UI shows nothing for it: the turn reads as the agent carrying on). " +
+						"A memory subagent run leaves nothing in this payload: its record is the **agent** task of kind agent with **`agent.system`** true under **GET /coddy/sessions/{id}/background-tasks**, and its transcript is the child session named there. " +
 						"**uiLog** (optional) lists UI-only rows such as persisted LLM/request errors keyed by **userTurnIndex**; these are not part of **messages** and are not sent to the model. " +
 						"**messagesRev** is the revision of the history these **messages** were read at; pass it to **GET /coddy/sessions/{id}/composer-stream** as **`?since_rev=`** to be replayed only the frames of a running turn this transcript does not already hold. " +
 						"Immediately after **POST /coddy/sessions/{id}/cancel**, the returned **messages** list can briefly omit or shorten the in-progress **assistant** row compared to what was already streamed; UIs that keep a local shadow should merge when the server snapshot is a strict prefix of on-screen rows. " +
@@ -1681,7 +1841,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/events": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to server-wide session events",
-					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /coddy/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it; **event: provider_usage** (**`{object, sessionId, usage}`**) whenever a fresh account-usage snapshot was built outside a request; and **event: config_reloaded** (**`{object:\"coddy.config_reloaded\", at}`**) after every swap of the live configuration - a **PUT /coddy/config** save, the agent's **config_commit** or **config_rollback**, a skill install. The reload event names nothing that changed: what a reload moved is already behind **GET /v1/models** and **GET /coddy/slash-commands**, and it is published only once the new configuration is live, so a client re-reads those and cannot catch the outgoing one. **event: subagent_permission** tracks the permission prompt of a **detached** subagent - one whose spawning turn has ended: phase **asked** (**`{object:\"coddy.subagent_permission\", phase, parentSessionId, childSessionId, taskId, toolCallId, agentName, askedAt, request}`**, where **request** is the payload of the SSE **permission** event with the *child* session id) when it starts waiting, and phase **settled** (the same ids, no request) once it is answered anywhere, withdrawn or its run ends, so a client that did not answer takes its copy down. The answer goes to **POST /coddy/sessions/{childSessionId}/permission**; the first answer from any surface wins. On connect it replays one **turn_started** per turn already running and one **subagent_permission** (**asked**) per prompt still waiting, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. Like the composer stream, this route also accepts the bearer token as **`?access_token=`**.",
+					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /coddy/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it; **event: provider_usage** (**`{object, sessionId, usage}`**) whenever a fresh account-usage snapshot was built outside a request; and **event: config_reloaded** (**`{object:\"coddy.config_reloaded\", at}`**) after every swap of the live configuration - a **PUT /coddy/config** save, the agent's **config_commit** or **config_rollback**, a skill install. The reload event names nothing that changed: what a reload moved is already behind **GET /v1/models** and **GET /coddy/slash-commands**, and it is published only once the new configuration is live, so a client re-reads those and cannot catch the outgoing one. **event: session_settings** (**`{object:\"coddy.session_settings\", sessionId, settings, notice, source}`**) whenever a session's settings change from any surface - a command, **PATCH /coddy/sessions/{id}**, the permission dialog, the model's own **switch_model**, a console or an editor: **settings** is the whole snapshot (**model**, **reasoning**, **reasoningChoices**, **mode**, **permissionMode**, **configuredPermissionMode**, **overrides** for the running and the next turns, and a **version** a client keeps the highest of; the turn stream carries the same frame). **event: background_wake** (**`{object:\"coddy.background_wake\", sessionId, phase:\"woken\", at, tasks}`**, the tasks in the shape of the turn stream's **background_wake** frame) says the turn now holding a session was started by finished background tasks rather than typed: a client that reads only the turns it starts - a console attached over **--remote** - follows it on **GET /coddy/sessions/{id}/composer-stream**, where a permission prompt the woken turn raises is asked and answered through **POST /coddy/sessions/{id}/permission** like any other. **event: subagent_permission** tracks the permission prompt of a **detached** subagent - one whose spawning turn has ended: phase **asked** (**`{object:\"coddy.subagent_permission\", phase, parentSessionId, childSessionId, taskId, toolCallId, agentName, askedAt, request}`**, where **request** is the payload of the SSE **permission** event with the *child* session id) when it starts waiting, and phase **settled** (the same ids, no request) once it is answered anywhere, withdrawn or its run ends, so a client that did not answer takes its copy down. The answer goes to **POST /coddy/sessions/{childSessionId}/permission**; the first answer from any surface wins. On connect it replays one **turn_started** per turn already running, whose **at** is when that turn started rather than when the client connected - followed, for a turn finished background tasks started, by its **background_wake** with the same **at** (a live **background_wake** is dated at the turn's start too, so a client that hears of a wake twice knows it is the same turn) - and one **subagent_permission** (**asked**) per prompt still waiting, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. Like the composer stream, this route also accepts the bearer token as **`?access_token=`**.",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "text/event-stream of server-wide events"},
 						"500": errorResponseRef(),
@@ -1708,7 +1868,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/permission": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Resolve a pending tool permission prompt from a streaming ReAct turn",
-					"description": "Completes **`event: permission`** on **`POST /v1/responses`** (**stream: true**). A child session spawned by **spawn_agent** normally holds no prompt of its own (its requests are relayed to the parent chat) and answers **409**. The exception is a **detached** child whose spawning turn has ended: its prompt is published as **pending_permission** on the parent's background task row and as **event: subagent_permission** on **GET /coddy/events**, and is answered here under the **child's** id, the one its **sessionId** names; a **409** therefore only means nobody is waiting on that id. Body **`toolCallId`** must match **`toolCall.toolCallId`** from the SSE payload; **`optionId`** is **`allow`**, **`allow_always`** (remembers this exact command), **`allow_always_program`** (offered for **run_command** only, and only when the command is a single plain invocation; remembers the program, or the program plus its subcommand for multiplexers like **git**), **`allow_always_url`** / **`allow_always_origin`** (offered for **http_request** instead of **`allow_always`**; remember the request's address or its whole origin together with the files, proxy, unchecked certificate and output path it carried), or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). Optional header **X-Coddy-Session-ID** must match **{id}** when set. Frames replayed to a subscriber carry an **`id:`** sequence; send it back as **Last-Event-ID** (or **`?last_event_id=`**) to resume after it instead of replaying the whole turn. When the frames a client asks to resume from have already been trimmed, the stream leads with **event: desync** so it can reload the transcript instead of rendering a gap. The primary **POST** stream is unchanged and carries no ids.",
+					"description": "Completes **`event: permission`** on **`POST /v1/responses`** (**stream: true**), and on **GET /coddy/sessions/{id}/composer-stream** for a turn the server woke on its own (a finished **notify_on_finish** task): nobody posted that turn, so its prompt is answered from whichever client shows it first - the web UI, a console following the turn - and waits, persisted like the prompt of a turn whose tab was closed, until one does. A child session spawned by **spawn_agent** normally holds no prompt of its own (its requests are relayed to the parent chat) and answers **409**. The exception is a **detached** child whose spawning turn has ended: its prompt is published as **pending_permission** on the parent's background task row and as **event: subagent_permission** on **GET /coddy/events**, and is answered here under the **child's** id, the one its **sessionId** names; a **409** therefore only means nobody is waiting on that id. Body **`toolCallId`** must match **`toolCall.toolCallId`** from the SSE payload; **`optionId`** is **`allow`**, **`allow_always`** (remembers this exact command), **`allow_always_program`** (offered for **run_command** only, and only when the command is a single plain invocation; remembers the program, or the program plus its subcommand for multiplexers like **git**), **`allow_always_url`** / **`allow_always_origin`** (offered for **http_request** instead of **`allow_always`**; remember the request's address or its whole origin together with the files, proxy, unchecked certificate and output path it carried), or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). Optional header **X-Coddy-Session-ID** must match **{id}** when set. Frames replayed to a subscriber carry an **`id:`** sequence; send it back as **Last-Event-ID** (or **`?last_event_id=`**) to resume after it instead of replaying the whole turn. When the frames a client asks to resume from have already been trimmed, the stream leads with **event: desync** so it can reload the transcript instead of rendering a gap. The primary **POST** stream is unchanged and carries no ids.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -3033,6 +3193,12 @@ func openAPISpec() map[string]interface{} {
 							"type":        "boolean",
 							"description": "Coddy transcript extension: this row is a generated summary of earlier history (context compaction). Rows before the last summary are excluded from LLM prompts but stay in the transcript.",
 						},
+						"background_wake": map[string]interface{}{
+							"type":                 "object",
+							"readOnly":             true,
+							"description":          "Coddy transcript extension on a user row nobody typed: background tasks the model started with notify_on_finish ended and the server woke the agent. `tasks` lists each with `id`, `kind`, `label`, `agent`, `status`, `exit_code`, `duration_ms` and `error`. The row's content is the instruction the model read.",
+							"additionalProperties": true,
+						},
 					},
 					"required": []string{"role"},
 				},
@@ -3212,6 +3378,13 @@ func openAPISpec() map[string]interface{} {
 								"endLine":   map[string]interface{}{"type": "integer", "minimum": 1},
 							},
 						},
+						"kind": map[string]interface{}{
+							"type": "string",
+							"enum": []string{"stdin"},
+							"description": "What a **`source.literal`** body is when it is not a file's text. **`stdin`** is what was piped into a one-shot run under a typed prompt " +
+								"(**`git diff | coddy -p \"review\" --remote ...`**): the model reads it as **`<coddy_attachment path=\"stdin\" kind=\"stdin\">`**, nothing in it is resolved as a mention or run as a command, " +
+								"and a transcript shows **`[stdin]`** in its place. Any other value, or **`stdin`** without **`source.literal`**, is answered with **400**.",
+						},
 					},
 					"required": []string{"path"},
 				},
@@ -3312,6 +3485,165 @@ func openAPISpec() map[string]interface{} {
 						"page_size": map[string]string{"type": "integer"},
 					},
 					"required": []string{"object", "items", "total", "has_more", "page", "page_size"},
+				},
+				"CoddyDocsPageRef": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"slug":    map[string]string{"type": "string", "example": "features/mentions"},
+						"title":   map[string]string{"type": "string"},
+						"summary": map[string]string{"type": "string"},
+					},
+					"required": []string{"slug", "title"},
+				},
+				"CoddyDocs": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object":  map[string]string{"type": "string", "example": "coddy.docs"},
+						"version": map[string]string{"type": "string", "description": "The version of the binary, which is the version of its documentation."},
+						"groups": map[string]interface{}{
+							"type": "array",
+							"items": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"id":      map[string]string{"type": "string"},
+									"title":   map[string]string{"type": "string"},
+									"summary": map[string]string{"type": "string"},
+									"pages": map[string]interface{}{
+										"type":  "array",
+										"items": map[string]interface{}{"$ref": "#/components/schemas/CoddyDocsPageRef"},
+									},
+								},
+								"required": []string{"id", "title", "summary", "pages"},
+							},
+						},
+					},
+					"required": []string{"object", "version", "groups"},
+				},
+				"CoddyDocsPage": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object":  map[string]string{"type": "string", "example": "coddy.docs_page"},
+						"version": map[string]string{"type": "string"},
+						"slug":    map[string]string{"type": "string"},
+						"title":   map[string]string{"type": "string"},
+						"summary": map[string]string{"type": "string"},
+						"group": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"id":    map[string]string{"type": "string"},
+								"title": map[string]string{"type": "string"},
+							},
+						},
+						"anchor":   map[string]string{"type": "string", "description": "The section the reference named, empty for the page."},
+						"markdown": map[string]string{"type": "string"},
+						"headings": map[string]interface{}{
+							"type": "array",
+							"items": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"level":  map[string]string{"type": "integer"},
+									"text":   map[string]string{"type": "string", "description": "The heading without its inline markup."},
+									"anchor": map[string]string{"type": "string", "description": "The fragment GitHub generates for the heading."},
+								},
+								"required": []string{"level", "text", "anchor"},
+							},
+						},
+						"prev": map[string]interface{}{"$ref": "#/components/schemas/CoddyDocsPageRef", "nullable": true},
+						"next": map[string]interface{}{"$ref": "#/components/schemas/CoddyDocsPageRef", "nullable": true},
+						"url":  map[string]string{"type": "string", "description": "The public address of the page, https://coddy.dev/docs/<slug>."},
+					},
+					"required": []string{"object", "version", "slug", "title", "markdown", "headings", "url"},
+				},
+				"CoddyDocsSearch": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object":  map[string]string{"type": "string", "example": "coddy.docs_search"},
+						"version": map[string]string{"type": "string"},
+						"query":   map[string]string{"type": "string"},
+						"hits": map[string]interface{}{
+							"type": "array",
+							"items": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"slug":    map[string]string{"type": "string"},
+									"title":   map[string]string{"type": "string"},
+									"group":   map[string]string{"type": "string"},
+									"anchor":  map[string]string{"type": "string"},
+									"heading": map[string]string{"type": "string"},
+									"snippet": map[string]interface{}{
+										"type": "array",
+										"items": map[string]interface{}{
+											"type": "object",
+											"properties": map[string]interface{}{
+												"text": map[string]string{"type": "string"},
+												"hit":  map[string]string{"type": "boolean"},
+											},
+											"required": []string{"text"},
+										},
+									},
+								},
+								"required": []string{"slug", "title", "group", "snippet"},
+							},
+						},
+					},
+					"required": []string{"object", "version", "query", "hits"},
+				},
+				"CoddyMentionCandidate": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"kind": map[string]interface{}{
+							"type": "string",
+							"enum": []interface{}{"file", "directory", "session", "rule", "agent", "plan", "doc", "scheme"},
+						},
+						"insert": map[string]interface{}{
+							"type":        "string",
+							"description": "Text that replaces **`@`** plus the query in the draft, **`@`** included; add a space after it unless **`continue`** is set.",
+						},
+						"label":  map[string]string{"type": "string"},
+						"detail": map[string]string{"type": "string"},
+						"continue": map[string]interface{}{
+							"type":        "boolean",
+							"description": "Choosing the row keeps the picker open: a folder to look into, or a scheme hint.",
+						},
+					},
+					"required": []string{"kind", "insert", "label"},
+				},
+				"CoddyMentions": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object": map[string]string{"type": "string", "example": "coddy.mentions"},
+						"items": map[string]interface{}{
+							"type":  "array",
+							"items": map[string]interface{}{"$ref": "#/components/schemas/CoddyMentionCandidate"},
+						},
+						"total":           map[string]string{"type": "integer"},
+						"indexing":        map[string]string{"type": "boolean"},
+						"index_truncated": map[string]string{"type": "boolean"},
+					},
+					"required": []string{"object", "items", "total", "indexing", "index_truncated"},
+				},
+				"CoddyMentionCheck": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object": map[string]string{"type": "string", "example": "coddy.mention_check"},
+						"mentions": map[string]interface{}{
+							"type": "array",
+							"items": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"token": map[string]string{"type": "string", "description": "The whole token, \"@\" included."},
+									"typed": map[string]string{"type": "string", "description": "The part of the token that resolves; absent when it names nothing."},
+									"kind": map[string]interface{}{
+										"type":        "string",
+										"enum":        []interface{}{"file", "directory", "session", "rule", "agent", "plan", "doc", "url"},
+										"description": "What **`typed`** names; absent when the token names nothing.",
+									},
+								},
+								"required": []string{"token"},
+							},
+						},
+					},
+					"required": []string{"object", "mentions"},
 				},
 				"CoddyWorkspaceFile": map[string]interface{}{
 					"type": "object",

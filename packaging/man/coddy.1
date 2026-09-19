@@ -161,13 +161,19 @@ List merged MCP servers and approve or revoke project\-local
 declarations for a workspace.
 .TP
 .B "providers list | login | logout"
-Manage provider credentials. A login signs in through the device flow: it
-prints a short code and the page that confirms it, so the browser can be on
-any machine. Pass
+Manage provider credentials. A NeuralDeep login signs in through the device
+flow: it prints a short code and the page that confirms it, so the browser can
+be on any machine. Pass
 .B \-\-browser
 for the loopback callback instead, which only completes in a browser running
-on this machine. A login also adds the provider, the models the account can
-use and an
+on this machine. A Devin login opens the Devin sign\-in page and waits for the
+browser to come back to this machine; when the browser runs elsewhere, paste
+the address it ended on into the terminal. With
+.B \-\-devin\-cli
+it uses the login
+.B devin auth login
+already holds and opens no browser. A login also adds the provider, the models
+the account can use and an
 .I agent.model
 to the configuration unless
 .B \-\-no\-config
@@ -181,6 +187,23 @@ List subagent definitions and approve or revoke project\-scope ones.
 .TP
 .B "hooks list | trust | untrust"
 List lifecycle hooks and approve or revoke project\-scope hook files.
+.TP
+.B "docs list | search | show"
+Read the documentation built into this binary, the same pages as
+.I https://coddy.dev/docs
+for this version, with no network access.
+.B list
+prints the contents,
+.BI "search " words
+the best matching sections
+.RB ( \-\-limit
+bounds them), and
+.BI "show " page\fR[\fB#\fIsection\fR]
+a page or one of its sections as Markdown, for example
+.BR "coddy docs show features/mentions#completion" .
+The console opens the same documentation on
+.BR F1 ,
+the web UI on its Docs screen.
 .TP
 .B update
 Install the latest release. See
@@ -201,7 +224,36 @@ Print the version and exit.
 Console: continue the most recent session for this directory.
 .TP
 .BR \-p ", " \-\-prompt " " \fIPROMPT\fR
-Console: run one prompt, print the answer, and exit.
+Console: run one prompt, print the answer, and exit. A
+.I PROMPT
+of
+.B \-
+reads the prompt from standard input, and so does a bare
+.B \-p
+when standard input is not a terminal.
+When the prompt comes from the command line or from
+.BR \-i ,
+whatever is piped into standard input rides along as an attachment the model
+reads after the prompt; nothing inside it is taken for a mention or a command.
+.TP
+.BR \-i ", " \-\-prompt\-file " " \fIFILE\fR
+Console: run one prompt read from
+.I FILE
+.RB ( \- " for standard input)"
+instead of the command line, so a prompt larger than the operating system's
+argument limit never passes through it. The file is read as UTF-8 byte for
+byte, trailing newlines included; a UTF-8 byte order mark is dropped and
+UTF-16 with a byte order mark is decoded. A missing file, invalid UTF-8, a NUL
+byte, two prompts at once, or more than 8 MiB of prompt input stops the run
+before anything is sent.
+.TP
+.B \-\-no\-stdin
+Console: never read standard input in a one-shot run, so nothing piped is
+attached. Use it where standard input belongs to something else:
+.B while read
+loops,
+.BR ssh ,
+CI runners that feed the job script to the shell on standard input.
 .TP
 .B \-\-resume
 Console: pick a session to resume.

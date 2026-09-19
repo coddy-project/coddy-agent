@@ -40,6 +40,14 @@ Feature: The agent delegates bounded work to subagents
     When the parent waits for that task with background_wait
     Then the background_wait result contains "REPORT: done"
 
+  Scenario: An agent task names the child's model and the tokens its calls spent
+    Given a workspace with a subagent definition "reviewer" under .coddy/agents
+    And a parent agent session in that workspace
+    And the workspace definition "reviewer" is approved for that workspace
+    When the parent model spawns "reviewer" in the foreground and the child answers "REPORT: done" after reading 1200 tokens and writing 80
+    Then the agent task of the parent session names the model "fake/model"
+    And the agent task of the parent session records 1200 input and 80 output tokens
+
   Scenario: Child updates never reach the parent's client
     Given a workspace with a subagent definition "reviewer" under .coddy/agents
     And a parent agent session in that workspace

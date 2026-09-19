@@ -124,10 +124,6 @@ func (s *pluginFeatureState) newSession() error {
 	return nil
 }
 
-func (s *pluginFeatureState) marketplaceURL(name string) string {
-	return "file://" + s.markets[name]
-}
-
 func (s *pluginFeatureState) givenLocalMarketplace(market, skill, version string) error {
 	if !gitws.GitAvailable() {
 		return fmt.Errorf("git binary not available")
@@ -173,7 +169,7 @@ func (s *pluginFeatureState) sendPluginPrompt(prompt string) error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("POST /v1/responses status %d", res.StatusCode)
 	}

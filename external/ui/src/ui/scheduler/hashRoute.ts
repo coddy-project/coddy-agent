@@ -9,6 +9,11 @@
  * level: a task belongs to one chat, so the URL that opens its panel has to
  * carry that chat or a reload lands on a panel with no session behind it.
  * Optional `?history=1` on scheduler (and session) URLs keeps the History drawer open on wide screens.
+ *
+ * The documentation reader lives at `#/docs`, `#/docs/<slug>` and
+ * `#/docs/<slug>#<anchor>`: the slug is the page's path under `docs/` without
+ * `.md` (the same address as `coddy.dev/docs/<slug>` and `@coddy:<slug>`), and
+ * the second `#` names a section, the way a page link names one.
  */
 
 export type ParsedAppHash =
@@ -33,7 +38,15 @@ export type ParsedAppHash =
       runTaskId: string | null;
     }
   | { branch: "settings"; historyOpen: boolean; section: string | null }
-  | { branch: "swarm"; historyOpen: boolean };
+  | { branch: "swarm"; historyOpen: boolean }
+  | {
+      branch: "docs";
+      /** The page, or null for the reader's first page. */
+      slug: string | null;
+      /** The section to scroll to, or null for the top of the page. */
+      anchor: string | null;
+      historyOpen: boolean;
+    };
 
 export type SchedulerEditorRoute =
   | { mode: "create" }
@@ -90,6 +103,18 @@ function notifyHashAfterReplaceState() {
   });
 }
 
+/**
+ * decodeURIComponent that keeps a malformed escape as it was typed: an
+ * address pasted from elsewhere must not take the router down.
+ */
+function decodeLoosely(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
 export function parseAppHash(): ParsedAppHash {
   const { path: h, search } = splitHashFragment();
   const historyOpen = historyOpenFromSearch(search);
@@ -104,6 +129,18 @@ export function parseAppHash(): ParsedAppHash {
   }
   if (h === "swarm") {
     return { branch: "swarm", historyOpen };
+  }
+  if (h === "docs" || h.startsWith("docs/")) {
+    const rest = h.slice("docs".length).replace(/^\//, "");
+    const cut = rest.indexOf("#");
+    const slug = decodeLoosely(cut < 0 ? rest : rest.slice(0, cut)).trim();
+    const anchor = cut < 0 ? "" : decodeLoosely(rest.slice(cut + 1)).trim();
+    return {
+      branch: "docs",
+      slug: slug || null,
+      anchor: anchor || null,
+      historyOpen,
+    };
   }
   const settingsSec = /^settings\/(.+)$/.exec(h);
   if (settingsSec && settingsSec[1]) {
@@ -451,6 +488,46 @@ export function appNavHrefSwarm(): string {
 
 export function appNavHrefSettings(): string {
   return "#/settings";
+}
+
+/** The reader, one page of it, or one section of a page. */
+export function appNavHrefDocs(slug?: string | null, anchor?: string | null): string {
+  const s = (slug || "").trim();
+  if (!s) {
+    return "#/docs";
+  }
+  const a = (anchor || "").trim();
+  return `#/docs/${s}${a ? `#${a}` : ""}`;
+}
+
+/**
+ * The reader's address for a `coddy:<slug>#<anchor>` link, the form pages of
+ * the built-in documentation link to each other in (and the agent quotes
+ * them in); null for any other link.
+ */
+export function docsHrefFromCoddyLink(href: string): string | null {
+  if (!href.startsWith("coddy:")) {
+    return null;
+  }
+  const ref = href.slice("coddy:".length);
+  const cut = ref.indexOf("#");
+  return appNavHrefDocs(
+    cut < 0 ? ref : ref.slice(0, cut),
+    cut < 0 ? null : ref.slice(cut + 1),
+  );
+}
+
+/** Moves the reader to a page (and section) without adding a history entry. */
+export function setDocsHash(slug: string | null, anchor?: string | null): void {
+  const next = appNavHrefDocs(slug, anchor);
+  if (window.location.hash !== next) {
+    history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${window.location.search}${next}`,
+    );
+    notifyHashAfterReplaceState();
+  }
 }
 
 export function appNavHrefSettingsSection(section: string): string {

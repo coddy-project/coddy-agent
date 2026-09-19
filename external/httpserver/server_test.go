@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -18,7 +19,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,6 +31,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
@@ -68,7 +72,7 @@ func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d", res.StatusCode)
 	}
@@ -150,7 +154,7 @@ func TestGETModelsReportsEachModelsOwnContextWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	var body struct {
 		Data []struct {
 			ID               string `json:"id"`
@@ -206,7 +210,7 @@ func TestGETModelsMultimodalField(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	var body struct {
 		Data []struct {
 			ID         string `json:"id"`
@@ -258,7 +262,7 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths map")
 	}
-	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/enhance-prompt", "/coddy/slash-commands", "/coddy/workspace/files", "/coddy/workspace/context", "/coddy/workspace/folders", "/coddy/config/schema", "/coddy/config", "/coddy/config/validate", "/coddy/config/reasoning-levels", "/coddy/providers/{name}/models", "/coddy/providers/{name}/codex-auth", "/coddy/providers/{name}/codex-auth/device", "/coddy/providers/{name}/codex-auth/device/{loginID}", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/assets/{name}/thumbnail", "/coddy/sessions/{id}/composer-stream", "/coddy/events", "/coddy/sessions/{id}/question", "/coddy/sessions/{id}/permission", "/coddy/sessions/{id}/cancel", "/coddy/sessions/{id}/workspace", "/coddy/sessions/{id}/branches", "/coddy/sessions/{id}/queue", "/coddy/sessions/{id}/queue/{message_id}", "/coddy/subagents", "/coddy/subagents/{name}/trust", "/coddy/subagents/{name}/untrust", "/coddy/auth/me", "/coddy/auth/login", "/coddy/auth/logout"} {
+	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/enhance-prompt", "/coddy/slash-commands", "/coddy/workspace/files", "/coddy/workspace/context", "/coddy/workspace/folders", "/coddy/config/schema", "/coddy/config", "/coddy/config/validate", "/coddy/config/reasoning-levels", "/coddy/providers/{name}/models", "/coddy/providers/{name}/codex-auth", "/coddy/providers/{name}/codex-auth/device", "/coddy/providers/{name}/codex-auth/device/{loginID}", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/assets/{name}/thumbnail", "/coddy/sessions/{id}/composer-stream", "/coddy/events", "/coddy/sessions/{id}/question", "/coddy/sessions/{id}/permission", "/coddy/sessions/{id}/cancel", "/coddy/sessions/{id}/workspace", "/coddy/sessions/{id}/branches", "/coddy/sessions/{id}/queue", "/coddy/sessions/{id}/queue/{message_id}", "/coddy/subagents", "/coddy/subagents/{name}/trust", "/coddy/subagents/{name}/untrust", "/coddy/auth/me", "/coddy/auth/login", "/coddy/auth/logout", "/coddy/docs", "/coddy/docs/page", "/coddy/docs/search"} {
 		if _, ok := paths[must]; !ok {
 			t.Fatalf("paths missing key %s", must)
 		}
@@ -549,7 +553,7 @@ func TestRedirectDocsToTrailingSlash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusFound && res.StatusCode != http.StatusMovedPermanently {
 		t.Fatalf("expected redirect, got %d", res.StatusCode)
 	}
@@ -663,7 +667,7 @@ func TestCoddySessionCancelHTTP_StopsBlockedAgentTurn(t *testing.T) {
 			return
 		}
 		_, _ = io.Copy(io.Discard, res.Body)
-		res.Body.Close()
+		_ = res.Body.Close()
 		reqErr <- nil
 	}()
 
@@ -1200,7 +1204,7 @@ func TestResponsesMultiTurnHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ioReadAllClose(res1.Body)
+	_, _ = ioReadAllClose(res1.Body)
 
 	payload2 := strings.NewReader(`{"model":"agent","input":"two","stream":false}`)
 	req2, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", payload2)
@@ -1209,7 +1213,7 @@ func TestResponsesMultiTurnHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ioReadAllClose(res2.Body)
+	_, _ = ioReadAllClose(res2.Body)
 	if res2.StatusCode != http.StatusOK {
 		t.Fatalf("status %d", res2.StatusCode)
 	}
@@ -1390,7 +1394,7 @@ func TestCoddySessionMessagesIncludesSessionModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ioReadAllClose(resA.Body)
+	_, _ = ioReadAllClose(resA.Body)
 	if resA.StatusCode != http.StatusOK {
 		t.Fatalf("session A status %d", resA.StatusCode)
 	}
@@ -1408,7 +1412,7 @@ func TestCoddySessionMessagesIncludesSessionModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ioReadAllClose(resB.Body)
+	_, _ = ioReadAllClose(resB.Body)
 	if resB.StatusCode != http.StatusOK {
 		t.Fatalf("session B status %d", resB.StatusCode)
 	}
@@ -1543,7 +1547,7 @@ func TestResponsesDirectPersistsAssistantModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ioReadAllClose(res.Body)
+	_, _ = ioReadAllClose(res.Body)
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d", res.StatusCode)
 	}
@@ -1700,14 +1704,14 @@ func TestCoddyCommandsEndpoint(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	get := func(url string) (int, string, []map[string]string) {
+	get := func(url string) (int, string, []map[string]interface{}) {
 		res, err := http.Get(ts.URL + url)
 		if err != nil {
 			t.Fatal(err)
 		}
 		var body struct {
-			Object string              `json:"object"`
-			Items  []map[string]string `json:"items"`
+			Object string                   `json:"object"`
+			Items  []map[string]interface{} `json:"items"`
 		}
 		if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 			t.Fatal(err)
@@ -1720,11 +1724,22 @@ func TestCoddyCommandsEndpoint(t *testing.T) {
 	if code != http.StatusOK || obj != "coddy.commands" {
 		t.Fatalf("status=%d object=%q", code, obj)
 	}
-	if len(items) != 3 || items[0]["name"] != "compact" || items[1]["name"] != "export" || items[2]["name"] != "plugin" {
-		t.Fatalf("commands = %+v, want compact, export, plugin", items)
+	var names []string
+	for _, it := range items {
+		names = append(names, fmt.Sprint(it["name"]))
+	}
+	want := "model reasoning think nothink agent plan ask permissions compact export plugin"
+	if strings.Join(names, " ") != want {
+		t.Fatalf("commands = %v, want %s", names, want)
+	}
+	if items[0]["kind"] != "setting" || items[len(items)-1]["kind"] != "action" {
+		t.Fatalf("kinds = %v / %v", items[0]["kind"], items[len(items)-1]["kind"])
+	}
+	if items[0]["hint"] != "<model id> [--once|--count=N]" {
+		t.Fatalf("model hint = %v", items[0]["hint"])
 	}
 	for _, it := range items {
-		if strings.TrimSpace(it["description"]) == "" {
+		if strings.TrimSpace(fmt.Sprint(it["description"])) == "" {
 			t.Fatalf("command %q missing description", it["name"])
 		}
 	}
@@ -1898,7 +1913,7 @@ func TestResponsesAgentWithAttachmentsHydrate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ioReadAllClose(res.Body)
+	_, _ = ioReadAllClose(res.Body)
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d", res.StatusCode)
 	}
@@ -1910,6 +1925,67 @@ func TestResponsesAgentWithAttachmentsHydrate(t *testing.T) {
 	}
 	if blocks[0].Type != "text" || blocks[1].Type != "resource" || blocks[1].Resource == nil || blocks[1].Resource.Text != "inside" {
 		t.Fatalf("blocks %+v", blocks)
+	}
+}
+
+// A remote console sends what was piped into a one-shot run as a literal
+// attachment of kind stdin: the runner gets the same block a local run sends,
+// byte for byte, and a kind the server does not know is a 400.
+func TestResponsesStdinAttachmentKind(t *testing.T) {
+	var mu sync.Mutex
+	var captured []acp.ContentBlock
+	root := t.TempDir()
+	wd := filepath.Join(root, "wd")
+	if err := os.MkdirAll(wd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		mu.Lock()
+		captured = append([]acp.ContentBlock(nil), prompt...)
+		mu.Unlock()
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+		return string(acp.StopReasonEndTurn), nil
+	}
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: filepath.Join(root, "home"), CWD: wd},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100}},
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), wd, &session.FileStore{Root: filepath.Join(root, "sessions")})
+	srv := New(cfg, mgr, slog.Default(), wd)
+	t.Cleanup(srv.Drain)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	post := func(sid, attachments string) int {
+		payload := `{"model":"agent","input":"Review this change","stream":false,"attachments":` + attachments + `}`
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Coddy-Session-ID", sid)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = ioReadAllClose(res.Body)
+		return res.StatusCode
+	}
+
+	piped := "diff --git a/x b/x\r\n+see @note.txt\n\n"
+	literal, _ := json.Marshal(piped)
+	if code := post("sess_http_stdin_1", `[{"path":"stdin","kind":"stdin","source":{"literal":`+string(literal)+`}}]`); code != http.StatusOK {
+		t.Fatalf("status %d", code)
+	}
+	mu.Lock()
+	blocks := append([]acp.ContentBlock(nil), captured...)
+	mu.Unlock()
+	if len(blocks) != 2 || !reflect.DeepEqual(blocks[1], session.StdinAttachment(piped)) {
+		t.Fatalf("blocks %+v", blocks)
+	}
+	if code := post("sess_http_stdin_2", `[{"path":"stdin","kind":"clipboard","source":{"literal":"x"}}]`); code != http.StatusBadRequest {
+		t.Fatalf("an unknown kind answered %d, want 400", code)
+	}
+	if code := post("sess_http_stdin_3", `[{"path":"stdin","kind":"stdin"}]`); code != http.StatusBadRequest {
+		t.Fatalf("a stdin kind without a literal answered %d, want 400", code)
 	}
 }
 
@@ -1970,7 +2046,7 @@ func TestResponsesAttachmentEncodings(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		ioReadAllClose(res.Body)
+		_, _ = ioReadAllClose(res.Body)
 		return res.StatusCode
 	}
 
@@ -2079,6 +2155,93 @@ agent:
 	}
 }
 
+// TestCoddyConfigPutKeepsProviderProxySetting saves provider rows through the
+// settings route the way the settings screen does and reads them back: the
+// "Ignore system proxy" switch writes none, and the value reaches the file,
+// the live config and the next GET unchanged. A word the setting does not
+// know is refused with the ones it does.
+func TestCoddyConfigPutKeepsProviderProxySetting(t *testing.T) {
+	home := t.TempDir()
+	cfgPath := filepath.Join(home, "config.yaml")
+	yml := "providers:\n  - name: local\n    type: openai\n    api_base: http://127.0.0.1:8080/v1\n" +
+		"models:\n  - model: local/m\nagent:\n  model: local/m\n"
+	if err := os.WriteFile(cfgPath, []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	srv := New(cfg, mgr, slog.Default(), home)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	put := func(proxy string) (int, string) {
+		t.Helper()
+		body := `{"providers":[{"name":"local","type":"openai","api_base":"http://127.0.0.1:8080/v1","proxy":` + strconv.Quote(proxy) + `},` +
+			`{"name":"corp","type":"openai","api_key":"k"}],` +
+			`"models":[{"model":"local/m"}],"agent":{"model":"local/m"}}`
+		req, _ := http.NewRequest(http.MethodPut, ts.URL+"/coddy/config", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := ioReadAllClose(res.Body)
+		return res.StatusCode, string(b)
+	}
+
+	if code, b := put("none"); code != http.StatusOK {
+		t.Fatalf("put none: status %d %s", code, b)
+	}
+	if got := srv.activeCfg().FindProvider("local").Proxy; got != "none" {
+		t.Fatalf("live proxy after the save = %q, want none", got)
+	}
+	if got := srv.activeCfg().FindProvider("corp").Proxy; got != "" {
+		t.Fatalf("a row saved without the key got proxy %q", got)
+	}
+	onDisk, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(onDisk), "proxy: none") {
+		t.Fatalf("config.yaml does not carry proxy: none:\n%s", onDisk)
+	}
+	res, err := http.Get(ts.URL + "/coddy/config")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gb, _ := ioReadAllClose(res.Body)
+	var doc struct {
+		Providers []struct {
+			Name  string `json:"name"`
+			Proxy string `json:"proxy"`
+		} `json:"providers"`
+	}
+	if err := json.Unmarshal(gb, &doc); err != nil {
+		t.Fatalf("GET /coddy/config: %v\n%s", err, gb)
+	}
+	got := map[string]string{}
+	for _, p := range doc.Providers {
+		got[p.Name] = p.Proxy
+	}
+	if got["local"] != "none" || got["corp"] != "" {
+		t.Fatalf("GET /coddy/config proxies = %v, want local none and corp unset", got)
+	}
+
+	code, b := put("direct")
+	if code != http.StatusBadRequest {
+		t.Fatalf("put direct: status %d %s, want 400", code, b)
+	}
+	if !strings.Contains(b, `use \"none\"`) && !strings.Contains(b, `use "none"`) {
+		t.Fatalf("the refusal does not name the keyword to use: %s", b)
+	}
+}
+
 // TestResponsesInlineFilesDirectModel verifies that inline_files reach the
 // provider as ImageParts on the user message for a direct YAML model call.
 func TestResponsesInlineFilesDirectModel(t *testing.T) {
@@ -2097,7 +2260,7 @@ func TestResponsesInlineFilesDirectModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ioReadAllClose(res.Body)
+	_, _ = ioReadAllClose(res.Body)
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("want 200, got %d", res.StatusCode)
 	}
@@ -2238,10 +2401,10 @@ func TestResponsesInlineFilesPersistThumbnailInSessionHistory(t *testing.T) {
 		} `json:"messages"`
 	}
 	if err := json.NewDecoder(msgRes.Body).Decode(&history); err != nil {
-		msgRes.Body.Close()
+		_ = msgRes.Body.Close()
 		t.Fatal(err)
 	}
-	msgRes.Body.Close()
+	_ = msgRes.Body.Close()
 	if msgRes.StatusCode != http.StatusOK {
 		t.Fatalf("messages status %d", msgRes.StatusCode)
 	}
@@ -2257,7 +2420,7 @@ func TestResponsesInlineFilesPersistThumbnailInSessionHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer thumbRes.Body.Close()
+	defer func() { _ = thumbRes.Body.Close() }()
 	if thumbRes.StatusCode != http.StatusOK {
 		t.Fatalf("thumbnail status %d", thumbRes.StatusCode)
 	}
@@ -2361,7 +2524,7 @@ func TestResolveDirectYAMLMaxTokens(t *testing.T) {
 }
 
 func ioReadAllClose(b io.ReadCloser) ([]byte, error) {
-	defer b.Close()
+	defer func() { _ = b.Close() }()
 	return io.ReadAll(b)
 }
 
@@ -2382,7 +2545,7 @@ func TestCoddyWorkspaceContextPathParam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d", res.StatusCode)
 	}
@@ -2405,7 +2568,7 @@ func TestCoddyWorkspaceContextPathParam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res2.Body.Close()
+	defer func() { _ = res2.Body.Close() }()
 	if res2.StatusCode != http.StatusBadRequest {
 		t.Fatalf("missing path status = %d", res2.StatusCode)
 	}
@@ -2435,7 +2598,7 @@ func authGET(t *testing.T, rawURL, token string) int {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	return res.StatusCode
 }
 
@@ -2471,7 +2634,7 @@ func TestHTTPAuthChallengeHeader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status %d want 401", res.StatusCode)
 	}
@@ -2617,7 +2780,7 @@ func TestHTTPCORSPreflightAllowedOrigin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusNoContent {
 		t.Fatalf("preflight status %d want 204", res.StatusCode)
 	}
@@ -2638,7 +2801,7 @@ func TestHTTPCORSDisallowedOrigin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if got := res.Header.Get("Access-Control-Allow-Origin"); got != "" {
 		t.Fatalf("disallowed origin got ACAO %q, want none", got)
 	}
@@ -2652,7 +2815,7 @@ func TestHTTPCORSWildcardActualRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d want 200", res.StatusCode)
 	}
@@ -2669,7 +2832,7 @@ func TestHTTPCORSDisabledNoHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if got := res.Header.Get("Access-Control-Allow-Origin"); got != "" {
 		t.Fatalf("CORS disabled but ACAO set: %q", got)
 	}
@@ -2738,7 +2901,7 @@ func postCompact(t *testing.T, ts *httptest.Server, sessionID, body string) (int
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	var parsed map[string]interface{}
 	_ = json.NewDecoder(res.Body).Decode(&parsed)
 	return res.StatusCode, parsed
@@ -3290,7 +3453,7 @@ func httpJSON(t *testing.T, ts *httptest.Server, method, path, body string, head
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	var parsed map[string]interface{}
 	_ = json.NewDecoder(res.Body).Decode(&parsed)
 	return res.StatusCode, parsed
@@ -3525,7 +3688,7 @@ func TestResponsesAskProfileRunsSessionInAskMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	body, _ := io.ReadAll(res.Body)
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d: %s", res.StatusCode, body)
@@ -3564,7 +3727,7 @@ func TestAskProfileRefusesRunPlanSlugBeforeTurn(t *testing.T) {
 			t.Fatalf("%s: %v", tc.name, err)
 		}
 		body, _ := io.ReadAll(res.Body)
-		res.Body.Close()
+		_ = res.Body.Close()
 		if res.StatusCode != http.StatusConflict {
 			t.Fatalf("%s: status %d, want 409: %s", tc.name, res.StatusCode, body)
 		}
@@ -3682,6 +3845,10 @@ func TestBackgroundWakeSurvivesATurnStillInFlight(t *testing.T) {
 	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), root, &session.FileStore{Root: sessRoot})
 	srv := New(cfg, mgr, slog.Default(), root)
 	defer srv.Drain()
+	// Nothing else in this test owns a waker; `coddy serve` hands the server's
+	// wake path to its runtime instead.
+	srv.AttachBackgroundWaker()
+	defer bgtask.Default().SubscribeKeyed(bgtask.WakeWatcherKey, nil)
 
 	res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: root})
 	if err != nil {
@@ -4435,5 +4602,72 @@ func TestChatCompletionsDirectCodexFinishReasons(t *testing.T) {
 	}
 	if !strings.Contains(sse, "stream truncated") {
 		t.Fatalf("cut (stream): the truncation never reached the client:\n%s", sse)
+	}
+}
+
+// A wake that lands while a turn holds the session is refused as busy - the
+// waker asks again - and must leave that turn's relay alone: its watchers keep
+// their stream, and a watcher that arrives later can still attach to it.
+func TestBackgroundWakeOnABusySessionLeavesTheRunningRelay(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: filepath.Join(root, "home"), CWD: root},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100}},
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), root, &session.FileStore{Root: filepath.Join(root, "sessions")})
+	srv := New(cfg, mgr, slog.Default(), root)
+	defer srv.Drain()
+	res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := mgr.SessionByID(res.SessionID)
+
+	// A composer turn in flight: it holds the lock and publishes to its relay.
+	unlock, err := mgr.AcquireComposerTurnLock(res.SessionID, st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	running := srv.beginComposerRelay(res.SessionID)
+	defer func() {
+		unlock()
+		srv.endComposerRelay(res.SessionID, running)
+	}()
+
+	end := time.Now()
+	handled, err := srv.RunBackgroundWake(context.Background(), agent.Wake{SessionID: res.SessionID, Tasks: []bgtask.Snapshot{{
+		ID: "bg_1", SessionID: res.SessionID, Status: bgtask.StatusFailed, StartedAt: end.Add(-time.Second), FinishedAt: &end,
+	}}})
+	if !handled || !errors.Is(err, session.ErrSessionTurnBusy) {
+		t.Fatalf("wake on a busy session = %v, %v; want handled and ErrSessionTurnBusy", handled, err)
+	}
+	if srv.peekComposerRelay(res.SessionID) != running {
+		t.Fatal("the refused wake evicted the running turn's relay")
+	}
+}
+
+// Only the first message of a woken turn carries the marker in the transcript
+// a reloaded tab reads; a message somebody typed carries none.
+func TestSessionMessagesMarkOnlyTheWake(t *testing.T) {
+	two := 2
+	rows := llmMsgsToCoddyOpenAIForSession("sess_x", []llm.Message{
+		{Role: llm.RoleUser, Content: "start the tests"},
+		{Role: llm.RoleUser, Content: "A background task you asked to be notified about has finished.", BackgroundWake: &llm.BackgroundWake{
+			Tasks: []llm.BackgroundWakeTask{{ID: "bg_1", Status: "failed", ExitCode: &two, DurationMs: 1200}},
+		}},
+	})
+	if _, ok := rows[0]["background_wake"]; ok {
+		t.Fatalf("a typed message is marked as a wake: %+v", rows[0])
+	}
+	raw, err := json.Marshal(rows[1]["background_wake"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"id":"bg_1"`) || !strings.Contains(string(raw), `"exit_code":2`) || !strings.Contains(string(raw), `"duration_ms":1200`) {
+		t.Fatalf("background_wake = %s", raw)
 	}
 }

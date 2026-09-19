@@ -46,6 +46,21 @@ func TestUserMessageStartsWithASeparatorRow(t *testing.T) {
 
 // The `!!` prefix is recognised at the very start of the submitted buffer
 // only: everything else keeps travelling to the model as ordinary text.
+// A folder whose path holds a space is inserted quoted, with the quote closed
+// ahead of the cursor: sent as it stands, the text still names the folder,
+// and the file picked next takes that quote over instead of doubling it.
+func TestQuotedFolderMentionIsClosedAheadOfTheCursor(t *testing.T) {
+	p := &completionProvider{}
+	lines, line, col := p.Apply([]string{`see @my`}, 0, len(`see @my`), tui.AutocompleteItem{Value: `@"my folder/`})
+	if lines[0] != `see @"my folder/"` || col != len(`see @"my folder/`) {
+		t.Fatalf("folder step: %q, cursor %d", lines[0], col)
+	}
+	lines, _, col = p.Apply(lines, line, col, tui.AutocompleteItem{Value: `@"my folder/a b.md"`})
+	if lines[0] != `see @"my folder/a b.md" ` || col != len(lines[0]) {
+		t.Fatalf("file step: %q, cursor %d", lines[0], col)
+	}
+}
+
 func TestParseLocalCommandRecognisesOnlyTheLeadingPrefix(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -190,7 +205,8 @@ func TestARunningLocalCommandRefusesEverythingElse(t *testing.T) {
 		{"/resume", func(a *App) { a.openResumeSelector() }, "A local command is running"},
 		{"the resume picker", func(a *App) { a.openResumePicker(nil) }, "A local command is running"},
 		{"the model selector", func(a *App) { a.openModelSelector() }, "A local command is running"},
-		{"/mode", func(a *App) { a.openModeSelector() }, "A local command is running"},
+		{"/permissions", func(a *App) { a.openPermissionSelector() }, "A local command is running"},
+		{"/plan", func(a *App) { a.dispatchSlash("/plan") }, "A local command is running"},
 		{"/theme", func(a *App) { a.openThemeSelector() }, "A local command is running"},
 	}
 	for _, tc := range cases {
@@ -686,6 +702,31 @@ func TestTruncatePromptCutsOnLinesAndOnCharacters(t *testing.T) {
 	fits := strings.Repeat("y", collapsedPromptChars)
 	if text, cut = truncatePrompt(fits, collapsedPreviewLines, collapsedPromptChars); cut || text != fits {
 		t.Fatalf("a prompt at the cap was cut: cut=%v, %d runes", cut, len([]rune(text)))
+	}
+}
+
+// The documentation tools say what they do rather than print their ids, and
+// name the query or the page the way run_command names its command.
+func TestToolBoxTitleNamesTheDocumentationTools(t *testing.T) {
+	search := newToolBox(newTheme("dark"), "call-docs-1", "coddy_docs_search", "read", nil)
+	if title := tui.StripTerminalSequences(search.title()); title != "Searching the docs" {
+		t.Fatalf("before its arguments the search box reads %q", title)
+	}
+	// A query is model-supplied: folded onto the title's one row.
+	search.SetArgs(mustJSONObject(t, map[string]string{"query": "telegram\nproxy"}))
+	if title := tui.StripTerminalSequences(search.title()); title != "Searching the docs telegram proxy" {
+		t.Fatalf("search title = %q", title)
+	}
+
+	read := newToolBox(newTheme("dark"), "call-docs-2", "coddy_docs_read", "read", nil)
+	read.SetArgs(mustJSONObject(t, map[string]string{"page": "features/mentions#completion"}))
+	if title := tui.StripTerminalSequences(read.title()); title != "Reading the docs features/mentions#completion" {
+		t.Fatalf("read title = %q", title)
+	}
+	contents := newToolBox(newTheme("dark"), "call-docs-3", "coddy_docs_read", "read", nil)
+	contents.SetArgs("{}")
+	if title := tui.StripTerminalSequences(contents.title()); title != "Reading the docs" {
+		t.Fatalf("the contents read = %q", title)
 	}
 }
 

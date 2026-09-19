@@ -87,6 +87,10 @@ Runtime state refreshed by Coddy for this step. It is not a message from the use
 ## Project rules activated by this turn
 ### go-files (Go style)
 ...
+
+## Long-term memory
+Already on disk:
+- ...
 </turn_context>
 ```
 
@@ -101,7 +105,17 @@ Runtime state refreshed by Coddy for this step. It is not a message from the use
   **`AGENTS.md`** that a filesystem tool reached mid-turn (**`activateScopedRulesForToolCall`**).
   They are **not** folded back into the frozen prompt; the next turn's prompt picks them up from
   the sticky set, and **`rules.Added`** is what keeps the block down to what the model has not been
-  given yet.
+  given yet;
+- the **memory subagent's report** for this turn, when long-term memory is on
+  ([memory.md](../features/memory.md)). A recall differs from turn to turn, so rendering it into
+  the system message would make **`messages[0]`** a new one on every turn and cost the cached
+  conversation each time. It joins the block on the first request when the run settled inside
+  **`memory.wait_seconds`**, on a later step otherwise, and stays for the rest of the turn; the
+  **`{{.Memory}}`** slot of the templates holds the session notes alone;
+- the **background tasks still running** in this session, one line each in the wording of
+  **`background_list`** (**`backgroundTasksSection`**, [background-tasks.md](../features/background-tasks.md)),
+  so the model knows what it left running without a call. Finished and system tasks are left out,
+  and the section is not written with **`tools.background.enable`** false.
 
 The block is never persisted: it is appended at the **`provider.Stream`** send boundary, next to the
 read/grep eviction projection, and the working message slice the loop keeps appending to never sees
@@ -109,7 +123,9 @@ it. Only the last few hundred tokens of a request are therefore uncached; the co
 them is a cache hit.
 
 **`UTCNow`** and **`TodoList`** stay available to a template under **`prompts.dir`**, which may still
-render them - at the cost of that cache, on every request.
+render them - at the cost of that cache, on every request. Such a template gets no clock and no
+checklist after the history; its block carries the two sections no template prints, the memory
+report and the running background tasks, and is left out when there is neither.
 
 ### The other half: read/grep eviction
 
@@ -150,7 +166,7 @@ Where it is applied:
 
 - **`buildSystemPrompt`** (`internal/agent/system_prompt.go`), last step before the context breakdown — covers agent, plan, and ask modes, a user's own **`prompts.dir`** template, and the render fallback;
 - **`buildCompactionRequest`** (`internal/agent/compact.go`) — the summarizer is its own request with its own system prompt;
-- the auxiliary HTTP prompts: chat-title generation (`external/httpserver/coddy_coddy.go`), prompt enhancement (`external/httpserver/enhance_prompt.go`) and the memory copilot (`external/memory/copilot.go`).
+- the auxiliary HTTP prompts: chat-title generation (`external/httpserver/coddy_coddy.go`) and prompt enhancement (`external/httpserver/enhance_prompt.go`); the memory subagent's template (`external/memory/prompts/memory_agent.md`) is rendered by `buildSystemPromptParts` through the `PromptTemplate` of its child session, so it opens with the identity line by itself.
 
 Two properties the tests lock (`internal/prompts/identity_test.go`, `internal/agent/identity_prompt_test.go`):
 
@@ -283,7 +299,7 @@ Plus MCP tools (**`serverName__toolName`**). When ready to ship implementation w
 
 ### Ask Mode
 
-Embedded **`ask.md`** describes a read-only assistant: it answers from the repository and the web and never mutates anything. The registry allowlist (**`internal/agent.ToolSetForMode("ask")`**) is **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`** and **`load_skill`**; there is no shell, no plan, todo or config tool, no **`spawn_agent`**, and **MCP** tools are never appended. Unlike plan mode the allowlist is also enforced at execution time, so a call replayed from history is refused with a read-only notice. A plan mention or **`runPlanSlug`** metadata never starts a plan run in ask mode, and the memory copilot runs recall-only. A subagent child never runs in ask mode unless its parent's turn was already in ask mode, which cannot spawn.
+Embedded **`ask.md`** describes a read-only assistant: it answers from the repository and the web and never mutates anything. The registry allowlist (**`internal/agent.ToolSetForMode("ask")`**) is **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`**, **`load_skill`**, **`coddy_docs_search`** and **`coddy_docs_read`**; there is no shell, no plan, todo or config tool, no **`spawn_agent`**, and **MCP** tools are never appended. Unlike plan mode the allowlist is also enforced at execution time, so a call replayed from history is refused with a read-only notice. A plan mention or **`runPlanSlug`** metadata never starts a plan run in ask mode, and the memory subagent runs recall-only. A subagent child never runs in ask mode unless its parent's turn was already in ask mode, which cannot spawn.
 
 ## Built-in Tools Specification
 

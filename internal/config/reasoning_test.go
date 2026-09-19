@@ -348,3 +348,53 @@ func TestExplicitReasoningLevelsSurviveSave(t *testing.T) {
 		t.Fatalf("reasoning_default = %q, want high", ent.DefaultReasoningLevel())
 	}
 }
+
+func TestReasoningOffOfferedOnlyWithARealSwitch(t *testing.T) {
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{
+			{Name: "nd", Type: "neuraldeep"},
+			{Name: "openai", Type: "openai"},
+			{Name: "anthropic", Type: "anthropic"},
+			{Name: "codex", Type: "codex"},
+		},
+	}
+	none := []string{"none", "low", "high"}
+	empty := []string{}
+	cases := []struct {
+		entry config.ModelEntry
+		want  bool
+	}{
+		{config.ModelEntry{Model: "nd/qwen3.8-27b"}, true},
+		{config.ModelEntry{Model: "anthropic/claude-sonnet-4-5"}, true},
+		{config.ModelEntry{Model: "anthropic/claude-opus-5"}, true},
+		{config.ModelEntry{Model: "codex/gpt-5.6-sol"}, true},
+		{config.ModelEntry{Model: "openai/gpt-5.1", ReasoningLevels: &none}, true},
+		// minimal is not off, and o-series / gpt-oss have no switch.
+		{config.ModelEntry{Model: "openai/gpt-5"}, false},
+		{config.ModelEntry{Model: "openai/o3"}, false},
+		{config.ModelEntry{Model: "nd/gpt-oss-120b"}, false},
+		// No reasoning at all, or reasoning turned off in the config: nothing to switch.
+		{config.ModelEntry{Model: "openai/gpt-4o"}, false},
+		{config.ModelEntry{Model: "nd/qwen3.8-27b", ReasoningLevels: &empty}, false},
+	}
+	for _, c := range cases {
+		entry := c.entry
+		if got := cfg.ReasoningOffOffered(&entry); got != c.want {
+			t.Errorf("%s: ReasoningOffOffered = %v, want %v", entry.Model, got, c.want)
+		}
+		choices := cfg.ReasoningChoicesFor(&entry)
+		hasOff := len(choices) > 0 && choices[len(choices)-1] == config.ReasoningOff
+		if hasOff != c.want {
+			t.Errorf("%s: ReasoningChoicesFor = %v, off offered %v, want %v", entry.Model, choices, hasOff, c.want)
+		}
+	}
+}
+
+func TestClaudeFiveIsAThinkingModel(t *testing.T) {
+	for _, id := range []string{"anthropic/claude-opus-5", "anthropic/claude-sonnet-5", "anthropic/claude-fable-5-1", "anthropic/claude-haiku-5"} {
+		m := config.ModelEntry{Model: id}
+		if got := m.ResolvedReasoningLevels(); !reflect.DeepEqual(got, []string{"low", "medium", "high"}) {
+			t.Errorf("%s: ResolvedReasoningLevels() = %v, want low/medium/high", id, got)
+		}
+	}
+}

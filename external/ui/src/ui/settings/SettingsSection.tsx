@@ -4,6 +4,7 @@ import { CodexAuthField } from "./CodexAuthField";
 import { NeuralDeepAuthField } from "./NeuralDeepAuthField";
 import { ModelField } from "./ModelField";
 import { ModelPicker } from "./ModelPicker";
+import { ProxySettingField } from "./ProxySettingField";
 import { ReasoningLevelsField } from "./ReasoningLevelsField";
 import {
   defaultForSchema,
@@ -154,7 +155,53 @@ function neuralDeepAPIBaseOverride(ctx: FieldOverrideContext) {
   );
 }
 
+// Every provider type has the proxy switch and URL field, codex included: its
+// sign-in and its requests take the row's route like any other.
+function providerProxyOverride(ctx: FieldOverrideContext) {
+  return (
+    <ProxySettingField
+      value={ctx.value}
+      onChange={ctx.onChange}
+      label={schemaFieldLabel("providers", "proxy", ctx.schema.title, "proxy")}
+      description={schemaFieldDesc(
+        "providers",
+        "proxy",
+        ctx.schema.description,
+      )}
+    />
+  );
+}
+
+// The Telegram bot's proxy reads like a provider's, so it gets the same
+// switch and URL field (System tab, gateways block).
+function gatewaysFieldOverride(ctx: FieldOverrideContext) {
+  if (ctx.path !== "telegram.proxy") {
+    return null;
+  }
+  return (
+    <ProxySettingField
+      value={ctx.value}
+      onChange={ctx.onChange}
+      label={schemaFieldLabel(
+        "system.gateways",
+        "telegram.proxy",
+        ctx.schema.title,
+        "proxy",
+      )}
+      description={schemaFieldDesc(
+        "system.gateways",
+        "telegram.proxy",
+        ctx.schema.description,
+      )}
+      switchDescriptionKey="settings.gatewayProxy.ignoreSystemDesc"
+    />
+  );
+}
+
 function providerFieldOverride(ctx: FieldOverrideContext) {
+  if (ctx.path === "proxy") {
+    return providerProxyOverride(ctx);
+  }
   const providerType =
     ctx.parentObj?.type === undefined || ctx.parentObj.type === null
       ? ""
@@ -418,6 +465,9 @@ export function SettingsSection(props: {
                 schema={sub}
                 value={asObject(doc[ck])}
                 onChange={(v) => setKey(ck, v)}
+                fieldOverride={
+                  ck === "gateways" ? gatewaysFieldOverride : undefined
+                }
                 i18nDomain={`system.${ck}`}
               />
             </div>

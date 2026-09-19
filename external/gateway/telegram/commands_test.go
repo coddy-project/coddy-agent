@@ -106,24 +106,6 @@ func TestModelKeyboardButtonsRoundTrip(t *testing.T) {
 	}
 }
 
-// The mode keyboard shares the callback parser, so its payloads must stay
-// inside the same limit and keep their action prefix.
-func TestModeKeyboardPayloadsAreWellFormed(t *testing.T) {
-	kb := buildModeKeyboard("agent")
-	for _, row := range kb.InlineKeyboard {
-		for _, btn := range row {
-			data := *btn.CallbackData
-			if len(data) > telegramCallbackDataMax {
-				t.Fatalf("callback_data is %d bytes: %q", len(data), data)
-			}
-			action, payload, ok := strings.Cut(data, ":")
-			if !ok || action != callbackActionMode || payload == "" {
-				t.Fatalf("unexpected callback data %q", data)
-			}
-		}
-	}
-}
-
 // The adapter's logger has to arrive tagged, or logger.levels naming
 // gateway.telegram scopes nothing and the debug trail stays invisible.
 func TestBotLoggerCarriesTheTelegramComponent(t *testing.T) {

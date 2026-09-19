@@ -13,6 +13,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/shell"
@@ -31,6 +32,9 @@ type turnDone struct {
 	sessionID string
 	stop      string
 	err       error
+	// woken marks the turn a finished background task started: a busy
+	// refusal of it is the waker's to retry, not a failure to report.
+	woken bool
 }
 
 // App is the interactive console application: one UI goroutine over a
@@ -41,10 +45,14 @@ type App struct {
 	// the UI goroutine and other workers keep reading it, hence the atomic.
 	cfgAt atomic.Pointer[config.Config]
 	mgr   backend
-	log   *slog.Logger
+	// settingsVersion is the version of the last settings snapshot shown.
+	settingsVersion uint64
+	log             *slog.Logger
 
 	// remoteURL is set when mgr talks to a remote coddy serve server.
 	remoteURL string
+	// completion is the editor's autocomplete; rebuilt with the editor.
+	completion *completionProvider
 	// configOpts is the last adopted session option set (model catalog).
 	configOpts []acp.ConfigOption
 	// toolFullCache and toolFullPending back the async remote ctrl+o expand.
@@ -71,6 +79,24 @@ type App struct {
 	stepBlocked   string
 	turnActive    bool
 	turnSessionID string
+	// The running turn's own numbers, which lead the status line (status.go): when it
+	// started, the tokens the model has generated in it (acp.TurnProgressUpdate) and
+	// the background tasks running right now (tasks.go).
+	turnStartedAt time.Time
+	turnTokens    int
+	runningTasks  int
+	// tasks is the last read of the session's background tasks, newest first;
+	// tasksReading says a read is in flight and tasksTimer stops the armed poll.
+	tasks        []bgtask.Snapshot
+	tasksReading bool
+	tasksTimer   func() bool
+	// Output reads of the task open in /tasks: taskOutputSeq numbers them,
+	// taskOutputApplied is the number of the answer on screen - an older answer that
+	// arrives after it is dropped - and taskOutputInflight counts the reads not yet
+	// answered, so the poll does not queue more behind a slow server.
+	taskOutputSeq      int
+	taskOutputApplied  int
+	taskOutputInflight int
 	// Remote activity drives Stop/queue but never owns or releases our worker.
 	remoteTurnActive       bool
 	remoteActivityRevision uint64
@@ -85,7 +111,6 @@ type App struct {
 
 	// Streaming state.
 	curAssistant *assistantMessage
-	curMemory    *assistantMessage
 	toolBoxes    map[string]*toolBox
 	lastToolID   string
 
@@ -100,6 +125,10 @@ type App struct {
 	sessionID string
 	modeID    string
 	modelID   string
+
+	// wakesHeld remembers the wakes of other sessions the operator has been
+	// told about (background.go), so a held wake is announced once.
+	wakesHeld map[string]bool
 	reasoning string
 	// reasoningMu serializes backend updates without blocking the UI goroutine
 	// while an earlier update is in flight.
@@ -233,8 +262,51 @@ func (a *App) buildTree() {
 	root.AddChild(a.foot)
 	a.screen.SetFocus(a.editor)
 
-	provider := newCompletionProvider(a.config().Paths.CWD, a.slashCatalog)
-	a.editor.SetAutocomplete(provider, selectListTheme(a.theme), tui.SelectListLayout{MinPrimaryColumnWidth: 12, MaxPrimaryColumnWidth: 32}, a.screen.RequestRender)
+	a.editor.SetAutocomplete(a.newCompletion(), selectListTheme(a.theme), tui.SelectListLayout{MinPrimaryColumnWidth: 12, MaxPrimaryColumnWidth: 40}, a.screen.RequestRender)
+}
+
+// mentionConsoleWait is how long the console waits for the first index of a
+// workspace before it shows what it has; the list fills in when the build
+// lands (completionProvider.watchIndex).
+const mentionConsoleWait = 150 * time.Millisecond
+
+// newCompletion builds the editor's autocomplete: the slash catalog, and the
+// "@" search of the session the draft belongs to, asked in-process or, in
+// remote mode, of the server that runs the session.
+func (a *App) newCompletion() *completionProvider {
+	if a.completion != nil {
+		a.completion.Close()
+	}
+	search := func(ctx context.Context, query string, refresh bool) (session.MentionSearchResult, error) {
+		return a.mgr.SearchMentions(ctx, session.MentionSearch{
+			SessionID: a.sessionID,
+			CWD:       a.config().Paths.CWD,
+			Query:     query,
+			Limit:     mentionListLimit,
+			Refresh:   refresh,
+			Wait:      mentionConsoleWait,
+		})
+	}
+	p := newCompletionProvider(a.slashCatalog, search, a.remoteURL != "")
+	p.watchIndex(a.postUI, func() {
+		if a.editor != nil {
+			a.editor.RefreshAutocomplete()
+			a.screen.RequestRender()
+		}
+	})
+	a.completion = p
+	return p
+}
+
+// uiCall is work posted to the UI loop from another goroutine.
+type uiCall func()
+
+// postUI runs fn on the UI loop.
+func (a *App) postUI(fn func()) {
+	select {
+	case a.updatesCh <- updateMsg{update: uiCall(fn)}:
+	case <-a.closed:
+	}
 }
 
 // Start begins a session (new or pinned) and populates the header.
@@ -295,11 +367,20 @@ func (a *App) ApplyStartupOptions(ctx context.Context, model, mode, permMode str
 }
 
 func (a *App) adoptSession(id string, modes *acp.ModeState, opts []acp.ConfigOption) {
-	if id != a.sessionID {
+	switched := id != a.sessionID
+	if switched {
 		a.remoteTurnActive, a.remoteActivityRevision = false, 0
 		a.queue.Reset()
 	}
 	a.sessionID = id
+	if switched {
+		// The tasks on screen were the other session's, and so were the turn's clock
+		// and tokens. The next turn_progress the console hears restores both from the
+		// server's figures (applyTurnProgress), so nothing is lost by dropping them,
+		// and the line never pairs one session's clock with another's tokens.
+		a.resetTasks()
+		a.turnStartedAt, a.turnTokens = time.Time{}, 0
+	}
 	a.reasoning = ""
 	if modes != nil {
 		a.modeID = modes.CurrentModeID
@@ -420,6 +501,7 @@ func (a *App) Close() {
 		a.workStop()
 		a.stopUsageTimer()
 		a.stopUsageResume()
+		a.stopTasksPoll()
 	})
 }
 
@@ -565,6 +647,9 @@ func (a *App) handleGlobalKey(data []byte) bool {
 	case "ctrl+l":
 		a.openModelSelector()
 		return true
+	case "f1":
+		a.openDocsOverlay("")
+		return true
 	case "ctrl+p":
 		a.cycleModel(1)
 		return true
@@ -687,30 +772,49 @@ func (a *App) submitPrompt(text string) {
 		return
 	}
 	a.chat.AddChild(newUserMessage(a.theme, text))
+	a.startTurnWorker(acp.SessionPromptParams{
+		SessionID: a.sessionID,
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: text}},
+	}, nil, nil)
+}
+
+// startTurnWorker runs one prompt on the manager and posts turnDone when it
+// returns. The caller has already rendered whatever announces the turn; this
+// owns the shared turn state, which is why it runs on the UI goroutine.
+//
+// done, when non-nil, also receives the turn's error once turnDone is posted: a
+// background wake waits on it (background.go), so the waker starts at most one
+// turn at a time and hears a busy session as busy.
+func (a *App) startTurnWorker(params acp.SessionPromptParams, opts *session.PromptRunOpts, done chan<- error) {
 	if a.remoteURL == "" {
 		a.setQueueRows(nil)
 	}
 	a.curAssistant = nil
 	a.stepStatus = newWaitingStatus()
 	a.stepBlocked = ""
+	a.turnStartedAt = time.Now()
+	a.turnTokens = 0
 	a.startSpinner()
 	a.turnActive = true
-	sessionID := a.sessionID
+	// A running turn is when tasks appear: read them on the fast cadence.
+	a.armTasksPoll()
+	sessionID := params.SessionID
 	a.turnSessionID = sessionID
+	woken := opts != nil && opts.BackgroundWake != nil
 	a.workers.Add(1)
 	go func() {
 		defer a.workers.Done()
-		res, err := a.mgr.HandleSessionPromptWithSender(a.workCtx, acp.SessionPromptParams{
-			SessionID: sessionID,
-			Prompt:    []acp.ContentBlock{{Type: "text", Text: text}},
-		}, a.Sender(), nil)
+		res, err := a.mgr.HandleSessionPromptWithSender(a.workCtx, params, a.Sender(), opts)
 		stop := ""
 		if res != nil {
 			stop = string(res.StopReason)
 		}
 		select {
-		case a.updatesCh <- updateMsg{sessionID: sessionID, update: turnDone{sessionID: sessionID, stop: stop, err: err}}:
+		case a.updatesCh <- updateMsg{sessionID: sessionID, update: turnDone{sessionID: sessionID, stop: stop, err: err, woken: woken}}:
 		case <-a.closed:
+		}
+		if done != nil {
+			done <- err
 		}
 	}()
 }
@@ -798,7 +902,11 @@ func (a *App) openModelSelector() {
 
 func (a *App) setModel(id string) {
 	sessionID := a.sessionID
+	// A worker: the change is written to session.json, and JoinWorkers lets
+	// that write finish before the process exits.
+	a.workers.Add(1)
 	go func() {
+		defer a.workers.Done()
 		if _, err := a.mgr.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
 			SessionID: sessionID, ConfigID: "model", Value: id,
 		}); err != nil {
@@ -937,7 +1045,9 @@ func (a *App) setReasoning(level string) {
 	done := make(chan struct{})
 	a.reasoningTail = done
 	a.reasoningMu.Unlock()
+	a.workers.Add(1)
 	go func() {
+		defer a.workers.Done()
 		if previous != nil {
 			<-previous
 		}
@@ -1152,7 +1262,6 @@ func (a *App) resetTranscript() {
 	a.toolFullCache = map[string]string{}
 	a.toolFullPending = map[string]bool{}
 	a.curAssistant = nil
-	a.curMemory = nil
 	a.lastToolID = ""
 	a.foot.ResetTokens()
 }
@@ -1213,18 +1322,34 @@ type sessionSwitched struct{ res *acp.SessionNewResult }
 func (a *App) slashCatalog() []tui.AutocompleteItem {
 	var items []tui.AutocompleteItem
 	items = append(items,
-		tui.AutocompleteItem{Value: "model", Label: "model", Description: "Select model (opens selector UI)"},
-		tui.AutocompleteItem{Value: "reasoning", Label: "reasoning", Description: "Select reasoning level (opens selector UI)"},
-		tui.AutocompleteItem{Value: "mode", Label: "mode", Description: "Switch between agent, plan, and ask mode"},
 		tui.AutocompleteItem{Value: "resume", Label: "resume", Description: "Resume another session"},
 		tui.AutocompleteItem{Value: "new", Label: "new", Description: "Start a new session"},
 		tui.AutocompleteItem{Value: "theme", Label: "theme", Description: "Switch color theme"},
 		tui.AutocompleteItem{Value: "hotkeys", Label: "hotkeys", Description: "Show keyboard shortcuts"},
 		tui.AutocompleteItem{Value: "queue", Label: "queue", Description: "List, drop or clear the messages queued for the running turn"},
 		tui.AutocompleteItem{Value: "usage", Label: "usage", Description: "Show the provider's account usage and limits"},
+		tui.AutocompleteItem{Value: "tasks", Label: "tasks", Description: "List the session's background tasks, read their output, stop one"},
+		tui.AutocompleteItem{Value: "docs", Label: "docs", Description: "Search and read Coddy's built-in documentation (F1); /docs <words or page>"},
 		tui.AutocompleteItem{Value: "quit", Label: "quit", Description: "Exit coddy"},
 	)
-	items = append(items, a.slashServer...)
+	// The settings commands come from the manager's registry, like the
+	// server's rows; a server row never shadows a console command.
+	seen := make(map[string]bool, len(items))
+	for _, it := range items {
+		seen[it.Value] = true
+	}
+	for _, c := range session.SettingsCommands() {
+		if len(a.slashServer) == 0 && !seen[c.Name] {
+			items = append(items, tui.AutocompleteItem{Value: c.Name, Label: c.Name, Description: c.Description})
+			seen[c.Name] = true
+		}
+	}
+	for _, it := range a.slashServer {
+		if !seen[it.Value] {
+			items = append(items, it)
+			seen[it.Value] = true
+		}
+	}
 	return items
 }
 
@@ -1248,6 +1373,9 @@ func (a *App) handlePaste(body []byte) {
 	}
 	if qm, ok := a.modal.(*questionModal); ok {
 		qm.InsertPaste(string(body))
+	}
+	if dm, ok := a.modal.(*docsModal); ok {
+		dm.InsertPaste(string(body))
 	}
 }
 

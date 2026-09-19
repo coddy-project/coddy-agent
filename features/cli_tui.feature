@@ -59,6 +59,16 @@ Feature: Interactive console TUI
     When the stub tool call completes without ending the turn
     Then the status line shows "Waiting for the model"
 
+  Scenario: The status line leads with the turn's clock and the tokens generated in it
+    When the console app starts
+    And the operator submits the prompt "run the long build"
+    Then the status line leads with the turn clock before "Waiting for the model"
+    And the status line shows no token count yet
+    When the agent reports 1200 tokens generated in this turn
+    Then the status line shows "1.2k tokens · Waiting for the model"
+    When the stub turn starts a tool call named "read" with argument path "README.md"
+    Then the status line shows "1.2k tokens · Reading README.md"
+
   Scenario: The status line names the subagent that is running
     When the console app starts
     And the operator submits the prompt "delegate the review"
@@ -280,3 +290,81 @@ Feature: Interactive console TUI
     Then the usage report shows "usage limits panel is switched off"
     And the footer does not show the neuraldeep usage
     And the stand-in limits API was never asked
+
+  Scenario: The operator lists the background tasks of the session, reads one and stops it
+    When the console app starts
+    And the session runs the background command "echo tests started; sleep 30"
+    And the operator submits the command "/tasks"
+    Then the tasks overlay lists "echo tests started; sleep 30" as running
+    And the footer names 1 running task
+    When the operator opens the selected task
+    Then the tasks overlay shows the output "tests started"
+    When the operator stops the task from the overlay
+    Then the background command is stopped
+    And the tasks overlay lists the task as stopped
+
+  Scenario: A finished background task wakes the console into a turn that carries on the work
+    When the console app starts
+    And the session runs the background command "echo tests failed; exit 2" that wakes the agent
+    Then the woken turn was handed the outcome of that task
+    When the stub turn streams the text "The build failed."
+    Then the transcript shows the assistant text "The build failed."
+    And the transcript shows nothing of the woken turn the operator did not type
+
+  Scenario: The tasks overlay says which running task will wake the agent
+    When the console app starts
+    And the session runs the background command "sleep 30" that wakes the agent
+    And the operator submits the command "/tasks"
+    Then the tasks overlay lists "sleep 30" as running
+    And the tasks overlay says the selected task wakes the agent
+
+  Scenario: The @ list completes an absolute path outside the workspace
+    Given a folder outside the workspace holding the file "far-notes.md"
+    When the console app starts
+    And the operator types the mention "@<outside folder>/far"
+    Then the mention list offers "far-notes.md"
+    When the operator takes the highlighted mention
+    Then the editor holds "@<outside folder>/far-notes.md "
+
+  Scenario: The @ list offers a file written after the console started
+    Given a file "old_notes.md" appears in the workspace
+    When the console app starts
+    And the operator types the mention "@"
+    And the operator presses escape
+    And a file "fresh_notes.md" appears in the workspace
+    And the operator types the mention " @fresh"
+    Then the mention list offers "fresh_notes.md"
+
+  Scenario: The @ list searches the whole workspace and says how much it cut
+    Given the workspace holds 120 files and "zz/deep/target_handler.go"
+    When the console app starts
+    And the operator types the mention "@targhand"
+    Then the mention list offers "target_handler.go"
+    When the operator takes the highlighted mention
+    Then the editor holds "@zz/deep/target_handler.go "
+    When the operator types the mention "@file"
+    Then the mention list offers "of 120, type to narrow"
+
+  Scenario: F1 opens the built-in documentation, finds a section and reads it
+    When the console app starts
+    And the operator presses F1
+    Then the help lists the page "Quickstart"
+    When the operator types "telegram proxy" into the help
+    Then the help lists the section "Telegram gateway › Proxy"
+    When the operator opens the selected help entry
+    Then the help shows the page "Telegram gateway" at the section "Proxy"
+    When the operator turns to the next page of the help
+    Then the help shows the page after "Telegram gateway"
+    When the operator presses escape
+    And the operator presses escape
+    Then the editor accepts new input
+
+  Scenario: /docs opens a page by its reference
+    When the console app starts
+    And the operator submits the command "/docs features/mentions#completion"
+    Then the help shows the page "Mentions" at the section "Completion"
+
+  Scenario: The @ list completes a page of the documentation
+    When the console app starts
+    And the operator types the mention "@coddy:mentions"
+    Then the mention list offers "features/mentions"

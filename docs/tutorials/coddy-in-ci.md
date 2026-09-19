@@ -40,12 +40,13 @@ A pipeline step that asks the agent one question and reads the answer: a review 
    coddy --dry-run   # the file, then the providers it names
    ```
 
-5. **Run the prompt.** `-p` takes the prompt. `--mode ask` restricts the turn to the read-only tools (`read`, `glob`, `grep`, `print_tree`, `websearch`, `webfetch`, `question`, `load_skill`: no shell, no file writes, no MCP tools), which is the right shape for a review and means no permission prompt can arise. `--model` picks one of the configured models, `--cwd` the workspace. The answer goes to stdout and everything else to stderr, so redirecting stdout gives a file you can post as a comment.
+5. **Run the prompt.** `-p` takes the prompt. `--mode ask` restricts the turn to the read-only tools (`read`, `glob`, `grep`, `print_tree`, `websearch`, `webfetch`, `question`, `load_skill`, `coddy_docs_search`, `coddy_docs_read`: no shell, no file writes, no MCP tools), which is the right shape for a review and means no permission prompt can arise. `--model` picks one of the configured models, `--cwd` the workspace. The answer goes to stdout and everything else to stderr, so redirecting stdout gives a file you can post as a comment.
 
    ```bash
-   git diff origin/main...HEAD > review.patch
-   coddy -p "Review the change in review.patch. Read the files it touches for context, report defects with path:line, and end with one line: VERDICT: ok or VERDICT: needs work." --mode ask > review.md
+   git diff origin/main...HEAD | coddy -p "Review this change. Read the files it touches for context, report defects with path:line, and end with one line: VERDICT: ok or VERDICT: needs work." --mode ask > review.md
    ```
+
+   The diff comes in on stdin and rides with the prompt as an attachment, the way `codex exec` takes a piped stdin, so the model has it without a tool call; a line on stderr says how much was attached. A prompt too long for the command line (the operating system caps one argument at 128 KiB on Linux) goes in a file, `coddy -i review-brief.md`, or on stdin, `coddy -p - < review-brief.md`, and a file prompt takes the diff the same way: `git diff | coddy -i review-brief.md`. A step whose stdin belongs to something else - a `while read` loop over a list of files, `ssh`, and every job on a GitLab runner, which feeds the job script to the shell on stdin - passes `--no-stdin` so that nothing is attached ([One-shot print mode](../surfaces/console.md#one-shot-print-mode--p--prompt)).
 
    A step that should edit files runs in `agent` mode instead, and its permission requests are then answered without a human: `--permission-mode bypass` allows everything, `accept_edits` approves file writes and rejects shell commands, and `ask` (the default) rejects every request with a note on stderr. The question tool gets empty answers. A later step continues the same session with `coddy -c -p "..."`, so a second question sees the files and tool results of the first.
 
@@ -53,7 +54,7 @@ A pipeline step that asks the agent one question and reads the answer: a review 
 
    | Command | Exit 0 | Exit 1 |
    |---|---|---|
-   | `coddy -p "..."` | the turn finished and the answer was printed | the config did not load, the provider failed, a flag named an unknown model or mode, or the turn was cancelled |
+   | `coddy -p "..."` | the turn finished and the answer was printed | the config did not load, the provider failed, a flag named an unknown model or mode, the prompt input was refused (two prompts, a missing file, text that is not UTF-8, more than 8 MiB), or the turn was cancelled |
    | `coddy -t` | the file is valid (warnings do not fail it) | the file has errors or does not exist |
    | `coddy --dry-run` | every probe passed | the file has errors or a probe failed |
 
@@ -104,7 +105,6 @@ jobs:
 
       - name: Review the change
         run: |
-          git diff origin/main...HEAD > review.patch
-          coddy -p "Review the change in review.patch. Read the files it touches for context, report defects with path:line, and end with one line: VERDICT: ok or VERDICT: needs work." --mode ask | tee review.md
+          git diff origin/main...HEAD | coddy -p "Review this change. Read the files it touches for context, report defects with path:line, and end with one line: VERDICT: ok or VERDICT: needs work." --mode ask | tee review.md
           grep -q 'VERDICT: ok' review.md
 ```

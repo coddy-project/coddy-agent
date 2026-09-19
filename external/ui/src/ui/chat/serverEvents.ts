@@ -1,5 +1,9 @@
 import { parseSSEBlocks } from "./sse";
 import type { ProviderUsage } from "./providerUsage";
+import {
+  sessionSettingsEventOf,
+  type SessionSettingsEvent,
+} from "./sessionSettings";
 
 /** What a caller does with the events of `GET /coddy/events`. */
 export type ServerEventHandlers = {
@@ -18,6 +22,10 @@ export type ServerEventHandlers = {
    *  follow-up onto the turn it is watching. Carries the whole queue and its
    *  version; the caller keeps the highest version it has seen. */
   onMessageQueue?: (sessionId: string, queue: QueuedMessageEvent) => void;
+  /** A session's settings changed - model, reasoning, mode, permission mode,
+   *  the overrides for the next turns - from any surface. Carries the whole
+   *  versioned snapshot and a notice of what changed. */
+  onSessionSettings?: (event: SessionSettingsEvent) => void;
   /** A background subagent of this parent session started waiting for a
    *  permission answer, or stopped waiting (answered anywhere, withdrawn, its
    *  run ended). The prompt itself waits on the subagent's task row, so the
@@ -47,6 +55,7 @@ export type ServerEvent =
   | { type: "turn_ended"; sessionId: string }
   | { type: "provider_usage"; sessionId: string; usage: ProviderUsage }
   | { type: "message_queue"; sessionId: string; queue: QueuedMessageEvent }
+  | { type: "session_settings"; event: SessionSettingsEvent }
   | { type: "config_reloaded" }
   | { type: "subagent_permission"; parentSessionId: string }
   | { type: "ready" };
@@ -147,6 +156,10 @@ export function parseServerEvent(ev: {
       const parsed = messageQueueOf(ev.data);
       return parsed ? { type: "message_queue", ...parsed } : null;
     }
+    case "session_settings": {
+      const parsed = sessionSettingsEventOf(ev.data);
+      return parsed ? { type: "session_settings", event: parsed } : null;
+    }
     case "config_reloaded":
       // Nothing to parse: the payload is the announcement itself.
       return { type: "config_reloaded" };
@@ -181,6 +194,9 @@ export function dispatchServerEvent(
       return;
     case "message_queue":
       h.onMessageQueue?.(event.sessionId, event.queue);
+      return;
+    case "session_settings":
+      h.onSessionSettings?.(event.event);
       return;
     case "config_reloaded":
       h.onConfigReloaded?.();

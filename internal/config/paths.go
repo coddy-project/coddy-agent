@@ -32,6 +32,12 @@ func NeuralDeepAuthPath(home, providerName string) string {
 	return providerAuthFile(home, providerName, "neuraldeep-auth.json")
 }
 
+// DevinAuthPath returns the Coddy-managed session-token path for one devin
+// provider (the credential obtained via `coddy providers login`).
+func DevinAuthPath(home, providerName string) string {
+	return providerAuthFile(home, providerName, "devin-auth.json")
+}
+
 // ProviderAuthPath resolves the managed credential path for a provider by its
 // type. Providers that authenticate with a plain api_key have no managed
 // credential and get "". Every ProviderInput construction site must use this
@@ -42,6 +48,8 @@ func ProviderAuthPath(home, providerName, providerType string) string {
 		return CodexAuthPath(home, providerName)
 	case "neuraldeep":
 		return NeuralDeepAuthPath(home, providerName)
+	case "devin":
+		return DevinAuthPath(home, providerName)
 	default:
 		return ""
 	}

@@ -39,6 +39,7 @@ Only `description` is required. `name` defaults to the file stem (or the directo
 | `name` | | Identifier matching `[a-z0-9][a-z0-9_-]*`; what the model passes to `spawn_agent`. |
 | `description` | | One line shown to the parent model so it can pick the agent; cut to 200 characters in the catalog. |
 | `model` | | A `models[].model` id for the child. An unknown id falls back to the parent's model with a warning in the agent log and a note in the task's output log. |
+| `reasoning` | `effort` | A reasoning level the child's model offers, `off` or `default`. A level the model does not offer falls back to its default with a warning in the agent log. |
 | `mode` | | `agent` or `plan`. Empty inherits the parent's mode; a read-only parent (`plan`, and `ask` should a spawn ever originate there) always forces its own mode. The parent's mode is the one its turn started in, not the live session mode, so a mode switch landing mid-turn cannot widen a child. |
 | `tools` | | Allowlist: a YAML list or a comma-separated string (`tools: read, grep`). Entries are exact tool names, a bare `*`, or a `prefix*` pattern, so `context7__*` admits every tool of one MCP server. Empty means everything the parent has. |
 | `disallowed_tools` | `disallowedTools` | Denylist with the same syntax; wins over `tools`. |
@@ -77,7 +78,7 @@ Every loaded definition is an **immutable value** carrying its scope, its path a
 Two definitions ship embedded so delegation works before the operator writes a file. Both are listed with scope `builtin` and path `(embedded)`.
 
 - **`general`** - a general-purpose worker with the **parent's tool set** (no `tools` restriction of its own), for multi-step tasks, research, or independent units of work that can run in parallel. Its role tells it to read before changing anything, keep edits minimal, verify when the task calls for it, never retry a permission the operator did not grant, and report what it did and what the parent must still decide.
-- **`explore`** - a read-only explorer for locating files, symbols and usages and gathering evidence before changes are proposed. Its tool list is exactly `read`, `keep_result`, `glob`, `grep`, `print_tree`, `websearch`, `webfetch`, `load_skill`, `background_list`, `background_output`, `background_wait`: no `run_command`, no writes, no MCP tools. Plan mode alone would not be read-only (it still offers the shell), which is why the list is spelled out. Because nothing in that set is an MCP tool, an `explore` child never dials an MCP server.
+- **`explore`** - a read-only explorer for locating files, symbols and usages and gathering evidence before changes are proposed. Its tool list is exactly `read`, `keep_result`, `glob`, `grep`, `print_tree`, `websearch`, `webfetch`, `load_skill`, `coddy_docs_search`, `coddy_docs_read`, `background_list`, `background_output`, `background_wait`: no `run_command`, no writes, no MCP tools. Plan mode alone would not be read-only (it still offers the shell), which is why the list is spelled out. Because nothing in that set is an MCP tool, an `explore` child never dials an MCP server.
 
 ## Scopes and project trust
 
@@ -127,6 +128,8 @@ Approval surfaces:
 | `background` | Return the task id at once instead of waiting for the report. Default `false`. A definition with `background: true` forces it on. |
 | `expected_seconds` | The model's own estimate; drives the status ticker and, when no timeout is given, the hard timeout - the same advisory semantics as a backgrounded `run_command`. |
 | `timeout_seconds` | Hard limit for the run. |
+| `model` | A configured model id for the child, over the definition's `model` and the parent's. An id the configuration does not know is refused with the list of configured ones. |
+| `reasoning` | The child's reasoning level: a level its model offers, `off` or `default`; over the definition's `reasoning`. A level the model does not offer is refused. |
 | `notify_on_finish` | For a background run: wake the parent with the outcome when the child finishes (see `docs/features/background-tasks.md`). Forced **off** for a foreground spawn, whose report already comes back in the tool result, and for any spawn made by a child. |
 
 The tool is registered when `subagents.enable` is on and offered in `agent` and `plan` mode, never in `ask` mode. It needs **no permission prompt of its own**: launching a child changes nothing by itself, every tool call the child makes is gated on its own, and project trust is decided inside the runtime hook before anything starts.
@@ -139,7 +142,7 @@ A **foreground** spawn (the default) blocks the tool call until the child's turn
 …the child's last assistant message…
 ]]>
 </subagent>
-The user did not see this report: restate what matters in your own reply. The full transcript is session sess_9f1c… (Tasks panel → Open transcript).
+The user did not see this report: restate what matters in your own reply. The full transcript is session sess_9f1c… (Tasks panel → Show transcript).
 ```
 
 `status` is the pool's verdict for the task (`succeeded`, `failed`, `timed_out`, `stopped`); when it is anything but `succeeded` a line says so and tells the model to treat the report accordingly, and a run that ended with an error names it. `turns` is the number of assistant rounds in the child's transcript. The report is wrapped in CDATA so nothing the child wrote can break the envelope.
@@ -152,7 +155,7 @@ Hard timeout 30m.
 Keep working; follow it with background_list or background_output, and collect the report with background_wait.
 ```
 
-With `notify_on_finish: true` the last line instead tells the model it will be woken with the outcome. From here the run is an ordinary task: `background_list` shows it, `background_output` streams the child's progress log, `background_wait` blocks for it and returns the log ending in the report block, and `background_stop` cancels the child.
+With `notify_on_finish: true` the last line instead tells the model it will be woken with the outcome - where something can wake it: `coddy -p` runs no waker and a child's transcript closes with its turn, so there the line says that nothing will wake the model, and the task records no wake ([Background tasks](background-tasks.md#which-process-wakes-the-agent)). From here the run is an ordinary task: `background_list` shows it, `background_output` streams the child's progress log, `background_wait` blocks for it and returns the log ending in the report block, and `background_stop` cancels the child.
 
 Refusals are returned as tool errors that name the knob that applies: an unknown name (with the list of visible definitions), a project file without a receipt (with the approval commands), `subagents.max_depth` reached, a prompt over 32 KiB, `subagents.max_concurrent` runs already in flight, the pool's own per-session limit (`tools.background.max_concurrent`), and the pool draining for shutdown. With `subagents.enable: false` the tool is not registered at all. A surface without a session manager is never advertised the tool, and a call anyway answers that subagents are not available in this session.
 
@@ -220,7 +223,7 @@ Every run creates a child session with an ordinary session id, generated before 
 
 - **Hidden from History.** Child sessions stay out of every default listing: the web UI History, `GET /coddy/sessions`, `coddy sessions list`, `coddy -c`, and ACP `session/list`. `GET /coddy/sessions?include_subagents=true` includes them.
 - **Read-only transcripts.** Resuming or messaging a child is out of scope. Any prompt against a child session that is not the child's own task turn (a composer `POST /v1/responses`, an ACP `session/prompt`, a console prompt, a run-plan request, the background waker) is refused with `subagent sessions are read-only transcripts: <child> belongs to <parent>`; over HTTP that is a **409** naming the parent. The SPA renders the child's transcript with the composer replaced by a notice linking back to the parent chat.
-- **From the Tasks panel.** An agent task shows an `agent` badge with the agent name, the detail pane shows the role name instead of a shell command, and **Open transcript** routes to `#/s/<child id>`. The live progress log in the output pane is the report while it runs; the transcript shows the child's tool calls and its final answer.
+- **From the Tasks panel.** The card of an agent task carries the agent's name as its tag and the description of the run as its title, and its meta line names the model the child runs on and the tokens its calls have spent so far - input and output together, the call in flight estimated until the provider reports it - so a run that burns through a large context shows it while it runs. The row of `GET /coddy/sessions/{id}/background-tasks` carries the same figures as `agent.model`, `agent.input_tokens` and `agent.output_tokens`, and the task's record keeps the final ones. Opened, it shows **Show transcript**, which routes to `#/s/<child id>`, where a shell task shows its command. The live progress log in the card's output box is the report while it runs; the transcript shows the child's tool calls and its final answer.
 - **Deletion cascades.** `DELETE /coddy/sessions/{id}` removes the whole tree through one path: the requested session plus every descendant, found by walking the `subagents/` folders of its bundle, root to leaf. Every node's representing task is stopped and awaited first (a child's task lives under its parent, so this reaches a running child and a running descendant alike), then any remaining tasks of every node, and only then are the bundles removed deepest first, the requested session last. Before any of that, an active turn of any node is cancelled and awaited and a turn arriving during the deletion is refused; a turn that ignores its cancellation past the settle timeout (15 s) aborts the deletion with nothing removed (HTTP `409`). The tree is rescanned after it is marked until no new descendant appears, so a child created while the deletion starts is removed with it rather than orphaned. Nothing writes into a removed bundle afterwards.
 
 ## Scheduled runs
@@ -256,6 +259,16 @@ agent: explore | task: bg_3 | session: sess_9f1c… | outcome: end_turn | turns:
 
 `✗ <tool> (failed)` marks a tool call that failed or was refused, including one outside the child's tool set. `outcome` is the child's stop reason (`end_turn`, `cancelled`, `failed`, or another ACP stop reason), `turns` is the number of assistant rounds in the child's transcript (the same count the foreground envelope carries), and an `error:` line precedes the report when the run ended with one.
 
+## System children: the memory subagent
+
+The runtime starts one child of its own: with `memory.enable` on, every user turn launches the **memory subagent**, which recalls and persists the long-term notes ([Long-term memory](memory.md)). It is built on the same machinery as a `spawn_agent` child - a task of kind `agent` in the pool, a child session inside the parent's bundle, the same transcript and log - through a launcher of its own, so not every spawn rule holds for it:
+
+- its task row carries `agent.system: true` and the name `memory`; the Tasks drawer tags its card `memory` where a delegation carries its agent's name, and the model-facing pool tools omit it and refuse its id;
+- it is admitted past `tools.background.max_concurrent` and never counted against it, and `subagents.max_concurrent` does not count it either; its own bounds are two runs per session and sixteen per process;
+- it has six tools its parent does not have, the one exception to the rule that a child's set only narrows: the set is fixed in code, granted only to this child, never through a definition file, and it reaches nothing but the two note roots. Its mode is always `agent`; an ask-mode turn narrows it to the three recall tools;
+- `SubagentStart` and `SubagentStop` do not fire for it (they describe delegations the model chose); inside the child the ordinary events fire with `"kind": "memory"` in the `subagent` block of the payload;
+- it takes no permission relay (nothing in its set is gated) and no definition, so a definition file named `memory` stays legal and is a different child, told apart in the drawer by the tag.
+
 ## Remote mode
 
 Subagents live where the session manager lives. With the console or `coddy acp` in `--remote` mode (`docs/surfaces/console.md`, Remote mode) the manager, the child sessions, the pool tasks and the trust receipts are all on the `coddy serve` host:
@@ -275,7 +288,7 @@ Subagents live where the session manager lives. With the console or `coddy acp` 
   ```
 
 - a connection drop leaves the server turn, its foreground child and any open prompt running server-side (turns are detached from the request); the remote console reports the stream error, `/resume` shows the outcome once the turn ends, and a prompt answered after the server withdrew it is ignored rather than failing the turn;
-- a woken turn (`notify_on_finish` on a detached spawn or a background command) runs on the server with a non-interactive sender: it is published to the session's composer relay, and a gated tool call inside it is denied unless the server's own permission mode is bypass.
+- a woken turn (`notify_on_finish` on a detached spawn or a background command) runs on the server: in the Telegram chat bound to the session, or on the session's composer relay, where the web UI and a console following the turn over `--remote` can answer its permission prompts; with neither up, a gated tool call inside it is denied unless the server's own permission mode is bypass ([Background tasks](background-tasks.md#under-coddy-serve)).
 
 The executable checks are the scenario "A subagent's permission prompt reaches the remote client even when the server bypasses its own" in `features/remote_client.feature`, the live `examples/acp/acp_e2e_remote_subagents.py` and the subagent step of `examples/cli/cli_e2e_remote.py`.
 
@@ -321,9 +334,9 @@ The Subagents tab is shown under [Scopes and project trust](#scopes-and-project-
 
 *The Tasks drawer with a subagent run in progress*
 
-![The finished run with its report](../assets/subagents/tasks-detail-agent-finished-dark.png)
+![The card of a finished run opened in place: Show transcript, the log and the report](../assets/subagents/tasks-detail-agent-finished-dark.png)
 
-*The finished run with its report*
+*The card of a finished run opened in place: Show transcript, the progress log and the report*
 
 ![The child session opened read-only from the task row](../assets/subagents/child-transcript-readonly-dark.png)
 

@@ -14,6 +14,21 @@ import { permissionOptionLabel } from "./permissionOptionLabel";
 import { submitPermissionChoice } from "./permissionSubmit";
 import { useT } from "../i18n/I18nProvider";
 
+/**
+ * A choice that switches the whole session (#292) is not one more "allow":
+ * bypass wears the danger tone and accept-edits the amber one, so the button
+ * that stops every later prompt is never picked for the one in front of it.
+ */
+export function sessionSwitchClass(optionId: string): string {
+  if (optionId === "allow_session_bypass") {
+    return "permission-prompt-btn--session-bypass";
+  }
+  if (optionId === "allow_session_accept_edits") {
+    return "permission-prompt-btn--session-edits";
+  }
+  return "";
+}
+
 export type PermissionPromptSectionProps = {
   itemId: string;
   payload: CoddyPermissionPayload;
@@ -86,11 +101,15 @@ export function PermissionPromptSection(props: PermissionPromptSectionProps) {
               <button
                 key={opt.optionId}
                 type="button"
-                className={
+                className={[
+                  "permission-prompt-btn",
                   isReject
-                    ? "permission-prompt-btn permission-prompt-btn--reject"
-                    : "permission-prompt-btn permission-prompt-btn--allow"
-                }
+                    ? "permission-prompt-btn--reject"
+                    : "permission-prompt-btn--allow",
+                  sessionSwitchClass(opt.optionId),
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
                 disabled={submitting}
                 onClick={() =>
                   void choose(opt.optionId, permissionOptionLabel(opt))

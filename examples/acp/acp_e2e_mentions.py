@@ -8,6 +8,10 @@
    filled from disk the same way (the shape an editor client sends).
 3. A resource asking for lines past the end of the file is refused as a
    ``session/prompt`` error, so the range never widens into the whole file.
+4. What Zed sends for its mentions: an embedded ``resource`` named by a
+   ``file://`` URI with a ``#L2:3`` fragment (labelled ``lines="2-3"``, path
+   relative to the workspace) and a ``resource_link`` to a folder (read as its
+   listing, ``kind="directory"``).
 
 Environment: CODDY_BIN, CODDY_CONFIG, SESSION_ROOT, SESSION_ID.
 """
@@ -211,6 +215,27 @@ def main() -> int:
         if "error" not in r4 or "line range" not in msg:
             print("range past the end was not refused", jd(r4), file=sys.stderr)
             return 1
+
+        # 4. Zed's shapes: an embedded file:// resource with a line fragment and a
+        # resource_link to a folder.
+        (work / "linked_dir").mkdir(exist_ok=True)
+        (work / "linked_dir" / "inside.txt").write_text("x\n", encoding="utf-8")
+        r5, _ = rpc_call(proc, "session/prompt", {"sessionId": sid, "prompt": [
+            {"type": "text", "text": "Reply with the single word OK."},
+            {"type": "resource", "resource": {"uri": f"file://{work / FILE_NAME}#L2:3", "text": "EMBEDDED_BY_EDITOR"}},
+            {"type": "resource_link", "uri": f"file://{work / 'linked_dir'}/", "name": "linked_dir"},
+        ]}, nid)
+        if "error" in r5:
+            print("session/prompt (zed shapes) error", jd(r5), file=sys.stderr)
+            return 1
+        data = json.loads((sdir / "messages.json").read_text(encoding="utf-8"))
+        rows = data.get("messages", []) if isinstance(data, dict) else data
+        last_user = [str(m.get("content", "")) for m in rows if m.get("role") == "user"][-1]
+        for want in (f'path="{FILE_NAME}"', 'lines="2-3"', "EMBEDDED_BY_EDITOR",
+                     'path="linked_dir/"', 'kind="directory"', "inside.txt"):
+            if want not in last_user:
+                print(f"zed-shaped prompt lacks {want!r}: {last_user[:1200]}", file=sys.stderr)
+                return 1
 
         print("ok acp e2e mentions", flush=True)
         return 0

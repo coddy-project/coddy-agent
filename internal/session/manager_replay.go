@@ -1,11 +1,11 @@
 package session
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/mention"
 )
 
 func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessionDir string) error {
@@ -13,31 +13,28 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 		return nil
 	}
 
-	byTurn := map[int]*MemoryTurnTraceJSON{}
-	if sd := strings.TrimSpace(sessionDir); sd != "" {
-		if env, err := ReadMemoryTrace(sd); err == nil && env != nil {
-			for i := range env.Turns {
-				row := env.Turns[i]
-				cp := row
-				byTurn[row.UserTurnIndex] = &cp
-			}
-		}
-	}
-
-	userTurn := 0
 	for i := 0; i < len(msgs); i++ {
 		msg := msgs[i]
 		switch msg.Role {
 		case llm.RoleUser:
-			userTurn++
-			content := strings.TrimSpace(msg.Content)
+			// A woken turn's first message was not typed by anybody: it is
+			// replayed as the wake it stands for, so a client shows what it
+			// showed live - nothing, or a one-line note - instead of a
+			// message from the user.
+			if msg.BackgroundWake != nil {
+				_ = m.server.SendSessionUpdate(sessionID, BackgroundWakeUpdate(msg.BackgroundWake))
+				continue
+			}
+			// The attachments a message was sent with ride in its content;
+			// a client shows the mentions that brought them, not their bodies
+			// (mention.ForDisplay, the web UI's stripCoddyAttachments twin).
+			content := strings.TrimSpace(mention.ForDisplay(stripCoddySessionAssetsXML(msg.Content)))
 			if content != "" {
 				_ = m.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 					SessionUpdate: "user_message_chunk",
 					Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: content},
 				})
 			}
-			m.replayMemoryTrace(sessionID, byTurn[userTurn])
 
 		case llm.RoleAssistant:
 			if txt := strings.TrimSpace(msg.Content); txt != "" {
@@ -106,134 +103,6 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 	}
 
 	return nil
-}
-
-func (m *Manager) replayMemoryTrace(sessionID string, row *MemoryTurnTraceJSON) {
-	if m.server == nil || row == nil {
-		return
-	}
-	rowID := strings.TrimSpace(row.MemoryRowID)
-	if rowID == "" {
-		rowID = fmt.Sprintf("mem-%d", row.UserTurnIndex)
-	}
-
-	unified := row.MemoryDurationMs > 0 || strings.TrimSpace(row.MemoryContextText) != ""
-	if unified {
-		_ = m.server.SendSessionUpdate(sessionID, acp.MemoryPhaseUpdate{
-			SessionUpdate: acp.UpdateTypeMemoryPhase,
-			MemoryRowID:   rowID,
-			Phase:         "memory",
-			Status:        "started",
-			UserTurnIndex: row.UserTurnIndex,
-		})
-		if t := strings.TrimSpace(row.MemoryContextText); t != "" {
-			_ = m.server.SendSessionUpdate(sessionID, acp.MemoryMessageChunkUpdate{
-				SessionUpdate: acp.UpdateTypeMemoryMessageChunk,
-				MemoryRowID:   rowID,
-				Phase:         "memory",
-				Kind:          "text",
-				Delta:         t,
-			})
-		}
-		ph := acp.MemoryPhaseUpdate{
-			SessionUpdate: acp.UpdateTypeMemoryPhase,
-			MemoryRowID:   rowID,
-			Phase:         "memory",
-			Status:        "completed",
-			UserTurnIndex: row.UserTurnIndex,
-			DurationMs:    row.MemoryDurationMs,
-		}
-		if len(row.RecallReadPaths) > 0 {
-			ph.RecallReadPaths = row.RecallReadPaths
-		}
-		if row.PersistSaved {
-			ph.PersistSaved = true
-			ph.PersistRelativePath = row.PersistRelativePath
-			ph.PersistTitle = row.PersistTitle
-			if strings.TrimSpace(row.PersistSavedBody) != "" {
-				ph.PersistSavedBody = row.PersistSavedBody
-			}
-		}
-		_ = m.server.SendSessionUpdate(sessionID, ph)
-		return
-	}
-
-	hasRecall := row.RecallDurationMs > 0 || strings.TrimSpace(row.RecallText) != "" || strings.TrimSpace(row.RecallReasoningText) != "" || len(row.RecallReadPaths) > 0
-	hasPersist := row.PersistDurationMs > 0 || strings.TrimSpace(row.PersistFinalText) != "" || row.PersistSaved
-
-	if hasRecall {
-		_ = m.server.SendSessionUpdate(sessionID, acp.MemoryPhaseUpdate{
-			SessionUpdate: acp.UpdateTypeMemoryPhase,
-			MemoryRowID:   rowID,
-			Phase:         "recall",
-			Status:        "started",
-			UserTurnIndex: row.UserTurnIndex,
-		})
-		if r := strings.TrimSpace(row.RecallReasoningText); r != "" {
-			_ = m.server.SendSessionUpdate(sessionID, acp.MemoryMessageChunkUpdate{
-				SessionUpdate: acp.UpdateTypeMemoryMessageChunk,
-				MemoryRowID:   rowID,
-				Phase:         "recall",
-				Kind:          "reasoning",
-				Delta:         r,
-			})
-		}
-		if r := strings.TrimSpace(row.RecallText); r != "" {
-			_ = m.server.SendSessionUpdate(sessionID, acp.MemoryMessageChunkUpdate{
-				SessionUpdate: acp.UpdateTypeMemoryMessageChunk,
-				MemoryRowID:   rowID,
-				Phase:         "recall",
-				Kind:          "text",
-				Delta:         r,
-			})
-		}
-		rc := acp.MemoryPhaseUpdate{
-			SessionUpdate: acp.UpdateTypeMemoryPhase,
-			MemoryRowID:   rowID,
-			Phase:         "recall",
-			Status:        "completed",
-			UserTurnIndex: row.UserTurnIndex,
-			DurationMs:    row.RecallDurationMs,
-		}
-		if len(row.RecallReadPaths) > 0 {
-			rc.RecallReadPaths = row.RecallReadPaths
-		}
-		_ = m.server.SendSessionUpdate(sessionID, rc)
-	}
-
-	if hasPersist {
-		_ = m.server.SendSessionUpdate(sessionID, acp.MemoryPhaseUpdate{
-			SessionUpdate: acp.UpdateTypeMemoryPhase,
-			MemoryRowID:   rowID,
-			Phase:         "persist",
-			Status:        "started",
-			UserTurnIndex: row.UserTurnIndex,
-		})
-		if r := strings.TrimSpace(row.PersistFinalText); r != "" {
-			_ = m.server.SendSessionUpdate(sessionID, acp.MemoryMessageChunkUpdate{
-				SessionUpdate: acp.UpdateTypeMemoryMessageChunk,
-				MemoryRowID:   rowID,
-				Phase:         "persist",
-				Kind:          "text",
-				Delta:         r,
-			})
-		}
-		ph := acp.MemoryPhaseUpdate{
-			SessionUpdate:       acp.UpdateTypeMemoryPhase,
-			MemoryRowID:         rowID,
-			Phase:               "persist",
-			Status:              "completed",
-			UserTurnIndex:       row.UserTurnIndex,
-			DurationMs:          row.PersistDurationMs,
-			PersistSaved:        row.PersistSaved,
-			PersistRelativePath: row.PersistRelativePath,
-			PersistTitle:        row.PersistTitle,
-		}
-		if row.PersistSaved && strings.TrimSpace(row.PersistSavedBody) != "" {
-			ph.PersistSavedBody = row.PersistSavedBody
-		}
-		_ = m.server.SendSessionUpdate(sessionID, ph)
-	}
 }
 
 func replayToolKind(name string) string {

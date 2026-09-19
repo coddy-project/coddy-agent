@@ -37,7 +37,7 @@ func main() {
 
 	llm := flag.Bool("llm", false, "also serve a scripted OpenAI-compatible model under /v1")
 	llmModel := flag.String("llm-model", "coddy-demo", "model id the scripted model reports")
-	llmScript := flag.String("llm-script", "", "JSON file with [{\"match\": \"...\", \"answer\": \"...\"}] rules")
+	llmScript := flag.String("llm-script", "", "JSON file with [{\"match\": \"...\", \"answer\": \"...\"}] rules; a rule with \"tool\": {\"name\": ..., \"arguments\": {...}} calls that tool first and answers its result")
 	llmDelay := flag.Duration("llm-delay", 50*time.Millisecond, "pause between streamed chunks")
 	llmChunk := flag.Int("llm-chunk-words", 1, "words per streamed chunk")
 	var llmAnswers stringList

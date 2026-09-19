@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 )
 
 // Live status line shown next to the spinner while a turn runs: what the agent is doing
@@ -34,8 +37,11 @@ const (
 	statusWaitingStuck = "Still no response from the server"
 )
 
-// liveStatus is the current step of a running turn. counts is false for steps that are
-// blocked on the operator, where a climbing counter would be a lie.
+// liveStatus is the current step of a running turn. counts says the step shows a clock
+// of its own after the phrase. The turn's clock leads the line and covers the model's
+// own phases - waiting, thinking, responding - so only a step that runs something other
+// than the model (a tool call, the memory run) counts; a step blocked on the operator
+// never does, because a climbing counter there would be a lie.
 type liveStatus struct {
 	verb      string
 	target    string
@@ -45,9 +51,16 @@ type liveStatus struct {
 }
 
 // newWaitingStatus starts the "waiting for the model" phase, whose phrase escalates with
-// elapsed time.
+// the time since it began. It shows no clock of its own: before the first token the
+// line is the turn clock and this phrase.
 func newWaitingStatus() liveStatus {
-	return liveStatus{verb: statusWaitingModel, startedAt: time.Now(), counts: true, waiting: true}
+	return liveStatus{verb: statusWaitingModel, startedAt: time.Now(), waiting: true}
+}
+
+// newModelStatus starts a phase of the model's own work - thinking, responding. The
+// turn clock covers it, so it carries no second clock.
+func newModelStatus(verb string) liveStatus {
+	return liveStatus{verb: verb, startedAt: time.Now()}
 }
 
 // newWorkingStatus starts a step that names what it is doing.
@@ -136,6 +149,10 @@ func statusVerbForTool(toolName string) string {
 		return "Deleting"
 	case "websearch":
 		return "Searching the web"
+	case "coddy_docs_search":
+		return "Searching the docs"
+	case "coddy_docs_read":
+		return "Reading the docs"
 	case "webfetch":
 		return "Fetching"
 	case "http_request":
@@ -176,8 +193,11 @@ func statusTargetFromArgs(toolName, argsJSON string) string {
 		return stringArg(args, "command")
 	case "grep", "glob":
 		return stringArg(args, "pattern")
-	case "websearch":
+	case "websearch", "coddy_docs_search":
 		return stringArg(args, "query")
+	case "coddy_docs_read":
+		// A page of the documentation built into the binary, with its section.
+		return stringArg(args, "page")
 	case "http_request":
 		// The method is half of what a request does; the url alone reads like a fetch.
 		method, target := strings.ToUpper(stringArg(args, "method")), stringArg(args, "url")
@@ -319,9 +339,41 @@ func (s liveStatus) statusText(elapsed time.Duration) string {
 	return b.String()
 }
 
+// turnLine renders the turn's own numbers, which lead the status line: how long the
+// turn has been running, how many tokens the model has generated in it, how many
+// background tasks run right now. Tokens and tasks appear once there are any, so a turn
+// that has not heard from the model reads as its clock alone. The web UI renders the
+// same line (external/ui/src/ui/messages/TypingDotsMessage.tsx).
+func turnLine(elapsed time.Duration, tokens, runningTasks int) string {
+	parts := []string{formatElapsed(elapsed)}
+	if tokens > 0 {
+		parts = append(parts, tui.FormatTokenCount(tokens)+" "+plural(tokens, "token", "tokens"))
+	}
+	if runningTasks > 0 {
+		parts = append(parts, itoa(runningTasks)+" "+plural(runningTasks, "running task", "running tasks"))
+	}
+	return strings.Join(parts, " · ")
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
 // statusMessage is the loader's message provider: it runs inside Loader.Render on the UI
 // goroutine, so reading App state here needs no extra synchronization.
 func (a *App) statusMessage() string {
+	step := a.stepMessage()
+	if a.turnStartedAt.IsZero() {
+		return step
+	}
+	return turnLine(time.Since(a.turnStartedAt), a.turnTokens, a.runningTasks) + " · " + step
+}
+
+// stepMessage is what the turn is doing right now, without the turn's own numbers.
+func (a *App) stepMessage() string {
 	if a.stepBlocked != "" {
 		return a.stepBlocked
 	}
@@ -333,6 +385,17 @@ func (a *App) statusMessage() string {
 		elapsed = time.Since(a.stepStatus.startedAt)
 	}
 	return a.stepStatus.statusText(elapsed)
+}
+
+// applyTurnProgress takes the server's account of the running turn. The token count
+// is the agent's: provider figures for the calls that finished, an estimate for the
+// one in flight. The clock is the console's own for a turn it started - it knows when
+// the operator pressed enter - and the server's for a turn it only attached to.
+func (a *App) applyTurnProgress(u acp.TurnProgressUpdate) {
+	a.turnTokens = u.OutputTokens
+	if a.turnStartedAt.IsZero() && u.ElapsedMs >= 0 {
+		a.turnStartedAt = time.Now().Add(-time.Duration(u.ElapsedMs) * time.Millisecond)
+	}
 }
 
 // setStatus replaces the current step. A repeat of the same verb and target keeps its

@@ -82,7 +82,7 @@ func (a *Agent) CompactSession(ctx context.Context, instructions string, force b
 	if force {
 		trigger = compactTriggerManual
 	}
-	mode := a.state.GetMode()
+	mode := a.state.EffectiveMode()
 	if reason, vetoed := a.runPreCompactHooks(ctx, mode, trigger, instructions); vetoed {
 		return nil, fmt.Errorf("%w: %s", ErrCompactionBlocked, reason)
 	}

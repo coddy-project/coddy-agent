@@ -60,6 +60,10 @@ type Message struct {
 	// Messages before the last summary stay in the persisted transcript for UI
 	// replay but are excluded from LLM prompts (see session.MessagesForLLM).
 	CompactionSummary bool `json:"compaction_summary,omitempty"`
+	// BackgroundWake marks a user-role message no person typed: the one a
+	// finished notify_on_finish task started a turn with (excluded from what
+	// the provider is sent; the Content still is).
+	BackgroundWake *BackgroundWake `json:"background_wake,omitempty"`
 }
 
 // PlanDocumentSnapshot is a persisted design plan row in the session transcript.
@@ -141,11 +145,14 @@ type ProviderInput struct {
 	// diagnostic only: every error the provider returns is prefixed with it
 	// and the address it reached, so a user running several providers can
 	// tell which entry of their config failed. Empty leaves errors bare.
-	Name     string
-	Type     string
-	Model    string
-	APIKey   string
-	BaseURL  string
+	Name    string
+	Type    string
+	Model   string
+	APIKey  string
+	BaseURL string
+	// ProxyURL is the row's providers[].proxy setting as written: empty or
+	// "inherit" follows the environment's proxy, "none" connects directly,
+	// and a proxy URL goes through that proxy (config.ParseProxySetting).
 	ProxyURL string
 	// AuthPath is the Coddy-managed OAuth credential file for providers that use
 	// browser sign-in instead of an API key.
@@ -157,7 +164,7 @@ type ProviderInput struct {
 	// a set temperature is sent as is, zero included, and next to a reasoning
 	// level too, where a configured one is left out.
 	TemperatureSet bool
-	// ReasoningEffort is the reasoning level name ("minimal"|"low"|"medium"|"high"), or empty.
+	// ReasoningEffort is the reasoning level name ("minimal"|"low"|"medium"|"high"), "off" to turn thinking off, or empty.
 	// OpenAI maps it to reasoning_effort; Anthropic maps it to an extended-thinking token budget.
 	ReasoningEffort string
 	// RetryMax is the number of retries after the first failed attempt (default 3).
@@ -234,8 +241,9 @@ func neuralDeepEffectiveKey(explicit, authPath string) string {
 // NewProvider creates the appropriate Provider from a model definition.
 func NewProvider(p ProviderInput) (Provider, error) {
 	// Never the SDK default client: the shared transport carries the HTTP/2
-	// liveness pings and the stall guard (transport.go), and the proxy
-	// setting is honoured either way (the environment's when none is set).
+	// liveness pings and the stall guard (transport.go), and it is the route
+	// the row's proxy setting chose (the environment's proxy unless it says
+	// otherwise).
 	hc, err := providerHTTPClient(p.ProxyURL, p.Timeout, p.StreamIdleTimeout)
 	if err != nil {
 		return nil, err
@@ -259,6 +267,10 @@ func NewProvider(p ProviderInput) (Provider, error) {
 		// intentionally ignored: OAuth tokens go to the official Codex backend unless
 		// the process itself opts out through CODDY_CODEX_BASE_URL.
 		inner = newCodexProvider(p.Model, p.AuthPath, codexBaseURL(), hc, p.MaxTokens, p.ReasoningEffort)
+	case "devin":
+		// A Devin session token reaches the Devin API server only: api_base is
+		// ignored, and CODDY_DEVIN_API_SERVER_URL moves the process as a whole.
+		inner = newDevinProvider(p, hc)
 	default:
 		return nil, &UnsupportedProviderError{Provider: p.Type}
 	}

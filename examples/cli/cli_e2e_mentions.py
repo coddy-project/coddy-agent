@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Mentions: a ranged ``@file:3-4`` typed into the console attaches only those lines."""
+"""Mentions in the console.
+
+1. A ranged ``@file:3-4`` typed into the console attaches only those lines.
+2. The ``@`` list completes an absolute path outside the workspace (issue #289):
+   typing the folder and a fragment offers the file, tab inserts it, and the
+   sent prompt attaches that file by its absolute path.
+"""
 
 from __future__ import annotations
 
@@ -42,6 +48,19 @@ def main() -> int:
         for tok in (LINE_TOKENS[0], LINE_TOKENS[4]):
             if tok in body:
                 raise AssertionError(f"{tok} leaked into a 3-4 attachment")
+
+        # 2. An absolute path outside the workspace, completed from the @ list.
+        outside = Path(tempfile.mkdtemp(prefix="coddy-cli-mentions-outside-"))
+        (outside / "far-notes.md").write_text("FAR_NOTES_TOKEN_42\n", encoding="utf-8")
+        tui.type_text(f"@{outside}/far")
+        tui.wait_for("far-notes.md", timeout=30)
+        tui.send("\t")
+        tui.pump(0.5)
+        tui.prompt("Reply with the single word OK.")
+        tui.wait_idle(timeout=420)
+        user_rows = [str(m.get("content", "")) for m in tui.messages() if m.get("role") == "user"]
+        if not any(f'path="{outside}/far-notes.md"' in c and "FAR_NOTES_TOKEN_42" in c for c in user_rows):
+            raise AssertionError(f"the absolute mention was not attached: {user_rows[-1][:800]!r}")
         return ok("cli_e2e_mentions")
     finally:
         tui.close()

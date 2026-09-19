@@ -56,8 +56,8 @@ test("desktop .rail-column z-index exceeds .backdrop z-index", () => {
   const backdropMatch = css.match(/\.backdrop\s*\{[^}]*z-index:\s*(\d+)/);
   expect(railMatch, ".rail-column must set z-index").not.toBeNull();
   expect(backdropMatch, ".backdrop must set z-index").not.toBeNull();
-  expect(parseInt(railMatch![1], 10)).toBeGreaterThan(
-    parseInt(backdropMatch![1], 10),
+  expect(parseInt(railMatch![1] ?? "", 10)).toBeGreaterThan(
+    parseInt(backdropMatch![1] ?? "", 10),
   );
 });
 

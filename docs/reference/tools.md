@@ -63,7 +63,10 @@ The `background_*` tools are registered only while `tools.background` is enabled
 |---|---|---|---|---|
 | `question` | Ask the user one or more multiple-choice questions and wait for the answers | `questions[]` of `header`, `question`, `options[]` (`label`, `description`), `multiple`, `custom` | none (the turn waits for the user) | agent, plan, ask |
 | `load_skill` | Load the full instructions of a catalogued skill by name; registered only while `skills.auto_discovery` is on ([Skills](../features/skills.md)) | `name` | none | agent, plan, ask |
-| `spawn_agent` | Delegate a self-contained task to a subagent, waiting for its report or running it as a background task ([Subagents](../features/subagents.md#the-spawn_agent-tool)) | `agent`, `prompt`, `description`, `background`, `expected_seconds`, `timeout_seconds`, `notify_on_finish` | none itself; the child's own calls prompt through the parent | agent, plan (the child of a plan-mode parent stays in plan mode); hidden in ask, at `subagents.max_depth` and where no runtime exists, such as a scheduled run |
+| `coddy_docs_search` | Search Coddy's own documentation, built into the binary, with BM25 over the sections ([Built-in documentation](../features/built-in-docs.md#the-agents-tools)) | `query`, `limit` | none | agent, plan, ask |
+| `coddy_docs_read` | Read a page or a section of that documentation, or its contents without a page; long pages come in parts | `page`, `offset` | none | agent, plan, ask |
+| `spawn_agent` | Delegate a self-contained task to a subagent, waiting for its report or running it as a background task ([Subagents](../features/subagents.md#the-spawn_agent-tool)) | `agent`, `prompt`, `description`, `model`, `reasoning`, `background`, `expected_seconds`, `timeout_seconds`, `notify_on_finish` | none itself; the child's own calls prompt through the parent | agent, plan (the child of a plan-mode parent stays in plan mode); hidden in ask, at `subagents.max_depth` and where no runtime exists, such as a scheduled run |
+| `switch_model` | Switch the model the turn runs on and/or its reasoning level, from the next request, until the turn ends or for the session; registered when there is something to switch - more than one configured model, or one with reasoning levels ([Session settings](../features/session-settings.md#the-model-switches-itself)) | `model`, `reasoning`, `scope` (`turn` or `session`) | none | agent, plan, ask; never offered to a subagent |
 
 ## Todo checklist
 
@@ -134,18 +137,18 @@ Compiled in with the `scheduler` tag and registered only while the scheduler is 
 | `coddy_scheduler_job_run` | Start one run now, as a background agent task under the job session; answers with the task and the run session | `job_id` | always | agent |
 | `coddy_scheduler_job_cancel` | Stop the run of a job that is in flight | `job_id` | always | agent |
 
-## Memory copilot
+## Memory subagent
 
-With the `memory` tag, the long-term memory copilot runs its own small model loop before and after a turn and calls these tools itself; they are not in the registry and the main model never sees them (`external/memory/copilot.go`, `external/memory/tools`). The recall phase gets the first three, the persist phase all six. Paths are `scope:relative/path.md` ([Long-term memory](../features/memory.md#the-tools)).
+With the `memory` tag, every user turn starts a memory subagent, a child agent run in the background task pool, and these are its tools: they are registered into that child's registry only (`internal/agent/memory_hooks.go`, `external/memory/tools`), so the main model never sees them. A recall-only child (an ask-mode turn) gets the first three, every other child all six. Paths are `scope:relative/path.md` ([Long-term memory](../features/memory.md#the-tools)).
 
 | Tool | Purpose | Arguments (short) | Permission | Modes |
 |---|---|---|---|---|
-| `coddy_memory_search` | Rank the notes under the chosen roots against a query | `query`, `scope` | none | copilot only |
-| `coddy_memory_list` | List directories and notes one level under a path | `path` | none | copilot only |
-| `coddy_memory_read` | Read one note | `path` | none | copilot only |
-| `coddy_memory_mkdir` | Create nested folders under a scope | `path` | none | copilot only |
-| `coddy_memory_save` | Write or overwrite a note | `title`, `body`, `scope`, `relative_path` | none | copilot only |
-| `coddy_memory_delete` | Delete a note or a folder with everything under it, never a root | `path` | none | copilot only |
+| `coddy_memory_search` | Rank the notes under the chosen roots against a query | `query`, `scope` | none | memory child |
+| `coddy_memory_list` | List directories and notes one level under a path | `path` | none | memory child |
+| `coddy_memory_read` | Read one note | `path` | none | memory child |
+| `coddy_memory_mkdir` | Create nested folders under a scope | `path` | none | memory child |
+| `coddy_memory_save` | Write or overwrite a note | `title`, `body`, `scope`, `relative_path` | none | memory child |
+| `coddy_memory_delete` | Delete a note or a folder with everything under it, never a root | `path` | none | memory child |
 
 ## MCP tools
 

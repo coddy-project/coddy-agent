@@ -82,7 +82,8 @@ func (s *wakeFeatureState) stopPool() {
 	}
 }
 
-func (s *wakeFeatureState) record(_ context.Context, _, instruction string) error {
+func (s *wakeFeatureState) record(_ context.Context, wake Wake) error {
+	instruction := wake.Instruction()
 	if s.busy.Load() {
 		s.refusals.Add(1)
 		// Wrapped, not returned bare: the fix has to match with errors.Is.

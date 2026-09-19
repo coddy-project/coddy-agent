@@ -19,8 +19,8 @@ describe("groupSessions", () => {
     const rows = [row("a"), row("b")];
     const groups = groupSessions(rows, "none", NOW);
     expect(groups).toHaveLength(1);
-    expect(groups[0].key).toBe("all");
-    expect(groups[0].rows.map((r) => r.id)).toEqual(["a", "b"]);
+    expect(groups[0]?.key).toBe("all");
+    expect(groups[0]?.rows.map((r) => r.id)).toEqual(["a", "b"]);
   });
 
   it("buckets by age, newest bucket first", () => {
@@ -69,8 +69,8 @@ describe("groupSessions", () => {
     ];
     const groups = groupSessions(rows, "workspace", NOW);
     expect(groups.map((g) => g.label)).toEqual(["one", "two", undefined]);
-    expect(groups[0].rows.map((r) => r.id)).toEqual(["a", "c"]);
-    expect(groups[2].key).toBe("no-workspace");
+    expect(groups[0]?.rows.map((r) => r.id)).toEqual(["a", "c"]);
+    expect(groups[2]?.key).toBe("no-workspace");
   });
 
   it("keeps two workspaces of the same name apart", () => {
@@ -104,15 +104,15 @@ describe("groupSessions", () => {
     ];
     const groups = groupSessions(rows, "tag", NOW);
     expect(groups.map((g) => g.label)).toEqual(["backend", "ui", undefined]);
-    expect(groups[0].rows.map((r) => r.id)).toEqual(["a", "b"]);
-    expect(groups[1].rows.map((r) => r.id)).toEqual(["a"]);
-    expect(groups[2].key).toBe("untagged");
+    expect(groups[0]?.rows.map((r) => r.id)).toEqual(["a", "b"]);
+    expect(groups[1]?.rows.map((r) => r.id)).toEqual(["a"]);
+    expect(groups[2]?.key).toBe("untagged");
   });
 
   it("keeps the order the server sent inside a group", () => {
     const rows = [row("c"), row("a"), row("b")];
     const groups = groupSessions(rows, "none", NOW);
-    expect(groups[0].rows.map((r) => r.id)).toEqual(["c", "a", "b"]);
+    expect(groups[0]?.rows.map((r) => r.id)).toEqual(["c", "a", "b"]);
   });
 });
 
@@ -174,8 +174,8 @@ describe("age buckets across a daylight-saving change", () => {
     ];
     const groups = groupSessions(rows, "time", springForward);
     expect(groups).toHaveLength(1);
-    expect(groups[0].key).toBe("yesterday");
-    expect(groups[0].rows).toHaveLength(2);
+    expect(groups[0]?.key).toBe("yesterday");
+    expect(groups[0]?.rows).toHaveLength(2);
   });
 
   it("keeps the older buckets on calendar boundaries too", () => {
@@ -210,8 +210,8 @@ describe("the pinned group", () => {
       "none",
     ] as SessionGroupMode[]) {
       const groups = groupSessions(rows, mode, NOW);
-      expect(groups[0].key).toBe("pinned");
-      expect(groups[0].rows.map((r) => r.id)).toEqual(["p1", "p2"]);
+      expect(groups[0]?.key).toBe("pinned");
+      expect(groups[0]?.rows.map((r) => r.id)).toEqual(["p1", "p2"]);
       // The pins are held once, at the top - not again inside their folder or
       // their date. They are one global list, not a stripe of every group.
       const below = groups.slice(1).flatMap((g) => g.rows.map((r) => r.id));
@@ -225,7 +225,7 @@ describe("the pinned group", () => {
       row("first", { pinned: true }),
     ];
     const groups = groupSessions(rows, "time", NOW);
-    expect(groups[0].rows.map((r) => r.id)).toEqual(["second", "first"]);
+    expect(groups[0]?.rows.map((r) => r.id)).toEqual(["second", "first"]);
   });
 
   it("is not drawn when nothing is pinned", () => {

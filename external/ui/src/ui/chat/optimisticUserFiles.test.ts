@@ -42,7 +42,7 @@ test("empty MIME type falls back to application/octet-stream", () => {
 
 test("no URL.createObjectURL capability means no previewUrl", () => {
   const urlCtor = URL as unknown as {
-    createObjectURL?: (f: File) => string;
+    createObjectURL?: ((f: File) => string) | undefined;
   };
   const orig = urlCtor.createObjectURL;
   urlCtor.createObjectURL = undefined;

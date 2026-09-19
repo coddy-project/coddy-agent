@@ -18,6 +18,7 @@ _coddy() {
         'rules:list project rules'
         'agents:list and trust subagents'
         'hooks:list and trust lifecycle hooks'
+        'docs:read and search the built-in documentation'
         'update:install the latest release'
     )
 
@@ -25,7 +26,9 @@ _coddy() {
         '(-h --help)'{-h,--help}'[print the command list]' \
         '(-v --version)'{-v,--version}'[print the version]' \
         '(-c --continue)'{-c,--continue}'[continue the latest session here]' \
-        '(-p --prompt)'{-p,--prompt}'[run one prompt and exit]:prompt:' \
+        '(-p --prompt)'{-p,--prompt}'[run one prompt and exit (- reads it from stdin)]:prompt:' \
+        '(-i --prompt-file)'{-i,--prompt-file}'[run one prompt read from a file (- for stdin)]:prompt file:_files' \
+        '--no-stdin[one-shot run: do not attach piped stdin]' \
         '--resume[pick a session to resume]' \
         '1: :->command' \
         '*:: :->argument'
@@ -45,6 +48,7 @@ _coddy() {
                         _arguments \
                             '--browser[neuraldeep: loopback browser callback instead of the device flow]' \
                             '--device[neuraldeep: the device flow, which is the default]' \
+                            '--devin-cli[devin: use the login devin auth login already holds]' \
                             '--no-config[login: do not add the provider and its models to config.yaml]' \
                             '--api-base[neuraldeep: endpoint to sign in against]:url:' \
                             '--home[override CODDY_HOME]:dir:_files -/'
@@ -53,6 +57,16 @@ _coddy() {
                     fi
                     ;;
                 rules)    _values 'subcommand' list ;;
+                docs)
+                    if (( CURRENT == 3 )) && [[ $words[2] == show ]]; then
+                        # The pages the binary carries, from the binary itself.
+                        _values 'page' ${(f)"$(coddy docs list --slugs 2>/dev/null)"}
+                    elif (( CURRENT > 2 )) && [[ $words[2] == search ]]; then
+                        _arguments '--limit[sections to print]:count:'
+                    else
+                        _values 'subcommand' list search show
+                    fi
+                    ;;
                 update)
                     _arguments \
                         '--check[report whether a newer release exists]' \

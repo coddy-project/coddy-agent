@@ -1,6 +1,13 @@
 // A built-in command row (name + one-line description), shaped like a slash-menu
 // SlashRow. Backs the composer's "Commands" group, sourced from GET /coddy/commands.
-export type CommandRow = { name: string; description: string };
+export type CommandRow = {
+  name: string;
+  description: string;
+  /** Argument hint of a settings command ("<model id> [--once|--count=N]"). */
+  hint?: string;
+  /** "setting" for /model, /permissions ...; "action" for /compact, /export, /plugin. */
+  kind?: string;
+};
 
 // filterCommandRows returns the built-in command rows whose name starts with the
 // given prefix (case-insensitive). A leading "/" in the prefix is ignored and an

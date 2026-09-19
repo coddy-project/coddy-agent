@@ -49,13 +49,6 @@ func TestMentionOnlyNoAuto(t *testing.T) {
 	if len(rules.MatchAuto(catalog, []string{"/x.go"})) != 0 {
 		t.Fatal("mention rule must not auto-match")
 	}
-	if len(rules.SelectMentioned(catalog, "hello")) != 0 {
-		t.Fatal("no mention")
-	}
-	got := rules.SelectMentioned(catalog, "see @manual-rule please")
-	if len(got) != 1 || !strings.Contains(got[0].Content, "SECRET") {
-		t.Fatalf("mention: %+v", got)
-	}
 }
 
 func TestRenderPromptDedupe(t *testing.T) {
@@ -260,13 +253,6 @@ func TestDiscoverAgentsMDSystemsFilter(t *testing.T) {
 	}
 	if rules.AgentsOnDemand(rules.ParseSystems([]string{"coddy"})) {
 		t.Fatal("coddy alone must switch the on-demand reading off")
-	}
-}
-
-func TestParseAtMentions(t *testing.T) {
-	names := rules.ParseAtMentions("Use @foo in text")
-	if len(names) != 1 || names[0] != "foo" {
-		t.Fatalf("got %v", names)
 	}
 }
 

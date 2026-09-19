@@ -55,13 +55,13 @@ agent:
   model: "openai/gpt-5.6-terra"
 ```
 
-`coddy -t` checks the file and `coddy --dry-run` probes what it points at. Anthropic, NeuralDeep, ChatGPT sign-in through the Codex backend, Ollama, llama.cpp and any other OpenAI-compatible server are covered in [Configuration](docs/getting-started/configuration.md). The first five minutes on every surface are in [Quickstart](docs/getting-started/quickstart.md); upgrades are `coddy update -y`, which ends with the release notes of every version it skipped over ([Update](docs/getting-started/update.md)).
+`coddy -t` checks the file and `coddy --dry-run` probes what it points at. Anthropic, NeuralDeep, ChatGPT sign-in through the Codex backend, a Devin account signed in through the browser ([Devin](docs/features/devin.md)), Ollama, llama.cpp and any other OpenAI-compatible server are covered in [Configuration](docs/getting-started/configuration.md). The first five minutes on every surface are in [Quickstart](docs/getting-started/quickstart.md); upgrades are `coddy update -y`, which ends with the release notes of every version it skipped over ([Update](docs/getting-started/update.md)).
 
 ## Surfaces
 
 | Surface | Start it | What you get | Guide |
 |---|---|---|---|
-| Console | `coddy` | A terminal chat with streamed tool calls, permission prompts, a model picker, `!!` for a local shell, `coddy -c` to continue, `coddy -p "..."` for one-shot answers | [Console](docs/surfaces/console.md), [video](docs/assets/video/console.mp4) |
+| Console | `coddy` | A terminal chat with streamed tool calls, permission prompts, a model picker, `!!` for a local shell, `coddy -c` to continue, `coddy -p "..."` for one-shot answers, `git diff | coddy -p "review"` and `coddy -i brief.md` for piped data and long prompts | [Console](docs/surfaces/console.md), [video](docs/assets/video/console.mp4) |
 | Web UI and HTTP API | `coddy serve` | The embedded single-page app on `http://127.0.0.1:12345/`, OpenAI-compatible `/v1/*` endpoints and the `/coddy` REST surface, Swagger at `/docs/` | [Web UI](docs/surfaces/web-ui.md), [HTTP API](docs/reference/http-api.md), [video](docs/assets/video/web-ui.mp4) |
 | Editors | `coddy acp` | Zed, VS Code, Obsidian and scripts as ACP clients, with Coddy's modes, models, permissions and skills in the editor's composer | [Editors](docs/surfaces/editors.md), [Zed video](docs/assets/video/zed-acp.mp4), [VS Code video](docs/assets/video/vscode-acp.mp4) |
 | Telegram | `coddy serve` with `gateways.telegram.enable` | A bot with per-user sessions, access levels and group isolation; the same chat is live in the web UI | [Telegram gateway](docs/surfaces/gateway.md) |
@@ -79,16 +79,18 @@ agent:
 - **Subagents**: `spawn_agent` delegates a bounded task to a child with its own context and session, tools and permissions only narrowing ([Subagents](docs/features/subagents.md)).
 - **Hooks**: your own commands at every lifecycle point, in Claude Code's `hooks.json` shape, able to deny, approve or rewrite a tool call ([Hooks](docs/features/hooks.md)).
 - **MCP servers** over stdio, streamable HTTP and SSE, from `config.yaml`, `mcp.json` files or the editor, with a trust gate for what arrives with a checkout ([MCP servers](docs/features/mcp.md)).
+- **Mentions**: `@` points at a file anywhere on disk, a line range, a folder, another session, a rule, a subagent or a web page, with the same fuzzy completion in the console and the browser; each is read once into the message that names it, so the provider's prompt cache holds ([Mentions](docs/features/mentions.md)).
+- **Documentation built in**: this documentation ships inside the binary - a reader in the web UI, F1 in the console, `coddy docs` in the shell - searched offline, and the agent looks itself up with its own `coddy_docs_search` and `coddy_docs_read` tools or a `@coddy:<page>` mention ([Built-in documentation](docs/features/built-in-docs.md)).
 - **Message queue**: a follow-up written while the agent works is read by the running turn at its next step, not after it, and a shared session shows the same queue in every browser and console ([Message queue](docs/features/message-queue.md)).
 - **Background tasks**: detached commands and subagent runs collected later, with a Tasks drawer in the UI ([Background tasks](docs/features/background-tasks.md)).
-- **Context compaction and long-term memory**: `/compact` and automatic summarisation at a threshold, result eviction with `keep_result`, a memory copilot that recalls before a turn and saves after ([Compaction](docs/features/compaction.md), [Memory](docs/features/memory.md)).
+- **Context compaction and long-term memory**: `/compact` and automatic summarisation at a threshold, result eviction with `keep_result`, a memory subagent that runs per turn in the background, recalls what the notes hold and saves what you ask it to keep ([Compaction](docs/features/compaction.md), [Memory](docs/features/memory.md)).
 - **Self-configuration**: the agent edits its own YAML through staged `config_*` tools; nothing lands until you approve the commit ([config.yaml reference](docs/reference/config.md)).
 - **Sessions everywhere**: bundles on disk, resume from any surface, branches from an edited message, `/export` to Markdown, HTML or JSON ([Sessions](docs/features/sessions.md), [Session export](docs/features/session-export.md)).
-- **Any model**: OpenAI, Anthropic, NeuralDeep, ChatGPT through Codex, Ollama, llama.cpp, vLLM and every OpenAI-compatible API, with reasoning levels and multimodal attachments per model and retries that honour `Retry-After` ([Configuration](docs/getting-started/configuration.md)).
+- **Any model**: OpenAI, Anthropic, NeuralDeep, ChatGPT through Codex, the models of a Devin account ([Devin](docs/features/devin.md)), Ollama, llama.cpp, vLLM and every OpenAI-compatible API, with reasoning levels and multimodal attachments per model and retries that honour `Retry-After` ([Configuration](docs/getting-started/configuration.md)).
 - **Usage and limits**: the quota behind the current model in the console footer and in the web UI for providers that publish one (NeuralDeep today), and a turn that hits a limit can wait for the reset and resume by itself ([Console](docs/surfaces/console.md), [config.yaml reference](docs/reference/config.md)).
 - **Config check, dry run and hot reload**: `coddy -t` validates `config.yaml` against the embedded schema with `file:line:col` and a fix line, `--dry-run` probes paths, providers and models, ports, MCP servers, the Telegram token, remotes and swarm joins before anything starts, and a running `coddy serve` picks up an edited file without a restart ([Configuration](docs/getting-started/configuration.md), [coddy serve](docs/operate/serve.md)).
 - **Fleets**: a swarm relay lists and reaches many nodes, mounts their sessions into one list, routes across rings and pulls in nodes that can only dial out through a reverse tunnel; `--remote` drives a `coddy serve` on another machine from the console, an editor or the browser ([Swarm](docs/operate/swarm.md), [Remote mode](docs/operate/remote.md)).
-- **In the browser**: seven themes, English and Russian, `@` file mentions and multimodal attachments in the composer, a plan document card, a Tasks drawer, a scheduler editor and a swarm map with the topology ([Web UI](docs/surfaces/web-ui.md)).
+- **In the browser**: seven themes, English and Russian, `@` mentions and multimodal attachments in the composer, a plan document card, a Tasks drawer, a scheduler editor and a swarm map with the topology ([Web UI](docs/surfaces/web-ui.md)).
 
 - **Closed when it is on a network**: a bearer token gates the API for clients, and an optional password sign-in gates the browser - `coddy serve set-password`, or `CODDY_HTTP_USER` / `CODDY_HTTP_PASSWORD` in `~/.coddy/.env` - so a `coddy serve` on `0.0.0.0` is not readable by whoever finds the port ([Remote mode](docs/operate/remote.md#the-sign-in-form), [Security and trust](docs/operate/security.md)).
 
@@ -99,6 +101,7 @@ Project trust is one decision for MCP servers, hooks and subagents that arrive w
 | Goal | Start here |
 |---|---|
 | Install and run it for the first time | [Quickstart](docs/getting-started/quickstart.md), [Install](docs/getting-started/install.md) |
+| Read this documentation offline, from the app, the console or the shell | [Built-in documentation](docs/features/built-in-docs.md) |
 | Give it a model or check a config file | [Configuration](docs/getting-started/configuration.md), [config.yaml reference](docs/reference/config.md) |
 | Use it from a terminal, a browser, an editor or Telegram | [Console](docs/surfaces/console.md), [Web UI](docs/surfaces/web-ui.md), [Editors](docs/surfaces/editors.md), [Telegram gateway](docs/surfaces/gateway.md) |
 | Run it as a service or reach it from elsewhere | [coddy serve](docs/operate/serve.md), [Remote mode](docs/operate/remote.md), [Swarm](docs/operate/swarm.md), [Scheduler](docs/operate/scheduler.md) |

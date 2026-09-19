@@ -5,7 +5,7 @@ This page is for people: the environment, the build, the test runs, the flow of 
 ## Development environment
 
 - **Go** - the version `go.mod` declares (1.25 today); CI reads it from the same file.
-- **Node.js and npm** (CI uses Node 22) - for a build with the `ui` tag, where `make ui-build` bundles the SPA that `go:embed` picks up, and for `make test`, which builds those assets and runs the OpenCode rules plugin test with `node --test`.
+- **Node.js and npm** (CI uses Node 22) - for a build with the `ui` tag, where `make ui-build` bundles the SPA that `go:embed` picks up; for `make test`, which builds those assets, runs the SPA's vitest suite and the OpenCode rules plugin test with `node --test`; and for `make lint`, whose shipped-tag pass embeds those assets and whose last step type-checks the SPA with `tsc`.
 - **golangci-lint v2.x** (CI pins v2.12.2), built with Go 1.25 or newer - for `make lint`.
 - **ripgrep** - the CI test job installs it before `go test`; keep `rg` on `PATH` for the same run locally.
 - **Python 3** - only for the end-to-end harnesses in `examples/`; the console driver needs `pip install -r examples/cli/requirements.txt`.
@@ -53,10 +53,11 @@ What ships is still the embedded copy: a change under `external/ui/src` is compl
 ## Running the tests
 
 - **`go test ./...`** - the untagged tree with its stubs; the quick check while iterating. A single package: `go test ./path/to/pkg -run TestName -count=1`.
-- **`make test`** - the express run, before every push: the OpenCode plugin test, `ui-build`, then one `go test -tags=http,ui,scheduler,memory,cli,gateway,swarm ./...` over the whole tree with every optional module compiled in. Minutes, not tens of minutes.
+- **`make test`** - the express run, before every push: the OpenCode plugin test, `ui-build`, the SPA's vitest suite (`make ui-test`), then one `go test -tags=http,ui,scheduler,memory,cli,gateway,swarm ./...` over the whole tree with every optional module compiled in. Minutes, not tens of minutes.
 - **`make test-matrix`** - every tag combination in `TEST_TAG_SETS` (`Makefile`), one after another. This is CI's job, one job per combination on every pull request; do not walk it locally. When a change moved a build-tag boundary (a `_stub.go`, an `Available` const, a `//go:build` line), run that one combination by hand, `go test -tags=<set> ./...`, and leave the rest to CI.
+- **`make test-race`** - the tree under the Go race detector, with every optional module but `ui` compiled in. CI runs it on every pull request (job **Race detector**). Run it before the push when a change touches goroutines, locks, channels or a test harness that drives a live loop; `GOFLAGS=-count=3 make test-race` repeats every test for a race that shows up rarely. Every package is clean under it, so a race it reports is fixed rather than skipped.
 - **`make check-windows`** and **`make lint-windows`** - whenever you touch a file behind `//go:build windows`, or a signature it shares with the rest of the tree. The host runs never compile that half; CI cross-builds it and also runs the OS-specific packages on real `windows-latest` and `macos-latest` runners, the latter driving the console through a pty with `examples/cli/cli_e2e_startup.py`.
-- **`cd external/ui && npm test`** - the SPA's own vitest suite (`vitest run`, `npm run test:watch` while editing). It is not part of `make test` or the Go CI jobs, so run it yourself when `external/ui/src` changes.
+- **`make ui-test`** (`cd external/ui && npm test`) - the SPA's own vitest suite on its own (`npm run test:watch` while editing). `make test` runs it as well, and CI runs it once, in the job that reads the tag matrix. **`make ui-typecheck`** (`npm run typecheck`) is the TypeScript compiler over the same sources with no emit, the step `make lint` ends with: `vite` only transpiles, so a type error reaches the bundle unless this runs.
 - **The harnesses in `examples/`** - real binaries against a reachable model: `./examples/build_coddy.sh`, then `./examples/test_acp.sh` (ACP over stdio), `./examples/test_httpserver.sh` (a disposable `coddy serve`), `./examples/test_cli.sh` (the console in a pty, Linux only) and `./examples/test_swarm.sh` (three relays, no model needed). The layout and every script are in [examples/README.md](examples/README.md).
 
 The happy path of a feature is an executable Gherkin spec in the repo-root `features/` directory, run by a godog harness in the package that owns the behaviour (for example `external/httpserver/bdd_*_test.go`, with `Options.Paths` pointing at `../../features/<name>.feature`). Edge and error cases are ordinary unit tests next to the code, never scenarios. Specs stay deterministic and LLM-free through a stub runner, and they run under the tag that owns them as part of `make test`. Conventions are in [.claude/rules/testing.md](.claude/rules/testing.md).
@@ -87,7 +88,7 @@ Two rules from the code review section of [AGENTS.md](AGENTS.md) come up often e
 
 ## Code style
 
-- `gofmt` before committing; `make lint` is the gate (`golangci-lint` over the untagged tree, then passes over the `cli`, `swarm` and `gateway` tagged surfaces).
+- `gofmt` before committing; `make lint` is the gate: `golangci-lint` over the untagged tree, over every tag but `ui` and over the shipped tag set (three passes that compile every Go file of the host platform once), then `tsc --noEmit` over the SPA sources (`make ui-typecheck`).
 - Comments in code, and every technical Markdown file in this repository, are in English.
 - Follow the neighbouring files: import grouping, naming, error handling, table-driven tests where they clarify the cases, no real network in a test unless it is documented as integration-style.
 - The SPA is formatted with Prettier (`npm run fmt` in `external/ui`); [DESIGN.md](DESIGN.md) is its contract for tokens, layout and component behaviour, and the localization rules (every dictionary changed in the same commit) are in [AGENTS.md](AGENTS.md).

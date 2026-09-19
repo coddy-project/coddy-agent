@@ -569,3 +569,36 @@ func TestOpenAIFinishReasonMapsEveryStopVocabulary(t *testing.T) {
 		}
 	}
 }
+
+func TestSender_TurnProgressIsANamedEventAndInvisibleToOpenAIClients(t *testing.T) {
+	update := acp.TurnProgressUpdate{
+		SessionUpdate: acp.UpdateTypeTurnProgress,
+		StartedAt:     "2026-09-18T10:00:00Z",
+		ElapsedMs:     45210,
+		OutputTokens:  433,
+		Estimated:     true,
+	}
+
+	coddy := httptest.NewRecorder()
+	if err := NewSender(&config.Config{}, coddy, true, "agent").SendSessionUpdate("s", update); err != nil {
+		t.Fatal(err)
+	}
+	got := coddy.Body.String()
+	for _, want := range []string{"event: turn_progress\n", `"sessionUpdate":"turn_progress"`, `"startedAt":"2026-09-18T10:00:00Z"`,
+		`"elapsedMs":45210`, `"outputTokens":433`, `"estimated":true`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("coddy stream is missing %q:\n%s", want, got)
+		}
+	}
+
+	// A third-party OpenAI client parses the stream literally: the progress of
+	// a turn must reach it as a comment, like every other named event.
+	strict := httptest.NewRecorder()
+	sender := NewSender(&config.Config{}, newOpenAIStreamFilter(strict, "agent", false), true, "agent")
+	if err := sender.SendSessionUpdate("s", update); err != nil {
+		t.Fatal(err)
+	}
+	if body := strict.Body.String(); strings.Contains(body, "event:") || strings.Contains(body, "outputTokens") {
+		t.Fatalf("the strict OpenAI view leaked the progress event:\n%s", body)
+	}
+}

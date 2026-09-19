@@ -1,8 +1,11 @@
 package session
 
 import (
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
 // TurnPhase is the edge a TurnEvent reports.
@@ -13,6 +16,11 @@ const (
 	TurnPhaseStarted TurnPhase = "started"
 	// TurnPhaseEnded is published when a session's last running turn releases.
 	TurnPhaseEnded TurnPhase = "ended"
+	// TurnPhaseWoken is published once a turn started by finished background
+	// tasks (notify_on_finish) holds the session: a client that did not start
+	// it learns what it is for, and a client that follows only its own turns
+	// learns there is one worth following. Wake carries the tasks.
+	TurnPhaseWoken TurnPhase = "woken"
 )
 
 // TurnEvent announces that a session started or finished running a turn.
@@ -20,6 +28,9 @@ type TurnEvent struct {
 	SessionID string
 	Phase     TurnPhase
 	At        time.Time
+	// Wake is the background wake a TurnPhaseWoken event announces; nil on
+	// every other phase.
+	Wake *llm.BackgroundWake
 }
 
 // AddTurnObserver registers fn for the edges of the in-process active-turn registry and
@@ -57,8 +68,58 @@ func (m *Manager) AddTurnObserver(fn func(TurnEvent)) (remove func()) {
 	}
 }
 
-// publishTurnEvent fans a phase edge out to the registered observers.
+// publishTurnEvent fans a phase edge that happens now out to the registered observers.
 func (m *Manager) publishTurnEvent(sessionID string, phase TurnPhase) {
+	m.publishTurnEventAt(sessionID, phase, time.Now().UTC())
+}
+
+// publishTurnEventAt fans a phase edge out with the moment it happened at, so the
+// started edge carries the same instant the registry keeps as the turn's start.
+func (m *Manager) publishTurnEventAt(sessionID string, phase TurnPhase, at time.Time) {
+	m.publishTurnEventValue(TurnEvent{SessionID: sessionID, Phase: phase, At: at})
+}
+
+// publishWokenTurn announces that the turn now holding sessionID was started by
+// finished background tasks. It is dated at the turn's start, like the started
+// edge, so the turn has one name on every event that speaks of it.
+func (m *Manager) publishWokenTurn(sessionID string, wake *llm.BackgroundWake) {
+	at, ok := m.TurnStartedAt(sessionID)
+	if !ok {
+		at = time.Now().UTC()
+	}
+	m.publishTurnEventValue(TurnEvent{SessionID: sessionID, Phase: TurnPhaseWoken, At: at, Wake: wake})
+}
+
+// holdTurnWake records the wake of the turn sessionID is running, for
+// TurnWake, and returns what forgets it once the turn is over.
+func (m *Manager) holdTurnWake(sessionID string, wake *llm.BackgroundWake) func() {
+	id := strings.TrimSpace(sessionID)
+	m.activeTurnMu.Lock()
+	if m.turnWakes == nil {
+		m.turnWakes = make(map[string]*llm.BackgroundWake)
+	}
+	m.turnWakes[id] = wake
+	m.activeTurnMu.Unlock()
+	return func() {
+		m.activeTurnMu.Lock()
+		if m.turnWakes[id] == wake {
+			delete(m.turnWakes, id)
+		}
+		m.activeTurnMu.Unlock()
+	}
+}
+
+// TurnWake reports the wake of the turn sessionID is running in THIS process,
+// or nil when it runs none or runs one somebody typed. A client that attaches
+// to the session mid-turn - a snapshot of GET /coddy/events, a console
+// resuming the session - learns from it that the turn is a woken one.
+func (m *Manager) TurnWake(sessionID string) *llm.BackgroundWake {
+	m.activeTurnMu.Lock()
+	defer m.activeTurnMu.Unlock()
+	return m.turnWakes[strings.TrimSpace(sessionID)]
+}
+
+func (m *Manager) publishTurnEventValue(ev TurnEvent) {
 	m.turnObserverMu.Lock()
 	fns := make([]func(TurnEvent), 0, len(m.turnObservers))
 	for _, fn := range m.turnObservers {
@@ -68,7 +129,6 @@ func (m *Manager) publishTurnEvent(sessionID string, phase TurnPhase) {
 	if len(fns) == 0 {
 		return
 	}
-	ev := TurnEvent{SessionID: sessionID, Phase: phase, At: time.Now().UTC()}
 	for _, fn := range fns {
 		// Delivered on the calling goroutine, so a session's started edge always reaches an
 		// observer before its ended edge. That ordering is the whole point of the event, so

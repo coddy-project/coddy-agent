@@ -142,18 +142,18 @@ function parseUnifiedDiff(patch: string, fallbackPath: string): ParsedDiff {
   for (const raw of rawLines) {
     if (raw.startsWith("---")) {
       const m = /^---\s+(?:a\/)?(.+)$/.exec(raw);
-      if (m && !filePath) filePath = m[1].trim();
+      if (m && !filePath) filePath = (m[1] ?? "").trim();
       continue;
     }
     if (raw.startsWith("+++")) {
       const m = /^\+\+\+\s+(?:b\/)?(.+)$/.exec(raw);
-      if (m) filePath = m[1].trim();
+      if (m) filePath = (m[1] ?? "").trim();
       continue;
     }
     if (raw.startsWith("@@")) {
       const m = /^@@\s+-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@/.exec(raw);
-      oldNo = m ? parseInt(m[1], 10) : 1;
-      newNo = m ? parseInt(m[2], 10) : 1;
+      oldNo = m ? parseInt(m[1] ?? "1", 10) : 1;
+      newNo = m ? parseInt(m[2] ?? "1", 10) : 1;
       currentHunk = { header: raw, lines: [] };
       hunks.push(currentHunk);
       continue;

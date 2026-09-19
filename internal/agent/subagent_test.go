@@ -935,6 +935,9 @@ func TestSubagentSenderRendersProgressLog(t *testing.T) {
 			Content: acp.ContentBlock{Type: acp.ContentTypeReasoning, Text: "thinking hard"}},
 		text("hello wor"),
 		text("ld\nsecond"),
+		// The pending row streamed with the name, then the complete call: one
+		// announcement in the log.
+		start("c1", "read"),
 		start("c1", "read"),
 		status("c1", "in_progress"),
 		status("c1", "completed"),
@@ -970,6 +973,47 @@ func TestSubagentSenderRendersProgressLog(t *testing.T) {
 	s.Flush()
 	if got := out.String(); got != want {
 		t.Fatalf("second Flush changed the sink:\n%q", got)
+	}
+}
+
+// The child's calls are counted as they come: the input every call sent, summed, and
+// the output its turns have generated, the call in flight included through
+// turn_progress. A second turn (a Stop hook follow-up) adds to the first, and every
+// change reaches the task row.
+func TestSubagentSenderCountsWhatTheChildSpent(t *testing.T) {
+	var buf bytes.Buffer
+	s := newSubagentSender(&buf, nil)
+	type usage struct{ in, out int }
+	var seen []usage
+	s.onUsage = func(in, out int) { seen = append(seen, usage{in, out}) }
+
+	first := "2026-09-18T10:00:00Z"
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: first, OutputTokens: 0})
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: first, OutputTokens: 45, Estimated: true})
+	_ = s.SendSessionUpdate("child", acp.TokenUsageUpdate{InputTokens: 1200, OutputTokens: 40, TotalTokens: 1240})
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: first, OutputTokens: 40})
+	_ = s.SendSessionUpdate("child", acp.TokenUsageUpdate{InputTokens: 1300, OutputTokens: 60, TotalTokens: 2600})
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: first, OutputTokens: 100})
+
+	second := "2026-09-18T10:01:00Z"
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: second, OutputTokens: 0})
+	_ = s.SendSessionUpdate("child", acp.TokenUsageUpdate{InputTokens: 1500, OutputTokens: 20, TotalTokens: 1520})
+	_ = s.SendSessionUpdate("child", acp.TurnProgressUpdate{StartedAt: second, OutputTokens: 20})
+
+	if len(seen) == 0 {
+		t.Fatal("the task row never heard of the child's usage")
+	}
+	if got := seen[len(seen)-1]; got != (usage{4000, 120}) {
+		t.Fatalf("last usage = %+v, want 4000 in and 120 out", got)
+	}
+	// The opening frame of a turn carries nothing new and is not reported; the
+	// estimate of the call in flight is, while it streams.
+	if seen[0] != (usage{0, 45}) {
+		t.Fatalf("usage while streaming = %+v, want the estimate", seen[0])
+	}
+	// Nothing is written to the task's log for it.
+	if strings.Contains(buf.String(), "1200") {
+		t.Fatalf("usage leaked into the task log: %q", buf.String())
 	}
 }
 
@@ -1605,7 +1649,11 @@ func TestSpawnSubagentForegroundForcesNotifyOff(t *testing.T) {
 	}
 
 	// Control: a detached spawn from a root session keeps the flag, so the
-	// foreground case is a decision and not a dropped field.
+	// foreground case is a decision and not a dropped field. The wake is only
+	// promised where something is subscribed to deliver it, which on a surface
+	// is its BackgroundWaker.
+	bgtask.Default().SubscribeKeyed(bgtask.WakeWatcherKey, func(bgtask.Snapshot) {})
+	t.Cleanup(func() { bgtask.Default().SubscribeKeyed(bgtask.WakeWatcherKey, nil) })
 	bg := spawnReq("reviewer")
 	bg.Background = true
 	bg.NotifyOnFinish = true
@@ -1619,6 +1667,31 @@ func TestSpawnSubagentForegroundForcesNotifyOff(t *testing.T) {
 	final := rig.waitTask(rig.lastAgentTask().ID)
 	if !final.NotifyOnFinish {
 		t.Fatalf("background task %s lost notify_on_finish", final.ID)
+	}
+}
+
+// Where nothing is subscribed to wake the agent (coddy -p), a detached spawn
+// that asks for notify_on_finish still runs, but the result says nobody will
+// wake the model and the task does not claim a wake it will not get.
+func TestSpawnSubagentWithoutAWakerDoesNotPromiseAWake(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	rig.approvedDefinition("reviewer", "")
+	rig.setChildProvider(func(*session.State) llm.Provider { return scripted(answerStep("REPORT: quiet")) })
+	bgtask.Default().SubscribeKeyed(bgtask.WakeWatcherKey, nil)
+
+	req := spawnReq("reviewer")
+	req.Background = true
+	req.NotifyOnFinish = true
+	res, err := rig.parentAgent().spawnSubagent(context.Background(), req)
+	if err != nil {
+		t.Fatalf("background spawn: %v", err)
+	}
+	if strings.Contains(res, "You will be woken") || !strings.Contains(res, "Nothing will wake you") {
+		t.Fatalf("a spawn with no waker promised a wake:\n%s", res)
+	}
+	final := rig.waitTask(rig.lastAgentTask().ID)
+	if final.NotifyOnFinish {
+		t.Fatalf("task %s claims a wake nothing will deliver", final.ID)
 	}
 }
 

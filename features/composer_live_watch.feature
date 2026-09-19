@@ -31,3 +31,15 @@ Feature: Watching a composer turn from another client
     And the client subscribes to the composer stream after that transcript
     Then the watching client receives the text of the step still streaming
     And the watching client does not receive the step its transcript already holds
+
+  Scenario: A client that joins a running turn reads how far it has come
+    Given a script starts an agent turn whose first step is persisted while the second still streams
+    When a client reads the activity of that session
+    Then the activity says when the turn started and how many tokens it has generated
+    And a client connecting to the server event stream is told the same start
+
+  Scenario: The progress of a turn reaches a client watching it
+    Given a script starts an agent turn whose first step is persisted while the second still streams
+    When a client loads the transcript of that session
+    And the client subscribes to the composer stream after that transcript
+    Then the watching client receives the progress of the turn

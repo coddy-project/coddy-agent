@@ -29,7 +29,7 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 	if err != nil {
 		return "", err
 	}
-	mode := a.state.GetMode()
+	mode := a.state.EffectiveMode()
 	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
 	toolEnv := a.buildToolEnv(mode, sd)
 	if !permission.Approved(perm) {
@@ -74,6 +74,9 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 	_, refusedByMode := toolCallRefusedByMode(mode, tc.Name)
 	if st := sessionStatePtr(a.state); st != nil && !refusedByMode {
 		permission.RecordAllowAlways(st, tc.Name, tc.InputJSON, toolEnv.CWD, perm)
+	}
+	if !refusedByMode {
+		a.switchPermissionModeFromDialog(ctx, toolEnv, perm)
 	}
 	if sd != "" {
 		_ = session.ClearPendingPermission(sd)
@@ -160,6 +163,9 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 		WebSearch:         webSearchSettings(a.cfg),
 	}
 	a.applySubagentEnv(env, mode)
+	if a.subagent == nil && a.settings() != nil {
+		env.SwitchModel = a.switchModel
+	}
 	if a.configReloader != nil {
 		env.ReloadConfig = func(ctx context.Context) ([]string, error) {
 			warnings, err := a.configReloader(ctx)
@@ -225,7 +231,7 @@ func (a *Agent) continueReAct(ctx context.Context, mode string, toolEnv *tools.E
 	if err != nil {
 		return string(acp.StopReasonRefused), fmt.Errorf("no LLM configured: %w", err)
 	}
-	sys := a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles)
+	sys := a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles)
 	messages := a.buildMessages(sys.Content)
 	// The continuation is the last part of the turn that ran the plan, unless
 	// it stops on another gate of its own (react.go).
@@ -234,7 +240,7 @@ func (a *Agent) continueReAct(ctx context.Context, mode string, toolEnv *tools.E
 	// between steps, and the result just approved may be what crossed the
 	// threshold.
 	if a.maybeAutoCompact(ctx) {
-		sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles)
+		sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles)
 		messages = a.buildMessages(sys.Content)
 	}
 	maxTurns := a.cfg.Agent.MaxTurns

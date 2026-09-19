@@ -17,7 +17,8 @@ printing usage.
 Launch: bare `coddy` on a terminal (both stdin and stdout must be ttys —
 pipes and CI keep the usage contract), explicitly `coddy cli [flags]`, or with
 flag-style shortcuts routed to the console: `coddy -c` continues the latest
-session in this folder and `coddy -p "..."` runs one non-interactive prompt.
+session in this folder and `coddy -p "..."` runs one non-interactive prompt
+(`coddy -p -` and `coddy -i FILE` read it from stdin or from a file).
 Startup runs before the terminal enters raw mode: the config, the session
 store, the skills, the rule folders and the configured MCP servers, then
 the first frame. Nothing reads the workspace tree: nested `AGENTS.md` files
@@ -55,6 +56,7 @@ Top to bottom:
   blocks (collapse with `ctrl+t`); tool calls as background-tinted boxes
   (pending → success green tint / error red tint) with a bold title naming
   what the call acts on (`read <path>`, `$ command`, `load_skill <skill>`,
+  `Searching the docs <query>`, `Reading the docs <page>`,
   `spawn_agent <subagent> · <task> · background · timeout 300s`, where each
   part after the subagent appears only when the call passed it), preview
   capped at 10 lines, and `... (ctrl+o to expand)` reading the full result
@@ -63,17 +65,26 @@ Top to bottom:
   received, cut at the first of 10 written lines or 600 characters with
   `... (ctrl+o for the whole prompt)`. The child's report lands below it as
   the box body, so the task and the answer read as one block.
-- **Status**: braille spinner `⠋⠙⠹...` at 80 ms with a live status line naming
-  the current step while a turn runs - verb plus target plus elapsed counter
-  (`Reading README.md · 12s`, `Running npm test · 3s`, `Thinking… · 2s`,
-  `Responding`; `Running subagent reviewer · 40s` while a `spawn_agent` call
-  is in flight). A plain wait escalates with time: `Waiting for the model` →
-  `The model is taking longer than usual` (15 s) → `Still no response from the
-  server` (60 s). While a permission or question modal is open the line shows
-  `Waiting for your approval` / `Waiting for your answer` with **no** counter
-  (nothing is running), and after approval it returns to the gated tool with a
-  restarted counter. Phrase table lives in `external/cli/status.go` (Go twin of
-  the SPA's `liveStatus.ts`).
+- **Status**: braille spinner `⠋⠙⠹...` at 80 ms with a live status line while a
+  turn runs. The line leads with the turn's own numbers: how long the turn has
+  been running, how many tokens the model has generated in it, how many
+  background tasks run right now - `15m 08s · 13.5k tokens · 1 running task ·
+  Thinking…`. Before the first token it is the clock and the phrase alone
+  (`57s · Waiting for the model`), and the tasks appear only while something
+  runs. The tokens are the agent's `turn_progress` update: the provider's
+  figures for the calls that finished plus an estimate of the one in flight, so
+  the count moves while the answer streams; a console attached over `--remote`
+  receives the same update. Then comes the current step - verb plus target -
+  and, for a step that runs something other than the model, a counter of its
+  own (`2m 05s · 1.2k tokens · Running npm test · 45s`, `Running subagent
+  reviewer · 40s` while a `spawn_agent` call is in flight); thinking, responding
+  and waiting are covered by the turn clock. A plain wait escalates with time:
+  `Waiting for the model` → `The model is taking longer than usual` (15 s) →
+  `Still no response from the server` (60 s). While a permission or question
+  modal is open the line shows `Waiting for your approval` / `Waiting for your
+  answer` with **no** step counter (nothing is running), and after approval it
+  returns to the gated tool with a restarted counter. Phrase table lives in
+  `external/cli/status.go` (Go twin of the SPA's `liveStatus.ts`).
 - **Plan widget**: current todo entries (`✓` done, `◐` active, `○` pending,
   `✗` failed) above the editor.
 - **Editor**: multi-line input between full-width `─` rules (green while the
@@ -81,13 +92,30 @@ Top to bottom:
   cursor movement with sticky column; prompt history (up/down at edges, cap
   100); large pastes collapse into `[paste #N +K lines]` markers; scrolled
   content shows `─── ↑ N more ───` borders. Autocomplete: `/` commands on the
-  first line, `@` file mentions (workspace walk capped at 50k entries;
-  hidden directories, `node_modules`, and `.coddy` are skipped), `tab` forces file completion.
-  A mention may narrow a file to a 1-based inclusive line range, `@Dockerfile:21-31`:
-  the prompt is hydrated by the same `HydratePromptContentBlocks` path as ACP, so only
-  those lines reach the model (see `docs/surfaces/web-ui.md`, **Line ranges**).
-- **Footer**: dim `cwd (git-branch) • title [• plan]`, then
-  `↑in ↓out  N.N%/ctx (auto)` left and `(provider) model [• reasoning]` right.
+  first line and `@` mentions anywhere, `tab` forces path completion on a bare word.
+  The `@` list asks the same search the web UI does (`GET /coddy/mentions`,
+  in-process when local): the whole workspace ranked against what was typed, so a
+  fragment of a name finds a file anywhere in the tree; the index is rebuilt when a
+  mention starts, so a file written since the console started is offered and a
+  deleted one is gone; a query starting with `/`, `~`, `./` or `../` browses that
+  folder, anywhere on disk; `@session:`, `@rule:`, `@agent:` and `@coddy:` (the
+  pages of the built-in documentation) list those kinds.
+  A cut list says so on its scroll line, `(3/50 of 1204, type to narrow)`. A folder
+  or a scheme row keeps the list open; a file ends the mention with a space, quoted
+  when its path holds one (a quoted folder closes its quote ahead of the cursor, so
+  the text names it even if no file follows). A mention may narrow a file to a line range,
+  `@Dockerfile:21-31` or `@f.go#L21-31`, absolute paths included. In remote mode the
+  list comes from the server that runs the session. The grammar, what each kind
+  attaches and the limits are in [Mentions](../features/mentions.md).
+- **Footer**: dim `cwd (git-branch) • title [• plan] [• N tasks running (/tasks)] [• accept edits|bypass]`,
+  then `↑in ↓out  N.N%/ctx (auto)` left and `(provider) model [• reasoning]`
+  right. The permission mode closes the first line when it is not `ask`,
+  `bypass` in the warning colour, so a session that approves everything never
+  looks like one that asks. A setting changed for a number of turns adds a line
+  in the accent colour under the second one, `next turn: model x • next 3
+  turns: reasoning high` (`this turn` while the running turn holds it). The running-task note stays after the turn that started the tasks has
+  ended, which is when the status line that counted them is gone. When the
+  line does not fit, the path and the title give way and the note stays.
   A third line appears while the active model's provider reports account
   usage (today: `neuraldeep`, read from the hub's `GET /v1/limits`):
   `Pro • 3h 3% (resets 20:59) • week 7% (resets Mon 03:00) • wallet -1 229 ₽`,
@@ -128,9 +156,21 @@ throttle with immediate renders after keystrokes.
 
 ## Commands and keys
 
-Slash commands: client-side `/model`, `/reasoning [level]`, `/mode`, `/resume`,
-`/new`, `/theme`, `/hotkeys`, `/queue`, `/quit`; server-driven `/compact`, `/export`,
+Slash commands: the settings commands `/model`, `/reasoning` (`/effort`),
+`/think`, `/nothink`, `/agent`, `/plan`, `/ask` and `/permissions`, each with
+`--once` or `--count=N` for the next turns only
+([Session settings](../features/session-settings.md)); client-side `/resume`,
+`/new`, `/theme`, `/hotkeys`, `/queue`, `/usage`, `/tasks`, `/docs`, `/quit`; server-driven `/compact`, `/export`,
 `/plugin`, and every loaded skill (from the ACP available-commands catalog).
+A bare `/model`, `/reasoning` or `/permissions` opens its picker; with a value
+the command is applied by the session manager, which answers with a notice
+line, and commands followed by a message apply to the turn that message
+starts. `/mode` is gone: the modes have their own commands.
+
+![The console after /permissions bypass and a chained /model --once and /reasoning --count=3: three notices, bypass in the footer, and the line of turn overrides](../assets/session-settings/session-settings-console-footer-dark.png)
+
+*After `/permissions bypass` and `/model stub/coddy-mini --once /reasoning high --count=3`: a notice per change, `bypass` in the footer, the turn overrides under the model.*
+
 Enter on a slash suggestion applies and submits in one stroke. `/export [md|html|json|jsonl]
 [path]` writes the transcript into the workspace (`docs/features/session-export.md`);
 under `--remote` the file lands on the server. `/usage` forces a fresh read
@@ -142,6 +182,58 @@ time, the live requests-per-minute, the cooldown, the wallet with the last
 floor deferred the read, and the snapshot's age. Under `--remote` the
 server's own key is read, so a `key rejected` line there is informational
 (sign in on the server).
+
+`/tasks` opens the background tasks of the session in the place of the editor
+([Background tasks](../features/background-tasks.md#in-the-console)). The
+agent has had `background_list`, `background_output` and `background_stop`
+all along; this is the operator's side of the same pool. Every task is one
+row: a status mark, a tag that says what stands behind it (`shell` for a
+command, the agent's name for a subagent run, `memory` for the memory run of
+a turn), the title - the command, or what the agent was asked to do - and how
+it is going (`1m 08s · est. 5m 00s`, `1m 30s` once it has ended), with the
+model and the tokens of an agent run (`44s · qwen3.8-27b · 88.7k tokens`),
+newest first, the way the web UI's Tasks panel lists them. A running task that
+will wake the agent when it ends says `wakes the agent` in its row, where the
+web UI's card has its bell. How a task ended
+is its mark (`✓`, `✗`, `■`); the open task says it in words. **enter** opens
+the task under the cursor: how it ended with the exit code and the duration
+(`failed · exit 2 · 1m 30s`), its command, the child session of an agent run,
+the error it ended with unless that is only the exit code again, and the last
+lines of its output, read again while the task
+runs and once more when it ends, for what it printed last. One output read is
+in flight at a time, like the list read, so a slow server does not collect a
+queue of them. **s** stops the task under the cursor or the open one, process group
+and all; **r** reads everything again; **escape** leaves an open task first,
+then the overlay. Under `--remote` the rows, the output and the stop go
+through the server's REST routes, so the overlay manages the processes of the
+machine the agent runs on. The list refreshes every 2.5 s while the overlay is
+open, a turn runs or a task runs, and every 15 s otherwise; between turns the
+footer keeps saying how many tasks still run.
+
+A task the agent started with `notify_on_finish` wakes it in this console
+when it ends ([Background tasks](../features/background-tasks.md#waking-the-agent-when-a-task-finishes)).
+
+**F1** opens Coddy's own documentation in the place of the editor, read out of
+the binary ([Built-in documentation](../features/built-in-docs.md#the-console-help)):
+typing searches the sections, **enter** opens one at its section, **tab** moves
+between sections, **n** and **p** turn the pages, **escape** goes back.
+`/docs [words or page]` opens the same screen where the terminal keeps F1 for
+itself (GNOME Terminal does), on a search or straight on a page:
+`/docs features/mentions#completion`.
+
+![The console help on F1: the sections a search found](../assets/cli-tui/19-docs-search.png)
+
+*F1, then `telegram proxy`: the sections found, the selected one with its address and snippet*
+The woken turn runs like a typed one - the status line, the queue, a gated tool
+asking in the permission modal - and shows nothing where the operator's message
+would stand: the agent's answer follows the previous turn, as the work carrying
+on, live and when `/resume` replays the session. `/tasks` is where the task
+says it: `wakes the agent` while it runs, `woke the agent` once its end has
+started the turn. A wake that lands while a turn, a `!!` command or a session
+switch is in progress waits for it to end; one for a session the console has
+left with `/new` or `/resume` waits until the operator comes back to that
+session, and a dim line says once where it is waiting. `coddy -p` runs no
+waker, so there the tool tells the model that nothing will wake it.
 
 Submitting while a turn is running does not refuse the prompt: it joins the
 session's message queue, which the running turn reads at its next step
@@ -212,6 +304,7 @@ offers the same tools; under `--remote` the server owns the reload.
 | ctrl+c | clear editor; twice within 2 s exits |
 | ctrl+d | exit when the editor is empty |
 | ctrl+l | model selector |
+| F1 | the built-in documentation: search, read, turn pages (`/docs` too) |
 | ctrl+p / ctrl+shift+p | cycle configured models |
 | shift+tab | cycle and persist the session reasoning level (models with `reasoning_levels`) |
 | ctrl+o | expand header hints + last tool output + last `!!` block |
@@ -248,7 +341,7 @@ half, `!`, which feeds the output back to the model, is still deferred.
   purpose;
 - one at a time: a `!!` line is refused while a turn runs, and while a command
   runs the console refuses prompts, another `!!`, and every modal (`/new`,
-  `/resume`, `/mode`, `/theme`, `ctrl+l`), each with a status line saying so -
+  `/resume`, `/permissions`, `/theme`, `ctrl+l`), each with a status line saying so -
   none of them queue. A modal would swallow `escape`, which is the only key
   that stops the command;
 - the command reads from the null device, not from the terminal: an
@@ -265,7 +358,7 @@ The block belongs to the running console only. Reopening the session with
 
 Modals replace the editor while open: permission requests (the option list
 comes from the agent's `permission.Options`), the question tool (single or
-multi-select via space, custom free-text answers), model/mode/theme/session
+multi-select via space, custom free-text answers), model/reasoning/permission/theme/session
 selectors (`→ ` cursor, type-to-filter, `(i/n)` scroll indicator).
 
 A background subagent keeps working after the turn that spawned it has ended,
@@ -309,7 +402,8 @@ until you choose (mutually exclusive with `--session-id`; `--model`,
 selects). `--model`, `--mode agent|plan|ask`, and
 `--permission-mode ask|accept_edits|bypass` apply through the validated
 manager config-option API before the UI starts, in every launch mode
-(interactive, `--continue`, `--resume`, and `--prompt`). `--theme
+(interactive, `--continue`, `--resume`, and `--prompt`); the permission mode
+is never written to the session, so it lasts as long as the process. `--theme
 dark|light|auto` (auto falls back COLORFGBG → dark). `--plain` disables
 terminal queries, modifyOtherKeys, titles, and OSC 8 for deterministic
 automation. Logging is forced away from the terminal into
@@ -331,6 +425,97 @@ note on stderr. The question tool returns empty answers. `--model`, `--mode`,
 `--permission-mode`, `--session-id`, and `--continue` all combine with
 `--prompt`; `--resume` does not (it needs the interactive picker).
 
+### Prompt from a file or stdin
+
+A prompt does not have to pass through the command line, where the operating
+system caps a single argument (128 KiB on Linux) and `$(< file)` loses the
+file's trailing newlines. coddy reads it itself:
+
+```bash
+coddy -p - < brief.md          # the prompt on stdin
+cat brief.md | coddy -p        # the same: a bare -p reads a pipe
+coddy -i brief.md --mode ask   # the prompt from a named file
+coddy -p -i brief.md           # the same, -p only asks for print mode
+```
+
+The prompt comes from exactly one place: the text after `-p`, stdin (`-p -`,
+`-i -`, or a bare `-p` when stdin is not a terminal), or the file `-i`
+names. `-p -` on a terminal says on stderr that it reads the prompt from it
+and takes what is typed until ctrl+d. A prompt that is itself a coddy flag
+(`-c`, `--mode`) needs the `-p=-c` spelling, since a bare `-p` followed by a
+flag reads the prompt from stdin. It is sent exactly as read, line endings, trailing newlines and quotes
+included, and it is read like typed text: an `@path` mention in it attaches
+that file, and a leading `/skill` or `/model ...` works as it does in the
+editor. A relative `-i` path resolves from the directory the command runs in,
+as any shell argument does (`--cwd` moves the session, not the path).
+Symlinks are followed, a FIFO such as `-i <(make report)` is read to its end,
+and a directory is refused.
+
+### Data piped under a prompt
+
+When the prompt came from the command line or from `-i` and stdin is a pipe or
+a redirected file, coddy reads stdin to its end and attaches it after the
+prompt, the way `codex exec` appends a piped stdin:
+
+```bash
+git diff origin/main...HEAD | coddy -p "Review this change" --mode ask
+make test 2>&1 | coddy -p "Why does the build fail?"
+coddy -p "Summarize the incidents" < app.log
+```
+
+The model reads it as `<coddy_attachment path="stdin" name="stdin"
+kind="stdin">`, and a transcript shows `[stdin]` in its place. It is data: an
+`@` inside it reads no file and fetches no page, a `/command` inside it runs
+nothing, so text from a source you do not control belongs here and not in the
+prompt. A line on stderr says how much was attached, and blank input attaches
+nothing. A terminal, `/dev/null` and a socket on stdin are never attached;
+they are read only when the prompt itself is to come from stdin (`-p -`, and
+for all but a terminal a bare `-p`, so a program that spawns coddy can write
+the prompt into it).
+
+This changes what an existing `coddy -p "..."` sends wherever its stdin
+carries something else. Pass `--no-stdin` (or redirect `< /dev/null`) there:
+
+- in a `while read -r f; do ...; done < list` loop, where the first run would
+  read the rest of the list;
+- behind `ssh host coddy -p ...`, which keeps stdin open (`ssh -n` works too);
+- in a CI runner that feeds the job script to the shell on stdin, as GitLab's
+  runners do: without the flag coddy would read the rest of the script, send it
+  to the model, and the lines after it would never run;
+- in a git hook that receives ref lines on stdin (`pre-push`, `pre-receive`),
+  and in a container started with `docker run -i`;
+- in Windows PowerShell, which has no `<` redirection.
+
+A pipe that stays silent for 3 seconds gets one line on stderr saying the run
+is waiting for input, and the run keeps waiting: a slow producer such as
+`make` still gets its output attached, and a pipe nobody closes shows up as a
+message instead of a silent hang.
+
+### What is refused
+
+The input is read and checked before the configuration loads, before a
+session exists and before any request, so a refused run sends nothing and
+exits 1:
+
+- two prompts (`-p "text" -i brief.md`, `-p - -i brief.md`), a repeated `-p`
+  or `-i`, an empty `-p ""`, or words left after the flags (`coddy -p fix the
+  bug` stops on "the": quote the prompt);
+- a missing or unreadable file, or a directory;
+- text that is not UTF-8 (the error names the byte offset) or that holds a NUL
+  byte. A UTF-8 byte order mark is dropped and UTF-16 with a byte order mark is
+  decoded; any other encoding, UTF-16 without the mark included, needs
+  converting first (`iconv -f cp1251 -t utf-8`);
+- more than 8 MiB of prompt input, the prompt file and stdin together. Nothing
+  is cut short to fit. The limit is on what coddy reads; whether a prompt that
+  large fits is up to the model's context window.
+
+Under `--remote` the client reads everything and sends the prompt as the
+request's `input` and the piped data as a literal attachment of kind `stdin`.
+The server trims whitespace around `input`, so the prompt's own leading and
+trailing newlines do not survive the trip, while the attachment arrives byte
+for byte. An `@` mention in a prompt file resolves on the server, in its
+workspace.
+
 ## Remote mode (`--remote`)
 
 `--remote <target>` points the console (interactive and `-p` print runs) at a
@@ -346,13 +531,15 @@ the transcript, tool boxes, thinking, plan updates, token and context stats
 stream back over SSE;
 permission and question modals answer through the server's REST endpoints;
 `ctrl+o` fetches full tool output from the server. The model selector lists
-the remote catalog (`GET /v1/models`), `/mode` picks the agent, plan, or ask
-profile per turn, and `/resume`, `-c`, and `--session-id` operate on the
-server's session list (the local folder filter does not apply). The
-permission mode is governed by the remote server's configuration:
-`--permission-mode` and the `/permissions` option are rejected with a clear
-error. `/reasoning` and `shift+tab` persist the selected reasoning level on
-the server session. Sessions persist only on the server; the startup banner shows
+the remote catalog (`GET /v1/models`), and `/resume`, `-c`, and
+`--session-id` operate on the server's session list (the local folder filter
+does not apply). The settings commands change the server's session through
+the same `PATCH /coddy/sessions/{id}` the browser uses, the permission mode
+included: `/permissions`, `--permission-mode` and the dialog's session switch
+all reach the server, and the footer follows the server's
+`session_settings` events. A change made before the server has the session
+is held and sent as command lines ahead of the first prompt. `/reasoning`
+and `shift+tab` persist the selected reasoning level on the server session. Sessions persist only on the server; the startup banner shows
 `remote: <url>` and the exit hint prints a reconnect command with `--remote`
 included.
 
@@ -369,7 +556,16 @@ session; answered first in a browser or a chat, the modal closes. After reconnec
 by the server-side session workspace (the server's default cwd for a session
 the console created). A dropped connection leaves the server turn and its
 child running; `/resume` shows the outcome once it ends, and an answer to a
-prompt the server has already withdrawn is ignored. Quitting the console
+prompt the server has already withdrawn is ignored. A turn the server woke on
+its own in a session the console has open - a finished `notify_on_finish` task -
+is followed on the session's composer relay, announced by `background_wake` on
+the events stream - or, for a console that opens the session (`/resume`,
+`--session-id`) while that turn is already running, by the `backgroundWake` of
+the session's activity, and after a reconnect by the events stream's snapshot,
+which picks the same turn up after the last frame shown: the answer and a
+permission prompt reach the console as for a turn it started, and a prompt answered first in a browser
+closes again. The console's own waker stays off under `--remote`: the tasks run
+in the server's pool, and the server wakes the agent. Quitting the console
 mid-turn waits briefly for the remote cancel to reach the server. See
 `docs/features/subagents.md`, Remote mode.
 
@@ -487,6 +683,26 @@ and is visible via `coddy mcp list` (approve with `coddy mcp trust <name>`).
 
 *The turn resuming after the reset*
 
+![The status line of a running turn: 2s, 64 tokens, 1 running task, Responding](../assets/cli-tui/14-turn-progress.png)
+
+*The status line of a running turn leads with its clock, the tokens generated in it and the running background task; the footer names the task as well*
+
+![The /tasks overlay listing a running command](../assets/cli-tui/15-tasks-overlay.png)
+
+*`/tasks`: the background tasks of the session in the place of the editor*
+
+![A task opened in the /tasks overlay: its command and the last lines of its output](../assets/cli-tui/16-tasks-output.png)
+
+*A task opened with enter: the command, the last lines of its output, and `s` to stop it*
+
+![The /tasks overlay after a background wake: the running build wakes the agent, the failed test run woke it](../assets/cli-tui/17-tasks-wake.png)
+
+*After a wake: the agent's answer follows its previous turn with nothing in between, and `/tasks` says which task woke it and which one will*
+
+![The mention list for "@ment": a folder and four files ranked from across the tree, each with its kind](../assets/cli-tui/18-mention-list.png)
+
+*`@ment`: the whole workspace ranked against the fragment, the kind of every row, and how many matched beyond the fifty the list holds*
+
 Two capture sets exist, and they answer different questions.
 
 `docs/assets/screenshot-console-*.png` are photographs of the running console
@@ -511,7 +727,14 @@ turn, so no real key is needed; only their PNGs are kept.
 `13-subagent-delegation` comes from `examples/cli/capture_subagent.py` the
 same way: a local OpenAI-compatible endpoint scripts a `load_skill` call, a
 `spawn_agent` call, the child's report and the parent's answer, so the shot
-needs neither a provider nor a key.
+needs neither a provider nor a key. `18-mention-list` comes from
+`examples/cli/capture_mentions.py`, which lays out the files of this
+repository empty and under git in a temporary folder, with a temporary home,
+and types `@ment` against a provider that is never asked anything.
+`session-settings-console-footer-dark` comes from
+`examples/cli/capture_settings.py`: `/permissions bypass`, then a chained
+`/model --once /reasoning --count=3`, with a temporary home standing in for
+`HOME` too, so the header lists the bundled skills only.
 
 `docs/assets/pi-tui-reference/` holds captures of the pi original for
 comparison, as described under **Visual model**.
@@ -527,6 +750,15 @@ comparison, as described under **Visual model**.
   `SetProviderUsageClock`; `external/cli/usage_test.go` pins the footer
   wording, the drop order, the blocker copy, the sanitising of hub strings
   and the reset timer.
+- One-shot input: `features/cli_prompt_input.feature`
+  (`external/cli/bdd_prompt_input_test.go`) runs `cli.Run` in the test process
+  with a pipe or a file as its stdin against a scripted model that records
+  every request, and checks the prompt byte for byte, the stdin attachment and
+  the transcript label; `external/cli/prompt_input_test.go` covers the flag
+  rules, the stdin kinds, the decoding and the limit, and asserts that refused
+  input never reaches the model. `examples/cli/cli_e2e_print_input.py` does
+  the same with the built binary and a real shell: pipes, files, a 200 KiB
+  prompt, a `while read` loop, and a bare `-p` on a pty.
 - Real pty, no model: `examples/cli/cli_e2e_startup.py` opens the built
   binary in a pty (pexpect + pyte), waits for the first frame, types into the
   editor, clears it with ctrl+c and exits with the second one, then checks the

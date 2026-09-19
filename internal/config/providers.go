@@ -25,6 +25,7 @@ var AllowedLLMProviderTypes = map[string]struct{}{
 	"anthropic":  {},
 	"neuraldeep": {},
 	"codex":      {},
+	"devin":      {},
 }
 
 // ProviderConfig is one entry under YAML key providers.
@@ -39,7 +40,10 @@ type ProviderConfig struct {
 	// provider fetch short-lived or login-issued keys without storing a static secret
 	// in the config. On failure resolution falls back to the conventional env var.
 	APIKeyCommand string `yaml:"api_key_command"`
-	// Proxy is an optional HTTP, HTTPS, SOCKS5, or SOCKS5h proxy URL for outbound LLM requests for this provider only.
+	// Proxy is how every request of this provider is routed: empty or
+	// "inherit" follows the environment's proxy (HTTPS_PROXY, HTTP_PROXY,
+	// NO_PROXY), "none" connects directly, and an http, https, socks5 or
+	// socks5h URL goes through that proxy. See ParseProxySetting.
 	Proxy string `yaml:"proxy"`
 	// TimeoutMS, when positive, bounds each LLM HTTP request to this provider,
 	// including the streamed body read. 0 (the default) sets no client timeout,
@@ -154,7 +158,7 @@ func (p *ProviderConfig) Normalize() {
 	p.APIBase = strings.TrimSpace(p.APIBase)
 	p.APIKey = strings.TrimSpace(p.APIKey)
 	p.APIKeyCommand = strings.TrimSpace(p.APIKeyCommand)
-	p.Proxy = strings.TrimSpace(p.Proxy)
+	p.Proxy = normalizeProxySetting(p.Proxy)
 }
 
 // Validate checks a single provider after Normalize.
@@ -171,8 +175,10 @@ func (p *ProviderConfig) Validate() error {
 	if _, ok := AllowedLLMProviderTypes[p.Type]; !ok {
 		return fmt.Errorf("providers[%s]: unsupported type %q", p.Name, p.Type)
 	}
-	if err := validateProviderProxyURL(p.Proxy); err != nil {
-		return fmt.Errorf("providers[%s]: %w", p.Name, err)
+	if err := validateProxySetting(p.Proxy); err != nil {
+		// The message opens with "proxy:", so the path it names is the key
+		// itself and coddy -t points at that line with the key's own doc.
+		return fmt.Errorf("providers[%s].%w", p.Name, err)
 	}
 	if p.TimeoutMS < 0 {
 		return fmt.Errorf("providers[%s]: timeout_ms must be >= 0", p.Name)

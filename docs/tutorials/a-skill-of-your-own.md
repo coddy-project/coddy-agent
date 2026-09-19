@@ -26,7 +26,7 @@ A skill is a `SKILL.md` file with a frontmatter and a body of instructions; it b
    coddy skills list
    ```
 
-3. **Find it as a slash command.** Type `/` on the first line of the console editor and the suggestions include `/release-notes`; the web UI's composer lists it from `GET /coddy/slash-commands`, and an ACP editor receives it in `available_commands_update` after `session/new`. When a message contains `/release-notes`, the body is prepended to that message for the model under `## Invoked skill: /release-notes`, for that request only: the transcript keeps the message as you typed it. With `skills.auto_discovery` left at its default the model can also pull the skill in on its own through the `load_skill` tool when a request matches the description.
+3. **Find it as a slash command.** Type `/` on the first line of the console editor and the suggestions include `/release-notes`; the web UI's composer lists it from `GET /coddy/slash-commands`, and an ACP editor receives it in `available_commands_update` after `session/new`. When a message contains `/release-notes`, the body is written into that message once, as an attachment after your text, and the model reads it there on that turn and on the ones after it; the transcript shows the message as you typed it. With `skills.auto_discovery` left at its default the model can also pull the skill in on its own through the `load_skill` tool when a request matches the description.
 
 4. **Test it.** The loader rescans `skills.dirs` on every prompt, so edit, save and send again; no restart is involved. Print mode gives a quick loop from a repository with tags:
 

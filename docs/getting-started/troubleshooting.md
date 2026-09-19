@@ -80,9 +80,9 @@ For access from other machines bind wider and require a token: `coddy serve -H 0
 
 **Symptom.** `coddy serve` refuses to start with `<key> is true but this binary has no <surface> support (rebuild with -tags <tag>)`; bare `coddy` prints the usage instead of opening the console and `coddy cli` answers `interactive console is not built in`; `coddy serve` with nothing enabled says `no subsystem is enabled`.
 
-**Cause.** The console, the HTTP API, the web UI, the scheduler, the memory copilot, the messenger gateway and the swarm relay are Go build tags. A plain `make build` (or `go build`, or `go install ...@latest`) produces the lean ACP binary without them. `coddy serve` treats an enabled subsystem the binary cannot run as an error rather than a warning, so a bot that would otherwise be silently offline is refused by name.
+**Cause.** The console, the HTTP API, the web UI, the scheduler, the memory subagent, the messenger gateway and the swarm relay are Go build tags. A plain `make build` (or `go build`, or `go install ...@latest`) produces the lean ACP binary without them. `coddy serve` treats an enabled subsystem the binary cannot run as an error rather than a warning, so a bot that would otherwise be silently offline is refused by name.
 
-**Fix.** Use a release build - the GitHub Release archives, the `.deb` and `.rpm` packages and the Homebrew cask are built with every tag, and the Docker image ships the API, the web UI, the scheduler, the memory copilot, the console and the gateway - or build it yourself:
+**Fix.** Use a release build - the GitHub Release archives, the `.deb` and `.rpm` packages and the Homebrew cask are built with every tag, and the Docker image ships the API, the web UI, the scheduler, the memory subagent, the console and the gateway - or build it yourself:
 
 ```bash
 make build TAGS="http ui scheduler memory cli gateway swarm"
@@ -116,7 +116,7 @@ coddy --dry-run              # resolves stdio commands in PATH, contacts remote 
 
 ## The Telegram bot is silent
 
-**Symptom.** The bot never answers, or a `/model` or `/mode` tap changes nothing.
+**Symptom.** The bot never answers, or a `/model` or `/resume` tap changes nothing.
 
 **Cause.** In order of frequency: the binary has no gateway tag (a startup error naming the tag); `gateways.telegram.enable` is true but no token could be resolved (the gateway refuses to start and says to set `gateways.telegram.token` or `TELEGRAM_BOT_TOKEN`); the sender is not allowed - `default_access: admins` or `group:<name>` drops everyone else silently, and `admins` must hold your numeric Telegram user id; the message is in a group and the bot was not addressed (in groups it reacts only to an @mention, a reply to its own message, or `/clear`); another process is polling the same bot, and Telegram hands each update to one long poll only. Text answered but taps ignored, with nothing at `debug`, was the subscription: Telegram remembers the last `allowed_updates` a bot asked for, and a token that once ran under another framework may be subscribed to messages alone. Coddy asks for `message` and `callback_query` on every poll since it hit this itself; `curl https://api.telegram.org/bot<token>/getWebhookInfo` shows what is in force.
 
@@ -186,6 +186,16 @@ providers:
     type: openai
     api_base: https://llm.example.com/v1
     proxy: socks5h://127.0.0.1:1080
+```
+
+The opposite case is as common: the machine names a proxy in `HTTPS_PROXY` - a corporate one, a local forwarder, a variable left over from another setup - and that proxy stalls or breaks the handshake while the provider itself is reachable directly. Every row follows that variable unless it says otherwise, so set `proxy: none` on the row that should go direct; the other rows keep the proxy. `coddy --dry-run` names the proxy the environment chose when a provider cannot be reached. More in [Provider proxy](configuration.md#provider-proxy).
+
+```yaml
+providers:
+  - name: local
+    type: openai
+    api_base: http://192.168.1.20:8000/v1
+    proxy: none
 ```
 
 Field reference: [`agent`](../reference/config.md#agent), [`providers`](../reference/config.md#providers).

@@ -40,6 +40,25 @@ type CommandDeps struct {
 	// DryRun runs --dry-run (verbose when --test-config is given as well);
 	// nil falls back to dryrun.RunConsole on stdout.
 	DryRun func(cli config.CLIPaths, verbose bool, remoteArg, remoteToken string, customize func(*config.Config) error) error
+	// Stdin, Stdout and Stderr are the streams of a one-shot run; nil means
+	// the process's own. The interactive console always uses the terminal.
+	Stdin  *os.File
+	Stdout io.Writer
+	Stderr io.Writer
+}
+
+func (d CommandDeps) stdio() (*os.File, io.Writer, io.Writer) {
+	in, out, errOut := d.Stdin, d.Stdout, d.Stderr
+	if in == nil {
+		in = os.Stdin
+	}
+	if out == nil {
+		out = os.Stdout
+	}
+	if errOut == nil {
+		errOut = os.Stderr
+	}
+	return in, out, errOut
 }
 
 // Run parses flags, wires the manager, and drives the interactive console.
@@ -55,9 +74,8 @@ func Run(args []string, deps CommandDeps) error {
 	var contFlag bool
 	fs.BoolVar(&contFlag, "continue", false, "continue the most recent session in this folder")
 	fs.BoolVar(&contFlag, "c", false, "shorthand for --continue")
-	var promptFlag string
-	fs.StringVar(&promptFlag, "prompt", "", "run one prompt non-interactively, print the answer, and exit")
-	fs.StringVar(&promptFlag, "p", "", "shorthand for --prompt")
+	prompt := newPromptRequest()
+	prompt.register(fs)
 	modelFlag := fs.String("model", "", "select a configured model id (provider/model)")
 	modeFlag := fs.String("mode", "", "start in this mode: agent|plan|ask")
 	permMode := fs.String("permission-mode", "", "permission mode: ask|accept_edits|bypass")
@@ -76,12 +94,19 @@ func Run(args []string, deps CommandDeps) error {
 		_, _ = fmt.Fprintf(fs.Output(), "Usage of cli (interactive console, also the default for bare %s on a terminal):\n", os.Args[0])
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(expandBarePrompt(fs, args)); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
 		return err
 	}
+	// flag.Parse stops at the first argument that is not a flag and leaves
+	// the rest: `coddy -p fix the bug` would send "fix" alone. The interactive
+	// console keeps ignoring them, as it always has.
+	if rest := fs.Args(); len(rest) > 0 && prompt.printMode() {
+		return fmt.Errorf("unexpected argument %q: quote the whole prompt (-p \"...\"), or pass it with -i or on stdin", rest[0])
+	}
+	stdin, stdout, stderr := deps.stdio()
 
 	cli := config.CLIPaths{
 		Home:   strings.TrimSpace(*homeDir),
@@ -113,9 +138,23 @@ func Run(args []string, deps CommandDeps) error {
 
 	// One-shot print mode needs no terminal at all; only the interactive
 	// console insists on a tty.
-	printMode := strings.TrimSpace(promptFlag) != ""
+	printMode := prompt.printMode()
 	if !printMode && !IsInteractiveTerminal() {
-		return errors.New("the interactive console needs a terminal on stdin and stdout (or run one prompt with -p/--prompt)")
+		return errors.New(`the interactive console needs a terminal on stdin and stdout; run one prompt with -p "...", with -i FILE, or piped: ... | coddy -p`)
+	}
+	var input printInput
+	if printMode {
+		if *resume {
+			return errors.New("--resume needs the interactive picker; use --continue or --session-id with --prompt")
+		}
+		// The prompt is read before anything else starts: input that cannot
+		// be sent stops the run before a config, a session or a request, and
+		// a read that blocks on a pipe still ends on the first ctrl+c.
+		var err error
+		input, err = readPrintInput(prompt, printInputEnv{Stdin: stdin, Notices: stderr})
+		if err != nil {
+			return err
+		}
 	}
 
 	paths, err := config.Resolve(cli)
@@ -186,13 +225,11 @@ func Run(args []string, deps CommandDeps) error {
 	}
 
 	if printMode {
-		if *resume {
-			return errors.New("--resume needs the interactive picker; use --continue or --session-id with --prompt")
-		}
 		popts := PrintOptions{
-			Prompt:       promptFlag,
-			Out:          os.Stdout,
-			ErrOut:       os.Stderr,
+			Prompt:       input.Prompt,
+			Stdin:        input.Stdin,
+			Out:          stdout,
+			ErrOut:       stderr,
 			SessionID:    strings.TrimSpace(*sessionID),
 			ContinueLast: contFlag,
 			Model:        opts.model,
@@ -202,12 +239,12 @@ func Run(args []string, deps CommandDeps) error {
 		}
 		if ropts != nil {
 			ropts.Log = log
-			warnInsecureRemote(ropts, os.Stderr)
+			warnInsecureRemote(ropts, stderr)
 			h, herr := remote.NewHandler(*ropts)
 			if herr != nil {
 				return herr
 			}
-			h.SetServer(&printSender{mgr: h, cfg: cfg, out: os.Stdout, errOut: os.Stderr, remote: true})
+			h.SetServer(&printSender{mgr: h, cfg: cfg, out: stdout, errOut: stderr, remote: true})
 			return PrintPrompt(ctx, h, popts)
 		}
 		lateSender := &lateBoundSender{}
@@ -219,7 +256,7 @@ func Run(args []string, deps CommandDeps) error {
 			return newTurnAgent(mgr, nil, st, snd, log).Run(rctx, prompt)
 		}
 		mgr = session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
-		lateSender.inner = &printSender{mgr: mgr, cfg: cfg, out: os.Stdout, errOut: os.Stderr}
+		lateSender.inner = &printSender{mgr: mgr, cfg: cfg, out: stdout, errOut: stderr}
 		startScheduler(ctx, cfg, mgr, log)
 		return PrintPrompt(ctx, mgr, popts)
 	}
@@ -283,6 +320,11 @@ func buildApp(cfg *config.Config, store *session.FileStore, log *slog.Logger, te
 	mgr = session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
 	app = newApp(cfg, mgr, log, term, themeName, plain)
 	lateSender.inner = app.Sender()
+	// A task the model started with notify_on_finish begins its own turn in
+	// this console when it ends. A console attached to a remote server does
+	// not attach one (buildRemoteApp): the server's pool runs its tasks and
+	// the server wakes the agent.
+	app.attachBackgroundWaker(bgtask.Default())
 	startScheduler(context.Background(), cfg, mgr, log)
 	return app
 }
@@ -450,7 +492,15 @@ func runInteractive(ctx context.Context, app *App, term *tui.ProcessTerminal, re
 		app.populateHeader()
 	}
 
-	return app.Run(ctx)
+	runErr := app.Run(ctx)
+	// The console does not drain the pool: a memory run still persisting
+	// would die with the process. Give it the drain grace, as coddy serve
+	// does before it stops the pool.
+	if agent.MemoryRunsInFlight() > 0 {
+		_, _ = fmt.Fprintln(os.Stderr, "finishing the memory subagent of the last turn...")
+		agent.WaitMemoryRuns(context.Background(), agent.MemoryDrainGrace)
+	}
+	return runErr
 }
 
 // isolatedLogger forces log output away from the terminal: exactly one file

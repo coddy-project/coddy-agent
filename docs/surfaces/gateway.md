@@ -26,6 +26,7 @@ The messenger gateway lets you drive a Coddy agent directly from a chat applicat
   - [4. Add a build tag](#4-add-a-build-tag)
   - [5. Wire into hub.Start()](#5-wire-into-hubstart)
 - [The same session in the chat and in the browser](#the-same-session-in-the-chat-and-in-the-browser)
+- [Woken turns land in the chat](#woken-turns-land-in-the-chat)
 - [Session lifecycle](#session-lifecycle)
 - [Security notes](#security-notes)
 
@@ -149,8 +150,10 @@ gateways:
     # logs a warning and skips the bot instead of failing config validation.
     token: "${TELEGRAM_BOT_TOKEN}"
 
-    # Optional outbound proxy for Telegram API requests.
-    # Supported schemes: http, https, socks5, socks5h.
+    # How the bot reaches the Bot API (see "Proxy" below). Left out, or inherit,
+    # it follows HTTPS_PROXY, HTTP_PROXY and NO_PROXY of the Coddy process;
+    # none connects directly; a URL (http, https, socks5, socks5h) goes through it.
+    # proxy: none
     # proxy: "socks5h://127.0.0.1:1080"
     # proxy: "http://proxy.example.com:3128"
 
@@ -186,15 +189,20 @@ gateways:
 
 ### Proxy
 
-Set `proxy` to route outbound Telegram API requests through an HTTP or SOCKS5 proxy:
+`proxy` decides how the bot reaches the Bot API, and it reads like a provider's `proxy` ([Provider proxy](../getting-started/configuration.md#provider-proxy)):
+
+- no value, or `inherit` (the default): the proxy the environment of the Coddy process names - `HTTPS_PROXY` for `https://api.telegram.org`, `NO_PROXY` for the hosts that go direct, never for a loopback address; `ALL_PROXY` is not read. An empty field never meant a direct connection: on a machine with `HTTPS_PROXY` set, the bot goes through that proxy;
+- `none`: a direct connection, those variables ignored for the bot;
+- a proxy URL: every Bot API request goes through it.
 
 ```yaml
 gateways:
   telegram:
-    proxy: "socks5h://127.0.0.1:1080"  # or "http://proxy.example.com:3128"
+    proxy: none                       # the machine's proxy cannot reach Telegram
+    # proxy: "socks5h://127.0.0.1:1080"  # or "http://proxy.example.com:3128"
 ```
 
-Supported schemes: `http`, `https`, `socks5`, `socks5h`. `socks5h` resolves hostnames on the proxy side. Leave the field empty (the default) for a direct connection.
+Supported schemes: `http`, `https`, `socks5`, `socks5h`; with either SOCKS scheme the proxy resolves host names. In the web UI the field is the **Ignore system proxy** switch, which writes `none`, above the **Proxy URL** input (**Settings → System**, gateways block). `coddy --dry-run` asks `getMe` the way the bot will, through the same route.
 
 ### Rich Messages
 
@@ -417,19 +425,21 @@ coddy serve --dry-run --config stand.yaml               # ok  gateways.telegram:
 coddy serve --gateway --http=false --config stand.yaml  # telegram: api base override ... telegram bot connected
 ```
 
-Then open `http://127.0.0.1:18790/`, type `hello`, tap a `/mode` button, and
-read the Bot API calls on the right as the log fills on the left.
+Then open `http://127.0.0.1:18790/`, type `hello`, send `/model` and tap a
+model (add a second entry to `models` for the keyboard to offer a choice), try
+a settings command such as `/plan --once What can you do?`, and read the Bot
+API calls on the right as the log fills on the left.
 
-![The chat page of cmd/tgfake on the dark scheme: the person's side of the chat on the left with the bot's /mode keyboard as buttons, every Bot API call the bot made listed on the right](../assets/tgfake-chat-dark-1280.png)
+![The chat page of cmd/tgfake on the dark scheme: the person's side of the chat on the left with the bot's /model keyboard as buttons and a /plan --once message answered, every Bot API call the bot made listed on the right](../assets/tgfake-chat-dark-1280.png)
 
-*The chat page of `cmd/tgfake`: a greeting answered by the scripted model, the `/mode` keyboard with the tap applied, and on the right every Bot API call the bot made, `getUpdates` polls hidden.*
+*The chat page of `cmd/tgfake`: a greeting answered by the scripted model, the `/model` keyboard with the tap applied, a message sent in plan mode for one turn, the notice of a bare `/ask`, and on the right every Bot API call the bot made, `getUpdates` polls hidden.*
 
 The same page is an HTTP API, which is what a script or a coding agent drives:
 
 | Route | Body / answer |
 |-------|---------------|
 | `POST /sim/message` | `{"chat_id": 4242, "user_id": 4242, "username": "alice", "text": "hello"}`; `chat_type: group`, `mention: true` and `reply_to_message_id` for the group paths. A leading `/word` becomes a `bot_command` entity. |
-| `POST /sim/callback` | `{"chat_id": 4242, "label": "Plan"}` taps the button by its text (the `✓` prefix is ignored), or `{"message_id": 4, "data": "mode:plan"}`. |
+| `POST /sim/callback` | `{"chat_id": 4242, "label": "stub/coddy-mini"}` taps the button by its text (the `✓` prefix is ignored), or `{"message_id": 4, "data": "model:stub/coddy-mini"}`. |
 | `GET /sim/chat/4242` | the transcript: messages, keyboards after every edit, drafts, `typing`; `?format=text` for `grep`. |
 | `GET /sim/outbox?method=sendMessage&since=10` | every Bot API call with its parameters and the answer; `/sim/outbox/count?method=...` for a script. |
 | `POST /sim/fault` | `{"method": "sendMessage", "code": 429, "retry_after": 2, "times": 1}` makes the next `sendMessage` fail like a flood; `"method": "*"` fails everything until `DELETE /sim/fault`; `"contains": "<details>"` narrows the fault to calls whose parameters carry that text, which is Telegram refusing one entity rather than the method. |
@@ -465,6 +475,10 @@ rules.json` matches them by substring (`[{"match": "weather", "answer":
 message, not the `<turn_context>` block Coddy appends to every request. Rules are the
 reliable choice: the title a session derives from its first message is one more
 model call, so a list of answers advances a step earlier than the chat shows.
+A rule can also make the model act: with `"tool": {"name": "run_command",
+"arguments": {...}}` the first request of a matching turn gets that tool call,
+and the request carrying its result gets the rule's `answer` - enough to start
+a background command, or to meet a permission prompt, without a model.
 The streamed answer arrives one word per `--llm-delay`, long enough for the
 live `editMessageText` path, or the draft path with `rich_messages: true`, to
 run.
@@ -473,8 +487,11 @@ run.
 builds `tgfake`, writes a temporary home, boots `coddy serve` against it, sends
 `hello` and checks the reply, then leaves the session with `/clear`, comes back
 to it from the `/resume` keyboard and checks that the next message landed in
-that bundle - and `TG_E2E_KEEP=1` leaves the stand running with the page URL
-printed. It runs in Git Bash on Windows as well.
+that bundle, and finally asks the agent to "start the tests" - a tool rule
+starts a failing command in the background with `notify_on_finish` - and waits
+for the [woken turn](#woken-turns-land-in-the-chat) to reach the chat, the note
+and then the answer, with no HTTP server in the process - and `TG_E2E_KEEP=1`
+leaves the stand running with the page URL printed. It runs in Git Bash on Windows as well.
 
 The variable is not only for the fake: a self-hosted Bot API server
 (`telegram-bot-api` for large files or a local network) is pointed at the same
@@ -495,7 +512,7 @@ In a group the bot **only responds** when explicitly addressed. It will react to
 
 1. A message that **@mentions** the bot (`@coddy_agent_bot hello`)
 2. A **direct reply** to a previous bot message
-3. A bot command (`/clear`, `/resume`, `/mode`, `/model`, `/context`, `/help`, `/start`), with or without the mention
+3. A bot command (`/clear`, `/resume`, `/model`, `/context`, `/help`, `/start`) or a settings command (`/agent`, `/plan`, `/ask`, `/reasoning`, `/think`, `/nothink`), with or without the mention
 
 When `isolation` is `admin`, the bot additionally ignores everyone who is not in the `admins` list.
 
@@ -505,11 +522,14 @@ When `isolation` is `admin`, the bot additionally ignores everyone who is not in
 |---------|-------------|--------|
 | `/start` | all users | Greeting and quick introduction. |
 | `/help` | all users | Lists all available commands. |
-| `/mode` | all permitted users | Opens an inline keyboard to switch the session mode between `agent`, `plan`, and `ask`. |
-| `/model` | all permitted users | Opens an inline keyboard to switch the active LLM model (from the configured `models` list). |
+| `/model [id]` | all permitted users | Bare, opens an inline keyboard to switch the active LLM model (from the configured `models` list); with an id, switches to it at once. |
+| `/agent`, `/plan`, `/ask` | all permitted users | Switch the session mode. |
+| `/reasoning <level>`, `/think [level]`, `/nothink` | all permitted users | Set the reasoning level, or turn thinking on or off where the model's provider can. Not in the command menu. |
 | `/context` | all permitted users | Displays the current session's context window usage broken down by category (conversation, system prompt, tool definitions, rules, skills, MCP). |
 | `/resume [id or title]` | all permitted users | Continues another session. Alone it opens an inline keyboard over the sessions the server keeps, newest first, eight per page, the chat's own session marked; a tap binds the chat to the one chosen. With words after it, the session whose id they are, or whose id starts with them or whose title contains them (those two case-insensitively), is resumed at once; several matches come back as the keyboard, and no match is answered with a message. The session left behind stays loaded. |
 | `/clear` | all permitted users | Starts a new session for the current user/chat context. The old session is removed from memory (persisted history remains on disk); `/resume` brings it back. |
+
+The settings commands take `--once` or `--count=N` to change a setting for the next messages only, and a message may follow them: `/plan --once how would you split this package?` plans one answer and leaves the chat in its mode. A command alone runs no turn and is answered with a line saying what changed. `/permissions` is not a bot command: the bot approves its chat agent's tools itself, so the session's permission mode would only change what other surfaces watching the session ask ([Session settings](../features/session-settings.md)).
 
 ---
 
@@ -618,14 +638,13 @@ type SessionRunner interface {
     EnsureHTTPSession(ctx context.Context, sessionID string, defaultCWD string) (*session.State, error)
     HandleSessionPromptWithSender(ctx context.Context, params acp.SessionPromptParams, sender acp.UpdateSender, opts *session.PromptRunOpts) (*acp.SessionPromptResult, error)
     ForgetLiveSession(sessionID string)
-    HandleSessionSetMode(ctx context.Context, params acp.SessionSetModeParams) error
     HandleSessionSetConfigOption(ctx context.Context, params acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error)
     HandleSessionList(ctx context.Context, params acp.SessionListParams) (*acp.SessionListResult, error)
     Cfg() *config.Config
 }
 ```
 
-`session.Manager` already satisfies this interface — pass it directly. `HandleSessionSetMode` and `HandleSessionSetConfigOption` are needed for `/mode` and `/model` inline keyboard commands; `HandleSessionList` is what `/resume` offers to the chat; `Cfg()` returns the loaded config (used by `/model` to list available models).
+`session.Manager` already satisfies this interface — pass it directly. `HandleSessionSetConfigOption` is what the `/model` inline keyboard calls, and the settings commands (`/agent`, `/model <id> --once`, ...) reach the session as prompt text through `HandleSessionPromptWithSender`, whose manager takes them off the start of the message; `HandleSessionList` is what `/resume` offers to the chat; `Cfg()` returns the loaded config (used by `/model` to list available models).
 
 ### 2. Register in Start()
 
@@ -689,8 +708,8 @@ conversation and the web UI are two views of one session.
   `GET /coddy/sessions` lists it beside the sessions started in a terminal or
   a browser tab, and opening one loads the same transcript.
 - **A chat turn streams into the browser while it runs.** The gateway publishes
-  its turn into the session's composer relay - the same mechanism a background
-  task's wake turn uses - so a tab watching that session sees the tokens as
+  its turn into the session's composer relay - the relay the HTTP server's own
+  turns and woken turns use - so a tab watching that session sees the tokens as
   they arrive, not after the fact.
 - **The browser watches; the chat answers.** Session updates fan out to both
   surfaces, but permission requests and questions go only to the chat, because
@@ -711,6 +730,33 @@ If a session is deleted from the browser, the chat's mapping in
 `gateway_sessions.json` still points at that id; the next message finds no
 bundle and starts a fresh transcript under it. The conversation resets, which
 is what deleting it meant.
+
+## Woken turns land in the chat
+
+The agent in a chat can start a long command or a subagent in the background
+with `notify_on_finish` and end its turn: when the task ends, the process
+wakes the agent ([Background tasks](../features/background-tasks.md#waking-the-agent-when-a-task-finishes)).
+The woken turn belongs to the chat bound to the session, so the bot runs it
+there, through the chat's own sender, exactly like a message the person sent:
+
+- the chat first receives a note of its own, above the answer:
+  `🔔 Woken by a finished background task: bg_3 make test, failed, exit 2, 1m 30s`
+  (one line per task when several ended together);
+- then the answer streams and is finalized like any other, with the same
+  surface prompt and the same Markdown rendering;
+- a browser watching the session follows it through the composer relay, and
+  the chat's permission rules apply: the chat's agent is allowed what it asks,
+  a subagent is asked about in the chat.
+
+This needs no HTTP server. Under `coddy serve` the process owns the waker and
+offers each woken turn first to the surface that owns the conversation - the
+bot, when a chat is bound to the session - and only then to the HTTP server; a
+`coddy serve --gateway --http=false` wakes the chat all the same. A session no
+chat is bound to (the chat moved away with `/clear` or `/resume`) is not the
+bot's: it runs in the web UI's relay, or with no surface at all through the
+manager, and the chat hears nothing of it. The bot takes a woken turn only
+while it is connected; a woken turn that finds the chat's own turn still
+running waits for it, as it does on every surface.
 
 ## Session lifecycle
 

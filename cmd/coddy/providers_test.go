@@ -413,3 +413,35 @@ func TestProvidersListWarningFollowsTheRows(t *testing.T) {
 		t.Fatalf("a provider row was turned into a warning: %v", lines[:2])
 	}
 }
+
+// --devin-cli must not publish the Devin CLI account's catalog while a
+// Coddy-managed login, which wins at every request, belongs to another.
+func TestDevinCLILoginRefusesWhenAManagedLoginWins(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(llm.EnvDevinCLICredentials, filepath.Join(home, "credentials.toml"))
+	if err := os.WriteFile(filepath.Join(home, "credentials.toml"), []byte("windsurf_api_key = \"devin-session-token$cli\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	authPath := config.DevinAuthPath(home, "devin")
+	if err := os.MkdirAll(filepath.Dir(authPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(authPath, []byte(`{"session_token":"devin-session-token$managed"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := runProviders([]string{"login", "devin", "--devin-cli", "--home", home})
+	if err == nil || !strings.Contains(err.Error(), "providers logout devin") {
+		t.Fatalf("err = %v, want a refusal that names the logout", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(home, "config.yaml")); !os.IsNotExist(statErr) {
+		t.Fatalf("config.yaml was written despite the refusal (stat err %v)", statErr)
+	}
+}
+
+func TestDevinCLIFlagIsRefusedForOtherTypes(t *testing.T) {
+	home := t.TempDir()
+	err := runProviders([]string{"login", "codex", "--devin-cli", "--home", home})
+	if err == nil || !strings.Contains(err.Error(), "--devin-cli applies to devin providers only") {
+		t.Fatalf("err = %v", err)
+	}
+}

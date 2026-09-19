@@ -416,9 +416,20 @@ func TestAFailedPermissionAnswerFailsTheTurnInsteadOfDeadlocking(t *testing.T) {
 	}
 }
 
-func TestResourceBlocksReachTheRemoteInput(t *testing.T) {
+// An editor's embedded resource reaches the server as an attachment whose
+// literal body is the resource text, never as text inside the input: the
+// server resolves the "@" references of what was typed and must not scan a
+// file's contents for them. A resource_link names something on the editor's
+// machine and travels as the link it is.
+func TestResourceBlocksReachTheRemoteAsAttachments(t *testing.T) {
 	var got struct {
-		Input string `json:"input"`
+		Input       string `json:"input"`
+		Attachments []struct {
+			Path   string `json:"path"`
+			Source struct {
+				Literal string `json:"literal"`
+			} `json:"source"`
+		} `json:"attachments"`
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&got)
@@ -436,14 +447,18 @@ func TestResourceBlocksReachTheRemoteInput(t *testing.T) {
 		SessionID: "sess_test",
 		Prompt: []acp.ContentBlock{
 			{Type: "text", Text: "explain this"},
-			{Type: "resource", Resource: &acp.Resource{URI: "file:///a.go", Text: "package a"}},
+			{Type: "resource", Resource: &acp.Resource{URI: "file:///a.go", Text: "package a // @/etc/passwd"}},
+			{Type: "resource_link", URI: "file:///b/", Name: "b"},
 		},
 	}, sender, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(got.Input, "explain this") || !strings.Contains(got.Input, "package a") || !strings.Contains(got.Input, "file:///a.go") {
-		t.Fatalf("input %q lacks the resource block", got.Input)
+	if strings.Contains(got.Input, "package a") || !strings.HasPrefix(got.Input, "explain this") || !strings.Contains(got.Input, "[b](file:///b/)") {
+		t.Fatalf("input %q", got.Input)
+	}
+	if len(got.Attachments) != 1 || got.Attachments[0].Path != "file:///a.go" || got.Attachments[0].Source.Literal != "package a // @/etc/passwd" {
+		t.Fatalf("attachments %+v", got.Attachments)
 	}
 }
 
@@ -469,12 +484,26 @@ func TestPreferredReopenPropagatesServerFailures(t *testing.T) {
 
 // ---- config options ----
 
-func TestSetConfigOptionValidatesModelsAndRefusesPermissionMode(t *testing.T) {
+func TestSetConfigOptionValidatesModelsAndCarriesThePermissionMode(t *testing.T) {
+	var input string
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"object":"list","default_agent_model":"remote/alpha","data":[
 			{"id":"agent","owned_by":"coddy"},
 			{"id":"remote/alpha","owned_by":"remote"}]}`))
+	})
+	// The session does not exist on the server until its first prompt.
+	mux.HandleFunc("PATCH /coddy/sessions/{id}", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
+	})
+	mux.HandleFunc("POST /v1/responses", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Input string `json:"input"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		input = body.Input
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -489,10 +518,21 @@ func TestSetConfigOptionValidatesModelsAndRefusesPermissionMode(t *testing.T) {
 	}); err == nil {
 		t.Fatal("unknown model must fail")
 	}
+	// The server's setter decides; a session the server has not created yet
+	// holds the change and sends it as a command with its first prompt.
 	if _, err := h.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
 		SessionID: "sess_x", ConfigID: "permission_mode", Value: "bypass",
-	}); err == nil || !strings.Contains(err.Error(), "remote server") {
-		t.Fatalf("permission mode err = %v", err)
+	}); err != nil {
+		t.Fatalf("permission mode: %v", err)
+	}
+	sender := &collectSender{}
+	if _, err := h.HandleSessionPromptWithSender(context.Background(), acp.SessionPromptParams{
+		SessionID: "sess_x", Prompt: []acp.ContentBlock{{Type: "text", Text: "go"}},
+	}, sender, nil); err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	if input != "/permissions bypass\ngo" {
+		t.Fatalf("first prompt input = %q, want the held command before it", input)
 	}
 	res, err := h.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
 		SessionID: "sess_x", ConfigID: "model", Value: "remote/alpha",

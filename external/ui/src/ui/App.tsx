@@ -29,7 +29,15 @@ import {
 import { EnvHealthBanner } from "./env/EnvHealthBanner";
 import { isNoLiveTurnRelayError } from "./chat/composerStreamError";
 import { subscribeSharedServerEvents } from "./chat/sharedServerEvents";
+import {
+  isNewerSettings,
+  parseSessionSettings,
+  type SessionSettings,
+  type SessionSettingsEvent,
+  type TurnOverride,
+} from "./chat/sessionSettings";
 import { useSessionTurnActivity } from "./chat/useSessionTurnActivity";
+import { mergeTurnProgress, type TurnProgress } from "./chat/turnProgress";
 import type { QueuedMessageEvent } from "./chat/serverEvents";
 import { QueueDeliveryOrder } from "./chat/messageQueueState";
 import { useProviderUsage } from "./chat/useProviderUsage";
@@ -54,7 +62,9 @@ import {
   stableThinkingItemId,
   stableToolCallItemId,
   stableUserItemId,
+  stableWakeItemId,
 } from "./chat/transcriptItemIds";
+import { parseBackgroundWakeTasks } from "./chat/backgroundWake";
 import {
   dedupeAdjacentDuplicateThinkingCompleted,
   keepLocalTranscriptIfServerEmpty,
@@ -85,7 +95,7 @@ import {
   upsertQuestionPromptRecord,
 } from "./chat/questionPromptSessionStore";
 import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
-import { stableMemoryCopilotItemId } from "./chat/memoryStableId";
+import { applyMemoryRunToItems } from "./chat/memoryRun";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
 import type { ProviderUsage } from "./chat/providerUsage";
 import type { WorkspaceContext } from "./chat/workspaceContext";
@@ -195,10 +205,18 @@ import {
   setSettingsSectionHash,
   stripHistorySidebarFromHash,
   appNavHrefSwarm,
+  appNavHrefDocs,
+  setDocsHash,
 } from "./scheduler/hashRoute";
+import { DocsView } from "./docs/DocsView";
+import { fetchDocsPage } from "./docs/api";
+import { docsCommandOpensPage } from "./docs/docsCommand";
 import { SchedulerJobEditorSheet } from "./scheduler/SchedulerJobEditorSheet";
 import { SchedulerJobsDrawer } from "./scheduler/SchedulerJobsDrawer";
-import { BackgroundTasksPanel } from "./tasks/BackgroundTasksPanel";
+import {
+  BackgroundTasksPanel,
+  type TaskFocus,
+} from "./tasks/BackgroundTasksPanel";
 import {
   clearFinishedBackgroundTasks,
   getBackgroundTask,
@@ -292,45 +310,6 @@ function toolSseShowsTruncatedPreview(u: ToolCallStatusUpdate): boolean {
   return !!(p && p.truncated === true);
 }
 
-type MemoryPhaseEvt = {
-  memoryRowId: string;
-  phase: string;
-  status: string;
-  userTurnIndex?: number;
-  durationMs?: number;
-  persistSaved?: boolean;
-  persistRelativePath?: string;
-  persistTitle?: string;
-  persistSavedBody?: string;
-  recallReadPaths?: string[];
-};
-
-type MemoryChunkEvt = {
-  memoryRowId: string;
-  phase: string;
-  kind: string;
-  delta: string;
-};
-
-type MemoryTurnApi = {
-  userTurnIndex: number;
-  memoryRowId?: string;
-  memoryMode?: string;
-  memoryDurationMs?: number;
-  memoryContextText?: string;
-  recallSkipped?: boolean;
-  recallText?: string;
-  recallReasoningText?: string;
-  recallDurationMs?: number;
-  persistJudgeText?: string;
-  persistDurationMs?: number;
-  persistSaved?: boolean;
-  persistRelativePath?: string;
-  persistTitle?: string;
-  persistSavedBody?: string;
-  recallReadPaths?: string[];
-};
-
 type ModelInfo = {
   id: string;
   ownedBy?: string;
@@ -390,295 +369,6 @@ async function fetchJSON<T>(
 
 function newId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(16).slice(2)}`;
-}
-
-function memoryTranscriptFromApi(
-  row: MemoryTurnApi,
-): Extract<TranscriptItem, { type: "memory_copilot" }> {
-  const rowId = (row.memoryRowId || "").trim() || `mem-${row.userTurnIndex}`;
-  const unifiedCtx = (row.memoryContextText || "").trim();
-  const rt = (row.recallText || "").trim();
-  const rr = (row.recallReasoningText || "").trim();
-  const paths = Array.isArray(row.recallReadPaths)
-    ? row.recallReadPaths.filter(
-        (x) => typeof x === "string" && x.trim() !== "",
-      )
-    : [];
-  const hasRecallTrail = !!(
-    row.recallDurationMs ||
-    rt ||
-    rr ||
-    paths.length > 0
-  );
-  const pt = (row.persistJudgeText || "").trim();
-  const hasPersistTrail = !!(row.persistDurationMs || pt || row.persistSaved);
-  const hasUnified = !!(row.memoryDurationMs || unifiedCtx);
-  const sumMs =
-    typeof row.memoryDurationMs === "number" && row.memoryDurationMs > 0
-      ? row.memoryDurationMs
-      : (row.recallDurationMs ?? 0) + (row.persistDurationMs ?? 0);
-  const legacyCombined = [row.recallText, row.persistJudgeText]
-    .filter((x) => typeof x === "string" && x.trim() !== "")
-    .join("\n\n");
-  const memoryTextOut = unifiedCtx || legacyCombined;
-  return {
-    id: stableMemoryCopilotItemId(rowId, row.userTurnIndex),
-    type: "memory_copilot",
-    memoryRowId: rowId,
-    userTurnIndex: row.userTurnIndex,
-    ...(hasUnified
-      ? { memoryStatus: "completed" as const, memoryText: memoryTextOut }
-      : {}),
-    recallStatus: hasRecallTrail ? "completed" : "idle",
-    persistStatus: hasPersistTrail ? "completed" : "idle",
-    recallText: row.recallText || "",
-    recallReasoning: row.recallReasoningText || "",
-    persistText: row.persistJudgeText || "",
-    persistReasoning: "",
-    ...(typeof row.recallDurationMs === "number"
-      ? { recallDurationMs: row.recallDurationMs }
-      : {}),
-    ...(typeof row.persistDurationMs === "number"
-      ? { persistDurationMs: row.persistDurationMs }
-      : {}),
-    ...(sumMs > 0 ? { memoryWallDurationMs: sumMs } : {}),
-    ...(typeof row.persistSaved === "boolean"
-      ? { persistSaved: row.persistSaved }
-      : {}),
-    ...(row.persistRelativePath
-      ? { persistRelativePath: row.persistRelativePath }
-      : {}),
-    ...(row.persistTitle ? { persistTitle: row.persistTitle } : {}),
-    ...(row.persistSavedBody ? { persistSavedBody: row.persistSavedBody } : {}),
-    ...(paths.length > 0 ? { recallReadPaths: paths } : {}),
-  };
-}
-
-function applyMemoryPhaseToItems(
-  prev: TranscriptItem[],
-  p: MemoryPhaseEvt,
-): TranscriptItem[] {
-  const now = Date.now();
-  let idx = prev.findIndex(
-    (x) => x.type === "memory_copilot" && x.memoryRowId === p.memoryRowId,
-  );
-  const next = [...prev];
-  let uidx = -1;
-  for (let i = prev.length - 1; i >= 0; i--) {
-    const it = prev[i];
-    if (it && it.type === "user_message") {
-      uidx = i;
-      break;
-    }
-  }
-  const insertAt = uidx >= 0 ? uidx + 1 : next.length;
-
-  const baseMemory = (): Extract<
-    TranscriptItem,
-    { type: "memory_copilot" }
-  > => ({
-    id: stableMemoryCopilotItemId(
-      p.memoryRowId,
-      typeof p.userTurnIndex === "number" ? p.userTurnIndex : 0,
-    ),
-    type: "memory_copilot",
-    memoryRowId: p.memoryRowId,
-    userTurnIndex: typeof p.userTurnIndex === "number" ? p.userTurnIndex : 0,
-    memoryStatus: "idle",
-    memoryText: "",
-    recallStatus: "idle",
-    persistStatus: "idle",
-    recallText: "",
-    recallReasoning: "",
-    persistText: "",
-    persistReasoning: "",
-  });
-
-  if (idx < 0) {
-    next.splice(insertAt, 0, baseMemory());
-    idx = insertAt;
-  }
-
-  const cur = next[idx];
-  if (!cur || cur.type !== "memory_copilot") {
-    return prev;
-  }
-
-  let patch: Extract<TranscriptItem, { type: "memory_copilot" }> = { ...cur };
-  const st = (p.status || "").trim();
-
-  if (p.phase === "memory") {
-    if (st === "started") {
-      patch.memoryStatus = "in_progress";
-      patch.recallStatus = "in_progress";
-      patch.persistStatus = "idle";
-      if (patch.memoryWallStartedAtMs == null)
-        patch.memoryWallStartedAtMs = now;
-    }
-    if (st === "completed") {
-      patch.memoryStatus = "completed";
-      patch.recallStatus = "completed";
-      patch.persistStatus = p.persistSaved ? "completed" : "idle";
-      const rp = p.recallReadPaths;
-      if (Array.isArray(rp) && rp.length > 0) {
-        const cleaned = rp.map((x) => String(x).trim()).filter((x) => x !== "");
-        if (cleaned.length > 0) patch.recallReadPaths = cleaned;
-      }
-      if (typeof p.persistSaved === "boolean") {
-        patch.persistSaved = p.persistSaved;
-      }
-      const pr = (p.persistRelativePath || "").trim();
-      if (pr) patch.persistRelativePath = pr;
-      const tt = (p.persistTitle || "").trim();
-      if (tt) patch.persistTitle = tt;
-      const pb = (p.persistSavedBody || "").trim();
-      if (pb) patch.persistSavedBody = pb;
-      if (typeof patch.memoryWallStartedAtMs === "number") {
-        patch.memoryWallDurationMs = Math.max(
-          0,
-          now - patch.memoryWallStartedAtMs,
-        );
-      }
-    }
-  }
-  if (p.phase === "recall") {
-    if (st === "started") {
-      patch.recallStatus = "in_progress";
-      if (patch.memoryWallStartedAtMs == null)
-        patch.memoryWallStartedAtMs = now;
-    }
-    if (st === "completed") {
-      patch.recallStatus = "completed";
-      if (typeof p.durationMs === "number" && p.durationMs > 0)
-        patch.recallDurationMs = p.durationMs;
-      const rp = p.recallReadPaths;
-      if (Array.isArray(rp) && rp.length > 0) {
-        const cleaned = rp.map((x) => String(x).trim()).filter((x) => x !== "");
-        if (cleaned.length > 0) patch.recallReadPaths = cleaned;
-      }
-    }
-  }
-  if (p.phase === "persist") {
-    if (st === "started") {
-      patch.persistStatus = "in_progress";
-      if (patch.memoryWallStartedAtMs == null)
-        patch.memoryWallStartedAtMs = now;
-      const wallStart = patch.memoryWallStartedAtMs;
-      const wallElapsed =
-        typeof wallStart === "number" ? Math.max(0, now - wallStart) : 0;
-      if (
-        typeof patch.memoryWallLiveCapMs === "number" &&
-        Number.isFinite(patch.memoryWallLiveCapMs)
-      ) {
-        patch.memoryWallLiveCapMs = Math.max(
-          patch.memoryWallLiveCapMs,
-          wallElapsed,
-        );
-      } else {
-        patch.memoryWallLiveCapMs = wallElapsed;
-      }
-    }
-    if (st === "completed") {
-      patch.persistStatus = "completed";
-      if (typeof p.durationMs === "number" && p.durationMs > 0)
-        patch.persistDurationMs = p.durationMs;
-      if (typeof p.persistSaved === "boolean") {
-        patch.persistSaved = p.persistSaved;
-      }
-      const pr = (p.persistRelativePath || "").trim();
-      if (pr) patch.persistRelativePath = pr;
-      const tt = (p.persistTitle || "").trim();
-      if (tt) patch.persistTitle = tt;
-      const pb = (p.persistSavedBody || "").trim();
-      if (pb) patch.persistSavedBody = pb;
-      if (typeof patch.memoryWallStartedAtMs === "number") {
-        patch.memoryWallDurationMs = Math.max(
-          0,
-          now - patch.memoryWallStartedAtMs,
-        );
-      }
-    }
-  }
-
-  next[idx] = patch;
-  return next;
-}
-
-function applyMemoryChunkToItems(
-  prev: TranscriptItem[],
-  c: MemoryChunkEvt,
-): TranscriptItem[] {
-  const idx = prev.findIndex(
-    (x) => x.type === "memory_copilot" && x.memoryRowId === c.memoryRowId,
-  );
-  if (idx < 0) return prev;
-  const cur = prev[idx];
-  if (!cur || cur.type !== "memory_copilot") return prev;
-  const next = [...prev];
-  const patch: Extract<TranscriptItem, { type: "memory_copilot" }> = { ...cur };
-  const ph = (c.phase || "").trim();
-  const kd = (c.kind || "").trim();
-  const d = typeof c.delta === "string" ? c.delta : "";
-  if (!d) return prev;
-  if (ph === "memory") {
-    if (kd !== "reasoning") patch.memoryText = (patch.memoryText || "") + d;
-  } else if (ph === "recall") {
-    if (kd !== "reasoning") patch.recallText += d;
-  } else if (ph === "persist") {
-    if (kd !== "reasoning") patch.persistText += d;
-  } else {
-    return prev;
-  }
-  next[idx] = patch;
-  return next;
-}
-
-/** Freeze the memory wall-clock label once main-model reasoning starts while recall/persist are still SSE-busy (events can arrive after reasoning deltas). */
-function freezeMemoryWallWhenThinkingAfterRecall(
-  items: TranscriptItem[],
-  freezeAtMs: number,
-): TranscriptItem[] {
-  let userIdx = -1;
-  for (let i = items.length - 1; i >= 0; i--) {
-    const it = items[i];
-    if (!it) continue;
-    if (it && it.type === "user_message") {
-      userIdx = i;
-      break;
-    }
-  }
-  if (userIdx < 0) return items;
-
-  let memIdx = -1;
-  let thinkingIdx = -1;
-  for (let i = userIdx + 1; i < items.length; i++) {
-    const it = items[i];
-    if (!it) continue;
-    if (it.type === "user_message") break;
-    if (it.type === "memory_copilot") memIdx = i;
-    if (it.type === "thinking" && it.status === "in_progress") {
-      thinkingIdx = i;
-      break;
-    }
-  }
-  if (memIdx < 0 || thinkingIdx < 0) return items;
-
-  const m = items[memIdx];
-  if (!m || m.type !== "memory_copilot") return items;
-
-  const memBusy =
-    m.memoryStatus === "in_progress" ||
-    m.recallStatus === "in_progress" ||
-    m.persistStatus === "in_progress";
-  if (!memBusy || typeof m.memoryWallLiveCapMs === "number") return items;
-
-  const startMs = m.memoryWallStartedAtMs;
-  if (typeof startMs !== "number") return items;
-
-  const cap = Math.max(0, freezeAtMs - startMs);
-  const next = [...items];
-  next[memIdx] = { ...m, memoryWallLiveCapMs: cap };
-  return next;
 }
 
 function parseRFC3339ms(s: string | undefined): number | null {
@@ -885,6 +575,7 @@ export function App() {
     providerUsage: (usage: ProviderUsage) => void;
     configReloaded: () => void;
     messageQueue: (sid: string, queue: QueuedMessageEvent) => void;
+    sessionSettings: (event: SessionSettingsEvent) => void;
     subagentPermission: (parentSid: string) => void;
     ready: () => void;
   }>({
@@ -893,6 +584,7 @@ export function App() {
     providerUsage: () => {},
     configReloaded: () => {},
     messageQueue: () => {},
+    sessionSettings: () => {},
     subagentPermission: () => {},
     ready: () => {},
   });
@@ -1006,9 +698,37 @@ export function App() {
     },
     [],
   );
+  // The running turn's clock and generated tokens per session, from the turn's own
+  // stream and from the activity read that covers a tab which joined late.
+  const [turnProgressBySid, setTurnProgressBySid] = useState<
+    Record<string, TurnProgress>
+  >({});
+  const applyTurnProgress = useStableHandler(
+    (sid: string, next: TurnProgress, source: "stream" | "activity") => {
+      const key = sid.trim();
+      if (!key) return;
+      setTurnProgressBySid((prev) => {
+        const merged = mergeTurnProgress(prev[key], next, source);
+        return merged === prev[key] ? prev : { ...prev, [key]: merged };
+      });
+    },
+  );
+  const clearTurnProgress = useStableHandler((sid: string) => {
+    const key = sid.trim();
+    setTurnProgressBySid((prev) => {
+      if (!(key in prev)) return prev;
+      const { [key]: _ended, ...rest } = prev;
+      return rest;
+    });
+  });
+
   const turnActivity = useSessionTurnActivity({
     sessionId,
     connected: serverEventsConnected,
+    onTurnProgress: (sid, progress) =>
+      progress
+        ? applyTurnProgress(sid, progress, "activity")
+        : clearTurnProgress(sid),
     postPending: (sid) => pendingPostBySidRef.current.has(sid),
     onQueueRead: (sid) => {
       const fence = queueOrderRef.current.capture(sid);
@@ -1031,6 +751,8 @@ export function App() {
 
   function reconcileEndedTurn(sid: string) {
     removeActiveComposer(sid);
+    // The next turn starts its own clock; what this one reached is history.
+    clearTurnProgress(sid);
     if (
       sid !== viewedSessionIdRef.current.trim() &&
       !streamShadowBySidRef.current.has(sid)
@@ -1077,10 +799,13 @@ export function App() {
   }
 
   // Text of the most recent user turn, used to re-run it from the retry button
-  // on a failed/system notice (e.g. "model did not respond").
+  // on a failed/system notice (e.g. "model did not respond"). A turn a finished
+  // background task started has no text anybody typed, so there is nothing to
+  // re-run and no retry is offered.
   const lastUserText = useMemo(() => {
     for (let i = items.length - 1; i >= 0; i--) {
       const it = items[i];
+      if (it && it.type === "background_wake") return "";
       if (it && it.type === "user_message") {
         return typeof it.content === "string" ? it.content : "";
       }
@@ -1142,6 +867,17 @@ export function App() {
   const [schedulerOpen, setSchedulerOpen] = useState(false);
   const [settingsRoute, setSettingsRoute] = useState(false);
   const [swarmRoute, setSwarmRoute] = useState(false);
+  // The documentation reader, open on a page (and section) of the built-in
+  // documentation; null when it is closed. lastDocsSlugRef remembers the page
+  // the reader was left on, so the rail and F1 reopen the book where it was.
+  const [docsRoute, setDocsRoute] = useState<{
+    slug: string | null;
+    anchor: string | null;
+  } | null>(null);
+  const lastDocsSlugRef = useRef<string | null>(null);
+  // Where the reader was opened from (a chat, the swarm, the scheduler), so
+  // closing it goes back there rather than home.
+  const docsReturnHashRef = useRef("");
   // The Swarm entry only appears when the environment answers as a relay: on a
   // plain agent there is no swarm to show.
   const [isSwarmEnv, setIsSwarmEnv] = useState(false);
@@ -1174,14 +910,39 @@ export function App() {
   // job's session, polled the way the chat's Tasks panel polls its own.
   const [schedulerRunsTasks, setSchedulerRunsTasks] = useState<BackgroundTask[]>([]);
   const [schedulerRunsRunning, setSchedulerRunsRunning] = useState(0);
-  const [schedulerRunsOutput, setSchedulerRunsOutput] = useState("");
   const [schedulerRunsError, setSchedulerRunsError] = useState<string | null>(null);
   const [schedulerRunsLoading, setSchedulerRunsLoading] = useState(false);
   const [tasksOpen, setTasksOpen] = useState(false);
-  const [tasksSelectedId, setTasksSelectedId] = useState<string | null>(null);
+  // A card the shell asks the Tasks panel to open ("Open in Tasks" on a transcript
+  // row, a link that names a task). Which cards are open otherwise is the panel's own
+  // business and is not part of the address.
+  //
+  // The pointer names its chat and is good for one use. Every session numbers its
+  // tasks from bg_1 and the panel unmounts with the drawer, so a pointer that outlived
+  // its use would open a card on the next mount - in whichever chat is on screen.
+  const [tasksFocus, setTasksFocus] = useState<
+    (TaskFocus & { sid: string }) | null
+  >(null);
+  const tasksFocusSeqRef = useRef(0);
+  const focusBackgroundTask = useCallback(
+    (sid: string, taskId: string | null) => {
+      const id = (taskId || "").trim();
+      const key = sid.trim();
+      if (!id || !key) {
+        return;
+      }
+      tasksFocusSeqRef.current += 1;
+      setTasksFocus({ sid: key, taskId: id, seq: tasksFocusSeqRef.current });
+    },
+    [],
+  );
+  const spendTasksFocus = useCallback((seq: number) => {
+    setTasksFocus((prev) => (prev && prev.seq === seq ? null : prev));
+  }, []);
+  const [schedulerRunsFocus, setSchedulerRunsFocus] =
+    useState<TaskFocus | null>(null);
   const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([]);
   const [backgroundRunning, setBackgroundRunning] = useState(0);
-  const [backgroundOutput, setBackgroundOutput] = useState("");
   const [backgroundListError, setBackgroundListError] = useState<string | null>(
     null,
   );
@@ -1251,6 +1012,25 @@ export function App() {
   const [viewportXL, setViewportXL] = useState(false);
   const [railLabelsWide, setRailLabelsWide] = useState(false);
   const [mode, setMode] = useState<string>("agent");
+  /**
+   * The viewed session's permission mode and the one a restart would give it
+   * back, the settings changed for the next turns, and the version of the
+   * snapshot they came from (chat/sessionSettings.ts). The server is the
+   * source of truth: every surface's change arrives as a versioned snapshot.
+   */
+  const [permissionMode, setPermissionMode] = useState("ask");
+  const [configuredPermissionMode, setConfiguredPermissionMode] =
+    useState("ask");
+  const [settingsOverrides, setSettingsOverrides] = useState<TurnOverride[]>(
+    [],
+  );
+  const settingsVersionRef = useRef<{ sid: string; version: number }>({
+    sid: "",
+    version: 0,
+  });
+  /** A permission mode picked before the chat has a session: it rides in as a
+   *  command at the start of the first message, where the server takes it. */
+  const pendingPermissionModeRef = useRef("");
   const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
   const [defaultAgentYamlModel, setDefaultAgentYamlModel] = useState("");
   const [llmModel, setLlmModel] = useState("");
@@ -1735,15 +1515,15 @@ export function App() {
     [sessionId, t],
   );
 
-  const refreshBackgroundTaskOutput = useCallback(
-    async (taskId: string) => {
+  // The Tasks panel reads the output of every card it has open through this.
+  const loadBackgroundTaskOutput = useCallback(
+    async (taskId: string): Promise<string | null> => {
       const sid = sessionId.trim();
       if (!sid || !taskId) {
-        setBackgroundOutput("");
-        return;
+        return null;
       }
       const res = await getBackgroundTask(sid, taskId);
-      setBackgroundOutput(res.ok ? res.data.output || "" : "");
+      return res.ok ? res.data.output || "" : null;
     },
     [sessionId],
   );
@@ -1754,11 +1534,8 @@ export function App() {
       if (!sid || !taskId) {
         return;
       }
-      const res = await stopBackgroundTask(sid, taskId);
-      if (res.ok) {
-        setBackgroundOutput(res.data.output || "");
-      }
-      void refreshBackgroundTasks({ silent: true });
+      await stopBackgroundTask(sid, taskId);
+      await refreshBackgroundTasks({ silent: true });
     },
     [sessionId, refreshBackgroundTasks],
   );
@@ -1769,7 +1546,6 @@ export function App() {
       return;
     }
     await clearFinishedBackgroundTasks(sid);
-    setTasksSelectedId(null);
     void refreshBackgroundTasks({ silent: true });
   }, [sessionId, refreshBackgroundTasks]);
 
@@ -1830,6 +1606,20 @@ export function App() {
 
   const applyLocationHash = useCallback(() => {
     const p = parseAppHash();
+    if (p.branch === "docs") {
+      setDocsRoute({ slug: p.slug, anchor: p.anchor });
+      if (p.slug) {
+        lastDocsSlugRef.current = p.slug;
+      }
+      setSwarmRoute(false);
+      setSettingsRoute(false);
+      setSchedulerOpen(false);
+      setSchedulerEditor(null);
+      setTasksOpen(false);
+      setSessionsOpen(false);
+      return;
+    }
+    setDocsRoute(null);
     if (p.branch === "session") {
       setSettingsRoute(false);
       setActiveDraftId("");
@@ -1840,7 +1630,14 @@ export function App() {
       setSchedulerOpen(false);
       setSchedulerEditor(null);
       setTasksOpen(p.tasksOpen);
-      setTasksSelectedId(p.taskId);
+      if (p.tasksOpen && p.taskId) {
+        // A link that names a task opens its card once; the address goes back to
+        // saying only that the panel is showing.
+        focusBackgroundTask(p.sessionId, p.taskId);
+        setSessionTasksHash(p.sessionId, null, {
+          historySidebar: !!p.historyOpen,
+        });
+      }
       setSessionsOpen(!!p.historyOpen);
       return;
     }
@@ -1849,7 +1646,6 @@ export function App() {
       setSchedulerOpen(false);
       setSchedulerEditor(null);
       setTasksOpen(false);
-      setTasksSelectedId(null);
       setSessionId("");
       viewedSessionIdRef.current = "";
       setActiveDraftId(p.draftId.trim());
@@ -1867,7 +1663,6 @@ export function App() {
       setSchedulerOpen(false);
       setSchedulerEditor(null);
       setTasksOpen(false);
-      setTasksSelectedId(null);
       return;
     }
     if (p.branch === "swarm") {
@@ -1876,7 +1671,6 @@ export function App() {
       setSchedulerOpen(false);
       setSchedulerEditor(null);
       setTasksOpen(false);
-      setTasksSelectedId(null);
       setSessionsOpen(false);
       return;
     }
@@ -1887,7 +1681,6 @@ export function App() {
       setSchedulerOpen(false);
       setSchedulerEditor(null);
       setTasksOpen(false);
-      setTasksSelectedId(null);
       setSessionsOpen(false);
       return;
     }
@@ -1914,7 +1707,6 @@ export function App() {
       setSchedulerOpen(true);
       setSessionsOpen(false);
       setTasksOpen(false);
-      setTasksSelectedId(null);
       setSchedulerEditor(schedulerEditorFromParsedHash(p));
       return;
     }
@@ -1925,7 +1717,6 @@ export function App() {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setTasksOpen(false);
-    setTasksSelectedId(null);
     setSessionsOpen(!!p.historyOpen);
   }, [schedulerHttpLinked]);
 
@@ -1935,7 +1726,6 @@ export function App() {
       setSchedulerOpen(false);
       setSchedulerEditor(null);
       setTasksOpen(false);
-      setTasksSelectedId(null);
       viewedSessionIdRef.current = id.trim();
       setSessionHashInLocation(id, opts);
       setSessionId(id);
@@ -1948,7 +1738,6 @@ export function App() {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setTasksOpen(false);
-    setTasksSelectedId(null);
     viewedSessionIdRef.current = "";
     setSessionHashInLocation("");
     setSessionId("");
@@ -1959,7 +1748,6 @@ export function App() {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setTasksOpen(false);
-    setTasksSelectedId(null);
     if (sessionsOpen) {
       setHistoryHash();
       return;
@@ -1981,8 +1769,8 @@ export function App() {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setTasksOpen(false);
-    setTasksSelectedId(null);
-    if (parseAppHash().branch === "settings") {
+    setDocsRoute(null);
+    if (parseAppHash().branch === "settings" || parseAppHash().branch === "docs") {
       const sid = sessionId.trim();
       if (sid) {
         setSessionHashInLocation(sid);
@@ -2062,7 +1850,6 @@ export function App() {
     if (!sessionId.trim()) {
       setBackgroundTasks([]);
       setBackgroundRunning(0);
-      setBackgroundOutput("");
       return;
     }
     void refreshBackgroundTasks({ silent: !tasksOpen });
@@ -2077,27 +1864,9 @@ export function App() {
     // events stream is down, and takes it away once answered.
     const id = window.setInterval(() => {
       void refreshBackgroundTasks({ silent: true });
-      if (tasksOpen && tasksSelectedId) {
-        void refreshBackgroundTaskOutput(tasksSelectedId);
-      }
     }, tasksPollIntervalMs(backgroundRunning));
     return () => window.clearInterval(id);
-  }, [
-    sessionId,
-    tasksOpen,
-    tasksSelectedId,
-    backgroundRunning,
-    refreshBackgroundTasks,
-    refreshBackgroundTaskOutput,
-  ]);
-
-  useEffect(() => {
-    if (!tasksOpen || !tasksSelectedId) {
-      setBackgroundOutput("");
-      return;
-    }
-    void refreshBackgroundTaskOutput(tasksSelectedId);
-  }, [tasksOpen, tasksSelectedId, refreshBackgroundTaskOutput]);
+  }, [sessionId, backgroundRunning, refreshBackgroundTasks]);
 
   // Elapsed labels must advance between polls, so the clock ticks on its own
   // while something is actually running.
@@ -2128,8 +1897,21 @@ export function App() {
 
   const schedulerRunsJobId =
     schedulerEditor?.mode === "runs" ? schedulerEditor.jobId : "";
-  const schedulerRunsTaskId =
+  // A link that names a run opens its card once, like a task link in a chat.
+  const schedulerRunsLinkedTaskId =
     schedulerEditor?.mode === "runs" ? schedulerEditor.taskId : null;
+  useEffect(() => {
+    if (!schedulerRunsJobId || !schedulerRunsLinkedTaskId) {
+      return;
+    }
+    tasksFocusSeqRef.current += 1;
+    setSchedulerRunsFocus({
+      taskId: schedulerRunsLinkedTaskId,
+      seq: tasksFocusSeqRef.current,
+    });
+    setSchedulerEditor({ mode: "runs", jobId: schedulerRunsJobId, taskId: null });
+    setSchedulerJobRunsHash(schedulerRunsJobId);
+  }, [schedulerRunsJobId, schedulerRunsLinkedTaskId]);
   /** The job session the runs live under; empty until the job ran once. */
   const schedulerRunsSessionId = useMemo(() => {
     if (!schedulerRunsJobId) {
@@ -2171,15 +1953,14 @@ export function App() {
     [schedulerRunsSessionId],
   );
 
-  const refreshSchedulerRunOutput = useCallback(
-    async (taskId: string) => {
+  const loadSchedulerRunOutput = useCallback(
+    async (taskId: string): Promise<string | null> => {
       const sid = schedulerRunsSessionId;
-      if (!sid) {
-        setSchedulerRunsOutput("");
-        return;
+      if (!sid || !taskId) {
+        return null;
       }
       const res = await getBackgroundTask(sid, taskId);
-      setSchedulerRunsOutput(res.ok ? res.data.output || "" : "");
+      return res.ok ? res.data.output || "" : null;
     },
     [schedulerRunsSessionId],
   );
@@ -2188,7 +1969,6 @@ export function App() {
     if (!schedulerRunsJobId) {
       setSchedulerRunsTasks([]);
       setSchedulerRunsRunning(0);
-      setSchedulerRunsOutput("");
       setSchedulerRunsError(null);
       return;
     }
@@ -2201,27 +1981,14 @@ export function App() {
     }
     const id = window.setInterval(() => {
       void refreshSchedulerRuns({ silent: true });
-      if (schedulerRunsTaskId) {
-        void refreshSchedulerRunOutput(schedulerRunsTaskId);
-      }
     }, tasksPollIntervalMs(schedulerRunsRunning));
     return () => window.clearInterval(id);
   }, [
     schedulerRunsJobId,
     schedulerRunsSessionId,
-    schedulerRunsTaskId,
     schedulerRunsRunning,
     refreshSchedulerRuns,
-    refreshSchedulerRunOutput,
   ]);
-
-  useEffect(() => {
-    if (!schedulerRunsTaskId) {
-      setSchedulerRunsOutput("");
-      return;
-    }
-    void refreshSchedulerRunOutput(schedulerRunsTaskId);
-  }, [schedulerRunsTaskId, refreshSchedulerRunOutput]);
 
   // A running run keeps the panel's clock ticking like the chat's panel does.
   useEffect(() => {
@@ -2593,6 +2360,8 @@ export function App() {
   // Handlers are read through a ref so the subscription below can mount once: it must
   // survive re-renders, and the callbacks it needs are redefined on every one of them.
   serverEventHandlersRef.current = {
+    sessionSettings: (event: SessionSettingsEvent) =>
+      applySessionSettings(event.settings),
     turnStarted: (sid: string) => {
       void loadSessionsList(true);
       const key = sid.trim();
@@ -2661,6 +2430,8 @@ export function App() {
       onConfigReloaded: () => serverEventHandlersRef.current.configReloaded(),
       onMessageQueue: (sid, queue) =>
         serverEventHandlersRef.current.messageQueue(sid, queue),
+      onSessionSettings: (event) =>
+        serverEventHandlersRef.current.sessionSettings(event),
       onSubagentPermission: (parentSid) =>
         serverEventHandlersRef.current.subagentPermission(parentSid),
       onConnectedChange: setServerEventsConnected,
@@ -2709,7 +2480,7 @@ export function App() {
       model?: string;
       selectedModelId?: string;
       selectedReasoning?: string;
-      memoryTurns?: MemoryTurnApi[];
+      settings?: unknown;
       subagent?: {
         parentSessionId?: string;
         name?: string;
@@ -2750,6 +2521,12 @@ export function App() {
         model: (res.data.model || res.data.selectedModelId || "").trim(),
         reasoning: (res.data.selectedReasoning || "").trim(),
       });
+      // The whole snapshot: the mode, the permission mode, the overrides for
+      // the next turns, and the version the next send names.
+      const snap = parseSessionSettings(res.data.settings);
+      if (snap) {
+        applySessionSettings(snap);
+      }
       // A child session locks the composer; an ordinary one carries no marker.
       setSubagentTranscript(parseSubagentTranscriptMeta(res.data));
       // The composer learns from the transcript, not from the session list: the
@@ -2789,12 +2566,6 @@ export function App() {
       noticesByTurn.set(turn, bucket);
     }
 
-    const memByTurn = new Map<number, MemoryTurnApi>();
-    for (const row of res.data.memoryTurns || []) {
-      if (typeof row.userTurnIndex === "number" && row.userTurnIndex > 0) {
-        memByTurn.set(row.userTurnIndex, row);
-      }
-    }
     const next: TranscriptItem[] = [];
     const pushUiNoticesForTurn = (turn: number) => {
       for (const row of noticesByTurn.get(turn) || []) {
@@ -2845,6 +2616,22 @@ export function App() {
         thinkingInTurn = 0;
         assistantInTurn = 0;
         const cat = readMessageCreatedAtUTC(m as Record<string, unknown>);
+        // Nobody typed the first message of a turn a finished background
+        // task started, and nothing shows in its place: the turn reads as the
+        // agent carrying on. It still opens a turn, so the notices and the
+        // ids of the turn line up with the server's count of user messages.
+        const wakeTasks = parseBackgroundWakeTasks(
+          (m as Record<string, unknown>).background_wake,
+        );
+        if (wakeTasks.length > 0) {
+          next.push({
+            id: stableWakeItemId(userTurnIdx),
+            type: "background_wake",
+            tasks: wakeTasks,
+            ...(cat ? { createdAtUtc: cat } : {}),
+          });
+          continue;
+        }
         const rawContent = m.content || "";
         const parsedAssets = sessionMessageFiles(
           (m as Record<string, unknown>).files,
@@ -2857,10 +2644,6 @@ export function App() {
           ...(cat ? { createdAtUtc: cat } : {}),
           ...(parsedAssets.length > 0 ? { files: parsedAssets } : {}),
         });
-        const mt = memByTurn.get(userTurnIdx);
-        if (mt) {
-          next.push(memoryTranscriptFromApi(mt));
-        }
         continue;
       }
       if (role === "assistant") {
@@ -3197,13 +2980,20 @@ export function App() {
     evictStaleSessionCaches(id);
   }
 
+  /** "Ask the agent" in the reader: a fresh chat with the page mentioned and
+   *  the selection quoted, ready to be finished and sent. */
+  function askAboutDocs(draft: string) {
+    goHome();
+    setDocsRoute(null);
+    setDraft(draft);
+  }
+
   function goHome() {
     persistComposerDraftBeforeLeave();
     setSessionsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setTasksOpen(false);
-    setTasksSelectedId(null);
     if (fadeOutTimerRef.current !== null) {
       clearTimeout(fadeOutTimerRef.current);
       fadeOutTimerRef.current = null;
@@ -3222,6 +3012,11 @@ export function App() {
     // Drop any stashed session selection so its restore effect cannot reapply
     // the old session's model over the new chat default.
     setOpenSessionSelection(null);
+    // A new chat runs under the configured permission mode until it is changed.
+    settingsVersionRef.current = { sid: "", version: 0 };
+    pendingPermissionModeRef.current = "";
+    setPermissionMode(configuredPermissionMode);
+    setSettingsOverrides([]);
     if (llmModelIds.length > 0) {
       setLlmModel(
         pickDefaultLlmModelForNewChat({
@@ -3818,14 +3613,19 @@ export function App() {
         tokenBaselineRef,
         reasoningDurationMsByContentRef,
         newId,
-        applyMemoryPhaseToItems,
-        applyMemoryChunkToItems,
+        applyMemoryRunToItems,
         onQuestion: handleComposerSseQuestion,
         onPermission: handleComposerSsePermission,
         onProviderUsage: providerUsageState.applyPushed,
         onMessageQueue: (q) => {
           if (ownsRelay() && !fetchCtl.signal.aborted) {
             applyQueue(key, q.messages, q.version, queueEpoch);
+          }
+        },
+        onSessionSettings: (e) => applySessionSettings(e.settings),
+        onTurnProgress: (progress) => {
+          if (ownsRelay() && !fetchCtl.signal.aborted) {
+            applyTurnProgress(key, progress, "stream");
           }
         },
       });
@@ -4111,6 +3911,7 @@ export function App() {
       };
       const assistantId = newId("a");
       assistantStreamId = assistantId;
+      let settingsOnly = false;
       streamingAssistantBySidRef.current.set(streamKey, assistantId);
       const viewingNow = viewedSessionIdRef.current.trim();
       const baseItems = pickStreamMutationBase({
@@ -4135,21 +3936,13 @@ export function App() {
         input: text,
         stream: true,
       };
-      const atts = extractAtFileAttachments(text);
+      // The "@" mentions of the text are resolved by the server, when the
+      // message is sent (internal/session/mentions.go): one grammar for
+      // every surface, so nothing is derived here but the recent picks.
       const profileModel = (PROFILE_MODES as readonly string[]).includes(mode);
-      if (atts.length > 0 && profileModel) {
-        // A ranged mention (@path:21-31) sends the line range; the backend reads
-        // those lines from the file and labels the attachment with them.
-        reqBody.attachments = atts.map((a) =>
-          a.startLine == null || a.endLine == null
-            ? { path: a.path }
-            : {
-                path: a.path,
-                source: { startLine: a.startLine, endLine: a.endLine },
-              },
-        );
+      if (profileModel) {
         const wk = sid.trim() || WORKSPACE_AT_RECENTS_NO_SESSION_KEY;
-        for (const a of atts) {
+        for (const a of extractAtFileAttachments(text)) {
           recordWorkspaceAtRecent(wk, { path_rel: a.path, kind: "file" });
         }
       }
@@ -4176,12 +3969,26 @@ export function App() {
       const yamlSel = llmModel.trim();
       const reasoningSel = llmReasoning.trim();
       const runSlug = (opts?.runPlanSlug || "").trim();
-      if (yamlSel || reasoningSel || runSlug) {
+      // The version of the settings snapshot these selectors mirror: when a
+      // newer one was published meanwhile (the model switched from another
+      // surface), the server keeps its own values instead of these.
+      const heldVersion =
+        settingsVersionRef.current.sid === sid.trim()
+          ? settingsVersionRef.current.version
+          : 0;
+      if (yamlSel || reasoningSel || runSlug || heldVersion > 0) {
         const meta: Record<string, string> = {};
         if (yamlSel) meta.model = yamlSel;
         if (reasoningSel) meta.reasoning = reasoningSel;
         if (runSlug) meta.runPlanSlug = runSlug;
+        if (heldVersion > 0) meta.settingsVersion = String(heldVersion);
         reqBody.metadata = meta;
+      }
+      // A permission mode picked before the chat had a session goes first,
+      // as the command that asks for it; the server takes it off the text.
+      if (!sid.trim() && pendingPermissionModeRef.current) {
+        reqBody.input = `/permissions ${pendingPermissionModeRef.current}\n${text}`;
+        pendingPermissionModeRef.current = "";
       }
       if (!ownsPost() || abortCtl.signal.aborted) return;
       const res = await fetch("/v1/responses", {
@@ -4308,8 +4115,7 @@ export function App() {
         tokenBaselineRef,
         reasoningDurationMsByContentRef,
         newId,
-        applyMemoryPhaseToItems,
-        applyMemoryChunkToItems,
+        applyMemoryRunToItems,
         onQuestion: handleComposerSseQuestion,
         onPermission: handleComposerSsePermission,
         onProviderUsage: providerUsageState.applyPushed,
@@ -4318,9 +4124,37 @@ export function App() {
             applyQueue(streamKey, q.messages, q.version, queueEpoch);
           }
         },
+        onSessionSettings: (e) => applySessionSettings(e.settings),
+        onTurnProgress: (progress) => {
+          if (ownsPost() && !abortCtl.signal.aborted) {
+            applyTurnProgress(streamKey, progress, "stream");
+          }
+        },
+        onSettingsOnly: () => {
+          settingsOnly = true;
+        },
       });
       if (!ownsPost() || abortCtl.signal.aborted) return;
       assistantStreamId = lastAssistantId;
+      // Only settings commands: the exchange drawn for it is not part of the
+      // conversation. The transcript's log holds the notice, which the reload
+      // below renders in the place a reload of the page would.
+      if (settingsOnly) {
+        applyStreamItems((prev) =>
+          prev.filter(
+            (it) =>
+              it.id !== userItem.id &&
+              !(it.type === "assistant_message" && it.id === lastAssistantId),
+          ),
+        );
+        void loadSessionsList(true);
+        await loadMessages(sidEffective, {
+          skipSetItems: viewedSessionIdRef.current.trim() !== postSessionKey,
+          preserveOnError: true,
+        });
+        completedNormally = true;
+        return;
+      }
 
       const syncAssistantFromServer = async () => {
         try {
@@ -4627,6 +4461,75 @@ export function App() {
     );
   }, [llmModel, modelInfos]);
 
+  /**
+   * applySessionSettings mirrors a settings snapshot of the viewed session in
+   * the composer: the model, the reasoning level, the mode, the permission
+   * mode and what is changed for the next turns. A snapshot of another
+   * session, or one older than the snapshot already shown, is dropped: the
+   * same change reaches a tab down the turn stream and the events stream.
+   * Cookies are left alone: they are the default of a new chat, not the
+   * record of an existing session.
+   */
+  const applySessionSettings = useStableHandler((snap: SessionSettings) => {
+    const viewed = viewedSessionIdRef.current.trim();
+    const held =
+      settingsVersionRef.current.sid === snap.sessionId
+        ? settingsVersionRef.current.version
+        : 0;
+    if (!isNewerSettings(held, viewed, snap)) {
+      return;
+    }
+    settingsVersionRef.current = { sid: snap.sessionId, version: snap.version };
+    setPermissionMode(snap.permissionMode);
+    setConfiguredPermissionMode(snap.configuredPermissionMode);
+    setSettingsOverrides(snap.overrides);
+    if (snap.mode) {
+      setMode(snap.mode);
+    }
+    if (snap.model && llmModelIds.includes(snap.model)) {
+      setLlmModel(snap.model);
+    }
+    setLlmReasoning(snap.reasoning);
+  });
+
+  /** patchSessionSettings sends a settings change and mirrors the answer. */
+  const patchSessionSettings = useCallback(
+    (sid: string, body: Record<string, unknown>) =>
+      fetch(`/coddy/sessions/${encodeURIComponent(sid)}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((b: { settings?: unknown } | null) => {
+          const snap = parseSessionSettings(b?.settings);
+          if (snap) {
+            applySessionSettings(snap);
+          }
+        })
+        .catch(() => {}),
+    [headers, applySessionSettings],
+  );
+
+  const onPermissionModeChange = useCallback(
+    (next: string) => {
+      const pm = next.trim();
+      if (!pm) {
+        return;
+      }
+      setPermissionMode(pm);
+      const sid = sessionId.trim();
+      if (!sid) {
+        // No session yet: the choice rides in with the first message.
+        pendingPermissionModeRef.current =
+          pm === configuredPermissionMode ? "" : pm;
+        return;
+      }
+      void patchSessionSettings(sid, { permissionMode: pm });
+    },
+    [sessionId, configuredPermissionMode, patchSessionSettings],
+  );
+
   const onLlmReasoningChange = useCallback(
     (level: string) => {
       const lv = level.trim();
@@ -4639,13 +4542,9 @@ export function App() {
       if (!sid) {
         return;
       }
-      void fetch(`/coddy/sessions/${encodeURIComponent(sid)}`, {
-        method: "PATCH",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ selectedReasoning: lv }),
-      });
+      void patchSessionSettings(sid, { selectedReasoning: lv });
     },
-    [sessionId, headers],
+    [sessionId, patchSessionSettings],
   );
 
   const onLlmModelChange = useCallback(
@@ -4660,13 +4559,9 @@ export function App() {
       if (!sid || !llmModelIds.includes(mid)) {
         return;
       }
-      void fetch(`/coddy/sessions/${encodeURIComponent(sid)}`, {
-        method: "PATCH",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ selectedModelId: mid }),
-      });
+      void patchSessionSettings(sid, { selectedModelId: mid });
     },
-    [sessionId, llmModelIds, headers],
+    [sessionId, llmModelIds, patchSessionSettings],
   );
 
   const contextPct = useMemo(
@@ -4707,31 +4602,13 @@ export function App() {
     setSchedulerJobRunsHash(jid);
   }, []);
 
-  const openSchedulerRunTask = useCallback(
-    (taskId: string) => {
-      if (!schedulerRunsJobId) {
-        return;
-      }
-      setSchedulerEditor({ mode: "runs", jobId: schedulerRunsJobId, taskId });
-      setSchedulerJobRunsHash(schedulerRunsJobId, taskId);
-    },
-    [schedulerRunsJobId],
-  );
-
-  const backToSchedulerRuns = useCallback(() => {
-    if (!schedulerRunsJobId) {
-      return;
-    }
-    setSchedulerEditor({ mode: "runs", jobId: schedulerRunsJobId, taskId: null });
-    setSchedulerJobRunsHash(schedulerRunsJobId);
-  }, [schedulerRunsJobId]);
-
   const closeSchedulerRuns = useCallback(() => {
     if (!schedulerRunsJobId) {
       return;
     }
     setSchedulerEditor({ mode: "edit", jobId: schedulerRunsJobId });
     setSchedulerJobHash(schedulerRunsJobId);
+    setSchedulerRunsFocus(null);
   }, [schedulerRunsJobId]);
 
   const stopSchedulerRun = useCallback(
@@ -4740,14 +4617,11 @@ export function App() {
       if (!sid) {
         return;
       }
-      const res = await stopBackgroundTask(sid, taskId);
-      if (res.ok && schedulerRunsTaskId === taskId) {
-        setSchedulerRunsOutput(res.data.output || "");
-      }
-      void refreshSchedulerRuns({ silent: true });
+      await stopBackgroundTask(sid, taskId);
+      await refreshSchedulerRuns({ silent: true });
       void refreshSchedulerJobs({ silent: true });
     },
-    [schedulerRunsSessionId, schedulerRunsTaskId, refreshSchedulerRuns, refreshSchedulerJobs],
+    [schedulerRunsSessionId, refreshSchedulerRuns, refreshSchedulerJobs],
   );
 
   const clearSchedulerRuns = useCallback(async () => {
@@ -4771,7 +4645,6 @@ export function App() {
     }
     setSessionsOpen(false);
     setTasksOpen(false);
-    setTasksSelectedId(null);
     setSchedulerOpen(true);
     setSchedulerEditor(null);
     setSchedulerListHash();
@@ -4787,13 +4660,13 @@ export function App() {
     setSchedulerEditor(null);
     setSettingsRoute(false);
     setTasksOpen(true);
-    setTasksSelectedId(null);
     setSessionTasksHash(sid);
   }, [sessionId]);
 
   const closeTasksDrawer = useCallback(() => {
     setTasksOpen(false);
-    setTasksSelectedId(null);
+    // A pointer at a task that never showed up does not wait for the next opening.
+    setTasksFocus(null);
     if (sessionsOpen) {
       setHistoryHash();
       return;
@@ -4810,6 +4683,7 @@ export function App() {
     }
   }, [sessionId, sessionsOpen]);
 
+  // "Open in Tasks" on a transcript row: the panel opens with that task's card open.
   const openBackgroundTask = useCallback(
     (taskId: string) => {
       const sid = sessionId.trim();
@@ -4817,19 +4691,11 @@ export function App() {
         return;
       }
       setTasksOpen(true);
-      setTasksSelectedId(taskId);
-      setSessionTasksHash(sid, taskId);
-    },
-    [sessionId],
-  );
-
-  const backToBackgroundTaskList = useCallback(() => {
-    const sid = sessionId.trim();
-    setTasksSelectedId(null);
-    if (sid) {
+      focusBackgroundTask(sid, taskId);
       setSessionTasksHash(sid);
-    }
-  }, [sessionId]);
+    },
+    [sessionId, focusBackgroundTask],
+  );
 
   /** Opens a session in this tab: the child transcript behind an agent task,
    *  or the parent chat from a read-only notice. Same path as a History pick,
@@ -4907,17 +4773,112 @@ export function App() {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setTasksOpen(false);
-    setTasksSelectedId(null);
     setSessionsOpen(false);
     setSettingsRoute(false);
     window.location.hash = appNavHrefSwarm();
   }, []);
 
+  /** Opens the reader over whatever is on screen, remembering it for the close. */
+  const openDocsAt = useCallback((slug: string | null, anchor: string | null) => {
+    if (parseAppHash().branch !== "docs") {
+      docsReturnHashRef.current = window.location.hash;
+    }
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    setTasksOpen(false);
+    setSessionsOpen(false);
+    setSettingsRoute(false);
+    window.location.hash = appNavHrefDocs(slug, anchor);
+  }, []);
+
+  const openDocsFromNav = useCallback(() => {
+    openDocsAt(lastDocsSlugRef.current, null);
+  }, [openDocsAt]);
+
+  // A search /docs <words> brings into the reader; cleared when the reader closes.
+  const [docsSearchSeed, setDocsSearchSeed] = useState<{ query: string; nonce: number } | null>(
+    null,
+  );
+
+  /**
+   * `/docs [page or words]` in the composer, as in the console: the command
+   * alone reopens the book, a page's address or title opens that page (and
+   * section), anything else opens the reader on that search.
+   */
+  const openDocsCommand = useCallback(
+    (arg: string) => {
+      setDraft("");
+      if (!arg) {
+        setDocsSearchSeed(null);
+        openDocsFromNav();
+        return;
+      }
+      void fetchDocsPage(arg).then((res) => {
+        if (res.ok && docsCommandOpensPage(arg, res.data.title)) {
+          setDocsSearchSeed(null);
+          openDocsAt(res.data.slug, res.data.anchor || null);
+          return;
+        }
+        setDocsSearchSeed({ query: arg, nonce: Date.now() });
+        openDocsFromNav();
+      });
+    },
+    [openDocsAt, openDocsFromNav],
+  );
+
+  /** Following a link of the reader adds a history entry, so Back returns to
+   *  the page before; settling on the first page of the book does not. */
+  const openDocsPage = useCallback(
+    (slug: string, anchor?: string | null, opts?: { replace?: boolean }) => {
+      if (opts?.replace) {
+        setDocsHash(slug, anchor);
+        return;
+      }
+      window.location.hash = appNavHrefDocs(slug, anchor);
+    },
+    [],
+  );
+
+  const onCloseDocs = useCallback(() => {
+    setDocsRoute(null);
+    setDocsSearchSeed(null);
+    const back = docsReturnHashRef.current;
+    docsReturnHashRef.current = "";
+    if (back && !back.startsWith("#/docs")) {
+      window.location.hash = back;
+      return;
+    }
+    const sid = sessionId.trim();
+    if (sid) {
+      setSessionHashInLocation(sid);
+    } else {
+      clearSessionRoute();
+    }
+  }, [sessionId, clearSessionRoute]);
+
+  // F1 opens the documentation, as it does in the console, and closes it again.
+  const docsOpenRef = useRef(false);
+  docsOpenRef.current = docsRoute !== null;
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== "F1" || e.altKey || e.ctrlKey || e.metaKey) {
+        return;
+      }
+      e.preventDefault();
+      if (docsOpenRef.current) {
+        onCloseDocs();
+      } else {
+        openDocsFromNav();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCloseDocs, openDocsFromNav]);
+
   const openSettingsFromNav = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setTasksOpen(false);
-    setTasksSelectedId(null);
     setSessionsOpen(false);
     setSettingsHash();
   }, []);
@@ -4935,7 +4896,6 @@ export function App() {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setTasksOpen(false);
-    setTasksSelectedId(null);
     setSettingsRoute(false);
     setSessionsOpen(true);
     setHistoryHash();
@@ -4961,7 +4921,8 @@ export function App() {
     sessionsOpen ||
     (schedulerOpen && schedulerHttpLinked === true) ||
     settingsRoute ||
-    swarmRoute;
+    swarmRoute ||
+    docsRoute !== null;
 
   const filteredSchedulerJobs = useMemo(() => {
     const q = schedulerFilterQ.trim().toLowerCase();
@@ -5330,6 +5291,8 @@ export function App() {
         showSwarm={isSwarmEnv}
         onOpenSwarm={openSwarmFromNav}
         swarmOpen={swarmRoute}
+        onOpenDocs={openDocsFromNav}
+        docsOpen={docsRoute !== null}
         settingsOpen={settingsRoute}
         onOpenSettings={openSettingsFromNav}
         canWidenRail={viewportXL}
@@ -5409,19 +5372,19 @@ export function App() {
                 className="scheduler-runs-dock"
                 title={t("scheduler.runsTitle", { jobId: schedulerEditor.jobId })}
                 emptyText={t("scheduler.runsEmpty")}
-                agentHeading={t("scheduler.runsJobHeading")}
-                selectedTaskId={schedulerRunsTaskId}
+                focus={schedulerRunsFocus}
+                onFocusHonoured={(seq) =>
+                  setSchedulerRunsFocus((prev) =>
+                    prev && prev.seq === seq ? null : prev,
+                  )
+                }
                 tasks={schedulerRunsTasks}
-                selectedOutput={schedulerRunsOutput}
+                loadOutput={loadSchedulerRunOutput}
                 listError={schedulerRunsError}
                 loading={schedulerRunsLoading}
                 nowMs={backgroundNowMs}
                 onClose={closeSchedulerRuns}
-                onOpenTask={openSchedulerRunTask}
-                onBackToList={backToSchedulerRuns}
-                onStopTask={(id) => {
-                  void stopSchedulerRun(id);
-                }}
+                onStopTask={stopSchedulerRun}
                 onClearFinished={() => {
                   void clearSchedulerRuns();
                 }}
@@ -5461,7 +5424,7 @@ export function App() {
           </div>
         ) : null}
 
-        {swarmRoute || (atSwarmRoot && !settingsRoute) ? (
+        {swarmRoute || (atSwarmRoot && !settingsRoute && !docsRoute) ? (
           <div className="swarm-dock-cluster">
             <SwarmView
               onOpenNode={(nodePath: string[]) => openSwarmNode(nodePath)}
@@ -5470,6 +5433,18 @@ export function App() {
                 ? { currentNode: swarmCurrentNode }
                 : {})}
               {...(atSwarmRoot ? { headerSlot: <EnvironmentChip /> } : {})}
+            />
+          </div>
+        ) : null}
+        {docsRoute ? (
+          <div className="docs-dock-cluster">
+            <DocsView
+              slug={docsRoute.slug}
+              anchor={docsRoute.anchor}
+              onOpen={openDocsPage}
+              onClose={onCloseDocs}
+              {...(docsSearchSeed ? { searchSeed: docsSearchSeed } : {})}
+              {...(atSwarmRoot ? {} : { onAsk: askAboutDocs })}
             />
           </div>
         ) : null}
@@ -5496,18 +5471,19 @@ export function App() {
         {tasksPanelOpen ? (
           <BackgroundTasksPanel
             open
-            selectedTaskId={tasksSelectedId}
+            focus={
+              tasksFocus && tasksFocus.sid === sessionId.trim()
+                ? tasksFocus
+                : null
+            }
+            onFocusHonoured={spendTasksFocus}
             tasks={backgroundTasks}
-            selectedOutput={backgroundOutput}
+            loadOutput={loadBackgroundTaskOutput}
             listError={backgroundListError}
             loading={backgroundListLoading}
             nowMs={backgroundNowMs}
             onClose={closeTasksDrawer}
-            onOpenTask={openBackgroundTask}
-            onBackToList={backToBackgroundTaskList}
-            onStopTask={(id) => {
-              void stopBackgroundTaskById(id);
-            }}
+            onStopTask={stopBackgroundTaskById}
             onClearFinished={() => {
               void clearFinishedTasks();
             }}
@@ -5534,6 +5510,9 @@ export function App() {
             onUnarchiveSession={() => void unarchiveViewedSession()}
             onOpenSession={openSessionInPlace}
             pathRoots={transcriptPathRoots}
+            turnProgress={turnProgressBySid[sessionId.trim()] ?? null}
+            backgroundTasksOpen={tasksPanelOpen}
+            onCloseBackgroundTasks={closeTasksDrawer}
             workspaceCtx={workspaceCtx}
             worktreePref={worktreePref}
             workspaceLocked={items.length > 0}
@@ -5576,6 +5555,12 @@ export function App() {
                 }
               : {})}
             onModeChange={setMode}
+            permissionMode={permissionMode}
+            configuredPermissionMode={configuredPermissionMode}
+            onPermissionModeChange={
+              subagentTranscript ? undefined : onPermissionModeChange
+            }
+            settingsOverrides={settingsOverrides}
             onDraftChange={setDraft}
             generating={generating}
             {...(!generating && lastUserText.trim() && !subagentTranscript
@@ -5655,6 +5640,7 @@ export function App() {
             {...(editingFiles.length > 0 ? { editingFiles } : {})}
             onBranchSwitch={(sid) => switchBranch(sid)}
             {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
+            onDocsCommand={openDocsCommand}
             onSend={(text: string, files?: File[]) => {
               // A subagent transcript is read-only: the server answers 409.
               if (subagentTranscript) {

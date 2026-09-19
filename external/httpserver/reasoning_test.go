@@ -50,7 +50,7 @@ func TestGETModelsReasoningLevels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	var body struct {
 		Data []struct {
 			ID               string   `json:"id"`
@@ -101,7 +101,7 @@ func TestProfileMetadataPatchReasoning(t *testing.T) {
 	}
 
 	// Valid level for the selected model is applied.
-	if _, err := profileMetadataPatch(cfg, st, json.RawMessage(`{"model":"openai/gpt-5","reasoning":"high"}`)); err != nil {
+	if err := applyProfileSettings(context.Background(), mgr, st, "sess-reasoning", "", json.RawMessage(`{"model":"openai/gpt-5","reasoning":"high"}`)); err != nil {
 		t.Fatalf("patch: %v", err)
 	}
 	if got := st.GetSelectedReasoning(); got != "high" {
@@ -109,20 +109,20 @@ func TestProfileMetadataPatchReasoning(t *testing.T) {
 	}
 
 	// Invalid level is rejected.
-	if _, err := profileMetadataPatch(cfg, st, json.RawMessage(`{"reasoning":"bogus"}`)); err == nil {
+	if err := applyProfileSettings(context.Background(), mgr, st, "sess-reasoning", "", json.RawMessage(`{"reasoning":"bogus"}`)); err == nil {
 		t.Error("expected error for invalid reasoning level")
 	}
 
 	// A level not supported by the current model is rejected (minimal not valid for gpt-4o).
-	if _, err := profileMetadataPatch(cfg, st, json.RawMessage(`{"model":"openai/gpt-4o","reasoning":"high"}`)); err == nil {
+	if err := applyProfileSettings(context.Background(), mgr, st, "sess-reasoning", "", json.RawMessage(`{"model":"openai/gpt-4o","reasoning":"high"}`)); err == nil {
 		t.Error("expected error for reasoning on non-reasoning model")
 	}
 
 	// Auto-detected levels of qwen3 / gpt-oss models are selectable in the same way.
-	if _, err := profileMetadataPatch(cfg, st, json.RawMessage(`{"model":"neuraldeep/qwen3.6-35b-a3b","reasoning":"high"}`)); err != nil {
+	if err := applyProfileSettings(context.Background(), mgr, st, "sess-reasoning", "", json.RawMessage(`{"model":"neuraldeep/qwen3.6-35b-a3b","reasoning":"high"}`)); err != nil {
 		t.Fatalf("qwen patch: %v", err)
 	}
-	if _, err := profileMetadataPatch(cfg, st, json.RawMessage(`{"model":"neuraldeep/gpt-oss-120b","reasoning":"low"}`)); err != nil {
+	if err := applyProfileSettings(context.Background(), mgr, st, "sess-reasoning", "", json.RawMessage(`{"model":"neuraldeep/gpt-oss-120b","reasoning":"low"}`)); err != nil {
 		t.Fatalf("gpt-oss patch: %v", err)
 	}
 	if got := st.GetSelectedReasoning(); got != "low" {
@@ -175,7 +175,7 @@ func TestCoddySessionPatchSelectedReasoning(t *testing.T) {
 		SelectedReasoning string `json:"selectedReasoning"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&parsed)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if parsed.SelectedReasoning != "high" {
 		t.Fatalf("selectedReasoning = %q, want high", parsed.SelectedReasoning)
 	}
@@ -198,7 +198,7 @@ func TestCoddySessionPatchSelectedReasoning(t *testing.T) {
 		SelectedReasoning string `json:"selectedReasoning"`
 	}
 	_ = json.NewDecoder(mres.Body).Decode(&mbody)
-	mres.Body.Close()
+	_ = mres.Body.Close()
 	if mbody.SelectedReasoning != "high" {
 		t.Fatalf("messages selectedReasoning = %q, want high", mbody.SelectedReasoning)
 	}
@@ -208,7 +208,7 @@ func TestCoddySessionPatchSelectedReasoning(t *testing.T) {
 	if bad.StatusCode != http.StatusBadRequest {
 		t.Fatalf("invalid level status = %d, want 400", bad.StatusCode)
 	}
-	bad.Body.Close()
+	_ = bad.Body.Close()
 }
 
 // --- GET /coddy/config/reasoning-levels edge and error cases (happy path:

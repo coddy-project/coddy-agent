@@ -28,6 +28,12 @@ type Skill struct {
 
 	// Content is the body of the skill file (without frontmatter).
 	Content string
+
+	// Model and Reasoning, when set, are what the turn that uses the skill
+	// runs on from then on: frontmatter model and reasoning (alias effort,
+	// Claude Code's spelling). They last until that turn ends.
+	Model     string
+	Reasoning string
 }
 
 // Loader discovers and loads skills from the filesystem.
@@ -217,6 +223,11 @@ func loadFile(path string) (*Skill, error) {
 		}
 		skill.Description = fm.Description
 		skill.Version = strings.TrimSpace(fm.Version)
+		skill.Model = strings.TrimSpace(fm.Model)
+		skill.Reasoning = strings.ToLower(strings.TrimSpace(fm.Reasoning))
+		if skill.Reasoning == "" {
+			skill.Reasoning = strings.ToLower(strings.TrimSpace(fm.Effort))
+		}
 	}
 
 	return skill, nil
@@ -228,6 +239,9 @@ type frontmatter struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
 	Version     string `yaml:"version"`
+	Model       string `yaml:"model"`
+	Reasoning   string `yaml:"reasoning"`
+	Effort      string `yaml:"effort"`
 }
 
 // parseFrontmatter splits a file into frontmatter and body.

@@ -13,8 +13,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/mention"
 	"github.com/EvilFreelancer/coddy-agent/internal/rules"
+	"github.com/EvilFreelancer/coddy-agent/internal/tools/shell"
 )
 
 const (
@@ -26,14 +29,25 @@ const (
 )
 
 // buildTurnContext renders the block appended after the history on every
-// request of a turn: the wall clock, the live todo checklist, and the rules a
-// tool call activated after the system prompt was frozen. It returns an empty
-// string for a volatile template under prompts.dir, which prints those facts
-// into the system message itself and is re-rendered per step instead; the
-// caller then sends the history alone.
+// request of a turn: the wall clock, the live todo checklist, the rules a
+// tool call activated after the system prompt was frozen, and the memory
+// subagent's report for this turn. A volatile template under prompts.dir
+// prints the clock and the checklist into the system message itself and is
+// re-rendered per step, so its block carries the memory report alone, and
+// nothing at all when there is none; the caller then sends the history alone.
 func (a *Agent) buildTurnContext(frozen *systemPromptBuild) string {
 	if frozen != nil && frozen.Volatile {
-		return ""
+		// No template prints these two, so a volatile one gets them here too.
+		var sections []string
+		for _, section := range []string{a.memoryTurnContextSection(), a.backgroundTasksSection()} {
+			if section != "" {
+				sections = append(sections, section)
+			}
+		}
+		if len(sections) == 0 {
+			return ""
+		}
+		return turnContextOpenTag + "\n" + turnContextPreamble + "\n\n" + strings.Join(sections, "\n\n") + "\n" + turnContextCloseTag
 	}
 	var parts []string
 	parts = append(parts, "## Current UTC time\n\n"+a.turnClock(frozen).Format(time.RFC3339))
@@ -51,8 +65,46 @@ func (a *Agent) buildTurnContext(frozen *systemPromptBuild) string {
 		parts = append(parts, section)
 	}
 
+	// The memory subagent's report for this turn (memory_run.go). It rides
+	// here on every step and never in the system message, so a recall that
+	// differs from the previous turn's does not move the cached prefix.
+	if section := a.memoryTurnContextSection(); section != "" {
+		parts = append(parts, section)
+	}
+
+	if section := a.backgroundTasksSection(); section != "" {
+		parts = append(parts, section)
+	}
+
 	return turnContextOpenTag + "\n" + turnContextPreamble + "\n\n" +
 		strings.Join(parts, "\n\n") + "\n" + turnContextCloseTag
+}
+
+// backgroundTasksSection lists the background tasks of this session that are still
+// running, the way background_list shows them. A model starts a task, keeps working,
+// and several steps later has to remember that the task exists - and that a server it
+// started is still up when it writes its summary. Saying it on every request costs a
+// line per task and saves the background_list call that would otherwise be the only
+// way to find out. System tasks (the memory run of the turn) are the runtime's own
+// errands and are left out, as they are from background_list; with background runs
+// switched off there are no tools to act on a task, so nothing is said.
+func (a *Agent) backgroundTasksSection() string {
+	if a.cfg == nil || !a.cfg.Tools.Background.ResolvedEnabled() || a.state == nil {
+		return ""
+	}
+	now := a.now()
+	var lines []string
+	for _, task := range bgtask.Default().List(a.state.GetID()) {
+		if task.Status.Finished() || task.SystemTask() {
+			continue
+		}
+		lines = append(lines, "- "+shell.FormatBackgroundTask(task, now))
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "## Background tasks\n\nStill running in this session. Read one with `background_output`, end one with `background_stop`, " +
+		"and tell the user about any you leave running.\n\n" + strings.Join(lines, "\n")
 }
 
 // activatedRulesSection renders the rules that became active after frozen was
@@ -68,6 +120,12 @@ func (a *Agent) activatedRulesSection(frozen *systemPromptBuild) string {
 		return ""
 	}
 	added := rules.Added(frozen.RenderedRules, rs.GetActiveAutoRules())
+	if len(added) == 0 {
+		return ""
+	}
+	// A follow-up the turn read mid-way may have carried a rule in its own
+	// message (mentions.go); the history already holds that one.
+	added = withoutRules(added, rulesInHistory(rs.GetMessages(), rs.GetCWD(), mention.HomeDir(), nil, added))
 	return rules.RenderSection("## Project rules activated by this turn", added)
 }
 

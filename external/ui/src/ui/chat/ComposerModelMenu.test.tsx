@@ -41,7 +41,7 @@ function renderModelMenu(opts: {
       mode="agent"
       modes={["agent", "plan"]}
       llmModels={opts.models ?? MANY_MODELS}
-      llmModel={opts.model ?? MANY_MODELS[0]}
+      llmModel={opts.model ?? MANY_MODELS[0] ?? ""}
       onLlmModelChange={opts.onChange ?? (() => {})}
       onModeChange={() => {}}
       onChange={() => {}}

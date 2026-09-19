@@ -51,11 +51,11 @@ API credentials and transport selection for upstream LLM vendors. When api_key i
 |-----|------|---------|-------------|
 | `providers` | list of objects |  | API credentials and transport selection for upstream LLM vendors. When api_key is empty, the runtime reads the NAME_API_KEY environment variable (NAME is the provider name in uppercase with hyphens mapped to underscores). |
 | `providers[].name` | string |  | Logical id used as the first segment of models[].model. ASCII letters, digits, hyphen, underscore; must start with a letter. |
-| `providers[].type` | string, one of `openai`, `anthropic`, `neuraldeep`, `codex` |  | Wire protocol for this provider. Use "openai" for configurable OpenAI-compatible endpoints (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio), "anthropic" for Anthropic, "neuraldeep" for NeuralDeep's OpenAI-compatible API at one of its two official deployments (selected with api_base), or "codex" for ChatGPT OAuth against the official Codex backend (Responses API). |
-| `providers[].api_base` | string |  | Optional base URL override. For type "openai" include /v1 (e.g. http://localhost:11434/v1); for type "anthropic" an Anthropic-compatible gateway (default https://api.anthropic.com). For type "neuraldeep" it selects the deployment: https://api.neuraldeep.ru/v1 (Russia, the default) or https://api.neuraldeep.tech/v1 (the international mirror); any other value falls back to the default. Ignored for type "codex", which always uses a fixed official endpoint. |
-| `providers[].api_key` | string |  | Provider secret. A literal key, a "${ENV}" reference expanded at load time, or empty to read NAME_API_KEY at LLM call time. Resolution order: api_key -> api_key_command stdout -> NAME_API_KEY. |
+| `providers[].type` | string, one of `openai`, `anthropic`, `neuraldeep`, `codex`, `devin` |  | Wire protocol for this provider. Use "openai" for configurable OpenAI-compatible endpoints (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio), "anthropic" for Anthropic, "neuraldeep" for NeuralDeep's OpenAI-compatible API at one of its two official deployments (selected with api_base), "codex" for ChatGPT OAuth against the official Codex backend (Responses API), or "devin" for a Devin (Cognition) account signed in through the browser or the Devin CLI, served by the Devin API server; see https://coddy.dev/docs/features/devin. |
+| `providers[].api_base` | string |  | Optional base URL override. For type "openai" include /v1 (e.g. http://localhost:11434/v1); for type "anthropic" an Anthropic-compatible gateway (default https://api.anthropic.com). For type "neuraldeep" it selects the deployment: https://api.neuraldeep.ru/v1 (Russia, the default) or https://api.neuraldeep.tech/v1 (the international mirror); any other value falls back to the default. Ignored for types "codex" and "devin", which always use their official endpoints. |
+| `providers[].api_key` | string |  | Provider secret. A literal key, a "${ENV}" reference expanded at load time, or empty to read NAME_API_KEY at LLM call time. Resolution order: api_key -> api_key_command stdout -> NAME_API_KEY. For type "devin" it is a Devin session token and, when set, wins over the browser login and the Devin CLI login. |
 | `providers[].api_key_command` | string |  | Optional credential-helper command. When api_key is empty it runs via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and the trimmed stdout is used as the key. On failure resolution falls back to NAME_API_KEY. |
-| `providers[].proxy` | string |  | Optional per-provider outbound proxy URL: http://, https://, socks5://, or socks5h:// (socks5h resolves hostnames via the proxy). |
+| `providers[].proxy` | string | inherit | inherit (the default, the same as leaving the key out), none, or a proxy URL: http://, https://, socks5:// or socks5h://. inherit follows the proxy the environment of the Coddy process names - HTTPS_PROXY, HTTP_PROXY and NO_PROXY, never for a loopback address; ALL_PROXY is not read. none connects directly and ignores those variables. A proxy URL sends every request of this row through that proxy, NO_PROXY and loopback included; with SOCKS the proxy resolves host names. The setting covers every request of the provider: its completions, its model list, its account usage and its sign-in. |
 | `providers[].timeout_ms` | integer | 0 | Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout, so slow prompt processing on large contexts is never cut short. |
 | `providers[].usage_limits_panel` | boolean or null | true | Show this provider's account usage panel (the console footer line and /usage, the usage section and banner in the web UI) and read the provider's usage endpoint for it (GET /v1/limits for type neuraldeep). Omit or true keeps the panel on; false hides it and stops those reads for this row. Only providers whose type has a usage source are affected. |
 
@@ -169,7 +169,7 @@ Filesystem and shell policy for built-in tools.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `tools.permission_mode` | string, one of `ask`, `accept_edits`, `bypass` | ask | When the agent asks for user approval: "ask" prompts for commands and file writes; "accept_edits" auto-approves writes but prompts for commands; "bypass" never asks (trusted environments only). |
+| `tools.permission_mode` | string, one of `ask`, `accept_edits`, `bypass` | ask | When the agent asks for user approval: "ask" prompts for commands and file writes; "accept_edits" auto-approves writes but prompts for commands; "bypass" never asks (trusted environments only). A session may switch its own mode until the process restarts (/permissions, the composer chip, the permission dialog); the switch is never written here. |
 | `tools.command_allowlist` | list of strings |  | Commands that never require permission. Exact or prefix match (prefix + space + any args). "*" allows all commands. |
 | `tools.ssh_connect_timeout` | integer | 30 | TCP dial timeout for SSH connections (ssh_run_command tool), in seconds. |
 | `tools.output_limits` | object |  | Maximum lines each tool result or error may return into the LLM context. Every enabled limit also applies a 64 KiB per-call byte safety ceiling so a huge single line cannot bypass it. 0 disables both limits for that tool. Unset fields fall back to the built-in defaults. |
@@ -271,18 +271,23 @@ Summarizes older conversation history so long sessions keep fitting the model co
 
 ### `memory`
 
-Optional memory copilot (implementation in external/memory; enable at runtime with memory.enable).
+Optional memory subagent (implementation in external/memory; enable at runtime with memory.enable).
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `memory.enable` | boolean | false | Turn on the memory copilot. |
-| `memory.model` | string | "" | Exact models[].model id used only for recall/persist LLM calls; empty falls back to agent.model or the session override. |
-| `memory.fallback_models` | list of strings |  | Memory copilot models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so one unreachable deployment does not take the memory pass down with it. |
+| `memory.enable` | boolean | false | Run the memory subagent on every user turn (needs the memory build tag). |
+| `memory.model` | string | "" | Exact models[].model id the memory subagent runs on; empty uses the session's model. |
+| `memory.fallback_models` | list of strings |  | Memory subagent models tried in order when the one before them fails before answering (models[].model ids). The session's own model is the last resort whether or not it is listed, so one unreachable deployment does not take the memory run down with it. |
 | `memory.dir` | string | "" | Long-term memory root. Empty resolves to ${CODDY_HOME}/memory. Supports ${CODDY_HOME} and ~. |
-| `memory.recall_max_turns` | integer | 6 | Bounds recall-side LLM rounds in the memory loop. |
-| `memory.persist_max_turns` | integer | 12 | Bounds persist-side LLM rounds in the memory loop. |
-| `memory.copilot_max_tokens` | integer | 4096 | Completion token cap for memory copilot LLM calls. |
+| `memory.wait_seconds` | integer or null | 20 | How long a user turn waits for the memory subagent's report before its first model call. An explicit 0 never waits: the report then reaches the turn only through a later step, or stays in the Tasks drawer. |
+| `memory.timeout_seconds` | integer | 300 | Hard limit of one memory run in seconds, capped by tools.background.max_timeout_seconds like every task of the pool. |
+| `memory.keep_runs` | integer or null | 20 | Finished memory runs kept per session, task record and child transcript alike; the oldest beyond this number are removed when a run finishes. An explicit 0 keeps every run. |
+| `memory.recall_max_turns` | integer | 6 | Bounds the memory subagent's ReAct rounds together with persist_max_turns; the child's cap is the larger of the two. |
+| `memory.persist_max_turns` | integer | 12 | Bounds the memory subagent's ReAct rounds together with recall_max_turns; the child's cap is the larger of the two. |
+| `memory.copilot_max_tokens` | integer | 4096 | Completion token cap for the memory model's calls. |
 | `memory.max_search_hits` | integer | 8 | Maximum snippets returned by memory_search. |
+| `memory.additional_prompt` | string | "" | Operator instructions for the memory subagent alone: a section of its system prompt that the main agent never sees. Empty adds nothing. |
+| `memory.additional_prompt_max_chars` | integer | 0 | Cap on additional_prompt in characters; a longer text is cut there, the agent log says so and coddy -t reports it. 0 means no cap. |
 
 ### `httpserver`
 
@@ -382,7 +387,7 @@ Messenger bot adapters (used only by binaries built with -tags gateway or -tags 
 | `gateways.telegram` | object |  | Telegram bot adapter. |
 | `gateways.telegram.enable` | boolean | false | Poll Telegram in this coddy serve process. |
 | `gateways.telegram.token` | string | "" | Bot token from @BotFather. Leave empty to read the TELEGRAM_BOT_TOKEN environment variable (e.g. via ~/.coddy/.env). |
-| `gateways.telegram.proxy` | string | "" | Optional outbound proxy for Telegram API requests: http, https, socks5, or socks5h URL. |
+| `gateways.telegram.proxy` | string | inherit | inherit (the default, the same as leaving the key out), none, or a proxy URL: http://, https://, socks5:// or socks5h://, read like providers[].proxy. inherit follows the proxy the environment of the Coddy process names - HTTPS_PROXY, HTTP_PROXY and NO_PROXY, never for a loopback address; ALL_PROXY is not read. none connects the bot directly and ignores those variables. A proxy URL sends every Bot API request through that proxy; with SOCKS the proxy resolves host names. |
 | `gateways.telegram.rich_messages` | boolean | false | Use Bot API 10.1 Rich Messages (native Markdown, streamed thinking placeholder, collapsible tool list). Falls back to legacy formatting when unsupported. |
 | `gateways.telegram.admins` | list of integers |  | Telegram user IDs with elevated rights; admins always pass access checks. |
 | `gateways.telegram.default_access` | string | all | Fallback access level for chats without an override: "all", "admins", or "group:<name>". |
@@ -544,7 +549,7 @@ Bounds for background execution (`config.ToolBackground`). A backgrounded `run_c
 
 ### `subagents`
 
-Subagents (`config.Subagents`, `internal/config/subagents.go`): child agents the model delegates to with the `spawn_agent` tool. A definition is a markdown file with YAML frontmatter (`name`, `description`, `model`, `mode`, `tools`, `disallowed_tools`, `permission_mode`, `max_turns`, `timeout_seconds`, `background`, `hidden`) whose body is the child's role. Each run is a background task of the parent session with its own child session and transcript, so `background_list` / `background_output` / `background_wait` / `background_stop`, the Tasks panel and `GET /coddy/sessions/{id}/background-tasks` all see it. `0` on `max_concurrent`, `default_timeout_seconds` and `max_turns` means "use the default"; `max_depth` is the exception, omit it for the default `1`, because an explicit `0` forbids spawning everywhere. See `docs/features/subagents.md`.
+Subagents (`config.Subagents`, `internal/config/subagents.go`): child agents the model delegates to with the `spawn_agent` tool. A definition is a markdown file with YAML frontmatter (`name`, `description`, `model`, `reasoning`, `mode`, `tools`, `disallowed_tools`, `permission_mode`, `max_turns`, `timeout_seconds`, `background`, `hidden`) whose body is the child's role. Each run is a background task of the parent session with its own child session and transcript, so `background_list` / `background_output` / `background_wait` / `background_stop`, the Tasks panel and `GET /coddy/sessions/{id}/background-tasks` all see it. `0` on `max_concurrent`, `default_timeout_seconds` and `max_turns` means "use the default"; `max_depth` is the exception, omit it for the default `1`, because an explicit `0` forbids spawning everywhere. See `docs/features/subagents.md`.
 
 Approvals for project-scope definitions are recorded in `~/.coddy/subagents-trust.json`, keyed by the canonical workspace path, the definition name and a digest of the file, so editing an approved file asks again. `permission_mode`, `tools` and `disallowed_tools` in a definition can only narrow what the parent could do, in every scope.
 
@@ -592,7 +597,7 @@ Collapses unmarked `read`/`grep` tool results to short placeholders when buildin
 
 ### `memory`
 
-Long-term memory copilot (`config.MemoryConfig`, `internal/config/memory.go`; implementation in `external/memory`, `memory` build tag).
+The long-term memory subagent (`config.MemoryConfig`, `internal/config/memory.go`; implementation in `external/memory`, `memory` build tag): the child run every user turn starts in the task pool, the wait for its report, the retention of finished runs ([Long-term memory](../features/memory.md)).
 
 ### `httpserver`
 

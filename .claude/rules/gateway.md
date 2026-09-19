@@ -17,7 +17,7 @@ Built with **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (
 | `external/gateway/access` | `CanAccess`, `EffectiveAccess`, `EffectiveIsolation` — ACL helpers |
 | `external/gateway/sessionstore` | `Store`: maps stable chat/user keys to Coddy session IDs (`Get` mints, `Reset` replaces for `/clear`, `Bind` points a chat at an existing session for `/resume`); persisted to `gateway_sessions.json` |
 | `external/gateway/proxyutil` | `BuildHTTPClient` — HTTP/SOCKS5 proxy support for outbound adapter requests |
-| `external/gateway/telegram` | `Bot` (polling, dispatch, ACL), `Sender` (streaming output), `commands.go` (inline keyboards for `/mode` and `/model`, the callback dispatcher, `callbackValue` for payloads over 64 bytes), `resume.go` (`/resume`: the session picker over `HandleSessionList`, the query matcher, the `resume:s:` / `resume:p:` callbacks), `prompt.go` (what the model is told about answering here), `markdown.go` (md → Telegram format) |
+| `external/gateway/telegram` | `Bot` (polling, dispatch, ACL), `Sender` (streaming output), `commands.go` (the inline keyboard for `/model`, the callback dispatcher, `callbackValue` for payloads over 64 bytes), `resume.go` (`/resume`: the session picker over `HandleSessionList`, the query matcher, the `resume:s:` / `resume:p:` callbacks), `isSettingsCommand` (`/model <id>`, `/think`, `/nothink`, `/reasoning`, `/agent`, `/plan`, `/ask` with `--once` / `--count=N` go to the session as a message and the manager takes them; `/permissions` does not, the bot approves its chat agent itself), `prompt.go` (what the model is told about answering here), `markdown.go` (md → Telegram format) |
 | `internal/tgfake` (untagged) | The fake Bot API: every method the adapter calls, long-polled `getUpdates`, the `/sim/*` API and the chat page, `llmstub` for a scripted model. `cmd/tgfake` serves it; the adapter's polling feature runs it on httptest |
 
 ## Session store
@@ -35,7 +35,6 @@ type SessionRunner interface {
     EnsureHTTPSession(ctx context.Context, sessionID string, defaultCWD string) (*session.State, error)
     HandleSessionPromptWithSender(ctx context.Context, params acp.SessionPromptParams, sender acp.UpdateSender, opts *session.PromptRunOpts) (*acp.SessionPromptResult, error)
     ForgetLiveSession(sessionID string)
-    HandleSessionSetMode(ctx context.Context, params acp.SessionSetModeParams) error
     HandleSessionSetConfigOption(ctx context.Context, params acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error)
     HandleSessionList(ctx context.Context, params acp.SessionListParams) (*acp.SessionListResult, error)
     Cfg() *config.Config
@@ -53,6 +52,10 @@ type SessionRunner interface {
 - Tool execution in progress → replaces live message with "⚙️ toolname…" indicator; this line is NOT included in the final `Flush()` output.
 - `Flush()` → replaces the live message with the final formatted text, converted to Telegram legacy Markdown via `markdown.go`.
 - `RequestPermission` auto-approves the chat agent's own requests (the admin configured the bot deliberately). A subagent's request stamped below `bypass` is asked in the chat instead (`permission.go`: inline **Allow** / **Reject** buttons, `perm:<token>:<i>` callbacks answered only by the person whose session asked); the `Bot` is also a `DetachedPermissionBroker` offered to `serve.Runtime` (`gateway.Options.Prompts`), so a background subagent of a chat session asks there after the turn ended.
+
+## Woken turns
+
+A chat conversation is an ordinary session, so a background task its agent started with `notify_on_finish` wakes it when it ends. The `Bot` is an `agent.WakeSurface` of rank `WakeOwner`: `Start` offers it to `gateway.Options.Wakes` (`serve.Runtime` under `coddy serve`, which owns the process waker) once connected and withdraws it on stop. `RunBackgroundWake` (`wake.go`) takes a wake only for a session one of its chats is bound to (`store.KeyFor`, `sessionstore.ChatID`) and only while connected, and then runs the turn exactly like `processMessage`: the chat's own sender, the turn mirror, the surface prompt, `wake.RunOpts()` for the marker. The chat receives the note first - `Sender.SendSessionUpdate` turns `acp.BackgroundWakeUpdate` into a plain-text message, `🔔` plus `session.BackgroundWakeNote` - then the answer. A busy session returns `session.ErrSessionTurnBusy` untouched and says nothing in the chat: the waker asks again. Happy path: `features/gateway_telegram_wake.feature` (real manager, agent, pool and waker; `llmstub` with a tool rule; the fake Bot API).
 
 ## Answering through a surface
 
@@ -77,13 +80,13 @@ Enabled per-bot with `gateways.telegram.rich_messages: true` (`config.TelegramGa
 
 The adapter's logger arrives tagged with the `gateway.telegram` component (`internal/logger.Component`, applied in `external/gateway/start.go`; the hub itself is `gateway`), so `logger.levels` can raise one bot to `debug` while the rest of the process stays at `info`. Tag once, at construction - `Component` on an already-tagged logger prints two `component` attributes.
 
-The whole command path logs at `debug`: `telegram: update` per arriving message or callback, `telegram: update ignored`/`update rejected` with a `reason` for every silent drop, `telegram: command`, the `mode`/`model`/`context`/`resume` menus with the session they belong to (`telegram: resume query` for the words after `/resume` and how many sessions matched), and `telegram: callback` with the resolved value. A switch that lands is `info` (`telegram: model applied`, `telegram: mode applied`, `telegram: session resumed`), matching `telegram: session cleared`; a failure is `warn`. Nothing in the adapter may log through `slog.Default` - a record that skips `b.log` misses the configured sink and carries no component. Operator guide: `docs/surfaces/gateway.md` (Debugging a chat).
+The whole command path logs at `debug`: `telegram: update` per arriving message or callback, `telegram: update ignored`/`update rejected` with a `reason` for every silent drop, `telegram: command`, the `model`/`context`/`resume` menus with the session they belong to (`telegram: resume query` for the words after `/resume` and how many sessions matched), and `telegram: callback` with the resolved value. A switch that lands is `info` (`telegram: model applied`, `telegram: session resumed`), matching `telegram: session cleared`; a failure is `warn`. Nothing in the adapter may log through `slog.Default` - a record that skips `b.log` misses the configured sink and carries no component. Operator guide: `docs/surfaces/gateway.md` (Debugging a chat).
 
 Inline-keyboard payloads must survive the round trip. `callback_data` is capped at 64 bytes, so `callbackValue` sends a model id or a session id verbatim when it fits next to its prefix and a digest when it does not (never a truncated id, which resolves to nothing), and `resolveModelCallback` / `resolveResumeCallback` map the payload back against the configured models or the current session listing. The keyboard also outlives the process that sent it, so `handleCallback` calls `ensureSession` before configuring anything: after a restart the session is on disk, and the manager only configures live ones. A resume tap is dispatched before that call: it names the session the chat moves to, and loading the chat's current one first would mint a session for a chat that never spoke.
 
 ## Proxy
 
-`proxyutil.BuildHTTPClient(url)` handles http, https, socks5, socks5h. An empty string returns `http.DefaultClient` unchanged. The Telegram adapter passes `cfg.Proxy` to this function in `Start()`.
+`proxyutil.BuildHTTPClient(setting)` reads `gateways.telegram.proxy` with `config.ParseProxySetting`, the parser `providers[].proxy` uses: an empty value or `inherit` returns `http.DefaultClient` unchanged, which follows `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` of the process (never a direct connection, whatever an old description said); `none` returns a client with no proxy function; an http, https, socks5 or socks5h URL routes through that proxy (x/net/proxy handles socks5 and socks5h alike: the proxy resolves host names). The Telegram adapter passes `cfg.Proxy` to this function in `Start()`, and the `--dry-run` getMe probe builds the same route with `llm.HTTPClientForOptionalProxy`. The route against real proxy variables is tested in a child process (`TestBuildHTTPClientFollowsTheProcessEnvironment`): net/http reads them once per process and never proxies loopback, so a scenario on the fake Bot API cannot tell `none` from an unset value.
 
 ## Bot API origin
 

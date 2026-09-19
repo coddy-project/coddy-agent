@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 )
@@ -264,7 +265,33 @@ func checkConfigBytes(data []byte, paths Paths) []Finding {
 		}
 	}
 	findings = append(findings, unsentSettingFindings(&cfg, body)...)
+	findings = append(findings, memoryAddendumFindings(&cfg, body)...)
 	return sortFindings(findings)
+}
+
+// memoryAddendumFindings warns when memory.additional_prompt is longer than
+// memory.additional_prompt_max_chars: the memory subagent reads the cut text,
+// and a cut must never be silent (issue #266).
+func memoryAddendumFindings(cfg *Config, body *yaml.Node) []Finding {
+	if _, cut := cfg.Memory.EffectiveAdditionalPrompt(); !cut {
+		return nil
+	}
+	chars := utf8.RuneCountInString(strings.TrimSpace(cfg.Memory.AdditionalPrompt))
+	f := Finding{
+		Severity: SeverityWarning,
+		Message: fmt.Sprintf("memory.additional_prompt is %d characters and memory.additional_prompt_max_chars is %d: the memory subagent reads the first %d",
+			chars, cfg.Memory.AdditionalPromptMaxChars, cfg.Memory.AdditionalPromptMaxChars),
+		Fix: "shorten memory.additional_prompt, or raise memory.additional_prompt_max_chars (0 removes the cap)",
+	}
+	if n := locatePath(body, "memory.additional_prompt", true); n != nil {
+		f.Line, f.Column = n.Line, n.Column
+	}
+	if root, err := loadSchema(); err == nil {
+		if s := root.lookup("memory.additional_prompt"); s != nil {
+			f.Doc = s.doc()
+		}
+	}
+	return []Finding{f}
 }
 
 // unsentSettingFindings warns about the settings the loader accepts but the

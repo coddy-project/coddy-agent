@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ask mode: /mode ask reads the note but never writes; /mode agent then writes."""
+"""Ask mode: /ask reads the note but never writes; /agent then writes."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ def main() -> int:
     try:
         seed_note(tui.workdir)
         tui.wait_for("coddy v", timeout=30)
-        tui.type_text("/mode ask")
+        tui.type_text("/ask")
         tui.send(CR)
         tui.wait_for("• ask", timeout=15)
 
@@ -39,7 +39,7 @@ def main() -> int:
         wait_assistant(tui, "ASK_E2E_DONE", timeout=60)
         check_ask_turn(tui.tool_call_names(), tui.assistant_text(), tui.workdir)
 
-        tui.type_text("/mode agent")
+        tui.type_text("/agent")
         tui.send(CR)
         tui.wait_gone("• ask", timeout=15)
         tui.prompt(ask_prompt_text(tui.workdir))

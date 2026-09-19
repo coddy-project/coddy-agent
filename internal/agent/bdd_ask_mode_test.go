@@ -30,6 +30,7 @@ import (
 var bddAskReadOnlyTools = map[string]bool{
 	"read": true, "keep_result": true, "glob": true, "grep": true, "print_tree": true,
 	"websearch": true, "webfetch": true, "question": true, "load_skill": true,
+	"coddy_docs_search": true, "coddy_docs_read": true,
 }
 
 const (

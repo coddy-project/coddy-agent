@@ -26,6 +26,8 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
+	"github.com/EvilFreelancer/coddy-agent/internal/mention"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
@@ -182,6 +184,8 @@ func TestToolKind(t *testing.T) {
 		{"read", "read"},
 		{"glob", "read"},
 		{"grep", "read"},
+		{"coddy_docs_search", "read"},
+		{"coddy_docs_read", "read"},
 		{"write", "write"},
 		{"apply_patch", "write"},
 		{"run_command", "run_command"},
@@ -297,16 +301,14 @@ func TestExtractCommand(t *testing.T) {
 	}
 }
 
-func TestFormatMergedMemory(t *testing.T) {
-	if g := formatMergedMemory("", "facts"); g != "facts" {
+// The {{.Memory}} slot holds the session notes and nothing of the memory
+// subagent: its report is per-turn text and rides in the turn context.
+func TestFormatSessionNotes(t *testing.T) {
+	if g := formatSessionNotes(""); g != "" {
 		t.Fatalf("got %q", g)
 	}
-	if g := formatMergedMemory("note", ""); g != "Session notes:\nnote" {
+	if g := formatSessionNotes("note"); g != "Session notes:\nnote" {
 		t.Fatalf("got %q", g)
-	}
-	want := "facts\n\nSession notes:\nnote"
-	if g := formatMergedMemory("note", "facts"); g != want {
-		t.Fatalf("got %q want %q", g, want)
 	}
 }
 
@@ -650,7 +652,7 @@ func TestComputeContextBreakdownSystemPromptNonZero(t *testing.T) {
 	a := NewAgent(cfg, st, nil, nil)
 	toolsMD := "## Tools\n\ntool_a: does things"
 	_ = toolsMD
-	_ = a.buildSystemPrompt("agent", nil, []llm.ToolDefinition{{Name: "tool_a", Description: "does things"}}, "", nil)
+	_ = a.buildSystemPrompt("agent", nil, []llm.ToolDefinition{{Name: "tool_a", Description: "does things"}}, nil)
 	b := st.GetLastContextBreakdown()
 	if b == nil {
 		t.Fatal("expected breakdown")
@@ -680,7 +682,7 @@ func TestBuildSystemPromptIncludesRuntimeEnvironment(t *testing.T) {
 		Shell: platform.Shell{Kind: platform.ShellPwsh, Path: "pwsh"},
 	}
 
-	prompt := a.buildSystemPrompt("agent", nil, nil, "", nil)
+	prompt := a.buildSystemPrompt("agent", nil, nil, nil)
 	for _, want := range []string{"<os>windows</os>", "<arch>amd64</arch>", "<shell>pwsh</shell>"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("system prompt does not contain %q", want)
@@ -720,7 +722,7 @@ func TestBuildSystemPromptIncludesRulesBlock(t *testing.T) {
 	cfg.Agent.ApplyDefaults()
 	cfg.Prompts.ApplyDefaults()
 	a := NewAgent(cfg, st, nil, nil)
-	prompt := a.buildSystemPrompt("agent", nil, nil, "", []string{filepath.Join(tmp, "main.go")})
+	prompt := a.buildSystemPrompt("agent", nil, nil, []string{filepath.Join(tmp, "main.go")})
 	if !strings.Contains(prompt, "RULE_GLOB_TOKEN") {
 		t.Fatal("expected rule token in prompt")
 	}
@@ -729,7 +731,10 @@ func TestBuildSystemPromptIncludesRulesBlock(t *testing.T) {
 	}
 }
 
-func TestBuildSystemPromptMentionOnlyRule(t *testing.T) {
+// A mention-only rule never enters the system prompt. The user names it, its
+// body rides in that user's message, and the system message stays byte for byte
+// what it was - the provider's cached copy of the conversation behind it holds.
+func TestMentionOnlyRuleRidesInTheUserMessage(t *testing.T) {
 	tmp := t.TempDir()
 	rulePath := filepath.Join(tmp, ".coddy", "rules")
 	if err := os.MkdirAll(rulePath, 0o755); err != nil {
@@ -745,13 +750,20 @@ func TestBuildSystemPromptMentionOnlyRule(t *testing.T) {
 	cfg.Agent.ApplyDefaults()
 	cfg.Prompts.ApplyDefaults()
 	a := NewAgent(cfg, st, nil, nil)
-	without := a.buildSystemPrompt("agent", nil, nil, "hello", nil)
-	if strings.Contains(without, "RULE_MENTION_ONLY") {
+	before := a.buildSystemPrompt("agent", nil, nil, nil)
+	if strings.Contains(before, "RULE_MENTION_ONLY") {
 		t.Fatal("mention-only rule must not appear without @mention")
 	}
-	with := a.buildSystemPrompt("agent", nil, nil, "please @mention_demo now", nil)
-	if !strings.Contains(with, "RULE_MENTION_ONLY") {
-		t.Fatal("expected mention-only rule body with @mention_demo")
+	for _, typed := range []string{"please @mention_demo now", "please @rule:mention_demo now"} {
+		blocks := (*session.Manager)(nil).ResolvePromptMentions(context.Background(), st, []acp.ContentBlock{{Type: "text", Text: typed}}, session.MentionScope{})
+		msg := contentBlocksToText(blocks)
+		if !strings.Contains(msg, "RULE_MENTION_ONLY") || !strings.Contains(msg, `kind="rule"`) {
+			t.Fatalf("%q: the rule must ride in the user message, got:\n%s", typed, msg)
+		}
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: msg})
+		if after := a.buildSystemPrompt("agent", nil, nil, nil); after != before {
+			t.Fatalf("%q: the system prompt moved:\n--- before\n%s\n--- after\n%s", typed, before, after)
+		}
 	}
 }
 
@@ -769,7 +781,7 @@ func TestBuildSystemPromptProjectDocsInRules(t *testing.T) {
 	cfg.Agent.ApplyDefaults()
 	cfg.Prompts.ApplyDefaults()
 	a := NewAgent(cfg, st, nil, nil)
-	prompt := a.buildSystemPrompt("agent", nil, nil, "", nil)
+	prompt := a.buildSystemPrompt("agent", nil, nil, nil)
 	if !strings.Contains(prompt, "AGENTS_DOC_TOKEN") || !strings.Contains(prompt, "DESIGN_DOC_TOKEN") {
 		t.Fatal("expected project docs in rules block")
 	}
@@ -782,14 +794,10 @@ func TestBuildSystemPromptProjectDocsInRules(t *testing.T) {
 
 // --- system_prompt.go: skills injection ------------------------------------
 
-// TestAugmentUserMessageWithInvokedSkills_bodyInjected verifies that when a user
-// explicitly invokes a slash command (/find-skills), its body is prepended to the
-// user message sent to the LLM. The chat display (stored Content) remains unchanged.
-//
-// Regression: previously the body was never emitted because filteredInvoke compared
-// against activeGlobCanon which always included no-glob skills, preventing injection
-// in both the system-prompt ephemeral section and (by extension) the user message.
-func TestAugmentUserMessageWithInvokedSkills_bodyInjected(t *testing.T) {
+// An explicit /name invocation carries the skill's body in the message that
+// invoked it, written once, so a later turn replays the same bytes instead of
+// the message without the body (which cost the provider's cached prefix).
+func TestInvokedSkillBlocks_bodyAttached(t *testing.T) {
 	const body = "UNIQUE_FIND_SKILLS_BODY_TOKEN"
 	sk := &skills.Skill{
 		Name:        "SKILL",
@@ -797,49 +805,78 @@ func TestAugmentUserMessageWithInvokedSkills_bodyInjected(t *testing.T) {
 		Description: "find skills",
 		Content:     body,
 	}
-
-	userText := "/find-skills search pdf"
-	result := augmentUserMessageWithInvokedSkills(userText, []*skills.Skill{sk})
-
-	if !strings.Contains(result, body) {
-		t.Fatalf("expected skill body %q to be prepended to user message; got:\n%s", body, result)
+	blocks := invokedSkillBlocks("/find-skills search pdf", []*skills.Skill{sk})
+	if len(blocks) != 1 || blocks[0].Resource == nil || blocks[0].Resource.Text != body ||
+		blocks[0].Resource.URI != "skill:find-skills" || blocks[0].Resource.Mention.Kind != mention.KindSkill {
+		t.Fatalf("expected one skill attachment carrying the body, got %+v", blocks)
 	}
-	if !strings.Contains(result, userText) {
-		t.Fatalf("expected original user text %q to be preserved in result; got:\n%s", userText, result)
+	msg := contentBlocksToText(append([]acp.ContentBlock{{Type: "text", Text: "/find-skills search pdf"}}, blocks...))
+	if !strings.Contains(msg, `kind="skill"`) || !strings.HasPrefix(msg, "/find-skills search pdf") {
+		t.Fatalf("the typed text comes first and the body rides as an attachment:\n%s", msg)
 	}
-	// Skill body must come BEFORE the original user text.
-	if strings.Index(result, body) > strings.Index(result, userText) {
-		t.Fatalf("skill body should appear before user text in augmented message")
+	if got := mention.ForDisplay(msg); got != "/find-skills search pdf" {
+		t.Fatalf("the transcript shows the message as typed, got %q", got)
 	}
 }
 
-// TestAugmentUserMessageWithInvokedSkills_noSkillMatch returns userText unchanged when
-// the invoked name does not match any loaded skill.
-func TestAugmentUserMessageWithInvokedSkills_noSkillMatch(t *testing.T) {
+// Whatever form a mention was typed in, the transcript shows the message as
+// typed: the attachment it became is left out of the display, never shown a
+// second time under the text with its range repeated.
+func TestMentionsDisplayAsTyped(t *testing.T) {
+	root := t.TempDir()
+	var lines []string
+	for i := 1; i <= 30; i++ {
+		lines = append(lines, fmt.Sprintf("line %d", i))
+	}
+	body := strings.Join(lines, "\n")
+	_ = os.WriteFile(filepath.Join(root, "f.go"), []byte(body), 0o644)
+	_ = os.MkdirAll(filepath.Join(root, "my folder"), 0o755)
+	_ = os.WriteFile(filepath.Join(root, "my folder", "a b.go"), []byte(body), 0o644)
+	for _, typed := range []string{
+		"see @f.go please",
+		"see @f.go:10-20 please",
+		"see @f.go#L10-20 please",
+		"see @f.go#L10-L20 please",
+		"see @f.go#L12 please",
+		"see @f.go#10-20 please",
+		"see @f.go#12 please",
+		`see @"my folder/" please`,
+		`see @"my folder/a b.go" please`,
+		`see @"my folder/a b.go":3-4 please`,
+	} {
+		blocks, err := session.HydratePromptContentBlocks(root, []acp.ContentBlock{{Type: acp.ContentTypeText, Text: typed}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(blocks) != 2 {
+			t.Fatalf("%s: want the text and one attachment, got %d blocks", typed, len(blocks))
+		}
+		msg := contentBlocksToText(blocks)
+		if got := mention.ForDisplay(msg); got != typed {
+			t.Fatalf("%s: the transcript shows %q", typed, got)
+		}
+	}
+}
+
+func TestInvokedSkillBlocks_noSkillMatch(t *testing.T) {
 	sk := &skills.Skill{
 		Name:     "SKILL",
 		FilePath: filepath.Join("skills", "other", "SKILL.md"),
 		Content:  "other body",
 	}
-	userText := "/find-skills pdf"
-	result := augmentUserMessageWithInvokedSkills(userText, []*skills.Skill{sk})
-	if result != userText {
-		t.Fatalf("expected unchanged userText when no skill matches; got:\n%s", result)
+	if blocks := invokedSkillBlocks("/find-skills pdf", []*skills.Skill{sk}); len(blocks) != 0 {
+		t.Fatalf("expected nothing when no skill matches; got %+v", blocks)
 	}
 }
 
-// TestAugmentUserMessageWithInvokedSkills_noSlashCommand returns userText unchanged when
-// the message contains no slash command.
-func TestAugmentUserMessageWithInvokedSkills_noSlashCommand(t *testing.T) {
+func TestInvokedSkillBlocks_noSlashCommand(t *testing.T) {
 	sk := &skills.Skill{
 		Name:     "SKILL",
 		FilePath: filepath.Join("skills", "find-skills", "SKILL.md"),
 		Content:  "body",
 	}
-	userText := "поищи что-нибудь"
-	result := augmentUserMessageWithInvokedSkills(userText, []*skills.Skill{sk})
-	if result != userText {
-		t.Fatalf("expected unchanged userText when no slash command; got:\n%s", result)
+	if blocks := invokedSkillBlocks("поищи что-нибудь", []*skills.Skill{sk}); len(blocks) != 0 {
+		t.Fatalf("expected nothing without a slash command; got %+v", blocks)
 	}
 }
 
@@ -919,7 +956,7 @@ func TestPlanToolSetFiltersToReadWebAndShell(t *testing.T) {
 	for _, d := range filtered {
 		got[d.Name] = true
 	}
-	for _, want := range []string{"read", "glob", "grep", "websearch", "webfetch", "run_command", "question", "plan_write", "plan_list", "plan_read"} {
+	for _, want := range []string{"read", "glob", "grep", "websearch", "webfetch", "run_command", "question", "plan_write", "plan_list", "plan_read", "coddy_docs_search", "coddy_docs_read"} {
 		if !got[want] {
 			t.Errorf("plan toolset should include %q", want)
 		}
@@ -946,7 +983,7 @@ func TestAskToolSetFiltersToReadAndWeb(t *testing.T) {
 	for _, d := range filtered {
 		got[d.Name] = true
 	}
-	for _, want := range []string{"read", "keep_result", "glob", "grep", "print_tree", "websearch", "webfetch", "question"} {
+	for _, want := range []string{"read", "keep_result", "glob", "grep", "print_tree", "websearch", "webfetch", "question", "coddy_docs_search", "coddy_docs_read"} {
 		if !got[want] {
 			t.Errorf("ask toolset should include %q", want)
 		}
@@ -2160,6 +2197,29 @@ func TestRunExportCommandWritesTranscriptAndPersistsRows(t *testing.T) {
 	}
 }
 
+// A built-in reads what the operator typed: data piped under "/export
+// chat.md" is not part of the target, so the file is chat.md and nothing
+// made of the attachment's words.
+func TestBuiltinCommandsReadTypedTextOnly(t *testing.T) {
+	ag, _, _, cwd := newExportTestAgent(t)
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{
+		{Type: "text", Text: "/export md chat.md"},
+		session.StdinAttachment("piped words that are no path\n"),
+	})
+	if err != nil || stop != string(acp.StopReasonEndTurn) {
+		t.Fatalf("Run: %v, stop %q", err, stop)
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "chat.md")); err != nil {
+		t.Fatalf("the export did not land on the typed target: %v", err)
+	}
+	entries, _ := os.ReadDir(cwd)
+	for _, e := range entries {
+		if e.Name() != "chat.md" && strings.Contains(e.Name(), "piped") {
+			t.Fatalf("an export target was built from the attachment: %q", e.Name())
+		}
+	}
+}
+
 func TestRunExportCommandRejectsPathOutsideWorkspace(t *testing.T) {
 	ag, st, _, cwd := newExportTestAgent(t)
 
@@ -2411,14 +2471,14 @@ func TestBuildSystemPromptCustomTemplateWithoutRulesKeepsInstructions(t *testing
 	cfg.Prompts.Dir = promptsDir
 	a := NewAgent(cfg, st, nil, nil)
 
-	prompt := a.buildSystemPrompt("agent", nil, nil, "", nil)
+	prompt := a.buildSystemPrompt("agent", nil, nil, nil)
 	if n := strings.Count(prompt, "PROJECT_DOC_TOKEN"); n != 1 {
 		t.Fatalf("a template without {{.Rules}} carries the project AGENTS.md %d time(s), want 1:\n%s", n, prompt)
 	}
 
 	// With the built-in template the rules block carries it, exactly once.
 	cfg.Prompts.Dir = ""
-	if n := strings.Count(a.buildSystemPrompt("agent", nil, nil, "", nil), "PROJECT_DOC_TOKEN"); n != 1 {
+	if n := strings.Count(a.buildSystemPrompt("agent", nil, nil, nil), "PROJECT_DOC_TOKEN"); n != 1 {
 		t.Fatalf("the built-in template carries the project AGENTS.md %d time(s), want 1", n)
 	}
 }
@@ -2471,7 +2531,7 @@ func TestBuildTurnContextCarriesClockTodoAndNewlyActivatedRules(t *testing.T) {
 	a := NewAgent(cfg, st, nil, nil)
 	a.clock = func() time.Time { return time.Date(2038, 1, 19, 3, 14, 7, 0, time.UTC) }
 
-	sys := a.buildSystemPromptParts("agent", nil, nil, "", nil)
+	sys := a.buildSystemPromptParts("agent", nil, nil, nil)
 	if strings.Contains(sys.Content, "TURN_CTX_RULE_TOKEN") {
 		t.Fatal("a glob rule reached the system prompt before any tool touched a matching file")
 	}
@@ -2515,14 +2575,14 @@ func TestSystemPromptRebuildKeepsThePlanContext(t *testing.T) {
 	a := NewAgent(cfg, st, nil, nil)
 
 	for i := 1; i <= 3; i++ {
-		if got := a.buildSystemPromptParts("agent", nil, nil, "", nil); !strings.Contains(got.Content, "PLAN_HANDOFF_TOKEN") {
+		if got := a.buildSystemPromptParts("agent", nil, nil, nil); !strings.Contains(got.Content, "PLAN_HANDOFF_TOKEN") {
 			t.Fatalf("build %d lost the plan hand-off", i)
 		}
 	}
 
 	// And it is let go when the turn ends, so the next one starts clean.
 	a.releasePlanContext()
-	if got := a.buildSystemPromptParts("agent", nil, nil, "", nil); strings.Contains(got.Content, "PLAN_HANDOFF_TOKEN") {
+	if got := a.buildSystemPromptParts("agent", nil, nil, nil); strings.Contains(got.Content, "PLAN_HANDOFF_TOKEN") {
 		t.Fatal("the plan hand-off outlived the turn that ran the plan")
 	}
 }
@@ -2580,7 +2640,7 @@ func TestTurnContextCarriesTheChecklistInAgentModeOnly(t *testing.T) {
 	a := NewAgent(cfg, st, nil, nil)
 
 	for mode, want := range map[string]bool{"agent": true, "plan": false, "ask": false} {
-		sys := a.buildSystemPromptParts(mode, nil, nil, "", nil)
+		sys := a.buildSystemPromptParts(mode, nil, nil, nil)
 		block := a.buildTurnContext(sys)
 		if got := strings.Contains(block, "MODE_TODO_TOKEN"); got != want {
 			t.Errorf("%s mode: checklist in the turn context = %v, want %v", mode, got, want)
@@ -2609,7 +2669,7 @@ func TestVolatileCustomTemplateKeepsThePerStepRefresh(t *testing.T) {
 	st := &session.State{ID: "t", CWD: tmp, Mode: session.ModeAgent}
 	a := NewAgent(cfg, st, nil, nil)
 
-	sys := a.buildSystemPromptParts("agent", nil, nil, "", nil)
+	sys := a.buildSystemPromptParts("agent", nil, nil, nil)
 	if !sys.Volatile {
 		t.Fatal("a template printing UTCNow and TodoList must be marked volatile")
 	}
@@ -2619,7 +2679,7 @@ func TestVolatileCustomTemplateKeepsThePerStepRefresh(t *testing.T) {
 
 	// The built-in template is the other way round.
 	cfg.Prompts.Dir = ""
-	builtin := a.buildSystemPromptParts("agent", nil, nil, "", nil)
+	builtin := a.buildSystemPromptParts("agent", nil, nil, nil)
 	if builtin.Volatile {
 		t.Fatal("the built-in agent template must not be volatile")
 	}
@@ -2652,7 +2712,7 @@ func TestTemplateWithoutRulesGetsNoRulesInTheTurnContext(t *testing.T) {
 	st.ReplaceRulesCatalog(session.DiscoverRules(cfg, tmp))
 	a := NewAgent(cfg, st, nil, nil)
 
-	sys := a.buildSystemPromptParts("agent", nil, nil, "", nil)
+	sys := a.buildSystemPromptParts("agent", nil, nil, nil)
 	a.activateScopedRulesForToolCall("read", `{"path":"main.go"}`, tmp)
 	if block := a.buildTurnContext(sys); strings.Contains(block, "NO_RULES_TEMPLATE_TOKEN") {
 		t.Fatalf("a template without {{.Rules}} still received a rule: %q", block)
@@ -2685,7 +2745,7 @@ func TestRuleAlreadyInTheSystemPromptIsNotRepeatedInTheTurnContext(t *testing.T)
 	a := NewAgent(cfg, st, nil, nil)
 
 	// An attachment already made the rule sticky, so the frozen prompt carries it.
-	sys := a.buildSystemPromptParts("agent", nil, nil, "", []string{filepath.Join(tmp, "main.go")})
+	sys := a.buildSystemPromptParts("agent", nil, nil, []string{filepath.Join(tmp, "main.go")})
 	if !strings.Contains(sys.Content, "ALREADY_SENT_RULE_TOKEN") {
 		t.Fatal("the attached file did not activate the glob rule")
 	}
@@ -2712,7 +2772,7 @@ func TestTurnClockDoesNotTickBetweenTheStepsOfATurn(t *testing.T) {
 		return time.Date(2038, 1, 19, 3, 14, 7+ticks, 0, time.UTC)
 	}
 
-	sys := a.buildSystemPromptParts("agent", nil, nil, "", nil)
+	sys := a.buildSystemPromptParts("agent", nil, nil, nil)
 	first := a.buildTurnContext(sys)
 	second := a.buildTurnContext(sys)
 	if first != second {
@@ -2968,5 +3028,191 @@ func TestInterruptedBeforeOutputNamesTheSilence(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "silent for") {
 		t.Fatalf("the error must say how long the model was silent: %v", err)
+	}
+}
+
+// sessionBypassSender answers the first permission prompt with "bypass
+// permissions for this session" and records every prompt it is shown.
+type sessionBypassSender struct {
+	mu       sync.Mutex
+	requests []acp.PermissionRequestParams
+}
+
+func (s *sessionBypassSender) SendSessionUpdate(string, interface{}) error { return nil }
+
+func (s *sessionBypassSender) RequestPermission(_ context.Context, p acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.requests = append(s.requests, p)
+	return &acp.PermissionResult{Outcome: "selected", OptionID: permission.OptionAllowSessionBypass}, nil
+}
+
+func (s *sessionBypassSender) RequestQuestion(context.Context, acp.QuestionRequestParams) (*acp.QuestionResult, error) {
+	return &acp.QuestionResult{}, nil
+}
+
+// TestSessionBypassFromTheDialogCoversTheRestOfTheBatch pins #292: choosing
+// "bypass permissions for this session" approves the call and switches the
+// session, so the next call of the same batch runs without a prompt.
+func TestSessionBypassFromTheDialogCoversTheRestOfTheBatch(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}
+	cfg.Tools.PermissionMode = config.PermModeAsk
+	st := &session.State{ID: "sess_dialog_bypass", CWD: dir, Mode: session.ModeAgent}
+	sender := &sessionBypassSender{}
+	provider := &scriptedProvider{steps: []scriptStep{
+		toolStep(
+			llm.ToolCall{ID: "c1", Name: "run_command", InputJSON: `{"command":"echo first"}`},
+			llm.ToolCall{ID: "c2", Name: "run_command", InputJSON: `{"command":"echo second"}`},
+		),
+		answerStep("done"),
+	}}
+	ag := NewAgent(cfg, st, sender, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "run both"}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(sender.requests) != 1 {
+		t.Fatalf("prompts = %d, want only the first call's", len(sender.requests))
+	}
+	var offered []string
+	for _, o := range sender.requests[0].Options {
+		offered = append(offered, o.OptionID)
+	}
+	if !strings.Contains(strings.Join(offered, ","), permission.OptionAllowSessionBypass) {
+		t.Fatalf("the prompt did not offer the session switch: %v", offered)
+	}
+	if sender.requests[0].SessionPermissionMode != config.PermModeAsk {
+		t.Fatalf("the prompt was stamped %q, want ask", sender.requests[0].SessionPermissionMode)
+	}
+	if got := st.GetPermissionMode(); got != config.PermModeBypass {
+		t.Fatalf("session permission mode = %q, want bypass", got)
+	}
+	var results int
+	for _, m := range st.GetMessages() {
+		if m.Role == llm.RoleTool && (strings.Contains(m.Content, "first") || strings.Contains(m.Content, "second")) {
+			results++
+		}
+	}
+	if results != 2 {
+		t.Fatalf("tool results that ran = %d, want both calls", results)
+	}
+}
+
+// settingsHarness runs turns through a real session manager, with one scripted
+// provider per configured model, so a test sees which model served a request.
+type settingsHarness struct {
+	mgr       *session.Manager
+	sessionID string
+	mu        sync.Mutex
+	providers map[string]*scriptedProvider
+}
+
+func newSettingsHarness(t *testing.T, models ...string) *settingsHarness {
+	t.Helper()
+	root := t.TempDir()
+	cwd := t.TempDir()
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: root, CWD: cwd, ConfigPath: filepath.Join(root, "config.yaml")},
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Agent:     config.Agent{Model: models[0], MaxTurns: 8},
+	}
+	for _, m := range models {
+		cfg.Models = append(cfg.Models, config.ModelEntry{Model: m, MaxTokens: 100})
+	}
+	cfg.Tools.PermissionMode = config.PermModeBypass
+	cfg.Subagents.ApplyDefaults(cfg.Paths)
+	cfg.Hooks.ApplyDefaults(cfg.Paths)
+	cfg.Prompts.ApplyDefaults()
+	h := &settingsHarness{providers: map[string]*scriptedProvider{}}
+	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
+		loop := NewAgent(cfg, st, snd, slog.Default())
+		loop.SetSubagentRuntime(h.mgr)
+		loop.SetProviderFactory(func(in llm.ProviderInput) (llm.Provider, error) { return h.provider(in.Model), nil })
+		return loop.Run(ctx, prompt)
+	}
+	h.mgr = session.NewManager(cfg, &todoSnapshotSender{}, runner, slog.Default(), cwd, nil)
+	res, err := h.mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.sessionID = res.SessionID
+	return h
+}
+
+// provider returns the scripted provider of an API model id ("a" for fake/a).
+func (h *settingsHarness) provider(apiModel string) *scriptedProvider {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	p, ok := h.providers[apiModel]
+	if !ok {
+		p = &scriptedProvider{}
+		h.providers[apiModel] = p
+	}
+	return p
+}
+
+func (h *settingsHarness) prompt(t *testing.T, text string) {
+	t.Helper()
+	if _, err := h.mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+		SessionID: h.sessionID,
+		Prompt:    []acp.ContentBlock{{Type: acp.ContentTypeText, Text: text}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSwitchModelTakesEffectFromTheNextRequest(t *testing.T) {
+	h := newSettingsHarness(t, "fake/a", "fake/b")
+	h.provider("a").steps = []scriptStep{
+		toolStep(llm.ToolCall{ID: "sw1", Name: "switch_model", InputJSON: `{"model":"fake/b","scope":"turn"}`}),
+	}
+	h.provider("b").steps = []scriptStep{answerStep("done on b")}
+	h.prompt(t, "this needs the stronger model")
+	if a, b := h.provider("a").calls, h.provider("b").calls; a != 1 || b != 1 {
+		t.Fatalf("requests served: a=%d b=%d, want the first on a and the next on b", a, b)
+	}
+	st := h.mgr.SessionByID(h.sessionID)
+	if st.GetSelectedModelID() != "" {
+		t.Fatalf("a turn-scoped switch changed the session model to %q", st.GetSelectedModelID())
+	}
+	// The next turn is back on the session's model.
+	h.provider("a").steps = append(h.provider("a").steps, answerStep("back on a"))
+	h.prompt(t, "and now")
+	if a := h.provider("a").calls; a != 2 {
+		t.Fatalf("the next turn was not served by the session's model: a=%d", a)
+	}
+}
+
+func TestSkillFrontmatterRunsTheTurnOnItsModel(t *testing.T) {
+	h := newSettingsHarness(t, "fake/a", "fake/b")
+	st := h.mgr.SessionByID(h.sessionID)
+	st.ReplaceSkills([]*skills.Skill{{Name: "heavy", FilePath: "/skills/heavy/SKILL.md", Description: "d", Content: "Think hard.", Model: "fake/b"}})
+	h.provider("b").steps = []scriptStep{answerStep("done on b")}
+	h.prompt(t, "/heavy review this")
+	if a, b := h.provider("a").calls, h.provider("b").calls; a != 0 || b != 1 {
+		t.Fatalf("requests served: a=%d b=%d, want the whole turn on the skill's model", a, b)
+	}
+}
+
+func TestSpawnAgentRefusesAModelTheConfigDoesNotKnow(t *testing.T) {
+	h := newSettingsHarness(t, "fake/a")
+	h.provider("a").steps = []scriptStep{
+		toolStep(llm.ToolCall{ID: "sp1", Name: "spawn_agent", InputJSON: `{"agent":"general","prompt":"look around","model":"fake/nope"}`}),
+		answerStep("ok"),
+	}
+	h.prompt(t, "delegate")
+	var result string
+	for _, m := range h.mgr.SessionByID(h.sessionID).GetMessages() {
+		if m.Role == llm.RoleTool && m.ToolCallID == "sp1" {
+			result = m.Content
+		}
+	}
+	if !strings.Contains(result, `unknown model "fake/nope"`) {
+		t.Fatalf("spawn_agent result = %q, want the unknown model named", result)
 	}
 }

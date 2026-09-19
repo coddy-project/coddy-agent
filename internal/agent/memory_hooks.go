@@ -4,145 +4,218 @@ package agent
 
 import (
 	"context"
-	"fmt"
+	"sort"
 	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 
 	"github.com/EvilFreelancer/coddy-agent/external/memory"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
-const persistBodyWireMax = 12_000
-
-func truncatePersistBodyForWire(s string) string {
-	s = strings.TrimSpace(s)
-	if len(s) <= persistBodyWireMax {
-		return s
+// registerMemoryChildTools gives the memory subagent its tools: the six
+// coddy_memory_* tools over the two note roots of the session's cwd, added to
+// this Agent's registry when the session is the system memory child. An
+// ordinary session never gets them, so the main model never sees a memory
+// tool; the child's own allowlist decides which of the six it may call.
+func (a *Agent) registerMemoryChildTools() {
+	if a.subagent == nil || a.subagent.Kind != session.SubagentKindMemory {
+		return
 	}
-	return strings.TrimSpace(s[:persistBodyWireMax]) + "\n\n…"
+	tools, err := memory.Tools(a.cfg, a.state.GetCWD())
+	if err != nil {
+		a.log.Warn("memory subagent tools unavailable", "error", err)
+		return
+	}
+	for _, t := range tools {
+		a.registry.Register(t)
+	}
 }
 
-func (a *Agent) memoryRowID(turn int) string {
-	return fmt.Sprintf("mem-%d", turn)
+// runMemoryBeforeTurn starts the memory subagent of this user turn as a
+// system task of the pool and waits a bounded time for its report. mode is
+// the snapshot Run captured: an ask-mode turn gets a recall-only child.
+func (a *Agent) runMemoryBeforeTurn(ctx context.Context, userText, mode string) {
+	if a.cfg == nil || !a.cfg.Memory.Enabled || a.subagent != nil {
+		return
+	}
+	parentID := a.state.GetID()
+	skip := func(reason string) {
+		a.log.Warn("memory run skipped", "session_id", parentID, "reason", reason)
+		a.sendMemoryRun(acp.MemoryRunUpdate{Status: "skipped", Reason: reason})
+	}
+	rt := a.subagentRuntime
+	if rt == nil {
+		skip("this surface has no session manager to run a memory subagent in")
+		return
+	}
+	release, reason := acquireMemorySlot(parentID)
+	if release == nil {
+		skip(reason)
+		return
+	}
+
+	cfg := a.cfg
+	readOnly := mode == string(session.ModeAsk)
+	model := a.state.EffectiveModelID(cfg)
+	if m := strings.TrimSpace(cfg.Memory.Model); m != "" && cfg.FindModelEntry(m) != nil {
+		model = m
+	} else if m != "" {
+		a.log.Warn("memory.model is not configured; the session's model runs the memory subagent", "model", m, "using", model)
+	}
+	// A cut addendum is said at every launch that reads it: the run is one
+	// per turn already, and a silent cut is what the cap must not be.
+	addendum, cut := cfg.Memory.EffectiveAdditionalPrompt()
+	if cut {
+		a.log.Warn("memory.additional_prompt is longer than additional_prompt_max_chars; the memory subagent reads the first characters only",
+			"session_id", parentID, "max_chars", cfg.Memory.AdditionalPromptMaxChars, "chars", utf8.RuneCountInString(cfg.Memory.AdditionalPrompt))
+	}
+	childID := session.NewSessionID()
+	label := memoryTaskLabel(userText)
+	// The deadline is taken before the launch: the child is created on the
+	// run goroutine, inside the wait, and the wait never outlasts the run's
+	// own timeout.
+	wait := time.Duration(min(cfg.Memory.EffectiveWaitSeconds(), cfg.Memory.EffectiveTimeoutSeconds())) * time.Second
+	deadline := time.Now().Add(wait)
+
+	snap, run, err := a.launchChildRun(ctx, rt, childLaunch{
+		spec: session.SubagentSpec{
+			ID:              childID,
+			ParentSessionID: parentID,
+			Name:            session.SubagentKindMemory,
+			CWD:             a.state.GetCWD(),
+			Mode:            string(session.ModeAgent),
+			PermissionMode:  effectivePermMode(a.state, cfg),
+			SelectedModelID: model,
+			Title:           label,
+			Role:            addendum,
+			Tools:           memory.ToolNames(readOnly),
+			Depth:           a.subagentDepth() + 1,
+			MaxTurns:        cfg.Memory.EffectiveMaxTurns(),
+			Kind:            session.SubagentKindMemory,
+			PromptTemplate:  memory.PromptTemplate(readOnly),
+			MaxTokens:       cfg.Memory.CopilotMaxTokens,
+			FallbackModels:  memoryFallbackModels(cfg.Memory.FallbackModels, a.state.EffectiveModelID(cfg)),
+		},
+		prompt:         memory.TaskMessage(userText),
+		parentMode:     mode,
+		label:          label,
+		timeoutSeconds: cfg.Memory.EffectiveTimeoutSeconds(),
+		detached:       true,
+		system:         true,
+		cleanup:        release,
+	})
+	if err != nil {
+		skip(err.Error())
+		return
+	}
+	mr := &memoryTurnRun{
+		parentID:  parentID,
+		taskID:    snap.ID,
+		childID:   childID,
+		run:       run,
+		pool:      a.backgroundPool(strings.TrimSpace(a.state.GetPersistedSessionDir())),
+		startedAt: time.Now(),
+	}
+	a.memoryRun = mr
+	a.log.Info("memory run started", "session_id", parentID, "task", snap.ID, "child", childID, "model", model, "wait", wait)
+	a.sendMemoryRun(acp.MemoryRunUpdate{Status: "started", TaskID: snap.ID, ChildSessionID: childID})
+	go a.watchMemoryRun(mr, rt, cfg.Memory.EffectiveKeepRuns())
+
+	if wait <= 0 {
+		return
+	}
+	// A Stop of the turn ends the wait through ctx; the run itself is
+	// detached and goes on.
+	_, _ = mr.pool.Wait(ctx, parentID, snap.ID, time.Until(deadline))
+	a.deliverMemoryReport("first request")
 }
 
-func (a *Agent) sendMemoryPhase(rowID, phase, status string, turn int, durationMs int64, outcome *memory.BeforeTurnOutcome, recallReadPaths []string) {
-	upd := acp.MemoryPhaseUpdate{
-		SessionUpdate: acp.UpdateTypeMemoryPhase,
-		MemoryRowID:   rowID,
-		Phase:         phase,
-		Status:        status,
-		UserTurnIndex: turn,
-		DurationMs:    durationMs,
-	}
-	if status == "completed" && len(recallReadPaths) > 0 {
-		upd.RecallReadPaths = recallReadPaths
-	}
-	if outcome != nil && status == "completed" && outcome.Persist.Saved {
-		upd.PersistSaved = true
-		upd.PersistRelativePath = outcome.Persist.RelativePath
-		upd.PersistTitle = outcome.Persist.Title
-		if strings.TrimSpace(outcome.Persist.Body) != "" {
-			upd.PersistSavedBody = truncatePersistBodyForWire(outcome.Persist.Body)
+// memoryFallbackModels is the chain behind the memory model: the configured
+// fallbacks, then the session's own model as the last resort.
+func memoryFallbackModels(configured []string, sessionModel string) []string {
+	out := make([]string, 0, len(configured)+1)
+	for _, m := range configured {
+		if m = strings.TrimSpace(m); m != "" {
+			out = append(out, m)
 		}
 	}
-	_ = a.server.SendSessionUpdate(a.state.GetID(), upd)
+	if sessionModel = strings.TrimSpace(sessionModel); sessionModel != "" {
+		out = append(out, sessionModel)
+	}
+	return out
 }
 
-func (a *Agent) sendMemoryChunk(rowID, phase, kind, delta string) {
-	if delta == "" {
+// watchMemoryRun waits for the task to settle, on its own goroutine, and then
+// applies the retention rule to the session's finished memory runs. It never
+// touches the turn's sender: a run that settles after the turn returned has
+// no stream to report to (the HTTP bridge's response is gone by then), so the
+// finished update goes out from the loop's own goroutine, at delivery or at
+// the turn's end, or not at all. The drawer is the record either way.
+func (a *Agent) watchMemoryRun(mr *memoryTurnRun, rt SubagentRuntime, keep int) {
+	if _, err := mr.pool.Wait(context.Background(), mr.parentID, mr.taskID, 0); err == nil {
+		mr.mu.Lock()
+		if mr.turnOver {
+			mr.settled = true
+		}
+		mr.mu.Unlock()
+	}
+	a.pruneMemoryRuns(mr.pool, mr.parentID, rt, keep)
+}
+
+// memoryRunSnapshots lists the finished memory runs of a session, the live
+// pool and the records of earlier processes merged, oldest first.
+func memoryRunSnapshots(pool *bgtask.Pool, sessionID, sessionDir string) []bgtask.Snapshot {
+	seen := map[string]bool{}
+	var out []bgtask.Snapshot
+	add := func(snap bgtask.Snapshot) {
+		if seen[snap.ID] || !snap.SystemTask() || snap.Agent.Name != session.SubagentKindMemory || !snap.Status.Finished() {
+			return
+		}
+		seen[snap.ID] = true
+		out = append(out, snap)
+	}
+	for _, snap := range pool.List(sessionID) {
+		add(snap)
+	}
+	for _, snap := range bgtask.LoadPersisted(sessionDir) {
+		add(snap)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].StartedAt.Before(out[j].StartedAt) })
+	return out
+}
+
+// pruneMemoryRuns removes the finished memory runs of a session beyond the
+// newest keep, task record and child bundle alike. keep 0 keeps everything.
+// A child that is still live or still owns a task is left alone. The run of
+// the turn in flight is never among the pruned: turns are serialised by the
+// turn lock, so it is the newest run of the session and stays inside the
+// kept tail, and a record an earlier process left behind is older than any
+// run this one started.
+func (a *Agent) pruneMemoryRuns(pool *bgtask.Pool, sessionID string, rt SubagentRuntime, keep int) {
+	if keep <= 0 || pool == nil {
 		return
 	}
-	_ = a.server.SendSessionUpdate(a.state.GetID(), acp.MemoryMessageChunkUpdate{
-		SessionUpdate: acp.UpdateTypeMemoryMessageChunk,
-		MemoryRowID:   rowID,
-		Phase:         phase,
-		Kind:          kind,
-		Delta:         delta,
+	sessionDir := strings.TrimSpace(a.state.GetPersistedSessionDir())
+	runs := memoryRunSnapshots(pool, sessionID, sessionDir)
+	if len(runs) <= keep {
+		return
+	}
+	remover, _ := rt.(interface {
+		RemoveRetiredChild(childID string, pool *bgtask.Pool) error
 	})
-}
-
-// runMemoryBeforeTurn runs the memory copilot for the turn. mode is the snapshot
-// Run captured, the same one that governs tool definitions and execution, so a
-// concurrent session/set_mode cannot hand the copilot a different tool set.
-func (a *Agent) runMemoryBeforeTurn(ctx context.Context, userText, mode string) {
-	if !a.cfg.Memory.Enabled {
-		return
-	}
-	sid := a.state.GetID()
-	mr := strings.TrimSpace(a.cfg.Memory.Model)
-	if mr == "" {
-		mr = a.state.EffectiveModelID(a.cfg)
-	}
-	turn := session.CountUserTurns(a.state.GetMessages())
-	rowID := a.memoryRowID(turn)
-	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
-
-	a.log.Info("memory copilot run starting",
-		"session_id", sid,
-		"memory_row_id", rowID,
-		"user_turn_index", turn,
-		"model", mr,
-	)
-
-	opts := &memory.RunBeforeTurnOptions{
-		// Ask mode must not change stored memory either; recall still runs.
-		ReadOnly: mode == string(session.ModeAsk),
-		OnPhaseStart: func() {
-			a.sendMemoryPhase(rowID, "memory", "started", turn, 0, nil, nil)
-		},
-		OnStream: func(kind memory.StreamKind, delta string) {
-			if kind != memory.StreamKindText {
-				return
+	for _, snap := range runs[:len(runs)-keep] {
+		if remover != nil && snap.Agent != nil && snap.Agent.SessionID != "" {
+			if err := remover.RemoveRetiredChild(snap.Agent.SessionID, pool); err != nil {
+				a.log.Warn("memory run retention: child bundle kept", "session_id", sessionID, "task", snap.ID, "child", snap.Agent.SessionID, "error", err)
+				continue
 			}
-			a.sendMemoryChunk(rowID, "memory", "text", delta)
-		},
+		}
+		if err := pool.Forget(sessionID, snap.ID); err != nil {
+			a.log.Warn("memory run retention: task record kept", "session_id", sessionID, "task", snap.ID, "error", err)
+		}
 	}
-
-	outcome, dur, err := memory.RunBeforeTurn(ctx, a.log, a.cfg, a.state.GetCWD(), userText, mr, opts)
-	if err != nil {
-		a.log.Warn("memory copilot run failed",
-			"session_id", sid,
-			"memory_row_id", rowID,
-			"user_turn_index", turn,
-			"duration_ms", dur,
-			"error", err,
-		)
-		a.sendMemoryPhase(rowID, "memory", "completed", turn, dur, nil, outcome.ReadPaths)
-		return
-	}
-	a.log.Info("memory copilot run finished",
-		"session_id", sid,
-		"memory_row_id", rowID,
-		"user_turn_index", turn,
-		"duration_ms", dur,
-		"mode", outcome.Mode,
-		"persist_saved", outcome.Persist.Saved,
-	)
-	a.sendMemoryPhase(rowID, "memory", "completed", turn, dur, &outcome, outcome.ReadPaths)
-
-	ctxText := strings.TrimSpace(outcome.ContextText)
-	if ctxText != "" {
-		a.state.SetMemoryCopilotBlock(ctxText)
-	}
-
-	if sd == "" {
-		return
-	}
-	row := session.MemoryTurnTraceJSON{
-		UserTurnIndex:       turn,
-		MemoryRowID:         rowID,
-		MemoryMode:          outcome.Mode,
-		MemoryDurationMs:    dur,
-		MemoryContextText:   ctxText,
-		RecallReadPaths:     outcome.ReadPaths,
-		PersistSaved:        outcome.Persist.Saved,
-		PersistScope:        outcome.Persist.Scope,
-		PersistRelativePath: outcome.Persist.RelativePath,
-		PersistTitle:        outcome.Persist.Title,
-		PersistReason:       outcome.Persist.Reason,
-		PersistSavedBody:    outcome.Persist.Body,
-		PersistFinalText:    strings.TrimSpace(outcome.Persist.RawFinalText),
-	}
-	_ = session.AppendMemoryTurn(sd, row)
 }

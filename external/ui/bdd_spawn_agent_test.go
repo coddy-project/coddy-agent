@@ -3,11 +3,7 @@
 package ui
 
 import (
-	"context"
-	"fmt"
-	"os/exec"
 	"testing"
-	"time"
 
 	"github.com/cucumber/godog"
 )
@@ -19,15 +15,8 @@ func TestSpawnAgentCardFeature(t *testing.T) {
 		Name: "spawn_agent_card",
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			sc.Step(`^the spawn agent card shows its identity, description, multiline prompt, timeout and result$`, func() error {
-				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-				defer cancel()
-				cmd := exec.CommandContext(ctx, "node", "node_modules/vitest/vitest.mjs", "run",
-					"src/ui/messages/SpawnAgentCard.test.tsx", "--testNamePattern",
-					"^spawn_agent displays agent identity, description, prompt and timeout$")
-				if out, err := cmd.CombinedOutput(); err != nil {
-					return fmt.Errorf("spawn agent DOM scenario: %w\n%s", err, out)
-				}
-				return nil
+				return runVitestScenario("src/ui/messages/SpawnAgentCard.test.tsx",
+					"spawn_agent displays agent identity, description, prompt and timeout")
 			})
 		},
 		Options: &godog.Options{

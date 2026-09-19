@@ -35,8 +35,47 @@ Feature: Console connected to a remote coddy server
     When the connection drops and the permission is settled elsewhere before reconnect
     Then the obsolete permission modal closes without posting an answer
 
+  Scenario: The console lists and stops the background tasks of the remote session
+    Given a fake remote coddy server that answers "the build runs in the background"
+    And the remote session has a running background task "make test" that printed "ok  pkg/a"
+    And a console app connected to that remote server
+    When the console app starts
+    And the operator submits "/tasks"
+    Then the tasks overlay lists the remote task "make test" as running
+    When the operator opens the selected task
+    Then the tasks overlay shows the remote output "ok  pkg/a"
+    When the operator stops the task from the overlay
+    Then the server is asked to stop that task
+    And the tasks overlay lists the remote task as stopped
+
+  Scenario: The progress of a remote turn leads the console status line
+    Given a fake remote coddy server that holds its turn after reporting 1200 generated tokens
+    And a console app connected to that remote server
+    When the console app starts
+    And the operator submits "run the long build"
+    Then the console status line shows "1.2k tokens"
+    When the fake server lets the turn end
+    Then the transcript shows the assistant text "done remotely"
+
+  Scenario: A turn the server woke in the console's session renders in the console
+    Given a fake remote coddy server that answers "the build runs in the background"
+    And a console app connected to that remote server
+    When the console app starts
+    And the operator submits "run the build in the background"
+    Then the transcript shows the assistant text "the build runs in the background"
+    When the server wakes the console session because "make test" failed with exit 2
+    Then the transcript shows the assistant text "The build failed with exit 2."
+    And the woken turn shows nothing before the agent's answer
+
   Scenario: A one-shot print run works against the remote server
     Given a fake remote coddy server that answers "printed remotely"
     When the operator runs a remote one-shot prompt "sum it up"
     Then the one-shot output contains "printed remotely"
     And the one-shot run ends cleanly
+
+  Scenario: Data piped into a remote one-shot run reaches the server as an attachment
+    Given a fake remote coddy server that answers "reviewed remotely"
+    When the operator pipes "diff --git a/x b/x\r\n+y\n\n" into a remote one-shot prompt "Review this change"
+    Then the one-shot output contains "reviewed remotely"
+    And the one-shot run ends cleanly
+    And the server received "Review this change" with the piped data as a literal stdin attachment

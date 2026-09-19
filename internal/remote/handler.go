@@ -64,16 +64,31 @@ type Handler struct {
 	// detachedPromptsState holds the permission prompts of background
 	// subagents the server announced on that stream (detached_prompts.go).
 	detachedPromptsState
+
+	// followState is the woken turns this client follows on the composer
+	// relay (follow.go).
+	followState
 }
 
 type sessionState struct {
 	mode             string
 	modelID          string
 	reasoning        string
+	// permissionMode mirrors the server session's permission mode, and
+	// settingsVersion the last settings snapshot adopted (settings.go).
+	permissionMode  string
+	settingsVersion uint64
+	// pendingSettings are changes held for a session the server has not
+	// created yet; they ride in at the start of its first prompt.
+	pendingSettings []session.SettingsChange
 	pendingReplay    []messageRow
 	turn             *remoteTurn
 	activityRevision uint64
 	queue            queueOrder
+	// historyRev is the messagesRev of the transcript this client loaded, and
+	// historyLoaded whether it loaded one (follow.go).
+	historyRev    uint64
+	historyLoaded bool
 }
 
 // remoteTurn is the identity of one locally admitted request, not the server's
@@ -236,6 +251,7 @@ func (h *Handler) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 		case err == nil:
 			h.mu.Lock()
 			st.pendingReplay = msgs.Messages
+			st.historyRev, st.historyLoaded = msgs.MessagesRev, true
 			if msgs.SelectedModelID != "" {
 				st.modelID = msgs.SelectedModelID
 			}
@@ -276,6 +292,7 @@ func (h *Handler) HandleSessionLoad(ctx context.Context, params acp.SessionLoadP
 	if msgs.Mode != "" {
 		st.mode = msgs.Mode
 	}
+	st.historyRev, st.historyLoaded = msgs.MessagesRev, true
 	h.mu.Unlock()
 	h.replayMessages(id, msgs.Messages)
 	// A background subagent of this session may have asked before the console
@@ -351,9 +368,9 @@ func (h *Handler) HandleSessionSetMode(_ context.Context, params acp.SessionSetM
 	return nil
 }
 
-// HandleSessionSetConfigOption adjusts mode, model, or reasoning. The
-// permission mode is governed by the remote server's configuration and cannot
-// be set here.
+// HandleSessionSetConfigOption adjusts mode, model, reasoning or the
+// permission mode; the last goes through the server's setter like its
+// browser's.
 func (h *Handler) HandleSessionSetConfigOption(ctx context.Context, params acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error) {
 	st := h.session(params.SessionID)
 	switch params.ConfigID {
@@ -440,7 +457,12 @@ func (h *Handler) HandleSessionSetConfigOption(ctx context.Context, params acp.S
 		}
 		return &acp.SessionSetConfigOptionResult{ConfigOptions: h.configOptions(st)}, nil
 	case "permission_mode":
-		return nil, fmt.Errorf("permission mode is managed by the remote server configuration")
+		// The server's own setter decides, as it does for its browser.
+		value := params.Value
+		if _, err := h.ApplySessionSettings(ctx, params.SessionID, session.SettingsChange{PermissionMode: &value, Source: "remote"}); err != nil {
+			return nil, err
+		}
+		return &acp.SessionSetConfigOptionResult{ConfigOptions: h.configOptions(st)}, nil
 	default:
 		return nil, fmt.Errorf("unknown config option: %q", params.ConfigID)
 	}
@@ -660,6 +682,10 @@ func (h *Handler) replayMessages(sessionID string, rows []messageRow) {
 	for _, row := range rows {
 		switch row.Role {
 		case "user":
+			if row.BackgroundWake != nil {
+				_ = sender.SendSessionUpdate(sessionID, session.BackgroundWakeUpdate(row.BackgroundWake))
+				continue
+			}
 			if text := strings.TrimSpace(row.Content); text != "" {
 				_ = sender.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 					SessionUpdate: acp.UpdateTypeUserMessageChunk,

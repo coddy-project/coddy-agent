@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/web"
 )
 
@@ -22,6 +23,45 @@ const (
 // OutcomeCancelled is the outcome a client reports when the request was
 // dismissed instead of answered.
 const OutcomeCancelled = "cancelled"
+
+// OptionAllowSessionBypass and OptionAllowSessionAcceptEdits approve the call
+// and switch the session's permission mode for the rest of the session: to
+// bypass, or to accept_edits for a file write (#292). They are offered only
+// while the session asks (mode ask), on the session's own prompts.
+const (
+	OptionAllowSessionBypass      = "allow_session_bypass"
+	OptionAllowSessionAcceptEdits = "allow_session_accept_edits"
+)
+
+// SessionModeOption returns the permission mode an answer switches the
+// session to, or "" when the answer switches nothing.
+func SessionModeOption(res *acp.PermissionResult) string {
+	if res == nil {
+		return ""
+	}
+	switch strings.TrimSpace(res.OptionID) {
+	case OptionAllowSessionBypass:
+		return config.PermModeBypass
+	case OptionAllowSessionAcceptEdits:
+		return config.PermModeAcceptEdits
+	}
+	return ""
+}
+
+// AutoApproves reports whether a sender answers a permission request itself,
+// without asking anybody: the mode of the agent that asks is bypass. A
+// subagent's own narrowed mode decides first, then the mode the session's
+// gate stamped, then the configuration's, for a request that carries neither
+// (a caller outside the agent's gate).
+func AutoApproves(params acp.PermissionRequestParams, configMode string) bool {
+	if m := strings.TrimSpace(params.EffectivePermissionMode); m != "" {
+		return m == config.PermModeBypass
+	}
+	if m := strings.TrimSpace(params.SessionPermissionMode); m != "" {
+		return m == config.PermModeBypass
+	}
+	return configMode == config.PermModeBypass
+}
 
 // shellMetacharacters are the characters that let one command line run more than
 // one command, redirect it, or substitute another. A grant is only ever offered
@@ -104,6 +144,48 @@ func ProgramGrant(cmd string) (string, bool) {
 // once per call. An http_request names its address and its origin instead of
 // a bare "allow always", because those are what the grant would cover.
 func Options(toolName, argsJSON string) []acp.PermissionOption {
+	return OptionsFor(toolName, argsJSON, OptionContext{})
+}
+
+// OptionContext is what the gate knows about a prompt beyond the call itself:
+// whether it may offer to switch the session's permission mode.
+type OptionContext struct {
+	// Mode is the permission mode the session asks under.
+	Mode string
+	// SessionSwitch allows the session-wide options at all: false for a
+	// subagent's prompt (its mode was narrowed by its definition and a child
+	// changes nothing of its parent) and for a prompt a hook forced.
+	SessionSwitch bool
+}
+
+// OptionsFor is Options with the session-wide switches offered where they
+// apply: while the session asks (mode ask), "allow edits for this session"
+// on a file write and "bypass permissions for this session" on anything but
+// the staged-config commit and rollback, which keep asking because a commit
+// can rewrite the permission policy itself.
+func OptionsFor(toolName, argsJSON string, oc OptionContext) []acp.PermissionOption {
+	options := baseOptions(toolName, argsJSON)
+	if !oc.SessionSwitch || oc.Mode != config.PermModeAsk {
+		return options
+	}
+	var extra []acp.PermissionOption
+	name := strings.TrimSpace(toolName)
+	if len(WriteGrantKeys(name, argsJSON, "/")) > 0 {
+		extra = append(extra, acp.PermissionOption{OptionID: OptionAllowSessionAcceptEdits, Name: "Allow edits for this session", Kind: "allow_always"})
+	}
+	if name != "config_commit" && name != "config_rollback" {
+		extra = append(extra, acp.PermissionOption{OptionID: OptionAllowSessionBypass, Name: "Bypass permissions for this session", Kind: "allow_always"})
+	}
+	if len(extra) == 0 {
+		return options
+	}
+	// Before the reject option, which stays last.
+	last := options[len(options)-1]
+	out := append(append(options[:len(options)-1:len(options)-1], extra...), last)
+	return out
+}
+
+func baseOptions(toolName, argsJSON string) []acp.PermissionOption {
 	if strings.TrimSpace(toolName) == web.ToolHTTPRequest {
 		return httpRequestOptions(argsJSON)
 	}

@@ -5,6 +5,7 @@ package httpserver
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -59,7 +61,7 @@ func subscribeEvents(t *testing.T, ts *httptest.Server, query string) (*bufio.Re
 	}
 	return bufio.NewReader(res.Body), func() {
 		cancel()
-		res.Body.Close()
+		_ = res.Body.Close()
 	}
 }
 
@@ -134,6 +136,78 @@ func TestCoddyEventsStreamSnapshotsRunningTurns(t *testing.T) {
 	}
 }
 
+// A client that connects while a woken turn runs is told it is one: the snapshot
+// follows the turn's turn_started with its background_wake, both dated at the
+// turn's start, and GET .../activity says the same - which is how a console that
+// resumes the session, or reconnects, finds a turn worth following.
+func TestCoddyEventsStreamSnapshotsAWokenTurnAsTheWake(t *testing.T) {
+	turn := &watchedTurn{started: make(chan struct{}), release: make(chan struct{})}
+	_, srv, _ := testHTTPServerPersistWithRunner(t, turn.runner())
+	sn, err := srv.mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	two := 2
+	wake := &llm.BackgroundWake{Tasks: []llm.BackgroundWakeTask{
+		{ID: "bg_3", Kind: "command", Label: "make test", Status: "failed", ExitCode: &two, DurationMs: 90_000},
+	}}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, _ = srv.mgr.HandleSessionPromptWithSender(context.Background(), acp.SessionPromptParams{
+			SessionID: sn.SessionID,
+			Prompt:    []acp.ContentBlock{{Type: "text", Text: "A background task you asked to be notified about has finished."}},
+		}, noopSender{}, &session.PromptRunOpts{BackgroundWake: wake})
+	}()
+	defer wg.Wait()
+	defer close(turn.release)
+	<-turn.started
+
+	body, closeEvents := subscribeEvents(t, ts, "")
+	defer closeEvents()
+	snapshot := readEventFrames(t, body, "event: ready")
+	started := strings.Index(snapshot, "event: turn_started")
+	woken := strings.Index(snapshot, "event: background_wake")
+	if started < 0 || woken < started {
+		t.Fatalf("the snapshot does not follow turn_started with background_wake: %s", snapshot)
+	}
+	at, ok := srv.mgr.TurnStartedAt(sn.SessionID)
+	if !ok {
+		t.Fatal("the woken turn is not registered as running")
+	}
+	stamp := `"at":"` + at.UTC().Format(time.RFC3339Nano) + `"`
+	if strings.Count(snapshot, stamp) != 2 || !strings.Contains(snapshot[woken:], `"id":"bg_3"`) {
+		t.Fatalf("the snapshot does not date both frames at the turn's start (%s): %s", stamp, snapshot)
+	}
+
+	res, err := ts.Client().Get(ts.URL + "/coddy/sessions/" + sn.SessionID + "/activity")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	var activity struct {
+		TurnActive     bool   `json:"turnActive"`
+		TurnStartedAt  string `json:"turnStartedAt"`
+		BackgroundWake *struct {
+			Tasks []struct {
+				ID       string `json:"id"`
+				ExitCode *int   `json:"exitCode"`
+			} `json:"tasks"`
+		} `json:"backgroundWake"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&activity); err != nil {
+		t.Fatal(err)
+	}
+	if !activity.TurnActive || activity.TurnStartedAt != at.UTC().Format(time.RFC3339Nano) ||
+		activity.BackgroundWake == nil || len(activity.BackgroundWake.Tasks) != 1 || activity.BackgroundWake.Tasks[0].ID != "bg_3" {
+		t.Fatalf("activity of a woken turn = %+v (status %d)", activity, res.StatusCode)
+	}
+}
+
 // EventSource cannot set an Authorization header, so this route accepts the token the
 // same way the composer stream does.
 func TestCoddyEventsStreamAcceptsAccessTokenQuery(t *testing.T) {
@@ -146,7 +220,7 @@ func TestCoddyEventsStreamAcceptsAccessTokenQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res.Body.Close()
+	_ = res.Body.Close()
 	if res.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status %d without a token, want 401", res.StatusCode)
 	}
@@ -167,6 +241,30 @@ func TestTurnEventFrameShape(t *testing.T) {
 		t.Fatalf("frame %q is not a well-formed SSE frame", frame)
 	}
 	for _, want := range []string{`"object":"coddy.turn_event"`, `"sessionId":"sess_x"`, `"phase":"ended"`, "2026-08-10T12:00:00Z"} {
+		if !strings.Contains(frame, want) {
+			t.Fatalf("frame %q missing %s", frame, want)
+		}
+	}
+}
+
+// A woken turn is announced on the events stream under its own name, with the
+// tasks, so a client that follows only its own turns can tell it is worth
+// following.
+func TestWokenTurnEventFrameShape(t *testing.T) {
+	two := 2
+	frame := string(turnEventFrame(session.TurnEvent{
+		SessionID: "sess_x",
+		Phase:     session.TurnPhaseWoken,
+		At:        time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC),
+		Wake: &llm.BackgroundWake{Tasks: []llm.BackgroundWakeTask{
+			{ID: "bg_3", Kind: "command", Label: "make test", Status: "failed", ExitCode: &two, DurationMs: 90_000},
+		}},
+	}))
+	if !strings.HasPrefix(frame, "event: background_wake\ndata: ") || !strings.HasSuffix(frame, "\n\n") {
+		t.Fatalf("frame %q is not a well-formed background_wake frame", frame)
+	}
+	for _, want := range []string{`"object":"coddy.background_wake"`, `"sessionId":"sess_x"`, `"phase":"woken"`,
+		`"id":"bg_3"`, `"status":"failed"`, `"exitCode":2`, `"durationMs":90000`, `"label":"make test"`} {
 		if !strings.Contains(frame, want) {
 			t.Fatalf("frame %q missing %s", frame, want)
 		}

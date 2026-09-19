@@ -26,14 +26,21 @@ type footer struct {
 	title     string
 	modeID    string
 
-	tokensIn   int
-	tokensOut  int
-	ctxPercent float64
-	ctxMax     int
+	tokensIn  int
+	tokensOut int
+	// runningTasks is how many background tasks of the session run right now.
+	runningTasks int
+	ctxPercent   float64
+	ctxMax       int
 
 	provider  string
 	model     string
 	reasoning string
+	// permission is the session's permission mode; anything but ask is
+	// named on the first line, bypass in the warning colour (#292).
+	permission string
+	// overrides are the settings changed for a number of turns.
+	overrides []acp.TurnOverride
 
 	// usages holds the latest usage update per provider row; the active
 	// model's renders. now is the clock of the reset-time wording (tests pin
@@ -59,6 +66,9 @@ func (f *footer) AddTokens(in, out int) { f.tokensIn += in; f.tokensOut += out }
 // ResetTokens clears accumulated counters (new/switched session).
 func (f *footer) ResetTokens() { f.tokensIn, f.tokensOut = 0, 0 }
 
+// SetRunningTasks updates how many background tasks of the session run right now.
+func (f *footer) SetRunningTasks(n int) { f.runningTasks = n }
+
 // SetContext updates the context-window occupancy.
 func (f *footer) SetContext(percent float64, maxTokens int) {
 	f.ctxPercent, f.ctxMax = percent, maxTokens
@@ -68,6 +78,38 @@ func (f *footer) SetContext(percent float64, maxTokens int) {
 func (f *footer) SetModel(modelID, reasoning string) {
 	f.provider, f.model = splitModelID(modelID)
 	f.reasoning = reasoning
+}
+
+// SetSettings adopts a settings snapshot: the permission mode and the
+// overrides for the running and the next turns.
+func (f *footer) SetSettings(permission string, overrides []acp.TurnOverride) {
+	f.permission = permission
+	f.overrides = append([]acp.TurnOverride(nil), overrides...)
+}
+
+// overridesText renders the turn overrides: "next 2 turns: model x".
+func (f *footer) overridesText() string {
+	if len(f.overrides) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(f.overrides))
+	for _, o := range f.overrides {
+		label := o.Setting
+		if label == "permission_mode" {
+			label = "permissions"
+		}
+		scope := "this turn"
+		switch {
+		case o.Active && o.TurnsLeft > 0:
+			scope = "this turn +" + itoa(o.TurnsLeft)
+		case !o.Active && o.TurnsLeft == 1:
+			scope = "next turn"
+		case !o.Active:
+			scope = "next " + itoa(o.TurnsLeft) + " turns"
+		}
+		parts = append(parts, scope+": "+label+" "+tui.SanitizeText(o.Value))
+	}
+	return strings.Join(parts, " • ")
 }
 
 // SetUsage adopts a provider usage update for its provider row.
@@ -133,6 +175,19 @@ func (f *footer) Render(width int) []string {
 	if f.modeID == "plan" || f.modeID == "ask" {
 		line1 += " • " + f.modeID
 	}
+	// Background tasks outlive the turn that started them, and the status line that
+	// counts them goes away with the turn. The footer keeps saying what still runs,
+	// and names the command that lists it. The segment closes the line and is the part
+	// of it that changes what the operator does next, so when the line does not fit it
+	// is the path and the title that give way - a macOS temp folder or a deep monorepo
+	// path would otherwise push the count off the screen.
+	if f.runningTasks > 0 {
+		tasks := " • " + itoa(f.runningTasks) + " " + plural(f.runningTasks, "task", "tasks") + " running (/tasks)"
+		if room := width - tui.VisibleWidth(tasks); room >= 8 && tui.VisibleWidth(line1) > room {
+			line1 = tui.TruncateToWidth(line1, room, "...")
+		}
+		line1 += tasks
+	}
 
 	left := ""
 	if f.tokensIn > 0 || f.tokensOut > 0 {
@@ -160,9 +215,26 @@ func (f *footer) Render(width int) []string {
 	}
 	line2 := left + strings.Repeat(" ", gap) + right
 
+	// The permission mode closes the first line when it is not the asking
+	// one: bypass in the warning colour, so a session that approves
+	// everything never looks like one that asks.
+	first := th.Fg(roleDim, tui.TruncateToWidth(line1, width, "..."))
+	if f.permission != "" && f.permission != "ask" {
+		seg := " • " + strings.ReplaceAll(f.permission, "_", " ")
+		if room := width - tui.VisibleWidth(seg); room >= 8 {
+			role := roleDim
+			if f.permission == "bypass" {
+				role = roleWarning
+			}
+			first = th.Fg(roleDim, tui.TruncateToWidth(line1, room, "...")) + th.Fg(role, seg)
+		}
+	}
 	lines := []string{
-		th.Fg(roleDim, tui.TruncateToWidth(line1, width, "...")),
+		first,
 		th.Fg(roleDim, tui.TruncateToWidth(line2, width, "")),
+	}
+	if ov := f.overridesText(); ov != "" {
+		lines = append(lines, th.Fg(roleAccent, tui.TruncateToWidth(ov, width, "...")))
 	}
 	if usage := f.usageLine(width); usage != "" {
 		lines = append(lines, usage)

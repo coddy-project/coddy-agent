@@ -37,8 +37,8 @@ export function pickHeroAccentVerb(
   const n = HERO_ACCENT_VERBS.length;
   const sid = sessionId.trim();
   if (sid) {
-    return HERO_ACCENT_VERBS[hashString(sid) % n];
+    return HERO_ACCENT_VERBS[hashString(sid) % n] ?? HERO_ACCENT_VERBS[0];
   }
   const idx = ((homeGeneration % n) + n) % n;
-  return HERO_ACCENT_VERBS[idx];
+  return HERO_ACCENT_VERBS[idx] ?? HERO_ACCENT_VERBS[0];
 }

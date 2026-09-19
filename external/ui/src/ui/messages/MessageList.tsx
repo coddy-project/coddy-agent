@@ -10,26 +10,33 @@ import type { PermissionResolvedState } from "../chat/permissionTypes";
 import type { QuestionResolvedState } from "../chat/questionTypes";
 import type { TranscriptItem } from "../chat/types";
 import { AssistantMessage } from "./AssistantMessage";
-import { MemoryCopilotMessage } from "./MemoryCopilotMessage";
 import { SystemNoticeMessage } from "./SystemNoticeMessage";
 import { ThinkingMessage } from "./ThinkingMessage";
 import { CompactionMessage } from "./CompactionMessage";
+import { opensTurn } from "../chat/backgroundWake";
 import { ToolCallMessage } from "./ToolCallMessage";
 import type { BackgroundTask } from "../tasks/types";
+import type { TurnProgress } from "../chat/turnProgress";
 import { TypingDotsMessage } from "./TypingDotsMessage";
 import { UserMessage } from "./UserMessage";
 
-/** True while the main-model thinking row above assistant text is streaming for this memory row's turn (same bubble as memory). */
-function mainThinkingOverlapsMemory(
-  items: TranscriptItem[],
-  memIndex: number,
-): boolean {
-  for (let i = memIndex + 1; i < items.length; i++) {
-    const it = items[i];
-    if (!it || it.type === "user_message") return false;
-    if (it.type === "thinking" && it.status === "in_progress") return true;
+/**
+ * The turn's clock and tokens for the live line: what the server reported, and until it
+ * has (an older server never does) the creation time of the turn's user message.
+ */
+function turnLineProps(
+  progress: TurnProgress | null | undefined,
+  fallbackStartedAtMs: number | undefined,
+): { turnStartedAtMs?: number; turnTokens?: number } {
+  if (progress) {
+    return {
+      turnStartedAtMs: progress.startedAtMs,
+      turnTokens: progress.outputTokens,
+    };
   }
-  return false;
+  return typeof fallbackStartedAtMs === "number"
+    ? { turnStartedAtMs: fallbackStartedAtMs }
+    : {};
 }
 
 export function MessageList(props: {
@@ -63,6 +70,12 @@ export function MessageList(props: {
   /** Roots this session works in - its own directory, then its worktrees -
    *  which tool rows spell paths against. */
   pathRoots?: readonly string[];
+  /** The running turn's clock and generated tokens as the server reports them. */
+  turnProgress?: TurnProgress | null;
+  /** Background tasks running right now, system runs left out. */
+  runningTasks?: number;
+  /** Opens the Tasks panel from the live line's running-tasks segment. */
+  onOpenTasks?: () => void;
 }) {
   const permissionWaitingToolCallIds = useMemo(
     () => permissionPendingToolCallIds(props.items),
@@ -79,12 +92,17 @@ export function MessageList(props: {
     return byId;
   }, [props.items]);
 
+  // The server numbers every user-role message of the transcript, a woken
+  // turn's first message included, so the wake counts here too: an edit of a
+  // later message must name the message the server knows by that index.
   const userMsgIndices = useMemo(() => {
     const m = new Map<string, number>();
     let idx = 0;
     for (const it of props.items) {
       if (it.type === "user_message") {
         m.set(it.id, idx++);
+      } else if (it.type === "background_wake") {
+        idx++;
       }
     }
     return m;
@@ -104,7 +122,7 @@ export function MessageList(props: {
     for (let i = props.items.length - 1; i >= 0; i--) {
       const item = props.items[i];
       if (!item) continue;
-      if (item.type === "user_message") {
+      if (opensTurn(item)) {
         seenInTurn = false;
         inRunningTurn = false;
         continue;
@@ -176,56 +194,17 @@ export function MessageList(props: {
         if (it.type === "compaction") {
           return <CompactionMessage key={it.id} summary={it.summary} />;
         }
-        if (it.type === "memory_copilot") {
-          return (
-            <MemoryCopilotMessage
-              key={it.id}
-              mainThinkingInProgress={mainThinkingOverlapsMemory(
-                props.items,
-                idx,
-              )}
-              {...(typeof it.memoryStatus !== "undefined"
-                ? { memoryStatus: it.memoryStatus }
-                : {})}
-              {...(typeof it.memoryText === "string"
-                ? { memoryText: it.memoryText }
-                : {})}
-              recallStatus={it.recallStatus}
-              persistStatus={it.persistStatus}
-              recallText={it.recallText}
-              persistText={it.persistText}
-              {...(typeof it.recallDurationMs === "number"
-                ? { recallDurationMs: it.recallDurationMs }
-                : {})}
-              {...(typeof it.persistDurationMs === "number"
-                ? { persistDurationMs: it.persistDurationMs }
-                : {})}
-              {...(typeof it.memoryWallStartedAtMs === "number"
-                ? { memoryWallStartedAtMs: it.memoryWallStartedAtMs }
-                : {})}
-              {...(typeof it.memoryWallLiveCapMs === "number"
-                ? { memoryWallLiveCapMs: it.memoryWallLiveCapMs }
-                : {})}
-              {...(typeof it.memoryWallDurationMs === "number"
-                ? { memoryWallDurationMs: it.memoryWallDurationMs }
-                : {})}
-              {...(typeof it.persistSaved === "boolean"
-                ? { persistSaved: it.persistSaved }
-                : {})}
-              {...(it.persistRelativePath !== undefined
-                ? { persistRelativePath: it.persistRelativePath }
-                : {})}
-              {...(it.persistTitle !== undefined
-                ? { persistTitle: it.persistTitle }
-                : {})}
-              {...(it.persistSavedBody !== undefined
-                ? { persistSavedBody: it.persistSavedBody }
-                : {})}
-              {...(it.recallReadPaths !== undefined
-                ? { recallReadPaths: it.recallReadPaths }
-                : {})}
-            />
-          );
+        if (it.type === "background_wake") {
+          // Nobody typed the first message of a turn a finished background
+          // task started, and nothing stands in its place: the agent's answer
+          // reads as the work carrying on, and the task's card in the Tasks
+          // panel keeps a bell for what woke it.
+          return null;
+        }
+        if (it.type === "memory_run") {
+          // The memory subagent's run is the live status line's business and
+          // the Tasks drawer's record; the transcript shows nothing for it.
+          return null;
         }
         if (it.type === "assistant_message") {
           // Whitespace alone is a zero-height row that still takes the column's
@@ -395,6 +374,9 @@ export function MessageList(props: {
           {...(typeof liveStatus?.startedAtMs === "number"
             ? { startedAtMs: liveStatus.startedAtMs }
             : {})}
+          {...turnLineProps(props.turnProgress, liveStatus?.turnStartedAtMs)}
+          {...(props.runningTasks ? { runningTasks: props.runningTasks } : {})}
+          {...(props.onOpenTasks ? { onOpenTasks: props.onOpenTasks } : {})}
         />
       ) : null}
     </>

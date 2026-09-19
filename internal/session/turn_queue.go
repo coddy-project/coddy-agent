@@ -25,6 +25,10 @@ var (
 	// in a conversation they no longer belong to: the caller sends it as an
 	// ordinary prompt instead.
 	ErrNoActiveTurn = errors.New("no agent turn is running for this session")
+	// ErrTurnScopedFollowUp refuses a follow-up that starts with a settings
+	// command for a number of turns (--once, --count=N): the queue is read by
+	// the running turn, which has no next turn of its own to give it.
+	ErrTurnScopedFollowUp = errors.New("a --once or --count command with a message cannot join the running turn: send the message after the turn, or send the command on its own")
 
 	// ErrQueueFull is returned when the session already holds MaxQueuedMessages.
 	ErrQueueFull = fmt.Errorf("the message queue is full (%d messages)", MaxQueuedMessages)
@@ -91,6 +95,28 @@ func (s *State) SetQueueNotifier(fn func()) {
 	s.queueMu.Lock()
 	s.queueNotify = fn
 	s.queueMu.Unlock()
+}
+
+// SetQueuedMentionResolver registers how a follow-up read from the queue has
+// its "@" references resolved. The manager installs its resolver when a turn
+// opens the queue, so a message written mid-turn attaches what it names the
+// same way the prompt that started the turn did.
+func (s *State) SetQueuedMentionResolver(fn func([]acp.ContentBlock) []acp.ContentBlock) {
+	s.queueMu.Lock()
+	s.queueMentions = fn
+	s.queueMu.Unlock()
+}
+
+// ResolveQueuedMentions resolves the references of a follow-up with the
+// resolver of the running turn; without one the blocks come back as they are.
+func (s *State) ResolveQueuedMentions(blocks []acp.ContentBlock) []acp.ContentBlock {
+	s.queueMu.Lock()
+	fn := s.queueMentions
+	s.queueMu.Unlock()
+	if fn == nil {
+		return blocks
+	}
+	return fn(blocks)
 }
 
 // notifyQueue runs the registered notifier. It is called with queueMu released,

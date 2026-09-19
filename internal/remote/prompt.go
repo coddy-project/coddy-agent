@@ -10,20 +10,23 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/mention"
 	"github.com/EvilFreelancer/coddy-agent/internal/plans"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 // responsesRequest is the POST /v1/responses body a remote turn sends.
 type responsesRequest struct {
-	Model       string            `json:"model"`
-	Input       string            `json:"input"`
-	Stream      bool              `json:"stream"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
-	InlineFiles []inlineFile      `json:"inline_files,omitempty"`
+	Model       string                         `json:"model"`
+	Input       string                         `json:"input"`
+	Stream      bool                           `json:"stream"`
+	Metadata    map[string]string              `json:"metadata,omitempty"`
+	InlineFiles []inlineFile                   `json:"inline_files,omitempty"`
+	Attachments []session.PromptFileAttachment `json:"attachments,omitempty"`
 }
 
 type inlineFile struct {
@@ -90,7 +93,13 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	}
 	defer h.endTurn(st, owned)
 
-	body := responsesRequest{Model: mode, Input: promptInput(params.Prompt), Stream: true}
+	input, attachments := promptInput(params.Prompt)
+	// Settings asked for before the server had this session travel as the
+	// commands that ask for them, at the start of its first prompt.
+	if pending := h.takePendingSettings(st); pending != "" {
+		input = pending + "\n" + input
+	}
+	body := responsesRequest{Model: mode, Input: input, Stream: true, Attachments: attachments}
 	if selected != "" {
 		body.Metadata = map[string]string{"model": selected}
 	}
@@ -201,6 +210,14 @@ type turnStream struct {
 	done       bool
 	turnErr    string
 	stopReason string
+
+	// follow marks a turn this client did not start (follow.go). Its
+	// permission prompts are asked aside, without holding up the stream: a
+	// browser watching the same turn may answer first, and the stream says so
+	// with the tool call's final status, which withdraws the question here.
+	follow bool
+	asksMu sync.Mutex
+	asks   map[string]context.CancelFunc
 }
 
 // onFrame translates one SSE frame into ACP updates or answer round-trips.
@@ -217,6 +234,7 @@ func (t *turnStream) onFrame(f sseFrame) error {
 		var u acp.ToolCallStatusUpdate
 		if json.Unmarshal([]byte(f.data), &u) == nil {
 			_ = t.sender.SendSessionUpdate(t.sessionID, u)
+			t.settleAsk(u)
 		}
 	case "plan":
 		var u acp.PlanUpdate
@@ -233,27 +251,50 @@ func (t *turnStream) onFrame(f sseFrame) error {
 		if json.Unmarshal([]byte(f.data), &u) == nil {
 			_ = t.sender.SendSessionUpdate(t.sessionID, u)
 		}
+	case "turn_progress":
+		// The turn's clock travels as a duration next to the start, so the
+		// console counts from its own now minus ElapsedMs whatever the two
+		// machines' clocks say. This stream is the turn's own, so a frame is
+		// as fresh as the network is.
+		var u acp.TurnProgressUpdate
+		if json.Unmarshal([]byte(f.data), &u) == nil {
+			_ = t.sender.SendSessionUpdate(t.sessionID, u)
+		}
 	case "provider_usage":
 		var u acp.ProviderUsageUpdate
 		if json.Unmarshal([]byte(f.data), &u) == nil {
 			_ = t.sender.SendSessionUpdate(t.sessionID, u)
+		}
+	case "session_settings":
+		// A change of the session's settings during this turn: the same
+		// frame the events stream carries, which is where the console
+		// hears it from (events.go); here it only updates the mirror.
+		var u acp.SessionSettingsUpdate
+		if json.Unmarshal([]byte(f.data), &u) == nil {
+			t.h.mirrorSettings(t.sessionID, u.Settings)
 		}
 	case "available_commands":
 		var u acp.AvailableCommandsUpdate
 		if json.Unmarshal([]byte(f.data), &u) == nil {
 			_ = t.sender.SendSessionUpdate(t.sessionID, u)
 		}
-	case "memory_phase":
-		var u acp.MemoryPhaseUpdate
+	case "memory_run":
+		var u acp.MemoryRunUpdate
 		if json.Unmarshal([]byte(f.data), &u) == nil {
 			_ = t.sender.SendSessionUpdate(t.sessionID, u)
 		}
-	case "memory_chunk":
-		var u acp.MemoryMessageChunkUpdate
+	case "background_wake":
+		// The first frame of a turn a finished background task started.
+		var u acp.BackgroundWakeUpdate
 		if json.Unmarshal([]byte(f.data), &u) == nil {
+			u.SessionUpdate = acp.UpdateTypeBackgroundWake
 			_ = t.sender.SendSessionUpdate(t.sessionID, u)
 		}
 	case "permission":
+		if t.follow {
+			t.askAside(f.data)
+			return nil
+		}
 		return t.onPermission(f.data)
 	case "question":
 		return t.onQuestion(f.data)
@@ -339,6 +380,64 @@ func (t *turnStream) onPermission(data string) error {
 	return nil
 }
 
+// askAside is onPermission for a followed turn: the question is put to the
+// surface on a goroutine of its own, so the stream keeps being read, and it is
+// withdrawn when the tool call reaches its final status - somebody else
+// answered - or when the follower stops.
+func (t *turnStream) askAside(data string) {
+	var params acp.PermissionRequestParams
+	if err := json.Unmarshal([]byte(data), &params); err != nil {
+		return
+	}
+	callID := params.ToolCall.ToolCallID
+	ctx, cancel := context.WithCancel(t.ctx)
+	t.asksMu.Lock()
+	if t.asks == nil {
+		t.asks = map[string]context.CancelFunc{}
+	}
+	if prev := t.asks[callID]; prev != nil {
+		prev()
+	}
+	t.asks[callID] = cancel
+	t.asksMu.Unlock()
+	go func() {
+		defer cancel()
+		res, err := t.sender.RequestPermission(ctx, params)
+		if ctx.Err() != nil || err != nil || res == nil {
+			return
+		}
+		optionID := res.OptionID
+		if optionID == "" && res.Outcome == "allow" {
+			optionID = "allow"
+		}
+		if optionID == "" {
+			return
+		}
+		answer := map[string]string{"toolCallId": callID, "optionId": optionID}
+		path := "/coddy/sessions/" + url.PathEscape(t.sessionID) + "/permission"
+		if perr := t.h.postJSON(ctx, path, answer, nil); perr != nil && !isStaleAnswer(perr) {
+			t.h.log.Warn("remote woken turn: permission answer failed", "session", t.sessionID, "toolCallId", callID, "error", perr)
+		}
+	}()
+}
+
+// settleAsk withdraws the question asked aside for a tool call that reached
+// its final status: it was answered, here or elsewhere.
+func (t *turnStream) settleAsk(u acp.ToolCallStatusUpdate) {
+	switch u.Status {
+	case "completed", "failed", "cancelled":
+	default:
+		return
+	}
+	t.asksMu.Lock()
+	cancel := t.asks[u.ToolCallID]
+	delete(t.asks, u.ToolCallID)
+	t.asksMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
 // onQuestion forwards the question to the surface and posts the answers back.
 func (t *turnStream) onQuestion(data string) error {
 	var params acp.QuestionRequestParams
@@ -358,27 +457,50 @@ func (t *turnStream) onQuestion(data string) error {
 	return nil
 }
 
-// promptInput flattens an ACP prompt for the HTTP input field: text blocks
-// verbatim, embedded resource blocks (editor context) inlined with their URI
-// so the remote agent sees the same context a local turn would hydrate.
-func promptInput(blocks []acp.ContentBlock) string {
+// promptInput splits an ACP prompt for POST /v1/responses: the text blocks
+// become the input, a resource the editor embedded travels as an attachment
+// with its text as the literal body - so the server resolves the "@"
+// references of what was typed and never scans a file's contents for them -
+// and a resource_link, which names something on the editor's machine rather
+// than the server's, is written into the input as the link it is.
+func promptInput(blocks []acp.ContentBlock) (string, []session.PromptFileAttachment) {
 	var b strings.Builder
+	var atts []session.PromptFileAttachment
 	for _, blk := range blocks {
 		switch blk.Type {
-		case "text":
+		case acp.ContentTypeText:
 			b.WriteString(blk.Text)
-		case "resource":
+		case acp.ContentTypeResource:
 			if blk.Resource == nil || blk.Resource.Text == "" {
 				continue
 			}
-			b.WriteString("\n\n")
-			if blk.Resource.URI != "" {
-				b.WriteString("[" + blk.Resource.URI + "]\n")
+			uri := strings.TrimSpace(blk.Resource.URI)
+			if uri == "" {
+				uri = "attachment"
 			}
-			b.WriteString(blk.Resource.Text)
+			att := session.PromptFileAttachment{
+				Path:   uri,
+				Source: &session.PromptFileAttachmentSourceField{Literal: blk.Resource.Text},
+			}
+			// Piped stdin keeps its kind on the wire, so the server builds the
+			// same block a local run does rather than a file named "stdin".
+			if m := blk.Resource.Mention; m != nil && m.Kind == mention.KindStdin {
+				att.Kind = mention.KindStdin
+			}
+			atts = append(atts, att)
+		case acp.ContentTypeResourceLink:
+			label := strings.TrimSpace(blk.Title)
+			if label == "" {
+				label = strings.TrimSpace(blk.Name)
+			}
+			b.WriteString(" [")
+			b.WriteString(label)
+			b.WriteString("](")
+			b.WriteString(strings.TrimSpace(blk.URI))
+			b.WriteString(")")
 		}
 	}
-	return b.String()
+	return b.String(), atts
 }
 
 // planSlug extracts the run-plan slug from ACP prompt _meta.

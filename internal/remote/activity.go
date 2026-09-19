@@ -2,8 +2,10 @@ package remote
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -50,7 +52,7 @@ func (h *Handler) RefreshSessionState(sessionID string) {
 	go func() {
 		ctx, cancel := context.WithTimeout(h.controlCtx, restTimeout)
 		defer cancel()
-		active, err := h.sessionActivity(ctx, sessionID)
+		activity, err := h.sessionActivity(ctx, sessionID)
 		if err != nil {
 			if ctx.Err() == nil {
 				h.log.Warn("remote session activity", "session", sessionID, "error", err)
@@ -60,7 +62,13 @@ func (h *Handler) RefreshSessionState(sessionID string) {
 			current := h.sessions[sessionID] == st && st.activityRevision == revision && ctx.Err() == nil
 			h.mu.Unlock()
 			if current {
-				h.sendActivity(sessionID, active, revision)
+				h.sendActivity(sessionID, activity.active, revision)
+			}
+			// A turn finished background tasks started is running: this
+			// client opened the session - or came back to the server - after
+			// the wake was announced, and follows the turn from here.
+			if activity.active && activity.wokenTurn != "" {
+				h.followTurn(sessionID, activity.wokenTurn)
 			}
 		}
 
@@ -112,22 +120,36 @@ func (h *Handler) refreshQueue(sessionID string, fence queueFence) {
 	}
 }
 
-func (h *Handler) sessionActivity(ctx context.Context, sessionID string) (bool, error) {
+// sessionActivity is what GET .../activity says about the session's turn:
+// whether one runs, and - for a turn finished background tasks started - its
+// start, which names the turn to a follower (followTurn).
+type sessionActivity struct {
+	active    bool
+	wokenTurn string
+}
+
+func (h *Handler) sessionActivity(ctx context.Context, sessionID string) (sessionActivity, error) {
 	var out struct {
-		SessionID  string `json:"sessionId"`
-		TurnActive *bool  `json:"turnActive"`
+		SessionID      string          `json:"sessionId"`
+		TurnActive     *bool           `json:"turnActive"`
+		TurnStartedAt  string          `json:"turnStartedAt"`
+		BackgroundWake json.RawMessage `json:"backgroundWake"`
 	}
 	err := h.getJSON(ctx, "/coddy/sessions/"+url.PathEscape(sessionID)+"/activity", &out)
 	if isNotFound(err) {
-		return false, nil // a newly minted remote session has no bundle yet
+		return sessionActivity{}, nil // a newly minted remote session has no bundle yet
 	}
 	if err != nil {
-		return false, err
+		return sessionActivity{}, err
 	}
 	if out.TurnActive == nil || (out.SessionID != "" && out.SessionID != sessionID) {
-		return false, fmt.Errorf("remote coddy: invalid session activity answer")
+		return sessionActivity{}, fmt.Errorf("remote coddy: invalid session activity answer")
 	}
-	return *out.TurnActive, nil
+	res := sessionActivity{active: *out.TurnActive}
+	if raw := strings.TrimSpace(string(out.BackgroundWake)); raw != "" && raw != "null" {
+		res.wokenTurn = strings.TrimSpace(out.TurnStartedAt)
+	}
+	return res, nil
 }
 
 func (h *Handler) applyActivityEvent(sessionID string, active bool) {

@@ -118,6 +118,31 @@ def main() -> int:
         print("expected fruit to be persisted in memory markdown", file=sys.stderr)
         return 1
 
+    # The run is a system agent task of the session, named memory, with the
+    # child session that holds its transcript.
+    coddy_base = base[: -len("/v1")] if base.endswith("/v1") else base
+    code, tasks, _ = http_json("GET", f"{coddy_base}/coddy/sessions/{sid}/background-tasks", None, {})
+    if code != 200:
+        print("background-tasks failed", file=sys.stderr)
+        return 1
+    runs = [
+        row
+        for row in tasks.get("data") or []
+        if row.get("kind") == "agent" and (row.get("agent") or {}).get("name") == "memory" and (row.get("agent") or {}).get("system") is True
+    ]
+    if not runs:
+        print(f"expected a memory run among the background tasks, got {tasks}", file=sys.stderr)
+        return 1
+    child = (runs[-1].get("agent") or {}).get("session_id") or ""
+    if not child:
+        print(f"the memory task names no child session: {runs[-1]}", file=sys.stderr)
+        return 1
+    code, msgs, _ = http_json("GET", f"{coddy_base}/coddy/sessions/{child}/messages", None, {})
+    if code != 200 or msgs.get("readOnly") is not True:
+        print(f"expected the memory child transcript to be readable and read-only, got {code} {msgs}", file=sys.stderr)
+        return 1
+    print(f"memory runs: {len(runs)}, last child transcript: {child}", file=sys.stderr)
+
     print("ok http memory e2e")
     return 0
 

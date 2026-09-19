@@ -129,6 +129,39 @@ func TestCheckEnumListsTheAllowedValues(t *testing.T) {
 	}
 }
 
+// TestCheckProviderProxyWordPointsAtTheKey covers a proxy value that is
+// neither a keyword nor a URL: the finding sits on the value, names the
+// accepted words and carries the key's own doc line.
+func TestCheckProviderProxyWordPointsAtTheKey(t *testing.T) {
+	rep := checkYAML(t, withModeline("providers:\n  - name: local\n    type: openai\n    api_base: http://127.0.0.1:8080/v1\n    proxy: direct\n"))
+	f := onlyError(t, rep)
+	if f.Line != 6 || f.Column != 12 {
+		t.Errorf("position %d:%d, want 6:12", f.Line, f.Column)
+	}
+	if !strings.Contains(f.Message, `use "none"`) || !strings.Contains(f.Message, `"inherit"`) {
+		t.Errorf("message %q does not name the accepted words", f.Message)
+	}
+	if !strings.HasPrefix(f.Doc, "inherit (the default") {
+		t.Errorf("doc %q is not the description of providers[].proxy", f.Doc)
+	}
+}
+
+// TestCheckTelegramProxyWordPointsAtTheKey is the same for the Telegram
+// gateway, whose proxy reads like a provider's.
+func TestCheckTelegramProxyWordPointsAtTheKey(t *testing.T) {
+	rep := checkYAML(t, withModeline("gateways:\n  telegram:\n    enable: true\n    proxy: direct\n"))
+	f := onlyError(t, rep)
+	if f.Line != 5 || f.Column != 12 {
+		t.Errorf("position %d:%d, want 5:12", f.Line, f.Column)
+	}
+	if !strings.HasPrefix(f.Message, "gateways.telegram.proxy: unknown value") {
+		t.Errorf("message %q does not open with the key", f.Message)
+	}
+	if !strings.HasPrefix(f.Doc, "inherit (the default") {
+		t.Errorf("doc %q is not the description of gateways.telegram.proxy", f.Doc)
+	}
+}
+
 func TestCheckEnumSuggestsTheClosestValue(t *testing.T) {
 	rep := checkYAML(t, withModeline("tools:\n  permission_mode: bypas\n"))
 	f := onlyError(t, rep)
@@ -634,5 +667,34 @@ func TestUnsentModelSettingsNameCodexMaxTokensOnly(t *testing.T) {
 	(&Config{Models: []ModelEntry{{Model: "local/qwen", MaxTokens: 4096}}, Providers: []ProviderConfig{{Name: "local", Type: "openai"}}}).LogUnsentModelSettings(slog.New(slog.NewTextHandler(&buf, nil)))
 	if buf.Len() != 0 {
 		t.Fatalf("a config without unsent settings logged %q", buf.String())
+	}
+}
+
+// A memory addendum longer than its cap is a warning at the key, with the
+// counts and the fix; a text within the cap says nothing.
+func TestCheckWarnsWhenTheMemoryAddendumIsCut(t *testing.T) {
+	src := "memory:\n  enable: true\n  additional_prompt: \"Only deal with the notes, never the task\"\n  additional_prompt_max_chars: 10\n"
+	var hit *Finding
+	findings := checkConfigBytes([]byte(src), Paths{})
+	for _, f := range findings {
+		if strings.Contains(f.Message, "memory.additional_prompt is 40 characters") {
+			cp := f
+			hit = &cp
+		}
+	}
+	if hit == nil {
+		t.Fatalf("no warning about the cut addendum in %+v", findings)
+	}
+	if hit.Severity != SeverityWarning || hit.Line != 3 {
+		t.Fatalf("finding = %+v, want a warning on line 3", *hit)
+	}
+	if !strings.Contains(hit.Message, "reads the first 10") || !strings.Contains(hit.Fix, "additional_prompt_max_chars") {
+		t.Fatalf("finding = %+v, want the cap in the message and the fix", *hit)
+	}
+	src = "memory:\n  enable: true\n  additional_prompt: \"short\"\n  additional_prompt_max_chars: 10\n"
+	for _, f := range checkConfigBytes([]byte(src), Paths{}) {
+		if strings.Contains(f.Message, "memory.additional_prompt") {
+			t.Fatalf("a text within the cap was reported: %+v", f)
+		}
 	}
 }

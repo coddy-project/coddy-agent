@@ -243,7 +243,7 @@ For a local **`Dockerfile`** build, use **`docker-compose.dev.yml`** - see [Dock
 - **`http`** - **`coddy serve`** and REST gateway (see **[docs/reference/http-api.md](../reference/http-api.md)**).
 - **`ui`** - embedded SPA on **`/`** (needs **`http`**).
 - **`scheduler`** - scheduler subsystem (**[docs/operate/scheduler.md](../operate/scheduler.md)**).
-- **`memory`** - long-term memory copilot and session memory REST (**[external/memory/README.md](../../external/memory/README.md)**); toggle runtime behavior via **`memory.enable`**.
+- **`memory`** - the long-term memory subagent and the session memory REST (**[external/memory/README.md](../../external/memory/README.md)**); toggle runtime behavior via **`memory.enable`**.
 
 To build an image **without** memory or the embedded UI, override **`BUILD_TAGS`** (for example **`http,scheduler,ui`** or **`http,scheduler`**) via **`docker compose` `args`** or **`docker build --build-arg`**.
 

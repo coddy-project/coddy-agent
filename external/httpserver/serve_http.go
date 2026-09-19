@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/httpx"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
@@ -35,6 +36,7 @@ func Serve(ctx context.Context, opts Options) error {
 	}
 	log := opts.Log
 	llm.LogCodexAuthNotices(log, opts.Cfg)
+	llm.LogDevinAuthNotices(log, opts.Cfg)
 	opts.Cfg.LogUnsentModelSettings(log)
 	llm.LogNeuralDeepAuthNotices(log, opts.Cfg)
 
@@ -55,6 +57,15 @@ func Serve(ctx context.Context, opts Options) error {
 	if opts.OnServer != nil {
 		opts.OnServer(s)
 		defer opts.OnServer(nil)
+	}
+	// A task that asked to be notified wakes the agent. In `coddy serve` the
+	// runtime owns the waker and this server is where a woken turn runs when
+	// no chat owns the session; on its own the server attaches a waker itself.
+	if opts.Wakes != nil {
+		withdrawWakes := opts.Wakes.AddWakeSurface(s, agent.WakeHost)
+		defer withdrawWakes()
+	} else {
+		s.AttachBackgroundWaker()
 	}
 
 	tokenOn := len(opts.Cfg.HTTPServer.EffectiveAuthTokens()) > 0 || len(opts.ExtraAuthTokens) > 0

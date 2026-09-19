@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/mention"
 	"github.com/EvilFreelancer/coddy-agent/internal/textenc"
 )
 
@@ -22,6 +23,27 @@ const MaxPromptAttachmentBytes = 512 * 1024
 type PromptFileAttachment struct {
 	Path   string                           `json:"path"`
 	Source *PromptFileAttachmentSourceField `json:"source,omitempty"`
+	// Kind says what a literal body is when it is not a file's text. The one
+	// value is mention.KindStdin: what was piped into a one-shot run under a
+	// typed prompt (a remote console sends it that way).
+	Kind string `json:"kind,omitempty"`
+}
+
+// StdinAttachmentPath names the attachment a one-shot run makes of its piped
+// stdin.
+const StdinAttachmentPath = "stdin"
+
+// StdinAttachment is the block a one-shot run adds after its prompt for what
+// was piped into it (`git diff | coddy -p "review"`). It is a resource, not
+// text, so nothing scans it: no "@" in it reads a file or fetches a page, no
+// "/command" in it runs, and the transcript shows mention.StdinLabel for it.
+func StdinAttachment(text string) acp.ContentBlock {
+	return acp.ContentBlock{Type: acp.ContentTypeResource, Resource: &acp.Resource{
+		URI:      StdinAttachmentPath,
+		MimeType: "text/plain; charset=utf-8",
+		Text:     text,
+		Mention:  &acp.ResourceMention{Kind: mention.KindStdin},
+	}}
 }
 
 // PromptFileAttachmentSourceField selects how attachment body is sourced.
@@ -69,6 +91,15 @@ func SplitLineRangeURI(uri string) (base string, startLine, endLine int) {
 		return uri, 0, 0
 	}
 	return m[1], s, e
+}
+
+// atoiDigits converts an all-digit string; callers bound its length first.
+func atoiDigits(s string) int {
+	v := 0
+	for i := 0; i < len(s); i++ {
+		v = v*10 + int(s[i]-'0')
+	}
+	return v
 }
 
 // ErrLineRange marks a line range an attachment cannot honour: zero or inverted
@@ -162,6 +193,39 @@ func BuildHydratedComposerPrompt(cwdAbs, input string, attachments []PromptFileA
 		if rel == "" {
 			return nil, fmt.Errorf("attachment path is empty")
 		}
+		literal := a.Source != nil && strings.TrimSpace(a.Source.Literal) != ""
+		switch kind := strings.TrimSpace(a.Kind); {
+		case kind == "":
+		case kind != mention.KindStdin:
+			return nil, fmt.Errorf("invalid attachment kind %q: the one kind is %s", kind, mention.KindStdin)
+		case !literal:
+			return nil, fmt.Errorf("invalid attachment: kind %s needs its body in source.literal", kind)
+		default:
+			if !utf8.ValidString(a.Source.Literal) {
+				return nil, fmt.Errorf("literal attachment is not valid UTF-8")
+			}
+			out = append(out, StdinAttachment(a.Source.Literal))
+			continue
+		}
+		if literal {
+			text := a.Source.Literal
+			if !utf8.ValidString(text) {
+				return nil, fmt.Errorf("literal attachment is not valid UTF-8")
+			}
+			// The body is whatever the client sent, so no line label is
+			// claimed for it, and its path only names it: an editor's file://
+			// URI or a path outside the workspace reads nothing from disk. A
+			// file:// one is named the way a mention of that file would be.
+			res := &acp.Resource{URI: filepath.ToSlash(rel), MimeType: "text/plain; charset=utf-8", Text: text}
+			if base, _, _ := splitClientURI(rel); strings.HasPrefix(base, "file:") {
+				if loc, ok := mention.Resolve(cwdAbs, mention.HomeDir(), base); ok {
+					res.URI = loc.Display
+					res.Mention = &acp.ResourceMention{Kind: mention.KindFile, Path: loc.Abs}
+				}
+			}
+			out = append(out, acp.ContentBlock{Type: acp.ContentTypeResource, Resource: res})
+			continue
+		}
 		if _, err := NormalizeWorkspaceRelativePath(rel); err != nil {
 			return nil, err
 		}
@@ -169,22 +233,6 @@ func BuildHydratedComposerPrompt(cwdAbs, input string, attachments []PromptFileA
 			return nil, ErrFolderAttach
 		}
 		uri := filepath.ToSlash(strings.TrimSpace(rel))
-		if a.Source != nil && strings.TrimSpace(a.Source.Literal) != "" {
-			text := a.Source.Literal
-			if !utf8.ValidString(text) {
-				return nil, fmt.Errorf("literal attachment is not valid UTF-8")
-			}
-			// The body is whatever the client sent, so no line label is claimed for it.
-			out = append(out, acp.ContentBlock{
-				Type: "resource",
-				Resource: &acp.Resource{
-					URI:      uri,
-					MimeType: "text/plain; charset=utf-8",
-					Text:     text,
-				},
-			})
-			continue
-		}
 		text, mime, err := ReadWorkspaceUTF8(cwdAbs, rel)
 		if err != nil {
 			return nil, err
@@ -216,34 +264,84 @@ func BuildHydratedComposerPrompt(cwdAbs, input string, attachments []PromptFileA
 	return out, nil
 }
 
-// HydratePromptContentBlocks fills empty resource block text from disk and resolves file:// URIs under cwd.
+// HydratePromptContentBlocks prepares a prompt without a session behind it:
+// the resources a client sent are filled from disk (hydrateClientResources)
+// and the "@" references of the text are resolved to files and folders
+// (ResolveMentionsInDir). A session turn goes through the manager instead,
+// which also resolves the references that need a session.
 func HydratePromptContentBlocks(cwdAbs string, blocks []acp.ContentBlock) ([]acp.ContentBlock, error) {
+	out, err := hydrateClientResources(cwdAbs, blocks)
+	if err != nil {
+		return nil, err
+	}
+	return ResolveMentionsInDir(cwdAbs, out), nil
+}
+
+// hydrateClientResources fills the resources an ACP client sent without their
+// text from disk, and turns each "resource_link" into what it names: a file's
+// text, a folder's listing, or - for a link the agent cannot open itself, such
+// as an editor-internal URI - a line naming it, so the model at least knows
+// what the user pointed at. A resource the client sent is explicit, so one that
+// cannot be read (a missing file, lines past the end) fails the prompt; a link
+// that names nothing readable does not.
+func hydrateClientResources(cwdAbs string, blocks []acp.ContentBlock) ([]acp.ContentBlock, error) {
 	cwdAbs, err := filepath.Abs(filepath.Clean(cwdAbs))
 	if err != nil {
 		return nil, err
 	}
-	out := make([]acp.ContentBlock, len(blocks))
-	copy(out, blocks)
-	for i := range out {
-		if out[i].Type != "resource" || out[i].Resource == nil {
+	home := mention.HomeDir()
+	r := &mentionResolver{cwd: cwdAbs, home: home, seen: map[string]bool{}}
+	out := make([]acp.ContentBlock, 0, len(blocks))
+	for _, b := range blocks {
+		switch {
+		case b.Type == acp.ContentTypeResourceLink:
+			out = append(out, r.resourceLinkBlock(b))
+			continue
+		case b.Type != acp.ContentTypeResource || b.Resource == nil:
+			out = append(out, b)
 			continue
 		}
-		res := out[i].Resource
+		res := b.Resource
+		baseURI, startLine, endLine := splitClientURI(res.URI)
 		if strings.TrimSpace(res.Text) != "" {
+			// Embedded by the client (Zed reads the buffer itself, unsaved
+			// edits included): the text stays as sent, and a file:// one is
+			// named the way a mention of that file would be.
+			if named := nameEmbeddedFile(cwdAbs, home, res, baseURI, startLine, endLine); named != nil {
+				b.Resource = named
+			}
+			out = append(out, b)
 			continue
 		}
-		baseURI, startLine, endLine := SplitLineRangeURI(res.URI)
-		rel, err := resourceURIWorkspaceRel(cwdAbs, baseURI)
+		if !isLocalResourceURI(baseURI) {
+			// Nothing to read here (an editor-internal URI with no text).
+			out = append(out, r.resourceLinkBlock(acp.ContentBlock{Type: acp.ContentTypeResourceLink, URI: res.URI}))
+			continue
+		}
+		loc, ok := mention.Resolve(cwdAbs, home, baseURI)
+		if !ok {
+			return nil, fmt.Errorf("empty resource uri")
+		}
+		info, err := os.Stat(loc.Abs)
 		if err != nil {
 			return nil, err
 		}
-		if rel == "" {
-			return nil, fmt.Errorf("empty resource uri")
+		uri := res.URI
+		if strings.HasPrefix(baseURI, "file:") {
+			uri = lineRangeURI(loc.Display, startLine, endLine)
 		}
-		if strings.HasSuffix(filepath.ToSlash(rel), "/") {
-			return nil, ErrFolderAttach
+		filled := &acp.Resource{URI: uri, MimeType: "text/plain; charset=utf-8", Mention: res.Mention}
+		if info.IsDir() {
+			display := strings.TrimSuffix(loc.Display, "/") + "/"
+			if loc.Display == "./" {
+				display = "./"
+			}
+			filled.Text = r.listFolder(loc, display)
+			filled.Mention = &acp.ResourceMention{Kind: mention.KindDirectory, Path: loc.Abs}
+			out = append(out, acp.ContentBlock{Type: acp.ContentTypeResource, Resource: filled})
+			continue
 		}
-		text, mime, err := ReadWorkspaceUTF8(cwdAbs, rel)
+		text, mime, err := readClientResource(loc, info)
 		if err != nil {
 			return nil, err
 		}
@@ -254,116 +352,144 @@ func HydratePromptContentBlocks(cwdAbs string, blocks []acp.ContentBlock) ([]acp
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", res.URI, err)
 		}
-		out[i].Resource = &acp.Resource{
-			URI:      res.URI,
-			MimeType: mime,
-			Text:     sliced,
+		filled.Text, filled.MimeType = sliced, mime
+		if filled.Mention == nil {
+			filled.Mention = &acp.ResourceMention{Kind: mention.KindFile, Path: loc.Abs}
 		}
+		out = append(out, acp.ContentBlock{Type: acp.ContentTypeResource, Resource: filled})
 	}
-
-	covered := make(map[string]struct{})
-	for _, b := range out {
-		if b.Type != "resource" || b.Resource == nil {
-			continue
-		}
-		if strings.TrimSpace(b.Resource.Text) == "" {
-			continue
-		}
-		key, err := normalizedResourceRelativeKey(cwdAbs, b.Resource.URI)
-		if err != nil || key == "" {
-			continue
-		}
-		covered[key] = struct{}{}
-	}
-
-	rebuilt := make([]acp.ContentBlock, 0, len(out)+4)
-	for _, b := range out {
-		rebuilt = append(rebuilt, b)
-		if b.Type != "text" && b.Type != acp.ContentTypeText {
-			continue
-		}
-		for _, ref := range ExtractAtFileRefsFromText(b.Text) {
-			key := lineRangeURI(filepath.ToSlash(strings.TrimSpace(ref.Path)), ref.StartLine, ref.EndLine)
-			if _, ok := covered[key]; ok {
-				continue
-			}
-			covered[key] = struct{}{}
-			textContent, mime, err := ReadWorkspaceUTF8(cwdAbs, ref.Path)
-			if err != nil {
-				// @tokens here are extracted heuristically from free text. One that does not
-				// resolve to a readable workspace file (an @mention rule trigger, a username,
-				// ordinary prose, or a name that happens to hit a binary file) is left as
-				// text instead of failing the whole prompt.
-				if errors.Is(err, os.ErrNotExist) || errors.Is(err, ErrFolderAttach) || errors.Is(err, ErrNotDecodableText) {
-					continue
-				}
-				return nil, err
-			}
-			sliced, err := sliceLines(textContent, ref.StartLine, ref.EndLine)
-			if err != nil {
-				// A typed range past the end of the file is as heuristic as the
-				// token itself: it stays prose, and the model can still read the
-				// file with its tools.
-				continue
-			}
-			rebuilt = append(rebuilt, acp.ContentBlock{
-				Type: "resource",
-				Resource: &acp.Resource{
-					URI:      key,
-					MimeType: mime,
-					Text:     sliced,
-				},
-			})
-		}
-	}
-	return rebuilt, nil
+	return out, nil
 }
 
-func normalizedResourceRelativeKey(cwdAbs, uri string) (string, error) {
+// clientLineFragmentRe reads the line fragment of a file:// URI in the forms
+// editors write: "L10", "L10-20", "L10-L20" and Zed's "L10:20".
+var clientLineFragmentRe = regexp.MustCompile(`^L([0-9]{1,9})(?:[-:]L?([0-9]{1,9}))?$`)
+
+// splitClientURI separates what a client's resource URI names from the lines
+// it narrows to. A file:// URI is parsed as a URI: its fragment is a line
+// range when it reads as one (and is dropped otherwise, as an anchor that
+// names the whole file), and a query such as Zed's "?symbol=" is dropped. A
+// bare path keeps Coddy's own strict "#L<start>-<end>" (SplitLineRangeURI),
+// so a file literally named "f.go#L5" still resolves.
+func splitClientURI(uri string) (string, int, int) {
 	uri = strings.TrimSpace(uri)
-	if uri == "" {
-		return "", nil
+	if !strings.HasPrefix(uri, "file:") {
+		return SplitLineRangeURI(uri)
 	}
-	base, startLine, endLine := SplitLineRangeURI(uri)
-	rel, err := resourceURIWorkspaceRel(cwdAbs, base)
+	u, err := url.Parse(uri)
 	if err != nil {
-		return "", err
+		return SplitLineRangeURI(uri)
 	}
-	return lineRangeURI(filepath.ToSlash(rel), startLine, endLine), nil
+	start, end := 0, 0
+	if m := clientLineFragmentRe.FindStringSubmatch(u.Fragment); m != nil {
+		start = atoiDigits(m[1])
+		end = start
+		if m[2] != "" {
+			end = atoiDigits(m[2])
+		}
+		if start < 1 || end < start {
+			start, end = 0, 0
+		}
+	}
+	u.Fragment, u.RawFragment, u.RawQuery, u.ForceQuery = "", "", "", false
+	return u.String(), start, end
 }
 
-func resourceURIWorkspaceRel(cwdAbs, uri string) (string, error) {
-	uri = strings.TrimSpace(uri)
+// nameEmbeddedFile renames a file:// resource a client embedded with its text
+// to the path a mention of the file would carry, so rules scoped to that path
+// see it and the attachment reads the same from every surface.
+func nameEmbeddedFile(cwd, home string, res *acp.Resource, baseURI string, startLine, endLine int) *acp.Resource {
+	if !strings.HasPrefix(baseURI, "file:") {
+		return nil
+	}
+	loc, ok := mention.Resolve(cwd, home, baseURI)
+	if !ok {
+		return nil
+	}
+	kind := mention.KindFile
+	display := loc.Display
+	if strings.HasSuffix(baseURI, "/") {
+		kind = mention.KindDirectory
+		display = strings.TrimSuffix(display, "/") + "/"
+	}
+	named := *res
+	named.URI = lineRangeURI(display, startLine, endLine)
+	named.Mention = &acp.ResourceMention{Kind: kind, Path: loc.Abs}
+	if res.Mention != nil {
+		named.Mention.Name, named.Mention.Typed = res.Mention.Name, res.Mention.Typed
+	}
+	return &named
+}
+
+// readClientResource reads a file a client named, anywhere on disk: the same
+// size cap and encoding detection a workspace attachment has.
+func readClientResource(loc mention.Location, info os.FileInfo) (string, string, error) {
+	if info.Size() > MaxPromptAttachmentBytes {
+		return "", "", fmt.Errorf("file too large (max %d bytes)", MaxPromptAttachmentBytes)
+	}
+	data, err := os.ReadFile(loc.Abs)
+	if err != nil {
+		return "", "", err
+	}
+	decoded, _, err := textenc.DecodeToUTF8(data)
+	if err != nil {
+		return "", "", fmt.Errorf("%w: %s", ErrNotDecodableText, loc.Display)
+	}
+	return decoded, "text/plain; charset=utf-8", nil
+}
+
+// resourceLinkBlock resolves one ACP resource_link. A file or folder link is
+// read like a mention of it; anything else becomes a line naming the link.
+func (r *mentionResolver) resourceLinkBlock(b acp.ContentBlock) acp.ContentBlock {
+	uri := strings.TrimSpace(b.URI)
+	label := strings.TrimSpace(b.Title)
+	if label == "" {
+		label = strings.TrimSpace(b.Name)
+	}
+	if isLocalResourceURI(uri) {
+		baseURI, startLine, endLine := splitClientURI(uri)
+		reading := mention.PathReading{Path: baseURI, Range: mention.Range{Start: startLine, End: endLine}}
+		if res, ok, _ := r.resolvePath(reading, label); ok && res != nil {
+			if res.Mention != nil && res.Mention.Typed == "" {
+				res.Mention.Typed = label
+			}
+			return acp.ContentBlock{Type: acp.ContentTypeResource, Resource: res}
+		}
+	}
+	var line strings.Builder
+	line.WriteString("[Linked resource")
+	if label != "" {
+		line.WriteString(": ")
+		line.WriteString(label)
+	}
+	if uri != "" {
+		line.WriteString(" <")
+		line.WriteString(uri)
+		line.WriteString(">")
+	}
+	if d := strings.TrimSpace(b.Description); d != "" {
+		line.WriteString(" - ")
+		line.WriteString(d)
+	}
+	line.WriteString("]")
+	return acp.ContentBlock{Type: acp.ContentTypeText, Text: line.String()}
+}
+
+// isLocalResourceURI reports whether a link names a local path: a file:// URI
+// or a scheme-less path.
+func isLocalResourceURI(uri string) bool {
 	if uri == "" {
-		return "", nil
+		return false
 	}
 	if strings.HasPrefix(uri, "file:") {
-		u, err := url.Parse(uri)
-		if err != nil {
-			return "", err
-		}
-		p := u.Path
-		if p == "" {
-			return "", fmt.Errorf("invalid file uri")
-		}
-		p, err = url.PathUnescape(p)
-		if err != nil {
-			return "", err
-		}
-		abs, err := filepath.Abs(p)
-		if err != nil {
-			return "", err
-		}
-		rel, err := filepath.Rel(cwdAbs, abs)
-		if err != nil {
-			return "", err
-		}
-		for _, seg := range strings.Split(rel, string(filepath.Separator)) {
-			if seg == ".." {
-				return "", ErrPathTraversal
-			}
-		}
-		return rel, nil
+		return true
 	}
-	return NormalizeWorkspaceRelativePath(uri)
+	if i := strings.Index(uri, "://"); i > 0 {
+		return false
+	}
+	// "C:\x" is a Windows path, not a scheme.
+	if i := strings.IndexByte(uri, ':'); i > 1 && !strings.ContainsAny(uri[:i], `/\`) {
+		return false
+	}
+	return true
 }

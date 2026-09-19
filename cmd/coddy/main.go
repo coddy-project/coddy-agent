@@ -149,6 +149,8 @@ func main() {
 		err = runAgents(args[1:])
 	case "hooks":
 		err = runHooks(args[1:])
+	case "docs":
+		err = runDocs(args[1:], os.Stdout)
 	case "update":
 		err = runUpdate(args[1:])
 	default:
@@ -174,7 +176,10 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintf(w, `Usage:
   %[1]s (no arguments on a terminal: interactive console, build tag cli)
   %[1]s -c | --continue (console: continue the latest session here)
-  %[1]s -p | --prompt "..." (console: one-shot prompt, print the answer)
+  %[1]s -p | --prompt "..." (console: one-shot prompt, print the answer;
+        -p - reads the prompt from stdin, and so does a bare -p when stdin is not a terminal;
+        data piped under a typed prompt is attached to it, --no-stdin leaves it out)
+  %[1]s -i | --prompt-file FILE (console: one-shot prompt read from FILE, - for stdin)
   %[1]s -h | --help
   %[1]s -v | --version
   %[1]s -t | --test-config [--config PATH] [--home DIR] (check config.yaml against
@@ -209,7 +214,7 @@ func printUsage(w io.Writer) {
   %[1]s plugin remove <name>
   %[1]s plugin enable <name> | disable <name>
   %[1]s mcp list | trust <name> | untrust <name> [--cwd DIR]
-  %[1]s providers list | login <name> [--browser] [--no-config] [--api-base URL] | logout <name> [--home DIR]
+  %[1]s providers list | login <name> [--browser] [--devin-cli] [--no-config] [--api-base URL] | logout <name> [--home DIR]
   %[1]s rules list [--cwd DIR]
   %[1]s agents list [--cwd DIR]
   %[1]s agents trust <name> [--cwd DIR]
@@ -217,6 +222,9 @@ func printUsage(w io.Writer) {
   %[1]s hooks list [--cwd DIR]
   %[1]s hooks trust <file> [--cwd DIR]
   %[1]s hooks untrust <file> [--cwd DIR]
+  %[1]s docs [list] | search <words> [--limit N] | show <page>[#section] (the
+        documentation built into this binary; F1 in the console, Docs in the
+        web UI)
   %[1]s update [flags]
 `, os.Args[0])
 }
@@ -326,12 +334,16 @@ func runACP(args []string) error {
 		}
 		log.Info("starting ACP server (remote)", "version", version.Get(), "remote", h.BaseURL())
 		srv := acp.NewServer(h, log)
-		h.SetServer(srv)
+		// The server wakes the agent on its own; a turn it woke in a session
+		// this editor has open is followed here, and opens with a note an
+		// editor that renders only the standard updates can read.
+		h.SetServer(acpWakeNotice{srv})
 		return srv.Run(context.Background(), os.Stdin)
 	}
 
 	log.Info("starting ACP server", "version", version.Get())
 	llm.LogCodexAuthNotices(log, cfg)
+	llm.LogDevinAuthNotices(log, cfg)
 	cfg.LogUnsentModelSettings(log)
 	llm.LogNeuralDeepAuthNotices(log, cfg)
 
@@ -366,7 +378,13 @@ func runACP(args []string) error {
 		mgr.SetPreferredSessionID(pid)
 	}
 	srv = acp.NewServer(mgr, log)
-	mgr.SetServer(srv)
+	// A woken turn opens with a note an editor that renders only the standard
+	// updates can read, live and when session/load replays it.
+	notice := acpWakeNotice{srv}
+	mgr.SetServer(notice)
+	// A task the model started with notify_on_finish begins its own turn here
+	// when it ends, the way it does in the console and under coddy serve.
+	agent.NewBackgroundWaker(log, acpWakeRunner(mgr, notice)).Attach(bgtask.Default())
 
 	ctx := context.Background()
 	// The scheduler runs its jobs as children of their job sessions through

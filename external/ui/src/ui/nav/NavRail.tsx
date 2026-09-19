@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { signOut, snapshotAuth, subscribeAuth } from "../auth/authState";
 import {
+  appNavHrefDocs,
   appNavHrefHistory,
   appNavHrefHome,
   appNavHrefScheduler,
@@ -53,6 +54,28 @@ function IconScheduler(props: { className?: string }) {
     >
       <circle cx="12" cy="12" r="8" />
       <path d="M12 8v4l2.5 2.5" />
+    </svg>
+  );
+}
+
+/** A question in a circle: the documentation, the console's F1. */
+function IconDocs(props: { className?: string }) {
+  return (
+    <svg
+      className={props.className}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.6" />
+      <path d="M12 17.2h.01" />
     </svg>
   );
 }
@@ -176,6 +199,9 @@ export function NavRail(props: {
   showSwarm?: boolean;
   onOpenSwarm?: () => void;
   swarmOpen?: boolean;
+  /** The documentation reader; absent hides the entry. */
+  onOpenDocs?: () => void;
+  docsOpen?: boolean;
   onOpenSettings: () => void;
   settingsOpen: boolean;
   canWidenRail: boolean;
@@ -383,6 +409,29 @@ export function NavRail(props: {
               {!pillWide && !props.swarmOpen ? (
                 <span className="rail-tip" role="tooltip">
                   {t("nav.swarm")}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+
+          {props.onOpenDocs ? (
+            <div className="rail-tip-host">
+              <a
+                href={appNavHrefDocs()}
+                className={`${navBtnCls} ${props.docsOpen ? "is-active" : ""}`}
+                aria-label={t("nav.docs")}
+                aria-pressed={props.docsOpen}
+                data-testid="nav-docs"
+                onClick={(ev) => sameTabInAppNavClick(ev, props.onOpenDocs ?? (() => {}))}
+              >
+                <IconDocs className="rail-svg rail-nav-hit-svg" />
+                {pillWide ? (
+                  <span className="rail-nav-label">{t("nav.docs")}</span>
+                ) : null}
+              </a>
+              {!pillWide && !props.docsOpen ? (
+                <span className="rail-tip" role="tooltip">
+                  {t("nav.docs")}
                 </span>
               ) : null}
             </div>

@@ -64,3 +64,15 @@ test("the narrow shell keeps every band of the settings drawer on that inset", (
     ruleBody(narrow, ".settings.drawer .settings-footer-actions {"),
   ).toMatch(new RegExp(`padding-inline:\\s*${INSET.source}`));
 });
+
+test("a disabled settings input reads as disabled, like a read-only one", () => {
+  // The provider proxy URL is disabled while the row connects directly; with
+  // the plain input look it would still read as a field to type into.
+  const at = css.indexOf(".settings-input:disabled");
+  expect(at, "missing .settings-input:disabled").toBeGreaterThan(-1);
+  const open = css.indexOf("{", at);
+  const body = css.slice(open + 1, css.indexOf("}", open));
+  expect(body).toContain("background: var(--coddy-surface-muted)");
+  expect(body).toContain("color: var(--muted)");
+  expect(body).toContain("cursor: not-allowed");
+});

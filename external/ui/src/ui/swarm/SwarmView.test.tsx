@@ -357,6 +357,24 @@ describe("SwarmView", () => {
     expect(block).toContain("animation: none;");
   });
 
+  // Below 1200px the shell's backdrop rises to 60 and #/swarm opens it, so a
+  // dock under it hands every tap to the backdrop, which closes the screen.
+  it("takes taps on a phone: the dock sits above the backdrop and below the top bar", () => {
+    const css = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
+      "utf8",
+    );
+    const mobileBackdrop = /@media \(max-width: 1199px\) \{[^@]*?\.backdrop \{\s*z-index: (\d+)/.exec(css);
+    const mobileDock = /@media \(max-width: 1199px\) \{\s*(?:\/\*[^*]*\*\/\s*)?\.swarm-dock-cluster \{([^}]*)\}/.exec(css);
+    expect(mobileBackdrop).not.toBeNull();
+    expect(mobileDock).not.toBeNull();
+    const rule = mobileDock![1]!;
+    const z = /z-index:\s*(\d+)/.exec(rule);
+    expect(z).not.toBeNull();
+    expect(Number(z![1])).toBeGreaterThan(Number(mobileBackdrop![1]));
+    expect(rule).toMatch(/top:\s*calc\(var\(--coddy-mobile-top-inset\)/);
+  });
+
   it("shows no rows until something is searched for", async () => {
     render(<SwarmView />);
     await drawn();

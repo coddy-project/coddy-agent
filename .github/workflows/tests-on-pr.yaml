@@ -1,4 +1,5 @@
-# Run the full test matrix (one job per tag combination) and golangci-lint on pull requests.
+# Run the full test matrix (one job per tag combination), the race detector and
+# golangci-lint on pull requests.
 
 name: Tests on PR
 
@@ -14,7 +15,8 @@ defaults:
 jobs:
   # The tag combinations are written down once, in the Makefile (TEST_TAG_SETS),
   # and read from there so this file cannot drift from `make test-matrix`. The
-  # OpenCode rules plugin test rides along: it needs Node and nothing else.
+  # OpenCode rules plugin test and the SPA's vitest suite ride along: they need
+  # Node and nothing else, and they run once rather than in every combination.
   plan:
     name: Test matrix
     runs-on: ubuntu-latest
@@ -29,9 +31,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: external/ui/package-lock.json
 
       - name: Test the OpenCode rules plugin
         run: make test-opencode-rules
+
+      - name: Test the web UI
+        run: make ui-test
 
       - name: Read the tag combinations
         id: sets
@@ -94,6 +101,14 @@ jobs:
           .venv/bin/pip install -r examples/cli/requirements.txt
           CODDY_BIN="$PWD/build/coddy" .venv/bin/python examples/cli/cli_e2e_startup.py
 
+      # One-shot input through a real shell: pipes, redirects, a 200 KiB prompt
+      # file, a while-read loop and a terminal, against a scripted model the
+      # script serves itself (no key, no network).
+      - name: Feed one-shot prompts from files and stdin
+        if: matrix.tags == 'cli'
+        run: |
+          CODDY_BIN="$PWD/build/coddy" .venv/bin/python examples/cli/cli_e2e_print_input.py
+
       # The gateway suite runs the bot against the fake Bot API in-process. In
       # the combination that is the gateway alone, the real binary is started
       # against cmd/tgfake on a port and has to answer a message, so the
@@ -106,6 +121,34 @@ jobs:
       - name: Run the bot against the offline Telegram stand
         if: matrix.tags == 'gateway'
         run: CODDY_BIN="$PWD/build/coddy" examples/gateway/tg_e2e_offline.sh
+
+  # The race detector, `make test-race`: the whole tree with every tag but ui.
+  # The races fixed so far lived mostly in test harnesses - a backend swapped
+  # under a running console, a step reading a stub's counter without its lock -
+  # and one in the task pool, and all of them passed every ordinary run, so
+  # this job is what keeps them from coming back. One
+  # job, because go test already runs the packages side by side on the
+  # runner's cores; without the ui tag it needs no Node.
+  race:
+    name: Race detector
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The test suite runs with ripgrep installed; the same code paths run here.
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      - name: Run tests under the race detector
+        run: make test-race
 
   # The suite above runs on Linux, so nothing behind //go:build windows is ever
   # compiled by it. This job type-checks that half across every tag combination
@@ -191,6 +234,10 @@ jobs:
           .venv/bin/pip install -r examples/cli/requirements.txt
           CODDY_BIN="$PWD/build/coddy" .venv/bin/python examples/cli/cli_e2e_startup.py
 
+      - name: Feed one-shot prompts from files and stdin
+        run: |
+          CODDY_BIN="$PWD/build/coddy" .venv/bin/python examples/cli/cli_e2e_print_input.py
+
   # The packages are only built on a release tag, so without this job a broken
   # nfpm recipe would first be seen by whoever cuts the release. Lean build tags:
   # this proves the packaging, not the binary, and skipping the npm step keeps
@@ -244,6 +291,12 @@ jobs:
       - name: Check the generated pages, the links and the assets
         run: make docs-check
 
+  # The passes of `make lint` and `make lint-windows`: the untagged tree, every
+  # tag but ui, and the shipped set, each for the host and for the Windows
+  # build, then the TypeScript check of the web UI. The two tag lists come from
+  # the Makefile (print-full-tags, print-lint-tags-no-ui), so they cannot drift
+  # from what `make lint` compiles; the shipped set embeds the SPA, so the
+  # assets are built first.
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -258,11 +311,39 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: external/ui/package-lock.json
+
+      - name: Build the embedded UI
+        run: make ui-build
+
+      - name: Read the lint tag lists
+        id: tags
+        run: |
+          echo "full=$(make -s print-full-tags)" >> "$GITHUB_OUTPUT"
+          echo "no_ui=$(make -s print-lint-tags-no-ui)" >> "$GITHUB_OUTPUT"
+
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
           version: v2.12.2
           args: ./...
+
+      - name: Run golangci-lint with every tag but ui
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.12.2
+          args: --build-tags ${{ steps.tags.outputs.no_ui }} ./...
+
+      - name: Run golangci-lint with the shipped tag set
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.12.2
+          args: --build-tags ${{ steps.tags.outputs.full }} ./...
 
       - name: Run golangci-lint against the Windows build
         uses: golangci/golangci-lint-action@v7
@@ -272,16 +353,21 @@ jobs:
           version: v2.12.2
           args: ./...
 
-      - name: Run golangci-lint over the cli-tagged console surface
-        uses: golangci/golangci-lint-action@v7
-        with:
-          version: v2.12.2
-          args: --build-tags cli ./external/cli/... ./cmd/coddy/...
-
-      - name: Run golangci-lint over the cli surface for the Windows build
+      - name: Run golangci-lint with every tag but ui against the Windows build
         uses: golangci/golangci-lint-action@v7
         env:
           GOOS: windows
         with:
           version: v2.12.2
-          args: --build-tags cli ./external/cli/... ./cmd/coddy/...
+          args: --build-tags ${{ steps.tags.outputs.no_ui }} ./...
+
+      - name: Run golangci-lint with the shipped tag set against the Windows build
+        uses: golangci/golangci-lint-action@v7
+        env:
+          GOOS: windows
+        with:
+          version: v2.12.2
+          args: --build-tags ${{ steps.tags.outputs.full }} ./...
+
+      - name: Type-check the web UI
+        run: make ui-typecheck

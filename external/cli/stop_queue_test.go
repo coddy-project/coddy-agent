@@ -45,6 +45,15 @@ type remoteControlStand struct {
 
 func newRemoteControlStand(t *testing.T) *remoteControlStand {
 	t.Helper()
+	return newRemoteControlStandOver(t, nil)
+}
+
+// newRemoteControlStandOver puts wrap(handler) between the app and the server
+// when wrap is set. The wrapper has to be in place before Start: Start launches
+// workers that read the backend (the task list read), so swapping it afterwards
+// races with them.
+func newRemoteControlStandOver(t *testing.T, wrap func(backend) backend) *remoteControlStand {
+	t.Helper()
 	f := &remoteControlStand{events: make(chan string, 32), requests: make(chan controlRequest, 32), version: 1}
 	srv := httptest.NewServer(http.HandlerFunc(f.serveHTTP))
 	t.Cleanup(srv.Close)
@@ -56,6 +65,9 @@ func newRemoteControlStand(t *testing.T) *remoteControlStand {
 		t.Fatal(err)
 	}
 	f.h = f.app.mgr.(*remote.Handler)
+	if wrap != nil {
+		f.app.mgr = wrap(f.h)
+	}
 	t.Cleanup(func() {
 		f.app.Close()
 		f.h.Close()
@@ -293,14 +305,19 @@ type recordingControlBackend struct {
 	cancelled []string
 }
 
+// over puts b in front of inner, in the shape newRemoteControlStandOver takes.
+func (b *recordingControlBackend) over(inner backend) backend {
+	b.backend = inner
+	return b
+}
+
 func (b *recordingControlBackend) HandleSessionCancel(p acp.SessionCancelParams) {
 	b.cancelled = append(b.cancelled, p.SessionID)
 }
 
 func TestRemoteControlsEndedEventsPreserveOwnRequestAndSessionScope(t *testing.T) {
-	f := newRemoteControlStand(t)
-	b := &recordingControlBackend{backend: f.h}
-	f.app.mgr = b
+	b := &recordingControlBackend{}
+	f := newRemoteControlStandOver(t, b.over)
 	f.turnEvent(t, sharedControlSession, true)
 	f.turnEvent(t, "sess_other", false)
 	if !f.app.handleGlobalKey([]byte("\x1b")) {

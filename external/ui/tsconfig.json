@@ -17,10 +17,13 @@
     // "types": ["node"],
     // and npm install -D @types/node
 
-    // Other Outputs
+    // Other Outputs. vite bundles the app, so nothing consumes .d.ts files;
+    // declaration emit stays off because its own diagnostics (TS4094 and
+    // friends) reject test fakes that return a local class, without adding
+    // any check the type pass does not already make.
     "sourceMap": true,
-    "declaration": true,
-    "declarationMap": true,
+    "declaration": false,
+    "declarationMap": false,
 
     // Stricter Typechecking Options
     "noUncheckedIndexedAccess": true,

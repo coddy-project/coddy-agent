@@ -13,6 +13,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -39,6 +40,10 @@ type Runtime struct {
 	approversMu sync.RWMutex
 	approvers   map[uint64]agent.DetachedPermissionBroker
 	approverSeq uint64
+
+	// wakes are the surfaces that offered to run the turn a finished
+	// background task starts (wake.go).
+	wakes wakeSurfaces
 
 	// cfg is what the process loaded. Once a manager exists it owns the live
 	// pointer, because every reload path replaces it there.
@@ -255,6 +260,9 @@ func (r *Runtime) Init(opts Options) error {
 		mgr.SetPreferredSessionID(pid)
 	}
 	r.Mgr = mgr
+	// A task that asked to be notified wakes the agent whichever surfaces are
+	// enabled; they offer to run the turn as they come up (AddWakeSurface).
+	r.attachWaker()
 	return nil
 }
 
@@ -273,14 +281,12 @@ type defaultSender struct {
 func (d *defaultSender) SendSessionUpdate(string, interface{}) error { return nil }
 
 func (d *defaultSender) RequestPermission(_ context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
-	stamped := strings.TrimSpace(params.EffectivePermissionMode)
-	if stamped == config.PermModeBypass {
-		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
+	cfgMode := ""
+	if cfg := d.live(); cfg != nil {
+		cfgMode = cfg.Tools.ResolvedPermMode()
 	}
-	if stamped == "" {
-		if cfg := d.live(); cfg != nil && cfg.Tools.ResolvedPermMode() == config.PermModeBypass {
-			return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
-		}
+	if permission.AutoApproves(params, cfgMode) {
+		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
 	return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
 }

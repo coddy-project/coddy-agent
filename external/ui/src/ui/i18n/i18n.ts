@@ -114,7 +114,7 @@ export function pluralCategories(locale: UiLocale): string[] {
 
 /**
  * Translate a count-dependent key. The dictionary holds one entry per CLDR category under
- * `key.category` ("tasks.chip.running.one" / ".few" / ".many" / ".other"), so each locale
+ * `key.category` ("tasks.running.one" / ".few" / ".many" / ".other"), so each locale
  * declines the noun itself instead of the component choosing between two fixed strings.
  * `{count}` is always available to the entry; extra params interpolate as usual.
  */

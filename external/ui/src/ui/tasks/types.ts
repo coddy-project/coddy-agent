@@ -26,10 +26,21 @@ export type BackgroundTask = {
   tool_call_id?: string;
   /**
    * Present on `kind: "agent"` rows: the definition name and the child session
-   * the run is persisted under. `session_id` is what "Open transcript" routes
+   * the run is persisted under. `session_id` is what "Show transcript" routes
    * to; a snapshot may carry the name alone when the child does not exist yet.
+   * `system` marks a run the runtime started on its own behalf (the memory
+   * subagent of a turn) rather than a delegation the model asked for.
    */
-  agent?: { name: string; session_id?: string };
+  agent?: {
+    name: string;
+    session_id?: string;
+    system?: boolean;
+    /** The model the child runs on. */
+    model?: string;
+    /** What the child's model calls have spent so far: input summed over calls, output generated. */
+    input_tokens?: number;
+    output_tokens?: number;
+  };
   status: BackgroundTaskStatus;
   exit_code?: number;
   error?: string;
@@ -37,6 +48,10 @@ export type BackgroundTask = {
   finished_at?: string;
   expected_seconds?: number;
   timeout_seconds: number;
+  /** The task wakes the agent when it ends (run_command / spawn_agent notify_on_finish). */
+  notify_on_finish?: boolean;
+  /** The task's end started a turn: notify_on_finish kept its promise. */
+  woke_agent?: boolean;
   output_bytes: number;
   output_truncated: boolean;
   /** Server-computed so every client agrees on the clock arithmetic. */

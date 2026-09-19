@@ -43,6 +43,9 @@ tools:
 memory:
   enable: true
   model: "rpa/qwen3.6-35b-a3b"
+  # The e2e harnesses expect the recall in the same turn's reply; a hosted
+  # model with two or three tool calls needs more than the default 20 s.
+  wait_seconds: 90
 
 httpserver:
   host: "0.0.0.0"

@@ -575,6 +575,41 @@ func TruncateToWidth(text string, maxWidth int, ellipsis string) string {
 	return truncateToWidthOpt(text, maxWidth, ellipsis, false)
 }
 
+// TruncateLeftToWidth keeps the end of plain text within maxWidth columns,
+// prefixing ellipsis when the start is cut: a long path keeps its file name
+// ("…/deep/target_handler.go"). Text with ANSI codes is truncated from the
+// right instead, since cutting from the left would drop its opening styles.
+func TruncateLeftToWidth(text string, maxWidth int, ellipsis string) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+	if VisibleWidth(text) <= maxWidth {
+		return text
+	}
+	if strings.ContainsRune(text, '\x1b') {
+		return TruncateToWidth(text, maxWidth, ellipsis)
+	}
+	budget := maxWidth - VisibleWidth(ellipsis)
+	if budget <= 0 {
+		return clipToWidth(ellipsis, maxWidth)
+	}
+	var graphemes []string
+	gr := uniseg.NewGraphemes(text)
+	for gr.Next() {
+		graphemes = append(graphemes, gr.Str())
+	}
+	width, start := 0, len(graphemes)
+	for start > 0 {
+		w := graphemeWidth(graphemes[start-1])
+		if width+w > budget {
+			break
+		}
+		width += w
+		start--
+	}
+	return ellipsis + strings.Join(graphemes[start:], "")
+}
+
 // TruncateToWidthPad is TruncateToWidth with space padding to exactly maxWidth.
 func TruncateToWidthPad(text string, maxWidth int, ellipsis string) string {
 	return truncateToWidthOpt(text, maxWidth, ellipsis, true)

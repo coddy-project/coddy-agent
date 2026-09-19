@@ -3,9 +3,7 @@
 package agent
 
 import (
-	"bytes"
 	"context"
-	"encoding/xml"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -21,6 +19,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
+	"github.com/EvilFreelancer/coddy-agent/internal/mention"
 	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/plans"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
@@ -60,6 +59,15 @@ type SessionState interface {
 	ClearPendingPlanContext()
 	TakePendingImageParts() []llm.ImagePart
 	GetPermissionMode() string
+	// The settings the running turn works with (session/settings_state.go):
+	// its own when a --once / --count override, a skill or the model's
+	// switch_model set one, the session's otherwise. SettingsRevision moves
+	// whenever one a model request reads changes.
+	EffectiveMode() string
+	EffectivePermissionMode() string
+	SettingsRevision() uint64
+	SetTurnSetting(setting, value string)
+	TurnSetting(setting string) string
 	// How the session_describe tool reaches the session's own filing
 	// (session_filing.go). The writers report what they moved and do their own
 	// merging, so the tool never has to read a filing it is about to write.
@@ -95,6 +103,8 @@ type Agent struct {
 	detachedPermissions DetachedPermissionBroker
 	// subagent is set when this session is itself a child run (see subagent.go).
 	subagent *session.SubagentMeta
+	// progress is the running turn's clock and token count (turn_progress.go).
+	progress *turnProgress
 	// limitWaitHeartbeat overrides how often a waiting turn re-sends its
 	// countdown (tests); zero means limitWaitHeartbeat.
 	limitWaitHeartbeat time.Duration
@@ -121,6 +131,9 @@ type Agent struct {
 	// clock is the wall clock the turn context block reads; nil means
 	// time.Now. Tests that assert on a rendered timestamp set it.
 	clock func() time.Time
+	// memoryRun is the memory subagent this turn started, or nil
+	// (memory_run.go). The Agent lives for one turn, so it needs no reset.
+	memoryRun *memoryTurnRun
 }
 
 // NewAgent creates an Agent for a prompt turn.
@@ -143,6 +156,9 @@ func NewAgent(cfg *config.Config, state SessionState, server acp.UpdateSender, l
 	if st := sessionStatePtr(state); st != nil {
 		a.subagent = st.Subagent()
 	}
+	// The system memory child gets its tools here, in its own registry;
+	// nothing else ever sees them.
+	a.registerMemoryChildTools()
 	return a
 }
 
@@ -164,7 +180,7 @@ func (a *Agent) SetConfigReloader(reload func(context.Context) ([]string, error)
 
 // Run executes the ReAct loop and returns the stop reason.
 func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, error) {
-	mode := a.state.GetMode()
+	mode := a.state.EffectiveMode()
 	// A new user turn starts its account of time spent on usage limits
 	// (limit_wait.go); the built-ins below never touch it.
 	a.limitLedger = &limitWaitLedger{}
@@ -180,24 +196,42 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// The built-in /compact, /plugin, and /export commands are operator input:
 	// they run deterministically, outside the tool set and the permission
 	// gate. A child's prompt is written by the parent model, so for a subagent
-	// the same text is an ordinary task and never reaches the built-ins.
+	// the same text is an ordinary task and never reaches the built-ins. They
+	// read what the operator typed, never the attachments that came with it:
+	// data piped into a one-shot run is not a /export target or /plugin
+	// arguments.
 	if a.subagent == nil {
+		typed := typedText(prompt)
 		// The built-in /compact command compacts history instead of running the
 		// ReAct loop. The command text is persisted (so it shows in the transcript
 		// like any other message) by runCompactCommand itself.
-		if instructions, ok := parseCompactCommand(userText); ok {
+		if instructions, ok := parseCompactCommand(typed); ok {
 			return a.runCompactCommand(ctx, instructions, userText)
 		}
 		// The built-in /plugin command manages skill plugins and marketplaces
 		// deterministically, without an LLM turn; the command text is persisted too.
-		if args, ok := parsePluginCommand(userText); ok {
+		if args, ok := parsePluginCommand(typed); ok {
 			return a.runPluginCommand(ctx, args, userText)
 		}
 		// The built-in /export command writes the transcript to a file in the
 		// workspace; the command text is persisted after the export is built.
-		if args, ok := parseExportCommand(userText); ok {
+		if args, ok := parseExportCommand(typed); ok {
 			return a.runExportCommand(ctx, args, userText)
 		}
+	}
+	// The bodies of the skills the prompt invokes as /name, and the rules its
+	// mentioned paths activate, ride in this message (mentions.go), never in
+	// the system prompt and never added per request.
+	for _, inv := range invokedSkills(typedText(prompt), a.state.GetSkills()) {
+		a.applySkillSettings(ctx, inv.name, inv.skill)
+	}
+	if extra := invokedSkillBlocks(typedText(prompt), a.state.GetSkills()); len(extra) > 0 {
+		prompt = append(append([]acp.ContentBlock(nil), prompt...), extra...)
+		userText = contentBlocksToText(prompt)
+	}
+	if withRules := a.attachActivatedRules(prompt); len(withRules) != len(prompt) {
+		prompt = withRules
+		userText = contentBlocksToText(prompt)
 	}
 	// UserPromptSubmit hooks see the prompt before it becomes a message: a
 	// rejected prompt is never added, and the turn ends with the reason. The
@@ -212,14 +246,33 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	if note := filePathsNote(imageParts); note != "" {
 		messageContent = userText + "\n\n" + note
 	}
+	// A turn finished background tasks started opens with the wake. The pool
+	// marks the tasks that woke the agent first, so a surface that reads its
+	// task list again on the wake finds the mark; the clients hear the wake
+	// before the message is persisted, like every frame a message describes;
+	// and the message keeps the marker, so no surface shows the instruction
+	// as something the operator typed, after a reload either.
+	wake := a.takeTurnWake()
+	if wake != nil {
+		a.markWokeTasks(wake)
+		_ = a.server.SendSessionUpdate(a.state.GetID(), session.BackgroundWakeUpdate(wake))
+	}
 	a.state.AddMessage(llm.Message{
-		Role:       llm.RoleUser,
-		Content:    messageContent,
-		ImageParts: imageParts,
-		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+		Role:           llm.RoleUser,
+		Content:        messageContent,
+		ImageParts:     imageParts,
+		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
+		BackgroundWake: wake,
 	})
 	a.setHookTurn(session.CountUserTurns(a.state.GetMessages()))
+	// The turn's clock is announced before anything slow happens - the memory
+	// run below, the first model call - so a surface counts from the start.
+	a.beginTurnProgress()
+	defer a.endTurnProgress()
 	a.runMemoryBeforeTurn(ctx, userText, mode)
+	// A report that lands after this turn returned is history in the Tasks
+	// drawer, never the next turn's context.
+	defer a.finishMemoryTurn()
 
 	// Collect context files from the prompt for skill filtering.
 	contextFiles := extractContextFiles(prompt)
@@ -245,7 +298,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// Build the full message list starting with the system prompt. It is
 	// rendered once here and then frozen for the whole turn so the provider's
 	// prefix cache keeps the conversation behind it (buildSystemPromptParts).
-	sys := a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles)
+	sys := a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles)
 	messages := a.buildMessages(sys.Content)
 	// The hand-off belongs to this turn and to its continuation after a
 	// permission prompt, and to nothing after that.
@@ -254,7 +307,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// buildSystemPromptParts refreshed the context breakdown; compact before the
 	// first LLM call when the estimate crossed the auto-compaction threshold.
 	if a.maybeAutoCompact(ctx) {
-		sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles)
+		sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles)
 		messages = a.buildMessages(sys.Content)
 	}
 
@@ -313,6 +366,10 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		Background:        a.backgroundPool(sd),
 		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
 		WebSearch:         webSearchSettings(a.cfg),
+	}
+	// The model's own model switch; a subagent runs on what its parent chose.
+	if a.subagent == nil && a.settings() != nil {
+		toolEnv.SwitchModel = a.switchModel
 	}
 	if a.configReloader != nil {
 		toolEnv.ReloadConfig = func(ctx context.Context) ([]string, error) {
@@ -456,6 +513,11 @@ func (a *Agent) runReActLoop(
 	// of dead-ending silently.
 	var turnHadVisibleText bool
 
+	// Run opened the turn's progress already; a loop entered another way (a
+	// resumed permission) opens its own.
+	a.beginTurnProgress()
+	defer a.endTurnProgress()
+
 	// Runaway-loop protection. The tool detector spans the whole user turn (a model
 	// can repeat the same call across ReAct rounds, not only inside one response);
 	// the stream detectors are per LLM call and created below. loopNudges is the
@@ -480,6 +542,10 @@ func (a *Agent) runReActLoop(
 	// The turn's account of time spent on usage limits (limit_wait.go).
 	limitWait := a.limitLedgerFor()
 
+	// What the transport was built for, to notice a change between requests.
+	transportRev := a.state.SettingsRevision()
+	transportKey := a.transportKey()
+
 	for turn := 0; turn < maxTurns; turn++ {
 		if ctx.Err() != nil {
 			return string(acp.StopReasonCancelled), nil
@@ -492,6 +558,22 @@ func (a *Agent) runReActLoop(
 		// that replays the transcript carries it too.
 		a.readQueuedMessages(&messages)
 
+		// A model or a reasoning level changed since the transport was built -
+		// by the operator, a --once override, the model's own switch_model -
+		// takes effect from this request, never inside a stream.
+		if rev := a.state.SettingsRevision(); rev != transportRev {
+			transportRev = rev
+			if key := a.transportKey(); key != transportKey {
+				next, err := a.getProvider(mode)
+				if err != nil {
+					a.log.Warn("settings changed mid-turn but the new model is unavailable; keeping the current one", "error", err)
+				} else {
+					a.log.Info("model settings changed mid-turn", "from", transportKey, "to", key)
+					transport, transportKey = next, key
+				}
+			}
+		}
+
 		// The system message stays exactly as the turn rendered it, so the
 		// provider's cached copy of everything behind it survives this step.
 		// What moved since - the wall clock, the todo checklist after a
@@ -503,7 +585,7 @@ func (a *Agent) runReActLoop(
 		// itself: its own conditionals have to keep matching the state, so it is
 		// re-rendered here as every template was before, and carries no block.
 		if sys.Volatile && len(messages) > 0 && messages[0].Role == llm.RoleSystem {
-			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles)
+			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles)
 			messages[0].Content = sys.Content
 		}
 		turnCtx := a.buildTurnContext(sys)
@@ -515,7 +597,7 @@ func (a *Agent) runReActLoop(
 		// answered or called a tool since then).
 		a.refreshContextBreakdown(sys, turnCtx)
 		if turn > 0 && a.maybeAutoCompact(ctx) {
-			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, userText, contextFiles)
+			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles)
 			messages = a.buildMessages(sys.Content)
 			turnCtx = a.buildTurnContext(sys)
 			// The rebuilt estimate above was taken without the block; the call
@@ -582,6 +664,7 @@ func (a *Agent) runReActLoop(
 			stopFirstTokenTimer()
 			streamedAny = true
 			reasoningBuf.WriteString(d)
+			a.progress.streamed(d)
 			// The clock measures wall time between the first reasoning delta and the
 			// first answer text. A blocking response replays both back to back once
 			// generation has already finished, so the only honest reading is none:
@@ -601,6 +684,7 @@ func (a *Agent) runReActLoop(
 			if markReasonEnd && strings.TrimSpace(delta) != "" {
 				maybeMarkReasonEnd(now)
 			}
+			a.progress.streamed(delta)
 			_ = a.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 				SessionUpdate: acp.UpdateTypeAgentMessageChunk,
 				Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: delta},
@@ -617,6 +701,7 @@ func (a *Agent) runReActLoop(
 		callStart := time.Now()
 		var firstChunkAt time.Time
 		var chunkCount int
+		a.progress.beginCall()
 		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, toolDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
@@ -651,6 +736,12 @@ func (a *Agent) runReActLoop(
 			// the arguments can take seconds to stream, and without the row the
 			// transcript stands still with nothing but a Stop button. The row is
 			// keyed by the call id, so the complete call updates it in place.
+			// A call's arguments are output like any text, and often most of
+			// it (a write carries the whole file). They are not streamed as
+			// deltas, so they enter the count when the call is complete.
+			if chunk.ToolCall != nil {
+				a.progress.streamed(chunk.ToolCall.Name + chunk.ToolCall.InputJSON)
+			}
 			announce := chunk.ToolCall
 			if announce == nil {
 				announce = chunk.ToolCallNamed
@@ -824,6 +915,7 @@ func (a *Agent) runReActLoop(
 			OutputTokens:  response.OutputTokens,
 			TotalTokens:   totalInputTokens + totalOutputTokens,
 		})
+		a.progress.finishCall(response.OutputTokens)
 
 		if sd != "" {
 			now := time.Now().UTC()
@@ -1209,6 +1301,10 @@ func loopAbortError(c loopAbortChannel) error {
 
 // executeToolCall runs a single tool call and reports updates to the client.
 func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools.Env, mode, sessionID string, skipPermission bool) (string, error) {
+	// The permission mode is read on every call, not once per turn: the
+	// operator may have switched the session to bypass from the previous
+	// call's dialog, and the rest of the batch runs under that.
+	env.PermissionMode = effectivePermMode(a.state, a.cfg)
 	env.ToolCallID = strings.TrimSpace(tc.ID)
 	a.currentToolCallID = env.ToolCallID
 	defer func() {
@@ -1412,6 +1508,12 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		// Notification hooks learn that a prompt is about to wait for the
 		// operator (a chat ping, a desktop notification); they cannot answer it.
 		a.runNotificationHooks(ctx, mode, hookNotificationPermissionPrompt, tc, promptBody)
+		// The mode this prompt is asked under: the session's, or ask when a
+		// hook forced the prompt - a sender must not wave that one through.
+		askedUnder := env.PermissionMode
+		if hookRes.ask {
+			askedUnder = config.PermModeAsk
+		}
 		permResult, err := a.server.RequestPermission(ctx, acp.PermissionRequestParams{
 			SessionID: sessionID,
 			ToolCall: acp.PermissionToolCall{
@@ -1423,7 +1525,11 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 					{Type: "content", Content: acp.ContentBlock{Type: "text", Text: promptBody}},
 				},
 			},
-			Options: permission.Options(tc.Name, tc.InputJSON),
+			Options: permission.OptionsFor(tc.Name, tc.InputJSON, permission.OptionContext{
+				Mode:          env.PermissionMode,
+				SessionSwitch: a.subagent == nil && !hookRes.ask,
+			}),
+			SessionPermissionMode: askedUnder,
 		})
 
 		if err != nil || !permission.Approved(permResult) {
@@ -1437,6 +1543,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		if st := sessionStatePtr(a.state); st != nil {
 			permission.RecordAllowAlways(st, tc.Name, tc.InputJSON, env.CWD, permResult)
 		}
+		a.switchPermissionModeFromDialog(ctx, env, permResult)
 	}
 
 	// Execute the tool.
@@ -1641,64 +1748,110 @@ func (a *Agent) buildMessages(systemPrompt string) []llm.Message {
 	// replayed to the LLM; earlier history stays in the transcript for the UI.
 	// Read/grep result eviction is applied at the provider.Stream send boundary
 	// (see runReActLoop), not here, so the working message slice keeps full
-	// content while the projection sent to the model is pruned.
+	// content while the projection sent to the model is pruned. A message is
+	// replayed exactly as it was stored: what a /skill or an @mention brought
+	// was written into it when it was sent (mentions.go), so no request
+	// rewrites an earlier message and the provider's cached prefix holds.
 	history := session.MessagesForLLM(a.state.GetMessages())
-	allSkills := a.state.GetSkills()
 	msgs := make([]llm.Message, 0, len(history)+1)
 	msgs = append(msgs, llm.Message{Role: llm.RoleSystem, Content: systemPrompt})
-
-	// Find the index of the most recent user message to augment it.
-	lastUserIdx := -1
-	for i := len(history) - 1; i >= 0; i-- {
-		if history[i].Role == llm.RoleUser {
-			lastUserIdx = i
-			break
-		}
-	}
-
-	for i, m := range history {
+	for _, m := range history {
 		if !isLLMHistoryMessage(m) {
 			continue
-		}
-		if i == lastUserIdx && len(allSkills) > 0 {
-			if aug := augmentUserMessageWithInvokedSkills(m.Content, allSkills); aug != m.Content {
-				m.Content = aug
-			}
 		}
 		msgs = append(msgs, m)
 	}
 	return msgs
 }
 
-// augmentUserMessageWithInvokedSkills prepends full skill bodies for any /name commands found
-// in userText. The original text is preserved at the end so the LLM sees both the skill context
-// and the user's exact request. Returns userText unchanged when no skills are invoked.
-func augmentUserMessageWithInvokedSkills(userText string, allSkills []*skills.Skill) string {
-	names := skills.ParseInvokedCommandNames(userText)
-	if len(names) == 0 {
-		return userText
-	}
-	idx := skills.SkillBySlashName(allSkills)
-	var prefix strings.Builder
-	for _, n := range names {
-		sk, ok := idx[n]
-		if !ok {
-			continue
-		}
+// invokedSkillBlocks returns an attachment carrying the body of every skill
+// the typed text invokes as /name. It rides in the message that invoked it,
+// written once, so the next turn replays the same bytes rather than a message
+// that lost the body it was sent with.
+func invokedSkillBlocks(text string, allSkills []*skills.Skill) []acp.ContentBlock {
+	var out []acp.ContentBlock
+	for _, inv := range invokedSkills(text, allSkills) {
+		n, sk := inv.name, inv.skill
 		body := strings.TrimSpace(sk.Content)
 		if body == "" {
 			continue
 		}
-		prefix.WriteString("## Invoked skill: /")
-		prefix.WriteString(n)
-		prefix.WriteString("\n\n")
-		prefix.WriteString(body)
-		prefix.WriteString("\n\n---\n\n")
+		out = append(out, acp.ContentBlock{Type: acp.ContentTypeResource, Resource: &acp.Resource{
+			URI:      "skill:" + n,
+			MimeType: "text/markdown; charset=utf-8",
+			Text:     body,
+			Mention:  &acp.ResourceMention{Kind: mention.KindSkill, Name: n},
+		}})
 	}
-	if prefix.Len() == 0 {
-		return userText
+	return out
+}
+
+// invokedSkill is one skill a prompt invokes, under the name it was invoked by.
+type invokedSkill struct {
+	name  string
+	skill *skills.Skill
+}
+
+// invokedSkills resolves the /name tokens of the typed text to skills, in the
+// order they appear.
+func invokedSkills(text string, allSkills []*skills.Skill) []invokedSkill {
+	if len(allSkills) == 0 {
+		return nil
 	}
-	return prefix.String() + userText
+	names := skills.ParseInvokedCommandNames(text)
+	if len(names) == 0 {
+		return nil
+	}
+	idx := skills.SkillBySlashName(allSkills)
+	var out []invokedSkill
+	for _, n := range names {
+		if sk, ok := idx[n]; ok {
+			out = append(out, invokedSkill{name: n, skill: sk})
+		}
+	}
+	return out
+}
+
+// applySkillSettings runs the rest of the turn on the model and reasoning
+// level a skill's frontmatter names, whether the operator invoked the skill
+// or the model loaded it. A setting the turn already holds - the operator's
+// --once, the model's own switch - is not overridden, and a value the
+// configuration cannot honour is logged and skipped: a skill never fails the
+// turn it helps.
+func (a *Agent) applySkillSettings(ctx context.Context, name string, sk *skills.Skill) {
+	if sk == nil || a.subagent != nil || (sk.Model == "" && sk.Reasoning == "") {
+		return
+	}
+	ap := a.settings()
+	if ap == nil {
+		return
+	}
+	ch := session.SettingsChange{Source: "skill:" + name}
+	if m := sk.Model; m != "" && a.state.TurnSetting(session.SettingModel) == "" {
+		ch.Model = &m
+	}
+	if r := sk.Reasoning; r != "" && a.state.TurnSetting(session.SettingReasoning) == "" {
+		ch.Reasoning = &r
+	}
+	if ch.Empty() {
+		return
+	}
+	if _, err := ap.ApplyTurnSettings(ctx, a.state.GetID(), ch); err != nil {
+		a.log.Warn("skill frontmatter settings skipped", "skill", name, "error", err)
+	}
+}
+
+// typedText is what the user wrote: the text blocks of a prompt, without the
+// attachments resolved for it, so a "/name" inside an attached file invokes
+// nothing.
+func typedText(blocks []acp.ContentBlock) string {
+	var parts []string
+	for _, b := range blocks {
+		if b.Type == acp.ContentTypeText {
+			parts = append(parts, b.Text)
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 func isLLMHistoryMessage(m llm.Message) bool {
@@ -1751,13 +1904,148 @@ func (a *Agent) getProvider(mode string) (llmTransport, error) {
 	if mk == nil {
 		mk = llm.NewProvider
 	}
-	in := a.turnProviderInput(rm)
+	in := a.childProviderInput(a.turnProviderInput(rm))
 	in.ReasoningEffort = a.state.EffectiveReasoning(a.cfg)
 	provider, err := mk(in)
 	if err != nil {
 		return llmTransport{}, err
 	}
+	provider = a.withChildFallbacks(provider, modelID, mk)
 	return llmTransport{provider: provider, streaming: rm.Stream}, nil
+}
+
+// settingsApplier is the manager's setter for session settings. The agent
+// reaches it through its subagent runtime, which is the manager on every
+// surface; without one (a bare agent in a test) the state is written directly.
+type settingsApplier interface {
+	ApplySessionSettings(ctx context.Context, sessionID string, ch session.SettingsChange) (acp.SessionSettings, error)
+	ApplyTurnSettings(ctx context.Context, sessionID string, ch session.SettingsChange) (acp.SessionSettings, error)
+}
+
+// settings returns the manager's setter, or nil when the agent runs without one.
+func (a *Agent) settings() settingsApplier {
+	if ap, ok := a.subagentRuntime.(settingsApplier); ok {
+		return ap
+	}
+	return nil
+}
+
+// switchModel backs the switch_model tool: the model's own choice of model
+// and reasoning level, for the rest of the turn or for the session. It goes
+// through the manager's setter like the operator's command, so it is checked
+// against the configuration, logged and shown on every surface; the loop
+// builds the new transport before its next request.
+func (a *Agent) switchModel(ctx context.Context, req tooling.ModelSwitch) (string, error) {
+	ap := a.settings()
+	if ap == nil {
+		return "", fmt.Errorf("switch_model is not available in this session")
+	}
+	ch := session.SettingsChange{Source: "model"}
+	if req.Model != "" {
+		ch.Model = &req.Model
+	}
+	if req.Reasoning != "" {
+		ch.Reasoning = &req.Reasoning
+	}
+	scope := "for the rest of this turn"
+	var err error
+	if req.Session {
+		scope = "for the rest of the session"
+		_, err = ap.ApplySessionSettings(ctx, a.state.GetID(), ch)
+	} else {
+		_, err = ap.ApplyTurnSettings(ctx, a.state.GetID(), ch)
+	}
+	if err != nil {
+		return "", err
+	}
+	model := a.state.EffectiveModelID(a.cfg)
+	reasoning := a.state.EffectiveReasoning(a.cfg)
+	if reasoning == "" {
+		reasoning = "none offered"
+	}
+	return fmt.Sprintf("Switched %s: model %s, reasoning %s. It applies from your next request.", scope, model, reasoning), nil
+}
+
+// switchPermissionModeFromDialog applies a permission answer that also
+// switches the session's permission mode ("bypass permissions for this
+// session", "allow edits for this session", #292). The change goes through
+// the manager's setter, so every surface shows it and the log records it,
+// and the tool environment follows at once: the rest of this turn runs under
+// the new mode.
+func (a *Agent) switchPermissionModeFromDialog(ctx context.Context, env *tools.Env, res *acp.PermissionResult) {
+	mode := permission.SessionModeOption(res)
+	if mode == "" || a.subagent != nil {
+		return
+	}
+	if ap := a.settings(); ap != nil {
+		if _, err := ap.ApplySessionSettings(ctx, a.state.GetID(), session.SettingsChange{PermissionMode: &mode, Source: "permission_dialog"}); err != nil {
+			a.log.Warn("permission dialog: the session's permission mode could not be switched", "mode", mode, "error", err)
+			return
+		}
+	} else if st := sessionStatePtr(a.state); st != nil {
+		st.SetPermissionMode(mode)
+		st.ClearTurnOverride(session.SettingPermissionMode)
+		a.log.Info("permission mode switched from the permission dialog", "session", a.state.GetID(), "mode", mode)
+	}
+	if env != nil {
+		env.PermissionMode = effectivePermMode(a.state, a.cfg)
+	}
+}
+
+// transportKey names what a model request is built for: the model and the
+// reasoning level. The transport is rebuilt only when it changes.
+func (a *Agent) transportKey() string {
+	return a.state.EffectiveModelID(a.cfg) + "|" + a.state.EffectiveReasoning(a.cfg)
+}
+
+// childProviderInput applies what a system child's spec says about its
+// model calls: the completion cap of memory.copilot_max_tokens, clamped the
+// way the copilot pass clamped it.
+func (a *Agent) childProviderInput(in llm.ProviderInput) llm.ProviderInput {
+	if a.subagent == nil || a.subagent.MaxTokens <= 0 {
+		return in
+	}
+	if in.MaxTokens <= 0 || in.MaxTokens > a.subagent.MaxTokens {
+		in.MaxTokens = a.subagent.MaxTokens
+	}
+	return in
+}
+
+// withChildFallbacks wraps a child's provider in the fallback chain its spec
+// names (memory.fallback_models, then the session's model): a call that
+// fails before producing any output moves to the next model, a stream that
+// broke after output does not. An entry that resolves to nothing is skipped
+// and logged; an ordinary session, or a child without fallbacks, gets its
+// provider back untouched.
+func (a *Agent) withChildFallbacks(primary llm.Provider, modelID string, mk func(llm.ProviderInput) (llm.Provider, error)) llm.Provider {
+	if a.subagent == nil || len(a.subagent.FallbackModels) == 0 {
+		return primary
+	}
+	candidates := []llm.FallbackCandidate{{Provider: primary, Model: modelID}}
+	seen := map[string]bool{modelID: true}
+	for _, ref := range a.subagent.FallbackModels {
+		ref = strings.TrimSpace(ref)
+		if ref == "" || seen[ref] {
+			continue
+		}
+		seen[ref] = true
+		rm, err := a.cfg.ResolveLLM(ref)
+		if err != nil {
+			a.log.Warn("fallback model unavailable; skipped", "model", ref, "error", err)
+			continue
+		}
+		in := a.childProviderInput(a.turnProviderInput(rm))
+		in.ReasoningEffort = a.state.EffectiveReasoning(a.cfg)
+		provider, err := mk(in)
+		if err != nil {
+			a.log.Warn("fallback model unavailable; skipped", "model", ref, "error", err)
+			continue
+		}
+		candidates = append(candidates, llm.FallbackCandidate{Provider: provider, Model: ref})
+	}
+	return llm.NewFallbackChain(candidates, func(from, to string, err error) {
+		a.log.Warn("model failed before answering; falling back to the next one", "model", from, "next", to, "error", err)
+	})
 }
 
 // turnProviderInput is llmProviderInput plus the bounds of a user turn: the
@@ -1812,75 +2100,48 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 }
 
 // contentBlocksToText converts ACP content blocks to a plain text string.
-// Hydrated attachments become **<coddy_attachment path="..." name="...">…</coddy_attachment>**
-// with file body inside CDATA so the SPA can strip tags for display while the model retains full context.
+// Attachments - a mentioned file, folder, session, rule or subagent, or a
+// resource an editor sent - become <coddy_attachment ...> elements with the
+// body in CDATA (resourceAttachmentXML), so the SPA and the console can
+// collapse them for display while the model retains full context.
 func contentBlocksToText(blocks []acp.ContentBlock) string {
 	var parts []string
 	for _, b := range blocks {
 		switch b.Type {
-		case "text":
+		case acp.ContentTypeText:
 			parts = append(parts, b.Text)
-		case "resource":
+		case acp.ContentTypeResource:
 			if b.Resource != nil {
-				parts = append(parts, resourceBlockToXMLAttachment(b.Resource))
+				parts = append(parts, resourceAttachmentXML(b.Resource))
 			}
 		}
 	}
 	return strings.Join(parts, "\n\n")
 }
 
-func xmlEscapedAttr(s string) string {
-	var buf bytes.Buffer
-	_ = xml.EscapeText(&buf, []byte(s))
-	return buf.String()
-}
-
+// wrapXMLCDATA wraps body in CDATA, split where the body itself holds the
+// terminator sequence.
 func wrapXMLCDATA(body string) string {
-	// Split CDATA if the payload contains the terminator sequence.
 	escaped := strings.ReplaceAll(body, "]]>", "]]]]><![CDATA[>")
 	return "<![CDATA[" + escaped + "]]>"
 }
 
-func resourceBlockToXMLAttachment(res *acp.Resource) string {
-	pathRaw := strings.TrimSpace(res.URI)
-	pathRaw = strings.TrimPrefix(pathRaw, "file://")
-	// A ranged @mention carries its lines as the "#L<start>-<end>" fragment that
-	// internal/session wrote; the same parser takes it back off the path.
-	pathRaw, startLine, endLine := session.SplitLineRangeURI(pathRaw)
-	lines := ""
-	if startLine > 0 {
-		lines = fmt.Sprintf("%d-%d", startLine, endLine)
-	}
-	pathFwd := filepath.ToSlash(pathRaw)
-	name := filepath.Base(pathFwd)
-	if name == "." || name == "/" {
-		name = pathFwd
-	}
-	var b strings.Builder
-	b.WriteString(`<coddy_attachment path="`)
-	b.WriteString(xmlEscapedAttr(pathFwd))
-	b.WriteString(`" name="`)
-	b.WriteString(xmlEscapedAttr(name))
-	if lines != "" {
-		b.WriteString(`" lines="`)
-		b.WriteString(lines)
-	}
-	b.WriteString(`">`)
-	b.WriteByte('\n')
-	b.WriteString(wrapXMLCDATA(res.Text))
-	b.WriteString("\n</coddy_attachment>")
-	return b.String()
-}
-
-// extractContextFiles returns file paths referenced in content blocks.
+// extractContextFiles returns the local files and folders the prompt's
+// attachments read: a file:// resource an editor sent, and every file or
+// folder a mention resolved to. Path-scoped rules activate on them.
 func extractContextFiles(blocks []acp.ContentBlock) []string {
 	var files []string
 	for _, b := range blocks {
-		if b.Type == "resource" && b.Resource != nil {
-			uri := b.Resource.URI
-			if strings.HasPrefix(uri, "file://") {
-				files = append(files, fileURIPath(uri))
-			}
+		if b.Type != acp.ContentTypeResource || b.Resource == nil {
+			continue
+		}
+		if m := b.Resource.Mention; m != nil && m.Path != "" && (m.Kind == mention.KindFile || m.Kind == mention.KindDirectory) {
+			files = append(files, m.Path)
+			continue
+		}
+		if uri := b.Resource.URI; strings.HasPrefix(uri, "file://") {
+			base, _, _ := session.SplitLineRangeURI(uri)
+			files = append(files, fileURIPath(base))
 		}
 	}
 	return files
@@ -1907,7 +2168,7 @@ func isASCIILetter(c byte) bool {
 // toolKind maps a tool name to an ACP tool call kind.
 func toolKind(name string) string {
 	switch name {
-	case "read", "keep_result", "glob", "grep", "websearch", "webfetch", "config_get", "config_changes":
+	case "read", "keep_result", "glob", "grep", "websearch", "webfetch", "config_get", "config_changes", "coddy_docs_search", "coddy_docs_read":
 		return "read"
 	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv", "config_commit", "config_rollback":
 		return "write"
@@ -1941,7 +2202,7 @@ func configWriteTool(name string) bool {
 
 // effectivePermMode returns the session-level permission mode override, falling back to the config default.
 func effectivePermMode(state SessionState, cfg *config.Config) string {
-	if m := state.GetPermissionMode(); m != "" {
+	if m := state.EffectivePermissionMode(); m != "" {
 		return m
 	}
 	return cfg.Tools.ResolvedPermMode()

@@ -253,6 +253,11 @@ type ImagePartRef struct {
 // SessionPromptResult is the response to session/prompt.
 type SessionPromptResult struct {
 	StopReason StopReason `json:"stopReason"`
+
+	// SettingsNotice is set when the prompt was only settings commands: no
+	// turn ran, and this is the answer (in-process callers only, never
+	// serialised; a client over the wire got it as an agent message chunk).
+	SettingsNotice string `json:"-"`
 }
 
 // StopReason describes why a prompt turn ended.
@@ -317,11 +322,57 @@ const (
 	UpdateTypeTokenUsage              = "token_usage"
 	UpdateTypeUsage                   = "usage_update"
 	UpdateTypeProviderUsage           = "provider_usage"
-	UpdateTypeMemoryPhase             = "memory_phase"
-	UpdateTypeMemoryMessageChunk      = "memory_message_chunk"
+	UpdateTypeMemoryRun               = "memory_run"
 	UpdateTypeAvailableCommandsUpdate = "available_commands_update"
 	UpdateTypeMessageQueue            = "message_queue"
+	UpdateTypeTurnProgress            = "turn_progress"
+	UpdateTypeBackgroundWake          = "background_wake"
+	UpdateTypeSessionSettings         = "session_settings"
 )
+
+// TurnOverride is a setting changed for a number of operator turns rather
+// than for the session (--once, --count=N, a skill's frontmatter, the model's
+// own switch_model call).
+type TurnOverride struct {
+	Setting string `json:"setting"`
+	Value   string `json:"value"`
+	// TurnsLeft counts the turns that have not started yet.
+	TurnsLeft int `json:"turnsLeft"`
+	// Active says the running turn holds this value.
+	Active bool `json:"active,omitempty"`
+}
+
+// SessionSettings is the whole of a session's settings at one moment, what
+// every surface mirrors: the session's own values, the permission mode the
+// configuration would give back after a restart, and what is changed for the
+// running and the next turns.
+type SessionSettings struct {
+	SessionID string `json:"sessionId"`
+	// Version orders snapshots of one session that reach a client down more
+	// than one connection; a client keeps the highest it has seen.
+	Version   uint64 `json:"version"`
+	Model     string `json:"model"`
+	Reasoning string `json:"reasoning,omitempty"`
+	// ReasoningChoices are the levels the session's model offers, "off"
+	// last where its provider can turn thinking off.
+	ReasoningChoices         []string       `json:"reasoningChoices,omitempty"`
+	Mode                     string         `json:"mode"`
+	PermissionMode           string         `json:"permissionMode"`
+	ConfiguredPermissionMode string         `json:"configuredPermissionMode"`
+	Overrides                []TurnOverride `json:"overrides,omitempty"`
+}
+
+// SessionSettingsUpdate announces a change of a session's settings with the
+// whole snapshot, and a one-line notice of what the change was.
+type SessionSettingsUpdate struct {
+	SessionUpdate string          `json:"sessionUpdate"` // "session_settings"
+	Settings      SessionSettings `json:"settings"`
+	// Notice says what changed, for a surface that shows it ("Model:
+	// qwen3.8-27b for the next 2 turns"); empty for a plain resend.
+	Notice string `json:"notice,omitempty"`
+	// Source names who asked for the change.
+	Source string `json:"source,omitempty"`
+}
 
 // QueuedMessage is one follow-up waiting for the running turn to read it.
 type QueuedMessage struct {
@@ -427,6 +478,27 @@ type TokenUsageUpdate struct {
 	InputTokens   int    `json:"inputTokens"`
 	OutputTokens  int    `json:"outputTokens"`
 	TotalTokens   int    `json:"totalTokens"`
+}
+
+// TurnProgressUpdate reports how far the running turn has come: when it was
+// admitted and how many tokens the model has generated in it so far. A surface
+// renders it as the turn's clock and token count next to what the agent is
+// doing; before the first token it carries the clock alone.
+//
+// It is sent when the turn's loop starts, at most once a second while a model
+// call streams, and after every call. OutputTokens sums what the provider
+// reported for the turn's completed calls and an estimate of what the call in
+// flight has streamed; Estimated says an estimate is part of the number, which
+// stays true for a provider that reports no usage.
+type TurnProgressUpdate struct {
+	SessionUpdate string `json:"sessionUpdate"` // "turn_progress"
+	// StartedAt is when the turn was admitted, RFC3339 with sub-second digits.
+	StartedAt string `json:"startedAt"`
+	// ElapsedMs is the turn's age when the update was written. A client whose
+	// clock disagrees with the server's counts from its own now minus this.
+	ElapsedMs    int64 `json:"elapsedMs"`
+	OutputTokens int   `json:"outputTokens"`
+	Estimated    bool  `json:"estimated"`
 }
 
 // UsageUpdate reports how much of the model context window is currently occupied.
@@ -563,30 +635,54 @@ type UsageWallet struct {
 	SpentRub30d float64 `json:"spentRub30d"`
 }
 
-// MemoryPhaseUpdate marks start or completion of a memory copilot sub-phase.
-type MemoryPhaseUpdate struct {
-	SessionUpdate string `json:"sessionUpdate"` // "memory_phase"
-	MemoryRowID   string `json:"memoryRowId"`
-	Phase         string `json:"phase"`  // "memory" (single pass) | "recall" | "persist" (legacy replay)
-	Status        string `json:"status"` // "started" | "completed"
-	UserTurnIndex int    `json:"userTurnIndex,omitempty"`
-	DurationMs    int64  `json:"durationMs,omitempty"`
-	// Recall-only populates when Phase is recall and Status is completed (coddy_memory_read paths).
-	RecallReadPaths []string `json:"recallReadPaths,omitempty"`
-	// Persist-only populates when Phase is persist and Status is completed.
-	PersistSaved        bool   `json:"persistSaved,omitempty"`
-	PersistSavedBody    string `json:"persistSavedBody,omitempty"` // markdown persisted when PersistSaved true (truncated for wire)
-	PersistRelativePath string `json:"persistRelativePath,omitempty"`
-	PersistTitle        string `json:"persistTitle,omitempty"`
+// MemoryRunUpdate reports the memory subagent run of a user turn: "started"
+// once its task is launched, "finished" once the task settled, "skipped" when
+// no run could be launched. Nothing of the report travels on it: the child
+// transcript and the task log hold the text, and the Tasks drawer is the
+// record. It is neither persisted nor replayed.
+type MemoryRunUpdate struct {
+	SessionUpdate string `json:"sessionUpdate"` // "memory_run"
+	Status        string `json:"status"`        // "started" | "finished" | "skipped"
+	// TaskID and ChildSessionID name the pool task and the child session of
+	// the run; empty on a skip.
+	TaskID         string `json:"taskId,omitempty"`
+	ChildSessionID string `json:"childSessionId,omitempty"`
+	// TaskStatus is the pool's verdict on "finished": succeeded, failed,
+	// timed_out or stopped.
+	TaskStatus string `json:"taskStatus,omitempty"`
+	DurationMs int64  `json:"durationMs,omitempty"`
+	// Delivered says whether a non-empty report reached the main model in
+	// this turn, in the turn context block of the first request or of a
+	// later step.
+	Delivered bool `json:"delivered,omitempty"`
+	// Reason explains a skip, or a run that ended with an error.
+	Reason string `json:"reason,omitempty"`
 }
 
-// MemoryMessageChunkUpdate streams memory copilot model deltas to the client (not part of llm.Messages).
-type MemoryMessageChunkUpdate struct {
-	SessionUpdate string `json:"sessionUpdate"` // "memory_message_chunk"
-	MemoryRowID   string `json:"memoryRowId"`
-	Phase         string `json:"phase"` // "memory" | "recall" | "persist"
-	Kind          string `json:"kind"`  // "text" | "reasoning"
-	Delta         string `json:"delta"`
+// BackgroundWakeUpdate opens a turn nobody typed: background tasks the model
+// asked to be notified about (notify_on_finish) finished, and the process
+// started a turn to report them. It is sent once, before the turn's first
+// message, in place of a message from the user: a client knows the turn was
+// not typed, and shows nothing for it or a one-line note naming the tasks;
+// session/load replays it in the same place.
+type BackgroundWakeUpdate struct {
+	SessionUpdate string               `json:"sessionUpdate"` // "background_wake"
+	Tasks         []BackgroundWakeTask `json:"tasks"`
+}
+
+// BackgroundWakeTask is one finished task a woken turn reports.
+type BackgroundWakeTask struct {
+	ID string `json:"id"`
+	// Kind is "command" or "agent".
+	Kind  string `json:"kind,omitempty"`
+	Label string `json:"label,omitempty"`
+	// Agent names the subagent definition of an agent run.
+	Agent string `json:"agent,omitempty"`
+	// Status is succeeded, failed, timed_out or stopped.
+	Status     string `json:"status"`
+	ExitCode   *int   `json:"exitCode,omitempty"`
+	DurationMs int64  `json:"durationMs"`
+	Error      string `json:"error,omitempty"`
 }
 
 // ---- ACP session/request_permission ----
@@ -604,6 +700,14 @@ type PermissionRequestParams struct {
 	// child whose definition narrowed it; when this is set, the sender uses it
 	// instead of looking the session up.
 	EffectivePermissionMode string `json:"-"`
+
+	// SessionPermissionMode is the permission mode the asking session's gate
+	// decided under - the running turn's, the session's override, or the
+	// configuration's - stamped on every request for in-process senders only
+	// (never serialised). A sender that answers bypass itself reads it
+	// instead of the configuration, so a session switched to ask on a server
+	// configured for bypass is still asked (permission.AutoApproves).
+	SessionPermissionMode string `json:"-"`
 }
 
 // PermissionToolCall describes the tool call needing permission.
@@ -712,16 +816,31 @@ type QuestionResult struct {
 // ---- Content blocks ----
 
 // ContentBlock is a polymorphic content item used in prompts and messages.
+//
+// A "resource_link" block (ACP's baseline reference to something the agent
+// can fetch itself) carries its fields at the top level: URI, Name and the
+// optional MimeType, Title, Description and Size.
 type ContentBlock struct {
 	Type     string    `json:"type"`
 	Text     string    `json:"text,omitempty"`
 	Resource *Resource `json:"resource,omitempty"`
+
+	URI         string `json:"uri,omitempty"`
+	Name        string `json:"name,omitempty"`
+	MimeType    string `json:"mimeType,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	Size        *int64 `json:"size,omitempty"`
 }
 
 // Content block type values for agent_message_chunk (MessageChunkUpdate).
 const (
 	ContentTypeText      = "text"
 	ContentTypeReasoning = "reasoning"
+	// ContentTypeResource embeds a resource's contents; ContentTypeResourceLink
+	// only names one (URI, Name) for the agent to read.
+	ContentTypeResource     = "resource"
+	ContentTypeResourceLink = "resource_link"
 )
 
 // Resource is a file or other resource referenced in a content block.
@@ -729,6 +848,25 @@ type Resource struct {
 	URI      string `json:"uri"`
 	MimeType string `json:"mimeType,omitempty"`
 	Text     string `json:"text,omitempty"`
+
+	// Mention describes a resource the agent resolved from an "@" reference.
+	// It stays in the process: the model reads it as attributes of the
+	// attachment element, and no client is ever sent it.
+	Mention *ResourceMention `json:"-"`
+}
+
+// ResourceMention is what the attachment element of a resolved mention says
+// besides the path and the body.
+type ResourceMention struct {
+	// Kind is the mention kind (internal/mention Kind*); empty for a file.
+	Kind string
+	// Name is the label; empty means the base name of the path.
+	Name string
+	// Typed is the reference as the user wrote it, without the "@".
+	Typed string
+	// Path is the local file or folder the mention read, empty for a meta
+	// mention. Rules scoped to paths see it the way they see a file:// URI.
+	Path string
 }
 
 // ---- fs methods (agent calls these on client) ----

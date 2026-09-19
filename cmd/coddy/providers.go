@@ -22,7 +22,7 @@ const neuralDeepLogoutTimeout = 15 * time.Second
 
 // runProviders implements `coddy providers list|login|logout`: one place to
 // see every configured LLM backend with its active credential source, and to
-// sign in to providers that support browser login (neuraldeep, codex) without
+// sign in to providers that support browser login (neuraldeep, codex, devin) without
 // pasting keys by hand. Credentials land in the same files the HTTP surface
 // and the SPA use ($CODDY_HOME/providers/<name>/*-auth.json).
 func runProviders(args []string) error {
@@ -47,6 +47,7 @@ func runProviders(args []string) error {
 	device := fs.Bool("device", false, "neuraldeep: the device flow, which is the default (accepted for compatibility)")
 	browser := fs.Bool("browser", false, "neuraldeep: sign in through a loopback browser callback instead of the device flow")
 	noConfig := fs.Bool("no-config", false, "login: do not add the provider and its models to config.yaml after login")
+	devinCLI := fs.Bool("devin-cli", false, "devin: use the login `devin auth login` already holds instead of a browser sign-in")
 	apiBase := fs.String("api-base", "", "neuraldeep: API endpoint to sign in against, one of "+strings.Join(llm.NeuralDeepAPIBases(), ", ")+" (default: the provider's api_base, else the first)")
 	if err := fs.Parse(rest); err != nil {
 		return err
@@ -64,7 +65,7 @@ func runProviders(args []string) error {
 		}
 		return nil
 	case "login":
-		return providersLogin(cfg, name, *device, *browser, *noConfig, *apiBase)
+		return providersLogin(cfg, name, *device, *browser, *devinCLI, *noConfig, *apiBase)
 	case "logout":
 		return providersLogout(cfg, name)
 	default:
@@ -73,18 +74,18 @@ func runProviders(args []string) error {
 }
 
 func providersUsageErr() error {
-	return fmt.Errorf("usage: %s providers list | login <name> [--browser] [--no-config] [--api-base URL] | logout <name> [--home DIR]", os.Args[0])
+	return fmt.Errorf("usage: %s providers list | login <name> [--browser] [--devin-cli] [--no-config] [--api-base URL] | logout <name> [--home DIR]", os.Args[0])
 }
 
 // resolveLoginProvider picks the provider entry for login/logout. A name
-// present in config.yaml wins; otherwise the conventional names "neuraldeep"
-// and "codex" synthesize a probe entry of that type, so a fresh install can
-// sign in before editing config.yaml.
+// present in config.yaml wins; otherwise the conventional names "neuraldeep",
+// "codex" and "devin" synthesize a probe entry of that type, so a fresh
+// install can sign in before editing config.yaml.
 func resolveLoginProvider(cfg *config.Config, name string) (*config.ProviderConfig, error) {
 	if prov := cfg.FindProvider(name); prov != nil {
 		return prov, nil
 	}
-	if name == "neuraldeep" || name == "codex" {
+	if name == "neuraldeep" || name == "codex" || name == "devin" {
 		probe := config.ProviderConfig{Name: name, Type: name}
 		probe.Normalize()
 		if err := probe.Validate(); err != nil {
@@ -92,10 +93,10 @@ func resolveLoginProvider(cfg *config.Config, name string) (*config.ProviderConf
 		}
 		return &probe, nil
 	}
-	return nil, fmt.Errorf("provider %q is not in config.yaml; add it first or use the conventional names \"neuraldeep\" / \"codex\"", name)
+	return nil, fmt.Errorf("provider %q is not in config.yaml; add it first or use the conventional names \"neuraldeep\" / \"codex\" / \"devin\"", name)
 }
 
-func providersLogin(cfg *config.Config, name string, device, browser, noConfig bool, apiBase string) error {
+func providersLogin(cfg *config.Config, name string, device, browser, devinCLI, noConfig bool, apiBase string) error {
 	if device && browser {
 		return errors.New("providers login: --device and --browser ask for different flows; pass at most one")
 	}
@@ -103,7 +104,12 @@ func providersLogin(cfg *config.Config, name string, device, browser, noConfig b
 	if err != nil {
 		return err
 	}
+	if devinCLI && prov.Type != "devin" {
+		return fmt.Errorf("providers login: --devin-cli applies to devin providers only, %q has type %q", prov.Name, prov.Type)
+	}
 	switch prov.Type {
+	case "devin":
+		return devinLogin(cfg, prov, devinCLI, noConfig)
 	case "codex":
 		authPath := config.CodexAuthPath(cfg.Paths.Home, prov.Name)
 		if authPath == "" {
@@ -113,7 +119,7 @@ func providersLogin(cfg *config.Config, name string, device, browser, noConfig b
 	case "neuraldeep":
 		return neuralDeepLogin(cfg, prov, browser, noConfig, apiBase)
 	default:
-		return fmt.Errorf("provider %q has type %q: it authenticates with api_key (or the %s env var), browser sign-in exists only for neuraldeep and codex",
+		return fmt.Errorf("provider %q has type %q: it authenticates with api_key (or the %s env var), browser sign-in exists only for neuraldeep, codex and devin",
 			prov.Name, prov.Type, config.ProviderAPIKeyEnvVarName(prov.Name))
 	}
 }
@@ -162,7 +168,7 @@ func neuralDeepLogin(cfg *config.Config, prov *config.ProviderConfig, browser, n
 	if authPath == "" {
 		return fmt.Errorf("providers: could not resolve the credential path for provider %q", prov.Name)
 	}
-	client, err := llm.HTTPClientForOptionalProxy(prov.Proxy)
+	client, err := llm.HTTPClientForProviderProxy(prov.Proxy)
 	if err != nil {
 		return err
 	}
@@ -245,6 +251,8 @@ func providersLogout(cfg *config.Config, name string) error {
 		return err
 	}
 	switch prov.Type {
+	case "devin":
+		return devinLogout(cfg, prov)
 	case "codex":
 		authPath := config.CodexAuthPath(cfg.Paths.Home, prov.Name)
 		if err := llm.RemoveCodexAuth(authPath); err != nil {
@@ -258,13 +266,18 @@ func providersLogout(cfg *config.Config, name string) error {
 		if loadErr == nil && key != "" {
 			ctx, cancel := context.WithTimeout(context.Background(), neuralDeepLogoutTimeout)
 			defer cancel()
-			client, _ := llm.HTTPClientForOptionalProxy(prov.Proxy)
 			st, _ := llm.InspectNeuralDeepAuth(authPath)
 			hub := st.Hub
 			if hub == "" {
 				hub = llm.NeuralDeepHubFor(prov.APIBase)
 			}
-			if revokeErr := llm.RevokeNeuralDeepKey(ctx, hub, key, client); revokeErr != nil {
+			// The revoke goes the row's own way or not at all: a default
+			// client would take the route the row's proxy setting ruled out.
+			client, revokeErr := llm.HTTPClientForProviderProxy(prov.Proxy)
+			if revokeErr == nil {
+				revokeErr = llm.RevokeNeuralDeepKey(ctx, hub, key, client)
+			}
+			if revokeErr != nil {
 				fmt.Fprintf(os.Stderr, "note: could not revoke the key on the hub (%v); revoke it in the dashboard: %s/app\n", revokeErr, hub)
 			} else {
 				fmt.Println("Revoked the key on the NeuralDeep hub.")
@@ -333,6 +346,8 @@ func neuralDeepEndpointNote(prov *config.ProviderConfig) string {
 
 func providerCredentialSummary(cfg *config.Config, prov *config.ProviderConfig) string {
 	switch prov.Type {
+	case "devin":
+		return devinCredentialSummary(cfg, prov)
 	case "codex":
 		st, err := llm.InspectCodexAuth(config.CodexAuthPath(cfg.Paths.Home, prov.Name))
 		if err != nil || !st.Connected {

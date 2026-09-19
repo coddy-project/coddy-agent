@@ -1233,6 +1233,110 @@ func TestLaunchHandsTheAssignedIDToTheCallback(t *testing.T) {
 	}
 }
 
+// An agent run reports what its model calls spent while it runs; the row carries the
+// latest figures, a snapshot taken earlier keeps its own, and the record the bundle
+// keeps after the run ends has the final ones.
+func TestAgentUsageFollowsTheRunIntoTheRecord(t *testing.T) {
+	pool := NewWithRunner(Config{}, &stubRunner{})
+	dir := t.TempDir()
+	pool.SetSessionDir("s", dir)
+	t.Cleanup(func() { pool.StopSession("s") })
+
+	h := &stubHandle{release: make(chan struct{})}
+	snap, err := pool.Launch(Spec{
+		SessionID: "s",
+		Kind:      KindAgent,
+		Agent:     &AgentInfo{Name: "reviewer", Model: "rpa/qwen3.6-35b-a3b"},
+	}, func(_ string, out io.Writer) (Handle, error) {
+		h.out = out
+		return h, nil
+	})
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	if snap.Agent.Model != "rpa/qwen3.6-35b-a3b" {
+		t.Fatalf("model lost on the snapshot: %+v", snap.Agent)
+	}
+
+	if !pool.SetAgentUsage("s", snap.ID, 1200, 80) {
+		t.Fatal("SetAgentUsage did not find the running task")
+	}
+	mid, _ := pool.Get("s", snap.ID)
+	if mid.Agent.InputTokens != 1200 || mid.Agent.OutputTokens != 80 {
+		t.Fatalf("usage = %+v", mid.Agent)
+	}
+	pool.SetAgentUsage("s", snap.ID, 2600, 190)
+	if mid.Agent.InputTokens != 1200 {
+		t.Fatalf("an earlier snapshot changed under its reader: %+v", mid.Agent)
+	}
+
+	h.finish(0)
+	if _, err := pool.Wait(context.Background(), "s", snap.ID, 2*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	var recorded *Snapshot
+	for _, row := range LoadPersisted(dir) {
+		if row.ID == snap.ID {
+			recorded = &row
+		}
+	}
+	if recorded == nil || recorded.Agent == nil {
+		t.Fatalf("no record for %s", snap.ID)
+	}
+	if recorded.Agent.Model != "rpa/qwen3.6-35b-a3b" || recorded.Agent.InputTokens != 2600 || recorded.Agent.OutputTokens != 190 {
+		t.Fatalf("record = %+v", recorded.Agent)
+	}
+
+	if pool.SetAgentUsage("s", "bg_missing", 1, 1) {
+		t.Fatal("SetAgentUsage reported a task that does not exist")
+	}
+}
+
+// A running child reports its usage while the model starts more work in the
+// same session, and admission counts that session's tasks, reading every row
+// as it goes. The row's agent info is what SetAgentUsage replaces, so the
+// count has to read it under the row's lock. The race detector is what fails
+// here (make test-race); without it the test only checks the count.
+func TestAgentUsageUpdatesDoNotRaceAdmission(t *testing.T) {
+	pool := NewWithRunner(Config{MaxConcurrent: 64}, &stubRunner{})
+	t.Cleanup(func() { pool.StopSession("s") })
+
+	child, err := pool.Launch(Spec{SessionID: "s", Kind: KindAgent, Agent: &AgentInfo{Name: "reviewer"}},
+		func(string, io.Writer) (Handle, error) { return &stubHandle{release: make(chan struct{})}, nil })
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+
+	stop := make(chan struct{})
+	var reporter sync.WaitGroup
+	reporter.Add(1)
+	go func() {
+		defer reporter.Done()
+		for tokens := 0; ; tokens++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			pool.SetAgentUsage("s", child.ID, tokens, tokens)
+		}
+	}()
+
+	const more = 20
+	for i := range more {
+		if _, err := pool.Launch(Spec{SessionID: "s", Kind: KindAgent, Label: fmt.Sprintf("task %d", i)},
+			func(string, io.Writer) (Handle, error) { return &stubHandle{release: make(chan struct{})}, nil }); err != nil {
+			t.Fatalf("Launch %d: %v", i, err)
+		}
+	}
+	close(stop)
+	reporter.Wait()
+
+	if got := pool.RunningCount("s"); got != more+1 {
+		t.Fatalf("RunningCount = %d, want %d", got, more+1)
+	}
+}
+
 func TestLaunchRefusalNeverInvokesTheCallback(t *testing.T) {
 	pool := NewWithRunner(Config{MaxConcurrent: 1}, &stubRunner{})
 	t.Cleanup(func() { pool.StopSession("s") })
@@ -1345,6 +1449,105 @@ func TestDeriveLabelForAnAgentTask(t *testing.T) {
 	}
 	if got := deriveLabel(Spec{Kind: KindAgent}); got != "agent" {
 		t.Fatalf("label without a name = %q, want %q", got, "agent")
+	}
+}
+
+// --- system tasks: admitted past the per-session cap, never counted, removable one by one ---
+
+func systemAgentSpec(sessionID string) Spec {
+	return Spec{
+		SessionID: sessionID,
+		Kind:      KindAgent,
+		Label:     "memory: what did we decide",
+		Agent:     &AgentInfo{Name: "memory", SessionID: "sess_mem", System: true},
+	}
+}
+
+func TestSystemTasksAreAdmittedPastThePerSessionCapAndNotCounted(t *testing.T) {
+	runner := &stubRunner{}
+	p := newTestPool(t, runner, Config{MaxConcurrent: 1})
+
+	first, err := p.Start(Spec{SessionID: "s1", Command: "sleep 1"})
+	if err != nil {
+		t.Fatalf("Start(): %v", err)
+	}
+	// The model's slot is taken; a system task is admitted anyway.
+	sysHandle := &stubHandle{release: make(chan struct{})}
+	sys, err := p.Launch(systemAgentSpec("s1"), func(string, io.Writer) (Handle, error) { return sysHandle, nil })
+	if err != nil {
+		t.Fatalf("a system task must be admitted past the per-session cap, got %v", err)
+	}
+	if !sys.SystemTask() {
+		t.Fatal("the snapshot of a system task must say so")
+	}
+	// A second model task is still refused: the system task did not free the slot.
+	if _, err := p.Start(Spec{SessionID: "s1", Command: "sleep 2"}); !errors.Is(err, ErrPoolFull) {
+		t.Fatalf("second model task: err = %v, want ErrPoolFull", err)
+	}
+	if got := p.RunningCount("s1"); got != 1 {
+		t.Fatalf("RunningCount = %d, want 1 (the system task is not the model's)", got)
+	}
+	// With the model's task done, a new one is admitted while the system task still runs.
+	runner.last().finish(0)
+	waitForStatus(t, p, "s1", first.ID, StatusSucceeded)
+	if _, err := p.Start(Spec{SessionID: "s1", Command: "sleep 3"}); err != nil {
+		t.Fatalf("a model task must be admitted while only a system task runs, got %v", err)
+	}
+	sysHandle.finish(0)
+	waitForStatus(t, p, "s1", sys.ID, StatusSucceeded)
+}
+
+func TestSystemFlagPersistsWithTheTaskRecord(t *testing.T) {
+	dir := t.TempDir()
+	pool := NewWithRunner(Config{}, &stubRunner{})
+	pool.SetSessionDir("s", dir)
+	h := &stubHandle{release: make(chan struct{})}
+	snap, err := pool.Launch(systemAgentSpec("s"), func(string, io.Writer) (Handle, error) { return h, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.finish(0)
+	if _, err := pool.Wait(context.Background(), "s", snap.ID, 2*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, backgroundDirName, snap.ID, metaFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record map[string]interface{}
+	if err := json.Unmarshal(raw, &record); err != nil {
+		t.Fatal(err)
+	}
+	agent, _ := record["agent"].(map[string]interface{})
+	if agent["system"] != true || agent["name"] != "memory" {
+		t.Fatalf("persisted agent identity = %v, want the system flag and the name", record["agent"])
+	}
+	loaded := LoadPersisted(dir)
+	if len(loaded) != 1 || !loaded[0].SystemTask() {
+		t.Fatalf("LoadPersisted lost the system flag: %+v", loaded)
+	}
+}
+
+// A note written after the task settled still reaches the record on disk:
+// the sink reopens its mirror for that write.
+func TestOutputSinkWritesAfterCloseReachTheFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), outputFileName)
+	sink := NewOutputSink(0)
+	if err := sink.AttachFile(path); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = sink.Write([]byte("while running\n"))
+	sink.Close()
+	_, _ = sink.Write([]byte("report delivered to the turn (first request)\n"))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "while running\nreport delivered to the turn (first request)\n" {
+		t.Fatalf("file = %q", string(data))
+	}
+	if !strings.Contains(sink.Text(), "report delivered") {
+		t.Fatal("the in-memory window must carry the late line too")
 	}
 }
 
@@ -1481,5 +1684,175 @@ func TestReleaseSessionLeavesARunningTaskAlone(t *testing.T) {
 	p.ReleaseSession("s1")
 	if _, err := p.Get("s1", snap.ID); err != nil {
 		t.Fatalf("a running task must survive a release: %v", err)
+	}
+}
+
+// writePersistedTask puts one task record, and optionally its log, into a session
+// bundle the way an earlier process left it.
+func writePersistedTask(t *testing.T, sessionDir string, record Snapshot, output string) {
+	t.Helper()
+	taskDir := filepath.Join(sessionDir, backgroundDirName, record.ID)
+	if err := os.MkdirAll(taskDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(): %v", err)
+	}
+	data, err := json.Marshal(record)
+	if err != nil {
+		t.Fatalf("Marshal(): %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(taskDir, metaFileName), data, 0o644); err != nil {
+		t.Fatalf("WriteFile(meta): %v", err)
+	}
+	if output != "" {
+		if err := os.WriteFile(filepath.Join(taskDir, outputFileName), []byte(output), 0o644); err != nil {
+			t.Fatalf("WriteFile(output): %v", err)
+		}
+	}
+}
+
+func TestSessionTasksMergesTheBundleOfAnEarlierProcessUnderTheLivePool(t *testing.T) {
+	sessionDir := t.TempDir()
+	// What an earlier coddy left behind: a finished task and one it died under. They
+	// are in the bundle before the pool learns the directory, which is how it knows
+	// to number its own tasks past them.
+	ended := time.Now().Add(-59 * time.Minute)
+	writePersistedTask(t, sessionDir, Snapshot{ID: "bg_1", SessionID: "old", Kind: KindCommand, Command: "go build ./...",
+		Status: StatusSucceeded, StartedAt: time.Now().Add(-time.Hour), FinishedAt: &ended}, "built\n")
+	writePersistedTask(t, sessionDir, Snapshot{ID: "bg_2", SessionID: "old", Kind: KindCommand, Command: "npm run watch",
+		Status: StatusRunning, StartedAt: time.Now().Add(-time.Hour)}, "")
+	p := newTestPool(t, &stubRunner{}, Config{MaxConcurrent: 4})
+	p.SetSessionDir("s1", sessionDir)
+
+	live, err := p.Start(Spec{SessionID: "s1", Command: "make test"})
+	if err != nil {
+		t.Fatalf("Start(): %v", err)
+	}
+
+	rows := p.SessionTasks("s1", sessionDir)
+	byID := map[string]Snapshot{}
+	for _, row := range rows {
+		byID[row.ID] = row
+	}
+	if len(rows) != 3 {
+		t.Fatalf("SessionTasks() = %d rows, want the live task and the two recorded ones: %+v", len(rows), rows)
+	}
+	if byID[live.ID].Status.Finished() {
+		t.Fatalf("the live task reads %q", byID[live.ID].Status)
+	}
+	if byID["bg_1"].Status != StatusSucceeded || byID["bg_2"].Status != StatusOrphaned {
+		t.Fatalf("recorded rows = %q / %q, want succeeded / orphaned", byID["bg_1"].Status, byID["bg_2"].Status)
+	}
+	// A recorded row belongs to the session it is read for, whatever id the
+	// bundle was written under.
+	if byID["bg_1"].SessionID != "s1" {
+		t.Fatalf("recorded row session = %q, want s1", byID["bg_1"].SessionID)
+	}
+	// The live pool wins: its own record on disk is not listed a second time.
+	seen := 0
+	for _, row := range rows {
+		if row.ID == live.ID {
+			seen++
+		}
+	}
+	if seen != 1 {
+		t.Fatalf("the live task is listed %d times", seen)
+	}
+}
+
+func TestSessionTaskOutputFallsBackToTheRecordedLog(t *testing.T) {
+	sessionDir := t.TempDir()
+	p := newTestPool(t, &stubRunner{}, Config{MaxConcurrent: 4})
+	p.SetSessionDir("s1", sessionDir)
+	ended := time.Now().Add(-59 * time.Minute)
+	writePersistedTask(t, sessionDir, Snapshot{ID: "bg_9", SessionID: "old", Kind: KindCommand, Command: "go vet ./...",
+		Status: StatusFailed, StartedAt: time.Now().Add(-time.Hour), FinishedAt: &ended},
+		"line 1\nline 2\nline 3\n")
+
+	output, snap, err := p.SessionTaskOutput("s1", sessionDir, "bg_9", 2)
+	if err != nil {
+		t.Fatalf("SessionTaskOutput(): %v", err)
+	}
+	if output != "line 2\nline 3" {
+		t.Fatalf("output = %q, want the last two lines", output)
+	}
+	if snap.Status != StatusFailed || snap.SessionID != "s1" {
+		t.Fatalf("snapshot = %+v", snap)
+	}
+
+	if _, _, err := p.SessionTaskOutput("s1", sessionDir, "bg_missing", 0); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("a task neither the pool nor the bundle knows = %v, want ErrNotFound", err)
+	}
+}
+
+func TestCanWakeReportsWhetherAWakeWatcherIsSubscribed(t *testing.T) {
+	pool := newTestPool(t, &stubRunner{}, Config{})
+	if pool.CanWake() {
+		t.Fatal("a fresh pool has nothing that could wake an agent")
+	}
+
+	pool.SubscribeKeyed(WakeWatcherKey, func(Snapshot) {})
+	if !pool.CanWake() {
+		t.Fatal("a subscribed wake watcher must be visible to CanWake")
+	}
+
+	// The tasks panel and the persistence hook subscribe too, and neither of
+	// them can start a turn: only the wake key counts.
+	pool.SubscribeKeyed(WakeWatcherKey, nil)
+	pool.Subscribe(func(Snapshot) {})
+	pool.SubscribeKeyed("some.other.watcher", func(Snapshot) {})
+	if pool.CanWake() {
+		t.Fatal("an ordinary watcher must not read as a wake watcher")
+	}
+}
+
+// A task whose outcome started a turn is marked as having woken the agent. The
+// mark is on the snapshot and in the record, so the Tasks panel and /tasks keep
+// the bell on it after a restart, and it is set without a notification: the
+// wake watcher would read a finished task arriving again as a second outcome.
+func TestMarkWokeAgentRecordsTheWakeWithoutNotifying(t *testing.T) {
+	runner := &stubRunner{}
+	p := newTestPool(t, runner, Config{})
+	sessionDir := t.TempDir()
+	p.SetSessionDir("s1", sessionDir)
+
+	snap, err := p.Start(Spec{SessionID: "s1", Command: "make test", NotifyOnFinish: true})
+	if err != nil {
+		t.Fatalf("Start(): %v", err)
+	}
+	runner.last().finish(2)
+	if done := waitUntilFinished(t, p, "s1", snap.ID, StatusFailed); done.WokeAgent {
+		t.Fatal("a task that has woken nobody yet reads as having woken the agent")
+	}
+
+	var mu sync.Mutex
+	var notified []Snapshot
+	p.Subscribe(func(s Snapshot) {
+		mu.Lock()
+		notified = append(notified, s)
+		mu.Unlock()
+	})
+
+	// Another session's ids and ids nobody knows are no business of this one.
+	p.MarkWokeAgent("s2", snap.ID)
+	if got, _ := p.Get("s1", snap.ID); got.WokeAgent {
+		t.Fatal("a mark for another session landed on this session's task")
+	}
+	p.MarkWokeAgent("s1", "bg_missing", snap.ID)
+
+	got, err := p.Get("s1", snap.ID)
+	if err != nil || !got.WokeAgent {
+		t.Fatalf("Get() after the mark = %+v, %v, want WokeAgent", got, err)
+	}
+	loaded := LoadPersisted(sessionDir)
+	if len(loaded) != 1 || !loaded[0].WokeAgent {
+		t.Fatalf("LoadPersisted() = %+v, want the record to keep the mark", loaded)
+	}
+	raw, err := json.Marshal(got)
+	if err != nil || !strings.Contains(string(raw), `"woke_agent":true`) {
+		t.Fatalf("snapshot JSON = %s, %v, want woke_agent", raw, err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(notified) != 0 {
+		t.Fatalf("the mark notified the watchers: %+v", notified)
 	}
 }
