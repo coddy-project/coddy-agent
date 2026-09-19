@@ -114,11 +114,11 @@ jobs:
         if: matrix.tags == 'gateway'
         run: CODDY_BIN="$PWD/build/coddy" examples/gateway/tg_e2e_offline.sh
 
-  # The race detector, `make test-race`: the whole tree with every tag but ui,
-  # minus the packages the Makefile still lists as racy (RACE_SKIP_PKGS). The
-  # races fixed so far lived in test harnesses - a backend swapped under a
-  # running console, a step reading the editor off its UI loop - and passed
-  # every ordinary run, so this job is what keeps them from coming back. One
+  # The race detector, `make test-race`: the whole tree with every tag but ui.
+  # The races fixed so far lived mostly in test harnesses - a backend swapped
+  # under a running console, a step reading a stub's counter without its lock -
+  # and one in the task pool, and all of them passed every ordinary run, so
+  # this job is what keeps them from coming back. One
   # job, because go test already runs the packages side by side on the
   # runner's cores; without the ui tag it needs no Node.
   race:
