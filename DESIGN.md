@@ -904,6 +904,7 @@ is the screen: there is no list of nodes under it, because everything the list d
   is driven by that live data and by nothing else, and
   **`@media (prefers-reduced-motion: reduce)`** removes all of it, leaving the states carried by
   the copy and a static ring.
+- **Dock on a phone.** Below **1200px** the shell's backdrop rises to **`z-index: 60`** and **`#/swarm`** opens it, so **`.swarm-dock-cluster`** takes **70** there, like the settings drawer and the documentation reader, and starts under the top bar the rail becomes (**`top: calc(var(--coddy-mobile-top-inset) + 6px)`**, the side insets clearing the safe area). Under the backdrop every tap on the map, the search box or a node landed on the backdrop and closed the screen. Pinned by **`SwarmView.test.tsx`** (**takes taps on a phone**) and **`features/swarm_web_ui.feature`**.
 - **Header.** Title (relay name) and a subtitle counting relays, agents and offline nodes, then
   **`.swarm-header-actions`** holding the **`headerSlot`** - **`App.tsx`** passes
   **`<EnvironmentChip/>`** there at the relay root, because the composer that normally carries it

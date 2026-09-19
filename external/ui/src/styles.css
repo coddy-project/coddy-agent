@@ -11808,10 +11808,14 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 }
 
 @media (max-width: 1199px) {
+  /* Above the shell's backdrop, which rises to 60 on this shell and which
+     #/swarm opens, and below the top bar the stacked shell puts the rail in,
+     as the settings drawer and the documentation reader sit. */
   .swarm-dock-cluster {
-    left: 8px;
-    right: 8px;
-    top: 8px;
+    z-index: 70;
+    left: max(8px, env(safe-area-inset-left, 0px));
+    right: max(8px, env(safe-area-inset-right, 0px));
+    top: calc(var(--coddy-mobile-top-inset) + 6px);
     bottom: 8px;
   }
 }

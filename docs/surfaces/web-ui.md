@@ -1006,6 +1006,9 @@ Guide: `docs/operate/swarm.md`. Visual contract: `DESIGN.md` (**Swarm screen**).
   browser cannot dial. Matching sessions appear as rows under the map only while
   there is a query; a row opens that session on its node. Nodes that did not
   answer are listed as warnings above the map rather than dropped.
+- On a phone (below 1200 px) the screen opens under the top bar and above the
+  dimmed backdrop, so taps reach the map, the search and the nodes; tapping the
+  top bar's own entries still leaves it.
 - Built with `-tags "swarm ui"` the relay serves this SPA at its own address;
   without the `ui` tag its root explains how to rebuild.
 - The environment selector in the map header opens **downward**, because on a
