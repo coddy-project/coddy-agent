@@ -437,7 +437,7 @@ export function SettingsSection(props: {
     );
   }
   const override: FieldOverride | undefined =
-    key === "agent" || key === "memory"
+    key === "agent" || key === "memory" || key === "compaction"
       ? (ctx) =>
           ctx.path === "model" ? (
             <ModelPicker

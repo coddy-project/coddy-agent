@@ -38,6 +38,17 @@ https://github.com/user-attachments/assets/55e9e66f-8a8d-47be-af75-596b8b00fafa
 - **Persistence:** switching theme writes the cookie and sets **`document.documentElement.dataset.theme`**; reload must keep the chosen theme.
 - **CSS contract:** **`--text`** and **`--bg`** on **`[data-theme="light"]`** are **`#18181b`** and **`#f8f8fa`**; glass panels use **`rgba(255, 255, 255, 0.9)`** (not dark tint). Dark defaults remain on **`:root`** / **`[data-theme="dark"]`**.
 
+## Settings: compaction model
+
+In **Settings → Context compaction**, **Summarizer model** offers a searchable
+dropdown of the logical models configured in the current settings document,
+including unsaved model edits. Select a model or enter an identifier manually.
+Clear the field to use the session model for summarization.
+
+![Compaction model dropdown](../assets/compaction-model-open-dark-1280.png)
+
+*Configured summarizer models in Settings → Context compaction (Dark, 1280 px).*
+
 ## Settings: Codex OAuth
 
 - In **Settings → LLM Providers**, a row with **`type: codex`** hides the generic **API base URL**, **API key**, and **API key command** fields and renders **Sign In with ChatGPT**.
