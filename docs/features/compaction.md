@@ -5,20 +5,23 @@ A model reads a bounded context window, and a working session outgrows it: every
 ## The /compact command
 
 ```text
-/compact [instructions]
+/compact [--model <id>] [instructions]
 ```
 
 The built-in `/compact` runs on every prompt surface - the console, ACP editors, the web UI composer and `POST /v1/responses` - the way `/export` and `/plugin` do: it is recognised before the text becomes a message, without a turn of the main model. It is listed in the command catalog (`GET /coddy/commands`, the ACP `available_commands_update`) only while `compaction.enable` is true. Anything after the command is handed to the summariser as additional instructions, so `/compact focus on the file paths and the failing test` steers what the summary keeps. Ask mode does not restrict it: the command is an operator action, outside the read-only boundary.
 
+`--model <id>` (or `--model=<id>`) names the summariser for that one compaction, whatever `compaction.model` says: `/compact --model hub/qwen3-coder keep the file paths`. The id is a `models[].model`, or a part of one that matches exactly one configured model, in any letter case - `--model qwen` is enough while a single model has `qwen` in its id. The named model goes to the head of the summariser chain and the configured chain stays behind it, so a provider that is down still falls back as described under [A history larger than one summarization request](#a-history-larger-than-one-summarization-request). A name that matches no model, or more than one, compacts nothing and answers with the configured ids. Options come first: the first word that is not an option starts the instructions, which may then mention `--model` freely. In the web UI the composer completes the option and its value - see [the web UI page](../surfaces/web-ui.md#composer-command-options).
+
 A manual compaction is forced. It folds whatever exists: when the configured number of kept turns leaves nothing to summarise, it retries with fewer kept turns, down to none, so even a short conversation compacts. The command text is persisted as a user row so the transcript shows it, and the reply is one line:
 
 ```text
-Context compacted: 14 message(s) summarized, 6 kept verbatim.
+Context compacted: 14 message(s) summarized, 6 kept verbatim. Summarizer: hub/qwen3-coder.
+Nothing was compacted: unknown model "qwn" (configured: openai/gpt-4o, hub/qwen3-coder). Usage: /compact [--model <id>] [instructions]. ...
 Nothing to compact: there is no earlier conversation to summarize yet.
 Compaction is disabled in the configuration (compaction.enable: false).
 ```
 
-Over HTTP the same action is `POST /coddy/sessions/{id}/compact` with an optional body `{"instructions": "..."}`; it answers with the summary and the message counts, `400` when compaction is disabled, `409` while a turn holds the session, while it is being deleted and for a read-only child session ([HTTP API](../reference/http-api.md)). It runs as a turn of the session, so `GET /coddy/events` announces its start and end and a browser tab viewing the session reloads what changed.
+Over HTTP the same action is `POST /coddy/sessions/{id}/compact` with an optional body `{"instructions": "...", "model": "..."}` (`model` is the command's `--model`); it answers with the summary, the message counts and the `model` that wrote it, `400` when compaction is disabled or `model` names no single configured model, `409` while a turn holds the session, while it is being deleted and for a read-only child session ([HTTP API](../reference/http-api.md)). It runs as a turn of the session, so `GET /coddy/events` announces its start and end and a browser tab viewing the session reloads what changed.
 
 ## Automatic compaction
 
@@ -43,10 +46,10 @@ Automatic compaction keeps `keep_recent_turns` user turns verbatim when the wind
 The threshold is a guess made before a call; the model is the one that knows what it just read. A build log it pasted, a file it no longer needs, a search that returned far more than expected - the model sees the context fill and can fold the history itself with the `compact_context` tool, instead of waiting for the trigger or for the operator to type `/compact`:
 
 ```json
-{"instructions": "keep the file paths and the failing test"}
+{"instructions": "keep the file paths and the failing test", "model": "hub/qwen3-coder"}
 ```
 
-`instructions` is optional and steers the summary exactly as the text after `/compact` does. The call behaves like a manual compaction - it folds whatever exists - and the tool answers with the same line the command does, so the model reads back what it did and continues on the shortened history: the loop rebuilds the request from the folded transcript before its next call. The tool is offered in agent and plan mode, and hidden entirely when `compaction.enable` is false. Ask mode does not get it, because every tool offered there is read-only; the operator's `/compact` and the automatic trigger still work in that mode.
+`instructions` is optional and steers the summary exactly as the text after `/compact` does. `model` is optional too and is the command's `--model`: the tool's description lists the configured models, so "compact the context with qwen" in a prompt becomes a call that names that model, and a name that matches nothing comes back as the tool's error with the configured ids, for the model to correct. The assistant message carrying the call itself is never folded, so its result always answers a call the provider can see, even when the model compacts in the first turn of a session. The call behaves like a manual compaction - it folds whatever exists - and the tool answers with the same line the command does, so the model reads back what it did and continues on the shortened history: the loop rebuilds the request from the folded transcript before its next call. The tool is offered in agent and plan mode, and hidden entirely when `compaction.enable` is false. Ask mode does not get it, because every tool offered there is read-only; the operator's `/compact` and the automatic trigger still work in that mode.
 
 ## A history larger than one summarization request
 

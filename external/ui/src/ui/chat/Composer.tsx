@@ -71,7 +71,6 @@ import { parseDocsCommand } from "../docs/docsCommand";
 import {
   filterLlmModels,
   groupLlmModelsByVendor,
-  llmVendorOf,
   shouldGroupLlmModels,
   shouldShowLlmFilter,
 } from "./llmModelMenu";
@@ -2215,9 +2214,10 @@ export function Composer(props: {
         ) : null}
         <ul className="slash-rows" ref={argListRef}>
           {argItems.map((value, idx) => {
+            // A model row is its full id, which already names the vendor.
             const detail = argIsFlag
               ? t("composer.commandArgModelFlagDesc")
-              : llmVendorOf(value);
+              : "";
             return (
               <li key={value}>
                 <button
@@ -2236,7 +2236,10 @@ export function Composer(props: {
                   <span className="slash-row-line">
                     <span className="slash-row-name">{value}</span>
                     {detail ? (
-                      <span className="slash-row-desc">{detail}</span>
+                      <>
+                        {" "}
+                        <span className="slash-row-desc">{detail}</span>
+                      </>
                     ) : null}
                   </span>
                 </button>
