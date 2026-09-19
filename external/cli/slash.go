@@ -109,7 +109,11 @@ func (a *App) dispatchSettings(trimmed string, fields []string) bool {
 // footer follows the change too.
 func (a *App) applySettings(changes ...session.SettingsChange) {
 	sessionID := a.sessionID
+	// A worker, like the turn: the setter writes the session bundle, and
+	// JoinWorkers lets that write finish before the process exits.
+	a.workers.Add(1)
 	go func() {
+		defer a.workers.Done()
 		for _, ch := range changes {
 			ch.Source = "console"
 			snap, err := a.mgr.ApplySessionSettings(context.Background(), sessionID, ch)

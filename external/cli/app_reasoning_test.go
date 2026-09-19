@@ -66,6 +66,10 @@ func newReasoningApp(t *testing.T) *App {
 	if err := app.Start(context.Background(), "", false); err != nil {
 		t.Fatalf("start app: %v", err)
 	}
+	// Registered after TempDir, so it runs first: a settings change is
+	// written by a worker after the value the test waits for is visible,
+	// and removing the home under that write fails on macOS and Windows.
+	t.Cleanup(func() { app.JoinWorkers(5 * time.Second) })
 	return app
 }
 
