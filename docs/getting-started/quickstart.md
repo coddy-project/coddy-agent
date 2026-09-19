@@ -67,7 +67,7 @@ providers:
     api_key: "~"
 ```
 
-Anthropic, NeuralDeep (`coddy providers login neuraldeep` instead of a key) and Codex (ChatGPT OAuth) are covered in [Configuration](configuration.md).
+Anthropic, NeuralDeep (`coddy providers login neuraldeep` instead of a key) and Codex (ChatGPT OAuth) are covered in [Configuration](configuration.md); a Devin account signs in with `coddy providers login devin` ([Devin](../features/devin.md)).
 
 ## 3. Check the file
 

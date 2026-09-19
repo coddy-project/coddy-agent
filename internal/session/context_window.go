@@ -99,14 +99,14 @@ func resolveContextWindow(cfg *config.Config, modelRef string, reported provider
 // providerListsContextWindows reports whether a provider's model listing is
 // worth asking for context windows: the NeuralDeep hub reports them, an
 // OpenAI-compatible server behind an explicit api_base (vLLM, OpenRouter,
-// LM Studio, the hub itself on type openai) may, and api.openai.com, Anthropic
-// and Codex do not.
+// LM Studio, the hub itself on type openai) may, the Devin catalog reports one
+// per family, and api.openai.com, Anthropic and Codex do not.
 func providerListsContextWindows(p *config.ProviderConfig) bool {
 	if p == nil {
 		return false
 	}
 	switch strings.TrimSpace(p.Type) {
-	case "neuraldeep":
+	case "neuraldeep", "devin":
 		return true
 	case "openai":
 		return strings.TrimSpace(p.APIBase) != ""

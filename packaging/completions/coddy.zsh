@@ -46,6 +46,7 @@ _coddy() {
                         _arguments \
                             '--browser[neuraldeep: loopback browser callback instead of the device flow]' \
                             '--device[neuraldeep: the device flow, which is the default]' \
+                            '--devin-cli[devin: use the login devin auth login already holds]' \
                             '--no-config[login: do not add the provider and its models to config.yaml]' \
                             '--api-base[neuraldeep: endpoint to sign in against]:url:' \
                             '--home[override CODDY_HOME]:dir:_files -/'

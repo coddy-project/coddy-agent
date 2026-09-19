@@ -21,7 +21,7 @@ func OpenAIDefaultAPIBase() string { return openAIDefaultAPIBase }
 
 // ProviderEndpoint reports the address requests to a provider actually reach:
 // the configured api_base when there is one, and the backend's own default
-// when there is not. Backends that pin their address (neuraldeep, codex)
+// when there is not. Backends that pin their address (neuraldeep, codex, devin)
 // resolve it the same way the provider itself does, environment overrides
 // included, so the answer is never a guess about where the traffic went.
 func ProviderEndpoint(providerType, configured string) string {
@@ -30,6 +30,8 @@ func ProviderEndpoint(providerType, configured string) string {
 		return neuralDeepAPIBase(configured)
 	case "codex":
 		return codexBaseURL()
+	case "devin":
+		return DevinAPIServerURL()
 	}
 	if base := strings.TrimSpace(configured); base != "" {
 		return base
@@ -64,7 +66,15 @@ func labelProvider(p Provider, in ProviderInput) Provider {
 		return p
 	}
 	label := fmt.Sprintf("provider %q", name)
-	if endpoint := ProviderEndpoint(in.Type, in.BaseURL); endpoint != "" {
+	endpoint := ProviderEndpoint(in.Type, in.BaseURL)
+	if in.Type == "devin" {
+		// The server a Devin login records (a dedicated deployment) is where
+		// the requests go, not the default the type alone names.
+		if cred, err := resolveDevinCredential(in.APIKey, in.AuthPath); err == nil {
+			endpoint = devinAPIServer(cred.apiServer)
+		}
+	}
+	if endpoint != "" {
 		label = fmt.Sprintf("provider %q (%s)", name, endpoint)
 	}
 	return &labelledProvider{inner: p, label: label}
