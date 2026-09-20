@@ -241,6 +241,9 @@ export function extractSessionAssetsXml(content: string): string {
   return m ? m[0] : "";
 }
 
+/** What a transcript shows in place of piped stdin, as **`mention.StdinLabel`**. */
+export const STDIN_LABEL = "[stdin]";
+
 /**
  * What the transcript shows for a persisted user message, the twin of
  * **`mention.ForDisplay`**: every **<coddy_attachment>** element collapsed to the
@@ -248,7 +251,8 @@ export function extractSessionAssetsXml(content: string): string {
  * when the user wrote it differently from the path), or dropped when the text
  * before the first element already carries that mention. A rule a mentioned
  * path pulled in and the body of an invoked **`/skill`** are dropped too:
- * nothing the user typed is missing. Also strips **<coddy_session_assets>**
+ * nothing the user typed is missing. Data piped into a one-shot run
+ * (**`kind="stdin"`**) has no mention and shows as **`[stdin]`**. Also strips **<coddy_session_assets>**
  * blocks and the legacy bracket annotation entirely.
  */
 export function stripCoddyAttachmentsForUserDisplay(raw: string): string {
@@ -272,6 +276,11 @@ export function stripCoddyAttachmentsForUserDisplay(raw: string): string {
     rebuilt += s.slice(last, blk.start);
     last = blk.end;
     if ((blk.typed === "" && blk.kind === "rule") || blk.kind === "skill") {
+      continue;
+    }
+    if (blk.kind === "stdin") {
+      // Piped data has no mention to collapse to; a label says it came.
+      rebuilt += STDIN_LABEL;
       continue;
     }
     const label = blk.typed !== "" ? blk.typed : blk.path;

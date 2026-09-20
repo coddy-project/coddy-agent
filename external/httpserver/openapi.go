@@ -2660,7 +2660,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/compact": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Compact (summarize) older session history",
-					"description": "Summarizes conversation history into a single summary row inserted into the transcript. As a manual trigger it forces compaction, folding whatever exists even below the keep-recent boundary (**compaction.keep_recent_turns**, default 2 user turns) by reducing the kept tail as needed; nothing_to_compact is returned only when there is no prior conversation. Later LLM prompts replay only the summary plus the kept tail; the persisted transcript keeps every original message. Equivalent to the built-in **/compact** prompt command. It runs as a turn of the session: **GET /coddy/events** publishes **turn_started** and **turn_ended** for it, so a client watching the session reloads the smaller context usage, and a second turn meanwhile is refused. **409** when another agent turn is running or the session is being deleted; a child session spawned by **spawn_agent** is a read-only transcript and answers **409** as well. A history larger than the summarizer's own context window is folded in several passes rather than refused, each pass carrying the summary so far; **steps** reports how many it took, and the progress is published as a **compact_context** tool-call row on the session stream.",
+					"description": "Summarizes conversation history into a single summary row inserted into the transcript. As a manual trigger it forces compaction, folding whatever exists even below the keep-recent boundary (**compaction.keep_recent_turns**, default 2 user turns) by reducing the kept tail as needed; nothing_to_compact is returned only when there is no prior conversation. Later LLM prompts replay only the summary plus the kept tail; the persisted transcript keeps every original message. Equivalent to the built-in **/compact** prompt command (**model** is its **--model** option). It runs as a turn of the session: **GET /coddy/events** publishes **turn_started** and **turn_ended** for it, so a client watching the session reloads the smaller context usage, and a second turn meanwhile is refused. **400** when compaction is disabled, the body is malformed or **model** names no single configured model (checked before the session is admitted: no turn starts for it). **409** when another agent turn is running or the session is being deleted; a child session spawned by **spawn_agent** is a read-only transcript and answers **409** as well. A history larger than the summarizer's own context window is folded in several passes rather than refused, each pass carrying the summary so far; **steps** reports how many it took, and the progress is published as a **compact_context** tool-call row on the session stream.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -2680,6 +2680,10 @@ func openAPISpec() map[string]interface{} {
 										"instructions": map[string]string{
 											"type":        "string",
 											"description": "Optional extra guidance for the summarizer (what to emphasize).",
+										},
+										"model": map[string]string{
+											"type":        "string",
+											"description": "Optional summarizer for this one compaction: a configured models[].model or its name without the provider (either in any letter case), or a part of one that matches exactly one model (case-insensitive). The configured chain (compaction.model, compaction.fallback_models, the session's model) stays behind it as the fallback when its provider fails. A name that matches no model, or more than one, is refused with 400 and nothing is compacted. Omitted or empty follows the configuration.",
 										},
 									},
 								},
@@ -3377,6 +3381,13 @@ func openAPISpec() map[string]interface{} {
 								"startLine": map[string]interface{}{"type": "integer", "minimum": 1},
 								"endLine":   map[string]interface{}{"type": "integer", "minimum": 1},
 							},
+						},
+						"kind": map[string]interface{}{
+							"type": "string",
+							"enum": []string{"stdin"},
+							"description": "What a **`source.literal`** body is when it is not a file's text. **`stdin`** is what was piped into a one-shot run under a typed prompt " +
+								"(**`git diff | coddy -p \"review\" --remote ...`**): the model reads it as **`<coddy_attachment path=\"stdin\" kind=\"stdin\">`**, nothing in it is resolved as a mention or run as a command, " +
+								"and a transcript shows **`[stdin]`** in its place. Any other value, or **`stdin`** without **`source.literal`**, is answered with **400**.",
 						},
 					},
 					"required": []string{"path"},

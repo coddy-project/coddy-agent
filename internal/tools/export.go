@@ -58,7 +58,7 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 	// Compaction is a capability of the loop, so the model may reach for it
 	// like any other tool; the operator turns it off with compaction.enable.
 	if cfg == nil || cfg.Compaction.IsEnabled() {
-		r.Register(CompactContextTool())
+		r.Register(CompactContextTool(cfg))
 	}
 	// Filing the session it runs in: a conversation the model renamed or
 	// tagged is one the operator can find again.

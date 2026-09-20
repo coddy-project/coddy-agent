@@ -224,7 +224,36 @@ Print the version and exit.
 Console: continue the most recent session for this directory.
 .TP
 .BR \-p ", " \-\-prompt " " \fIPROMPT\fR
-Console: run one prompt, print the answer, and exit.
+Console: run one prompt, print the answer, and exit. A
+.I PROMPT
+of
+.B \-
+reads the prompt from standard input, and so does a bare
+.B \-p
+when standard input is not a terminal.
+When the prompt comes from the command line or from
+.BR \-i ,
+whatever is piped into standard input rides along as an attachment the model
+reads after the prompt; nothing inside it is taken for a mention or a command.
+.TP
+.BR \-i ", " \-\-prompt\-file " " \fIFILE\fR
+Console: run one prompt read from
+.I FILE
+.RB ( \- " for standard input)"
+instead of the command line, so a prompt larger than the operating system's
+argument limit never passes through it. The file is read as UTF-8 byte for
+byte, trailing newlines included; a UTF-8 byte order mark is dropped and
+UTF-16 with a byte order mark is decoded. A missing file, invalid UTF-8, a NUL
+byte, two prompts at once, or more than 8 MiB of prompt input stops the run
+before anything is sent.
+.TP
+.B \-\-no\-stdin
+Console: never read standard input in a one-shot run, so nothing piped is
+attached. Use it where standard input belongs to something else:
+.B while read
+loops,
+.BR ssh ,
+CI runners that feed the job script to the shell on standard input.
 .TP
 .B \-\-resume
 Console: pick a session to resume.

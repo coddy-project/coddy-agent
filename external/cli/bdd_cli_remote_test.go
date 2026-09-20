@@ -24,7 +24,9 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/mention"
 	"github.com/EvilFreelancer/coddy-agent/internal/remote"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 const bddRemoteToken = "bdd-remote-token"
@@ -67,9 +69,10 @@ type fakeRemotePermission struct {
 }
 
 type fakeRemoteTurn struct {
-	sessionID string
-	model     string
-	input     string
+	sessionID   string
+	model       string
+	input       string
+	attachments []session.PromptFileAttachment
 }
 
 func newFakeRemoteServer(answer string) *fakeRemoteServer {
@@ -129,15 +132,17 @@ func newFakeRemoteServer(answer string) *fakeRemoteServer {
 	mux.HandleFunc("POST /v1/responses", f.withAuth(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 		var req struct {
-			Model string `json:"model"`
-			Input string `json:"input"`
+			Model       string                         `json:"model"`
+			Input       string                         `json:"input"`
+			Attachments []session.PromptFileAttachment `json:"attachments"`
 		}
 		_ = json.Unmarshal(body, &req)
 		f.mu.Lock()
 		f.turns = append(f.turns, fakeRemoteTurn{
-			sessionID: r.Header.Get("X-Coddy-Session-ID"),
-			model:     req.Model,
-			input:     req.Input,
+			sessionID:   r.Header.Get("X-Coddy-Session-ID"),
+			model:       req.Model,
+			input:       req.Input,
+			attachments: req.Attachments,
 		})
 		f.mu.Unlock()
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -241,6 +246,8 @@ type cliRemoteState struct {
 
 	printOut  *syncBuffer
 	printDone chan error
+	// pipedData is what a remote one-shot run had on stdin.
+	pipedData string
 }
 
 func (s *cliRemoteState) reset() {
@@ -561,7 +568,34 @@ func (s *cliRemoteState) serverReceivesChildAnswer(option string) error {
 	return fmt.Errorf("the server never received an answer; last frame:\n%s", s.screenText())
 }
 
+// operatorRunsRemoteOneShotWithStdin is `data | coddy -p TEXT --remote`: what
+// was piped reaches the server as a literal attachment of kind stdin.
+func (s *cliRemoteState) operatorRunsRemoteOneShotWithStdin(prompt, data string) error {
+	s.pipedData = strings.NewReplacer(`\r`, "\r", `\n`, "\n").Replace(data)
+	return s.startRemoteOneShot(PrintOptions{Prompt: prompt, Stdin: s.pipedData})
+}
+
+func (s *cliRemoteState) serverReceivedStdinAttachment(prompt string) error {
+	s.server.mu.Lock()
+	defer s.server.mu.Unlock()
+	for _, turn := range s.server.turns {
+		if turn.input != prompt || len(turn.attachments) != 1 {
+			continue
+		}
+		a := turn.attachments[0]
+		if a.Kind != mention.KindStdin || a.Path != session.StdinAttachmentPath || a.Source == nil || a.Source.Literal != s.pipedData {
+			return fmt.Errorf("the attachment is not the piped data as a literal of kind stdin: %+v", a)
+		}
+		return nil
+	}
+	return fmt.Errorf("no turn carried %q with one attachment: %+v", prompt, s.server.turns)
+}
+
 func (s *cliRemoteState) operatorRunsRemoteOneShot(prompt string) error {
+	return s.startRemoteOneShot(PrintOptions{Prompt: prompt})
+}
+
+func (s *cliRemoteState) startRemoteOneShot(opts PrintOptions) error {
 	if s.server == nil {
 		return fmt.Errorf("no fake server")
 	}
@@ -577,13 +611,9 @@ func (s *cliRemoteState) operatorRunsRemoteOneShot(prompt string) error {
 	s.printOut = &syncBuffer{}
 	s.printDone = make(chan error, 1)
 	h.SetServer(&printSender{mgr: h, cfg: cfg, out: s.printOut, errOut: &syncBuffer{}})
+	opts.Out, opts.ErrOut, opts.Config = s.printOut, &syncBuffer{}, cfg
 	go func() {
-		s.printDone <- PrintPrompt(context.Background(), h, PrintOptions{
-			Prompt: prompt,
-			Out:    s.printOut,
-			ErrOut: &syncBuffer{},
-			Config: cfg,
-		})
+		s.printDone <- PrintPrompt(context.Background(), h, opts)
 	}()
 	return nil
 }
@@ -645,6 +675,10 @@ func initializeCLIRemoteScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the server wakes the console session because "([^"]*)" failed with exit (\d+)$`, s.serverWakesConsoleSession)
 	sc.Step(`^the woken turn shows nothing before the agent's answer$`, s.wokenTurnShowsNothingBeforeTheAnswer)
 	sc.Step(`^the operator runs a remote one-shot prompt "([^"]*)"$`, s.operatorRunsRemoteOneShot)
+	sc.Step(`^the operator pipes "([^"]*)" into a remote one-shot prompt "([^"]*)"$`, func(data, prompt string) error {
+		return s.operatorRunsRemoteOneShotWithStdin(prompt, data)
+	})
+	sc.Step(`^the server received "([^"]*)" with the piped data as a literal stdin attachment$`, s.serverReceivedStdinAttachment)
 	sc.Step(`^the one-shot output contains "([^"]*)"$`, s.oneShotOutputContains)
 	sc.Step(`^the one-shot run ends cleanly$`, s.oneShotEndsCleanly)
 }

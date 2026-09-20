@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -1927,6 +1928,67 @@ func TestResponsesAgentWithAttachmentsHydrate(t *testing.T) {
 	}
 }
 
+// A remote console sends what was piped into a one-shot run as a literal
+// attachment of kind stdin: the runner gets the same block a local run sends,
+// byte for byte, and a kind the server does not know is a 400.
+func TestResponsesStdinAttachmentKind(t *testing.T) {
+	var mu sync.Mutex
+	var captured []acp.ContentBlock
+	root := t.TempDir()
+	wd := filepath.Join(root, "wd")
+	if err := os.MkdirAll(wd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		mu.Lock()
+		captured = append([]acp.ContentBlock(nil), prompt...)
+		mu.Unlock()
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+		return string(acp.StopReasonEndTurn), nil
+	}
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: filepath.Join(root, "home"), CWD: wd},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100}},
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), wd, &session.FileStore{Root: filepath.Join(root, "sessions")})
+	srv := New(cfg, mgr, slog.Default(), wd)
+	t.Cleanup(srv.Drain)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	post := func(sid, attachments string) int {
+		payload := `{"model":"agent","input":"Review this change","stream":false,"attachments":` + attachments + `}`
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Coddy-Session-ID", sid)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = ioReadAllClose(res.Body)
+		return res.StatusCode
+	}
+
+	piped := "diff --git a/x b/x\r\n+see @note.txt\n\n"
+	literal, _ := json.Marshal(piped)
+	if code := post("sess_http_stdin_1", `[{"path":"stdin","kind":"stdin","source":{"literal":`+string(literal)+`}}]`); code != http.StatusOK {
+		t.Fatalf("status %d", code)
+	}
+	mu.Lock()
+	blocks := append([]acp.ContentBlock(nil), captured...)
+	mu.Unlock()
+	if len(blocks) != 2 || !reflect.DeepEqual(blocks[1], session.StdinAttachment(piped)) {
+		t.Fatalf("blocks %+v", blocks)
+	}
+	if code := post("sess_http_stdin_2", `[{"path":"stdin","kind":"clipboard","source":{"literal":"x"}}]`); code != http.StatusBadRequest {
+		t.Fatalf("an unknown kind answered %d, want 400", code)
+	}
+	if code := post("sess_http_stdin_3", `[{"path":"stdin","kind":"stdin"}]`); code != http.StatusBadRequest {
+		t.Fatalf("a stdin kind without a literal answered %d, want 400", code)
+	}
+}
+
 // TestResponsesAttachmentEncodings covers the two ends of attachment decoding
 // over HTTP: a Windows-1251 file is transcoded and reaches the runner as
 // readable text, while a binary file is refused with 400 rather than 500.
@@ -2799,8 +2861,12 @@ func TestHTTPAuthComposerStreamQueryToken(t *testing.T) {
 func newCompactTestServer(t *testing.T, comp config.Compaction) (*httptest.Server, *session.Manager, func()) {
 	t.Helper()
 	cfg := &config.Config{
-		Providers:  []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "k"}},
-		Models:     []config.ModelEntry{{Model: "fake/model", MaxTokens: 100, Temperature: 0.2}},
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "k"}},
+		Models: []config.ModelEntry{
+			{Model: "fake/model", MaxTokens: 100, Temperature: 0.2},
+			// A model no session runs on: a summary it wrote was asked for by name.
+			{Model: "fake/second-qwen", MaxTokens: 100},
+		},
 		Agent:      config.Agent{Model: "fake/model"},
 		Compaction: comp,
 	}
@@ -2843,6 +2909,65 @@ func postCompact(t *testing.T, ts *httptest.Server, sessionID, body string) (int
 	var parsed map[string]interface{}
 	_ = json.NewDecoder(res.Body).Decode(&parsed)
 	return res.StatusCode, parsed
+}
+
+func TestCompactEndpointNamedModel(t *testing.T) {
+	ts, mgr, done := newCompactTestServer(t, config.Compaction{})
+	defer done()
+	id := compactSeedSession(t, mgr, 4)
+
+	code, body := postCompact(t, ts, id, `{"model":"qwen"}`)
+	if code != http.StatusOK || body["compacted"] != true {
+		t.Fatalf("status %d body %v", code, body)
+	}
+	if body["model"] != "fake/second-qwen" {
+		t.Fatalf("model = %v, want the one the request named", body["model"])
+	}
+}
+
+func TestCompactEndpointRefusesAModelItCannotName(t *testing.T) {
+	ts, mgr, done := newCompactTestServer(t, config.Compaction{})
+	defer done()
+	id := compactSeedSession(t, mgr, 4)
+
+	for _, tc := range []struct{ model, want string }{
+		{model: "nope", want: `unknown model \"nope\"`},
+		{model: "fake/", want: "ambiguous"},
+	} {
+		res, err := http.Post(ts.URL+"/coddy/sessions/"+id+"/compact", "application/json",
+			strings.NewReader(fmt.Sprintf(`{"model":%q}`, tc.model)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := io.ReadAll(res.Body)
+		_ = res.Body.Close()
+		if res.StatusCode != http.StatusBadRequest || !strings.Contains(string(raw), tc.want) {
+			t.Fatalf("%s: status %d body %s", tc.model, res.StatusCode, raw)
+		}
+	}
+	for _, m := range mgr.SessionByID(id).GetMessages() {
+		if m.CompactionSummary {
+			t.Fatal("a refused request compacted the session")
+		}
+	}
+}
+
+// A model the body cannot name is the request's own fault, answered like
+// malformed JSON before the session is admitted: no turn starts for it, so a
+// busy session does not turn it into a 409.
+func TestCompactEndpointRefusesAnUnknownModelBeforeTheTurn(t *testing.T) {
+	ts, mgr, done := newCompactTestServer(t, config.Compaction{})
+	defer done()
+	sid := compactSeedSession(t, mgr, 3)
+	unlock, err := mgr.AcquireComposerTurnLock(sid, mgr.SessionByID(sid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	code, _ := postCompact(t, ts, sid, `{"model":"nope"}`)
+	if code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", code)
+	}
 }
 
 func TestCompactEndpointUnknownSession(t *testing.T) {
@@ -4607,5 +4732,67 @@ func TestSessionMessagesMarkOnlyTheWake(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), `"id":"bg_1"`) || !strings.Contains(string(raw), `"exit_code":2`) || !strings.Contains(string(raw), `"duration_ms":1200`) {
 		t.Fatalf("background_wake = %s", raw)
+	}
+}
+
+// testHomeEnv hands the home TestMain made to the helper processes that
+// re-execute this test binary (the fake MCP servers), so they neither make
+// nor remove one of their own.
+const testHomeEnv = "CODDY_TEST_HTTPSERVER_HOME"
+
+// TestMain points CODDY_HOME at an empty directory of the test run's own
+// for the whole package (see TestTestsDoNotResolveTheOperatorHome). A test
+// that needs a home of its own still sets CODDY_HOME itself. HOME stays the
+// operator's on purpose: tests run git in temp repositories and need its
+// identity, so ~-paths such as the default ~/.agents/skills are not isolated.
+func TestMain(m *testing.M) {
+	if home := os.Getenv(testHomeEnv); home != "" {
+		// A helper process, or a run nested in one: the home is the parent's.
+		_ = os.Setenv("CODDY_HOME", home)
+		os.Exit(m.Run())
+	}
+	home, err := os.MkdirTemp("", "coddy-httpserver-home-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "test home:", err)
+		os.Exit(1)
+	}
+	_ = os.Setenv(testHomeEnv, home)
+	_ = os.Setenv("CODDY_HOME", home)
+	code := m.Run()
+	if err := os.RemoveAll(home); err != nil {
+		fmt.Fprintln(os.Stderr, "test home:", err)
+	}
+	os.Exit(code)
+}
+
+// A test of this package that loads a config without naming a home (the
+// config.Load(path) most of them use) must not read the home of whoever runs
+// the tests: its .env would land in this process, its mcp.json servers would
+// join every session, its hooks and skills would run. The home such a load
+// resolves is the directory TestMain made for the run, under the temp dir.
+func TestTestsDoNotResolveTheOperatorHome(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("agent:\n  model: fake/model\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runHome := os.Getenv(testHomeEnv)
+	if runHome == "" {
+		t.Fatalf("no home of the test run's own; config home = %q", cfg.Paths.Home)
+	}
+	want, err := filepath.EvalSymlinks(runHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp, err := filepath.EvalSymlinks(os.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, err := filepath.EvalSymlinks(cfg.Paths.Home)
+	if err != nil || home != want || !strings.HasPrefix(home, tmp+string(filepath.Separator)) {
+		t.Fatalf("config home = %q (%v), want the run's own %q under %q", cfg.Paths.Home, err, want, tmp)
 	}
 }

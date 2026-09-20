@@ -1070,7 +1070,7 @@ func TestCompactSessionInsertsSummaryAtBoundary(t *testing.T) {
 	provider := &compactCannedProvider{t: t, summary: "dense summary"}
 	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
 
-	res, err := ag.CompactSession(context.Background(), "focus on file paths", false)
+	res, err := ag.CompactSession(context.Background(), CompactOptions{Instructions: "focus on file paths"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1129,7 +1129,7 @@ func TestCompactSessionPrunesHeadUsingWritesFromKeptTail(t *testing.T) {
 		},
 	}, provider)
 
-	if _, err := ag.CompactSession(context.Background(), "", false); err != nil {
+	if _, err := ag.CompactSession(context.Background(), CompactOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	request := transcriptText(provider.requests[0])
@@ -1148,7 +1148,7 @@ func TestCompactSessionNothingToCompact(t *testing.T) {
 	keep := 2
 	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, &compactCannedProvider{t: t, summary: "s"})
 
-	if _, err := ag.CompactSession(context.Background(), "", false); !errors.Is(err, ErrNothingToCompact) {
+	if _, err := ag.CompactSession(context.Background(), CompactOptions{}); !errors.Is(err, ErrNothingToCompact) {
 		t.Fatalf("err = %v, want ErrNothingToCompact", err)
 	}
 	if len(st.GetMessages()) != 2 {
@@ -1165,7 +1165,7 @@ func TestCompactSessionAutoKeepsFewerTurnsWhenTheTailCoversEveryTurn(t *testing.
 	provider := &compactCannedProvider{t: t, summary: "folded first turn"}
 	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
 
-	res, err := ag.CompactSession(context.Background(), "", false)
+	res, err := ag.CompactSession(context.Background(), CompactOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1189,7 +1189,7 @@ func TestCompactSessionDisabled(t *testing.T) {
 	off := false
 	ag := compactTestAgent(t, st, config.Compaction{Enabled: &off}, &compactCannedProvider{t: t, summary: "s"})
 
-	if _, err := ag.CompactSession(context.Background(), "", false); err == nil {
+	if _, err := ag.CompactSession(context.Background(), CompactOptions{}); err == nil {
 		t.Fatal("disabled compaction must error")
 	}
 }
@@ -1199,7 +1199,7 @@ func TestCompactSessionEmptySummaryFails(t *testing.T) {
 	keep := 1
 	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, &compactCannedProvider{t: t, summary: "   "})
 
-	if _, err := ag.CompactSession(context.Background(), "", false); err == nil {
+	if _, err := ag.CompactSession(context.Background(), CompactOptions{}); err == nil {
 		t.Fatal("empty summary must error")
 	}
 	if len(st.GetMessages()) != 6 {
@@ -1213,7 +1213,7 @@ func TestCompactSessionProviderErrorKeepsHistory(t *testing.T) {
 	provider := &compactCannedProvider{t: t, err: errors.New("boom")}
 	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
 
-	if _, err := ag.CompactSession(context.Background(), "", false); err == nil {
+	if _, err := ag.CompactSession(context.Background(), CompactOptions{}); err == nil {
 		t.Fatal("provider error must propagate")
 	}
 	if len(st.GetMessages()) != 6 {
@@ -1234,11 +1234,14 @@ func TestParseCompactCommand(t *testing.T) {
 		{in: "/compact focus on file paths", wantOK: true, wantArg: "focus on file paths"},
 		{in: "/compact\nkeep decisions", wantOK: true, wantArg: "keep decisions"},
 		{in: "/compacted", wantOK: false},
+		// The separators draftCommandArg.ts mirrors: a no-break space is not one.
+		{in: "/compact\u00a0--model x", wantOK: false},
 		{in: "hello /compact", wantOK: false},
 		{in: "", wantOK: false},
 	}
 	for _, tc := range cases {
-		arg, ok := parseCompactCommand(tc.in)
+		args, ok := parseCompactCommand(tc.in)
+		arg := args.Instructions
 		if ok != tc.wantOK || arg != tc.wantArg {
 			t.Errorf("parseCompactCommand(%q) = (%q, %v), want (%q, %v)", tc.in, arg, ok, tc.wantArg, tc.wantOK)
 		}
@@ -2197,6 +2200,29 @@ func TestRunExportCommandWritesTranscriptAndPersistsRows(t *testing.T) {
 	}
 }
 
+// A built-in reads what the operator typed: data piped under "/export
+// chat.md" is not part of the target, so the file is chat.md and nothing
+// made of the attachment's words.
+func TestBuiltinCommandsReadTypedTextOnly(t *testing.T) {
+	ag, _, _, cwd := newExportTestAgent(t)
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{
+		{Type: "text", Text: "/export md chat.md"},
+		session.StdinAttachment("piped words that are no path\n"),
+	})
+	if err != nil || stop != string(acp.StopReasonEndTurn) {
+		t.Fatalf("Run: %v, stop %q", err, stop)
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "chat.md")); err != nil {
+		t.Fatalf("the export did not land on the typed target: %v", err)
+	}
+	entries, _ := os.ReadDir(cwd)
+	for _, e := range entries {
+		if e.Name() != "chat.md" && strings.Contains(e.Name(), "piped") {
+			t.Fatalf("an export target was built from the attachment: %q", e.Name())
+		}
+	}
+}
+
 func TestRunExportCommandRejectsPathOutsideWorkspace(t *testing.T) {
 	ag, st, _, cwd := newExportTestAgent(t)
 
@@ -3029,7 +3055,7 @@ func (s *sessionBypassSender) RequestQuestion(context.Context, acp.QuestionReque
 }
 
 // TestSessionBypassFromTheDialogCoversTheRestOfTheBatch pins #292: choosing
-// "bypass permissions for this session" approves the call and switches the
+// "bypass for this session" approves the call and switches the
 // session, so the next call of the same batch runs without a prompt.
 func TestSessionBypassFromTheDialogCoversTheRestOfTheBatch(t *testing.T) {
 	dir := t.TempDir()

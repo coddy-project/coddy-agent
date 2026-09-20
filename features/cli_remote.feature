@@ -72,3 +72,10 @@ Feature: Console connected to a remote coddy server
     When the operator runs a remote one-shot prompt "sum it up"
     Then the one-shot output contains "printed remotely"
     And the one-shot run ends cleanly
+
+  Scenario: Data piped into a remote one-shot run reaches the server as an attachment
+    Given a fake remote coddy server that answers "reviewed remotely"
+    When the operator pipes "diff --git a/x b/x\r\n+y\n\n" into a remote one-shot prompt "Review this change"
+    Then the one-shot output contains "reviewed remotely"
+    And the one-shot run ends cleanly
+    And the server received "Review this change" with the piped data as a literal stdin attachment

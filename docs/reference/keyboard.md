@@ -83,14 +83,18 @@ The composer is a plain `textarea`; keys not listed here keep their browser mean
 
 | Key | Where | Action |
 |---|---|---|
-| Enter | composer, desktop | send when idle: the draft, or the attachments alone when the selected model is multimodal; nothing while a turn is generating |
-| Shift+Enter | composer, desktop | newline (browser default, not intercepted) |
-| Enter | composer, mobile shell (viewports under 1200 px) | newline; sending is the button only |
-| ArrowUp / ArrowDown | slash or `@` menu open | move the highlighted row, wrapping at both ends |
+| Enter | composer, any device with a keyboard, a narrow window included | send when idle: the draft, or the attachments alone when the selected model is multimodal; while a turn runs, queue the draft for its next step |
+| Shift+Enter | composer | newline (browser default, not intercepted) |
+| Ctrl+Enter / Alt+Enter | composer | newline at the caret, replacing a selection (browsers insert none, so the composer does) |
+| Cmd+Enter | composer | send, like Enter |
+| Enter | composer, touch-only device (no hovering pointer, a coarse one: a phone) | newline; sending is the button, since a phone keyboard has no Shift+Enter |
+| Enter, Tab, arrows, Escape, Ctrl+Z | composer, while an input method is composing (the keydown carries `isComposing`, or in Safari keyCode 229 within 100 ms of `compositionend`) | belong to the input method: nothing is sent, no slash, `@`, command option or line-range picker takes a row, moves its highlight or closes, and Ctrl+Z does not bring back the draft from before Improve prompt; any other keyCode 229, which Android keyboards send for ordinary keys, works the pickers as an ordinary key, though an Enter with it still does not send |
+| ArrowUp / ArrowDown | slash, `@` or command option menu open | move the highlighted row, wrapping at both ends |
 | Tab | slash menu open | apply the highlighted command |
 | Tab | `@` mention menu open | apply the highlighted row, also while a turn runs |
-| Enter | slash or `@` menu open | apply, without sending; a folder or a scheme row keeps the `@` menu open |
-| Escape | slash, `@` or line-range picker open | close the picker; the `@path:N-M` picker stays closed for that mention until the draft moves on |
+| Tab | command option menu open (`/compact --model`) | put the highlighted option or model into the draft |
+| Enter | slash, `@` or command option menu open | apply, without sending; a folder or a scheme row keeps the `@` menu open, and `--model` opens the list of models |
+| Escape | slash, `@`, command option or line-range picker open | close the picker; the `@path:N-M` picker stays closed for that mention until the draft moves on |
 | Escape | context breakdown popover open | close it |
 | Ctrl+Z / Cmd+Z | composer, right after Improve prompt | restore the draft from before the improvement, once |
 | Enter / Space | context ring button focused | open or close the breakdown |

@@ -815,6 +815,7 @@ export const messagesRu: Record<string, string> = {
   "nav.docs": "Документация",
   "nav.schedulerAriaLabel": "Задачи планировщика",
   "nav.settings": "Настройки",
+  "nav.more": "Ещё",
 
   "sessions.history": "История",
   "sessions.closeHistory": "Закрыть историю",
@@ -1085,6 +1086,11 @@ export const messagesRu: Record<string, string> = {
   "composer.noFiles": "Ничего не найдено",
   "composer.filterModels": "Фильтр моделей",
   "composer.filterModelsPlaceholder": "Фильтр моделей…",
+  "composer.commandArgModelsTitle": "Модель суммаризации",
+  "composer.commandArgOptionsTitle": "Опции",
+  "composer.commandArgModelFlagDesc":
+    "Модель, которая напишет сводку, только для этого сжатия",
+  "composer.commandArgAriaLabel": "Дополнить опцию команды",
   "composer.noModelsMatch": "Нет моделей по запросу «{query}»",
   "composer.vendorOther": "Другие",
   "composer.closePicker": "Закрыть выбор",

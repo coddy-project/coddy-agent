@@ -101,6 +101,14 @@ jobs:
           .venv/bin/pip install -r examples/cli/requirements.txt
           CODDY_BIN="$PWD/build/coddy" .venv/bin/python examples/cli/cli_e2e_startup.py
 
+      # One-shot input through a real shell: pipes, redirects, a 200 KiB prompt
+      # file, a while-read loop and a terminal, against a scripted model the
+      # script serves itself (no key, no network).
+      - name: Feed one-shot prompts from files and stdin
+        if: matrix.tags == 'cli'
+        run: |
+          CODDY_BIN="$PWD/build/coddy" .venv/bin/python examples/cli/cli_e2e_print_input.py
+
       # The gateway suite runs the bot against the fake Bot API in-process. In
       # the combination that is the gateway alone, the real binary is started
       # against cmd/tgfake on a port and has to answer a message, so the
@@ -225,6 +233,10 @@ jobs:
           python3 -m venv .venv
           .venv/bin/pip install -r examples/cli/requirements.txt
           CODDY_BIN="$PWD/build/coddy" .venv/bin/python examples/cli/cli_e2e_startup.py
+
+      - name: Feed one-shot prompts from files and stdin
+        run: |
+          CODDY_BIN="$PWD/build/coddy" .venv/bin/python examples/cli/cli_e2e_print_input.py
 
   # The packages are only built on a release tag, so without this job a broken
   # nfpm recipe would first be seen by whoever cuts the release. Lean build tags:

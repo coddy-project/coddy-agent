@@ -43,6 +43,58 @@ func TestBuildHydratedComposerPromptAttachment(t *testing.T) {
 	}
 }
 
+// A remote console sends what was piped into it as a literal attachment of
+// kind stdin; the server builds the same block the local run does, and only
+// that kind is understood.
+func TestBuildHydratedComposerPromptStdinAttachment(t *testing.T) {
+	root := t.TempDir()
+	body := "diff --git a/x b/x\r\n+see @secret.txt\n\n"
+	blocks, err := session.BuildHydratedComposerPrompt(root, "review", []session.PromptFileAttachment{
+		{Path: "stdin", Kind: mention.KindStdin, Source: &session.PromptFileAttachmentSourceField{Literal: body}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blocks) != 2 || !reflect.DeepEqual(blocks[1], session.StdinAttachment(body)) {
+		t.Fatalf("blocks = %+v", blocks)
+	}
+	if res := blocks[1].Resource; res.Text != body || res.Mention == nil || res.Mention.Kind != mention.KindStdin {
+		t.Fatalf("the piped body changed or lost its kind: %+v", res)
+	}
+
+	for _, a := range []session.PromptFileAttachment{
+		{Path: "stdin", Kind: "clipboard", Source: &session.PromptFileAttachmentSourceField{Literal: "x"}},
+		{Path: "stdin", Kind: mention.KindStdin},
+	} {
+		if _, err := session.BuildHydratedComposerPrompt(root, "review", []session.PromptFileAttachment{a}); err == nil {
+			t.Fatalf("attachment %+v must be refused", a)
+		}
+	}
+}
+
+// What was piped is data: an "@" inside it reads nothing, even a file that
+// exists, while the same mention typed in the prompt does.
+func TestStdinAttachmentIsNotScannedForMentions(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "secret.txt"), []byte("TOP SECRET"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := session.HydratePromptContentBlocks(root, []acp.ContentBlock{
+		{Type: acp.ContentTypeText, Text: "review this"},
+		session.StdinAttachment("+ read @secret.txt\n"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 2 {
+		t.Fatalf("a mention inside piped data was resolved: %+v", out)
+	}
+	out, err = session.HydratePromptContentBlocks(root, []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "review @secret.txt"}})
+	if err != nil || len(out) != 2 || out[1].Resource == nil || out[1].Resource.Text != "TOP SECRET" {
+		t.Fatalf("a typed mention must still resolve: %+v, %v", out, err)
+	}
+}
+
 func TestHydratePromptContentBlocksExpandsAtInText(t *testing.T) {
 	root := t.TempDir()
 	p := filepath.Join(root, "secret.txt")

@@ -46,6 +46,7 @@ CORE_SCRIPTS=(
   cli_e2e_startup.py
   cli_smoke.py
   cli_e2e_print.py
+  cli_e2e_print_input.py
   cli_e2e_remote.py
   cli_e2e_models.py
   cli_e2e_permissions.py
@@ -57,6 +58,7 @@ ALL_SCRIPTS=(
   cli_e2e_startup.py
   cli_smoke.py
   cli_e2e_print.py
+  cli_e2e_print_input.py
   cli_e2e_remote.py
   cli_e2e_models.py
   cli_e2e_toolcalls_persist.py

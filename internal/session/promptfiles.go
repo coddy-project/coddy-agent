@@ -23,6 +23,27 @@ const MaxPromptAttachmentBytes = 512 * 1024
 type PromptFileAttachment struct {
 	Path   string                           `json:"path"`
 	Source *PromptFileAttachmentSourceField `json:"source,omitempty"`
+	// Kind says what a literal body is when it is not a file's text. The one
+	// value is mention.KindStdin: what was piped into a one-shot run under a
+	// typed prompt (a remote console sends it that way).
+	Kind string `json:"kind,omitempty"`
+}
+
+// StdinAttachmentPath names the attachment a one-shot run makes of its piped
+// stdin.
+const StdinAttachmentPath = "stdin"
+
+// StdinAttachment is the block a one-shot run adds after its prompt for what
+// was piped into it (`git diff | coddy -p "review"`). It is a resource, not
+// text, so nothing scans it: no "@" in it reads a file or fetches a page, no
+// "/command" in it runs, and the transcript shows mention.StdinLabel for it.
+func StdinAttachment(text string) acp.ContentBlock {
+	return acp.ContentBlock{Type: acp.ContentTypeResource, Resource: &acp.Resource{
+		URI:      StdinAttachmentPath,
+		MimeType: "text/plain; charset=utf-8",
+		Text:     text,
+		Mention:  &acp.ResourceMention{Kind: mention.KindStdin},
+	}}
 }
 
 // PromptFileAttachmentSourceField selects how attachment body is sourced.
@@ -172,7 +193,21 @@ func BuildHydratedComposerPrompt(cwdAbs, input string, attachments []PromptFileA
 		if rel == "" {
 			return nil, fmt.Errorf("attachment path is empty")
 		}
-		if a.Source != nil && strings.TrimSpace(a.Source.Literal) != "" {
+		literal := a.Source != nil && strings.TrimSpace(a.Source.Literal) != ""
+		switch kind := strings.TrimSpace(a.Kind); {
+		case kind == "":
+		case kind != mention.KindStdin:
+			return nil, fmt.Errorf("invalid attachment kind %q: the one kind is %s", kind, mention.KindStdin)
+		case !literal:
+			return nil, fmt.Errorf("invalid attachment: kind %s needs its body in source.literal", kind)
+		default:
+			if !utf8.ValidString(a.Source.Literal) {
+				return nil, fmt.Errorf("literal attachment is not valid UTF-8")
+			}
+			out = append(out, StdinAttachment(a.Source.Literal))
+			continue
+		}
+		if literal {
 			text := a.Source.Literal
 			if !utf8.ValidString(text) {
 				return nil, fmt.Errorf("literal attachment is not valid UTF-8")

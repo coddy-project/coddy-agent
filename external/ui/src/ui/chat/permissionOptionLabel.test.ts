@@ -44,7 +44,7 @@ test("an unrecognised grant name falls back to the backend's own text", () => {
 test("the session-wide switches of #292 are translated", () => {
   const bypass = {
     optionId: "allow_session_bypass",
-    name: "Bypass permissions for this session",
+    name: "Bypass for this session",
     kind: "allow_always",
   };
   const edits = {
@@ -52,7 +52,7 @@ test("the session-wide switches of #292 are translated", () => {
     name: "Allow edits for this session",
     kind: "allow_always",
   };
-  expect(permissionOptionLabel(bypass)).toBe("Bypass permissions for this session");
+  expect(permissionOptionLabel(bypass)).toBe("Bypass for this session");
   expect(permissionOptionLabel(edits)).toBe("Allow edits for this session");
   setLocale("ru");
   expect(permissionOptionLabel(bypass)).toBe("Без вопросов до конца сессии");

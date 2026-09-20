@@ -98,7 +98,7 @@ Plan documents live at `plans/<slug>.plan.md` inside the session bundle ([Operat
 
 | Tool | Purpose | Arguments (short) | Permission | Modes |
 |---|---|---|---|---|
-| `compact_context` | Fold the older history into a summary so the session keeps fitting the model's context window ([Context compaction](../features/compaction.md#the-model-can-ask-for-it)) | `instructions` | none | agent, plan; not in ask, whose tools stay read-only; hidden when `compaction.enable` is false |
+| `compact_context` | Fold the older history into a summary so the session keeps fitting the model's context window ([Context compaction](../features/compaction.md#the-model-can-ask-for-it)) | `instructions`, `model` (the summariser for this one call: a configured model id, its name without the provider, or a part of one that matches exactly one) | none | agent, plan; not in ask, whose tools stay read-only; hidden when `compaction.enable` is false |
 
 ## The session's own filing
 

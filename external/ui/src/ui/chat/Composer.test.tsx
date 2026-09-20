@@ -771,6 +771,32 @@ test("enhance button shares the composer context row with workspace controls", (
   vi.unstubAllGlobals();
 });
 
+test("the context chips sit in their own strip and the enhance button stays outside it", () => {
+  // On a phone the strip scrolls sideways while the enhance button keeps its
+  // place at the row's end, so the button must not be inside the strip.
+  stubMatchMediaMobile(false);
+  render(
+    <Composer
+      value="fix memory thing"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+
+  const button = screen.getByTestId("composer-enhance-btn");
+  const row = button.parentElement!;
+  expect(row).toHaveClass("composer-context-row");
+  const strip = row.querySelector(":scope > .composer-context-scroll");
+  expect(strip).not.toBeNull();
+  expect(strip!.contains(screen.getByRole("button", { name: "Environment" }))).toBe(true);
+  expect(strip!.contains(button)).toBe(false);
+  vi.unstubAllGlobals();
+});
+
 test("enhance button posts the draft and replaces it with the result", async () => {
   stubMatchMediaMobile(false);
   const onChange = vi.fn();
@@ -868,91 +894,120 @@ test("Ctrl+Z restores the draft before prompt enhancement", async () => {
 
   fireEvent.click(screen.getByTestId("composer-enhance-btn"));
   await waitFor(() => expect(onChange).toHaveBeenCalledWith("Better draft."));
-  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), {
-    key: "z",
-    ctrlKey: true,
-  });
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  // A Ctrl+Z the input method is composing with is its own undo.
+  fireEvent.keyDown(ta, { key: "z", ctrlKey: true, isComposing: true });
+  expect(onChange).toHaveBeenLastCalledWith("Better draft.");
+  fireEvent.keyDown(ta, { key: "z", ctrlKey: true });
   expect(onChange).toHaveBeenLastCalledWith("fix memory thing");
   vi.unstubAllGlobals();
 });
 
-test("desktop: Ctrl+Enter calls onSend", () => {
-  stubMatchMediaMobile(false);
+/**
+ * Answers `matchMedia` per query: `narrow` for the width breakpoint of the
+ * stacked shell, `touchOnly` for the no-hover coarse-pointer query. The Enter
+ * rule follows the input device, the layout follows the width, and a narrow
+ * desktop window is the case where the two differ.
+ */
+function stubViewport(opts: { narrow: boolean; touchOnly: boolean }) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query.includes("max-width")
+      ? opts.narrow
+      : query.includes("hover") || query.includes("pointer")
+        ? opts.touchOnly
+        : false,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }));
+}
+
+function renderEnterComposer(value = "hello") {
   const onSend = vi.fn();
+  const onChange = vi.fn();
   render(
     <Composer
-      value="hello"
+      value={value}
       isEmpty={false}
       mode="agent"
       modes={["agent", "plan"]}
       onModeChange={() => {}}
-      onChange={() => {}}
+      onChange={onChange}
       onSend={onSend}
     />,
   );
-  const ta = screen.getByRole("textbox", { name: "Message" });
-  fireEvent.keyDown(ta, { key: "Enter", ctrlKey: true });
+  const ta = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+  return { onSend, onChange, ta };
+}
+
+test("a narrow desktop window: Enter sends", () => {
+  stubViewport({ narrow: true, touchOnly: false });
+  const { onSend, ta } = renderEnterComposer();
+  expect(fireEvent.keyDown(ta, { key: "Enter" })).toBe(false);
   expect(onSend).toHaveBeenCalledTimes(1);
   expect(onSend).toHaveBeenCalledWith("hello");
   vi.unstubAllGlobals();
 });
 
-test("desktop: Shift+Enter does not call onSend", () => {
-  stubMatchMediaMobile(false);
-  const onSend = vi.fn();
-  render(
-    <Composer
-      value="hello"
-      isEmpty={false}
-      mode="agent"
-      modes={["agent", "plan"]}
-      onModeChange={() => {}}
-      onChange={() => {}}
-      onSend={onSend}
-    />,
-  );
-  const ta = screen.getByRole("textbox", { name: "Message" });
-  fireEvent.keyDown(ta, { key: "Enter", shiftKey: true });
+test("Ctrl+Enter inserts a newline at the caret and does not send", () => {
+  stubViewport({ narrow: false, touchOnly: false });
+  const { onSend, onChange, ta } = renderEnterComposer();
+  ta.setSelectionRange(3, 3);
+  expect(fireEvent.keyDown(ta, { key: "Enter", ctrlKey: true })).toBe(false);
+  expect(onSend).not.toHaveBeenCalled();
+  expect(onChange).toHaveBeenCalledWith("hel\nlo");
+  vi.unstubAllGlobals();
+});
+
+test("Ctrl+Enter replaces a selection with the newline", () => {
+  stubViewport({ narrow: true, touchOnly: false });
+  const { onSend, onChange, ta } = renderEnterComposer();
+  ta.setSelectionRange(1, 4);
+  fireEvent.keyDown(ta, { key: "Enter", ctrlKey: true });
+  expect(onSend).not.toHaveBeenCalled();
+  expect(onChange).toHaveBeenCalledWith("h\no");
+  vi.unstubAllGlobals();
+});
+
+test("Shift+Enter leaves the newline to the browser and does not send", () => {
+  stubViewport({ narrow: false, touchOnly: false });
+  const { onSend, onChange, ta } = renderEnterComposer();
+  expect(fireEvent.keyDown(ta, { key: "Enter", shiftKey: true })).toBe(true);
+  expect(onSend).not.toHaveBeenCalled();
+  expect(onChange).not.toHaveBeenCalled();
+  vi.unstubAllGlobals();
+});
+
+test("Enter that confirms an IME candidate does not send", () => {
+  stubViewport({ narrow: false, touchOnly: false });
+  const { onSend, ta } = renderEnterComposer();
+  fireEvent.keyDown(ta, { key: "Enter", isComposing: true });
+  fireEvent.keyDown(ta, { key: "Enter", keyCode: 229 });
   expect(onSend).not.toHaveBeenCalled();
   vi.unstubAllGlobals();
 });
 
-test("mobile: Enter does not call onSend (newline only)", () => {
-  stubMatchMediaMobile(true);
-  const onSend = vi.fn();
-  render(
-    <Composer
-      value="hello"
-      isEmpty={false}
-      mode="agent"
-      modes={["agent", "plan"]}
-      onModeChange={() => {}}
-      onChange={() => {}}
-      onSend={onSend}
-    />,
-  );
-  const ta = screen.getByRole("textbox", { name: "Message" });
-  fireEvent.keyDown(ta, { key: "Enter" });
+test("a touch-only phone: Return inserts a newline and the Send button sends", () => {
+  stubViewport({ narrow: true, touchOnly: true });
+  const { onSend, ta } = renderEnterComposer();
+  expect(fireEvent.keyDown(ta, { key: "Enter" })).toBe(true);
   expect(onSend).not.toHaveBeenCalled();
-  vi.unstubAllGlobals();
-});
-
-test("mobile: clicking Send button calls onSend", () => {
-  stubMatchMediaMobile(true);
-  const onSend = vi.fn();
-  render(
-    <Composer
-      value="hello"
-      isEmpty={false}
-      mode="agent"
-      modes={["agent", "plan"]}
-      onModeChange={() => {}}
-      onChange={() => {}}
-      onSend={onSend}
-    />,
-  );
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   expect(onSend).toHaveBeenCalledWith("hello");
+  vi.unstubAllGlobals();
+});
+
+test("the keyboard's Enter key is labelled send, or enter on a touch-only phone", () => {
+  stubViewport({ narrow: true, touchOnly: false });
+  const first = renderEnterComposer();
+  expect(first.ta).toHaveAttribute("enterkeyhint", "send");
+  cleanup();
+  stubViewport({ narrow: true, touchOnly: true });
+  const second = renderEnterComposer();
+  expect(second.ta).toHaveAttribute("enterkeyhint", "enter");
   vi.unstubAllGlobals();
 });
 
@@ -2002,6 +2057,41 @@ test("the permission chip names the session's mode and switches it (#292)", () =
   expect(picked).toEqual(["ask"]);
 });
 
+test("the selector chips run attach, mode, model, reasoning, permission", () => {
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan", "ask"]}
+      llmModelMultimodal
+      llmModels={["openai/gpt-5"]}
+      llmModel="openai/gpt-5"
+      onLlmModelChange={() => {}}
+      llmReasoningLevels={["low", "medium", "high"]}
+      llmReasoning="medium"
+      onLlmReasoningChange={() => {}}
+      permissionMode="ask"
+      configuredPermissionMode="ask"
+      onPermissionModeChange={() => {}}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const tabs = document.querySelector(".composer-tabs")!;
+  const order = Array.from(tabs.querySelectorAll("button.composer-tab")).map(
+    (b) => b.getAttribute("aria-label"),
+  );
+  expect(order).toEqual([
+    "Attach file",
+    "Mode",
+    "Model",
+    "Reasoning level",
+    "Permissions",
+  ]);
+});
+
 test("the permission chip is not shown without a handler", () => {
   renderComposer({ isEmpty: false });
   expect(screen.queryByTestId("composer-permission")).toBeNull();
@@ -2087,5 +2177,184 @@ test("picking /plan in the / menu switches the mode instead of typing it", async
   fireEvent.mouseDown(row);
   expect(modes).toEqual(["plan"]);
   expect(ta.value).toBe("");
+  vi.unstubAllGlobals();
+});
+
+// An input method confirming a candidate reports its keys too: isComposing,
+// or in Safari a keyCode 229 keydown right after compositionend. They belong
+// to it, so a picker takes no row, keeps its highlight and stays open, the way
+// Enter then never sends.
+function safariCommitKey(ta: HTMLElement, key: string) {
+  fireEvent.compositionStart(ta);
+  fireEvent.compositionEnd(ta);
+  fireEvent.keyDown(ta, { key, keyCode: 229 });
+}
+test("keys an input method is composing with leave the slash picker alone", async () => {
+  stubShell(true);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        items: [
+          { name: "rpa-gen-rules", description: "Generate project rules" },
+          { name: "rpa-gen-docs", description: "Generate docs" },
+        ],
+        has_more: false,
+        page: 1,
+      }),
+    }),
+  );
+  const onChange = vi.fn();
+  const onSend = vi.fn();
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={(v) => {
+          setValue(v);
+          onChange(v);
+        }}
+        onSend={onSend}
+      />
+    );
+  }
+  render(<Harness />);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  typeDraft(ta, "/gen");
+  await waitFor(() => {
+    expect(screen.getByTestId("slash-command-row-rpa-gen-rules")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+  onChange.mockClear();
+  fireEvent.keyDown(ta, { key: "ArrowDown", isComposing: true });
+  fireEvent.keyDown(ta, { key: "Enter", isComposing: true });
+  safariCommitKey(ta, "Enter");
+  fireEvent.keyDown(ta, { key: "Tab", isComposing: true });
+  fireEvent.keyDown(ta, { key: "Escape", isComposing: true });
+
+  expect(onChange).not.toHaveBeenCalled();
+  expect(onSend).not.toHaveBeenCalled();
+  expect(screen.getByTestId("slash-command-row-rpa-gen-rules")).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  vi.unstubAllGlobals();
+});
+
+test("keys an input method is composing with leave the @ picker alone", async () => {
+  stubShell(true);
+  stubMentionsFetch({
+    rea: {
+      items: [
+        { kind: "file", insert: "@README.md", label: "README.md" },
+        { kind: "file", insert: "@docs/README.md", label: "docs/README.md" },
+      ],
+    },
+  });
+  const onChange = vi.fn();
+  render(<MentionHarness onChange={onChange} />);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  typeDraft(ta, "@rea");
+  await waitFor(() => {
+    expect(screen.getByTestId("mention-row-file-README_md")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+  onChange.mockClear();
+  safariCommitKey(ta, "ArrowDown");
+  fireEvent.keyDown(ta, { key: "Enter", isComposing: true });
+  safariCommitKey(ta, "Tab");
+  fireEvent.keyDown(ta, { key: "Escape", isComposing: true });
+
+  expect(onChange).not.toHaveBeenCalled();
+  expect(screen.getByTestId("mention-row-file-README_md")).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  expect(screen.getByTestId("workspace-files-menu")).toBeTruthy();
+  vi.unstubAllGlobals();
+});
+
+// Android keyboards report keyCode 229 for most keydowns with no composition
+// behind them: without compositionend first, the key is the composer's.
+test("a keyCode 229 with no composition behind it still takes the @ row", async () => {
+  stubShell(true);
+  stubMentionsFetch({
+    rea: { items: [{ kind: "file", insert: "@README.md", label: "README.md" }] },
+  });
+  const onChange = vi.fn();
+  render(<MentionHarness onChange={onChange} />);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  typeDraft(ta, "@rea");
+  await waitFor(() => {
+    expect(screen.getByTestId("mention-row-file-README_md")).toBeTruthy();
+  });
+  fireEvent.keyDown(ta, { key: "Enter", keyCode: 229 });
+  expect(onChange).toHaveBeenLastCalledWith("@README.md ");
+  vi.unstubAllGlobals();
+});
+
+test("an Escape the input method is composing with leaves the line-range picker open", async () => {
+  stubShell(true);
+  stubWorkspaceFileFetch(["one", "two"]);
+  render(<RangeHarness initial="" onChange={() => {}} />);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:1-2", selectionStart: 10, selectionEnd: 10 },
+  });
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  });
+  fireEvent.keyDown(ta, { key: "Escape", isComposing: true });
+  safariCommitKey(ta, "Escape");
+  expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  fireEvent.keyDown(ta, { key: "Escape" });
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeNull();
+  });
+  vi.unstubAllGlobals();
+});
+
+// A composition that ended with no keydown after it (a candidate tapped or
+// clicked, a blur) leaves nothing behind: the next keyCode 229, which Android
+// keyboards send for ordinary keys, is the composer's again.
+test("a keyCode 229 long after a composition ended still takes the @ row", async () => {
+  stubShell(true);
+  stubMentionsFetch({
+    rea: { items: [{ kind: "file", insert: "@README.md", label: "README.md" }] },
+  });
+  const onChange = vi.fn();
+  render(<MentionHarness onChange={onChange} />);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  typeDraft(ta, "@rea");
+  await waitFor(() => {
+    expect(screen.getByTestId("mention-row-file-README_md")).toBeTruthy();
+  });
+  const now = vi.spyOn(performance, "now");
+  onChange.mockClear();
+  // 99 ms after the end the 229 is still the key that ended it...
+  now.mockReturnValue(1000);
+  fireEvent.compositionStart(ta);
+  fireEvent.compositionEnd(ta);
+  now.mockReturnValue(1099);
+  fireEvent.keyDown(ta, { key: "Enter", keyCode: 229 });
+  expect(onChange).not.toHaveBeenCalled();
+  // ...100 ms after, it is an ordinary key again.
+  now.mockReturnValue(2000);
+  fireEvent.compositionStart(ta);
+  fireEvent.compositionEnd(ta);
+  now.mockReturnValue(2100);
+  fireEvent.keyDown(ta, { key: "Enter", keyCode: 229 });
+  expect(onChange).toHaveBeenLastCalledWith("@README.md ");
+  now.mockRestore();
   vi.unstubAllGlobals();
 });

@@ -35,6 +35,12 @@ import {
   slashMenuDraftAtCaret,
 } from "../skills/draftSlash";
 import { filterCommandRows } from "../skills/commandRows";
+import {
+  COMPACT_FLAGS,
+  applyCommandArg,
+  commandArgDraftAtCaret,
+  type CommandArgDraft,
+} from "../skills/draftCommandArg";
 import type { TurnOverride } from "./sessionSettings";
 import {
   segmentComposerMirrorSpans,
@@ -59,7 +65,11 @@ import {
   subscribeShellStack,
   snapshotShellStack,
   serverSnapshotShellStack,
+  subscribeTouchOnly,
+  snapshotTouchOnly,
+  serverSnapshotTouchOnly,
 } from "../shellBreakpoint";
+import { composerEnterAction, insertNewline } from "./composerEnter";
 import { contextUsagePercent } from "./contextUsage";
 import { parseDocsCommand } from "../docs/docsCommand";
 import {
@@ -275,6 +285,14 @@ function commandGroup(rows: SlashRow[], docsLabel: string | null): SlashRow[] {
   );
 }
 
+/**
+ * How long after compositionend a keyCode 229 keydown still counts as the key
+ * that ended the composition (Safari's order). The keydown follows within a
+ * few milliseconds, a render in between included; a person's next key does
+ * not.
+ */
+const COMPOSITION_END_KEY_WINDOW_MS = 100;
+
 export function Composer(props: {
   value: string;
   isEmpty: boolean;
@@ -352,6 +370,12 @@ export function Composer(props: {
     subscribeShellStack,
     snapshotShellStack,
     serverSnapshotShellStack,
+  );
+  // What Enter does follows the input device, not the width (composerEnter.ts).
+  const touchOnly = useSyncExternalStore(
+    subscribeTouchOnly,
+    snapshotTouchOnly,
+    serverSnapshotTouchOnly,
   );
   // The selector chips, so a settings command picked in the / menu can open
   // the menu of its control (settingsControlFor).
@@ -497,6 +521,17 @@ export function Composer(props: {
    * Skip reopening `@` on the next picker sync ticks (handles duplicate selection events).
    */
   const deferAtDraftPickerTicksRef = useRef(0);
+  /**
+   * When the last composition ended (performance.now()), or null. Safari ends
+   * a composition before the keydown that ended it arrives, so a keyCode 229
+   * shortly after is that key; the next keydown, a new composition or the
+   * window running out forgets it, since a composition can also end with no
+   * key (a tapped candidate, a blur).
+   */
+  const compositionEndedAtRef = useRef<number | null>(null);
+  const [argDraft, setArgDraft] = useState<CommandArgDraft>({ open: false });
+  const [argActive, setArgActive] = useState(0);
+  const argListRef = useRef<HTMLUListElement>(null);
   const [atItems, setAtItems] = useState<MentionRow[]>([]);
   const [atOpen, setAtOpen] = useState(false);
   const [atPrefix, setAtPrefix] = useState("");
@@ -603,7 +638,26 @@ export function Composer(props: {
     atRangeFile != null &&
     atRangeFile.pathRel === atRangeDraft.path;
   const atRangeHighlight = highlightedRange(atRangeDraft);
-  const pickerOpen = slashOpen || atOpen || atRangeOpen;
+  // Option completion of a typed command (`/compact --model ...`): no fetch,
+  // the rows are the option names or the configured models, filtered as typed.
+  const argItems = useMemo<string[]>(() => {
+    if (!argDraft.open) {
+      return [];
+    }
+    if (argDraft.kind === "flag") {
+      return COMPACT_FLAGS.filter((f) => f.startsWith(argDraft.prefix));
+    }
+    return filterLlmModels(props.llmModels ?? [], argDraft.prefix);
+  }, [argDraft, props.llmModels]);
+  const argOpen =
+    argDraft.open &&
+    (argDraft.kind === "model"
+      ? (props.llmModels ?? []).length > 0
+      : argItems.length > 0);
+  const argActiveIdx = argItems.length
+    ? Math.min(Math.max(argActive, 0), argItems.length - 1)
+    : 0;
+  const pickerOpen = slashOpen || atOpen || atRangeOpen || argOpen;
   const sheetOverlayOpen = pickerOpen || contextPopoverOpen;
 
   const measureSheetBottom = useCallback(() => {
@@ -792,6 +846,8 @@ export function Composer(props: {
     bumpAtFetchGen();
     setAtLoading(false);
     setAtErr(null);
+
+    setArgDraft({ open: false });
 
     // Remember the dismissed mention so the next digit does not reopen the panel.
     if (atRangeDraft.open) {
@@ -1241,6 +1297,41 @@ export function Composer(props: {
         deferAtDraftPickerTicksRef.current -= 1;
         deferAtDraft = true;
       }
+      // An option of a typed command is completed before anything else reads
+      // the draft: a model id may hold characters the other pickers claim.
+      const cd = commandArgDraftAtCaret(value, caret);
+      if (cd.open) {
+        bumpSlashFetchGen();
+        setSlashOpen(false);
+        setSlashReplace(null);
+        setSlashNoMatch(null);
+        setSlashLoading(false);
+        bumpAtFetchGen();
+        setAtOpen(false);
+        setAtReplace(null);
+        setAtNoMatch(null);
+        setAtLoading(false);
+        if (atRangeDraft.open) {
+          closeAtRangePicker();
+          setAtRangeSuppressed(null);
+        }
+        // The caret listeners call this on every key, arrows included: only a
+        // draft that moved resets the highlight.
+        setArgDraft((prev) => {
+          if (
+            prev.open &&
+            prev.kind === cd.kind &&
+            prev.from === cd.from &&
+            prev.to === cd.to &&
+            prev.prefix === cd.prefix
+          ) {
+            return prev;
+          }
+          return cd;
+        });
+        return;
+      }
+      setArgDraft((prev) => (prev.open ? { open: false } : prev));
       // A ":" after a mention closes the file picker (":" is no MENU_PATH_CHAR);
       // the range panel takes over from there.
       const rd = atRangeDraftAtCaret(value, caret);
@@ -1965,6 +2056,45 @@ export function Composer(props: {
     }
   }, [atActiveIdx, atOpen]);
 
+  // A draft that moved starts from the first row again.
+  useEffect(() => {
+    setArgActive(0);
+  }, [argDraft]);
+  useEffect(() => {
+    const row = argListRef.current?.querySelector<HTMLElement>(
+      `[data-arg-idx="${argActiveIdx}"]`,
+    );
+    if (row && typeof row.scrollIntoView === "function") {
+      row.scrollIntoView({ block: "nearest" });
+    }
+  }, [argActiveIdx, argOpen]);
+
+  /** Put the picked option name or model id into the draft. */
+  function applyArgChoice(value: string) {
+    if (!argDraft.open) {
+      return;
+    }
+    const { next, pos } = applyCommandArg(
+      props.value,
+      argDraft.from,
+      argDraft.to,
+      value,
+    );
+    props.onChange(next);
+    setArgDraft({ open: false });
+    requestAnimationFrame(() => {
+      const el = taRef.current;
+      if (!el) {
+        return;
+      }
+      el.focus();
+      el.setSelectionRange(pos, pos);
+      // After `--model ` the list of models opens at once; after a model the
+      // caret is in the instructions and nothing does.
+      updatePickerMenus(next, pos);
+    });
+  }
+
   const mentionKindLabel = (kind: string): string => {
     switch (kind) {
       case "directory":
@@ -2088,6 +2218,65 @@ export function Composer(props: {
     </>
   );
 
+  const argIsFlag = argDraft.open && argDraft.kind === "flag";
+  const argMenuChrome = (
+    <>
+      <div className="slash-menu-surface" aria-hidden />
+      <div
+        className="slash-menu-scroll"
+        style={{ maxHeight: pickerFloatRect?.maxH }}
+      >
+        <div className="slash-menu-title">
+          {argIsFlag
+            ? t("composer.commandArgOptionsTitle")
+            : t("composer.commandArgModelsTitle")}
+        </div>
+        {argItems.length === 0 ? (
+          <div className="slash-muted">
+            {t("composer.noModelsMatch", {
+              query: argDraft.open ? argDraft.prefix : "",
+            })}
+          </div>
+        ) : null}
+        <ul className="slash-rows" ref={argListRef}>
+          {argItems.map((value, idx) => {
+            // A model row is its full id, which already names the vendor.
+            const detail = argIsFlag
+              ? t("composer.commandArgModelFlagDesc")
+              : "";
+            return (
+              <li key={value}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={idx === argActiveIdx}
+                  className={`slash-row-btn${idx === argActiveIdx ? " is-active" : ""}`}
+                  data-arg-idx={idx}
+                  data-testid={`command-arg-row-${value.replace(/[^a-zA-Z0-9_-]+/g, "_")}`}
+                  onMouseEnter={() => setArgActive(idx)}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    applyArgChoice(value);
+                  }}
+                >
+                  <span className="slash-row-line">
+                    <span className="slash-row-name">{value}</span>
+                    {detail ? (
+                      <>
+                        {" "}
+                        <span className="slash-row-desc">{detail}</span>
+                      </>
+                    ) : null}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </>
+  );
+
   const atRangeChrome = (
     <>
       <div className="slash-menu-surface" aria-hidden />
@@ -2176,21 +2365,27 @@ export function Composer(props: {
     </>
   );
 
-  const pickerChrome = atRangeOpen
-    ? atRangeChrome
-    : atOpen
-      ? atMenuChrome
-      : slashMenuChrome;
-  const pickerTestId = atRangeOpen
-    ? "at-range-picker"
-    : atOpen
-      ? "workspace-files-menu"
-      : "slash-command-menu";
-  const pickerAriaLabel = atRangeOpen
-    ? t("composer.atRangeAriaLabel")
-    : atOpen
-      ? t("composer.workspaceFilesAriaLabel")
-      : t("composer.slashCommandsAriaLabel");
+  const pickerChrome = argOpen
+    ? argMenuChrome
+    : atRangeOpen
+      ? atRangeChrome
+      : atOpen
+        ? atMenuChrome
+        : slashMenuChrome;
+  const pickerTestId = argOpen
+    ? "command-arg-menu"
+    : atRangeOpen
+      ? "at-range-picker"
+      : atOpen
+        ? "workspace-files-menu"
+        : "slash-command-menu";
+  const pickerAriaLabel = argOpen
+    ? t("composer.commandArgAriaLabel")
+    : atRangeOpen
+      ? t("composer.atRangeAriaLabel")
+      : atOpen
+        ? t("composer.workspaceFilesAriaLabel")
+        : t("composer.slashCommandsAriaLabel");
   const pickerRole = atRangeOpen ? "group" : "listbox";
 
   return (
@@ -2271,18 +2466,22 @@ export function Composer(props: {
           }}
         >
           <div className="composer-context-row">
-            <EnvironmentChip />
-            {props.workspaceCtx !== undefined && props.onWorkspacePickFolder ? (
-              <WorkspaceChips
-                context={props.workspaceCtx ?? null}
-                worktreePref={props.worktreePref ?? false}
-                onPickFolder={props.onWorkspacePickFolder}
-                onPickBranch={props.onWorkspacePickBranch ?? (() => {})}
-                onWorktreeToggle={props.onWorktreeToggle ?? (() => {})}
-                opensUp={!props.isEmpty}
-                locked={props.workspaceLocked ?? false}
-              />
-            ) : null}
+            {/* One strip for the chips: display: contents on a wide shell, a
+                sideways-scrolling box on a phone (styles.css). */}
+            <div className="composer-context-scroll">
+              <EnvironmentChip />
+              {props.workspaceCtx !== undefined && props.onWorkspacePickFolder ? (
+                <WorkspaceChips
+                  context={props.workspaceCtx ?? null}
+                  worktreePref={props.worktreePref ?? false}
+                  onPickFolder={props.onWorkspacePickFolder}
+                  onPickBranch={props.onWorkspacePickBranch ?? (() => {})}
+                  onWorktreeToggle={props.onWorktreeToggle ?? (() => {})}
+                  opensUp={!props.isEmpty}
+                  locked={props.workspaceLocked ?? false}
+                />
+              ) : null}
+            </div>
             <button
               type="button"
               className="composer-enhance-btn"
@@ -2395,6 +2594,7 @@ export function Composer(props: {
                 id="composer"
                 className={maskComposerText ? "composer-ta-masked" : undefined}
                 rows={props.isEmpty ? 5 : 2}
+                enterKeyHint={touchOnly ? "enter" : "send"}
                 placeholder={
                   props.generating
                     ? t("composer.placeholderQueue")
@@ -2460,7 +2660,29 @@ export function Composer(props: {
                     ...renamePastedImages(images, pastedSeqRef),
                   ]);
                 }}
+                onCompositionStart={() => {
+                  compositionEndedAtRef.current = null;
+                }}
+                onCompositionEnd={() => {
+                  compositionEndedAtRef.current = performance.now();
+                }}
                 onKeyDown={(ev) => {
+                  // A key an input method is composing with is its own: no
+                  // picker takes a row on it, no list closes, Ctrl+Z restores
+                  // nothing, and it never sends. Browsers mark it with
+                  // isComposing; Safari ends the composition first and marks
+                  // the key that ended it only with keyCode 229, which alone
+                  // proves nothing, since Android keyboards send 229 with no
+                  // composition behind it.
+                  const endedAt = compositionEndedAtRef.current;
+                  compositionEndedAtRef.current = null;
+                  const endsComposition =
+                    ev.keyCode === 229 &&
+                    endedAt !== null &&
+                    performance.now() - endedAt < COMPOSITION_END_KEY_WINDOW_MS;
+                  if (ev.nativeEvent.isComposing || endsComposition) {
+                    return;
+                  }
                   if (
                     ev.key === "z" &&
                     (ev.metaKey || ev.ctrlKey) &&
@@ -2480,11 +2702,35 @@ export function Composer(props: {
                   }
                   if (
                     ev.key === "Escape" &&
-                    (slashOpen || atOpen || atRangeOpen)
+                    (slashOpen || atOpen || atRangeOpen || argOpen)
                   ) {
                     ev.preventDefault();
                     dismissSlashAtPickers();
                     return;
+                  }
+                  if (argOpen && argItems.length > 0) {
+                    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+                      ev.preventDefault();
+                      const len = argItems.length;
+                      setArgActive((i) => {
+                        const cur = Math.min(Math.max(i, 0), len - 1);
+                        return ev.key === "ArrowDown"
+                          ? (cur + 1) % len
+                          : (cur - 1 + len) % len;
+                      });
+                      return;
+                    }
+                    if (
+                      ev.key === "Tab" ||
+                      (ev.key === "Enter" && !ev.shiftKey)
+                    ) {
+                      ev.preventDefault();
+                      const pick = argItems[argActiveIdx];
+                      if (pick) {
+                        applyArgChoice(pick);
+                      }
+                      return;
+                    }
                   }
                   if (
                     (ev.key === "ArrowDown" || ev.key === "ArrowUp") &&
@@ -2566,16 +2812,41 @@ export function Composer(props: {
                     }
                     return;
                   }
-                  if (ev.key === "Enter") {
-                    if (isMobileShell) {
-                      // On mobile: Enter inserts a newline (browser default). Send is button-only.
-                      return;
-                    }
-                    // Desktop: Shift+Enter = newline (browser default, not intercepted).
-                    if (ev.shiftKey) {
-                      return;
-                    }
-                    // Desktop: Enter or Ctrl+Enter = send.
+                  const enterAction = composerEnterAction(
+                    {
+                      key: ev.key,
+                      shiftKey: ev.shiftKey,
+                      ctrlKey: ev.ctrlKey,
+                      altKey: ev.altKey,
+                      metaKey: ev.metaKey,
+                      isComposing: ev.nativeEvent.isComposing,
+                      keyCode: ev.keyCode,
+                      repeat: ev.repeat,
+                    },
+                    touchOnly,
+                  );
+                  if (enterAction === "newline-insert") {
+                    ev.preventDefault();
+                    const el = ev.currentTarget;
+                    const start = el.selectionStart ?? props.value.length;
+                    const end = el.selectionEnd ?? start;
+                    const next = insertNewline(props.value, start, end);
+                    setCaretPos(next.caret);
+                    preEnhanceRef.current = null;
+                    setEnhanceErr(null);
+                    props.onChange(next.text);
+                    updatePickerMenus(next.text, next.caret);
+                    requestAnimationFrame(() => {
+                      const ta = taRef.current;
+                      if (!ta) {
+                        return;
+                      }
+                      ta.setSelectionRange(next.caret, next.caret);
+                      syncComposerScroll();
+                    });
+                    return;
+                  }
+                  if (enterAction === "send") {
                     ev.preventDefault();
                     if (openDocsFromDraft()) {
                       return;
@@ -2678,28 +2949,6 @@ export function Composer(props: {
                 </button>
               </div>
 
-              {props.onPermissionModeChange ? (
-                <div className="mode">
-                  <button
-                    type="button"
-                    ref={permissionChipRef}
-                    className={`composer-tab mode-btn mode-permission perm-${permissionVal}`}
-                    aria-label={t("composer.permission")}
-                    title={t("composer.permissionTitle", {
-                      configured: displayPermission(
-                        props.configuredPermissionMode || "ask",
-                      ),
-                    })}
-                    aria-haspopup="menu"
-                    aria-expanded={menuOpen === "permission"}
-                    data-testid="composer-permission"
-                    onClick={(e) => toggleMenu("permission", e.currentTarget)}
-                  >
-                    {displayPermission(permissionVal)}
-                  </button>
-                </div>
-              ) : null}
-
               {showLlm && props.onLlmModelChange ? (
                 <div className="mode">
                   <button
@@ -2730,6 +2979,28 @@ export function Composer(props: {
                     onClick={(e) => toggleMenu("reasoning", e.currentTarget)}
                   >
                     {reasoningLabel}
+                  </button>
+                </div>
+              ) : null}
+
+              {props.onPermissionModeChange ? (
+                <div className="mode">
+                  <button
+                    type="button"
+                    ref={permissionChipRef}
+                    className={`composer-tab mode-btn mode-permission perm-${permissionVal}`}
+                    aria-label={t("composer.permission")}
+                    title={t("composer.permissionTitle", {
+                      configured: displayPermission(
+                        props.configuredPermissionMode || "ask",
+                      ),
+                    })}
+                    aria-haspopup="menu"
+                    aria-expanded={menuOpen === "permission"}
+                    data-testid="composer-permission"
+                    onClick={(e) => toggleMenu("permission", e.currentTarget)}
+                  >
+                    {displayPermission(permissionVal)}
                   </button>
                 </div>
               ) : null}

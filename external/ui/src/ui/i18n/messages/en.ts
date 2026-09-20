@@ -803,6 +803,7 @@ export const messagesEn: Record<string, string> = {
   "nav.docs": "Docs",
   "nav.schedulerAriaLabel": "Scheduler jobs",
   "nav.settings": "Settings",
+  "nav.more": "More",
 
   "sessions.history": "History",
   "sessions.closeHistory": "Close history",
@@ -1066,6 +1067,11 @@ export const messagesEn: Record<string, string> = {
   "composer.noFiles": "Nothing matches",
   "composer.filterModels": "Filter models",
   "composer.filterModelsPlaceholder": "Filter models…",
+  "composer.commandArgModelsTitle": "Summarizer model",
+  "composer.commandArgOptionsTitle": "Options",
+  "composer.commandArgModelFlagDesc":
+    "The model that writes the summary, for this one compaction",
+  "composer.commandArgAriaLabel": "Complete the command option",
   "composer.noModelsMatch": "No models match “{query}”",
   "composer.vendorOther": "Other",
   "composer.closePicker": "Close picker",
@@ -1139,7 +1145,7 @@ export const messagesEn: Record<string, string> = {
   "prompts.otherAriaLabel": "Other, type your answer",
   "prompts.allow": "Allow",
   "prompts.allowAlways": "Allow always",
-  "prompts.allowSessionBypass": "Bypass permissions for this session",
+  "prompts.allowSessionBypass": "Bypass for this session",
   "prompts.allowSessionAcceptEdits": "Allow edits for this session",
   "prompts.allowAlwaysProgram": "Always allow {program}",
   "prompts.allowAlwaysTarget": "Always allow {target}",

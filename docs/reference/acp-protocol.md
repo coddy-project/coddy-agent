@@ -691,7 +691,7 @@ Sent after `session/set_config_option`, after `session/set_mode`, or whenever th
 
 These requests are sent only when `permission_mode` is `ask` (commands and writes) or `accept_edits` (commands only). When `permission_mode` is `bypass`, the agent never sends `session/request_permission`. Set the mode via `session/set_config_option`, a `/permissions` command in the prompt, or `tools.permission_mode` in `config.yaml`.
 
-Under `ask`, a request that belongs to the session itself carries two more options of kind `allow_always` before Reject: `allow_session_bypass` (**Bypass permissions for this session**) and, for a file write, `allow_session_accept_edits` (**Allow edits for this session**). Choosing one approves the call and switches the session's permission mode, which the agent announces with `config_option_update`. A request relayed from a subagent, one a hook forced, and `config_commit` / `config_rollback` do not carry them.
+Under `ask`, a request that belongs to the session itself carries two more options of kind `allow_always` before Reject: `allow_session_bypass` (**Bypass for this session**) and, for a file write, `allow_session_accept_edits` (**Allow edits for this session**). Choosing one approves the call and switches the session's permission mode, which the agent announces with `config_option_update`. A request relayed from a subagent, one a hook forced, and `config_commit` / `config_rollback` do not carry them.
 
 
 ```json

@@ -15,7 +15,10 @@ Help screens of a binary built with `-tags=http,ui,scheduler,memory,cli,gateway,
 Usage:
   coddy (no arguments on a terminal: interactive console, build tag cli)
   coddy -c | --continue (console: continue the latest session here)
-  coddy -p | --prompt "..." (console: one-shot prompt, print the answer)
+  coddy -p | --prompt "..." (console: one-shot prompt, print the answer;
+        -p - reads the prompt from stdin, and so does a bare -p when stdin is not a terminal;
+        data piped under a typed prompt is attached to it, --no-stdin leaves it out)
+  coddy -i | --prompt-file FILE (console: one-shot prompt read from FILE, - for stdin)
   coddy -h | --help
   coddy -v | --version
   coddy -t | --test-config [--config PATH] [--home DIR] (check config.yaml against
@@ -79,6 +82,8 @@ Usage of cli (interactive console, also the default for bare coddy on a terminal
     	check config.yaml and probe what it points at - paths, model servers and their credentials, listen addresses, MCP commands, the Telegram token - then exit without starting anything; prints only problems and a status line (add --test-config for the full report); exit status 1 when a probe fails
   -home string
     	agent state directory (CODDY_HOME, default ~/.coddy)
+  -i file
+    	shorthand for --prompt-file
   -log-file string
     	log file path (default <home>/logs/cli.log)
   -log-level string
@@ -89,14 +94,18 @@ Usage of cli (interactive console, also the default for bare coddy on a terminal
     	start in this mode: agent|plan|ask
   -model string
     	select a configured model id (provider/model)
-  -p string
+  -no-stdin
+    	never read stdin in a one-shot run: nothing piped is attached (for loops such as while read ...; done < list, ssh, CI runners that feed the job script on stdin)
+  -p prompt
     	shorthand for --prompt
   -permission-mode string
     	permission mode: ask|accept_edits|bypass
   -plain
     	deterministic rendering for tests: no terminal queries or protocol negotiation
-  -prompt string
-    	run one prompt non-interactively, print the answer, and exit
+  -prompt prompt
+    	run one prompt non-interactively, print the answer, and exit; - (or -p with no value when stdin is not a terminal) reads the prompt from stdin, and data piped under a typed prompt is attached to it
+  -prompt-file file
+    	run one prompt read from this file (- for stdin), like -p but without passing it through the command line; data piped on stdin is attached to it
   -remote string
     	connect to a remote coddy serve server (configured remote name, host:port, or http(s) URL)
   -remote-token string
