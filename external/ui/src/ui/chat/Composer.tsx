@@ -13,6 +13,7 @@ import type { TokenUsage } from "./types";
 import { WorkspaceChips } from "./WorkspaceChips";
 import { useT } from "../i18n/I18nProvider";
 import { EnvironmentChip } from "./EnvironmentChip";
+import { ImageLightbox } from "../components/ImageLightbox";
 import type { WorkspaceContext } from "./workspaceContext";
 import {
   ContextBreakdownPopover,
@@ -183,7 +184,12 @@ function useImageObjectUrl(file: File): string | null {
   return url;
 }
 
-/** Live attachment chip; image files render a thumbnail instead of the generic icon. */
+/**
+ * Live attachment. An image is a preview card - the picture fills it and a
+ * click opens the original enlarged, in the viewer the documentation reader
+ * uses - with the remove control in its corner; anything else keeps the icon
+ * chip with the file name.
+ */
 function AttachedFileChip({
   file,
   disabled,
@@ -196,16 +202,68 @@ function AttachedFileChip({
   const { t } = useT();
   const { svg, label } = fileTypeIcon(file.type, file.name);
   const thumbUrl = useImageObjectUrl(file);
+  const [zoomed, setZoomed] = useState(false);
   const tip = t("composer.attachmentTooltip", {
     fileName: file.name,
     label,
     size: fmtBytes(file.size, t),
   });
+  const remove = (
+    <button
+      type="button"
+      className="composer-attachment-chip-remove"
+      aria-label={t("composer.removeAttachment", { fileName: file.name })}
+      onClick={onRemove}
+    >
+      ×
+    </button>
+  );
+  if (thumbUrl) {
+    return (
+      <span
+        className={[
+          "composer-attachment-chip",
+          "composer-attachment-chip--image",
+          "composer-attachment-card",
+          disabled ? "composer-attachment-chip--disabled" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        title={tip}
+        aria-disabled={disabled ? "true" : undefined}
+        data-testid="composer-attachment-chip"
+      >
+        <button
+          type="button"
+          className="composer-attachment-card-open"
+          aria-label={t("composer.openAttachmentImage", {
+            fileName: file.name,
+          })}
+          data-testid="composer-attachment-open"
+          onClick={() => setZoomed(true)}
+        >
+          <img
+            className="composer-attachment-thumb"
+            src={thumbUrl}
+            alt=""
+            data-testid="composer-attachment-thumb"
+          />
+        </button>
+        {remove}
+        {zoomed ? (
+          <ImageLightbox
+            src={thumbUrl}
+            alt={file.name}
+            onClose={() => setZoomed(false)}
+          />
+        ) : null}
+      </span>
+    );
+  }
   return (
     <span
       className={[
         "composer-attachment-chip",
-        thumbUrl ? "composer-attachment-chip--image" : "",
         disabled ? "composer-attachment-chip--disabled" : "",
       ]
         .filter(Boolean)
@@ -215,26 +273,10 @@ function AttachedFileChip({
       data-testid="composer-attachment-chip"
     >
       <span className="composer-attachment-chip-icon" aria-hidden="true">
-        {thumbUrl ? (
-          <img
-            className="composer-attachment-thumb"
-            src={thumbUrl}
-            alt=""
-            data-testid="composer-attachment-thumb"
-          />
-        ) : (
-          svg
-        )}
+        {svg}
       </span>
       <span className="composer-attachment-chip-name">{file.name}</span>
-      <button
-        type="button"
-        className="composer-attachment-chip-remove"
-        aria-label={t("composer.removeAttachment", { fileName: file.name })}
-        onClick={onRemove}
-      >
-        ×
-      </button>
+      {remove}
     </span>
   );
 }

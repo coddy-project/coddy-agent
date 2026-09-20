@@ -2839,18 +2839,46 @@ a.rail-brand {
   white-space: nowrap;
 }
 
-/* Optimistic image preview: thumbnail replaces the icon until the page reloads. */
-.msg-user-file-chip--image .msg-user-file-chip-icon {
-  width: 26px;
-  height: 26px;
+/* A sent image is a preview card like the composer's: the picture fills it and
+   a click opens the full-size asset (the optimistic blob until the server
+   snapshot brings the durable thumbnail and the original's address). */
+.msg-user-file-card {
+  display: block;
+  position: relative;
+  width: 128px;
+  height: 96px;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.msg-user-file-card:hover,
+.msg-user-file-card:focus-within {
+  border-color: color-mix(in srgb, var(--text) 28%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+}
+
+.msg-user-file-card-open {
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
 }
 
 .msg-user-file-thumb {
   display: block;
-  width: 26px;
-  height: 26px;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
-  border-radius: 6px;
+  border-radius: inherit;
 }
 
 .msg-user-foot {
@@ -2905,8 +2933,8 @@ a.rail-brand {
   gap: 5px;
   padding: 10px 14px;
   /* Blockified as a flex item of the column .msg-assistant-stack; without this its
-     min-content width follows the unbreakable path/command in the status label and
-     pushes the row past .messages-inner. */
+     min-content width follows the unbreakable phrase in the status label and pushes
+     the row past .messages-inner. */
   min-width: 0;
   max-width: 100%;
 }
@@ -2928,6 +2956,14 @@ a.rail-brand {
   animation-delay: 0.36s;
 }
 
+/* The dots also stand at the tail while background tasks outlive a turn, which can
+   be minutes of bouncing. Still three dots, just no movement. */
+@media (prefers-reduced-motion: reduce) {
+  .typing-dots-dot {
+    animation: none;
+  }
+}
+
 /* Live status label. It MUST stay after the three .typing-dots-dot spans - the
    :nth-child rules above carry the bounce stagger. */
 .typing-dots-status {
@@ -2943,7 +2979,8 @@ a.rail-brand {
 
 /* The turn's own numbers lead the line: its clock, the tokens generated in it, the
    background tasks running right now. Each item is closed by a middle dot, so the
-   phrase that follows reads as the last segment: "2m 05s · 1.2k tokens · Reading …". */
+   phrase that follows reads as the last segment: "2m 05s · 1.2k tokens · Reading a
+   file". */
 .typing-dots-turn {
   display: inline-flex;
   align-items: baseline;
@@ -2985,29 +3022,31 @@ a.rail-brand {
   border-radius: 3px;
 }
 
+/* The turn has ended and only background tasks are still running: the count is the
+   whole line, so it closes with no middle dot - nothing follows it to separate. */
+.typing-dots-status--tasks-only .typing-dots-turn-item::after {
+  content: none;
+}
+
 .typing-dots-status-text {
   display: inline-flex;
   align-items: baseline;
   gap: 5px;
   /* Lets the flex child shrink below its content size, which is what enables the
-     ellipsis on the target below. */
+     ellipsis on the phrase below. */
   min-width: 0;
   overflow: hidden;
 }
 
+/* The phrase is the only thing the line says about the step - it never names what the
+   step acts on - so it is also the only thing that can give ground. The turn's numbers
+   and the counter are flex: none, and a phrase too long for the row ellipsizes instead
+   of wrapping it onto a second line. */
 .typing-dots-status-verb {
-  flex: none;
-  white-space: nowrap;
-}
-
-/* Only the target gives ground when space runs out; the verb and timer are flex: none,
-   so the row degrades to "Reading ... - 12s" and never wraps or clips the verb. */
-.typing-dots-status-target {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
 }
 
 /* A drawn-out wait reads as more prominent, not as an error: there is no per-theme
@@ -3548,40 +3587,13 @@ a.rail-brand {
   gap: 0 6px;
 }
 
-.thinking-chevron:before {
-  content: "";
-}
-
-/* Centred on the first line - half the label's 20px line box - never on the height
-   of .thinking-left. A tool row's box is taller than its label's line (the 12px target
-   and duration sit lower on the shared baseline) and a phone wraps a chip onto a second
-   line; centred on the box, the chevron sank below the label on exactly those rows.
-   DESIGN.md (Chevron), toolRowBaselineCss.test.ts. */
-.thinking-chevron {
-  position: absolute;
-  left: 0;
-  top: 10px;
-  width: 16px;
-  height: 14px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0.7;
-  transition: transform 140ms ease;
-  transform: translateY(-50%) rotate(0deg);
-}
-
 /* The app's one chevron (<Chevron />, DESIGN.md "Chevron"): the transcript row's
-   fold marker and every disclosure, submenu and dropdown share this one glyph, so
-   none of them can drift into a triangle of its own. */
-.thinking-chevron:after,
-.coddy-chevron:after {
-  content: "›";
-  display: block;
-  line-height: 1;
-  font-size: 15px;
-}
-
+   fold marker and every disclosure, submenu and dropdown are the same component,
+   so none of them can drift into a glyph or a triangle of its own. The mark is an
+   SVG whose ink mirrors about the centre of its viewBox; as the text "›" its ink
+   sat wherever the platform's font happened to put it in the line box, and the
+   same CSS placed it differently on every machine. Nothing here may put a chevron
+   back into `content`. */
 .coddy-chevron {
   display: inline-flex;
   flex: 0 0 auto;
@@ -3591,6 +3603,11 @@ a.rail-brand {
   height: 14px;
   opacity: 0.7;
   transition: transform 140ms ease;
+}
+
+.coddy-chevron > svg {
+  display: block;
+  flex: 0 0 auto;
 }
 
 .coddy-chevron.is-open {
@@ -3605,8 +3622,30 @@ a.rail-brand {
   transform: rotate(-90deg);
 }
 
+/* Centred on the first line - half the label's 20px line box - never on the height
+   of .thinking-left. A tool row's box is taller than its label's line (the 12px target
+   and duration sit lower on the shared baseline) and a phone wraps a chip onto a second
+   line; centred on the box, the chevron sank below the label on exactly those rows.
+   Placed after .coddy-chevron: the transcript row's chevron carries both classes and
+   these declarations win on order, not on weight.
+   DESIGN.md (Chevron), toolRowBaselineCss.test.ts. */
+.thinking-chevron {
+  position: absolute;
+  left: 0;
+  top: 10px;
+  width: 16px;
+  height: 14px;
+  transform: translateY(-50%) rotate(0deg);
+}
+
 .thinking-details[open] .thinking-chevron {
   transform: translateY(-50%) rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .coddy-chevron {
+    transition: none;
+  }
 }
 
 .thinking-label {
@@ -5766,18 +5805,86 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   border-color: color-mix(in srgb, var(--text) 18%, var(--coddy-blend-base));
 }
 
-/* Image attachments swap the generic icon for a local object-URL thumbnail. */
-.composer-attachment-chip--image .composer-attachment-chip-icon {
-  width: 28px;
-  height: 28px;
+/* An image attachment is a preview card, not a chip: the picture fills it, so
+   the operator can see what is about to be sent. A click opens the original
+   in the lightbox; the remove control sits over the picture's top-right
+   corner and fades in on hover, staying reachable by keyboard. */
+.composer-attachment-card {
+  display: block;
+  position: relative;
+  width: 128px;
+  height: 96px;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.composer-attachment-card:hover,
+.composer-attachment-card:focus-within {
+  border-color: color-mix(in srgb, var(--text) 28%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+}
+
+.composer-attachment-card-open {
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
 }
 
 .composer-attachment-thumb {
   display: block;
-  width: 28px;
-  height: 28px;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
-  border-radius: 6px;
+  border-radius: inherit;
+}
+
+.composer-attachment-card .composer-attachment-chip-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--coddy-blend-base) 62%, transparent);
+  color: color-mix(in srgb, var(--text) 82%, var(--coddy-blend-base));
+  /* Hidden, never removed: display:none would take it off the tab order. */
+  opacity: 0;
+  transition:
+    opacity 0.15s,
+    background 0.15s,
+    color 0.15s;
+}
+
+.composer-attachment-card:hover .composer-attachment-chip-remove,
+.composer-attachment-card .composer-attachment-chip-remove:hover,
+.composer-attachment-card .composer-attachment-chip-remove:focus-visible {
+  opacity: 1;
+}
+
+.composer-attachment-card .composer-attachment-chip-remove:hover,
+.composer-attachment-card .composer-attachment-chip-remove:focus-visible {
+  background: color-mix(in srgb, var(--coddy-blend-base) 82%, transparent);
+  color: var(--text);
+}
+
+.composer-attachment-card.composer-attachment-chip--disabled
+  .composer-attachment-thumb {
+  opacity: 0.48;
+  filter: grayscale(1);
 }
 
 /* Transient rejection notice for paste/drop when the model is not multimodal. */
@@ -8413,10 +8520,6 @@ html:not([data-theme="light"]) .context-usage-note--error {
   color: var(--text);
 }
 
-.mcp-expand-btn svg {
-  transition: transform 120ms ease;
-}
-
 /* Connection status dot (Cursor-style): green connected, red error, gray
    disabled, amber unsupported transport. */
 .mcp-status-dot {
@@ -10844,11 +10947,6 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   border-radius: 2px;
 }
 
-.bgtask-open-transcript.scheduler-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 
 
 /* Tab controls hanging off the card above them, like the More / Less row: the
@@ -11117,25 +11215,6 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   white-space: nowrap;
 }
 
-/* The address of a running preview server. Like Stop it sits above the card's
-   stretched opener, so a click opens the page instead of unfolding the card. */
-.bgtask-card-link {
-  position: relative;
-  z-index: 1;
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--accent);
-  text-decoration: none;
-}
-
-.bgtask-card-link:hover,
-.bgtask-card-link:focus-visible {
-  text-decoration: underline;
-}
-
 .bgtask-card-usage {
   display: inline-flex;
   flex: 0 1 auto;
@@ -11158,6 +11237,67 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   white-space: pre;
 }
 
+/* The way into the task, on the folded card: an agent run's child conversation,
+   a preview server's address. The run is that conversation and the server is that
+   page, so an operator who had to open a card to find the link was made to take a
+   step on the way to the one move the panel exists for. A card carries at most one
+   of the two, because a task is one kind or the other.
+
+   It takes a row of its own under the status and the usage. The panel is 380px
+   wide: a control sharing that line would be paid for by the model's name, the
+   one thing there that cannot be cut down to something still readable. */
+.bgtask-card-transcript-row,
+.bgtask-card-address-row {
+  flex: 1 0 100%;
+  display: flex;
+  margin-top: 4px;
+}
+
+.bgtask-card-transcript,
+.bgtask-card-link {
+  /* Above the opener stretched over the summary, the way Stop is: it opens the
+     transcript or the page rather than the card it sits on. */
+  position: relative;
+  z-index: 1;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.bgtask-card-transcript {
+  flex: 0 0 auto;
+}
+
+/* An address is as long as it is, and the panel is narrow: it wraps onto a second
+   line whole rather than trailing off in an ellipsis that names no port. */
+.bgtask-card-link {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.bgtask-card-transcript:hover:not(:disabled),
+.bgtask-card-transcript:focus-visible,
+.bgtask-card-link:hover,
+.bgtask-card-link:focus-visible {
+  text-decoration: underline;
+}
+
+/* A run whose child session is not known yet - it has only just started. The
+   title says so; the control stays in place so the card does not change shape
+   under the reader when the id arrives. */
+.bgtask-card-transcript:disabled {
+  color: inherit;
+  opacity: 0.55;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
 .bgtask-card.is-overdue .bgtask-card-meta {
   color: color-mix(in srgb, #ff9f0a 70%, var(--text));
 }
@@ -11170,9 +11310,8 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   background: #ff9f0a;
 }
 
-/* The open card: command or the way to the transcript, the error, the output, the
-   ending. It is outside the stretched opener, so its text selects and its controls
-   click. */
+/* The open card: the command, the error, the output, the ending. It is outside the
+   stretched opener, so its text selects and its controls click. */
 .bgtask-card-body {
   display: flex;
   flex-direction: column;
@@ -11210,12 +11349,6 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   position: absolute;
   top: 5px;
   right: 6px;
-}
-
-.bgtask-card-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .bgtask-card-error {
@@ -11294,6 +11427,13 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
     height: 30px;
     min-width: 30px;
     min-height: 30px;
+  }
+
+  .bgtask-card-transcript,
+  .bgtask-card-link {
+    min-height: 28px;
+    display: flex;
+    align-items: center;
   }
 
   .bgtask-card-output {
@@ -11834,7 +11974,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   background: #000;
 }
 
-/* An image opened over everything (ui/docs/ImageLightbox.tsx): the bar with
+/* An image opened over everything (ui/components/ImageLightbox.tsx): the bar with
    the caption, the zoom and the close control, and a stage that scrolls when
    the image is larger than the window. */
 .docs-lightbox {
@@ -11909,12 +12049,20 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   cursor: default;
 }
 
+/* The stage handles the gestures itself - one pointer drags the picture, two
+   fingers pinch it - so the browser must not pan or zoom first. The rule lives
+   with the stage, which is only on the screen while the viewer is open, so the
+   page behind it keeps its own gestures. */
 .docs-lightbox-stage {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
   overflow: auto;
   padding: 0 24px 24px;
+  touch-action: none;
+  overscroll-behavior: contain;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 /* A flex item shrinks to the stage by default, which would undo the zoom. */
@@ -11923,6 +12071,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   margin: auto;
   border-radius: 8px;
   box-shadow: var(--coddy-glass-panel-shadow);
+  -webkit-user-drag: none;
 }
 
 .docs-lightbox-stage img.is-fit {
@@ -11932,10 +12081,19 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   cursor: zoom-in;
 }
 
+/* Zoomed, the picture is dragged: the open hand, closed while it holds. */
 .docs-lightbox-stage img.is-zoomed {
   max-width: none;
   max-height: none;
-  cursor: zoom-out;
+  cursor: grab;
+}
+
+.docs-lightbox-stage.is-panning {
+  cursor: grabbing;
+}
+
+.docs-lightbox-stage.is-panning img.is-zoomed {
+  cursor: grabbing;
 }
 
 /* A page of the documentation named in a sent message or an answer, as

@@ -862,7 +862,9 @@ export function App() {
     const rows = mergeSessionsWithDrafts(sessions, clientDraftSessions);
     // The open conversation's row follows this tab's own view of its turn, not the
     // last listing: the listing is refreshed on a poll, and the activity dot must
-    // not trail a turn the reader is watching start or end.
+    // not trail a turn the reader is watching start or end. Only turnActive is
+    // this tab's to override - the rest of the row, backgroundRunning included,
+    // is the server's answer and is carried through untouched.
     const open = sessionId.trim();
     if (!open) return rows;
     return rows.map((row) =>

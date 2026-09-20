@@ -347,6 +347,70 @@ test("toolCallTargetText stays empty when there is nothing to name", () => {
   expect(toolCallTargetText({ title: "read", argsText: "not json" })).toBe("");
 });
 
+// An MCP server names its own arguments, so a call taking none of the names a
+// built-in tool uses showed nothing at all beside the label.
+test("an MCP call falls back to its first argument that reads as a label", () => {
+  expect(
+    toolCallTargetText({
+      title: "playwright__browser_click",
+      argsText: '{"element":"  Search button  ","ref":"e12"}',
+    }),
+  ).toBe("Search button");
+  // A known argument still wins, so a navigate keeps reading as its address.
+  expect(
+    toolCallTargetText({
+      title: "mcp__playwright__browser_navigate",
+      argsText: '{"url":"https://example.dev/a"}',
+    }),
+  ).toBe("https://example.dev/a");
+  // A body is not a label: a multi-line or overlong value is skipped, and the next
+  // argument that fits is taken.
+  expect(
+    toolCallTargetText({
+      title: "github__create_issue",
+      argsText: JSON.stringify({
+        body: "line one\nline two",
+        title: "Crash on start",
+      }),
+    }),
+  ).toBe("Crash on start");
+  expect(
+    toolCallTargetText({
+      title: "github__create_issue",
+      argsText: JSON.stringify({ body: "x".repeat(200) }),
+    }),
+  ).toBe("");
+  // Nothing but a string is a label, and neither is an empty one.
+  expect(
+    toolCallTargetText({
+      title: "server__tool",
+      argsText: '{"count":3,"flag":true,"blank":"   ","subject":"ok"}',
+    }),
+  ).toBe("ok");
+  // An MCP path argument is still a path, so the row may respell it.
+  expect(
+    toolCallTargetIsPath({
+      title: "files__read_file",
+      argsText: '{"path":"a/b.ts"}',
+    }),
+  ).toBe(true);
+});
+
+// The fallback is for tools whose arguments Coddy does not define. A built-in one
+// that reaches the same branch keeps naming the argument it is documented to take,
+// so a half-written write never shows the file body instead of its path.
+test("a tool outside the catalogue keeps only its known arguments", () => {
+  expect(
+    toolCallTargetText({ title: "something_new", argsText: '{"foo":"bar"}' }),
+  ).toBe("");
+  expect(
+    toolCallTargetText({
+      title: "write",
+      argsText: '{"content":"package main"}',
+    }),
+  ).toBe("");
+});
+
 test("toolCallTargetText accepts the Run: prefix and the Arguments: envelope", () => {
   expect(
     toolCallTargetText({
@@ -370,10 +434,17 @@ test("a call with no arguments renders as an action card, never as `{}`", () => 
   });
 });
 
-test("the action card names an uncatalogued no-argument tool by its own id", () => {
+test("the action card names a no-argument tool the way its row does", () => {
+  // An MCP call has nowhere else to say which server ran it.
   expect(
     buildToolCallPreview({ title: "mcp__github__list_repos" }, ""),
-  ).toMatchObject({ header: "mcp__github__list_repos", kind: "action" });
+  ).toMatchObject({
+    header: "calling list_repos on the MCP server github",
+    kind: "action",
+  });
+  expect(
+    buildToolCallPreview({ title: "something_new" }, ""),
+  ).toMatchObject({ header: "something_new", kind: "action" });
 });
 
 test("localizes the action card", () => {

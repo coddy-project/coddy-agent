@@ -182,6 +182,29 @@ test("question pending hides the activity dot and shows animated question icon",
   expect(screen.getByTestId("session-question-q")).toBeInTheDocument();
 });
 
+test("the dot names background work when the row has no turn running", () => {
+  renderDrawer({
+    sessionId: "other",
+    sessions: [
+      { id: "bg", title: "Detached", backgroundRunning: 1 },
+      { id: "turn", title: "Answering", turnActive: true },
+    ],
+  });
+  expect(screen.getByTestId("session-activity-bg")).toHaveAttribute(
+    "aria-label",
+    "Background tasks running",
+  );
+  expect(screen.getByTestId("session-activity-bg")).toHaveAttribute(
+    "title",
+    "Background tasks running",
+  );
+  // A turn in flight keeps its own wording even when tasks run beside it.
+  expect(screen.getByTestId("session-activity-turn")).toHaveAttribute(
+    "aria-label",
+    "Turn running",
+  );
+});
+
 test("the state marks stand apart from the title so the tags line up under its text", () => {
   render(
     <SessionsSidebar

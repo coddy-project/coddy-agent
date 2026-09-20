@@ -1,6 +1,6 @@
 import React from "react";
 import { afterEach } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 import { UserMessage } from "./UserMessage";
 
@@ -117,6 +117,59 @@ test("image files with previewUrl render a thumbnail chip; others keep the icon"
   ).not.toHaveClass("msg-user-file-chip--image");
 });
 
+// The sent bubble shows the picture large enough to recognise, and a click
+// opens the original rather than the bounded thumbnail beside it.
+test("an image in the sent bubble opens the full-size asset enlarged", () => {
+  render(
+    <UserMessage
+      content="look at this"
+      files={[
+        {
+          name: "pasted-1.png",
+          mimeType: "image/png",
+          sizeBytes: 1024,
+          previewUrl: "/coddy/sessions/s1/assets/pasted-1.png/thumbnail",
+          url: "/coddy/sessions/s1/assets/pasted-1.png",
+        },
+      ]}
+    />,
+  );
+  expect(
+    screen.getByTestId("msg-user-file-thumb").closest(".msg-user-file-chip"),
+  ).toHaveClass("msg-user-file-card");
+
+  fireEvent.click(screen.getByLabelText("Open pasted-1.png enlarged"));
+  const shown = document.querySelector(
+    ".docs-lightbox-stage img",
+  ) as HTMLImageElement | null;
+  expect(shown?.getAttribute("src")).toBe("/coddy/sessions/s1/assets/pasted-1.png");
+
+  fireEvent.click(screen.getByTestId("docs-lightbox-close"));
+  expect(document.querySelector(".docs-lightbox")).toBeNull();
+});
+
+// A message sent before the full-size route existed carries only the preview.
+// Opening that is worth more than losing the click.
+test("a bubble that predates the full-size url falls back to the preview", () => {
+  render(
+    <UserMessage
+      content="older"
+      files={[
+        {
+          name: "old.png",
+          mimeType: "image/png",
+          previewUrl: "blob:coddy-user-thumb-2",
+        },
+      ]}
+    />,
+  );
+  fireEvent.click(screen.getByLabelText("Open old.png enlarged"));
+  const shown = document.querySelector(
+    ".docs-lightbox-stage img",
+  ) as HTMLImageElement | null;
+  expect(shown?.getAttribute("src")).toBe("blob:coddy-user-thumb-2");
+});
+
 // A page of the documentation the user mentioned is a link in the sent
 // bubble: it opens the reader at that page and section.
 test("an @coddy: mention in the sent message opens the documentation reader", () => {
@@ -132,4 +185,28 @@ test("an @coddy: mention in the sent message opens the documentation reader", ()
     ["@coddy:features/mentions#completion", "#/docs/features/mentions#completion"],
   ]);
   expect(screen.getByTestId("user-message-body").textContent).toContain("как настроить рой?");
+});
+
+// The viewer renders into the body, so a transcript the SPA hides rather than
+// unmounts would leave it over the screen the reader went to, swallowing clicks.
+test("leaving the screen closes the picture the bubble opened", () => {
+  render(
+    <UserMessage
+      content="look at this"
+      files={[
+        {
+          name: "pasted-1.png",
+          mimeType: "image/png",
+          sizeBytes: 1024,
+          previewUrl: "/coddy/sessions/s1/assets/pasted-1.png/thumbnail",
+          url: "/coddy/sessions/s1/assets/pasted-1.png",
+        },
+      ]}
+    />,
+  );
+  fireEvent.click(screen.getByLabelText("Open pasted-1.png enlarged"));
+  expect(document.querySelector(".docs-lightbox")).not.toBeNull();
+
+  fireEvent(window, new HashChangeEvent("hashchange"));
+  expect(document.querySelector(".docs-lightbox")).toBeNull();
 });

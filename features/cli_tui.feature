@@ -55,7 +55,7 @@ Feature: Interactive console TUI
     And the operator submits the prompt "read the readme"
     Then the status line shows "Waiting for the model"
     When the stub turn starts a tool call named "read" with argument path "README.md"
-    Then the status line shows "Reading README.md"
+    Then the status line shows "Reading a file"
     When the stub tool call completes without ending the turn
     Then the status line shows "Waiting for the model"
 
@@ -67,13 +67,13 @@ Feature: Interactive console TUI
     When the agent reports 1200 tokens generated in this turn
     Then the status line shows "1.2k tokens · Waiting for the model"
     When the stub turn starts a tool call named "read" with argument path "README.md"
-    Then the status line shows "1.2k tokens · Reading README.md"
+    Then the status line shows "1.2k tokens · Reading a file"
 
-  Scenario: The status line names the subagent that is running
+  Scenario: The status line names the phase of a delegated run
     When the console app starts
     And the operator submits the prompt "delegate the review"
     And the stub turn starts a tool call named "spawn_agent" with argument agent "reviewer"
-    Then the status line shows "Running subagent reviewer"
+    Then the status line shows "Running a subagent"
 
   Scenario: The status line stays truthful through a permission gate
     Given the session permission mode is "ask"
@@ -83,7 +83,7 @@ Feature: Interactive console TUI
     And the stub turn requests permission for the tool "run_command"
     Then the status line shows "Waiting for your approval"
     When the operator allows the pending permission without ending the turn
-    Then the status line shows "Running sleep 6"
+    Then the status line shows "Running a command"
     When the stub tool call completes without ending the turn
     Then the status line shows "Waiting for the model"
 

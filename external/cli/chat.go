@@ -259,6 +259,17 @@ func (t *toolBox) title() string {
 			return title
 		}
 	}
+	// A tool an MCP server serves is not in any of Coddy's tables, and its
+	// `server__tool` registry id names neither the server nor the action. The
+	// server, the tool and whatever the call is about read as one phrase, the way
+	// the documentation tools read as theirs.
+	if phrase := mcpToolPhrase(t.name); phrase != "" {
+		title := t.theme.Bold(phrase)
+		if target := statusTargetFromArgs(t.name, t.args); target != "" {
+			title += " " + t.theme.Fg(roleAccent, titleField(target))
+		}
+		return title
+	}
 	return t.theme.Bold(t.name)
 }
 

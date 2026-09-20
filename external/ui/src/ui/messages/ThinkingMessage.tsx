@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useState } from "react";
+import { Chevron } from "../components/Chevron";
 import { Markdown } from "../markdown/Markdown";
 import { useT } from "../i18n/I18nProvider";
 import { formatStepDuration } from "./formatStepDuration";
@@ -66,7 +67,7 @@ export const ThinkingMessage = memo(function ThinkingMessage(props: {
       >
         <summary className="thinking-summary" aria-label={t("messages.thinkingSummaryAriaLabel")}>
           <span className="thinking-left">
-            <span className="thinking-chevron" aria-hidden="true" />
+            <Chevron className="thinking-chevron" />
             <span className="thinking-label">{label}</span>
             {durationLabel ? (
               <span className="thinking-dur" aria-hidden="true">

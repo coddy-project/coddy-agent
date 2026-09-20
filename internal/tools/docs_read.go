@@ -29,8 +29,9 @@ func DocsReadTool() *tooling.Tool {
 				"Leave page out for the contents: every page with a one-line summary. " +
 				"A long page comes in parts, each ending with the offset to continue at and the sections of the page, so read the section you need rather than the whole page. " +
 				"Links between pages are written coddy:<page>#<section>; pass one as page to follow it. " +
-				"To point the user at a page, write @coddy:<page>#<section> or a Markdown link [title](coddy:<page>#<section>): in the web UI both open that page in its documentation reader. " +
-				"Outside Coddy, or when the user wants to share it, give the public address https://coddy.dev/docs/<page>.",
+				"To point the user at a page, write @coddy:<page>#<section> or a Markdown link [title](coddy:<page>#<section>): every surface resolves them and the web UI opens the page in its documentation reader, so prefer that form to any address. " +
+				"On the command line the page is printed by `coddy docs show <page>[#section]`, searched with `coddy docs search <words>` and listed by `coddy docs list`; there is no other docs subcommand, so do not invent one. " +
+				"Give the public address https://coddy.dev/docs/<page> only outside Coddy, or when the user asks for something to share.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{

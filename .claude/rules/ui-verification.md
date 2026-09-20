@@ -23,3 +23,14 @@ fixed`** surface, run **`external/ui/scripts/webkit-scroll-check.mjs`** against 
 **`coddy serve`** (setup and env vars in **`docs/surfaces/web-ui.md`**, *Reproducing a Safari report without a
 Mac*), and run it again with **`CODDY_ENGINE=chromium`** to tell a WebKit-only regression from a
 layout bug every engine shares.
+
+## The fold chevron
+
+The chevron is an SVG whose ink is centred in its viewBox, never a text glyph: a glyph's ink moves
+with the platform's font, which is why the reports of a chevron riding above its label kept coming
+back (**`DESIGN.md`**, *Chevron*). jsdom has no layout, so vitest cannot see where it lands. When the
+change touches the chevron, the rows it sits on or the type around them, run
+**`external/ui/scripts/chevron-align-check.mjs`** against a **`vite`** dev server (setup in
+**`docs/surfaces/web-ui.md`**, *Checking the fold chevron against its label*): it measures the
+chevron's ink centre against the label's on a transcript row and on the Tasks drawer toggle, and
+fails past **1px**.

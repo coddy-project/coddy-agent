@@ -42,6 +42,11 @@ Feature: The documentation built into the binary
     When the operator runs "coddy docs search homebrew cask"
     Then the output lists "getting-started/homebrew"
 
+  @cli
+  Scenario: The agent is taught the spelling the binary really answers
+    Then the documentation tools point at a page with "@coddy:" before any address
+    And every "coddy docs" command they name is one the binary accepts
+
   @web
   Scenario: The web UI reads the documentation like a book and asks the agent about a page
     Then the reader shows a page with its contents, its sections and the page before it

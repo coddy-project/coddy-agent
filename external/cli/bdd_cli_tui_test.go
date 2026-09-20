@@ -1010,8 +1010,10 @@ func (s *cliTUIState) stubToolCompletesWithLines(count int) error {
 	return s.waitTurnEnd(2 * time.Second)
 }
 
-// statusLineShows waits for the spinner's status message. The verb and its target are
-// composed only by the status line, so "Reading README.md" cannot come from the tool box.
+// statusLineShows waits for the spinner's status message. The phrase is composed only by
+// the status line - the tool box above it reads "read README.md" - so "Reading a file"
+// can come from nowhere else. The line names no target at all: the exact string is
+// pinned by TestLiveStatusText.
 func (s *cliTUIState) statusLineShows(text string) error {
 	return s.waitScreen(text, 3*time.Second)
 }

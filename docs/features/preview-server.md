@@ -27,7 +27,7 @@ The agent starts the server, answers with the link - `http://127.0.0.1:53817/` -
 
 The server is a [background task](background-tasks.md) of the session, of kind `server`:
 
-- it stands among the running tasks in the Tasks panel of the web UI, tagged `server`, with its address as a link that opens in a new tab and a Stop button; `/tasks` in the console shows the same row;
+- it stands among the running tasks in the Tasks panel of the web UI, tagged `server`, with its address on the card itself - a link that opens in a new tab, with nothing to expand first - and a Stop button; `/tasks` in the console shows the same row;
 - `background_list` shows it to the agent with its address, `background_output` returns its request log - one line per request, `GET /app.js 404`, which is usually the whole answer to "the page is blank" - and `background_stop` ends it;
 - it counts toward `tools.background.max_concurrent` like any other task.
 

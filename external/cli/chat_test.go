@@ -730,6 +730,36 @@ func TestToolBoxTitleNamesTheDocumentationTools(t *testing.T) {
 	}
 }
 
+// A call to a tool an MCP server serves reads as an action naming both, the way
+// the documentation tools read as theirs, instead of printing the raw
+// `server__tool` id the registry knows it by.
+func TestToolBoxTitleNamesAnMCPServerAndItsTool(t *testing.T) {
+	tb := newToolBox(newTheme("dark"), "call-mcp-1", "playwright__browser_navigate", "other", nil)
+	const phrase = "Calling browser_navigate on the MCP server playwright"
+	if title := tui.StripTerminalSequences(tb.title()); title != phrase {
+		t.Fatalf("before its arguments the box reads %q", title)
+	}
+	tb.SetArgs(`{"url":"https://example.dev/a"}`)
+	if title := tui.StripTerminalSequences(tb.title()); title != phrase+" https://example.dev/a" {
+		t.Fatalf("the navigate title = %q", title)
+	}
+
+	// Other agents spell the same name with an mcp__ prefix, and a server names
+	// its own arguments: the first one that reads as a label is the target.
+	prefixed := newToolBox(newTheme("dark"), "call-mcp-2", "mcp__github__create_issue", "other", nil)
+	prefixed.SetArgs(mustJSONObject(t, map[string]string{"title": "Crash on start"}))
+	want := "Calling create_issue on the MCP server github Crash on start"
+	if title := tui.StripTerminalSequences(prefixed.title()); title != want {
+		t.Fatalf("the prefixed title = %q", title)
+	}
+
+	// Nothing on one side of the separator is not a namespaced call.
+	plain := newToolBox(newTheme("dark"), "call-mcp-3", "something_new", "other", nil)
+	if title := tui.StripTerminalSequences(plain.title()); title != "something_new" {
+		t.Fatalf("a plain tool lost its id: %q", title)
+	}
+}
+
 // Everything the title carries is model-supplied. SanitizeText keeps newlines
 // and tabs, so a name written with one would split the row the title gets.
 func TestToolBoxTitleKeepsModelNamesOnOneRow(t *testing.T) {

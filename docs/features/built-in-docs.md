@@ -82,6 +82,8 @@ The agent reaches for its documentation when a question is about Coddy itself - 
 
 Both need no permission and are offered in agent, plan and ask mode, to subagents, and to the built-in `explore` subagent. In the chat a call reads as what it does, with the query or the page beside it: *searching the documentation* and *reading the documentation* in the web UI, *Searching the docs* and *Reading the docs* in the console. A page is read in parts of about 24 KB: a long one ends with the line to continue at and the list of its sections, so the model reads the section it needs rather than the whole page.
 
+Pointing a user at a page, the agent writes the mention `@coddy:<page>#<section>` or a `coddy:` link rather than an address: both open the page in the reader of the very binary that answered. The public address `https://coddy.dev/docs/<page>` is for what leaves Coddy, and the only command line spelling is the one the binary answers, `coddy docs show <page>[#section]` beside `coddy docs search` and `coddy docs list`.
+
 ## Mentioning a page
 
 `@coddy:` in a prompt attaches a page, or one section of it, to the message:

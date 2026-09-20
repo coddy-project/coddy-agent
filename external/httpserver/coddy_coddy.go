@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
 	"net/http"
 	"net/url"
@@ -174,6 +175,7 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("POST /coddy/enhance-prompt", s.coddyEnhancePromptPost)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/activity", s.coddySessionActivityGet)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/messages", s.coddySessionMessagesGet)
+	s.mux.HandleFunc("GET /coddy/sessions/{id}/assets/{name}", s.coddySessionAssetGet)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/assets/{name}/thumbnail", s.coddySessionAssetThumbnailGet)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/composer-stream", s.coddySessionComposerStream)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/tool-calls", s.coddyToolCallsList)
@@ -872,6 +874,11 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 	slice := rows[start:end]
 	includeActivity := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_activity")), "true")
 	includeStats := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_stats")), "true")
+	// One walk of the task pool for the whole listing, rather than one per row.
+	var backgroundRunning map[string]int
+	if includeActivity {
+		backgroundRunning = bgtask.Default().RunningCountsBySession()
+	}
 	sessions := make([]map[string]interface{}, 0, len(slice))
 	for _, row := range slice {
 		ent := map[string]interface{}{
@@ -932,6 +939,12 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 			ent["readActivitySeq"] = readSeq
 			ent["unreadComplete"] = actSeq > readSeq && !turnActive
 			ent["permissionPending"] = session.PendingPermissionHeld(dir)
+			// Detached work outlives the turn that started it, so a session
+			// with no turn in flight is still not idle while a task runs.
+			// The count is the pool's own, which already leaves out the
+			// runtime's system errands and everything that has finished; the
+			// whole listing reads it in one pass, above.
+			ent["backgroundRunning"] = backgroundRunning[row.SessionID]
 		}
 		sessions = append(sessions, ent)
 	}
@@ -1037,10 +1050,26 @@ func (s *Server) addTurnProgress(out map[string]interface{}, id string) {
 }
 
 func llmMsgsToCoddyOpenAI(msgs []llm.Message) []map[string]interface{} {
-	return llmMsgsToCoddyOpenAIForSession("", msgs)
+	return llmMsgsToCoddyOpenAIForSession("", "", msgs)
 }
 
-func llmMsgsToCoddyOpenAIForSession(sessionID string, msgs []llm.Message) []map[string]interface{} {
+// isAssetOf reports whether path is a regular file directly inside assetsDir.
+// Symlinks do not count: the address the transcript hands out promises bytes of
+// this session's bundle, and a link planted in that directory - the agent can
+// write there, and the prompt tells it where - would make it serve whatever it
+// points at.
+func isAssetOf(assetsDir, path string) bool {
+	if assetsDir == "" || path == "" {
+		return false
+	}
+	if filepath.Dir(path) != filepath.Clean(assetsDir) {
+		return false
+	}
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode().IsRegular()
+}
+
+func llmMsgsToCoddyOpenAIForSession(sessionID, assetsDir string, msgs []llm.Message) []map[string]interface{} {
 	out := make([]map[string]interface{}, 0, len(msgs))
 	for _, m := range msgs {
 		item := map[string]interface{}{
@@ -1099,6 +1128,15 @@ func llmMsgsToCoddyOpenAIForSession(sessionID string, msgs []llm.Message) []map[
 					file["preview_url"] = "/coddy/sessions/" + url.PathEscape(sessionID) +
 						"/assets/" + url.PathEscape(assetName) + "/thumbnail"
 				}
+				// The full-size original, for a preview card to open enlarged.
+				// The address is a name under this session's assets directory,
+				// so a part saved anywhere else gets none: its base name would
+				// either 404 or, worse, name a different file that happens to
+				// share it.
+				if sessionID != "" && assetsDir != "" && isAssetOf(assetsDir, part.FilePath) {
+					file["url"] = "/coddy/sessions/" + url.PathEscape(sessionID) +
+						"/assets/" + url.PathEscape(filepath.Base(part.FilePath))
+				}
 				files = append(files, file)
 			}
 			item["files"] = files
@@ -1141,27 +1179,101 @@ func imagePartMIMEType(part llm.ImagePart) string {
 	return "application/octet-stream"
 }
 
-func (s *Server) coddySessionAssetThumbnailGet(w http.ResponseWriter, r *http.Request) {
+// coddySessionAsset is the prologue the two asset routes share: the method,
+// the session behind {id}, and an asset {name} that must be a bare file name.
+// It answers the request itself and reports ok=false when the caller must stop.
+func (s *Server) coddySessionAsset(w http.ResponseWriter, r *http.Request) (sessionDir, name string, ok bool) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
-		return
+		return "", "", false
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
 	st := s.coddyEnsureLoaded(w, r, id)
 	if st == nil {
-		return
+		return "", "", false
 	}
-	name := strings.TrimSpace(r.PathValue("name"))
+	name = strings.TrimSpace(r.PathValue("name"))
 	if name == "" || name == "." || name == ".." || filepath.Base(name) != name || strings.ContainsAny(name, `/\\`) {
 		http.Error(w, `{"error":{"message":"invalid asset name"}}`, http.StatusBadRequest)
+		return "", "", false
+	}
+	sessionDir = strings.TrimSpace(st.GetPersistedSessionDir())
+	if sessionDir == "" {
+		http.NotFound(w, r)
+		return "", "", false
+	}
+	return sessionDir, name, true
+}
+
+// coddySessionAssetGet serves the original bytes of an uploaded asset, which is
+// what a preview card opens enlarged - the thumbnail beside it is bounded to a
+// 160px edge and has nothing to enlarge. Only images leave the bundle, and the
+// file name never decides that: the first bytes are sniffed, so a text file
+// called photo.png is a 404 like any other non-image.
+func (s *Server) coddySessionAssetGet(w http.ResponseWriter, r *http.Request) {
+	sessionDir, name, ok := s.coddySessionAsset(w, r)
+	if !ok {
 		return
 	}
-	sessionDir := strings.TrimSpace(st.GetPersistedSessionDir())
-	if sessionDir == "" {
+	path := filepath.Join(session.AssetsPath(sessionDir), name)
+	// The name is already a bare one, so the only way out of the bundle left is a
+	// link inside it, and the agent can write there. Refuse anything that is not a
+	// regular file rather than follow it.
+	if info, err := os.Lstat(path); err != nil || !info.Mode().IsRegular() {
 		http.NotFound(w, r)
 		return
 	}
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.NotFound(w, r)
+			return
+		}
+		s.log.Error("open session asset", "error", err)
+		http.Error(w, `{"error":{"message":"asset unavailable"}}`, http.StatusInternalServerError)
+		return
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil || info.IsDir() {
+		http.NotFound(w, r)
+		return
+	}
+	head := make([]byte, 512)
+	n, err := io.ReadFull(f, head)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		s.log.Error("read session asset", "error", err)
+		http.Error(w, `{"error":{"message":"asset unavailable"}}`, http.StatusInternalServerError)
+		return
+	}
+	mediaType := http.DetectContentType(head[:n])
+	if !strings.HasPrefix(mediaType, "image/") {
+		http.NotFound(w, r)
+		return
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		s.log.Error("rewind session asset", "error", err)
+		http.Error(w, `{"error":{"message":"asset unavailable"}}`, http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", mediaType)
+	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeContent(w, r, name, info.ModTime(), f)
+}
+
+func (s *Server) coddySessionAssetThumbnailGet(w http.ResponseWriter, r *http.Request) {
+	sessionDir, name, ok := s.coddySessionAsset(w, r)
+	if !ok {
+		return
+	}
 	path := session.AssetThumbnailPath(sessionDir, name)
+	// Same reason as the full-size route: a link planted in the bundle must not
+	// turn this into a reader of whatever it points at.
+	if info, err := os.Lstat(path); err != nil || !info.Mode().IsRegular() {
+		http.NotFound(w, r)
+		return
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -1198,7 +1310,7 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 	out := map[string]interface{}{
 		"object":    "coddy.messages",
 		"sessionId": id,
-		"messages":  llmMsgsToCoddyOpenAIForSession(id, msgs),
+		"messages":  llmMsgsToCoddyOpenAIForSession(id, session.AssetsPath(st.GetPersistedSessionDir()), msgs),
 		// The revision this history was read at: a client attaching to the composer
 		// relay passes it back as since_rev and is replayed only what it lacks.
 		"messagesRev": rev,

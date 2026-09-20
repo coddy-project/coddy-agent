@@ -1,22 +1,21 @@
 /**
  * Derives the live status shown next to the typing dots while a turn is running:
- * what the agent is doing right now, what it is doing it to, and since when.
+ * what phase the agent is in right now, and since when.
+ *
+ * The line carries the phase and *nothing it acts on* — no path, no command, no url.
+ * What a step acts on is named once, by the transcript row above the line, so every
+ * phrase here has to read as a complete phrase on its own (DESIGN.md, States → Working).
  *
  * Everything comes from the transcript the SPA already holds — no backend or SSE change.
- * The module stays free of React and of locale state: it returns i18n *keys* plus the raw
- * target, so the component owns translation and truncation and the tests can assert on
- * locale-independent values.
+ * The module stays free of React and of locale state: it returns i18n *keys*, so the
+ * component owns translation and the tests can assert on locale-independent values.
  *
  * The console TUI carries the same phrase table in Go (external/cli/status.go). The two
  * cannot share code across the language boundary, so a tool added to one belongs in the
  * other as well.
  */
 
-import {
-  toolCallTargetIsPath,
-  toolCallTargetText,
-} from "./permissionToolPreview";
-import { relativeToolTarget } from "./toolTargetPath";
+import { parseMcpToolName } from "../messages/toolDisplayName";
 import type { TranscriptItem } from "./types";
 
 export type LiveStatusKind =
@@ -30,10 +29,19 @@ export type LiveStatusKind =
 
 export type LiveStatus = {
   kind: LiveStatusKind;
-  /** i18n key of the verb phrase. Carries no {param} slots. */
+  /** i18n key of the verb phrase. Takes slots only through keyParams. */
   key: string;
-  /** Untruncated target (path / command / pattern); "" when the phrase takes none. */
-  target: string;
+  /**
+   * What the phrase's {slots} resolve to, when it has any. Only a call Coddy does
+   * not define needs them: its own name is the only thing the phrase can say.
+   */
+  keyParams?: Record<string, string>;
+  /**
+   * What this step is, for telling one step from the next. Nothing renders it: the
+   * phrase is all the reader sees, and two calls in a row can share it, so without
+   * an id of its own the second would go on counting the first one's clock.
+   */
+  step?: string;
   /** Wall clock ms to count elapsed from; omitted when the start is unknown. */
   startedAtMs?: number;
   /**
@@ -62,9 +70,6 @@ export const WAITING_SLOW_MS = 15_000;
 /** Waiting longer than this reads as "still nothing from the server". */
 export const WAITING_STUCK_MS = 60_000;
 
-/** Longest target rendered inline; CSS ellipsizes further, this caps the DOM text node. */
-export const MAX_TARGET_CHARS = 56;
-
 const WAITING_KEY = "status.waitingModel";
 
 /**
@@ -83,12 +88,14 @@ export function waitingStatusKey(elapsedMs: number): string {
 
 /**
  * Present-progressive phrase key for a backend tool id. Tool ids are the raw registry
- * names (internal/tools, internal/agent/toolsets.go); unknown ones — MCP tools included —
- * fall back to a generic phrase and keep their id as the target so the row stays
- * debuggable.
+ * names (internal/tools, internal/agent/toolsets.go); unknown ones fall back to a
+ * generic phrase. A tool an MCP server serves takes that generic phrase too, since
+ * nothing here knows what it does, and deriveLiveStatus swaps in the one phrase whose
+ * slots name the server and the tool.
  *
- * Note: the rendered order is "verb target" (two separate spans so CSS can ellipsize the
- * target alone). A locale needing target-first would have to restructure the markup.
+ * Every phrase behind these keys stands on its own: the line renders the phrase and
+ * nothing else, so a key whose value reads as a fragment ("Reading") is a bug the
+ * dictionary test catches (external/ui/src/ui/i18n/statusPhrases.test.ts).
  */
 export function statusKeyForTool(toolName: string): string {
   const n = (toolName || "").trim().toLowerCase();
@@ -179,57 +186,6 @@ export function statusKeyForTool(toolName: string): string {
   }
 }
 
-/** Collapse newlines/tabs so a heredoc command cannot break the single-line row. */
-function collapseWhitespace(raw: string): string {
-  return raw.replace(/\s+/g, " ").trim();
-}
-
-/** Path-shaped: has a separator and no spaces once collapsed. */
-function looksLikePath(value: string): boolean {
-  return /[\\/]/.test(value) && !value.includes(" ");
-}
-
-/**
- * Shorten a target for inline display. Paths lose leading segments (the tail identifies
- * the file); everything else loses its tail (the leading program name identifies a
- * command). The untruncated value belongs in a title attribute.
- */
-export function truncateStatusTarget(
-  raw: string,
-  max: number = MAX_TARGET_CHARS,
-): string {
-  const collapsed = collapseWhitespace(raw || "");
-  if (!looksLikePath(collapsed)) {
-    return collapsed.length <= max
-      ? collapsed
-      : collapsed.slice(0, Math.max(1, max - 1)) + "…";
-  }
-  const segments = collapsed.split(/[\\/]+/).filter((s) => s !== "");
-  // Display separators are always "/" so a Windows path reads the same as a POSIX one;
-  // the caller keeps the raw value for the title attribute.
-  const value = segments.join("/");
-  if (value.length <= max) {
-    return value;
-  }
-  const last = segments[segments.length - 1] || value;
-  if (last.length + 2 > max) {
-    return "…/" + last.slice(0, Math.max(1, max - 3)) + "…";
-  }
-  let tail = last;
-  for (let i = segments.length - 2; i >= 0; i--) {
-    const segment = segments[i];
-    if (segment === undefined) {
-      break;
-    }
-    const next = segment + "/" + tail;
-    if (next.length + 2 > max) {
-      break;
-    }
-    tail = next;
-  }
-  return "…/" + tail;
-}
-
 /** Elapsed as whole seconds: 0s, 59s, 1m 05s, 59m 59s, 1h 00m. */
 export function formatElapsedSeconds(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) {
@@ -258,7 +214,7 @@ function parseCreatedAt(raw: string | undefined): number | undefined {
   return at;
 }
 
-const PREPARING: LiveStatus = { kind: "waiting", key: WAITING_KEY, target: "" };
+const PREPARING: LiveStatus = { kind: "waiting", key: WAITING_KEY };
 
 type ToolItem = Extract<TranscriptItem, { type: "tool_call" }>;
 type ThinkingItem = Extract<TranscriptItem, { type: "thinking" }>;
@@ -271,7 +227,6 @@ type MemoryItem = Extract<TranscriptItem, { type: "memory_run" }>;
  */
 export function deriveLiveStatus(
   items: readonly TranscriptItem[],
-  pathRoots: readonly string[] = [],
 ): LiveStatus {
   let permissionPending = false;
   let questionPending = false;
@@ -365,7 +320,6 @@ export function deriveLiveStatus(
     return {
       kind: "permission",
       key: "status.awaitingPermission",
-      target: "",
       ...turn,
     };
   }
@@ -373,7 +327,6 @@ export function deriveLiveStatus(
     return {
       kind: "question",
       key: "status.awaitingAnswer",
-      target: "",
       ...turn,
     };
   }
@@ -382,22 +335,16 @@ export function deriveLiveStatus(
   if (tool) {
     const rawName = (tool.title || tool.kind || "").trim();
     const key = statusKeyForTool(rawName);
-    const context = {
-      ...(tool.title !== undefined ? { title: tool.title } : {}),
-      ...(tool.kind !== undefined ? { kind: tool.kind } : {}),
-      ...(tool.argsText !== undefined ? { argsText: tool.argsText } : {}),
-    };
-    const named = toolCallTargetText(context);
-    // Same rule as the transcript row: a path reads against the session's own
-    // directory, so the line spends its width on what tells files apart.
-    const target =
-      (named && toolCallTargetIsPath(context)
-        ? relativeToolTarget(named, pathRoots)
-        : named) || (key === "status.tool" ? rawName : "");
+    // A generic phrase over an MCP call says nothing and its `server__tool` id says
+    // it badly, so the one phrase that takes slots names the server and the tool,
+    // the way the transcript row does. What the call acts on is that row's, not the
+    // line's: the arguments are never read here.
+    const mcp = key === "status.tool" ? parseMcpToolName(rawName) : null;
     return {
       kind: "tool",
-      key,
-      target,
+      key: mcp ? "status.mcp" : key,
+      ...(mcp ? { keyParams: { server: mcp.server, tool: mcp.tool } } : {}),
+      step: tool.toolCallId,
       // startedAtMs is rewritten on every in_progress update, i.e. it is the time of the
       // last status transition rather than the tool start. That is what we want here —
       // the counter measures the current step. Do not "fix" it.
@@ -412,7 +359,7 @@ export function deriveLiveStatus(
     return {
       kind: "thinking",
       key: "status.thinking",
-      target: "",
+      step: thinking.id,
       ...(typeof thinking.startedAtMs === "number"
         ? { startedAtMs: thinking.startedAtMs }
         : {}),
@@ -426,7 +373,7 @@ export function deriveLiveStatus(
     return {
       kind: "memory",
       key: "status.memory",
-      target: "",
+      step: memory.taskId ?? memory.id,
       ...(typeof memory.startedAtMs === "number"
         ? { startedAtMs: memory.startedAtMs }
         : {}),
@@ -435,7 +382,7 @@ export function deriveLiveStatus(
   }
 
   if (writing) {
-    return { kind: "writing", key: "status.writing", target: "", ...turn };
+    return { kind: "writing", key: "status.writing", ...turn };
   }
 
   const startedAtMs = waitingFrom ?? turnStartedAtMs;
@@ -445,7 +392,6 @@ export function deriveLiveStatus(
   return {
     kind: "waiting",
     key: WAITING_KEY,
-    target: "",
     startedAtMs,
     ...turn,
   };

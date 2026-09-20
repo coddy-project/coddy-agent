@@ -12,8 +12,13 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 )
 
-// Live status line shown next to the spinner while a turn runs: what the agent is doing
-// right now, what it is doing it to, and for how long.
+// Live status line shown next to the spinner while a turn runs: what phase the agent is
+// in right now, and for how long.
+//
+// The line carries the phase and *nothing it acts on* - no path, no command, no url.
+// What a step acts on is named once, by the tool box above the line, so every phrase
+// here has to read as a complete phrase on its own ("Running a command", never
+// "Running"). DESIGN.md, States -> Working, is the rule.
 //
 // The SPA carries the same phrase table in TypeScript
 // (external/ui/src/ui/chat/liveStatus.ts). The two cannot share code across the language
@@ -27,10 +32,6 @@ const (
 	waitingStuckAfter = 60 * time.Second
 )
 
-// Longest target rendered inline before the middle of a path or the tail of a command is
-// dropped.
-const maxStatusTargetChars = 48
-
 const (
 	statusWaitingModel = "Waiting for the model"
 	statusWaitingSlow  = "The model is taking longer than usual"
@@ -42,9 +43,12 @@ const (
 // own phases - waiting, thinking, responding - so only a step that runs something other
 // than the model (a tool call, the memory run) counts; a step blocked on the operator
 // never does, because a climbing counter there would be a lie.
+// step identifies the step the phrase belongs to and is never rendered: two calls in a
+// row can share a phrase ("Reading a file" twice), and without it the second one would
+// inherit the first one's clock.
 type liveStatus struct {
 	verb      string
-	target    string
+	step      string
 	startedAt time.Time
 	counts    bool
 	waiting   bool
@@ -63,9 +67,11 @@ func newModelStatus(verb string) liveStatus {
 	return liveStatus{verb: verb, startedAt: time.Now()}
 }
 
-// newWorkingStatus starts a step that names what it is doing.
-func newWorkingStatus(verb, target string) liveStatus {
-	return liveStatus{verb: verb, target: target, startedAt: time.Now(), counts: true}
+// newWorkingStatus starts a step that runs something other than the model, so it shows a
+// clock of its own. step is the identity of that step - the tool call id - and is never
+// rendered; "" is fine where only one such step can run at a time.
+func newWorkingStatus(verb, step string) liveStatus {
+	return liveStatus{verb: verb, step: step, startedAt: time.Now(), counts: true}
 }
 
 // blockStatus parks the status line on an operator gate (permission or question
@@ -90,8 +96,11 @@ func (a *App) unblockStatus() {
 }
 
 // statusVerbForTool is the present-progressive phrase for a backend tool id. Tool ids are
-// the raw registry names; unknown ones - MCP tools included - fall back to a generic
-// phrase and keep their id as the target so the row stays debuggable.
+// the raw registry names; a tool an MCP server serves is named by its server and its own
+// name, and anything else unknown falls back to a generic phrase.
+//
+// Every phrase returned here stands on its own: the status line renders it and nothing
+// else, so "Running" would read as a sentence cut in half.
 func statusVerbForTool(toolName string) string {
 	n := strings.ToLower(strings.TrimSpace(toolName))
 	switch {
@@ -126,27 +135,27 @@ func statusVerbForTool(toolName string) string {
 	}
 	switch n {
 	case "read":
-		return "Reading"
+		return "Reading a file"
 	case "list_dir", "print_tree":
-		return "Listing"
+		return "Browsing a directory"
 	case "grep", "glob":
-		return "Searching"
+		return "Searching in files"
 	case "edit", "apply_patch":
-		return "Editing"
+		return "Editing a file"
 	case "write":
-		return "Writing"
+		return "Writing a file"
 	case "run_command":
-		return "Running"
+		return "Running a command"
 	case "ssh_run_command":
-		return "Running over SSH"
+		return "Running a command over SSH"
 	case "mkdir":
-		return "Creating directory"
+		return "Creating a directory"
 	case "touch":
-		return "Creating file"
+		return "Creating a file"
 	case "mv":
-		return "Moving"
+		return "Moving a file"
 	case "rm", "rmdir":
-		return "Deleting"
+		return "Deleting a file"
 	case "websearch":
 		return "Searching the web"
 	case "coddy_docs_search":
@@ -154,13 +163,13 @@ func statusVerbForTool(toolName string) string {
 	case "coddy_docs_read":
 		return "Reading the docs"
 	case "webfetch":
-		return "Fetching"
+		return "Fetching a page"
 	case "http_request":
 		return "Sending a request"
 	case "load_skill":
 		return "Loading a skill"
 	case "spawn_agent":
-		return "Running subagent"
+		return "Running a subagent"
 	case "preview_server":
 		return "Starting a preview server"
 	case "plan_write", "plan_exit":
@@ -169,14 +178,22 @@ func statusVerbForTool(toolName string) string {
 		return "Reading the plan"
 	case "question":
 		return "Waiting for your answer"
-	default:
-		return "Running a tool"
 	}
+	// Last, so a tool Coddy ships keeps its own phrase even if its id ever carries
+	// the separator. The web UI decides the same way round: the catalogue first,
+	// this only on the generic key.
+	if phrase := mcpToolPhrase(toolName); phrase != "" {
+		return phrase
+	}
+	return "Running a tool"
 }
 
 // statusTargetFromArgs picks the one argument that identifies what a call acts on: the
 // path it reads, the command it runs, the pattern it searches for. Returns "" when the
 // call takes no meaningful target or its arguments have not streamed in yet.
+//
+// This belongs to the tool box title (chat.go), which names what a call acts on. The
+// status line does not: it carries the phase and nothing else.
 func statusTargetFromArgs(toolName, argsJSON string) string {
 	raw := strings.TrimSpace(argsJSON)
 	// The manager streams arguments either bare or behind an "Arguments:" label.
@@ -217,8 +234,93 @@ func statusTargetFromArgs(toolName, argsJSON string) string {
 	default:
 		// read / write / edit / apply_patch / mkdir / touch / rm / rmdir / print_tree /
 		// plan_* take a path; webfetch takes a url.
-		return stringArg(args, "path", "filePath", "file_path", "url", "name")
+		if target := stringArg(args, "path", "filePath", "file_path", "url", "name"); target != "" {
+			return target
+		}
+		if _, _, ok := mcpToolNameParts(toolName); !ok {
+			return ""
+		}
+		// An MCP server names its own arguments, so a call taking none of the above
+		// would show nothing at all beside a phrase that cannot say what it does. The
+		// first argument that reads as a label is what such a call is about. Only for
+		// those: a Coddy tool landing here keeps naming the argument it is documented
+		// to take, so a write without its path never shows the file body instead.
+		return firstLabelArg(raw)
 	}
+}
+
+// mcpToolNameParts reads the "<server>__<tool>" name every MCP tool joins the
+// function-calling list under (internal/mcp.ToolInfo.ToLLMToolDefinition), with the
+// "mcp__" prefix other agents spell the same call with accepted as well
+// (internal/hooks.MatchTool). A server name can never contain "__"
+// (internal/mcp.ValidateServerName), so the first separator is the split and everything
+// after it is the tool's own name.
+func mcpToolNameParts(toolName string) (server, tool string, ok bool) {
+	const prefix = "mcp__"
+	name := strings.TrimSpace(toolName)
+	// Other agents spell the same call `mcp__<server>__<tool>`, so the prefix is
+	// dropped - but only when what is left is still a namespaced name. A server
+	// really called `mcp` reaches us as `mcp__<tool>`, and stripping there would
+	// leave a bare tool name that parses as nothing.
+	if len(name) > len(prefix) && strings.EqualFold(name[:len(prefix)], prefix) &&
+		strings.Contains(name[len(prefix):], "__") {
+		name = name[len(prefix):]
+	}
+	at := strings.Index(name, "__")
+	if at <= 0 {
+		return "", "", false
+	}
+	server, tool = name[:at], name[at+2:]
+	if server == "" || tool == "" {
+		return "", "", false
+	}
+	return server, tool, true
+}
+
+// mcpToolPhrase names a call to a tool an MCP server serves the way the built-in ids
+// name their action. It answers "" for anything that is not a namespaced call. The web
+// UI says the same through the `tool.name.mcp` dictionary entry.
+func mcpToolPhrase(toolName string) string {
+	server, tool, ok := mcpToolNameParts(toolName)
+	if !ok {
+		return ""
+	}
+	return "Calling " + tool + " on the MCP server " + server
+}
+
+// Longest argument value that still reads as a label on the row rather than as a body.
+const maxLabelArgChars = 120
+
+// firstLabelArg is the first argument of a call that reads as a label: a non-empty
+// single-line string short enough for the row. encoding/json decodes an object into an
+// unordered map, so the order the model wrote the arguments in is recovered from the
+// token stream - the leading one wins, which is where a tool puts what it acts on.
+func firstLabelArg(raw string) string {
+	dec := json.NewDecoder(strings.NewReader(raw))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return ""
+	}
+	for dec.More() {
+		if _, err := dec.Token(); err != nil {
+			return ""
+		}
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
+			return ""
+		}
+		var text string
+		if err := json.Unmarshal(value, &text); err != nil {
+			continue
+		}
+		if strings.ContainsAny(text, "\r\n") {
+			continue
+		}
+		label := strings.TrimSpace(text)
+		if label != "" && len([]rune(label)) <= maxLabelArgChars {
+			return label
+		}
+	}
+	return ""
 }
 
 // cutArgumentsPrefix strips a leading "Arguments:" label, case-insensitively.
@@ -239,46 +341,6 @@ func stringArg(args map[string]interface{}, names ...string) string {
 	return ""
 }
 
-// truncateStatusTarget shortens a target for the single-line status row. Paths lose
-// leading segments (the tail identifies the file); everything else loses its tail (the
-// leading program name identifies a command).
-func truncateStatusTarget(raw string, max int) string {
-	collapsed := strings.Join(strings.Fields(raw), " ")
-	if collapsed == "" || max <= 0 {
-		return ""
-	}
-	if !looksLikePath(collapsed) {
-		return truncateRunes(collapsed, max)
-	}
-	segments := make([]string, 0, 8)
-	for _, s := range strings.FieldsFunc(collapsed, func(r rune) bool { return r == '/' || r == '\\' }) {
-		if s != "" {
-			segments = append(segments, s)
-		}
-	}
-	// Display separators are always "/" so a Windows path reads the same as a POSIX one.
-	value := strings.Join(segments, "/")
-	if len([]rune(value)) <= max {
-		return value
-	}
-	last := value
-	if n := len(segments); n > 0 {
-		last = segments[n-1]
-	}
-	if len([]rune(last))+2 > max {
-		return "…/" + truncateRunes(last, max-2)
-	}
-	tail := last
-	for i := len(segments) - 2; i >= 0; i-- {
-		next := segments[i] + "/" + tail
-		if len([]rune(next))+2 > max {
-			break
-		}
-		tail = next
-	}
-	return "…/" + tail
-}
-
 // truncateRunes cuts value to at most max runes, marking the cut with an ellipsis.
 func truncateRunes(value string, max int) string {
 	runes := []rune(value)
@@ -290,12 +352,6 @@ func truncateRunes(value string, max int) string {
 		keep = 1
 	}
 	return string(runes[:keep]) + "…"
-}
-
-// looksLikePath reports whether a target is path-shaped: it has a separator and no spaces.
-func looksLikePath(value string) bool {
-	return (strings.ContainsRune(value, '/') || strings.ContainsRune(value, '\\')) &&
-		!strings.ContainsRune(value, ' ')
 }
 
 // formatElapsed renders a duration as whole seconds: 0s, 59s, 1m 05s, 59m 59s, 1h 00m.
@@ -326,12 +382,10 @@ func (s liveStatus) statusText(elapsed time.Duration) string {
 			verb = statusWaitingSlow
 		}
 	}
+	// The phrase and its clock, nothing else: what the step acts on is named by the
+	// tool box above the line, once.
 	var b strings.Builder
 	b.WriteString(verb)
-	if target := truncateStatusTarget(s.target, maxStatusTargetChars); target != "" {
-		b.WriteString(" ")
-		b.WriteString(target)
-	}
 	if s.counts {
 		if formatted := formatElapsed(elapsed); formatted != "" {
 			b.WriteString(" · ")
@@ -400,10 +454,11 @@ func (a *App) applyTurnProgress(u acp.TurnProgressUpdate) {
 	}
 }
 
-// setStatus replaces the current step. A repeat of the same verb and target keeps its
-// start time so the counter does not restart on every streamed chunk.
+// setStatus replaces the current step. A repeat of the same phrase for the same step
+// keeps its start time so the counter does not restart on every streamed chunk; the
+// next call restarts it even when it reads the same, because its step differs.
 func (a *App) setStatus(next liveStatus) {
-	if a.stepStatus.verb == next.verb && a.stepStatus.target == next.target {
+	if a.stepStatus.verb == next.verb && a.stepStatus.step == next.step {
 		return
 	}
 	a.stepStatus = next

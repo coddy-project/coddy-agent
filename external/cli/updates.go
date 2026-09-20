@@ -209,11 +209,15 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		a.lastToolID = u.ToolCallID
 		a.chat.AddChild(tb)
 		a.curAssistant = nil
+		// Title is the plain tool name (internal/agent/react.go). The status line says the
+		// phase and nothing else, so it is complete here: the arguments that follow on the
+		// in_progress update are the tool box's, not the line's. A file tool announces
+		// itself long before it names a path, so it says so while they stream.
 		verb := statusVerbForTool(u.Title)
 		if isWritingTool(u.Title) {
 			verb = "Generating file arguments"
 		}
-		a.setStatus(newWorkingStatus(verb, ""))
+		a.setStatus(newWorkingStatus(verb, u.ToolCallID))
 	case acp.ToolCallStatusUpdate:
 		tb, ok := a.toolBoxes[u.ToolCallID]
 		if !ok {
@@ -384,14 +388,18 @@ func (a *App) applyToolStatus(tb *toolBox, u acp.ToolCallStatusUpdate) {
 			}
 		}
 	case "in_progress":
-		// Content carries the completed argument JSON before execution.
+		// Before the content loop, so an update carrying no content items still
+		// names the phase - including a call the console never saw announced,
+		// which the caller gives a box of its own id above. This is also where a
+		// file tool leaves "Generating file arguments" behind: its arguments are
+		// complete by now.
+		a.setStatus(newWorkingStatus(statusVerbForTool(tb.name), u.ToolCallID))
+		// Content carries the completed argument JSON before execution. It goes to
+		// the box title, which is where what a call acts on is named; the status
+		// line takes the phase alone.
 		for _, item := range u.Content {
 			if item.Content.Text != "" {
 				tb.SetArgs(item.Content.Text)
-				a.setStatus(newWorkingStatus(
-					statusVerbForTool(tb.name),
-					statusTargetFromArgs(tb.name, item.Content.Text),
-				))
 			}
 		}
 		tb.SetStatus("in_progress", "", 0, 0)

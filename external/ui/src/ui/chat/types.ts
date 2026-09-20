@@ -57,6 +57,12 @@ export type TranscriptItem =
         sizeBytes?: number;
         /** Blob URL while optimistic; session asset URL after backend persistence. */
         previewUrl?: string;
+        /**
+         * The full-size asset the preview card opens enlarged. Server-only:
+         * absent while the row is optimistic, on a message sent before the
+         * route existed, and once the asset has left the session bundle.
+         */
+        url?: string;
       }[];
     }
   | {

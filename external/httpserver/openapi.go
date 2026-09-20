@@ -258,7 +258,9 @@ func openAPISpec() map[string]interface{} {
 						"name":        "include_activity",
 						"in":          "query",
 						"schema":      map[string]string{"type": "boolean"},
-						"description": "When true, each session row includes **turnActive**, **activitySeq**, **readActivitySeq**, and **unreadComplete** for composer UI.",
+						"description": "When true, each session row includes **turnActive**, **activitySeq**, **readActivitySeq**, **unreadComplete**, **permissionPending** and **backgroundRunning** for composer UI. " +
+							"**backgroundRunning** is how many of the session's background tasks are still in flight - detached work outlives the turn that started it, so it can be above zero while **turnActive** is false. " +
+							"System tasks (the per-turn memory run) and finished tasks are not counted.",
 					}, map[string]interface{}{
 						"name":   "include_stats",
 						"in":     "query",
@@ -1799,7 +1801,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/messages": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Read conversation transcript",
-					"description": "Top-level **model** is the effective YAML backend for this session (**`selectedModelId`** when set, else configured **`agent.model`**). **selectedModelId** echoes the stored session override (may be empty). **mode** reports the session profile (`agent`, `plan`, or `ask`) so remote clients restore it on load. **settings** is the whole settings snapshot of the session (**model**, **reasoning**, **reasoningChoices**, **mode**, **permissionMode**, **configuredPermissionMode**, **overrides**, **version**), the same one **event: session_settings** carries: a composer mirrors it and names its **version** as **`metadata.settingsVersion`** when it sends. **uiLog** holds a **notice** row for every settings change somebody asked for (a command, the permission dialog, the model's **switch_model**). Assistant rows in **messages** may include **`model`** (YAML selector used for that reply). User rows with uploaded files include **`files`** metadata; persisted images carry a session-scoped **`preview_url`**. " +
+					"description": "Top-level **model** is the effective YAML backend for this session (**`selectedModelId`** when set, else configured **`agent.model`**). **selectedModelId** echoes the stored session override (may be empty). **mode** reports the session profile (`agent`, `plan`, or `ask`) so remote clients restore it on load. **settings** is the whole settings snapshot of the session (**model**, **reasoning**, **reasoningChoices**, **mode**, **permissionMode**, **configuredPermissionMode**, **overrides**, **version**), the same one **event: session_settings** carries: a composer mirrors it and names its **version** as **`metadata.settingsVersion`** when it sends. **uiLog** holds a **notice** row for every settings change somebody asked for (a command, the permission dialog, the model's **switch_model**). Assistant rows in **messages** may include **`model`** (YAML selector used for that reply). User rows with uploaded files include **`files`** metadata; persisted images carry a session-scoped **`preview_url`** (the bounded thumbnail) and, while the asset is still in the bundle, **`url`** for the original bytes a preview card opens enlarged. " +
 						"**user** and **assistant** rows may include **created_at** (RFC3339 UTC) when the server appended that message to history. " +
 						"A **user** row that opened a turn nobody typed - finished background tasks the model started with **notify_on_finish** woke the agent - carries **`background_wake`** **`{tasks: [{id, kind, label, agent, status, exit_code, duration_ms, error}]}`**; its **content** is the instruction the model read, and a UI does not render the row as a message from the user (the bundled UI shows nothing for it: the turn reads as the agent carrying on). " +
 						"A memory subagent run leaves nothing in this payload: its record is the **agent** task of kind agent with **`agent.system`** true under **GET /coddy/sessions/{id}/background-tasks**, and its transcript is the child session named there. " +
@@ -1817,10 +1819,34 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/sessions/{id}/assets/{name}": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Read a persisted session image at its original size",
+					"description": "Returns the bytes of an uploaded asset as they were saved, which is what a preview card opens enlarged - the thumbnail beside it is bounded to a 160px edge and has nothing to enlarge. " +
+						"The asset name comes from a user message **`files[].url`**, which is present only while the asset is still in the session bundle. " +
+						"**Only images leave the bundle, and the file name never decides that**: the first 512 bytes are sniffed, and anything that is not an **`image/*`** media type is **404**, so a text file called `photo.png` is not served. " +
+						"Answers with the sniffed **`Content-Type`**, **`Cache-Control: private, max-age=31536000, immutable`** and **`X-Content-Type-Options: nosniff`**.",
+					"parameters": []interface{}{
+						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
+						map[string]interface{}{"name": "name", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Original image bytes",
+							"content": map[string]interface{}{
+								"image/*": map[string]interface{}{"schema": map[string]string{"type": "string", "format": "binary"}},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"503": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/sessions/{id}/assets/{name}/thumbnail": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Read a persisted session image thumbnail",
-					"description": "Returns the bounded PNG preview created for an uploaded image. The asset name comes from a user message **`files[].preview_url`**; arbitrary original asset bytes are not exposed by this route.",
+					"description": "Returns the bounded PNG preview created for an uploaded image. The asset name comes from a user message **`files[].preview_url`**. The original bytes are served by **GET /coddy/sessions/{id}/assets/{name}**, and only when they sniff as an image.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
 						map[string]interface{}{"name": "name", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},

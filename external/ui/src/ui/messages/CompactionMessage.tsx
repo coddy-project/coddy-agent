@@ -1,5 +1,6 @@
 import { memo } from "react";
 
+import { Chevron } from "../components/Chevron";
 import { Markdown } from "../markdown/Markdown";
 import { useT } from "../i18n/I18nProvider";
 
@@ -20,7 +21,7 @@ export const CompactionMessage = memo(function CompactionMessage(props: {
           aria-label={t("messages.compactionSummaryAriaLabel")}
         >
           <span className="thinking-left">
-            <span className="thinking-chevron" aria-hidden="true" />
+            <Chevron className="thinking-chevron" />
             <span className="thinking-label">{t("messages.compactionLabel")}</span>
           </span>
         </summary>

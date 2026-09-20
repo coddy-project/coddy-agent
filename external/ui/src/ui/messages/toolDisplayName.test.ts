@@ -27,11 +27,37 @@ test("the ACP `Run: ` prefix and casing do not hide the label", () => {
   expect(toolDisplayName("  RUN_COMMAND  ")).toBe("running a command");
 });
 
-test("tools outside the catalogue keep their own id", () => {
-  expect(toolDisplayName("mcp__github__create_issue")).toBe(
-    "mcp__github__create_issue",
+// Every built-in tool reads as an action; an MCP tool used to fall through to its
+// raw `server__tool` registry id, which named neither the server nor the action.
+test("an MCP tool names the server it runs on and the tool it calls", () => {
+  expect(toolDisplayName("playwright__browser_navigate")).toBe(
+    "calling browser_navigate on the MCP server playwright",
   );
+  // Other agents spell the same name with an mcp__ prefix (internal/hooks/matcher.go).
+  expect(toolDisplayName("mcp__github__create_issue")).toBe(
+    "calling create_issue on the MCP server github",
+  );
+  // A server name can never contain "__" (internal/mcp.ValidateServerName), so the
+  // first separator splits and everything after it belongs to the tool.
+  expect(toolDisplayName("notion__pages__create")).toBe(
+    "calling pages__create on the MCP server notion",
+  );
+  expect(toolDisplayName("Run: playwright__browser_click")).toBe(
+    "calling browser_click on the MCP server playwright",
+  );
+});
+
+test("the MCP wording is translated like the rest of the catalogue", () => {
+  setLocale("ru");
+  expect(toolDisplayName("playwright__browser_navigate")).toBe(
+    "запускаю browser_navigate на MCP-сервере playwright",
+  );
+});
+
+test("tools outside the catalogue keep their own id", () => {
   expect(toolDisplayName("something_new")).toBe("something_new");
+  // Nothing on one side of the separator is not a namespaced call.
+  expect(toolDisplayName("weird__")).toBe("weird__");
 });
 
 test("an empty name falls back to the generic tool label", () => {
@@ -69,5 +95,24 @@ test("resuming a scheduled job is named like the other scheduler actions", () =>
   setLocale("ru");
   expect(toolDisplayName("coddy_scheduler_job_resume")).toBe(
     "снимаю задание планировщика с паузы",
+  );
+});
+
+test("a tool named mcp does not borrow the label that takes slots", () => {
+  // `tool.name.mcp` carries {server} and {tool}; reaching it through the ordinary
+  // catalogue path would print the slots unfilled.
+  expect(toolDisplayName("mcp")).toBe("mcp");
+  expect(toolDisplayName("mcp")).not.toContain("{");
+});
+
+test("a server really called mcp is not mistaken for the prefix other agents use", () => {
+  // `mcp__browse` is server `mcp`, tool `browse`; stripping the prefix would
+  // leave a bare name that parses as nothing and the row would print the id.
+  expect(toolDisplayName("mcp__browse")).toBe(
+    "calling browse on the MCP server mcp",
+  );
+  // The foreign spelling still reads as the server and the tool it names.
+  expect(toolDisplayName("mcp__github__create_issue")).toBe(
+    "calling create_issue on the MCP server github",
   );
 });
