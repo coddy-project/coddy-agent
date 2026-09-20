@@ -16,10 +16,22 @@ import (
 // drift from it.
 var docsVerbs = []string{"list", "search", "show"}
 
-// docsUsage is the one usage line of `coddy docs`.
+// docsUsage is the one usage line of `coddy docs`, spelled from the verb list so
+// the two cannot drift.
 func docsUsage() string {
 	return fmt.Sprintf("usage: %s docs [%s] | %s <words> [--limit N] | %s <page>[#section]",
-		os.Args[0], docsVerbs[0], docsVerbs[1], docsVerbs[2])
+		os.Args[0], docsVerbList("list"), docsVerbList("search"), docsVerbList("show"))
+}
+
+// docsVerbList returns want when docsVerbs still has it, and otherwise a spelling
+// that stands out in the usage line and fails the test that reads it back.
+func docsVerbList(want string) string {
+	for _, v := range docsVerbs {
+		if v == want {
+			return v
+		}
+	}
+	return "?" + want
 }
 
 // runDocs prints the documentation built into this binary: its contents, a

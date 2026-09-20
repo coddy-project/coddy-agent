@@ -142,6 +142,62 @@ func TestSessionAssetRejectsPathNamesAndMissingFiles(t *testing.T) {
 	}
 }
 
+// A link planted in the bundle must not turn either asset route into a reader of
+// whatever it points at. The agent can write into that directory, and the prompt
+// tells it where the directory is.
+func TestSessionAssetRefusesALinkOutOfTheBundle(t *testing.T) {
+	srv, sessionID, assets := assetTestServer(t)
+	sessionDir := filepath.Dir(assets)
+
+	outside := filepath.Join(t.TempDir(), "private.png")
+	if err := os.WriteFile(outside, pngBytes(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(assets, "leak.png")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if rec := getAsset(t, srv, sessionID, "leak.png"); rec.Code != http.StatusNotFound {
+		t.Fatalf("a link out of the bundle was served: status %d", rec.Code)
+	}
+
+	if err := os.MkdirAll(session.AssetThumbnailsPath(sessionDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, session.AssetThumbnailPath(sessionDir, "leak.png")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/coddy/sessions/"+sessionID+"/assets/leak.png/thumbnail", nil)
+	req.SetPathValue("id", sessionID)
+	req.SetPathValue("name", "leak.png")
+	rec := httptest.NewRecorder()
+	srv.coddySessionAssetThumbnailGet(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("a linked thumbnail was served: status %d", rec.Code)
+	}
+}
+
+// The address is a bare name under this session's assets directory, so a part
+// saved anywhere else must carry none: its base name would either answer 404 or
+// name a different file that happens to share it.
+func TestLlmMsgsToCoddyOpenAIForSessionAddressesOnlyRealAssets(t *testing.T) {
+	assetsDir := t.TempDir()
+	elsewhere := filepath.Join(t.TempDir(), "photo one.png")
+	if err := os.WriteFile(elsewhere, pngBytes(t), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	out := llmMsgsToCoddyOpenAIForSession("sess_files", assetsDir, []llm.Message{
+		{
+			Role:       llm.RoleUser,
+			Content:    "look",
+			ImageParts: []llm.ImagePart{{Name: "photo one.png", FilePath: elsewhere}},
+		},
+	})
+	files := out[0]["files"].([]map[string]interface{})
+	if got, ok := files[0]["url"]; ok {
+		t.Fatalf("a file outside the assets directory was addressed: %#v", got)
+	}
+}
+
 // The transcript carries the full-size address next to the bounded preview, so
 // a click in the bubble has something larger to open.
 func TestLlmMsgsToCoddyOpenAIForSessionIncludesFullSizeAssetURL(t *testing.T) {
@@ -150,7 +206,7 @@ func TestLlmMsgsToCoddyOpenAIForSessionIncludesFullSizeAssetURL(t *testing.T) {
 	if err := os.WriteFile(saved, pngBytes(t), 0o444); err != nil {
 		t.Fatal(err)
 	}
-	out := llmMsgsToCoddyOpenAIForSession("sess_files", []llm.Message{
+	out := llmMsgsToCoddyOpenAIForSession("sess_files", dir, []llm.Message{
 		{
 			Role:    llm.RoleUser,
 			Content: "look",

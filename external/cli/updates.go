@@ -371,8 +371,9 @@ func (a *App) applyToolStatus(tb *toolBox, u acp.ToolCallStatusUpdate) {
 	preview := ""
 	switch u.Status {
 	case "in_progress":
-		// A call the console never saw announced (a status update without its
-		// ToolCallUpdate) still has to name its phase.
+		// Before the content loop, so an update carrying no content items still
+		// names the phase - including a call the console never saw announced,
+		// which the caller gives a box of its own id above.
 		a.setStatus(newWorkingStatus(statusVerbForTool(tb.name), u.ToolCallID))
 		// Content carries the raw argument JSON while streaming. It goes to the box
 		// title, which is where what a call acts on is named; the status line takes

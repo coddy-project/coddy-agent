@@ -34,7 +34,7 @@ func TestLlmMsgsToCoddyOpenAIOmitsEmptyCreatedAt(t *testing.T) {
 }
 
 func TestLlmMsgsToCoddyOpenAIForSessionIncludesPersistedFilePreview(t *testing.T) {
-	out := llmMsgsToCoddyOpenAIForSession("sess_files", []llm.Message{
+	out := llmMsgsToCoddyOpenAIForSession("sess_files", "/tmp/sessions/sess_files/assets", []llm.Message{
 		{
 			Role:    llm.RoleUser,
 			Content: "look",

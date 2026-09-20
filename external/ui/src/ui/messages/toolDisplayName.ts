@@ -72,7 +72,12 @@ export type McpToolName = { server: string; tool: string };
  */
 export function parseMcpToolName(rawName: string): McpToolName | null {
   let name = rawName.replace(/^run:\s*/i, "").trim();
-  if (/^mcp__/i.test(name)) name = name.slice("mcp__".length);
+  // Other agents spell the same call `mcp__<server>__<tool>`, so the prefix is
+  // dropped - but only when what is left is still a namespaced name. A server
+  // really called `mcp` reaches us as `mcp__<tool>`, and stripping there would
+  // leave a bare tool name that parses as nothing.
+  const bare = name.slice("mcp__".length);
+  if (/^mcp__/i.test(name) && bare.includes("__")) name = bare;
   const at = name.indexOf("__");
   if (at <= 0) return null;
   const server = name.slice(0, at);

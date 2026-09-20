@@ -959,6 +959,25 @@ func (p *Pool) runningForSession(sessionID string) int {
 	return count
 }
 
+// RunningCountsBySession is RunningCount for every session at once, for a caller
+// that answers about many of them in one pass - the sessions listing asks for one
+// count per row. Asking per row would take the lock and walk the whole pool once
+// per session; this walks it once. Sessions with nothing in flight are left out.
+func (p *Pool) RunningCountsBySession() map[string]int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	counts := make(map[string]int)
+	for _, t := range p.tasks {
+		t.mu.Lock()
+		counted := !t.snap.SystemTask() && !t.snap.Status.Finished()
+		t.mu.Unlock()
+		if counted {
+			counts[t.snap.SessionID]++
+		}
+	}
+	return counts
+}
+
 func (p *Pool) lookup(sessionID, taskID string) (*task, error) {
 	key := taskKey(strings.TrimSpace(sessionID), strings.TrimSpace(taskID))
 	p.mu.RLock()

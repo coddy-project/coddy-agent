@@ -58,7 +58,6 @@ test("tools outside the catalogue keep their own id", () => {
   expect(toolDisplayName("something_new")).toBe("something_new");
   // Nothing on one side of the separator is not a namespaced call.
   expect(toolDisplayName("weird__")).toBe("weird__");
-  expect(toolDisplayName("mcp__only")).toBe("mcp__only");
 });
 
 test("an empty name falls back to the generic tool label", () => {
@@ -104,4 +103,16 @@ test("a tool named mcp does not borrow the label that takes slots", () => {
   // catalogue path would print the slots unfilled.
   expect(toolDisplayName("mcp")).toBe("mcp");
   expect(toolDisplayName("mcp")).not.toContain("{");
+});
+
+test("a server really called mcp is not mistaken for the prefix other agents use", () => {
+  // `mcp__browse` is server `mcp`, tool `browse`; stripping the prefix would
+  // leave a bare name that parses as nothing and the row would print the id.
+  expect(toolDisplayName("mcp__browse")).toBe(
+    "calling browse on the MCP server mcp",
+  );
+  // The foreign spelling still reads as the server and the tool it names.
+  expect(toolDisplayName("mcp__github__create_issue")).toBe(
+    "calling create_issue on the MCP server github",
+  );
 });

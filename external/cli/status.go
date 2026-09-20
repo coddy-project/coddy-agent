@@ -106,12 +106,6 @@ func statusVerbForTool(toolName string) string {
 	switch {
 	case n == "":
 		return "Running a tool"
-	case strings.Contains(n, "__"):
-		// Not every name with the separator is a namespaced call; one that is not
-		// falls through to the generic phrase below.
-		if phrase := mcpToolPhrase(toolName); phrase != "" {
-			return phrase
-		}
 	case strings.HasPrefix(n, "coddy_todo_"):
 		if strings.HasSuffix(n, "_read") {
 			return "Reading the plan"
@@ -182,9 +176,14 @@ func statusVerbForTool(toolName string) string {
 		return "Reading the plan"
 	case "question":
 		return "Waiting for your answer"
-	default:
-		return "Running a tool"
 	}
+	// Last, so a tool Coddy ships keeps its own phrase even if its id ever carries
+	// the separator. The web UI decides the same way round: the catalogue first,
+	// this only on the generic key.
+	if phrase := mcpToolPhrase(toolName); phrase != "" {
+		return phrase
+	}
+	return "Running a tool"
 }
 
 // statusTargetFromArgs picks the one argument that identifies what a call acts on: the
@@ -257,7 +256,12 @@ func statusTargetFromArgs(toolName, argsJSON string) string {
 func mcpToolNameParts(toolName string) (server, tool string, ok bool) {
 	const prefix = "mcp__"
 	name := strings.TrimSpace(toolName)
-	if len(name) >= len(prefix) && strings.EqualFold(name[:len(prefix)], prefix) {
+	// Other agents spell the same call `mcp__<server>__<tool>`, so the prefix is
+	// dropped - but only when what is left is still a namespaced name. A server
+	// really called `mcp` reaches us as `mcp__<tool>`, and stripping there would
+	// leave a bare tool name that parses as nothing.
+	if len(name) > len(prefix) && strings.EqualFold(name[:len(prefix)], prefix) &&
+		strings.Contains(name[len(prefix):], "__") {
 		name = name[len(prefix):]
 	}
 	at := strings.Index(name, "__")

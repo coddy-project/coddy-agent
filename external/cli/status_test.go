@@ -45,8 +45,10 @@ func TestStatusVerbForTool(t *testing.T) {
 		"mcp__github__create_issue": "Calling create_issue on the MCP server github",
 		"notion__pages__create":     "Calling pages__create on the MCP server notion",
 		"weird__":                   "Running a tool",
-		"mcp__only":                 "Running a tool",
-		"":                          "Running a tool",
+		// A server really called `mcp`: the prefix other agents put in front of
+		// the same call is dropped only when what is left is still namespaced.
+		"mcp__only": "Calling only on the MCP server mcp",
+		"":          "Running a tool",
 	}
 	for name, want := range cases {
 		if got := statusVerbForTool(name); got != want {

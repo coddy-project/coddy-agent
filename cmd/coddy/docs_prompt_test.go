@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"regexp"
 	"strings"
 	"testing"
@@ -38,13 +39,28 @@ func TestDocsToolsNameOnlyCommandsTheBinaryAccepts(t *testing.T) {
 	}
 }
 
-// TestDocsVerbsMatchTheUsageLine keeps the mirrored list honest: the usage line
-// is built from docsVerbs, so a verb added to the switch alone shows up here.
-func TestDocsVerbsMatchTheUsageLine(t *testing.T) {
+// TestDocsVerbsAreVerbsRunDocsAnswers asks the command rather than reading back
+// what it printed: docsUsage is spelled from docsVerbs, so a list that drifted
+// from the switch would agree with itself and still be wrong. A verb the switch
+// does not have falls through to the usage error, and that is what this catches.
+func TestDocsVerbsAreVerbsRunDocsAnswers(t *testing.T) {
+	args := map[string][]string{
+		"list":   {},
+		"search": {"homebrew"},
+		"show":   {"features/mentions"},
+	}
 	for _, v := range docsVerbs {
-		if !strings.Contains(docsUsage(), v) {
-			t.Errorf("usage line does not name the verb %q: %s", v, docsUsage())
+		rest, ok := args[v]
+		if !ok {
+			t.Fatalf("docsVerbs names %q; give the test arguments that exercise it", v)
 		}
+		if err := runDocs(append([]string{v}, rest...), io.Discard); err != nil && err.Error() == docsUsage() {
+			t.Errorf("coddy docs %s is in docsVerbs but runDocs answers its usage", v)
+		}
+	}
+	// The other direction: a verb nobody has must still be refused that way.
+	if err := runDocs([]string{"read", "features/mentions"}, io.Discard); err == nil || err.Error() != docsUsage() {
+		t.Errorf("coddy docs read is not a command; runDocs answered %v", err)
 	}
 }
 
