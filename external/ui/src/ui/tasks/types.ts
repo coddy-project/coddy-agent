@@ -1,6 +1,7 @@
 /**
- * Background tasks: commands the agent started with `run_command` `background: true`
- * and subagent runs started with `spawn_agent` (`kind: "agent"`).
+ * Background tasks: commands the agent started with `run_command` `background: true`,
+ * subagent runs started with `spawn_agent` (`kind: "agent"`) and preview servers
+ * started with `preview_server` (`kind: "server"`).
  * Shapes mirror `GET /coddy/sessions/{id}/background-tasks` in
  * `external/httpserver/background_http.go`.
  */
@@ -24,6 +25,8 @@ export type BackgroundTask = {
   command?: string;
   cwd?: string;
   tool_call_id?: string;
+  /** Present on `kind: "server"` rows: the address the preview server answers at. */
+  url?: string;
   /**
    * Present on `kind: "agent"` rows: the definition name and the child session
    * the run is persisted under. `session_id` is what "Show transcript" routes

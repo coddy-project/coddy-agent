@@ -60,3 +60,31 @@ func TestWebSearchSettingsNilConfigIsNilSettings(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 }
+
+// TestPreviewServerSettingsMirrorTooling is the same guard for
+// previewServerSettings.
+func TestPreviewServerSettingsMirrorTooling(t *testing.T) {
+	from := reflect.TypeOf(config.ToolPreviewServerSettings{})
+	to := reflect.TypeOf(tooling.PreviewServerSettings{})
+	if from.NumField() != to.NumField() {
+		t.Fatalf("field count: config has %d, tooling has %d", from.NumField(), to.NumField())
+	}
+	for i := 0; i < from.NumField(); i++ {
+		a, b := from.Field(i), to.Field(i)
+		if a.Name != b.Name || a.Type != b.Type {
+			t.Errorf("field %d: config %s %s, tooling %s %s", i, a.Name, a.Type, b.Name, b.Type)
+		}
+	}
+}
+
+func TestPreviewServerSettingsCarryTheConfiguredHosts(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Tools.PreviewServer = config.ToolPreviewServer{Host: " 0.0.0.0 ", PublicHost: "dev.example"}
+	got := previewServerSettings(cfg)
+	if got == nil || !got.Enabled || got.Host != "0.0.0.0" || got.PublicHost != "dev.example" {
+		t.Fatalf("settings: %+v", got)
+	}
+	if def := previewServerSettings(&config.Config{}); def.Host != config.PreviewServerDefaultHost {
+		t.Fatalf("default host: %+v", def)
+	}
+}

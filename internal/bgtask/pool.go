@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -26,6 +27,10 @@ const (
 	// minEstimatedTimeoutSeconds keeps an estimate-derived timeout from being so
 	// tight that a slightly slow command is killed for no good reason.
 	minEstimatedTimeoutSeconds = 60
+	// maxClockTimeoutSeconds is the largest timeout a time.Duration can still
+	// hold: a limit the caller named past it would wrap the timer into no
+	// limit at all, so it is clamped rather than honoured verbatim.
+	maxClockTimeoutSeconds = int(math.MaxInt64 / int64(time.Second))
 )
 
 // ErrPoolFull is returned when a session already runs its maximum number of
@@ -368,6 +373,7 @@ func (p *Pool) start(spec Spec, launch LaunchFunc) (Snapshot, error) {
 			StartedAt:       startedAt,
 			ExpectedSeconds: spec.ExpectedSeconds,
 			TimeoutSeconds:  timeoutSeconds,
+			URL:             strings.TrimSpace(spec.URL),
 			NotifyOnFinish:  spec.NotifyOnFinish,
 			Agent:           cloneAgentInfo(spec.Agent),
 		},
@@ -423,7 +429,15 @@ func (p *Pool) start(spec Spec, launch LaunchFunc) (Snapshot, error) {
 // optimistic guess does not kill work that was only a little slow, and the
 // result is capped by the configured ceiling. With no estimate at all the
 // configured default applies.
+//
+// Work that asked for no timeout (a server) is outside all of that: it gets the
+// limit it named, uncapped by the configured ceiling, or none at all. Zero then
+// means "until stopped". A named limit is still clamped to what a clock can
+// hold - past it the timer would wrap into no limit.
 func resolveTimeoutSeconds(spec Spec, cfg Config) int {
+	if spec.NoTimeout {
+		return min(max(spec.TimeoutSeconds, 0), maxClockTimeoutSeconds)
+	}
 	seconds := spec.TimeoutSeconds
 	switch {
 	case seconds > 0:
@@ -432,7 +446,7 @@ func resolveTimeoutSeconds(spec Spec, cfg Config) int {
 	default:
 		seconds = cfg.DefaultTimeoutSeconds
 	}
-	return min(seconds, cfg.MaxTimeoutSeconds)
+	return min(seconds, cfg.MaxTimeoutSeconds, maxClockTimeoutSeconds)
 }
 
 // registerLocked must be called with the pool lock held.
@@ -458,13 +472,19 @@ func (p *Pool) supervise(t *task, timeout time.Duration) {
 		exited <- exitResult{code: code, err: err}
 	}()
 
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
+	// A task without a limit never arms the timer: a nil channel blocks
+	// forever, so only the exit ends the wait.
+	var expired <-chan time.Time
+	if timeout > 0 {
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		expired = timer.C
+	}
 
 	var result exitResult
 	select {
 	case result = <-exited:
-	case <-timer.C:
+	case <-expired:
 		if handle, ok := t.claimTermination(StatusTimedOut); ok && handle != nil {
 			_ = handle.Stop(defaultStopGrace)
 		}

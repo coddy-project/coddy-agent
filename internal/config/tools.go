@@ -36,6 +36,10 @@ type Tools struct {
 	// Background bounds commands the agent runs as background tasks.
 	Background ToolBackground `yaml:"background"`
 
+	// PreviewServer is where the preview_server tool listens when the agent
+	// serves project files for the operator to open in a browser.
+	PreviewServer ToolPreviewServer `yaml:"preview_server"`
+
 	// WebSearch picks the search engines the websearch tool asks, and bounds
 	// how long it may wait for them.
 	WebSearch ToolWebSearch `yaml:"websearch"`
@@ -429,6 +433,9 @@ func (c *Tools) Validate() error {
 	if err := c.Background.validate(); err != nil {
 		return err
 	}
+	if err := c.PreviewServer.validate(); err != nil {
+		return err
+	}
 	if err := c.HTTPRequest.validate(); err != nil {
 		return err
 	}
@@ -510,4 +517,83 @@ type ToolWebSearchSettings struct {
 	CacheTTLSeconds      int
 	SearXNGURL           string
 	BraveAPIKey          string
+}
+
+// PreviewServerDefaultHost is where the preview server listens unless the
+// operator says otherwise: loopback, so nothing off this machine reaches the
+// project files.
+const PreviewServerDefaultHost = "127.0.0.1"
+
+// ToolPreviewServer is the YAML tools.preview_server section. It governs the
+// preview_server tool: a static file server over a project directory that the
+// agent starts on a free port so the operator can open the work in a browser.
+type ToolPreviewServer struct {
+	// Enabled offers the preview_server tool. Unset means enabled. The server
+	// is a background task, so tools.background.enable: false turns it off too.
+	Enabled *bool `yaml:"enable"`
+
+	// Host is the address the server binds. Empty means 127.0.0.1. Anything
+	// that is not loopback (0.0.0.0 inside a container, for instance) exposes
+	// the served directory to whoever can reach that address.
+	Host string `yaml:"host"`
+
+	// PublicHost is the host written into the URL the agent hands out, for a
+	// coddy that runs where the operator's browser is not: a container with a
+	// published port range, a remote machine. Empty means the bind host.
+	PublicHost string `yaml:"public_host"`
+}
+
+// ResolvedEnabled reports whether the tool is offered, defaulting to true when
+// the field is unset.
+func (p *ToolPreviewServer) ResolvedEnabled() bool {
+	if p == nil || p.Enabled == nil {
+		return true
+	}
+	return *p.Enabled
+}
+
+// ToolSettings materializes the section for the tool execution layer, with the
+// default host filled in. The field order matches tooling.PreviewServerSettings.
+func (p *ToolPreviewServer) ToolSettings() ToolPreviewServerSettings {
+	out := ToolPreviewServerSettings{Enabled: p.ResolvedEnabled(), Host: PreviewServerDefaultHost}
+	if p == nil {
+		return out
+	}
+	if host := strings.TrimSpace(p.Host); host != "" {
+		out.Host = host
+	}
+	out.PublicHost = strings.TrimSpace(p.PublicHost)
+	return out
+}
+
+// ToolPreviewServerSettings is the resolved section handed to the tool layer.
+// It mirrors tooling.PreviewServerSettings field for field; config does not
+// import tooling, so the two are kept in step by
+// TestPreviewServerSettingsMirrorTooling.
+type ToolPreviewServerSettings struct {
+	Enabled    bool
+	Host       string
+	PublicHost string
+}
+
+// validate rejects a host that carries more than a host: the port is always a
+// free one the system picks, and a scheme, a path or brackets have no meaning
+// here.
+func (p *ToolPreviewServer) validate() error {
+	for name, v := range map[string]string{"host": p.Host, "public_host": p.PublicHost} {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		if strings.ContainsAny(v, "/ 	") || strings.Contains(v, "://") {
+			return fmt.Errorf("tools.preview_server.%s: %q must be a bare host name or IP address", name, v)
+		}
+		if strings.ContainsAny(v, "[]") {
+			return fmt.Errorf("tools.preview_server.%s: %q must be a bare host name or IP address, without brackets", name, v)
+		}
+		if _, _, err := net.SplitHostPort(v); err == nil {
+			return fmt.Errorf("tools.preview_server.%s: %q must not carry a port, the server always takes a free one", name, v)
+		}
+	}
+	return nil
 }

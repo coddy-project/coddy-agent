@@ -170,6 +170,8 @@ func statusVerbForTool(toolName string) string {
 		return "Loading a skill"
 	case "spawn_agent":
 		return "Running a subagent"
+	case "preview_server":
+		return "Starting a preview server"
 	case "plan_write", "plan_exit":
 		return "Updating the plan"
 	case "plan_read", "plan_list":

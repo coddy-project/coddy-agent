@@ -339,6 +339,7 @@ describe("statusKeyForTool", () => {
     expect(statusKeyForTool("ssh_run_command")).toBe("status.runRemote");
     expect(statusKeyForTool("http_request")).toBe("status.httpRequest");
     expect(statusKeyForTool("spawn_agent")).toBe("status.spawnAgent");
+    expect(statusKeyForTool("preview_server")).toBe("status.previewServer");
     expect(statusKeyForTool("APPLY_PATCH")).toBe("status.edit");
     expect(statusKeyForTool("coddy_docs_search")).toBe("status.docsSearch");
     expect(statusKeyForTool("coddy_docs_read")).toBe("status.docsRead");

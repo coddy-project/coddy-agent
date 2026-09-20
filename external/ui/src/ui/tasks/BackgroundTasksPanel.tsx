@@ -12,6 +12,8 @@ import {
   groupTasks,
   isAgentTask,
   isOverdue,
+  isServerTask,
+  serverTaskUrl,
   taskErrorText,
   taskMetaLine,
   taskStatusLabel,
@@ -37,16 +39,17 @@ function IconStop() {
  * the same place: the status dot, a tag that says what stands behind the task, the title
  * of the work, and a meta line under them.
  *
- * The card is one control. Its summary - everything but the Stop button and, on an
- * agent run, the way into the child transcript - is a single button stretched over the
- * card, so a click anywhere expands the card in place; those two sit above that surface
- * and keep working on their own. There is no second pane: the open card shows the
- * command, the captured output and how the run ended right where it stands in the list,
- * and any number of cards can be open at once.
+ * The card is one control. Its summary - everything but the Stop button and the way
+ * into the task itself - is a single button stretched over the card, so a click
+ * anywhere expands the card in place; the controls above that surface keep working on
+ * their own. There is no second pane: the open card shows the command, the captured
+ * output and how the run ended right where it stands in the list, and any number of
+ * cards can be open at once.
  *
- * What an agent run costs and where it leads is read without opening anything: the
- * model, the tokens its calls spent, how long it has run and Show transcript are all on
- * the folded card, and none of them is said again inside it.
+ * What a task costs and where it leads is read without opening anything: the model and
+ * the tokens an agent run has spent, how long it has run, and the one way in the card
+ * has - Show transcript for a subagent run, the address for a preview server - are all
+ * on the folded card, and none of them is said again inside it.
  */
 function TaskCard(props: {
   task: BackgroundTask;
@@ -64,10 +67,11 @@ function TaskCard(props: {
   const overdue = isOverdue(task, props.nowMs);
   const title = taskTitle(task);
   const usage = agentUsage(task);
-  // A subagent run is the conversation it holds, so the way into that
-  // conversation belongs on the card the operator already sees. Null for a shell
-  // command, which has no child session behind it.
+  // Where the task leads, read off the card the operator already sees: a
+  // subagent run is the conversation it holds, a preview server is the page it
+  // answers with. A shell command is neither, so both come back empty for it.
   const agentSid = isAgentTask(task) ? agentTranscriptSessionId(task) : null;
+  const serverUrl = serverTaskUrl(task);
   // A bell after the title: the running task will wake the agent when it ends,
   // or the finished one did - the one place the web UI says what woke it, since
   // the turn it started shows nothing of its own in the transcript.
@@ -84,6 +88,7 @@ function TaskCard(props: {
   const number = new Intl.NumberFormat(locale);
   const hover = [
     task.command || task.label,
+    serverUrl,
     usage?.modelId || "",
     usage && usage.tokens > 0
       ? t("tasks.agentTokensTitle", {
@@ -197,6 +202,10 @@ function TaskCard(props: {
               ) : null}
             </span>
           ) : null}
+          {/* The way into the task, on a row of its own under the status and the
+              usage: the conversation a subagent run holds, the page a preview
+              server answers with. A card carries at most one of the two, because a
+              task is one kind or the other. */}
           {isAgentTask(task) ? (
             <span className="bgtask-card-transcript-row">
               <button
@@ -219,6 +228,21 @@ function TaskCard(props: {
                 {t("tasks.openTranscript")}
               </button>
             </span>
+          ) : task.running && serverUrl ? (
+            // A server that has stopped carries no address: the page is gone, and
+            // a link to it would only lead to a refused connection.
+            <span className="bgtask-card-address-row">
+              <a
+                className="bgtask-card-link"
+                href={serverUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={t("tasks.openServer")}
+                data-testid={`bgtask-link-${task.id}`}
+              >
+                {serverUrl}
+              </a>
+            </span>
           ) : null}
         </div>
         {progress !== null ? (
@@ -237,20 +261,20 @@ function TaskCard(props: {
           </div>
         ) : null}
       </div>
-      {props.open ? (
-        <TaskCardBody task={task} output={props.output} />
-      ) : null}
+      {props.open ? <TaskCardBody task={task} output={props.output} /> : null}
     </div>
   );
 }
 
 /**
  * What an open card adds under its summary: the command with a copy control (a shell
- * task; an agent run has no shell behind it and nothing to put here), the error the
- * run ended with unless it only repeats the exit code, the captured output in a box
- * of its own height, and - once the task has finished - a foot that says how it ended
- * and with what exit code. How long it ran and the way into an agent run's transcript
- * are the summary's, which is read whether the card is open or not.
+ * task; neither an agent run nor a preview server has a shell behind it, so there is
+ * nothing to put here for them), the error the run ended with unless it only repeats
+ * the exit code, the captured output in a box of its own height, and - once the task
+ * has finished - a foot that says how it ended and, for a command, with what exit
+ * code. How long it ran and the way into the task - an agent run's transcript, a
+ * preview server's address - are the summary's, which is read whether the card is
+ * open or not.
  */
 function TaskCardBody(props: { task: BackgroundTask; output: string }) {
   const { t } = useT();
@@ -258,6 +282,7 @@ function TaskCardBody(props: { task: BackgroundTask; output: string }) {
   const preRef = useRef<HTMLPreElement | null>(null);
   const [follow, setFollow] = useState(true);
   const agent = isAgentTask(task);
+  const server = isServerTask(task);
 
   useEffect(() => {
     const el = preRef.current;
@@ -272,9 +297,10 @@ function TaskCardBody(props: { task: BackgroundTask; output: string }) {
   if (!task.running) {
     // How the task ended leads the foot: a folded card leaves it to the dot.
     footParts.push(taskStatusLabel(task.status));
-    // An agent run has no process behind it: the pool's exit code for it is
-    // synthetic, and the status already says how the run ended.
-    if (!agent && typeof task.exit_code === "number") {
+    // Neither an agent run nor a preview server has a process behind it: the
+    // pool's exit code for them is synthetic, and the status already says how
+    // the run ended.
+    if (!agent && !server && typeof task.exit_code === "number") {
       footParts.push(t("tasks.footExitCode", { code: task.exit_code }));
     }
     // How long the task ran is not repeated here: the summary above says it,
@@ -283,7 +309,7 @@ function TaskCardBody(props: { task: BackgroundTask; output: string }) {
 
   return (
     <div className="bgtask-card-body" data-testid={`bgtask-body-${task.id}`}>
-      {!agent && task.command ? (
+      {!agent && !server && task.command ? (
         <div className="bgtask-card-command">
           <pre
             className="bgtask-card-command-text"

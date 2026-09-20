@@ -388,7 +388,23 @@ export function App() {
   const [knownSkillNames, setKnownSkillNames] = useState<Set<string>>(
     () => new Set(),
   );
-  const [sessionId, setSessionId] = useState("");
+  // The URL hash is known before the first paint: parse it once and seed
+  // the route-derived state, otherwise the first frame renders the hero and
+  // applyLocationHash's mount effect swaps the whole layout one frame later.
+  // initialRoute is a one-shot boot snapshot - hash changes are handled by
+  // applyLocationHash, never read this value for the current route.
+  const [initialRoute] = useState(() => {
+    try {
+      return parseAppHash();
+    } catch {
+      // A malformed escape must not take the router down, and a boot-time
+      // throw during render is worse than a late one in the mount effect.
+      return { branch: "none" as const, historyOpen: false };
+    }
+  });
+  const [sessionId, setSessionId] = useState(() =>
+    initialRoute.branch === "session" ? initialRoute.sessionId : "",
+  );
   /** Increments on each explicit "new chat" home transition so the hero verb rotates. */
   const [heroHomeGeneration, setHeroHomeGeneration] = useState(() =>
     Math.floor(Math.random() * HERO_ACCENT_VERBS.length),
@@ -398,7 +414,9 @@ export function App() {
   const sessionsCursorRef = useRef<string | null>(null);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [items, setItems] = useState<TranscriptItem[]>([]);
-  const [sessionLoading, setSessionLoading] = useState(false);
+  const [sessionLoading, setSessionLoading] = useState(
+    () => initialRoute.branch === "session",
+  );
   const [sessionFadingOut, setSessionFadingOut] = useState(false);
   const fadeOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const itemsRef = useRef<TranscriptItem[]>([]);
@@ -415,7 +433,12 @@ export function App() {
   );
   // Sessions explicitly chosen via branch nav — skip resolveLatestLeaf for these.
   const skipLeafResolveRef = useRef<Set<string>>(new Set());
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(() => {
+    if (initialRoute.branch !== "draft") return "";
+    const id = initialRoute.draftId.trim();
+    const row = readClientDraftSessions().find((r) => r.localId === id);
+    return row?.draftText || "";
+  });
   // Workspace context chips: folder / git branch / worktree state per session.
   const [workspaceCtx, setWorkspaceCtx] = useState<WorkspaceContext | null>(
     null,
@@ -430,7 +453,9 @@ export function App() {
   const [clientDraftSessions, setClientDraftSessions] = useState<
     ClientDraftSession[]
   >(() => readClientDraftSessions());
-  const [activeDraftId, setActiveDraftId] = useState("");
+  const [activeDraftId, setActiveDraftId] = useState(() =>
+    initialRoute.branch === "draft" ? initialRoute.draftId.trim() : "",
+  );
   const [permissionPendingSids, setPermissionPendingSids] = useState<
     Set<string>
   >(() => new Set(permissionPendingSessionIdsFromStorage()));
@@ -566,7 +591,9 @@ export function App() {
   const activeComposerSidRef = useRef<Set<string>>(new Set());
   const [composerActivityEpoch, setComposerActivityEpoch] = useState(0);
   /** Session id currently shown in the transcript (updated synchronously on navigation). */
-  const viewedSessionIdRef = useRef("");
+  const viewedSessionIdRef = useRef(
+    initialRoute.branch === "session" ? initialRoute.sessionId.trim() : "",
+  );
   /** True while GET /coddy/events is connected; gates the fallback sessions poll. */
   const [serverEventsConnected, setServerEventsConnected] = useState(false);
   const serverEventHandlersRef = useRef<{
@@ -861,22 +888,39 @@ export function App() {
   useEffect(() => {
     configEpochRef.current = configEpoch;
   }, [configEpoch]);
-  const [sessionsOpen, setSessionsOpen] = useState(false);
+  const [sessionsOpen, setSessionsOpen] = useState(
+    () =>
+      initialRoute.branch === "history" ||
+      ((initialRoute.branch === "session" ||
+        initialRoute.branch === "draft" ||
+        initialRoute.branch === "none") &&
+        initialRoute.historyOpen),
+  );
   /** null until first probe of /coddy/scheduler/jobs; false when route returns 404 (binary without scheduler). */
   const [schedulerHttpLinked, setSchedulerHttpLinked] = useState<
     boolean | null
   >(null);
   const [schedulerOpen, setSchedulerOpen] = useState(false);
-  const [settingsRoute, setSettingsRoute] = useState(false);
-  const [swarmRoute, setSwarmRoute] = useState(false);
+  const [settingsRoute, setSettingsRoute] = useState(
+    () => initialRoute.branch === "settings",
+  );
+  const [swarmRoute, setSwarmRoute] = useState(
+    () => initialRoute.branch === "swarm",
+  );
   // The documentation reader, open on a page (and section) of the built-in
   // documentation; null when it is closed. lastDocsSlugRef remembers the page
   // the reader was left on, so the rail and F1 reopen the book where it was.
   const [docsRoute, setDocsRoute] = useState<{
     slug: string | null;
     anchor: string | null;
-  } | null>(null);
-  const lastDocsSlugRef = useRef<string | null>(null);
+  } | null>(() =>
+    initialRoute.branch === "docs"
+      ? { slug: initialRoute.slug, anchor: initialRoute.anchor }
+      : null,
+  );
+  const lastDocsSlugRef = useRef<string | null>(
+    initialRoute.branch === "docs" ? initialRoute.slug : null,
+  );
   // Where the reader was opened from (a chat, the swarm, the scheduler), so
   // closing it goes back there rather than home.
   const docsReturnHashRef = useRef("");
@@ -894,7 +938,9 @@ export function App() {
    */
   const [atSwarmRoot, setAtSwarmRoot] = useState(false);
   // Active Settings section id from `#/settings/<section>` (null = default/grid).
-  const [settingsSection, setSettingsSection] = useState<string | null>(null);
+  const [settingsSection, setSettingsSection] = useState<string | null>(() =>
+    initialRoute.branch === "settings" ? initialRoute.section : null,
+  );
   const [schedulerEditor, setSchedulerEditor] =
     useState<SchedulerEditorState>(null);
   const [schedulerJobs, setSchedulerJobs] = useState<SchedulerJob[]>([]);
@@ -914,7 +960,9 @@ export function App() {
   const [schedulerRunsRunning, setSchedulerRunsRunning] = useState(0);
   const [schedulerRunsError, setSchedulerRunsError] = useState<string | null>(null);
   const [schedulerRunsLoading, setSchedulerRunsLoading] = useState(false);
-  const [tasksOpen, setTasksOpen] = useState(false);
+  const [tasksOpen, setTasksOpen] = useState(
+    () => initialRoute.branch === "session" && initialRoute.tasksOpen,
+  );
   // A card the shell asks the Tasks panel to open ("Open in Tasks" on a transcript
   // row, a link that names a task). Which cards are open otherwise is the panel's own
   // business and is not part of the address.
@@ -924,8 +972,24 @@ export function App() {
   // its use would open a card on the next mount - in whichever chat is on screen.
   const [tasksFocus, setTasksFocus] = useState<
     (TaskFocus & { sid: string }) | null
-  >(null);
-  const tasksFocusSeqRef = useRef(0);
+  >(() =>
+    initialRoute.branch === "session" &&
+    initialRoute.tasksOpen &&
+    initialRoute.taskId
+      ? {
+          sid: initialRoute.sessionId.trim(),
+          taskId: initialRoute.taskId,
+          seq: 1,
+        }
+      : null,
+  );
+  const tasksFocusSeqRef = useRef(
+    initialRoute.branch === "session" &&
+      initialRoute.tasksOpen &&
+      initialRoute.taskId
+      ? 1
+      : 0,
+  );
   const focusBackgroundTask = useCallback(
     (sid: string, taskId: string | null) => {
       const id = (taskId || "").trim();

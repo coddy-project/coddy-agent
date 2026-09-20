@@ -167,6 +167,8 @@ export function statusKeyForTool(toolName: string): string {
       return "status.docsRead";
     case "webfetch":
       return "status.webFetch";
+    case "preview_server":
+      return "status.previewServer";
     case "http_request":
       return "status.httpRequest";
     case "load_skill":

@@ -115,6 +115,7 @@ export function taskTimingLine(task: BackgroundTask, nowMs: number): string {
   if (
     !task.running &&
     !isAgentTask(task) &&
+    !isServerTask(task) &&
     typeof task.exit_code === "number"
   ) {
     parts.push(t("tasks.exitCode", { code: task.exit_code }));
@@ -135,6 +136,9 @@ export function taskTag(task: BackgroundTask): string {
   }
   if (isAgentTask(task)) {
     return agentTaskName(task) || t("tasks.tag.agent");
+  }
+  if (isServerTask(task)) {
+    return t("tasks.tag.server");
   }
   return t("tasks.tag.shell");
 }
@@ -324,6 +328,23 @@ export function groupTasks(tasks: BackgroundTask[]): {
     running: ordered.filter((t) => t.running),
     finished: ordered.filter((t) => !t.running),
   };
+}
+
+/** A preview server (`preview_server`): goroutines of coddy, not a process. */
+export function isServerTask(task: BackgroundTask): boolean {
+  return task.kind === "server";
+}
+
+/**
+ * The address of a preview server, for a link. Only an http(s) address comes back:
+ * the value travels through the session bundle, and a link is no place to trust it.
+ */
+export function serverTaskUrl(task: BackgroundTask): string {
+  const raw = (task.url || "").trim();
+  if (!isServerTask(task) || !/^https?:\/\//i.test(raw)) {
+    return "";
+  }
+  return raw;
 }
 
 /** A subagent run in the pool, as opposed to a shell command. */

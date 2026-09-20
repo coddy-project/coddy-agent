@@ -261,20 +261,32 @@ test("the whole summary of a card is its click surface, and Stop stands above it
   expect(stop).toContain("z-index: 1");
 });
 
-test("the way into a run's transcript rides the folded card, above the opener and on a row of its own", () => {
-  // The panel is narrow: a control competing for the meta line would be paid for
-  // by the model's name, which is the one thing on that line that cannot be cut
-  // down to something still readable. The row breaks whole instead.
-  expect(ruleBody(".bgtask-card-transcript-row {")).toContain("100%");
+test("the way into a task rides the folded card, above the opener and on a row of its own", () => {
+  // Both ways in - a run's transcript, a preview server's address - are one
+  // pattern. The panel is narrow: a control competing for the meta line would be
+  // paid for by the model's name, which is the one thing on that line that cannot
+  // be cut down to something still readable. The row breaks whole instead.
+  expect(
+    ruleBody(".bgtask-card-transcript-row,\n.bgtask-card-address-row {"),
+  ).toContain("100%");
 
-  const control = ruleBody(".bgtask-card-transcript {");
+  const control = ruleBody(".bgtask-card-transcript,\n.bgtask-card-link {");
   expect(control).toContain("var(--accent)");
-  // Like Stop, it sits above the opener stretched over the summary, so it opens
-  // the transcript rather than the card under it.
+  // Like Stop, they sit above the opener stretched over the summary, so they open
+  // the transcript or the page rather than the card under them.
   expect(control).toContain("position: relative");
   expect(control).toContain("z-index: 1");
 
-  // The button the open card used to carry is gone with the duplicate.
+  // An address is as long as it is: it wraps whole instead of trailing off in an
+  // ellipsis that names no port. (The rule of its own is the last one that opens
+  // with the selector; the one before it is the pair's shared rule.)
+  const at = css.lastIndexOf("\n.bgtask-card-link {");
+  expect(at).toBeGreaterThan(-1);
+  const address = css.slice(at, css.indexOf("}", at));
+  expect(address).toContain("overflow-wrap: anywhere");
+  expect(address).not.toContain("text-overflow: ellipsis");
+
+  // The buttons the open card used to carry are gone with the duplicates.
   expect(css).not.toContain(".bgtask-card-actions");
   expect(css).not.toContain(".bgtask-open-transcript");
 });

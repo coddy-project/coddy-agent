@@ -11241,36 +11241,54 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   white-space: pre;
 }
 
-/* The way into an agent run's child conversation, on the folded card: the run is
-   that conversation, and an operator who had to open a card to find the link was
-   made to take a step on the way to the one move the panel exists for.
+/* The way into the task, on the folded card: an agent run's child conversation,
+   a preview server's address. The run is that conversation and the server is that
+   page, so an operator who had to open a card to find the link was made to take a
+   step on the way to the one move the panel exists for. A card carries at most one
+   of the two, because a task is one kind or the other.
 
    It takes a row of its own under the status and the usage. The panel is 380px
    wide: a control sharing that line would be paid for by the model's name, the
    one thing there that cannot be cut down to something still readable. */
-.bgtask-card-transcript-row {
+.bgtask-card-transcript-row,
+.bgtask-card-address-row {
   flex: 1 0 100%;
   display: flex;
   margin-top: 4px;
 }
 
-.bgtask-card-transcript {
+.bgtask-card-transcript,
+.bgtask-card-link {
   /* Above the opener stretched over the summary, the way Stop is: it opens the
-     transcript rather than the card it sits on. */
+     transcript or the page rather than the card it sits on. */
   position: relative;
   z-index: 1;
-  flex: 0 0 auto;
   padding: 0;
   border: none;
   background: none;
   font: inherit;
   text-align: left;
   color: var(--accent);
+  text-decoration: none;
   cursor: pointer;
 }
 
+.bgtask-card-transcript {
+  flex: 0 0 auto;
+}
+
+/* An address is as long as it is, and the panel is narrow: it wraps onto a second
+   line whole rather than trailing off in an ellipsis that names no port. */
+.bgtask-card-link {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .bgtask-card-transcript:hover:not(:disabled),
-.bgtask-card-transcript:focus-visible {
+.bgtask-card-transcript:focus-visible,
+.bgtask-card-link:hover,
+.bgtask-card-link:focus-visible {
   text-decoration: underline;
 }
 
@@ -11296,9 +11314,8 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   background: #ff9f0a;
 }
 
-/* The open card: command or the way to the transcript, the error, the output, the
-   ending. It is outside the stretched opener, so its text selects and its controls
-   click. */
+/* The open card: the command, the error, the output, the ending. It is outside the
+   stretched opener, so its text selects and its controls click. */
 .bgtask-card-body {
   display: flex;
   flex-direction: column;
@@ -11416,9 +11433,10 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
     min-height: 30px;
   }
 
-  .bgtask-card-transcript {
+  .bgtask-card-transcript,
+  .bgtask-card-link {
     min-height: 28px;
-    display: inline-flex;
+    display: flex;
     align-items: center;
   }
 
