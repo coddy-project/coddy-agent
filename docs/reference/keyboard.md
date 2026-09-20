@@ -17,7 +17,7 @@ Keys are parsed into the `ctrl+x` / `shift+enter` / `alt+backspace` notation of 
 | F1 | the built-in documentation ([Built-in documentation](../features/built-in-docs.md#the-console-help)); `/docs` where the terminal keeps F1 for itself |
 | ctrl+p / ctrl+shift+p | cycle the configured models forward / backward |
 | shift+tab | cycle the reasoning level (models with `reasoning_levels`) |
-| ctrl+o | expand the header hints, the last tool output and the last `!!` block |
+| ctrl+o | expand the header hints, the last tool output (a live draft while `write` / `edit` / `apply_patch` arguments still stream) and the last `!!` block |
 | ctrl+t | collapse or expand thinking blocks |
 | up / down | prompt history on the first / last line of the draft; cursor movement otherwise |
 | tab | open the suggestion menu for the word at the cursor; inserts a tab when there is nothing to suggest |

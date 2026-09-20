@@ -124,6 +124,8 @@ type StreamChunk struct {
 	// say what is happening while that takes seconds, and it is never the call
 	// itself - anything that executes a call, forwards it to a client or
 	// persists it waits for ToolCall.
+	// ToolCallDelta carries only an argument fragment, never an executable call.
+	ToolCallDelta *ToolCall
 	ToolCallNamed *ToolCall
 	StopReason    string
 	InputTokens   int

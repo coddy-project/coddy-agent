@@ -103,6 +103,7 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 
 	var fullContent, reasoning string
 	var toolCalls []ToolCall
+	streamingCalls := make(map[string]ToolCall)
 	var reasoningItems []json.RawMessage
 	var inputTokens, outputTokens, cachedInputTokens int
 	stopReason := ""
@@ -159,10 +160,16 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 			// standing still with nothing but a Stop button on screen. The call
 			// is collected on .done, so this only names it.
 			if ev.Item.Type == "function_call" && strings.TrimSpace(ev.Item.Name) != "" {
+				streamingCalls[ev.Item.ID] = ToolCall{ID: ev.Item.CallID, Name: ev.Item.Name}
 				emit(StreamChunk{ToolCallNamed: &ToolCall{
 					ID:   ev.Item.CallID,
 					Name: ev.Item.Name,
 				}})
+			}
+		case "response.function_call_arguments.delta":
+			if tc, ok := streamingCalls[ev.ItemID]; ok && ev.Delta.OfString != "" {
+				tc.InputJSON = ev.Delta.OfString
+				emit(StreamChunk{ToolCallDelta: &tc})
 			}
 		case "response.output_item.done":
 			switch ev.Item.Type {

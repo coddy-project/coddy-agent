@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -703,6 +704,7 @@ func (a *Agent) runReActLoop(
 		var firstChunkAt time.Time
 		var chunkCount int
 		a.progress.beginCall()
+		inputProgress := make(map[string]*toolInputProgress)
 		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, toolDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
@@ -737,11 +739,36 @@ func (a *Agent) runReActLoop(
 			// the arguments can take seconds to stream, and without the row the
 			// transcript stands still with nothing but a Stop button. The row is
 			// keyed by the call id, so the complete call updates it in place.
-			// A call's arguments are output like any text, and often most of
-			// it (a write carries the whole file). They are not streamed as
-			// deltas, so they enter the count when the call is complete.
-			if chunk.ToolCall != nil {
-				a.progress.streamed(chunk.ToolCall.Name + chunk.ToolCall.InputJSON)
+			if tc := chunk.ToolCallDelta; tc != nil {
+				streamedAny = true
+				stopFirstTokenTimer()
+				p := inputProgress[tc.ID]
+				if p == nil {
+					p = newToolInputProgress(tc.Name)
+					inputProgress[tc.ID] = p
+				}
+				p.add(tc.InputJSON)
+				a.progress.streamed(tc.InputJSON)
+				if u := p.update(tc.ID, now, false); u != nil {
+					_ = a.server.SendSessionUpdate(sessionID, *u)
+				}
+			}
+			if tc := chunk.ToolCall; tc != nil {
+				// Providers without argument deltas still contribute the full count.
+				// Reconcile the fallback estimate once, never count fragments twice.
+				p := inputProgress[tc.ID]
+				if p == nil {
+					a.progress.streamed(tc.Name + tc.InputJSON)
+				} else {
+					missing := utf8.RuneCountInString(tc.InputJSON) - p.argumentRunes
+					if missing > 0 {
+						a.progress.streamedRunes(missing)
+					}
+					a.progress.streamed(tc.Name)
+					if u := p.update(tc.ID, now, true); u != nil {
+						_ = a.server.SendSessionUpdate(sessionID, *u)
+					}
+				}
 			}
 			announce := chunk.ToolCall
 			if announce == nil {
@@ -770,6 +797,21 @@ func (a *Agent) runReActLoop(
 				stopFirstTokenTimer()
 			}
 		})
+		if streamErr != nil {
+			status := "failed"
+			if streamCtx.Err() != nil {
+				status = "cancelled"
+			}
+			// Every call that streamed arguments announced a pending row; the
+			// stream died before any of them could execute, so none may stay
+			// pending. Calls that only announced a name keep their row - the
+			// same gap as before argument deltas existed.
+			for id := range inputProgress {
+				_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
+					SessionUpdate: acp.UpdateTypeToolCallUpdate, ToolCallID: id, Status: status,
+				})
+			}
+		}
 		stopFirstTokenTimer()
 		streamCancel()
 		a.logLLMCall(callStart, firstChunkAt, chunkCount, response, streamErr)
