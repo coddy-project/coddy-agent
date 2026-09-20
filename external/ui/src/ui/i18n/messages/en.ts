@@ -223,7 +223,7 @@ export const messagesEn: Record<string, string> = {
     "Upper bound on total tokens (prompt + completion) the model may use in one agent step.",
   "settings.schema.agent.llm_retry_max.label": "LLM retry max",
   "settings.schema.agent.llm_retry_max.desc":
-    "Retries after retryable LLM errors such as HTTP 429 before failing the turn (an explicit 0 disables retries).",
+    "Extra attempts shared by transport retries, empty-answer recovery and first-token re-issues until tool progress or a new follow-up. 0 disables these retries. Loop guards, Stop hooks, fallback models and quota-reset waits have separate limits.",
   "settings.schema.agent.llm_retry_base_ms.label": "LLM retry base ms",
   "settings.schema.agent.llm_retry_base_ms.desc":
     "Initial backoff between LLM retries in milliseconds; a server-provided pause (Retry-After) overrides it.",

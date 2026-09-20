@@ -378,7 +378,7 @@ func UISchemaMap() map[string]interface{} {
 				"max_tokens_per_turn": intProp("Max tokens per turn",
 					"Upper bound on total tokens (prompt + completion) the model may use in one agent step."),
 				"llm_retry_max": intProp("LLM retry max",
-					"Retries after retryable LLM errors such as HTTP 429 before failing the turn (an explicit 0 disables retries)."),
+					"Extra attempts shared by transport retries, empty-answer recovery and first-token re-issues until tool progress or a new follow-up. 0 disables these retries. Loop guards, Stop hooks, fallback models and quota-reset waits have separate limits."),
 				"llm_retry_base_ms": intProp("LLM retry base ms",
 					"Initial backoff between LLM retries in milliseconds; a server-provided pause (Retry-After) overrides it."),
 				"llm_min_interval_ms": intProp("LLM min interval ms",
