@@ -94,5 +94,5 @@ func (c *fallbackChain) moved(from, to string, err error) {
 // chunkHasOutput reports whether a chunk carried anything the caller can
 // have acted on: text, reasoning, or a tool call, named or complete.
 func chunkHasOutput(ch StreamChunk) bool {
-	return ch.TextDelta != "" || ch.ReasoningDelta != "" || ch.ToolCall != nil || ch.ToolCallNamed != nil
+	return ch.TextDelta != "" || ch.ReasoningDelta != "" || ch.ToolCall != nil || ch.ToolCallNamed != nil || ch.ToolCallDelta != nil
 }

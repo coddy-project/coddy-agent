@@ -489,13 +489,13 @@ func TestCodexAnnouncesToolCallWhenItsNameIsKnown(t *testing.T) {
 		sse(w, "response.output_item.added", map[string]any{
 			"output_index": 0,
 			"item": map[string]any{
-				"type": "function_call", "call_id": "call_1", "name": "run_command", "arguments": "",
+				"id": "fc_1", "type": "function_call", "call_id": "call_1", "name": "run_command", "arguments": "",
 			},
 		})
-		sse(w, "response.function_call_arguments.delta", map[string]any{"delta": `{"command":"ls"}`})
+		sse(w, "response.function_call_arguments.delta", map[string]any{"item_id": "fc_1", "delta": `{"command":"ls"}`})
 		sse(w, "response.output_item.done", map[string]any{
 			"item": map[string]any{
-				"type": "function_call", "call_id": "call_1", "name": "run_command", "arguments": `{"command":"ls"}`,
+				"id": "fc_1", "type": "function_call", "call_id": "call_1", "name": "run_command", "arguments": `{"command":"ls"}`,
 			},
 		})
 		sseCompleted(w)
@@ -504,9 +504,16 @@ func TestCodexAnnouncesToolCallWhenItsNameIsKnown(t *testing.T) {
 
 	p := newCodexTestProvider(t, srv.URL)
 	var announced []ToolCall
+	var deltas string
 	resp, err := p.Stream(context.Background(),
 		[]Message{{Role: RoleUser, Content: "hi"}}, nil,
 		func(c StreamChunk) {
+			if c.ToolCallDelta != nil {
+				if c.ToolCallDelta.ID != "call_1" {
+					t.Error("delta has wrong call ID")
+				}
+				deltas += c.ToolCallDelta.InputJSON
+			}
 			if c.ToolCallNamed != nil {
 				announced = append(announced, *c.ToolCallNamed)
 			}
@@ -518,6 +525,9 @@ func TestCodexAnnouncesToolCallWhenItsNameIsKnown(t *testing.T) {
 		t.Fatalf("Stream: %v", err)
 	}
 
+	if deltas != `{"command":"ls"}` {
+		t.Fatalf("argument deltas: %q", deltas)
+	}
 	if len(announced) < 2 {
 		t.Fatalf("announced %d tool calls, want the name first and the complete call after: %+v", len(announced), announced)
 	}

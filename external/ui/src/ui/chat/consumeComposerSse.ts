@@ -773,6 +773,15 @@ export async function consumeComposerSseReader(
                     status,
                     finishedAtMs: now,
                   });
+                } else if (status === "pending") {
+                  // A pending update is a progress ping (streamed file
+                  // arguments carry _meta.coddy.toolInputProgress), not a
+                  // state change: throttled to 5Hz, it must not reset the
+                  // row's startedAtMs on every frame.
+                  toolQueue.push({
+                    toolCallId: u.toolCallId,
+                    status,
+                  });
                 } else {
                   toolQueue.push({
                     toolCallId: u.toolCallId,

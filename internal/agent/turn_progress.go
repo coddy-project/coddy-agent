@@ -101,14 +101,18 @@ func (p *turnProgress) beginCall() {
 }
 
 // streamed counts text the call in flight produced: a text or reasoning
-// delta, or the name and arguments of a completed tool call.
+// delta, tool argument fragments, or a complete call from a non-streaming provider.
 func (p *turnProgress) streamed(text string) {
-	if p == nil || text == "" {
+	p.streamedRunes(utf8.RuneCountInString(text))
+}
+
+func (p *turnProgress) streamedRunes(count int) {
+	if p == nil || count <= 0 {
 		return
 	}
 	now := time.Now()
 	p.mu.Lock()
-	p.inflightRunes += utf8.RuneCountInString(text)
+	p.inflightRunes += count
 	due := now.Sub(p.lastSent) >= turnProgressInterval
 	p.mu.Unlock()
 	if due {

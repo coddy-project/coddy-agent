@@ -67,13 +67,20 @@ func TestDevinReadStreamGoldenSWE(t *testing.T) {
 		t.Fatalf("usage = in %d cached %d out %d", resp.InputTokens, resp.CachedInputTokens, resp.OutputTokens)
 	}
 	var named, called int
+	var args string
 	for _, c := range chunks {
+		if c.ToolCallDelta != nil {
+			args += c.ToolCallDelta.InputJSON
+		}
 		if c.ToolCallNamed != nil {
 			named++
 		}
 		if c.ToolCall != nil {
 			called++
 		}
+	}
+	if args != resp.ToolCalls[0].InputJSON {
+		t.Fatalf("streamed args = %q", args)
 	}
 	if named != 1 || called != 1 {
 		t.Fatalf("named %d, called %d; want the call announced once and delivered once", named, called)

@@ -37,6 +37,45 @@ session: sess_1a2b3c4d
 continue: coddy cli --session-id sess_1a2b3c4d  (or: coddy -c)
 ```
 
+
+## Live file drafts
+
+When the model prepares `write`, `edit`, or `apply_patch`, the tool card shows
+**Generating**, the path once received, decoded content bytes and lines, and
+raw argument bytes. The last counter keeps moving while an edit streams its
+search text or another argument. These are amounts received, not a percentage
+or a prediction of the final file size. The turn's token estimate includes
+argument fragments as they arrive; provider usage replaces that estimate when
+the call ends, without counting the complete arguments a second time.
+
+![A write call generating file arguments](../assets/cli-tui/tool-progress-collapsed-dark-1280.png)
+
+*The file has not been written: the model is still generating its arguments.*
+
+`ctrl+o` shows the latest six lines of the draft, bounded to 1 KiB. For `edit`
+this is `newString`; for `apply_patch` it is the patch text. The preview is not
+an executed result, and other tools do not expose argument previews. Updates
+are limited to five per second per call, with a final flush. The same metadata
+travels over ACP and HTTP to a remote console. OpenAI-compatible, Anthropic,
+Codex and Devin streams supply argument fragments; a provider without fragments
+still shows the tool name and reports its arguments when complete.
+
+![An expanded file draft](../assets/cli-tui/tool-progress-expanded-dark-1280.png)
+
+*The bounded tail updates while generating; terminal control sequences are sanitized.*
+
+Execution still waits for the complete call and the existing permission gate.
+Cancelling an incomplete draft does not write a partial file. After execution,
+the card shows the normal result and `ctrl+o` loads that result instead.
+
+Capture this state without a provider or credentials:
+
+```bash
+make build TAGS=cli
+CLI_E2E_COLS=148 CHROME=/path/to/chromium python3 examples/cli/capture_tool_progress.py /tmp/coddy-draft-shots
+```
+
+
 ## Visual model
 
 The layout replicates the pi coding agent's TUI (pi-mono `b1efcf7d7`,

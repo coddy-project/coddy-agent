@@ -4,6 +4,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
@@ -118,17 +119,18 @@ type toolBox struct {
 	// says the arguments were complete enough to read one. Kept on the box
 	// because rebuild runs on every status, expand and argument update, and
 	// a prompt is worth several kilobytes of JSON to re-parse each time.
-	spawn      spawnAgentDetails
-	spawned    bool
-	preview    string
-	fullText   string
-	expanded   bool
-	loadFailed bool
-	box        *tui.Box
-	loadFull   func(id string) (string, bool)
-	omitted    int
-	totalOut   int
-	hasResult  bool
+	spawn                                 spawnAgentDetails
+	spawned                               bool
+	preview                               string
+	fullText                              string
+	expanded                              bool
+	loadFailed                            bool
+	box                                   *tui.Box
+	loadFull                              func(id string) (string, bool)
+	omitted                               int
+	totalOut                              int
+	hasResult                             bool
+	inputSummary, inputPath, inputPreview string
 }
 
 func newToolBox(theme *tui.Theme, id, name, kind string, loadFull func(id string) (string, bool)) *toolBox {
@@ -137,7 +139,7 @@ func newToolBox(theme *tui.Theme, id, name, kind string, loadFull func(id string
 	return tb
 }
 
-// SetArgs stores the raw argument JSON streamed for the call.
+// SetArgs stores the completed argument JSON for the call.
 func (t *toolBox) SetArgs(argsJSON string) {
 	t.args = argsJSON
 	t.spawn, t.spawned = spawnAgentDetails{}, false
@@ -150,6 +152,9 @@ func (t *toolBox) SetArgs(argsJSON string) {
 // SetStatus updates the call status and optional preview text.
 func (t *toolBox) SetStatus(status, preview string, omitted, total int) {
 	t.status = status
+	if status != "pending" {
+		t.inputSummary, t.inputPath, t.inputPreview = "", "", ""
+	}
 	if preview != "" {
 		t.preview = tui.SanitizeText(preview)
 		t.hasResult = true
@@ -162,7 +167,7 @@ func (t *toolBox) SetStatus(status, preview string, omitted, total int) {
 // SetExpanded toggles full output (read from disk on first expand).
 func (t *toolBox) SetExpanded(expanded bool) {
 	t.expanded = expanded
-	if expanded && t.fullText == "" && t.loadFull != nil {
+	if expanded && t.finished() && t.fullText == "" && t.loadFull != nil {
 		if full, ok := t.loadFull(t.id); ok {
 			t.fullText = tui.SanitizeText(full)
 		} else {
@@ -201,6 +206,9 @@ func (t *toolBox) bgRole() string {
 // spawn_agent name the skill and the subagent they pulled in, the
 // documentation tools say what they do with the query or the page).
 func (t *toolBox) title() string {
+	if t.inputPath != "" {
+		return t.name + " " + t.inputPath
+	}
 	var parsed map[string]interface{}
 	arg := func(keys ...string) string {
 		if parsed == nil {
@@ -485,7 +493,13 @@ func (t *toolBox) rebuild() {
 		box.AddChild(tui.NewText(t.theme.Fg(roleError, "cancelled"), 0, 0, nil))
 	}
 	t.addDelegation(box)
+	if t.inputSummary != "" {
+		box.AddChild(tui.NewText(t.theme.Fg(roleDim, t.inputSummary), 0, 0, nil))
+	}
 	body := t.preview
+	if t.expanded && t.inputSummary != "" {
+		body = t.inputPreview
+	}
 	if t.expanded && t.fullText != "" {
 		body = t.fullText
 	}
@@ -767,4 +781,16 @@ func (p *planWidget) SetEntries(entries []planEntry) {
 		}
 	}
 	p.AddChild(tui.NewText(strings.Join(lines, "\n"), 1, 0, nil))
+}
+
+// SetInputProgress shows a draft without treating it as executable arguments or output.
+func (t *toolBox) SetInputProgress(path, preview string, bytes, lines, arguments int) {
+	t.inputPath = tui.SanitizeText(path)
+	t.inputPreview = tui.SanitizeText(preview)
+	t.inputSummary = fmt.Sprintf("Generating · %d bytes · %d lines · %d argument bytes · ctrl+o draft", bytes, lines, arguments)
+	t.rebuild()
+}
+
+func isWritingTool(name string) bool {
+	return name == "write" || name == "edit" || name == "apply_patch"
 }

@@ -318,6 +318,7 @@ func (p *devinProvider) readStream(body io.Reader, uid string, cred devinCredent
 			InputTokens: usage.input + usage.cacheWrite + usage.cacheRead, OutputTokens: usage.output, CachedInputTokens: usage.cacheRead}
 	}
 
+	argumentBytes := make(map[string]int)
 	for !sawEnd {
 		frame, err := readConnectFrame(body)
 		if errors.Is(err, io.EOF) {
@@ -361,8 +362,19 @@ func (p *devinProvider) readStream(body io.Reader, uid string, cred devinCredent
 			emit(StreamChunk{TextDelta: d.text})
 		}
 		for _, tc := range d.toolCalls {
-			if started := mergeDevinToolCall(&calls, tc); started != nil {
-				emit(StreamChunk{ToolCallNamed: &ToolCall{ID: started.ID, Name: started.Name}})
+			mergeDevinToolCall(&calls, tc)
+			for _, call := range calls {
+				if call.ID == "" || call.Name == "" {
+					continue
+				}
+				sent, named := argumentBytes[call.ID]
+				if !named {
+					emit(StreamChunk{ToolCallNamed: &ToolCall{ID: call.ID, Name: call.Name}})
+				}
+				if len(call.InputJSON) > sent {
+					emit(StreamChunk{ToolCallDelta: &ToolCall{ID: call.ID, Name: call.Name, InputJSON: call.InputJSON[sent:]}})
+				}
+				argumentBytes[call.ID] = len(call.InputJSON)
 			}
 		}
 		if d.stopReason != 0 {
