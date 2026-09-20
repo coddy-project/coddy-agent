@@ -1049,6 +1049,97 @@ func TestCoddySessionsListIncludeActivity(t *testing.T) {
 	if _, ok := hit["activitySeq"]; !ok {
 		t.Fatalf("missing activitySeq")
 	}
+	if _, ok := hit["backgroundRunning"]; !ok {
+		t.Fatalf("missing backgroundRunning in %+v", hit)
+	}
+}
+
+// backgroundStubHandle stands in for work that never ends on its own, so a
+// session can be listed while it still has a background task in flight without
+// the test spawning a process and waiting on the clock.
+type backgroundStubHandle struct {
+	done chan struct{}
+	once sync.Once
+}
+
+func (h *backgroundStubHandle) Wait() (int, error) {
+	<-h.done
+	return 0, nil
+}
+
+func (h *backgroundStubHandle) Stop(time.Duration) error {
+	h.once.Do(func() { close(h.done) })
+	return nil
+}
+
+func (h *backgroundStubHandle) PID() int { return 0 }
+
+func (h *backgroundStubHandle) ProcessStartedAt() time.Time { return time.Time{} }
+
+// A session whose turn has ended but whose background tasks are still running is
+// not idle, and the History list is the only place that says so.
+func TestCoddySessionsListIncludeActivityCountsBackgroundTasks(t *testing.T) {
+	mgr, srv, _ := testHTTPServerPersist(t)
+	ctx := context.Background()
+	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := res.SessionID
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	readBackgroundRunning := func() float64 {
+		resHTTP, err := http.Get(ts.URL + "/coddy/sessions?include_activity=true&limit=50")
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := ioReadAllClose(resHTTP.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resHTTP.StatusCode != http.StatusOK {
+			t.Fatalf("%d %s", resHTTP.StatusCode, b)
+		}
+		var parsed struct {
+			Sessions []map[string]interface{} `json:"sessions"`
+		}
+		if err := json.Unmarshal(b, &parsed); err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range parsed.Sessions {
+			if row["id"] != sid {
+				continue
+			}
+			n, ok := row["backgroundRunning"].(float64)
+			if !ok {
+				t.Fatalf("backgroundRunning is not a number in %+v", row)
+			}
+			return n
+		}
+		t.Fatalf("session not in list %s", string(b))
+		return 0
+	}
+
+	if got := readBackgroundRunning(); got != 0 {
+		t.Fatalf("want backgroundRunning 0 before any task, got %v", got)
+	}
+
+	handle := &backgroundStubHandle{done: make(chan struct{})}
+	if _, err := bgtask.Default().Launch(bgtask.Spec{
+		SessionID: sid,
+		Kind:      bgtask.KindCommand,
+		Command:   "stub",
+		Label:     "stub",
+	}, func(string, io.Writer) (bgtask.Handle, error) { return handle, nil }); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { bgtask.Default().StopSession(sid) })
+
+	if got := readBackgroundRunning(); got != 1 {
+		t.Fatalf("want backgroundRunning 1 while a task runs, got %v", got)
+	}
 }
 
 func TestCoddySessionsListFilterByQUserMessage(t *testing.T) {

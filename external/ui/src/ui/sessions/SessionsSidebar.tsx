@@ -368,6 +368,11 @@ export function SessionsSidebar(props: {
       permissionPending,
       questionPending,
     );
+    // The dot already says work is going; the label says which kind, so a row
+    // busy only with detached tasks does not read as a turn still answering.
+    const activityLabel = t(
+      s.turnActive ? "sessions.turnRunning" : "sessions.backgroundRunning",
+    );
     const showsPermission = sessionRowShowsPermissionPending(
       s,
       permissionPending,
@@ -470,8 +475,8 @@ export function SessionsSidebar(props: {
                 {showsActivity ? (
                   <span
                     className="session-activity-dot"
-                    aria-label={t("sessions.turnRunning")}
-                    title={t("sessions.turnRunning")}
+                    aria-label={activityLabel}
+                    title={activityLabel}
                     data-testid={`session-activity-${s.id}`}
                   />
                 ) : null}

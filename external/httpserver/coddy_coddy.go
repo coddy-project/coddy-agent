@@ -932,6 +932,11 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 			ent["readActivitySeq"] = readSeq
 			ent["unreadComplete"] = actSeq > readSeq && !turnActive
 			ent["permissionPending"] = session.PendingPermissionHeld(dir)
+			// Detached work outlives the turn that started it, so a session
+			// with no turn in flight is still not idle while a task runs.
+			// The count is the pool's own, which already leaves out the
+			// runtime's system errands and everything that has finished.
+			ent["backgroundRunning"] = bgtask.Default().RunningCount(row.SessionID)
 		}
 		sessions = append(sessions, ent)
 	}

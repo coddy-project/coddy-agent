@@ -46,6 +46,36 @@ test("activity dot for every session with an active turn, the open one included"
   ).toBe(false);
 });
 
+test("activity dot while background tasks run with no turn in flight", () => {
+  const sets = emptySets();
+  // A detached command outlives the turn that started it; a row without the
+  // mark said the session was finished while its work was still going.
+  expect(
+    sessionRowShowsActivity(
+      base("bg", { turnActive: false, backgroundRunning: 2 }),
+      sets.permission,
+      sets.question,
+    ),
+  ).toBe(true);
+  expect(
+    sessionRowShowsActivity(
+      base("bg", { backgroundRunning: 0 }),
+      sets.permission,
+      sets.question,
+    ),
+  ).toBe(false);
+});
+
+test("no activity dot for background tasks while the row awaits attention", () => {
+  expect(
+    sessionRowShowsActivity(
+      base("bg", { backgroundRunning: 1 }),
+      new Set(["bg"]),
+      new Set<string>(),
+    ),
+  ).toBe(false);
+});
+
 test("no activity dot when session awaits user attention", () => {
   const permission = new Set(["a"]);
   const question = new Set<string>();

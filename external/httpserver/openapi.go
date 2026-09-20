@@ -258,7 +258,9 @@ func openAPISpec() map[string]interface{} {
 						"name":        "include_activity",
 						"in":          "query",
 						"schema":      map[string]string{"type": "boolean"},
-						"description": "When true, each session row includes **turnActive**, **activitySeq**, **readActivitySeq**, and **unreadComplete** for composer UI.",
+						"description": "When true, each session row includes **turnActive**, **activitySeq**, **readActivitySeq**, **unreadComplete**, **permissionPending** and **backgroundRunning** for composer UI. " +
+							"**backgroundRunning** is how many of the session's background tasks are still in flight - detached work outlives the turn that started it, so it can be above zero while **turnActive** is false. " +
+							"System tasks (the per-turn memory run) and finished tasks are not counted.",
 					}, map[string]interface{}{
 						"name":   "include_stats",
 						"in":     "query",
