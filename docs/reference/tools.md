@@ -33,7 +33,7 @@ The Permission column uses the classes the gate in `internal/agent/react.go` app
 
 ## Shell and background tasks
 
-The `background_*` tools are registered only while `tools.background` is enabled (the default). The guide is [Background tasks](../features/background-tasks.md#model-facing-surface).
+The `background_*` tools are registered only while `tools.background` is enabled (the default), and `preview_server` while `tools.preview_server` is enabled as well. The guide is [Background tasks](../features/background-tasks.md#model-facing-surface).
 
 | Tool | Purpose | Arguments (short) | Permission | Modes |
 |---|---|---|---|---|
@@ -43,6 +43,7 @@ The `background_*` tools are registered only while `tools.background` is enabled
 | `background_wait` | Wait for a task to finish, bounded by a default and a maximum | `task_id`, `timeout_seconds` | none | agent, plan |
 | `background_stop` | Terminate a task and everything it spawned | `task_id` | none | agent, plan |
 | `background_reap` | Find and kill processes of this session that outlived the run which started them | none | always | agent |
+| `preview_server` | Serve a directory of the project as a static website on a free localhost port and return the address for the user to open; the server is a background task that runs until it is stopped ([Preview server](../features/preview-server.md)) | `path`, `timeout_seconds` | none | agent |
 | `ssh_run_command` | Run a command on a remote host over SSH, using the agent socket and then key files ([Configuration](../getting-started/configuration.md#ssh-remote-execution)) | `host`, `command`, `port`, `timeout_seconds`, `permission_rationale` | always | agent |
 
 ## Web

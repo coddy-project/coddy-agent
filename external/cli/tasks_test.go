@@ -347,6 +347,8 @@ func TestTaskTagAndTitleMatchTheWebCards(t *testing.T) {
 		{agentRow("bg_4", "general", "agent general", false, bgtask.StatusRunning), "general", "Subagent run"},
 		// A scheduled run is labelled by the scheduler, colon and all.
 		{agentRow("bg_5", "general", "nightly: refresh the changelog", false, bgtask.StatusRunning), "general", "nightly: refresh the changelog"},
+		// A preview server is named by the address the operator opens.
+		{bgtask.Snapshot{ID: "bg_6", Kind: bgtask.KindServer, Label: "preview demo", URL: "http://127.0.0.1:4321/", Status: bgtask.StatusRunning}, "server", "http://127.0.0.1:4321/"},
 	}
 	for _, c := range cases {
 		if got := taskTag(c.row); got != c.tag {

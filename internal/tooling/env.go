@@ -144,6 +144,12 @@ type Env struct {
 	// means the built-in defaults.
 	WebSearch *WebSearchSettings
 
+	// PreviewServer is the resolved tools.preview_server section the
+	// preview_server tool reads its bind host from. Like WebSearch it travels
+	// on the environment so a config reload reaches the next call. Nil means
+	// the built-in defaults (enabled, loopback).
+	PreviewServer *PreviewServerSettings
+
 	// OutputLineLimits caps how many lines each tool result or error may
 	// contribute to the LLM context, keyed by tool name; the empty-string key
 	// carries the default applied to unlisted (and MCP) tools. A positive value
@@ -285,4 +291,16 @@ type WebSearchSettings struct {
 	SearXNGURL string
 	// BraveAPIKey routes the Brave backend to the official Search API.
 	BraveAPIKey string
+}
+
+// PreviewServerSettings is the resolved tools.preview_server section as the
+// preview_server tool receives it. The field order is part of the contract:
+// the agent converts config.ToolPreviewServerSettings to this type directly.
+type PreviewServerSettings struct {
+	// Enabled is false when the operator turned the tool off.
+	Enabled bool
+	// Host is the address the server binds.
+	Host string
+	// PublicHost replaces the bind host in the URL handed to the operator.
+	PublicHost string
 }

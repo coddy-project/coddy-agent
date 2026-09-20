@@ -2,6 +2,8 @@ package tools
 
 import (
 	"testing"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
 func TestRegistryIncludesWrite(t *testing.T) {
@@ -34,5 +36,24 @@ func TestAllToolDefinitionsIncludesReadAndWriteText(t *testing.T) {
 	}
 	if !names["read"] || !names["glob"] || !names["grep"] || !names["write"] {
 		t.Fatalf("expected read, glob, grep, write in full set: missing from %+v", names)
+	}
+}
+
+func TestPreviewServerFollowsItsSwitchAndTheBackgroundOne(t *testing.T) {
+	off := false
+	if tool, ok := NewRegistry().Get("preview_server"); !ok || tool.RequiresPermission {
+		t.Fatal("preview_server should be registered without a permission gate")
+	}
+
+	cfg := &config.Config{}
+	cfg.Tools.PreviewServer.Enabled = &off
+	if _, ok := NewRegistryFor(cfg).Get("preview_server"); ok {
+		t.Fatal("tools.preview_server.enable: false should hide preview_server")
+	}
+
+	cfg = &config.Config{}
+	cfg.Tools.Background.Enabled = &off
+	if _, ok := NewRegistryFor(cfg).Get("preview_server"); ok {
+		t.Fatal("preview_server runs in the task pool, so tools.background.enable: false should hide it")
 	}
 }

@@ -614,6 +614,32 @@
             }
           }
         },
+        "preview_server": {
+          "type": "object",
+          "title": "Preview server",
+          "description": "The preview_server tool: a static file server the agent starts over a project directory, on a free port, so the operator can open HTML, JS and CSS work in a browser. The server is a background task of the session and runs until it is stopped, the session is deleted or coddy exits.",
+          "additionalProperties": false,
+          "properties": {
+            "enable": {
+              "type": [
+                "boolean",
+                "null"
+              ],
+              "description": "Offer the preview_server tool. The server is a background task, so tools.background.enable: false turns it off as well.",
+              "default": true
+            },
+            "host": {
+              "type": "string",
+              "description": "Address the server binds, without a port: the port is always a free one. Anything that is not loopback exposes the served directory to whoever can reach that address.",
+              "default": "127.0.0.1"
+            },
+            "public_host": {
+              "type": "string",
+              "description": "Host written into the URL the agent hands out, for a coddy that runs where the operator's browser is not (a container, a remote machine). Empty uses the bind host.",
+              "default": ""
+            }
+          }
+        },
         "websearch": {
           "type": "object",
           "title": "Web search",

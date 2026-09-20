@@ -301,6 +301,18 @@ export const messagesEn: Record<string, string> = {
     "Output buffer (bytes)",
   "settings.schema.tools.background.output_buffer_bytes.desc":
     "How much of each task's output stays in memory for the ticker; the full log still goes to the session bundle (default 262144).",
+  "settings.schema.tools.preview_server.label": "Preview server",
+  "settings.schema.tools.preview_server.desc":
+    "The preview_server tool: a static file server the agent starts over a project directory, on a free port, so you can open the work in a browser.",
+  "settings.schema.tools.preview_server.enable.label": "Enabled",
+  "settings.schema.tools.preview_server.enable.desc":
+    "Offer the preview_server tool (default true). Turning background tasks off turns it off as well.",
+  "settings.schema.tools.preview_server.host.label": "Bind host",
+  "settings.schema.tools.preview_server.host.desc":
+    "Address the server binds, without a port (default 127.0.0.1). Anything that is not loopback exposes the served directory.",
+  "settings.schema.tools.preview_server.public_host.label": "Public host",
+  "settings.schema.tools.preview_server.public_host.desc":
+    "Host written into the URL the agent hands out, when the browser is on another machine. Empty uses the bind host.",
 
   "settings.schema.subagents.desc":
     "User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript.",
@@ -1242,6 +1254,8 @@ export const messagesEn: Record<string, string> = {
   "tasks.tag.shell": "shell",
   "tasks.tag.agent": "agent",
   "tasks.tag.memory": "memory",
+  "tasks.tag.server": "server",
+  "tasks.openServer": "Open in a new tab",
   "tasks.untitledAgentRun": "Subagent run",
   "tasks.footExitCode": "Exit code {code}",
   "tasks.footDuration": "Duration {value}",
@@ -1293,6 +1307,7 @@ export const messagesEn: Record<string, string> = {
   "tool.name.question": "asking a question",
   "tool.name.webfetch": "fetching a page",
   "tool.name.http_request": "sending an http request",
+  "tool.name.preview_server": "starting a preview server",
   "tool.name.websearch": "searching the web",
   "tool.name.coddy_docs_search": "searching the documentation",
   "tool.name.coddy_docs_read": "reading the documentation",
@@ -1589,6 +1604,7 @@ export const messagesEn: Record<string, string> = {
   "status.docsRead": "Reading the documentation",
   "status.webFetch": "Fetching",
   "status.httpRequest": "Sending a request",
+  "status.previewServer": "Starting a preview server",
   "status.plan": "Updating the plan",
   "status.planRead": "Reading the plan",
   "status.skill": "Loading a skill",

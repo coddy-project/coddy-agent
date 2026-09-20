@@ -132,3 +132,35 @@ func TestHTTPAllowlistValidateTrimsEntries(t *testing.T) {
 		t.Fatalf("entry = %q", c.HTTPRequest.Allowlist[0])
 	}
 }
+
+func TestPreviewServerDefaultsToLoopbackAndEnabled(t *testing.T) {
+	var section *ToolPreviewServer
+	got := section.ToolSettings()
+	if !got.Enabled || got.Host != PreviewServerDefaultHost || got.PublicHost != "" {
+		t.Fatalf("nil section: %+v", got)
+	}
+	off := false
+	got = (&ToolPreviewServer{Enabled: &off, Host: " ::1 ", PublicHost: " dev.example "}).ToolSettings()
+	if got.Enabled || got.Host != "::1" || got.PublicHost != "dev.example" {
+		t.Fatalf("configured section: %+v", got)
+	}
+}
+
+func TestToolsValidateWantsABareHostForThePreviewServer(t *testing.T) {
+	for _, host := range []string{"", "127.0.0.1", "0.0.0.0", "::1", "localhost", "dev.example"} {
+		tools := Tools{PreviewServer: ToolPreviewServer{Host: host, PublicHost: host}}
+		if err := tools.Validate(); err != nil {
+			t.Errorf("host %q: %v", host, err)
+		}
+	}
+	for _, host := range []string{"127.0.0.1:8080", "[::1]:8080", "[::1]", "http://localhost", "localhost/app", "my host"} {
+		tools := Tools{PreviewServer: ToolPreviewServer{Host: host}}
+		if err := tools.Validate(); err == nil {
+			t.Errorf("host %q was accepted", host)
+		}
+		tools = Tools{PreviewServer: ToolPreviewServer{PublicHost: host}}
+		if err := tools.Validate(); err == nil {
+			t.Errorf("public_host %q was accepted", host)
+		}
+	}
+}

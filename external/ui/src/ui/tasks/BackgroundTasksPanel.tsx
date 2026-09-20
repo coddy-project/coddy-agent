@@ -14,6 +14,7 @@ import {
   groupTasks,
   isAgentTask,
   isOverdue,
+  serverTaskUrl,
   taskErrorText,
   taskMetaLine,
   taskStatusLabel,
@@ -61,6 +62,7 @@ function TaskCard(props: {
   const overdue = isOverdue(task, props.nowMs);
   const title = taskTitle(task);
   const usage = agentUsage(task);
+  const serverUrl = serverTaskUrl(task);
   // A bell after the title: the running task will wake the agent when it ends,
   // or the finished one did - the one place the web UI says what woke it, since
   // the turn it started shows nothing of its own in the transcript.
@@ -77,6 +79,7 @@ function TaskCard(props: {
   const number = new Intl.NumberFormat(locale);
   const hover = [
     task.command || task.label,
+    serverUrl,
     usage?.modelId || "",
     usage && usage.tokens > 0
       ? t("tasks.agentTokensTitle", {
@@ -163,6 +166,18 @@ function TaskCard(props: {
           <span className="bgtask-card-meta-line">
             {taskMetaLine(task, props.nowMs)}
           </span>
+          {task.running && serverUrl ? (
+            <a
+              className="bgtask-card-link"
+              href={serverUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={t("tasks.openServer")}
+              data-testid={`bgtask-link-${task.id}`}
+            >
+              {serverUrl}
+            </a>
+          ) : null}
           {usage ? (
             <span
               className="bgtask-card-usage"
@@ -221,7 +236,7 @@ function TaskCard(props: {
 
 /**
  * What an open card adds under its summary: the command with a copy control (a shell
- * task) or the way to the child transcript (an agent run), the error the run ended
+ * task), the address (a preview server) or the way to the child transcript (an agent run), the error the run ended
  * with unless it only repeats the exit code, the captured output in a box of its own
  * height, and - once the task has finished - a foot that says how it ended, the exit
  * code and how long it ran.
@@ -238,6 +253,7 @@ function TaskCardBody(props: {
   const [follow, setFollow] = useState(true);
   const agent = isAgentTask(task);
   const agentSid = agentTranscriptSessionId(task);
+  const serverUrl = serverTaskUrl(task);
 
   useEffect(() => {
     const el = preRef.current;
@@ -254,7 +270,7 @@ function TaskCardBody(props: {
     footParts.push(taskStatusLabel(task.status));
     // An agent run has no process behind it: the pool's exit code for it is
     // synthetic, and the status already says how the run ended.
-    if (!agent && typeof task.exit_code === "number") {
+    if (!agent && !serverUrl && typeof task.exit_code === "number") {
       footParts.push(t("tasks.footExitCode", { code: task.exit_code }));
     }
     footParts.push(
@@ -286,6 +302,19 @@ function TaskCardBody(props: {
           >
             {t("tasks.openTranscript")}
           </button>
+        </div>
+      ) : serverUrl ? (
+        <div className="bgtask-card-command">
+          <pre
+            className="bgtask-card-command-text"
+            data-testid={`bgtask-url-${task.id}`}
+          >
+            {serverUrl}
+          </pre>
+          <CodeBlockCopyButton
+            textToCopy={serverUrl}
+            dataTestId={`bgtask-copy-url-${task.id}`}
+          />
         </div>
       ) : task.command ? (
         <div className="bgtask-card-command">
