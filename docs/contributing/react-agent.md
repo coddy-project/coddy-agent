@@ -245,15 +245,48 @@ messages: [
    - Either case first nudges the model to change course, up to **`loop_nudge_max`**
      times, then -> DONE (stopReason: agent_refused) with a notice.
 
-   Lane replays run before any of that, because one model name at a proxy is
-   usually a group of deployments and a sick member fails per attempt:
-   - A streamed call the first-token guard cut with **nothing produced** is
-     re-issued once, and that iteration is not counted against **`max_turns`**.
-   - A turn with neither answer text nor a tool call is re-issued once as the
-     identical request (the empty turn is dropped from the LLM-facing messages,
-     but kept in the transcript). The wording nudge follows only if the replay
-     came back empty too, and the **`agent_refused`** notice only after that.
-   - Both budgets reset as soon as the model makes progress.
+   Recovery attempts and transport retries draw from the **`llm_retry_max`**
+   shared budget (default 3). The initial model request for a step is not
+   charged; each extra attempt or recovery consumes one slot; the budget resets
+   when the model makes progress (a tool call or an answered followup) — it is
+   not a lifetime cap on all LLM calls in a turn. Per-strategy limits apply
+   independently of the budget:
+
+   - **Transport retries.** The resilient wrapper repeats on HTTP 429, 408,
+     5xx, and transport failures that left no output with the caller; each
+     retry consumes one slot. A cancellation, an unknown host, and any failure
+     after output was emitted stay final.
+   - **First-token re-issue.** A streamed call the first-token guard
+     (**`llm_first_token_timeout_ms`**) cuts with **nothing produced** is
+     re-issued at most once, using a normal **`max_turns`** iteration. The
+     re-issue is skipped after output was emitted or the caller cancelled.
+     Consumes one slot.
+   - **Empty-assistant re-issue.** A step that returns neither answer text nor
+     a tool call is replayed once as the identical request; the empty assistant
+     turn is removed from the LLM-facing message slice (the transcript keeps
+     it, with signed thinking preserved). A reply stopped at `max_tokens` with
+     only whitespace content is terminal — recovery is not attempted. Consumes
+     one slot.
+   - **Wording nudges.** If the re-issue also comes back empty, up to
+     two nudges (**`maxEmptyAssistantContinuations`**) are sent, each consuming
+     one slot and a normal **`max_turns`** iteration. The plain replay uses
+     a normal iteration too; transport retries stay inside that iteration.
+     The nudge projection also removes the empty assistant message from the
+     LLM-facing history. If auto-compaction rebuilds that history between
+     attempts, the pending recovery projection and its nudges are restored;
+     signed reasoning stays in the transcript. After the budget or nudge limit is exhausted the turn
+     ends with **`StopReasonRefused`**.
+
+   An explicit **`llm_retry_max: 0`** disables all of the above. The
+   `loop_guard`, Stop hooks, fallback models, and `wait_for_limit_reset` are
+   independent policies, each governed by their own settings.
+
+   At `logger.level: debug`, each LLM call completion logs
+   `msg="llm call finished"` with `provider_attempts` (total inner adapter
+   calls including transport-layer retries), `transport_retries`, `call_reason`
+   (one of `step`, `empty_reissue`, `empty_nudge`, `first_token_retry`,
+   `loop_guard`, `quota_reset_wait`, `stop_hook`, `queued_followup`), and
+   `retries_remaining` (budget slots left after this call).
 
    Two guards bound a streamed call that stops answering. The first-token guard
    (**`llm_first_token_timeout_ms`**, 90 s) cuts a call that produced nothing;
@@ -409,8 +442,8 @@ Plan entries are updated as the agent progresses:
 
 ## Error Handling in ReAct Loop
 
-- LLM API error: retry up to 3 times with exponential backoff, then fail turn
-- LLM stream stalled (no bytes after the first ones for `llm_stream_idle_timeout_ms`): persist the partial answer, fail turn with the stall named; retried only when nothing was delivered
+- LLM API error: draw from the `agent.llm_retry_max` shared per-step budget (default 3; explicit 0 disables); transport retries, first-token re-issues, and no-answer recoveries share the same pool; the budget resets on tool progress and is not a per-turn lifetime cap on all LLM calls
+- LLM stream stalled (no bytes after the first ones for `llm_stream_idle_timeout_ms`): persist the partial answer, fail turn with the stall named; retried within the remaining shared budget only when nothing was delivered
 - Tool execution error: return error as observation, let LLM decide next step
 - Permission denied: return "permission denied" observation
 - Tool timeout: return "timeout" observation after configured timeout

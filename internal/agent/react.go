@@ -443,6 +443,24 @@ const maxFirstTokenRetries = 1
 // after an empty turn.
 const emptyAssistantContinuationNudge = "Your previous message had no answer text and no tool call. Continue now: call the appropriate tool to act, or write your reply to the user."
 
+// emptyRecoveryProjection removes unanswered assistant messages only from the
+// request, retaining their signed reasoning in session history. A rebuild after
+// compaction restores that entire tail, so remove all of it and restore the
+// local-only nudges the recovery has already earned.
+func emptyRecoveryProjection(messages []llm.Message, nudges int) []llm.Message {
+	for len(messages) > 0 {
+		last := messages[len(messages)-1]
+		if last.Role != llm.RoleAssistant || strings.TrimSpace(last.Content) != "" || len(last.ToolCalls) != 0 {
+			break
+		}
+		messages = messages[:len(messages)-1]
+	}
+	for i := 0; i < nudges; i++ {
+		messages = append(messages, llm.Message{Role: llm.RoleUser, Content: emptyAssistantContinuationNudge})
+	}
+	return messages
+}
+
 // Loop-guard nudges are injected into the LLM-facing message slice only (never
 // persisted to the transcript), the same way emptyAssistantContinuationNudge is.
 // The repeated passage itself is stripped from the assistant message before the
@@ -510,6 +528,15 @@ func (a *Agent) runReActLoop(
 	// reset alongside emptyContinuations once the model makes progress.
 	var emptyReissues int
 	var firstTokenRetries int
+	var retryAllowance *llm.RetryAllowance
+	nextCallReason := "step"
+	// A new step earns a fresh allowance; consecutive unanswered requests do
+	// not. Explicit continuations keep their own configured bounds.
+	resetRetries := func(reason string) {
+		retryAllowance = nil
+		emptyContinuations, emptyReissues, firstTokenRetries = 0, 0, 0
+		nextCallReason = reason
+	}
 	// Tracks whether any visible answer text was streamed to the user during this
 	// turn, so an all-reasoning turn that never answers surfaces a notice instead
 	// of dead-ending silently.
@@ -558,7 +585,9 @@ func (a *Agent) runReActLoop(
 		// built: that is what puts the correction inside the work instead of
 		// after it. It is appended before the rebuild below, so a compaction
 		// that replays the transcript carries it too.
-		a.readQueuedMessages(&messages)
+		if a.readQueuedMessages(&messages) {
+			resetRetries("queued_followup")
+		}
 
 		// A model or a reasoning level changed since the transport was built -
 		// by the operator, a --once override, the model's own switch_model -
@@ -594,13 +623,16 @@ func (a *Agent) runReActLoop(
 
 		// Tool results can grow the context mid-turn; compact between LLM calls
 		// when the refreshed estimate crossed the threshold. Run already checked
-		// before the first call. Ephemeral continuation nudges are not part of
-		// persisted state and are dropped by the rebuild (acceptable: the model
-		// answered or called a tool since then).
+		// before the first call. A recovery may still be pending: the rebuild
+		// must preserve its local-only projection rather than resurrecting the
+		// empty assistant messages kept in the transcript.
 		a.refreshContextBreakdown(sys, turnCtx)
 		if turn > 0 && a.maybeAutoCompact(ctx) {
 			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles)
 			messages = a.buildMessages(sys.Content)
+			if emptyReissues > 0 || emptyContinuations > 0 {
+				messages = emptyRecoveryProjection(messages, emptyContinuations)
+			}
 			turnCtx = a.buildTurnContext(sys)
 			// The rebuilt estimate above was taken without the block; the call
 			// below sends it, so the accounting has to see it too.
@@ -639,7 +671,13 @@ func (a *Agent) runReActLoop(
 		// records that this timer, and not the user or the loop guard, did the
 		// cancelling, which the error paths below cannot otherwise tell apart.
 		firstTokenTimeout := a.cfg.Agent.EffectiveLLMFirstTokenTimeout()
-		streamCtx, streamCancel := context.WithCancel(ctx)
+		if retryAllowance == nil {
+			retryAllowance = llm.NewRetryAllowance(a.cfg.Agent.EffectiveLLMRetryMax())
+		}
+		attemptsBefore := retryAllowance.Snapshot()
+		callReason := nextCallReason
+		nextCallReason = "step"
+		streamCtx, streamCancel := context.WithCancel(llm.WithRetryAllowance(ctx, retryAllowance))
 		var firstTokenTimedOut atomic.Bool
 		var firstTokenTimer *time.Timer
 		if transport.streaming && firstTokenTimeout > 0 {
@@ -814,7 +852,12 @@ func (a *Agent) runReActLoop(
 		}
 		stopFirstTokenTimer()
 		streamCancel()
-		a.logLLMCall(callStart, firstChunkAt, chunkCount, response, streamErr)
+		attemptsAfter := retryAllowance.Snapshot()
+		a.logLLMCall(callStart, firstChunkAt, chunkCount, response, streamErr, callReason, llm.RetrySnapshot{
+			Attempts:         attemptsAfter.Attempts - attemptsBefore.Attempts,
+			TransportRetries: attemptsAfter.TransportRetries - attemptsBefore.TransportRetries,
+			Remaining:        attemptsAfter.Remaining,
+		})
 
 		// The loop guard cancelled this stream: keep the useful part of the answer,
 		// drop the repeated run so it is never replayed to the model, and either nudge
@@ -837,25 +880,30 @@ func (a *Agent) runReActLoop(
 			messages = append(messages, llm.Message{Role: llm.RoleUser, Content: nudge})
 			a.log.Warn("loop guard cut a degenerating response",
 				"channel", loopAbortChannelName(loopAbort), "nudge", loopNudges)
+			resetRetries("loop_guard")
 			continue
 		}
 
 		// If the stream was cancelled by the first-token timer (no output produced, no user cancel),
 		// surface a timeout error instead of a silent failure. The timer itself reports
 		// that it fired, so a cancellation from anywhere else is never mislabelled.
-		if firstTokenTimedOut.Load() && streamErr != nil && errors.Is(streamErr, context.Canceled) && !a.state.IsUserCancelledTurn() {
-			hasAnyOutput := response != nil && (strings.TrimSpace(response.Content) != "" ||
-				len(response.ToolCalls) > 0 || strings.TrimSpace(reasoningBuf.String()) != "")
+		if firstTokenTimedOut.Load() && streamErr != nil && errors.Is(streamErr, context.Canceled) && ctx.Err() == nil && !a.state.IsUserCancelledTurn() {
+			hasAnyOutput := streamedAny || strings.TrimSpace(reasoningBuf.String()) != "" ||
+				(response != nil && (strings.TrimSpace(response.Content) != "" || len(response.ToolCalls) > 0))
 			if !hasAnyOutput {
 				// Nothing was emitted and nothing was appended, so the identical
 				// request can go out again: behind one model name there is often a
 				// group of deployments, and the silent one is not the whole lane.
-				// The iteration is repeated, not counted, like the wait on a limit.
-				if firstTokenRetries < maxFirstTokenRetries {
+				// This recovery consumes both retry allowance and a ReAct iteration.
+				if firstTokenRetries < maxFirstTokenRetries && retryAllowance.TakeRetry() {
+					if turn+1 >= maxTurns {
+						return string(acp.StopReasonMaxTurns), nil
+					}
 					firstTokenRetries++
+					nextCallReason = "first_token_retry"
 					a.log.Warn("no first token from the model; re-issuing the same request",
-						"timeout", firstTokenTimeout, "attempt", firstTokenRetries)
-					turn--
+						"timeout", firstTokenTimeout, "recovery", nextCallReason,
+						"retries_remaining", retryAllowance.Snapshot().Remaining)
 					continue
 				}
 				return string(acp.StopReasonRefused), fmt.Errorf("model did not respond (no output within %v)", firstTokenTimeout)
@@ -880,6 +928,7 @@ func (a *Agent) runReActLoop(
 					// the limit it was waiting on and says what cut the wait.
 					return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w (the wait for the reset was interrupted: %v)", reset, err)
 				}
+				resetRetries("quota_reset_wait")
 				turn--
 				continue
 			}
@@ -1031,30 +1080,39 @@ func (a *Agent) runReActLoop(
 		// Returning here would dead-end the conversation on a lone "thinking" bubble, so
 		// re-prompt the model a bounded number of times before giving up.
 		if len(response.ToolCalls) == 0 {
+			if response.StopReason == "max_tokens" {
+				return string(acp.StopReasonMaxTokens), nil
+			}
+			if ctx.Err() != nil || a.state.IsUserCancelledTurn() {
+				return string(acp.StopReasonCancelled), nil
+			}
 			// First recovery is the plain replay: drop the empty turn from the
 			// LLM-facing slice so the request going out is byte for byte the one
 			// that failed, and let the proxy hand it to another deployment. The
 			// transcript keeps that turn, because the user watched its reasoning
 			// stream in. Words come next, once a replay has not helped.
 			if strings.TrimSpace(response.Content) == "" && emptyReissues < maxEmptyAssistantReissues &&
-				len(messages) > 0 && messages[len(messages)-1].Role == llm.RoleAssistant {
+				len(messages) > 0 && messages[len(messages)-1].Role == llm.RoleAssistant && retryAllowance.TakeRetry() {
+				if turn+1 >= maxTurns {
+					return string(acp.StopReasonMaxTurns), nil
+				}
 				emptyReissues++
-				messages = messages[:len(messages)-1]
+				messages = emptyRecoveryProjection(messages, 0)
+				nextCallReason = "empty_reissue"
 				a.log.Warn("model answered with no text and no tool call; re-issuing the same request",
-					"attempt", emptyReissues)
+					"recovery", nextCallReason, "retries_remaining", retryAllowance.Snapshot().Remaining)
 				continue
 			}
-			if strings.TrimSpace(response.Content) == "" && emptyContinuations < maxEmptyAssistantContinuations {
+			if strings.TrimSpace(response.Content) == "" && emptyContinuations < maxEmptyAssistantContinuations && retryAllowance.TakeRetry() {
+				if turn+1 >= maxTurns {
+					return string(acp.StopReasonMaxTurns), nil
+				}
 				emptyContinuations++
-				// LLM-facing only; never persisted to the transcript.
-				messages = append(messages, llm.Message{
-					Role:    llm.RoleUser,
-					Content: emptyAssistantContinuationNudge,
-				})
+				messages = emptyRecoveryProjection(messages, 1)
+				nextCallReason = "empty_nudge"
+				a.log.Warn("model answered with no text and no tool call; nudging for an answer",
+					"recovery", nextCallReason, "retries_remaining", retryAllowance.Snapshot().Remaining)
 				continue
-			}
-			if response.StopReason == "max_tokens" {
-				return string(acp.StopReasonMaxTokens), nil
 			}
 			// The turn produced no visible answer at all (only reasoning / empty
 			// content) and the model never recovered after the continuation nudges.
@@ -1090,6 +1148,7 @@ func (a *Agent) runReActLoop(
 				messages = append(messages, follow)
 				a.state.AddMessage(follow)
 				a.refreshConversationContextUsage(true)
+				resetRetries("stop_hook")
 				continue
 			}
 
@@ -1100,6 +1159,7 @@ func (a *Agent) runReActLoop(
 			// it in; on the last one it would only leave a dangling user
 			// message behind, and the manager's boundary drain takes it.
 			if turn+1 < maxTurns && a.readQueuedMessages(&messages) {
+				resetRetries("queued_followup")
 				continue
 			}
 			return string(acp.StopReasonEndTurn), nil
@@ -1192,9 +1252,7 @@ func (a *Agent) runReActLoop(
 		// reasoning-only thoughts — otherwise a model that alternates thinking and
 		// tool calls (gpt-oss / harmony) is abandoned mid-task. The replay budgets
 		// follow the same rule: a lane that answered once earns a fresh one.
-		emptyContinuations = 0
-		emptyReissues = 0
-		firstTokenRetries = 0
+		resetRetries("step")
 	}
 
 	return string(acp.StopReasonMaxTurns), nil
@@ -1204,13 +1262,17 @@ func (a *Agent) runReActLoop(
 // how long the first chunk took to arrive, how many chunks followed, and how
 // it ended. It is what -log-level debug shows for a call that hangs or is
 // cut, where the transcript alone shows nothing at all.
-func (a *Agent) logLLMCall(callStart, firstChunkAt time.Time, chunks int, response *llm.Response, err error) {
+func (a *Agent) logLLMCall(callStart, firstChunkAt time.Time, chunks int, response *llm.Response, err error, reason string, attempts llm.RetrySnapshot) {
 	if a.log == nil || !a.log.Enabled(context.Background(), slog.LevelDebug) {
 		return
 	}
 	attrs := []any{
 		"duration", humanDuration(time.Since(callStart)),
 		"chunks", chunks,
+		"call_reason", reason,
+		"provider_attempts", attempts.Attempts,
+		"transport_retries", attempts.TransportRetries,
+		"retries_remaining", attempts.Remaining,
 	}
 	if firstChunkAt.IsZero() {
 		attrs = append(attrs, "first_chunk", "none")

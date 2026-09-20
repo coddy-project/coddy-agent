@@ -84,7 +84,7 @@ Defaults for the main agent loop (model id and safety caps).
 | `agent.model` | string |  | Default models[].model id used until the client overrides the model per session. Required when models is non-empty. |
 | `agent.max_turns` | integer | 30 | Hard cap on LLM calls per prompt turn. |
 | `agent.max_tokens_per_turn` | integer | 200000 | Max tokens across all LLM calls in one turn. |
-| `agent.llm_retry_max` | integer or null | 3 | Retries after retryable LLM errors such as HTTP 429. An explicit 0 disables retries. |
+| `agent.llm_retry_max` | integer or null | 3 | Extra attempts shared by transport retries, empty-answer recovery and first-token re-issues until tool progress or a new follow-up. 0 disables these retries. Loop guards, Stop hooks, fallback models and quota-reset waits have separate limits. |
 | `agent.llm_retry_base_ms` | integer | 1000 | Initial backoff between LLM retries, in milliseconds. A server-provided pause (Retry-After-Ms / Retry-After headers, "Limit resets at" / "retry in Ns" body phrases) overrides the exponential backoff, capped at 60s. |
 | `agent.llm_min_interval_ms` | integer | 0 | Minimum gap between consecutive LLM calls in milliseconds, retry attempts included (0 disables pacing; e.g. 12000 on strict free tiers). |
 | `agent.llm_first_token_timeout_ms` | integer or null | 90000 | How long a streamed LLM call may stay silent before the turn cancels it (the API hang guard). An explicit 0 disables the guard; blocking (stream: false) transports are never guarded. |

@@ -39,8 +39,10 @@ type Agent struct {
 	Model            string `yaml:"model"`
 	MaxTurns         int    `yaml:"max_turns"`
 	MaxTokensPerTurn int    `yaml:"max_tokens_per_turn"`
-	// LLMRetryMax is the number of retries after a retryable LLM error such as HTTP 429.
-	// A nil pointer means the default (3); an explicit 0 disables retries.
+	// LLMRetryMax caps extra attempts shared by transport retries and consecutive
+	// no-answer recoveries. Tool progress or a new follow-up starts a fresh budget.
+	// Nil means 3; explicit 0 disables these retries. Loop guards, Stop hooks,
+	// model fallbacks and opt-in quota waits retain their independent limits.
 	LLMRetryMax *int `yaml:"llm_retry_max"`
 	// LLMRetryBaseMS is the initial backoff between LLM retries in milliseconds (default 1000).
 	LLMRetryBaseMS int `yaml:"llm_retry_base_ms"`

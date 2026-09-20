@@ -154,7 +154,7 @@
             "integer",
             "null"
           ],
-          "description": "Retries after retryable LLM errors such as HTTP 429. An explicit 0 disables retries.",
+          "description": "Extra attempts shared by transport retries, empty-answer recovery and first-token re-issues until tool progress or a new follow-up. 0 disables these retries. Loop guards, Stop hooks, fallback models and quota-reset waits have separate limits.",
           "default": 3,
           "minimum": 0
         },

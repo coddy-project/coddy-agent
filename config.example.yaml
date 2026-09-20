@@ -131,11 +131,13 @@ agent:
   model: "openai/gpt-5.6-terra"
   max_turns: 30
   max_tokens_per_turn: 200000
-  # LLM retry and pacing. A 429/5xx is retried llm_retry_max times; the pause is
-  # the server-provided Retry-After when present, the exponential backoff from
+  # LLM retry and pacing. Transport retries and consecutive empty-answer or
+  # first-token recoveries share llm_retry_max extra attempts per model step.
+  # Tool progress starts a fresh allowance; recovery also uses max_turns.
+  # For 429/5xx the pause is Retry-After when present, the exponential backoff from
   # llm_retry_base_ms otherwise. llm_min_interval_ms spaces out ALL calls,
   # retries included - the working knob on strict free tiers (e.g. 6 req/min).
-  # llm_retry_max: 3              # retries after 429 and similar errors (0 disables retries)
+  # llm_retry_max: 3              # shared extra attempts (0 disables retries and no-answer recovery)
   # llm_retry_base_ms: 1000       # initial backoff between retries
   # llm_min_interval_ms: 0        # min gap between LLM calls; e.g. 12000 on strict free tiers
   # llm_first_token_timeout_ms: 90000  # cancel a silent streamed call after this long (0 disables)

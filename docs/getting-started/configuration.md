@@ -227,9 +227,10 @@ models:
 # ReAct loop settings (Go: config.Agent, internal/config/agent.go)
 agent:
   model: "openai/gpt-5.6-terra"  # required when models is non-empty; default LLM until the client overrides per session
-  max_turns: 30                # max LLM calls per prompt turn
+  max_turns: 30                # ReAct iterations per prompt, including no-answer recoveries
   max_tokens_per_turn: 200000  # max tokens across all calls in one turn
-  llm_retry_max: 3             # retries after HTTP 429 and similar errors (default 3; an explicit 0 disables retries)
+  llm_retry_max: 3             # shared per-step budget: transport retries + no-answer recoveries
+                               # (default 3; 0 disables these retries, not separately configured continuations)
   llm_retry_base_ms: 1000      # initial backoff between LLM retries; a server-provided
                                # pause (Retry-After-Ms / Retry-After headers, "Limit resets
                                # at" / "retry in Ns" body phrases) overrides the backoff,
