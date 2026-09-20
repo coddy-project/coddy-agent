@@ -14,16 +14,23 @@ function isBlockedOnUser(kind: LiveStatusKind | undefined): boolean {
   return kind === "permission" || kind === "question";
 }
 
+/** Stable spelling of a phrase's slots, for the step identity. */
+function keyParamsIdentity(params: Record<string, string> | undefined): string {
+  if (!params) {
+    return "";
+  }
+  return Object.keys(params)
+    .sort()
+    .map((name) => `${name}=${params[name]}`)
+    .join(",");
+}
+
 function TypingDotsMessageImpl(props: {
   /** Omit to render bare dots (no live status available). */
   statusKind?: LiveStatusKind;
   statusKey?: string;
   /** What the phrase's {slots} resolve to; only a phrase that names its call has any. */
   statusKeyParams?: Record<string, string>;
-  /** Already truncated for display. */
-  statusTarget?: string;
-  /** Untruncated target for the title tooltip. */
-  statusTargetFull?: string;
   /** When the current step started; the component stamps its own when omitted. */
   startedAtMs?: number;
   /**
@@ -48,8 +55,10 @@ function TypingDotsMessageImpl(props: {
   const tasksOnly = props.tasksOnly === true;
   const showStatus = props.statusKind !== undefined && !tasksOnly;
 
-  // Identity of the current step; a change means a new step and a fresh count.
-  const identity = `${props.statusKind || ""}|${props.statusKey || ""}|${props.statusTarget || ""}`;
+  // Identity of the current step; a change means a new step and a fresh count. The
+  // phrase's slots belong to it: two calls to the same MCP server share one key and
+  // differ only in what the slots say.
+  const identity = `${props.statusKind || ""}|${props.statusKey || ""}|${keyParamsIdentity(props.statusKeyParams)}`;
   const stampRef = useRef<{ id: string; at: number }>({
     id: identity,
     at: Date.now(),
@@ -188,8 +197,6 @@ function TypingDotsMessageImpl(props: {
       ? t(key, props.statusKeyParams)
       : t(key);
   const slow = key === "status.waitingSlow" || key === "status.waitingStuck";
-  const target = props.statusTarget || "";
-  const titleText = props.statusTargetFull || "";
 
   return (
     <div className="msg-assistant-stack" data-testid="typing-dots">
@@ -204,7 +211,6 @@ function TypingDotsMessageImpl(props: {
             "typing-dots-status" + (slow ? " typing-dots-status--slow" : "")
           }
           data-testid="typing-dots-status"
-          {...(titleText ? { title: titleText } : {})}
         >
           {turnElapsed ? (
             <span className="typing-dots-turn">
@@ -247,10 +253,9 @@ function TypingDotsMessageImpl(props: {
             aria-live="polite"
             aria-atomic="true"
           >
+            {/* The phrase is the whole of it: the line never names what the step
+                acts on, so a phrase has to be complete on its own. */}
             <span className="typing-dots-status-verb">{verb}</span>
-            {target ? (
-              <span className="typing-dots-status-target">{target}</span>
-            ) : null}
           </span>
           {elapsed ? (
             <span

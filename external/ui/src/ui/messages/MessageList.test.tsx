@@ -231,7 +231,7 @@ test("the live line stays under text written earlier in the turn", () => {
 
   expect(screen.getByTestId("typing-dots")).toBeInTheDocument();
   expect(screen.getByTestId("typing-dots-status")).toHaveTextContent(
-    "Fetching",
+    "Fetching a page",
   );
 });
 

@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 
 import { permissionPendingToolCallIds } from "../chat/permissionPendingToolCalls";
-import { deriveLiveStatus, truncateStatusTarget } from "../chat/liveStatus";
+import { deriveLiveStatus } from "../chat/liveStatus";
 import { BranchNavigator } from "../chat/BranchNavigator";
 import { PlanDocumentSection } from "../chat/PlanDocumentSection";
 import { PermissionPromptSection } from "../chat/PermissionPromptSection";
@@ -140,11 +140,8 @@ export function MessageList(props: {
 
   // What the running turn is doing right now, for the label next to the typing dots.
   const liveStatus = useMemo(
-    () =>
-      props.generating === true
-        ? deriveLiveStatus(props.items, props.pathRoots || [])
-        : null,
-    [props.generating, props.items, props.pathRoots],
+    () => (props.generating === true ? deriveLiveStatus(props.items) : null),
+    [props.generating, props.items],
   );
 
   return (
@@ -372,12 +369,6 @@ export function MessageList(props: {
                 ...(liveStatus.keyParams
                   ? { statusKeyParams: liveStatus.keyParams }
                   : {}),
-              }
-            : {})}
-          {...(liveStatus && liveStatus.target
-            ? {
-                statusTarget: truncateStatusTarget(liveStatus.target),
-                statusTargetFull: liveStatus.target,
               }
             : {})}
           {...(typeof liveStatus?.startedAtMs === "number"

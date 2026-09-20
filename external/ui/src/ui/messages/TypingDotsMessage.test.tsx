@@ -95,20 +95,18 @@ test("the status node is the fourth child so the dot animation stagger survives"
   expect(row!.children[3]!.className).toContain("typing-dots-status");
 });
 
-test("renders the verb and the target", () => {
-  render(
-    <TypingDotsMessage
-      statusKind="tool"
-      statusKey="status.read"
-      statusTarget="…/ui/App.tsx"
-      statusTargetFull="external/ui/src/ui/App.tsx"
-    />,
-  );
-  expect(screen.getByText("Reading")).toBeInTheDocument();
-  expect(screen.getByText("…/ui/App.tsx")).toBeInTheDocument();
-  expect(screen.getByTestId("typing-dots-status").getAttribute("title")).toBe(
-    "external/ui/src/ui/App.tsx",
-  );
+// The live line carries the phase and nothing it acts on, so the phrase has to be
+// complete on its own and there is no target node and no tooltip to carry a path
+// (DESIGN.md, States -> Working).
+test("renders the phrase alone, with nothing the step acts on", () => {
+  render(<TypingDotsMessage statusKind="tool" statusKey="status.read" />);
+  expect(screen.getByText("Reading a file")).toBeInTheDocument();
+  expect(
+    document.querySelector(".typing-dots-status-target"),
+  ).toBeNull();
+  expect(
+    screen.getByTestId("typing-dots-status").getAttribute("title"),
+  ).toBeNull();
 });
 
 test("moves the live region off the dots and hides the ticking counter from AT", () => {
@@ -194,10 +192,25 @@ test("shows no counter while blocked on the user", () => {
 test("restarts the counter when the step changes", () => {
   vi.useFakeTimers();
   const { rerender } = render(
+    <TypingDotsMessage statusKind="tool" statusKey="status.read" />,
+  );
+  act(() => {
+    vi.advanceTimersByTime(5000);
+  });
+  expect(screen.getByTestId("typing-dots-elapsed").textContent).toBe("5s");
+  rerender(<TypingDotsMessage statusKind="tool" statusKey="status.run" />);
+  expect(screen.getByTestId("typing-dots-elapsed").textContent).toBe("0s");
+});
+
+// Two calls to the same MCP server share one key and differ only in their slots,
+// so the slots belong to the step's identity as well.
+test("restarts the counter when only the phrase's slots change", () => {
+  vi.useFakeTimers();
+  const { rerender } = render(
     <TypingDotsMessage
       statusKind="tool"
-      statusKey="status.read"
-      statusTarget="a.ts"
+      statusKey="status.mcp"
+      statusKeyParams={{ server: "playwright", tool: "browser_navigate" }}
     />,
   );
   act(() => {
@@ -207,8 +220,8 @@ test("restarts the counter when the step changes", () => {
   rerender(
     <TypingDotsMessage
       statusKind="tool"
-      statusKey="status.read"
-      statusTarget="b.ts"
+      statusKey="status.mcp"
+      statusKeyParams={{ server: "playwright", tool: "browser_click" }}
     />,
   );
   expect(screen.getByTestId("typing-dots-elapsed").textContent).toBe("0s");
@@ -226,7 +239,7 @@ test("clears its interval on unmount", () => {
   expect(screen.queryByTestId("typing-dots-elapsed")).toBeNull();
 });
 
-test("MessageList renders the running tool's verb and path", () => {
+test("MessageList renders the running tool's phrase without its path", () => {
   const items: TranscriptItem[] = [
     { id: "u1", type: "user_message", content: "Go" },
     {
@@ -240,12 +253,13 @@ test("MessageList renders the running tool's verb and path", () => {
     },
   ];
   render(<MessageList items={items} generating={true} />);
-  expect(screen.getByText("Reading")).toBeInTheDocument();
-  expect(
-    screen.getByText("external/ui/src/ui/App.tsx", {
-      selector: ".typing-dots-status-target",
-    }),
-  ).toBeInTheDocument();
+  expect(screen.getByTestId("typing-dots-status")).toHaveTextContent(
+    "Reading a file",
+  );
+  // The path is named by the transcript row above, once.
+  expect(screen.getByTestId("typing-dots-status").textContent).not.toContain(
+    "App.tsx",
+  );
 });
 
 test("MessageList reports an unresolved permission prompt instead of the tool", () => {
@@ -354,7 +368,6 @@ test("a tool step keeps its own clock after the phrase, next to the turn's", () 
     <TypingDotsMessage
       statusKind="tool"
       statusKey="status.run"
-      statusTarget="make test"
       startedAtMs={Date.now() - 45_000}
       turnStartedAtMs={Date.now() - 125_000}
       turnTokens={1200}

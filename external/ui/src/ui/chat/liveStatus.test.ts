@@ -5,7 +5,6 @@ import {
   formatElapsedSeconds,
   statusKeyForTool,
   stepShowsItsOwnClock,
-  truncateStatusTarget,
   waitingStatusKey,
 } from "./liveStatus";
 import type { TranscriptItem } from "./types";
@@ -34,7 +33,7 @@ describe("deriveLiveStatus", () => {
     expect(deriveLiveStatus([user()]).kind).toBe("waiting");
   });
 
-  it("reads a tool call's verb, target and start", () => {
+  it("reads a tool call's phrase and start", () => {
     const s = deriveLiveStatus([
       user(),
       tool({
@@ -46,54 +45,42 @@ describe("deriveLiveStatus", () => {
     ]);
     expect(s.kind).toBe("tool");
     expect(s.key).toBe("status.read");
-    expect(s.target).toBe("external/ui/src/ui/App.tsx");
     expect(s.startedAtMs).toBe(1234);
   });
 
-  it("uses the command for run_command", () => {
-    const s = deriveLiveStatus([
-      user(),
+  // The live line carries the phase and nothing the step acts on: the path, the
+  // command, the pattern and the url belong to the transcript row above it
+  // (DESIGN.md, States -> Working). Whatever the arguments hold, the status is
+  // the phrase and its clock.
+  it("never carries what the call acts on", () => {
+    const calls = [
+      tool({ title: "read", argsText: '{"path":"external/ui/src/App.tsx"}' }),
       tool({ title: "run_command", argsText: '{"command":"npm test"}' }),
-    ]);
-    expect(s.key).toBe("status.run");
-    expect(s.target).toBe("npm test");
-  });
-
-  it("uses the path for write, never the file body", () => {
-    const s = deriveLiveStatus([
-      user(),
       tool({
         title: "write",
         argsText: '{"path":"a/b.ts","content":"a very long file body"}',
       }),
-    ]);
-    expect(s.key).toBe("status.write");
-    expect(s.target).toBe("a/b.ts");
+      tool({ title: "mv", argsText: '{"src":"a.ts","dst":"b.ts"}' }),
+      tool({ title: "grep", argsText: '{"pattern":"TODO"}' }),
+      tool({ title: "read", argsText: 'Arguments: {"path":"a.ts"}' }),
+      tool({ title: "something_else" }),
+    ];
+    for (const call of calls) {
+      const s = deriveLiveStatus([user(), call]);
+      expect(s.kind).toBe("tool");
+      expect(s).not.toHaveProperty("target");
+    }
+    expect(deriveLiveStatus([user(), calls[5] as never]).key).toBe(
+      "status.read",
+    );
+    expect(deriveLiveStatus([user(), calls[6] as never]).key).toBe(
+      "status.tool",
+    );
   });
 
-  it("uses src for mv and pattern for grep", () => {
-    expect(
-      deriveLiveStatus([
-        user(),
-        tool({ title: "mv", argsText: '{"src":"a.ts","dst":"b.ts"}' }),
-      ]).target,
-    ).toBe("a.ts");
-    expect(
-      deriveLiveStatus([
-        user(),
-        tool({ title: "grep", argsText: '{"pattern":"TODO"}' }),
-      ]).target,
-    ).toBe("TODO");
-  });
-
-  it("keeps an unknown tool id as the target", () => {
-    const s = deriveLiveStatus([user(), tool({ title: "something_else" })]);
-    expect(s.key).toBe("status.tool");
-    expect(s.target).toBe("something_else");
-  });
-
-  // The generic verb cannot say what an MCP call does, so the phrase names the
-  // server and the tool and the target stays what the call acts on.
+  // The generic phrase cannot say what an MCP call does and its `server__tool`
+  // registry id says it badly, so this one phrase names the server and the tool
+  // through its own slots. It still names no argument of the call.
   it("names the MCP server and the tool for a call Coddy does not define", () => {
     const s = deriveLiveStatus([
       user(),
@@ -107,32 +94,21 @@ describe("deriveLiveStatus", () => {
       server: "playwright",
       tool: "browser_navigate",
     });
-    expect(s.target).toBe("https://example.dev/a");
+    expect(s).not.toHaveProperty("target");
 
     const bare = deriveLiveStatus([
       user(),
       tool({ title: "mcp__github__create_issue" }),
     ]);
     expect(bare.keyParams).toEqual({ server: "github", tool: "create_issue" });
-    // Nothing to act on, and the id would only repeat the phrase.
-    expect(bare.target).toBe("");
   });
 
-  it("renders a pending tool without arguments as a bare verb", () => {
+  it("names a pending tool from its id alone", () => {
     const s = deriveLiveStatus([
       user(),
       tool({ title: "read", status: "pending" }),
     ]);
     expect(s.key).toBe("status.read");
-    expect(s.target).toBe("");
-  });
-
-  it('parses the "Arguments: {...}" prefix', () => {
-    const s = deriveLiveStatus([
-      user(),
-      tool({ title: "read", argsText: 'Arguments: {"path":"a.ts"}' }),
-    ]);
-    expect(s.target).toBe("a.ts");
   });
 
   it("picks the in-progress tool over a completed one", () => {
@@ -168,7 +144,6 @@ describe("deriveLiveStatus", () => {
       tool({ id: "t2", toolCallId: "c2", title: "write", status: "pending" }),
     ]);
     expect(s.key).toBe("status.read");
-    expect(s.target).toBe("a.go");
   });
 
   it("prefers a tool call over in-progress thinking", () => {
@@ -262,7 +237,6 @@ describe("deriveLiveStatus", () => {
     ]);
     expect(s.kind).toBe("writing");
     expect(s.key).toBe("status.writing");
-    expect(s.target).toBe("");
   });
 
   it("text earlier in the turn does not hide the step running after it", () => {
@@ -381,47 +355,6 @@ describe("statusKeyForTool", () => {
     );
     expect(statusKeyForTool("background_stop")).toBe("status.backgroundStop");
     expect(statusKeyForTool("background_reap")).toBe("status.backgroundReap");
-  });
-});
-
-describe("truncateStatusTarget", () => {
-  it("leaves short values alone", () => {
-    expect(truncateStatusTarget("external/ui/src/ui/App.tsx")).toBe(
-      "external/ui/src/ui/App.tsx",
-    );
-  });
-
-  it("drops leading path segments and keeps the file name", () => {
-    const out = truncateStatusTarget(
-      "a/very/deeply/nested/directory/tree/inside/the/repo/App.tsx",
-    );
-    expect(out.startsWith("…/")).toBe(true);
-    expect(out.endsWith("App.tsx")).toBe(true);
-    expect(out.length).toBeLessThanOrEqual(56);
-  });
-
-  it("hard-cuts a single oversized segment", () => {
-    const out = truncateStatusTarget("dir/" + "x".repeat(200));
-    expect(out.endsWith("…")).toBe(true);
-    expect(out.length).toBeLessThanOrEqual(56);
-  });
-
-  it("normalizes windows separators", () => {
-    const out = truncateStatusTarget(
-      "H:\\Projects\\coddy\\external\\ui\\src\\ui\\messages\\Typing.tsx",
-    );
-    expect(out).not.toContain("\\");
-    expect(out.endsWith("Typing.tsx")).toBe(true);
-  });
-
-  it("collapses whitespace in multi-line commands", () => {
-    expect(truncateStatusTarget("npm  run\n  test")).toBe("npm run test");
-  });
-
-  it("keeps the head of a long command", () => {
-    const out = truncateStatusTarget("npm run test -- " + "x".repeat(200));
-    expect(out.startsWith("npm run test")).toBe(true);
-    expect(out.endsWith("…")).toBe(true);
   });
 });
 

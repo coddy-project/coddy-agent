@@ -12,17 +12,17 @@ import (
 
 func TestStatusVerbForTool(t *testing.T) {
 	cases := map[string]string{
-		"read":                    "Reading",
-		"print_tree":              "Listing",
-		"grep":                    "Searching",
-		"glob":                    "Searching",
-		"APPLY_PATCH":             "Editing",
-		"write":                   "Writing",
-		"run_command":             "Running",
-		"ssh_run_command":         "Running over SSH",
-		"spawn_agent":             "Running subagent",
-		"rmdir":                   "Deleting",
-		"webfetch":                "Fetching",
+		"read":                    "Reading a file",
+		"print_tree":              "Browsing a directory",
+		"grep":                    "Searching in files",
+		"glob":                    "Searching in files",
+		"APPLY_PATCH":             "Editing a file",
+		"write":                   "Writing a file",
+		"run_command":             "Running a command",
+		"ssh_run_command":         "Running a command over SSH",
+		"spawn_agent":             "Running a subagent",
+		"rmdir":                   "Deleting a file",
+		"webfetch":                "Fetching a page",
 		"coddy_docs_search":       "Searching the docs",
 		"coddy_docs_read":         "Reading the docs",
 		"http_request":            "Sending a request",
@@ -51,6 +51,28 @@ func TestStatusVerbForTool(t *testing.T) {
 	for name, want := range cases {
 		if got := statusVerbForTool(name); got != want {
 			t.Errorf("statusVerbForTool(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+// The status line renders the phrase and nothing the step acts on, so a phrase that was
+// written to be completed by a target that follows it reads as a fragment. Two words is
+// the bar, which every phrase of this table clears.
+func TestStatusVerbsStandOnTheirOwn(t *testing.T) {
+	ids := []string{
+		"read", "list_dir", "print_tree", "grep", "glob", "edit", "apply_patch",
+		"write", "run_command", "ssh_run_command", "spawn_agent", "mkdir", "touch",
+		"mv", "rm", "rmdir", "websearch", "coddy_docs_search", "coddy_docs_read",
+		"webfetch", "http_request", "load_skill", "plan_read", "plan_write",
+		"plan_list", "plan_exit", "question", "coddy_todo_write",
+		"coddy_todo_plan_read", "coddy_scheduler_job_get", "coddy_memory_search",
+		"config_set", "background_wait", "background_list", "background_output",
+		"background_stop", "background_reap", "some_server__do_thing", "",
+	}
+	for _, id := range ids {
+		phrase := statusVerbForTool(id)
+		if len(strings.Fields(phrase)) < 2 {
+			t.Errorf("statusVerbForTool(%q) = %q, want a phrase that stands on its own", id, phrase)
 		}
 	}
 }
@@ -101,44 +123,6 @@ func TestStatusTargetFromArgs(t *testing.T) {
 	}
 }
 
-func TestTruncateStatusTarget(t *testing.T) {
-	if got := truncateStatusTarget("internal/agent/react.go", 48); got != "internal/agent/react.go" {
-		t.Errorf("short path was rewritten: %q", got)
-	}
-
-	deep := truncateStatusTarget("a/very/deeply/nested/directory/tree/inside/the/repo/react.go", 48)
-	if !strings.HasPrefix(deep, "…/") || !strings.HasSuffix(deep, "react.go") {
-		t.Errorf("deep path = %q, want a …/ prefix and the file name", deep)
-	}
-	if n := len([]rune(deep)); n > 48 {
-		t.Errorf("deep path is %d runes, want <= 48", n)
-	}
-
-	// A Windows path has to read like a POSIX one; the untruncated value is not shown.
-	win := truncateStatusTarget(`H:\Projects\coddy\internal\agent\react.go`, 48)
-	if strings.ContainsRune(win, '\\') {
-		t.Errorf("windows separators survived: %q", win)
-	}
-
-	if got := truncateStatusTarget("go  test\n  ./...", 48); got != "go test ./..." {
-		t.Errorf("whitespace was not collapsed: %q", got)
-	}
-
-	// A command keeps its head: the program name is what identifies it.
-	long := truncateStatusTarget("go test ./... -run "+strings.Repeat("x", 200), 48)
-	if !strings.HasPrefix(long, "go test ./...") || !strings.HasSuffix(long, "…") {
-		t.Errorf("long command = %q, want the head kept and the tail cut", long)
-	}
-	if n := len([]rune(long)); n > 48 {
-		t.Errorf("long command is %d runes, want <= 48", n)
-	}
-
-	huge := truncateStatusTarget("dir/"+strings.Repeat("x", 200), 48)
-	if n := len([]rune(huge)); n > 48 {
-		t.Errorf("oversized segment is %d runes, want <= 48", n)
-	}
-}
-
 func TestFormatElapsed(t *testing.T) {
 	cases := map[time.Duration]string{
 		0:                               "0s",
@@ -159,8 +143,10 @@ func TestFormatElapsed(t *testing.T) {
 }
 
 func TestLiveStatusText(t *testing.T) {
-	tool := newWorkingStatus("Reading", "README.md")
-	if got := tool.statusText(12 * time.Second); got != "Reading README.md · 12s" {
+	// The phrase and the step's clock. The path the call reads is named by the tool
+	// box above the line and never repeated here.
+	tool := newWorkingStatus("Reading a file", "call_1")
+	if got := tool.statusText(12 * time.Second); got != "Reading a file · 12s" {
 		t.Errorf("tool status = %q", got)
 	}
 	// The model's own phases are covered by the turn clock that leads the line, so
@@ -213,12 +199,20 @@ func TestSetStatusKeepsTheStartOfARepeatedStep(t *testing.T) {
 		t.Fatal("a repeated step restarted its counter")
 	}
 
-	a.setStatus(newWorkingStatus("Reading", "README.md"))
+	a.setStatus(newWorkingStatus("Reading a file", "call_1"))
 	if !a.stepStatus.startedAt.After(first) {
 		t.Fatal("a new step kept the previous start time")
 	}
-	if a.stepStatus.target != "README.md" {
-		t.Fatalf("target = %q", a.stepStatus.target)
+
+	// Two calls in a row can read the same now that the line names no target, so the
+	// step id is what tells them apart and the second one starts its counter over.
+	a.stepStatus.startedAt = first
+	a.setStatus(newWorkingStatus("Reading a file", "call_2"))
+	if !a.stepStatus.startedAt.After(first) {
+		t.Fatal("the next call with the same phrase inherited the previous clock")
+	}
+	if a.stepStatus.step != "call_2" {
+		t.Fatalf("step = %q", a.stepStatus.step)
 	}
 }
 
@@ -246,8 +240,9 @@ func TestTurnLine(t *testing.T) {
 
 func TestStatusMessageLeadsWithTheTurnsOwnNumbers(t *testing.T) {
 	a := &App{turnActive: true, turnStartedAt: time.Now().Add(-125 * time.Second), turnTokens: 1200, runningTasks: 1}
-	a.setStatus(liveStatus{verb: "Running", target: "make test", startedAt: time.Now().Add(-45 * time.Second), counts: true})
-	if got := a.statusMessage(); got != "2m 05s · 1.2k tokens · 1 running task · Running make test · 45s" {
+	a.setStatus(liveStatus{verb: "Running a command", step: "call_1", startedAt: time.Now().Add(-45 * time.Second), counts: true})
+	// The command itself is on the tool box above the line, never on the line.
+	if got := a.statusMessage(); got != "2m 05s · 1.2k tokens · 1 running task · Running a command · 45s" {
 		t.Fatalf("statusMessage() = %q", got)
 	}
 
@@ -262,7 +257,7 @@ func TestStatusMessageLeadsWithTheTurnsOwnNumbers(t *testing.T) {
 	// An operator gate keeps the turn clock - it is wall time since the prompt -
 	// and still has no step counter.
 	c := &App{turnActive: true, turnStartedAt: time.Now().Add(-30 * time.Second), turnTokens: 80}
-	c.setStatus(newWorkingStatus("Running", "sleep 6"))
+	c.setStatus(newWorkingStatus("Running a command", "call_1"))
 	c.blockStatus("Waiting for your approval")
 	if got := c.statusMessage(); got != "30s · 80 tokens · Waiting for your approval" {
 		t.Fatalf("blocked statusMessage() = %q", got)
@@ -305,18 +300,18 @@ func TestBlockedQuestionShowsNoCounter(t *testing.T) {
 
 func TestBlockedOverlayOutlivesLateToolUpdates(t *testing.T) {
 	a := &App{turnActive: true}
-	a.setStatus(newWorkingStatus("Running", "sleep 6"))
+	a.setStatus(newWorkingStatus("Running a command", "call_1"))
 	a.blockStatus("Waiting for your approval")
 	// The gated call's in_progress update can land after the modal opened
 	// (updatesCh and permCh race in the UI select); the gate must still win.
-	a.setStatus(newWorkingStatus("Running", "sleep 6"))
+	a.setStatus(newWorkingStatus("Running a command", "call_1"))
 	if got := a.statusMessage(); got != "Waiting for your approval" {
 		t.Fatalf("modal status lost to a late tool update: %q", got)
 	}
 
 	a.unblockStatus()
 	got := a.statusMessage()
-	if !strings.HasPrefix(got, "Running sleep 6") {
+	if !strings.HasPrefix(got, "Running a command") {
 		t.Fatalf("gated tool not restored after approval: %q", got)
 	}
 	// The approved tool only starts executing now, so its clock restarts;
@@ -330,7 +325,7 @@ func TestUnblockWithoutGateKeepsTheStepClock(t *testing.T) {
 	// closeModal runs for every modal (model picker, history); without an
 	// active gate it must not touch the running step's counter.
 	first := time.Now().Add(-time.Hour)
-	a := &App{turnActive: true, stepStatus: liveStatus{verb: "Running", target: "x", startedAt: first, counts: true}}
+	a := &App{turnActive: true, stepStatus: liveStatus{verb: "Running a command", step: "call_1", startedAt: first, counts: true}}
 	a.unblockStatus()
 	if !a.stepStatus.startedAt.Equal(first) {
 		t.Fatal("unblockStatus without a gate restarted the step clock")

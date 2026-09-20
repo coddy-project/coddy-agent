@@ -206,9 +206,10 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		a.lastToolID = u.ToolCallID
 		a.chat.AddChild(tb)
 		a.curAssistant = nil
-		// Title is the plain tool name (internal/agent/react.go); the arguments that name
-		// the target arrive on the following in_progress update.
-		a.setStatus(newWorkingStatus(statusVerbForTool(u.Title), ""))
+		// Title is the plain tool name (internal/agent/react.go). The status line says the
+		// phase and nothing else, so it is complete here: the arguments that follow on the
+		// in_progress update are the tool box's, not the line's.
+		a.setStatus(newWorkingStatus(statusVerbForTool(u.Title), u.ToolCallID))
 	case acp.ToolCallStatusUpdate:
 		tb, ok := a.toolBoxes[u.ToolCallID]
 		if !ok {
@@ -370,14 +371,15 @@ func (a *App) applyToolStatus(tb *toolBox, u acp.ToolCallStatusUpdate) {
 	preview := ""
 	switch u.Status {
 	case "in_progress":
-		// Content carries the raw argument JSON while streaming.
+		// A call the console never saw announced (a status update without its
+		// ToolCallUpdate) still has to name its phase.
+		a.setStatus(newWorkingStatus(statusVerbForTool(tb.name), u.ToolCallID))
+		// Content carries the raw argument JSON while streaming. It goes to the box
+		// title, which is where what a call acts on is named; the status line takes
+		// the phase alone.
 		for _, item := range u.Content {
 			if item.Content.Text != "" {
 				tb.SetArgs(item.Content.Text)
-				a.setStatus(newWorkingStatus(
-					statusVerbForTool(tb.name),
-					statusTargetFromArgs(tb.name, item.Content.Text),
-				))
 			}
 		}
 		tb.SetStatus("in_progress", "", 0, 0)

@@ -74,11 +74,15 @@ Top to bottom:
   runs. The tokens are the agent's `turn_progress` update: the provider's
   figures for the calls that finished plus an estimate of the one in flight, so
   the count moves while the answer streams; a console attached over `--remote`
-  receives the same update. Then comes the current step - verb plus target -
-  and, for a step that runs something other than the model, a counter of its
-  own (`2m 05s · 1.2k tokens · Running npm test · 45s`, `Running subagent
-  reviewer · 40s` while a `spawn_agent` call is in flight); thinking, responding
-  and waiting are covered by the turn clock. A plain wait escalates with time:
+  receives the same update. Then comes the phrase of the current step and, for a
+  step that runs something other than the model, a counter of its own (`2m 05s ·
+  1.2k tokens · Running a command · 45s`, `Running a subagent · 40s` while a
+  `spawn_agent` call is in flight); thinking, responding and waiting are covered
+  by the turn clock. The line carries the phase and **nothing the step acts on**
+  - no command, no path, no url: what a call acts on is named once, by the tool
+  box above the line, so every phrase is complete on its own (`Running a
+  command`, never `Running` waiting for a command to follow it). A plain wait
+  escalates with time:
   `Waiting for the model` → `The model is taking longer than usual` (15 s) →
   `Still no response from the server` (60 s). While a permission or question
   modal is open the line shows `Waiting for your approval` / `Waiting for your
@@ -548,8 +552,9 @@ child sessions are the server's. Approve a project definition there (`coddy
 agents trust` on the server, or `POST /coddy/subagents/{name}/trust`); the
 local `coddy agents` subcommands do not take `--remote`. A child's permission
 prompts reach the remote console like the parent's own, prefixed
-`[subagent <name>]`, and the status line reads `Running subagent <name>` while
-the child runs. A background child that asks after the turn ended reaches the
+`[subagent <name>]`, and the status line reads `Running a subagent` while
+the child runs; the subagent that took the task is named by the tool box above
+the line, which the status line never repeats. A background child that asks after the turn ended reaches the
 console too: the server announces the prompt on its events stream and the
 console opens the modal for the sessions it opened, answering the child
 session; answered first in a browser or a chat, the modal closes. After reconnecting, the console reconciles the complete pending-request snapshot: prompts answered while offline close, while requests still waiting remain open without duplicate modals. An interrupted snapshot does not dismiss a pending request. The footer shows the local folder; the trust receipt is keyed
@@ -598,8 +603,9 @@ process working directory, resolved like `coddy mcp`. Under
 In the console a `spawn_agent` call shows as a tool box whose title names the
 subagent that took the task (`spawn_agent explore · find every caller`), with
 the prompt the child received rendered under it and the child's report added as
-the body when it comes back; the status line reads `Running subagent <name>`
-with its elapsed counter for as long as the child runs.
+the body when it comes back; the status line reads `Running a subagent`
+with its elapsed counter for as long as the child runs, and the box title is
+where the name is.
 
 ![A delegated run in the console transcript](../assets/cli-tui/13-subagent-delegation.png)
 
