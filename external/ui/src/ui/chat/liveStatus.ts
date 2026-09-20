@@ -31,8 +31,13 @@ export type LiveStatusKind =
 
 export type LiveStatus = {
   kind: LiveStatusKind;
-  /** i18n key of the verb phrase. Carries no {param} slots. */
+  /** i18n key of the verb phrase. Takes slots only through keyParams. */
   key: string;
+  /**
+   * What the phrase's {slots} resolve to, when it has any. Only a call Coddy does
+   * not define needs them: its own name is the only thing the phrase can say.
+   */
+  keyParams?: Record<string, string>;
   /** Untruncated target (path / command / pattern); "" when the phrase takes none. */
   target: string;
   /** Wall clock ms to count elapsed from; omitted when the start is unknown. */
@@ -394,16 +399,15 @@ export function deriveLiveStatus(
       named && toolCallTargetIsPath(context)
         ? relativeToolTarget(named, pathRoots)
         : named;
-    // A generic verb over an MCP call says nothing, and its `server__tool` id says
-    // it badly, so the line spends the target on the call's identity. What it acts
-    // on is on the transcript row above, which names the server and the tool too.
-    const mcp = parseMcpToolName(rawName);
-    const target = mcp
-      ? mcp.server + "/" + mcp.tool
-      : relative || (key === "status.tool" ? rawName : "");
+    // A generic verb over an MCP call says nothing and its `server__tool` id says
+    // it badly, so the phrase names the server and the tool, the way the transcript
+    // row does, and the target stays what the call acts on.
+    const mcp = key === "status.tool" ? parseMcpToolName(rawName) : null;
+    const target = relative || (key === "status.tool" && !mcp ? rawName : "");
     return {
       kind: "tool",
-      key,
+      key: mcp ? "status.mcp" : key,
+      ...(mcp ? { keyParams: { server: mcp.server, tool: mcp.tool } } : {}),
       target,
       // startedAtMs is rewritten on every in_progress update, i.e. it is the time of the
       // last status transition rather than the tool start. That is what we want here —

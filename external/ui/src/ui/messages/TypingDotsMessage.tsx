@@ -18,6 +18,8 @@ function TypingDotsMessageImpl(props: {
   /** Omit to render bare dots (no live status available). */
   statusKind?: LiveStatusKind;
   statusKey?: string;
+  /** What the phrase's {slots} resolve to; only a phrase that names its call has any. */
+  statusKeyParams?: Record<string, string>;
   /** Already truncated for display. */
   statusTarget?: string;
   /** Untruncated target for the title tooltip. */
@@ -36,9 +38,15 @@ function TypingDotsMessageImpl(props: {
   runningTasks?: number;
   /** Opens the Tasks panel from the running-tasks segment. */
   onOpenTasks?: () => void;
+  /**
+   * The turn is over and only the tasks it started are still running: the line carries
+   * the count and nothing else. There is no turn left to time or to count tokens for.
+   */
+  tasksOnly?: boolean;
 }) {
   const { t, tp } = useT();
-  const showStatus = props.statusKind !== undefined;
+  const tasksOnly = props.tasksOnly === true;
+  const showStatus = props.statusKind !== undefined && !tasksOnly;
 
   // Identity of the current step; a change means a new step and a fresh count.
   const identity = `${props.statusKind || ""}|${props.statusKey || ""}|${props.statusTarget || ""}`;
@@ -96,6 +104,46 @@ function TypingDotsMessageImpl(props: {
     };
   }, [tickFrom]);
 
+  const runningTasks =
+    typeof props.runningTasks === "number" && props.runningTasks > 0
+      ? Math.floor(props.runningTasks)
+      : 0;
+
+  if (tasksOnly) {
+    // Nothing is running, so there is nothing for the line to say.
+    if (runningTasks === 0) {
+      return null;
+    }
+    const tasksLabel = tp("tasks.running", runningTasks);
+    return (
+      <div className="msg-assistant-stack" data-testid="typing-dots">
+        <div className="typing-dots">
+          {/* The count node stays after the three dots for the same reason the status
+              node does below: :nth-child(2)/(3) carry the bounce stagger. */}
+          <span className="typing-dots-dot" aria-hidden="true" />
+          <span className="typing-dots-dot" aria-hidden="true" />
+          <span className="typing-dots-dot" aria-hidden="true" />
+          <span
+            className="typing-dots-status typing-dots-status--tasks-only"
+            data-testid="typing-dots-status"
+          >
+            <span className="typing-dots-turn">
+              <TurnTasksSegment
+                label={tasksLabel}
+                {...(props.onOpenTasks
+                  ? {
+                      onOpen: props.onOpenTasks,
+                      aria: t("tasks.openAria", { label: tasksLabel }),
+                    }
+                  : {})}
+              />
+            </span>
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   if (!showStatus) {
     return (
       <div className="msg-assistant-stack" data-testid="typing-dots">
@@ -127,18 +175,18 @@ function TypingDotsMessageImpl(props: {
     typeof props.turnTokens === "number" && props.turnTokens > 0
       ? Math.floor(props.turnTokens)
       : 0;
-  const runningTasks =
-    typeof props.runningTasks === "number" && props.runningTasks > 0
-      ? Math.floor(props.runningTasks)
-      : 0;
-
   // Only the ticking component knows how long the wait has run, so the waiting phrase is
   // chosen here rather than in deriveLiveStatus.
   const key =
     props.statusKind === "waiting" && elapsedMs !== null
       ? waitingStatusKey(elapsedMs)
       : props.statusKey || "status.waitingModel";
-  const verb = t(key);
+  // The waiting phrase is chosen above and takes no slots, so the params only ever
+  // reach the key deriveLiveStatus picked.
+  const verb =
+    key === props.statusKey && props.statusKeyParams
+      ? t(key, props.statusKeyParams)
+      : t(key);
   const slow = key === "status.waitingSlow" || key === "status.waitingStuck";
   const target = props.statusTarget || "";
   const titleText = props.statusTargetFull || "";

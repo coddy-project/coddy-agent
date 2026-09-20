@@ -715,3 +715,43 @@ test("the header control opens the Tasks panel and puts it away again", () => {
   expect(onClose).toHaveBeenCalledTimes(1);
   expect(onOpen).toHaveBeenCalledTimes(1);
 });
+
+test("the turn has ended and its tasks have not: the tail keeps the dots and the count", () => {
+  const onOpen = vi.fn();
+  const running: BackgroundTask = {
+    id: "bg_4",
+    session_id: "sess_turn",
+    kind: "command",
+    label: "make test",
+    command: "make test",
+    status: "running",
+    started_at: "2026-09-18T10:00:00Z",
+    timeout_seconds: 900,
+    output_bytes: 0,
+    output_truncated: false,
+    elapsed_seconds: 5,
+    overdue: false,
+    running: true,
+  };
+  render(
+    turnLineScreen({
+      generating: false,
+      backgroundTasks: [running],
+      onOpenBackgroundTasks: onOpen,
+    }),
+  );
+  expect(screen.getByTestId("typing-dots")).toBeInTheDocument();
+  expect(screen.getByTestId("typing-dots-turn-tasks").textContent).toBe(
+    "1 running task",
+  );
+  // No turn to time: the clock and the tokens are not on this line.
+  expect(screen.queryByTestId("typing-dots-turn-elapsed")).toBeNull();
+  expect(screen.queryByTestId("typing-dots-turn-tokens")).toBeNull();
+  fireEvent.click(screen.getByTestId("typing-dots-turn-tasks"));
+  expect(onOpen).toHaveBeenCalledTimes(1);
+});
+
+test("a finished turn whose tasks have finished too leaves the tail quiet", () => {
+  render(turnLineScreen({ generating: false }));
+  expect(screen.queryByTestId("typing-dots")).toBeNull();
+});

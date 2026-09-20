@@ -92,8 +92,8 @@ describe("deriveLiveStatus", () => {
     expect(s.target).toBe("something_else");
   });
 
-  // The generic verb cannot say what an MCP call does, so the target carries the
-  // identity of the call instead of the raw `server__tool` id.
+  // The generic verb cannot say what an MCP call does, so the phrase names the
+  // server and the tool and the target stays what the call acts on.
   it("names the MCP server and the tool for a call Coddy does not define", () => {
     const s = deriveLiveStatus([
       user(),
@@ -102,13 +102,20 @@ describe("deriveLiveStatus", () => {
         argsText: '{"url":"https://example.dev/a"}',
       }),
     ]);
-    expect(s.key).toBe("status.tool");
-    expect(s.target).toBe("playwright/browser_navigate");
+    expect(s.key).toBe("status.mcp");
+    expect(s.keyParams).toEqual({
+      server: "playwright",
+      tool: "browser_navigate",
+    });
+    expect(s.target).toBe("https://example.dev/a");
 
-    expect(
-      deriveLiveStatus([user(), tool({ title: "mcp__github__create_issue" })])
-        .target,
-    ).toBe("github/create_issue");
+    const bare = deriveLiveStatus([
+      user(),
+      tool({ title: "mcp__github__create_issue" }),
+    ]);
+    expect(bare.keyParams).toEqual({ server: "github", tool: "create_issue" });
+    // Nothing to act on, and the id would only repeat the phrase.
+    expect(bare.target).toBe("");
   });
 
   it("renders a pending tool without arguments as a bare verb", () => {

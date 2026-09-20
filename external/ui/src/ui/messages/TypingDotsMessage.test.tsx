@@ -445,3 +445,74 @@ test("the separator after the tasks segment is outside the button, so hover does
   expect(button.className).not.toContain("typing-dots-turn-item");
   expect(button.parentElement?.className).toContain("typing-dots-turn-item");
 });
+
+// The turn has ended and the tasks it started have not: the same dots hold the tail of
+// the transcript, carrying the count and nothing else.
+
+test("after the turn the line is the dots and the count, with no turn numbers", () => {
+  const onOpenTasks = vi.fn();
+  render(
+    <TypingDotsMessage
+      tasksOnly={true}
+      runningTasks={2}
+      onOpenTasks={onOpenTasks}
+    />,
+  );
+  expect(document.querySelectorAll(".typing-dots-dot").length).toBe(3);
+  const status = screen.getByTestId("typing-dots-status");
+  expect(status.className).toContain("typing-dots-status--tasks-only");
+  expect(status.textContent).toBe("2 running tasks");
+  expect(screen.queryByTestId("typing-dots-turn-elapsed")).toBeNull();
+  expect(screen.queryByTestId("typing-dots-turn-tokens")).toBeNull();
+  expect(screen.queryByTestId("typing-dots-elapsed")).toBeNull();
+  expect(document.querySelector(".typing-dots-status-text")).toBeNull();
+  screen.getByTestId("typing-dots-turn-tasks").click();
+  expect(onOpenTasks).toHaveBeenCalledTimes(1);
+});
+
+test("the count of a tasks-only line stays after the three dots as well", () => {
+  render(<TypingDotsMessage tasksOnly={true} runningTasks={1} />);
+  const row = document.querySelector(".typing-dots");
+  expect(row).not.toBeNull();
+  expect(row!.children.length).toBe(4);
+  for (let i = 0; i < 3; i++) {
+    expect(row!.children[i]!.className).toContain("typing-dots-dot");
+  }
+  expect(row!.children[3]!.className).toContain("typing-dots-status");
+});
+
+test("a tasks-only line with nothing running does not stand at all", () => {
+  render(<TypingDotsMessage tasksOnly={true} runningTasks={0} />);
+  expect(screen.queryByTestId("typing-dots")).toBeNull();
+});
+
+test("MessageList keeps the dots after the turn while background tasks run", () => {
+  const onOpenTasks = vi.fn();
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "Go" },
+    { id: "a1", type: "assistant_message", content: "Started it." },
+  ];
+  render(
+    <MessageList
+      items={items}
+      generating={false}
+      runningTasks={2}
+      onOpenTasks={onOpenTasks}
+    />,
+  );
+  expect(screen.getByTestId("typing-dots")).toBeInTheDocument();
+  expect(screen.getByTestId("typing-dots-turn-tasks").textContent).toBe(
+    "2 running tasks",
+  );
+  expect(screen.queryByTestId("typing-dots-turn-elapsed")).toBeNull();
+  expect(screen.queryByTestId("typing-dots-status-text")).toBeNull();
+});
+
+test("a running turn carries the count once: the second line is not added", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "Go" },
+  ];
+  render(<MessageList items={items} generating={true} runningTasks={2} />);
+  expect(screen.queryAllByTestId("typing-dots").length).toBe(1);
+  expect(screen.queryAllByTestId("typing-dots-turn-tasks").length).toBe(1);
+});

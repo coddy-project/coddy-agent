@@ -229,7 +229,9 @@ test("a no-argument tool asks for approval without claiming it is already runnin
     />,
   );
   const card = screen.getByTestId("tool-action-preview");
-  expect(card).toHaveTextContent("mcp__ops__drain_queue");
+  // The card names the call the way its transcript row does: the server it
+  // runs on and the tool it calls, never the registry id.
+  expect(card).toHaveTextContent("calling drain_queue on the MCP server ops");
   expect(card).not.toHaveTextContent("Running");
   expect(card).not.toHaveTextContent("Done");
 });
