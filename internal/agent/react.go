@@ -801,12 +801,14 @@ func (a *Agent) runReActLoop(
 			if streamCtx.Err() != nil {
 				status = "cancelled"
 			}
-			for id, p := range inputProgress {
-				if p.field != "" {
-					_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
-						SessionUpdate: acp.UpdateTypeToolCallUpdate, ToolCallID: id, Status: status,
-					})
-				}
+			// Every call that streamed arguments announced a pending row; the
+			// stream died before any of them could execute, so none may stay
+			// pending. Calls that only announced a name keep their row - the
+			// same gap as before argument deltas existed.
+			for id := range inputProgress {
+				_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
+					SessionUpdate: acp.UpdateTypeToolCallUpdate, ToolCallID: id, Status: status,
+				})
 			}
 		}
 		stopFirstTokenTimer()

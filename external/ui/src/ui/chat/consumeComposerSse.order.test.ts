@@ -466,3 +466,23 @@ test("a wake frame naming no task adds nothing", async () => {
   );
   expect(items).toEqual([]);
 });
+
+// Regression for the streamed-argument progress ping: a tool_call_update with
+// status "pending" carries _meta.coddy.toolInputProgress, not a state change,
+// so it must not reset the row's startedAtMs on every throttled frame.
+test("a pending tool_call_update keeps the row's start time", async () => {
+  const now = Date.now();
+  vi.spyOn(Date, "now").mockReturnValue(now);
+  const aged = (age: number, frame: string) => frame.replace(/^/, `age: ${age}\n`);
+  const sse =
+    aged(12000, `event: tool_call\ndata: ${JSON.stringify({ toolCallId: "w1", title: "write", kind: "edit", status: "pending" })}\n\n`) +
+    aged(5000, `event: tool_call_update\ndata: ${JSON.stringify({ toolCallId: "w1", status: "pending", _meta: { coddy: { toolInputProgress: { path: "a.html", bytes: 42, lines: 3, argumentBytes: 80, preview: "<html>" } } } })}\n\n`) +
+    `data: [DONE]\n\n`;
+
+  const items = await drive(sse);
+  vi.restoreAllMocks();
+
+  const call = items.find((it) => it.type === "tool_call");
+  expect(call?.type === "tool_call" && call.status).toBe("pending");
+  expect(call?.type === "tool_call" && call.startedAtMs).toBe(now - 12000);
+});
