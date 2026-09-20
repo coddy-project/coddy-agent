@@ -802,6 +802,7 @@ export const messagesEn: Record<string, string> = {
   "sessions.permissionRequired": "Permission required",
   "sessions.questionPending": "Question pending",
   "sessions.turnRunning": "Turn running",
+  "sessions.backgroundRunning": "Background tasks running",
   "sessions.unreadCompletion": "Unread completion",
   "sessions.newChatFallback": "New chat",
   "sessions.deleteConversation": "Delete conversation",
@@ -986,6 +987,7 @@ export const messagesEn: Record<string, string> = {
   "composer.attachUnsupportedModel": "Selected model cannot accept attachments",
   "composer.attachmentTooltip": "{fileName}\\n{label} · {size}",
   "composer.removeAttachment": "Remove {fileName}",
+  "composer.openAttachmentImage": "Open {fileName} enlarged",
   "composer.attachedFilesAriaLabel": "Attached files",
   "composer.bytesB": "{n} B",
   "composer.bytesKB": "{n} KB",
@@ -1257,6 +1259,7 @@ export const messagesEn: Record<string, string> = {
   "messages.copyErrorMessage": "Copy error message",
   "messages.editMessage": "Edit message",
   "messages.attachedFiles": "Attached files",
+  "messages.openAttachmentImage": "Open {fileName} enlarged",
   "messages.systemLabel": "System",
   "messages.refresh": "Refresh",
   "messages.retryLastMessage": "Retry the last message",
@@ -1268,8 +1271,9 @@ export const messagesEn: Record<string, string> = {
   "messages.compactionSummaryAriaLabel": "Context compacted summary",
   "messages.compactionBodyAriaLabel": "Compacted context summary",
   // Human labels for the tool ids that reach the transcript. The row then reads as
-  // what the agent is doing rather than as the function it called; a tool without an
-  // entry (an MCP server's own tools) keeps its raw id.
+  // what the agent is doing rather than as the function it called; a tool an MCP
+  // server serves is named by `tool.name.mcp`, and anything else without an entry
+  // keeps its raw id.
   "tool.name.run_command": "running a command",
   "tool.name.run_command_background": "running a command in the background",
   "tool.name.ssh_run_command": "running a command over ssh",
@@ -1338,6 +1342,9 @@ export const messagesEn: Record<string, string> = {
   "tool.name.coddy_scheduler_job_cancel": "cancelling a scheduled job",
   "tool.name.coddy_scheduler_job_run": "running a scheduled job",
   "tool.name.coddy_scheduler_job_runs": "reading job runs",
+  // Every tool an MCP server serves, whatever it is called: the row names the
+  // server and the tool instead of the `server__tool` id the registry uses.
+  "tool.name.mcp": "calling {tool} on the MCP server {server}",
 
   "schedulerTool.allJobs": "all jobs",
   "schedulerTool.jobs.one": "{count} job",
@@ -1600,6 +1607,7 @@ export const messagesEn: Record<string, string> = {
   "status.backgroundStop": "Stopping a background task",
   "status.backgroundReap": "Cleaning up background tasks",
   "status.tool": "Running a tool",
+  "status.mcp": "Calling {tool} on {server}",
   "status.thinking": "Thinking…",
   "status.memory": "Working with memory",
   "status.awaitingPermission": "Waiting for your approval",

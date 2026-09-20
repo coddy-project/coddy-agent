@@ -2839,18 +2839,46 @@ a.rail-brand {
   white-space: nowrap;
 }
 
-/* Optimistic image preview: thumbnail replaces the icon until the page reloads. */
-.msg-user-file-chip--image .msg-user-file-chip-icon {
-  width: 26px;
-  height: 26px;
+/* A sent image is a preview card like the composer's: the picture fills it and
+   a click opens the full-size asset (the optimistic blob until the server
+   snapshot brings the durable thumbnail and the original's address). */
+.msg-user-file-card {
+  display: block;
+  position: relative;
+  width: 128px;
+  height: 96px;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.msg-user-file-card:hover,
+.msg-user-file-card:focus-within {
+  border-color: color-mix(in srgb, var(--text) 28%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+}
+
+.msg-user-file-card-open {
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
 }
 
 .msg-user-file-thumb {
   display: block;
-  width: 26px;
-  height: 26px;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
-  border-radius: 6px;
+  border-radius: inherit;
 }
 
 .msg-user-foot {
@@ -2928,6 +2956,14 @@ a.rail-brand {
   animation-delay: 0.36s;
 }
 
+/* The dots also stand at the tail while background tasks outlive a turn, which can
+   be minutes of bouncing. Still three dots, just no movement. */
+@media (prefers-reduced-motion: reduce) {
+  .typing-dots-dot {
+    animation: none;
+  }
+}
+
 /* Live status label. It MUST stay after the three .typing-dots-dot spans - the
    :nth-child rules above carry the bounce stagger. */
 .typing-dots-status {
@@ -2983,6 +3019,12 @@ a.rail-brand {
   outline: 1.5px solid var(--accent);
   outline-offset: 2px;
   border-radius: 3px;
+}
+
+/* The turn has ended and only background tasks are still running: the count is the
+   whole line, so it closes with no middle dot - nothing follows it to separate. */
+.typing-dots-status--tasks-only .typing-dots-turn-item::after {
+  content: none;
 }
 
 .typing-dots-status-text {
@@ -5766,18 +5808,86 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   border-color: color-mix(in srgb, var(--text) 18%, var(--coddy-blend-base));
 }
 
-/* Image attachments swap the generic icon for a local object-URL thumbnail. */
-.composer-attachment-chip--image .composer-attachment-chip-icon {
-  width: 28px;
-  height: 28px;
+/* An image attachment is a preview card, not a chip: the picture fills it, so
+   the operator can see what is about to be sent. A click opens the original
+   in the lightbox; the remove control sits over the picture's top-right
+   corner and fades in on hover, staying reachable by keyboard. */
+.composer-attachment-card {
+  display: block;
+  position: relative;
+  width: 128px;
+  height: 96px;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.composer-attachment-card:hover,
+.composer-attachment-card:focus-within {
+  border-color: color-mix(in srgb, var(--text) 28%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+}
+
+.composer-attachment-card-open {
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
 }
 
 .composer-attachment-thumb {
   display: block;
-  width: 28px;
-  height: 28px;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
-  border-radius: 6px;
+  border-radius: inherit;
+}
+
+.composer-attachment-card .composer-attachment-chip-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--coddy-blend-base) 62%, transparent);
+  color: color-mix(in srgb, var(--text) 82%, var(--coddy-blend-base));
+  /* Hidden, never removed: display:none would take it off the tab order. */
+  opacity: 0;
+  transition:
+    opacity 0.15s,
+    background 0.15s,
+    color 0.15s;
+}
+
+.composer-attachment-card:hover .composer-attachment-chip-remove,
+.composer-attachment-card .composer-attachment-chip-remove:hover,
+.composer-attachment-card .composer-attachment-chip-remove:focus-visible {
+  opacity: 1;
+}
+
+.composer-attachment-card .composer-attachment-chip-remove:hover,
+.composer-attachment-card .composer-attachment-chip-remove:focus-visible {
+  background: color-mix(in srgb, var(--coddy-blend-base) 82%, transparent);
+  color: var(--text);
+}
+
+.composer-attachment-card.composer-attachment-chip--disabled
+  .composer-attachment-thumb {
+  opacity: 0.48;
+  filter: grayscale(1);
 }
 
 /* Transient rejection notice for paste/drop when the model is not multimodal. */
@@ -11815,7 +11925,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   background: #000;
 }
 
-/* An image opened over everything (ui/docs/ImageLightbox.tsx): the bar with
+/* An image opened over everything (ui/components/ImageLightbox.tsx): the bar with
    the caption, the zoom and the close control, and a stage that scrolls when
    the image is larger than the window. */
 .docs-lightbox {

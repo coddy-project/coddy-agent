@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
 	"net/http"
 	"net/url"
@@ -174,6 +175,7 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("POST /coddy/enhance-prompt", s.coddyEnhancePromptPost)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/activity", s.coddySessionActivityGet)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/messages", s.coddySessionMessagesGet)
+	s.mux.HandleFunc("GET /coddy/sessions/{id}/assets/{name}", s.coddySessionAssetGet)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/assets/{name}/thumbnail", s.coddySessionAssetThumbnailGet)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/composer-stream", s.coddySessionComposerStream)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/tool-calls", s.coddyToolCallsList)
@@ -1104,6 +1106,16 @@ func llmMsgsToCoddyOpenAIForSession(sessionID string, msgs []llm.Message) []map[
 					file["preview_url"] = "/coddy/sessions/" + url.PathEscape(sessionID) +
 						"/assets/" + url.PathEscape(assetName) + "/thumbnail"
 				}
+				// The full-size original, for a preview card to open enlarged.
+				// Only an asset still on disk is addressed: the route answers
+				// 404 for anything else, and a client that has the address
+				// would make the click promise more than it can deliver.
+				if sessionID != "" && part.FilePath != "" {
+					if info, err := os.Stat(part.FilePath); err == nil && !info.IsDir() {
+						file["url"] = "/coddy/sessions/" + url.PathEscape(sessionID) +
+							"/assets/" + url.PathEscape(filepath.Base(part.FilePath))
+					}
+				}
 				files = append(files, file)
 			}
 			item["files"] = files
@@ -1146,24 +1158,85 @@ func imagePartMIMEType(part llm.ImagePart) string {
 	return "application/octet-stream"
 }
 
-func (s *Server) coddySessionAssetThumbnailGet(w http.ResponseWriter, r *http.Request) {
+// coddySessionAsset is the prologue the two asset routes share: the method,
+// the session behind {id}, and an asset {name} that must be a bare file name.
+// It answers the request itself and reports ok=false when the caller must stop.
+func (s *Server) coddySessionAsset(w http.ResponseWriter, r *http.Request) (sessionDir, name string, ok bool) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
-		return
+		return "", "", false
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
 	st := s.coddyEnsureLoaded(w, r, id)
 	if st == nil {
-		return
+		return "", "", false
 	}
-	name := strings.TrimSpace(r.PathValue("name"))
+	name = strings.TrimSpace(r.PathValue("name"))
 	if name == "" || name == "." || name == ".." || filepath.Base(name) != name || strings.ContainsAny(name, `/\\`) {
 		http.Error(w, `{"error":{"message":"invalid asset name"}}`, http.StatusBadRequest)
-		return
+		return "", "", false
 	}
-	sessionDir := strings.TrimSpace(st.GetPersistedSessionDir())
+	sessionDir = strings.TrimSpace(st.GetPersistedSessionDir())
 	if sessionDir == "" {
 		http.NotFound(w, r)
+		return "", "", false
+	}
+	return sessionDir, name, true
+}
+
+// coddySessionAssetGet serves the original bytes of an uploaded asset, which is
+// what a preview card opens enlarged - the thumbnail beside it is bounded to a
+// 160px edge and has nothing to enlarge. Only images leave the bundle, and the
+// file name never decides that: the first bytes are sniffed, so a text file
+// called photo.png is a 404 like any other non-image.
+func (s *Server) coddySessionAssetGet(w http.ResponseWriter, r *http.Request) {
+	sessionDir, name, ok := s.coddySessionAsset(w, r)
+	if !ok {
+		return
+	}
+	path := filepath.Join(session.AssetsPath(sessionDir), name)
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.NotFound(w, r)
+			return
+		}
+		s.log.Error("open session asset", "error", err)
+		http.Error(w, `{"error":{"message":"asset unavailable"}}`, http.StatusInternalServerError)
+		return
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil || info.IsDir() {
+		http.NotFound(w, r)
+		return
+	}
+	head := make([]byte, 512)
+	n, err := io.ReadFull(f, head)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		s.log.Error("read session asset", "error", err)
+		http.Error(w, `{"error":{"message":"asset unavailable"}}`, http.StatusInternalServerError)
+		return
+	}
+	mediaType := http.DetectContentType(head[:n])
+	if !strings.HasPrefix(mediaType, "image/") {
+		http.NotFound(w, r)
+		return
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		s.log.Error("rewind session asset", "error", err)
+		http.Error(w, `{"error":{"message":"asset unavailable"}}`, http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", mediaType)
+	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeContent(w, r, name, info.ModTime(), f)
+}
+
+func (s *Server) coddySessionAssetThumbnailGet(w http.ResponseWriter, r *http.Request) {
+	sessionDir, name, ok := s.coddySessionAsset(w, r)
+	if !ok {
 		return
 	}
 	path := session.AssetThumbnailPath(sessionDir, name)

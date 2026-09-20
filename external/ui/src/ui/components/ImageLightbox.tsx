@@ -81,12 +81,16 @@ export function scrollToKeep(
 }
 
 /**
- * An image of the documentation, opened over everything: fitted to the window
- * first, then zoomed with the buttons, the keys (+, -, 0) or a click on the
- * image, and panned by scrolling; a zoom keeps the point clicked, or the
- * middle of the view, where it was. Escape, the close control or a click
- * beside the image closes it. Rendered into the body, because the reader's
- * dock blurs its backdrop and would otherwise be the frame of a fixed box.
+ * An image opened over everything: fitted to the window first, then zoomed
+ * with the buttons, the keys (+, -, 0) or a click on the image, and panned by
+ * scrolling; a zoom keeps the point clicked, or the middle of the view, where
+ * it was. Escape, the close control or a click beside the image closes it.
+ * Rendered into the body, because a blurred backdrop above it - the reader's
+ * dock, the composer card - would otherwise be the frame of a fixed box.
+ *
+ * The one viewer of the SPA: the documentation reader, the composer's
+ * attachment cards and the sent bubble's all open this. Its `docs-lightbox*`
+ * class names are older than that and stay as they are.
  */
 export function ImageLightbox(props: { src: string; alt: string; onClose: () => void }) {
   const { t } = useT();

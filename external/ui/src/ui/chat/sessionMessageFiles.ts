@@ -23,6 +23,8 @@ export function sessionMessageFiles(
           ? mimeRaw.trim()
           : "application/octet-stream";
       const previewRaw = row.preview_url ?? row.previewUrl;
+      // The full-size asset, present only while it is still in the bundle.
+      const fullRaw = row.url;
       const sizeRaw = row.size_bytes ?? row.sizeBytes;
       files.push({
         name,
@@ -34,6 +36,9 @@ export function sessionMessageFiles(
           : {}),
         ...(typeof previewRaw === "string" && previewRaw.trim() !== ""
           ? { previewUrl: previewRaw.trim() }
+          : {}),
+        ...(typeof fullRaw === "string" && fullRaw.trim() !== ""
+          ? { url: fullRaw.trim() }
           : {}),
       });
     }

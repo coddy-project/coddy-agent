@@ -1312,6 +1312,90 @@ test("image attachments render a thumbnail; non-image ones keep the icon", () =>
   }
 });
 
+/** Renders the composer with one image and one text attachment already picked. */
+function renderComposerWithAttachments(onSend = () => {}) {
+  stubMatchMediaMobile(false);
+  const urlCtor = URL as unknown as {
+    createObjectURL?: ((f: File) => string) | undefined;
+    revokeObjectURL?: ((u: string) => void) | undefined;
+  };
+  const orig = {
+    create: urlCtor.createObjectURL,
+    revoke: urlCtor.revokeObjectURL,
+  };
+  urlCtor.createObjectURL = vi.fn(() => "blob:coddy-card-1");
+  urlCtor.revokeObjectURL = vi.fn();
+  const view = render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModelMultimodal={true}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={onSend}
+    />,
+  );
+  fireEvent.change(screen.getByTestId("composer-file-input"), {
+    target: {
+      files: [
+        new File(["data"], "img.png", { type: "image/png" }),
+        new File(["data"], "notes.txt", { type: "text/plain" }),
+      ],
+    },
+  });
+  return {
+    ...view,
+    restore: () => {
+      urlCtor.createObjectURL = orig.create;
+      urlCtor.revokeObjectURL = orig.revoke;
+      vi.unstubAllGlobals();
+    },
+  };
+}
+
+// An image is big enough to recognise before it is sent, and a click enlarges
+// it in the same viewer the documentation reader uses. A file that is not an
+// image keeps the icon chip it always had.
+test("an image attachment is a preview card that opens the picture enlarged", () => {
+  const { restore } = renderComposerWithAttachments();
+  try {
+    const thumb = screen.getByTestId("composer-attachment-thumb");
+    const card = thumb.closest(".composer-attachment-chip");
+    expect(card).toHaveClass("composer-attachment-card");
+    expect(
+      screen.getByText("notes.txt").closest(".composer-attachment-chip"),
+    ).not.toHaveClass("composer-attachment-card");
+
+    expect(document.querySelector(".docs-lightbox")).toBeNull();
+    fireEvent.click(screen.getByLabelText("Open img.png enlarged"));
+    const shown = document.querySelector(
+      ".docs-lightbox-stage img",
+    ) as HTMLImageElement | null;
+    expect(shown?.getAttribute("src")).toBe("blob:coddy-card-1");
+
+    fireEvent.click(screen.getByTestId("docs-lightbox-close"));
+    expect(document.querySelector(".docs-lightbox")).toBeNull();
+  } finally {
+    restore();
+  }
+});
+
+// The remove control moved onto the card, over the picture: it must still take
+// the attachment away rather than enlarge what it is removing.
+test("removing a preview card drops the attachment and opens nothing", () => {
+  const { restore } = renderComposerWithAttachments();
+  try {
+    fireEvent.click(screen.getByLabelText("Remove img.png"));
+    expect(screen.queryByTestId("composer-attachment-thumb")).toBeNull();
+    expect(document.querySelector(".docs-lightbox")).toBeNull();
+    expect(screen.getByText("notes.txt")).toBeTruthy();
+  } finally {
+    restore();
+  }
+});
+
 test("send is enabled by an image alone and sends empty text with the files", async () => {
   stubMatchMediaMobile(false);
   const onSend = vi.fn();

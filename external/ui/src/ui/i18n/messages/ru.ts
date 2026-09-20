@@ -815,6 +815,7 @@ export const messagesRu: Record<string, string> = {
   "sessions.permissionRequired": "Требуется разрешение",
   "sessions.questionPending": "Ожидается ответ",
   "sessions.turnRunning": "Идёт ход",
+  "sessions.backgroundRunning": "Идут фоновые задачи",
   "sessions.unreadCompletion": "Непрочитанное завершение",
   "sessions.newChatFallback": "Новый чат",
   "sessions.deleteConversation": "Удалить диалог",
@@ -1000,6 +1001,7 @@ export const messagesRu: Record<string, string> = {
   "composer.attachUnsupportedModel": "Выбранная модель не принимает вложения",
   "composer.attachmentTooltip": "{fileName}\\n{label} · {size}",
   "composer.removeAttachment": "Удалить {fileName}",
+  "composer.openAttachmentImage": "Открыть {fileName} крупнее",
   "composer.attachedFilesAriaLabel": "Прикреплённые файлы",
   "composer.bytesB": "{n} Б",
   "composer.bytesKB": "{n} КБ",
@@ -1275,6 +1277,7 @@ export const messagesRu: Record<string, string> = {
   "messages.copyErrorMessage": "Копировать сообщение об ошибке",
   "messages.editMessage": "Редактировать сообщение",
   "messages.attachedFiles": "Прикреплённые файлы",
+  "messages.openAttachmentImage": "Открыть {fileName} крупнее",
   "messages.systemLabel": "Система",
   "messages.refresh": "Обновить",
   "messages.retryLastMessage": "Повторить последнее сообщение",
@@ -1286,8 +1289,8 @@ export const messagesRu: Record<string, string> = {
   "messages.compactionSummaryAriaLabel": "Сводка сжатого контекста",
   "messages.compactionBodyAriaLabel": "Содержимое сжатого контекста",
   // Человеческие названия инструментов: строка читается как действие агента, а не как
-  // имя функции. Инструмент без записи (свои инструменты MCP-серверов) остаётся с
-  // исходным идентификатором.
+  // имя функции. Инструмент MCP-сервера называется через `tool.name.mcp`, остальные
+  // без записи остаются с исходным идентификатором.
   "tool.name.run_command": "выполняю команду",
   "tool.name.run_command_background": "выполняю команду в фоне",
   "tool.name.ssh_run_command": "выполняю команду по ssh",
@@ -1356,6 +1359,9 @@ export const messagesRu: Record<string, string> = {
   "tool.name.coddy_scheduler_job_cancel": "отменяю задание планировщика",
   "tool.name.coddy_scheduler_job_run": "запускаю задание планировщика",
   "tool.name.coddy_scheduler_job_runs": "смотрю запуски задания планировщика",
+  // Любой инструмент MCP-сервера: строка называет сервер и сам инструмент,
+  // а не идентификатор вида `server__tool` из реестра.
+  "tool.name.mcp": "запускаю {tool} на MCP-сервере {server}",
 
   "schedulerTool.allJobs": "все задания",
   "schedulerTool.jobs.one": "{count} задание",
@@ -1651,6 +1657,7 @@ export const messagesRu: Record<string, string> = {
   "status.backgroundStop": "Останавливаю фоновую задачу",
   "status.backgroundReap": "Убираю фоновые задачи",
   "status.tool": "Работаю с инструментом",
+  "status.mcp": "Запускаю {tool} на {server}",
   "status.thinking": "Размышляю…",
   "status.memory": "Работаю с памятью",
   "status.awaitingPermission": "Жду разрешения",

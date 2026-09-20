@@ -20,7 +20,7 @@ import {
   type DocsHit,
   type DocsPage,
 } from "./api";
-import { ImageLightbox } from "./ImageLightbox";
+import { ImageLightbox } from "../components/ImageLightbox";
 import {
   addHeadingLinks,
   askDraftFor,

@@ -7,7 +7,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DocsView } from "./DocsView";
-import { focusAt, scrollToKeep } from "./ImageLightbox";
+import { focusAt, scrollToKeep } from "../components/ImageLightbox";
 import { docsCommandOpensPage, parseDocsCommand } from "./docsCommand";
 import {
   askDraftFor,

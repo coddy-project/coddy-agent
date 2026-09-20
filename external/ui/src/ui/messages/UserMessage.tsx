@@ -1,6 +1,7 @@
-import { memo } from "react";
+import { memo, useState } from "react";
 
 import { useT } from "../i18n/I18nProvider";
+import { ImageLightbox } from "../components/ImageLightbox";
 import { stripCoddyAttachmentsForUserDisplay } from "../skills/stripCoddyAttachments";
 import { segmentSlashKnownSpans } from "../skills/segmentComposerSlashSpans";
 import {
@@ -48,15 +49,25 @@ export const UserMessage = memo(function UserMessage(props: {
   onEdit?: (content: string, userMsgIndex: number) => void;
   /** Index of this message among user messages; passed back to onEdit. */
   userMsgIndex?: number;
-  /** Files attached to this message. `previewUrl` is a client-only blob URL (until reload). */
+  /**
+   * Files attached to this message. `previewUrl` is the bounded thumbnail (a
+   * client-only blob URL until the server snapshot arrives); `url` is the
+   * full-size asset a preview card opens enlarged, absent on a message sent
+   * before that route existed and on an asset no longer in the bundle.
+   */
   files?: {
     name: string;
     mimeType: string;
     sizeBytes?: number;
     previewUrl?: string;
+    url?: string;
   }[];
 }) {
   const { t } = useT();
+  // The attachment opened over the page, if any: one viewer per message.
+  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(
+    null,
+  );
   const display = stripCoddyAttachmentsForUserDisplay(props.content);
   const timeHM = props.createdAtUtc
     ? formatUtcToLocalHM(props.createdAtUtc)
@@ -83,23 +94,41 @@ export const UserMessage = memo(function UserMessage(props: {
               f.sizeBytes != null
                 ? `${f.name}\n${label} · ${fmtBytes(f.sizeBytes, t)}`
                 : `${f.name}\n${label}`;
-            return (
-              <span
-                key={idx}
-                className={`msg-user-file-chip${f.previewUrl ? " msg-user-file-chip--image" : ""}`}
-                title={tip}
-              >
-                <span className="msg-user-file-chip-icon" aria-hidden="true">
-                  {f.previewUrl ? (
+            // The card shows the bounded thumbnail and opens the original;
+            // a message that predates the full-size route opens its preview
+            // rather than losing the click.
+            const thumbSrc = f.previewUrl || f.url;
+            const fullSrc = f.url || f.previewUrl;
+            if (thumbSrc && fullSrc) {
+              return (
+                <span
+                  key={idx}
+                  className="msg-user-file-chip msg-user-file-chip--image msg-user-file-card"
+                  title={tip}
+                >
+                  <button
+                    type="button"
+                    className="msg-user-file-card-open"
+                    aria-label={t("messages.openAttachmentImage", {
+                      fileName: f.name,
+                    })}
+                    data-testid="msg-user-file-open"
+                    onClick={() => setLightbox({ src: fullSrc, alt: f.name })}
+                  >
                     <img
                       className="msg-user-file-thumb"
-                      src={f.previewUrl}
+                      src={thumbSrc}
                       alt=""
                       data-testid="msg-user-file-thumb"
                     />
-                  ) : (
-                    svg
-                  )}
+                  </button>
+                </span>
+              );
+            }
+            return (
+              <span key={idx} className="msg-user-file-chip" title={tip}>
+                <span className="msg-user-file-chip-icon" aria-hidden="true">
+                  {svg}
                 </span>
                 <span className="msg-user-file-chip-name">{f.name}</span>
               </span>
@@ -156,6 +185,13 @@ export const UserMessage = memo(function UserMessage(props: {
           </time>
         ) : null}
       </div>
+      {lightbox ? (
+        <ImageLightbox
+          src={lightbox.src}
+          alt={lightbox.alt}
+          onClose={() => setLightbox(null)}
+        />
+      ) : null}
     </div>
   );
 });
