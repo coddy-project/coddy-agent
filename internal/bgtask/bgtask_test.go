@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -151,6 +152,7 @@ func TestResolveTimeoutSeconds(t *testing.T) {
 		{name: "work without a timeout gets none", spec: Spec{NoTimeout: true}, want: 0},
 		{name: "work without a timeout ignores the estimate", spec: Spec{NoTimeout: true, ExpectedSeconds: 30}, want: 0},
 		{name: "work without a timeout keeps the limit it named, past the ceiling", spec: Spec{NoTimeout: true, TimeoutSeconds: 100000}, want: 100000},
+		{name: "a named limit too big for the clock is clamped, not wrapped", spec: Spec{NoTimeout: true, TimeoutSeconds: math.MaxInt64}, want: maxClockTimeoutSeconds},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

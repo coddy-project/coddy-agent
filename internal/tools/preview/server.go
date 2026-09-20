@@ -28,6 +28,14 @@ type server struct {
 	ln         net.Listener
 	bindHost   string
 	publicHost string
+	// loopback is a property of the bound address, not of how the bind host was
+	// spelled: "localhost.", "LOCALHOST" or any other name resolving to it
+	// counts as loopback too, and only a loopback listener gets the Host
+	// allowlist against DNS rebinding.
+	loopback bool
+	// registryKey is the liveServers key under which the tool registers this
+	// server: task ids are per-session, so the session id is part of it.
+	registryKey string
 
 	srv      *http.Server
 	done     chan struct{}
@@ -50,11 +58,20 @@ func listen(dir, host, publicHost string) (*server, error) {
 		_ = root.Close()
 		return nil, fmt.Errorf("listen on %s: %w", host, err)
 	}
+	// Whether the Host allowlist applies is decided by the address the listener
+	// actually got, so a bind hostname that resolves to loopback ("localhost.",
+	// "LOCALHOST") keeps the DNS-rebinding protection the literal "localhost"
+	// has.
+	loopback := false
+	if ta, ok := ln.Addr().(*net.TCPAddr); ok {
+		loopback = ta.IP.IsLoopback()
+	}
 	return &server{
 		root:       root,
 		ln:         ln,
 		bindHost:   host,
 		publicHost: publicHost,
+		loopback:   loopback,
 		done:       make(chan struct{}),
 	}, nil
 }
@@ -84,9 +101,7 @@ func (s *server) url() string {
 // allowedHosts is the Host allowlist for a loopback bind, and nil (any host)
 // for a bind the operator opened to the network on purpose.
 func (s *server) allowedHosts() []string {
-	ip := net.ParseIP(s.bindHost)
-	loopback := s.bindHost == "localhost" || (ip != nil && ip.IsLoopback())
-	if !loopback {
+	if !s.loopback {
 		return nil
 	}
 	hosts := append([]string(nil), loopbackNames...)
@@ -99,7 +114,7 @@ func (s *server) allowedHosts() []string {
 
 // serve starts answering requests on a goroutine, logging them to log.
 func (s *server) serve(log io.Writer) {
-	s.srv = httpx.NewServer("", newHandler(s.root.FS(), handlerOptions{
+	s.srv = httpx.NewServer("", newHandler(s.root, handlerOptions{
 		AllowedHosts: s.allowedHosts(),
 		Log:          log,
 	}))
@@ -122,6 +137,11 @@ func (s *server) close() {
 
 // Wait blocks until the server is down. It implements bgtask.Handle.
 func (s *server) Wait() (int, error) {
+	defer func() {
+		if s.registryKey != "" {
+			liveServers.Delete(s.registryKey)
+		}
+	}()
 	<-s.done
 	if s.serveErr != nil {
 		return 1, s.serveErr
@@ -134,6 +154,13 @@ func (s *server) Wait() (int, error) {
 // hold the port.
 func (s *server) Stop(grace time.Duration) error {
 	s.stopOnce.Do(func() {
+		if s.srv == nil {
+			// The task was stopped before serve ran: close what listen opened,
+			// and mark the server down so a Wait does not hang.
+			s.close()
+			close(s.done)
+			return
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), grace)
 		defer cancel()
 		if err := s.srv.Shutdown(ctx); err != nil {
@@ -148,3 +175,18 @@ func (s *server) PID() int { return 0 }
 
 // ProcessStartedAt is zero for the same reason.
 func (s *server) ProcessStartedAt() time.Time { return time.Time{} }
+
+// servesSameDir reports whether the directory the server opened is still the
+// one at dir: a build that deletes and recreates it leaves this server
+// answering from the deleted inode.
+func (s *server) servesSameDir(dir string) bool {
+	opened, err := s.root.Stat(".")
+	if err != nil {
+		return false
+	}
+	current, err := os.Stat(dir)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(opened, current)
+}

@@ -384,8 +384,9 @@ func FormatBackgroundTask(t bgtask.Snapshot, now time.Time) string {
 func formatTaskLine(t bgtask.Snapshot, now time.Time) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s [%s] %s", t.ID, t.Status, t.Label)
-	// A server's address is the one thing anybody wants from its row.
-	if t.URL != "" && t.URL != t.Label {
+	// A server's address is the one thing anybody wants from its row - while it
+	// is up; a finished one only has a dead link.
+	if t.URL != "" && !t.Status.Finished() && t.URL != t.Label {
 		fmt.Fprintf(&b, " at %s", t.URL)
 	}
 

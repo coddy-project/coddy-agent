@@ -153,7 +153,7 @@ func TestToolsValidateWantsABareHostForThePreviewServer(t *testing.T) {
 			t.Errorf("host %q: %v", host, err)
 		}
 	}
-	for _, host := range []string{"127.0.0.1:8080", "[::1]:8080", "http://localhost", "localhost/app", "my host"} {
+	for _, host := range []string{"127.0.0.1:8080", "[::1]:8080", "[::1]", "http://localhost", "localhost/app", "my host"} {
 		tools := Tools{PreviewServer: ToolPreviewServer{Host: host}}
 		if err := tools.Validate(); err == nil {
 			t.Errorf("host %q was accepted", host)

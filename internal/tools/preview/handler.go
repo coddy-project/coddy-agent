@@ -10,7 +10,9 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"sync"
 )
@@ -44,8 +46,16 @@ type handlerOptions struct {
 
 // newHandler serves files read-only with the rules a preview needs: no dot
 // files, no caching, correct script types, and no answer to a foreign Host.
-func newHandler(files fs.FS, opts handlerOptions) http.Handler {
-	static := http.FileServerFS(files)
+func newHandler(root *os.Root, opts handlerOptions) http.Handler {
+	static := http.FileServerFS(dotHiddenFS{files: root.FS()})
+	rootDir := root.Name()
+	// hiddenTarget resolves the request path against this directory: if the
+	// root itself was reached through a symlink (a t.TempDir under a linked
+	// /tmp, for instance) the resolved target would land outside it and the
+	// check would quietly skip, so the root is resolved once up front.
+	if resolved, err := filepath.EvalSymlinks(rootDir); err == nil {
+		rootDir = resolved
+	}
 	allowed := map[string]bool{}
 	for _, h := range opts.AllowedHosts {
 		if h = normalizeHost(h); h != "" {
@@ -71,6 +81,13 @@ func newHandler(files fs.FS, opts handlerOptions) http.Handler {
 			return
 		}
 		if hasDotSegment(r.URL.Path) {
+			http.NotFound(rec, r)
+			return
+		}
+		// A symlink inside the directory can point at a dot-file the request
+		// path does not reveal; the resolved target answers under the same
+		// rule.
+		if hiddenTarget(rootDir, r.URL.Path) {
 			http.NotFound(rec, r)
 			return
 		}
@@ -136,4 +153,83 @@ func (l *requestLog) line(r *http.Request, status int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	_, _ = fmt.Fprintf(l.w, "%s %s %d\n", r.Method, r.URL.RequestURI(), status)
+}
+
+// dotHiddenFS wraps the served filesystem so a directory listing never shows a
+// dot-named entry - the same names hasDotSegment refuses on a request path.
+type dotHiddenFS struct{ files fs.FS }
+
+// Open returns the file the wrapped filesystem has, with the listing of a
+// directory filtered of dot names. Only directories are wrapped: a regular
+// file must keep its Seek for Range requests (a video or a download the
+// browser reads in parts), which an interface-typed wrapper would strip.
+func (d dotHiddenFS) Open(name string) (fs.File, error) {
+	f, err := d.files.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	info, err := f.Stat()
+	if err != nil || !info.IsDir() {
+		return f, err
+	}
+	if dir, ok := f.(fs.ReadDirFile); ok {
+		return dotHiddenDir{File: f, dir: dir}, nil
+	}
+	return f, nil
+}
+
+// dotHiddenDir filters dot-named entries out of a directory read.
+type dotHiddenDir struct {
+	fs.File
+	dir fs.ReadDirFile
+}
+
+// ReadDir drops the entries whose name starts with a dot. A page that comes
+// back all dots is not the end of the directory - the next page is read, so a
+// positive count never gets an empty result without an error.
+func (d dotHiddenDir) ReadDir(count int) ([]fs.DirEntry, error) {
+	for {
+		entries, err := d.dir.ReadDir(count)
+		if err != nil {
+			return entries, err
+		}
+		kept := entries[:0]
+		for _, e := range entries {
+			if !strings.HasPrefix(e.Name(), ".") {
+				kept = append(kept, e)
+			}
+		}
+		if len(kept) > 0 || count <= 0 {
+			return kept, nil
+		}
+	}
+}
+
+// hiddenTarget reports whether the request path resolves, inside the served
+// directory, to a dot-named element - the names hasDotSegment refuses on the
+// URL itself. A symlink inside the directory can point at one: the file open
+// stays confined by os.Root, so an escape still cannot be served; this only
+// applies the same dot policy to what the symlink points at.
+func hiddenTarget(rootDir, urlPath string) bool {
+	resolved, err := filepath.EvalSymlinks(filepath.Join(rootDir, strings.TrimPrefix(path.Clean("/"+urlPath), "/")))
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(rootDir, resolved)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		// Outside the directory: os.Root refuses the open itself.
+		return false
+	}
+	return hiddenPathElement(filepath.ToSlash(rel))
+}
+
+// hiddenPathElement reports whether a slash-separated path holds an element
+// that starts with a dot, where "." alone is just the current directory.
+func hiddenPathElement(rel string) bool {
+	for _, e := range strings.Split(rel, "/") {
+		if len(e) > 1 && strings.HasPrefix(e, ".") {
+			return true
+		}
+	}
+	return false
 }

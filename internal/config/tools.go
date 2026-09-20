@@ -577,7 +577,8 @@ type ToolPreviewServerSettings struct {
 }
 
 // validate rejects a host that carries more than a host: the port is always a
-// free one the system picks, and a scheme or a path has no meaning here.
+// free one the system picks, and a scheme, a path or brackets have no meaning
+// here.
 func (p *ToolPreviewServer) validate() error {
 	for name, v := range map[string]string{"host": p.Host, "public_host": p.PublicHost} {
 		v = strings.TrimSpace(v)
@@ -586,6 +587,9 @@ func (p *ToolPreviewServer) validate() error {
 		}
 		if strings.ContainsAny(v, "/ 	") || strings.Contains(v, "://") {
 			return fmt.Errorf("tools.preview_server.%s: %q must be a bare host name or IP address", name, v)
+		}
+		if strings.ContainsAny(v, "[]") {
+			return fmt.Errorf("tools.preview_server.%s: %q must be a bare host name or IP address, without brackets", name, v)
 		}
 		if _, _, err := net.SplitHostPort(v); err == nil {
 			return fmt.Errorf("tools.preview_server.%s: %q must not carry a port, the server always takes a free one", name, v)

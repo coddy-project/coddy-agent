@@ -167,13 +167,14 @@ type MCPJSON struct {
 }
 
 type ToolsJSON struct {
-	PermissionMode    string               `json:"permission_mode,omitempty"`
-	CommandAllowlist  []string             `json:"command_allowlist,omitempty"`
-	SSHConnectTimeout int                  `json:"ssh_connect_timeout,omitempty"`
-	OutputLimits      ToolOutputLimitsJSON `json:"output_limits,omitempty"`
-	Background        ToolBackgroundJSON   `json:"background,omitempty"`
-	WebSearch         ToolWebSearchJSON    `json:"websearch,omitempty"`
-	HTTPRequest       ToolHTTPRequestJSON  `json:"http_request,omitempty"`
+	PermissionMode    string                `json:"permission_mode,omitempty"`
+	CommandAllowlist  []string              `json:"command_allowlist,omitempty"`
+	SSHConnectTimeout int                   `json:"ssh_connect_timeout,omitempty"`
+	OutputLimits      ToolOutputLimitsJSON  `json:"output_limits,omitempty"`
+	Background        ToolBackgroundJSON    `json:"background,omitempty"`
+	PreviewServer     ToolPreviewServerJSON `json:"preview_server,omitempty"`
+	WebSearch         ToolWebSearchJSON     `json:"websearch,omitempty"`
+	HTTPRequest       ToolHTTPRequestJSON   `json:"http_request,omitempty"`
 }
 
 // ToolWebSearchJSON mirrors ToolWebSearch for JSON APIs. BraveAPIKey travels
@@ -204,6 +205,15 @@ type ToolBackgroundJSON struct {
 	DefaultTimeoutSeconds int   `json:"default_timeout_seconds,omitempty"`
 	MaxTimeoutSeconds     int   `json:"max_timeout_seconds,omitempty"`
 	OutputBufferBytes     int   `json:"output_buffer_bytes,omitempty"`
+}
+
+// ToolPreviewServerJSON mirrors ToolPreviewServer for JSON APIs: the Settings
+// form saves the whole config through this DTO, and a section missing here is
+// silently reset by any unrelated save.
+type ToolPreviewServerJSON struct {
+	Enabled    *bool  `json:"enable,omitempty"`
+	Host       string `json:"host,omitempty"`
+	PublicHost string `json:"public_host,omitempty"`
 }
 
 // ToolOutputLimitsJSON mirrors ToolOutputLimits. Pointer fields keep the
@@ -503,6 +513,11 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			MaxTimeoutSeconds:     c.Tools.Background.MaxTimeoutSeconds,
 			OutputBufferBytes:     c.Tools.Background.OutputBufferBytes,
 		},
+		PreviewServer: ToolPreviewServerJSON{
+			Enabled:    cloneBoolPtr(c.Tools.PreviewServer.Enabled),
+			Host:       c.Tools.PreviewServer.Host,
+			PublicHost: c.Tools.PreviewServer.PublicHost,
+		},
 		HTTPRequest: ToolHTTPRequestJSON{
 			Allowlist: append([]string(nil), c.Tools.HTTPRequest.Allowlist...),
 		},
@@ -718,6 +733,11 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			DefaultTimeoutSeconds: j.Tools.Background.DefaultTimeoutSeconds,
 			MaxTimeoutSeconds:     j.Tools.Background.MaxTimeoutSeconds,
 			OutputBufferBytes:     j.Tools.Background.OutputBufferBytes,
+		},
+		PreviewServer: ToolPreviewServer{
+			Enabled:    cloneBoolPtr(j.Tools.PreviewServer.Enabled),
+			Host:       j.Tools.PreviewServer.Host,
+			PublicHost: j.Tools.PreviewServer.PublicHost,
 		},
 		HTTPRequest: ToolHTTPRequest{
 			Allowlist: append([]string(nil), j.Tools.HTTPRequest.Allowlist...),

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
@@ -22,6 +23,19 @@ const ToolPreviewServer = "preview_server"
 
 // defaultHost is where the server listens when no settings reached the tool.
 const defaultHost = "127.0.0.1"
+
+// previewMu serializes the check-and-launch section of the tool so two
+// parallel calls for the same directory cannot both miss the running row and
+// bind two ports.
+var previewMu sync.Mutex
+
+// liveServers maps a running server task to its server, so a repeated call can
+// tell whether the directory it would reuse is still the directory that server
+// opened - a build that deletes and recreates it must get a new server, not the
+// old one's dead tree. Task ids are per-session, so the key carries the session
+// too; entries go when the server's Wait returns, which is when its task leaves
+// the running set.
+var liveServers sync.Map // sessionID + "/" + task id -> *server
 
 // RegisterBuiltins registers the preview tools via add.
 func RegisterBuiltins(add func(*tooling.Tool)) {
@@ -95,11 +109,29 @@ func executePreviewServer(_ context.Context, argsJSON string, env *tooling.Env) 
 	}
 
 	// One server per directory: a second "open it again" gets the address
-	// that is already up instead of a second port over the same files.
+	// that is already up instead of a second port over the same files. The
+	// check and the launch are one critical section, so two parallel calls
+	// cannot both miss the running row.
+	previewMu.Lock()
+	defer previewMu.Unlock()
+
 	for _, snap := range pool.List(env.SessionID) {
-		if snap.Kind == bgtask.KindServer && !snap.Status.Finished() && snap.URL != "" && sameDir(snap.CWD, root) {
+		if snap.Kind != bgtask.KindServer || snap.Status.Finished() || snap.URL == "" || !sameDir(snap.CWD, root) {
+			continue
+		}
+		live, ok := liveServers.Load(env.SessionID + "/" + snap.ID)
+		if !ok {
+			// A running server task with no registry entry is one this process
+			// did not launch or one that is already dying - either way it is
+			// not the address to reuse; a fresh server serves the directory.
+			continue
+		}
+		if live.(*server).servesSameDir(root) {
 			return describe(snap, openPath, true), nil
 		}
+		// The directory was replaced since this server opened it: its answers
+		// come from the deleted tree. Stop it and serve fresh.
+		_, _ = pool.Stop(env.SessionID, snap.ID)
 	}
 
 	srv, err := listen(root, host, publicHost)
@@ -115,8 +147,10 @@ func executePreviewServer(_ context.Context, argsJSON string, env *tooling.Env) 
 		URL:            srv.url(),
 		NoTimeout:      true,
 		TimeoutSeconds: args.TimeoutSeconds,
-	}, func(_ string, out io.Writer) (bgtask.Handle, error) {
+	}, func(taskID string, out io.Writer) (bgtask.Handle, error) {
+		srv.registryKey = env.SessionID + "/" + taskID
 		srv.serve(out)
+		liveServers.Store(srv.registryKey, srv)
 		return srv, nil
 	})
 	if err != nil {
@@ -147,6 +181,9 @@ func resolveRoot(arg, cwd string) (root, openPath string, err error) {
 	}
 	if !info.IsDir() {
 		openPath = filepath.Base(target)
+		if strings.HasPrefix(openPath, ".") {
+			return "", "", fmt.Errorf("%s is a dot-file; the preview server never serves dot-files", target)
+		}
 		target = filepath.Dir(target)
 	}
 	realRoot, err := filepath.EvalSymlinks(target)
@@ -160,6 +197,11 @@ func resolveRoot(arg, cwd string) (root, openPath string, err error) {
 	rel, err := filepath.Rel(realCWD, realRoot)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", "", fmt.Errorf("%s is outside the working directory %s; the preview server only serves the project", target, cwd)
+	}
+	// A path inside a dot-named element is never served either: the same rule
+	// the handler applies to the URL holds for the root it is handed.
+	if hiddenPathElement(filepath.ToSlash(rel)) {
+		return "", "", fmt.Errorf("%s is inside a dot-named path; the preview server never serves dot-files", target)
 	}
 	return realRoot, openPath, nil
 }

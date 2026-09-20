@@ -41,16 +41,17 @@ Unlike a command it has no hard timeout of its own: `tools.background.max_timeou
 - the session is deleted, or Coddy exits;
 - the `timeout_seconds` of the call that started it elapses - the task then reads `timed_out`.
 
-A server does not survive a restart of Coddy: the record stays in the session bundle as `orphaned`, and the agent starts a new one when asked.
+A server does not survive a restart of Coddy: the record stays in the session bundle as `orphaned`, the agent starts a new one when asked, and the stale row is cleared from the Tasks panel - a stop has nothing left to kill.
 
 ## What it will not do
 
 The tool runs without a permission prompt, so it is deliberately narrow:
 
 - **Only the project.** The directory has to be the session's working directory or inside it, symlinks resolved; anything else is refused. Files are opened through an `os.Root`, so a symlink inside the directory cannot lead out of it either.
-- **No dot-files.** A path with an element that starts with a dot - `.git`, `.env`, `.coddy` - answers 404.
+- **No dot-files.** A path with an element that starts with a dot - `.git`, `.env`, `.coddy` - answers 404. A directory listing does not show them either, a symlink inside the directory cannot point at one, and a dot-named path cannot be picked as the directory to serve.
 - **Read-only.** `GET` and `HEAD`; everything else is 405.
 - **Loopback by default.** The server binds `127.0.0.1`. On a loopback bind a request whose `Host` header is not `localhost`, `127.0.0.1`, `[::1]` or the configured `public_host` is refused, so a web page elsewhere cannot reach your files by pointing its own name at your machine (DNS rebinding). No CORS headers are sent.
+- **Not password-protected.** Anything that can reach the address can read the served files while the server runs - the `Host` check keeps other web pages out, it is not authentication. On a shared machine that is every local process; on a non-loopback bind it is whoever can reach the address.
 
 The tool is offered in `agent` mode.
 

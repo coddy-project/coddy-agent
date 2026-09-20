@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -26,6 +27,10 @@ const (
 	// minEstimatedTimeoutSeconds keeps an estimate-derived timeout from being so
 	// tight that a slightly slow command is killed for no good reason.
 	minEstimatedTimeoutSeconds = 60
+	// maxClockTimeoutSeconds is the largest timeout a time.Duration can still
+	// hold: a limit the caller named past it would wrap the timer into no
+	// limit at all, so it is clamped rather than honoured verbatim.
+	maxClockTimeoutSeconds = int(math.MaxInt64 / int64(time.Second))
 )
 
 // ErrPoolFull is returned when a session already runs its maximum number of
@@ -426,10 +431,12 @@ func (p *Pool) start(spec Spec, launch LaunchFunc) (Snapshot, error) {
 // configured default applies.
 //
 // Work that asked for no timeout (a server) is outside all of that: it gets the
-// limit it named, uncapped, or none at all. Zero then means "until stopped".
+// limit it named, uncapped by the configured ceiling, or none at all. Zero then
+// means "until stopped". A named limit is still clamped to what a clock can
+// hold - past it the timer would wrap into no limit.
 func resolveTimeoutSeconds(spec Spec, cfg Config) int {
 	if spec.NoTimeout {
-		return max(spec.TimeoutSeconds, 0)
+		return min(max(spec.TimeoutSeconds, 0), maxClockTimeoutSeconds)
 	}
 	seconds := spec.TimeoutSeconds
 	switch {
@@ -439,7 +446,7 @@ func resolveTimeoutSeconds(spec Spec, cfg Config) int {
 	default:
 		seconds = cfg.DefaultTimeoutSeconds
 	}
-	return min(seconds, cfg.MaxTimeoutSeconds)
+	return min(seconds, cfg.MaxTimeoutSeconds, maxClockTimeoutSeconds)
 }
 
 // registerLocked must be called with the pool lock held.

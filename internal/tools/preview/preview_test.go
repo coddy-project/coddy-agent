@@ -35,7 +35,7 @@ func serveDir(t *testing.T, dir string, opts handlerOptions) *httptest.Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ts := httptest.NewServer(newHandler(root.FS(), opts))
+	ts := httptest.NewServer(newHandler(root, opts))
 	t.Cleanup(func() {
 		ts.Close()
 		_ = root.Close()
@@ -354,4 +354,243 @@ func TestToolWritesTheRequestLogToTheTaskOutput(t *testing.T) {
 	}
 	eventually(t, func() bool { return strings.Contains(output(), "GET / 200") },
 		func() string { return "task output = " + output() })
+}
+
+// The "no dot-files" rule holds on the path argument, on the directory
+// listing, and on what a symlink inside the directory points at.
+
+func TestToolRefusesADotNamedDirectory(t *testing.T) {
+	env := newEnv(t, bgtask.Config{})
+	writeFile(t, filepath.Join(env.CWD, ".hidden", "index.html"), "hi")
+	if _, err := run(env, map[string]interface{}{"path": ".hidden"}); err == nil {
+		t.Fatal("a dot-named directory must not be served")
+	}
+	// A normal directory under a dot-named one is refused the same way:
+	// its URL would expose the dot-parent's contents.
+	writeFile(t, filepath.Join(env.CWD, ".config", "app", "index.html"), "hi")
+	if _, err := run(env, map[string]interface{}{"path": ".config/app"}); err == nil {
+		t.Fatal("a directory under a dot-named one must not be served")
+	}
+}
+
+func TestToolRefusesADotNamedFile(t *testing.T) {
+	env := newEnv(t, bgtask.Config{})
+	writeFile(t, filepath.Join(env.CWD, ".env"), "SECRET=1")
+	out, err := run(env, map[string]interface{}{"path": ".env"})
+	if err == nil {
+		t.Fatalf("a dot-named file argument must be refused, got: %s", out)
+	}
+}
+
+func TestHandlerDoesNotListDotNames(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "page.html"), "page")
+	writeFile(t, filepath.Join(dir, ".env"), "SECRET=1")
+	writeFile(t, filepath.Join(dir, ".git", "config"), "x")
+	ts := serveDir(t, dir, handlerOptions{})
+	resp, body := fetch(t, http.MethodGet, ts.URL+"/", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, body = %q", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "page.html") {
+		t.Fatalf("the listing missed a normal file: %q", body)
+	}
+	for _, hidden := range []string{".env", ".git"} {
+		if strings.Contains(body, hidden) {
+			t.Fatalf("the listing leaks %q: %q", hidden, body)
+		}
+	}
+}
+
+func TestHandlerDoesNotReachADotFileThroughASymlink(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".env"), "SECRET=private-value")
+	writeFile(t, filepath.Join(dir, "index.html"), "hi")
+	if err := os.Symlink(".env", filepath.Join(dir, "public.txt")); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+	ts := serveDir(t, dir, handlerOptions{})
+	resp, body := fetch(t, http.MethodGet, ts.URL+"/public.txt", "")
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("a symlink onto a dot-file was served: %d %q", resp.StatusCode, body)
+	}
+}
+
+func TestServerKeepsTheHostAllowlistOnALocalhostBind(t *testing.T) {
+	// A hostname that resolves to loopback but is not the literal "localhost"
+	// must still keep the DNS-rebinding allowlist: loopback is a property of
+	// the bound address, not of how the host was spelled in the config.
+	for _, host := range []string{"LOCALHOST", "localhost."} {
+		srv, err := listen(t.TempDir(), host, "")
+		if err != nil {
+			t.Skipf("%s does not resolve here: %v", host, err)
+		}
+		if hosts := srv.allowedHosts(); hosts == nil {
+			t.Fatalf("a %q bind resolved to loopback yet dropped the Host allowlist", host)
+		}
+		srv.close()
+	}
+}
+
+func TestToolServesARecreatedDirectoryFresh(t *testing.T) {
+	env := newEnv(t, bgtask.Config{})
+	dist := filepath.Join(env.CWD, "dist")
+	writeFile(t, filepath.Join(dist, "index.html"), "first build")
+	if _, err := run(env, map[string]interface{}{"path": "dist"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A clean build replaces the directory: the running server still answers
+	// from the deleted tree, so the tool must start a fresh one, not dedup.
+	if err := os.RemoveAll(dist); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(dist, "index.html"), "second build")
+	out, err := run(env, map[string]interface{}{"path": "dist"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "already running") {
+		t.Fatalf("the stale server was reused: %q", out)
+	}
+	body, err := get(urlInResult.FindString(out))
+	if err != nil || !strings.Contains(body, "second build") {
+		t.Fatalf("the fresh server does not serve the rebuild: %q, %v", body, err)
+	}
+	running := 0
+	for _, snap := range env.Background.List("unit") {
+		if snap.Kind == bgtask.KindServer && snap.Status == bgtask.StatusRunning {
+			running++
+		}
+	}
+	if running != 1 {
+		t.Fatalf("servers running after the directory swap: %d", running)
+	}
+}
+
+func TestToolRunsOneServerForTwoCallsAtOnce(t *testing.T) {
+	env := newEnv(t, bgtask.Config{})
+	writeFile(t, filepath.Join(env.CWD, "index.html"), "hi")
+
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := run(env, nil); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	running := 0
+	for _, snap := range env.Background.List("unit") {
+		if snap.Kind == bgtask.KindServer && snap.Status == bgtask.StatusRunning {
+			running++
+		}
+	}
+	if running != 1 {
+		t.Fatalf("two parallel calls left %d servers running", running)
+	}
+}
+
+func TestHandlerAnswersHeadRequests(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.html"), "hi")
+	ts := serveDir(t, dir, handlerOptions{})
+	resp, body := fetch(t, http.MethodHead, ts.URL+"/", "")
+	if resp.StatusCode != http.StatusOK || body != "" {
+		t.Fatalf("HEAD: %d %q", resp.StatusCode, body)
+	}
+}
+
+func TestServerStopWithoutServeDoesNotPanic(t *testing.T) {
+	srv, err := listen(t.TempDir(), "127.0.0.1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.close()
+	if err := srv.Stop(50 * time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestToolOpensAFreshPortAfterStop(t *testing.T) {
+	env := newEnv(t, bgtask.Config{})
+	writeFile(t, filepath.Join(env.CWD, "index.html"), "hi")
+	out, err := run(env, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := urlInResult.FindString(out)
+	tasks := env.Background.List("unit")
+	if len(tasks) != 1 {
+		t.Fatalf("tasks: %+v", tasks)
+	}
+	if _, err := env.Background.Stop("unit", tasks[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(env, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := urlInResult.FindString(out)
+	if strings.Contains(out, "already running") || first == second {
+		t.Fatalf("a stopped server was reported as running: %q", out)
+	}
+	if _, err := get(second); err != nil {
+		t.Fatalf("the new address does not answer: %v", err)
+	}
+}
+
+// A wrapped directory must not strip Seek from regular files: a browser reads
+// media in parts.
+func TestHandlerServesRangeRequests(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "movie.mp4"), "0123456789")
+	ts := serveDir(t, dir, handlerOptions{})
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/movie.mp4", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Range", "bytes=2-5")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusPartialContent || string(body) != "2345" {
+		t.Fatalf("Range: %d %q", resp.StatusCode, body)
+	}
+}
+
+// Task ids are per-session: two sessions serving different directories both
+// hold a bg_1. A second call in one session must reuse its own server, not be
+// confused by the other's same id.
+func TestToolDedupDoesNotTouchAnotherSessionsServer(t *testing.T) {
+	envA := newEnv(t, bgtask.Config{})
+	envB := newEnv(t, bgtask.Config{})
+	envB.SessionID = "other"
+	t.Cleanup(func() { envB.Background.StopSession("other") })
+
+	writeFile(t, filepath.Join(envA.CWD, "site-a", "index.html"), "a")
+	writeFile(t, filepath.Join(envB.CWD, "site-b", "index.html"), "b")
+
+	outA, err := run(envA, map[string]interface{}{"path": "site-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(envB, map[string]interface{}{"path": "site-b"}); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := run(envA, map[string]interface{}{"path": "site-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "already running") || urlInResult.FindString(out) != urlInResult.FindString(outA) {
+		t.Fatalf("session A's server was not reused: %q", out)
+	}
 }
