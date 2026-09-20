@@ -159,9 +159,11 @@ test("a folded finished card leaves how it ended to its dot, the open card names
   ).not.toBeNull();
 
   fireEvent.click(screen.getByTestId("bgtask-open-bg_3"));
-  expect(screen.getByTestId("bgtask-foot-bg_3")).toHaveTextContent(
-    /^Failed · Exit code 2 · Duration 30s$/,
-  );
+  const foot = screen.getByTestId("bgtask-foot-bg_3");
+  expect(foot).toHaveTextContent(/^Failed · Exit code 2$/);
+  // How long it ran is the folded row's, and it is not said twice: the foot
+  // carries only what the folded card leaves to it.
+  expect(foot).not.toHaveTextContent("30s");
 });
 
 test("only a running task offers Stop, and Stop is not part of the card's own control", () => {
@@ -318,6 +320,40 @@ test("a folded subagent card names its model and the tokens it spent, a command 
   );
 });
 
+test("a folded subagent card reaches the child transcript without being opened", () => {
+  // A subagent run is the conversation it holds, so the way into that
+  // conversation belongs on the card the operator already sees. Opening a card
+  // to find a link, then leaving the panel through it, put a step in the middle
+  // of the one move the panel exists for.
+  const onOpenSession = vi.fn();
+  renderPanel({ tasks: [task(), agentTask()], onOpenSession });
+
+  const opener = screen.getByTestId("bgtask-open-bg_7");
+  expect(opener.getAttribute("aria-expanded")).toBe("false");
+  const transcript = screen.getByTestId("bgtask-open-transcript-bg_7");
+  expect(transcript).toHaveTextContent("Show transcript");
+  expect(transcript).toHaveAccessibleName(
+    "Show the transcript of survey the repo",
+  );
+  // It rides the meta line, under the status and the usage.
+  expect(screen.getByTestId("bgtask-meta-bg_7")).toContainElement(transcript);
+
+  // It stands above the card's stretched opener: it opens the transcript, not
+  // the card - the same way Stop stops the task without expanding it.
+  expect(opener.contains(transcript)).toBe(false);
+  fireEvent.click(transcript);
+  expect(onOpenSession).toHaveBeenCalledWith("sess_0a1b2c");
+  expect(screen.queryByTestId("bgtask-body-bg_7")).toBeNull();
+  expect(opener.getAttribute("aria-expanded")).toBe("false");
+
+  // Opening the card does not give it a second one.
+  fireEvent.click(opener);
+  expect(screen.getAllByTestId("bgtask-open-transcript-bg_7")).toHaveLength(1);
+
+  // A shell command has no child conversation behind it.
+  expect(screen.queryByTestId("bgtask-open-transcript-bg_1")).toBeNull();
+});
+
 test("the card is one control: a click expands it in place, another folds it", async () => {
   const loadOutput = outputsOf({ bg_1: "compiling package…" });
   renderPanel({ loadOutput });
@@ -386,7 +422,7 @@ test("an expanded command card shows the command with a copy control, the output
     ),
   );
   const foot = screen.getByTestId("bgtask-foot-bg_2");
-  expect(foot).toHaveTextContent(/^Succeeded · Exit code 0 · Duration 1m35s$/);
+  expect(foot).toHaveTextContent(/^Succeeded · Exit code 0$/);
 });
 
 test("a card the shell points at opens on its own, its section with it", async () => {
@@ -562,7 +598,7 @@ test("a failed run reads its error and its exit code in the card", async () => {
     screen.getByText("make: *** [site-docs-check] Error 2"),
   ).toBeInTheDocument();
   const foot = screen.getByTestId("bgtask-foot-bg_1");
-  expect(foot).toHaveTextContent(/^Failed · Exit code 2 · Duration 1m30s$/);
+  expect(foot).toHaveTextContent(/^Failed · Exit code 2$/);
 });
 
 test("a failed command says its exit code once, at the foot", () => {
@@ -659,12 +695,14 @@ test("an expanded subagent card opens the child transcript and shows the run's l
   );
   const foot = screen.getByTestId("bgtask-foot-bg_7");
   expect(foot).not.toHaveTextContent("Exit code");
-  expect(foot).toHaveTextContent(/^Succeeded · Duration 3m20s$/);
+  expect(foot).toHaveTextContent(/^Succeeded$/);
 
+  // The way to the transcript is the folded card's and is not repeated here.
   const transcript = screen.getByTestId("bgtask-open-transcript-bg_7");
-  expect(transcript).toHaveTextContent("Show transcript");
-  fireEvent.click(transcript);
-  expect(onOpenSession).toHaveBeenCalledWith("sess_0a1b2c");
+  expect(screen.getByTestId("bgtask-body-bg_7").contains(transcript)).toBe(
+    false,
+  );
+  expect(onOpenSession).not.toHaveBeenCalled();
 });
 
 test("Show transcript stays disabled until the child session is known", () => {
@@ -673,7 +711,6 @@ test("Show transcript stays disabled until the child session is known", () => {
     tasks: [agentTask({ agent: { name: "explore" } })],
     onOpenSession,
   });
-  fireEvent.click(screen.getByTestId("bgtask-open-bg_7"));
 
   const button = screen.getByTestId("bgtask-open-transcript-bg_7");
   expect(button).toBeDisabled();

@@ -8,9 +8,7 @@ import type { BackgroundTask } from "./types";
 import {
   agentTranscriptSessionId,
   agentUsage,
-  displayElapsedSeconds,
   estimateProgress,
-  formatDuration,
   groupTasks,
   isAgentTask,
   isOverdue,
@@ -39,11 +37,16 @@ function IconStop() {
  * the same place: the status dot, a tag that says what stands behind the task, the title
  * of the work, and a meta line under them.
  *
- * The card is one control. Its summary - everything but the Stop button - is a single
- * button stretched over the card, so a click anywhere expands the card in place; Stop
- * sits above that surface and keeps working on its own. There is no second pane: the
- * open card shows the command, the captured output and how the run ended right where
- * it stands in the list, and any number of cards can be open at once.
+ * The card is one control. Its summary - everything but the Stop button and, on an
+ * agent run, the way into the child transcript - is a single button stretched over the
+ * card, so a click anywhere expands the card in place; those two sit above that surface
+ * and keep working on their own. There is no second pane: the open card shows the
+ * command, the captured output and how the run ended right where it stands in the list,
+ * and any number of cards can be open at once.
+ *
+ * What an agent run costs and where it leads is read without opening anything: the
+ * model, the tokens its calls spent, how long it has run and Show transcript are all on
+ * the folded card, and none of them is said again inside it.
  */
 function TaskCard(props: {
   task: BackgroundTask;
@@ -61,6 +64,10 @@ function TaskCard(props: {
   const overdue = isOverdue(task, props.nowMs);
   const title = taskTitle(task);
   const usage = agentUsage(task);
+  // A subagent run is the conversation it holds, so the way into that
+  // conversation belongs on the card the operator already sees. Null for a shell
+  // command, which has no child session behind it.
+  const agentSid = isAgentTask(task) ? agentTranscriptSessionId(task) : null;
   // A bell after the title: the running task will wake the agent when it ends,
   // or the finished one did - the one place the web UI says what woke it, since
   // the turn it started shows nothing of its own in the transcript.
@@ -190,6 +197,29 @@ function TaskCard(props: {
               ) : null}
             </span>
           ) : null}
+          {isAgentTask(task) ? (
+            <span className="bgtask-card-transcript-row">
+              <button
+                type="button"
+                className="bgtask-card-transcript"
+                data-testid={`bgtask-open-transcript-${task.id}`}
+                disabled={agentSid === null}
+                aria-label={t("tasks.openTranscriptAria", { label: title })}
+                title={
+                  agentSid === null
+                    ? t("tasks.openTranscriptUnavailable")
+                    : undefined
+                }
+                onClick={() => {
+                  if (agentSid !== null) {
+                    props.onOpenSession(agentSid);
+                  }
+                }}
+              >
+                {t("tasks.openTranscript")}
+              </button>
+            </span>
+          ) : null}
         </div>
         {progress !== null ? (
           <div
@@ -208,12 +238,7 @@ function TaskCard(props: {
         ) : null}
       </div>
       {props.open ? (
-        <TaskCardBody
-          task={task}
-          output={props.output}
-          nowMs={props.nowMs}
-          onOpenSession={props.onOpenSession}
-        />
+        <TaskCardBody task={task} output={props.output} />
       ) : null}
     </div>
   );
@@ -221,23 +246,18 @@ function TaskCard(props: {
 
 /**
  * What an open card adds under its summary: the command with a copy control (a shell
- * task) or the way to the child transcript (an agent run), the error the run ended
- * with unless it only repeats the exit code, the captured output in a box of its own
- * height, and - once the task has finished - a foot that says how it ended, the exit
- * code and how long it ran.
+ * task; an agent run has no shell behind it and nothing to put here), the error the
+ * run ended with unless it only repeats the exit code, the captured output in a box
+ * of its own height, and - once the task has finished - a foot that says how it ended
+ * and with what exit code. How long it ran and the way into an agent run's transcript
+ * are the summary's, which is read whether the card is open or not.
  */
-function TaskCardBody(props: {
-  task: BackgroundTask;
-  output: string;
-  nowMs: number;
-  onOpenSession: (sessionId: string) => void;
-}) {
+function TaskCardBody(props: { task: BackgroundTask; output: string }) {
   const { t } = useT();
   const task = props.task;
   const preRef = useRef<HTMLPreElement | null>(null);
   const [follow, setFollow] = useState(true);
   const agent = isAgentTask(task);
-  const agentSid = agentTranscriptSessionId(task);
 
   useEffect(() => {
     const el = preRef.current;
@@ -257,37 +277,13 @@ function TaskCardBody(props: {
     if (!agent && typeof task.exit_code === "number") {
       footParts.push(t("tasks.footExitCode", { code: task.exit_code }));
     }
-    footParts.push(
-      t("tasks.footDuration", {
-        value: formatDuration(displayElapsedSeconds(task, props.nowMs)),
-      }),
-    );
+    // How long the task ran is not repeated here: the summary above says it,
+    // and it says it whether this card is open or folded.
   }
 
   return (
     <div className="bgtask-card-body" data-testid={`bgtask-body-${task.id}`}>
-      {agent ? (
-        <div className="bgtask-card-actions">
-          <button
-            type="button"
-            className="scheduler-btn bgtask-open-transcript"
-            data-testid={`bgtask-open-transcript-${task.id}`}
-            disabled={agentSid === null}
-            title={
-              agentSid === null
-                ? t("tasks.openTranscriptUnavailable")
-                : undefined
-            }
-            onClick={() => {
-              if (agentSid !== null) {
-                props.onOpenSession(agentSid);
-              }
-            }}
-          >
-            {t("tasks.openTranscript")}
-          </button>
-        </div>
-      ) : task.command ? (
+      {!agent && task.command ? (
         <div className="bgtask-card-command">
           <pre
             className="bgtask-card-command-text"
