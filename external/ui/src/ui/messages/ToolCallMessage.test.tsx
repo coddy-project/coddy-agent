@@ -1171,20 +1171,37 @@ test("the summary row names the action, not the tool id", () => {
   expect(screen.queryByText("run_command")).toBeNull();
 });
 
-test("a tool outside the catalogue keeps its own id in the summary row", () => {
+test("an MCP call names the server and the tool, never the registry id", () => {
   render(
     <ToolCallMessage
       toolCallId="tc-mcp"
       title="mcp__github__create_issue"
+      status="completed"
+      argsText={JSON.stringify({ title: "Crash on start" })}
+      resultText="ok"
+      durationMs={4}
+    />,
+  );
+  expect(
+    screen.getByText("calling create_issue on the MCP server github"),
+  ).toHaveClass("thinking-label");
+  expect(screen.queryByText("mcp__github__create_issue")).toBeNull();
+  // The argument preview the row already had survives the new label.
+  expect(screen.getByText("Crash on start")).toHaveClass("tool-summary-target");
+});
+
+test("a tool outside the catalogue keeps its own id in the summary row", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-unknown"
+      title="something_new"
       status="completed"
       argsText={JSON.stringify({ title: "x" })}
       resultText="ok"
       durationMs={4}
     />,
   );
-  expect(screen.getByText("mcp__github__create_issue")).toHaveClass(
-    "thinking-label",
-  );
+  expect(screen.getByText("something_new")).toHaveClass("thinking-label");
 });
 
 test("a call with no arguments shows an action card instead of an empty JSON object", () => {

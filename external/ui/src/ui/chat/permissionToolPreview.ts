@@ -11,7 +11,10 @@ import { permissionPromptDetail } from "./permissionPromptDisplay";
 import type { CoddyPermissionPayload } from "./permissionTypes";
 import { permissionBodyText } from "./permissionTypes";
 import { parseLoadSkillName } from "./loadSkillDisplay";
-import { toolDisplayName } from "../messages/toolDisplayName";
+import {
+  parseMcpToolName,
+  toolDisplayName,
+} from "../messages/toolDisplayName";
 import { t, tp } from "../i18n/i18n";
 
 export type PermissionToolCallContext = {
@@ -90,6 +93,23 @@ function stringArg(args: Record<string, unknown>, ...names: string[]): string {
   for (const name of names) {
     const value = args[name];
     if (typeof value === "string") return value;
+  }
+  return "";
+}
+
+/** Longest argument value that still reads as a label on a row rather than as a body. */
+const MAX_LABEL_ARG_CHARS = 120;
+
+/**
+ * The first argument of a call that reads as a label: a non-empty single-line string
+ * short enough for the row. Arguments are taken in the order the model wrote them, so
+ * the leading one wins, which is where a tool puts what it acts on.
+ */
+function firstLabelArg(args: Record<string, unknown>): string {
+  for (const value of Object.values(args)) {
+    if (typeof value !== "string" || /[\r\n]/.test(value)) continue;
+    const label = value.trim();
+    if (label !== "" && label.length <= MAX_LABEL_ARG_CHARS) return label;
   }
   return "";
 }
@@ -177,11 +197,26 @@ export function toolCallTargetText(context: PermissionToolCallContext): string {
       // Staged uci commands are what the call is about, the way a command is for
       // run_command. One row, so they read as a list rather than as lines.
       return stringListArg(args, "commands").join(", ");
-    default:
+    default: {
       // read / write / edit / apply_patch / mkdir / touch / rm / rmdir / print_tree /
       // plan_* take a path; webfetch takes a url; config_get and config_revert take a
       // dotted config key.
-      return stringArg(args, "path", "filePath", "file_path", "url", "name");
+      const known = stringArg(
+        args,
+        "path",
+        "filePath",
+        "file_path",
+        "url",
+        "name",
+      );
+      if (known || !parseMcpToolName(toolName)) return known;
+      // An MCP server names its own arguments, so a call taking none of the above
+      // would show nothing at all beside a label that cannot say what it does. The
+      // first argument that reads as a label is what such a call is about. Only for
+      // those: a Coddy tool landing here keeps naming the argument it is documented
+      // to take, so a write without its path never shows the file body instead.
+      return firstLabelArg(args);
+    }
   }
 }
 

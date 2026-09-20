@@ -90,13 +90,20 @@ func (a *App) unblockStatus() {
 }
 
 // statusVerbForTool is the present-progressive phrase for a backend tool id. Tool ids are
-// the raw registry names; unknown ones - MCP tools included - fall back to a generic
-// phrase and keep their id as the target so the row stays debuggable.
+// the raw registry names; a tool an MCP server serves is named by its server and its own
+// name, and anything else unknown falls back to a generic phrase and keeps its id as the
+// target so the row stays debuggable.
 func statusVerbForTool(toolName string) string {
 	n := strings.ToLower(strings.TrimSpace(toolName))
 	switch {
 	case n == "":
 		return "Running a tool"
+	case strings.Contains(n, "__"):
+		// Not every name with the separator is a namespaced call; one that is not
+		// falls through to the generic phrase below.
+		if phrase := mcpToolPhrase(toolName); phrase != "" {
+			return phrase
+		}
 	case strings.HasPrefix(n, "coddy_todo_"):
 		if strings.HasSuffix(n, "_read") {
 			return "Reading the plan"
@@ -215,8 +222,88 @@ func statusTargetFromArgs(toolName, argsJSON string) string {
 	default:
 		// read / write / edit / apply_patch / mkdir / touch / rm / rmdir / print_tree /
 		// plan_* take a path; webfetch takes a url.
-		return stringArg(args, "path", "filePath", "file_path", "url", "name")
+		if target := stringArg(args, "path", "filePath", "file_path", "url", "name"); target != "" {
+			return target
+		}
+		if _, _, ok := mcpToolNameParts(toolName); !ok {
+			return ""
+		}
+		// An MCP server names its own arguments, so a call taking none of the above
+		// would show nothing at all beside a phrase that cannot say what it does. The
+		// first argument that reads as a label is what such a call is about. Only for
+		// those: a Coddy tool landing here keeps naming the argument it is documented
+		// to take, so a write without its path never shows the file body instead.
+		return firstLabelArg(raw)
 	}
+}
+
+// mcpToolNameParts reads the "<server>__<tool>" name every MCP tool joins the
+// function-calling list under (internal/mcp.ToolInfo.ToLLMToolDefinition), with the
+// "mcp__" prefix other agents spell the same call with accepted as well
+// (internal/hooks.MatchTool). A server name can never contain "__"
+// (internal/mcp.ValidateServerName), so the first separator is the split and everything
+// after it is the tool's own name.
+func mcpToolNameParts(toolName string) (server, tool string, ok bool) {
+	const prefix = "mcp__"
+	name := strings.TrimSpace(toolName)
+	if len(name) >= len(prefix) && strings.EqualFold(name[:len(prefix)], prefix) {
+		name = name[len(prefix):]
+	}
+	at := strings.Index(name, "__")
+	if at <= 0 {
+		return "", "", false
+	}
+	server, tool = name[:at], name[at+2:]
+	if server == "" || tool == "" {
+		return "", "", false
+	}
+	return server, tool, true
+}
+
+// mcpToolPhrase names a call to a tool an MCP server serves the way the built-in ids
+// name their action. It answers "" for anything that is not a namespaced call. The web
+// UI says the same through the `tool.name.mcp` dictionary entry.
+func mcpToolPhrase(toolName string) string {
+	server, tool, ok := mcpToolNameParts(toolName)
+	if !ok {
+		return ""
+	}
+	return "Calling " + tool + " on the MCP server " + server
+}
+
+// Longest argument value that still reads as a label on the row rather than as a body.
+const maxLabelArgChars = 120
+
+// firstLabelArg is the first argument of a call that reads as a label: a non-empty
+// single-line string short enough for the row. encoding/json decodes an object into an
+// unordered map, so the order the model wrote the arguments in is recovered from the
+// token stream - the leading one wins, which is where a tool puts what it acts on.
+func firstLabelArg(raw string) string {
+	dec := json.NewDecoder(strings.NewReader(raw))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return ""
+	}
+	for dec.More() {
+		if _, err := dec.Token(); err != nil {
+			return ""
+		}
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
+			return ""
+		}
+		var text string
+		if err := json.Unmarshal(value, &text); err != nil {
+			continue
+		}
+		if strings.ContainsAny(text, "\r\n") {
+			continue
+		}
+		label := strings.TrimSpace(text)
+		if label != "" && len([]rune(label)) <= maxLabelArgChars {
+			return label
+		}
+	}
+	return ""
 }
 
 // cutArgumentsPrefix strips a leading "Arguments:" label, case-insensitively.

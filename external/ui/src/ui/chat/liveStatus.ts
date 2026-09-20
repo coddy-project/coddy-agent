@@ -12,6 +12,7 @@
  * other as well.
  */
 
+import { parseMcpToolName } from "../messages/toolDisplayName";
 import {
   toolCallTargetIsPath,
   toolCallTargetText,
@@ -83,9 +84,10 @@ export function waitingStatusKey(elapsedMs: number): string {
 
 /**
  * Present-progressive phrase key for a backend tool id. Tool ids are the raw registry
- * names (internal/tools, internal/agent/toolsets.go); unknown ones — MCP tools included —
- * fall back to a generic phrase and keep their id as the target so the row stays
- * debuggable.
+ * names (internal/tools, internal/agent/toolsets.go); unknown ones fall back to a
+ * generic phrase and keep their id as the target so the row stays debuggable. A tool
+ * an MCP server serves takes that generic phrase too, since nothing here knows what it
+ * does, and deriveLiveStatus names the server and the tool as its target instead.
  *
  * Note: the rendered order is "verb target" (two separate spans so CSS can ellipsize the
  * target alone). A locale needing target-first would have to restructure the markup.
@@ -388,10 +390,17 @@ export function deriveLiveStatus(
     const named = toolCallTargetText(context);
     // Same rule as the transcript row: a path reads against the session's own
     // directory, so the line spends its width on what tells files apart.
-    const target =
-      (named && toolCallTargetIsPath(context)
+    const relative =
+      named && toolCallTargetIsPath(context)
         ? relativeToolTarget(named, pathRoots)
-        : named) || (key === "status.tool" ? rawName : "");
+        : named;
+    // A generic verb over an MCP call says nothing, and its `server__tool` id says
+    // it badly, so the line spends the target on the call's identity. What it acts
+    // on is on the transcript row above, which names the server and the tool too.
+    const mcp = parseMcpToolName(rawName);
+    const target = mcp
+      ? mcp.server + "/" + mcp.tool
+      : relative || (key === "status.tool" ? rawName : "");
     return {
       kind: "tool",
       key,
