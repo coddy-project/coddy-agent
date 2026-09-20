@@ -186,3 +186,27 @@ test("an @coddy: mention in the sent message opens the documentation reader", ()
   ]);
   expect(screen.getByTestId("user-message-body").textContent).toContain("как настроить рой?");
 });
+
+// The viewer renders into the body, so a transcript the SPA hides rather than
+// unmounts would leave it over the screen the reader went to, swallowing clicks.
+test("leaving the screen closes the picture the bubble opened", () => {
+  render(
+    <UserMessage
+      content="look at this"
+      files={[
+        {
+          name: "pasted-1.png",
+          mimeType: "image/png",
+          sizeBytes: 1024,
+          previewUrl: "/coddy/sessions/s1/assets/pasted-1.png/thumbnail",
+          url: "/coddy/sessions/s1/assets/pasted-1.png",
+        },
+      ]}
+    />,
+  );
+  fireEvent.click(screen.getByLabelText("Open pasted-1.png enlarged"));
+  expect(document.querySelector(".docs-lightbox")).not.toBeNull();
+
+  fireEvent(window, new HashChangeEvent("hashchange"));
+  expect(document.querySelector(".docs-lightbox")).toBeNull();
+});

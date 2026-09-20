@@ -148,6 +148,19 @@ export function ImageLightbox(props: { src: string; alt: string; onClose: () => 
     return () => before?.focus?.();
   }, []);
 
+  // Leaving the screen closes the viewer. It renders into the body, so a host
+  // the SPA hides rather than unmounts - a transcript the reader navigated away
+  // from - would otherwise leave it over the new screen, swallowing every click.
+  useEffect(() => {
+    const leave = () => props.onClose();
+    window.addEventListener("hashchange", leave);
+    window.addEventListener("popstate", leave);
+    return () => {
+      window.removeEventListener("hashchange", leave);
+      window.removeEventListener("popstate", leave);
+    };
+  }, [props]);
+
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === "Escape") {
       e.preventDefault();
