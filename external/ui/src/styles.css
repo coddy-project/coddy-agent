@@ -3587,40 +3587,13 @@ a.rail-brand {
   gap: 0 6px;
 }
 
-.thinking-chevron:before {
-  content: "";
-}
-
-/* Centred on the first line - half the label's 20px line box - never on the height
-   of .thinking-left. A tool row's box is taller than its label's line (the 12px target
-   and duration sit lower on the shared baseline) and a phone wraps a chip onto a second
-   line; centred on the box, the chevron sank below the label on exactly those rows.
-   DESIGN.md (Chevron), toolRowBaselineCss.test.ts. */
-.thinking-chevron {
-  position: absolute;
-  left: 0;
-  top: 10px;
-  width: 16px;
-  height: 14px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0.7;
-  transition: transform 140ms ease;
-  transform: translateY(-50%) rotate(0deg);
-}
-
 /* The app's one chevron (<Chevron />, DESIGN.md "Chevron"): the transcript row's
-   fold marker and every disclosure, submenu and dropdown share this one glyph, so
-   none of them can drift into a triangle of its own. */
-.thinking-chevron:after,
-.coddy-chevron:after {
-  content: "›";
-  display: block;
-  line-height: 1;
-  font-size: 15px;
-}
-
+   fold marker and every disclosure, submenu and dropdown are the same component,
+   so none of them can drift into a glyph or a triangle of its own. The mark is an
+   SVG whose ink mirrors about the centre of its viewBox; as the text "›" its ink
+   sat wherever the platform's font happened to put it in the line box, and the
+   same CSS placed it differently on every machine. Nothing here may put a chevron
+   back into `content`. */
 .coddy-chevron {
   display: inline-flex;
   flex: 0 0 auto;
@@ -3630,6 +3603,11 @@ a.rail-brand {
   height: 14px;
   opacity: 0.7;
   transition: transform 140ms ease;
+}
+
+.coddy-chevron > svg {
+  display: block;
+  flex: 0 0 auto;
 }
 
 .coddy-chevron.is-open {
@@ -3644,8 +3622,30 @@ a.rail-brand {
   transform: rotate(-90deg);
 }
 
+/* Centred on the first line - half the label's 20px line box - never on the height
+   of .thinking-left. A tool row's box is taller than its label's line (the 12px target
+   and duration sit lower on the shared baseline) and a phone wraps a chip onto a second
+   line; centred on the box, the chevron sank below the label on exactly those rows.
+   Placed after .coddy-chevron: the transcript row's chevron carries both classes and
+   these declarations win on order, not on weight.
+   DESIGN.md (Chevron), toolRowBaselineCss.test.ts. */
+.thinking-chevron {
+  position: absolute;
+  left: 0;
+  top: 10px;
+  width: 16px;
+  height: 14px;
+  transform: translateY(-50%) rotate(0deg);
+}
+
 .thinking-details[open] .thinking-chevron {
   transform: translateY(-50%) rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .coddy-chevron {
+    transition: none;
+  }
 }
 
 .thinking-label {
@@ -8518,10 +8518,6 @@ html:not([data-theme="light"]) .context-usage-note--error {
 .mcp-expand-btn:hover {
   background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
   color: var(--text);
-}
-
-.mcp-expand-btn svg {
-  transition: transform 120ms ease;
 }
 
 /* Connection status dot (Cursor-style): green connected, red error, gray

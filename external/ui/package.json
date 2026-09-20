@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "build:go": "vite build && node scripts-sync-to-go.mjs",
     "check:webkit": "node scripts/webkit-scroll-check.mjs",
+    "check:chevron": "node scripts/chevron-align-check.mjs",
     "fmt": "prettier -w ."
   },
   "keywords": [],

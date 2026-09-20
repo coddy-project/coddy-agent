@@ -1178,6 +1178,23 @@ CODDY_URL=http://127.0.0.1:12345 CODDY_FOLDER=/a/folder/with/many/subdirs npm --
 
 **`CODDY_ENGINE=chromium`** runs the same assertions in Chromium, which separates a WebKit-only regression from a layout bug every engine shares. The script is not part of **`make test`**: it needs a browser download and a live server. **`npm ci`** and **`make ui-build`** prune the unsaved **`playwright`** install, so re-run the install line after a rebuild.
 
+### Checking the fold chevron against its label
+
+The chevron is an SVG whose ink is centred in its viewBox (**`DESIGN.md`**, *Chevron*), because as a text glyph its ink sat wherever the platform's font put it and the reports of a chevron riding above its label kept coming back. Where a mark actually lands is a layout fact, and jsdom has none, so the vitest suite cannot answer it. **`external/ui/scripts/chevron-align-check.mjs`** measures it in a real engine: for a thinking row, a tool row and the Tasks drawer's **Finished N** toggle it compares the ink centre of the chevron with the ink centre of the label's text (a **`Range`** over the text node, so neither the element's padding nor a line height of its own can hide the error), and exits non-zero when they differ by more than **1px**.
+
+It drives **`src/chevron-align-check.html`**, a stand that mounts those three surfaces from the real components against the real stylesheet, so it needs a **`vite`** dev server and no backend at all.
+
+```bash
+cd external/ui && npm i --no-save playwright && npx playwright install chromium
+```
+
+```bash
+cd external/ui && npx vite --port 5241 &
+CODDY_UI_URL=http://127.0.0.1:5241 npm --prefix external/ui run check:chevron
+```
+
+**`CODDY_ENGINE=webkit`** (or **`firefox`**) runs the same measurements in another engine, and **`CODDY_CHEVRON_TOLERANCE_PX`** raises the allowance. Like the WebKit harness above, this one is **not part of `make test`**: it is a manual check, run when a change touches the chevron, the rows it sits on or the type around them.
+
 ## UI test scenarios
 
 These scenarios are intended to be automated via Playwright against the Vite dev server.
