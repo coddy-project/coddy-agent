@@ -10,6 +10,18 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/docs"
 )
 
+// docsVerbs are the verbs `coddy docs` accepts, in the order the usage line
+// names them. The switch in runDocs is the authority; this list mirrors it so
+// the usage line and the tools that teach the command to the model cannot
+// drift from it.
+var docsVerbs = []string{"list", "search", "show"}
+
+// docsUsage is the one usage line of `coddy docs`.
+func docsUsage() string {
+	return fmt.Sprintf("usage: %s docs [%s] | %s <words> [--limit N] | %s <page>[#section]",
+		os.Args[0], docsVerbs[0], docsVerbs[1], docsVerbs[2])
+}
+
 // runDocs prints the documentation built into this binary: its contents, a
 // search, or a page or one section of it. It works in every build, the lean
 // one without the console included, and reads nothing but the binary.
@@ -22,7 +34,7 @@ func runDocs(args []string, out io.Writer) error {
 	if len(args) > 0 {
 		verb, args = args[0], args[1:]
 	}
-	usage := fmt.Errorf("usage: %s docs [list] | search <words> [--limit N] | show <page>[#section]", os.Args[0])
+	usage := fmt.Errorf("%s", docsUsage())
 	switch verb {
 	case "list":
 		if len(args) > 0 && args[0] == "--slugs" {
