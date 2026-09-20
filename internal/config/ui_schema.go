@@ -450,6 +450,19 @@ func UISchemaMap() map[string]interface{} {
 					},
 					[]string{"enable", "max_concurrent", "default_timeout_seconds", "max_timeout_seconds", "output_buffer_bytes"},
 					nil),
+				"preview_server": objectSchema("Preview server",
+					"The preview_server tool: a static file server the agent starts over a project directory, on a free port, so you can open the work in a browser.",
+					map[string]interface{}{
+						"enable": map[string]interface{}{
+							"type":        "boolean",
+							"title":       "Enabled",
+							"description": "Offer the preview_server tool (default true). Turning background tasks off turns it off as well.",
+						},
+						"host":        strProp("Bind host", "Address the server binds, without a port (default 127.0.0.1). Anything that is not loopback exposes the served directory."),
+						"public_host": strProp("Public host", "Host written into the URL the agent hands out, when the browser is on another machine. Empty uses the bind host."),
+					},
+					[]string{"enable", "host", "public_host"},
+					nil),
 				"websearch": objectSchema("Web search",
 					"Which search engines the websearch tool asks, in what order their results merge, and what it may spend asking them. Each engine reports its own outcome next to the results, so a backend that was turned away is named rather than counted as \"nothing found\".",
 					map[string]interface{}{
@@ -490,7 +503,7 @@ func UISchemaMap() map[string]interface{} {
 					[]string{"allowlist"},
 					nil),
 			},
-			[]string{"permission_mode", "command_allowlist", "output_limits", "background", "websearch", "http_request"},
+			[]string{"permission_mode", "command_allowlist", "output_limits", "background", "preview_server", "websearch", "http_request"},
 			nil),
 		"subagents": objectSchema("Subagents",
 			"User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript.",

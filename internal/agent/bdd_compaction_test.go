@@ -140,7 +140,7 @@ func (s *compactionFeatureState) compactSession() error {
 	if s.ag == nil {
 		return fmt.Errorf("no session prepared")
 	}
-	res, err := s.ag.CompactSession(context.Background(), "", false)
+	res, err := s.ag.CompactSession(context.Background(), CompactOptions{})
 	if err != nil {
 		return err
 	}
@@ -420,13 +420,21 @@ func (s *compactionFeatureState) clientToldCompactionWasRunning() error {
 // modelCallsCompactContext runs a turn whose first step is the model asking for
 // a compaction, so the fold goes through the tool the way the model reaches it.
 func (s *compactionFeatureState) modelCallsCompactContext() error {
+	return s.modelCallsCompactContextWith(`{"instructions":"keep the file paths"}`)
+}
+
+func (s *compactionFeatureState) modelCallsCompactContextWithModel(model string) error {
+	return s.modelCallsCompactContextWith(fmt.Sprintf(`{"model":%q}`, model))
+}
+
+func (s *compactionFeatureState) modelCallsCompactContextWith(argsJSON string) error {
 	if s.ag == nil {
 		return fmt.Errorf("no session prepared")
 	}
 	s.provider.toolCall = &llm.ToolCall{
 		ID:        "call_compact_1",
 		Name:      tools.ToolCompactContext,
-		InputJSON: `{"instructions":"keep the file paths"}`,
+		InputJSON: argsJSON,
 	}
 	_, err := s.ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "probe prompt"}})
 	return err
@@ -461,6 +469,63 @@ func (s *compactionFeatureState) requestAfterToolCallStartsFromSummary() error {
 	return fmt.Errorf("request had no history messages")
 }
 
+// toolResultsAnswerCallsInTheRequest reads the same request as a provider
+// does: a tool result whose call is not in the request is refused.
+func (s *compactionFeatureState) toolResultsAnswerCallsInTheRequest() error {
+	if len(s.provider.streamSeen) < 2 {
+		return fmt.Errorf("the loop made %d model call(s); expected one after the tool", len(s.provider.streamSeen))
+	}
+	req := s.provider.streamSeen[len(s.provider.streamSeen)-1]
+	called := map[string]bool{}
+	results := 0
+	for _, m := range req {
+		for _, tc := range m.ToolCalls {
+			called[tc.ID] = true
+		}
+		if m.Role == llm.RoleTool {
+			results++
+			if !called[m.ToolCallID] {
+				return fmt.Errorf("tool result %q answers no call in the request: %s", m.ToolCallID, transcriptText(req))
+			}
+		}
+	}
+	if results == 0 {
+		return fmt.Errorf("the request carries no tool result: %s", transcriptText(req))
+	}
+	return nil
+}
+
+// secondModelConfigured adds a model the session does not run on, so a summary
+// it wrote can only come from a compaction that asked for it by name.
+func (s *compactionFeatureState) secondModelConfigured(model string) error {
+	if s.ag == nil {
+		return fmt.Errorf("no session prepared")
+	}
+	s.ag.cfg.Models = append(s.ag.cfg.Models, config.ModelEntry{Model: model, MaxTokens: 100, MaxContextTokens: 128000})
+	return nil
+}
+
+func (s *compactionFeatureState) summaryWrittenBy(model string) error {
+	for _, m := range s.st.GetMessages() {
+		if m.CompactionSummary {
+			if m.Model != model {
+				return fmt.Errorf("summary written by %q, want %q", m.Model, model)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("no compaction summary row in transcript")
+}
+
+func (s *compactionFeatureState) toolResultNamesSummarizer(model string) error {
+	for _, m := range s.st.GetMessages() {
+		if m.Role == llm.RoleTool && strings.Contains(m.Content, "Summarizer: "+model+".") {
+			return nil
+		}
+	}
+	return fmt.Errorf("no tool result naming %q: %s", model, transcriptText(s.st.GetMessages()))
+}
+
 func initializeCompactionScenario(sc *godog.ScenarioContext) {
 	s := &compactionFeatureState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -490,6 +555,11 @@ func initializeCompactionScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the client was told the compaction was running$`, s.clientToldCompactionWasRunning)
 	sc.Step(`^the model calls the compact_context tool$`, s.modelCallsCompactContext)
 	sc.Step(`^the tool result says what was compacted$`, s.toolResultSaysWhatWasCompacted)
+	sc.Step(`^the model calls the compact_context tool with the model "([^"]+)"$`, s.modelCallsCompactContextWithModel)
+	sc.Step(`^a second model "([^"]+)" is configured$`, s.secondModelConfigured)
+	sc.Step(`^the summary was written by "([^"]+)"$`, s.summaryWrittenBy)
+	sc.Step(`^the tool result names the summarizer "([^"]+)"$`, s.toolResultNamesSummarizer)
+	sc.Step(`^every tool result in that request answers a call the request carries$`, s.toolResultsAnswerCallsInTheRequest)
 	sc.Step(`^the LLM request after the tool call starts from the summary$`, s.requestAfterToolCallStartsFromSummary)
 }
 

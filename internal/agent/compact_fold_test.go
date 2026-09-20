@@ -192,7 +192,7 @@ func TestAutoCompactionNeverFoldsThePromptWithKeepRecentTurnsZero(t *testing.T) 
 	provider := &compactCannedProvider{t: t, summary: "SUMMARY"}
 	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &zero}, provider)
 
-	res, err := ag.CompactSession(context.Background(), "", false)
+	res, err := ag.CompactSession(context.Background(), CompactOptions{})
 	if err != nil {
 		t.Fatalf("auto compaction: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestManualCompactionStillFoldsEverythingWithKeepRecentTurnsZero(t *testing.
 	provider := &compactCannedProvider{t: t, summary: "SUMMARY"}
 	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &zero}, provider)
 
-	res, err := ag.CompactSession(context.Background(), "", true)
+	res, err := ag.CompactSession(context.Background(), CompactOptions{Force: true})
 	if err != nil {
 		t.Fatalf("manual compaction: %v", err)
 	}
@@ -305,7 +305,7 @@ func TestCompactionFallsBackToTheNextSummarizer(t *testing.T) {
 		return working, nil
 	}
 
-	res, err := ag.CompactSession(context.Background(), "", true)
+	res, err := ag.CompactSession(context.Background(), CompactOptions{Force: true})
 	if err != nil {
 		t.Fatalf("compaction: %v", err)
 	}
@@ -330,7 +330,7 @@ func TestCompactionChainEndsAtTheSessionModel(t *testing.T) {
 		FallbackModels: []string{"fake/also-missing"},
 	}, &compactCannedProvider{t: t, summary: "SUMMARY"})
 
-	chain, err := ag.compactionChain()
+	chain, err := ag.compactionChain("")
 	if err != nil {
 		t.Fatalf("chain: %v", err)
 	}
@@ -350,7 +350,7 @@ func TestCompactionChainIsOrderedAndDeduplicated(t *testing.T) {
 	}, &compactCannedProvider{t: t, summary: "SUMMARY"})
 	ag.cfg.Models = append(ag.cfg.Models, config.ModelEntry{Model: "fake/second", MaxTokens: 100})
 
-	chain, err := ag.compactionChain()
+	chain, err := ag.compactionChain("")
 	if err != nil {
 		t.Fatalf("chain: %v", err)
 	}

@@ -894,10 +894,11 @@ test("Ctrl+Z restores the draft before prompt enhancement", async () => {
 
   fireEvent.click(screen.getByTestId("composer-enhance-btn"));
   await waitFor(() => expect(onChange).toHaveBeenCalledWith("Better draft."));
-  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), {
-    key: "z",
-    ctrlKey: true,
-  });
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  // A Ctrl+Z the input method is composing with is its own undo.
+  fireEvent.keyDown(ta, { key: "z", ctrlKey: true, isComposing: true });
+  expect(onChange).toHaveBeenLastCalledWith("Better draft.");
+  fireEvent.keyDown(ta, { key: "z", ctrlKey: true });
   expect(onChange).toHaveBeenLastCalledWith("fix memory thing");
   vi.unstubAllGlobals();
 });
@@ -2176,5 +2177,184 @@ test("picking /plan in the / menu switches the mode instead of typing it", async
   fireEvent.mouseDown(row);
   expect(modes).toEqual(["plan"]);
   expect(ta.value).toBe("");
+  vi.unstubAllGlobals();
+});
+
+// An input method confirming a candidate reports its keys too: isComposing,
+// or in Safari a keyCode 229 keydown right after compositionend. They belong
+// to it, so a picker takes no row, keeps its highlight and stays open, the way
+// Enter then never sends.
+function safariCommitKey(ta: HTMLElement, key: string) {
+  fireEvent.compositionStart(ta);
+  fireEvent.compositionEnd(ta);
+  fireEvent.keyDown(ta, { key, keyCode: 229 });
+}
+test("keys an input method is composing with leave the slash picker alone", async () => {
+  stubShell(true);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        items: [
+          { name: "rpa-gen-rules", description: "Generate project rules" },
+          { name: "rpa-gen-docs", description: "Generate docs" },
+        ],
+        has_more: false,
+        page: 1,
+      }),
+    }),
+  );
+  const onChange = vi.fn();
+  const onSend = vi.fn();
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={(v) => {
+          setValue(v);
+          onChange(v);
+        }}
+        onSend={onSend}
+      />
+    );
+  }
+  render(<Harness />);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  typeDraft(ta, "/gen");
+  await waitFor(() => {
+    expect(screen.getByTestId("slash-command-row-rpa-gen-rules")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+  onChange.mockClear();
+  fireEvent.keyDown(ta, { key: "ArrowDown", isComposing: true });
+  fireEvent.keyDown(ta, { key: "Enter", isComposing: true });
+  safariCommitKey(ta, "Enter");
+  fireEvent.keyDown(ta, { key: "Tab", isComposing: true });
+  fireEvent.keyDown(ta, { key: "Escape", isComposing: true });
+
+  expect(onChange).not.toHaveBeenCalled();
+  expect(onSend).not.toHaveBeenCalled();
+  expect(screen.getByTestId("slash-command-row-rpa-gen-rules")).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  vi.unstubAllGlobals();
+});
+
+test("keys an input method is composing with leave the @ picker alone", async () => {
+  stubShell(true);
+  stubMentionsFetch({
+    rea: {
+      items: [
+        { kind: "file", insert: "@README.md", label: "README.md" },
+        { kind: "file", insert: "@docs/README.md", label: "docs/README.md" },
+      ],
+    },
+  });
+  const onChange = vi.fn();
+  render(<MentionHarness onChange={onChange} />);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  typeDraft(ta, "@rea");
+  await waitFor(() => {
+    expect(screen.getByTestId("mention-row-file-README_md")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+  onChange.mockClear();
+  safariCommitKey(ta, "ArrowDown");
+  fireEvent.keyDown(ta, { key: "Enter", isComposing: true });
+  safariCommitKey(ta, "Tab");
+  fireEvent.keyDown(ta, { key: "Escape", isComposing: true });
+
+  expect(onChange).not.toHaveBeenCalled();
+  expect(screen.getByTestId("mention-row-file-README_md")).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  expect(screen.getByTestId("workspace-files-menu")).toBeTruthy();
+  vi.unstubAllGlobals();
+});
+
+// Android keyboards report keyCode 229 for most keydowns with no composition
+// behind them: without compositionend first, the key is the composer's.
+test("a keyCode 229 with no composition behind it still takes the @ row", async () => {
+  stubShell(true);
+  stubMentionsFetch({
+    rea: { items: [{ kind: "file", insert: "@README.md", label: "README.md" }] },
+  });
+  const onChange = vi.fn();
+  render(<MentionHarness onChange={onChange} />);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  typeDraft(ta, "@rea");
+  await waitFor(() => {
+    expect(screen.getByTestId("mention-row-file-README_md")).toBeTruthy();
+  });
+  fireEvent.keyDown(ta, { key: "Enter", keyCode: 229 });
+  expect(onChange).toHaveBeenLastCalledWith("@README.md ");
+  vi.unstubAllGlobals();
+});
+
+test("an Escape the input method is composing with leaves the line-range picker open", async () => {
+  stubShell(true);
+  stubWorkspaceFileFetch(["one", "two"]);
+  render(<RangeHarness initial="" onChange={() => {}} />);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:1-2", selectionStart: 10, selectionEnd: 10 },
+  });
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  });
+  fireEvent.keyDown(ta, { key: "Escape", isComposing: true });
+  safariCommitKey(ta, "Escape");
+  expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  fireEvent.keyDown(ta, { key: "Escape" });
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeNull();
+  });
+  vi.unstubAllGlobals();
+});
+
+// A composition that ended with no keydown after it (a candidate tapped or
+// clicked, a blur) leaves nothing behind: the next keyCode 229, which Android
+// keyboards send for ordinary keys, is the composer's again.
+test("a keyCode 229 long after a composition ended still takes the @ row", async () => {
+  stubShell(true);
+  stubMentionsFetch({
+    rea: { items: [{ kind: "file", insert: "@README.md", label: "README.md" }] },
+  });
+  const onChange = vi.fn();
+  render(<MentionHarness onChange={onChange} />);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  typeDraft(ta, "@rea");
+  await waitFor(() => {
+    expect(screen.getByTestId("mention-row-file-README_md")).toBeTruthy();
+  });
+  const now = vi.spyOn(performance, "now");
+  onChange.mockClear();
+  // 99 ms after the end the 229 is still the key that ended it...
+  now.mockReturnValue(1000);
+  fireEvent.compositionStart(ta);
+  fireEvent.compositionEnd(ta);
+  now.mockReturnValue(1099);
+  fireEvent.keyDown(ta, { key: "Enter", keyCode: 229 });
+  expect(onChange).not.toHaveBeenCalled();
+  // ...100 ms after, it is an ordinary key again.
+  now.mockReturnValue(2000);
+  fireEvent.compositionStart(ta);
+  fireEvent.compositionEnd(ta);
+  now.mockReturnValue(2100);
+  fireEvent.keyDown(ta, { key: "Enter", keyCode: 229 });
+  expect(onChange).toHaveBeenLastCalledWith("@README.md ");
+  now.mockRestore();
   vi.unstubAllGlobals();
 });

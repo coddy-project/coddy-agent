@@ -42,3 +42,19 @@ Feature: Context compaction
     Then the compaction summary is inserted into the transcript
     And the tool result says what was compacted
     And the LLM request after the tool call starts from the summary
+    And every tool result in that request answers a call the request carries
+
+  Scenario: The model compacts with the summarizer the user named
+    Given a session with 4 completed exchanges
+    And a second model "fake/summarizer-qwen" is configured
+    When the model calls the compact_context tool with the model "qwen"
+    Then the compaction summary is inserted into the transcript
+    And the summary was written by "fake/summarizer-qwen"
+    And the tool result names the summarizer "fake/summarizer-qwen"
+
+  Scenario: The model compacts in the first turn of a session
+    Given a session with 0 completed exchanges
+    When the model calls the compact_context tool
+    Then the compaction summary is inserted into the transcript
+    And the LLM request after the tool call starts from the summary
+    And every tool result in that request answers a call the request carries

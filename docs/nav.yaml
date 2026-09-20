@@ -121,6 +121,9 @@ groups:
       - path: features/background-tasks.md
         title: Background tasks
         summary: Detached commands, the task pool, timeouts, adoption of long foreground commands, program-wide permission grants.
+      - path: features/preview-server.md
+        title: Preview server
+        summary: Serving a project directory on a free localhost port so you can open HTML, JS and CSS work in a browser; the server as a background task, what it refuses to serve, the bind host.
       - path: features/compaction.md
         title: Context compaction
         summary: /compact and automatic summarisation at a threshold, the kept recent turns, result eviction with keep_result.

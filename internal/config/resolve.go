@@ -49,6 +49,67 @@ func (c *Config) FindModelEntry(ref string) *ModelEntry {
 	return nil
 }
 
+// MatchModelID resolves a model a person named to a configured models[].model.
+// A whole name wins: the exact selector, then the id in any letter case, then
+// the model part after its provider ("qwen3.8-27b" for
+// "neuraldeep/qwen3.8-27b", even beside "neuraldeep/qwen3.8-27b-noreason").
+// Otherwise the name is a case-insensitive substring that must name exactly
+// one model ("qwen" for "hub/qwen3-coder"). An unknown or an ambiguous name is
+// an error listing the candidates, never a guess.
+func (c *Config) MatchModelID(want string) (string, error) {
+	w := strings.TrimSpace(want)
+	if w == "" {
+		return "", fmt.Errorf("model is empty")
+	}
+	if entry := c.FindModelEntry(w); entry != nil {
+		return entry.Model, nil
+	}
+	var all []string
+	for i := range c.Models {
+		if id := c.Models[i].Model; id != "" {
+			all = append(all, id)
+		}
+	}
+	ambiguous := func(matches []string) error {
+		return fmt.Errorf("model %q is ambiguous (matches: %s)", w, strings.Join(matches, ", "))
+	}
+	modelPart := func(id string) string {
+		if _, name, found := strings.Cut(id, "/"); found {
+			return name
+		}
+		return id
+	}
+	for _, whole := range []func(string) string{func(id string) string { return id }, modelPart} {
+		var matches []string
+		for _, id := range all {
+			if strings.EqualFold(whole(id), w) {
+				matches = append(matches, id)
+			}
+		}
+		switch {
+		case len(matches) == 1:
+			return matches[0], nil
+		case len(matches) > 1:
+			return "", ambiguous(matches)
+		}
+	}
+	needle := strings.ToLower(w)
+	var matches []string
+	for _, id := range all {
+		if strings.Contains(strings.ToLower(id), needle) {
+			matches = append(matches, id)
+		}
+	}
+	switch len(matches) {
+	case 1:
+		return matches[0], nil
+	case 0:
+		return "", fmt.Errorf("unknown model %q (configured: %s)", w, strings.Join(all, ", "))
+	default:
+		return "", ambiguous(matches)
+	}
+}
+
 // ResolveLLM merges provider and model configuration for use with internal/llm.
 func (c *Config) ResolveLLM(modelRef string) (*ResolvedLLM, error) {
 	ref := strings.TrimSpace(modelRef)

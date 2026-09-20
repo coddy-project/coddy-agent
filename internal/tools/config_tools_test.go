@@ -196,9 +196,30 @@ func TestConfigRevertDropsAllOrByPath(t *testing.T) {
 	}
 }
 
+// blockReplacement makes removing path, or renaming another file over it, fail
+// while reads still work, until release is called. A read-only parent
+// directory does that on POSIX systems. Windows ignores the read-only
+// attribute of a directory, so there the file itself is held open instead:
+// os.Open shares read and write access but not delete, and both a remove and a
+// rename over the file need delete access.
+func blockReplacement(path string) (release func() error, err error) {
+	if runtime.GOOS == "windows" {
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		return f.Close, nil
+	}
+	dir := filepath.Dir(path)
+	if err := os.Chmod(dir, 0o555); err != nil {
+		return nil, err
+	}
+	return func() error { return os.Chmod(dir, 0o755) }, nil
+}
+
 func TestConfigCommitAbortsWhenStagingCannotBeConsumed(t *testing.T) {
-	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
-		t.Skip("requires directory permissions that deny writes")
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores the directory permissions this test relies on")
 	}
 	const original = "agent:\n  max_turns: 21\n"
 	env := testConfigToolsEnv(t, original)
@@ -209,15 +230,16 @@ func TestConfigCommitAbortsWhenStagingCannotBeConsumed(t *testing.T) {
 	}
 	stageCommands(t, env, "set agent.max_turns=7")
 
-	// A read-only session dir makes removing config_staging.json fail while
-	// reads still work. The commit must then abort before touching the config,
-	// so a later retry cannot replay an already applied batch.
-	if err := os.Chmod(env.SessionDir, 0o555); err != nil {
+	// Removing config_staging.json fails while reads still work. The commit
+	// must then abort before touching the config, so a later retry cannot
+	// replay an already applied batch.
+	release, err := blockReplacement(configStagingFilePath(env))
+	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(env.SessionDir, 0o755) })
+	t.Cleanup(func() { _ = release() })
 
-	_, err := executeConfigCommit(context.Background(), "{}", env)
+	_, err = executeConfigCommit(context.Background(), "{}", env)
 	if err == nil || !strings.Contains(err.Error(), "config was not changed") {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -237,23 +259,25 @@ func TestConfigCommitAbortsWhenStagingCannotBeConsumed(t *testing.T) {
 }
 
 func TestConfigCommitKeepsStagingConsumedWhenRollbackFails(t *testing.T) {
-	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
-		t.Skip("requires directory permissions that deny writes")
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores the directory permissions this test relies on")
 	}
 	const original = "agent:\n  max_turns: 21\nskills:\n  dirs:\n    - /opt/base\n"
 	env := testConfigToolsEnv(t, original)
-	dir := filepath.Dir(env.ConfigPath)
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	release := func() error { return nil }
+	t.Cleanup(func() { _ = release() })
 	reloads := 0
 	env.ReloadConfig = func(context.Context) ([]string, error) {
 		reloads++
 		if reloads == 1 {
-			// Sabotage the directory before failing the reload, so the tool's
+			// Sabotage the config file before failing the reload, so the tool's
 			// commit.Rollback() cannot restore the previous file: the committed
 			// change stays active on disk.
-			if err := os.Chmod(dir, 0o555); err != nil {
+			blocked, err := blockReplacement(env.ConfigPath)
+			if err != nil {
 				return nil, err
 			}
+			release = blocked
 			return nil, os.ErrInvalid
 		}
 		return nil, nil
@@ -264,7 +288,7 @@ func TestConfigCommitKeepsStagingConsumedWhenRollbackFails(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "stay consumed") {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if err := os.Chmod(dir, 0o755); err != nil {
+	if err := release(); err != nil {
 		t.Fatal(err)
 	}
 	// The non-idempotent command is live in the file, so it must not be

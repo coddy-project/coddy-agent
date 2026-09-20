@@ -16,3 +16,13 @@ func webSearchSettings(cfg *config.Config) *tooling.WebSearchSettings {
 	out := tooling.WebSearchSettings(resolved)
 	return &out
 }
+
+// previewServerSettings resolves tools.preview_server for the tool layer, the
+// same way webSearchSettings does for the search tool.
+func previewServerSettings(cfg *config.Config) *tooling.PreviewServerSettings {
+	if cfg == nil {
+		return nil
+	}
+	out := tooling.PreviewServerSettings(cfg.Tools.PreviewServer.ToolSettings())
+	return &out
+}

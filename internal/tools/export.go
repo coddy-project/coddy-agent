@@ -5,6 +5,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 	toolfs "github.com/EvilFreelancer/coddy-agent/internal/tools/fs"
+	"github.com/EvilFreelancer/coddy-agent/internal/tools/preview"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/shell"
 	toolssh "github.com/EvilFreelancer/coddy-agent/internal/tools/ssh"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/todo"
@@ -39,6 +40,12 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 		r.Register(shell.BackgroundWaitTool())
 		r.Register(shell.BackgroundStopTool())
 		r.Register(shell.BackgroundReapTool())
+		// The preview server is a background task, so it needs the pool and
+		// the tools that list and stop it; the operator can still turn it off
+		// alone with tools.preview_server.enable.
+		if cfg == nil || cfg.Tools.PreviewServer.ResolvedEnabled() {
+			preview.RegisterBuiltins(r.Register)
+		}
 	}
 	r.Register(QuestionTool())
 	r.Register(ConfigGetTool())
@@ -51,7 +58,7 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 	// Compaction is a capability of the loop, so the model may reach for it
 	// like any other tool; the operator turns it off with compaction.enable.
 	if cfg == nil || cfg.Compaction.IsEnabled() {
-		r.Register(CompactContextTool())
+		r.Register(CompactContextTool(cfg))
 	}
 	// Filing the session it runs in: a conversation the model renamed or
 	// tagged is one the operator can find again.

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -200,5 +201,32 @@ func TestUISchemaOmitsMCPPolicyFromUI(t *testing.T) {
 	back := config.JSONDTOToConfig(config.ConfigToJSONDTO(cfg), config.Paths{})
 	if got := back.MCP.ResolvedProjectTrust(); got != config.ProjectTrustAllow {
 		t.Fatalf("project_trust after round trip = %q, want %q", got, config.ProjectTrustAllow)
+	}
+}
+
+// The Settings form round-trips the whole config through the JSON DTO; a
+// section that is not on the DTO is silently reset by any unrelated save.
+func TestPreviewServerSurvivesTheJSONDTO(t *testing.T) {
+	off := false
+	cfg := &config.Config{}
+	cfg.Tools.PreviewServer = config.ToolPreviewServer{Enabled: &off, Host: "0.0.0.0", PublicHost: "dev.example"}
+
+	raw, err := json.Marshal(config.ConfigToJSONDTO(cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"preview_server"`) {
+		t.Fatalf("GET DTO dropped tools.preview_server: %s", raw)
+	}
+
+	put := `{"tools":{"preview_server":{"enable":false,"host":"0.0.0.0","public_host":"dev.example"}}}`
+	var j config.ConfigJSON
+	if err := json.Unmarshal([]byte(put), &j); err != nil {
+		t.Fatal(err)
+	}
+	back := config.JSONDTOToConfig(&j, config.Paths{})
+	got := back.Tools.PreviewServer
+	if got.Enabled == nil || *got.Enabled || got.Host != "0.0.0.0" || got.PublicHost != "dev.example" {
+		t.Fatalf("PUT path dropped tools.preview_server: %+v", got)
 	}
 }

@@ -18,6 +18,18 @@ Feature: Manual context compaction command
     And the HTTP stream reports the smaller context usage
     And HTTP session stats match the compacted LLM context
 
+  Scenario: The /compact command names the summarizer for one compaction
+    When the user sends "/compact --model qwen keep the file paths" as a prompt
+    Then the prompt response confirms the compaction
+    And the prompt response names the summarizer "fake/summarizer-qwen"
+    And the session transcript contains a compaction summary row
+
+  Scenario: The REST endpoint compacts with the model the request names
+    When the client posts to the session compact endpoint with the model "qwen"
+    Then the compact request succeeds
+    And the compact response names the model "fake/summarizer-qwen"
+    And the session transcript contains a compaction summary row
+
   Scenario: The REST endpoint compacts the session directly
     Given another client watches the server events
     When the client posts to the session compact endpoint
