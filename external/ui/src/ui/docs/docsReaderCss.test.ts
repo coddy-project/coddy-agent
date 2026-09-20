@@ -63,3 +63,19 @@ test("the reader scrolls its body, not the sheet the header sits in", () => {
   expect(body).toMatch(/overflow:\s*auto/);
   expect(body).toMatch(/min-height:\s*0/);
 });
+
+// The picture is dragged and pinched on the stage itself, so the browser must
+// not pan or zoom it first. The rule is on the stage, which lives only while
+// the viewer is open, so the page behind it keeps its own gestures.
+test("the lightbox stage takes the touch gestures itself", () => {
+  const stage = rule(".docs-lightbox-stage");
+  expect(stage).toMatch(/touch-action:\s*none/);
+  expect(stage).toMatch(/user-select:\s*none/);
+});
+
+// A zoomed picture is dragged with the pointer: the hand, open until it holds.
+test("a zoomed picture in the lightbox offers the grab cursor", () => {
+  expect(rule(".docs-lightbox-stage img.is-zoomed")).toMatch(/cursor:\s*grab;/);
+  expect(rule(".docs-lightbox-stage.is-panning")).toMatch(/cursor:\s*grabbing/);
+  expect(rule(".docs-lightbox-stage.is-panning img.is-zoomed")).toMatch(/cursor:\s*grabbing/);
+});

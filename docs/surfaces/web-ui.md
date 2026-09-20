@@ -505,7 +505,7 @@ Functional regression checklist:
   - **Clipboard paste** in **`textarea#composer`**: image items (`kind === "file"`, `image/*`) are attached and the default paste is cancelled; plain-text paste is untouched. Pasted images get deterministic names **`pasted-<n>.<ext>`** (browsers name every clipboard image `image.png`).
   - **Drag & drop** onto **`.composer-card`**: dropped files attach like a picker selection; while files are dragged over the card it shows the **`.composer-card--dragover`** drop-target affordance.
 - When the model is **not** multimodal, paste/drop rejection shows the transient inline notice **`.composer-attach-hint`** (`role="status"`, auto-clears after ~4s) instead of attaching.
-- An `image/*` attachment is a **preview card**, not a chip: the picture fills a **128×96** card (**`.composer-attachment-card`** on the composer side, **`.msg-user-file-card`** in the sent bubble, `object-fit: cover`, 12px radius) so the operator can see what was attached. Hovering highlights the card, the cursor is **`zoom-in`**, and a click opens the image in the shared viewer (**`ui/components/ImageLightbox.tsx`**: zoom levels, **+ / - / 0**, **Esc**, portal into `document.body`). Non-image files and locked edit-mode chips keep the icon chip with the file name.
+- An `image/*` attachment is a **preview card**, not a chip: the picture fills a **128×96** card (**`.composer-attachment-card`** on the composer side, **`.msg-user-file-card`** in the sent bubble, `object-fit: cover`, 12px radius) so the operator can see what was attached. Hovering highlights the card, the cursor is **`zoom-in`**, and a click opens the image in the shared viewer (**`ui/components/ImageLightbox.tsx`**: zoom levels, **+ / - / 0**, drag to pan, wheel and pinch to zoom, **Esc**, portal into `document.body`). Non-image files and locked edit-mode chips keep the icon chip with the file name.
   - In the composer the card's **remove** control (**`composer.removeAttachment`**) sits in its top-right corner and fades in on hover; it stays in the tab order and is visible on **`:focus-visible`**, and removing never opens the viewer. The picture the viewer opens is the local object URL - the file itself, at full size.
   - The **sent user bubble** first renders an optimistic **`previewUrl`** blob in the card, then replaces it with the backend **`files[].preview_url`** after persistence; the blob URL is revoked at that point. What the card opens is **`files[].url`**, the original bytes from the session bundle; a message sent before that field existed opens its **`preview_url`** instead of losing the click. Reloading the dialog restores both through **`GET /coddy/sessions/{id}/messages`**.
 - **Attachment-only send** is valid while the selected model is multimodal: **Send** (button or **Enter**) unlocks with attachments even when the draft is empty and submits **`onSend("", files)`**; the server accepts an empty-string `input` alongside `inline_files`. If the user switches to a non-multimodal model, existing chips remain visible with **`.composer-attachment-chip--disabled`**, attachment-only Send becomes disabled, and a text send omits and retains those files.
@@ -1127,7 +1127,16 @@ Guide: `docs/features/built-in-docs.md`. Visual contract: `DESIGN.md` (**Documen
 - A click on an image of the page opens it over everything (**`ui/components/ImageLightbox.tsx`**,
   rendered into the body): fitted first, **`+`** / **`-`** / the buttons zoom from
   100% to 300%, a click on the image toggles fitted and 200%, **`0`** fits again,
-  a zoomed image scrolls, Escape or the close control closes it. A video of a page
+  Escape or the close control closes it. A zoomed image is **dragged** with the
+  mouse, a pen or one finger (the cursor is the open hand, closed while it holds),
+  the **wheel** over the image zooms around the pointer rather than scrolling the
+  stage or the page behind it (a wheel down over a fitted image does nothing), and
+  on a touch screen a **pinch** of two fingers zooms
+  continuously between the fitted size and 300%, keeping the point between them
+  where it is; a press that travelled pans and does not also toggle the zoom, so
+  the click still works for a press that stayed put. The buttons and the keys keep
+  the 100 / 150 / 200 / 300 ladder and take the next level above or below wherever
+  a pinch left the picture. A video of a page
   (a Markdown image whose file is **`.mp4`**, **`.webm`** or **`.mov`**, which is
   what the server makes of a GitHub attachment line) plays in a **`<video>`**
   fetched from GitHub at the release.

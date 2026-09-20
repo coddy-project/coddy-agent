@@ -12035,12 +12035,20 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   cursor: default;
 }
 
+/* The stage handles the gestures itself - one pointer drags the picture, two
+   fingers pinch it - so the browser must not pan or zoom first. The rule lives
+   with the stage, which is only on the screen while the viewer is open, so the
+   page behind it keeps its own gestures. */
 .docs-lightbox-stage {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
   overflow: auto;
   padding: 0 24px 24px;
+  touch-action: none;
+  overscroll-behavior: contain;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 /* A flex item shrinks to the stage by default, which would undo the zoom. */
@@ -12049,6 +12057,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   margin: auto;
   border-radius: 8px;
   box-shadow: var(--coddy-glass-panel-shadow);
+  -webkit-user-drag: none;
 }
 
 .docs-lightbox-stage img.is-fit {
@@ -12058,10 +12067,19 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   cursor: zoom-in;
 }
 
+/* Zoomed, the picture is dragged: the open hand, closed while it holds. */
 .docs-lightbox-stage img.is-zoomed {
   max-width: none;
   max-height: none;
-  cursor: zoom-out;
+  cursor: grab;
+}
+
+.docs-lightbox-stage.is-panning {
+  cursor: grabbing;
+}
+
+.docs-lightbox-stage.is-panning img.is-zoomed {
+  cursor: grabbing;
 }
 
 /* A page of the documentation named in a sent message or an answer, as
