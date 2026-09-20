@@ -415,3 +415,19 @@ describe("the turn's start, for a line that has not heard from the server yet", 
     expect(stepShowsItsOwnClock(undefined)).toBe(false);
   });
 });
+
+// The line names no argument any more, so the reading that tells one step from the
+// next is the call's own id, not the phrase.
+test("names the step so two calls of one phrase are two steps", () => {
+  const first = deriveLiveStatus([
+    user(),
+    tool({ title: "read", argsText: '{"path":"a.txt"}', toolCallId: "call_1" }),
+  ]);
+  const second = deriveLiveStatus([
+    user(),
+    tool({ title: "read", argsText: '{"path":"b.txt"}', toolCallId: "call_2" }),
+  ]);
+  expect(first.key).toBe(second.key);
+  expect(first.step).toBe("call_1");
+  expect(second.step).toBe("call_2");
+});

@@ -44,6 +44,13 @@ function runsInBackground(argsText: string | undefined): boolean {
 }
 
 /** The catalogue key for a tool id, given what its arguments say it is doing. */
+/**
+ * The key of the one label that takes slots. A tool id of `mcp` would land on it
+ * through the ordinary `tool.name.<id>` path and render the slots unfilled, so the
+ * catalogue lookup skips it and only the MCP branch below ever resolves it.
+ */
+const MCP_NAME_KEY = "tool.name.mcp";
+
 function toolNameKey(id: string, argsText: string | undefined): string {
   if (id === "read" && readsADirectory(argsText)) return "tool.name.read_directory";
   if (id === "run_command" && runsInBackground(argsText)) {
@@ -83,7 +90,7 @@ export function toolDisplayName(rawName: string, argsText?: string): string {
   const id = toolId(rawName);
   if (!id) return t("messages.toolDefaultName");
   const key = toolNameKey(id, argsText);
-  if (hasTranslation(key)) return t(key);
+  if (key !== MCP_NAME_KEY && hasTranslation(key)) return t(key);
   const mcp = parseMcpToolName(rawName);
   if (mcp) return t("tool.name.mcp", { server: mcp.server, tool: mcp.tool });
   return rawName.replace(/^run:\s*/i, "").trim();

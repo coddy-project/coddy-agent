@@ -36,6 +36,12 @@ export type LiveStatus = {
    * not define needs them: its own name is the only thing the phrase can say.
    */
   keyParams?: Record<string, string>;
+  /**
+   * What this step is, for telling one step from the next. Nothing renders it: the
+   * phrase is all the reader sees, and two calls in a row can share it, so without
+   * an id of its own the second would go on counting the first one's clock.
+   */
+  step?: string;
   /** Wall clock ms to count elapsed from; omitted when the start is unknown. */
   startedAtMs?: number;
   /**
@@ -336,6 +342,7 @@ export function deriveLiveStatus(
       kind: "tool",
       key: mcp ? "status.mcp" : key,
       ...(mcp ? { keyParams: { server: mcp.server, tool: mcp.tool } } : {}),
+      step: tool.toolCallId,
       // startedAtMs is rewritten on every in_progress update, i.e. it is the time of the
       // last status transition rather than the tool start. That is what we want here —
       // the counter measures the current step. Do not "fix" it.
@@ -350,6 +357,7 @@ export function deriveLiveStatus(
     return {
       kind: "thinking",
       key: "status.thinking",
+      step: thinking.id,
       ...(typeof thinking.startedAtMs === "number"
         ? { startedAtMs: thinking.startedAtMs }
         : {}),
@@ -363,6 +371,7 @@ export function deriveLiveStatus(
     return {
       kind: "memory",
       key: "status.memory",
+      step: memory.taskId ?? memory.id,
       ...(typeof memory.startedAtMs === "number"
         ? { startedAtMs: memory.startedAtMs }
         : {}),

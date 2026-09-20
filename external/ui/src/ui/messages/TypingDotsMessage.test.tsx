@@ -227,6 +227,32 @@ test("restarts the counter when only the phrase's slots change", () => {
   expect(screen.getByTestId("typing-dots-elapsed").textContent).toBe("0s");
 });
 
+// Two files read in a row, two commands run in a row: one phrase, two steps. The
+// line stopped naming what a step acts on, so only the step's own id tells them
+// apart, and without it the second call goes on counting the first one's clock.
+test("restarts the counter when one phrase covers two steps in a row", () => {
+  vi.useFakeTimers();
+  const { rerender } = render(
+    <TypingDotsMessage
+      statusKind="tool"
+      statusKey="status.read"
+      statusStep="call_1"
+    />,
+  );
+  act(() => {
+    vi.advanceTimersByTime(5000);
+  });
+  expect(screen.getByTestId("typing-dots-elapsed").textContent).toBe("5s");
+  rerender(
+    <TypingDotsMessage
+      statusKind="tool"
+      statusKey="status.read"
+      statusStep="call_2"
+    />,
+  );
+  expect(screen.getByTestId("typing-dots-elapsed").textContent).toBe("0s");
+});
+
 test("clears its interval on unmount", () => {
   vi.useFakeTimers();
   const { unmount } = render(

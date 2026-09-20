@@ -98,3 +98,10 @@ test("resuming a scheduled job is named like the other scheduler actions", () =>
     "снимаю задание планировщика с паузы",
   );
 });
+
+test("a tool named mcp does not borrow the label that takes slots", () => {
+  // `tool.name.mcp` carries {server} and {tool}; reaching it through the ordinary
+  // catalogue path would print the slots unfilled.
+  expect(toolDisplayName("mcp")).toBe("mcp");
+  expect(toolDisplayName("mcp")).not.toContain("{");
+});

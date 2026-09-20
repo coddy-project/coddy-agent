@@ -31,6 +31,8 @@ function TypingDotsMessageImpl(props: {
   statusKey?: string;
   /** What the phrase's {slots} resolve to; only a phrase that names its call has any. */
   statusKeyParams?: Record<string, string>;
+  /** Which step this is, so two calls that read as one phrase get two clocks. */
+  statusStep?: string;
   /** When the current step started; the component stamps its own when omitted. */
   startedAtMs?: number;
   /**
@@ -56,9 +58,10 @@ function TypingDotsMessageImpl(props: {
   const showStatus = props.statusKind !== undefined && !tasksOnly;
 
   // Identity of the current step; a change means a new step and a fresh count. The
-  // phrase's slots belong to it: two calls to the same MCP server share one key and
-  // differ only in what the slots say.
-  const identity = `${props.statusKind || ""}|${props.statusKey || ""}|${keyParamsIdentity(props.statusKeyParams)}`;
+  // step's own id leads, because two calls in a row read as one phrase - two files
+  // read, two commands run - and without it the second would count the first one's
+  // clock. The slots follow for a phrase that names its call.
+  const identity = `${props.statusStep || ""}|${props.statusKind || ""}|${props.statusKey || ""}|${keyParamsIdentity(props.statusKeyParams)}`;
   const stampRef = useRef<{ id: string; at: number }>({
     id: identity,
     at: Date.now(),
@@ -126,7 +129,10 @@ function TypingDotsMessageImpl(props: {
     const tasksLabel = tp("tasks.running", runningTasks);
     return (
       <div className="msg-assistant-stack" data-testid="typing-dots">
-        <div className="typing-dots">
+        {/* This line is the only thing on screen saying the work goes on after the
+            turn ended, so it announces itself; the line during a turn does not,
+            because a reader already knows the turn is running. */}
+        <div className="typing-dots" aria-live="polite">
           {/* The count node stays after the three dots for the same reason the status
               node does below: :nth-child(2)/(3) carry the bounce stagger. */}
           <span className="typing-dots-dot" aria-hidden="true" />

@@ -369,6 +369,7 @@ export function MessageList(props: {
                 ...(liveStatus.keyParams
                   ? { statusKeyParams: liveStatus.keyParams }
                   : {}),
+                ...(liveStatus.step ? { statusStep: liveStatus.step } : {}),
               }
             : {})}
           {...(typeof liveStatus?.startedAtMs === "number"
