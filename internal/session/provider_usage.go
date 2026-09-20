@@ -1,7 +1,7 @@
 package session
 
 // Provider usage: the account quota behind a session's model provider,
-// fetched from the provider (today: NeuralDeep GET /v1/limits) and published
+// fetched from the provider's account endpoint and published
 // as acp.ProviderUsageUpdate. The manager owns one cache and one schedule so
 // the console footer, the remote console, the SPA and scripts read the same
 // numbers. Design record: docs/plans/neuraldeep-usage.md.
@@ -193,7 +193,12 @@ func (m *Manager) notifyUsageObservers(sessionID string, u acp.ProviderUsageUpda
 
 // providerUsageSource says whether a provider type has a usage source.
 func providerUsageSource(providerType string) bool {
-	return strings.EqualFold(strings.TrimSpace(providerType), "neuraldeep")
+	switch strings.ToLower(strings.TrimSpace(providerType)) {
+	case "neuraldeep", "codex", "devin":
+		return true
+	default:
+		return false
+	}
 }
 
 // providerUsageEnabled says whether a row is read at all: its type has a
@@ -245,7 +250,7 @@ func (m *Manager) providerUsageRead(ctx context.Context, providerName string, re
 		}, nil
 	}
 	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
-	fingerprint := llm.NeuralDeepUsageFingerprint(*prov, authPath)
+	fingerprint := providerUsageFingerprint(*prov, authPath)
 
 	m.usage.mu.Lock()
 	e := m.usageEntryLocked(prov.Name, fingerprint)
@@ -405,7 +410,7 @@ func (m *Manager) usageDeferredFire(name string, generation uint64) {
 		return
 	}
 	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
-	fingerprint := llm.NeuralDeepUsageFingerprint(*prov, authPath)
+	fingerprint := providerUsageFingerprint(*prov, authPath)
 	if e.fingerprint != fingerprint {
 		// The credential changed while the refresh waited: the entry and its
 		// numbers describe another account, so the fetch goes into a fresh
@@ -461,7 +466,7 @@ func (m *Manager) usageStartFetchLocked(prov *config.ProviderConfig, authPath st
 	go func() {
 		defer m.usage.wg.Done()
 		defer cancel()
-		usage, err := llm.NeuralDeepUsageForProvider(ctx, provider, authPath)
+		mapped, err := m.fetchProviderUsage(ctx, provider, authPath)
 		fetchedAt := m.usageNow()
 		m.usage.mu.Lock()
 		if e.generation != generation {
@@ -473,7 +478,6 @@ func (m *Manager) usageStartFetchLocked(prov *config.ProviderConfig, authPath st
 		}
 		e.inflight, e.inflightCancel = nil, nil
 		if err == nil {
-			mapped := mapNeuralDeepUsage(usage, name, fetchedAt)
 			e.update, e.fetchedAt = &mapped, fetchedAt
 			e.unauthorized, e.backoffUntil = false, time.Time{}
 		} else {
@@ -525,11 +529,7 @@ func (m *Manager) usageRecordFailureLocked(e *providerUsageEntry, name, provider
 		base.Stale = true
 	}
 	base.Error, base.RefreshPending, base.RefreshInSec = "", false, 0
-	ue, ok := llm.IsNeuralDeepUsageError(err)
-	kind := ProviderUsageErrorUnavailable
-	if ok {
-		kind = ue.Kind
-	}
+	kind, retryAfter := providerUsageFailure(err)
 	switch kind {
 	case llm.NeuralDeepUsageUnauthorized:
 		// The hub's word is final: numbers read with a key it no longer
@@ -547,8 +547,8 @@ func (m *Manager) usageRecordFailureLocked(e *providerUsageEntry, name, provider
 		base.Error = ProviderUsageErrorInvalid
 	default:
 		base.Error = ProviderUsageErrorUnavailable
-		if ok && ue.RetryAfter > 0 {
-			pause := ue.RetryAfter
+		if retryAfter > 0 {
+			pause := retryAfter
 			if pause > providerUsageBackoffCap {
 				pause = providerUsageBackoffCap
 			}
@@ -699,7 +699,7 @@ func (m *Manager) publishProviderUsageAsync(sessionID string, st *State) {
 	}
 	cfg := m.activeCfg()
 	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
-	fingerprint := llm.NeuralDeepUsageFingerprint(*prov, authPath)
+	fingerprint := providerUsageFingerprint(*prov, authPath)
 
 	m.usage.mu.Lock()
 	e := m.usageEntryLocked(prov.Name, fingerprint)
@@ -753,7 +753,7 @@ func (m *Manager) publishProviderUsageOnReady(sessionID string, st *State) {
 	}
 	cfg := m.activeCfg()
 	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
-	fingerprint := llm.NeuralDeepUsageFingerprint(*prov, authPath)
+	fingerprint := providerUsageFingerprint(*prov, authPath)
 
 	m.usage.mu.Lock()
 	e := m.usageEntryLocked(prov.Name, fingerprint)

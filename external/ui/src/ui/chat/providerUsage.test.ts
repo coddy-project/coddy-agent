@@ -75,7 +75,7 @@ describe("providerUsage helpers", () => {
     expect(formatRub(999)).toBe("999 ₽");
     expect(formatResetTime("2026-09-06T17:59:59Z", now, "en-US")).toMatch(/59/);
     expect(formatResetTime("2026-09-09T03:00:00Z", now, "en-US")).toMatch(/Wed|Tue/);
-    expect(formatResetTime("2026-09-20T03:00:00Z", now, "en-US")).toMatch(/Sep/);
+    expect(formatResetTime("2026-09-20T03:00:00Z", now, "en-US")).toMatch(/Sep.*\d{1,2}:\d{2}/);
     expect(formatResetTime(undefined, now)).toBe("");
   });
 
@@ -96,7 +96,7 @@ describe("providerUsage helpers", () => {
   test("summary hides foreign providers, unsupported and empty snapshots", () => {
     expect(summarizeUsage(fixture(), "stub/model").kind).toBe("none");
     expect(summarizeUsage({ provider: "neuraldeep", unsupported: true }, "neuraldeep/x").kind).toBe("none");
-    expect(summarizeUsage({ provider: "neuraldeep", error: "unavailable" }, "neuraldeep/x").kind).toBe("none");
+    expect(summarizeUsage({ provider: "neuraldeep", error: "unavailable" }, "neuraldeep/x").kind).toBe("unavailable");
     expect(summarizeUsage(null, "neuraldeep/x").kind).toBe("none");
   });
 
@@ -149,6 +149,14 @@ describe("providerUsage helpers", () => {
     const rateOnly = fixture();
     for (const w of rateOnly.windows!) w.resetInSec = 0;
     expect(usageNextReadMs(rateOnly).delayMs).toBe(0);
+    // A passed day reset is a real refresh signal for the quota sources;
+    // NeuralDeep's day meter is a wallet budget that resets constantly.
+    const devin = { provider: "devin", providerType: "devin", windows: [{ id: "day", label: "day", usedPercent: 0, resetsAt: "2026-09-07T00:00:00Z" }] };
+    expect(usagePassedResetKey(devin)).toBe("day@2026-09-07T00:00:00Z");
+    const ndDay = fixture();
+    for (const w of ndDay.windows!) w.resetInSec = 0;
+    ndDay.windows = ndDay.windows!.filter((w) => w.id === "day");
+    expect(usagePassedResetKey(ndDay)).toBe("");
   });
 
   test("REST envelope", async () => {

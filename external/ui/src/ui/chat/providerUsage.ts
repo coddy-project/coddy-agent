@@ -1,8 +1,8 @@
 /**
  * Provider account usage for the composer: the quota behind the selected
  * model's provider, as the server reports it (`provider_usage` update, REST
- * `GET /coddy/providers/{name}/usage`). Today only `neuraldeep` rows have a
- * source. The snapshot is account-wide; the client compares the model
+ * `GET /coddy/providers/{name}/usage`). The snapshot is account-wide;
+ * the client compares the model
  * selector's suffix with `unlimitedModels` itself. Design record:
  * docs/plans/neuraldeep-usage.md (section 4.6).
  */
@@ -132,7 +132,7 @@ export function usageWindow(
 }
 
 /** Reset time in the reader's clock: time of day within 24 h, weekday and
- *  time within a week, the date beyond. */
+ *  time within a week, the date and time beyond. */
 export function formatResetTime(
   resetsAt: string | undefined,
   now: Date = new Date(),
@@ -153,7 +153,12 @@ export function formatResetTime(
       minute: "2-digit",
     });
   }
-  return at.toLocaleDateString(locale, { month: "short", day: "numeric" });
+  return at.toLocaleString(locale, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 /** Rubles with a plain space between thousands and the ruble sign. */
@@ -216,6 +221,7 @@ export function usageBlockKind(u: ProviderUsage): UsageBlockKind {
 export type UsageSummary =
   | { kind: "none" }
   | { kind: "unauthorized"; provider: string }
+  | { kind: "unavailable"; failed: boolean }
   | { kind: "unlimited"; wallet: ProviderUsage["wallet"] }
   | {
       kind: "blocked";
@@ -275,11 +281,14 @@ export function summarizeUsage(
   const session = usageWindow(u, "session");
   const week = usageWindow(u, "week");
   const day = usageWindow(u, "day");
-  if (!session && !week && !day && !u.wallet) {
-    return { kind: "none" };
+  const windows = u.windows ?? [];
+  if (windows.length === 0) {
+    const failed = u.error === "unavailable" || u.error === "invalid";
+    if (u.plan || failed) return { kind: "unavailable", failed };
+    if (!u.wallet) return { kind: "none" };
   }
-  const warn = [session, week, day].some(
-    (w) => !!w && (usagePercent(w.usedPercent) >= USAGE_WARN_PERCENT || !!w.exhausted),
+  const warn = windows.some(
+    (w) => usagePercent(w.usedPercent) >= USAGE_WARN_PERCENT || !!w.exhausted,
   );
   return {
     kind: "metered",
@@ -331,10 +340,13 @@ export function usageNextReadMs(
 
 /** A window whose reset the snapshot says has passed, keyed for the single follow-up. */
 export function usagePassedResetKey(u: ProviderUsage | null | undefined): string {
+  // NeuralDeep's day window is a wallet budget meter that resets constantly;
+  // for the quota sources a passed day reset is a real refresh signal.
+  const skipDay = u?.providerType === "neuraldeep";
   for (const w of u?.windows ?? []) {
     // The server omits a zero resetInSec (Go omitempty): absent means the
     // reset already passed, the same as an explicit 0.
-    if ((w.resetInSec ?? 0) === 0 && w.resetsAt && w.id !== "day") {
+    if ((w.resetInSec ?? 0) === 0 && w.resetsAt && (!skipDay || w.id !== "day")) {
       return `${w.id}@${w.resetsAt}`;
     }
   }
@@ -364,6 +376,20 @@ export function usageBannerKey(
   return w ? `${u.provider}@${w.id}@${w.resetsAt ?? ""}` : "";
 }
 
+/** Display brand is independent of the configured provider row alias. */
+export function usageProviderBrand(u: ProviderUsage): string {
+  switch (u.providerType) {
+    case "neuraldeep":
+      return "NeuralDeep";
+    case "codex":
+      return "Codex";
+    case "devin":
+      return "Devin";
+    default:
+      return u.provider;
+  }
+}
+
 /**
  * The plan name as the popover shows it: the hub's tier id with its first
  * letter in upper case ("pro" reads "Pro", "coder" reads "Coder"), no
@@ -381,8 +407,10 @@ export function usagePlanLabel(plan: string | undefined): string {
  * chose ("3h") and reads the same in every language. Empty when the label
  * stands as is.
  */
-export function usageWindowLabelKey(w: Pick<UsageWindow, "id">): string {
-  switch (w.id) {
+export function usageWindowLabelKey(
+  w: Pick<UsageWindow, "id"> & Partial<Pick<UsageWindow, "label">>,
+): string {
+  switch (w.label || w.id) {
     case "week":
       return "usage.window.week";
     case "day":

@@ -511,9 +511,10 @@ type UsageUpdate struct {
 // ProviderUsageUpdate reports the provider-side account quota behind the
 // session's model: how much of each metered window is spent, when it resets,
 // the wallet balance for wallet keys, and whether a request would be refused
-// right now. Today only the neuraldeep provider type fills it (GET /v1/limits
-// on the hub); consumers branch on ProviderType. The update never carries a
-// credential, a hub URL, or a dollar amount.
+// right now. The provider types that fill it today are neuraldeep (GET
+// /v1/limits on the hub), codex (the Codex backend's usage endpoint) and
+// devin (the seat-management status RPC); consumers branch on ProviderType.
+// The update never carries a credential, a hub URL, or a dollar amount.
 //
 // Relative durations (ResetInSec, RetryInSec, Rate.ResetInSec) are corrected
 // for the snapshot's age when a cached snapshot is delivered, so a client can

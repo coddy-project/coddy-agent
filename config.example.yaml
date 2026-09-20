@@ -69,8 +69,12 @@ providers:
   # Sign In with ChatGPT. Coddy stores tokens under $CODDY_HOME/providers/codex/
   # with restrictive file permissions (no api_key or api_base needed). A Codex CLI
   # login remains a compatibility fallback when no Coddy-managed token exists.
+  # The account usage panel (the console footer line and /usage, the usage
+  # section and banner in the web UI) is on by default and reads the Codex
+  # backend's usage endpoint. false hides it and stops those reads for this row.
   # - name: codex
   #   type: codex
+  #   # usage_limits_panel: false
 
   # Devin (Cognition) account. `coddy providers login devin` signs in through
   # the browser (or reuses `devin auth login` with --devin-cli), stores the
@@ -79,6 +83,7 @@ providers:
   # token) wins over both logins.
   # - name: devin
   #   type: devin
+  #   # usage_limits_panel: false   # hides the account usage panel and stops its reads
 
   # OpenAI-compatible (DeepSeek, Groq, Together, etc.)
   # Use type openai and include /v1 in api_base.

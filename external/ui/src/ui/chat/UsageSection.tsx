@@ -5,6 +5,7 @@ import {
   formatRub,
   summarizeUsage,
   usagePercent,
+  usageProviderBrand,
   usagePlanLabel,
   usageWindowLabelKey,
   type ProviderUsage,
@@ -14,7 +15,7 @@ import {
 /**
  * The account usage block of the context popover, the way Claude Desktop
  * lists its plan limits under the context window: one meter per metered
- * window (the session, the week, the day when it is above zero) with the
+ * window (NeuralDeep omits the day while it is at zero) with the
  * reset time and the percent used, the wallet below, and a note for the
  * states that change what the user can do (a hit limit, a rejected key, a
  * model on the provider's unlimited option, a turn waiting for the reset,
@@ -31,7 +32,7 @@ export function UsageSection(props: {
   if (summary.kind === "none") return null;
   const now = props.now ?? new Date();
   const u = props.usage as ProviderUsage;
-  const brand = u.providerType === "neuraldeep" ? "NeuralDeep" : u.provider;
+  const brand = usageProviderBrand(u);
   const windowName = (w: UsageWindow) => {
     const key = usageWindowLabelKey(w);
     return key ? t(key) : w.label || w.id;
@@ -40,6 +41,10 @@ export function UsageSection(props: {
   let note = "";
   let noteTone: "" | "warn" | "error" = "";
   switch (summary.kind) {
+    case "unavailable":
+      note = t("usage.unavailable");
+      noteTone = summary.failed ? "warn" : "";
+      break;
     case "unauthorized":
       note = t("usage.keyRejected", { provider: summary.provider });
       noteTone = "warn";
@@ -81,7 +86,7 @@ export function UsageSection(props: {
   }
 
   const rows = (u.windows ?? []).filter(
-    (w) => !(w.id === "day" && usagePercent(w.usedPercent) === 0 && !w.exhausted),
+    (w) => !(u.providerType === "neuraldeep" && w.id === "day" && usagePercent(w.usedPercent) === 0 && !w.exhausted),
   );
   // Each meter keeps its own tone: a block colours the exhausted window
   // red, the others stay where their percent puts them.

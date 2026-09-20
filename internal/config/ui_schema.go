@@ -217,7 +217,7 @@ func UISchemaMap() map[string]interface{} {
 		// form seeds new rows from schema defaults and renders an unset switch
 		// from them.
 		"usage_limits_panel": boolPropDefault("Usage limits panel",
-			"Show this provider's account usage (the usage section and banner in the web UI, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (neuraldeep) are affected.",
+			"Show this provider's account usage (the usage section and banner in the web UI, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (NeuralDeep, Codex, Devin) are affected.",
 			true),
 	}
 	modelProps := map[string]interface{}{

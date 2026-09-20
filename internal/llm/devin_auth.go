@@ -474,10 +474,10 @@ func mintDevinJWT(ctx context.Context, hc *http.Client, cred devinCredential) (d
 	}
 	jwt, chatURL, err := decodeDevinUserJWT(body)
 	if err != nil {
-		return devinUserJWT{}, fmt.Errorf("devin auth: decode GetUserJwt: %w", err)
+		return devinUserJWT{}, fmt.Errorf("devin auth: decode GetUserJwt: %w", &devinInvalidResponseError{err})
 	}
 	if strings.TrimSpace(jwt) == "" {
-		return devinUserJWT{}, errors.New("devin auth: the API server returned no user JWT")
+		return devinUserJWT{}, &devinInvalidResponseError{errors.New("devin auth: the API server returned no user JWT")}
 	}
 	out := devinUserJWT{jwt: jwt, chatURL: server, expiresAt: time.Now().Add(10 * time.Minute)}
 	if u := strings.TrimRight(strings.TrimSpace(chatURL), "/"); u != "" && os.Getenv(EnvDevinAPIServerURL) == "" {
@@ -539,12 +539,23 @@ func jwtClaims(token string) map[string]any {
 	return claims
 }
 
+// devinInvalidResponseError marks an upstream answer that was syntactically
+// corrupt: not a transport or auth failure, but a payload the schema cannot
+// read. Usage reads map it to ProviderUsageInvalid.
+type devinInvalidResponseError struct{ err error }
+
+func (e *devinInvalidResponseError) Error() string { return e.err.Error() }
+func (e *devinInvalidResponseError) Unwrap() error { return e.err }
+
 // devinAPIError is an error answer of the Devin API: the HTTP status it came
 // with (or the one its Connect code stands for) and the server's own message.
 type devinAPIError struct {
 	status  int
 	code    string
 	message string
+	// retryAfter is the Retry-After hint of a throttled or unavailable
+	// answer, zero when the server sent none.
+	retryAfter time.Duration
 }
 
 func (e *devinAPIError) Error() string {
@@ -610,7 +621,16 @@ func devinUnary(ctx context.Context, hc *http.Client, endpoint string, body []by
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, devinErrorFromBody(resp.StatusCode, raw)
+		e := devinErrorFromBody(resp.StatusCode, raw)
+		e.retryAfter = parseUsageRetryAfter(resp.Header.Get("Retry-After"))
+		return nil, e
+	}
+	// A Connect error envelope can ride a 200 when a proxy in the middle
+	// answered for the server. A protobuf payload never starts with '{'.
+	if len(raw) > 0 && raw[0] == '{' {
+		if e := devinErrorFromBody(resp.StatusCode, raw); e.code != "" {
+			return nil, e
+		}
 	}
 	return raw, nil
 }

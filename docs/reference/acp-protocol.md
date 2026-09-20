@@ -531,8 +531,10 @@ define; a client that ignores unknown kinds keeps working.
   provider, so a client can draw a status bar like the console's third footer
   line. Sent at session ready and after every turn (never for a subagent
   child), once the provider has a usage source and the row's panel is on
-  (`providers[].usage_limits_panel`, default true); today only `neuraldeep`
-  has a source (the hub's read-only `GET /v1/limits`). The snapshot is account-wide
+  (`providers[].usage_limits_panel`, default true); the types with a source
+  today are `neuraldeep` (the hub's read-only `GET /v1/limits`), `codex`
+  (the Codex backend's usage endpoint) and `devin` (the seat-management
+  status RPC). The snapshot is account-wide
   and cached by the manager (20 s, a 15 s floor between reads); relative
   durations (`resetInSec`, `retryInSec`, `rate.resetInSec`) are corrected for
   the snapshot's age when it is delivered. No dollar figure and no credential

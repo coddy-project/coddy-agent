@@ -650,7 +650,9 @@ See **`.cursor/rules/ui-spa.mdc`** for the full wording.
 ### Context popover usage section and usage banner
 
 The account quota behind the selected model's provider (today: `neuraldeep`,
-the hub's `GET /v1/limits` read by the server, see `docs/plans/neuraldeep-usage.md`).
+`codex` and `devin`; the hub's `GET /v1/limits`, the Codex backend's usage
+endpoint and the Devin seat-management status RPC, read by the server, see
+`docs/plans/neuraldeep-usage.md`).
 The composer carries no extra control for it: the numbers live where Claude
 Desktop keeps its plan limits, under the context window in the context
 popover, and a banner speaks up only when something needs the user.
@@ -667,8 +669,11 @@ popover, and a banner speaks up only when something needs the user.
   (**error** tone), `Auto-resuming at 20:59` while the agent waits for the
   reset and the key-rejected hint (**warn** tone), the unlimited-option note
   for a model that bypasses the windows, the stale note when the latest read
-  failed. Below it one **meter per metered window** (the session, the week,
-  the day only when it is above zero), each a label in the reader's language
+  failed, `Quota data unavailable` for a source that reported a plan or a
+  failed read but no meter (warn when the read failed). Below it one **meter
+  per metered window** the source reports (NeuralDeep's session, week and
+  day - the day only when it is above zero; Codex's duration-labelled
+  windows and feature-scoped entries; Devin's day/week quota or `ACU`), each a label in the reader's language
   (`week` / `неделя`; a duration the hub chose, `3h`, stands as is), the
   reset time in the reader's clock and the percent **used** on the right,
   and a 6 px track (**`.context-usage-track`** / **`.context-usage-fill`**,
