@@ -788,7 +788,7 @@ sender.Flush()
 Session bundle written to disk ($CODDY_HOME/sessions/<id>/)
 ```
 
-**Session store persistence** — The key→session-ID mapping is persisted in `gateway_sessions.json` inside `$CODDY_HOME/sessions/` (same directory as session bundles). On restart the bot reloads this file and continues existing conversations seamlessly.
+**Session store persistence** — The key→session-ID mapping is persisted in `gateway_sessions.json` inside `$CODDY_HOME/sessions/` (same directory as session bundles). On restart the bot reloads this file and continues existing conversations seamlessly. The same file carries a reserved `$last_model` entry: the model an operator last picked on this gateway (`/model` keyboard or a typed session-scoped `/model <id>`). A **fresh** session — a chat's first contact, or a new session after `/clear` — starts on it instead of `agent.model`; on the gateway's very first use it starts on the alphabetically first configured model. A session that already chose a model, including one with a pick but no messages yet, keeps it.
 
 **`/clear` flow:**
 

@@ -230,7 +230,7 @@ Session title
 
 *The stream switch of a model row in Settings*
 
-- **New chat** defaults **Model** from cookie **`coddy_llm_model`**, then **`default_agent_model`** from **`GET /v1/models`**, then the first YAML row.
+- **New chat** defaults **Model** from cookie **`coddy_llm_model`** when it names a configured backend, else the alphabetically first YAML row. A typed **`/model <id>`** in a sent message is a pick on this surface too and writes the same cookie (turn-scoped **`--once`** / **`--count`** forms do not).
 - **Opening a session** restores **Model** from **`GET /coddy/sessions/{id}/messages`** field **`model`** (session override on disk) and its **`settings`** snapshot, not from the cookie.
 - Changing **Model** writes the cookie (default for the next **New chat**) and **`PATCH`** **`selectedModelId`** on the active session. ReAct turns still send **`metadata.model`** on **`POST /v1/responses`**.
 - **Many models / long names** — backend ids are **`vendor/model`**. When more than one vendor is configured the menu groups rows under an uppercase vendor header and each row shows only the model name (full id stays in the row tooltip). On desktop the list scrolls with a ~5-row cap. When there are **more than 5** backends a **filter input** appears at the top (auto-focused) that matches the vendor, model name, or full id (case-insensitive); **Enter** picks the first match, **Escape** closes, and an empty result shows a “No models match …” notice. Filter/group/threshold logic is in **`chat/llmModelMenu.ts`** (unit-tested in **`llmModelMenu.test.ts`**; menu wiring covered by **`ComposerModelMenu.test.tsx`**).

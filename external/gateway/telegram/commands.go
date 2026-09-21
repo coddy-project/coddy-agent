@@ -271,6 +271,9 @@ func (b *Bot) applyModel(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgbotap
 		return
 	}
 	b.log.Info("telegram: model applied", "session", sessionID, "model", newModel)
+	// The gateway is a surface of its own: the model the operator picked here
+	// is what the next fresh chat session starts on.
+	b.store.SetLastModel(newModel)
 	cfg := b.runner.Cfg()
 	edit := tgbotapi.NewEditMessageTextAndMarkup(
 		cbq.Message.Chat.ID,
@@ -303,5 +306,30 @@ func (b *Bot) ensureSession(ctx context.Context, key string) (*session.State, er
 	if fresh {
 		st.SetOrigin(session.GatewayOrigin("telegram"))
 	}
+	b.applyInitialModel(ctx, st)
 	return st, nil
+}
+
+// applyInitialModel stamps the gateway's own model on a session that is just
+// beginning - no transcript and no saved pick: the model an operator last
+// chose on this surface, or the alphabetically first configured one on the
+// gateway's very first use. A session that already chose - including a pick
+// on an empty transcript - keeps its model, and so does a resumed one.
+func (b *Bot) applyInitialModel(ctx context.Context, st *session.State) {
+	if st == nil || st.GetSelectedModelID() != "" || len(st.GetMessages()) != 0 {
+		return
+	}
+	cfg := b.runner.Cfg()
+	initial := cfg.FirstModelID()
+	if last := b.store.LastModel(); cfg.FindModelEntry(last) != nil {
+		initial = last
+	}
+	if initial == "" || initial == st.EffectiveModelID(cfg) {
+		return
+	}
+	if _, err := b.runner.HandleSessionSetConfigOption(ctx, acp.SessionSetConfigOptionParams{
+		SessionID: st.GetID(), ConfigID: "model", Value: initial,
+	}); err != nil {
+		b.log.Warn("telegram: initial model", "err", err, "session", st.GetID(), "model", initial)
+	}
 }

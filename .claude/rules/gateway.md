@@ -22,7 +22,7 @@ Built with **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (
 
 ## Session store
 
-`sessionstore.NewPersisted(path)` loads/saves a JSON map of key→session-ID on every mutation. The file lives at `$CODDY_HOME/sessions/gateway_sessions.json` (set in `external/gateway/start.go`). On restart the bot reloads the map so existing conversations continue where they left off. `/resume` writes the same map through `Bind`, so a chat moved to another session stays there across a restart; the session it left is not forgotten, because `/resume` is a switch the chat may reverse a moment later, while `/clear` ends a conversation and `ForgetLiveSession` belongs to it.
+`sessionstore.NewPersisted(path)` loads/saves a JSON map of key→session-ID on every mutation. The file lives at `$CODDY_HOME/sessions/gateway_sessions.json` (set in `external/gateway/start.go`). On restart the bot reloads the map so existing conversations continue where they left off. `/resume` writes the same map through `Bind`, so a chat moved to another session stays there across a restart; the session it left is not forgotten, because `/resume` is a switch the chat may reverse a moment later, while `/clear` ends a conversation and `ForgetLiveSession` belongs to it. A reserved `$last_model` entry holds the gateway's own last model pick: a fresh session (no transcript, no saved pick) starts on it — or on the alphabetically first model when nobody picked yet — via `applyInitialModel` in `commands.go`, called from `processMessage` and `ensureSession`.
 
 `newID()` mints ids through `session.NewSessionID()`: a chat conversation is an ordinary Coddy session with an ordinary `sess_` id, so `GET /coddy/sessions` lists it beside the sessions started in a terminal or a browser.
 

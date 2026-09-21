@@ -153,3 +153,54 @@ func TestBindPersistsTheChosenID(t *testing.T) {
 		t.Fatalf("Bind with an empty key stored %q", got)
 	}
 }
+
+// SetLastModel records the gateway's own last pick in the same file, survives
+// a reload like every other entry, and stays invisible to the session-key
+// readers (KeyFor, KnownIDs).
+func TestLastModelPersistsAndStaysOutOfSessionLookups(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gateway_sessions.json")
+	s := sessionstore.NewPersisted(path)
+
+	if got := s.LastModel(); got != "" {
+		t.Fatalf("LastModel on a fresh store = %q, want empty", got)
+	}
+	s.SetLastModel("  ")
+	if got := s.LastModel(); got != "" {
+		t.Fatalf("SetLastModel with a blank id stored %q", got)
+	}
+	s.SetLastModel("rpa/qwen3.6-35b-a3b")
+	if got := s.LastModel(); got != "rpa/qwen3.6-35b-a3b" {
+		t.Fatalf("LastModel = %q", got)
+	}
+
+	id := s.Get("tg:user:1")
+	if key, ok := s.KeyFor(id); !ok || key != "tg:user:1" {
+		t.Fatalf("KeyFor(%q) = (%q, %v), the model entry must not answer session lookups", id, key, ok)
+	}
+	for _, known := range s.KnownIDs() {
+		if known == "rpa/qwen3.6-35b-a3b" {
+			t.Fatalf("KnownIDs lists the model entry %q as a session id", known)
+		}
+	}
+
+	again := sessionstore.NewPersisted(path)
+	if got := again.LastModel(); got != "rpa/qwen3.6-35b-a3b" {
+		t.Fatalf("a fresh store over the same file reads LastModel %q", got)
+	}
+}
+
+// A file written by a build that knew only the flat session map loads with
+// the model memory simply empty - no migration needed.
+func TestLastModelLoadsFromAFlatSessionsFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gateway_sessions.json")
+	if err := os.WriteFile(path, []byte(`{"tg:user:1":"sess_aaaaaaaaaaaaaaaaaaaaaaaa"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := sessionstore.NewPersisted(path)
+	if got := s.LastModel(); got != "" {
+		t.Fatalf("LastModel over a flat file = %q, want empty", got)
+	}
+	if got := s.Peek("tg:user:1"); got != "sess_aaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Fatalf("flat file session binding lost: Peek = %q", got)
+	}
+}

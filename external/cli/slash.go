@@ -4,6 +4,7 @@ package cli
 
 import (
 	"context"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -93,10 +94,22 @@ func (a *App) dispatchSettings(trimmed string, fields []string) bool {
 		return true
 	}
 	if line.Empty() || strings.TrimSpace(line.Rest) != "" {
+		// A typed "/model <id> <prompt>" is a session-scoped pick on this
+		// surface even though the manager applies it inside the turn: the
+		// console remembers it like a menu pick (turn-scoped forms live in
+		// line.Turns and never reach this).
+		if m := line.Session.Model; m != nil && slices.Contains(a.modelIDs(), *m) {
+			a.rememberModel(*m)
+		}
 		return false
 	}
 	if a.busyWithLocalShell() {
 		return true
+	}
+	// Bare session-scoped commands (e.g. "/model <id>") are remembered
+	// before the worker runs, so a following "/new" does not race the file.
+	if m := line.Session.Model; m != nil && slices.Contains(a.modelIDs(), *m) {
+		a.rememberModel(*m)
 	}
 	changes := make([]session.SettingsChange, 0, 1+len(line.Turns))
 	if !line.Session.Empty() {

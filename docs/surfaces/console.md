@@ -218,6 +218,15 @@ the command is applied by the session manager, which answers with a notice
 line, and commands followed by a message apply to the turn that message
 starts. `/mode` is gone: the modes have their own commands.
 
+**Model memory** — the console is a surface of its own. A session-scoped pick
+(`/model`, the picker, or `/model <id>` ahead of a prompt) is remembered in
+`$CODDY_HOME/console-state.json` (`{"last_model": "..."}`), and every **new**
+session (`/new`, a fresh launch) starts on it instead of `agent.model`. On the
+console's very first use - no remembered pick yet - a new session starts on
+the alphabetically first configured model. Reopened and resumed sessions keep
+the model saved in their bundle, `--model` is a per-invocation override that
+does not rewrite the memory, and `coddy -p` always follows the configuration.
+
 ![The console after /permissions bypass and a chained /model --once and /reasoning --count=3: three notices, bypass in the footer, and the line of turn overrides](../assets/session-settings/session-settings-console-footer-dark.png)
 
 *After `/permissions bypass` and `/model stub/coddy-mini --once /reasoning high --count=3`: a notice per change, `bypass` in the footer, the turn overrides under the model.*

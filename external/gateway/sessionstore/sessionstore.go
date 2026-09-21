@@ -28,6 +28,12 @@ type Store struct {
 	savePath string // empty = in-memory only
 }
 
+// lastModelKey is a reserved map entry holding the model this gateway last
+// saw an operator pick. It cannot collide with a session key (those are
+// "gw:user:N" / "gw:chat:N…"), and a build that does not know it simply reads
+// one unused entry, so the file needs no format migration.
+const lastModelKey = "$last_model"
+
 // New creates an in-memory store with no disk persistence.
 func New() *Store {
 	return &Store{data: make(map[string]string)}
@@ -94,6 +100,31 @@ func (s *Store) Reset(key string) string {
 	return id
 }
 
+// LastModel returns the model this gateway last saw an operator pick, or ""
+// when nobody has picked one yet.
+func (s *Store) LastModel() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.data[lastModelKey]
+}
+
+// SetLastModel records the model an operator picked on this gateway; a fresh
+// session (no transcript, no saved pick) starts on it instead of the
+// configured default.
+func (s *Store) SetLastModel(id string) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.data[lastModelKey] == id {
+		return
+	}
+	s.data[lastModelKey] = id
+	s.saveUnlocked()
+}
+
 // KeyFor returns the key that maps to sessionID. A background subagent asks
 // about its parent session, not about a chat, and this is how the bot finds the
 // conversation that session belongs to - after a restart too, since the map is
@@ -105,6 +136,9 @@ func (s *Store) KeyFor(sessionID string) (string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for key, id := range s.data {
+		if key == lastModelKey {
+			continue
+		}
 		if id == sessionID {
 			return key, true
 		}
@@ -157,7 +191,10 @@ func (s *Store) KnownIDs() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ids := make([]string, 0, len(s.data))
-	for _, id := range s.data {
+	for key, id := range s.data {
+		if key == lastModelKey {
+			continue
+		}
 		ids = append(ids, id)
 	}
 	return ids
