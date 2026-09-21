@@ -223,6 +223,20 @@ func (w *configCommentsWorld) wantSingleSchemaHeader() error {
 	return nil
 }
 
+func (w *configCommentsWorld) wantAbsent(what string) error {
+	if strings.Contains(w.saved, what) {
+		return fmt.Errorf("saved config gained %q the file never had:\n%s", what, w.saved)
+	}
+	return nil
+}
+
+func (w *configCommentsWorld) wantNoNulls() error {
+	if strings.Contains(w.saved, ": null") {
+		return fmt.Errorf("saved config writes null values:\n%s", w.saved)
+	}
+	return nil
+}
+
 func TestConfigSchemaCommentsFeature(t *testing.T) {
 	suite := godog.TestSuite{
 		Name: "config_schema_comments",
@@ -248,6 +262,8 @@ func TestConfigSchemaCommentsFeature(t *testing.T) {
 			sc.Step(`^the saved config\.yaml starts with the schema header for "([^"]*)"$`, w.wantSchemaHeader)
 			sc.Step(`^the saved config\.yaml still points its editor at "([^"]*)"$`, w.wantSchemaReference)
 			sc.Step(`^the saved config\.yaml carries exactly one schema header$`, w.wantSingleSchemaHeader)
+			sc.Step(`^the saved config\.yaml does not mention "([^"]*)"$`, w.wantAbsent)
+			sc.Step(`^the saved config\.yaml carries no "null" values$`, w.wantNoNulls)
 		},
 		Options: &godog.Options{
 			Format:   "pretty",

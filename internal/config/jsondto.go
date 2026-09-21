@@ -14,6 +14,7 @@ type ConfigJSON struct {
 	Prompts      PromptsJSON      `json:"prompts,omitempty"`
 	Instructions InstructionsJSON `json:"instructions,omitempty"`
 	Skills       SkillsJSON       `json:"skills,omitempty"`
+	Rules        RulesJSON        `json:"rules,omitempty"`
 	MCPServers   []MCPServerJSON  `json:"mcp_servers,omitempty"`
 	MCP          MCPJSON          `json:"mcp,omitempty"`
 	Tools        ToolsJSON        `json:"tools,omitempty"`
@@ -25,6 +26,7 @@ type ConfigJSON struct {
 	Memory       MemoryJSON       `json:"memory,omitempty"`
 	HTTPServer   HTTPServerJSON   `json:"httpserver,omitempty"`
 	Swarm        SwarmJSON        `json:"swarm,omitempty"`
+	UI           UIJSON           `json:"ui,omitempty"`
 	Scheduler    SchedulerJSON    `json:"scheduler,omitempty"`
 	Gateways     GatewaysJSON     `json:"gateways,omitempty"`
 }
@@ -133,6 +135,17 @@ type SkillsJSON struct {
 	Dirs          []string `json:"dirs,omitempty"`
 	Sources       []string `json:"sources,omitempty"`
 	AutoDiscovery *bool    `json:"auto_discovery,omitempty"`
+}
+
+// RulesJSON mirrors Rules for JSON APIs.
+type RulesJSON struct {
+	AutoDiscover *bool    `json:"auto_discover,omitempty"`
+	Systems      []string `json:"systems,omitempty"`
+}
+
+// UIJSON mirrors UIConfig for JSON APIs.
+type UIJSON struct {
+	Enabled *bool `json:"enable,omitempty"`
 }
 
 // MCPServerJSON mirrors MCPServerConfig for JSON APIs.
@@ -264,6 +277,7 @@ type CompactionJSON struct {
 	ThresholdPercent int                `json:"threshold_percent,omitempty"`
 	KeepRecentTurns  *int               `json:"keep_recent_turns,omitempty"`
 	Model            string             `json:"model,omitempty"`
+	FallbackModels   []string           `json:"fallback_models,omitempty"`
 	ResultEviction   ResultEvictionJSON `json:"result_eviction,omitempty"`
 }
 
@@ -278,16 +292,17 @@ type ResultEvictionJSON struct {
 
 // MemoryJSON mirrors MemoryConfig.
 type MemoryJSON struct {
-	Enabled          bool   `json:"enable,omitempty"`
-	Model            string `json:"model,omitempty"`
-	Dir              string `json:"dir,omitempty"`
-	WaitSeconds      *int   `json:"wait_seconds,omitempty"`
-	TimeoutSeconds   int    `json:"timeout_seconds,omitempty"`
-	KeepRuns         *int   `json:"keep_runs,omitempty"`
-	RecallMaxTurns   int    `json:"recall_max_turns,omitempty"`
-	PersistMaxTurns  int    `json:"persist_max_turns,omitempty"`
-	CopilotMaxTokens int    `json:"copilot_max_tokens,omitempty"`
-	MaxSearchHits    int    `json:"max_search_hits,omitempty"`
+	Enabled          bool     `json:"enable,omitempty"`
+	Model            string   `json:"model,omitempty"`
+	FallbackModels   []string `json:"fallback_models,omitempty"`
+	Dir              string   `json:"dir,omitempty"`
+	WaitSeconds      *int     `json:"wait_seconds,omitempty"`
+	TimeoutSeconds   int      `json:"timeout_seconds,omitempty"`
+	KeepRuns         *int     `json:"keep_runs,omitempty"`
+	RecallMaxTurns   int      `json:"recall_max_turns,omitempty"`
+	PersistMaxTurns  int      `json:"persist_max_turns,omitempty"`
+	CopilotMaxTokens int      `json:"copilot_max_tokens,omitempty"`
+	MaxSearchHits    int      `json:"max_search_hits,omitempty"`
 	// AdditionalPrompt and its cap: the operator's instructions for the
 	// memory subagent (issue #266).
 	AdditionalPrompt         string `json:"additional_prompt,omitempty"`
@@ -474,6 +489,10 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		Sources:       append([]string(nil), c.Skills.Sources...),
 		AutoDiscovery: cloneBoolPtr(c.Skills.AutoDiscovery),
 	}
+	out.Rules = RulesJSON{
+		AutoDiscover: cloneBoolPtr(c.Rules.AutoDiscover),
+		Systems:      append([]string(nil), c.Rules.Systems...),
+	}
 	for _, s := range c.MCPServers {
 		mj := MCPServerJSON{
 			Type: s.Type, Name: s.Name, Command: s.Command,
@@ -536,6 +555,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		ThresholdPercent: c.Compaction.ThresholdPercent,
 		KeepRecentTurns:  cloneIntPtr(c.Compaction.KeepRecentTurns),
 		Model:            c.Compaction.Model,
+		FallbackModels:   append([]string(nil), c.Compaction.FallbackModels...),
 		ResultEviction: ResultEvictionJSON{
 			Enabled:        cloneBoolPtr(c.Compaction.ResultEviction.Enabled),
 			KeepRecent:     cloneIntPtr(c.Compaction.ResultEviction.KeepRecent),
@@ -544,7 +564,8 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		},
 	}
 	out.Memory = MemoryJSON{
-		Enabled: c.Memory.Enabled, Model: c.Memory.Model, Dir: c.Memory.Dir,
+		Enabled: c.Memory.Enabled, Model: c.Memory.Model,
+		FallbackModels: append([]string(nil), c.Memory.FallbackModels...), Dir: c.Memory.Dir,
 		WaitSeconds: cloneIntPtr(c.Memory.WaitSeconds), TimeoutSeconds: c.Memory.TimeoutSeconds, KeepRuns: cloneIntPtr(c.Memory.KeepRuns),
 		RecallMaxTurns: c.Memory.RecallMaxTurns, PersistMaxTurns: c.Memory.PersistMaxTurns,
 		CopilotMaxTokens: c.Memory.CopilotMaxTokens, MaxSearchHits: c.Memory.MaxSearchHits,
@@ -611,6 +632,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			Dial:                   swarmDialToJSON(j.Dial),
 		})
 	}
+	out.UI = UIJSON{Enabled: cloneBoolPtr(c.UI.Enabled)}
 	out.Scheduler = SchedulerJSON{
 		Enabled: c.Scheduler.Enabled, Dir: c.Scheduler.Dir, MaxQueue: c.Scheduler.MaxQueue,
 		Timeout: c.Scheduler.Timeout, RetainSessions: c.Scheduler.RetainSessions,
@@ -695,6 +717,10 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		Sources:       append([]string(nil), j.Skills.Sources...),
 		AutoDiscovery: cloneBoolPtr(j.Skills.AutoDiscovery),
 	}
+	cfg.Rules = Rules{
+		AutoDiscover: cloneBoolPtr(j.Rules.AutoDiscover),
+		Systems:      append([]string(nil), j.Rules.Systems...),
+	}
 	for _, s := range j.MCPServers {
 		mc := MCPServerConfig{
 			Type: s.Type, Name: s.Name, Command: s.Command,
@@ -759,6 +785,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		ThresholdPercent: j.Compaction.ThresholdPercent,
 		KeepRecentTurns:  cloneIntPtr(j.Compaction.KeepRecentTurns),
 		Model:            j.Compaction.Model,
+		FallbackModels:   append([]string(nil), j.Compaction.FallbackModels...),
 		ResultEviction: ResultEviction{
 			Enabled:        cloneBoolPtr(j.Compaction.ResultEviction.Enabled),
 			KeepRecent:     cloneIntPtr(j.Compaction.ResultEviction.KeepRecent),
@@ -767,7 +794,8 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		},
 	}
 	cfg.Memory = MemoryConfig{
-		Enabled: j.Memory.Enabled, Model: j.Memory.Model, Dir: j.Memory.Dir,
+		Enabled: j.Memory.Enabled, Model: j.Memory.Model,
+		FallbackModels: append([]string(nil), j.Memory.FallbackModels...), Dir: j.Memory.Dir,
 		WaitSeconds: cloneIntPtr(j.Memory.WaitSeconds), TimeoutSeconds: j.Memory.TimeoutSeconds, KeepRuns: cloneIntPtr(j.Memory.KeepRuns),
 		RecallMaxTurns: j.Memory.RecallMaxTurns, PersistMaxTurns: j.Memory.PersistMaxTurns,
 		CopilotMaxTokens: j.Memory.CopilotMaxTokens, MaxSearchHits: j.Memory.MaxSearchHits,
@@ -827,6 +855,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			Dial:   swarmDialFromJSON(jn.Dial),
 		})
 	}
+	cfg.UI = UIConfig{Enabled: cloneBoolPtr(j.UI.Enabled)}
 	cfg.Scheduler = SchedulerConfig{
 		Enabled: j.Scheduler.Enabled, Dir: j.Scheduler.Dir, MaxQueue: j.Scheduler.MaxQueue,
 		Timeout: j.Scheduler.Timeout, RetainSessions: j.Scheduler.RetainSessions,

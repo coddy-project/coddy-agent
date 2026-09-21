@@ -15,6 +15,7 @@ package config
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -69,13 +70,25 @@ func MarshalConfigYAMLPreservingComments(cfg *Config, existing []byte) ([]byte, 
 		return nil, fmt.Errorf("encode config: %w", err)
 	}
 	doc := &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{&next}}
+	var prevRoot *yaml.Node
 	if prev, ok := parsePreviousDocument(existing); ok {
 		// The leading comment block (the modeline and whatever follows it) hangs off
 		// the document node, not off the first key.
 		doc.HeadComment = prev.HeadComment
 		doc.FootComment = prev.FootComment
-		mergeYAMLComments(configDocumentRoot(prev), &next)
+		prevRoot = configDocumentRoot(prev)
+		mergeYAMLComments(prevRoot, &next)
 	}
+	// The encode above renders the whole config struct, so without a prune a save
+	// writes `key: null` for every optional field the operator never set and
+	// materializes every section the defaults fill in - a file that kept those
+	// parts commented out came back annotated with nulls and a default dump
+	// (issue #265). Pruning runs after the comment merge so a key carrying an
+	// operator's note is never dropped. The baseline is built even without a
+	// previous document: a first write (a fresh `coddy mcp add`, a save after the
+	// file was deleted) stays just as sparse - and defaultsBaseline degrades to
+	// nil on error, which only widens what is kept.
+	pruneUndocumentedDefaults(&next, prevRoot, defaultsBaseline(cfg), cfg.Paths)
 	out, err := marshalConfigDocument(doc)
 	if err != nil {
 		return nil, fmt.Errorf("serialize config: %w", err)
@@ -302,4 +315,185 @@ func hasSchemaModeline(yamlBytes []byte) bool {
 		}
 	}
 	return false
+}
+
+// defaultsBaseline renders the document a save of an untouched config would produce:
+// an empty file carried through the same pipeline the incoming document went through -
+// the loader's defaults and normalization, the JSON DTO round trip that resolves
+// effective values (permission_mode, project_trust and friends come back spelled out
+// even when the file never named them), and the secret escaping the real document was
+// encoded with. A subtree identical to it adds nothing a reader could not infer, so a
+// save keeps it out of the file when the previous document never had the key.
+//
+// A nil result disables the baseline half of pruning: nulls and emptied mappings are
+// still dropped, and everything else is kept.
+func defaultsBaseline(cfg *Config) *yaml.Node {
+	def := &Config{Paths: cfg.Paths}
+	applyDefaults(def)
+	if err := validateSubconfigs(def); err != nil {
+		// The empty config validates; a failure here means a global default is
+		// broken, and pruning against a guessed baseline is worse than none.
+		return nil
+	}
+	raw, err := json.Marshal(ConfigToJSONDTO(def))
+	if err != nil {
+		return nil
+	}
+	round, err := ParseConfigJSONPreservingSecrets(raw, cfg.Paths, nil)
+	if err != nil {
+		return nil
+	}
+	var node yaml.Node
+	if err := node.Encode(escapeYAMLSecrets(round)); err != nil {
+		return nil
+	}
+	return &node
+}
+
+// pruneUndocumentedDefaults removes from next every pair whose value says nothing:
+// a null scalar (an unset optional field, including one the operator just cleared -
+// null and absent load identically for every pointer field), a mapping left empty by
+// pruning, and, only when the previous document never had the key, a subtree identical
+// to the defaults baseline. It runs after the comment merge, so a pair carrying an
+// operator's note anywhere is always kept. Sequences are compared as units: an empty
+// list can be a deliberate value (reasoning_levels: []), and entries carry fields that
+// are meaningful even at zero.
+func pruneUndocumentedDefaults(next, prev, baseline *yaml.Node, paths Paths) {
+	if next == nil || next.Kind != yaml.MappingNode {
+		return
+	}
+	kept := next.Content[:0]
+	for i := 0; i+1 < len(next.Content); i += 2 {
+		key, val := next.Content[i], next.Content[i+1]
+		var prevVal, baseVal *yaml.Node
+		if prev != nil {
+			if _, v, ok := mappingValue(prev, key.Value); ok {
+				prevVal = v
+			}
+		}
+		if baseline != nil {
+			if _, v, ok := mappingValue(baseline, key.Value); ok {
+				baseVal = v
+			}
+		}
+		// Children decide before the parent can empty out.
+		switch val.Kind {
+		case yaml.MappingNode:
+			pruneUndocumentedDefaults(val, prevVal, baseVal, paths)
+		case yaml.SequenceNode:
+			for _, item := range val.Content {
+				pruneSequenceItem(item)
+			}
+		}
+		if nodeCarriesComment(key) || nodeCarriesComment(val) {
+			kept = append(kept, key, val)
+			continue
+		}
+		if nodeIsNothing(val) {
+			continue
+		}
+		if prevVal == nil && baseVal != nil && yamlNodesDeepEqual(val, baseVal, paths) {
+			continue
+		}
+		kept = append(kept, key, val)
+	}
+	next.Content = kept
+}
+
+// pruneSequenceItem applies the value-means-nothing rule inside a sequence entry:
+// null fields and emptied maps go, everything else - including explicit zeros and
+// empty lists - stays, because an entry's fields are the record it exists for.
+func pruneSequenceItem(item *yaml.Node) {
+	if item == nil || item.Kind != yaml.MappingNode {
+		return
+	}
+	kept := item.Content[:0]
+	for i := 0; i+1 < len(item.Content); i += 2 {
+		key, val := item.Content[i], item.Content[i+1]
+		switch val.Kind {
+		case yaml.MappingNode:
+			pruneSequenceItem(val)
+		case yaml.SequenceNode:
+			for _, inner := range val.Content {
+				pruneSequenceItem(inner)
+			}
+		}
+		if nodeIsNothing(val) && !nodeCarriesComment(key) && !nodeCarriesComment(val) {
+			continue
+		}
+		kept = append(kept, key, val)
+	}
+	item.Content = kept
+}
+
+// nodeIsNothing reports whether a value node carries no information: a null scalar,
+// or a mapping left with no pairs (emptied by pruning, or an empty map the struct
+// encoded). A sequence is never "nothing" - [] can be a deliberate value.
+func nodeIsNothing(v *yaml.Node) bool {
+	if v == nil {
+		return true
+	}
+	switch v.Kind {
+	case yaml.ScalarNode:
+		return v.Tag == "!!null"
+	case yaml.MappingNode:
+		return len(v.Content) == 0
+	default:
+		return false
+	}
+}
+
+// nodeCarriesComment reports whether the node or anything under it has a comment.
+// A commented key is the operator writing something down, and a save loses nothing.
+func nodeCarriesComment(n *yaml.Node) bool {
+	if n == nil {
+		return false
+	}
+	if n.HeadComment != "" || n.LineComment != "" || n.FootComment != "" {
+		return true
+	}
+	for _, c := range n.Content {
+		if nodeCarriesComment(c) {
+			return true
+		}
+	}
+	return false
+}
+
+// yamlNodesDeepEqual compares two document fragments by shape and value alone -
+// comments and style do not make two nodes different. Scalar values compare after
+// path expansion so `${CODDY_HOME}`/ its expanded form and `~` spellings of the
+// same directory count as equal: defaults injected on a load keep the placeholder
+// spelling, while a DTO round trip expands it, and both mean the same directory.
+// `${CWD}` is deliberately NOT expanded: it is a per-session placeholder the
+// per-session fields (skills.dirs, hooks.files, prompts.dir and friends) keep
+// literal by design, so an operator-written absolute path equal to this process's
+// cwd must never collapse into the placeholder spelling.
+func yamlNodesDeepEqual(a, b *yaml.Node, paths Paths) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if a.Kind != b.Kind || a.Tag != b.Tag || len(a.Content) != len(b.Content) {
+		return false
+	}
+	if a.Kind == yaml.ScalarNode {
+		return expandScalarForCompare(a.Value, paths) == expandScalarForCompare(b.Value, paths)
+	}
+	for i := range a.Content {
+		if !yamlNodesDeepEqual(a.Content[i], b.Content[i], paths) {
+			return false
+		}
+	}
+	return true
+}
+
+// expandScalarForCompare expands ${CODDY_HOME} and ~, the two spellings a
+// default and a DTO-round-tripped value of the same directory differ by, and
+// normalizes every backslash to a forward slash: ExpandCODDYHomeOnly substitutes
+// the raw home (C:\Users\... on Windows) while ExpandPathVars spells the
+// yaml-safe form, so the same directory reaches the compare written either way.
+// ${CWD} stays literal on purpose - see yamlNodesDeepEqual.
+func expandScalarForCompare(s string, paths Paths) string {
+	s = strings.ReplaceAll(s, "${CODDY_HOME}", yamlSafePath(paths.Home))
+	return yamlSafePath(expandHome(s))
 }

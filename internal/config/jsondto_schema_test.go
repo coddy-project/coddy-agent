@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -229,4 +230,96 @@ func TestPreviewServerSurvivesTheJSONDTO(t *testing.T) {
 	if got.Enabled == nil || *got.Enabled || got.Host != "0.0.0.0" || got.PublicHost != "dev.example" {
 		t.Fatalf("PUT path dropped tools.preview_server: %+v", got)
 	}
+}
+
+// rules, ui and the two fallback_models lists used to be missing from ConfigJSON,
+// so any unrelated settings save silently reset them (issue #265 companion).
+func TestRulesUIAndFallbackModelsSurviveTheJSONDTO(t *testing.T) {
+	off := false
+	cfg := &config.Config{}
+	cfg.Rules = config.Rules{AutoDiscover: &off, Systems: []string{"acme/rules"}}
+	cfg.UI.Enabled = &off
+	cfg.Compaction.FallbackModels = []string{"codex/gpt-5.5", "neuraldeep/gpt-oss-120b"}
+	cfg.Memory.FallbackModels = []string{"codex/gpt-5.5"}
+
+	raw, err := json.Marshal(config.ConfigToJSONDTO(cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"rules"`, `"ui"`, `"auto_discover":false`, `"enable":false`, `"fallback_models"`} {
+		if !strings.Contains(string(raw), want) {
+			t.Fatalf("GET DTO dropped %s: %s", want, raw)
+		}
+	}
+
+	back := config.JSONDTOToConfig(config.ConfigToJSONDTO(cfg), config.Paths{})
+	if back.Rules.AutoDiscover == nil || *back.Rules.AutoDiscover {
+		t.Fatalf("rules.auto_discover lost: %+v", back.Rules)
+	}
+	if len(back.Rules.Systems) != 1 || back.Rules.Systems[0] != "acme/rules" {
+		t.Fatalf("rules.systems lost: %+v", back.Rules)
+	}
+	if back.UI.Enabled == nil || *back.UI.Enabled {
+		t.Fatalf("ui.enable lost: %+v", back.UI)
+	}
+	if len(back.Compaction.FallbackModels) != 2 || back.Compaction.FallbackModels[1] != "neuraldeep/gpt-oss-120b" {
+		t.Fatalf("compaction.fallback_models lost: %v", back.Compaction.FallbackModels)
+	}
+	if len(back.Memory.FallbackModels) != 1 || back.Memory.FallbackModels[0] != "codex/gpt-5.5" {
+		t.Fatalf("memory.fallback_models lost: %v", back.Memory.FallbackModels)
+	}
+}
+
+// Every yaml-tagged field of Config must have a ConfigJSON counterpart, or a
+// settings save drops it. rules and ui went missing once already at the top
+// level, and compaction.fallback_models / memory.fallback_models one level
+// deeper; the walk is recursive so a field cannot silently join them at any
+// depth.
+func TestConfigJSONCoversEveryConfigSection(t *testing.T) {
+	assertJSONCoversYAML(t, reflect.TypeOf(config.Config{}), reflect.TypeOf(config.ConfigJSON{}), "Config")
+}
+
+func assertJSONCoversYAML(t *testing.T, cfgT, dtoT reflect.Type, prefix string) {
+	t.Helper()
+	jsonFields := map[string]reflect.Type{}
+	for i := 0; i < dtoT.NumField(); i++ {
+		f := dtoT.Field(i)
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if name != "" && name != "-" {
+			jsonFields[name] = f.Type
+		}
+	}
+	for i := 0; i < cfgT.NumField(); i++ {
+		f := cfgT.Field(i)
+		name, _, _ := strings.Cut(f.Tag.Get("yaml"), ",")
+		if name == "" || name == "-" {
+			continue
+		}
+		jt, ok := jsonFields[name]
+		if !ok {
+			t.Errorf("%s.%s (yaml %q) has no ConfigJSON field - a settings save would drop it", prefix, f.Name, name)
+			continue
+		}
+		if ct, jt := taggedStruct(f.Type, "yaml"), taggedStruct(jt, "json"); ct != nil && jt != nil {
+			assertJSONCoversYAML(t, ct, jt, prefix+"."+name)
+		}
+	}
+}
+
+// taggedStruct unwraps pointers, slices, arrays and maps down to a struct type,
+// and returns it only when it carries fields tagged with the given tag - a
+// ConfigJSON mirror struct. Leaf structs like time.Time have none and stay nil.
+func taggedStruct(t reflect.Type, tag string) reflect.Type {
+	for t.Kind() == reflect.Pointer || t.Kind() == reflect.Slice || t.Kind() == reflect.Array || t.Kind() == reflect.Map {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct {
+		return nil
+	}
+	for i := 0; i < t.NumField(); i++ {
+		if t.Field(i).Tag.Get(tag) != "" {
+			return t
+		}
+	}
+	return nil
 }

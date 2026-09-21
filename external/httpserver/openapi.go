@@ -255,9 +255,9 @@ func openAPISpec() map[string]interface{} {
 						"schema":      map[string]interface{}{"type": "string", "enum": []string{"desc", "asc"}},
 						"description": "Direction of **sort**; **`desc`** by default. An unknown value is a **400**.",
 					}, map[string]interface{}{
-						"name":        "include_activity",
-						"in":          "query",
-						"schema":      map[string]string{"type": "boolean"},
+						"name":   "include_activity",
+						"in":     "query",
+						"schema": map[string]string{"type": "boolean"},
 						"description": "When true, each session row includes **turnActive**, **activitySeq**, **readActivitySeq**, **unreadComplete**, **permissionPending** and **backgroundRunning** for composer UI. " +
 							"**backgroundRunning** is how many of the session's background tasks are still in flight - detached work outlives the turn that started it, so it can be above zero while **turnActive** is false. " +
 							"System tasks (the per-turn memory run) and finished tasks are not counted.",
@@ -1046,7 +1046,7 @@ func openAPISpec() map[string]interface{} {
 				},
 				"put": map[string]interface{}{
 					"summary":     "Replace configuration from JSON",
-					"description": "Validates the body, writes **config.yaml** atomically over its current content - comments, commented-out keys and the existing key order survive the save, a file with no **`# yaml-language-server: $schema=`** header gets the published one (**`https://coddy.dev/config.schema.json`**), and a header naming another schema is left alone - and reloads in-process config. Changed **mcp_servers** are reconnected for active sessions, re-running the workspace trust gate so unapproved project declarations stay cold; a session with a turn in flight is reconnected when that turn ends, not mid-turn, while ACP client-provided session servers stay connected. On reload failure after write, restores **config.yaml.bak** to the primary path.",
+					"description": "Validates the body, writes **config.yaml** atomically over its current content - comments, commented-out keys and the existing key order survive the save, a file with no **`# yaml-language-server: $schema=`** header gets the published one (**`https://coddy.dev/config.schema.json`**), and a header naming another schema is left alone - and reloads in-process config. Keys the file never had appear only when their value differs from the built-in defaults: unset optional fields are omitted rather than written as **`null`**, so commented-out sections stay out of the file. Changed **mcp_servers** are reconnected for active sessions, re-running the workspace trust gate so unapproved project declarations stay cold; a session with a turn in flight is reconnected when that turn ends, not mid-turn, while ACP client-provided session servers stay connected. On reload failure after write, restores **config.yaml.bak** to the primary path.",
 					"operationId": "coddyConfigPut",
 					"requestBody": map[string]interface{}{
 						"required": true,
