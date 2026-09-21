@@ -783,10 +783,16 @@ func toIfaceOrder(keys []string) []interface{} {
 //	swarm      - a relay's own deployment: bind address, credentials for a whole
 //	             fleet, and the parents this process joins. It is set in the file
 //	             or on the command line, not from a page one of its nodes serves.
+//	rules      - project rule discovery is a workspace concern; the Settings form
+//	             edits the user-global file, where it rarely needs touching.
+//	ui         - toggles the SPA the page is served from; like httpserver, the
+//	             page cannot switch itself off.
 var uiHiddenConfigKeys = map[string]struct{}{
 	"httpserver": {},
 	"mcp":        {},
 	"swarm":      {},
+	"rules":      {},
+	"ui":         {},
 }
 
 // UISchemaCoversConfigJSONFields checks that UI schema properties match ConfigJSON

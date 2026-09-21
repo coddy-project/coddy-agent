@@ -16,6 +16,15 @@ Feature: A saved config keeps its comments and names the editor schema
     Then the saved config.yaml still carries the operator comments
     And the saved config.yaml sets "agent.max_turns" to 42
 
+  Scenario: A settings save adds no keys the file never carried
+    Given a coddy server whose config.yaml carries operator comments
+    When the settings screen saves the config with "agent.max_turns" set to 42
+    Then the saved config.yaml sets "agent.max_turns" to 42
+    And the saved config.yaml still carries the operator comments
+    And the saved config.yaml does not mention "tools:"
+    And the saved config.yaml does not mention "output_limits"
+    And the saved config.yaml carries no "null" values
+
   Scenario: A config an operator wrote on Windows keeps its shape and its line endings
     Given a coddy server whose config.yaml carries operator comments in Windows text
     When the settings screen saves the config with "agent.max_turns" set to 42
