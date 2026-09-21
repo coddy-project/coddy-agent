@@ -908,6 +908,9 @@ func (a *App) openModelSelector() {
 
 func (a *App) setModel(id string) {
 	sessionID := a.sessionID
+	// Remember the pick immediately: the next /new may arrive before the
+	// worker below finishes, so the console-state file must already say it.
+	a.rememberModel(id)
 	// A worker: the change is written to session.json, and JoinWorkers lets
 	// that write finish before the process exits.
 	a.workers.Add(1)
@@ -919,7 +922,6 @@ func (a *App) setModel(id string) {
 			_ = a.Sender().SendSessionUpdate(sessionID, statusErr{msg: "model: " + err.Error()})
 			return
 		}
-		a.rememberModel(id)
 		// The new model may belong to another provider: the footer line
 		// follows it without waiting for the next turn. The backend answers
 		// from its cache when warm, so this costs no request most of the time.

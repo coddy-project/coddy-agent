@@ -267,7 +267,7 @@ Coddy returns both **Session Config Options** (preferred by modern ACP clients) 
 }
 ```
 
-The `model` option is present only when the `models` list in the agent config is non-empty. The effective default model is `agent.model` until the user picks another model in the client, as described in [Configuration](../getting-started/configuration.md). Each listed `value` matches the YAML `models[].model` string (`provider_name/api_model_id`).
+The `model` option is present only when the `models` list in the agent config is non-empty. The effective default model is `agent.model` until a pick changes it through this option - the user's own choice, or the remembered surface pick an interactive client stamps on a newly minted session (the console and the web UI each keep their own; see [Configuration](../getting-started/configuration.md)). Each listed `value` matches the YAML `models[].model` string (`provider_name/api_model_id`).
 
 ### `session/load`
 

@@ -106,6 +106,11 @@ func (a *App) dispatchSettings(trimmed string, fields []string) bool {
 	if a.busyWithLocalShell() {
 		return true
 	}
+	// Bare session-scoped commands (e.g. "/model <id>") are remembered
+	// before the worker runs, so a following "/new" does not race the file.
+	if m := line.Session.Model; m != nil && slices.Contains(a.modelIDs(), *m) {
+		a.rememberModel(*m)
+	}
 	changes := make([]session.SettingsChange, 0, 1+len(line.Turns))
 	if !line.Session.Empty() {
 		changes = append(changes, line.Session)
@@ -131,9 +136,6 @@ func (a *App) applySettings(changes ...session.SettingsChange) {
 			if err != nil {
 				_ = a.Sender().SendSessionUpdate(sessionID, statusErr{msg: err.Error()})
 				return
-			}
-			if ch.Model != nil && ch.Turns == 0 {
-				a.rememberModel(*ch.Model)
 			}
 			_ = a.Sender().SendSessionUpdate(sessionID, settingsApplied{settings: snap})
 		}
