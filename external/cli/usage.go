@@ -510,7 +510,7 @@ func usageReportLines(u *acp.ProviderUsageUpdate, modelID string, now time.Time)
 		}
 		lines = append(lines, fmt.Sprintf("  %-14s %s", "cooldown", cooldown))
 	}
-	if len(u.Windows) == 0 && u.Wallet == nil && !u.Blocked && !modelUnlimited(u, modelID) && !neuraldeep {
+	if len(u.Windows) == 0 && u.Wallet == nil && !u.Blocked && modelBlocked(u, modelID) == nil && !modelUnlimited(u, modelID) && !neuraldeep {
 		lines = append(lines, "  quota unavailable")
 	}
 	if u.Wallet != nil {

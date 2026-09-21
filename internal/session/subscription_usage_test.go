@@ -103,6 +103,28 @@ func TestSubscriptionUsageCodexMapping(t *testing.T) {
 	}
 }
 
+// A zero or absent relative countdown must not clobber the countdown the
+// absolute reset_at carries: a Codex payload may send reset_after_seconds: 0
+// beside a still-future reset_at, and reporting the window already reset
+// would flash a stale "reset passed" state.
+func TestSubscriptionUsageCodexZeroResetAfterKeepsResetAtCountdown(t *testing.T) {
+	body := `{"plan_type":"plus","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":40,"limit_window_seconds":18000,"reset_at":2000000000,"reset_after_seconds":0}}}`
+	m, _ := subscriptionUsageManager(t, http.StatusOK, body, true)
+	u, err := m.ProviderUsage(context.Background(), "work", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(u.Windows) != 1 {
+		t.Fatalf("windows = %+v", u.Windows)
+	}
+	if u.Windows[0].ResetInSec <= 0 {
+		t.Fatalf("reset_after_seconds: 0 clobbered the reset_at countdown: %+v", u.Windows[0])
+	}
+	if u.Windows[0].ResetsAt != "2033-05-18T03:33:20Z" {
+		t.Fatalf("resetsAt = %q", u.Windows[0].ResetsAt)
+	}
+}
+
 func TestSubscriptionUsageCodexFailuresAndDisabledPanel(t *testing.T) {
 	for _, tc := range []struct {
 		name       string

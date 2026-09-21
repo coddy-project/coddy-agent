@@ -284,7 +284,12 @@ export function summarizeUsage(
   const windows = u.windows ?? [];
   if (windows.length === 0) {
     const failed = u.error === "unavailable" || u.error === "invalid";
-    if (u.plan || failed) return { kind: "unavailable", failed };
+    // "Quota data unavailable" is the quota sources' empty state; NeuralDeep
+    // keeps its old invariant (no meters + no wallet = no panel), so a
+    // bypass or wallet-only key stays silent rather than claiming the
+    // account's quota could not be read.
+    const quotaSource = !!u.providerType && u.providerType !== "neuraldeep";
+    if (quotaSource && (u.plan || failed)) return { kind: "unavailable", failed };
     if (!u.wallet) return { kind: "none" };
   }
   const warn = windows.some(

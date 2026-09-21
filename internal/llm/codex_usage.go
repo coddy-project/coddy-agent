@@ -48,6 +48,13 @@ type CodexAdditionalRateLimit struct {
 	RateLimit      *CodexUsageRateLimit `json:"rate_limit"`
 }
 
+// CodexUsageForProvider reads the account's subscription usage from the Codex
+// backend's usage endpoint with the row's saved ChatGPT OAuth credential. The
+// payload is validated strictly on purpose: a missing plan_type, a rate_limit
+// without allowed, or a window out of range fails the whole read as invalid
+// rather than guessing - the trade-off is that an upstream schema change
+// flips the source to "invalid" (stale numbers stay) instead of silently
+// misreading it.
 func CodexUsageForProvider(ctx context.Context, provider config.ProviderConfig, authPath string) (*CodexUsage, error) {
 	hc, err := HTTPClientForProviderProxy(provider.Proxy)
 	if err != nil {
@@ -108,7 +115,7 @@ func CodexUsageForProvider(ctx context.Context, provider config.ProviderConfig, 
 	}
 	usage, err := decodeCodexUsage(body)
 	if err != nil {
-		return nil, &ProviderUsageError{Status: resp.StatusCode, Kind: ProviderUsageInvalid, Detail: err.Error()}
+		return nil, &ProviderUsageError{Status: resp.StatusCode, Kind: ProviderUsageInvalid, Detail: "invalid payload"}
 	}
 	return usage, nil
 }

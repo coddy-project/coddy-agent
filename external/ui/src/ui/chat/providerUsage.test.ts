@@ -96,7 +96,7 @@ describe("providerUsage helpers", () => {
   test("summary hides foreign providers, unsupported and empty snapshots", () => {
     expect(summarizeUsage(fixture(), "stub/model").kind).toBe("none");
     expect(summarizeUsage({ provider: "neuraldeep", unsupported: true }, "neuraldeep/x").kind).toBe("none");
-    expect(summarizeUsage({ provider: "neuraldeep", error: "unavailable" }, "neuraldeep/x").kind).toBe("unavailable");
+    expect(summarizeUsage({ provider: "neuraldeep", error: "unavailable" }, "neuraldeep/x").kind).toBe("none");
     expect(summarizeUsage(null, "neuraldeep/x").kind).toBe("none");
   });
 

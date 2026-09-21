@@ -46,6 +46,14 @@ const DevinUsageQuotaBillingStrategy = 2
 // DevinUsage is the decoded GetUserStatus answer. The percent fields are the
 // server's own "remaining" numbers; the session layer turns them into used
 // percents and decides which windows the strategy entitles to a meter.
+//
+// The remaining-percent varints are not optional: a field that is absent on
+// the wire decodes as 0, which is also the only wire shape of a real 0
+// (implicit-presence scalars are never serialized). A quota window is only
+// reported when its reset timestamp is present, so an absent percent beside a
+// present reset reads as "nothing left" - an exhausted window - rather than
+// an unknown one. The ACU doubles are pointers instead: the descriptor marks
+// them optional, and an absent limit means "no ACU meter", not "limit 0".
 type DevinUsage struct {
 	PlanName               string
 	BillingStrategy        int
@@ -295,7 +303,7 @@ func devinUsageResetField(f pbField) (int64, error) {
 		return 0, fmt.Errorf("devin usage: reset wire type %d", f.wire)
 	}
 	if f.num > math.MaxInt64 {
-		return 0, fmt.Errorf("devin usage: negative reset timestamp")
+		return 0, fmt.Errorf("devin usage: reset timestamp out of range")
 	}
 	return int64(f.num), nil
 }

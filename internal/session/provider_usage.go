@@ -531,9 +531,9 @@ func (m *Manager) usageRecordFailureLocked(e *providerUsageEntry, name, provider
 	base.Error, base.RefreshPending, base.RefreshInSec = "", false, 0
 	kind, retryAfter := providerUsageFailure(err)
 	switch kind {
-	case llm.NeuralDeepUsageUnauthorized:
-		// The hub's word is final: numbers read with a key it no longer
-		// honours are not this account's numbers any more.
+	case llm.ProviderUsageUnauthorized:
+		// The upstream's word is final: numbers read with a credential it
+		// no longer honours are not this account's numbers any more.
 		e.unauthorized, e.unauthorizedAt = true, at
 		base = fresh
 		base.Error = ProviderUsageErrorUnauthorized
@@ -543,7 +543,7 @@ func (m *Manager) usageRecordFailureLocked(e *providerUsageEntry, name, provider
 		base.Blocked = true
 		base.Blockers = []string{providerUsageBlockerUser}
 		base.RetryAt, base.RetryInSec = "", 0
-	case llm.NeuralDeepUsageInvalid:
+	case llm.ProviderUsageInvalid:
 		base.Error = ProviderUsageErrorInvalid
 	default:
 		base.Error = ProviderUsageErrorUnavailable

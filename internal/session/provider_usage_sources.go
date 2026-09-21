@@ -15,12 +15,17 @@ import (
 
 func providerUsageFingerprint(provider config.ProviderConfig, authPath string) string {
 	switch strings.ToLower(strings.TrimSpace(provider.Type)) {
+	case "neuraldeep":
+		return llm.NeuralDeepUsageFingerprint(provider, authPath)
 	case "codex":
 		return llm.CodexUsageFingerprint(provider, authPath)
 	case "devin":
 		return llm.DevinUsageFingerprint(provider, authPath)
 	default:
-		return llm.NeuralDeepUsageFingerprint(provider, authPath)
+		// No usage source, no cache key: a caller that skipped the
+		// providerUsageSource gate must not get NeuralDeep's fingerprint
+		// for a different provider type.
+		return ""
 	}
 }
 
@@ -115,8 +120,11 @@ func codexUsageWindows(rate *llm.CodexUsageRateLimit, now time.Time) []acp.Usage
 				w.ResetInSec = in
 			}
 		}
-		if raw.ResetAfterSeconds != nil {
-			w.ResetInSec = max(0, *raw.ResetAfterSeconds)
+		if raw.ResetAfterSeconds != nil && *raw.ResetAfterSeconds > 0 {
+			// The upstream's relative countdown wins over the reset_at one
+			// (no local clock in the loop), but a zero or negative value
+			// must not clobber a valid reset_at countdown.
+			w.ResetInSec = *raw.ResetAfterSeconds
 		}
 		windows = append(windows, w)
 	}
@@ -205,6 +213,10 @@ func mapDevinUsage(u *llm.DevinUsage, provider string, fetchedAt time.Time) acp.
 			}
 		}
 		if exhausted {
+			// An ACU-only account carries no reset clock, so setSubscriptionRetry
+			// legitimately leaves RetryAt empty and the surfaces report the block
+			// without a time - a dead-end block is the honest state, the
+			// subscription page is where it lifts.
 			out.Blocked = true
 			out.Blockers = []string{"quota_exhausted"}
 			setSubscriptionRetry(&out)
