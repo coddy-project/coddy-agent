@@ -315,10 +315,19 @@ mcp_servers:
    dial it cuts short is discarded rather than installed: a server hanging in
    the session reconnected first must not strip the others of their tools. Those
    sessions keep the servers they have and retry on their next turn
-5. During the ReAct loop, when LLM calls an MCP tool, the agent forwards the call
+5. Switching the session workspace (`POST /coddy/sessions/{id}/workspace` —
+   folder pick, worktree jump, or an in-place branch checkout) re-dials the
+   configured servers for the new cwd through the same pending + turn-lock path:
+   the new workspace's `.coddy/mcp.json` is merged and freshly gated (a project
+   declaration there stays cold under `mcp.project_trust: ask` until approved),
+   the previous workspace's configured clients are closed, and ACP
+   client-supplied servers stay connected. The endpoint answers `409` while the
+   conversation has messages or a turn is in flight, and a failed dial warns and
+   continues rather than failing the switch
+6. During the ReAct loop, when LLM calls an MCP tool, the agent forwards the call
    (unless the tool or its server has been disabled since)
-6. Results are returned to the LLM as tool observations
-7. On session end or `session/cancel`, MCP server connections are cleaned up
+7. Results are returned to the LLM as tool observations
+8. On session end or `session/cancel`, MCP server connections are cleaned up
 
 For example, `config_set` can stage
 `set mcp_servers[name=context7]={"command":"npx","args":["-y","@upstash/context7-mcp"]}`;

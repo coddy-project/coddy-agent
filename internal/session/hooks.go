@@ -16,6 +16,11 @@ import (
 const (
 	hookSourceStartup = "startup"
 	hookSourceResume  = "resume"
+	// hookSourceWorkspace is the SessionStart source a workspace switch fires
+	// with, so hooks written for a session's real start (matcher "startup" or
+	// "resume") do not re-run on every folder pick while the stored context
+	// still stops describing the workspace the session left.
+	hookSourceWorkspace = "workspace"
 )
 
 // runSessionStartHooks fires SessionStart for st. The hooks run synchronously,

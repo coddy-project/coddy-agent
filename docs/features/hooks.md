@@ -76,7 +76,7 @@ Tool events compare the matcher with the tool name. Coddy's own names are the on
 
 | Event | Fires | Matcher subject | Can block |
 |---|---|---|---|
-| `SessionStart` | `session/new` (`startup`) and `session/load` or a reopen (`resume`), synchronously, before the session is returned | source | no; context only |
+| `SessionStart` | `session/new` (`startup`), `session/load` or a reopen (`resume`), and a workspace switch — `POST /coddy/sessions/{id}/workspace`, folder pick, worktree jump or in-place branch checkout — (`workspace`), synchronously, before the session is returned | source | no; context only |
 | `UserPromptSubmit` | when the user submits a prompt, after the built-in `/compact` and `/plugin` commands are recognised and before the prompt becomes a message | none | yes: the prompt is rejected |
 | `PreToolUse` | before a tool call runs, after the mode and subagent checks and before the permission prompt, whatever the permission mode; it runs again when a permission that was persisted over HTTP is resumed, on the arguments the prompt showed (a deny still denies; a hook that changes those arguments again cancels the call, because the answer covered what the user saw). The arguments the prompt shows are persisted first, and a write that fails cancels the call instead of prompting; a resume whose persisted arguments are missing or unreadable fails and keeps the pending prompt for a retry, while a refusal needs nothing from the bundle | tool name | yes: deny, or force or skip the prompt |
 | `PostToolUse` | after a tool returned without error | tool name | no; feedback and context only |
@@ -125,7 +125,7 @@ One JSON object on stdin. The session fields come first, the event fields after 
 | `tool_response` | `PostToolUse`: the text the model receives |
 | `error` | `PostToolUseFailure`: the error text |
 | `duration_ms` | `PostToolUse` and `PostToolUseFailure`: how long the tool took |
-| `source` | `SessionStart`: `startup` or `resume` |
+| `source` | `SessionStart`: `startup`, `resume`, or `workspace` (a workspace switch; a hook that must run on the real session start only matches `startup`/`resume` — see the SessionStart note below) |
 | `prompt` | `UserPromptSubmit`: the prompt text |
 | `stop_hook_active`, `last_assistant_message` | `Stop`: whether a Stop hook already sent the agent back to work in this turn, and the assistant's final text |
 | `trigger`, `custom_instructions` | `PreCompact`: `manual` or `auto`, and the text after `/compact` |
@@ -171,7 +171,7 @@ JSON fields:
 - `additionalContext` is appended to the tool result as `Hook context: ...` on the three tool events.
 - `UserPromptSubmit`: `decision: "block"` with `reason` (or exit 2) rejects the prompt: it is not added to the transcript, the model is not called, and the turn ends with `prompt rejected by hook: <reason>`, which the SPA shows as an error row. `additionalContext` and plain stdout become the turn's part of the **hook context block** (below).
 - `Stop`: `decision: "block"` with `reason` (or exit 2) sends the agent back to work. The reason, plus any `additionalContext`, is submitted as the next user message, persisted with the prefix `[Stop hook] ` so the transcript explains the continuation, and the loop continues in the same turn; the hook sees `stop_hook_active: true` on the next stop. At most `hooks.stop_loop_limit` continuations per turn (5), then the turn ends; the ReAct turn cap still applies.
-- `SessionStart`: `additionalContext` and plain stdout are stored on the session (`hookContext` in `session.json`) and rendered in the hook context block of every system prompt of that session; a resume re-runs the hooks and replaces the stored text, clearing it when no hook runs any more. `systemMessage` becomes a notice row.
+- `SessionStart`: `additionalContext` and plain stdout are stored on the session (`hookContext` in `session.json`) and rendered in the hook context block of every system prompt of that session; a resume re-runs the hooks and replaces the stored text, clearing it when no hook runs any more. A workspace switch re-runs the hooks of the new workspace with source `workspace` for the same reason — the stored context stops describing the folder the session left. `systemMessage` becomes a notice row.
 - `Stop`: a follow-up is submitted only while an iteration of the ReAct turn is left; on the last one the turn ends instead of leaving a dangling message.
 - `PreCompact`: `decision: "block"` with `reason` (or exit 2) vetoes the compaction: `/compact` fails with `compaction blocked by hook: <reason>`, an automatic compaction is skipped for that check and the turn continues uncompacted.
 - `SubagentStart`: `decision: "block"` with `reason` (or exit 2) refuses the spawn; the `spawn_agent` tool result reads `spawn of subagent "<name>" blocked by hook: <reason>` and no child session is created. `additionalContext` is prepended to the child's task prompt as `Hook context: ...`.

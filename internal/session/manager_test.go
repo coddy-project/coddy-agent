@@ -848,7 +848,7 @@ func TestSetSessionWorkspaceSwitchesCwdAndPersists(t *testing.T) {
 		t.Fatal("session not registered")
 	}
 
-	if err := m.SetSessionWorkspace(st, beta); err != nil {
+	if err := m.SetSessionWorkspace(context.Background(), st, beta); err != nil {
 		t.Fatalf("SetSessionWorkspace: %v", err)
 	}
 	if got := st.GetCWD(); got != beta {
@@ -869,7 +869,7 @@ func TestSetSessionWorkspaceSwitchesCwdAndPersists(t *testing.T) {
 		t.Fatalf("persisted cwd = %q, want %q", meta.CWD, beta)
 	}
 
-	if err := m.SetSessionWorkspace(st, filepath.Join(root, "missing")); err == nil {
+	if err := m.SetSessionWorkspace(context.Background(), st, filepath.Join(root, "missing")); err == nil {
 		t.Fatal("expected error for missing folder")
 	}
 	if got := st.GetCWD(); got != beta {

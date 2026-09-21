@@ -1305,8 +1305,10 @@ func (m *Manager) connectConfiguredMCPServers(ctx context.Context, state *State)
 	for _, client := range m.dialConfiguredMCPServers(ctx, cwd) {
 		state.addConfiguredMCPClient(client)
 	}
+	// The factory reads the cwd lazily: a later workspace switch must not leave
+	// the per-turn tool filter evaluating the old workspace's merged list.
 	state.MCPFilterFactory = func() func(server, tool string) bool {
-		return config.BuildMCPToolFilter(EffectiveMCPServers(m.activeCfg(), cwd, m.log))
+		return config.BuildMCPToolFilter(EffectiveMCPServers(m.activeCfg(), state.GetCWD(), m.log))
 	}
 }
 
