@@ -226,7 +226,9 @@ models:
 
 # ReAct loop settings (Go: config.Agent, internal/config/agent.go)
 agent:
-  model: "openai/gpt-5.6-terra"  # required when models is non-empty; default LLM until the client overrides per session
+  model: "openai/gpt-5.6-terra"  # optional default LLM until the client overrides per session;
+                               # unset, interactive surfaces pick a model per session, while
+                               # coddy -p / coddy acp / API calls without a model report "no model configured"
   max_turns: 30                # ReAct iterations per prompt, including no-answer recoveries
   max_tokens_per_turn: 200000  # max tokens across all calls in one turn
   llm_retry_max: 3             # shared per-step budget: transport retries + no-answer recoveries

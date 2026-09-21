@@ -42,3 +42,8 @@ Feature: A saved config keeps its comments and names the editor schema
     When the settings screen saves the config with "agent.max_turns" set to 12
     Then the saved config.yaml still points its editor at "./config.schema.json"
     And the saved config.yaml carries exactly one schema header
+
+  Scenario: Adding a model from the settings screen needs no default model
+    Given a coddy server whose config.yaml lists no models
+    When the settings screen adds the model "valera/qwen3.8-27b" and saves
+    Then the saved config.yaml loads with "agent.model" unset
