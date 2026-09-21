@@ -182,7 +182,7 @@ export const messagesEn: Record<string, string> = {
     "Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout.",
   "settings.schema.providers.usage_limits_panel.label": "Usage limits panel",
   "settings.schema.providers.usage_limits_panel.desc":
-    "Show this provider's account usage (the usage section and banner here, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (neuraldeep) are affected.",
+    "Show this provider's account usage (the usage section and banner here, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (NeuralDeep, Codex, Devin) are affected.",
 
   "settings.schema.models.desc":
     "Named model entries the agent and UI can select; ids reference provider prefixes.",
@@ -1045,6 +1045,7 @@ export const messagesEn: Record<string, string> = {
   "usage.accountBlocked": "The account is blocked on the hub",
   "usage.limitReached": "Usage limit reached",
   "usage.limitReachedResets": "Usage limit reached · resets {time}",
+  "usage.unavailable": "Quota data unavailable",
   "usage.stale": "The latest read failed; these numbers are older",
   "usage.wallet": "Wallet {balance} ({spent} spent in 30 days)",
   "usage.bannerUsed": "You've used {percent}% of your {brand} {window} limit",

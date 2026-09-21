@@ -862,15 +862,37 @@ Automated checks:
 
 *A window exhausted: the composer reports the reset time*
 
+![A Codex subscription in the usage section](../assets/subscription-usage/codex-usage-dark-1280.png)
+
+*A Codex subscription in the usage section: duration-labelled windows and a feature-scoped entry*
+
+![A Devin subscription in the usage section](../assets/subscription-usage/devin-usage-dark-1280.png)
+
+*A Devin subscription in the usage section: daily and weekly quota meters*
+
+![The Codex usage section on a phone](../assets/subscription-usage/codex-usage-dark-390.png)
+
+*The Codex usage section as a bottom sheet on a phone*
+
+![The Devin usage section on a phone](../assets/subscription-usage/devin-usage-dark-390.png)
+
+*The Devin usage section as a bottom sheet on a phone*
+
 - When the selected model's provider reports account usage (today
-  `neuraldeep`), the **context popover** (the context ring next to Send)
+  `neuraldeep`, `codex` and `devin`), the **context popover** (the context ring next to Send)
   ends with a **usage section**, the way Claude Desktop lists its plan
   limits under the context window: the provider and plan, one meter per
   metered window with its reset time in the browser's clock, the label in
   the UI language and the percent used, the wallet in rubles, and a note
   when something changed: a hit limit with its reset (or the cause of a
   block no clock lifts), a model on the provider's unlimited option, a
-  rejected login, a stale read, a turn waiting for the reset. At 80 % the
+  rejected login, a stale read, a turn waiting for the reset. The windows
+  shown are the ones the source reports: NeuralDeep's session/week/day,
+  Codex's duration-labelled windows (`5h`, `week`, and feature-scoped
+  entries such as `Fast model · week`), Devin's `day`/`week` quota meters
+  or its `ACU` meter; a source with no quota to report shows the plan with
+  a `quota unavailable` note, never an invented meter. Only NeuralDeep
+  hides a day meter at zero and reports a wallet. At 80 % the
   meter turns amber and a **banner** above the composer says `You've used
   85% of your NeuralDeep 3h limit · resets 20:59`, dismissable per provider
   row, window and period; on a block the banner turns to the error tone: a

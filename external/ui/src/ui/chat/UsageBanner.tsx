@@ -5,6 +5,7 @@ import {
   summarizeUsage,
   usageBannerKey,
   usagePercent,
+  usageProviderBrand,
   usageWarnWindow,
   usageWindowLabelKey,
   type ProviderUsage,
@@ -32,7 +33,7 @@ export function UsageBanner(props: {
   const key = usageBannerKey(props.usage, props.modelId);
   if (!key || props.dismissedKey === key) return null;
   const u = props.usage as ProviderUsage;
-  const brand = u.providerType === "neuraldeep" ? "NeuralDeep" : u.provider;
+  const brand = usageProviderBrand(u);
   let text = "";
   let tone: "warn" | "error" = "warn";
   if (summary.kind === "blocked" && u.resuming) {

@@ -62,7 +62,7 @@
               "boolean",
               "null"
             ],
-            "description": "Show this provider's account usage panel (the console footer line and /usage, the usage section and banner in the web UI) and read the provider's usage endpoint for it (GET /v1/limits for type neuraldeep). Omit or true keeps the panel on; false hides it and stops those reads for this row. Only providers whose type has a usage source are affected.",
+            "description": "Show this provider's account usage panel (the console footer line and /usage, the usage section and banner in the web UI) and read the provider's usage endpoint for it (GET /v1/limits for type neuraldeep, the Codex backend's usage endpoint for type codex, the seat-management status RPC for type devin). Omit or true keeps the panel on; false hides it and stops those reads for this row. Only providers whose type has a usage source are affected.",
             "default": true
           }
         }

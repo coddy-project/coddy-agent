@@ -77,6 +77,18 @@ Any full variant id works as a model as well, `devin/claude-opus-5-high-fast` fo
 
 Thinking streams into the transcript like any other provider's. Signed reasoning blocks (Claude, Gemini) are kept with the assistant message and replayed on the next request of the same variant, so the model continues its own chain of thought across tool calls.
 
+## Account usage
+
+A `type: devin` row also reports the account's quota, read from the seat-management `GetUserStatus` RPC of the Devin API server - the same call the editor makes - with the row's own session token and user JWT. The answer reaches every surface through the shared usage panel: the console footer and `/usage`, the web UI context popover and banner, `GET /coddy/providers/{name}/usage` and the `provider_usage` updates ([Console](../surfaces/console.md#visual-model), [Configuration](../getting-started/configuration.md)).
+
+What the panel shows is what the plan reports:
+
+- a **quota** plan reads `day` and `week` meters with their reset times; the server reports *remaining* percents, so the panel shows them as used. A plan that hides a quota window skips that meter;
+- an **ACU** plan reads a single `acu` meter from the consumed/limit pair, with no reset clock;
+- a **credits** plan, an unknown billing strategy, or a status that names only the plan reads as the plan alone - Coddy invents no meter, request count or reset the server did not send, and a missing quota reads as `quota unavailable` rather than `0%`.
+
+`usage_limits_panel: false` on the row hides the panel everywhere and stops the `GetUserStatus` reads. The protocol is not published by Cognition, so the read follows the editor's current wire shape (the 3.10.31 descriptors) and can break when Devin moves it.
+
 ## Configuration
 
 ```yaml

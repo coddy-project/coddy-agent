@@ -246,7 +246,7 @@ func TestFormatResetTimeBuckets(t *testing.T) {
 		{now.Add(23 * time.Hour), "16:47"},
 		{now.Add(30 * time.Hour), "Mon 23:47"},
 		{now.Add(6 * 24 * time.Hour), "Sat 17:47"},
-		{now.Add(8 * 24 * time.Hour), "Sep 14"},
+		{now.Add(8 * 24 * time.Hour), "Sep 14 17:47"},
 	}
 	for _, tc := range cases {
 		if got := formatResetTime(tc.at, now); got != tc.want {

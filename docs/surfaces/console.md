@@ -160,12 +160,20 @@ Top to bottom:
   ended, which is when the status line that counted them is gone. When the
   line does not fit, the path and the title give way and the note stays.
   A third line appears while the active model's provider reports account
-  usage (today: `neuraldeep`, read from the hub's `GET /v1/limits`):
+  usage (today: `neuraldeep`, read from the hub's `GET /v1/limits`; `codex`,
+  read from the Codex backend's usage endpoint; `devin`, read from the
+  seat-management status RPC):
   `Pro • 3h 3% (resets 20:59) • week 7% (resets Mon 03:00) • wallet -1 229 ₽`,
   the plan, each metered window as percent **used** with its reset time in
-  your clock (time of day within 24 h, weekday within a week, date beyond),
-  the day window only when it is above zero, and the account's own ruble
-  balance for wallet keys. A window at 80 % or more turns to the warning
+  your clock (time of day within 24 h, weekday within a week, date and time beyond),
+  and the account's own ruble balance for NeuralDeep wallet keys. NeuralDeep
+  shows the day window only when it is above zero; Codex and Devin show every
+  window they report, a zero one included. Codex windows are labelled by
+  their upstream durations (`5h`, `week`, and feature-scoped entries such as
+  `Fast model · week`); a Devin quota plan reads `day` and `week` (its
+  remaining percents shown as used), an ACU plan reads `acu`, and a source
+  with nothing to report reads `quota unavailable` rather than inventing
+  numbers. A window at 80 % or more turns to the warning
   colour and a transcript notice says `You've used 82% of your NeuralDeep 3h
   limit · resets 20:59`, once per window and period; a hit limit replaces the
   windows with `limit reached (resets 20:59)` in the error colour (`rate
@@ -176,7 +184,7 @@ Top to bottom:
   ahead) waits for it instead of failing: the live status row reads `Usage
   limit reached · resuming at 20:59` without a running counter, the footer
   keeps the hub's numbers, and the same call runs again when the limit
-  lifts (Esc stops the wait like any turn). A model on the provider's unlimited option (Qwen ∞)
+  lifts (Esc stops the wait like any turn). A model on NeuralDeep's unlimited option (Qwen ∞)
   reads `∞ volume`. A rejected key reads `neuraldeep: key rejected, run
   coddy providers login neuraldeep`; when the hub cannot be reached the last
   numbers stay with `(stale)`. On narrow terminals the wallet, the day, the
@@ -221,8 +229,11 @@ of the active provider's account usage (on a row whose panel is switched
 off it names the `usage_limits_panel` switch instead) and prints the
 breakdown as a dim block: every window with a ten-cell bar, its percent, counters and reset
 time, the live requests-per-minute, the cooldown, the wallet with the last
-30 days of spend, a `refresh in Ns (pacing)` line when the hub's pacing
-floor deferred the read, and the snapshot's age. Under `--remote` the
+30 days of spend, a `refresh in Ns (pacing)` line when the pacing
+floor deferred the read, and the snapshot's age. A source reports only the
+fields it has: Codex and Devin print the windows and the plan, never rpm,
+cooldown or a wallet, and a source with nothing to report prints `quota
+unavailable` rather than inventing numbers. Under `--remote` the
 server's own key is read, so a `key rejected` line there is informational
 (sign in on the server).
 
