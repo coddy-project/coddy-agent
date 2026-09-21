@@ -327,6 +327,12 @@ func (a *App) Start(ctx context.Context, sessionID string, resume bool) error {
 			return fmt.Errorf("session/new: %w", err)
 		}
 		a.adoptSession(res.SessionID, res.Modes, res.ConfigOptions)
+		// A pinned id may reopen a persisted bundle (its saved model then
+		// arrives in the adopted options); only a session minted now gets the
+		// console's initial pick.
+		if sessionID == "" {
+			a.applyInitialModel(res)
+		}
 		// Ready (slash catalog + deferred replay for reopened bundles) fires
 		// once the UI loop is draining updates, so a large replay can never
 		// fill the channel while nothing consumes it.
@@ -913,6 +919,7 @@ func (a *App) setModel(id string) {
 			_ = a.Sender().SendSessionUpdate(sessionID, statusErr{msg: "model: " + err.Error()})
 			return
 		}
+		a.rememberModel(id)
 		// The new model may belong to another provider: the footer line
 		// follows it without waiting for the next turn. The backend answers
 		// from its cache when warm, so this costs no request most of the time.
@@ -1132,6 +1139,7 @@ func (a *App) pickSessionBlocking(ctx context.Context) error {
 			return fmt.Errorf("session/new: %w", err)
 		}
 		a.adoptSession(newRes.SessionID, newRes.Modes, newRes.ConfigOptions)
+		a.applyInitialModel(newRes)
 		go a.mgr.HandleSessionReady(newRes.SessionID)
 		return nil
 	}
@@ -1169,6 +1177,7 @@ func (a *App) pickSessionBlocking(ctx context.Context) error {
 					return fmt.Errorf("session/new: %w", err)
 				}
 				a.adoptSession(newRes.SessionID, newRes.Modes, newRes.ConfigOptions)
+				a.applyInitialModel(newRes)
 				go a.mgr.HandleSessionReady(newRes.SessionID)
 				return nil
 			}
@@ -1304,6 +1313,7 @@ func (a *App) startNewSessionWorker(old string) {
 			_ = a.Sender().SendSessionUpdate(old, statusErr{msg: "new session: " + err.Error(), always: true})
 			return
 		}
+		a.applyInitialModel(res)
 		if old != "" && old != res.SessionID {
 			a.mgr.ForgetLiveSession(old)
 		}

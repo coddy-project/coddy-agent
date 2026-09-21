@@ -4,6 +4,7 @@ package cli
 
 import (
 	"context"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -93,6 +94,13 @@ func (a *App) dispatchSettings(trimmed string, fields []string) bool {
 		return true
 	}
 	if line.Empty() || strings.TrimSpace(line.Rest) != "" {
+		// A typed "/model <id> <prompt>" is a session-scoped pick on this
+		// surface even though the manager applies it inside the turn: the
+		// console remembers it like a menu pick (turn-scoped forms live in
+		// line.Turns and never reach this).
+		if m := line.Session.Model; m != nil && slices.Contains(a.modelIDs(), *m) {
+			a.rememberModel(*m)
+		}
 		return false
 	}
 	if a.busyWithLocalShell() {
@@ -123,6 +131,9 @@ func (a *App) applySettings(changes ...session.SettingsChange) {
 			if err != nil {
 				_ = a.Sender().SendSessionUpdate(sessionID, statusErr{msg: err.Error()})
 				return
+			}
+			if ch.Model != nil && ch.Turns == 0 {
+				a.rememberModel(*ch.Model)
 			}
 			_ = a.Sender().SendSessionUpdate(sessionID, settingsApplied{settings: snap})
 		}
