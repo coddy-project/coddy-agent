@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,28 +27,77 @@ func EffectiveSessionCWD(clientCWD, defaultCWD string) (string, error) {
 }
 
 // SetSessionWorkspace switches the session working directory and re-derives
-// cwd-scoped state (skills, project rules, slash commands). The target must
-// be an existing directory.
-func (m *Manager) SetSessionWorkspace(st *State, dir string) error {
-	abs, err := EffectiveSessionCWD(dir, "")
+// workspace-scoped state: the configured MCP servers are re-dialed for the new
+// workspace through the trust gate while the previous workspace's are closed,
+// and skills, project rules, the SessionStart hook context and the slash
+// catalog follow the new cwd. The target must be an existing directory. A
+// switch to another spelling of the same workspace only stores the spelling.
+func (m *Manager) SetSessionWorkspace(ctx context.Context, st *State, dir string) error {
+	abs, err := ValidateWorkspaceDir(dir)
 	if err != nil {
 		return err
 	}
+	prevCWD := st.GetCWD()
+	st.SetCWD(abs)
+	if SameWorkspacePath(prevCWD, abs) {
+		return nil
+	}
+	m.reloadWorkspaceScopedState(ctx, st)
+	return nil
+}
+
+// ValidateWorkspaceDir resolves dir to an absolute path and requires it to
+// name an existing directory. It is the workspace switch's own check, exported
+// so a caller can validate a target before handing it to session creation.
+func ValidateWorkspaceDir(dir string) (string, error) {
+	abs, err := EffectiveSessionCWD(dir, "")
+	if err != nil {
+		return "", err
+	}
 	fi, err := os.Stat(abs)
 	if err != nil || !fi.IsDir() {
-		return fmt.Errorf("workspace folder not found: %s", abs)
+		return "", fmt.Errorf("workspace folder not found: %s", abs)
 	}
-	st.SetCWD(abs)
+	return abs, nil
+}
 
+// ReloadSessionWorkspace re-derives workspace-scoped state (configured MCP
+// servers, skills, project rules, SessionStart hook context) after the
+// workspace's files changed under the same cwd - an in-place branch checkout.
+// The MCP re-dial is a fresh trust evaluation: a declaration the checkout
+// replaced is approved again or stays cold.
+func (m *Manager) ReloadSessionWorkspace(ctx context.Context, st *State) {
+	m.reloadWorkspaceScopedState(ctx, st)
+}
+
+// reloadWorkspaceScopedState re-derives everything a session's workspace
+// decides. The MCP re-dial goes through the same pending + prompt-turn-lock
+// path a settings save uses, so it serializes against a turn in flight and a
+// config reload; a turn holding the lock drains the parked reload on release.
+func (m *Manager) reloadWorkspaceScopedState(ctx context.Context, st *State) {
+	cwd := st.GetCWD()
 	cfg := m.activeCfg()
-	loadedSkills, err := m.loadSkills(abs, cfg)
+
+	st.markMCPReloadPending()
+	if unlock, err := m.acquirePromptTurnLock(st.GetID(), st); err == nil {
+		applied := true
+		if st.takeMCPReloadPending() {
+			applied = m.applyConfiguredMCPReload(ctx, st)
+		}
+		unlock()
+		if applied {
+			m.drainPendingMCPReload(st.GetID(), st)
+		}
+	}
+
+	loadedSkills, err := m.loadSkills(cwd, cfg)
 	if err != nil {
 		m.log.Warn("failed to load skills on workspace switch", "error", err)
 	}
 	st.ReplaceSkills(loadedSkills)
-	st.ReplaceRulesCatalog(DiscoverRules(cfg, abs))
+	st.ReplaceRulesCatalog(DiscoverRules(cfg, cwd))
+	m.runSessionStartHooks(ctx, st, hookSourceWorkspace)
 	m.sendAvailableSlashCommands(st.GetID(), st)
-	return nil
 }
 
 // caseInsensitivePaths marks the platforms whose default filesystems fold

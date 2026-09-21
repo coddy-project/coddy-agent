@@ -17,8 +17,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cucumber/godog"
 
@@ -35,10 +37,17 @@ type wsFeatureState struct {
 	ts        *httptest.Server
 	mgr       *session.Manager
 	srv       *Server
+	cfg       *config.Config
 	folders   map[string]string
 	sessionID string
 	status    int
 	body      map[string]interface{}
+
+	// turnGate parks the fake runner while a prompt turn is in flight, so the
+	// scenario can poke at the session while it reports a live turn.
+	turnGate    chan struct{}
+	turnEntered chan struct{}
+	turnDone    chan error
 }
 
 func (s *wsFeatureState) reset() error {
@@ -57,6 +66,23 @@ func (s *wsFeatureState) reset() error {
 }
 
 func (s *wsFeatureState) close() {
+	if s.turnGate != nil {
+		// A scenario that failed mid-turn must not leak the parked runner.
+		select {
+		case s.turnGate <- struct{}{}:
+		default:
+		}
+		select {
+		case <-s.turnDone:
+		case <-time.After(5 * time.Second):
+		}
+		s.turnGate, s.turnEntered, s.turnDone = nil, nil, nil
+	}
+	if s.mgr != nil && s.sessionID != "" {
+		// Sessions now hold MCP client subprocesses; dropping the live session
+		// closes them instead of letting the stubs outlive the scenario.
+		s.mgr.ForgetLiveSession(s.sessionID)
+	}
 	if s.ts != nil {
 		s.ts.Close()
 		s.ts = nil
@@ -117,7 +143,19 @@ func (s *wsFeatureState) startServer() error {
 	if err := os.MkdirAll(s.sessRoot, 0o755); err != nil {
 		return err
 	}
-	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+	runner := func(ctx context.Context, _ *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		// promptTurnInFlight parks the runner on a gate so the session keeps a
+		// live turn (and its lock) while the scenario pokes at it.
+		if gate := s.turnGate; gate != nil {
+			if s.turnEntered != nil {
+				close(s.turnEntered)
+			}
+			select {
+			case <-gate:
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
+		}
 		return string(acp.StopReasonEndTurn), nil
 	}
 	cfg := &config.Config{
@@ -126,6 +164,7 @@ func (s *wsFeatureState) startServer() error {
 		Agent:  config.Agent{Model: "openai/gpt-4o"},
 	}
 	store := &session.FileStore{Root: s.sessRoot}
+	s.cfg = cfg
 	s.mgr = session.NewManager(cfg, noopSender{}, runner, slog.Default(), s.root, store)
 	s.srv = New(cfg, s.mgr, slog.Default(), s.root)
 	s.ts = httptest.NewServer(s.srv.Handler())
@@ -202,6 +241,46 @@ func (s *wsFeatureState) sessionHasUserMessage() error {
 	return nil
 }
 
+// promptTurnInFlight starts a prompt turn on the session and leaves the fake
+// runner parked on the turn gate, so the session reports a live in-process
+// turn while the scenario tries to switch its workspace.
+func (s *wsFeatureState) promptTurnInFlight() error {
+	if s.sessionID == "" {
+		return fmt.Errorf("no session created")
+	}
+	s.turnGate = make(chan struct{}, 1)
+	s.turnEntered = make(chan struct{})
+	s.turnDone = make(chan error, 1)
+	go func() {
+		_, err := s.mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+			SessionID: s.sessionID,
+			Prompt:    []acp.ContentBlock{{Type: "text", Text: "hi"}},
+		})
+		s.turnDone <- err
+	}()
+	select {
+	case <-s.turnEntered:
+		return nil
+	case <-time.After(10 * time.Second):
+		return fmt.Errorf("the prompt turn did not reach the runner")
+	}
+}
+
+// theTurnCompletes releases the parked runner and waits for the prompt to end.
+func (s *wsFeatureState) theTurnCompletes() error {
+	if s.turnGate == nil {
+		return fmt.Errorf("no prompt turn is in flight")
+	}
+	s.turnGate <- struct{}{}
+	select {
+	case err := <-s.turnDone:
+		s.turnGate, s.turnEntered, s.turnDone = nil, nil, nil
+		return err
+	case <-time.After(10 * time.Second):
+		return fmt.Errorf("the prompt turn did not finish")
+	}
+}
+
 func (s *wsFeatureState) do(req *http.Request) error {
 	if s.sessionID != "" {
 		req.Header.Set("X-Coddy-Session-ID", s.sessionID)
@@ -257,6 +336,23 @@ func (s *wsFeatureState) switchToMissingFolder() error {
 	return s.postWorkspace(map[string]interface{}{
 		"path": filepath.Join(s.root, "definitely", "missing"),
 	})
+}
+
+// freshSessionSwitchesToMissingFolder points the workspace POST at a session id
+// that was never created: the path check must run before session creation, so
+// the refusal must not leave a session behind.
+func (s *wsFeatureState) freshSessionSwitchesToMissingFolder() error {
+	s.sessionID = session.NewSessionID()
+	return s.postWorkspace(map[string]interface{}{
+		"path": filepath.Join(s.root, "definitely", "missing"),
+	})
+}
+
+func (s *wsFeatureState) noSessionWasCreated() error {
+	if s.mgr.SessionByID(s.sessionID) != nil {
+		return fmt.Errorf("a session was created for %q", s.sessionID)
+	}
+	return nil
 }
 
 func (s *wsFeatureState) switchToBranch(branch string) error {
@@ -560,6 +656,68 @@ func (s *wsFeatureState) sessionCwdPersistedAs(name string) error {
 	return nil
 }
 
+// mcpProjectTrustIs switches the live config's trust policy for project-local
+// .coddy/mcp.json declarations; the manager reads the same *config.Config at
+// dial time, so the change applies to the next dial.
+func (s *wsFeatureState) mcpProjectTrustIs(policy string) error {
+	if s.cfg == nil {
+		return fmt.Errorf("server not started")
+	}
+	s.cfg.MCP.ProjectTrust = policy
+	return nil
+}
+
+func (s *wsFeatureState) folderDeclaresMCPServer(name, serverName string) error {
+	dir, ok := s.folders[name]
+	if !ok {
+		return fmt.Errorf("unknown folder %q", name)
+	}
+	return config.UpsertMCPJSONServer(config.MCPJSONPath(dir), serverName, fakeMCPEntry())
+}
+
+// branchDeclaresMCPServer commits a project .coddy/mcp.json on the named
+// branch of the repository and returns to the previous branch, so an in-place
+// checkout lands on different declarations.
+func (s *wsFeatureState) branchDeclaresMCPServer(name, branch, serverName string) error {
+	dir, ok := s.folders[name]
+	if !ok {
+		return fmt.Errorf("unknown folder %q", name)
+	}
+	if err := bddGit(dir, "checkout", branch); err != nil {
+		return err
+	}
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(dir), serverName, fakeMCPEntry()); err != nil {
+		return err
+	}
+	if err := bddGit(dir, "add", "-A"); err != nil {
+		return err
+	}
+	if err := bddGit(dir, "-c", "user.email=coddy@test", "-c", "user.name=coddy",
+		"commit", "-m", "declare "+serverName); err != nil {
+		return err
+	}
+	return bddGit(dir, "checkout", "-")
+}
+
+// sessionMCPClientsAre asserts the configured MCP clients the session holds,
+// by name: a workspace switch must have swapped them for the new workspace's.
+func (s *wsFeatureState) sessionMCPClientsAre(list string) error {
+	st := s.mgr.SessionByID(s.sessionID)
+	if st == nil {
+		return fmt.Errorf("session %q not registered", s.sessionID)
+	}
+	clients := st.GetMCPClients()
+	names := make([]string, 0, len(clients))
+	for _, c := range clients {
+		names = append(names, c.Name())
+	}
+	want := bddSplitList(list)
+	if !reflect.DeepEqual(names, want) {
+		return fmt.Errorf("session MCP clients = %v, want %v", names, want)
+	}
+	return nil
+}
+
 func (s *wsFeatureState) requestFailsWithStatus(code int) error {
 	if s.status != code {
 		return fmt.Errorf("status = %d, want %d (body: %v)", s.status, code, s.body)
@@ -605,11 +763,14 @@ func initializeWorkspaceScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a session rooted at folder "([^"]+)"$`, s.sessionRootedAt)
 	sc.Step(`^the session switched to branch "([^"]+)" in a worktree$`, s.alreadySwitchedToWorktree)
 	sc.Step(`^the session already has a user message$`, s.sessionHasUserMessage)
+	sc.Step(`^a prompt turn is in flight for the session$`, s.promptTurnInFlight)
 	sc.Step(`^the host reports drives "([^"]+)"$`, s.hostReportsDrives)
 
 	sc.Step(`^I request the workspace context$`, s.requestContext)
 	sc.Step(`^I switch the session workspace to folder "([^"]+)"$`, s.switchToFolder)
 	sc.Step(`^I switch the session workspace to a folder that does not exist$`, s.switchToMissingFolder)
+	sc.Step(`^a fresh session id switches its workspace to a folder that does not exist$`, s.freshSessionSwitchesToMissingFolder)
+	sc.Step(`^the turn completes$`, s.theTurnCompletes)
 	sc.Step(`^I switch the session to branch "([^"]+)" in a worktree$`, s.switchToBranchInWorktree)
 	sc.Step(`^I switch the session to branch "([^"]+)"$`, s.switchToBranch)
 	sc.Step(`^I browse workspace folders under "([^"]+)"$`, s.browseFolders)
@@ -626,7 +787,12 @@ func initializeWorkspaceScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the worktree path is "([^"]+)" inside repository "([^"]+)"$`, s.worktreePathInsideRepo)
 	sc.Step(`^repository "([^"]+)" reports no untracked files$`, s.repoHasNoUntrackedFiles)
 	sc.Step(`^the session cwd is persisted as folder "([^"]+)"$`, s.sessionCwdPersistedAs)
+	sc.Step(`^MCP project trust is "([^"]+)"$`, s.mcpProjectTrustIs)
+	sc.Step(`^folder "([^"]+)" declares the project MCP server "([^"]+)"$`, s.folderDeclaresMCPServer)
+	sc.Step(`^repository "([^"]+)" branch "([^"]+)" declares the project MCP server "([^"]+)"$`, s.branchDeclaresMCPServer)
+	sc.Step(`^the session's configured MCP clients are "([^"]+)"$`, s.sessionMCPClientsAre)
 	sc.Step(`^the workspace request fails with status (\d+)$`, s.requestFailsWithStatus)
+	sc.Step(`^no session was created$`, s.noSessionWasCreated)
 	sc.Step(`^the folder listing contains "([^"]+)"$`, s.folderListingContains)
 	sc.Step(`^the folder listing points at "([^"]+)" inside "([^"]+)"$`, s.folderListingPointsAtNewFolder)
 	sc.Step(`^the folder listing has no folder above it$`, s.folderListingHasNoParent)

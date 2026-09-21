@@ -1745,10 +1745,10 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/workspace": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary": "Switch the session workspace folder, git branch, or worktree",
-					"description": "Body **`{\"path\": dir}`** switches the session cwd to an existing folder (skills, project rules, and slash commands are re-derived; the new cwd persists in **session.json**). " +
-						"Body **`{\"branch\": b}`** checks the branch out in place; when the branch is already checked out in another worktree (including the main one) the session cwd jumps there instead. " +
+					"description": "Body **`{\"path\": dir}`** switches the session cwd to an existing folder — validated before the session exists, so a fresh session is created straight in the target workspace — and re-derives workspace-scoped state: skills, project rules, slash commands, the SessionStart hook context (re-fired with source `workspace`), and the configured MCP servers, which are re-dialed for the new cwd through the trust gate (the new workspace's `.coddy/mcp.json` is merged and freshly gated) while the previous workspace's configured clients are closed and ACP client-supplied servers are preserved. " +
+						"Body **`{\"branch\": b}`** checks the branch out in place and runs the same workspace-scoped reload; when the branch is already checked out in another worktree (including the main one) the session cwd jumps there instead. " +
 						"Body **`{\"branch\": b, \"worktree\": true}`** ensures a dedicated worktree for the branch (created on demand under **`<repo>/.coddy/worktrees/<branch>/`**, below a self-ignoring folder) and moves the session cwd into it. " +
-						"The workspace is chosen **once per session**: as soon as the conversation has messages, switching yields **409** (`workspace is locked once the conversation starts`). " +
+						"The workspace is chosen **once per session**: as soon as the conversation has messages, or a turn is in flight, switching yields **409** (`workspace is locked once the conversation starts` / `while a turn is running`). " +
 						"A missing folder or a branch switch outside a git repository yields **400**; git checkout/worktree failures yield **409**. The session is created on demand (draft flow). Responds with the fresh workspace context.",
 					"operationId": "coddySessionWorkspacePost",
 					"parameters": []interface{}{

@@ -6,6 +6,7 @@ package httpserver
 // git branch, and worktree state, plus folder browsing and switching.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -271,7 +272,29 @@ func (s *Server) coddySessionWorkspacePost(w http.ResponseWriter, r *http.Reques
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
 		return
 	}
-	st, err := s.mgr.EnsureHTTPSession(r.Context(), id, s.defaultCWD)
+	// A folder pick is validated before the session exists, so a fresh bundle is
+	// created straight in the target workspace - with that workspace's skills,
+	// hooks and MCP servers - instead of in the server default and switched
+	// afterwards. The early check applies only to a session that does not exist
+	// yet: for an existing one the lock checks below must answer first, so a
+	// locked session keeps its 409 even when the path is bad.
+	createCWD := s.defaultCWD
+	existing := s.mgr.SessionByID(id) != nil
+	if !existing {
+		if fs := s.mgr.FileStore(); fs != nil {
+			existing = fs.HasPersistedSnapshot(id)
+		}
+	}
+	if p := strings.TrimSpace(body.Path); p != "" && !existing {
+		abs, verr := session.ValidateWorkspaceDir(p)
+		if verr != nil {
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, verr.Error()), http.StatusBadRequest)
+			return
+		}
+		body.Path = abs
+		createCWD = abs
+	}
+	st, err := s.mgr.EnsureHTTPSession(r.Context(), id, createCWD)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
 		return
@@ -282,20 +305,27 @@ func (s *Server) coddySessionWorkspacePost(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	// Folder, branch, and worktree are fixed at session start: once the
-	// conversation has messages, the workspace no longer moves under it.
+	// conversation has messages, the workspace no longer moves under it. The
+	// message check alone is not enough: a first turn is admitted (its lock
+	// taken) before its user message lands, and a switch must not swap the
+	// workspace or its MCP servers under a turn already running.
 	if len(st.GetMessages()) > 0 {
 		http.Error(w, `{"error":{"message":"workspace is locked once the conversation starts"}}`, http.StatusConflict)
+		return
+	}
+	if s.mgr.SessionTurnActiveInProcess(id) {
+		http.Error(w, `{"error":{"message":"workspace is locked while a turn is running"}}`, http.StatusConflict)
 		return
 	}
 
 	switch {
 	case strings.TrimSpace(body.Path) != "":
-		if err := s.mgr.SetSessionWorkspace(st, body.Path); err != nil {
+		if err := s.mgr.SetSessionWorkspace(r.Context(), st, body.Path); err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
 			return
 		}
 	case strings.TrimSpace(body.Branch) != "":
-		if status, err := s.applyBranchSwitch(st, body.Branch, body.Worktree); err != nil {
+		if status, err := s.applyBranchSwitch(r.Context(), st, body.Branch, body.Worktree); err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), status)
 			return
 		}
@@ -315,7 +345,7 @@ func (s *Server) coddySessionWorkspacePost(w http.ResponseWriter, r *http.Reques
 // otherwise it is either checked out in place or opened in a new worktree
 // under the repository's own <repo>/.coddy/worktrees/. Returns the HTTP status
 // for errors.
-func (s *Server) applyBranchSwitch(st *session.State, branch string, useWorktree bool) (int, error) {
+func (s *Server) applyBranchSwitch(ctx context.Context, st *session.State, branch string, useWorktree bool) (int, error) {
 	cwd := st.GetCWD()
 	info := gitws.Describe(cwd)
 	if !info.IsGitRepo {
@@ -327,7 +357,7 @@ func (s *Server) applyBranchSwitch(st *session.State, branch string, useWorktree
 	}
 	for _, wt := range info.Worktrees {
 		if wt.Branch == branch {
-			if err := s.mgr.SetSessionWorkspace(st, wt.Path); err != nil {
+			if err := s.mgr.SetSessionWorkspace(ctx, st, wt.Path); err != nil {
 				return http.StatusBadRequest, err
 			}
 			return 0, nil
@@ -338,7 +368,7 @@ func (s *Server) applyBranchSwitch(st *session.State, branch string, useWorktree
 		if err != nil {
 			return http.StatusConflict, err
 		}
-		if err := s.mgr.SetSessionWorkspace(st, path); err != nil {
+		if err := s.mgr.SetSessionWorkspace(ctx, st, path); err != nil {
 			return http.StatusBadRequest, err
 		}
 		return 0, nil
@@ -346,5 +376,8 @@ func (s *Server) applyBranchSwitch(st *session.State, branch string, useWorktree
 	if err := gitws.Checkout(cwd, branch); err != nil {
 		return http.StatusConflict, err
 	}
+	// The checkout rewrote this workspace's files under the session: project
+	// MCP declarations, skills, rules and hook context may all differ now.
+	s.mgr.ReloadSessionWorkspace(ctx, st)
 	return 0, nil
 }

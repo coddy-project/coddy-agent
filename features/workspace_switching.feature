@@ -100,3 +100,53 @@ Feature: Workspace switching
     And a session rooted at folder "plain"
     When I switch the session to branch "main"
     Then the workspace request fails with status 400
+
+  Scenario: Switching the session workspace reloads its configured MCP servers
+    Given MCP project trust is "allow"
+    And a workspace folder "alpha" without git
+    And a workspace folder "beta" without git
+    And folder "alpha" declares the project MCP server "alpha-probe"
+    And folder "beta" declares the project MCP server "beta-probe"
+    And a session rooted at folder "alpha"
+    When I switch the session workspace to folder "beta"
+    Then the context path points to folder "beta"
+    And the session's configured MCP clients are "beta-probe"
+
+  Scenario: An in-place branch checkout reloads workspace MCP servers
+    Given MCP project trust is "allow"
+    And a workspace git repository "repo" with branches "main, dev"
+    And repository "repo" branch "dev" declares the project MCP server "dev-probe"
+    And a session rooted at folder "repo"
+    When I switch the session to branch "dev"
+    Then the context reports a git repository on branch "dev"
+    And the session's configured MCP clients are "dev-probe"
+
+  Scenario: A workspace switch during a running turn is refused
+    Given a workspace folder "alpha" without git
+    And a workspace folder "beta" without git
+    And a session rooted at folder "alpha"
+    And a prompt turn is in flight for the session
+    When I switch the session workspace to folder "beta"
+    Then the workspace request fails with status 409
+    When the turn completes
+    Then the context path points to folder "alpha"
+
+  Scenario: An invalid folder is refused before a session is created
+    When a fresh session id switches its workspace to a folder that does not exist
+    Then the workspace request fails with status 400
+    And no session was created
+
+  Scenario: A locked session keeps its 409 even for an invalid folder
+    Given a workspace folder "alpha" without git
+    And a session rooted at folder "alpha"
+    And the session already has a user message
+    When I switch the session workspace to a folder that does not exist
+    Then the workspace request fails with status 409
+
+  Scenario: A running turn keeps its 409 even for an invalid folder
+    Given a workspace folder "alpha" without git
+    And a session rooted at folder "alpha"
+    And a prompt turn is in flight for the session
+    When I switch the session workspace to a folder that does not exist
+    Then the workspace request fails with status 409
+    When the turn completes
