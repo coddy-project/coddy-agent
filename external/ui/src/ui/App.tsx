@@ -130,6 +130,7 @@ import { readLlmModelCookie, writeLlmModelCookie } from "./chat/llmModelCookie";
 import {
   pickDefaultLlmModelForNewChat,
   pickLlmModelForOpenSession,
+  sessionScopedModelCommand,
 } from "./chat/llmModelSelection";
 import {
   readReasoningCookie,
@@ -1098,7 +1099,6 @@ export function App() {
    *  command at the start of the first message, where the server takes it. */
   const pendingPermissionModeRef = useRef("");
   const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
-  const [defaultAgentYamlModel, setDefaultAgentYamlModel] = useState("");
   const [llmModel, setLlmModel] = useState("");
   const applyContextUsage = useStableHandler((sid: string, u: ContextUsageUpdate) => {
     setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
@@ -2113,14 +2113,11 @@ export function App() {
         .filter((r) => r.ownedBy !== "coddy")
         .map((r) => r.id);
       setLlmModelIds(backends);
-      const defaultYaml = (res.data.default_agent_model || "").trim();
-      setDefaultAgentYamlModel(defaultYaml);
       if (!viewedSessionIdRef.current.trim()) {
         setLlmModel(
           pickDefaultLlmModelForNewChat({
             backends,
             cookie: readLlmModelCookie(),
-            defaultAgentModel: defaultYaml,
           }),
         );
       }
@@ -2154,7 +2151,6 @@ export function App() {
       backends: llmModelIds,
       sessionModel: openSessionSelection.model,
       cookie: readLlmModelCookie(),
-      defaultAgentModel: defaultAgentYamlModel,
     });
     setLlmModel(nextModel);
     // A session carries a reasoning level only once something chose one for it,
@@ -2172,7 +2168,7 @@ export function App() {
         modelDefault: openRow?.reasoningDefault ?? null,
       }),
     );
-  }, [openSessionSelection, llmModelIds, defaultAgentYamlModel, modelInfos]);
+  }, [openSessionSelection, llmModelIds, modelInfos]);
 
   useEffect(() => {
     setDescribePreview((p) => (p && p.sessionId !== sessionId ? null : p));
@@ -3088,7 +3084,6 @@ export function App() {
         pickDefaultLlmModelForNewChat({
           backends: llmModelIds,
           cookie: readLlmModelCookie(),
-          defaultAgentModel: defaultAgentYamlModel,
         }),
       );
     }
@@ -4011,6 +4006,12 @@ export function App() {
         for (const a of extractAtFileAttachments(text)) {
           recordWorkspaceAtRecent(wk, { path_rel: a.path, kind: "file" });
         }
+      }
+      // A typed "/model <id>" is a session-scoped pick made on this surface -
+      // the same memory the Model menu writes (turn-scoped forms return null).
+      const typedModel = sessionScopedModelCommand(text);
+      if (typedModel && llmModelIds.includes(typedModel)) {
+        writeLlmModelCookie(typedModel);
       }
       if (opts?.files && opts.files.length > 0) {
         const inlineFiles = await Promise.all(
