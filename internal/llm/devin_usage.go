@@ -70,8 +70,10 @@ type DevinUsage struct {
 
 // DevinUsageForProvider reads the account status of a devin provider. The
 // credential resolves exactly like a chat call (api_key, helper command,
-// environment, managed login, Devin CLI) and the user JWT minted for chat is
-// reused through devinJWTFor.
+// environment, managed login, Devin CLI). Unlike a chat call the request
+// carries no user JWT: the seat-management server omits plan_status (the
+// quota fields) from its answer whenever metadata field 21 is present, so
+// minting one is not just wasted here - it empties the response.
 func DevinUsageForProvider(ctx context.Context, provider config.ProviderConfig, authPath string) (*DevinUsage, error) {
 	key, keyErr := provider.EffectiveAPIKeyContextErr(ctx)
 	cred, err := resolveDevinCredential(key, authPath)
@@ -93,14 +95,9 @@ func DevinUsageForProvider(ctx context.Context, provider config.ProviderConfig, 
 	client.CheckRedirect = func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
-	jwt, err := devinJWTFor(ctx, &client, cred)
-	if err != nil {
-		return nil, devinUsageCallError(err)
-	}
 	meta := devinMetadata{
 		ide:       devinChatIDE,
 		apiKey:    cred.token,
-		userJWT:   jwt.jwt,
 		sessionID: newCodexSessionID(),
 		requestID: uint64(time.Now().UnixMilli()),
 		triggerID: newCodexSessionID(),

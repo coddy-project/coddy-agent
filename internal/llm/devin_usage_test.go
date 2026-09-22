@@ -140,6 +140,52 @@ func TestDevinUsageVerifiedWire(t *testing.T) {
 
 func usageFloat(v float64) *float64 { return &v }
 
+// The seat-management server omits plan_status (UserStatus field 13) whenever
+// the request metadata carries field 21 (user_jwt): a JWT-authenticated call
+// takes a code path that attaches no quota, which is what the UI showed as
+// "quota data unavailable". The api key in field 3 alone authenticates this
+// RPC, so the usage path must neither mint a JWT nor send one.
+func TestDevinUsageRequestOmitsUserJWT(t *testing.T) {
+	_, mints := devinUsageServer(t, func(w http.ResponseWriter, r *http.Request) {
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		f, err := pbFields(raw)
+		if err != nil || len(f) != 1 || f[0].field != 1 {
+			t.Errorf("metadata envelope: %v %v", f, err)
+			return
+		}
+		fields, err := pbFields(f[0].raw)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		for _, field := range fields {
+			if field.field == 21 {
+				t.Errorf("metadata carries user_jwt; the server suppresses plan_status for it")
+			}
+		}
+		_, _ = w.Write(devinUsageResponse(devinUsagePlan("Pro", 2), devinUsagePB(func(w *pbWriter) {
+			w.uint(14, 34)
+			w.uint(15, 16)
+			w.uint(17, 2000000000)
+			w.uint(18, 2000100000)
+		})))
+	})
+	got, err := DevinUsageForProvider(context.Background(), devinUsageTestProvider(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.HasPlanStatus || got.DailyRemainingPercent != 34 || got.WeeklyRemainingPercent != 16 {
+		t.Fatalf("quota %+v", got)
+	}
+	if mints.Load() != 0 {
+		t.Fatalf("usage path minted %d JWTs", mints.Load())
+	}
+}
+
 func TestDevinUsageCredentialsAndJWT(t *testing.T) {
 	for _, source := range []string{"literal", "command", "env", "managed", "cli"} {
 		t.Run(source, func(t *testing.T) {
@@ -168,8 +214,11 @@ func TestDevinUsageCredentialsAndJWT(t *testing.T) {
 				for _, f := range fields {
 					values[f.field] = f.text()
 				}
-				if values[3] != normalizeDevinToken(source) || values[21] != "synthetic-user-jwt" || values[2] != devinClientVersion || values[10] == "" || values[25] == "" {
+				if values[3] != normalizeDevinToken(source) || values[2] != devinClientVersion || values[10] == "" || values[25] == "" {
 					t.Errorf("metadata = %v", values)
+				}
+				if _, sent := values[21]; sent {
+					t.Errorf("metadata carries user_jwt: %v", values)
 				}
 				_, _ = w.Write(devinUsageResponse(devinUsagePlan("Pro", 2), nil))
 			})
@@ -212,7 +261,9 @@ func TestDevinUsageCredentialsAndJWT(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			// Pre-mint through the exact helper chat uses: usage must reuse its JWT.
+			// The chat path mints through this helper; the usage path must
+			// neither call it nor send the token (field 21 suppresses
+			// plan_status), so mints stays at this one explicit call.
 			if _, err := devinJWTFor(context.Background(), hc, cred); err != nil {
 				t.Fatal(err)
 			}
@@ -251,7 +302,8 @@ func TestDevinUsageProxy(t *testing.T) {
 	if _, err := DevinUsageForProvider(context.Background(), p, ""); err != nil {
 		t.Fatal(err)
 	}
-	if requests.Load() != 2 {
+	// One request through the proxy: the usage call alone (no JWT mint).
+	if requests.Load() != 1 {
 		t.Fatalf("proxy requests %d", requests.Load())
 	}
 }
@@ -305,75 +357,61 @@ func devinUsageAssertError(t *testing.T, err error, kind string, status int) *Pr
 }
 
 func TestDevinUsageHTTPFailures(t *testing.T) {
-	for _, phase := range []string{"jwt", "usage"} {
-		for _, tc := range []struct {
-			name       string
-			status     int
-			body, kind string
-			retry      bool
-		}{
-			{"unauthorized", 401, `{"code":"unauthenticated","message":"LEAK"}`, ProviderUsageUnauthorized, false},
-			{"forbidden", 403, `{"message":"LEAK"}`, ProviderUsageUnavailable, false},
-			{"version gate", 400, `{"code":"failed_precondition","message":"LEAK"}`, ProviderUsageUnavailable, false},
-			{"temporary", 503, `{"message":"LEAK"}`, ProviderUsageUnavailable, true},
-			{"rate limited", 429, `{"message":"LEAK"}`, ProviderUsageUnavailable, true},
-			{"RPC unauthorized", 200, `{"code":"unauthenticated","message":"LEAK"}`, ProviderUsageUnauthorized, false},
-			{"oversized", 200, strings.Repeat("x", (256<<10)+1), ProviderUsageInvalid, false},
-		} {
-			t.Run(phase+"/"+tc.name, func(t *testing.T) {
-				ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					if phase == "usage" && strings.HasSuffix(r.URL.Path, "GetUserJwt") {
-						_, _ = w.Write(devinUsagePB(func(p *pbWriter) { p.str(1, "jwt") }))
-						return
-					}
-					if tc.retry {
-						w.Header().Set("Retry-After", "17")
-					}
-					w.WriteHeader(tc.status)
-					_, _ = io.WriteString(w, tc.body)
-				}))
-				defer ts.Close()
-				devinTestEnv(t, ts.URL)
-				_, err := DevinUsageForProvider(context.Background(), devinUsageTestProvider(), "")
-				status := tc.status
-				if status == 200 {
-					status = 0
-				}
-				e := devinUsageAssertError(t, err, tc.kind, status)
-				if tc.retry && e.RetryAfter != 17*time.Second {
-					t.Fatalf("retry %v", e.RetryAfter)
-				}
-			})
-		}
-	}
-}
-
-func TestDevinUsageRedirectAndCancellation(t *testing.T) {
-	for _, phase := range []string{"jwt", "usage"} {
-		t.Run(phase, func(t *testing.T) {
-			var leaked atomic.Int32
-			sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { leaked.Add(1) }))
-			defer sink.Close()
+	for _, tc := range []struct {
+		name       string
+		status     int
+		body, kind string
+		retry      bool
+	}{
+		{"unauthorized", 401, `{"code":"unauthenticated","message":"LEAK"}`, ProviderUsageUnauthorized, false},
+		{"forbidden", 403, `{"message":"LEAK"}`, ProviderUsageUnavailable, false},
+		{"version gate", 400, `{"code":"failed_precondition","message":"LEAK"}`, ProviderUsageUnavailable, false},
+		{"temporary", 503, `{"message":"LEAK"}`, ProviderUsageUnavailable, true},
+		{"rate limited", 429, `{"message":"LEAK"}`, ProviderUsageUnavailable, true},
+		{"RPC unauthorized", 200, `{"code":"unauthenticated","message":"LEAK"}`, ProviderUsageUnauthorized, false},
+		{"oversized", 200, strings.Repeat("x", (256<<10)+1), ProviderUsageInvalid, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if phase == "usage" && strings.HasSuffix(r.URL.Path, "GetUserJwt") {
-					_, _ = w.Write(devinUsagePB(func(p *pbWriter) { p.str(1, "jwt") }))
-					return
+				if tc.retry {
+					w.Header().Set("Retry-After", "17")
 				}
-				http.Redirect(w, r, sink.URL, http.StatusTemporaryRedirect)
+				w.WriteHeader(tc.status)
+				_, _ = io.WriteString(w, tc.body)
 			}))
 			defer ts.Close()
 			devinTestEnv(t, ts.URL)
 			_, err := DevinUsageForProvider(context.Background(), devinUsageTestProvider(), "")
-			_ = devinUsageAssertError(t, err, ProviderUsageUnavailable, 307)
-			if leaked.Load() != 0 {
-				t.Fatal("redirect forwarded credentials")
+			status := tc.status
+			if status == 200 {
+				status = 0
 			}
-			ctx, cancel := context.WithCancel(context.Background())
-			cancel()
-			_, err = DevinUsageForProvider(ctx, devinUsageTestProvider(), "")
-			_ = devinUsageAssertError(t, err, ProviderUsageUnavailable, 0)
+			e := devinUsageAssertError(t, err, tc.kind, status)
+			if tc.retry && e.RetryAfter != 17*time.Second {
+				t.Fatalf("retry %v", e.RetryAfter)
+			}
 		})
 	}
+}
+
+func TestDevinUsageRedirectAndCancellation(t *testing.T) {
+	var leaked atomic.Int32
+	sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { leaked.Add(1) }))
+	defer sink.Close()
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, sink.URL, http.StatusTemporaryRedirect)
+	}))
+	defer ts.Close()
+	devinTestEnv(t, ts.URL)
+	_, err := DevinUsageForProvider(context.Background(), devinUsageTestProvider(), "")
+	_ = devinUsageAssertError(t, err, ProviderUsageUnavailable, 307)
+	if leaked.Load() != 0 {
+		t.Fatal("redirect forwarded credentials")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = DevinUsageForProvider(ctx, devinUsageTestProvider(), "")
+	_ = devinUsageAssertError(t, err, ProviderUsageUnavailable, 0)
 }
 
 func TestDevinUsageMissingCredentialAndCommandFailure(t *testing.T) {
