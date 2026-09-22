@@ -1733,3 +1733,59 @@ func TestInstructionsDefaultMatchesTheSchema(t *testing.T) {
 	}
 	assertFiles("the embedded schema default", schema.Properties.Instructions.Properties.Files.Default)
 }
+
+// TestAgentModelOptional covers coddy-project/coddy-agent#336: agent.model is
+// optional, so a Settings save that lists models but leaves the field empty
+// parses and keeps it empty - interactive surfaces pick a model per session,
+// and the unattended paths report a missing model when they resolve one.
+func TestAgentModelOptional(t *testing.T) {
+	paths := config.Paths{Home: t.TempDir(), CWD: t.TempDir()}
+	body := `{"providers":[{"name":"openai","type":"openai","api_key":"k"}],` +
+		`"models":[{"model":"openai/gpt-4o"},{"model":"openai/gpt-5"}]}`
+
+	next, err := config.ParseConfigJSONPreservingSecrets([]byte(body), paths, nil)
+	if err != nil {
+		t.Fatalf("parse json: %v", err)
+	}
+	if next.Agent.Model != "" {
+		t.Fatalf("agent.model materialized: %q", next.Agent.Model)
+	}
+	// An explicit value is kept verbatim.
+	body = `{"providers":[{"name":"openai","type":"openai","api_key":"k"}],` +
+		`"models":[{"model":"openai/gpt-4o"},{"model":"openai/gpt-5"}],` +
+		`"agent":{"model":"openai/gpt-5"}}`
+	next, err = config.ParseConfigJSONPreservingSecrets([]byte(body), paths, nil)
+	if err != nil {
+		t.Fatalf("parse json with explicit model: %v", err)
+	}
+	if got, want := next.Agent.Model, "openai/gpt-5"; got != want {
+		t.Fatalf("explicit agent.model overwritten: got %q want %q", got, want)
+	}
+	// And a name that matches no configured model is still refused.
+	body = `{"providers":[{"name":"openai","type":"openai","api_key":"k"}],` +
+		`"models":[{"model":"openai/gpt-4o"}],` +
+		`"agent":{"model":"openai/typo"}}`
+	if _, err := config.ParseConfigJSONPreservingSecrets([]byte(body), paths, nil); err == nil ||
+		!strings.Contains(err.Error(), "not found in models list") {
+		t.Fatalf("unknown agent.model: err = %v", err)
+	}
+}
+
+// The file path accepts the same optional shape: a hand-edited config.yaml
+// with models but no agent.model loads, and a bad name is still refused.
+func TestLoadAgentModelOptional(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	yml := "providers:\n  - name: openai\n    type: openai\n    api_key: k\n" +
+		"models:\n  - model: openai/gpt-4o\n"
+	if err := os.WriteFile(path, []byte(yml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load without agent.model: %v", err)
+	}
+	if cfg.Agent.Model != "" {
+		t.Fatalf("agent.model materialized: %q", cfg.Agent.Model)
+	}
+}

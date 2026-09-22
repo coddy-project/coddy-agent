@@ -712,12 +712,12 @@ func loaderFix(msg string, cfg *Config) string {
 			return "add a providers entry with that name before a model refers to it"
 		}
 		return fmt.Sprintf("providers configured: %s; add one with that name or point the model at one of these", strings.Join(names, ", "))
-	case strings.Contains(msg, "not found in models list"), strings.Contains(msg, "agent.model is required"):
+	case strings.Contains(msg, "not found in models list"):
 		names := modelNames(cfg)
 		if len(names) == 0 {
-			return "add a models entry and set agent.model to its model value"
+			return "add a models entry and point agent.model at it, or drop agent.model"
 		}
-		return fmt.Sprintf("models configured: %s; set agent.model to one of them", strings.Join(names, ", "))
+		return fmt.Sprintf("models configured: %s; point agent.model at one of them or drop it", strings.Join(names, ", "))
 	case strings.Contains(msg, "duplicate"):
 		return "rename or remove one of the two entries"
 	}

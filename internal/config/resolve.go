@@ -249,11 +249,11 @@ func (c *Config) ValidateModelsProvidersAndAgent() error {
 	}
 
 	if len(c.Models) > 0 {
-		rm := strings.TrimSpace(c.Agent.Model)
-		if rm == "" {
-			return fmt.Errorf("agent.model is required when models are configured")
-		}
-		if c.FindModelEntry(rm) == nil {
+		// agent.model is optional: interactive surfaces pick a model per
+		// session, and unattended paths that need one (coddy -p, coddy acp,
+		// API calls without a model selector) report the missing default when
+		// they resolve it. A name that is set must still resolve.
+		if rm := strings.TrimSpace(c.Agent.Model); rm != "" && c.FindModelEntry(rm) == nil {
 			return fmt.Errorf("agent.model %q: not found in models list", rm)
 		}
 	}

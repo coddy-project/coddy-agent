@@ -246,7 +246,13 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 	}
 	modelRef := strings.TrimSpace(cfg.Agent.Model)
 	if modelRef == "" {
-		return nil, fmt.Errorf("agent.model is empty")
+		// agent.model is optional since #336: the describe call is a
+		// server-side utility with no picker of its own, so it borrows the
+		// first configured model before declaring nothing is available.
+		modelRef = cfg.FirstModelID()
+	}
+	if modelRef == "" {
+		return nil, fmt.Errorf("no model configured")
 	}
 	rm, err := cfg.ResolveLLM(modelRef)
 	if err != nil {

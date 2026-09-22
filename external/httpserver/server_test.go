@@ -2333,6 +2333,69 @@ func TestCoddyConfigPutKeepsProviderProxySetting(t *testing.T) {
 	}
 }
 
+// TestCoddyConfigPutAgentModelOptional covers coddy-project/coddy-agent#336:
+// agent.model is optional, so saving from the settings screen a document that
+// lists models but leaves the field empty (it sits in another tab) validates
+// and writes - the file records the field as the operator left it: unset.
+func TestCoddyConfigPutAgentModelOptional(t *testing.T) {
+	home := t.TempDir()
+	cfgPath := filepath.Join(home, "config.yaml")
+	yml := "providers:\n  - name: openai\n    type: openai\n    api_key: k\n" +
+		"models:\n  - model: openai/gpt-4o\nagent:\n  model: openai/gpt-4o\n"
+	if err := os.WriteFile(cfgPath, []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	srv := New(cfg, mgr, slog.Default(), home)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// The document the settings screen PUTs: a second model was added by hand
+	// and the agent section is absent from the payload entirely.
+	jbody := `{"providers":[{"name":"openai","type":"openai","api_key":"k"}],` +
+		`"models":[{"model":"openai/gpt-4o"},{"model":"openai/gpt-5"}]}`
+
+	vreq, _ := http.NewRequest(http.MethodPost, ts.URL+"/coddy/config/validate", strings.NewReader(jbody))
+	vreq.Header.Set("Content-Type", "application/json")
+	vres, err := http.DefaultClient.Do(vreq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vb, _ := ioReadAllClose(vres.Body)
+	if vres.StatusCode != http.StatusOK {
+		t.Fatalf("validate status %d %s", vres.StatusCode, string(vb))
+	}
+
+	putReq, _ := http.NewRequest(http.MethodPut, ts.URL+"/coddy/config", strings.NewReader(jbody))
+	putReq.Header.Set("Content-Type", "application/json")
+	putRes, err := http.DefaultClient.Do(putReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pb, _ := ioReadAllClose(putRes.Body)
+	if putRes.StatusCode != http.StatusOK {
+		t.Fatalf("put status %d %s", putRes.StatusCode, string(pb))
+	}
+	if got := srv.activeCfg().Agent.Model; got != "" {
+		t.Fatalf("live agent.model = %q, want empty", got)
+	}
+	// The file must load the way the operator left it: models listed, no default.
+	back, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("saved config does not load: %v", err)
+	}
+	if back.Agent.Model != "" {
+		t.Fatalf("saved agent.model = %q, want empty", back.Agent.Model)
+	}
+}
+
 // TestResponsesInlineFilesDirectModel verifies that inline_files reach the
 // provider as ImageParts on the user message for a direct YAML model call.
 func TestResponsesInlineFilesDirectModel(t *testing.T) {

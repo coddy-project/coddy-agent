@@ -403,6 +403,11 @@ func (a *App) adoptSession(id string, modes *acp.ModeState, opts []acp.ConfigOpt
 	if a.modelID == "" {
 		a.modelID = a.config().Agent.Model
 	}
+	if a.modelID == "" {
+		// agent.model is optional: an interactive console picks a model the
+		// same way the web composer does - the first configured row.
+		a.modelID = a.config().FirstModelID()
+	}
 	a.refreshFooterModel()
 	a.foot.SetSession("", a.modeID)
 }

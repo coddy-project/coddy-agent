@@ -81,7 +81,7 @@ Defaults for the main agent loop (model id and safety caps).
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `agent.model` | string |  | Default models[].model id used until the client overrides the model per session. Required when models is non-empty. |
+| `agent.model` | string |  | Optional default models[].model id. Interactive surfaces (web UI, console) pick a model per session; unattended calls that name no model (coddy -p, coddy acp, API requests without a model selector) need it set - they report 'no model configured' when it is empty. |
 | `agent.max_turns` | integer | 30 | Hard cap on LLM calls per prompt turn. |
 | `agent.max_tokens_per_turn` | integer | 200000 | Max tokens across all LLM calls in one turn. |
 | `agent.llm_retry_max` | integer or null | 3 | Extra attempts shared by transport retries, empty-answer recovery and first-token re-issues until tool progress or a new follow-up. 0 disables these retries. Loop guards, Stop hooks, fallback models and quota-reset waits have separate limits. |

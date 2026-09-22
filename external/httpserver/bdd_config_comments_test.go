@@ -58,6 +58,14 @@ agent:
   model: valera/qwen3.8-27b
 `
 
+// noModelsConfigYAML is the config the issue reporter started from: a provider and
+// nothing else, so no models and no agent.model to pick yet.
+const noModelsConfigYAML = `providers:
+  - name: valera
+    type: openai
+    api_key: "k"
+`
+
 type configCommentsWorld struct {
 	ts      *httptest.Server
 	cfgPath string
@@ -138,6 +146,66 @@ func (w *configCommentsWorld) saveWithAgentField(field string, value int) error 
 		return err
 	}
 	w.saved = string(raw)
+	return nil
+}
+
+// saveWithModelAdded mirrors the bug of coddy-project/coddy-agent#336: the settings
+// screen PUTs a document that gained a models row while agent.model stayed empty,
+// because the default-model field lives in another tab.
+func (w *configCommentsWorld) saveWithModelAdded(model string) error {
+	if w.ts == nil {
+		return fmt.Errorf("gateway not started")
+	}
+	res, err := http.Get(w.ts.URL + "/coddy/config")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("GET /coddy/config: status %d, want 200", res.StatusCode)
+	}
+	var doc map[string]interface{}
+	if err := json.NewDecoder(res.Body).Decode(&doc); err != nil {
+		return err
+	}
+	doc["models"] = []interface{}{map[string]interface{}{"model": model}}
+
+	body, err := json.Marshal(doc)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodPut, w.ts.URL+"/coddy/config", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	put, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = put.Body.Close() }()
+	if put.StatusCode != http.StatusOK {
+		raw, _ := readAllString(put)
+		return fmt.Errorf("PUT /coddy/config: status %d, want 200 (%s)", put.StatusCode, raw)
+	}
+	raw, err := os.ReadFile(w.cfgPath)
+	if err != nil {
+		return err
+	}
+	w.saved = string(raw)
+	return nil
+}
+
+// wantAgentModelUnset loads the file the save wrote: agent.model stays unset,
+// which the strict loader accepts since #336 made the field optional.
+func (w *configCommentsWorld) wantAgentModelUnset() error {
+	cfg, err := config.Load(w.cfgPath)
+	if err != nil {
+		return fmt.Errorf("saved config does not load: %w\n%s", err, w.saved)
+	}
+	if cfg.Agent.Model != "" {
+		return fmt.Errorf("saved config has agent.model %q, want unset:\n%s", cfg.Agent.Model, w.saved)
+	}
 	return nil
 }
 
@@ -251,6 +319,11 @@ func TestConfigSchemaCommentsFeature(t *testing.T) {
 			sc.Step(`^a coddy server whose config\.yaml has no schema header$`, func() error {
 				return w.startGateway(t, bareConfigYAML)
 			})
+			sc.Step(`^a coddy server whose config\.yaml lists no models$`, func() error {
+				return w.startGateway(t, noModelsConfigYAML)
+			})
+			sc.Step(`^the settings screen adds the model "([^"]*)" and saves$`, w.saveWithModelAdded)
+			sc.Step(`^the saved config\.yaml loads with "agent\.model" unset$`, w.wantAgentModelUnset)
 			sc.Step(`^a coddy server whose config\.yaml points its editor at "([^"]*)"$`, func(ref string) error {
 				return w.startGateway(t, "# yaml-language-server: $schema="+ref+"\n"+bareConfigYAML)
 			})
