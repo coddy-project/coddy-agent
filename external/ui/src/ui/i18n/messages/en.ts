@@ -117,8 +117,6 @@ export const messagesEn: Record<string, string> = {
   "settings.field.apiBaseFallback": "API base URL",
   "settings.field.modelIdFallback": "Model id",
   "settings.field.defaultModelFallback": "Default model",
-  "settings.field.providerAria": "Provider",
-  "settings.field.providerPlaceholder": "provider",
   "settings.field.modelPlaceholder": "provider/model-id",
   "settings.field.fetching": "Fetching…",
   "settings.field.fetchModels": "Fetch models",

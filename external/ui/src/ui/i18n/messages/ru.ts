@@ -113,8 +113,6 @@ export const messagesRu: Record<string, string> = {
   "settings.field.apiBaseFallback": "Базовый URL API",
   "settings.field.modelIdFallback": "Идентификатор модели",
   "settings.field.defaultModelFallback": "Модель по умолчанию",
-  "settings.field.providerAria": "Провайдер",
-  "settings.field.providerPlaceholder": "провайдер",
   "settings.field.modelPlaceholder": "провайдер/идентификатор-модели",
   "settings.field.fetching": "Получение…",
   "settings.field.fetchModels": "Получить модели",

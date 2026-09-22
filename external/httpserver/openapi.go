@@ -1988,6 +1988,37 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/providers/models": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Fetch models for a provider description",
+					"description": "Fetches the model list advertised by a provider row posted in the request body (**`{name, type, api_base, api_key, api_key_command, proxy}`** - the `providers[]` shape). Unlike the GET route, the row need not be saved in config.yaml: the settings form sends the entry being edited, so a provider that only exists in the form (for example right after an OAuth device sign-in) lists its models the same way a stored one does. Fields the body leaves empty are inherited from the saved provider of the same name when there is one, so a sparse **`{name}`** post resolves the stored credentials without secrets travelling over the wire; fields the body carries override the saved row. Returns the same **`{ok:true, models:[{id,name}]}`** / **`{ok:false, error, models:[]}`** shape as the GET; a malformed body or an invalid provider row returns 400.",
+					"operationId": "fetchProviderModels",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []interface{}{"name"},
+									"properties": map[string]interface{}{
+										"name":            map[string]string{"type": "string", "description": "Provider name; when it matches a saved provider, empty fields inherit the saved row."},
+										"type":            map[string]string{"type": "string", "description": "Provider type (openai, anthropic, neuraldeep, codex, devin, ...)."},
+										"api_base":        map[string]string{"type": "string"},
+										"api_key":         map[string]string{"type": "string"},
+										"api_key_command": map[string]string{"type": "string"},
+										"proxy":           map[string]string{"type": "string"},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Model list result (ok:true with models, or ok:false with error)."},
+						"400": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/providers/{name}/codex-auth": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get Codex OAuth status",

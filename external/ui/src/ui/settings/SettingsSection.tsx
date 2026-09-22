@@ -4,6 +4,7 @@ import { CodexAuthField } from "./CodexAuthField";
 import { NeuralDeepAuthField } from "./NeuralDeepAuthField";
 import { ModelField } from "./ModelField";
 import { ModelPicker } from "./ModelPicker";
+import type { ProviderRow } from "./useProviderModels";
 import { ProxySettingField } from "./ProxySettingField";
 import { ReasoningLevelsField } from "./ReasoningLevelsField";
 import {
@@ -255,7 +256,7 @@ export function SettingsSection(props: {
   const { t } = useT();
   const props_ = schema.properties ?? {};
 
-  const providerNames = stringList(doc.providers, "name");
+  const providerRows = asArray(doc.providers) as ProviderRow[];
   // The provider row the model id points at, as it stands in the (unsaved)
   // form: its type decides the Codex reasoning remap server-side, so it must
   // come from the document being edited rather than from the config on disk.
@@ -363,7 +364,7 @@ export function SettingsSection(props: {
                       : String(ctx.value)
                   }
                   onChange={(v) => ctx.onChange(v)}
-                  providers={providerNames}
+                  providers={providerRows}
                   label={
                     schemaFieldLabel(key, "model", ctx.schema.title, "model") ||
                     t("settings.field.modelIdFallback")
