@@ -164,7 +164,10 @@ export const UserMessage = memo(function UserMessage(props: {
             aria-label={t("messages.editMessage")}
             title={t("messages.editMessage")}
             data-testid="user-message-edit"
-            onClick={() => props.onEdit!(props.content, props.userMsgIndex ?? 0)}
+            onClick={() => {
+              if (props.userMsgIndex == null) return;
+              props.onEdit!(props.content, props.userMsgIndex);
+            }}
           >
             <svg
               className="msg-copy-icon-btn__glyph"

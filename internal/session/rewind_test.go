@@ -251,6 +251,59 @@ func TestRewindKeepsPendingPermissionOfSurvivingCall(t *testing.T) {
 	}
 }
 
+func TestRewindSkipsCompactionSummaryInUserIndex(t *testing.T) {
+	mgr, fs := newTestManager(t)
+	// A compaction summary is a RoleUser row but not a user turn: the SPA does
+	// not count it, so the server must not either.
+	msgs := []llm.Message{
+		{Role: llm.RoleUser, Content: "hello"},
+		{Role: llm.RoleAssistant, Content: "ok"},
+		NewCompactionSummaryMessage("earlier turns, summarized", "model-a"),
+		{Role: llm.RoleUser, Content: "world"},
+		{Role: llm.RoleAssistant, Content: "ok2"},
+	}
+	st := newRewindState(t, mgr, fs, "s1", msgs)
+
+	if _, err := mgr.RewindSession("s1", 1); err != nil {
+		t.Fatalf("RewindSession: %v", err)
+	}
+	got := st.GetMessages()
+	if len(got) != 3 || got[2].CompactionSummary != true {
+		t.Fatalf("expected [user, assistant, summary], got %+v", got)
+	}
+	// Only one real user message survives, so index 1 is out of range - the
+	// summary is not addressable as a user turn.
+	if _, err := mgr.RewindSession("s1", 1); !errors.Is(err, ErrRewindOutOfRange) {
+		t.Fatalf("want ErrRewindOutOfRange, got %v", err)
+	}
+}
+
+func TestRewindUILogBoundCountsSummaries(t *testing.T) {
+	mgr, fs := newTestManager(t)
+	msgs := []llm.Message{
+		{Role: llm.RoleUser, Content: "hello"},
+		{Role: llm.RoleAssistant, Content: "ok"},
+		NewCompactionSummaryMessage("earlier turns, summarized", "model-a"),
+		{Role: llm.RoleUser, Content: "world"},
+		{Role: llm.RoleAssistant, Content: "ok2"},
+		{Role: llm.RoleUser, Content: "drop me"},
+		{Role: llm.RoleAssistant, Content: "ok3"},
+	}
+	st := newRewindState(t, mgr, fs, "s1", msgs)
+	// Entries are stamped with CountUserTurns over every user-role row,
+	// summaries included: hello=1, summary=2, world=3, drop me=4.
+	st.AppendUILogNotice(3, "belongs to the surviving 'world' turn")
+	st.AppendUILogError(4, "belongs to the dropped turn")
+
+	if _, err := mgr.RewindSession("s1", 2); err != nil {
+		t.Fatalf("RewindSession: %v", err)
+	}
+	log := st.GetUILog()
+	if len(log) != 1 || log[0].UserTurnIndex != 3 {
+		t.Fatalf("expected only the turn-3 notice to survive, got %+v", log)
+	}
+}
+
 func TestRewindThenAppendContinuesInPlace(t *testing.T) {
 	mgr, fs := newTestManager(t)
 	st := newRewindState(t, mgr, fs, "s1", userMsgs("hello", "world"))

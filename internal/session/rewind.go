@@ -50,14 +50,41 @@ func (m *Manager) RewindSession(sessionID string, userMessageIndex int) (uint64,
 	if dir == "" {
 		return 0, fmt.Errorf("session %q has no persisted bundle", sessionID)
 	}
-	turnActive := func() bool {
-		return m.SessionTurnActiveInProcess(sessionID) || TurnLockHeld(dir)
-	}
-	if turnActive() {
+	// Fast refusal before touching the lock: a turn running in this process,
+	// or one holding the on-disk flock in another. On platforms without flock
+	// the cross-process half is a no-op and only the in-process check applies
+	// (a pre-existing limitation of the turn lock, not of the rewind).
+	if m.SessionTurnActiveInProcess(sessionID) || TurnLockHeld(dir) {
 		return 0, ErrSessionTurnActive
 	}
-	if err := st.TruncateMessagesBeforeUserN(userMessageIndex, turnActive); err != nil {
+	// Take the same lock a prompt turn takes and hold it across the cut. A
+	// turn marks itself active before it contends for this lock (beginTurn
+	// order), so once the lock is ours the in-process flag names every turn
+	// that could still append onto the history - one that marked itself in
+	// the meantime makes the recheck inside the cut refuse, and one that
+	// arrives later blocks until we release and then runs on the truncated
+	// history.
+	unlock, err := m.acquirePromptTurnLock(sessionID, st)
+	if err != nil {
+		if errors.Is(err, ErrSessionTurnBusy) {
+			return 0, ErrSessionTurnActive
+		}
 		return 0, err
+	}
+	defer unlock()
+	// The flock is ours, so TurnLockHeld would see only ourselves: the recheck
+	// under the state lock looks at the in-process flag alone.
+	if err := st.TruncateMessagesBeforeUserN(userMessageIndex, func() bool {
+		return m.SessionTurnActiveInProcess(sessionID)
+	}); err != nil {
+		return 0, err
+	}
+	// The truncated history must reach disk before artifacts are pruned:
+	// touchPersist only logs a failed write, and a rewind that pruned
+	// tool-call detail while messages.json still listed the calls would lose
+	// it for turns that survived on disk.
+	if err := m.store.Save(st); err != nil {
+		return 0, fmt.Errorf("persist rewound history: %w", err)
 	}
 	rewindCleanupArtifacts(dir, st.GetMessages())
 	return st.MessagesRev(), nil
@@ -82,9 +109,13 @@ func (s *State) TruncateMessagesBeforeUserN(n int, turnActive func() bool) error
 		return ErrSessionTurnActive
 	}
 	s.Messages = s.Messages[:idx]
+	// UILog entries are stamped with CountUserTurns, which counts every
+	// user-role row including compaction summaries; the keep bound is the
+	// same count over the surviving prefix, not n.
+	uilogBound := CountUserTurns(s.Messages)
 	kept := s.UILog[:0]
 	for _, e := range s.UILog {
-		if e.UserTurnIndex <= n {
+		if e.UserTurnIndex <= uilogBound {
 			kept = append(kept, e)
 		}
 	}
@@ -96,11 +127,14 @@ func (s *State) TruncateMessagesBeforeUserN(n int, turnActive func() bool) error
 }
 
 // nthUserMessageIndex returns the index of the Nth (0-based) llm.RoleUser
-// message, or -1 when fewer than n+1 user messages exist.
+// message, or -1 when fewer than n+1 user messages exist. Compaction
+// summaries carry the user role but are not user turns - the SPA numbers the
+// same way (a summary renders as a compaction item, not a user bubble), and
+// CompactionSplitIndex counts it the same way too.
 func nthUserMessageIndex(msgs []llm.Message, n int) int {
 	count := 0
 	for i, m := range msgs {
-		if m.Role == llm.RoleUser {
+		if m.Role == llm.RoleUser && !m.CompactionSummary {
 			if count == n {
 				return i
 			}

@@ -295,6 +295,15 @@ model metadata — exactly like the branch flow did with two requests.
 - **Verified OK (don't touch):** `snapshotRevByTranscript` WeakMap — keyed on transcript-array identity, a fresh load yields a new array (no stale `since_rev`); queue is in-memory-only and empty when no turn runs; `tool_calls/` prune is nice-to-have (walk `llm.Message` assistant `ToolCalls` + `ToolCallID` fields for the keep-set); `ErrSchedulerSessionReadOnly` exists; `bgWG` — verify `captureAndStoreTurnDiff` is the only `bgWG.Add` caller before removing field + `Wait()`.
 - **Optional hardening:** re-assert `!SessionTurnActiveInProcess(id)` under `s.mu` right before the cut (closes the admit-after-check race; cheap, take it).
 
+### Post-PR amendments (second review round — cursor auto + swe-2-high)
+
+- **Compaction summaries are not turns.** `nthUserMessageIndex` counts `RoleUser && !CompactionSummary` — a summary row is `RoleUser` (`NewCompactionSummaryMessage`) but renders as a `compaction` item the SPA never numbers. The UILog prune bound is `CountUserTurns(kept)` — the same all-user-role count the entries were stamped with — rather than `n`.
+- **Turn-lock serialization.** `RewindSession` holds `acquirePromptTurnLock` across the cut: a turn marks itself active before contending for the lock, so the in-process recheck under `s.mu` sees every admitted turn and a later one waits for the release and runs on the truncated history. On non-unix platforms `TurnLockHeld` is a no-op and only the in-process check applies (pre-existing turn-lock limitation).
+- **`userMessageIndex` is required** — the handler decodes `*int` and a missing key is a 400, not a rewind to index 0.
+- **Sync save before cleanup** — `m.store.Save` propagates its error and `rewindCleanupArtifacts` runs only after it, so a failed write cannot orphan `tool_calls/` detail while `messages.json` still references it.
+- **Self-hit guard in the SPA** — the `session_rewound` handler skips a session this tab is streaming or POSTing for; the initiating tab already clears the shadow and resends itself.
+- **Deliberate leftovers:** child session bundles under `subagents/` spawned by dropped turns stay on disk (audit trail of a run that really happened); non-web surfaces (console `--remote`, ACP, gateway) do not subscribe to `session_rewound` and read the truncated history on their next load.
+
 ## Implementation order (BDD, small commits)
 
 1. `internal/session/rewind.go` + `rewind_test.go` (red → green).

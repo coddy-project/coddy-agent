@@ -50,7 +50,7 @@ Nobody typed that message, and no surface shows it as if somebody had. The first
 
 Where the task list sits next to the conversation, the woken turn shows nothing of its own and reads as the agent carrying on:
 
-- **Web UI**: nothing stands where a user bubble would, and the answer follows the previous turn; the task's card keeps its bell ([Which tasks wake the agent](#which-tasks-wake-the-agent)). The wake still counts as a turn: an edit of a later message and a branch after it are numbered the way the server numbers them, and a failed woken turn offers no retry, since there is nothing typed to send again.
+- **Web UI**: nothing stands where a user bubble would, and the answer follows the previous turn; the task's card keeps its bell ([Which tasks wake the agent](#which-tasks-wake-the-agent)). The wake still counts as a turn: an edit of a later message and a rewind after it are numbered the way the server numbers them, and a failed woken turn offers no retry, since there is nothing typed to send again.
 - **Console**: the same, live and when `/resume` replays the session; the task's row in `/tasks` says `woke the agent`.
 
 The text-only surfaces have no task list beside the chat, so a line says what woke the agent, the outcome in words:

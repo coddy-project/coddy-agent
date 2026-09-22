@@ -34,13 +34,19 @@ func (s *Server) coddyRewind(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		UserMessageIndex int `json:"userMessageIndex"`
+		UserMessageIndex *int `json:"userMessageIndex"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
 		return
 	}
-	if body.UserMessageIndex < 0 {
+	// The index is required: a missing one would decode as 0 and wipe
+	// everything after the first user message.
+	if body.UserMessageIndex == nil {
+		http.Error(w, `{"error":{"message":"userMessageIndex is required"}}`, http.StatusBadRequest)
+		return
+	}
+	if *body.UserMessageIndex < 0 {
 		http.Error(w, `{"error":{"message":"userMessageIndex must be >= 0"}}`, http.StatusBadRequest)
 		return
 	}
@@ -58,13 +64,16 @@ func (s *Server) coddyRewind(w http.ResponseWriter, r *http.Request) {
 	}
 	// A turn in flight would append onto a history that no longer matches what
 	// it was started on; the message queue is empty exactly while no turn runs,
-	// so refusing here covers the queued case too.
+	// so refusing here covers the queued case too. RewindSession then holds the
+	// prompt turn lock across the cut, so a turn admitted between this probe
+	// and the truncation either already shows in the flag or waits for the lock
+	// and runs on the rewound history.
 	if s.sessionTurnActive(id) {
 		writeSubagentsError(w, http.StatusConflict, "session "+id+" has a turn in flight")
 		return
 	}
 
-	rev, err := s.mgr.RewindSession(id, body.UserMessageIndex)
+	rev, err := s.mgr.RewindSession(id, *body.UserMessageIndex)
 	if err != nil {
 		switch {
 		case errors.Is(err, session.ErrRewindOutOfRange):

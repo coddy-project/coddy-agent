@@ -311,7 +311,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/bulk-delete": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary": "Delete many sessions in one request",
-					"description": "Removes several session trees with the same semantics as **DELETE /coddy/sessions/{id}** applied to each id: branch references retracted, background tasks and subagent children stopped, bundles removed deepest first. " +
+					"description": "Removes several session trees with the same semantics as **DELETE /coddy/sessions/{id}** applied to each id: background tasks and subagent children stopped, bundles removed deepest first. " +
 						"The body names either an explicit **ids** list, **scope** **`all`**, or **scope** **`archived`**, either of the two scopes with an optional **except** list of ids to keep. The scopes are resolved on the server against the session listing " +
 						"(scheduler runs excluded, subagent children going with their parents), so they mean the whole stored history rather than the page a client happens to have loaded. " +
 						"**`all`** reaches into the archive as well - a scope that left sessions behind because they were put aside would not be the whole history - while **`archived`** empties the archive and touches nothing else. " +

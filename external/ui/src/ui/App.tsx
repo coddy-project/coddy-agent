@@ -2462,6 +2462,17 @@ export function App() {
     sessionRewound: (sid: string) => {
       const key = sid.trim();
       if (!key) return;
+      // A tab that is streaming a turn - or holding an in-flight POST - for
+      // that session owns its transcript right now; most often this is the
+      // tab that issued the rewind itself and is already clearing the shadow
+      // and resending, so a refetch here would paint the truncated snapshot
+      // over the live stream.
+      if (
+        activeComposerSidRef.current.has(key) ||
+        postAbortBySidRef.current.has(key)
+      ) {
+        return;
+      }
       streamShadowBySidRef.current.delete(key);
       clearPermissionPromptRecords(key);
       void loadMessages(key, { freshLoad: true });
@@ -2870,7 +2881,7 @@ export function App() {
     }
     if (!sameStream()) return null;
     const prevShadow = streamShadowBySidRef.current.get(sid);
-    // freshLoad: don't inherit stale items from a previous session (e.g. when first loading a branch).
+    // freshLoad: don't inherit stale items from a previous session (e.g. when first loading a session).
     const localForMerge = opts?.freshLoad
       ? prevShadow && prevShadow.length > 0
         ? prevShadow
@@ -3323,14 +3334,26 @@ export function App() {
     }
     // The history is cut on the server: drop everything this client kept of the
     // tail - the shadow transcript and persisted permission prompts - then
-    // reload the kept prefix and send the edited message.
+    // reload the kept prefix and send the edited message. The draft and the
+    // editing state stay until the reload and the send have both gone through,
+    // so a failure after the rewind does not lose the edited text.
     streamShadowBySidRef.current.delete(sid);
     clearPermissionPromptRecords(sid);
+    try {
+      await loadMessages(sid, { freshLoad: true });
+    } catch (err) {
+      setEditingUserMsgIdx(null);
+      setEditingAssetNote("");
+      setEditingFiles([]);
+      showRewindError(
+        `Rewind applied but reloading failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
     setDraft("");
     setEditingUserMsgIdx(null);
     setEditingAssetNote("");
     setEditingFiles([]);
-    await loadMessages(sid, { freshLoad: true });
     void streamResponses(text);
   }
 
