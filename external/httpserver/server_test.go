@@ -262,7 +262,7 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths map")
 	}
-	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/enhance-prompt", "/coddy/slash-commands", "/coddy/workspace/files", "/coddy/workspace/context", "/coddy/workspace/folders", "/coddy/config/schema", "/coddy/config", "/coddy/config/validate", "/coddy/config/reasoning-levels", "/coddy/providers/{name}/models", "/coddy/providers/{name}/codex-auth", "/coddy/providers/{name}/codex-auth/device", "/coddy/providers/{name}/codex-auth/device/{loginID}", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/assets/{name}/thumbnail", "/coddy/sessions/{id}/composer-stream", "/coddy/events", "/coddy/sessions/{id}/question", "/coddy/sessions/{id}/permission", "/coddy/sessions/{id}/cancel", "/coddy/sessions/{id}/workspace", "/coddy/sessions/{id}/branches", "/coddy/sessions/{id}/rewind", "/coddy/sessions/{id}/queue", "/coddy/sessions/{id}/queue/{message_id}", "/coddy/subagents", "/coddy/subagents/{name}/trust", "/coddy/subagents/{name}/untrust", "/coddy/auth/me", "/coddy/auth/login", "/coddy/auth/logout", "/coddy/docs", "/coddy/docs/page", "/coddy/docs/search"} {
+	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/enhance-prompt", "/coddy/slash-commands", "/coddy/workspace/files", "/coddy/workspace/context", "/coddy/workspace/folders", "/coddy/config/schema", "/coddy/config", "/coddy/config/validate", "/coddy/config/reasoning-levels", "/coddy/providers/{name}/models", "/coddy/providers/{name}/codex-auth", "/coddy/providers/{name}/codex-auth/device", "/coddy/providers/{name}/codex-auth/device/{loginID}", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/assets/{name}/thumbnail", "/coddy/sessions/{id}/composer-stream", "/coddy/events", "/coddy/sessions/{id}/question", "/coddy/sessions/{id}/permission", "/coddy/sessions/{id}/cancel", "/coddy/sessions/{id}/workspace", "/coddy/sessions/{id}/rewind", "/coddy/sessions/{id}/queue", "/coddy/sessions/{id}/queue/{message_id}", "/coddy/subagents", "/coddy/subagents/{name}/trust", "/coddy/subagents/{name}/untrust", "/coddy/auth/me", "/coddy/auth/login", "/coddy/auth/logout", "/coddy/docs", "/coddy/docs/page", "/coddy/docs/search"} {
 		if _, ok := paths[must]; !ok {
 			t.Fatalf("paths missing key %s", must)
 		}
@@ -279,9 +279,8 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	// A registered route with no operation in the spec is the same drift as a
 	// missing path: generated clients never learn the endpoint exists.
 	for path, ops := range map[string][]string{
-		"/coddy/sessions/{id}":          {"patch", "delete"},
-		"/coddy/sessions/{id}/branches": {"get", "post"},
-		"/coddy/sessions/{id}/rewind":   {"post"},
+		"/coddy/sessions/{id}":        {"patch", "delete"},
+		"/coddy/sessions/{id}/rewind": {"post"},
 	} {
 		entry, ok := paths[path].(map[string]interface{})
 		if !ok {

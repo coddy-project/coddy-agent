@@ -110,10 +110,12 @@ type Server struct {
 	neuralDeepAuthLogins map[string]*codexAuthLoginAttempt
 
 	permissionResumeWG sync.WaitGroup
-	bgWG               sync.WaitGroup
+	// bgWG counts background goroutines owned by this server (codex auth login
+	// waits, background task snapshots); Drain waits for them.
+	bgWG sync.WaitGroup
 }
 
-// Drain waits for all background goroutines (e.g. turn-diff writers) to finish.
+// Drain waits for all background goroutines to finish.
 // Call after closing the HTTP server and before tearing down any session directories.
 func (s *Server) Drain() {
 	if s.removeUsageObserver != nil {
@@ -647,7 +649,6 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		wireBridgeSession(bridge, st)
 		promptOpts := &session.PromptRunOpts{SkipTurnLock: true}
-		beforeSnap := session.TakeWorkspaceSnapshot(st.GetCWD())
 		// A model configured with stream: false emits nothing until its whole answer is
 		// generated, so the stream has to announce it is still alive by itself.
 		stopKeepalive := bridge.StartIdleKeepalive()
@@ -674,7 +675,6 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-		s.captureAndStoreTurnDiff(st, beforeSnap)
 		meta := metadataResponse(s.activeCfg(), effectiveYAMLModel(s.activeCfg(), st))
 		if promptRes != nil && promptRes.StopReason != "" {
 			// Remote clients (internal/remote) recover the ACP stop reason
@@ -1218,7 +1218,6 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		wireBridgeSession(bridge, st)
 		promptOpts := &session.PromptRunOpts{SkipTurnLock: true}
-		beforeSnap2 := session.TakeWorkspaceSnapshot(st.GetCWD())
 		promptParams := acp.SessionPromptParams{
 			SessionID: sid,
 			Prompt:    promptBlocks,
@@ -1249,7 +1248,6 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-		s.captureAndStoreTurnDiff(st, beforeSnap2)
 		meta := metadataResponse(s.activeCfg(), effectiveYAMLModel(s.activeCfg(), st))
 		if promptRes != nil && promptRes.StopReason != "" {
 			// Remote clients (internal/remote) recover the ACP stop reason

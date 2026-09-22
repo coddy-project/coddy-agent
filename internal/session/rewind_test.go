@@ -10,6 +10,25 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
+// newTestManager returns a Manager and FileStore backed by a temp dir.
+func newTestManager(t *testing.T) (*Manager, *FileStore) {
+	t.Helper()
+	root := t.TempDir()
+	fs := &FileStore{Root: root}
+	mgr := &Manager{store: fs}
+	return mgr, fs
+}
+
+// userMsgs builds an alternating user/assistant message slice.
+func userMsgs(contents ...string) []llm.Message {
+	var out []llm.Message
+	for _, c := range contents {
+		out = append(out, llm.Message{Role: llm.RoleUser, Content: c})
+		out = append(out, llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+	}
+	return out
+}
+
 // newRewindState registers a live State with a persisted bundle for id.
 func newRewindState(t *testing.T, mgr *Manager, fs *FileStore, id string, msgs []llm.Message) *State {
 	t.Helper()
