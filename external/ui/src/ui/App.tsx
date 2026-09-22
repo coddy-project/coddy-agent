@@ -1069,6 +1069,12 @@ export function App() {
   const newChatWorkspaceRef = useRef<PendingNewChatWorkspace>(null);
   // Sessions with an archive change in flight; see archiveSession.
   const archivingRef = useRef<Set<string>>(new Set());
+  // The archive flag's last write this client made, so a transcript read that
+  // was issued before the PATCH settled cannot put the older flag back (see
+  // loadMessages, which compares the read's issue time against this).
+  const viewedArchiveWriteRef = useRef<{ sid: string; archived: boolean; at: number } | null>(
+    null,
+  );
   // The same, for pinning.
   const pinningRef = useRef<Set<string>>(new Set());
   const [newChatWorkspaceEpoch, setNewChatWorkspaceEpoch] = useState(0);
@@ -2537,6 +2543,10 @@ export function App() {
     const streamGeneration = streamGenerationBySidRef.current.get(sid);
     const sameStream = () =>
       streamGenerationBySidRef.current.get(sid) === streamGeneration;
+    // When the read was issued, for the archive flag ordering below: a reply
+    // that lands after this client's archive PATCH may carry the flag from
+    // before the write, and the write is what must stay on screen.
+    const issuedAt = Date.now();
     const res = await fetchJSON<{
       messages: Array<any>;
       model?: string;
@@ -2593,8 +2603,15 @@ export function App() {
       setSubagentTranscript(parseSubagentTranscriptMeta(res.data));
       // The composer learns from the transcript, not from the session list: the
       // list skips the archive, so the conversation on screen may be in no page
-      // the client holds.
-      setViewedArchived(!!res.data.archived);
+      // the client holds. A transcript read issued before this client's own
+      // archive PATCH settled may carry the flag from before the write; the
+      // PATCH's answer is newer, so it wins while it is younger than the read.
+      const archiveWrite = viewedArchiveWriteRef.current;
+      setViewedArchived(
+        archiveWrite && archiveWrite.sid === sid && archiveWrite.at >= issuedAt
+          ? archiveWrite.archived
+          : !!res.data.archived,
+      );
     }
     type UILogRow = {
       id: string;
@@ -3176,6 +3193,18 @@ export function App() {
       setSessionsError(t("app.backendUnavailable", { status: res.status }));
       return;
     }
+    // The conversation on screen learns its new state with the row: the
+    // composer swaps for the archived notice (or comes back) without waiting
+    // for the next transcript load. The ref is re-read here, not captured
+    // before the request - the viewer may have moved on while it was in
+    // flight, and a flag that belongs to a session no longer on screen must
+    // not mark the one that replaced it. The write is recorded either way, so
+    // a transcript read issued before the PATCH settled cannot put the older
+    // flag back.
+    viewedArchiveWriteRef.current = { sid: id, archived, at: Date.now() };
+    if (viewedSessionIdRef.current.trim() === id) {
+      setViewedArchived(archived);
+    }
     const rowStays =
       sessionsArchiveFilter === "all" ||
       (sessionsArchiveFilter === "only") === archived;
@@ -3250,10 +3279,11 @@ export function App() {
    */
   async function unarchiveViewedSession() {
     const sid = sessionId.trim();
-    if (!sid || unarchiving) {
+    if (!sid || unarchiving || archivingRef.current.has(sid)) {
       return;
     }
     setUnarchiving(true);
+    archivingRef.current.add(sid);
     try {
       const res = await fetch(`/coddy/sessions/${encodeURIComponent(sid)}`, {
         method: "PATCH",
@@ -3264,7 +3294,18 @@ export function App() {
         setSessionsError(t("app.backendUnavailable", { status: res.status }));
         return;
       }
-      setViewedArchived(false);
+      // Same ordering as archiveSession: the write is recorded before the
+      // flag moves, and the flag moves only while this session is still the
+      // one on screen - the viewer may have navigated away while the PATCH
+      // was in flight.
+      viewedArchiveWriteRef.current = {
+        sid,
+        archived: false,
+        at: Date.now(),
+      };
+      if (viewedSessionIdRef.current.trim() === sid) {
+        setViewedArchived(false);
+      }
       setSessions((prev) =>
         prev.map((s) => (s.id === sid ? { ...s, archived: false } : s)),
       );
@@ -3272,6 +3313,7 @@ export function App() {
     } catch {
       setSessionsError(t("app.backendUnavailable", { status: 0 }));
     } finally {
+      archivingRef.current.delete(sid);
       setUnarchiving(false);
     }
   }
