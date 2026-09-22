@@ -37,9 +37,10 @@ test("transcript rows never skip their own layout", () => {
   expect(containmentBlocks(cssText())).toEqual([]);
 });
 
-test("the user-row edit button still hangs outside the bubble", () => {
-  // Documents the constraint the containment rule has to respect.
-  const rule = cssText().match(/\.msg-user-edit\s*\{[^}]*\}/s);
-  expect(rule?.[0]).toMatch(/position:\s*absolute/);
-  expect(rule?.[0]).toMatch(/left:\s*-\d+px/);
+test("the user-row edit button sits in the message foot, in flow", () => {
+  // The pencil moved from an absolute slot outside the bubble into
+  // .msg-user-foot next to the copy control, so no transcript row paints a
+  // control outside its own box and nothing here has to leave room for one.
+  const rule = cssText().match(/\.msg-user-edit\s*\{[^}]*position[^}]*\}/s);
+  expect(rule?.[0] ?? "").not.toMatch(/position:\s*absolute/);
 });

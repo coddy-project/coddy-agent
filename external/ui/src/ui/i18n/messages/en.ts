@@ -787,7 +787,6 @@ export const messagesEn: Record<string, string> = {
   "app.chatBusy": "This chat is busy in another client. Try again in a moment.",
   "app.stopFailed": "Could not stop generation. Try again.",
   "app.emptyResponseBody": "Empty response body",
-  "app.branchCreationNoSessionId": "Branch creation returned no session ID",
 
   "nav.ariaLabel": "Nav",
   "nav.brandTitle": "Coddy",
@@ -924,9 +923,6 @@ export const messagesEn: Record<string, string> = {
 
   "chat.newChat": "New chat",
   "chat.chatTitleAriaLabel": "Chat title",
-  "chat.branchPrev": "Previous branch",
-  "chat.branchNext": "Next branch",
-  "chat.branchLabel": "Branch {current} of {total}",
   "chat.archived.notice":
     "This conversation is archived. Take it out of the archive to keep working in it.",
   "chat.archived.unarchive": "Unarchive",

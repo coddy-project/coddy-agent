@@ -799,7 +799,6 @@ export const messagesRu: Record<string, string> = {
     "Этот чат занят в другом клиенте. Попробуйте снова через момент.",
   "app.stopFailed": "Не удалось остановить генерацию. Попробуйте ещё раз.",
   "app.emptyResponseBody": "Пустое тело ответа",
-  "app.branchCreationNoSessionId": "Создание ветки не вернуло ID сессии",
 
   "nav.ariaLabel": "Навигация",
   "nav.brandTitle": "Coddy",
@@ -941,9 +940,6 @@ export const messagesRu: Record<string, string> = {
 
   "chat.newChat": "Новый чат",
   "chat.chatTitleAriaLabel": "Заголовок чата",
-  "chat.branchPrev": "Предыдущая ветка",
-  "chat.branchNext": "Следующая ветка",
-  "chat.branchLabel": "Ветка {current} из {total}",
   "chat.archived.notice":
     "Этот диалог в архиве. Разархивируйте его, чтобы продолжить работу.",
   "chat.archived.unarchive": "Разархивировать",

@@ -78,6 +78,7 @@ import {
   mergePermissionPromptsIntoTranscript,
   permissionPendingSessionIdsFromStorage,
   upsertPermissionPromptRecord,
+  clearPermissionPromptRecords,
 } from "./chat/permissionPromptSessionStore";
 import {
   parseToolsPermissionPolicy,
@@ -100,12 +101,6 @@ import type { TokenUsage, TranscriptItem } from "./chat/types";
 import type { ProviderUsage } from "./chat/providerUsage";
 import type { WorkspaceContext } from "./chat/workspaceContext";
 import { setHostShell } from "./chat/hostShell";
-import {
-  injectBranchNavItems,
-  deduplicateBranchNavs,
-  type BranchPointData,
-} from "./chat/branchInject";
-import { resolveLatestLeaf } from "./chat/resolveLatestLeaf";
 import { NavRail } from "./nav/NavRail";
 import { SwarmView } from "./swarm/SwarmView";
 import { EnvironmentChip } from "./chat/EnvironmentChip";
@@ -429,11 +424,6 @@ export function App() {
   const [editingFiles, setEditingFiles] = useState<
     { name: string; mimeType: string }[]
   >([]);
-  const pendingBranchSendRef = useRef<{ text: string; sid: string } | null>(
-    null,
-  );
-  // Sessions explicitly chosen via branch nav — skip resolveLatestLeaf for these.
-  const skipLeafResolveRef = useRef<Set<string>>(new Set());
   const [draft, setDraft] = useState(() => {
     if (initialRoute.branch !== "draft") return "";
     const id = initialRoute.draftId.trim();
@@ -605,6 +595,7 @@ export function App() {
     messageQueue: (sid: string, queue: QueuedMessageEvent) => void;
     sessionSettings: (event: SessionSettingsEvent) => void;
     subagentPermission: (parentSid: string) => void;
+    sessionRewound: (sid: string) => void;
     ready: () => void;
   }>({
     turnStarted: () => {},
@@ -614,6 +605,7 @@ export function App() {
     messageQueue: () => {},
     sessionSettings: () => {},
     subagentPermission: () => {},
+    sessionRewound: () => {},
     ready: () => {},
   });
   // Provider account usage for the composer pill and banner: read over REST
@@ -2464,6 +2456,16 @@ export function App() {
         void refreshBackgroundTasks({ silent: true });
       }
     },
+    // A surface - this tab, another tab, a console over --remote - rewound the
+    // session: the tail it held is gone, so the shadow transcript and the
+    // prompts of the removed turns are dropped and the kept prefix reloads.
+    sessionRewound: (sid: string) => {
+      const key = sid.trim();
+      if (!key) return;
+      streamShadowBySidRef.current.delete(key);
+      clearPermissionPromptRecords(key);
+      void loadMessages(key, { freshLoad: true });
+    },
     ready: () => {
       // Recovery can miss the idle edge. Retire pending acknowledgements too,
       // so an old Stop cannot re-establish the fence after this reconnect.
@@ -2496,6 +2498,8 @@ export function App() {
         serverEventHandlersRef.current.sessionSettings(event),
       onSubagentPermission: (parentSid) =>
         serverEventHandlersRef.current.subagentPermission(parentSid),
+      onSessionRewound: (sid) =>
+        serverEventHandlersRef.current.sessionRewound(sid),
       onConnectedChange: setServerEventsConnected,
       onReady: () => serverEventHandlersRef.current.ready(),
       signal: ctl.signal,
@@ -2932,52 +2936,29 @@ export function App() {
       return applied;
     }
 
-    // Fetch branch points and inject branch_nav items if any exist.
-    let withBranches = applied;
-    try {
-      const brRes = await fetchJSON<{ branchPoints?: BranchPointData[] }>(
-        `/coddy/sessions/${encodeURIComponent(sid)}/branches`,
-        { headers: sid === sessionId ? headers : { [HDR]: sid } },
-      );
-      if (brRes.ok && brRes.data?.branchPoints?.length) {
-        withBranches = deduplicateBranchNavs(
-          injectBranchNavItems(
-            applied.filter((it) => it.type !== "branch_nav"),
-            brRes.data.branchPoints,
-          ),
-        );
-        if (sid === viewedSessionIdRef.current.trim()) {
-          setSessionHashInLocation(sid, { historySidebar: sessionsOpen });
-        }
-      }
-    } catch {
-      // ignore — branch nav is optional
-    }
-
     if (!sameStream()) return null;
-    // Frames may have arrived while the optional branches request was in flight.
-    const beforeShadowMerge = withBranches;
-    withBranches = mergeTranscriptPreferLocalSuffix(
-      withBranches,
+    // Frames may have arrived while the messages request was in flight.
+    const finalItems = mergeTranscriptPreferLocalSuffix(
+      applied,
       streamShadowBySidRef.current.get(sid),
     );
-    if (withBranches === beforeShadowMerge) noteSnapshotRev(withBranches);
-    streamShadowBySidRef.current.set(sid, withBranches);
+    if (finalItems === applied) noteSnapshotRev(finalItems);
+    streamShadowBySidRef.current.set(sid, finalItems);
     evictStaleSessionCaches(viewedSessionIdRef.current);
     // The viewer moved on while this fetch was in flight (the user picked
     // another session or went home): keep the shadow for the next visit, but
     // never paint a stale transcript under the current route.
     if (viewedSessionIdRef.current.trim() !== sid) {
-      return withBranches;
+      return finalItems;
     }
     if (fadeOutTimerRef.current !== null) {
       clearTimeout(fadeOutTimerRef.current);
       fadeOutTimerRef.current = null;
     }
     setSessionFadingOut(false);
-    setItems(withBranches);
+    setItems(finalItems);
     setSessionLoading(false);
-    return withBranches;
+    return finalItems;
   }
 
   function persistComposerDraftBeforeLeave() {
@@ -2996,11 +2977,6 @@ export function App() {
       updatedAt: new Date().toISOString(),
     });
     setClientDraftSessions(rows);
-  }
-
-  function switchBranch(id: string) {
-    skipLeafResolveRef.current.add(id);
-    pickSession(id);
   }
 
   function pickSession(id: string) {
@@ -3300,12 +3276,12 @@ export function App() {
     }
   }, []);
 
-  async function handleBranchSend(text: string, userMsgIdx: number) {
-    const sourceSid = sessionId.trim();
-    if (!sourceSid) return;
+  async function handleRewindSend(text: string, userMsgIdx: number) {
+    const sid = sessionId.trim();
+    if (!sid) return;
 
-    const showBranchError = (msg: string) => {
-      applyStreamItemsForSession(sourceSid, (prev) => [
+    const showRewindError = (msg: string) => {
+      applyStreamItemsForSession(sid, (prev) => [
         ...prev,
         {
           id: newId("s"),
@@ -3317,10 +3293,9 @@ export function App() {
       ]);
     };
 
-    let data: { newSessionId?: string; error?: { message?: string } } = {};
     try {
       const res = await fetch(
-        `/coddy/sessions/${encodeURIComponent(sourceSid)}/branches`,
+        `/coddy/sessions/${encodeURIComponent(sid)}/rewind`,
         {
           method: "POST",
           headers: { ...headers, "Content-Type": "application/json" },
@@ -3328,30 +3303,35 @@ export function App() {
         },
       );
       if (!res.ok) {
-        let errMsg = `Branch creation failed (${res.status})`;
+        let errMsg = `Rewind failed (${res.status})`;
         try {
           const body = (await res.json()) as { error?: { message?: string } };
           if (body?.error?.message) errMsg = body.error.message;
         } catch {
           /* ignore */
         }
-        showBranchError(errMsg);
+        // The draft and the editing state stay untouched, so the message is not
+        // lost and the edit can be retried.
+        showRewindError(errMsg);
         return;
       }
-      data = (await res.json()) as { newSessionId?: string };
     } catch (err) {
-      showBranchError(
-        `Branch creation error: ${err instanceof Error ? err.message : String(err)}`,
+      showRewindError(
+        `Rewind error: ${err instanceof Error ? err.message : String(err)}`,
       );
       return;
     }
-    const newSid = (data.newSessionId || "").trim();
-    if (!newSid) {
-      showBranchError(t("app.branchCreationNoSessionId"));
-      return;
-    }
-    pendingBranchSendRef.current = { text, sid: newSid };
-    pickSession(newSid);
+    // The history is cut on the server: drop everything this client kept of the
+    // tail - the shadow transcript and persisted permission prompts - then
+    // reload the kept prefix and send the edited message.
+    streamShadowBySidRef.current.delete(sid);
+    clearPermissionPromptRecords(sid);
+    setDraft("");
+    setEditingUserMsgIdx(null);
+    setEditingAssetNote("");
+    setEditingFiles([]);
+    await loadMessages(sid, { freshLoad: true });
+    void streamResponses(text);
   }
 
   useEffect(() => {
@@ -3367,78 +3347,12 @@ export function App() {
       void loadSessionsList(true);
       return;
     }
-    const pending = pendingBranchSendRef.current;
-    if (pending && pending.sid === sessionId) {
-      pendingBranchSendRef.current = null;
-      const text = pending.text;
-      const branchSid = sessionId;
-      void (async () => {
-        // Clear any stale shadow cache for the new branch session so loadMessages
-        // doesn't inherit a branch_nav from the previous session's items.
-        streamShadowBySidRef.current.delete(branchSid);
-        // Load the shared prefix first so the user sees prior context while streaming.
-        // freshLoad: skip itemsRef.current as localForMerge so old session items don't bleed in.
-        await loadMessages(branchSid, { freshLoad: true });
-        void streamResponses(text).then(async () => {
-          // After streaming completes, inject the branch_nav so the user can navigate threads.
-          try {
-            const brRes = await fetchJSON<{ branchPoints?: BranchPointData[] }>(
-              `/coddy/sessions/${encodeURIComponent(branchSid)}/branches`,
-              { headers: { [HDR]: branchSid } },
-            );
-            if (brRes.ok && brRes.data?.branchPoints?.length) {
-              applyStreamItemsForSession(branchSid, (prev) =>
-                deduplicateBranchNavs(
-                  injectBranchNavItems(
-                    prev.filter((it) => it.type !== "branch_nav"),
-                    brRes.data!.branchPoints!,
-                  ),
-                ),
-              );
-              if (branchSid === viewedSessionIdRef.current.trim()) {
-                setSessionHashInLocation(branchSid, {
-                  historySidebar: sessionsOpen,
-                });
-              }
-            }
-          } catch {
-            // ignore
-          }
-        });
-      })();
-      return;
-    }
     setDraft("");
     setTokenUsage(null);
     setContextBreakdown(null);
     tokenBaselineRef.current = { input: 0, output: 0, total: 0 };
     const lifecycle = new AbortController();
     void (async () => {
-      // If the user explicitly navigated here via branch nav, skip leaf resolution
-      // so they stay on the session they chose rather than being redirected to the newest thread.
-      const skipLeaf = skipLeafResolveRef.current.has(sessionId);
-      skipLeafResolveRef.current.delete(sessionId);
-
-      if (!skipLeaf) {
-        // Resolve the most-recently-active leaf in the branch tree.
-        // If a more recent thread exists, navigate there instead of loading this one.
-        const leafId = await resolveLatestLeaf(sessionId, async (sid) => {
-          const r = await fetchJSON<{ branchPoints?: BranchPointData[] }>(
-            `/coddy/sessions/${encodeURIComponent(sid)}/branches`,
-            { headers: { [HDR]: sid } },
-          );
-          return r.ok ? (r.data ?? null) : null;
-        });
-        if (lifecycle.signal.aborted) return;
-        if (
-          leafId !== sessionId &&
-          viewedSessionIdRef.current.trim() === sessionId
-        ) {
-          openSessionFromRoute(leafId, { historySidebar: sessionsOpen });
-          return;
-        }
-      }
-
       const list = await loadSessionsList(true);
       if (lifecycle.signal.aborted) {
         return;
@@ -5705,7 +5619,6 @@ export function App() {
                 })}
             {...(subagentTranscript ? {} : { onEdit: handleEditUserMessage })}
             {...(editingFiles.length > 0 ? { editingFiles } : {})}
-            onBranchSwitch={(sid) => switchBranch(sid)}
             {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
             onDocsCommand={openDocsCommand}
             onSend={(text: string, files?: File[]) => {
@@ -5720,16 +5633,15 @@ export function App() {
               ) {
                 return;
               }
-              setDraft("");
               if (editingUserMsgIdx !== null) {
                 const idx = editingUserMsgIdx;
                 const note = editingAssetNote;
-                setEditingUserMsgIdx(null);
-                setEditingAssetNote("");
-                setEditingFiles([]);
                 const textWithAssets = note ? `${text}\n${note}` : text;
-                void handleBranchSend(textWithAssets, idx);
+                // The draft and the editing state stay until the rewind lands;
+                // handleRewindSend clears them on success.
+                void handleRewindSend(textWithAssets, idx);
               } else {
+                setDraft("");
                 void streamResponses(text, files ? { files } : undefined);
               }
             }}

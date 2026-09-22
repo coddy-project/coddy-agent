@@ -102,6 +102,19 @@ export function removePermissionPromptRecord(
   }
 }
 
+/** clearPermissionPromptRecords drops every prompt stored for the session:
+ *  a history rewind made the tool calls they point at leave the transcript. */
+export function clearPermissionPromptRecords(sessionId: string): void {
+  if (typeof window === "undefined") return;
+  const sid = sessionId.trim();
+  if (!sid) return;
+  try {
+    window.localStorage.removeItem(storageKey(sid));
+  } catch {
+    //
+  }
+}
+
 export function mergeStoredPermissionPromptsIntoTranscript(
   merged: TranscriptItem[],
   sessionId: string,

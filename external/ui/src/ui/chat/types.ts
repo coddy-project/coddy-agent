@@ -132,16 +132,6 @@ export type TranscriptItem =
     }
   | {
       id: string;
-      type: "branch_nav";
-      /** 0-based index of the user message that this nav is attached to. */
-      userMessageIndex: number;
-      /** 0-based index of the branch currently being viewed. */
-      currentIndex: number;
-      total: number;
-      sessions: Array<{ sessionId: string; preview?: string }>;
-    }
-  | {
-      id: string;
       /**
        * The memory subagent run of the turn, from the `memory_run` events:
        * nothing renders it, the live status line reads it while it runs. The

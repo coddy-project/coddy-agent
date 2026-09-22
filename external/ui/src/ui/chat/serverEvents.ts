@@ -31,6 +31,10 @@ export type ServerEventHandlers = {
    *  run ended). The prompt itself waits on the subagent's task row, so the
    *  chat of that session re-reads its tasks. */
   onSubagentPermission?: (parentSessionId: string) => void;
+  /** The session's history was truncated in place - a message edit rewound it.
+   *  Whoever holds that session - this tab or another - drops the shadow
+   *  transcript and stale prompts and reloads the kept prefix. */
+  onSessionRewound?: (sessionId: string) => void;
   /** The connect/reconnect replay is complete; reconcile activity and queues over REST. */
   onReady?: () => void;
   /** Called whenever the subscription goes up or down, so callers can fall back to polling. */
@@ -58,6 +62,7 @@ export type ServerEvent =
   | { type: "session_settings"; event: SessionSettingsEvent }
   | { type: "config_reloaded" }
   | { type: "subagent_permission"; parentSessionId: string }
+  | { type: "session_rewound"; sessionId: string }
   | { type: "ready" };
 
 /** One session's message queue as the server event carries it. */
@@ -171,7 +176,8 @@ export function parseServerEvent(ev: {
         : null;
     }
     case "turn_started":
-    case "turn_ended": {
+    case "turn_ended":
+    case "session_rewound": {
       const sid = sessionIdOf(ev.data);
       return sid ? { type: ev.event, sessionId: sid } : null;
     }
@@ -203,6 +209,9 @@ export function dispatchServerEvent(
       return;
     case "subagent_permission":
       h.onSubagentPermission?.(event.parentSessionId);
+      return;
+    case "session_rewound":
+      h.onSessionRewound?.(event.sessionId);
       return;
     case "turn_started":
       h.onTurnStarted(event.sessionId);

@@ -19,7 +19,7 @@ Feature: The web UI shows a woken turn as the agent carrying on
 
   Scenario: The wake still counts as a turn
     Then a message typed after a wake is edited by the index the server knows it by
-    And a branch after a wake lands on its message
+    And a rewind after a wake lands on its message
 
   Scenario: The task's card says it will wake the agent, and that it did
     Then a running task that wakes the agent carries a bell after its title
