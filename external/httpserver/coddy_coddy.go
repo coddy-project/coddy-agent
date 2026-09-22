@@ -199,7 +199,7 @@ func (s *Server) registerCoddyRoutes() {
 	s.registerHookRoutes()
 	s.registerDocsRoutes()
 	s.registerSchedulerRoutes()
-	s.registerBranchRoutes()
+	s.registerRewindRoute()
 	s.registerSkillsManagementRoutes()
 	s.registerMCPManagementRoutes()
 }
@@ -1543,16 +1543,9 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 
 // deleteSessionBundle removes one session tree. It is the shared body of
 // DELETE /coddy/sessions/{id} and of every id a bulk delete works through, so
-// both routes retract branch references and stop background work the same way.
+// both routes stop background work the same way.
 // An id with no bundle on disk removes nothing and reports no error.
 func (s *Server) deleteSessionBundle(id string) error {
-	// Retract the session from the branch file of whatever it forked from, so the
-	// branch navigator stops offering a thread that no longer exists. Read-side
-	// filtering covers the failure case, so a prune error must not block delete.
-	// It reads the session's own branch file, so it runs before the bundle goes.
-	if err := s.mgr.PruneBranchRefs(id); err != nil {
-		s.log.Warn("prune branch refs on delete", "session", id, "error", err)
-	}
 	// The manager removes the whole tree: the tasks representing this session's
 	// subagent runs (and their descendants) are stopped and awaited first, then
 	// every remaining task of every node, then the bundles deepest first, so

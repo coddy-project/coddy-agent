@@ -377,8 +377,17 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 	}
 
 	m.mu.Lock()
+	prev := m.sessions[id]
 	m.sessions[id] = state
 	m.mu.Unlock()
+	if prev != nil {
+		// A state registered while this one was being built can only be a
+		// duplicate spawned by a racing load (the bundle already exists on
+		// disk once EnsureLayout ran): it holds an empty snapshot and nothing
+		// runs on it. A genuinely live session is caught by the check above
+		// before the build starts, so the fresh state takes the slot here.
+		prev.CloseAll()
+	}
 
 	m.runSessionStartHooks(ctx, state, hookSourceStartup)
 
@@ -445,6 +454,20 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		return nil, fmt.Errorf("session/load: %w", err)
 	}
 
+	// A live session is already loaded. Rebuilding a second State for it puts
+	// two writers on one bundle: the replacement's snapshot was read before
+	// the running turn's messages landed, so its saves overwrite the history
+	// the live state is still producing.
+	if live := m.getSession(params.SessionID); live != nil {
+		if err := m.replayConversation(params.SessionID, live.GetMessages(), live.GetPersistedSessionDir()); err != nil {
+			m.log.Warn("replay conversation", "error", err)
+		}
+		return &acp.SessionLoadResult{
+			Modes:         m.sessionResultModes(live),
+			ConfigOptions: BuildACPConfigOptions(m.activeCfg(), live),
+		}, nil
+	}
+
 	snap, err := m.store.ReadSnapshot(params.SessionID)
 	if err != nil {
 		return nil, err
@@ -459,13 +482,6 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	if err != nil {
 		return nil, fmt.Errorf("session/load cwd: %w", err)
 	}
-
-	m.mu.Lock()
-	if prev, ok := m.sessions[params.SessionID]; ok {
-		prev.CloseAll()
-		delete(m.sessions, params.SessionID)
-	}
-	m.mu.Unlock()
 
 	st := &State{
 		ID:             params.SessionID,
@@ -536,9 +552,16 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		}
 	}
 
-	m.mu.Lock()
-	m.sessions[params.SessionID] = st
-	m.mu.Unlock()
+	if winner, ok := m.registerSession(params.SessionID, st); !ok {
+		// A concurrent create or load registered this id first. The state built
+		// above is a duplicate: letting it live would put a second writer on the
+		// same bundle, so it is closed and the winner is returned instead.
+		st.CloseAll()
+		return &acp.SessionLoadResult{
+			Modes:         m.sessionResultModes(winner),
+			ConfigOptions: BuildACPConfigOptions(m.activeCfg(), winner),
+		}, nil
+	}
 
 	publish := func() {
 		m.sendContextUsageUpdate(params.SessionID, st)
@@ -1198,12 +1221,26 @@ func (m *Manager) HandleSessionCancel(params acp.SessionCancelParams) {
 	m.log.Info("session cancelled", "id", params.SessionID)
 }
 
-// ---- helpers ----
-
+// getSession returns the in-memory state for id, or nil.
 func (m *Manager) getSession(id string) *State {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.sessions[id]
+}
+
+// registerSession installs state for id and reports whether it won the slot.
+// A concurrent create or load that already owns the id wins instead, so the
+// caller can discard the state it built: two State objects for one session id
+// would both write to the same bundle, and the one holding an older snapshot
+// rewrites history the other is still producing.
+func (m *Manager) registerSession(id string, st *State) (winner *State, registered bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if existing, ok := m.sessions[id]; ok {
+		return existing, false
+	}
+	m.sessions[id] = st
+	return st, true
 }
 
 // SessionByID returns in-memory session state or nil.

@@ -86,7 +86,12 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     }
     if (suffix === "/composer-stream") return emptyStream();
     if (suffix === "/tool-calls") return json({ toolCalls: [] });
-    if (suffix === "/branches") return json({ branchPoints: [] });
+    if (suffix === "/rewind")
+      return json({
+        object: "coddy.session_rewound",
+        sessionId: sid,
+        messagesRev: 1,
+      });
     if (suffix === "/stats") return json({ stats: {} });
     if (suffix === "/background-tasks") return json({ data: [], running: 0 });
     if (suffix === "/activity") return json({ sessionId: sid, turnActive: false });

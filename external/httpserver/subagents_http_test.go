@@ -3,7 +3,7 @@
 package httpserver
 
 // Edge cases of the subagent HTTP surface that are not part of the happy path
-// in features/subagents_http.feature: a child transcript cannot be branched,
+// in features/subagents_http.feature: a child transcript cannot be rewound,
 // a child bundle is stored inside the session that spawned it rather than
 // beside it in the sessions root, the catalog reports every bound a definition
 // declares, and the catalog routes answer errors as JSON.
@@ -123,22 +123,22 @@ func (r *subagentEdgeRig) createChild(t *testing.T) string {
 	return childID
 }
 
-func TestSubagentHTTPBranchingAChildIsRefused(t *testing.T) {
+func TestSubagentHTTPRewindingAChildIsRefused(t *testing.T) {
 	rig := newSubagentEdgeRig(t)
 	childID := rig.createChild(t)
 	payload := map[string]interface{}{"userMessageIndex": 0}
 
-	status, body := rig.request(t, http.MethodPost, "/coddy/sessions/"+childID+"/branches", payload, nil)
+	status, body := rig.request(t, http.MethodPost, "/coddy/sessions/"+childID+"/rewind", payload, nil)
 	if status != http.StatusConflict || !strings.Contains(errorMessage(body), "read-only") {
-		t.Fatalf("live child branch = %d %v, want 409 read-only", status, body)
+		t.Fatalf("live child rewind = %d %v, want 409 read-only", status, body)
 	}
 
 	rig.mgr.RetireSubagentSession(childID)
-	status, body = rig.request(t, http.MethodPost, "/coddy/sessions/"+childID+"/branches", payload, nil)
+	status, body = rig.request(t, http.MethodPost, "/coddy/sessions/"+childID+"/rewind", payload, nil)
 	if status != http.StatusConflict || !strings.Contains(errorMessage(body), rig.parent) {
-		t.Fatalf("retired child branch = %d %v, want 409 naming the parent", status, body)
+		t.Fatalf("retired child rewind = %d %v, want 409 naming the parent", status, body)
 	}
-	// Nothing was forked: the sessions root still holds the parent alone, and
+	// Nothing was truncated: the sessions root still holds the parent alone, and
 	// the child is where it was written, inside the parent's bundle.
 	entries, err := os.ReadDir(rig.store.Root)
 	if err != nil {

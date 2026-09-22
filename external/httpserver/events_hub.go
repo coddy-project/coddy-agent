@@ -200,3 +200,33 @@ func (s *Server) publishConfigReloaded() {
 		s.events.publish(frame)
 	}
 }
+
+// sessionRewoundFrame renders an in-place history truncation as one SSE frame.
+func sessionRewoundFrame(sessionID string, messagesRev uint64) []byte {
+	body, err := json.Marshal(map[string]interface{}{
+		"object":      "coddy.session_rewound",
+		"sessionId":   sessionID,
+		"messagesRev": messagesRev,
+	})
+	if err != nil {
+		return nil
+	}
+	frame := make([]byte, 0, len(body)+40)
+	frame = append(frame, "event: session_rewound\ndata: "...)
+	frame = append(frame, body...)
+	frame = append(frame, "\n\n"...)
+	return frame
+}
+
+// publishSessionRewound tells every events subscriber that a session's history
+// was truncated in place, so a watcher of that session refetches its
+// transcript instead of keeping a tail that no longer exists. coddyRewind is
+// its only caller.
+func (s *Server) publishSessionRewound(sessionID string, messagesRev uint64) {
+	if s.events == nil {
+		return
+	}
+	if frame := sessionRewoundFrame(sessionID, messagesRev); frame != nil {
+		s.events.publish(frame)
+	}
+}

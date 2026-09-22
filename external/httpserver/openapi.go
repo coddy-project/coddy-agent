@@ -311,7 +311,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/bulk-delete": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary": "Delete many sessions in one request",
-					"description": "Removes several session trees with the same semantics as **DELETE /coddy/sessions/{id}** applied to each id: branch references retracted, background tasks and subagent children stopped, bundles removed deepest first. " +
+					"description": "Removes several session trees with the same semantics as **DELETE /coddy/sessions/{id}** applied to each id: background tasks and subagent children stopped, bundles removed deepest first. " +
 						"The body names either an explicit **ids** list, **scope** **`all`**, or **scope** **`archived`**, either of the two scopes with an optional **except** list of ids to keep. The scopes are resolved on the server against the session listing " +
 						"(scheduler runs excluded, subagent children going with their parents), so they mean the whole stored history rather than the page a client happens to have loaded. " +
 						"**`all`** reaches into the archive as well - a scope that left sessions behind because they were put aside would not be the whole history - while **`archived`** empties the archive and touches nothing else. " +
@@ -1583,7 +1583,6 @@ func openAPISpec() map[string]interface{} {
 					"summary": "Delete a persisted session",
 					"description": "Removes the whole session directory (messages, **`tool_calls/`**, **`stats.json`**, assets, background task logs) and the in-memory MCP clients, after stopping anything the session left running. " +
 						"The delete covers the session tree: every child session spawned by **spawn_agent** (found by **parentSessionId**, nested descendants included) goes with it. The task representing each child run is stopped and awaited first, root to leaf, then every remaining task of every node, and only then are the bundles removed deepest first, so nothing writes into a removed directory. Deleting a child session directly removes that child and its own descendants and stops its task in the parent's tasks drawer. " +
-						"A session that forked from another is also retracted from the **branches.json** of its source, and a branch point left with a single thread is dropped, so the branch navigator never points at a bundle that is gone. " +
 						"Deleting an id with no bundle on disk still answers **200**.",
 					"operationId": "coddySessionDelete",
 					"parameters": []interface{}{
@@ -1622,18 +1621,18 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
-			"/coddy/sessions/{id}/branches": map[string]interface{}{
+			"/coddy/sessions/{id}/rewind": map[string]interface{}{
 				"post": map[string]interface{}{
-					"summary": "Fork the session at one user message",
-					"description": "Creates a sibling conversation that receives every message **before** the user message at **userMessageIndex** (0-based over **`user`** rows), so an edited version of that message can be resent without overwriting the original branch. " +
-						"Workspace turn diffs recorded **after** the branch point are reversed in the session cwd first, so the files match the state the branch starts from; **fileRollbackNote** reports which turns were reversed or why none were. " +
-						"Both branches are recorded in **branches.json** inside the source session bundle and are listed by **GET** on this path.",
-					"operationId": "coddyBranchCreate",
+					"summary": "Rewind the session history to a user message",
+					"description": "Truncates the conversation **in place**: the user message at **userMessageIndex** (0-based over **`user`** rows, a background wake counting as one) and everything after it are dropped, so resending an edited version of that message continues the same session rather than forking a new one. " +
+						"The truncation bumps **messagesRev**, removes legacy **branches.json** and **diffs/** artifacts from the bundle, clears a pending permission prompt whose tool call left the transcript, prunes orphaned **`tool_calls/`** entries, and drops **`ui_log`** rows of the dropped turns. " +
+						"A **`session_rewound`** event is published on **`GET /coddy/events`** so other watchers of the session refetch their transcript. The session must be idle: a turn in flight is refused.",
+					"operationId": "coddyRewind",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
 							"schema":      map[string]string{"type": "string"},
-							"description": "Source session id.",
+							"description": "Session id.",
 						},
 					},
 					"requestBody": map[string]interface{}{
@@ -1646,7 +1645,7 @@ func openAPISpec() map[string]interface{} {
 									"properties": map[string]interface{}{
 										"userMessageIndex": map[string]interface{}{
 											"type": "integer", "minimum": 0,
-											"description": "0-based index of the user message to branch at.",
+											"description": "0-based index of the user message the history rewinds to (the message itself is dropped).",
 										},
 									},
 								},
@@ -1655,17 +1654,15 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Branch created",
+							"description": "History truncated in place",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
 										"type": "object",
 										"properties": map[string]interface{}{
-											"object":           map[string]string{"type": "string"},
-											"newSessionId":     map[string]string{"type": "string"},
-											"branchIndex":      map[string]string{"type": "integer"},
-											"totalBranches":    map[string]string{"type": "integer"},
-											"fileRollbackNote": map[string]string{"type": "string"},
+											"object":      map[string]string{"type": "string"},
+											"sessionId":   map[string]string{"type": "string"},
+											"messagesRev": map[string]string{"type": "integer"},
 										},
 									},
 								},
@@ -1674,70 +1671,13 @@ func openAPISpec() map[string]interface{} {
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
 						"409": map[string]interface{}{
-							"description": "The source is a subagent child session: its transcript is read-only and cannot be forked; branch the parent instead.",
+							"description": "The session is a read-only transcript (a subagent child or the session of a scheduler job), or a turn is in flight.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
 								},
 							},
 						},
-						"500": errorResponseRef(),
-					},
-				},
-				"get": map[string]interface{}{
-					"summary": "List branch points visible from a session",
-					"description": "Reads **branches.json** from the session bundle. Each entry carries **userMessageIndex**, **currentIndex**, **total**, the sibling **sessions** (**sessionId**, **branchIndex**, **preview**, **lastUpdatedAt**), and **own** - **`true`** for a branch point this session introduced, **`false`** for the sibling view inherited from its parent. " +
-						"Sessions whose bundle no longer exists are skipped and **currentIndex** is derived from the surviving list, so a stale branch file heals itself on read; a branch point with fewer than two surviving threads is not reported. " +
-						"The bundled UI renders each entry as a **`‹ n/m ›`** navigator under that user message.",
-					"operationId": "coddyBranchList",
-					"parameters": []interface{}{
-						map[string]interface{}{
-							"name": "id", "in": "path", "required": true,
-							"schema":      map[string]string{"type": "string"},
-							"description": "Session id.",
-						},
-					},
-					"responses": map[string]interface{}{
-						"200": map[string]interface{}{
-							"description": "Branch points",
-							"content": map[string]interface{}{
-								"application/json": map[string]interface{}{
-									"schema": map[string]interface{}{
-										"type": "object",
-										"properties": map[string]interface{}{
-											"object":    map[string]string{"type": "string"},
-											"sessionId": map[string]string{"type": "string"},
-											"branchPoints": map[string]interface{}{
-												"type": "array",
-												"items": map[string]interface{}{
-													"type": "object",
-													"properties": map[string]interface{}{
-														"userMessageIndex": map[string]string{"type": "integer"},
-														"currentIndex":     map[string]string{"type": "integer"},
-														"total":            map[string]string{"type": "integer"},
-														"own":              map[string]string{"type": "boolean"},
-														"sessions": map[string]interface{}{
-															"type": "array",
-															"items": map[string]interface{}{
-																"type": "object",
-																"properties": map[string]interface{}{
-																	"sessionId":     map[string]string{"type": "string"},
-																	"branchIndex":   map[string]string{"type": "integer"},
-																	"preview":       map[string]string{"type": "string"},
-																	"lastUpdatedAt": map[string]string{"type": "integer"},
-																},
-															},
-														},
-													},
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-						"400": errorResponseRef(),
-						"404": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -1867,7 +1807,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/events": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to server-wide session events",
-					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /coddy/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it; **event: provider_usage** (**`{object, sessionId, usage}`**) whenever a fresh account-usage snapshot was built outside a request; and **event: config_reloaded** (**`{object:\"coddy.config_reloaded\", at}`**) after every swap of the live configuration - a **PUT /coddy/config** save, the agent's **config_commit** or **config_rollback**, a skill install. The reload event names nothing that changed: what a reload moved is already behind **GET /v1/models** and **GET /coddy/slash-commands**, and it is published only once the new configuration is live, so a client re-reads those and cannot catch the outgoing one. **event: session_settings** (**`{object:\"coddy.session_settings\", sessionId, settings, notice, source}`**) whenever a session's settings change from any surface - a command, **PATCH /coddy/sessions/{id}**, the permission dialog, the model's own **switch_model**, a console or an editor: **settings** is the whole snapshot (**model**, **reasoning**, **reasoningChoices**, **mode**, **permissionMode**, **configuredPermissionMode**, **overrides** for the running and the next turns, and a **version** a client keeps the highest of; the turn stream carries the same frame). **event: background_wake** (**`{object:\"coddy.background_wake\", sessionId, phase:\"woken\", at, tasks}`**, the tasks in the shape of the turn stream's **background_wake** frame) says the turn now holding a session was started by finished background tasks rather than typed: a client that reads only the turns it starts - a console attached over **--remote** - follows it on **GET /coddy/sessions/{id}/composer-stream**, where a permission prompt the woken turn raises is asked and answered through **POST /coddy/sessions/{id}/permission** like any other. **event: subagent_permission** tracks the permission prompt of a **detached** subagent - one whose spawning turn has ended: phase **asked** (**`{object:\"coddy.subagent_permission\", phase, parentSessionId, childSessionId, taskId, toolCallId, agentName, askedAt, request}`**, where **request** is the payload of the SSE **permission** event with the *child* session id) when it starts waiting, and phase **settled** (the same ids, no request) once it is answered anywhere, withdrawn or its run ends, so a client that did not answer takes its copy down. The answer goes to **POST /coddy/sessions/{childSessionId}/permission**; the first answer from any surface wins. On connect it replays one **turn_started** per turn already running, whose **at** is when that turn started rather than when the client connected - followed, for a turn finished background tasks started, by its **background_wake** with the same **at** (a live **background_wake** is dated at the turn's start too, so a client that hears of a wake twice knows it is the same turn) - and one **subagent_permission** (**asked**) per prompt still waiting, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. Like the composer stream, this route also accepts the bearer token as **`?access_token=`**.",
+					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /coddy/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it; **event: provider_usage** (**`{object, sessionId, usage}`**) whenever a fresh account-usage snapshot was built outside a request; and **event: config_reloaded** (**`{object:\"coddy.config_reloaded\", at}`**) after every swap of the live configuration - a **PUT /coddy/config** save, the agent's **config_commit** or **config_rollback**, a skill install. The reload event names nothing that changed: what a reload moved is already behind **GET /v1/models** and **GET /coddy/slash-commands**, and it is published only once the new configuration is live, so a client re-reads those and cannot catch the outgoing one. **event: session_rewound** (**`{object:\"coddy.session_rewound\", sessionId, messagesRev}`**) after a **POST /coddy/sessions/{id}/rewind** truncated the session's history in place, so a watcher of that session refetches its transcript instead of keeping a tail that no longer exists. **event: session_settings** (**`{object:\"coddy.session_settings\", sessionId, settings, notice, source}`**) whenever a session's settings change from any surface - a command, **PATCH /coddy/sessions/{id}**, the permission dialog, the model's own **switch_model**, a console or an editor: **settings** is the whole snapshot (**model**, **reasoning**, **reasoningChoices**, **mode**, **permissionMode**, **configuredPermissionMode**, **overrides** for the running and the next turns, and a **version** a client keeps the highest of; the turn stream carries the same frame). **event: background_wake** (**`{object:\"coddy.background_wake\", sessionId, phase:\"woken\", at, tasks}`**, the tasks in the shape of the turn stream's **background_wake** frame) says the turn now holding a session was started by finished background tasks rather than typed: a client that reads only the turns it starts - a console attached over **--remote** - follows it on **GET /coddy/sessions/{id}/composer-stream**, where a permission prompt the woken turn raises is asked and answered through **POST /coddy/sessions/{id}/permission** like any other. **event: subagent_permission** tracks the permission prompt of a **detached** subagent - one whose spawning turn has ended: phase **asked** (**`{object:\"coddy.subagent_permission\", phase, parentSessionId, childSessionId, taskId, toolCallId, agentName, askedAt, request}`**, where **request** is the payload of the SSE **permission** event with the *child* session id) when it starts waiting, and phase **settled** (the same ids, no request) once it is answered anywhere, withdrawn or its run ends, so a client that did not answer takes its copy down. The answer goes to **POST /coddy/sessions/{childSessionId}/permission**; the first answer from any surface wins. On connect it replays one **turn_started** per turn already running, whose **at** is when that turn started rather than when the client connected - followed, for a turn finished background tasks started, by its **background_wake** with the same **at** (a live **background_wake** is dated at the turn's start too, so a client that hears of a wake twice knows it is the same turn) - and one **subagent_permission** (**asked**) per prompt still waiting, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. Like the composer stream, this route also accepts the bearer token as **`?access_token=`**.",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "text/event-stream of server-wide events"},
 						"500": errorResponseRef(),

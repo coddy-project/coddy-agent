@@ -775,8 +775,8 @@ func TestABundleInTheSessionsRootIsNeverReadAsDelegated(t *testing.T) {
 }
 
 // A child transcript is served to a reader and refused to a writer: it cannot
-// be forked into a writable branch, live or retired.
-func TestChildIsServedButNotBranched(t *testing.T) {
+// be rewound into a new history, live or retired.
+func TestChildIsServedButNotRewound(t *testing.T) {
 	m, _, root := newSubagentTestManager(t)
 	parent := newParent(t, m, root)
 
@@ -794,15 +794,16 @@ func TestChildIsServedButNotBranched(t *testing.T) {
 	if st, err := m.EnsureHTTPSession(context.Background(), childID, root); err != nil || st == nil || st.ID != childID {
 		t.Fatalf("EnsureHTTPSession on a live child = %v, %v", st, err)
 	}
-	_, err := m.CreateBranchSession(session.CreateBranchParams{SourceSessionID: childID, UserMessageIndex: 0})
-	if !errors.Is(err, session.ErrSubagentReadOnly) {
-		t.Fatalf("branching a child = %v, want ErrSubagentReadOnly", err)
+	if _, err := m.RewindSession(childID, 0); !errors.Is(err, session.ErrSubagentReadOnly) {
+		t.Fatalf("rewinding a child = %v, want ErrSubagentReadOnly", err)
 	}
 	// Retired children are read from the bundle and refused the same way.
 	m.RetireSubagentSession(childID)
-	_, err = m.CreateBranchSession(session.CreateBranchParams{SourceSessionID: childID, UserMessageIndex: 0})
-	if !errors.Is(err, session.ErrSubagentReadOnly) {
-		t.Fatalf("branching a retired child = %v, want ErrSubagentReadOnly", err)
+	if _, err := m.EnsureHTTPSession(context.Background(), childID, root); err != nil {
+		t.Fatalf("EnsureHTTPSession on a retired child = %v", err)
+	}
+	if _, err := m.RewindSession(childID, 0); !errors.Is(err, session.ErrSubagentReadOnly) {
+		t.Fatalf("rewinding a retired child = %v, want ErrSubagentReadOnly", err)
 	}
 }
 

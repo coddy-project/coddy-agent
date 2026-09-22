@@ -289,6 +289,18 @@ func TestConfigReloadedFrameShape(t *testing.T) {
 	}
 }
 
+func TestSessionRewoundFrameShape(t *testing.T) {
+	frame := string(sessionRewoundFrame("sess_x", 7))
+	if !strings.HasPrefix(frame, "event: session_rewound\ndata: ") || !strings.HasSuffix(frame, "\n\n") {
+		t.Fatalf("frame %q is not a well-formed SSE frame", frame)
+	}
+	for _, want := range []string{`"object":"coddy.session_rewound"`, `"sessionId":"sess_x"`, `"messagesRev":7`} {
+		if !strings.Contains(frame, want) {
+			t.Fatalf("frame %q missing %s", frame, want)
+		}
+	}
+}
+
 // ReplaceConfig is the choke point every reload path goes through, so it is also where
 // the announcement belongs - and it must announce a swap that actually happened, once.
 // The hub is read directly here because publish is synchronous: by the time

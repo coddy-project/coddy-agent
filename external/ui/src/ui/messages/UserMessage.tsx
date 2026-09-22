@@ -136,7 +136,7 @@ export const UserMessage = memo(function UserMessage(props: {
           })}
         </div>
       ) : null}
-      <div className="msg msg-user msg-user--editable">
+      <div className="msg msg-user">
         <div className="msg-user-body" data-testid="user-message-body">
           {bodySegments
             ? bodySegments.map((seg, i) =>
@@ -155,20 +155,36 @@ export const UserMessage = memo(function UserMessage(props: {
               )
             : withDocMentions(display, "b")}
         </div>
+      </div>
+      <div className="msg-user-foot">
         {props.onEdit ? (
           <button
             type="button"
-            className="msg-user-edit"
+            className="msg-copy-icon-btn msg-user-edit"
             aria-label={t("messages.editMessage")}
             title={t("messages.editMessage")}
             data-testid="user-message-edit"
-            onClick={() => props.onEdit!(props.content, props.userMsgIndex ?? 0)}
+            onClick={() => {
+              if (props.userMsgIndex == null) return;
+              props.onEdit!(props.content, props.userMsgIndex);
+            }}
           >
-            ✎
+            <svg
+              className="msg-copy-icon-btn__glyph"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+            </svg>
           </button>
         ) : null}
-      </div>
-      <div className="msg-user-foot">
         <MessageCopyIconButton
           textToCopy={display}
           tooltip={t("messages.copyMessage")}

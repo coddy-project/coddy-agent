@@ -137,9 +137,9 @@ func TestBackgroundWakeWebUIFeature(t *testing.T) {
 			sc.Step(`^a message typed after a wake is edited by the index the server knows it by$`, func() error {
 				return runVitestScenario(list, "a message typed after a wake is edited by the index the server knows it by")
 			})
-			sc.Step(`^a branch after a wake lands on its message$`, func() error {
-				return runVitestScenario("src/ui/chat/branchInject.test.ts",
-					"a wake takes an index of its own, so a branch after it lands on its message")
+			sc.Step(`^a rewind after a wake lands on its message$`, func() error {
+				return runVitestScenario("src/ui/messages/userMsgIndices.test.ts",
+					"a wake takes an index of its own, so a rewind after it lands on its message")
 			})
 			sc.Step(`^a running task that wakes the agent carries a bell after its title$`, func() error {
 				return runVitestScenario("src/ui/tasks/BackgroundTasksPanel.test.tsx",

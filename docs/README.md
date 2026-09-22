@@ -43,7 +43,7 @@ What the agent can do and how each capability is configured.
 
 - [Operating modes](features/modes.md) - agent, plan and ask, which tools each mode allows and how to switch on every surface.
 - [Session settings](features/session-settings.md) - Switching the model, reasoning level, mode and permission mode from the conversation with /model, /reasoning, /think, /nothink, /agent, /plan, /ask and /permissions, for the session or the next turns, the permission dialog's session switch, and the model switching itself.
-- [Sessions](features/sessions.md) - Session bundles on disk, resuming, branches from an edited message, todo lists, the sessions CLI.
+- [Sessions](features/sessions.md) - Session bundles on disk, resuming, history rewind on message edit, todo lists, the sessions CLI.
 - [Rules and instructions](features/rules.md) - Rules from the .coddy, .agents, .cursor, .claude and .codex folders, AGENTS.md and DESIGN.md of a folder the agent enters, your own pair and rules in the agent home, instruction files, dialects by extension, activation.
 - [Skills](features/skills.md) - SKILL.md packs as slash commands, skills.dirs, the registries and the plugin command.
 - [Subagents](features/subagents.md) - spawn_agent, definition files, the built-ins, project trust receipts, capability narrowing, child sessions.

@@ -2,8 +2,8 @@ import { useMemo } from "react";
 
 import { permissionPendingToolCallIds } from "../chat/permissionPendingToolCalls";
 import { deriveLiveStatus } from "../chat/liveStatus";
-import { BranchNavigator } from "../chat/BranchNavigator";
 import { PlanDocumentSection } from "../chat/PlanDocumentSection";
+import { userMsgIndices } from "./userMsgIndices";
 import { PermissionPromptSection } from "../chat/PermissionPromptSection";
 import { QuestionPromptSection } from "../chat/QuestionPromptSection";
 import type { PermissionResolvedState } from "../chat/permissionTypes";
@@ -59,7 +59,6 @@ export function MessageList(props: {
   onPlanDocumentRun?: (slug: string) => void;
   onPlanDocumentDiscard?: (itemId: string, slug: string) => void;
   onEdit?: (content: string, userMsgIdx: number) => void;
-  onBranchSwitch?: (sessionId: string) => void;
   /** Re-run the last turn; shown as a refresh button on the last system_notice. */
   onRetryLast?: () => void;
   /** Background tasks of this session keyed by the tool call that started them. */
@@ -98,18 +97,10 @@ export function MessageList(props: {
   // The server numbers every user-role message of the transcript, a woken
   // turn's first message included, so the wake counts here too: an edit of a
   // later message must name the message the server knows by that index.
-  const userMsgIndices = useMemo(() => {
-    const m = new Map<string, number>();
-    let idx = 0;
-    for (const it of props.items) {
-      if (it.type === "user_message") {
-        m.set(it.id, idx++);
-      } else if (it.type === "background_wake") {
-        idx++;
-      }
-    }
-    return m;
-  }, [props.items]);
+  const userMsgIndexById = useMemo(
+    () => userMsgIndices(props.items),
+    [props.items],
+  );
 
   // The answer that closes each turn is the only one with an action row: the answers a
   // turn leaves behind between tool calls would otherwise stack the same copy button and
@@ -148,7 +139,9 @@ export function MessageList(props: {
     <>
       {props.items.map((it, idx) => {
         if (it.type === "user_message") {
-          const myIdx = userMsgIndices.get(it.id) ?? 0;
+          const myIdx = userMsgIndexById.get(it.id);
+          // A missing index must not fall back to 0: a rewind names the first
+          // user message by it, so without one the pencil stays off.
           return (
             <UserMessage
               key={it.id}
@@ -157,22 +150,10 @@ export function MessageList(props: {
               {...(props.knownSkillNames
                 ? { knownSkillNames: props.knownSkillNames }
                 : {})}
-              {...(props.onEdit
+              {...(props.onEdit && myIdx !== undefined
                 ? { onEdit: props.onEdit, userMsgIndex: myIdx }
                 : {})}
               {...(it.files && it.files.length > 0 ? { files: it.files } : {})}
-            />
-          );
-        }
-        if (it.type === "branch_nav") {
-          return (
-            <BranchNavigator
-              key={`${it.id}-${it.currentIndex}-${it.total}`}
-              userMessageIndex={it.userMessageIndex}
-              currentIndex={it.currentIndex}
-              total={it.total}
-              sessions={it.sessions}
-              onSwitch={(sid) => props.onBranchSwitch?.(sid)}
             />
           );
         }
