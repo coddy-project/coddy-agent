@@ -288,6 +288,8 @@ func TestProviderModelsPostBadRequests(t *testing.T) {
 		"missing type":   `{"name":"fresh"}`,
 		"unknown type":   `{"name":"fresh","type":"bogus"}`,
 		"invalid name":   `{"name":"a b","type":"openai"}`,
+		"dot-dot name":   `{"name":"../x","type":"openai"}`,
+		"slash name":     `{"name":"a/b","type":"openai"}`,
 		"bad proxy word": `{"name":"fresh","type":"openai","proxy":"sure"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -297,6 +299,106 @@ func TestProviderModelsPostBadRequests(t *testing.T) {
 				t.Fatalf("status = %d, want 400", res.StatusCode)
 			}
 		})
+	}
+}
+
+// A body that overrides api_base must not receive the saved row's credentials:
+// the stored key is inherited only while the request still targets the saved
+// endpoint, otherwise a changed URL would silently leak it to a different host.
+func TestProviderModelsPostBaseOverrideDropsSavedCredentials(t *testing.T) {
+	var gotAuth string
+	upstreamA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTeapot) // must not be reached
+	}))
+	defer upstreamA.Close()
+	upstreamB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"m1"}]}`))
+	}))
+	defer upstreamB.Close()
+
+	ts := newProviderModelsServer(t, &config.Config{
+		Providers: []config.ProviderConfig{
+			{Name: "demo", Type: "openai", APIBase: upstreamA.URL, APIKey: "sk-saved"},
+		},
+	})
+
+	res := postProviderModels(t, ts, `{"name":"demo","api_base":"`+upstreamB.URL+`"}`)
+	defer func() { _ = res.Body.Close() }()
+	var body struct {
+		OK bool `json:"ok"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.OK {
+		t.Fatal("ok = false, want true")
+	}
+	if strings.Contains(gotAuth, "sk-saved") {
+		t.Fatalf("Authorization = %q: saved key must not be sent to the overridden api_base", gotAuth)
+	}
+}
+
+// api_key and api_key_command are one credential slot: posting only
+// api_key_command does not resurrect the saved row's static key - the posted
+// command runs and its output is the credential sent upstream.
+func TestProviderModelsPostCredentialPairIsAtomic(t *testing.T) {
+	var gotAuth string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"m1"}]}`))
+	}))
+	defer upstream.Close()
+
+	ts := newProviderModelsServer(t, &config.Config{
+		Providers: []config.ProviderConfig{
+			{Name: "demo", Type: "openai", APIBase: upstream.URL, APIKey: "sk-saved"},
+		},
+	})
+
+	res := postProviderModels(t, ts, `{"name":"demo","api_key_command":"echo cmd-sourced-key"}`)
+	defer func() { _ = res.Body.Close() }()
+	var body struct {
+		OK bool `json:"ok"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.OK {
+		t.Fatal("ok = false, want true")
+	}
+	if gotAuth != "Bearer cmd-sourced-key" {
+		t.Fatalf("Authorization = %q, want Bearer cmd-sourced-key (posted command, not the saved key)", gotAuth)
+	}
+}
+
+// proxy "none" overrides a saved proxy URL: the fetch must reach the upstream
+// directly instead of dying on the dead proxy the saved row still names.
+func TestProviderModelsPostProxyNoneOverridesSaved(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"m1"}]}`))
+	}))
+	defer upstream.Close()
+
+	ts := newProviderModelsServer(t, &config.Config{
+		Providers: []config.ProviderConfig{
+			{Name: "demo", Type: "openai", APIBase: upstream.URL, APIKey: "sk-saved", Proxy: "http://127.0.0.1:1"},
+		},
+	})
+
+	res := postProviderModels(t, ts, `{"name":"demo","proxy":"none"}`)
+	defer func() { _ = res.Body.Close() }()
+	var body struct {
+		OK bool `json:"ok"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.OK {
+		t.Fatal(`ok = false, want true - posted "none" must bypass the saved dead proxy`)
 	}
 }
 

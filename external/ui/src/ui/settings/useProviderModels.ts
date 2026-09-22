@@ -63,6 +63,7 @@ export function useProviderModels() {
     setError(null);
     const merged: FetchedModel[] = [];
     const errors: string[] = [];
+    const seen = new Set<string>();
     await Promise.all(
       rows.map(async (row) => {
         const name = (row.name ?? "").trim();
@@ -82,7 +83,12 @@ export function useProviderModels() {
           }
           for (const m of data.models ?? []) {
             const id = `${name}/${m.id}`;
-            merged.push(m.name ? { id, name: m.name } : { id });
+            // Two form rows may carry the same provider name before the
+            // document is saved - keep the merged pick-list unique anyway.
+            if (!seen.has(id)) {
+              seen.add(id);
+              merged.push(m.name ? { id, name: m.name } : { id });
+            }
           }
         } catch (e) {
           errors.push(

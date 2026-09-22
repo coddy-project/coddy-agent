@@ -28,10 +28,6 @@ func (s *Server) registerProvidersRoutes() {
 // {"ok":false,"error":...,"models":[]} with HTTP 200 so the UI can fall back to
 // manual model entry. An unknown provider name returns 404.
 func (s *Server) coddyProviderModelsGet(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.NotFound(w, r)
-		return
-	}
 	c := s.activeCfg()
 	if c == nil {
 		writeCoddyConfigErr(w, http.StatusInternalServerError, "config unavailable")
@@ -71,9 +67,14 @@ type providerModelsRequest struct {
 // the saved provider of the same name when there is one, so a sparse
 // {"name": "..."} post resolves stored credentials without secrets travelling
 // over the wire; fields the body carries override the saved row, so the form
-// previews the provider as it is being edited. Responses follow the GET shape:
-// {"ok":true,"models":[...]} on success, {"ok":false,"error":...} with HTTP 200
-// on an upstream failure, 400 for a malformed or invalid body.
+// previews the provider as it is being edited. The credential pair
+// (api_key / api_key_command) is one slot: it is inherited only when the body
+// posts neither field, and only while the resolved api_base still matches the
+// saved row, so an overridden endpoint never receives stored credentials. A
+// posted api_key_command is executed server-side, exactly as it would be for a
+// saved provider. Responses follow the GET shape: {"ok":true,"models":[...]}
+// on success, {"ok":false,"error":...} with HTTP 200 on an upstream failure,
+// 400 for a malformed or invalid body.
 func (s *Server) coddyProviderModelsPost(w http.ResponseWriter, r *http.Request) {
 	c := s.activeCfg()
 	if c == nil {
@@ -100,7 +101,14 @@ func (s *Server) coddyProviderModelsPost(w http.ResponseWriter, r *http.Request)
 		if strings.TrimSpace(prov.APIBase) == "" {
 			prov.APIBase = saved.APIBase
 		}
-		if strings.TrimSpace(prov.APIKey) == "" && strings.TrimSpace(prov.APIKeyCommand) == "" {
+		// The credential pair is one slot: it is inherited only when the body
+		// posts neither field, and only while the request still targets the
+		// saved endpoint - a caller overriding api_base must post the
+		// credentials for it, otherwise the stored key would be sent to a
+		// URL it was never configured for.
+		if strings.TrimSpace(prov.APIBase) == strings.TrimSpace(saved.APIBase) &&
+			strings.TrimSpace(prov.APIKey) == "" &&
+			strings.TrimSpace(prov.APIKeyCommand) == "" {
 			prov.APIKey = saved.APIKey
 			prov.APIKeyCommand = saved.APIKeyCommand
 		}
@@ -122,7 +130,7 @@ func (s *Server) writeProviderModels(w http.ResponseWriter, ctx context.Context,
 	models, err := llm.ListModels(ctx, llm.ProviderInput{
 		Name:     prov.Name,
 		Type:     prov.Type,
-		APIKey:   prov.EffectiveAPIKey(),
+		APIKey:   prov.EffectiveAPIKeyContext(ctx),
 		BaseURL:  prov.APIBase,
 		ProxyURL: prov.Proxy,
 		AuthPath: config.ProviderAuthPath(c.Paths.Home, prov.Name, prov.Type),
