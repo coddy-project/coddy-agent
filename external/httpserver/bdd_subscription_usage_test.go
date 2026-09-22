@@ -88,6 +88,19 @@ var subscriptionDevinPayload = bddPB(func(w *bddPBWriter) {
 	}))
 })
 
+// The same account answered without plan_status: what the real server returns
+// when the request metadata carries a user JWT (field 21) - plan name only, no
+// quota windows.
+var subscriptionDevinPlanOnlyPayload = bddPB(func(w *bddPBWriter) {
+	w.msg(1, bddPB(func(u *bddPBWriter) {
+		u.str(3, "account display name, not the plan")
+	}))
+	w.msg(2, bddPB(func(p *bddPBWriter) {
+		p.str(2, "Pro")
+		p.uint(35, 2)
+	}))
+})
+
 type subscriptionUsageBDD struct {
 	t        *testing.T
 	home     string
@@ -188,12 +201,19 @@ func (s *subscriptionUsageBDD) startDevin() {
 			_, _ = w.Write(bddPB(func(p *bddPBWriter) { p.str(1, "synthetic-user-jwt") }))
 		case "/exa.seat_management_pb.SeatManagementService/GetUserStatus":
 			raw, _ := io.ReadAll(r.Body)
-			if !strings.Contains(string(raw), subscriptionDevinToken) || !strings.Contains(string(raw), "synthetic-user-jwt") {
+			if !strings.Contains(string(raw), subscriptionDevinToken) {
 				http.Error(w, "incorrect credential", http.StatusUnauthorized)
 				return
 			}
 			s.requests.Add(1)
 			w.Header().Set("Content-Type", "application/proto")
+			if strings.Contains(string(raw), "synthetic-user-jwt") {
+				// The real server answers a JWT-authenticated read with the
+				// plan alone: plan_status (UserStatus field 13, the quota) is
+				// omitted whenever metadata field 21 is present.
+				_, _ = w.Write(subscriptionDevinPlanOnlyPayload)
+				return
+			}
 			_, _ = w.Write(subscriptionDevinPayload)
 		default:
 			http.NotFound(w, r)

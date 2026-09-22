@@ -32,8 +32,11 @@ import (
 // Devin (Cognition) sign-in and credentials. A Devin account is reached
 // through the same API server the Devin CLI and Devin Desktop talk to: a
 // long-lived session token (devin-session-token$...) is exchanged for a
-// short-lived user JWT, and both travel in the Metadata of every Connect-RPC
-// call. The session token comes from one of three places, first match wins:
+// short-lived user JWT, and both travel in the Metadata of a Connect-RPC
+// call. The seat-management usage read is the one exception: it sends the
+// token alone, because a JWT makes the server withhold the quota fields
+// (see DevinUsageForProvider). The session token comes from one of three
+// places, first match wins:
 //
 //   - an explicit api_key (or api_key_command, or the NAME_API_KEY variable);
 //   - the Coddy-managed login, $CODDY_HOME/providers/<name>/devin-auth.json,

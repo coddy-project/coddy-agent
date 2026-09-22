@@ -79,7 +79,7 @@ Thinking streams into the transcript like any other provider's. Signed reasoning
 
 ## Account usage
 
-A `type: devin` row also reports the account's quota, read from the seat-management `GetUserStatus` RPC of the Devin API server - the same call the editor makes - with the row's own session token and user JWT. The answer reaches every surface through the shared usage panel: the console footer and `/usage`, the web UI context popover and banner, `GET /coddy/providers/{name}/usage` and the `provider_usage` updates ([Console](../surfaces/console.md#visual-model), [Configuration](../getting-started/configuration.md)).
+A `type: devin` row also reports the account's quota, read from the seat-management `GetUserStatus` RPC of the Devin API server - the same call the editor makes - with the row's own session token and **no** user JWT: the server omits `plan_status` (the quota fields) from its answer whenever the request metadata carries one, so this read is the one Devin call that must not mint a JWT. The answer reaches every surface through the shared usage panel: the console footer and `/usage`, the web UI context popover and banner, `GET /coddy/providers/{name}/usage` and the `provider_usage` updates ([Console](../surfaces/console.md#visual-model), [Configuration](../getting-started/configuration.md)).
 
 What the panel shows is what the plan reports:
 
