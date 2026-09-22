@@ -1,6 +1,6 @@
 # Sessions
 
-A session is one conversation: the transcript, the working directory it runs in, the mode, model and permission mode it uses, its todo checklist, the files uploaded into it and the tool activity it produced. Every surface - the console, the web UI, an ACP editor, the Telegram gateway, a scheduler run, a subagent - works on the same kind of session, stored the same way, so a conversation started in one place can be continued in another. This page covers the bundle on disk, resuming, branches from an edited message, the todo checklist, child sessions and the `coddy sessions` command. Writing a transcript to a file is [Session export](session-export.md).
+A session is one conversation: the transcript, the working directory it runs in, the mode, model and permission mode it uses, its todo checklist, the files uploaded into it and the tool activity it produced. Every surface - the console, the web UI, an ACP editor, the Telegram gateway, a scheduler run, a subagent - works on the same kind of session, stored the same way, so a conversation started in one place can be continued in another. This page covers the bundle on disk, resuming, history rewind on message edit, the todo checklist, child sessions and the `coddy sessions` command. Writing a transcript to a file is [Session export](session-export.md).
 
 ## The bundle on disk
 
@@ -19,8 +19,6 @@ A session spawned by another one is stored inside it, at `<parent>/subagents/<ch
 | `plans/<slug>.plan.md` | design plans written in plan mode |
 | `tool_calls/<id>/` | `args.json`, `result.md` and `meta.json` of every tool call, so a full result can be fetched after the stream showed a preview. The id is the model provider's, so it names the folder only while it is a plain single name (letters, digits, `_`, `.`, `-`, at most 128 characters); anything else - a separator, a traversal, an id longer than a file name - is stored under a digest of it instead, and `meta.json` carries the `toolCallId` the provider sent either way |
 | `stats.json` | token totals of the completed model calls |
-| `branches.json` | the branch points of an edited conversation |
-| `diffs/turn_<n>.json` | the workspace files each turn changed, replayed backwards when a branch is created |
 | `background/<task_id>/` | the record and output log of every background task and subagent run, the memory subagent of each turn included ([Long-term memory](memory.md)) |
 | `subagents/<child id>/` | the bundle of every child session this session spawned: a `spawn_agent` child or the memory subagent of a turn, each a session of its own with this same layout |
 | `ui_log.json`, `permission_grants.json`, `pending_permission.json` | notice rows shown in the transcript, the commands and write targets approved with "allow always", a permission prompt waiting for its answer over HTTP |
@@ -42,7 +40,7 @@ A history that has grown for months is narrowed rather than scrolled, and two fi
 
 **Pinning** holds a conversation at the top of every listing, whatever it is sorted by: `PATCH /coddy/sessions/{id}` with `pinned` sets the flag and stamps `pinnedAt`, and a pin that only worked in one order would not be a pin. The pins are one list the operator keeps by hand - `pinnedRank` records the order they were dragged into (`POST /coddy/sessions/pins/reorder`), a new pin goes above the ones already there, and unpinning forgets the placement, so pinning again is a new pin rather than a return to an old seat.
 
-**Archiving** takes a conversation out of the working list without taking it off disk. `PATCH /coddy/sessions/{id}` with `archived` sets the flag and stamps `archivedAt`; the default listing leaves those sessions out, `archived=only` is the archive and `archived=all` is everything. Nothing else changes: an archived session resumes, exports and branches exactly as it did. Emptying the archive is one request, `POST /coddy/sessions/bulk-delete` with `{"scope":"archived"}`, and the `all` scope still means the whole history, archive included.
+**Archiving** takes a conversation out of the working list without taking it off disk. `PATCH /coddy/sessions/{id}` with `archived` sets the flag and stamps `archivedAt`; the default listing leaves those sessions out, `archived=only` is the archive and `archived=all` is everything. Nothing else changes: an archived session resumes, exports and rewinds exactly as it did. Emptying the archive is one request, `POST /coddy/sessions/bulk-delete` with `{"scope":"archived"}`, and the `all` scope still means the whole history, archive included.
 
 **Where a session came from** is recorded too: `session.json` carries an `origin`, empty for a conversation opened on this host and `gateway:<messenger>` for one a messenger gateway is holding (`gateway:telegram` today). The surface that creates the session writes it once and nothing rewrites it afterwards, so reopening a Telegram chat from the web UI does not relabel it. `GET /coddy/sessions?origin=local` and `?origin=gateway` split the two.
 
@@ -83,16 +81,11 @@ Browsers and consoles connected through `--remote` to the same server can stop a
 
 Listings sort by `updatedAt`, newest first; the stamp moves when something is persisted - a turn, a pinned title - and not when a bundle is merely loaded to serve a read. Reopening a session runs the `SessionStart` hooks again with `source: resume` ([Hooks](hooks.md#events)).
 
-## Branches from an edited message
+## Rewind on message edit
 
-Editing a message you already sent does not overwrite the answer it produced. The pencil on a user bubble in the web UI loads that message back into the composer; sending it calls `POST /coddy/sessions/{id}/branches` with the 0-based index of the user message, and the server creates a new session holding every message before that point, reverses the workspace changes recorded by the turns after it so the files match the state the branch starts from, and sends the edited text to the new session. Both threads stay readable, and both are ordinary bundles that every surface can open.
+Editing a message you already sent rewrites the conversation in place. The pencil on a user bubble in the web UI loads that message back into the composer; sending it calls `POST /coddy/sessions/{id}/rewind` with the 0-based index of the user message, and the server truncates the transcript at that point - the messages after it, the tool call records and the UI log rows they produced, and a pending permission prompt of a removed call are dropped - and sends the edited text as the next turn of the same session. There is no sibling conversation and nothing to navigate: what was answered after the edit point is simply gone, which is exactly what a correction means.
 
-The bookkeeping lives in `branches.json`. The source records a branch point at that message index with its threads in order - the source itself first, each fork after it, each with a preview of its message - and the new session records its origin: the parent, the index and its own position. Forking a branch at the same point where it diverged from its parent adds a sibling to the parent's branch point; forking it anywhere else opens a branch point of its own. Under the branch point the transcript shows a `‹ 2/2 ›` navigator whose arrows switch between the threads. Opening a session by id follows the most recently updated thread at every branch point, so a link to the root lands where you last worked; a thread picked in the navigator opens as picked. Deleting a thread retracts it from the parent's file, and a branch point left with a single thread disappears, so the navigator never points at a bundle that is gone.
-
-![Branch navigator](../assets/screenshot-fullhd-branches.png)
-*The `‹ 2/2 ›` navigator under an edited user message.*
-
-`GET /coddy/sessions/{id}/branches` returns the branch points a session sees, its own and the sibling view inherited from its parent ([Web UI](../surfaces/web-ui.md#message-editing-and-conversation-branches)). Child sessions of subagents cannot be forked.
+`POST /coddy/sessions/{id}/rewind` is refused with **409** while a turn is in flight, and a subagent child session is read-only for it as for everything else ([Web UI](../surfaces/web-ui.md#message-editing-and-history-rewind)).
 
 ## The todo checklist
 
@@ -108,7 +101,7 @@ A subagent run is a child session: a real bundle under `<parent>/subagents/<chil
 
 ## Deleting a session
 
-The trash icon on a History row, after one confirmation, and `DELETE /coddy/sessions/{id}` remove the session tree: the session plus every child it spawned, their background tasks stopped first, the bundles removed deepest first. A deleted branch is retracted from the `branches.json` of the session it forked from. A running turn is cancelled and awaited before anything is removed. There is no delete verb on the command line; deleting the directory by hand is equivalent for a session no process holds.
+The trash icon on a History row, after one confirmation, and `DELETE /coddy/sessions/{id}` remove the session tree: the session plus every child it spawned, their background tasks stopped first, the bundles removed deepest first. A running turn is cancelled and awaited before anything is removed. There is no delete verb on the command line; deleting the directory by hand is equivalent for a session no process holds.
 
 ## The sessions CLI
 
@@ -121,5 +114,5 @@ coddy sessions export <session-id> [--format md|html|json|jsonl] [--out <path>] 
 
 ## Testing
 
-- Executable specs in `features/`: `acp_session_integration.feature` (a reopened bundle replays its transcript after the `session/new` response; harness `internal/session/bdd_acp_session_test.go`), `session_branch_delete.feature` (a deleted branch is retracted from its parent; `external/httpserver/bdd_branch_delete_test.go`), `session_export.feature` and `session_export_cli.feature` ([Session export](session-export.md)).
-- Unit tests: `internal/session/filesystem_test.go` (the bundle layout and listing), `internal/session/branches_test.go` (fork slicing and `branches.json` bookkeeping), `external/cli/continue_test.go` (`-c` resolution), and in the SPA `external/ui/src/ui/chat/BranchNavigator.test.tsx`, `branchInject.test.ts` and `resolveLatestLeaf.test.ts`.
+- Executable specs in `features/`: `acp_session_integration.feature` (a reopened bundle replays its transcript after the `session/new` response; harness `internal/session/bdd_acp_session_test.go`), `session_rewind.feature` (the transcript is truncated at the edited message; `external/httpserver/bdd_rewind_test.go`), `session_export.feature` and `session_export_cli.feature` ([Session export](session-export.md)).
+- Unit tests: `internal/session/filesystem_test.go` (the bundle layout and listing), `internal/session/rewind_test.go` (in-place truncation and artifact cleanup), `external/cli/continue_test.go` (`-c` resolution), and in the SPA `external/ui/src/ui/messages/userMsgIndices.test.ts` (the user-message index an edit or a rewind names, a wake counting as a turn).
