@@ -996,6 +996,8 @@ export const messagesRu: Record<string, string> = {
   "composer.queueRemove": "Убрать из очереди",
   "composer.queueFull":
     "Очередь заполнена: дождитесь, пока агент прочитает то, что уже стоит.",
+  "composer.attachReadFailed":
+    "Не удалось прочитать вложенный файл {name}, сообщение не отправлено ({reason}).",
   "composer.queueFailed": "Не удалось поставить сообщение в очередь.",
   "composer.send": "Отправить",
   "composer.stopGeneration": "Остановить генерацию",
