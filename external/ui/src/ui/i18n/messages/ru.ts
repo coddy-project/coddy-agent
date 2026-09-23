@@ -126,6 +126,7 @@ export const messagesRu: Record<string, string> = {
   "settings.providers.modelListed": "{id} уже в моделях",
   "settings.providers.modelNotAdvertised":
     "{id} больше не отдаётся провайдером",
+  "settings.providers.removeModel": "Убрать {id} из моделей",
   "settings.providers.contextWindow": "Контекстное окно: {tokens}",
   "settings.reasoning.levelsFallback": "Уровни рассуждений",
   "settings.reasoning.fetch": "Получить уровни ризонинга",

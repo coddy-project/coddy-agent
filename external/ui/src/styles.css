@@ -8204,8 +8204,25 @@ html:not([data-theme="light"]) .context-usage-note--error {
   cursor: default;
 }
 
+/* The provider type row carries the usage-panel switch to the right of the
+   combobox for the provider types that have a usage source. */
+.settings-type-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-type-row > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.settings-type-row > .settings-switch-field {
+  flex: 0 0 auto;
+}
+
 /* A model the config lists but the provider no longer advertises: amber warn
-   row under the fetched list, no add control. */
+   row under the fetched list, with a minus to drop it from logical models. */
 .provider-model-row.is-stale .provider-model-id,
 .provider-model-stale-icon {
   color: color-mix(in srgb, #eab308 85%, var(--text));
@@ -8214,6 +8231,10 @@ html:not([data-theme="light"]) .context-usage-note--error {
 .provider-model-stale-icon {
   display: inline-flex;
   flex: 0 0 auto;
+}
+
+.provider-model-remove {
+  color: color-mix(in srgb, #eab308 85%, var(--text));
 }
 
 .provider-models-error {

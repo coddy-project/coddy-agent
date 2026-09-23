@@ -130,6 +130,7 @@ export const messagesEn: Record<string, string> = {
   "settings.providers.modelListed": "{id} is already in logical models",
   "settings.providers.modelNotAdvertised":
     "{id} is not advertised by the provider anymore",
+  "settings.providers.removeModel": "Remove {id} from logical models",
   "settings.providers.contextWindow": "Context window: {tokens}",
   "settings.reasoning.levelsFallback": "Reasoning levels",
   "settings.reasoning.fetch": "Fetch reasoning levels",

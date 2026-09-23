@@ -1,6 +1,8 @@
 import { AppearanceThemePicker } from "../theme/AppearanceModal";
 import { applyModelsChange } from "./applyModelsChange";
 import { CodexAuthField } from "./CodexAuthField";
+import { Combobox } from "./Combobox";
+import { FieldHint } from "./FieldHint";
 import { NeuralDeepAuthField } from "./NeuralDeepAuthField";
 import { ModelField } from "./ModelField";
 import { ModelPicker } from "./ModelPicker";
@@ -20,6 +22,7 @@ import { SettingsArraySection } from "./SettingsArraySection";
 import { SessionsManager } from "../sessions/SessionsManager";
 import { SkillsSection } from "./SkillsSection";
 import { SubagentsSection } from "./SubagentsSection";
+import { SwitchField } from "./SwitchField";
 import type { SectionDescriptor } from "./settingsSections";
 import { useT } from "../i18n/I18nProvider";
 
@@ -52,6 +55,65 @@ function matchNeuralDeepAPIBase(value: unknown): string {
 }
 
 type FieldOverrideContext = Parameters<FieldOverride>[0];
+
+// Provider types with an account-usage source server-side
+// (internal/session/provider_usage_sources.go). Only they get the
+// usage_limits_panel switch, sitting beside the type picker.
+const USAGE_PANEL_PROVIDER_TYPES = new Set(["neuraldeep", "codex", "devin"]);
+
+// ProviderTypeField renders the type enum control like any enum field, plus
+// the usage-panel switch on the right of it when the picked type has a usage
+// source (the usage_limits_panel key itself is suppressed as a standalone
+// field). The switch writes the sibling key through the override's setField.
+function ProviderTypeField(props: { ctx: FieldOverrideContext }) {
+  const { schema, value, onChange, parentObj, setField } = props.ctx;
+  const label = schemaFieldLabel("providers", "type", schema.title, "type");
+  const desc = schemaFieldDesc("providers", "type", schema.description);
+  const fallback = defaultForSchema(schema);
+  const v =
+    value === undefined || value === null || value === ""
+      ? fallback === undefined || fallback === null
+        ? ""
+        : String(fallback)
+      : String(value);
+  const usageLabel = schemaFieldLabel(
+    "providers",
+    "usage_limits_panel",
+    undefined,
+    "usage_limits_panel",
+  );
+  const usageDesc = schemaFieldDesc("providers", "usage_limits_panel", "");
+  return (
+    <div className="settings-row">
+      <span className="settings-label">
+        {label}
+        {desc ? <FieldHint text={desc} /> : null}
+      </span>
+      <div className="settings-type-row">
+        <Combobox
+          value={v}
+          ariaLabel={label}
+          options={(schema.enum ?? []).map((opt) => ({
+            value: String(opt),
+          }))}
+          onChange={(raw) => {
+            const match = schema.enum?.find((x) => String(x) === raw);
+            onChange(match !== undefined ? match : raw);
+          }}
+        />
+        {USAGE_PANEL_PROVIDER_TYPES.has(v) ? (
+          <SwitchField
+            checked={parentObj?.usage_limits_panel !== false}
+            onChange={(nv) => setField?.("usage_limits_panel", nv)}
+            label={usageLabel}
+            description={usageDesc || undefined}
+            dataTestId="provider-usage-limits-panel"
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 function asObject(v: unknown): Record<string, unknown> {
   return v && typeof v === "object" && !Array.isArray(v)
@@ -93,10 +155,10 @@ function NeuralDeepAPIBaseField(props: { ctx: FieldOverrideContext }) {
   // note below explains why the stored value is not it.
   return (
     <div className="settings-row">
-      <span className="settings-label">{label}</span>
-      <p className="settings-field-desc">
-        {t("neuralDeepApiBase.description")}
-      </p>
+      <span className="settings-label">
+        {label}
+        <FieldHint text={t("neuralDeepApiBase.description")} />
+      </span>
       <select
         className="settings-input"
         value={matched || NEURALDEEP_DEFAULT_API_BASE}
@@ -203,6 +265,14 @@ function gatewaysFieldOverride(ctx: FieldOverrideContext) {
 function providerFieldOverride(ctx: FieldOverrideContext) {
   if (ctx.path === "proxy") {
     return providerProxyOverride(ctx);
+  }
+  if (ctx.path === "type") {
+    return <ProviderTypeField ctx={ctx} />;
+  }
+  if (ctx.path === "usage_limits_panel") {
+    // Not a standalone field - the "type" row carries it for the provider
+    // types that have a usage source.
+    return false;
   }
   const providerType =
     ctx.parentObj?.type === undefined || ctx.parentObj.type === null
@@ -466,6 +536,16 @@ export function SettingsSection(props: {
                         ...asArray(doc.models),
                         { model: id },
                       ]),
+                    );
+                  }}
+                  onRemoveModel={(id) => {
+                    setDoc(
+                      applyModelsChange(
+                        doc,
+                        asArray(doc.models).filter(
+                          (m) => asObject(m).model !== id,
+                        ),
+                      ),
                     );
                   }}
                 />

@@ -1187,3 +1187,33 @@ test("the provider edit form fetches advertised models and adds one to logical m
   const models = latest.models as { model: string }[] | undefined;
   expect(models?.[0]?.model).toBe("demo/m1");
 });
+
+test("the usage-panel switch rides beside the type picker for a provider with a usage source", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ connected: false, source: "none", items: [] }),
+    })),
+  );
+  render(<Harness />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  expect(
+    await screen.findByTestId("provider-usage-limits-panel"),
+  ).toBeTruthy();
+});
+
+test("a provider type without a usage source gets no usage-panel switch", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ connected: false, source: "none", items: [] }),
+    })),
+  );
+  render(<Harness provider={{ name: "x", type: "openai" }} />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  // The type picker still renders; only the usage switch is absent.
+  expect(await screen.findByText("Provider type")).toBeTruthy();
+  expect(screen.queryByTestId("provider-usage-limits-panel")).toBeNull();
+});

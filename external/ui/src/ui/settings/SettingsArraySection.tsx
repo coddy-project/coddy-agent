@@ -106,13 +106,13 @@ export function SettingsArraySection(props: {
           fieldOverride={fieldOverride}
           i18nDomain={i18nDomain}
           advancedPaths={props.advancedPaths}
+          afterFields={props.itemExtra?.(item, index)}
           onChange={(nv) => {
             const next = [...arr];
             next[index] = nv;
             onChange(next);
           }}
         />
-        {props.itemExtra?.(item, index)}
       </div>
     );
   }

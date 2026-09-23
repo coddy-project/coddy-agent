@@ -124,6 +124,25 @@ test("an id the document lists but the provider does not advertise is a warn row
   expect(screen.queryByTestId("provider-model-stale-x")).toBeNull();
 });
 
+test("a stale row's minus removes it from the document models", async () => {
+  stubModels([{ id: "m1" }]);
+  const removed: string[] = [];
+  render(
+    <ProviderModelsFetch
+      provider={{ name: "demo", type: "openai" }}
+      existingModels={["demo/m1", "demo/old-id"]}
+      onAddModel={() => {}}
+      onRemoveModel={(id) => removed.push(id)}
+    />,
+  );
+
+  fireEvent.click(screen.getByTestId("provider-fetch-models"));
+
+  const btn = await screen.findByTestId("provider-model-remove-old-id");
+  fireEvent.click(btn);
+  expect(removed).toEqual(["demo/old-id"]);
+});
+
 test("the add control appends provider/id to the logical models", async () => {
   stubModels([{ id: "m1" }]);
   const onAddModel = vi.fn();

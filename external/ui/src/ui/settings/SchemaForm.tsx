@@ -45,6 +45,9 @@ export type FieldOverride = (ctx: {
   value: unknown;
   onChange: (v: unknown) => void;
   parentObj?: Record<string, unknown> | undefined;
+  /** Writes another key of the same parent object (the provider "type" row
+   * uses it for the usage-panel switch sitting beside it). */
+  setField?: ((key: string, v: unknown) => void) | undefined;
 }) => ReactNode | null;
 
 export type JsonSchema = {
@@ -149,6 +152,10 @@ function SchemaField(props: {
   value: unknown;
   onChange: (v: unknown) => void;
   parentObj?: Record<string, unknown> | undefined;
+  /** Writes any key of the parent object this field belongs to (overrides
+   * that pair a sibling control with their own field, like the provider
+   * type row carrying the usage-panel switch). */
+  setField?: ((key: string, v: unknown) => void) | undefined;
   path?: string | undefined;
   fieldOverride?: FieldOverride | undefined;
   /** Settings section id ("tools", "system.logger") selecting the dictionary domain. */
@@ -167,6 +174,7 @@ function SchemaField(props: {
     value,
     onChange,
     parentObj,
+    setField,
     fieldOverride,
     i18nDomain,
     i18nInheritOnly,
@@ -188,6 +196,7 @@ function SchemaField(props: {
       value,
       onChange,
       parentObj,
+      setField,
     });
     if (override != null) {
       return <>{override}</>;
@@ -231,6 +240,7 @@ function SchemaField(props: {
               fieldOverride={fieldOverride}
               i18nDomain={i18nDomain}
               onChange={(nv) => onChange({ ...obj, [k]: nv })}
+              setField={(key, nv) => onChange({ ...obj, [key]: nv })}
             />
           ))}
         </div>
@@ -442,6 +452,10 @@ export function SchemaForm(props: {
    * hides its credential-helper / proxy / timeout plumbing there).
    */
   advancedPaths?: string[] | undefined;
+  /** Extra content rendered after the ordinary fields and before the advanced
+   * fold (the providers form puts its advertised-models fieldset there, so
+   * the fold stays the last thing in the form). */
+  afterFields?: ReactNode | undefined;
 }) {
   const { schema, value, onChange, fieldOverride, i18nDomain } = props;
   const { t } = useT();
@@ -468,11 +482,13 @@ export function SchemaForm(props: {
       fieldOverride={fieldOverride}
       i18nDomain={i18nDomain}
       onChange={(nv) => onChange({ ...value, [k]: nv })}
+      setField={(key, nv) => onChange({ ...value, [key]: nv })}
     />
   );
   return (
     <div className="settings-schema-root">
       {entries.filter(([k]) => !advancedSet.has(k)).map(renderEntry)}
+      {props.afterFields}
       {advancedSet.size > 0 ? (
         <AdvancedDetails label={t("settings.advancedSettings")}>
           {entries.filter(([k]) => advancedSet.has(k)).map(renderEntry)}

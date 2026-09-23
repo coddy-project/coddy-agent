@@ -59,6 +59,9 @@ export function ProviderModelsFetch(props: {
   provider: ProviderRow;
   existingModels: string[];
   onAddModel: (id: string) => void;
+  /** Removes an already-listed model from Logical models (the warn rows for
+   * ids the provider no longer advertises offer it). */
+  onRemoveModel?: ((id: string) => void) | undefined;
 }) {
   const { provider, existingModels, onAddModel } = props;
   const { t } = useT();
@@ -169,6 +172,20 @@ export function ProviderModelsFetch(props: {
               <span className="provider-model-name">
                 {t("settings.providers.modelNotAdvertised", { id: full })}
               </span>
+              {props.onRemoveModel ? (
+                <button
+                  type="button"
+                  className="provider-model-add provider-model-remove"
+                  title={t("settings.providers.removeModel", { id: full })}
+                  aria-label={t("settings.providers.removeModel", {
+                    id: full,
+                  })}
+                  data-testid={`provider-model-remove-${full.slice(prefix.length)}`}
+                  onClick={() => props.onRemoveModel?.(full)}
+                >
+                  −
+                </button>
+              ) : null}
             </li>
           ))}
         </ul>

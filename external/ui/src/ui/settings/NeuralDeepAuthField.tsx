@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { FieldHint } from "./FieldHint";
 import { useT } from "../i18n/I18nProvider";
 import { translate } from "../i18n/i18n";
 
@@ -219,8 +220,10 @@ export function NeuralDeepAuthField(props: {
 
   return (
     <div className="settings-row" data-testid="neuraldeep-auth-field">
-      <span className="settings-label">{t("neuralDeepAuth.fieldLabel")}</span>
-      <p className="settings-field-desc">{t("neuralDeepAuth.description")}</p>
+      <span className="settings-label">
+        {t("neuralDeepAuth.fieldLabel")}
+        <FieldHint text={t("neuralDeepAuth.description")} />
+      </span>
       {status.connected ? (
         <p className="settings-muted codex-auth-status">
           {t("neuralDeepAuth.connected", { masked: status.masked || "" })}
