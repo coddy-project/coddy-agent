@@ -32,6 +32,9 @@ type turnDone struct {
 	sessionID string
 	stop      string
 	err       error
+	// notice says why a turn stopped before its answer (its step limit,
+	// the model's output limit).
+	notice string
 	// woken marks the turn a finished background task started: a busy
 	// refusal of it is the waker's to retry, not a failure to report.
 	woken bool
@@ -816,12 +819,12 @@ func (a *App) startTurnWorker(params acp.SessionPromptParams, opts *session.Prom
 	go func() {
 		defer a.workers.Done()
 		res, err := a.mgr.HandleSessionPromptWithSender(a.workCtx, params, a.Sender(), opts)
-		stop := ""
+		stop, notice := "", ""
 		if res != nil {
-			stop = string(res.StopReason)
+			stop, notice = string(res.StopReason), res.StopNotice
 		}
 		select {
-		case a.updatesCh <- updateMsg{sessionID: sessionID, update: turnDone{sessionID: sessionID, stop: stop, err: err, woken: woken}}:
+		case a.updatesCh <- updateMsg{sessionID: sessionID, update: turnDone{sessionID: sessionID, stop: stop, err: err, notice: notice, woken: woken}}:
 		case <-a.closed:
 		}
 		if done != nil {

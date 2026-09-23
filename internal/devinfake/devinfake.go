@@ -321,6 +321,12 @@ func (s *Server) serveChat(w http.ResponseWriter, r *http.Request) {
 		connectError(w, http.StatusUnauthorized, "unauthenticated", "invalid credentials")
 		return
 	}
+	// The real server parses proto3 strings strictly: one that is not valid
+	// UTF-8 fails the whole request with this opaque answer.
+	if !req.validUTF8() {
+		connectError(w, http.StatusBadRequest, "invalid_argument", "an internal error occurred (trace ID: devinfake)")
+		return
+	}
 	s.mu.Lock()
 	s.chats = append(s.chats, req)
 	n := len(s.chats)
@@ -401,6 +407,24 @@ func pieces(s string) []string {
 		s = s[n:]
 	}
 	return out
+}
+
+// validUTF8 reports whether every string field the stand decoded is valid
+// UTF-8.
+func (r ChatRequest) validUTF8() bool {
+	strs := append([]string{r.System, r.ModelUID}, r.Tools...)
+	for _, p := range r.Prompts {
+		strs = append(strs, p.Text, p.ToolCallID, p.Thinking, p.Signature, p.SignatureType)
+		for _, tc := range p.ToolCalls {
+			strs = append(strs, tc.ID, tc.Name, tc.Args)
+		}
+	}
+	for _, s := range strs {
+		if !utf8.ValidString(s) {
+			return false
+		}
+	}
+	return true
 }
 
 func decodeChat(payload []byte) ChatRequest {

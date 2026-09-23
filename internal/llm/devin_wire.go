@@ -17,6 +17,7 @@ import (
 	"math"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -40,11 +41,16 @@ func (w *pbWriter) tag(field, wire int) {
 	w.varint(uint64(field)<<3 | uint64(wire))
 }
 
-// str writes a string field; an empty string is omitted.
+// str writes a string field; an empty string is omitted. Proto3 strings
+// must be valid UTF-8 and the API server rejects the whole request with an
+// opaque invalid_argument otherwise, so bytes that are not UTF-8 (a binary
+// file or a legacy-encoded one read by a tool) become U+FFFD, the same
+// replacement encoding/json makes for the JSON providers.
 func (w *pbWriter) str(field int, s string) {
 	if s == "" {
 		return
 	}
+	s = strings.ToValidUTF8(s, "\uFFFD")
 	w.tag(field, pbBytes)
 	w.varint(uint64(len(s)))
 	w.buf = append(w.buf, s...)

@@ -208,5 +208,10 @@ func PrintPrompt(ctx context.Context, mgr backend, opts PrintOptions) error {
 	if result != nil && result.StopReason == acp.StopReasonCancelled {
 		return fmt.Errorf("turn cancelled")
 	}
+	if result != nil && result.StopNotice != "" {
+		// The answer on stdout stays clean for a pipe; why the turn stopped
+		// short goes where errors go.
+		_, _ = fmt.Fprintln(opts.ErrOut, result.StopNotice)
+	}
 	return nil
 }

@@ -2949,11 +2949,14 @@ func TestSetTitlePinnedIfUnsetHasOneWinner(t *testing.T) {
 // --- stalled streams and interrupted waits ---------------------------------
 
 // A stream that goes quiet after its first deltas is cut by the idle guard:
-// the text the user already watched stream in is persisted like a
-// truncation, and the turn ends with the stall named, not with a silent
-// wait for a byte that never comes.
+// the text the user already watched stream in is persisted, the step runs
+// again after a pause like any failure of the provider (issue #246), and a
+// lane that stalls every time ends the turn with the stall named, not with a
+// silent wait for a byte that never comes.
 func TestStalledStreamKeepsPartialAnswerAndReportsTheStall(t *testing.T) {
+	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
 		flusher, _ := w.(http.Flusher)
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
@@ -2967,7 +2970,7 @@ func TestStalledStreamKeepsPartialAnswerAndReportsTheStall(t *testing.T) {
 	cfg := &config.Config{
 		Providers: []config.ProviderConfig{{Name: "stub", Type: "openai", APIKey: "test", APIBase: srv.URL}},
 		Models:    []config.ModelEntry{{Model: "stub/model", MaxTokens: 100}},
-		Agent:     config.Agent{Model: "stub/model", MaxTurns: 3, LLMStreamIdleTimeoutMS: &idle},
+		Agent:     config.Agent{Model: "stub/model", MaxTurns: 5, LLMStreamIdleTimeoutMS: &idle, LLMRetryBaseMS: 1},
 	}
 	st := &session.State{ID: "sess_stall", CWD: t.TempDir(), Mode: session.ModeAgent, SessionDir: t.TempDir()}
 	sender := &loopGuardSender{}
@@ -2990,6 +2993,9 @@ func TestStalledStreamKeepsPartialAnswerAndReportsTheStall(t *testing.T) {
 	last := msgs[len(msgs)-1]
 	if last.Role != llm.RoleAssistant || last.Content != "Hello fr" {
 		t.Fatalf("the partial answer must be persisted, last message = %+v", last)
+	}
+	if got := calls.Load(); got != 1+maxProviderRecoveries {
+		t.Fatalf("the stalling lane was called %d times, want the call and %d recoveries", got, maxProviderRecoveries)
 	}
 }
 

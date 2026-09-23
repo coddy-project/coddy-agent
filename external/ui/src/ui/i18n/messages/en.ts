@@ -217,10 +217,7 @@ export const messagesEn: Record<string, string> = {
     "Logical model id from the models list used when the client omits a model.",
   "settings.schema.agent.max_turns.label": "Max turns",
   "settings.schema.agent.max_turns.desc":
-    "Hard cap on ReAct iterations (LLM calls plus tool rounds) for one user request.",
-  "settings.schema.agent.max_tokens_per_turn.label": "Max tokens per turn",
-  "settings.schema.agent.max_tokens_per_turn.desc":
-    "Upper bound on total tokens (prompt + completion) the model may use in one agent step.",
+    "Cap on ReAct iterations (LLM calls plus tool rounds) for one user request; 0 means no limit.",
   "settings.schema.agent.llm_retry_max.label": "LLM retry max",
   "settings.schema.agent.llm_retry_max.desc":
     "Extra attempts shared by transport retries, empty-answer recovery and first-token re-issues until tool progress or a new follow-up. 0 disables these retries. Loop guards, Stop hooks, fallback models and quota-reset waits have separate limits.",

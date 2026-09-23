@@ -112,10 +112,12 @@ models:
 
 The provider speaks the protocol the Devin CLI and Devin Desktop use with the Devin API server: Connect-RPC with protobuf messages. The session token is exchanged for a user JWT (`GetUserJwt`, cached until shortly before it expires), the catalog comes from `GetCliModelConfigs` (cached for thirty minutes per account), and a turn is one `GetChatMessage` server stream of gzip-compressed frames carrying text, thinking, tool-call fragments, usage and the stop reason. Coddy's system prompt travels as the request's system prompt, its tools as tool definitions, and tool results as tool messages. Usage counts the prompt cache: the reported input adds the uncached part, the cache write and the cache read, and the cache read is reported as cached input.
 
+Protobuf strings must be valid UTF-8, and the server refuses a request that breaks the rule with `HTTP 400 invalid_argument: an internal error occurred`, the same answer for every cause. Coddy therefore replaces every byte sequence that is not UTF-8 with U+FFFD before it is sent, wherever it comes from: a `grep` match or a command's output from a file in a legacy encoding, or a non-image attachment. The JSON providers get the same replacement from the JSON encoder.
+
 The protocol is not published by Cognition. Coddy follows what the official clients send, so a change on Devin's side can break the provider until Coddy follows it.
 
 A stream the server ends with an error before any text reached the caller is retried under the usual rules (a rate limit, `resource_exhausted`, counts as HTTP 429); once text has streamed it is not, so no delta is shown twice. A stream cut before its end frame keeps the text it delivered and drops the tool calls of the unfinished answer.
 
 ## Stands and tests
 
-`CODDY_DEVIN_API_SERVER_URL`, `CODDY_DEVIN_WEBAPP_URL` and `CODDY_DEVIN_API_URL` move the API server, the sign-in page and the code exchange for the whole process; `internal/devinfake` is the offline stand that plays all three, and `features/devin_provider.feature` drives the sign-in, the Devin CLI login and a full agent turn against it with no account and no network.
+`CODDY_DEVIN_API_SERVER_URL`, `CODDY_DEVIN_WEBAPP_URL` and `CODDY_DEVIN_API_URL` move the API server, the sign-in page and the code exchange for the whole process; `internal/devinfake` is the offline stand that plays all three, and `features/devin_provider.feature` drives the sign-in, the Devin CLI login, a full agent turn and a tool result that is not UTF-8 against it with no account and no network.

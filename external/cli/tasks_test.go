@@ -680,3 +680,16 @@ func TestSlashTasksOpensTheOverlayReadsOutputAndStops(t *testing.T) {
 		t.Fatal("the overlay stayed open after esc")
 	}
 }
+
+// A turn that stopped at its step limit says so in the transcript (issue
+// #255), where it used to end without a word.
+func TestAStopNoticeIsShownWhenTheTurnEnds(t *testing.T) {
+	a := newTestApp(t)
+	a.sessionID = "sess_here"
+	a.turnActive, a.turnSessionID = true, "sess_here"
+	notice := "Stopped after 3 steps, the step limit set by agent.max_turns."
+	a.applyLoopMessage(updateMsg{sessionID: "sess_here", update: turnDone{sessionID: "sess_here", stop: "max_turns", notice: notice}})
+	if got := transcriptText(a); !strings.Contains(got, notice) {
+		t.Fatalf("the stop notice is not in the transcript:\n%s", got)
+	}
+}

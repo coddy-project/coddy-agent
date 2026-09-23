@@ -1109,6 +1109,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	MarkTurnRan(turnCtx)
 	stopReason, err := m.runner(turnCtx, state, hydrated, sender)
 	if err != nil {
+		state.TakeTurnStopNotice()
 		if !errors.Is(err, context.Canceled) {
 			state.AppendUILogError(CountUserTurns(state.GetMessages()), err.Error())
 		}
@@ -1125,8 +1126,9 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	//
 	// Only a turn that ended with an answer continues. A cancelled turn is a
 	// Stop, and a Stop drops what was waiting rather than answering it; a turn
-	// that stopped for any other reason (its turn cap, a refusal, a hook) has
-	// already said why, and running it again would bury that. The run count is
+	// that stopped for any other reason (its turn cap, a refusal, a hook) says
+	// why (the stop notice below, or its error), and running it again would
+	// bury that. The run count is
 	// bounded for the same reason the ReAct loop is: each continuation is a
 	// fresh Agent.Run with its own budget, so without a cap one admission
 	// could hold the session's turn lock indefinitely.
@@ -1143,6 +1145,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		}
 		stopReason, err = m.runner(turnCtx, state, state.ResolveQueuedMentions(QueuedPromptBlocks(queued)), sender)
 		if err != nil {
+			state.TakeTurnStopNotice()
 			if !errors.Is(err, context.Canceled) {
 				state.AppendUILogError(CountUserTurns(state.GetMessages()), err.Error())
 			}
@@ -1150,7 +1153,15 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		}
 	}
 
-	return &acp.SessionPromptResult{StopReason: acp.StopReason(stopReason)}, nil
+	res := &acp.SessionPromptResult{StopReason: acp.StopReason(stopReason)}
+	// A turn that stopped before its answer - its step limit, the model's
+	// output limit - says why, on every surface (issue #255): the notice is
+	// kept in the UI log and handed to the caller.
+	if notice := state.TakeTurnStopNotice(); notice != "" {
+		state.AppendUILogNotice(CountUserTurns(state.GetMessages()), notice)
+		res.StopNotice = notice
+	}
+	return res, nil
 }
 
 // maxQueuedFollowUpRuns bounds how many times one admitted turn is continued by

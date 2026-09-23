@@ -664,14 +664,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			s.log.Error("session prompt", "error", err)
 			// Watchers hear about the failure either way; only the caller's own answer
 			// differs between the two response shapes.
-			_ = bridge.SendError(err.Error())
+			_ = bridge.SendErrorFor(err)
 			_ = bridge.FinishStream()
 			if !req.Stream {
-				code := http.StatusInternalServerError
-				if errors.Is(err, session.ErrSessionTurnBusy) || isSubagentReadOnly(err) {
-					code = http.StatusConflict
-				}
-				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), code)
+				writeErrorReply(w, err)
 			}
 			return
 		}
@@ -680,6 +676,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			// Remote clients (internal/remote) recover the ACP stop reason
 			// from here; [DONE] alone cannot carry it.
 			meta["stop_reason"] = string(promptRes.StopReason)
+		}
+		if promptRes != nil && promptRes.StopNotice != "" {
+			// Why a turn stopped before its answer (issue #255), for a
+			// client that shows no transcript log of its own.
+			meta["stop_notice"] = promptRes.StopNotice
 		}
 		// Unconditional: for a relay sender this terminates the watched stream and writes
 		// nothing to w, so the JSON body below is unchanged.
@@ -752,9 +753,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		s.log.Error("direct completion", "error", err)
 		if req.Stream {
-			_ = bridge.SendError(err.Error())
+			_ = bridge.SendErrorFor(err)
 		} else {
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
+			writeErrorReply(w, err)
 		}
 		return
 	}
@@ -1237,14 +1238,10 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		stopKeepalive()
 		if err != nil {
 			s.log.Error("responses prompt", "error", err)
-			_ = bridge.SendError(err.Error())
+			_ = bridge.SendErrorFor(err)
 			_ = bridge.FinishStream()
 			if !body.Stream {
-				code := http.StatusInternalServerError
-				if errors.Is(err, session.ErrSessionTurnBusy) || isSubagentReadOnly(err) {
-					code = http.StatusConflict
-				}
-				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), code)
+				writeErrorReply(w, err)
 			}
 			return
 		}
@@ -1253,6 +1250,11 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			// Remote clients (internal/remote) recover the ACP stop reason
 			// from here; [DONE] alone cannot carry it.
 			meta["stop_reason"] = string(promptRes.StopReason)
+		}
+		if promptRes != nil && promptRes.StopNotice != "" {
+			// Why a turn stopped before its answer (issue #255), for a
+			// client that shows no transcript log of its own.
+			meta["stop_notice"] = promptRes.StopNotice
 		}
 		if promptRes != nil && promptRes.SettingsNotice != "" {
 			// The input was only settings commands: no turn ran, the text of
@@ -1315,9 +1317,9 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		s.log.Error("responses direct completion", "error", err)
 		if body.Stream {
-			_ = bridge.SendError(err.Error())
+			_ = bridge.SendErrorFor(err)
 		} else {
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
+			writeErrorReply(w, err)
 		}
 		return
 	}

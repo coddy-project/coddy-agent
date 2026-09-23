@@ -28,6 +28,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/openai/openai-go"
 	"github.com/tidwall/gjson"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -4948,5 +4949,66 @@ func TestTestsDoNotResolveTheOperatorHome(t *testing.T) {
 	home, err := filepath.EvalSymlinks(cfg.Paths.Home)
 	if err != nil || home != want || !strings.HasPrefix(home, tmp+string(filepath.Separator)) {
 		t.Fatalf("config home = %q (%v), want the run's own %q under %q", cfg.Paths.Home, err, want, tmp)
+	}
+}
+
+// upstreamHTTPError is the error the openai provider returns when the model's
+// server answers a status, headers included.
+func upstreamHTTPError(status int, hdr map[string]string) error {
+	h := make(http.Header)
+	for k, v := range hdr {
+		h.Set(k, v)
+	}
+	req := httptest.NewRequest(http.MethodPost, "https://api.example.test/v1/chat/completions", nil)
+	return fmt.Errorf("LLM error: provider \"local\": %w", &openai.Error{StatusCode: status, Request: req, Response: &http.Response{StatusCode: status, Header: h}})
+}
+
+// TestReplyForErrorMapsProviderStatus: every failure the provider answered
+// with a status keeps what it means for a client (issue #322), and only
+// Coddy's own failures stay 500.
+func TestReplyForErrorMapsProviderStatus(t *testing.T) {
+	cases := []struct {
+		name         string
+		err          error
+		status       int
+		upstream     int64
+		retryAfter   string
+		typeUpstream bool
+	}{
+		{"upstream 400", upstreamHTTPError(400, nil), 400, 400, "", true},
+		{"upstream 401", upstreamHTTPError(401, nil), 401, 401, "", true},
+		{"upstream 429 with a pause", upstreamHTTPError(429, map[string]string{"Retry-After": "7"}), 429, 429, "7", true},
+		{"usage limit Coddy did not wait for", &llm.QuotaResetError{Delay: 1500 * time.Millisecond, Cause: upstreamHTTPError(429, nil)}, 429, 429, "2", true},
+		{"upstream 503", upstreamHTTPError(503, nil), 502, 503, "", true},
+		{"upstream 503 with a pause", upstreamHTTPError(503, map[string]string{"Retry-After": "30"}), 502, 503, "30", true},
+		{"upstream 504", upstreamHTTPError(504, nil), 504, 504, "", true},
+		{"provider timeout", fmt.Errorf("LLM error: %w", context.DeadlineExceeded), 504, 0, "", true},
+		{"coddy's own failure", errors.New("save image parts failed"), 500, 0, "", false},
+		{"busy session", fmt.Errorf("prompt: %w", session.ErrSessionTurnBusy), 409, 0, "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			writeErrorReply(rec, c.err)
+			body := rec.Body.String()
+			if rec.Code != c.status {
+				t.Fatalf("status = %d, want %d: %s", rec.Code, c.status, body)
+			}
+			if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+				t.Fatalf("Content-Type = %q, want application/json", ct)
+			}
+			if got := rec.Header().Get("Retry-After"); got != c.retryAfter {
+				t.Fatalf("Retry-After = %q, want %q", got, c.retryAfter)
+			}
+			if got := gjson.Get(body, "error.upstream_status").Int(); got != c.upstream {
+				t.Fatalf("upstream_status = %d, want %d: %s", got, c.upstream, body)
+			}
+			if got := gjson.Get(body, "error.type").String() == "upstream_error"; got != c.typeUpstream {
+				t.Fatalf("type upstream_error = %v, want %v: %s", got, c.typeUpstream, body)
+			}
+			if gjson.Get(body, "error.message").String() != c.err.Error() {
+				t.Fatalf("message = %s, want the error's text", gjson.Get(body, "error.message").Raw)
+			}
+		})
 	}
 }

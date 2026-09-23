@@ -37,6 +37,62 @@ func TestReadFile(t *testing.T) {
 	}
 }
 
+// TestReadBinaryFileIsNotDumped: a binary file (a PNG screenshot) is not
+// returned as its raw bytes, which are no use to a model and are not UTF-8;
+// the read fails with the file's type and size instead.
+func TestReadBinaryFileIsNotDumped(t *testing.T) {
+	env := makeEnv(t)
+	png := append([]byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"), make([]byte, 64)...)
+	if err := os.WriteFile(filepath.Join(env.CWD, "shot.png"), png, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reg := tools.NewRegistry()
+	args, _ := json.Marshal(map[string]interface{}{"path": "shot.png"})
+	result, err := reg.Execute(context.Background(), "read", string(args), env)
+	if err == nil {
+		t.Fatalf("read of a binary file returned %q, want an error", result)
+	}
+	for _, want := range []string{"shot.png", "binary file", "image/png", "80 bytes"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+}
+
+// TestReadDecodesTextAndRefusesBinaries: a binary format the sniffer knows is
+// refused even with no NUL byte in its head, while text in other encodings
+// is decoded to UTF-8 - Latin-1, UTF-16 with a BOM, UTF-8 with a stray NUL -
+// and bytes no decoder identifies but with no NUL are returned as they are.
+func TestReadDecodesTextAndRefusesBinaries(t *testing.T) {
+	env := makeEnv(t)
+	cases := []struct {
+		name, body, want, wantErr string
+	}{
+		{name: "doc.pdf", body: "%PDF-1.4\n%\xe2\xe3\xcf\xd3\n1 0 obj\n<< /Type /Catalog >>\nendobj\n", wantErr: "application/pdf"},
+		{name: "latin1.txt", body: "caf\xe9 au lait\n", want: "café au lait\n"},
+		{name: "utf16.txt", body: "\xff\xfeh\x00i\x00\n\x00", want: "hi\n"},
+		{name: "nul.go", body: "const s = \"a\x00b\"\n", want: "const s = \"a\x00b\"\n"},
+		{name: "mixed.txt", body: "hello \xff\xfe world\n", want: "hello \xff\xfe world\n"},
+	}
+	reg := tools.NewRegistry()
+	for _, c := range cases {
+		if err := os.WriteFile(filepath.Join(env.CWD, c.name), []byte(c.body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		args, _ := json.Marshal(map[string]interface{}{"path": c.name})
+		result, err := reg.Execute(context.Background(), "read", string(args), env)
+		if c.wantErr != "" {
+			if err == nil || !strings.Contains(err.Error(), c.wantErr) {
+				t.Errorf("read %s = %q, %v; want an error naming %s", c.name, result, err, c.wantErr)
+			}
+			continue
+		}
+		if err != nil || result != c.want {
+			t.Errorf("read %s = %q, %v; want %q", c.name, result, err, c.want)
+		}
+	}
+}
+
 func TestReadFileLines(t *testing.T) {
 	env := makeEnv(t)
 	content := "line1\nline2\nline3\nline4\n"

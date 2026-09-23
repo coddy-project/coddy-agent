@@ -167,7 +167,7 @@ A top-level turn then waits for the reset, reports `Usage limit reached · resum
 
 **Symptom.** A turn ends with `LLM error: provider "<name>" (<address>): ...` and the message closes with `net/http: TLS handshake timeout`, `dial tcp ...: i/o timeout`, `connect: no route to host` or `connection reset by peer`.
 
-**Cause.** The connection to the provider did not come up, or was cut before any output arrived: a saturated or flapping link (a large download in a background task on the same machine is enough), a VPN that reconnects, a proxy that stalls. Such a request never reached the server, so Coddy retries it with a backoff that starts at `agent.llm_retry_base_ms` and doubles, each retry drawing one slot from the `agent.llm_retry_max` shared per-step budget (default 3). That budget is shared between transport retries, first-token re-issues, and consecutive no-answer recoveries for the same step; it resets when the model makes progress. The error reaches the turn only when every attempt failed. Two failures of the same family are not retried: a host name that does not resolve at all (`no such host`), which is a wrong `api_base` rather than a transient fault, and a stream cut after text was already shown, since a replay would show that text twice.
+**Cause.** The connection to the provider did not come up, or was cut before any output arrived: a saturated or flapping link (a large download in a background task on the same machine is enough), a VPN that reconnects, a proxy that stalls. Such a request never reached the server, so Coddy retries it with a backoff that starts at `agent.llm_retry_base_ms` and doubles, each retry drawing one slot from the `agent.llm_retry_max` shared per-step budget (default 3). That budget is shared between transport retries, first-token re-issues, and consecutive no-answer recoveries for the same step; it resets when the model makes progress. The error reaches the turn only when every attempt failed. Two failures of the same family are not retried this way: a host name that does not resolve at all (`no such host`), which is a wrong `api_base` rather than a transient fault, and a stream cut after text was already shown, since a replay would show that text twice. When the retries are spent, or the stream broke after text, the turn itself still goes on: see [A provider fails in the middle of a turn](#a-provider-fails-in-the-middle-of-a-turn).
 
 **Fix.** Check that the address in the error is the one you mean, then whether it answers from this machine:
 
@@ -207,7 +207,7 @@ Field reference: [`agent`](../reference/config.md#agent), [`providers`](../refer
 **Cause.** The provider took the request and stopped sending. Nothing on the wire says whether it is still working: a stuck worker behind a gateway, a proxy or a VPN tunnel that lost the far side without closing the connection, a request the gateway forgot. Coddy bounds that wait in three places:
 
 - the first-token guard, `agent.llm_first_token_timeout_ms` (90 s), cuts a streamed call that produced nothing and re-issues it once - the address usually stands for a group of deployments, and the next attempt lands on another member;
-- the stream idle guard, `agent.llm_stream_idle_timeout_ms` (5 min), cuts a streamed answer whose server sent nothing for that long after its first bytes, keeps what arrived and ends the turn with the stall named. It is retried only when no text had been shown yet;
+- the stream idle guard, `agent.llm_stream_idle_timeout_ms` (5 min), cuts a streamed answer whose server sent nothing for that long after its first bytes and keeps what arrived. The step then runs again after a pause, like any failure of the provider in the middle of a turn ([below](#a-provider-fails-in-the-middle-of-a-turn)), and the turn ends with the stall named only when that does not help either;
 - HTTP/2 liveness pings close a connection whose peer stops answering within about 45 s, and the request is repeated - that is what tells a dead tunnel apart from a slow model.
 
 Neither guard applies to a model configured with `stream: false`: its answer arrives in one piece, so the only bound on that call is `providers[].timeout_ms`, and a run killed from outside reports how long the model had been silent.
@@ -228,6 +228,35 @@ providers:
 With `-log-level debug` the console writes one `llm call finished` line per model call to its log (`logs/cli.log` under the Coddy home; `coddy serve` logs it where `logger.outputs` points), with the call's duration, the time to the first chunk and the chunk count, which is where a slow deployment and a dead one part ways.
 
 Field reference: [`agent`](../reference/config.md#agent), [`providers`](../reference/config.md#providers).
+
+## A provider fails in the middle of a turn
+
+**Symptom.** The answer stops mid-sentence, and the session log shows a notice such as `The provider failed mid-turn (... server error 500: litellm.MidStreamFallbackError ...). The turn went on after a 5s pause (recovery 1 of 2).` The turn then continues on its own. Before this, such a turn ended with the error and waited for the user to type "continue" ([issue #246](https://github.com/coddy-project/coddy-agent/issues/246)).
+
+**Cause.** The provider's lane failed, not the request: a 5xx from a proxy whose fallback also failed, a connection cut, a stream gone silent. The resilient wrapper retries a call only while nothing has reached the user, so a failure after the first words, or one that outlasts its backoff, reaches the turn. The turn treats it as a breaker:
+
+- the text the user already saw stays in the transcript, and the model is asked to go on from where it stopped rather than start over;
+- the pause before the first recovery is five times `agent.llm_retry_base_ms` (5 s by default) and four times longer before the second (20 s), or the pause the provider asked for in `Retry-After` when that is longer, at most 2 minutes;
+- after two recoveries in a row the breaker opens and the turn ends with the provider's error, and a call that succeeds closes it again;
+- a request the provider refused (a 4xx) is never repeated, a usage or rate limit (429) is left to the backoff and to [`wait_for_limit_reset`](#a-turn-stops-with-a-usage-limit), a Stop during the pause ends the turn as a stop (a deadline ends it with the provider's error), and `agent.llm_retry_max: 0` turns the recovery off together with every other retry.
+
+**Fix.** Nothing is needed for a lane that recovers in seconds. For one that keeps failing, check the provider's status, or put the model behind a gateway with healthier deployments. A longer outage is a reason to raise `agent.llm_retry_base_ms`, which stretches the pauses.
+
+## A turn stops before the task is done
+
+**Symptom.** The agent stops working with the task unfinished, and a notice under the last answer says why: `Stopped after 40 steps, the step limit set by agent.max_turns. ...`, or `The answer was cut off at the model's output limit (max_tokens). ...`. The console prints the same line, `coddy -p` writes it to stderr, and a Telegram chat receives it as a message of its own ([issue #255](https://github.com/coddy-project/coddy-agent/issues/255)).
+
+**Cause.** A limit ended the turn, not the model. `agent.max_turns` caps the ReAct steps of one turn. It is off by default (`0`), so this notice appears only when the configuration sets it; a subagent takes its limit from its definition's `max_turns`, then `subagents.max_turns`. `max_tokens` on a model caps one answer.
+
+**Fix.** Send a message to let the agent continue, or raise the limit that the notice names:
+
+```yaml
+agent:
+  max_turns: 0          # no step limit
+models:
+  - model: openai/gpt-5.6-terra
+    max_tokens: 32000
+```
 
 ## `coddy update` refuses to overwrite a packaged binary
 

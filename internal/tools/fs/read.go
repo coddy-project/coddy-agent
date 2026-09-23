@@ -1,13 +1,17 @@
 package fs
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/textenc"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
 
@@ -31,7 +35,7 @@ func ReadTool() *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "read",
-			Description: "Read a file as text, or list a directory's entries. For files, optional offset and limit select a 1-based line range (offset defaults to 1). For directories, list immediate children or recurse with recursive. Output is capped by tools.output_limits.read; if it is truncated, page with offset/limit. Read results are ephemeral: once you move on, an unmarked page collapses to a placeholder and is dropped as stale after you write to that file. Set keep:true (or call keep_result) to pin a page whose contents you will need later.",
+			Description: "Read a file as text, or list a directory's entries. Text in another encoding (UTF-16, a legacy code page) is converted to UTF-8; a binary file (an image, a PDF, an archive) is refused with its type and size instead of its bytes. For files, optional offset and limit select a 1-based line range (offset defaults to 1). For directories, list immediate children or recurse with recursive. Output is capped by tools.output_limits.read; if it is truncated, page with offset/limit. Read results are ephemeral: once you move on, an unmarked page collapses to a placeholder and is dropped as stale after you write to that file. Set keep:true (or call keep_result) to pin a page whose contents you will need later.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -103,7 +107,11 @@ func executeRead(_ context.Context, argsJSON string, env *tooling.Env) (string, 
 		return "", fmt.Errorf("read: %w", err)
 	}
 
-	content := string(data)
+	content, err := decodeText(data)
+	if err != nil {
+		return "", fmt.Errorf("read: %s %w (%s, %d bytes); read shows text files only",
+			args.Path, err, sniffKind(data), len(data))
+	}
 	startLine := args.Offset
 	if startLine < 1 {
 		startLine = 1
@@ -120,6 +128,48 @@ func executeRead(_ context.Context, argsJSON string, env *tooling.Env) (string, 
 	}
 
 	return content, nil
+}
+
+// binarySniffLen is how much of a file decodeText looks for a NUL byte in,
+// the same window git uses to tell binary from text.
+const binarySniffLen = 8000
+
+var (
+	errBinaryFile  = errors.New("is a binary file, not text")
+	errUndecodable = errors.New("is binary, or text in an encoding that could not be detected")
+)
+
+// decodeText returns a file's content as text. A signature the content
+// sniffer knows as something other than text (an image, a PDF, an archive) is
+// refused; the rest is decoded to UTF-8 the way mentions are (a BOM, UTF-16,
+// a legacy code page), so a PNG never reaches the model as pages of noise.
+// Content no decoder identifies is refused when it carries a NUL byte and
+// returned as it stands otherwise: the providers replace what is not UTF-8.
+func decodeText(data []byte) (string, error) {
+	if kind := sniffKind(data); !strings.HasPrefix(kind, "text/") && kind != "application/octet-stream" {
+		return "", errBinaryFile
+	}
+	text, _, err := textenc.DecodeToUTF8(data)
+	if err == nil {
+		return text, nil
+	}
+	head := data
+	if len(head) > binarySniffLen {
+		head = head[:binarySniffLen]
+	}
+	if bytes.IndexByte(head, 0) >= 0 {
+		return "", errUndecodable
+	}
+	return string(data), nil
+}
+
+// sniffKind names the sniffed content type of a file, without parameters.
+func sniffKind(data []byte) string {
+	kind := http.DetectContentType(data)
+	if i := strings.IndexByte(kind, ';'); i >= 0 {
+		kind = kind[:i]
+	}
+	return kind
 }
 
 func listDirContent(dirPath string, recursive, showHidden bool) (string, error) {
