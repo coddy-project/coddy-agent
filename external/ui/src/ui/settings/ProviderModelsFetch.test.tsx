@@ -89,6 +89,41 @@ test("a context window the provider reports shows next to the id", async () => {
   expect(ctx?.getAttribute("title")).toContain("131,072");
 });
 
+test("a fetchable provider fetches its list when the form opens", async () => {
+  const fetchMock = stubModels([{ id: "m1" }]);
+  render(
+    <ProviderModelsFetch
+      provider={{ name: "demo", type: "openai" }}
+      existingModels={[]}
+      onAddModel={() => {}}
+    />,
+  );
+
+  await waitFor(() => expect(screen.getByText("m1")).toBeTruthy());
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/coddy/providers/models",
+    expect.objectContaining({ method: "POST" }),
+  );
+});
+
+test("an id the document lists but the provider does not advertise is a warn row", async () => {
+  stubModels([{ id: "m1" }]);
+  render(
+    <ProviderModelsFetch
+      provider={{ name: "demo", type: "openai" }}
+      existingModels={["demo/m1", "demo/old-id", "other/x"]}
+      onAddModel={() => {}}
+    />,
+  );
+
+  fireEvent.click(screen.getByTestId("provider-fetch-models"));
+
+  const stale = await screen.findByTestId("provider-model-stale-old-id");
+  expect(stale.classList.contains("is-stale")).toBe(true);
+  // Another provider's rows are not judged by this list.
+  expect(screen.queryByTestId("provider-model-stale-x")).toBeNull();
+});
+
 test("the add control appends provider/id to the logical models", async () => {
   stubModels([{ id: "m1" }]);
   const onAddModel = vi.fn();

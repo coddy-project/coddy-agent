@@ -7,14 +7,19 @@ export const shellStackMaxWidthMediaQuery = `(max-width: ${SHELL_STACK_MAX_WIDTH
 /** useSyncExternalStore subscribe for the mobile/narrow shell breakpoint. */
 export function subscribeShellStack(cb: () => void): () => void {
   if (typeof window === "undefined") return () => {};
-  const mq = window.matchMedia(shellStackMaxWidthMediaQuery);
-  mq.addEventListener("change", cb);
-  return () => mq.removeEventListener("change", cb);
+  // matchMedia can be missing or emptied in test environments (a bare
+  // vi.fn() after restoreAllMocks answers undefined) - never crash on it.
+  const mq = window.matchMedia?.(shellStackMaxWidthMediaQuery);
+  mq?.addEventListener?.("change", cb);
+  return () => mq?.removeEventListener?.("change", cb);
 }
 
 /** useSyncExternalStore snapshot (client) for the mobile/narrow shell breakpoint. */
 export function snapshotShellStack(): boolean {
-  return typeof window !== "undefined" && window.matchMedia(shellStackMaxWidthMediaQuery).matches;
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia?.(shellStackMaxWidthMediaQuery)?.matches === true
+  );
 }
 
 /** useSyncExternalStore snapshot (server) for the mobile/narrow shell breakpoint. */
@@ -32,14 +37,17 @@ export const touchOnlyMediaQuery = "(any-hover: none) and (any-pointer: coarse)"
 /** useSyncExternalStore subscribe for the touch-only query. */
 export function subscribeTouchOnly(cb: () => void): () => void {
   if (typeof window === "undefined") return () => {};
-  const mq = window.matchMedia(touchOnlyMediaQuery);
-  mq.addEventListener("change", cb);
-  return () => mq.removeEventListener("change", cb);
+  const mq = window.matchMedia?.(touchOnlyMediaQuery);
+  mq?.addEventListener?.("change", cb);
+  return () => mq?.removeEventListener?.("change", cb);
 }
 
 /** useSyncExternalStore snapshot (client) for the touch-only query. */
 export function snapshotTouchOnly(): boolean {
-  return typeof window !== "undefined" && window.matchMedia(touchOnlyMediaQuery).matches;
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia?.(touchOnlyMediaQuery)?.matches === true
+  );
 }
 
 /** useSyncExternalStore snapshot (server) for the touch-only query. */

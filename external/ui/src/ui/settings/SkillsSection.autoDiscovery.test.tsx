@@ -82,15 +82,15 @@ test("auto-discovery toggle is rendered by the shared SwitchField", () => {
   expect(
     field!.querySelector(".settings-switch-field-label")?.textContent,
   ).toBe("Enabled");
-  // The schema description rides in the same grid (label column), not as a
-  // separate paragraph flush with the fieldset edge. Its copy comes from the
-  // i18n dictionary (schemaFieldDesc), so pin the stable opening words.
+  // The schema description rides in the (i) hint inside the label cell, not
+  // as a paragraph under the label. Its copy comes from the i18n dictionary
+  // (schemaFieldDesc), so pin the stable opening words.
   expect(
-    field!.querySelector(".settings-switch-field-desc")?.textContent,
+    field!.querySelector(".field-hint-tip")?.textContent,
   ).toMatch(/^Let the agent load a matching skill/);
   expect(
     document.querySelectorAll(
       ".settings-skills-section > fieldset:first-of-type .settings-field-desc",
     ).length,
-  ).toBe(1);
+  ).toBe(0);
 });

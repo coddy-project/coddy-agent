@@ -72,11 +72,11 @@ test("an explicit aria label wins over the visible label", () => {
   expect(sw).toBe(screen.getByTestId("sf-toggle"));
 });
 
-// Layout contract (DESIGN.md, "Boolean switch fields"): switch, label, and
-// description are direct children of one grid container. The description is
-// not a sibling paragraph indented by a hard-coded padding - it lives in the
-// label column, so its left edge follows the label whatever the switch width.
-test("label and description share one grid container with the switch", () => {
+// Layout contract (DESIGN.md, "Boolean switch fields"): the switch and one
+// label cell are direct children of a two-column grid. The help text is not a
+// paragraph under the label - it lives in the (i) hint inside the label cell,
+// so the row stays one line and the form stays compact.
+test("label and help hint share one grid container with the switch", () => {
   const { container } = render(
     <SwitchField
       checked={false}
@@ -88,39 +88,38 @@ test("label and description share one grid container with the switch", () => {
   const field = container.querySelector(".settings-switch-field");
   expect(field).not.toBeNull();
   const sw = screen.getByRole("switch", { name: "Multimodal" });
-  const label = field!.querySelector(".settings-switch-field-label");
-  const desc = field!.querySelector(".settings-switch-field-desc");
+  const cell = field!.querySelector(".settings-switch-field-label-cell");
+  const label = cell?.querySelector(".settings-switch-field-label");
+  const hint = cell?.querySelector(".field-hint-tip");
   expect(label?.textContent).toBe("Multimodal");
-  expect(desc?.textContent).toBe(
+  expect(hint?.textContent).toBe(
     "When true, the model accepts image or file inputs.",
   );
   expect(sw.parentElement).toBe(field);
-  expect(label?.parentElement).toBe(field);
-  expect(desc?.parentElement).toBe(field);
-  // Description keeps the shared muted typography of every field description.
-  expect(desc?.classList.contains("settings-field-desc")).toBe(true);
-  // No legacy checkbox-era indent anywhere in the field.
+  expect(cell?.parentElement).toBe(field);
+  // No legacy paragraph under the label, no checkbox-era indent anywhere.
+  expect(field!.querySelector(".settings-switch-field-desc")).toBeNull();
   expect(
     container.querySelector(".settings-field-desc-below-checkbox"),
   ).toBeNull();
 });
 
-test("no description renders no empty paragraph", () => {
+test("no description renders no help hint", () => {
   const { container } = render(
     <SwitchField checked={false} onChange={() => {}} label="Enabled" />,
   );
-  expect(container.querySelector(".settings-switch-field-desc")).toBeNull();
+  expect(container.querySelector(".field-hint")).toBeNull();
 });
 
 // CSS contract. jsdom does no layout, so the geometry that makes the row read
 // right is pinned as source rules: a grid whose first column is the control's
 // own width, an 8px gap, both first-row cells vertically centred, and the
-// description pushed into the label column with the shared paragraph margin
-// cancelled by a child selector (specificity, not source order). The
-// hard-coded 28px indent that put descriptions under the switch is gone.
+// label cell as a flex row that centres the label and the hint. The
+// hard-coded 28px indent that put descriptions under the switch is gone, and
+// so is the description paragraph itself.
 // Anchored at line start so an indented @media override can never be pinned
 // in place of the base rule.
-test("switch field grid centres the label on the switch and indents the description by column", () => {
+test("switch field grid centres the label cell on the switch", () => {
   const css = cssText();
   const field = css.match(/^\.settings-switch-field\s*\{([^}]*)\}/m);
   expect(field).not.toBeNull();
@@ -131,12 +130,12 @@ test("switch field grid centres the label on the switch and indents the descript
   expect(field![1]).toMatch(/column-gap:\s*8px/);
   expect(field![1]).toMatch(/row-gap:\s*4px/);
   expect(field![1]).toMatch(/align-items:\s*center/);
-  const desc = css.match(
-    /^\.settings-switch-field\s*>\s*\.settings-switch-field-desc\s*\{([^}]*)\}/m,
-  );
-  expect(desc).not.toBeNull();
-  expect(desc![1]).toMatch(/grid-column:\s*2/);
-  expect(desc![1]).toMatch(/margin:\s*0\s*;/);
+  const cell = css.match(/^\.settings-switch-field-label-cell\s*\{([^}]*)\}/m);
+  expect(cell).not.toBeNull();
+  expect(cell![1]).toMatch(/display:\s*flex/);
+  expect(cell![1]).toMatch(/align-items:\s*center/);
+  expect(cell![1]).toMatch(/min-width:\s*0/);
+  expect(css).not.toMatch(/\.settings-switch-field-desc/);
   expect(css).not.toMatch(/\.settings-field-desc-below-checkbox/);
   // The inline-flow helper that caused the bug when used alone has no
   // consumers left and is gone with them.

@@ -7401,12 +7401,12 @@ html:not([data-theme="light"]) .context-usage-note--error {
   }
 }
 
-/* Settings drawer (#/settings) - same glass shell as History / Scheduler drawers */
+/* Settings drawer (#/settings) - same glass shell as History / Scheduler drawers.
+   The lead pane is the status slot only - it renders when a load/save result
+   needs reporting, otherwise nothing stands between the head and the tabs. */
 .settings.drawer .settings-lead-pane {
   flex-shrink: 0;
   padding: 8px 14px 10px;
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
 }
 
 .settings.drawer .settings-stack {
@@ -7434,13 +7434,6 @@ html:not([data-theme="light"]) .context-usage-note--error {
 
 .settings.drawer .settings-footer-actions {
   flex-shrink: 0;
-}
-
-.settings-lead {
-  margin: 0 0 8px;
-  color: var(--muted);
-  font-size: 0.88rem;
-  line-height: 1.45;
 }
 
 .settings-lead-pane .settings-error,
@@ -7643,7 +7636,15 @@ html:not([data-theme="light"]) .context-usage-note--error {
   align-items: center;
 }
 
-/* A real <label for>: clicking the text toggles the switch. */
+/* A real <label for>: clicking the text toggles the switch. It sits in a
+   flex cell with the (i) help hint, so both centre on the switch's first line. */
+.settings-switch-field-label-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .settings-switch-field-label {
   font-size: 0.9rem;
   line-height: 1.3;
@@ -7653,16 +7654,153 @@ html:not([data-theme="light"]) .context-usage-note--error {
 }
 
 .settings-switch-field:has(.skill-switch:disabled)
-  > .settings-switch-field-label {
+  .settings-switch-field-label {
   cursor: default;
 }
 
-/* Child selector on purpose: it beats the shared .settings-field-desc margin
-   by specificity, not by source order. */
-.settings-switch-field > .settings-switch-field-desc {
-  grid-column: 2;
-  margin: 0;
-  overflow-wrap: anywhere;
+/* The (i) help control next to a field label: hover or keyboard focus opens
+   the tip on hover-capable devices; touch-only devices open the sheet. */
+.field-hint {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  vertical-align: middle;
+  margin-left: 6px;
+}
+
+.field-hint-btn {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 40%, var(--coddy-blend-base));
+  cursor: help;
+}
+
+.field-hint-btn:hover,
+.field-hint:focus-within .field-hint-btn {
+  color: var(--accent);
+}
+
+.field-hint-tip {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 60;
+  width: max-content;
+  max-width: min(300px, 80vw);
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--coddy-tip-border);
+  background: var(--coddy-tip-bg);
+  box-shadow: var(--coddy-tip-shadow);
+  color: var(--coddy-tip-fg, var(--text));
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.55;
+  text-align: left;
+  white-space: normal;
+}
+
+@media (hover: hover) {
+  .field-hint:hover .field-hint-tip,
+  .field-hint:focus-within .field-hint-tip {
+    display: block;
+  }
+}
+
+.field-hint-para {
+  display: block;
+  margin: 0 0 6px;
+}
+
+.field-hint-para:last-child {
+  margin-bottom: 0;
+}
+
+/* Touch devices: the hint sheet hangs at the bottom edge, scrolls its text. */
+.field-hint-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 16px 40px;
+  background: var(--coddy-overlay-scrim-bg);
+}
+
+.field-hint-sheet {
+  display: flex;
+  flex-direction: column;
+  width: min(480px, 100%);
+  max-height: 60vh;
+  max-height: 60dvh;
+  border-radius: 16px;
+  border: 1px solid var(--coddy-tip-border);
+  background: var(--coddy-tip-bg);
+  box-shadow: var(--coddy-tip-shadow);
+  color: var(--coddy-tip-fg, var(--text));
+}
+
+.field-hint-sheet-close {
+  align-self: flex-end;
+  margin: 10px 10px 0;
+}
+
+.field-hint-sheet-body {
+  overflow-y: auto;
+  padding: 0 16px 16px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.field-hint-sheet-body p {
+  margin: 0 0 8px;
+}
+
+.field-hint-sheet-body p:last-child {
+  margin-bottom: 0;
+}
+
+/* Collapsed plumbing fields at the end of a schema form (the providers form
+   hides api_key_command / proxy / timeout_ms there). */
+.settings-advanced {
+  margin-top: 4px;
+}
+
+.settings-advanced-summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  list-style: none;
+  cursor: pointer;
+  padding: 4px 0;
+  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  font-size: 0.82rem;
+  user-select: none;
+}
+
+.settings-advanced-summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-advanced-summary:hover {
+  color: var(--text);
+}
+
+.settings-advanced-body {
+  margin-left: 7px;
+  padding: 4px 0 0 14px;
+  border-left: 1px solid
+    color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
 }
 
 .settings-label {
@@ -8064,6 +8202,18 @@ html:not([data-theme="light"]) .context-usage-note--error {
 
 .provider-model-add:disabled {
   cursor: default;
+}
+
+/* A model the config lists but the provider no longer advertises: amber warn
+   row under the fetched list, no add control. */
+.provider-model-row.is-stale .provider-model-id,
+.provider-model-stale-icon {
+  color: color-mix(in srgb, #eab308 85%, var(--text));
+}
+
+.provider-model-stale-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
 }
 
 .provider-models-error {

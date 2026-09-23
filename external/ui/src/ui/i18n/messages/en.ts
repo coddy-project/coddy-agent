@@ -53,8 +53,9 @@ export const messagesEn: Record<string, string> = {
   "settings.aria.panel": "Settings",
   "settings.aria.close": "Close settings",
   "settings.backToSections": "Back to sections",
-  "settings.lead":
-    "Edit configuration from the live JSON schema. Secrets (API keys) are shown in full - use only on trusted networks.",
+  "settings.fieldHint": "Field help",
+  "settings.fieldHintClose": "Close",
+  "settings.advancedSettings": "Advanced settings",
   "settings.loading": "Loading…",
   "settings.toast.saved": "Saved all sections. In-process config reloaded.",
   "settings.reload.title": "Reload from server",
@@ -127,6 +128,8 @@ export const messagesEn: Record<string, string> = {
   "settings.providers.modelsLegend": "Advertised models",
   "settings.providers.addModel": "Add {id} to logical models",
   "settings.providers.modelListed": "{id} is already in logical models",
+  "settings.providers.modelNotAdvertised":
+    "{id} is not advertised by the provider anymore",
   "settings.providers.contextWindow": "Context window: {tokens}",
   "settings.reasoning.levelsFallback": "Reasoning levels",
   "settings.reasoning.fetch": "Fetch reasoning levels",
@@ -158,22 +161,22 @@ export const messagesEn: Record<string, string> = {
     "API credentials and transport selection for upstream LLM vendors.",
   "settings.schema.providers.name.label": "Provider name",
   "settings.schema.providers.name.desc":
-    "Logical id used in model ids (provider/model-id). ASCII letters, digits, hyphen, and underscore only; must start with a letter. When api_key is empty, the runtime reads the key from the environment variable NAME_API_KEY (NAME is this field in uppercase with hyphens mapped to underscores).",
+    "Logical id used in model ids (provider/model-id).\n\nLetters, digits, - and _ only; must start with a letter.\n\nWith an empty api_key the key is read from NAME_API_KEY - this name uppercased, hyphens becoming underscores.",
   "settings.schema.providers.type.label": "Provider type",
   "settings.schema.providers.type.desc":
     "Wire protocol for this provider entry.",
   "settings.schema.providers.api_base.label": "API base URL",
   "settings.schema.providers.api_base.desc":
-    "Optional override of the default API base URL for this provider. For neuraldeep it selects the deployment - https://api.neuraldeep.ru/v1 (Russia) or https://api.neuraldeep.tech/v1 (the international mirror) - and any other value falls back to the first; ignored for codex, which uses a fixed official endpoint.",
+    "Optional override of the provider's API base URL.\n\nFor neuraldeep it selects the deployment: https://api.neuraldeep.ru/v1 (Russia) or https://api.neuraldeep.tech/v1 (international mirror); any other value falls back to the first.\n\nIgnored for codex - it uses the fixed official endpoint.",
   "settings.schema.providers.api_key.label": "API key",
   "settings.schema.providers.api_key.desc":
-    "You may set a literal key, reference ${ENV} in YAML (expanded when the file is loaded), or leave empty so the process reads the conventional NAME_API_KEY variable derived from the provider name (see provider name description).",
+    "A literal key, a ${ENV} reference expanded at load, or empty to read the conventional NAME_API_KEY variable derived from the provider name (see the provider name hint).",
   "settings.schema.providers.api_key_command.label": "API key command",
   "settings.schema.providers.api_key_command.desc":
-    "Optional credential-helper command. When api_key is empty it is run via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and its trimmed stdout is used as the key (like git/docker credential helpers or AWS credential_process). On failure resolution falls back to the conventional NAME_API_KEY variable.",
+    "Optional credential-helper command used when api_key is empty.\n\nRuns via the host shell (pwsh, powershell or cmd on Windows; bash or sh elsewhere); its trimmed stdout becomes the key, like git/docker credential helpers or AWS credential_process.\n\nOn failure the NAME_API_KEY variable is used instead.",
   "settings.schema.providers.proxy.label": "Proxy URL",
   "settings.schema.providers.proxy.desc":
-    "Optional proxy for this provider only: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5 (with SOCKS the proxy resolves host names). A URL here replaces the system proxy for this provider. Left empty, the provider follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).",
+    "Optional proxy for this provider only.\n\nhttp:// or https:// for an HTTP proxy; socks5:// or socks5h:// for SOCKS5 (the proxy resolves host names).\n\nA URL replaces the system proxy for this provider; left empty the provider follows HTTPS_PROXY, HTTP_PROXY and NO_PROXY.",
   "settings.providerProxy.ignoreSystem": "Ignore system proxy",
   "settings.providerProxy.ignoreSystemDesc":
     "Connect directly: this provider's requests ignore HTTPS_PROXY, HTTP_PROXY and NO_PROXY of the Coddy process. Saved as proxy: none, in place of a proxy URL.",
@@ -181,10 +184,10 @@ export const messagesEn: Record<string, string> = {
   "settings.providerProxy.placeholderDirect": "Direct connection",
   "settings.schema.providers.timeout_ms.label": "Request timeout ms",
   "settings.schema.providers.timeout_ms.desc":
-    "Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout.",
+    "Optional bound on each LLM HTTP request to this provider, including the streamed body read.\n\n0 (the default) sets no client timeout.",
   "settings.schema.providers.usage_limits_panel.label": "Usage limits panel",
   "settings.schema.providers.usage_limits_panel.desc":
-    "Show this provider's account usage (the usage section and banner here, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (NeuralDeep, Codex, Devin) are affected.",
+    "Show this provider's account usage (the usage section and banner here, the footer line and /usage in the console) and read its usage endpoint.\n\nOff hides the panel and stops those reads for this row; only providers with a usage source (NeuralDeep, Codex, Devin) are affected.",
 
   "settings.schema.models.desc":
     "Named model entries the agent and UI can select; ids reference provider prefixes.",

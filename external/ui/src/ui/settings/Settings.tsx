@@ -376,16 +376,17 @@ export function Settings(props: {
         </button>
       </div>
 
-      <div className="settings-lead-pane">
-        <p className="settings-lead">{t("settings.lead")}</p>
-        {loadErr ? (
-          <p className="settings-error">
-            {t("settings.error.failedToLoad", { error: loadErr })}
-          </p>
-        ) : null}
-        {error ? <p className="settings-error">{error}</p> : null}
-        {message ? <p className="settings-ok">{message}</p> : null}
-      </div>
+      {loadErr || error || message ? (
+        <div className="settings-lead-pane">
+          {loadErr ? (
+            <p className="settings-error">
+              {t("settings.error.failedToLoad", { error: loadErr })}
+            </p>
+          ) : null}
+          {error ? <p className="settings-error">{error}</p> : null}
+          {message ? <p className="settings-ok">{message}</p> : null}
+        </div>
+      ) : null}
 
       <div className="settings-stack">
         {isMobileShell ? (

@@ -1,4 +1,5 @@
 import React from "react";
+import { FieldHint } from "./FieldHint";
 import { Switch } from "./Switch";
 
 export type SwitchFieldProps = {
@@ -6,7 +7,7 @@ export type SwitchFieldProps = {
   onChange: (next: boolean) => void;
   /** Visible label drawn level with the switch. Names the control unless ariaLabel is set. */
   label: React.ReactNode;
-  /** Optional help text rendered under the label, in the label column. */
+  /** Optional help text, shown in the (i) hint next to the label. */
   description?: React.ReactNode;
   disabled?: boolean | undefined;
   title?: string | undefined;
@@ -16,12 +17,12 @@ export type SwitchFieldProps = {
   className?: string | undefined;
 };
 
-// SwitchField is the one way to lay out a boolean setting: the shared Switch,
-// its label, and an optional description on a two-column grid
-// (.settings-switch-field). The grid centres the label on the switch and keeps
-// the description in the label column, so nothing depends on the switch width
-// or on a hand-tuned indent. The label is a real <label htmlFor>, so clicking
-// the text toggles the control, and it names the switch through
+// SwitchField is the one way to lay out a boolean setting: the shared Switch
+// and its label on a two-column grid (.settings-switch-field). The grid
+// centres the label on the switch, and the optional help text lives in the
+// (i) hint beside the label rather than in a paragraph under it, so the form
+// stays a compact list of fields. The label is a real <label htmlFor>, so
+// clicking the text toggles the control, and it names the switch through
 // aria-labelledby unless the caller passes an explicit ariaLabel.
 // Contract: DESIGN.md, "Boolean switch fields".
 export function SwitchField({
@@ -56,18 +57,16 @@ export function SwitchField({
         ariaLabelledBy={labelId}
         dataTestId={dataTestId}
       />
-      <label
-        id={labelId}
-        htmlFor={switchId}
-        className="settings-switch-field-label"
-      >
-        {label}
-      </label>
-      {description ? (
-        <p className="settings-field-desc settings-switch-field-desc">
-          {description}
-        </p>
-      ) : null}
+      <span className="settings-switch-field-label-cell">
+        <label
+          id={labelId}
+          htmlFor={switchId}
+          className="settings-switch-field-label"
+        >
+          {label}
+        </label>
+        {description ? <FieldHint text={description} /> : null}
+      </span>
     </div>
   );
 }

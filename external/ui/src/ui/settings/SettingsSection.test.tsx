@@ -348,7 +348,9 @@ test("NeuralDeep Sign In carries the endpoint picked in the form", async () => {
   // The pick has not been saved, so the device start must carry it: the hub
   // that mints the key is decided by the endpoint, not by the saved row.
   const start = fetchMock.mock.calls.find(
-    ([, init]) => (init as RequestInit | undefined)?.method === "POST",
+    ([input, init]) =>
+      (init as RequestInit | undefined)?.method === "POST" &&
+      String(input).includes("neuraldeep-auth/device"),
   );
   expect(start?.[0]).toBe(
     "/coddy/providers/neuraldeep/neuraldeep-auth/device",

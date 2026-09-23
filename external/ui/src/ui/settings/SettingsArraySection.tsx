@@ -51,6 +51,10 @@ export function SettingsArraySection(props: {
   backLabelUsesItemName?: boolean | undefined;
   /** Settings section id ("providers", "models") selecting the dictionary domain. */
   i18nDomain?: string | undefined;
+  /** Top-level item keys collapsed into an "Advanced settings" group at the
+   * end of the item form (the providers form hides api_key_command / proxy /
+   * timeout_ms there). */
+  advancedPaths?: string[] | undefined;
   /** Optional extra content rendered after the item's schema fields in edit
    * mode (the providers form uses it for the advertised-models fetch). Keyed
    * by index so switching rows does not carry its state over. */
@@ -101,6 +105,7 @@ export function SettingsArraySection(props: {
           value={item}
           fieldOverride={fieldOverride}
           i18nDomain={i18nDomain}
+          advancedPaths={props.advancedPaths}
           onChange={(nv) => {
             const next = [...arr];
             next[index] = nv;

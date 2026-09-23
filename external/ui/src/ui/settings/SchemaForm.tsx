@@ -1,6 +1,9 @@
 import type { ChangeEvent, ReactNode } from "react";
+import { useState } from "react";
 
+import { Chevron } from "../components/Chevron";
 import { Combobox } from "./Combobox";
+import { FieldHint } from "./FieldHint";
 import { providerApiKeyFieldPlaceholder } from "./providerApiKeyPlaceholder";
 import { schemaFieldDesc, schemaFieldLabel } from "./schemaI18n";
 import { SwitchField } from "./SwitchField";
@@ -209,8 +212,10 @@ function SchemaField(props: {
         : (defaultForSchema(schema) as Record<string, unknown>);
     return (
       <fieldset className="settings-fieldset">
-        <legend>{label}</legend>
-        {desc ? <p className="settings-field-desc">{desc}</p> : null}
+        <legend>
+          {label}
+          {desc ? <FieldHint text={desc} /> : null}
+        </legend>
         <div className="settings-nested">
           {entriesInSchemaOrder(
             schema.properties,
@@ -238,8 +243,10 @@ function SchemaField(props: {
     const itemSchema = schema.items;
     return (
       <fieldset className="settings-fieldset">
-        <legend>{label}</legend>
-        {desc ? <p className="settings-field-desc">{desc}</p> : null}
+        <legend>
+          {label}
+          {desc ? <FieldHint text={desc} /> : null}
+        </legend>
         <ul className="settings-array">
           {arr.map((row, i) => (
             <li key={i} className="settings-array-row">
@@ -324,8 +331,10 @@ function SchemaField(props: {
         : String(value);
     return (
       <div className="settings-row">
-        <span className="settings-label">{label}</span>
-        {desc ? <p className="settings-field-desc">{desc}</p> : null}
+        <span className="settings-label">
+          {label}
+          {desc ? <FieldHint text={desc} /> : null}
+        </span>
         <Combobox
           value={v}
           ariaLabel={label}
@@ -354,8 +363,10 @@ function SchemaField(props: {
     }
     return (
       <div className="settings-row">
-        <span className="settings-label">{label}</span>
-        {desc ? <p className="settings-field-desc">{desc}</p> : null}
+        <span className="settings-label">
+          {label}
+          {desc ? <FieldHint text={desc} /> : null}
+        </span>
         <input
           className="settings-input"
           type="number"
@@ -363,7 +374,6 @@ function SchemaField(props: {
           min={schema.minimum}
           max={schema.maximum}
           placeholder={ph}
-          title={desc}
           aria-label={label}
           onChange={(e: ChangeEvent<HTMLInputElement>) => {
             const x = e.target.valueAsNumber;
@@ -382,21 +392,40 @@ function SchemaField(props: {
       : String(value);
   return (
     <div className="settings-row">
-      <span className="settings-label">{label}</span>
-      {desc ? <p className="settings-field-desc">{desc}</p> : null}
+      <span className="settings-label">
+        {label}
+        {desc ? <FieldHint text={desc} /> : null}
+      </span>
       <input
         className="settings-input"
         type="text"
         value={s}
         placeholder={ph}
         pattern={schema.pattern}
-        title={desc}
         aria-label={label}
         onChange={(e: ChangeEvent<HTMLInputElement>) =>
           onChange(e.target.value)
         }
       />
     </div>
+  );
+}
+
+function AdvancedDetails(props: { label: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details
+      className="settings-advanced"
+      data-testid="settings-advanced"
+      open={open}
+      onToggle={(e) => setOpen(e.currentTarget.open)}
+    >
+      <summary className="settings-advanced-summary">
+        <Chevron open={open} />
+        <span className="settings-advanced-label">{props.label}</span>
+      </summary>
+      <div className="settings-advanced-body">{props.children}</div>
+    </details>
   );
 }
 
@@ -407,6 +436,12 @@ export function SchemaForm(props: {
   fieldOverride?: FieldOverride | undefined;
   /** Settings section id ("tools", "system.logger") selecting the dictionary domain. */
   i18nDomain?: string | undefined;
+  /**
+   * Top-level keys rendered inside a collapsed "Advanced settings" group at
+   * the end of the form, keeping the main fields short (the providers section
+   * hides its credential-helper / proxy / timeout plumbing there).
+   */
+  advancedPaths?: string[] | undefined;
 }) {
   const { schema, value, onChange, fieldOverride, i18nDomain } = props;
   const { t } = useT();
@@ -417,24 +452,32 @@ export function SchemaForm(props: {
       </p>
     );
   }
+  const entries = entriesInSchemaOrder(
+    schema.properties,
+    schema["x-coddy-property-order"],
+  );
+  const advancedSet = new Set(props.advancedPaths ?? []);
+  const renderEntry = ([k, sub]: [string, JsonSchema]) => (
+    <SchemaField
+      key={k}
+      name={k}
+      schema={sub}
+      value={value[k]}
+      parentObj={value}
+      path={k}
+      fieldOverride={fieldOverride}
+      i18nDomain={i18nDomain}
+      onChange={(nv) => onChange({ ...value, [k]: nv })}
+    />
+  );
   return (
     <div className="settings-schema-root">
-      {entriesInSchemaOrder(
-        schema.properties,
-        schema["x-coddy-property-order"],
-      ).map(([k, sub]) => (
-        <SchemaField
-          key={k}
-          name={k}
-          schema={sub}
-          value={value[k]}
-          parentObj={value}
-          path={k}
-          fieldOverride={fieldOverride}
-          i18nDomain={i18nDomain}
-          onChange={(nv) => onChange({ ...value, [k]: nv })}
-        />
-      ))}
+      {entries.filter(([k]) => !advancedSet.has(k)).map(renderEntry)}
+      {advancedSet.size > 0 ? (
+        <AdvancedDetails label={t("settings.advancedSettings")}>
+          {entries.filter(([k]) => advancedSet.has(k)).map(renderEntry)}
+        </AdvancedDetails>
+      ) : null}
     </div>
   );
 }

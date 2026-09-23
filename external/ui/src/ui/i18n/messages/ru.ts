@@ -48,8 +48,9 @@ export const messagesRu: Record<string, string> = {
   "settings.aria.panel": "Настройки",
   "settings.aria.close": "Закрыть настройки",
   "settings.backToSections": "Назад к разделам",
-  "settings.lead":
-    "Редактируйте конфигурацию по живой JSON-схеме. API-ключи (секреты) показываются полностью — используйте только в доверенных сетях.",
+  "settings.fieldHint": "Справка о поле",
+  "settings.fieldHintClose": "Закрыть",
+  "settings.advancedSettings": "Расширенные настройки",
   "settings.loading": "Загрузка…",
   "settings.toast.saved": "Все разделы сохранены. Конфигурация перезагружена.",
   "settings.reload.title": "Перезагрузить с сервера",
@@ -123,6 +124,8 @@ export const messagesRu: Record<string, string> = {
   "settings.providers.modelsLegend": "Модели провайдера",
   "settings.providers.addModel": "Добавить {id} в модели",
   "settings.providers.modelListed": "{id} уже в моделях",
+  "settings.providers.modelNotAdvertised":
+    "{id} больше не отдаётся провайдером",
   "settings.providers.contextWindow": "Контекстное окно: {tokens}",
   "settings.reasoning.levelsFallback": "Уровни рассуждений",
   "settings.reasoning.fetch": "Получить уровни ризонинга",
@@ -153,23 +156,23 @@ export const messagesRu: Record<string, string> = {
     "Учётные данные API и выбор транспорта для внешних LLM-провайдеров.",
   "settings.schema.providers.name.label": "Имя провайдера",
   "settings.schema.providers.name.desc":
-    "Логический идентификатор, используемый в id моделей (provider/model-id). Только латинские буквы, цифры, дефис и подчёркивание; должен начинаться с буквы. Если api_key пуст, исполняющая среда читает ключ из переменной окружения NAME_API_KEY (NAME — это значение поля в верхнем регистре, дефисы заменяются на подчёркивания).",
+    "Логический идентификатор, используемый в id моделей (provider/model-id).\n\nТолько латинские буквы, цифры, дефис и подчёркивание; должен начинаться с буквы.\n\nЕсли api_key пуст, ключ читается из переменной окружения NAME_API_KEY — имя в верхнем регистре, дефисы заменяются на подчёркивания.",
   "settings.schema.providers.type.label": "Тип провайдера",
   "settings.schema.providers.type.desc":
     "Сетевой протокол для этой записи провайдера.",
   "settings.schema.providers.api_base.label": "Базовый URL API",
   "settings.schema.providers.api_base.desc":
-    "Необязательное переопределение базового URL API для этого провайдера. Для neuraldeep выбирает развёртывание: https://api.neuraldeep.ru/v1 (Россия) или https://api.neuraldeep.tech/v1 (международное зеркало); любое другое значение откатывается к первому. Для codex игнорируется, он использует фиксированный официальный адрес.",
+    "Необязательное переопределение базового URL API провайдера.\n\nДля neuraldeep выбирает развёртывание: https://api.neuraldeep.ru/v1 (Россия) или https://api.neuraldeep.tech/v1 (международное зеркало); любое другое значение откатывается к первому.\n\nДля codex игнорируется — он использует фиксированный официальный адрес.",
   "settings.schema.providers.api_key.label": "API-ключ",
   "settings.schema.providers.api_key.desc":
-    "Можно указать ключ напрямую, сослаться на ${ENV} в YAML (разворачивается при загрузке файла) или оставить пустым — тогда процесс прочитает стандартную переменную NAME_API_KEY, производную от имени провайдера (см. описание поля «Имя провайдера»).",
+    "Можно указать ключ напрямую, сослаться на ${ENV} в YAML (разворачивается при загрузке файла) или оставить пустым — тогда читается переменная NAME_API_KEY, производная от имени провайдера (см. подсказку у поля «Имя провайдера»).",
   "settings.schema.providers.api_key_command.label":
     "Команда получения API-ключа",
   "settings.schema.providers.api_key_command.desc":
-    "Необязательная команда для получения ключа. Когда api_key пуст, она запускается через обнаруженный шелл хоста (pwsh, powershell или cmd на Windows; bash или sh в остальных случаях), и её вывод без краевых пробелов используется как ключ (как git/docker credential helpers или AWS credential_process). При ошибке используется стандартная переменная NAME_API_KEY.",
+    "Необязательная команда получения ключа, когда api_key пуст.\n\nЗапускается через обнаруженный шелл хоста (pwsh, powershell или cmd на Windows; bash или sh в остальных случаях); её вывод без краевых пробелов становится ключом — как git/docker credential helpers или AWS credential_process.\n\nПри ошибке используется переменная NAME_API_KEY.",
   "settings.schema.providers.proxy.label": "URL прокси",
   "settings.schema.providers.proxy.desc":
-    "Необязательный прокси только для этого провайдера. Для HTTP-прокси подходят http:// и https://, для SOCKS5 подходят socks5:// и socks5h://, в обоих случаях имена хостов разрешает сам прокси. Указанный URL заменяет системный прокси для этого провайдера. Пока поле пустое, провайдер ходит через системный прокси (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).",
+    "Необязательный прокси только для этого провайдера.\n\nhttp:// или https:// — HTTP-прокси; socks5:// или socks5h:// — SOCKS5 (имена хостов разрешает прокси).\n\nURL заменяет системный прокси для этого провайдера; пустое поле — идёт через HTTPS_PROXY, HTTP_PROXY и NO_PROXY.",
   "settings.providerProxy.ignoreSystem": "Игнорировать системный прокси",
   "settings.providerProxy.ignoreSystemDesc":
     "Подключаться напрямую. Запросы этого провайдера не учитывают HTTPS_PROXY, HTTP_PROXY и NO_PROXY процесса Coddy. В конфиге сохраняется значение none вместо URL прокси.",
@@ -177,10 +180,10 @@ export const messagesRu: Record<string, string> = {
   "settings.providerProxy.placeholderDirect": "Прямое подключение",
   "settings.schema.providers.timeout_ms.label": "Таймаут запроса, мс",
   "settings.schema.providers.timeout_ms.desc":
-    "Необязательный предел на каждый HTTP-запрос к LLM этого провайдера, включая чтение потокового тела ответа. 0 (по умолчанию) — без клиентского таймаута.",
+    "Необязательный предел на каждый HTTP-запрос к LLM этого провайдера, включая чтение потокового тела ответа.\n\n0 (по умолчанию) — без клиентского таймаута.",
   "settings.schema.providers.usage_limits_panel.label": "Панель лимитов",
   "settings.schema.providers.usage_limits_panel.desc":
-    "Показывать расход лимитов аккаунта этого провайдера (секция и баннер здесь, строка футера и /usage в консоли) и читать для этого его эндпоинт лимитов. Выключите, чтобы скрыть панель и прекратить эти запросы для данной строки; влияет только на провайдеров с источником лимитов (NeuralDeep, Codex, Devin).",
+    "Показывать расход лимитов аккаунта этого провайдера (секция и баннер здесь, строка футера и /usage в консоли) и читать его эндпоинт лимитов.\n\nВыкл — панель скрыта, запросы не идут; влияет только на провайдеров с источником лимитов (NeuralDeep, Codex, Devin).",
 
   "settings.schema.models.desc":
     "Именованные записи моделей, которые агент и UI могут выбирать; id ссылаются на префиксы провайдеров.",

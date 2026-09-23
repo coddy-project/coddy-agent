@@ -445,6 +445,11 @@ export function SettingsSection(props: {
         newItem={newItem}
         backLabelUsesItemName={!props.isMobileShell}
         i18nDomain={section.id}
+        advancedPaths={
+          key === "providers"
+            ? ["api_key_command", "proxy", "timeout_ms"]
+            : undefined
+        }
         itemExtra={
           key === "providers"
             ? (item, index) => (

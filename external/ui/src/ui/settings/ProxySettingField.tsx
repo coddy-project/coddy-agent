@@ -1,5 +1,6 @@
 import React, { type ChangeEvent } from "react";
 
+import { FieldHint } from "./FieldHint";
 import { SwitchField } from "./SwitchField";
 import { useT } from "../i18n/I18nProvider";
 
@@ -56,10 +57,10 @@ export function ProxySettingField(props: {
         dataTestId="proxy-setting-direct"
       />
       <div className="settings-row">
-        <span className="settings-label">{label}</span>
-        {description ? (
-          <p className="settings-field-desc">{description}</p>
-        ) : null}
+        <span className="settings-label">
+          {label}
+          {description ? <FieldHint text={description} /> : null}
+        </span>
         <input
           className="settings-input"
           type="text"
@@ -70,7 +71,6 @@ export function ProxySettingField(props: {
               ? t("settings.providerProxy.placeholderDirect")
               : t("settings.providerProxy.placeholderSystem")
           }
-          title={description}
           aria-label={label}
           data-testid="proxy-setting-url"
           onChange={(e: ChangeEvent<HTMLInputElement>) =>
