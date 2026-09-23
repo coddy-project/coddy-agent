@@ -701,7 +701,11 @@ The scheduler tools (`coddy_scheduler_*`) have a card of their own instead of th
 
 ![Structured tool cards on a narrow screen](../assets/web-ui/tool-structured-cards-dark-390.png)
 
-*The same cards at a 390px viewport width*
+*Model, HTTP, background task list, documentation search and plan list at a 390px viewport width*
+
+![Background output, preview server and plan document cards on a narrow screen](../assets/web-ui/tool-structured-details-dark-390.png)
+
+*Background output, preview server, plan read and plan write at the same narrow width*
 
 ![Scheduler calls in the transcript: a job read as its fields, a resume and a run as their outcome](../assets/scheduler-tool-cards-dark-1280.png)
 
