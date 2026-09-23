@@ -14,7 +14,10 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function stubModels(models: { id: string; name?: string }[], ok = true) {
+function stubModels(
+  models: { id: string; name?: string; context_window?: number }[],
+  ok = true,
+) {
   const fetchMock = vi.fn(
     async (_input: unknown, _init?: { body?: string }) => ({
       ok: true,
@@ -64,6 +67,26 @@ test("fetch posts the row as edited and lists the advertised ids", async () => {
   ) as Record<string, unknown>;
   expect(body).toMatchObject({ name: "demo", type: "openai", api_key: "sk-x" });
   expect(screen.getByText("Model Two")).toBeTruthy();
+});
+
+test("a context window the provider reports shows next to the id", async () => {
+  stubModels([
+    { id: "m1", context_window: 131072 },
+    { id: "m2" },
+  ]);
+  render(
+    <ProviderModelsFetch
+      provider={{ name: "demo", type: "openai" }}
+      existingModels={[]}
+      onAddModel={() => {}}
+    />,
+  );
+
+  fireEvent.click(screen.getByTestId("provider-fetch-models"));
+
+  await waitFor(() => expect(screen.getByText("131k")).toBeTruthy());
+  const ctx = document.querySelector(".provider-model-ctx");
+  expect(ctx?.getAttribute("title")).toContain("131,072");
 });
 
 test("the add control appends provider/id to the logical models", async () => {

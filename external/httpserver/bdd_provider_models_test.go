@@ -16,6 +16,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -34,15 +35,28 @@ type providerModelsWorld struct {
 
 	ok     bool
 	models []string
+	ctx    map[string]int
 }
 
 // upstreamServing starts a stand-in provider endpoint that answers the model
-// list with the given ids and records the credential it was called with.
+// list with the given ids and records the credential it was called with. An
+// entry may carry a context window as "id:131072" - the stand-in reports it
+// under the OpenRouter spelling, context_length.
 func (w *providerModelsWorld) upstreamServing(t *testing.T, csv string) error {
 	ids := strings.Split(csv, ",")
-	var data []map[string]string
-	for _, id := range ids {
-		data = append(data, map[string]string{"id": strings.TrimSpace(id)})
+	var data []map[string]interface{}
+	for _, part := range ids {
+		part = strings.TrimSpace(part)
+		id, ctx := part, 0
+		if i := strings.LastIndex(part, ":"); i > 0 {
+			id = part[:i]
+			ctx, _ = strconv.Atoi(part[i+1:])
+		}
+		entry := map[string]interface{}{"id": id}
+		if ctx > 0 {
+			entry["context_length"] = ctx
+		}
+		data = append(data, entry)
 	}
 	w.upstream = httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		w.gotAuth = r.Header.Get("Authorization")
@@ -133,7 +147,8 @@ func (w *providerModelsWorld) postBody(body string) error {
 	var payload struct {
 		OK     bool `json:"ok"`
 		Models []struct {
-			ID string `json:"id"`
+			ID            string `json:"id"`
+			ContextWindow int    `json:"context_window"`
 		} `json:"models"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
@@ -141,8 +156,10 @@ func (w *providerModelsWorld) postBody(body string) error {
 	}
 	w.ok = payload.OK
 	w.models = nil
+	w.ctx = map[string]int{}
 	for _, m := range payload.Models {
 		w.models = append(w.models, m.ID)
+		w.ctx[m.ID] = m.ContextWindow
 	}
 	return nil
 }
@@ -164,6 +181,15 @@ func (w *providerModelsWorld) upstreamSawKey(key string) error {
 	return nil
 }
 
+// wantCtx asserts the response carried the context window the stand-in
+// reported for that model.
+func (w *providerModelsWorld) wantCtx(want int, id string) error {
+	if w.ctx[id] != want {
+		return fmt.Errorf("context_window for %q = %d, want %d", id, w.ctx[id], want)
+	}
+	return nil
+}
+
 func TestProviderModelsFetchFeature(t *testing.T) {
 	suite := godog.TestSuite{
 		Name: "provider_models_fetch",
@@ -181,6 +207,7 @@ func TestProviderModelsFetchFeature(t *testing.T) {
 			sc.Step(`^the settings form posts the provider row "([^"]*)" of type "([^"]*)" at that upstream with key "([^"]*)"$`, w.postRow)
 			sc.Step(`^the settings form posts only the provider name "([^"]*)"$`, w.postNameOnly)
 			sc.Step(`^the gateway answers with the models "([^"]*)"$`, w.wantModels)
+			sc.Step(`^the gateway answers with context window (\d+) for "([^"]*)"$`, w.wantCtx)
 			sc.Step(`^the upstream saw the key "([^"]*)"$`, w.upstreamSawKey)
 		},
 		Options: &godog.Options{

@@ -47,7 +47,7 @@ func TestProviderModelsUnknownProvider404(t *testing.T) {
 func TestProviderModelsHappyPath(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-4o"},{"id":"gpt-4o-mini"}]}`))
+		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-4o","context_length":131072},{"id":"gpt-4o-mini","max_model_len":8192}]}`))
 	}))
 	defer upstream.Close()
 
@@ -68,7 +68,8 @@ func TestProviderModelsHappyPath(t *testing.T) {
 	var body struct {
 		OK     bool `json:"ok"`
 		Models []struct {
-			ID string `json:"id"`
+			ID            string `json:"id"`
+			ContextWindow int    `json:"context_window"`
 		} `json:"models"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
@@ -76,6 +77,9 @@ func TestProviderModelsHappyPath(t *testing.T) {
 	}
 	if !body.OK || len(body.Models) != 2 {
 		t.Fatalf("unexpected body: %+v", body)
+	}
+	if body.Models[0].ContextWindow != 131072 || body.Models[1].ContextWindow != 8192 {
+		t.Fatalf("context_window not forwarded: %+v", body.Models)
 	}
 }
 
@@ -128,7 +132,7 @@ func TestProviderModelsPostUnsavedProvider(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":[{"id":"m1"},{"id":"m2"}]}`))
+		_, _ = w.Write([]byte(`{"data":[{"id":"m1","context_window":32768},{"id":"m2"}]}`))
 	}))
 	defer upstream.Close()
 
@@ -142,7 +146,8 @@ func TestProviderModelsPostUnsavedProvider(t *testing.T) {
 	var body struct {
 		OK     bool `json:"ok"`
 		Models []struct {
-			ID string `json:"id"`
+			ID            string `json:"id"`
+			ContextWindow int    `json:"context_window"`
 		} `json:"models"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
@@ -150,6 +155,9 @@ func TestProviderModelsPostUnsavedProvider(t *testing.T) {
 	}
 	if !body.OK || len(body.Models) != 2 {
 		t.Fatalf("unexpected body: %+v", body)
+	}
+	if body.Models[0].ContextWindow != 32768 {
+		t.Fatalf("context_window = %d, want 32768", body.Models[0].ContextWindow)
 	}
 	if gotAuth != "Bearer sk-fresh" {
 		t.Fatalf("Authorization = %q, want Bearer sk-fresh", gotAuth)

@@ -24,7 +24,7 @@ func (s *Server) registerProvidersRoutes() {
 // provider's server. The provider is resolved from the active config by name, so
 // its credentials (api_key / api_key_command / NAME_API_KEY env) and proxy apply
 // without sending secrets over the wire. On a successful upstream call it returns
-// {"ok":true,"models":[{"id","name"}]}; on failure it returns
+// {"ok":true,"models":[{"id","name","context_window"}]}; on failure it returns
 // {"ok":false,"error":...,"models":[]} with HTTP 200 so the UI can fall back to
 // manual model entry. An unknown provider name returns 404.
 func (s *Server) coddyProviderModelsGet(w http.ResponseWriter, r *http.Request) {

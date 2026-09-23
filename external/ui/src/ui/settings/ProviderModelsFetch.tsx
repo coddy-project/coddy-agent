@@ -1,26 +1,10 @@
 import { useT } from "../i18n/I18nProvider";
+import { formatTurnTokens } from "../chat/turnProgress";
 import {
   providerRowFetchable,
   useProviderModels,
   type ProviderRow,
 } from "./useProviderModels";
-
-function IconPlus() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 14 14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      aria-hidden="true"
-    >
-      <path d="M7 3v8M3 7h8" />
-    </svg>
-  );
-}
 
 function IconCheckSmall() {
   return (
@@ -44,8 +28,9 @@ function IconCheckSmall() {
  * ProviderModelsFetch sits at the bottom of the provider edit form: it asks
  * the provider for the model list it advertises (POST /coddy/providers/models
  * with the row as edited, unsaved fields included) and offers each returned id
- * as a one-click addition to Logical models. An id the document already lists
- * shows a check instead of the add control.
+ * as a one-click addition to Logical models. A context window the listing
+ * reports shows next to the id; an id the document already lists shows a
+ * check instead of the add control.
  */
 export function ProviderModelsFetch(props: {
   provider: ProviderRow;
@@ -94,9 +79,19 @@ export function ProviderModelsFetch(props: {
                 {m.name ? (
                   <span className="provider-model-name">{m.name}</span>
                 ) : null}
+                {m.context_window ? (
+                  <span
+                    className="provider-model-ctx"
+                    title={t("settings.providers.contextWindow", {
+                      tokens: m.context_window.toLocaleString("en-US"),
+                    })}
+                  >
+                    {formatTurnTokens(m.context_window)}
+                  </span>
+                ) : null}
                 <button
                   type="button"
-                  className="settings-btn-icon provider-model-add"
+                  className="provider-model-add"
                   data-testid={`provider-model-add-${m.id}`}
                   disabled={added}
                   title={
@@ -111,7 +106,7 @@ export function ProviderModelsFetch(props: {
                   }
                   onClick={() => onAddModel(full)}
                 >
-                  {added ? <IconCheckSmall /> : <IconPlus />}
+                  {added ? <IconCheckSmall /> : "+"}
                 </button>
               </li>
             );

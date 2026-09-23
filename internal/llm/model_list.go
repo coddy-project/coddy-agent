@@ -20,10 +20,10 @@ type ModelEntry struct {
 	ID   string `json:"id"`
 	Name string `json:"name,omitempty"`
 	// ContextWindow is the context window the listing reports for the model,
-	// 0 when it reports none. It stays out of the JSON the provider models
-	// route serves; the session manager reads it for models whose
+	// 0 when it reports none. Served as context_window on the provider models
+	// route; the session manager also reads it for models whose
 	// max_context_tokens is unset.
-	ContextWindow int `json:"-"`
+	ContextWindow int `json:"context_window,omitempty"`
 }
 
 // modelListTimeout bounds a single provider model-listing request.

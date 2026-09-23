@@ -16,9 +16,10 @@ Feature: The settings form fetches the model list a provider advertises
     Then the gateway answers with the models "m1,m2"
     And the upstream saw the key "sk-fresh"
 
-  Scenario: A saved provider is fetched by name without secrets in the body
-    Given an upstream model endpoint serving "m1,m2"
-    And a coddy server holding a provider "demo" of type "openai" at that upstream with key "sk-demo"
-    When the settings form posts only the provider name "demo"
+  Scenario: The listing carries the context window the provider reports
+    Given an upstream model endpoint serving "m1:131072,m2:8192"
+    And a coddy server holding only a provider named "other"
+    When the settings form posts the provider row "fresh" of type "openai" at that upstream with key "sk-fresh"
     Then the gateway answers with the models "m1,m2"
-    And the upstream saw the key "sk-demo"
+    And the gateway answers with context window 131072 for "m1"
+    And the gateway answers with context window 8192 for "m2"

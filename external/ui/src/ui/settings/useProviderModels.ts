@@ -4,6 +4,7 @@ import { useState } from "react";
 export interface FetchedModel {
   id: string;
   name?: string;
+  context_window?: number;
 }
 
 /** The provider row shape SchemaForm hands the override. */
@@ -47,7 +48,7 @@ export function useProviderModels() {
       const data = (await res.json()) as {
         ok?: boolean;
         error?: string;
-        models?: { id: string; name?: string }[];
+        models?: { id: string; name?: string; context_window?: number }[];
       };
       if (!res.ok || !data.ok) {
         setModels([]);
@@ -61,7 +62,18 @@ export function useProviderModels() {
           continue;
         }
         seen.add(m.id);
-        list.push(m.name ? { id: m.id, name: m.name } : { id: m.id });
+        const item: FetchedModel = { id: m.id };
+        if (m.name) {
+          item.name = m.name;
+        }
+        if (
+          typeof m.context_window === "number" &&
+          Number.isFinite(m.context_window) &&
+          m.context_window > 0
+        ) {
+          item.context_window = Math.floor(m.context_window);
+        }
+        list.push(item);
       }
       setModels(list);
     } catch (e) {

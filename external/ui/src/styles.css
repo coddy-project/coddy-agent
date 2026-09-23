@@ -8032,12 +8032,38 @@ html:not([data-theme="light"]) .context-usage-note--error {
   white-space: nowrap;
 }
 
+.provider-model-ctx {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Same control the History folder headings use: a bare + glyph, quiet until
+   hovered. The listed state keeps the box and shows a check instead. */
 .provider-model-add {
   flex: 0 0 auto;
+  width: 26px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+
+.provider-model-add:hover:not(:disabled),
+.provider-model-add:focus-visible {
+  color: var(--text);
 }
 
 .provider-model-add:disabled {
-  opacity: 0.45;
+  cursor: default;
 }
 
 .provider-models-error {

@@ -127,6 +127,7 @@ export const messagesEn: Record<string, string> = {
   "settings.providers.modelsLegend": "Advertised models",
   "settings.providers.addModel": "Add {id} to logical models",
   "settings.providers.modelListed": "{id} is already in logical models",
+  "settings.providers.contextWindow": "Context window: {tokens}",
   "settings.reasoning.levelsFallback": "Reasoning levels",
   "settings.reasoning.fetch": "Fetch reasoning levels",
   "settings.reasoning.fetching": "Fetching…",

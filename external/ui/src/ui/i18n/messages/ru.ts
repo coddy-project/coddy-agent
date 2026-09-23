@@ -123,6 +123,7 @@ export const messagesRu: Record<string, string> = {
   "settings.providers.modelsLegend": "Модели провайдера",
   "settings.providers.addModel": "Добавить {id} в модели",
   "settings.providers.modelListed": "{id} уже в моделях",
+  "settings.providers.contextWindow": "Контекстное окно: {tokens}",
   "settings.reasoning.levelsFallback": "Уровни рассуждений",
   "settings.reasoning.fetch": "Получить уровни ризонинга",
   "settings.reasoning.fetching": "Получение уровней ризонинга…",
