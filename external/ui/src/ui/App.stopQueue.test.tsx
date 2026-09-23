@@ -1339,14 +1339,12 @@ describe("a send the server never took keeps the prompt and its images", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(posted).toBe(1));
     await expectPromptBack("Fix what the screenshots show");
-    // The transcript is read again after the failure, and whatever it says,
-    // the notice and its reason stay.
+    // The transcript is not read again: that read is what wiped the notice,
+    // and the server has nothing of this send to show.
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
-    expect(backend.count(`/coddy/sessions/${A}/messages`)).toBeGreaterThanOrEqual(
-      reads,
-    );
+    expect(backend.count(`/coddy/sessions/${A}/messages`)).toBe(reads);
     expect(await screen.findByText(/Failed to fetch/)).toBeInTheDocument();
     // Not left behind as a bubble the conversation does not have.
     expect(

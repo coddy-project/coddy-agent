@@ -3819,7 +3819,36 @@ export function App() {
     // Set once the POST has an answer: a failure before it means the server
     // never admitted this send, and the prompt goes back to the composer.
     let responded = false;
-    let giveBack = () => {};
+    // The server never took this send: the bubble drawn for it (once drawn)
+    // leaves the transcript, and what the operator wrote returns to the
+    // composer - text and files - ahead of anything typed since. Defined
+    // before anything can throw, so a failure on the way to the POST (the
+    // new chat's workspace, the file read) loses nothing either.
+    let restoreKey = "";
+    let userItemId = "";
+    const giveBack = () => {
+      const key = restoreKey || sessionId.trim();
+      if (userItemId)
+        applyStreamItemsForSession(key, (prev) =>
+          prev.filter((it) => it.id !== userItemId),
+        );
+      if (
+        !opts?.restoreOnRefusal ||
+        (key && viewedSessionIdRef.current.trim() !== key)
+      )
+        return;
+      setDraft((current) =>
+        !current.trim() || current.trim() === text.trim()
+          ? text
+          : `${text}\n\n${current}`,
+      );
+      const files = opts.files ?? [];
+      if (files.length > 0)
+        setComposerFiles((prev) => [
+          ...files,
+          ...prev.filter((f) => !files.includes(f)),
+        ]);
+    };
     const ownsPost = () =>
       postAbortBySidRef.current.get(postSessionKey) === abortCtl;
 
@@ -3840,6 +3869,7 @@ export function App() {
       sidEffective = sid;
       let latestPreviewSid = sid;
       postSessionKey = sid.trim();
+      restoreKey = postSessionKey;
       postAbortBySidRef.current.set(postSessionKey, abortCtl);
       pendingPostBySidRef.current.set(postSessionKey, abortCtl);
       streamGenerationBySidRef.current.set(
@@ -3918,27 +3948,7 @@ export function App() {
       // The server never took this send: the bubble drawn for it leaves the
       // transcript, and what the operator wrote returns to the composer - text
       // and files - ahead of anything typed since.
-      giveBack = () => {
-        applyStreamItemsForSession(streamKey, (prev) =>
-          prev.filter((it) => it.id !== userItem.id),
-        );
-        if (
-          !opts?.restoreOnRefusal ||
-          viewedSessionIdRef.current.trim() !== streamKey
-        )
-          return;
-        setDraft((current) =>
-          !current.trim() || current.trim() === text.trim()
-            ? text
-            : `${text}\n\n${current}`,
-        );
-        const files = opts.files ?? [];
-        if (files.length > 0)
-          setComposerFiles((prev) => [
-            ...files,
-            ...prev.filter((f) => !files.includes(f)),
-          ]);
-      };
+      userItemId = userItem.id;
       let settingsOnly = false;
       streamingAssistantBySidRef.current.set(streamKey, assistantId);
       const viewingNow = viewedSessionIdRef.current.trim();
@@ -4028,7 +4038,9 @@ export function App() {
           completedNormally = true;
           return;
         }
-        reqBody.inline_files = inlineFiles;
+        reqBody.inline_files = inlineFiles.filter(
+          (f): f is { name: string; data_url: string } => f !== null,
+        );
       }
       const yamlSel = llmModel.trim();
       const reasoningSel = llmReasoning.trim();
@@ -4100,6 +4112,7 @@ export function App() {
         sidEffective = sidHdr;
         postSessionKey = sidHdr.trim();
         streamKey = postSessionKey;
+        restoreKey = postSessionKey;
         queueEpoch = queueOrderRef.current.capture(streamKey).epoch;
         postAbortBySidRef.current.delete(oldKey);
         postAbortBySidRef.current.set(postSessionKey, abortCtl);
@@ -4380,7 +4393,11 @@ export function App() {
       // could not show a message the server does not have. Should the server
       // have taken the turn after all, the activity refresh below attaches to
       // it and its end reloads the transcript.
-      if (!responded && !isAbortError(err) && ownsPost()) {
+      if (
+        !responded &&
+        !isAbortError(err) &&
+        (ownsPost() || !postSessionKey.trim())
+      ) {
         giveBack();
         completedNormally = true;
       }
