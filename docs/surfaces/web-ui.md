@@ -83,6 +83,22 @@ Clear the field to use the session model for summarization.
 - Turning the switch off brings back what the row held before it went on, for as long as the form is open. The document keeps one value, so after **Save** a row set to **`none`** no longer remembers the URL it replaced.
 - The value travels through **`GET`** / **`PUT /coddy/config`** as written. A value that is neither a keyword nor a proxy URL is refused on **Save**, and the error names the accepted ones.
 
+## Settings: advertised model list
+
+![The provider edit form's Advertised models fieldset with the fetched list](../assets/provider-models-fetch-list-dark-1280.png)
+
+*Fetch models in a provider's edit form lists the advertised ids; the + control adds one to Logical models, a check marks an id already there.*
+
+- A provider's model list is fetched where the provider is configured: open **Settings → LLM Providers**, pick a row, and the **Advertised models** fieldset at the bottom of its edit form carries the **Fetch models** button. The request posts the row exactly as the form holds it to **`POST /coddy/providers/models`** - unsaved edits, a sign-in that exists only on disk, and a provider the document does not have yet all resolve the same way a saved row does - so the list reflects what is on screen, not what is stored.
+- Each fetched id is a row with a **+** control that appends **`provider/id`** to **Logical models** in the same unsaved document - nothing reaches `config.yaml` until **Save all**. An id already listed shows a disabled check instead, and a failed fetch shows its error inline without touching the form.
+- **Settings → Logical Models → Add** opens a plain form: a **Provider** select fed by the document's `providers[].name` rows, the **model id** field, and the remaining model settings. The two compose into `provider/id` on the first slash; the form carries no fetch control of its own.
+
+![The logical-model form: provider select and model id, no fetch button](../assets/model-form-provider-id-fields-dark-1280.png)
+
+*A logical model is a provider name plus the id its API expects.*
+
+- Automated checks: **`ProviderModelsFetch.test.tsx`** (the fetch posts the edited row, add appends `provider/id`, listed ids disable, errors render inline), **`ModelField.test.tsx`** (the provider/id composition and split), **`SettingsSection.test.tsx`** (the end-to-end wiring inside the providers section), and the API side's `features/provider_models_fetch.feature` with `external/httpserver/providers_models_http_test.go`.
+
 ## Settings: boolean switch fields
 
 - Every on/off option in the settings forms renders through the shared **`SwitchField`** (**`external/ui/src/ui/settings/SwitchField.tsx`**): the **`Switch`** control, its label, and the optional description on one two-column grid (**`.settings-switch-field`**). This covers the schema-driven booleans of **`SchemaForm`** (for example **Logical models → Multimodal** and **Stream responses**, **Tools and permissions → Background tasks → Enabled**, **System** gateway flags) and the **Skills → Skill auto-discovery** row.
