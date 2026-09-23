@@ -1433,10 +1433,7 @@ test("a command is never respelt against the session directory", () => {
   );
 });
 
-test("a call whose arguments name nothing opens with its body, not an empty strip", () => {
-  // background_output takes a task id and a line count: no path, no command,
-  // nothing for the header bar to say. The bar was rendered anyway, so the card
-  // opened with a 34px empty strip above the arguments.
+test("background output names the task instead of opening with an empty strip", () => {
   const { container } = render(
     <ToolCallMessage
       toolCallId="tc-bgout"
@@ -1450,18 +1447,14 @@ test("a call whose arguments name nothing opens with its body, not an empty stri
   );
   openToolDetails();
 
-  expect(
-    container.querySelector(".permission-preview-bar"),
-    "a header bar with nothing in it is a strip of empty border",
-  ).toBeNull();
-  // With no bar the body carries the whole card, top corners included.
-  expect(container.querySelector(".permission-preview-viewport")).toHaveClass(
-    "permission-preview-viewport--headless",
+  expect(container.querySelector(".permission-preview-location")?.textContent).toBe(
+    "bg_3",
   );
-  // The arguments themselves still show.
-  expect(
-    container.querySelector(".permission-preview-code")?.textContent,
-  ).toContain("bg_3");});
+  expect(container.querySelector(".scheduler-tool-row")?.textContent).toContain(
+    "running",
+  );
+  expect(container.querySelector(".permission-preview-code")).toBeNull();
+});
 
 test("read tells a directory listing apart from a file when its arguments say so", () => {
   const { rerender } = render(

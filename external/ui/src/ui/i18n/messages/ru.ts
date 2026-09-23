@@ -191,8 +191,7 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.models.temperature.label": "Температура",
   "settings.schema.models.temperature.desc":
     "Температура сэмплирования для этой логической модели (0 = детерминированно, выше = более случайно).",
-  "settings.schema.models.max_context_tokens.label":
-    "Окно контекста (токены)",
+  "settings.schema.models.max_context_tokens.label": "Окно контекста (токены)",
   "settings.schema.models.max_context_tokens.desc":
     "Окно контекста модели: по нему считаются индикатор контекста в композере и автоматическое сжатие. 0 — взять из списка моделей провайдера, если он его сообщает, иначе 128000.",
   "settings.schema.models.multimodal.label": "Мультимодальная",
@@ -1019,12 +1018,14 @@ export const messagesRu: Record<string, string> = {
   "composer.modeAsk": "Чат",
   "composer.modePlan": "План",
   "composer.permission": "Разрешения",
-  "composer.permissionTitle": "Когда инструменты спрашивают одобрение в этой сессии (режим конфигурации: {configured})",
+  "composer.permissionTitle":
+    "Когда инструменты спрашивают одобрение в этой сессии (режим конфигурации: {configured})",
   "composer.permissionAsk": "Спрашивать",
   "composer.permissionAcceptEdits": "Правки без вопросов",
   "composer.permissionBypass": "Без вопросов",
   "composer.permissionAskHint": "Спрашивать перед командами и записью файлов",
-  "composer.permissionAcceptEditsHint": "Запись файлов без вопросов, команды спрашивают",
+  "composer.permissionAcceptEditsHint":
+    "Запись файлов без вопросов, команды спрашивают",
   "composer.permissionBypassHint": "Ничего не спрашивать",
   "composer.overridesTitle": "Изменено на ближайшие ходы:\n{list}",
   "composer.overrideThisTurn": "{value} на этот ход",
@@ -1095,7 +1096,8 @@ export const messagesRu: Record<string, string> = {
   "composer.closePicker": "Закрыть выбор",
   "composer.slashCommandsAriaLabel": "Команды со слэшем",
   "composer.workspaceFilesTitle": "Упоминание",
-  "composer.workspaceFilesAriaLabel": "Упомянуть файл, папку, сессию, правило или сабагента",
+  "composer.workspaceFilesAriaLabel":
+    "Упомянуть файл, папку, сессию, правило или сабагента",
   "composer.mentionKindFile": "файл",
   "composer.mentionKindDirectory": "папка",
   "composer.mentionKindSession": "сессия",
@@ -1103,7 +1105,8 @@ export const messagesRu: Record<string, string> = {
   "composer.mentionKindAgent": "сабагент",
   "composer.mentionKindPlan": "план",
   "composer.mentionKindScheme": "поиск",
-  "composer.docsCommand": "Открыть встроенную документацию: /docs [страница или слова]",
+  "composer.docsCommand":
+    "Открыть встроенную документацию: /docs [страница или слова]",
   "composer.mentionKindDoc": "документация",
   "composer.mentionSchemeSession": "Другая сессия и её последние сообщения",
   "composer.mentionSchemeRule": "Правило проекта",
@@ -1228,7 +1231,8 @@ export const messagesRu: Record<string, string> = {
   "scheduler.runs": "Запуски",
   "scheduler.openRuns": "Открыть запуски задачи {jobId}",
   "scheduler.runsTitle": "Запуски задачи {jobId}",
-  "scheduler.runsEmpty": "Запусков ещё не было. Запустите задачу сейчас или дождитесь расписания.",
+  "scheduler.runsEmpty":
+    "Запусков ещё не было. Запустите задачу сейчас или дождитесь расписания.",
   "scheduler.lastRun.running": "Выполняется",
   "scheduler.field.agent": "agent (необязательно)",
   "scheduler.field.agentHelp":
@@ -1322,6 +1326,7 @@ export const messagesRu: Record<string, string> = {
   "tool.name.rmdir": "удаляю каталог",
   "tool.name.load_skill": "загружаю скил",
   "tool.name.spawn_agent": "запускаю сабагента",
+  "tool.name.switch_model": "переключаю модель",
   "tool.name.question": "задаю вопрос",
   "tool.name.webfetch": "загружаю страницу",
   "tool.name.http_request": "отправляю http-запрос",
@@ -1374,6 +1379,30 @@ export const messagesRu: Record<string, string> = {
   // Любой инструмент MCP-сервера: строка называет сервер и сам инструмент,
   // а не идентификатор вида `server__tool` из реестра.
   "tool.name.mcp": "запускаю {tool} на MCP-сервере {server}",
+
+  "structuredTool.modelChange": "Смена модели",
+  "structuredTool.model": "Модель",
+  "structuredTool.reasoning": "Уровень рассуждения",
+  "structuredTool.scope": "Срок действия",
+  "structuredTool.session": "На весь разговор",
+  "structuredTool.turn": "На этот ход",
+  "structuredTool.requestHeaders": "Заголовки запроса",
+  "structuredTool.requestBody": "Тело запроса",
+  "structuredTool.responseHeaders": "Заголовки ответа",
+  "structuredTool.outputFile": "Сохранено в",
+  "structuredTool.status": "Ответ",
+  "structuredTool.file": "файл",
+  "structuredTool.text": "текст",
+  "structuredTool.bytes.one": "{count} байт",
+  "structuredTool.bytes.few": "{count} байта",
+  "structuredTool.bytes.many": "{count} байт",
+  "structuredTool.bytes.other": "{count} байта",
+  "structuredTool.workspace": "Рабочая папка",
+  "structuredTool.backgroundTasks": "Фоновые задачи",
+  "structuredTool.timeout": "Тайм-аут",
+  "structuredTool.task": "Задача",
+  "structuredTool.plans": "Планы",
+  "structuredTool.slug": "Идентификатор",
 
   "schedulerTool.allJobs": "все задания",
   "schedulerTool.jobs.one": "{count} задание",
@@ -1545,7 +1574,8 @@ export const messagesRu: Record<string, string> = {
   "docs.close": "Закрыть документацию (F1)",
   "docs.anchor.label": "Ссылка на раздел {heading}",
   "docs.site.label": "coddy.dev",
-  "docs.site.title": "Та же страница на публичном сайте, чтобы поделиться с тем, у кого нет Coddy",
+  "docs.site.title":
+    "Та же страница на публичном сайте, чтобы поделиться с тем, у кого нет Coddy",
   "docs.lightbox.label": "Изображение",
   "docs.lightbox.zoomIn": "Увеличить (+)",
   "docs.lightbox.zoomOut": "Уменьшить (-)",
@@ -1557,16 +1587,19 @@ export const messagesRu: Record<string, string> = {
   "docs.error": "Не удалось загрузить документацию: {message}",
   "docs.search.placeholder": "Поиск по документации",
   "docs.search.label": "Результаты поиска",
-  "docs.search.empty": "Ничего не нашлось, попробуйте другие или более короткие слова",
+  "docs.search.empty":
+    "Ничего не нашлось, попробуйте другие или более короткие слова",
   "docs.toc.label": "Содержание",
   "docs.outline.label": "На этой странице",
   "docs.pager.label": "Предыдущая и следующая страница",
   "docs.pager.prev": "Назад",
   "docs.pager.next": "Далее",
   "docs.ask.page": "Спросить агента",
-  "docs.ask.pageTitle": "Начать чат, приложив эту страницу или раздел, который сейчас читаете",
+  "docs.ask.pageTitle":
+    "Начать чат, приложив эту страницу или раздел, который сейчас читаете",
   "docs.ask.selection": "Спросить о выделенном",
-  "docs.ask.selectionTitle": "Начать чат с цитатой выделенного текста и его разделом",
+  "docs.ask.selectionTitle":
+    "Начать чат с цитатой выделенного текста и его разделом",
   "swarm.title": "Рой",
   "swarm.summary.relays.one": "{count} релей",
   "swarm.summary.relays.few": "{count} релея",

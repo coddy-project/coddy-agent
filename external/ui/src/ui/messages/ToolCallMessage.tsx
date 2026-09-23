@@ -36,6 +36,10 @@ import { parseSpawnAgentArgs } from "../chat/spawnAgentDisplay";
 import { SpawnAgentCard } from "./SpawnAgentCard";
 import { SchedulerToolCard } from "./SchedulerToolCard";
 import {
+  StructuredToolCard,
+  supportsStructuredToolCard,
+} from "./StructuredToolCard";
+import {
   isSchedulerTool,
   schedulerReadout,
 } from "../chat/schedulerToolDisplay";
@@ -628,6 +632,11 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
         : null,
     [isSchedulerToolCall, props.argsText, rawNameLower, resultBody, status],
   );
+  const structuredCard = supportsStructuredToolCard(
+    rawNameLower,
+    props.argsText,
+    status,
+  );
   const searchLoading =
     loadsWholeSearch &&
     !full &&
@@ -643,6 +652,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     !spawnAgent &&
     !isLoadSkillTool &&
     !schedulerCard &&
+    !structuredCard &&
     toolPreviewHasContent;
   const showPatchResult =
     isPatchTool &&
@@ -651,6 +661,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   const showResult =
     !isQuestionTool &&
     !isPatchTool &&
+    !structuredCard &&
     (!schedulerCard || searchLoading) &&
     !(
       status === "completed" &&
@@ -660,6 +671,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   const hasConnectedResult = (showToolPreview || !!spawnAgent) && (showPatchResult || showResult);
   const hasBody =
     !!schedulerCard ||
+    structuredCard ||
     !!spawnAgent ||
     isQuestionTool ||
     showToolPreview ||
@@ -750,6 +762,23 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
             {spawnAgent ? <SpawnAgentCard details={spawnAgent} /> : null}
             {schedulerCard ? (
               <SchedulerToolCard readout={schedulerCard} status={status} />
+            ) : null}
+            {structuredCard ? (
+              <div
+                ref={resultViewportRef}
+                className={
+                  useTallViewport
+                    ? `tool-result-viewport tool-result-viewport--tall tool-result-viewport--${viewportMode}`
+                    : undefined
+                }
+              >
+                <StructuredToolCard
+                  name={rawNameLower}
+                  argsText={props.argsText}
+                  resultText={resultBody}
+                  status={status}
+                />
+              </div>
             ) : null}
             {showPatchResult || showResult ? (
               <div

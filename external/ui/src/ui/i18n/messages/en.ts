@@ -195,8 +195,7 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.models.temperature.label": "Temperature",
   "settings.schema.models.temperature.desc":
     "Sampling temperature for this logical model (0 = deterministic, higher = more random).",
-  "settings.schema.models.max_context_tokens.label":
-    "Context window (tokens)",
+  "settings.schema.models.max_context_tokens.label": "Context window (tokens)",
   "settings.schema.models.max_context_tokens.desc":
     "The model's context window: what the composer context ring and automatic compaction measure against. 0 reads it from the provider's model listing when it reports one, else 128000.",
   "settings.schema.models.multimodal.label": "Multimodal",
@@ -1005,7 +1004,8 @@ export const messagesEn: Record<string, string> = {
   "composer.modeAsk": "Ask",
   "composer.modePlan": "Plan",
   "composer.permission": "Permissions",
-  "composer.permissionTitle": "When tools ask for approval in this session (the configuration's mode: {configured})",
+  "composer.permissionTitle":
+    "When tools ask for approval in this session (the configuration's mode: {configured})",
   "composer.permissionAsk": "Ask first",
   "composer.permissionAcceptEdits": "Accept edits",
   "composer.permissionBypass": "Bypass",
@@ -1076,7 +1076,8 @@ export const messagesEn: Record<string, string> = {
   "composer.closePicker": "Close picker",
   "composer.slashCommandsAriaLabel": "Slash commands",
   "composer.workspaceFilesTitle": "Mention",
-  "composer.workspaceFilesAriaLabel": "Mention a file, a folder, a session, a rule or a subagent",
+  "composer.workspaceFilesAriaLabel":
+    "Mention a file, a folder, a session, a rule or a subagent",
   "composer.mentionKindFile": "file",
   "composer.mentionKindDirectory": "folder",
   "composer.mentionKindSession": "session",
@@ -1084,7 +1085,8 @@ export const messagesEn: Record<string, string> = {
   "composer.mentionKindAgent": "subagent",
   "composer.mentionKindPlan": "plan",
   "composer.mentionKindScheme": "search",
-  "composer.docsCommand": "Open the built-in documentation: /docs [page or words]",
+  "composer.docsCommand":
+    "Open the built-in documentation: /docs [page or words]",
   "composer.mentionKindDoc": "docs",
   "composer.mentionSchemeSession": "Another session, with its latest messages",
   "composer.mentionSchemeRule": "A project rule",
@@ -1209,7 +1211,8 @@ export const messagesEn: Record<string, string> = {
   "scheduler.runs": "Runs",
   "scheduler.openRuns": "Open the runs of {jobId}",
   "scheduler.runsTitle": "Runs of {jobId}",
-  "scheduler.runsEmpty": "No runs yet. Run the job now or wait for its schedule.",
+  "scheduler.runsEmpty":
+    "No runs yet. Run the job now or wait for its schedule.",
   "scheduler.lastRun.running": "Running",
   "scheduler.field.agent": "agent (optional)",
   "scheduler.field.agentHelp":
@@ -1305,6 +1308,7 @@ export const messagesEn: Record<string, string> = {
   "tool.name.rmdir": "removing a directory",
   "tool.name.load_skill": "loading a skill",
   "tool.name.spawn_agent": "starting a subagent",
+  "tool.name.switch_model": "switching the model",
   "tool.name.question": "asking a question",
   "tool.name.webfetch": "fetching a page",
   "tool.name.http_request": "sending an http request",
@@ -1357,6 +1361,28 @@ export const messagesEn: Record<string, string> = {
   // Every tool an MCP server serves, whatever it is called: the row names the
   // server and the tool instead of the `server__tool` id the registry uses.
   "tool.name.mcp": "calling {tool} on the MCP server {server}",
+
+  "structuredTool.modelChange": "Model change",
+  "structuredTool.model": "Model",
+  "structuredTool.reasoning": "Reasoning",
+  "structuredTool.scope": "Duration",
+  "structuredTool.session": "For this conversation",
+  "structuredTool.turn": "For this turn",
+  "structuredTool.requestHeaders": "Request headers",
+  "structuredTool.requestBody": "Request body",
+  "structuredTool.responseHeaders": "Response headers",
+  "structuredTool.outputFile": "Saved to",
+  "structuredTool.status": "Response",
+  "structuredTool.file": "file",
+  "structuredTool.text": "text",
+  "structuredTool.bytes.one": "{count} byte",
+  "structuredTool.bytes.other": "{count} bytes",
+  "structuredTool.workspace": "Workspace",
+  "structuredTool.backgroundTasks": "Background tasks",
+  "structuredTool.timeout": "Timeout",
+  "structuredTool.task": "Task",
+  "structuredTool.plans": "Plans",
+  "structuredTool.slug": "Slug",
 
   "schedulerTool.allJobs": "all jobs",
   "schedulerTool.jobs.one": "{count} job",
@@ -1511,7 +1537,8 @@ export const messagesEn: Record<string, string> = {
   "docs.close": "Close the documentation (F1)",
   "docs.anchor.label": "Link to the section {heading}",
   "docs.site.label": "coddy.dev",
-  "docs.site.title": "The same page on the public site, to share with someone who has no Coddy",
+  "docs.site.title":
+    "The same page on the public site, to share with someone who has no Coddy",
   "docs.lightbox.label": "Image",
   "docs.lightbox.zoomIn": "Zoom in (+)",
   "docs.lightbox.zoomOut": "Zoom out (-)",
@@ -1530,9 +1557,11 @@ export const messagesEn: Record<string, string> = {
   "docs.pager.prev": "Previous",
   "docs.pager.next": "Next",
   "docs.ask.page": "Ask the agent",
-  "docs.ask.pageTitle": "Start a chat with this page, or the section being read, attached",
+  "docs.ask.pageTitle":
+    "Start a chat with this page, or the section being read, attached",
   "docs.ask.selection": "Ask about the selection",
-  "docs.ask.selectionTitle": "Start a chat with the selected text quoted and its section attached",
+  "docs.ask.selectionTitle":
+    "Start a chat with the selected text quoted and its section attached",
   "swarm.title": "Swarm",
   "swarm.summary.relays.one": "{count} relay",
   "swarm.summary.relays.other": "{count} relays",
