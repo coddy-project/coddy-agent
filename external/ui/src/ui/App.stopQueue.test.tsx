@@ -8,7 +8,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { App } from "./App";
 import {
   FakeLocks,
@@ -1282,4 +1282,112 @@ test("a hung Stop times out, keeps the turn watched and becomes retryable", asyn
   } finally {
     vi.useRealTimers();
   }
+});
+
+// A prompt with images the server never took must not vanish: the red notice
+// said why, and then a reload of the transcript wiped the notice, the
+// optimistic bubble, the text and the pictures together.
+describe("a send the server never took keeps the prompt and its images", () => {
+  const images = () =>
+    ["one.png", "two.png", "three.png"].map(
+      (name) => new File([new Uint8Array([137, 80, 78, 71])], name, {
+        type: "image/png",
+      }),
+    );
+  async function composeWithImages(text: string) {
+    document.cookie = "coddy_llm_model=test-model; Path=/";
+    const models = backend.override;
+    backend.override = (r) =>
+      r.path === "/v1/models"
+        ? json({
+            data: [{ id: "test-model", owned_by: "test", multimodal: true }],
+          })
+        : models?.(r);
+    await mount();
+    await waitFor(() =>
+      expect(screen.getByTestId("composer-attach-btn")).toBeInTheDocument(),
+    );
+    fireEvent.change(screen.getByTestId("composer-file-input"), {
+      target: { files: images() },
+    });
+    fireEvent.change(composer(), { target: { value: text } });
+    await waitFor(() =>
+      expect(
+        within(screen.getByLabelText("Attached files")).getByText("three.png"),
+      ).toBeInTheDocument(),
+    );
+  }
+  async function expectPromptBack(text: string) {
+    await waitFor(() => expect(composer()).toHaveValue(text));
+    const chips = within(screen.getByLabelText("Attached files"));
+    for (const name of ["one.png", "two.png", "three.png"])
+      expect(chips.getByText(name)).toBeInTheDocument();
+  }
+  afterEach(() => {
+    document.cookie = "coddy_llm_model=; Path=/; Max-Age=0";
+  });
+
+  test("a connection lost on the way keeps the reason on screen", async () => {
+    let posted = 0;
+    backend.override = (r) => {
+      if (r.path !== "/v1/responses") return undefined;
+      posted++;
+      return Promise.reject(new TypeError("Failed to fetch"));
+    };
+    await composeWithImages("Fix what the screenshots show");
+    const reads = backend.count(`/coddy/sessions/${A}/messages`);
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(posted).toBe(1));
+    await expectPromptBack("Fix what the screenshots show");
+    // The transcript is read again after the failure, and whatever it says,
+    // the notice and its reason stay.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(backend.count(`/coddy/sessions/${A}/messages`)).toBeGreaterThanOrEqual(
+      reads,
+    );
+    expect(await screen.findByText(/Failed to fetch/)).toBeInTheDocument();
+    // Not left behind as a bubble the conversation does not have.
+    expect(
+      screen
+        .queryAllByText("Fix what the screenshots show")
+        .filter((el) => !el.closest('[class*="composer"]')),
+    ).toHaveLength(0);
+  });
+
+  test("an attachment the browser cannot read is named and nothing is sent", async () => {
+    const Real = globalThis.FileReader;
+    class Unreadable extends Real {
+      override readAsDataURL(blob: Blob) {
+        if ((blob as File).name === "two.png") {
+          Object.defineProperty(this, "error", {
+            value: new DOMException("The file could not be read", "NotReadableError"),
+          });
+          setTimeout(() => this.onerror?.(new ProgressEvent("error") as never), 0);
+          return;
+        }
+        super.readAsDataURL(blob);
+      }
+    }
+    vi.stubGlobal("FileReader", Unreadable);
+    await composeWithImages("Look at these");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(
+      await screen.findByText(/Could not read the attached file two\.png/),
+    ).toBeInTheDocument();
+    await expectPromptBack("Look at these");
+    expect(backend.count("/v1/responses", "POST")).toBe(0);
+  });
+
+  test("a refusal by status gives the prompt back too", async () => {
+    backend.override = (r) =>
+      r.path === "/v1/responses"
+        ? json({ error: { message: "request body too large" } }, 413)
+        : undefined;
+    await composeWithImages("Try again with images");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await expectPromptBack("Try again with images");
+    expect(await screen.findByText(/413/)).toBeInTheDocument();
+  });
 });

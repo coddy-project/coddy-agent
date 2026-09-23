@@ -25,6 +25,7 @@ import {
   isAbortError,
   remoteHttpErrorMessage,
   remoteSendErrorMessage,
+  errorDetail,
 } from "./env/remoteErrors";
 import { EnvHealthBanner } from "./env/EnvHealthBanner";
 import { isNoLiveTurnRelayError } from "./chat/composerStreamError";
@@ -431,6 +432,9 @@ export function App() {
     const row = readClientDraftSessions().find((r) => r.localId === id);
     return row?.draftText || "";
   });
+  // The files attached in the composer. Held here, not in the composer, so a
+  // send the server never took can put them back next to the text.
+  const [composerFiles, setComposerFiles] = useState<File[]>([]);
   // Workspace context chips: folder / git branch / worktree state per session.
   const [workspaceCtx, setWorkspaceCtx] = useState<WorkspaceContext | null>(
     null,
@@ -3788,13 +3792,15 @@ export function App() {
       runPlanSlug?: string;
       files?: File[];
       /**
-       * Put the text back in the composer if the server refuses this send as
-       * busy. Set by the message queue's fallback: the queue closes a moment
-       * before the turn releases its admission, so a follow-up written in that
-       * gap is told "no turn is running" and then refused as busy - and what
-       * the operator wrote must not vanish between the two answers.
+       * Put the text and the files back in the composer when the server never
+       * took this send: a refusal by status, a request that failed on the way,
+       * an attachment the browser could not read. Set for what the operator
+       * wrote - the composer and the message queue's fallback (the queue
+       * closes a moment before the turn releases its admission, so a
+       * follow-up written in that gap is told "no turn is running" and then
+       * refused as busy) - and never for a retry, whose text was not typed.
        */
-      restoreDraftOnBusy?: boolean;
+      restoreOnRefusal?: boolean;
     },
   ) {
     const abortCtl = new AbortController();
@@ -3810,6 +3816,10 @@ export function App() {
       : null;
 
     let sidEffective = "";
+    // Set once the POST has an answer: a failure before it means the server
+    // never admitted this send, and the prompt goes back to the composer.
+    let responded = false;
+    let giveBack = () => {};
     const ownsPost = () =>
       postAbortBySidRef.current.get(postSessionKey) === abortCtl;
 
@@ -3905,6 +3915,30 @@ export function App() {
       };
       const assistantId = newId("a");
       assistantStreamId = assistantId;
+      // The server never took this send: the bubble drawn for it leaves the
+      // transcript, and what the operator wrote returns to the composer - text
+      // and files - ahead of anything typed since.
+      giveBack = () => {
+        applyStreamItemsForSession(streamKey, (prev) =>
+          prev.filter((it) => it.id !== userItem.id),
+        );
+        if (
+          !opts?.restoreOnRefusal ||
+          viewedSessionIdRef.current.trim() !== streamKey
+        )
+          return;
+        setDraft((current) =>
+          !current.trim() || current.trim() === text.trim()
+            ? text
+            : `${text}\n\n${current}`,
+        );
+        const files = opts.files ?? [];
+        if (files.length > 0)
+          setComposerFiles((prev) => [
+            ...files,
+            ...prev.filter((f) => !files.includes(f)),
+          ]);
+      };
       let settingsOnly = false;
       streamingAssistantBySidRef.current.set(streamKey, assistantId);
       const viewingNow = viewedSessionIdRef.current.trim();
@@ -3947,23 +3981,53 @@ export function App() {
         writeLlmModelCookie(typedModel);
       }
       if (opts?.files && opts.files.length > 0) {
+        let unreadable: { name: string; reason: string } | null = null;
         const inlineFiles = await Promise.all(
           opts.files.map(
             (f) =>
-              new Promise<{ name: string; data_url: string }>(
-                (resolve, reject) => {
+              new Promise<{ name: string; data_url: string } | null>(
+                (resolve) => {
                   const reader = new FileReader();
                   reader.onload = () =>
                     resolve({
                       name: f.name,
                       data_url: reader.result as string,
                     });
-                  reader.onerror = reject;
+                  // A picked file the browser can no longer read (moved,
+                  // changed on disk, a cloud photo not on the device) is
+                  // named, and nothing is sent without it.
+                  reader.onerror = () => {
+                    unreadable ??= {
+                      name: f.name,
+                      reason:
+                        errorDetail(reader.error) || "NotReadableError",
+                    };
+                    resolve(null);
+                  };
                   reader.readAsDataURL(f);
                 },
               ),
           ),
         );
+        if (unreadable !== null) {
+          const { name, reason } = unreadable as {
+            name: string;
+            reason: string;
+          };
+          applyStreamItems((prev) => [
+            ...prev,
+            {
+              id: newId("s"),
+              type: "system_notice",
+              level: "error" as const,
+              message: t("composer.attachReadFailed", { name, reason }),
+              createdAtUtc: new Date().toISOString(),
+            },
+          ]);
+          giveBack();
+          completedNormally = true;
+          return;
+        }
         reqBody.inline_files = inlineFiles;
       }
       const yamlSel = llmModel.trim();
@@ -3997,6 +4061,7 @@ export function App() {
         body: JSON.stringify(reqBody),
         signal: abortCtl.signal,
       });
+      responded = true;
       if (!ownsPost() || abortCtl.signal.aborted) return;
       pendingPostBySidRef.current.delete(postSessionKey);
 
@@ -4023,12 +4088,7 @@ export function App() {
             createdAtUtc: new Date().toISOString(),
           },
         ]);
-        if (
-          opts?.restoreDraftOnBusy &&
-          viewedSessionIdRef.current.trim() === postSessionKey
-        ) {
-          setDraft((current) => current || text);
-        }
+        giveBack();
         completedNormally = true;
         return;
       }
@@ -4076,7 +4136,19 @@ export function App() {
       if (!res.ok || !res.body) {
         const msg = !res.body
           ? t("app.emptyResponseBody")
-          : remoteHttpErrorMessage(res.status, getEnv());
+          : remoteHttpErrorMessage(
+              res.status,
+              getEnv(),
+              await res
+                .json()
+                .then(
+                  (b: { error?: { message?: unknown } }) =>
+                    typeof b?.error?.message === "string"
+                      ? b.error.message
+                      : "",
+                )
+                .catch(() => ""),
+            );
         applyStreamItems((prev) => [
           ...prev,
           {
@@ -4087,6 +4159,8 @@ export function App() {
             createdAtUtc: new Date().toISOString(),
           },
         ]);
+        // A refusal by status: nothing of this send is in the conversation.
+        if (!res.ok) giveBack();
         completedNormally = true;
         return;
       }
@@ -4299,6 +4373,16 @@ export function App() {
             createdAtUtc: new Date().toISOString(),
           },
         ]);
+      }
+      // The request failed before any answer (a dropped upload, a refused
+      // connection): the prompt returns to the composer, and the transcript is
+      // not read again, because that read would wipe the notice saying why and
+      // could not show a message the server does not have. Should the server
+      // have taken the turn after all, the activity refresh below attaches to
+      // it and its end reloads the transcript.
+      if (!responded && !isAbortError(err) && ownsPost()) {
+        giveBack();
+        completedNormally = true;
       }
     } finally {
       releaseSessionId?.(sidEffective);
@@ -5174,7 +5258,7 @@ export function App() {
         // ordinary prompt; if the admission has not been released yet and that
         // is refused too, the text comes back to the composer rather than
         // being lost between the two answers.
-        void streamResponses(body, { restoreDraftOnBusy: true });
+        void streamResponses(body, { restoreOnRefusal: true });
         return;
       }
       if (viewedSessionIdRef.current.trim() === sid)
@@ -5640,6 +5724,8 @@ export function App() {
             {...(editingFiles.length > 0 ? { editingFiles } : {})}
             {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
             onDocsCommand={openDocsCommand}
+            attachedFiles={composerFiles}
+            onAttachedFilesChange={setComposerFiles}
             onSend={(text: string, files?: File[]) => {
               // A subagent transcript is read-only: the server answers 409.
               if (subagentTranscript) {
@@ -5650,6 +5736,9 @@ export function App() {
                 (turnActivity.get(sessionId) ??
                   activeComposerSidRef.current.has(sessionId.trim()))
               ) {
+                // Not sent: the composer already let go of the files.
+                if (files && files.length > 0)
+                  setComposerFiles((prev) => [...files, ...prev]);
                 return;
               }
               if (editingUserMsgIdx !== null) {
@@ -5661,7 +5750,10 @@ export function App() {
                 void handleRewindSend(textWithAssets, idx);
               } else {
                 setDraft("");
-                void streamResponses(text, files ? { files } : undefined);
+                void streamResponses(text, {
+                  restoreOnRefusal: true,
+                  ...(files ? { files } : {}),
+                });
               }
             }}
             onFetchToolCallFull={handleFetchToolCallFull}
