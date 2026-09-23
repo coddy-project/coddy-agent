@@ -163,18 +163,22 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.providers.name.label": "Provider name",
   "settings.schema.providers.name.desc":
     "Logical id used in model ids (provider/model-id).\n\nLetters, digits, - and _ only; must start with a letter.\n\nWith an empty api_key the key is read from NAME_API_KEY - this name uppercased, hyphens becoming underscores.",
+  "settings.schema.providers.name.ph": "my-provider",
   "settings.schema.providers.type.label": "Provider type",
   "settings.schema.providers.type.desc":
     "Wire protocol for this provider entry.",
+  "settings.schema.providers.type.ph": "Select type",
   "settings.schema.providers.api_base.label": "API base URL",
   "settings.schema.providers.api_base.desc":
     "Optional override of the provider's API base URL.\n\nFor neuraldeep it selects the deployment: https://api.neuraldeep.ru/v1 (Russia) or https://api.neuraldeep.tech/v1 (international mirror); any other value falls back to the first.\n\nIgnored for codex - it uses the fixed official endpoint.",
+  "settings.schema.providers.api_base.ph": "https://api.openai.com/v1",
   "settings.schema.providers.api_key.label": "API key",
   "settings.schema.providers.api_key.desc":
     "A literal key, a ${ENV} reference expanded at load, or empty to read the conventional NAME_API_KEY variable derived from the provider name (see the provider name hint).",
   "settings.schema.providers.api_key_command.label": "API key command",
   "settings.schema.providers.api_key_command.desc":
     "Optional credential-helper command used when api_key is empty.\n\nRuns via the host shell (pwsh, powershell or cmd on Windows; bash or sh elsewhere); its trimmed stdout becomes the key, like git/docker credential helpers or AWS credential_process.\n\nOn failure the NAME_API_KEY variable is used instead.",
+  "settings.schema.providers.api_key_command.ph": "pass show coddy/api-key",
   "settings.schema.providers.proxy.label": "Proxy URL",
   "settings.schema.providers.proxy.desc":
     "Optional proxy for this provider only.\n\nhttp:// or https:// for an HTTP proxy; socks5:// or socks5h:// for SOCKS5 (the proxy resolves host names).\n\nA URL replaces the system proxy for this provider; left empty the provider follows HTTPS_PROXY, HTTP_PROXY and NO_PROXY.",

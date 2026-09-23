@@ -158,12 +158,15 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.providers.name.label": "Имя провайдера",
   "settings.schema.providers.name.desc":
     "Логический идентификатор, используемый в id моделей (provider/model-id).\n\nТолько латинские буквы, цифры, дефис и подчёркивание; должен начинаться с буквы.\n\nЕсли api_key пуст, ключ читается из переменной окружения NAME_API_KEY — имя в верхнем регистре, дефисы заменяются на подчёркивания.",
+  "settings.schema.providers.name.ph": "my-provider",
   "settings.schema.providers.type.label": "Тип провайдера",
   "settings.schema.providers.type.desc":
     "Сетевой протокол для этой записи провайдера.",
+  "settings.schema.providers.type.ph": "Выберите тип",
   "settings.schema.providers.api_base.label": "Базовый URL API",
   "settings.schema.providers.api_base.desc":
     "Необязательное переопределение базового URL API провайдера.\n\nДля neuraldeep выбирает развёртывание: https://api.neuraldeep.ru/v1 (Россия) или https://api.neuraldeep.tech/v1 (международное зеркало); любое другое значение откатывается к первому.\n\nДля codex игнорируется — он использует фиксированный официальный адрес.",
+  "settings.schema.providers.api_base.ph": "https://api.openai.com/v1",
   "settings.schema.providers.api_key.label": "API-ключ",
   "settings.schema.providers.api_key.desc":
     "Можно указать ключ напрямую, сослаться на ${ENV} в YAML (разворачивается при загрузке файла) или оставить пустым — тогда читается переменная NAME_API_KEY, производная от имени провайдера (см. подсказку у поля «Имя провайдера»).",
@@ -171,6 +174,7 @@ export const messagesRu: Record<string, string> = {
     "Команда получения API-ключа",
   "settings.schema.providers.api_key_command.desc":
     "Необязательная команда получения ключа, когда api_key пуст.\n\nЗапускается через обнаруженный шелл хоста (pwsh, powershell или cmd на Windows; bash или sh в остальных случаях); её вывод без краевых пробелов становится ключом — как git/docker credential helpers или AWS credential_process.\n\nПри ошибке используется переменная NAME_API_KEY.",
+  "settings.schema.providers.api_key_command.ph": "pass show coddy/api-key",
   "settings.schema.providers.proxy.label": "URL прокси",
   "settings.schema.providers.proxy.desc":
     "Необязательный прокси только для этого провайдера.\n\nhttp:// или https:// — HTTP-прокси; socks5:// или socks5h:// — SOCKS5 (имена хостов разрешает прокси).\n\nURL заменяет системный прокси для этого провайдера; пустое поле — идёт через HTTPS_PROXY, HTTP_PROXY и NO_PROXY.",

@@ -15,7 +15,11 @@ import { hasTranslation, translate } from "../i18n/i18n";
  * instead of leaking a raw key.
  */
 
-function fieldKey(domain: string, path: string, kind: "label" | "desc"): string {
+function fieldKey(
+  domain: string,
+  path: string,
+  kind: "label" | "desc" | "ph",
+): string {
   const where = path ? `${domain}.${path}` : domain;
   return `settings.schema.${where}.${kind}`;
 }
@@ -55,4 +59,22 @@ export function schemaFieldDesc(
     }
   }
   return fallbackDesc;
+}
+
+/**
+ * Localized input placeholder: the dictionary entry for `domain`/`path` when
+ * one exists, else undefined - a field without an entry simply keeps whatever
+ * hint its own rendering derives (the schema default, for example).
+ */
+export function schemaFieldPlaceholder(
+  domain: string | undefined,
+  path: string,
+): string | undefined {
+  if (domain) {
+    const key = fieldKey(domain, path, "ph");
+    if (hasTranslation(key)) {
+      return translate(key);
+    }
+  }
+  return undefined;
 }

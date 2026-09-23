@@ -7801,6 +7801,11 @@ html:not([data-theme="light"]) .context-usage-note--error {
   padding: 4px 0 0 14px;
   border-left: 1px solid
     color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  /* Same row rhythm as .settings-schema-root, else each label glues to the
+     previous field's input instead of its own. */
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .settings-label {

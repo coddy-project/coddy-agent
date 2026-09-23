@@ -5,7 +5,11 @@ import { Chevron } from "../components/Chevron";
 import { Combobox } from "./Combobox";
 import { FieldHint } from "./FieldHint";
 import { providerApiKeyFieldPlaceholder } from "./providerApiKeyPlaceholder";
-import { schemaFieldDesc, schemaFieldLabel } from "./schemaI18n";
+import {
+  schemaFieldDesc,
+  schemaFieldLabel,
+  schemaFieldPlaceholder,
+} from "./schemaI18n";
 import { SwitchField } from "./SwitchField";
 import { useT } from "../i18n/I18nProvider";
 
@@ -202,7 +206,8 @@ function SchemaField(props: {
       return <>{override}</>;
     }
   }
-  let ph = placeholderFromDefault(schema);
+  let ph =
+    schemaFieldPlaceholder(i18nDomain, path) ?? placeholderFromDefault(schema);
   if (
     schema["x-coddy-provider-api-key-env-placeholder"] === true &&
     parentObj
@@ -348,6 +353,7 @@ function SchemaField(props: {
         <Combobox
           value={v}
           ariaLabel={label}
+          placeholder={ph}
           options={schema.enum.map((opt) => ({ value: String(opt) }))}
           onChange={(raw) => {
             const match = schema.enum!.find((x) => String(x) === raw);

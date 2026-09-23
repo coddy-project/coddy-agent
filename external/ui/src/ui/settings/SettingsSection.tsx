@@ -17,7 +17,11 @@ import {
   type JsonSchema,
 } from "./SchemaForm";
 import { MCPSection } from "./MCPSection";
-import { schemaFieldDesc, schemaFieldLabel } from "./schemaI18n";
+import {
+  schemaFieldDesc,
+  schemaFieldLabel,
+  schemaFieldPlaceholder,
+} from "./schemaI18n";
 import { SettingsArraySection } from "./SettingsArraySection";
 import { SessionsManager } from "../sessions/SessionsManager";
 import { SkillsSection } from "./SkillsSection";
@@ -93,6 +97,7 @@ function ProviderTypeField(props: { ctx: FieldOverrideContext }) {
         <Combobox
           value={v}
           ariaLabel={label}
+          placeholder={schemaFieldPlaceholder("providers", "type")}
           options={(schema.enum ?? []).map((opt) => ({
             value: String(opt),
           }))}
