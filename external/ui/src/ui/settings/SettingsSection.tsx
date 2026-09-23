@@ -4,6 +4,7 @@ import { CodexAuthField } from "./CodexAuthField";
 import { NeuralDeepAuthField } from "./NeuralDeepAuthField";
 import { ModelField } from "./ModelField";
 import { ModelPicker } from "./ModelPicker";
+import { ProviderModelsFetch } from "./ProviderModelsFetch";
 import type { ProviderRow } from "./useProviderModels";
 import { ProxySettingField } from "./ProxySettingField";
 import { ReasoningLevelsField } from "./ReasoningLevelsField";
@@ -444,6 +445,28 @@ export function SettingsSection(props: {
         newItem={newItem}
         backLabelUsesItemName={!props.isMobileShell}
         i18nDomain={section.id}
+        itemExtra={
+          key === "providers"
+            ? (item, index) => (
+                <ProviderModelsFetch
+                  key={index}
+                  provider={item}
+                  existingModels={modelIds}
+                  onAddModel={(id) => {
+                    if (modelIds.includes(id)) {
+                      return;
+                    }
+                    setDoc(
+                      applyModelsChange(doc, [
+                        ...asArray(doc.models),
+                        { model: id },
+                      ]),
+                    );
+                  }}
+                />
+              )
+            : undefined
+        }
       />
     );
   }

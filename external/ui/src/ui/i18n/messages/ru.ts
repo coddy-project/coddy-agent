@@ -113,13 +113,16 @@ export const messagesRu: Record<string, string> = {
   "settings.field.apiBaseFallback": "Базовый URL API",
   "settings.field.modelIdFallback": "Идентификатор модели",
   "settings.field.defaultModelFallback": "Модель по умолчанию",
-  "settings.field.modelPlaceholder": "провайдер/идентификатор-модели",
+  "settings.field.provider": "Провайдер",
+  "settings.field.providerPlaceholder": "Выберите провайдера…",
+  "settings.field.modelPlaceholder": "ид-модели",
   "settings.field.fetching": "Получение…",
   "settings.field.fetchModels": "Получить модели",
-  "settings.field.fetchError":
-    "Не удалось получить модели: {error}. Введите идентификатор модели вручную ниже.",
-  "settings.field.noModels":
-    "Модели не возвращены. Введите идентификатор модели вручную ниже.",
+  "settings.field.fetchError": "Не удалось получить модели: {error}.",
+  "settings.field.noModels": "Провайдер не вернул модели.",
+  "settings.providers.modelsLegend": "Модели провайдера",
+  "settings.providers.addModel": "Добавить {id} в модели",
+  "settings.providers.modelListed": "{id} уже в моделях",
   "settings.reasoning.levelsFallback": "Уровни рассуждений",
   "settings.reasoning.fetch": "Получить уровни ризонинга",
   "settings.reasoning.fetching": "Получение уровней ризонинга…",
@@ -571,7 +574,7 @@ export const messagesRu: Record<string, string> = {
   "codexAuth.enterProviderName": "Введите имя провайдера перед входом.",
 
   "neuralDeepApiBase.description":
-    "NeuralDeep держит одно и то же API в двух развёртываниях: api.neuraldeep.ru обслуживает Россию, а api.neuraldeep.tech служит зеркалом для остальных стран. Выбор определяет и хаб, через который идёт вход ниже. Список моделей читается из сохранённого конфига, поэтому сначала сохраните настройки.",
+    "NeuralDeep держит одно и то же API в двух развёртываниях: api.neuraldeep.ru обслуживает Россию, а api.neuraldeep.tech служит зеркалом для остальных стран. Выбор определяет и хаб, через который идёт вход ниже. Список моделей ниже запрашивается с настройками из этой формы — сохранять перед запросом не нужно.",
   "neuralDeepApiBase.optionRu": "api.neuraldeep.ru — Россия",
   "neuralDeepApiBase.optionTech":
     "api.neuraldeep.tech — зеркало для остального мира",

@@ -117,13 +117,16 @@ export const messagesEn: Record<string, string> = {
   "settings.field.apiBaseFallback": "API base URL",
   "settings.field.modelIdFallback": "Model id",
   "settings.field.defaultModelFallback": "Default model",
-  "settings.field.modelPlaceholder": "provider/model-id",
+  "settings.field.provider": "Provider",
+  "settings.field.providerPlaceholder": "Select provider…",
+  "settings.field.modelPlaceholder": "model-id",
   "settings.field.fetching": "Fetching…",
   "settings.field.fetchModels": "Fetch models",
-  "settings.field.fetchError":
-    "Couldn't fetch models: {error}. Type the model id manually below.",
-  "settings.field.noModels":
-    "No models returned. Type the model id manually below.",
+  "settings.field.fetchError": "Couldn't fetch models: {error}.",
+  "settings.field.noModels": "The provider returned no models.",
+  "settings.providers.modelsLegend": "Advertised models",
+  "settings.providers.addModel": "Add {id} to logical models",
+  "settings.providers.modelListed": "{id} is already in logical models",
   "settings.reasoning.levelsFallback": "Reasoning levels",
   "settings.reasoning.fetch": "Fetch reasoning levels",
   "settings.reasoning.fetching": "Fetching…",
@@ -564,7 +567,7 @@ export const messagesEn: Record<string, string> = {
   "codexAuth.enterProviderName": "Enter a provider name before signing in.",
 
   "neuralDeepApiBase.description":
-    "NeuralDeep runs the same API at two deployments: api.neuraldeep.ru serves Russia, api.neuraldeep.tech is the mirror for everywhere else. The choice also decides which hub the sign-in below talks to. Fetching the model list reads the saved config, so save before you fetch.",
+    "NeuralDeep runs the same API at two deployments: api.neuraldeep.ru serves Russia, api.neuraldeep.tech is the mirror for everywhere else. The choice also decides which hub the sign-in below talks to. Fetching the model list below uses this row as it stands in the form.",
   "neuralDeepApiBase.optionRu": "api.neuraldeep.ru — Russia",
   "neuralDeepApiBase.optionTech": "api.neuraldeep.tech — international mirror",
   "neuralDeepApiBase.unknown":

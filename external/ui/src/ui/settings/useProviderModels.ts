@@ -1,107 +1,77 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 
-export type FetchedModel = { id: string; name?: string };
-
-/**
- * A providers[] row as the settings document holds it. Only the fields the
- * models endpoint reads are carried; the document may contain more.
- */
-export type ProviderRow = {
+/** One model entry as the provider lists it. */
+export interface FetchedModel {
+  id: string;
   name?: string;
-  type?: string;
-  api_base?: string;
-  api_key?: string;
-  api_key_command?: string;
-  proxy?: string;
-};
-
-type ProviderModelsResponse = {
-  ok?: boolean;
-  error?: string;
-  models?: FetchedModel[];
-};
-
-/** providerRowFetchable says whether a providers[] row has enough to ask for
- * its model list: the name (it prefixes every fetched id) and the type. */
-export function providerRowFetchable(row: ProviderRow): boolean {
-  return (row.name ?? "").trim() !== "" && (row.type ?? "").trim() !== "";
 }
 
-function providerModelsBody(row: ProviderRow): string {
-  return JSON.stringify({
-    name: (row.name ?? "").trim(),
-    type: (row.type ?? "").trim(),
-    api_base: row.api_base ?? "",
-    api_key: row.api_key ?? "",
-    api_key_command: row.api_key_command ?? "",
-    proxy: row.proxy ?? "",
-  });
+/** The provider row shape SchemaForm hands the override. */
+export type ProviderRow = Record<string, unknown>;
+
+/** A provider row can be listed when it has a name and a type. */
+export function providerRowFetchable(row: ProviderRow): boolean {
+  return (
+    typeof row.name === "string" &&
+    row.name.trim() !== "" &&
+    typeof row.type === "string" &&
+    row.type.trim() !== ""
+  );
 }
 
 /**
- * useProviderModels fetches the model lists advertised by the provider rows of
- * the settings document via POST /coddy/providers/models: the row travels in
- * the request body, so a provider that has not been saved yet is fetched the
- * same way as a stored one (issue #335). Each returned id is prefixed with its
- * provider name (provider/model), the shape models[].model stores. A provider
- * that fails contributes its error to the message but does not drop the lists
- * that did come back, so manual entry stays possible per provider. `fetched`
- * flips true once the requests settle.
+ * useProviderModels fetches the model list one provider row advertises. The
+ * request posts the row as it stands in the settings form to
+ * POST /coddy/providers/models, so credentials entered but not yet saved - and
+ * a provider the document does not have at all - resolve exactly as they would
+ * once stored. The hook is per form row: a fresh edit gets a fresh list.
  */
 export function useProviderModels() {
   const [loading, setLoading] = useState(false);
   const [models, setModels] = useState<FetchedModel[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState("");
   const [fetched, setFetched] = useState(false);
 
-  const fetchModels = useCallback(async (providers: ProviderRow[]) => {
-    const rows = providers.filter(providerRowFetchable);
-    if (!rows.length) {
+  const fetchModels = async (row: ProviderRow) => {
+    if (loading || !providerRowFetchable(row)) {
       return;
     }
     setLoading(true);
-    setError(null);
-    const merged: FetchedModel[] = [];
-    const errors: string[] = [];
-    const seen = new Set<string>();
-    await Promise.all(
-      rows.map(async (row) => {
-        const name = (row.name ?? "").trim();
-        try {
-          const res = await fetch("/coddy/providers/models", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: providerModelsBody(row),
-          });
-          const data = (await res
-            .json()
-            .catch(() => ({}))) as ProviderModelsResponse;
-          if (!res.ok || !data.ok) {
-            const msg = data?.error || `HTTP ${res.status}`;
-            errors.push(rows.length > 1 ? `${name}: ${msg}` : msg);
-            return;
-          }
-          for (const m of data.models ?? []) {
-            const id = `${name}/${m.id}`;
-            // Two form rows may carry the same provider name before the
-            // document is saved - keep the merged pick-list unique anyway.
-            if (!seen.has(id)) {
-              seen.add(id);
-              merged.push(m.name ? { id, name: m.name } : { id });
-            }
-          }
-        } catch (e) {
-          errors.push(
-            `${name}: ${e instanceof Error ? e.message : "request failed"}`,
-          );
+    setError("");
+    try {
+      const res = await fetch("/coddy/providers/models", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(row),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        models?: { id: string; name?: string }[];
+      };
+      if (!res.ok || !data.ok) {
+        setModels([]);
+        setError(data.error ?? `HTTP ${res.status}`);
+        return;
+      }
+      const seen = new Set<string>();
+      const list: FetchedModel[] = [];
+      for (const m of data.models ?? []) {
+        if (!m.id || seen.has(m.id)) {
+          continue;
         }
-      }),
-    );
-    setModels(merged);
-    setError(errors.length ? errors.join("; ") : null);
-    setLoading(false);
-    setFetched(true);
-  }, []);
+        seen.add(m.id);
+        list.push(m.name ? { id: m.id, name: m.name } : { id: m.id });
+      }
+      setModels(list);
+    } catch (e) {
+      setModels([]);
+      setError(String(e));
+    } finally {
+      setLoading(false);
+      setFetched(true);
+    }
+  };
 
   return { loading, models, error, fetched, fetchModels };
 }

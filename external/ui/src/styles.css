@@ -7984,6 +7984,66 @@ html:not([data-theme="light"]) .context-usage-note--error {
   white-space: nowrap;
 }
 
+/* Provider edit form: the advertised model list under the fetch button. */
+.provider-models-fetch .settings-btn {
+  margin-top: 4px;
+}
+
+.provider-models-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.provider-model-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 8px;
+}
+
+.provider-model-row:hover {
+  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+}
+
+.provider-model-id {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-model-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-model-add {
+  flex: 0 0 auto;
+}
+
+.provider-model-add:disabled {
+  opacity: 0.45;
+}
+
+.provider-models-error {
+  margin-top: 8px;
+}
+
 /* Reasoning levels: the action row sits above the level list, so it keeps the
    model-field control metrics but wraps instead of squeezing its buttons. */
 .reasoning-levels-actions {

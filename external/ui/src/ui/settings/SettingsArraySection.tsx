@@ -51,6 +51,12 @@ export function SettingsArraySection(props: {
   backLabelUsesItemName?: boolean | undefined;
   /** Settings section id ("providers", "models") selecting the dictionary domain. */
   i18nDomain?: string | undefined;
+  /** Optional extra content rendered after the item's schema fields in edit
+   * mode (the providers form uses it for the advertised-models fetch). Keyed
+   * by index so switching rows does not carry its state over. */
+  itemExtra?:
+    | ((item: Record<string, unknown>, index: number) => React.ReactNode)
+    | undefined;
 }) {
   const { schema, value, onChange, labelField, fieldOverride, i18nDomain } =
     props;
@@ -101,6 +107,7 @@ export function SettingsArraySection(props: {
             onChange(next);
           }}
         />
+        {props.itemExtra?.(item, index)}
       </div>
     );
   }

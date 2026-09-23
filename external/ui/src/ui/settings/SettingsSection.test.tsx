@@ -578,18 +578,16 @@ function ReasoningModelsHarness() {
   );
 }
 
-// addFetchedModel walks the form the way an operator does: Add, Fetch models,
-// then pick the fetched id out of the combobox.
-async function addFetchedModel() {
+// addModel walks the form the way an operator does: Add, pick the provider,
+// then type the model id the provider's API knows.
+function addModel() {
   fireEvent.click(screen.getByTestId("settings-master-add"));
-  fireEvent.click(screen.getByTestId("model-field-fetch"));
-  await waitFor(() =>
-    expect(screen.getByTestId("model-field-fetch").textContent).toBe(
-      "Fetch models",
-    ),
-  );
-  fireEvent.focus(screen.getByTestId("model-field-model"));
-  fireEvent.mouseDown(await screen.findByText("valera/qwen3.8-27b"));
+  fireEvent.change(screen.getByTestId("model-field-provider"), {
+    target: { value: "valera" },
+  });
+  fireEvent.change(screen.getByTestId("model-field-model"), {
+    target: { value: "qwen3.8-27b" },
+  });
 }
 
 function savedModels(): unknown {
@@ -601,7 +599,7 @@ test("adding a fetched model leaves reasoning auto-detection enabled", async () 
   stubModelsAndLevels(["low", "medium", "high"]);
 
   render(<ReasoningModelsHarness />);
-  await addFetchedModel();
+  addModel();
 
   // reasoning_levels is absent (auto-detect), while stream keeps its schema
   // default: the item factory omits the one key whose empty value means
@@ -615,7 +613,7 @@ test("fetch reasoning levels fills the field for the model being edited", async 
   const fetchMock = stubModelsAndLevels(["low", "medium", "high"]);
 
   render(<ReasoningModelsHarness />);
-  await addFetchedModel();
+  addModel();
 
   fireEvent.click(screen.getByTestId("reasoning-levels-fetch"));
   await waitFor(() =>
@@ -645,7 +643,7 @@ test("fetch reasoning levels sends the type of the provider row in the form", as
   const fetchMock = stubModelsAndLevels(["low", "medium", "high"]);
 
   render(<ReasoningModelsHarness />);
-  await addFetchedModel();
+  addModel();
   fireEvent.click(screen.getByTestId("reasoning-levels-fetch"));
 
   // valera is an openai provider in the (unsaved) settings document, and that
@@ -682,7 +680,7 @@ test("a fetch that answers after the model row was removed does not bring it bac
   vi.stubGlobal("fetch", fetchMock);
 
   render(<ReasoningModelsHarness />);
-  await addFetchedModel();
+  addModel();
   fireEvent.click(screen.getByTestId("reasoning-levels-fetch"));
 
   // Back to the list, delete the row while the request is still in flight.
@@ -724,7 +722,7 @@ test("a fetch that answers after a sibling field changed keeps that change", asy
   vi.stubGlobal("fetch", fetchMock);
 
   render(<ReasoningModelsHarness />);
-  await addFetchedModel();
+  addModel();
   fireEvent.click(screen.getByTestId("reasoning-levels-fetch"));
 
   // While the request is in flight the operator turns streaming off.
@@ -756,7 +754,7 @@ test("a model id with no reasoning family is left without an override", async ()
   stubModelsAndLevels([]);
 
   render(<ReasoningModelsHarness />);
-  await addFetchedModel();
+  addModel();
 
   fireEvent.click(screen.getByTestId("reasoning-levels-fetch"));
   await waitFor(() =>
@@ -796,8 +794,8 @@ test("renaming the sole model id follows through to agent.model", async () => {
   fireEvent.click(screen.getByTestId("settings-master-item-0"));
 
   const model = screen.getByTestId("model-field-model") as HTMLInputElement;
-  expect(model.value).toBe("neuraldeep/gpt-120b-oss");
-  fireEvent.change(model, { target: { value: "neuraldeep/qwen-3.6" } });
+  expect(model.value).toBe("gpt-120b-oss");
+  fireEvent.change(model, { target: { value: "qwen-3.6" } });
 
   // The ReAct default-model reference tracked the rename automatically.
   await waitFor(() => {
@@ -1162,4 +1160,28 @@ test("the proxy copy says an empty value follows the system proxy, in every lang
       }
     }
   }
+});
+
+test("the provider edit form fetches advertised models and adds one to logical models", async () => {
+  const fetchMock = vi.fn(async () => ({
+    ok: true,
+    json: async () => ({ ok: true, models: [{ id: "m1" }] }),
+  }));
+  vi.stubGlobal("fetch", fetchMock);
+  let latest: Record<string, unknown> = {};
+  render(
+    <Harness
+      provider={{ name: "demo", type: "openai", api_key: "sk-x" }}
+      onDoc={(next) => {
+        latest = next;
+      }}
+    />,
+  );
+
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(screen.getByTestId("provider-fetch-models"));
+  fireEvent.click(await screen.findByTestId("provider-model-add-m1"));
+
+  const models = latest.models as { model: string }[] | undefined;
+  expect(models?.[0]?.model).toBe("demo/m1");
 });
