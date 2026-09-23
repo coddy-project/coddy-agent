@@ -990,6 +990,8 @@ export const messagesEn: Record<string, string> = {
   "composer.queueRemove": "Remove from the queue",
   "composer.queueFull":
     "The queue is full: wait for the agent to read what is waiting.",
+  "composer.attachReadFailed":
+    "Could not read the attached file {name}, nothing was sent ({reason}).",
   "composer.queueFailed": "The message could not be queued.",
   "composer.send": "Send",
   "composer.stopGeneration": "Stop generation",
