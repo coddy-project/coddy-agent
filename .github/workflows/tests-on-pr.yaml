@@ -269,6 +269,17 @@ jobs:
       - name: Build deb and rpm
         run: make deb rpm PKG_TAGS="http scheduler memory cli gateway swarm"
 
+      - name: Check the packaged systemd user unit
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm
+          for package in dist/*.deb; do
+            dpkg-deb --fsys-tarfile "$package" | tar -xOf - ./usr/lib/systemd/user/coddy.service | cmp - packaging/systemd/coddy.service
+          done
+          for package in dist/*.rpm; do
+            rpm -qpl "$package" | grep -Fx /usr/lib/systemd/user/coddy.service
+          done
+
       # Same reasoning one step further: the Homebrew cask is rendered only by
       # the release job and the formula only by hand, so a template that stopped
       # being valid Ruby would surface at the worst moment. Rendering needs a

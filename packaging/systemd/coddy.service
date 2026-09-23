@@ -1,0 +1,15 @@
+[Unit]
+Description=Coddy service
+Documentation=https://coddy.dev/docs/operate/serve
+
+[Service]
+Type=simple
+WorkingDirectory=%h
+ExecStart=/usr/bin/coddy serve
+Restart=on-failure
+RestartForceExitStatus=75
+RestartSec=5s
+TimeoutStopSec=40s
+
+[Install]
+WantedBy=default.target

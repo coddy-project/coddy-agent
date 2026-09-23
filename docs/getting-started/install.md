@@ -81,11 +81,12 @@ sha256sum -c --ignore-missing SHA256SUMS
 | **`/usr/share/man/man1/coddy.1.gz`** | **`man coddy`** |
 | **`/usr/share/bash-completion/completions/coddy`** | bash completion |
 | **`/usr/share/zsh/site-functions/_coddy`** | zsh completion |
+| **`/usr/lib/systemd/user/coddy.service`** | optional user service for `coddy serve` |
 | **`/usr/share/doc/coddy/config.example.yaml`** | starting point for **`~/.coddy/config.yaml`** |
 | **`/usr/share/doc/coddy/LICENSE`**, **`copyright`** | licence |
 
-That is the whole package: a binary and its documentation. No service, no system account, nothing
-under **`/etc`**. Configuration, sessions, skills and credentials stay in the invoking user's
+The service unit is not enabled during installation. There is no system service, system account or
+file under **`/etc`**. Configuration, sessions, skills and credentials stay in the invoking user's
 **`~/.coddy`**, so one installed package serves every user on the machine, each with their own
 state, and what to run - the console, the HTTP gateway, an editor over ACP - stays your decision.
 
@@ -167,10 +168,11 @@ coddy serve            # in this terminal
 coddy serve --daemon   # in the background, restarted if it dies
 ```
 
-The packages install no service unit, because Coddy's state is per-user under
-**`~/.coddy`**. **`coddy serve --daemon`** is the built-in way to keep it running without
-one; under a supervisor that already owns process lifetimes (`systemd`, Docker) use the
-foreground form and let that supervisor restart it. See [the daemon guide](../operate/serve.md).
+The Linux `.deb` and `.rpm` packages also install an opt-in **systemd user unit**.
+After setting up `~/.coddy/config.yaml`, run `systemctl --user enable --now coddy.service`
+to start it for your account; see [the service guide](../operate/serve.md#systemd-user-service-on-linux)
+for logs, stopping it and keeping it running after logout. `coddy serve --daemon` remains
+available for installations without systemd.
 
 ## Windows
 

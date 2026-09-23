@@ -79,6 +79,7 @@ trap 'rm -rf "$stage"' EXIT
 gzip -9 -n -c packaging/man/coddy.1 > "$stage/coddy.1.gz"
 cp packaging/completions/coddy.bash "$stage/coddy.bash"
 cp packaging/completions/coddy.zsh "$stage/coddy.zsh"
+cp packaging/systemd/coddy.service "$stage/coddy.service"
 cp packaging/scripts/postinstall.sh "$stage/postinstall.sh"
 cp config.example.yaml "$stage/config.example.yaml"
 cp LICENSE "$stage/LICENSE"

@@ -26,6 +26,40 @@ form to use under `systemd`, `supervisord`, Docker, or anything else that alread
 process lifetimes - those supervisors restart the process themselves, and stacking a
 second one under them only hides failures from the first.
 
+## systemd user service on Linux
+
+The `.deb` and `.rpm` packages install `coddy.service` under
+`/usr/lib/systemd/user/`. Each user can enable it for their own account after creating
+`~/.coddy/config.yaml` and setting a provider. Run these commands as that user, without
+`sudo`:
+
+```bash
+coddy serve -t
+systemctl --user daemon-reload
+systemctl --user enable --now coddy.service
+systemctl --user status coddy.service
+journalctl --user -u coddy.service -f
+```
+
+The unit runs `/usr/bin/coddy serve` in the foreground from your home directory. It
+uses your `~/.coddy` configuration and `.env`, restarts after a failure or a requested
+listener change, and gives an active turn up to 40 seconds to finish on shutdown. It
+does not start merely because the package was installed. To stop and disable it:
+
+```bash
+systemctl --user disable --now coddy.service
+```
+
+The user manager normally runs while you are logged in. If this service must stay up
+after logout or start at boot before login, an administrator can enable lingering for
+your account with `sudo loginctl enable-linger "$USER"`. That setting is optional and
+is not changed by the package. After a package upgrade, restart the service to run the
+new binary: `systemctl --user restart coddy.service`. Avoid running
+`coddy serve --daemon` for the same account at the same time; both processes would try to bind the
+same port. For a local build or release archive, install the unit from
+[`packaging/systemd/coddy.service`](../../packaging/systemd/coddy.service) after adjusting
+`ExecStart` to the binary's absolute path.
+
 ## In the background
 
 ```bash
@@ -176,9 +210,9 @@ ordinary `Restart=on-failure`.
 | Situation | Form |
 |-----------|------|
 | a laptop, a dev box, a shell on a server | `coddy serve --daemon` |
-| `systemd`, `supervisord`, `runit` | `coddy serve` in the foreground, and let them restart it |
+| `systemd` | the packaged user unit, or `coddy serve` in the foreground under a custom unit |
+| `supervisord`, `runit` | `coddy serve` in the foreground, and let them restart it |
 | Docker, Kubernetes | `coddy serve` in the foreground as PID 1; the orchestrator restarts the container |
 
-The packages ship no service unit on purpose: Coddy's state is per-user under
-`~/.coddy`, so a system daemon would need a home and a configuration nobody can edit.
-See [installation](../getting-started/install.md).
+The packages ship a user unit and no system unit: Coddy's state remains per-user under
+`~/.coddy`. See [installation](../getting-started/install.md).

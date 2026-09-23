@@ -1,9 +1,7 @@
 # nfpm recipe for the Linux packages published on every release tag.
 #
-# The package installs a binary and its documentation, nothing else: no service,
-# no system account, no files under /etc. Coddy keeps every piece of state in the
-# invoking user's ~/.coddy, so one installed package serves every user on the
-# machine and what to run is the user's decision, not the packager's.
+# The package includes an opt-in systemd user unit, but no system service,
+# system account or files under /etc. Coddy keeps state in each user's ~/.coddy.
 #
 # Not built by hand: scripts/build-packages.sh stages every file listed below
 # into one directory, exports PKG_ARCH and PKG_VERSION, and runs nfpm from that
@@ -55,6 +53,11 @@ contents:
 
   - src: coddy.zsh
     dst: /usr/share/zsh/site-functions/_coddy
+    file_info:
+      mode: 0644
+
+  - src: coddy.service
+    dst: /usr/lib/systemd/user/coddy.service
     file_info:
       mode: 0644
 
