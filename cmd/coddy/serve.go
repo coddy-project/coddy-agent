@@ -37,6 +37,8 @@ func runServe(args []string) error {
 	// daemon that is already running and share none of its options.
 	if len(args) > 0 {
 		switch args[0] {
+		case "setup":
+			return runServeSetup(args[1:])
 		case "status":
 			return runServeStatus(args[1:])
 		case "stop":

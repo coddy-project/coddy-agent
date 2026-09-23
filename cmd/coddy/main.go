@@ -197,6 +197,7 @@ func printUsage(w io.Writer) {
         the swarm relay, the cron scheduler)
   %[1]s serve -d | --daemon (the same, in the background under a dispatcher
         that starts it again if it dies)
+  %[1]s serve setup (enable and check the packaged systemd user service)
   %[1]s serve status | stop | restart [--home DIR]
   %[1]s serve set-password [--user NAME] [--config PATH] [--home DIR] (write the web
         UI sign-in account into config.yaml; the password is read from the

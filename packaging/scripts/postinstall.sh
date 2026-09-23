@@ -23,7 +23,7 @@ Then set a provider key in it and start a surface:
 
     coddy               # interactive console
     coddy serve         # every subsystem config.yaml enables (web UI on by default)
-    systemctl --user enable --now coddy.service  # keep the server running for this user
+    coddy serve setup   # enable and check the systemd user service
 
 Manual: man coddy   Service guide: https://coddy.dev/docs/operate/serve
 

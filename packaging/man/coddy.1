@@ -100,6 +100,15 @@ once a worker has stayed up. The dispatcher records itself in
 and writes to
 .IR ~/.coddy/logs/serve.log .
 .TP
+.B "serve setup"
+Check the default
+.I ~/.coddy/config.yaml
+and enable the packaged systemd user service for the current user. Run
+.BR "systemctl --user daemon-reload" ,
+.BR "systemctl --user enable --now coddy.service" ,
+then report the unit status. Run without
+.BR sudo .
+.TP
 .B "serve status"
 Report the background dispatcher for this agent home: its process, when it
 started, the configuration and log it is using, whether a worker is up right

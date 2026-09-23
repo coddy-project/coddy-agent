@@ -34,17 +34,20 @@ The `.deb` and `.rpm` packages install `coddy.service` under
 `sudo`:
 
 ```bash
-coddy serve -t
-systemctl --user daemon-reload
-systemctl --user enable --now coddy.service
-systemctl --user status coddy.service
+coddy serve setup
 journalctl --user -u coddy.service -f
 ```
 
-The unit runs `/usr/bin/coddy serve` in the foreground from your home directory. It
-uses your `~/.coddy` configuration and `.env`, restarts after a failure or a requested
-listener change, and gives an active turn up to 40 seconds to finish on shutdown. It
-does not start merely because the package was installed. To stop and disable it:
+`setup` checks `~/.coddy/config.yaml`, asks `systemctl --user` to reload its units and
+enable and start `coddy.service`, then prints its status. If a step fails, it exits with
+the command's error. The unit runs `/usr/bin/coddy serve` in the foreground with
+`~/.coddy` as its working directory. That is the default directory for sessions created
+without an explicit workspace, and relative process paths resolve there. The
+configuration and `.env` live there; service output goes to the journal, while a log
+file follows `logger.file` when configured. The unit restarts after a
+failure or a requested listener change, and gives an active turn up to 40 seconds to
+finish on shutdown. It does not start merely because the package was installed. To stop
+and disable it:
 
 ```bash
 systemctl --user disable --now coddy.service

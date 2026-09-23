@@ -36,6 +36,7 @@ Usage:
         the swarm relay, the cron scheduler)
   coddy serve -d | --daemon (the same, in the background under a dispatcher
         that starts it again if it dies)
+  coddy serve setup (enable and check the packaged systemd user service)
   coddy serve status | stop | restart [--home DIR]
   coddy serve set-password [--user NAME] [--config PATH] [--home DIR] (write the web
         UI sign-in account into config.yaml; the password is read from the
@@ -228,6 +229,12 @@ Usage of serve (runs every subsystem enabled in config.yaml):
   -t	alias of --test-config
   -test-config
     	check config.yaml against the schema and the loader's rules, print every problem with its line and how to fix it, then exit without starting anything
+```
+
+### coddy serve setup
+
+```text
+Usage: coddy serve setup (enable and check the packaged systemd user service)
 ```
 
 ### coddy serve status | stop | restart

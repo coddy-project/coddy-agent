@@ -4,7 +4,7 @@ Documentation=https://coddy.dev/docs/operate/serve
 
 [Service]
 Type=simple
-WorkingDirectory=%h
+WorkingDirectory=%h/.coddy
 ExecStart=/usr/bin/coddy serve
 Restart=on-failure
 RestartForceExitStatus=75

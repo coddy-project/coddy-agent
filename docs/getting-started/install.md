@@ -169,8 +169,8 @@ coddy serve --daemon   # in the background, restarted if it dies
 ```
 
 The Linux `.deb` and `.rpm` packages also install an opt-in **systemd user unit**.
-After setting up `~/.coddy/config.yaml`, run `systemctl --user enable --now coddy.service`
-to start it for your account; see [the service guide](../operate/serve.md#systemd-user-service-on-linux)
+After setting up `~/.coddy/config.yaml`, run `coddy serve setup` to enable and check it
+for your account; see [the service guide](../operate/serve.md#systemd-user-service-on-linux)
 for logs, stopping it and keeping it running after logout. `coddy serve --daemon` remains
 available for installations without systemd.
 
