@@ -243,15 +243,14 @@ func (a *Agent) continueReAct(ctx context.Context, mode string, toolEnv *tools.E
 		sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles)
 		messages = a.buildMessages(sys.Content)
 	}
-	maxTurns := a.cfg.Agent.MaxTurns
-	if maxTurns <= 0 {
-		maxTurns = 30
-	}
+	maxTurns := a.turnCap()
 	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
 	toolEnv.SendDesignPlanUpdate = func(doc plans.Document) {
 		tools.SendDesignPlanUpdate(toolEnv, doc)
 	}
-	return a.runReActLoop(ctx, mode, sys, messages, toolDefs, transport, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns)
+	stop, err := a.runReActLoop(ctx, mode, sys, messages, toolDefs, transport, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns)
+	a.noteStopReason(stop, err, maxTurns)
+	return stop, err
 }
 
 func lastUserText(msgs []llm.Message) string {

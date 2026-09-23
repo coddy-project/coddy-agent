@@ -31,9 +31,6 @@ const (
 	// SubagentsDefaultTimeoutSeconds is the hard limit for one run when neither
 	// the definition nor the call gives one.
 	SubagentsDefaultTimeoutSeconds = 1800
-	// subagentsFallbackMaxTurns mirrors the ReAct loop's own default when
-	// agent.max_turns is unset too.
-	subagentsFallbackMaxTurns = 30
 )
 
 // Subagents is the YAML subagents section (key subagents): where subagent
@@ -141,15 +138,13 @@ func (s Subagents) EffectiveDefaultTimeoutSeconds() int {
 }
 
 // EffectiveMaxTurns returns the ReAct cap for a child: the section's own
-// max_turns, else agent.max_turns, else the loop's built-in default.
+// max_turns, else agent.max_turns; 0 when neither sets one, which is no step
+// limit (the run's timeout still bounds it).
 func (s Subagents) EffectiveMaxTurns(agentMaxTurns int) int {
 	if s.MaxTurns > 0 {
 		return s.MaxTurns
 	}
-	if agentMaxTurns > 0 {
-		return agentMaxTurns
-	}
-	return subagentsFallbackMaxTurns
+	return max(agentMaxTurns, 0)
 }
 
 // Validate normalises project_trust and rejects negative knobs; zero keeps

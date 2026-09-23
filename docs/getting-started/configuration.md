@@ -229,8 +229,7 @@ agent:
   model: "openai/gpt-5.6-terra"  # optional default LLM until the client overrides per session;
                                # unset, interactive surfaces pick a model per session, while
                                # coddy -p / coddy acp / API calls without a model report "no model configured"
-  max_turns: 30                # ReAct iterations per prompt, including no-answer recoveries
-  max_tokens_per_turn: 200000  # max tokens across all calls in one turn
+  max_turns: 0                 # ReAct iterations per prompt, recoveries included; 0 (default) = no limit
   llm_retry_max: 3             # shared per-step budget: transport retries + no-answer recoveries
                                # (default 3; 0 disables these retries, not separately configured continuations)
   llm_retry_base_ms: 1000      # initial backoff between LLM retries; a server-provided

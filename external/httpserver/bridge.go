@@ -469,6 +469,21 @@ func (s *Sender) SendError(msg string) error {
 	return err
 }
 
+// SendErrorFor writes the error frame of a failed turn or completion: the
+// same error object a blocking request is answered with (replyForError), so
+// a provider's status reaches a streaming client as upstream_status too.
+func (s *Sender) SendErrorFor(err error) error {
+	if !s.emit || s.w == nil {
+		return nil
+	}
+	raw, _ := json.Marshal(replyForError(err).body)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, werr := fmt.Fprintf(s.w, "data: %s\n\n", raw)
+	s.flushLocked()
+	return werr
+}
+
 // ChatID returns the OpenAI-style completion id for this request.
 func (s *Sender) ChatID() string { return s.chatID }
 

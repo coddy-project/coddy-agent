@@ -478,6 +478,11 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 			"session", st.GetID(),
 			"stop_reason", stopReason,
 		)
+		if result != nil && result.StopNotice != "" {
+			// A chat has no transcript log: why the turn stopped short is
+			// said as a message of its own (issue #255).
+			b.reply(bot, chatID, msg.MessageID, result.StopNotice)
+		}
 	}
 }
 

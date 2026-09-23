@@ -11,7 +11,6 @@ models:
 agent:
   model: "dummy/m"
   max_turns: 5
-  max_tokens_per_turn: 4096
 sessions:
   dir: ""
 httpserver:

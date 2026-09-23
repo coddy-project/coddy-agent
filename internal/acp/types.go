@@ -258,6 +258,11 @@ type SessionPromptResult struct {
 	// turn ran, and this is the answer (in-process callers only, never
 	// serialised; a client over the wire got it as an agent message chunk).
 	SettingsNotice string `json:"-"`
+
+	// StopNotice says, in words for the user, why a turn that ended with
+	// max_turns or max_tokens stopped before its answer (in-process callers
+	// only, never serialised; the session's UI log keeps it as a notice).
+	StopNotice string `json:"-"`
 }
 
 // StopReason describes why a prompt turn ended.

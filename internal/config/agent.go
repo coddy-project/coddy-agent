@@ -7,10 +7,12 @@ import (
 
 // Defaults for the ReAct loop when YAML omits zero values.
 const (
-	AgentDefaultMaxTurns         = 30
-	AgentDefaultMaxTokensPerTurn = 200000
-	AgentDefaultLLMRetryMax      = 3
-	AgentDefaultLLMRetryBaseMS   = 1000
+	// AgentDefaultMaxTurns is no step limit: a turn runs as many ReAct steps
+	// as the task takes, bounded by the loop guard and the turn's own
+	// cancellation. A positive agent.max_turns sets one.
+	AgentDefaultMaxTurns       = 0
+	AgentDefaultLLMRetryMax    = 3
+	AgentDefaultLLMRetryBaseMS = 1000
 	// AgentDefaultLLMFirstTokenTimeoutMS is how long a streamed LLM call may
 	// stay silent before the turn cancels it (the API hang guard in the ReAct
 	// loop).
@@ -36,9 +38,10 @@ const (
 // Agent is the YAML agent section (key agent) for ReAct loop settings.
 type Agent struct {
 	// Model is the models[].id used for LLM calls until the session overrides the model in the client.
-	Model            string `yaml:"model"`
-	MaxTurns         int    `yaml:"max_turns"`
-	MaxTokensPerTurn int    `yaml:"max_tokens_per_turn"`
+	Model string `yaml:"model"`
+	// MaxTurns caps the ReAct steps of one prompt turn; 0 (the default) sets
+	// no cap.
+	MaxTurns int `yaml:"max_turns"`
 	// LLMRetryMax caps extra attempts shared by transport retries and consecutive
 	// no-answer recoveries. Tool progress or a new follow-up starts a fresh budget.
 	// Nil means 3; explicit 0 disables these retries. Loop guards, Stop hooks,
@@ -151,14 +154,9 @@ func (c *Agent) EffectiveWaitForLimitResetMax() time.Duration {
 	return time.Duration(*c.WaitForLimitResetMaxMS) * time.Millisecond
 }
 
-// ApplyDefaults sets MaxTurns and MaxTokensPerTurn when they are zero.
+// ApplyDefaults sets LLMRetryBaseMS when it is zero. MaxTurns stays as
+// written: zero is the default, no step limit.
 func (c *Agent) ApplyDefaults() {
-	if c.MaxTurns == 0 {
-		c.MaxTurns = AgentDefaultMaxTurns
-	}
-	if c.MaxTokensPerTurn == 0 {
-		c.MaxTokensPerTurn = AgentDefaultMaxTokensPerTurn
-	}
 	if c.LLMRetryBaseMS == 0 {
 		c.LLMRetryBaseMS = AgentDefaultLLMRetryBaseMS
 	}
@@ -171,9 +169,6 @@ func (c *Agent) Validate() error {
 	}
 	if c.WaitForLimitResetMaxMS != nil && *c.WaitForLimitResetMaxMS < 0 {
 		return fmt.Errorf("agent.wait_for_limit_reset_max_ms: must be >= 0")
-	}
-	if c.MaxTokensPerTurn < 0 {
-		return fmt.Errorf("agent.max_tokens_per_turn: must be >= 0")
 	}
 	if c.LLMRetryMax != nil && *c.LLMRetryMax < 0 {
 		return fmt.Errorf("agent.llm_retry_max: must be >= 0")

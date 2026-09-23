@@ -64,6 +64,8 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 			a.appendStatus(roleError, "Turn failed: "+u.err.Error())
 		} else if u.stop == "cancelled" {
 			a.appendStatus(roleDim, "Operation aborted")
+		} else if u.notice != "" {
+			a.appendStatus(roleWarning, u.notice)
 		}
 		return
 	case wakeTurn:
