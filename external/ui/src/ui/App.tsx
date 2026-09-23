@@ -65,6 +65,7 @@ import {
   stableWakeItemId,
 } from "./chat/transcriptItemIds";
 import { parseBackgroundWakeTasks } from "./chat/backgroundWake";
+import { uiLogNoticeFeed } from "./chat/uiLogNotices";
 import {
   dedupeAdjacentDuplicateThinkingCompleted,
   keepLocalTranscriptIfServerEmpty,
@@ -2628,53 +2629,11 @@ export function App() {
           : !!res.data.archived,
       );
     }
-    type UILogRow = {
-      id: string;
-      level: string;
-      message: string;
-      createdAt: string;
-    };
-    const noticesByTurn = new Map<number, UILogRow[]>();
-    for (const raw of res.data.uiLog || []) {
-      const msg = typeof raw.message === "string" ? raw.message.trim() : "";
-      if (!msg) continue;
-      const turn =
-        typeof raw.userTurnIndex === "number" &&
-        Number.isFinite(raw.userTurnIndex) &&
-        raw.userTurnIndex >= 1
-          ? Math.floor(raw.userTurnIndex)
-          : 1;
-      const id =
-        typeof raw.id === "string" && raw.id.trim() !== ""
-          ? raw.id.trim()
-          : newId("s");
-      const level = (raw.level || "error").trim() || "error";
-      const createdAt = typeof raw.createdAt === "string" ? raw.createdAt : "";
-      const row: UILogRow = { id, level, message: msg, createdAt };
-      const bucket = noticesByTurn.get(turn) ?? [];
-      bucket.push(row);
-      noticesByTurn.set(turn, bucket);
-    }
-    for (const [turn, bucket] of noticesByTurn) {
-      bucket.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-      noticesByTurn.set(turn, bucket);
-    }
-
     const next: TranscriptItem[] = [];
-    const pushUiNoticesForTurn = (turn: number) => {
-      for (const row of noticesByTurn.get(turn) || []) {
-        // Only the two levels the transcript knows how to render; a level a
-        // newer server may add stays invisible rather than mis-rendered.
-        if (row.level !== "error" && row.level !== "notice") continue;
-        next.push({
-          id: row.id,
-          type: "system_notice",
-          level: row.level,
-          message: row.message,
-          createdAtUtc: row.createdAt,
-        });
-      }
-    };
+    // Notices are stamped with the server's count of user-role messages, so
+    // every user-role row below - a compaction summary and a wake too - asks
+    // the feed for the notices that end the turn before it.
+    const notices = uiLogNoticeFeed(res.data.uiLog, newId);
     const toolIdx = new Map<string, number>();
     let userTurnIdx = 0;
     let thinkingInTurn = 0;
@@ -2687,6 +2646,7 @@ export function App() {
     for (const m of res.data.messages || []) {
       const role = (m.role || "").trim();
       if (role === "user") {
+        next.push(...notices.beforeUserRow());
         // A compaction summary row is a user-role message flagged by the server;
         // render it as its own "context compacted" foldout, not a user bubble,
         // and do not count it as a real user turn.
@@ -2700,20 +2660,14 @@ export function App() {
           });
           continue;
         }
-        // Flush notices for the previous turn before starting a new one so
-        // error notices land at the end of the turn they belong to, not at
-        // the top of the next one.
-        if (userTurnIdx > 0) {
-          pushUiNoticesForTurn(userTurnIdx);
-        }
         userTurnIdx++;
         thinkingInTurn = 0;
         assistantInTurn = 0;
         const cat = readMessageCreatedAtUTC(m as Record<string, unknown>);
         // Nobody typed the first message of a turn a finished background
         // task started, and nothing shows in its place: the turn reads as the
-        // agent carrying on. It still opens a turn, so the notices and the
-        // ids of the turn line up with the server's count of user messages.
+        // agent carrying on. It still opens a turn, so the ids of the turn
+        // line up with the server's count of user messages for a rewind.
         const wakeTasks = parseBackgroundWakeTasks(
           (m as Record<string, unknown>).background_wake,
         );
@@ -2849,8 +2803,8 @@ export function App() {
         };
       }
     }
-    // Flush notices for the last turn (no subsequent user message to trigger it).
-    pushUiNoticesForTurn(userTurnIdx);
+    // Notices of the last turn, and any the history no longer reaches.
+    next.push(...notices.end());
 
     // Enrich tool calls with persisted previews when available.
     const tcRes = await fetchJSON<{ toolCalls: ToolCallListRow[] }>(
