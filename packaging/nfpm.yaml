@@ -1,7 +1,11 @@
 # nfpm recipe for the Linux packages published on every release tag.
 #
-# The package includes an opt-in systemd user unit, but no system service,
-# system account or files under /etc. Coddy keeps state in each user's ~/.coddy.
+# The package installs a binary, its documentation and a systemd user unit that
+# it does not enable: no system service, no system account, no files under /etc.
+# Coddy keeps every piece of state in the invoking user's ~/.coddy, so one
+# installed package serves every user on the machine, and whether an account
+# runs coddy serve as a service is that user's decision (`coddy serve setup`),
+# not the packager's.
 #
 # Not built by hand: scripts/build-packages.sh stages every file listed below
 # into one directory, exports PKG_ARCH and PKG_VERSION, and runs nfpm from that
@@ -56,6 +60,8 @@ contents:
     file_info:
       mode: 0644
 
+  # A user unit, installed and not enabled. `coddy serve setup` enables it for
+  # the account that runs it; the post-install message says so.
   - src: coddy.service
     dst: /usr/lib/systemd/user/coddy.service
     file_info:
@@ -82,6 +88,7 @@ contents:
 
 scripts:
   postinstall: postinstall.sh
+  preremove: preremove.sh
 
 deb:
   # dpkg-query -S on /usr/bin/coddy is what `coddy update` asks to learn that

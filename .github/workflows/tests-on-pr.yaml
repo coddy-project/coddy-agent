@@ -269,15 +269,20 @@ jobs:
       - name: Build deb and rpm
         run: make deb rpm PKG_TAGS="http scheduler memory cli gateway swarm"
 
+      # The unit is rendered by internal/serve and held to the source file by a
+      # Go test; this checks that both package formats carry that file byte for
+      # byte, and the maintainer scripts that tell the user it is not enabled.
       - name: Check the packaged systemd user unit
         run: |
           sudo apt-get update
-          sudo apt-get install -y rpm
+          sudo apt-get install -y rpm cpio
           for package in dist/*.deb; do
             dpkg-deb --fsys-tarfile "$package" | tar -xOf - ./usr/lib/systemd/user/coddy.service | cmp - packaging/systemd/coddy.service
+            dpkg-deb --ctrl-tarfile "$package" | tar -tf - | grep -Fx -e ./postinst -e ./prerm | wc -l | grep -Fx 2
           done
           for package in dist/*.rpm; do
-            rpm -qpl "$package" | grep -Fx /usr/lib/systemd/user/coddy.service
+            rpm2cpio "$package" | cpio -i --quiet --to-stdout ./usr/lib/systemd/user/coddy.service | cmp - packaging/systemd/coddy.service
+            rpm -qp --scripts "$package" | grep -F 'coddy serve setup'
           done
 
       # Same reasoning one step further: the Homebrew cask is rendered only by

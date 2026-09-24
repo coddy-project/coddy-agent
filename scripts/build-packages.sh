@@ -81,6 +81,7 @@ cp packaging/completions/coddy.bash "$stage/coddy.bash"
 cp packaging/completions/coddy.zsh "$stage/coddy.zsh"
 cp packaging/systemd/coddy.service "$stage/coddy.service"
 cp packaging/scripts/postinstall.sh "$stage/postinstall.sh"
+cp packaging/scripts/preremove.sh "$stage/preremove.sh"
 cp config.example.yaml "$stage/config.example.yaml"
 cp LICENSE "$stage/LICENSE"
 
