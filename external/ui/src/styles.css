@@ -13881,6 +13881,61 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   flex-wrap: wrap;
 }
 
+/* Telegram's visible Mini App area can be shorter than the CSS viewport. */
+@media (max-width: 1199px) {
+  html[data-telegram-mini-app="true"] {
+    overflow-x: clip;
+  }
+
+  html[data-telegram-mini-app="true"] body,
+  html[data-telegram-mini-app="true"] #root,
+  html[data-telegram-mini-app="true"] .shell {
+    min-height: var(--coddy-telegram-viewport-height, 100svh);
+  }
+
+  html[data-telegram-mini-app="true"] .shell {
+    --coddy-mobile-top-inset: calc(
+      78px + max(env(safe-area-inset-top, 0px), var(--coddy-telegram-safe-top, 0px))
+    );
+    width: 100%;
+    max-width: 100%;
+  }
+
+  html[data-telegram-mini-app="true"] .rail-column {
+    padding-top: calc(
+      10px + max(env(safe-area-inset-top, 0px), var(--coddy-telegram-safe-top, 0px))
+    );
+    padding-left: max(10px, env(safe-area-inset-left, 0px), var(--coddy-telegram-safe-left, 0px));
+    padding-right: max(10px, env(safe-area-inset-right, 0px), var(--coddy-telegram-safe-right, 0px));
+  }
+
+  html[data-telegram-mini-app="true"] .chat-bottom:has(.composer-wrap-docked) {
+    bottom: max(0px, calc(100dvh - var(--coddy-telegram-stable-height, 100dvh)));
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 0px), var(--coddy-telegram-safe-bottom, 0px));
+    padding-left: max(14px, env(safe-area-inset-left, 0px), var(--coddy-telegram-safe-left, 0px));
+    padding-right: max(14px, env(safe-area-inset-right, 0px), var(--coddy-telegram-safe-right, 0px));
+  }
+
+  html[data-telegram-mini-app="true"] .mode-menu--sheet {
+    top: calc(
+      (var(--coddy-telegram-viewport-height, 100dvh) +
+        var(--coddy-telegram-safe-top, 0px) - var(--coddy-telegram-safe-bottom, 0px)) / 2
+    );
+    bottom: auto;
+    left: calc(10px + var(--coddy-telegram-safe-left, 0px));
+    right: calc(10px + var(--coddy-telegram-safe-right, 0px));
+    transform: translateY(-50%);
+    width: auto;
+    max-height: calc(var(--coddy-telegram-viewport-height, 100dvh) - 32px);
+    overflow-y: auto;
+    border-radius: var(--coddy-glass-panel-radius);
+  }
+
+  html[data-telegram-mini-app="true"] .mode-menu--sheet .mode-menu-scroll {
+    max-height: calc(var(--coddy-telegram-viewport-height, 100dvh) * 0.55);
+  }
+}
+
 /* ---------------------------------------------------------------------------
    Phone layout (max-width: 520px)
 

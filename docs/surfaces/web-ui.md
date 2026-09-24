@@ -220,6 +220,15 @@ Tablets and desktops fit every control already; a phone does not, so the narrowe
 - **Text fields** are at least **16px** on a phone and on any touch-only device (**`(any-hover: none) and (any-pointer: coarse)`**): iOS Safari zooms the page into a smaller field on focus and does not zoom back. The composer and its highlight mirror change together, since the mirror has to keep the textarea's metrics.
 - The viewport meta carries **`interactive-widget=resizes-content`**, so Android browsers shrink the layout when the on-screen keyboard opens and the docked composer stays above it.
 
+Telegram Mini App (issue [#320](https://github.com/coddy-project/coddy-agent/issues/320))
+
+![Mode selector centred in the Telegram Mini App viewport](../assets/web-ui/telegram-mini-app-mode-dark-390.png)
+
+*Mode selector in a 390px Telegram Mini App viewport, dark theme*
+
+- The page loads Telegram's [official Web App script](https://core.telegram.org/bots/webapps#initializing-mini-apps) before the SPA. At boot, the UI enters Mini App layout when `Telegram.WebApp.initData` is non-empty **or** the launch URL contains a non-empty `tgWebAppData`, `tgWebAppVersion` or `tgWebAppStartParam`. The URL is captured before the SDK loads because the launch data may live in the fragment. These are presentation signals, not authentication; the server never trusts them as a user identity.
+- On the stacked shell, Telegram's visible and stable viewport heights and safe area insets keep the top bar and docked composer within the Mini App window. The page clips horizontal overflow without turning the document into another scrollport. Mode, Model, Reasoning and Permission selectors use a centred, scrollable panel within that visible height. Ordinary browser layout remains unchanged.
+
 Check it live at **360**, **390** and **430px** on the start screen and in a chat, with the menus closed and with History open: **`document.documentElement.scrollWidth`** equals **`clientWidth`**, the **Send** button's rect intersects no **`.composer-tab`**, and the brand's rect intersects no icon of the top bar. At **768** and **1280px** the layout is the one before this block existed. The CSS contract is pinned by **`phoneLayoutCss.test.ts`**; the scenarios are **`features/web_ui_phone.feature`**.
 
 Header links
