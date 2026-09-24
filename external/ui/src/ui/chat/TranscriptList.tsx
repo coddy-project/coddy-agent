@@ -11,6 +11,7 @@ import {
 
 import { MessageList, type MessageListProps } from "../messages/MessageList";
 import { TranscriptEarlierControl } from "./TranscriptEarlierControl";
+import { promptWaitsInLastTurn } from "./transcriptRenderWindow";
 import type { TranscriptItem } from "./types";
 import {
   transcriptWindowSupported,
@@ -57,12 +58,7 @@ export function TranscriptList(props: {
   // A prompt still waiting for its answer keeps its row, its choices and its
   // typed text: the window does not drop the bottom while one is there.
   const promptWaits = useMemo(
-    () =>
-      props.items.some(
-        (it) =>
-          (it.type === "permission_prompt" || it.type === "question_prompt") &&
-          !it.resolved,
-      ),
+    () => promptWaitsInLastTurn(props.items),
     [props.items],
   );
   const [enabled] = useState(transcriptWindowSupported);

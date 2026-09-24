@@ -1,3 +1,4 @@
+import { opensTurn } from "./backgroundWake";
 import type { TranscriptItem } from "./types";
 
 /**
@@ -201,4 +202,24 @@ export function trimBottomTo(
     end = i;
   }
   return end;
+}
+
+/**
+ * Whether a permission or question prompt of the turn in flight waits for its
+ * answer. Only the last turn can hold one: a prompt left unresolved in an
+ * older turn (a call cut off before its result) waits for nothing, and taking
+ * it for a live one would keep the window from ever dropping its bottom.
+ */
+export function promptWaitsInLastTurn(items: readonly TranscriptItem[]): boolean {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i]!;
+    if (opensTurn(it)) return false;
+    if (
+      (it.type === "permission_prompt" || it.type === "question_prompt") &&
+      !it.resolved
+    ) {
+      return true;
+    }
+  }
+  return false;
 }

@@ -7,6 +7,7 @@ import {
   INITIAL_ROWS,
   MAX_ROWS,
   OPENING_RENDER_WINDOW,
+  promptWaitsInLastTurn,
   resolveRenderWindow,
   rowIndexById,
   tailRenderWindow,
@@ -109,4 +110,24 @@ test("a row that left the list leaves the window where it was", () => {
   // Attached to the tail, it keeps as many of the newest rows.
   const attached = growRenderWindowUp(items, { start: 150, end: 200 }, true);
   expect(resolve(renamed, attached)).toEqual({ start: 150 - CHUNK_ROWS, end: 200 });
+});
+
+test("only a prompt of the turn in flight holds the bottom of the window", () => {
+  const prompt = (id: string, resolved?: boolean): TranscriptItem =>
+    ({
+      id,
+      type: "permission_prompt",
+      payload: {
+        sessionId: "s",
+        toolCall: { toolCallId: id, title: "run_command" },
+        options: [],
+      },
+      ...(resolved ? { resolved: { outcome: "selected", optionId: "allow" } } : {}),
+    }) as unknown as TranscriptItem;
+  const user = (id: string): TranscriptItem => ({ id, type: "user_message", content: id });
+  // An old turn cut off before its result left a prompt nobody will answer.
+  const stale = [user("u1"), prompt("p1"), user("u2"), ...rows(3)];
+  expect(promptWaitsInLastTurn(stale)).toBe(false);
+  expect(promptWaitsInLastTurn([...stale, prompt("p2")])).toBe(true);
+  expect(promptWaitsInLastTurn([...stale, prompt("p2", true)])).toBe(false);
 });
