@@ -229,6 +229,7 @@ import {
 import type { BackgroundTask } from "./tasks/types";
 import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
 import { Settings } from "./settings/Settings";
+import { wideRailMinWidthMediaQuery } from "./shellBreakpoint";
 
 const HDR = "X-Coddy-Session-ID";
 
@@ -2183,7 +2184,7 @@ export function App() {
   }, [sessionId]);
 
   useEffect(() => {
-    const mq = window.matchMedia("(min-width: 1920px)");
+    const mq = window.matchMedia(wideRailMinWidthMediaQuery);
     const apply = () => setViewportXL(mq.matches);
     apply();
     mq.addEventListener("change", apply);

@@ -2343,7 +2343,7 @@ a.rail-brand {
 
 /* A phone header has room for the title and little else: once there are counts they
    speak for themselves, and the word gives way. */
-@media (max-width: 520px) {
+@media (max-width: 599px) {
   .chat-header-tasks {
     min-height: 32px;
   }
@@ -3073,7 +3073,7 @@ a.rail-brand {
 /* Phone: the numbers and a long phrase do not fit one line. The phrase - what the
    agent is doing - keeps the first line next to the dots, and the turn's numbers move
    under it as a caption, so the row never breaks wherever it happens to run out. */
-@media (max-width: 480px) {
+@media (max-width: 599px) {
   .typing-dots {
     align-items: flex-start;
   }
@@ -3741,9 +3741,12 @@ a.rail-brand {
   margin-top: -8px;
 }
 
+/* A long link, path or identifier breaks where it has to rather than widening the
+   transcript. Tables keep their width (max-content) and scroll in their own box. */
 .md {
   color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
   line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 
 .md :where(p) {
@@ -3872,21 +3875,26 @@ a.rail-brand {
   background: var(--coddy-surface-raised);
 }
 
+/* An 18px chip: a 14px line box and 3px + 1px of padding put the middle of the text
+   10px under the top edge. At most a line wide, so a long identifier wraps inside the
+   chip, 14px a line, instead of running out of the transcript. */
 .md-inline-code {
   display: inline-flex;
   align-items: center;
   vertical-align: baseline;
   box-sizing: border-box;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   font-family: var(--coddy-md-inline-code-font);
   font-size: 12px;
   font-weight: 400;
-  line-height: 10px;
+  line-height: 14px;
   letter-spacing: 0;
   color: var(--coddy-md-inline-code-fg);
   border: none;
   border-radius: 6px;
   background: var(--coddy-md-inline-code-bg);
-  padding: 5px 7px 3px;
+  padding: 3px 7px 1px;
   margin: 0 0.06em;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
@@ -9739,9 +9747,11 @@ html:not([data-theme="light"]) .context-usage-note--error {
   font-size: 12px;
 }
 
-/* Label, target and duration are one non-wrapping unit: the row stays a single line and
-   the target is what gives way, clipped with an ellipsis. A background-task chip is left
-   outside the unit, so it can still wrap below on a phone.
+/* Label, target and duration share one line, and the target is what gives way, clipped
+   with an ellipsis. Only a label longer than the whole row - an MCP tool names its server
+   and its tool in a sentence, one of them a long identifier - breaks the line: it wraps
+   inside the row, and the target and the duration move under it. Nothing in the row may
+   be wider than the row, since on the stacked shell the transcript's column is the page.
 
    They are three type sizes in two families - a 14px system label, a 12px monospace
    target, a 12px system duration - so centring their boxes lines up the boxes and leaves
@@ -9749,20 +9759,32 @@ html:not([data-theme="light"]) .context-usage-note--error {
    label. Baseline alignment puts the text itself on one line. */
 .thinking-head {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: baseline;
   flex: 0 1 auto;
   gap: 0 6px;
   min-width: 0;
 }
 
-.thinking-head .thinking-label,
+/* Never gives way to a sibling, so a short label beside a long target stays whole; at
+   most as wide as the row, where it wraps and breaks inside an identifier if it must. */
+.thinking-head .thinking-label {
+  flex: 0 0 auto;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
 .thinking-head .thinking-dur {
   flex: 0 0 auto;
 }
 
-/* The path, command or skill a call names, one shade lighter than the tool label. */
+/* The path, command or skill a call names, one shade lighter than the tool label.
+   A zero basis, so its text never decides whether it still fits beside the label: it
+   grows into what is left of the label's line, up to its own width so the duration
+   stays right after it, and ends in an ellipsis when that is not enough. */
 .tool-summary-target {
-  flex: 0 1 auto;
+  flex: 1 1 0;
+  max-width: max-content;
   overflow: hidden;
   min-width: 0;
   text-overflow: ellipsis;
@@ -10008,7 +10030,7 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   background: color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
 }
 
-@media (max-width: 520px) {
+@media (max-width: 599px) {
   .message-row-permission {
     margin: 8px 0 12px;
   }
@@ -13776,7 +13798,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 }
 
 /* ---------------------------------------------------------------------------
-   Phone layout (max-width: 520px)
+   Phone layout (max-width: 599px)
 
    Tablets and desktops fit everything already; a phone does not. The top bar
    keeps every icon one tap away and lets the brand give way, and the two
@@ -13784,7 +13806,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
    Send is never covered and the docked composer stays short.
    --------------------------------------------------------------------------- */
 
-@media (max-width: 520px) {
+@media (max-width: 599px) {
   /* Top bar: icons never slide over the brand; the brand shrinks and clips. */
   .rail-column {
     padding-inline: 8px;
@@ -13920,11 +13942,23 @@ html:not([data-theme="light"]) .swarm-graph-panel {
     flex: none;
     max-width: 40vw;
   }
+
+  /* Settings tiles: a phone has no hover, so a name cut to an ellipsis is out
+     of reach behind its title tooltip. The name wraps to two lines instead. */
+  .settings-tile-title {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.3;
+  }
 }
 
 /* iOS Safari zooms the page into any text field under 16px on focus and
    does not zoom back. Phones in both orientations and touch tablets. */
-@media (max-width: 520px), (any-hover: none) and (any-pointer: coarse) {
+@media (max-width: 599px), (any-hover: none) and (any-pointer: coarse) {
   /* The mirror draws the mention highlights under the textarea: the two
      must keep the same metrics. */
   .composer-mirror-inner,

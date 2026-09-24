@@ -1190,6 +1190,87 @@ test("an MCP call names the server and the tool, never the registry id", () => {
   expect(screen.getByText("Crash on start")).toHaveClass("tool-summary-target");
 });
 
+test("the label, the target, the failure marker and the duration stay siblings of one head", () => {
+  // The head wraps: a long label - an MCP tool names its server and its tool in
+  // a sentence - takes the row's whole width, and what trails it moves under it
+  // instead of running off the right edge.
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-mcp-trail"
+      title="github__search_repositories_with_extended_filters"
+      status="failed"
+      argsText={JSON.stringify({ query: "language:go" })}
+      resultText="boom"
+      durationMs={12}
+    />,
+  );
+  const head = container.querySelector(".thinking-head");
+  expect([...(head?.children ?? [])].map((el) => el.className)).toEqual([
+    "thinking-label",
+    "tool-summary-target",
+    "tool-failed-marker",
+    "thinking-dur",
+  ]);
+  expect(head?.querySelector(".thinking-label")?.textContent).toBe(
+    "calling search_repositories_with_extended_filters on the MCP server github",
+  );
+});
+
+test("an MCP call's JSON answer is shown indented, not as one long line", () => {
+  const answer = { total_count: 2, items: [{ id: 1, name: "a" }, { id: 2 }] };
+  render(
+    <ToolCallMessage
+      toolCallId="tc-mcp-json"
+      title="github__search_repositories"
+      status="completed"
+      argsText={JSON.stringify({ query: "coddy" })}
+      resultText={JSON.stringify(answer)}
+      durationMs={3}
+    />,
+  );
+  openToolDetails();
+  const pre = screen.getByTestId("tool-result-viewport").querySelector(".tool-result-pre");
+  expect(pre?.textContent).toBe(JSON.stringify(answer, null, 2));
+});
+
+test("an MCP answer that is not a whole JSON document stays as it came", () => {
+  // A truncated preview cuts the document short, and prose that happens to
+  // start with a bracket is not JSON: neither may be rewritten.
+  const cut = '{"total_count": 2, "items": [{"id": 1';
+  render(
+    <ToolCallMessage
+      toolCallId="tc-mcp-cut"
+      title="github__search_repositories"
+      status="completed"
+      argsText={JSON.stringify({ query: "coddy" })}
+      resultText={cut}
+      durationMs={3}
+    />,
+  );
+  openToolDetails();
+  const pre = screen.getByTestId("tool-result-viewport").querySelector(".tool-result-pre");
+  expect(pre?.textContent).toBe(cut);
+});
+
+test("a built-in tool's JSON-looking output is left alone", () => {
+  // Coddy's own tools print what the model reads; only an MCP server's answer
+  // is a document the server serialised on one line.
+  const out = '{"a":1,"b":[1,2]}';
+  render(
+    <ToolCallMessage
+      toolCallId="tc-builtin-json"
+      title="glob"
+      status="completed"
+      argsText={JSON.stringify({ pattern: "*.json" })}
+      resultText={out}
+      durationMs={3}
+    />,
+  );
+  openToolDetails();
+  const pre = screen.getByTestId("tool-result-viewport").querySelector(".tool-result-pre");
+  expect(pre?.textContent).toBe(out);
+});
+
 test("a tool outside the catalogue keeps its own id in the summary row", () => {
   render(
     <ToolCallMessage

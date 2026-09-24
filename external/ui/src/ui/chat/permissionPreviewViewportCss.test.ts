@@ -3,6 +3,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 
+import { phoneMaxWidthMediaQuery } from "../shellBreakpoint";
+
 const cssPath = join(
   dirname(fileURLToPath(import.meta.url)),
   "../../styles.css",
@@ -46,14 +48,14 @@ test("preview viewport modifiers win over the base overflow shorthand", () => {
   expect(staticRule![0]).toMatch(/overflow:\s*visible/);
 });
 
-// DESIGN.md pins the phone cap at 170px inside @media (max-width: 520px). The
+// DESIGN.md pins the phone cap at 170px inside the phone tier's @media. The
 // media rule must only tighten max-height: re-declaring the overflow shorthand
 // there would beat the `--scroll` modifier on phones and kill internal scrolling.
 test("phone media cap keeps 170px and never re-declares overflow", () => {
   const css = cssText();
 
   const mediaBlocks: string[] = [];
-  const marker = "@media (max-width: 520px)";
+  const marker = `@media ${phoneMaxWidthMediaQuery}`;
   for (
     let at = css.indexOf(marker);
     at !== -1;

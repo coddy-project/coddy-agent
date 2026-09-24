@@ -40,7 +40,8 @@ import {
   schedulerReadout,
 } from "../chat/schedulerToolDisplay";
 import { relativeToolTarget } from "../chat/toolTargetPath";
-import { toolDisplayName } from "./toolDisplayName";
+import { parseMcpToolName, toolDisplayName } from "./toolDisplayName";
+import { indentJsonDocument } from "./indentJsonDocument";
 import { Markdown } from "../markdown/Markdown";
 import { formatStepDuration } from "./formatStepDuration";
 
@@ -291,6 +292,8 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     [isSpawnAgentTool, props.argsText],
   );
   const isLoadSkillTool = rawNameLower === "load_skill";
+  // An MCP server's answer is whatever its tool returned, often one line of JSON.
+  const isMcpTool = useMemo(() => parseMcpToolName(rawName) !== null, [rawName]);
   const isWebSearchTool = rawNameLower === "websearch";
   const isWebFetchTool = rawNameLower === "webfetch";
   const isSchedulerToolCall = isSchedulerTool(rawNameLower);
@@ -632,6 +635,10 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     loadsWholeSearch &&
     !full &&
     (isWebSearchTool ? searchResultMarkdown === null : schedulerCard === null);
+  const plainResultBody = useMemo(
+    () => (isMcpTool ? indentJsonDocument(resultBody) : resultBody),
+    [isMcpTool, resultBody],
+  );
   const markdownResultBody =
     searchResultMarkdown ??
     (isWebFetchTool && status === "completed" ? resultBody : null);
@@ -786,7 +793,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                   ) : showSkillBody ? (
                     <Markdown text={markdownResultBody ?? resultBody} />
                   ) : (
-                    <pre className="tool-result-pre">{resultBody}</pre>
+                    <pre className="tool-result-pre">{plainResultBody}</pre>
                   )}
                 </div>
               </div>

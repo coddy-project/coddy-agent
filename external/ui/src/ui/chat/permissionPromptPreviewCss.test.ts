@@ -3,6 +3,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 
+import { PHONE_MAX_WIDTH_PX } from "../shellBreakpoint";
+
 const cssPath = join(
   dirname(fileURLToPath(import.meta.url)),
   "../../styles.css",
@@ -57,7 +59,9 @@ test("overflow toggles are left-aligned and taller on mobile", () => {
     /\.coddy-tool-call-body\s*>\s*\.tool-call-result-card\s*\+\s*\.tool-result-toggle-row\s*\{[^}]*\}/s,
   );
   const mobile = css.match(
-    /@media\s*\(max-width:\s*520px\)\s*\{[\s\S]*?\.tool-overflow-toggle\s*\{[^}]*\}/,
+    new RegExp(
+      `@media\\s*\\(max-width:\\s*${PHONE_MAX_WIDTH_PX}px\\)\\s*\\{[\\s\\S]*?\\.tool-overflow-toggle\\s*\\{[^}]*\\}`,
+    ),
   );
 
   expect(toggle?.[0]).toMatch(/align-self:\s*flex-start/);

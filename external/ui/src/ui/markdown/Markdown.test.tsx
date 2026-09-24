@@ -187,8 +187,10 @@ test("inline code styles use grey fill without border in css", () => {
   expect(css).toMatch(/\.md-inline-code[\s\S]*cursor:\s*pointer/);
   expect(css).toMatch(/\.md-inline-code[\s\S]*border-radius:\s*6px/);
   expect(css).toMatch(/\.md-inline-code[\s\S]*display:\s*inline-flex/);
-  expect(css).toMatch(/\.md-inline-code[\s\S]*padding:\s*5px\s+7px\s+3px/);
-  expect(css).toMatch(/\.md-inline-code[\s\S]*line-height:\s*10px/);
+  // An 18px chip either way; the 14px line box keeps wrapped lines apart
+  // (transcriptWrapCss.test.ts).
+  expect(css).toMatch(/\.md-inline-code[\s\S]*padding:\s*3px\s+7px\s+1px/);
+  expect(css).toMatch(/\.md-inline-code[\s\S]*line-height:\s*14px/);
   expect(css).not.toMatch(/\.md-inline-code-inner/);
   expect(css).not.toMatch(/\.md-inline-code-tip/);
 });
