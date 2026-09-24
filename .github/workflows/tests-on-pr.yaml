@@ -289,7 +289,11 @@ jobs:
             fi
           done
           for package in dist/*.rpm; do
-            rpm2cpio "$package" | cpio -i --quiet --to-stdout ./usr/lib/systemd/user/coddy.service | cmp - packaging/systemd/coddy.service
+            # rpm 4.18's rpm2cpio exits 1 after writing the whole payload, and
+            # names members /usr/... where newer ones write ./usr/...; a short
+            # payload still fails the cmp.
+            rpm2cpio "$package" > payload.cpio || true
+            cpio -i --quiet --to-stdout '*usr/lib/systemd/user/coddy.service' < payload.cpio | cmp - packaging/systemd/coddy.service
             rpm -qp --scripts "$package" > scripts.txt
             grep -F 'NOT enabled' scripts.txt        # postinstall
             grep -F 'coddy-setup.conf' scripts.txt   # preremove
