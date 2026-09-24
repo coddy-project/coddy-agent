@@ -29,7 +29,7 @@
  *   CODDY_PORT_BASE     first of three loopback ports (default 19870)
  *   CODDY_BUDGET_SCALE  multiplies every time budget (a slow machine: 2)
  *   CODDY_SCENARIOS     a comma list of scenarios to run (open, scroll, phone,
- *                       edit, short, two-browsers, swarm); all by default
+ *                       edit, retry, short, two-browsers, swarm); all by default
  *   CODDY_E2E_KEEP=1    leave the stand running after the checks, for a look
  *
  * CPU throttling, long tasks and heap readings are Chromium's (the DevTools
@@ -572,6 +572,32 @@ async function scenarioEditIndex() {
   await context.close();
 }
 
+async function scenarioRetry() {
+  // A failed read of the page above waits for the reader: no read every frame.
+  const { context, page, requests } = await openPage({ width: 1280, height: 900 }, { throttle: 1 });
+  let fail = true;
+  await page.route("**/messages?limit=80&before=*", (route) =>
+    fail ? route.fulfill({ status: 502, body: "held by the check" }) : route.continue(),
+  );
+  await openAndTime(page, `${NODE}/#/s/${LONG}`);
+  for (let i = 0; i < 80; i++) {
+    const st = await page.evaluate(() => document.querySelector("[data-testid=transcript-earlier]")?.dataset.state);
+    if (st === "error") break;
+    await page.evaluate(() => { document.querySelector(".chat-scroll").scrollTop -= 600; });
+    await page.waitForTimeout(80);
+  }
+  const older = () => messagesReads(requests, LONG).filter((q) => q.includes("before=")).length;
+  const afterFailure = older();
+  await page.waitForTimeout(1500);
+  const state = await page.evaluate(() => document.querySelector("[data-testid=transcript-earlier]")?.dataset.state);
+  check("a failed read of the page above waits for Retry", state === "error" && older() === afterFailure, `state ${state}, ${older() - afterFailure} more reads`);
+  fail = false;
+  await page.getByRole("button", { name: "Retry" }).click();
+  await page.waitForFunction(() => document.querySelector("[data-testid=transcript-earlier]")?.dataset.state !== "error", null, { timeout: 30000 });
+  check("Retry reads the page above again", older() > afterFailure);
+  await context.close();
+}
+
 async function scenarioShort() {
   const { context, page, requests } = await openPage({ width: 1280, height: 900 });
   await page.goto(`${NODE}/#/s/${SHORT}`);
@@ -661,6 +687,7 @@ const SCENARIOS = [
   ["scroll", scenarioScroll],
   ["phone", scenarioPhone],
   ["edit", scenarioEditIndex],
+  ["retry", scenarioRetry],
   ["short", scenarioShort],
   ["two-browsers", scenarioTwoBrowsers],
   ["swarm", scenarioSwarm],

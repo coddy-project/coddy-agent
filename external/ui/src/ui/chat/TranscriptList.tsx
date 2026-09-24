@@ -62,6 +62,7 @@ export function TranscriptList(props: {
     docScroll: props.docScroll,
     hasOlder: props.hasOlder,
     olderLoading: props.olderLoad === "loading",
+    olderFailed: props.olderLoad === "error",
     onLoadOlder: () => onLoadOlderRef.current(),
     stickToBottomRef: props.stickToBottomRef,
   });

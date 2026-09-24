@@ -75,6 +75,9 @@ export function useTranscriptWindow(p: {
   /** The server holds history above the first row. */
   hasOlder: boolean;
   olderLoading: boolean;
+  /** The last read of the page above failed: the window waits for the
+   *  reader's Retry instead of asking again every frame. */
+  olderFailed: boolean;
   onLoadOlder: () => void;
   /** The reader follows the newest message: a change above keeps the bottom
    *  in place rather than the first visible row. */
@@ -202,7 +205,7 @@ export function useTranscriptWindow(p: {
         range = { start: Math.max(0, range.start - CHUNK_ROWS), end: range.end };
         above = true;
         grewUp = true;
-      } else if (cur.p.hasOlder && !cur.p.olderLoading) {
+      } else if (cur.p.hasOlder && !cur.p.olderLoading && !cur.p.olderFailed) {
         cur.p.onLoadOlder();
       }
     }
