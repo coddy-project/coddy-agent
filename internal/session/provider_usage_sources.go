@@ -13,14 +13,17 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
-func providerUsageFingerprint(provider config.ProviderConfig, authPath string) string {
+// providerUsageFingerprint identifies the credential behind a provider row for
+// the usage cache; cliLogin says whether the row may fall back to the
+// machine-wide CLI login of its type (config.Config.CLILoginRow).
+func providerUsageFingerprint(provider config.ProviderConfig, authPath string, cliLogin bool) string {
 	switch strings.ToLower(strings.TrimSpace(provider.Type)) {
 	case "neuraldeep":
 		return llm.NeuralDeepUsageFingerprint(provider, authPath)
 	case "codex":
-		return llm.CodexUsageFingerprint(provider, authPath)
+		return llm.CodexUsageFingerprint(provider, authPath, cliLogin)
 	case "devin":
-		return llm.DevinUsageFingerprint(provider, authPath)
+		return llm.DevinUsageFingerprint(provider, authPath, cliLogin)
 	default:
 		// No usage source, no cache key: a caller that skipped the
 		// providerUsageSource gate must not get NeuralDeep's fingerprint
@@ -31,7 +34,7 @@ func providerUsageFingerprint(provider config.ProviderConfig, authPath string) s
 
 // fetchProviderUsage keeps transport payloads below the session layer while
 // every source shares the manager's scheduling and surface-facing snapshot.
-func (m *Manager) fetchProviderUsage(ctx context.Context, provider config.ProviderConfig, authPath string) (acp.ProviderUsageUpdate, error) {
+func (m *Manager) fetchProviderUsage(ctx context.Context, provider config.ProviderConfig, authPath string, cliLogin bool) (acp.ProviderUsageUpdate, error) {
 	switch strings.ToLower(strings.TrimSpace(provider.Type)) {
 	case "neuraldeep":
 		u, err := llm.NeuralDeepUsageForProvider(ctx, provider, authPath)
@@ -40,13 +43,13 @@ func (m *Manager) fetchProviderUsage(ctx context.Context, provider config.Provid
 		}
 		return mapNeuralDeepUsage(u, provider.Name, m.usageNow()), nil
 	case "codex":
-		u, err := llm.CodexUsageForProvider(ctx, provider, authPath)
+		u, err := llm.CodexUsageForProvider(ctx, provider, authPath, cliLogin)
 		if err != nil {
 			return acp.ProviderUsageUpdate{}, err
 		}
 		return mapCodexUsage(u, provider.Name, m.usageNow()), nil
 	case "devin":
-		u, err := llm.DevinUsageForProvider(ctx, provider, authPath)
+		u, err := llm.DevinUsageForProvider(ctx, provider, authPath, cliLogin)
 		if err != nil {
 			return acp.ProviderUsageUpdate{}, err
 		}

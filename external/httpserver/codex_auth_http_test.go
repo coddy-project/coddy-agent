@@ -330,6 +330,14 @@ type codexIssuerStandIn struct {
 
 func newCodexIssuerStandIn(t *testing.T, blockFirst bool) *codexIssuerStandIn {
 	t.Helper()
+	is := startCodexIssuerStandIn(blockFirst)
+	t.Cleanup(is.srv.Close)
+	return is
+}
+
+// startCodexIssuerStandIn is newCodexIssuerStandIn for a caller without a
+// *testing.T (a godog scenario); the caller closes srv.
+func startCodexIssuerStandIn(blockFirst bool) *codexIssuerStandIn {
 	is := &codexIssuerStandIn{
 		started:      make(chan struct{}),
 		releaseFirst: make(chan struct{}),
@@ -374,7 +382,6 @@ func newCodexIssuerStandIn(t *testing.T, blockFirst bool) *codexIssuerStandIn {
 			http.NotFound(w, r)
 		}
 	}))
-	t.Cleanup(is.srv.Close)
 	return is
 }
 

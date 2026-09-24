@@ -351,3 +351,52 @@ func TestApplyCodexLoginReportsACatalogFailure(t *testing.T) {
 		t.Error("a failed catalog fetch must not leave a provider row behind")
 	}
 }
+
+// TestCodexCLILoginServesOneRow: the Codex CLI login stands in only for the
+// row config.CLILoginRow names. Another codex row without a login of its own
+// is not signed in - at request time, in its status and in the startup
+// report, which names the row the CLI login serves - instead of quietly
+// running on that account.
+func TestCodexCLILoginServesOneRow(t *testing.T) {
+	codexHome := t.TempDir()
+	t.Setenv("CODEX_HOME", codexHome)
+	writeCodexAuth(t, codexHome, codexAuthFile{AuthMode: codexAuthModeChatGPT, Tokens: codexTokens{
+		AccessToken: makeJWT(time.Now().Add(time.Hour)), RefreshToken: "rt-cli", AccountID: "acct-cli",
+	}})
+	home := t.TempDir()
+	managed := config.CodexAuthPath(home, "codex-work")
+
+	if cred, err := newManagedCodexAuthSource(managed, true, nil).Credential(context.Background()); err != nil || cred.AccountID != "acct-cli" {
+		t.Fatalf("the row the CLI login serves: %+v %v", cred, err)
+	}
+	if _, err := newManagedCodexAuthSource(managed, false, nil).Credential(context.Background()); err == nil {
+		t.Fatal("another row must not run on the Codex CLI login")
+	}
+	if st, err := InspectCodexAuth(managed, true); err != nil || !st.Connected || st.Source != "codex_cli" {
+		t.Fatalf("status of the row the CLI login serves = %+v %v", st, err)
+	}
+	if st, err := InspectCodexAuth(managed, false); err != nil || st.Connected || st.Source != "" || st.AccountID != "" {
+		t.Fatalf("status of another row = %+v %v, want not signed in", st, err)
+	}
+
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: home},
+		Providers: []config.ProviderConfig{{Name: "codex", Type: "codex"}, {Name: "codex-work", Type: "codex"}},
+	}
+	notices := CodexAuthNotices(cfg)
+	if len(notices) != 2 {
+		t.Fatalf("notices = %+v, want one per codex row", notices)
+	}
+	if n := notices[0]; n.Provider != "codex" || n.Warning || !strings.Contains(n.Message, "Codex CLI login") {
+		t.Errorf("codex notice = %+v, want the Codex CLI login reported", n)
+	}
+	n := notices[1]
+	if n.Provider != "codex-work" || !n.Warning ||
+		!strings.Contains(n.Message, `"codex"`) || !strings.Contains(n.Message, "coddy providers login codex-work") {
+		t.Errorf("codex-work notice = %+v, want a warning naming the row the CLI login serves and the sign-in command", n)
+	}
+	if fp, other := CodexUsageFingerprint(config.ProviderConfig{Name: "codex-work", Type: "codex"}, managed, false),
+		CodexUsageFingerprint(config.ProviderConfig{Name: "codex-work", Type: "codex"}, managed, true); fp == other {
+		t.Error("the usage fingerprint must tell a row on the CLI login from one without a login")
+	}
+}

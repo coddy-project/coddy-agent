@@ -623,6 +623,8 @@ export const messagesRu: Record<string, string> = {
   "codexAuth.connected.viaCli":
     "Подключено через вход Codex CLI на этом сервере.",
   "codexAuth.connected.withChatGpt": "Подключено через ChatGPT.",
+  "codexAuth.cliLoginOtherRow":
+    "Вход Codex CLI на этом сервере закреплён за строкой {row}. Войдите, чтобы у этой строки был свой аккаунт.",
   "codexAuth.fieldLabel": "Аккаунт ChatGPT",
   "codexAuth.description":
     "Codex использует вашу подписку ChatGPT через OAuth. Учётные данные хранятся на сервере Coddy и никогда не добавляются в config.yaml.",

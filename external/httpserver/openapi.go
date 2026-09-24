@@ -2023,7 +2023,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/providers/{name}/codex-auth": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get Codex OAuth status",
-					"description": "Reports whether the named Codex provider has a server-side ChatGPT OAuth credential. It never returns token values. A valid unsaved provider name is accepted so Settings can show status before config is saved, and so is a saved row of another type that Settings is switching to codex (only its `proxy` applies).",
+					"description": "Reports whether the named Codex provider has a server-side ChatGPT OAuth credential, falling back to the Codex CLI login only for the row that login serves (the only codex row, or the row named `codex` among several); another row gets `cli_login_row` naming it. It never returns token values. A valid unsaved provider name is accepted so Settings can show status before config is saved, and so is a saved row of another type that Settings is switching to codex (only its `proxy` applies).",
 					"operationId": "getProviderCodexAuth",
 					"parameters":  []interface{}{codexProviderNameParameter()},
 					"responses": map[string]interface{}{
@@ -2987,6 +2987,10 @@ func openAPISpec() map[string]interface{} {
 							"type": "string", "enum": []string{"coddy", "codex_cli"},
 						},
 						"account_id": map[string]string{"type": "string"},
+						"cli_login_row": map[string]interface{}{
+							"type":        "string",
+							"description": "Set when this row is not signed in while a Codex CLI login exists on the server that it may not use: the row that login serves. The Codex CLI login is one account and stands in for one codex row - the only one, or the row named `codex` among several.",
+						},
 					},
 					"required": []string{"connected"},
 				},

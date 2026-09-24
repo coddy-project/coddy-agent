@@ -887,3 +887,18 @@ func LogNeuralDeepAuthNotices(log *slog.Logger, cfg *config.Config) {
 		log.Info("neuraldeep credential", "provider", n.Provider, "detail", n.Message)
 	}
 }
+
+// NeuralDeepDeviceLabel is the label a device login asks the hub to give its
+// key: "coddy @ <host>", plus the provider row in parentheses unless the row
+// is the conventional "neuraldeep". The hub dashboard and /usage show it, so
+// two rows of the type signed in from one machine are told apart.
+func NeuralDeepDeviceLabel(providerName string) string {
+	label := "coddy"
+	if host, err := os.Hostname(); err == nil && strings.TrimSpace(host) != "" {
+		label = "coddy @ " + host
+	}
+	if name := strings.TrimSpace(providerName); name != "" && name != "neuraldeep" {
+		label += " (" + name + ")"
+	}
+	return label
+}

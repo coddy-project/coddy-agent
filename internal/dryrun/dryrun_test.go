@@ -639,3 +639,25 @@ func TestCodexMaxTokensIsAWarningOnItsLine(t *testing.T) {
 		}
 	}
 }
+
+// TestCodexRowOffTheCLILoginIsNamed: the Codex CLI login serves one codex row.
+// Another row without a login of its own is reported as not signed in, naming
+// the row the CLI login serves, before any request goes out.
+func TestCodexRowOffTheCLILoginIsNamed(t *testing.T) {
+	codexHome := t.TempDir()
+	t.Setenv("CODEX_HOME", codexHome)
+	if err := os.WriteFile(filepath.Join(codexHome, "auth.json"), []byte(`{"auth_mode":"chatgpt","tokens":{"access_token":"at","refresh_token":"rt","account_id":"acct-cli"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backend := modelServer(t, "gpt-5.5")
+	t.Setenv("CODDY_CODEX_BASE_URL", backend.URL)
+	rep := run(t, "providers:\n  - name: codex\n    type: codex\n  - name: codex-work\n    type: codex\nmodels:\n  - model: codex/gpt-5.5\n  - model: codex-work/gpt-5.5\nagent:\n  model: codex/gpt-5.5\n", nil)
+	p := find(t, rep, "providers[codex-work]")
+	if p.Status != StatusError || !strings.Contains(p.Message, "not signed in") || !strings.Contains(p.Message, `the row "codex"`) ||
+		!strings.Contains(p.Fix, "coddy providers login codex-work") {
+		t.Errorf("codex-work check %+v, want not signed in, naming the row the CLI login serves", p)
+	}
+	if p := find(t, rep, "providers[codex]"); p.Status != StatusOK {
+		t.Errorf("codex check %+v, want the CLI login to serve it", p)
+	}
+}

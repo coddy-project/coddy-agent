@@ -68,12 +68,36 @@ func (s *Server) registerCodexAuthRoutes() {
 	s.mux.HandleFunc("GET /coddy/providers/{name}/codex-auth/device/{loginID}", s.coddyProviderCodexAuthDeviceGet)
 }
 
+// codexAuthStatusResponse is the Codex sign-in status of a row, plus the row
+// the Codex CLI login on this server serves when this row may not use it, so
+// Settings can say why a row is not signed in while a CLI login exists.
+type codexAuthStatusResponse struct {
+	llm.CodexAuthStatus
+	CLILoginRow string `json:"cli_login_row,omitempty"`
+}
+
+// codexAuthStatus inspects the credential of the row named name; the Codex CLI
+// login counts only for the row config.Config.CLILoginRow names.
+func (s *Server) codexAuthStatus(name string) (codexAuthStatusResponse, error) {
+	c := s.activeCfg()
+	cliLogin := c.ProviderMayUseCLILogin(name, "codex")
+	st, err := llm.InspectCodexAuth(config.CodexAuthPath(c.Paths.Home, name), cliLogin)
+	if err != nil {
+		return codexAuthStatusResponse{}, err
+	}
+	resp := codexAuthStatusResponse{CodexAuthStatus: st}
+	if !cliLogin && !st.Connected && llm.CodexCLILoginPresent() {
+		resp.CLILoginRow = c.CLILoginRow("codex", name)
+	}
+	return resp, nil
+}
+
 func (s *Server) coddyProviderCodexAuthGet(w http.ResponseWriter, r *http.Request) {
 	name, _, ok := s.resolveCodexAuthProvider(w, r.PathValue("name"))
 	if !ok {
 		return
 	}
-	status, err := llm.InspectCodexAuth(config.CodexAuthPath(s.activeCfg().Paths.Home, name))
+	status, err := s.codexAuthStatus(name)
 	if err != nil {
 		writeCoddyConfigErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -97,7 +121,7 @@ func (s *Server) coddyProviderCodexAuthDelete(w http.ResponseWriter, r *http.Req
 	// The account the cached usage described is gone; a stale snapshot must
 	// not outlive the credential.
 	s.dropProviderUsage(name, "codex")
-	status, err := llm.InspectCodexAuth(path)
+	status, err := s.codexAuthStatus(name)
 	if err != nil {
 		writeCoddyConfigErr(w, http.StatusInternalServerError, err.Error())
 		return

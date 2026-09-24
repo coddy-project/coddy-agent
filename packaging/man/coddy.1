@@ -178,6 +178,18 @@ the account can use and an
 to the configuration unless
 .B \-\-no\-config
 is given.
+.B \-\-type
+names the type
+.RB ( neuraldeep ", " codex " or " devin )
+of a provider the configuration does not list yet, so another profile of a type
+is created by signing it in, as in
+.BR "coddy providers login codex\-work \-\-type codex" .
+Each row of a type keeps a login of its own; the Codex CLI and Devin CLI
+logins serve one row only: the single row of the type, or the row named
+.B codex
+or
+.B devin
+when there are several.
 .TP
 .B "rules list"
 Show the project rules discovered under the session working directory.

@@ -46,7 +46,7 @@ func newCodexTestProvider(t *testing.T, baseURL string) *codexProvider {
 	})
 	// A non-zero generic max token limit must still be omitted from the Codex
 	// request because its Responses endpoint rejects max_output_tokens.
-	p := newCodexProvider("gpt-5.6", path, baseURL, http.DefaultClient, 4096, "")
+	p := newCodexProvider("gpt-5.6", path, true, baseURL, http.DefaultClient, 4096, "")
 	return p
 }
 
@@ -412,7 +412,7 @@ func TestCodexProviderSurfacesHTTPErrorDetail(t *testing.T) {
 }
 
 func TestCodexProviderDefaultsBaseURL(t *testing.T) {
-	p := newCodexProvider("gpt-5.6", filepath.Join(t.TempDir(), "auth.json"), "", nil, 0, "")
+	p := newCodexProvider("gpt-5.6", filepath.Join(t.TempDir(), "auth.json"), true, "", nil, 0, "")
 	if p.baseURL != codexDefaultBaseURL {
 		t.Errorf("baseURL = %q, want %q", p.baseURL, codexDefaultBaseURL)
 	}

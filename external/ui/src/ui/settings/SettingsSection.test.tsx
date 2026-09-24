@@ -184,6 +184,24 @@ test("Codex provider replaces API credentials with ChatGPT sign in", async () =>
   );
 });
 
+test("Codex row that may not use the Codex CLI login names the row it serves", async () => {
+  // Two ChatGPT profiles: the Codex CLI login on the server serves the row
+  // named codex, so this one is not signed in and the field says why.
+  const fetchMock = vi.fn(async () => ({
+    ok: true,
+    json: async () => ({ connected: false, cli_login_row: "codex" }),
+  }));
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<Harness provider={{ name: "codex-work", type: "codex" }} />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+
+  const note = await screen.findByTestId("codex-auth-cli-other-row");
+  expect(note).toHaveTextContent("Codex CLI login");
+  expect(note).toHaveTextContent("codex");
+  expect(screen.getByTestId("codex-auth-sign-in")).toBeInTheDocument();
+});
+
 test("Codex Sign In opens ChatGPT and completes device authorization", async () => {
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {

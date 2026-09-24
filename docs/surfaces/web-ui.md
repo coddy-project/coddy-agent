@@ -53,7 +53,7 @@ Clear the field to use the session model for summarization.
 
 - In **Settings → LLM Providers**, a row with **`type: codex`** hides the generic **API base URL**, **API key**, and **API key command** fields and renders **Sign In with ChatGPT**. The sign-in works before Save, on a new row and on a saved row whose type picker was just switched to codex alike; the latter keeps only its **`proxy`** for the sign-in.
 - The button starts **`POST /coddy/providers/{name}/codex-auth/device`**, opens the returned official verification page, displays the one-time code, and polls **`GET .../device/{loginID}`** until completion or failure. The displayed link remains available if the browser blocks the automatic tab.
-- Connected state comes from **`GET /coddy/providers/{name}/codex-auth`**. **Sign Out** deletes only the Coddy-managed credential through **`DELETE`** and cancels a sign-in still waiting for confirmation, so approving it in a tab left open afterwards stores nothing; pressing **Sign In** again replaces a pending sign-in the same way. A server-side Codex CLI login may still appear as a compatibility connection.
+- Connected state comes from **`GET /coddy/providers/{name}/codex-auth`**. A row the server's Codex CLI login does not serve (several codex rows: that login stands in for the row named **`codex`** only) is not connected until it signs in, and the field names the row the login serves (**`cli_login_row`** of the status). **Sign Out** deletes only the Coddy-managed credential through **`DELETE`** and cancels a sign-in still waiting for confirmation, so approving it in a tab left open afterwards stores nothing; pressing **Sign In** again replaces a pending sign-in the same way. A server-side Codex CLI login may still appear as a compatibility connection.
 - OAuth tokens never enter the settings document or browser. They are stored by the server under **`$CODDY_HOME/providers/<name>/codex-auth.json`**.
 
 ## Settings: NeuralDeep sign-in
@@ -919,7 +919,10 @@ Automated checks:
 - When the selected model's provider reports account usage (today
   `neuraldeep`, `codex` and `devin`), the **context popover** (the context ring next to Send)
   ends with a **usage section**, the way Claude Desktop lists its plan
-  limits under the context window: the provider and plan, one meter per
+  limits under the context window: the provider and plan (with the row
+  next to the brand, **`Codex · codex-work · Plus`**, unless the row is
+  named after its type, so several profiles of one type are told apart),
+  one meter per
   metered window with its reset time in the browser's clock, the label in
   the UI language and the percent used, the wallet in rubles, and a note
   when something changed: a hit limit with its reset (or the cause of a

@@ -236,7 +236,8 @@ Enter on a slash suggestion applies and submits in one stroke. `/export [md|html
 under `--remote` the file lands on the server. `/usage` forces a fresh read
 of the active provider's account usage (on a row whose panel is switched
 off it names the `usage_limits_panel` switch instead) and prints the
-breakdown as a dim block: every window with a ten-cell bar, its percent, counters and reset
+breakdown as a dim block, headed by the brand and, unless the row is named
+after its type, the row (`Codex · codex-work`): every window with a ten-cell bar, its percent, counters and reset
 time, the live requests-per-minute, the cooldown, the wallet with the last
 30 days of spend, a `refresh in Ns (pacing)` line when the pacing
 floor deferred the read, and the snapshot's age. A source reports only the

@@ -214,7 +214,7 @@ func printUsage(w io.Writer) {
   %[1]s plugin remove <name>
   %[1]s plugin enable <name> | disable <name>
   %[1]s mcp list | trust <name> | untrust <name> [--cwd DIR]
-  %[1]s providers list | login <name> [--browser] [--devin-cli] [--no-config] [--api-base URL] | logout <name> [--home DIR]
+  %[1]s providers list | login <name> [--type neuraldeep|codex|devin] [--browser] [--devin-cli] [--no-config] [--api-base URL] | logout <name> [--home DIR]
   %[1]s rules list [--cwd DIR]
   %[1]s agents list [--cwd DIR]
   %[1]s agents trust <name> [--cwd DIR]

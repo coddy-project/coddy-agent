@@ -63,7 +63,7 @@ func TestCodexDeviceSignInPromptsThenPersists(t *testing.T) {
 	if login.UserCode != "CLI-CODE" || login.VerificationURL != upstream.URL+"/codex/device" {
 		t.Fatalf("prompt = %+v, want the user code and verification URL", login)
 	}
-	status, err := InspectCodexAuth(authPath)
+	status, err := InspectCodexAuth(authPath, true)
 	if err != nil {
 		t.Fatalf("InspectCodexAuth: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestCodexDeviceLoginExchangesAndPersistsTokens(t *testing.T) {
 		t.Fatalf("saved auth permissions = %o, want 600", got)
 	}
 
-	status, err := InspectCodexAuth(authPath)
+	status, err := InspectCodexAuth(authPath, true)
 	if err != nil {
 		t.Fatalf("InspectCodexAuth: %v", err)
 	}

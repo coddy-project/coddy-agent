@@ -185,7 +185,7 @@ func (s *Server) coddyProviderNeuralDeepAuthDevicePost(w http.ResponseWriter, r 
 		return
 	}
 	hub := s.neuralDeepHubFor(apiBase)
-	label := neuralDeepHTTPDeviceLabel()
+	label := llm.NeuralDeepDeviceLabel(name)
 	loginID := newCodexAuthLoginID()
 	// The wait outlives this request but not the server: Drain cancels it.
 	waitCtx, cancel := context.WithCancel(context.Background())
@@ -362,12 +362,4 @@ func neuralDeepDeviceStartEndpoint(r *http.Request, provider config.ProviderConf
 			strings.TrimSpace(body.APIBase), strings.Join(llm.NeuralDeepAPIBases(), ", "))
 	}
 	return base, nil
-}
-
-func neuralDeepHTTPDeviceLabel() string {
-	host, err := os.Hostname()
-	if err != nil || strings.TrimSpace(host) == "" {
-		return "coddy"
-	}
-	return "coddy @ " + host
 }

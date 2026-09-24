@@ -657,3 +657,22 @@ func TestPollNeuralDeepDeviceTokenTreatsThrottlingAsSlowDown(t *testing.T) {
 		t.Fatalf("key = %q, slowDown = %v, want empty key and a slow down", key, slowDown)
 	}
 }
+
+// TestNeuralDeepDeviceLabelNamesTheRow: the label a device login gives its key
+// is what the hub dashboard and /usage show, so a second row of the type puts
+// its name in it; the conventional row keeps the plain label.
+func TestNeuralDeepDeviceLabelNamesTheRow(t *testing.T) {
+	host, err := os.Hostname()
+	if err != nil || strings.TrimSpace(host) == "" {
+		t.Skip("no hostname")
+	}
+	if got := NeuralDeepDeviceLabel("neuraldeep"); got != "coddy @ "+host {
+		t.Errorf("label of the row named neuraldeep = %q, want the plain one", got)
+	}
+	if got := NeuralDeepDeviceLabel(""); got != "coddy @ "+host {
+		t.Errorf("label without a row = %q, want the plain one", got)
+	}
+	if got := NeuralDeepDeviceLabel("nd-tech"); got != "coddy @ "+host+" (nd-tech)" {
+		t.Errorf("label of nd-tech = %q, want the row name in parentheses", got)
+	}
+}

@@ -250,7 +250,8 @@ func (m *Manager) providerUsageRead(ctx context.Context, providerName string, re
 		}, nil
 	}
 	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
-	fingerprint := providerUsageFingerprint(*prov, authPath)
+	cliLogin := cfg.ProviderMayUseCLILogin(prov.Name, prov.Type)
+	fingerprint := providerUsageFingerprint(*prov, authPath, cliLogin)
 
 	m.usage.mu.Lock()
 	e := m.usageEntryLocked(prov.Name, fingerprint)
@@ -289,7 +290,7 @@ func (m *Manager) providerUsageRead(ctx context.Context, providerName string, re
 		m.usage.mu.Unlock()
 		return &u, nil
 	}
-	done := m.usageStartFetchLocked(prov, authPath, e, "")
+	done := m.usageStartFetchLocked(prov, authPath, cliLogin, e, "")
 	generation := e.generation
 	m.usage.mu.Unlock()
 	return m.usageAwait(ctx, done, prov.Name, generation)
@@ -410,7 +411,8 @@ func (m *Manager) usageDeferredFire(name string, generation uint64) {
 		return
 	}
 	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
-	fingerprint := providerUsageFingerprint(*prov, authPath)
+	cliLogin := cfg.ProviderMayUseCLILogin(prov.Name, prov.Type)
+	fingerprint := providerUsageFingerprint(*prov, authPath, cliLogin)
 	if e.fingerprint != fingerprint {
 		// The credential changed while the refresh waited: the entry and its
 		// numbers describe another account, so the fetch goes into a fresh
@@ -420,7 +422,7 @@ func (m *Manager) usageDeferredFire(name string, generation uint64) {
 		m.usageArmPendingLocked(name, e, at, sessions)
 		return
 	}
-	m.usageStartFetchLocked(prov, authPath, e, "")
+	m.usageStartFetchLocked(prov, authPath, cliLogin, e, "")
 	e.waiters = appendSessions(e.waiters, sessions)
 }
 
@@ -447,7 +449,7 @@ func appendSessions(list []string, ids []string) []string {
 // closed when it ends. The result is stored only when the entry's
 // generation is unchanged, then delivered to the requesting session and to
 // the observers.
-func (m *Manager) usageStartFetchLocked(prov *config.ProviderConfig, authPath string, e *providerUsageEntry, sessionID string) <-chan struct{} {
+func (m *Manager) usageStartFetchLocked(prov *config.ProviderConfig, authPath string, cliLogin bool, e *providerUsageEntry, sessionID string) <-chan struct{} {
 	done := make(chan struct{})
 	// Cancel-only: the fetcher bounds its HTTP read itself and the
 	// credential helper keeps its own budget; a logout, a config swap or a
@@ -466,7 +468,7 @@ func (m *Manager) usageStartFetchLocked(prov *config.ProviderConfig, authPath st
 	go func() {
 		defer m.usage.wg.Done()
 		defer cancel()
-		mapped, err := m.fetchProviderUsage(ctx, provider, authPath)
+		mapped, err := m.fetchProviderUsage(ctx, provider, authPath, cliLogin)
 		fetchedAt := m.usageNow()
 		m.usage.mu.Lock()
 		if e.generation != generation {
@@ -699,7 +701,8 @@ func (m *Manager) publishProviderUsageAsync(sessionID string, st *State) {
 	}
 	cfg := m.activeCfg()
 	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
-	fingerprint := providerUsageFingerprint(*prov, authPath)
+	cliLogin := cfg.ProviderMayUseCLILogin(prov.Name, prov.Type)
+	fingerprint := providerUsageFingerprint(*prov, authPath, cliLogin)
 
 	m.usage.mu.Lock()
 	e := m.usageEntryLocked(prov.Name, fingerprint)
@@ -728,7 +731,7 @@ func (m *Manager) publishProviderUsageAsync(sessionID string, st *State) {
 		u := m.usageDeliverableLocked(e, now)
 		deliverNow = &u
 	default:
-		m.usageStartFetchLocked(prov, authPath, e, sessionID)
+		m.usageStartFetchLocked(prov, authPath, cliLogin, e, sessionID)
 	}
 	m.usage.mu.Unlock()
 	if deliverNow != nil {
@@ -753,7 +756,8 @@ func (m *Manager) publishProviderUsageOnReady(sessionID string, st *State) {
 	}
 	cfg := m.activeCfg()
 	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
-	fingerprint := providerUsageFingerprint(*prov, authPath)
+	cliLogin := cfg.ProviderMayUseCLILogin(prov.Name, prov.Type)
+	fingerprint := providerUsageFingerprint(*prov, authPath, cliLogin)
 
 	m.usage.mu.Lock()
 	e := m.usageEntryLocked(prov.Name, fingerprint)
@@ -767,7 +771,7 @@ func (m *Manager) publishProviderUsageOnReady(sessionID string, st *State) {
 		u := m.usageDeliverableLocked(e, now)
 		deliverNow = &u
 	default:
-		m.usageStartFetchLocked(prov, authPath, e, sessionID)
+		m.usageStartFetchLocked(prov, authPath, cliLogin, e, sessionID)
 	}
 	m.usage.mu.Unlock()
 	if deliverNow != nil {

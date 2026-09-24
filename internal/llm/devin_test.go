@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -464,35 +465,35 @@ func TestResolveDevinCredentialOrder(t *testing.T) {
 	t.Setenv(EnvDevinCLICredentials, cli)
 	managed := filepath.Join(dir, "devin-auth.json")
 
-	if _, err := resolveDevinCredential("", managed); !errors.Is(err, errDevinNotSignedIn) {
+	if _, err := resolveDevinCredential("", managed, true); !errors.Is(err, errDevinNotSignedIn) {
 		t.Fatalf("no source: err = %v", err)
 	}
 	if err := os.WriteFile(cli, []byte("windsurf_api_key = \"devin-session-token$cli\"\napi_server_url = \"https://enterprise.example\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	c, err := resolveDevinCredential("", managed)
+	c, err := resolveDevinCredential("", managed, true)
 	if err != nil || c.source != DevinSourceDevinCLI || c.apiServer != "https://enterprise.example" || c.path != cli {
 		t.Fatalf("cli: %+v %v", c, err)
 	}
 	if err := saveDevinAuth(managed, devinAuthFile{SessionToken: "managed"}); err != nil {
 		t.Fatal(err)
 	}
-	c, err = resolveDevinCredential("", managed)
+	c, err = resolveDevinCredential("", managed, true)
 	if err != nil || c.source != DevinSourceCoddy || c.token != "devin-session-token$managed" {
 		t.Fatalf("managed: %+v %v", c, err)
 	}
-	c, err = resolveDevinCredential("explicit", managed)
+	c, err = resolveDevinCredential("explicit", managed, true)
 	if err != nil || c.source != DevinSourceAPIKey || c.token != "devin-session-token$explicit" {
 		t.Fatalf("explicit: %+v %v", c, err)
 	}
-	st, err := InspectDevinAuth(managed)
+	st, err := InspectDevinAuth(managed, true)
 	if err != nil || st.Source != DevinSourceCoddy || strings.Contains(st.Masked, "managed") {
 		t.Fatalf("inspect: %+v %v", st, err)
 	}
 	if err := RemoveDevinAuth(managed); err != nil {
 		t.Fatal(err)
 	}
-	if st, _ := InspectDevinAuth(managed); st.Source != DevinSourceDevinCLI {
+	if st, _ := InspectDevinAuth(managed, true); st.Source != DevinSourceDevinCLI {
 		t.Fatalf("after logout the Devin CLI login must remain: %+v", st)
 	}
 }
@@ -676,7 +677,7 @@ func TestDevinSignInCallbackAndPaste(t *testing.T) {
 		if err != nil || acct.Email != "dev@example.com" {
 			t.Fatalf("sign-in = %+v, %v", acct, err)
 		}
-		if st, _ := InspectDevinAuth(authPath); st.Source != DevinSourceCoddy || st.Email != "dev@example.com" {
+		if st, _ := InspectDevinAuth(authPath, true); st.Source != DevinSourceCoddy || st.Email != "dev@example.com" {
 			t.Fatalf("stored = %+v", st)
 		}
 	})
@@ -786,5 +787,64 @@ func TestApplyDevinLoginToConfigOnlyAdds(t *testing.T) {
 	again, err := ApplyDevinLoginToConfig(context.Background(), cfg, "devin", "devin-session-token$stand-token", "", "")
 	if err != nil || len(again) != 0 {
 		t.Fatalf("second apply = %v, %v", again, err)
+	}
+}
+
+// TestDevinCLILoginServesOneRow: the Devin CLI login stands in only for the
+// row config.CLILoginRow names; another devin row without a login of its own
+// is not signed in, and the startup report says which row the login serves.
+func TestDevinCLILoginServesOneRow(t *testing.T) {
+	dir := t.TempDir()
+	cli := filepath.Join(dir, "credentials.toml")
+	t.Setenv(EnvDevinCLICredentials, cli)
+	if err := os.WriteFile(cli, []byte("windsurf_api_key = \"devin-session-token$cli\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	managed := config.DevinAuthPath(home, "devin-2")
+	if c, err := resolveDevinCredential("", managed, true); err != nil || c.source != DevinSourceDevinCLI {
+		t.Fatalf("the row the CLI login serves: %+v %v", c, err)
+	}
+	if _, err := resolveDevinCredential("", managed, false); !errors.Is(err, errDevinNotSignedIn) {
+		t.Fatalf("another row: err = %v, want not signed in", err)
+	}
+	if st, err := InspectDevinAuth(managed, false); err != nil || st.Connected {
+		t.Fatalf("status of another row = %+v %v, want not signed in", st, err)
+	}
+
+	var buf strings.Builder
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	t.Setenv("DEVIN_API_KEY", "")
+	t.Setenv("DEVIN_2_API_KEY", "")
+	LogDevinAuthNotices(log, &config.Config{
+		Paths:     config.Paths{Home: home},
+		Providers: []config.ProviderConfig{{Name: "devin", Type: "devin"}, {Name: "devin-2", Type: "devin"}},
+	})
+	out := buf.String()
+	if !strings.Contains(out, `provider=devin detail="Devin CLI login`) {
+		t.Errorf("startup report %q should put the row named devin on the Devin CLI login", out)
+	}
+	if !strings.Contains(out, "level=WARN") || !strings.Contains(out, `provider=devin-2`) || !strings.Contains(out, `\"devin\"`) {
+		t.Errorf("startup report %q should warn that devin-2 is not signed in and name the row the CLI login serves", out)
+	}
+}
+
+// TestLogDevinAuthNoticesNamesTheEnvironmentKeyThatWins: requests take the
+// row's NAME_API_KEY ahead of a stored login, so the startup report must name
+// the variable even when a login exists.
+func TestLogDevinAuthNoticesNamesTheEnvironmentKeyThatWins(t *testing.T) {
+	t.Setenv(EnvDevinCLICredentials, filepath.Join(t.TempDir(), "none.toml"))
+	home := t.TempDir()
+	if err := saveDevinAuth(config.DevinAuthPath(home, "devin"), devinAuthFile{SessionToken: "managed"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DEVIN_API_KEY", "devin-session-token$env")
+	var buf strings.Builder
+	LogDevinAuthNotices(slog.New(slog.NewTextHandler(&buf, nil)), &config.Config{
+		Paths:     config.Paths{Home: home},
+		Providers: []config.ProviderConfig{{Name: "devin", Type: "devin"}},
+	})
+	if out := buf.String(); !strings.Contains(out, "DEVIN_API_KEY") {
+		t.Errorf("startup report %q should name DEVIN_API_KEY, which wins over the stored login", out)
 	}
 }

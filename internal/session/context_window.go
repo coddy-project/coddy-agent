@@ -259,6 +259,8 @@ func (m *Manager) refreshContextWindows(cfg *config.Config, prov config.Provider
 			BaseURL:  prov.APIBase,
 			ProxyURL: prov.Proxy,
 			AuthPath: authPath,
+			// The same account a request of this row would use.
+			NoCLILogin: !cfg.ProviderMayUseCLILogin(prov.Name, prov.Type),
 		})
 		w.mu.Lock()
 		defer w.mu.Unlock()

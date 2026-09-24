@@ -70,7 +70,7 @@ func labelProvider(p Provider, in ProviderInput) Provider {
 	if in.Type == "devin" {
 		// The server a Devin login records (a dedicated deployment) is where
 		// the requests go, not the default the type alone names.
-		if cred, err := resolveDevinCredential(in.APIKey, in.AuthPath); err == nil {
+		if cred, err := resolveDevinCredential(in.APIKey, in.AuthPath, !in.NoCLILogin); err == nil {
 			endpoint = devinAPIServer(cred.apiServer)
 		}
 	}

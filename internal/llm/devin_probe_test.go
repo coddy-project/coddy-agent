@@ -31,7 +31,7 @@ func TestDevinUsageProbe(t *testing.T) {
 	}
 	ctx := context.Background()
 	authPath := os.Getenv("CODDY_DEVIN_PROBE_AUTH")
-	cred, err := resolveDevinCredential("", authPath)
+	cred, err := resolveDevinCredential("", authPath, true)
 	if err != nil {
 		t.Skipf("no devin credential on this machine: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestDevinUsageProbe(t *testing.T) {
 	// The production path, through the provider's proxy client so the probe
 	// exercises the same wiring a configured row would.
 	provider := config.ProviderConfig{Name: "devin-probe", Proxy: os.Getenv("CODDY_DEVIN_PROBE_PROXY")}
-	u, err := DevinUsageForProvider(ctx, provider, authPath)
+	u, err := DevinUsageForProvider(ctx, provider, authPath, true)
 	if err != nil {
 		t.Fatalf("DevinUsageForProvider: %v", err)
 	}

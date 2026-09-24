@@ -75,6 +75,21 @@ func usageModelOf(modelID string) string {
 	return model
 }
 
+// usageTitle heads the /usage block: the brand, then the row unless it is
+// named after its type, so several profiles of one type are told apart. The
+// sentences keep the brand alone.
+func usageTitle(u *acp.ProviderUsageUpdate) string {
+	brand := usageBrand(u)
+	if u == nil {
+		return brand
+	}
+	row := tui.SanitizeText(strings.TrimSpace(u.Provider))
+	if row != "" && row != brand && row != strings.ToLower(strings.TrimSpace(u.ProviderType)) {
+		return brand + " · " + row
+	}
+	return brand
+}
+
 // usageBrand is the display name of the provider behind an update.
 func usageBrand(u *acp.ProviderUsageUpdate) string {
 	if u != nil {
@@ -460,7 +475,7 @@ func usageReportLines(u *acp.ProviderUsageUpdate, modelID string, now time.Time)
 	if u == nil {
 		return nil
 	}
-	head := usageBrand(u)
+	head := usageTitle(u)
 	if plan := usagePlanLabel(u.Plan); plan != "" {
 		head += " · " + plan
 	}

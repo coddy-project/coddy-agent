@@ -74,9 +74,9 @@ type DevinUsage struct {
 // carries no user JWT: the seat-management server omits plan_status (the
 // quota fields) from its answer whenever metadata field 21 is present, so
 // minting one is not just wasted here - it empties the response.
-func DevinUsageForProvider(ctx context.Context, provider config.ProviderConfig, authPath string) (*DevinUsage, error) {
+func DevinUsageForProvider(ctx context.Context, provider config.ProviderConfig, authPath string, cliLogin bool) (*DevinUsage, error) {
 	key, keyErr := provider.EffectiveAPIKeyContextErr(ctx)
-	cred, err := resolveDevinCredential(key, authPath)
+	cred, err := resolveDevinCredential(key, authPath, cliLogin)
 	if err != nil {
 		kind := ProviderUsageUnauthorized
 		// A configured credential helper that produced nothing is a broken
@@ -321,8 +321,8 @@ func devinUsageACUField(f pbField) (float64, error) {
 // the usage cache. It resolves the same source order a fetch does but never
 // executes a credential helper: a configured api_key_command is fingerprinted
 // by its text, not run.
-func DevinUsageFingerprint(provider config.ProviderConfig, authPath string) string {
-	material, apiServer := devinUsageCredentialIdentity(provider, authPath)
+func DevinUsageFingerprint(provider config.ProviderConfig, authPath string, cliLogin bool) string {
+	material, apiServer := devinUsageCredentialIdentity(provider, authPath, cliLogin)
 	if material == "" {
 		return ""
 	}
@@ -341,7 +341,7 @@ func DevinUsageFingerprint(provider config.ProviderConfig, authPath string) stri
 // devinUsageCredentialIdentity picks the credential material a fetch would
 // use, in resolveDevinCredential's order, without running helper commands.
 // The string it returns is hashed by the caller, never printed.
-func devinUsageCredentialIdentity(provider config.ProviderConfig, authPath string) (material, apiServer string) {
+func devinUsageCredentialIdentity(provider config.ProviderConfig, authPath string, cliLogin bool) (material, apiServer string) {
 	if key := strings.TrimSpace(provider.APIKey); key != "" {
 		return "api-key:" + normalizeDevinToken(key), ""
 	}
@@ -353,6 +353,9 @@ func devinUsageCredentialIdentity(provider config.ProviderConfig, authPath strin
 	}
 	if f, err := loadDevinAuth(authPath); err == nil && f != nil && strings.TrimSpace(f.SessionToken) != "" {
 		return "managed:" + normalizeDevinToken(f.SessionToken), f.APIServerURL
+	}
+	if !cliLogin {
+		return "", ""
 	}
 	cli, path, err := loadDevinCLICredentials()
 	if err == nil && cli != nil && strings.TrimSpace(cli.APIKey) != "" {

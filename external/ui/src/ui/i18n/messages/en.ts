@@ -615,6 +615,8 @@ export const messagesEn: Record<string, string> = {
   "codexAuth.connected.viaCli":
     "Connected via the Codex CLI login on this server.",
   "codexAuth.connected.withChatGpt": "Connected with ChatGPT.",
+  "codexAuth.cliLoginOtherRow":
+    "The Codex CLI login on this server is used by the row {row}. Sign in to give this row an account of its own.",
   "codexAuth.fieldLabel": "ChatGPT account",
   "codexAuth.description":
     "Codex uses your ChatGPT subscription through OAuth. Credentials are stored on the Coddy server and are never added to config.yaml.",

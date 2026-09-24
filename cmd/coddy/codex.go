@@ -36,7 +36,7 @@ func codexLogin(cfg *config.Config, prov *config.ProviderConfig, name, authPath 
 	if !noConfig {
 		codexWriteConfig(ctx, cfg, prov, name, authPath)
 	}
-	return codexStatus(name, authPath)
+	return codexStatus(name, authPath, cfg.ProviderMayUseCLILogin(name, "codex"))
 }
 
 // codexWriteConfig publishes the subscription catalog into config.yaml and
@@ -57,8 +57,8 @@ func codexWriteConfig(ctx context.Context, cfg *config.Config, prov *config.Prov
 	fmt.Println("A running `coddy serve` server keeps its loaded config; restart it (or edit settings in the UI) to pick the changes up.")
 }
 
-func codexStatus(name, authPath string) error {
-	status, err := llm.InspectCodexAuth(authPath)
+func codexStatus(name, authPath string, cliLogin bool) error {
+	status, err := llm.InspectCodexAuth(authPath, cliLogin)
 	if err != nil {
 		return fmt.Errorf("codex status: %w", err)
 	}

@@ -147,6 +147,9 @@ func (s *Server) writeProviderModels(w http.ResponseWriter, ctx context.Context,
 		BaseURL:  prov.APIBase,
 		ProxyURL: prov.Proxy,
 		AuthPath: config.ProviderAuthPath(c.Paths.Home, prov.Name, prov.Type),
+		// An unsaved row counts toward the rows of its type too, so the
+		// preview uses the account a saved row would.
+		NoCLILogin: !c.ProviderMayUseCLILogin(prov.Name, prov.Type),
 	})
 	w.Header().Set("Content-Type", "application/json")
 	if err != nil {

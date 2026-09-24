@@ -2350,6 +2350,7 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 		BaseURL:       rm.BaseURL,
 		ProxyURL:      rm.ProxyURL,
 		AuthPath:      rm.AuthPath,
+		NoCLILogin:    rm.NoCLILogin,
 		MaxTokens:     rm.MaxTokens,
 		Temperature:   rm.Temperature,
 		DisableStream: !rm.Stream,

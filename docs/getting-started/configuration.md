@@ -24,7 +24,7 @@ Resolved locations use environment variables and flags (see README). In short:
 - **`CODDY_HOME`** - agent state directory. Default **`~/.coddy`**. Holds `config.yaml`, `sessions/`, `skills/`, Coddy-managed provider credentials under `providers/`, and **`scheduler/`** when using the optional cron scheduler.
 - **`CODDY_CWD`** - default filesystem cwd when `session/new` sends an empty `cwd`. Default is the process working directory at startup. Same meaning as the **`--cwd`** flag when set.
 - **`CODDY_CONFIG`** - explicit path to `config.yaml`. Same as **`--config`**.
-- **`CODEX_HOME`** - Codex CLI state directory read by **`type: codex`** providers when no Coddy-managed credential exists. Default **`~/.codex`**.
+- **`CODEX_HOME`** - Codex CLI state directory read by a **`type: codex`** provider when no Coddy-managed credential exists: the only codex row, or the row named **`codex`** among several ([Several profiles of one provider type](#several-profiles-of-one-provider-type)). Default **`~/.codex`**.
 - **`CODDY_CODEX_BASE_URL`** - override for the Codex backend endpoint (default **`https://chatgpt.com/backend-api/codex`**). Process-level on purpose: **`api_base`** stays ignored for **`type: codex`**, so a settings document cannot redirect a ChatGPT OAuth token. Used by the executable specs and by self-hosted Codex gateways.
 - **`CODDY_DEVIN_CLI_CREDENTIALS`** - the Devin CLI **`credentials.toml`** read by **`type: devin`** providers when no Coddy-managed login exists. Default **`~/.local/share/devin/credentials.toml`** (or under **`$XDG_DATA_HOME`**). **`CODDY_DEVIN_API_SERVER_URL`**, **`CODDY_DEVIN_WEBAPP_URL`** and **`CODDY_DEVIN_API_URL`** move the Devin endpoints for the whole process, for stands and tests; see [Devin](../features/devin.md).
 
@@ -687,6 +687,32 @@ The same API is served from two deployments: **`https://api.neuraldeep.ru/v1`** 
 The models of a Devin (Cognition) account, reached the way the Devin CLI reaches them.
 
 **`coddy providers login devin`** signs in through the browser (PKCE, like **`devin auth login`**): the Devin page sends the browser back to a loopback port on this machine, and over SSH you paste the address it ended on into the terminal instead. **`--devin-cli`** reuses the login the Devin CLI already holds and opens no browser. The session token is stored under **`$CODDY_HOME/providers/<name>/devin-auth.json`**; without it the provider falls back to the Devin CLI's **`credentials.toml`**, and an explicit **`api_key`** (or **`api_key_command`** / **`DEVIN_API_KEY`**) wins over both. The login adds one model per family, such as **`devin/claude-opus-5`**, with the family's variants as its **`reasoning_levels`**: level **`high`** is sent as **`claude-opus-5-high`**. **`api_base`** is ignored; optional **`proxy`** routes the sign-in, the catalog and chat ([Provider proxy](#provider-proxy)). The full story, including how levels map to variants and how the output cap is chosen, is on [Devin](../features/devin.md).
+
+### Several profiles of one provider type
+
+A row is a profile: several rows may share a type, each under a name of its own, and each keeps its own sign-in, its own models and its own usage. Three ChatGPT accounts are three **`codex`** rows, two NeuralDeep accounts are two **`neuraldeep`** rows:
+
+```yaml
+providers:
+  - name: "codex"
+    type: "codex"
+  - name: "codex-work"
+    type: "codex"
+  - name: "neuraldeep"
+    type: "neuraldeep"
+  - name: "nd-tech"
+    type: "neuraldeep"
+    api_base: "https://api.neuraldeep.tech/v1"
+models:
+  - model: "codex-work/gpt-5.5"
+  - model: "nd-tech/qwen3.6-35b-a3b"
+```
+
+Each row signs in separately: the Sign In button on its row in Settings, or **`coddy providers login <name>`** in a terminal. A row config.yaml does not list yet is created by its login when **`--type`** names the type (**`coddy providers login codex-work --type codex`**). The login lands under **`$CODDY_HOME/providers/<name>/`**, a model of the row is **`<name>/<model id>`**, and the row's **`<NAME>_API_KEY`** variable (**`CODEX_WORK_API_KEY`**, **`ND_TECH_API_KEY`**) belongs to that row only.
+
+The Codex CLI login (**`~/.codex/auth.json`**, **`CODEX_HOME`**) and the Devin CLI login are one account each, so each stands in for one row without a login of its own: the only row of its type, or, when there are several, the row named **`codex`** (**`devin`**). Every other row signs in itself instead of quietly running on that account - adding a second codex row to a setup whose only row, **`chatgpt`**, ran on the Codex CLI login leaves **`chatgpt`** unsigned too, until it signs in or is renamed **`codex`**. The startup log, **`coddy --dry-run`**, **`coddy providers list`** and the Settings row name such a row and the row the CLI login serves, and **`--devin-cli`** refuses a row the Devin CLI login does not serve.
+
+The rows stay apart where they are shown too: the usage panel heading and the console's **`/usage`** name the row next to the brand (**`Codex · codex-work`**) unless the row is named after its type, and a NeuralDeep sign-in labels its key on the hub with the row (**`coddy @ host (nd-tech)`**).
 
 ### Local OpenAI-compatible servers (Ollama, llama.cpp, LM Studio)
 Use **`type: openai`** and set **`api_base`** to an OpenAI-compatible base URL that already includes **`/v1`**, for example **`http://localhost:11434/v1`** for Ollama.
