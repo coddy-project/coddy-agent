@@ -539,6 +539,26 @@ func (s *Server) coddyToolCallsList(w http.ResponseWriter, r *http.Request) {
 	}
 	sd := strings.TrimSpace(st.GetPersistedSessionDir())
 	msgs := st.GetMessages()
+	// A client holding one page of the history asks for the calls its
+	// messages issued, so only their files are read from disk.
+	from, _, err := queryIndex(r, "from")
+	if err != nil {
+		writePageQueryError(w, err)
+		return
+	}
+	to, hasTo, err := queryIndex(r, "to")
+	if err != nil {
+		writePageQueryError(w, err)
+		return
+	}
+	if hasTo && from > to {
+		writePageQueryError(w, errors.New("from must not be after to"))
+		return
+	}
+	if !hasTo || to > len(msgs) {
+		to = len(msgs)
+	}
+	msgs = msgs[min(from, to):to]
 
 	type ent struct {
 		row coddyToolCallRow
@@ -1296,24 +1316,101 @@ func (s *Server) coddySessionAssetThumbnailGet(w http.ResponseWriter, r *http.Re
 	http.ServeContent(w, r, name+".png", info.ModTime(), f)
 }
 
+// maxMessagePage bounds the limit of a paged read of a history.
+const maxMessagePage = 1000
+
+// messagePageQuery reads the window a GET /coddy/sessions/{id}/messages names:
+// limit and before for a page ending at before (the end when absent), or from
+// for a window running from a message to before or the end. Without any of
+// them it is the whole history. Positions past the history are clamped by
+// session.PageMessages; a value that is not a non-negative integer is refused.
+func messagePageQuery(r *http.Request) (session.MessagePageQuery, error) {
+	q := session.MessagePageQuery{From: -1, Before: -1}
+	from, hasFrom, err := queryIndex(r, "from")
+	if err != nil {
+		return q, err
+	}
+	before, hasBefore, err := queryIndex(r, "before")
+	if err != nil {
+		return q, err
+	}
+	limit, hasLimit, err := queryIndex(r, "limit")
+	if err != nil {
+		return q, err
+	}
+	if hasLimit && (limit < 1 || limit > maxMessagePage) {
+		return q, fmt.Errorf("limit must be between 1 and %d", maxMessagePage)
+	}
+	if hasFrom && hasLimit {
+		return q, errors.New("from and limit cannot be combined")
+	}
+	// A page ending somewhere names its size or its start: before alone would
+	// read the whole prefix, the very read paging exists to avoid.
+	if hasBefore && !hasFrom && !hasLimit {
+		return q, errors.New("before needs limit or from")
+	}
+	if hasFrom {
+		q.From = from
+	}
+	if hasBefore {
+		q.Before = before
+	}
+	q.Limit = limit
+	return q, nil
+}
+
+// queryIndex reads a non-negative integer query parameter; ok is false when it
+// is absent or empty.
+func queryIndex(r *http.Request, name string) (n int, ok bool, err error) {
+	raw := strings.TrimSpace(r.URL.Query().Get(name))
+	if raw == "" {
+		return 0, false, nil
+	}
+	n, err = strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return 0, false, fmt.Errorf("%s must be a non-negative integer", name)
+	}
+	return n, true, nil
+}
+
+func writePageQueryError(w http.ResponseWriter, err error) {
+	http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+}
+
 func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
+	query, err := messagePageQuery(r)
+	if err != nil {
+		writePageQueryError(w, err)
+		return
+	}
 	st := s.coddyEnsureLoaded(w, r, id)
 	if st == nil {
 		return
 	}
 	msgs, rev := st.MessagesWithRev()
+	page := session.PageMessages(msgs, query)
 	out := map[string]interface{}{
 		"object":    "coddy.messages",
 		"sessionId": id,
-		"messages":  llmMsgsToCoddyOpenAIForSession(id, session.AssetsPath(st.GetPersistedSessionDir()), msgs),
+		"messages":  llmMsgsToCoddyOpenAIForSession(id, session.AssetsPath(st.GetPersistedSessionDir()), msgs[page.Offset:page.End]),
 		// The revision this history was read at: a client attaching to the composer
 		// relay passes it back as since_rev and is replayed only what it lacks.
 		"messagesRev": rev,
+		// Where the returned messages sit in the history, and the counts a
+		// client numbers their rows from: a prompt's index for a rewind is
+		// turnsBefore plus its position among the page's prompts, and uiLog
+		// rows are numbered past userRowsBefore.
+		"window": map[string]int{
+			"offset":         page.Offset,
+			"total":          page.Total,
+			"turnsBefore":    page.TurnsBefore,
+			"userRowsBefore": page.UserRowsBefore,
+		},
 	}
 	// A child session is a read-only transcript: the SPA drops the composer
 	// and links back to the parent chat and to the task in its drawer, or to
@@ -1343,7 +1440,7 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 			out["settings"] = snap
 		}
 	}
-	if u := st.GetUILog(); len(u) > 0 {
+	if u := page.UILog(msgs, st.GetUILog()); len(u) > 0 {
 		rows := make([]map[string]interface{}, 0, len(u))
 		for _, e := range u {
 			rows = append(rows, map[string]interface{}{

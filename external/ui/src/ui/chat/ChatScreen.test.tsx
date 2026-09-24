@@ -884,3 +884,70 @@ test("a finished turn whose tasks have finished too leaves the tail quiet", () =
   render(turnLineScreen({ generating: false }));
   expect(screen.queryByTestId("typing-dots")).toBeNull();
 });
+
+// Issue #338. jsdom lays nothing out, so the transcript window stays off here
+// and every row renders; what is left to hold is the control at the top.
+test("the top of a transcript with history above offers it, says it is loading, and retries", () => {
+  const onLoadOlder = vi.fn();
+  const { rerender } = render(
+    <ChatScreen
+      {...scrollBase}
+      items={firstTurn}
+      transcriptHasOlder={true}
+      olderTranscriptLoad="idle"
+      onLoadOlderTranscript={onLoadOlder}
+    />,
+  );
+  const control = screen.getByTestId("transcript-earlier");
+  // It stands above the first row, inside the transcript's column.
+  expect(control.parentElement?.classList.contains("messages-inner")).toBe(true);
+  expect(control.nextElementSibling?.getAttribute("data-row-id")).toBe("u1");
+  fireEvent.click(screen.getByRole("button", { name: "Show earlier messages" }));
+  expect(onLoadOlder).toHaveBeenCalledTimes(1);
+
+  rerender(
+    <ChatScreen
+      {...scrollBase}
+      items={firstTurn}
+      transcriptHasOlder={true}
+      olderTranscriptLoad="loading"
+      onLoadOlderTranscript={onLoadOlder}
+    />,
+  );
+  expect(screen.getByRole("status")).toHaveTextContent("Loading earlier messages…");
+
+  rerender(
+    <ChatScreen
+      {...scrollBase}
+      items={firstTurn}
+      transcriptHasOlder={true}
+      olderTranscriptLoad="error"
+      onLoadOlderTranscript={onLoadOlder}
+    />,
+  );
+  expect(screen.getByRole("alert")).toHaveTextContent("Earlier messages did not load.");
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  expect(onLoadOlder).toHaveBeenCalledTimes(2);
+});
+
+test("a transcript holding its whole history has nothing above it", () => {
+  render(<ChatScreen {...scrollBase} items={firstTurn} />);
+  expect(screen.queryByTestId("transcript-earlier")).toBeNull();
+});
+
+test("the reader reaching the newest message is reported, and leaving it too", () => {
+  const onAtTail = vi.fn();
+  const { container } = render(
+    <ChatScreen {...scrollBase} items={firstTurn} onReaderAtTailChange={onAtTail} />,
+  );
+  const viewport = transcriptViewport(container, {
+    scrollHeight: 1200,
+    clientHeight: 400,
+  });
+  viewport.scrollTop = 200;
+  fireEvent.scroll(viewport);
+  expect(onAtTail).toHaveBeenLastCalledWith(false);
+  viewport.scrollTop = 800;
+  fireEvent.scroll(viewport);
+  expect(onAtTail).toHaveBeenLastCalledWith(true);
+});

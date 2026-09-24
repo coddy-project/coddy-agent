@@ -509,3 +509,37 @@ test("a message typed after a wake is edited by the index the server knows it by
   // The server counts the wake as user message 1, so "fix it" is message 2.
   expect(onEdit).toHaveBeenCalledWith("fix it", 2);
 });
+
+test("a window renders its slice of the rows, each one stamped with its id", () => {
+  const items: TranscriptItem[] = Array.from({ length: 10 }, (_, i) => ({
+    id: `a${i}`,
+    type: "assistant_message" as const,
+    content: `answer ${i}`,
+  }));
+  const { container } = render(
+    <MessageList items={items} renderStart={6} renderEnd={9} generating={true} />,
+  );
+  expect(
+    [...container.querySelectorAll("[data-row-id]")].map(
+      (el) => (el as HTMLElement).dataset.rowId,
+    ),
+  ).toEqual(["a6", "a7", "a8"]);
+  // The live line belongs under the newest row, which this slice stops short of.
+  expect(container.querySelector("[data-testid=typing-dots]")).toBeNull();
+});
+
+test("an edit names the prompt by the server's index when the list holds only the end of the history", () => {
+  const onEdit = vi.fn();
+  const items: TranscriptItem[] = [
+    { id: "a_before", type: "assistant_message", content: "the end of an older turn" },
+    { id: "u_375", type: "user_message", content: "the first prompt held" },
+    { id: "wake_376", type: "background_wake", tasks: [] },
+    { id: "u_377", type: "user_message", content: "typed after a wake" },
+  ];
+  render(<MessageList items={items} userMsgIndexBase={374} onEdit={onEdit} />);
+  const edits = screen.getAllByTestId("user-message-edit");
+  fireEvent.click(edits[1]!);
+  expect(onEdit).toHaveBeenLastCalledWith("typed after a wake", 376);
+  fireEvent.click(edits[0]!);
+  expect(onEdit).toHaveBeenLastCalledWith("the first prompt held", 374);
+});

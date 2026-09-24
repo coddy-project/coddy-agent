@@ -317,6 +317,19 @@ func (s *mountFeatureState) nodeReceivedPath(want string) error {
 	return nil
 }
 
+// nodeReceivedQuery compares the query the node saw, parameters in the order
+// url.Values.Encode writes them.
+func (s *mountFeatureState) nodeReceivedQuery(want string) error {
+	rec, ok := s.lastSeen()
+	if !ok {
+		return fmt.Errorf("the node received nothing")
+	}
+	if rec.Query != want {
+		return fmt.Errorf("node received query %q, want %q", rec.Query, want)
+	}
+	return nil
+}
+
 func (s *mountFeatureState) responseComesFromTheNode() error {
 	var out map[string]interface{}
 	if err := json.Unmarshal(s.body, &out); err != nil {
@@ -404,6 +417,7 @@ func TestSwarmMountFeature(t *testing.T) {
 			ctx.Step(`^I call "([^"]*)" on node "([^"]*)" without any credential$`, st.callWithoutCredential)
 			ctx.Step(`^I stream "([^"]*)" from node "([^"]*)" with the client token$`, st.streamFromNode)
 			ctx.Step(`^the node received the path "([^"]*)"$`, st.nodeReceivedPath)
+			ctx.Step(`^the node received the query "([^"]*)"$`, st.nodeReceivedQuery)
 			ctx.Step(`^the response comes from the node$`, st.responseComesFromTheNode)
 			ctx.Step(`^the node saw the authorization "([^"]*)"$`, st.nodeSawAuthorization)
 			ctx.Step(`^I receive the streamed chunks as they are produced$`, st.receivedStreamedChunks)

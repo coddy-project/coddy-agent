@@ -1756,12 +1756,35 @@ func openAPISpec() map[string]interface{} {
 						"**uiLog** (optional) lists UI-only rows such as persisted LLM/request errors keyed by **userTurnIndex**; these are not part of **messages** and are not sent to the model. " +
 						"**messagesRev** is the revision of the history these **messages** were read at; pass it to **GET /coddy/sessions/{id}/composer-stream** as **`?since_rev=`** to be replayed only the frames of a running turn this transcript does not already hold. " +
 						"Immediately after **POST /coddy/sessions/{id}/cancel**, the returned **messages** list can briefly omit or shorten the in-progress **assistant** row compared to what was already streamed; UIs that keep a local shadow should merge when the server snapshot is a strict prefix of on-screen rows. " +
-						"For a child session spawned by **spawn_agent** the payload also carries **readOnly** **true** and **subagent** **`{parentSessionId, name, taskId}`**: the transcript is served from the live child while it runs and from its bundle afterwards, and no route accepts a prompt for it (**409**), so a UI replaces the composer with a notice linking to the parent chat.",
+						"For a child session spawned by **spawn_agent** the payload also carries **readOnly** **true** and **subagent** **`{parentSessionId, name, taskId}`**: the transcript is served from the live child while it runs and from its bundle afterwards, and no route accepts a prompt for it (**409**), so a UI replaces the composer with a notice linking to the parent chat. " +
+						"**Paged reads.** Without **limit**, **before** or **from** the whole history is returned. **`?limit=N`** returns a page of about **N** messages ending at **before** (default: the end of the history); **`?limit=N&before=K`** is the page before a window that starts at message **K**; **`?from=K`** re-reads a window from message **K** to **before** or the end (it cannot be combined with **limit**); **before** alone is refused, since it would read the whole prefix. A page never splits a tool step - a start or an end that falls on a tool result moves back to the assistant message that issued the call - and with **limit** it starts at the prompt of its turn when one lies within half a page, so consecutive pages join without a gap or an overlap. Positions past the history are clamped; a value that is not a non-negative integer, or a **limit** outside 1..1000, is **400**. " +
+						"Every read carries **window** **`{offset, total, turnsBefore, userRowsBefore}`**: **offset** is the index of the first returned message and **total** the length of the history; **turnsBefore** counts the user messages before the page that are not compaction summaries (a prompt's **userMessageIndex** for **POST /coddy/sessions/{id}/rewind** is **turnsBefore** plus its position among the page's prompts) and **userRowsBefore** counts every user-role message before it (the numbering of **uiLog** **userTurnIndex**). **uiLog** holds only the rows of the page: a row stamped with turn **t** sits before the **t**-th user-role message (0-based), or at the end of the history, and a row on the boundary between two pages opens the newer one, so the newest page still shows what ended the turn before it.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
+						map[string]interface{}{"name": "limit", "in": "query", "required": false, "description": "Read a page of about this many messages ending at **before** (1..1000).", "schema": map[string]interface{}{"type": "integer", "minimum": 1, "maximum": 1000}},
+						map[string]interface{}{"name": "before", "in": "query", "required": false, "description": "Message index the page ends at, exclusive (default: the end of the history).", "schema": map[string]interface{}{"type": "integer", "minimum": 0}},
+						map[string]interface{}{"name": "from", "in": "query", "required": false, "description": "Message index a window starts at, read to **before** or the end; not with **limit**.", "schema": map[string]interface{}{"type": "integer", "minimum": 0}},
 					},
 					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "OpenAI-shaped messages payload"},
+						"200": map[string]interface{}{"description": "OpenAI-shaped messages payload with its **window**"},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"503": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions/{id}/tool-calls": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "List the tool calls of a transcript",
+					"description": "One row per tool call of the session in the order the history issued them: **toolCallId**, **name**, **kind**, **status**, **argsPreview** (200 characters), **resultPreview** (19 content lines plus a final **...** row when truncated, see **resultPreviewTruncated** and **resultTotalLines**), **startedAt** / **finishedAt**, and for todo mutations the **planSnapshot** they produced. **`?from=K&to=E`** lists only the calls issued by messages **K** to **E** (exclusive; **to** defaults to the end), so a client holding one page of **GET /coddy/sessions/{id}/messages** reads the files of that page's calls only. A value that is not a non-negative integer is **400**.",
+					"parameters": []interface{}{
+						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
+						map[string]interface{}{"name": "from", "in": "query", "required": false, "description": "First message index whose calls are listed.", "schema": map[string]interface{}{"type": "integer", "minimum": 0}},
+						map[string]interface{}{"name": "to", "in": "query", "required": false, "description": "Message index the listing stops before (default: the end of the history).", "schema": map[string]interface{}{"type": "integer", "minimum": 0}},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "**`{object: \"coddy.tool_calls\", sessionId, toolCalls}`**"},
+						"400": errorResponseRef(),
 						"404": errorResponseRef(),
 						"503": errorResponseRef(),
 					},

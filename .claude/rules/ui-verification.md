@@ -45,3 +45,16 @@ change touches the chevron, the rows it sits on or the type around them, run
 **`docs/surfaces/web-ui.md`**, *Checking the fold chevron against its label*): it measures the
 chevron's ink centre against the label's on a transcript row and on the Tasks drawer toggle, and
 fails past **1px**.
+
+## A long transcript
+
+Only a bounded slice of a transcript is in the DOM, and a long session holds only the end of its
+history until the reader scrolls up (**`DESIGN.md`**, *Transcript window*; **`docs/surfaces/web-ui.md`**,
+*Long sessions*). jsdom has no layout, so vitest renders every row and cannot see the window at work.
+When the change touches the transcript window, the rows, the messages or tool-calls routes, or what a
+row renders, run **`external/ui/scripts/transcript-window-check.mjs`** against a binary built with
+**`TAGS="http ui swarm"`** (setup in **`docs/surfaces/web-ui.md`**, *Checking a long transcript*): it
+opens a 3306-message session under CPU throttling, scrolls it without a jump, edits a prompt of an
+older page, runs a turn in a second browser, reads through a swarm relay, and fails past a budget.
+Run it once more with **`CODDY_ENGINE=webkit`** when the change touches scroll anchoring: WebKit does
+not anchor scrolling, so there the window's own correction is all that keeps the reader's row still.

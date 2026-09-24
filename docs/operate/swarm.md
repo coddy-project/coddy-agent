@@ -229,7 +229,9 @@ all of it comes back, because the node does have those things.
 **Working on a node.** Click a node on the map and the app points at that node's mount. From
 there every screen that already existed drives it - the history drawer lists that node's
 sessions, the composer shows its working directory and its model catalog - with a relay in the
-middle and nothing aware of it. Coming back to the map, that node is marked *you are here* and
+middle and nothing aware of it. A long conversation on the node is read page by page there too:
+each read names its page in the query string, which the mount carries to the node unchanged,
+over a tunnel as well ([Long sessions](../surfaces/web-ui.md#long-sessions)). Coming back to the map, that node is marked *you are here* and
 the route to it is drawn as one connected path.
 
 **Watching from the map.** Each node says what it is doing, from the same aggregated session

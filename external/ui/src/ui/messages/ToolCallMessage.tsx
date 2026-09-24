@@ -229,6 +229,9 @@ function WebSearchEngines(props: { report: WebSearchReport }) {
 
 export const ToolCallMessage = memo(function ToolCallMessage(props: {
   toolCallId: string;
+  /** The transcript row id, stamped on the row so the transcript window can
+   *  find it on screen. */
+  rowId?: string;
   title?: string | undefined;
   kind?: string | undefined;
   status: string;
@@ -755,6 +758,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
       className="thinking-row coddy-tool-call-row"
       data-kind={props.kind || ""}
       data-status={props.status}
+      data-row-id={props.rowId}
     >
       <details
         className="thinking-details coddy-tool-details"

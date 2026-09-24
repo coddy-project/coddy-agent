@@ -6,6 +6,9 @@ import { formatStepDuration } from "./formatStepDuration";
 
 export const ThinkingMessage = memo(function ThinkingMessage(props: {
   status: "in_progress" | "completed";
+  /** The transcript row id, stamped on the row so the transcript window can
+   *  find it on screen. */
+  rowId?: string;
   content: string;
   durationMs?: number;
   /** Wall clock ms when reasoning started (live elapsed until completed). */
@@ -60,7 +63,7 @@ export const ThinkingMessage = memo(function ThinkingMessage(props: {
   }, [props.durationMs, props.startedAtMs, props.status, nowMs]);
 
   return (
-    <div className="thinking-row">
+    <div className="thinking-row" data-row-id={props.rowId}>
       <details
         className="thinking-details"
         onToggle={(e) => setOpen(e.currentTarget.open)}

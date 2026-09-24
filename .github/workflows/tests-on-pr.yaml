@@ -109,6 +109,23 @@ jobs:
         run: |
           CODDY_BIN="$PWD/build/coddy" .venv/bin/python examples/cli/cli_e2e_print_input.py
 
+      # A long conversation in the web UI (issue #338): the real binary with a
+      # 3306-message session and a swarm relay in front of it, driven in
+      # Chromium. It opens on the newest page, scrolls through the history
+      # without a jump, keeps a bounded DOM, follows a turn run in a second
+      # browser and reads through the relay. At full speed here, where the
+      # runner's own pace varies; locally it runs at CPU x4.
+      - name: Build the web UI and the swarm relay
+        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        run: make build TAGS="http ui swarm"
+
+      - name: Drive a long transcript in a browser
+        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        run: |
+          npm --prefix external/ui i --no-save playwright
+          (cd external/ui && npx playwright install --with-deps chromium)
+          CODDY_BIN="$PWD/build/coddy" CODDY_CPU_THROTTLE=1 npm --prefix external/ui run check:transcript
+
       # The gateway suite runs the bot against the fake Bot API in-process. In
       # the combination that is the gateway alone, the real binary is started
       # against cmd/tgfake on a port and has to answer a message, so the

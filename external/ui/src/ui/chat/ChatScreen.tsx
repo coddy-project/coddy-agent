@@ -19,7 +19,7 @@ import type { ProviderUsage } from "./providerUsage";
 import { ChatHeader } from "./ChatHeader";
 import { Composer } from "./Composer";
 import type { QueuedMessage } from "./Composer";
-import { MessageList } from "../messages/MessageList";
+import type { MessageListProps } from "../messages/MessageList";
 import type { BackgroundTask } from "../tasks/types";
 import { countRunningTasks, isAwaitingPermission } from "../tasks/taskStatus";
 import type { TurnProgress } from "./turnProgress";
@@ -44,6 +44,7 @@ import {
   transcriptJumpDurationMs,
 } from "./transcriptScrollPosition";
 import { ScrollToBottomButton } from "./ScrollToBottomButton";
+import { TranscriptList, type TranscriptListHandle } from "./TranscriptList";
 
 export function ChatScreen(props: {
   title: string;
@@ -54,6 +55,17 @@ export function ChatScreen(props: {
   heroComposerFocusEpoch: number;
   onTitleSave: (title: string) => void;
   items: TranscriptItem[];
+  /** Prompts before `items[0]` in the history (the server's index of the
+   *  first prompt here), when the client holds only the end of a long one. */
+  userMsgIndexBase?: number;
+  /** The server holds history above `items[0]` (issue #338). */
+  transcriptHasOlder?: boolean;
+  /** The read of the page above `items[0]`. */
+  olderTranscriptLoad?: "idle" | "loading" | "error";
+  onLoadOlderTranscript?: () => void;
+  /** Whether the reader sits at the newest message, with the newest rows on
+   *  screen: the moment what was read of older history can be let go. */
+  onReaderAtTailChange?: (atTail: boolean) => void;
   draft: string;
   tokenUsage: TokenUsage | null;
   /** Account usage behind the selected model's provider: the pill and the banner. */
@@ -160,6 +172,10 @@ export function ChatScreen(props: {
 }) {
   const { t } = useT();
   const messagesRef = useRef<HTMLDivElement | null>(null);
+  // The transcript window (issue #338) lives in TranscriptList; the screen
+  // asks it whether the newest rows are rendered and to put them back.
+  const transcriptRef = useRef<TranscriptListHandle | null>(null);
+  const transcriptAttached = () => transcriptRef.current?.attached ?? true;
   const composerHostRef = useRef<HTMLDivElement | null>(null);
   const isEmpty = props.items.length === 0;
   // One count for the live line and the header control.
@@ -183,6 +199,15 @@ export function ChatScreen(props: {
     snapshotShellStack,
     serverSnapshotShellStack,
   );
+  const readerAtTailRef = useRef<boolean | null>(null);
+  const onReaderAtTailChangeRef = useRef(props.onReaderAtTailChange);
+  onReaderAtTailChangeRef.current = props.onReaderAtTailChange;
+  const reportReaderAtTail = useCallback((atBottom: boolean) => {
+    const atTail = atBottom && (transcriptRef.current?.attached ?? true);
+    if (readerAtTailRef.current === atTail) return;
+    readerAtTailRef.current = atTail;
+    onReaderAtTailChangeRef.current?.(atTail);
+  }, []);
 
   useLayoutEffect(() => {
     if (isEmpty) return;
@@ -247,12 +272,28 @@ export function ChatScreen(props: {
       if (!el) return;
       atBottom = isTranscriptAtBottom(elementTranscriptMetrics(el));
     }
-    stickToBottomRef.current = atBottom;
-    setShowScrollToBottom(!atBottom);
-  }, [mobileDocScroll]);
+    // A window cut short of the newest rows is not at the newest message,
+    // wherever its own end is.
+    const atNewest = atBottom && transcriptAttached();
+    stickToBottomRef.current = atNewest;
+    setShowScrollToBottom(!atNewest);
+    reportReaderAtTail(atBottom);
+  }, [mobileDocScroll, reportReaderAtTail]);
 
   const jumpToNewestMessage = useCallback(() => {
     cancelTranscriptJump();
+    // Reading far up, the newest rows are not rendered: put them back and land
+    // on them at once rather than travel through history that is not there.
+    const transcript = transcriptRef.current;
+    if (transcript && !transcript.attached) {
+      stickToBottomRef.current = true;
+      setShowScrollToBottom(false);
+      transcript.attachToTail(() => {
+        writeTranscriptScrollTop(transcriptScrollBottom());
+        syncTranscriptPosition();
+      });
+      return;
+    }
     stickToBottomRef.current = true;
     setShowScrollToBottom(false);
     const from = readTranscriptScrollTop();
@@ -458,6 +499,62 @@ export function ChatScreen(props: {
     />
   ) : null;
 
+  const messageListProps: Omit<
+    MessageListProps,
+    "items" | "renderStart" | "renderEnd"
+  > = {
+    ...(props.userMsgIndexBase
+      ? { userMsgIndexBase: props.userMsgIndexBase }
+      : {}),
+    sessionId: props.sessionId,
+    generating: props.generating === true,
+    ...(props.pathRoots !== undefined ? { pathRoots: props.pathRoots } : {}),
+    ...(props.turnProgress ? { turnProgress: props.turnProgress } : {}),
+    ...(runningTasks > 0 ? { runningTasks } : {}),
+    ...(props.onOpenBackgroundTasks
+      ? { onOpenTasks: props.onOpenBackgroundTasks }
+      : {}),
+    ...(props.onRetryLast ? { onRetryLast: props.onRetryLast } : {}),
+    ...(props.onFetchToolCallFull
+      ? { onFetchToolCallFull: props.onFetchToolCallFull }
+      : {}),
+    ...(props.onQuestionPromptResolved
+      ? { onQuestionPromptResolved: props.onQuestionPromptResolved }
+      : {}),
+    ...(props.onPermissionPromptResolved
+      ? {
+          onPermissionPromptResolved: props.onPermissionPromptResolved,
+        }
+      : {}),
+    ...(props.onPlanDocumentExpanded
+      ? { onPlanDocumentExpanded: props.onPlanDocumentExpanded }
+      : {}),
+    ...(props.onPlanDocumentRun
+      ? { onPlanDocumentRun: props.onPlanDocumentRun }
+      : {}),
+    ...(props.onPlanDocumentDiscard
+      ? { onPlanDocumentDiscard: props.onPlanDocumentDiscard }
+      : {}),
+    ...(props.onEdit ? { onEdit: props.onEdit } : {}),
+    ...(props.knownSkillNames
+      ? { knownSkillNames: props.knownSkillNames }
+      : {}),
+    ...(props.backgroundTasksByToolCallId
+      ? {
+          backgroundTasksByToolCallId: props.backgroundTasksByToolCallId,
+        }
+      : {}),
+    ...(props.backgroundNowMs !== undefined
+      ? { backgroundNowMs: props.backgroundNowMs }
+      : {}),
+    ...(props.onOpenBackgroundTask
+      ? { onOpenBackgroundTask: props.onOpenBackgroundTask }
+      : {}),
+    ...(props.onStopBackgroundTask
+      ? { onStopBackgroundTask: props.onStopBackgroundTask }
+      : {}),
+  };
+
   const mainClassName = [
     "main",
     isEmpty && !showSkeleton ? "is-empty" : "",
@@ -610,7 +707,9 @@ export function ChatScreen(props: {
                   : {})}
                 onChange={props.onDraftChange}
                 onSend={props.onSend}
-                {...(props.onDocsCommand ? { onDocsCommand: props.onDocsCommand } : {})}
+                {...(props.onDocsCommand
+                  ? { onDocsCommand: props.onDocsCommand }
+                  : {})}
                 {...(props.onContextRingOpen
                   ? { onContextRingOpen: props.onContextRingOpen }
                   : {})}
@@ -695,72 +794,34 @@ export function ChatScreen(props: {
                 />
               </div>
             </div>
-            <div className="messages-inner">
-              <MessageList
-                items={props.items}
-                sessionId={props.sessionId}
-                generating={props.generating === true}
-                {...(props.pathRoots !== undefined
-                  ? { pathRoots: props.pathRoots }
-                  : {})}
-                {...(props.turnProgress
-                  ? { turnProgress: props.turnProgress }
-                  : {})}
-                {...(runningTasks > 0 ? { runningTasks } : {})}
-                {...(props.onOpenBackgroundTasks
-                  ? { onOpenTasks: props.onOpenBackgroundTasks }
-                  : {})}
-                {...(props.onRetryLast
-                  ? { onRetryLast: props.onRetryLast }
-                  : {})}
-                {...(props.onFetchToolCallFull
-                  ? { onFetchToolCallFull: props.onFetchToolCallFull }
-                  : {})}
-                {...(props.onQuestionPromptResolved
-                  ? { onQuestionPromptResolved: props.onQuestionPromptResolved }
-                  : {})}
-                {...(props.onPermissionPromptResolved
-                  ? {
-                      onPermissionPromptResolved:
-                        props.onPermissionPromptResolved,
-                    }
-                  : {})}
-                {...(props.onPlanDocumentExpanded
-                  ? { onPlanDocumentExpanded: props.onPlanDocumentExpanded }
-                  : {})}
-                {...(props.onPlanDocumentRun
-                  ? { onPlanDocumentRun: props.onPlanDocumentRun }
-                  : {})}
-                {...(props.onPlanDocumentDiscard
-                  ? { onPlanDocumentDiscard: props.onPlanDocumentDiscard }
-                  : {})}
-                {...(props.onEdit ? { onEdit: props.onEdit } : {})}
-                {...(props.knownSkillNames
-                  ? { knownSkillNames: props.knownSkillNames }
-                  : {})}
-                {...(props.backgroundTasksByToolCallId
-                  ? {
-                      backgroundTasksByToolCallId:
-                        props.backgroundTasksByToolCallId,
-                    }
-                  : {})}
-                {...(props.backgroundNowMs !== undefined
-                  ? { backgroundNowMs: props.backgroundNowMs }
-                  : {})}
-                {...(props.onOpenBackgroundTask
-                  ? { onOpenBackgroundTask: props.onOpenBackgroundTask }
-                  : {})}
-                {...(props.onStopBackgroundTask
-                  ? { onStopBackgroundTask: props.onStopBackgroundTask }
-                  : {})}
-              />
-              {props.backgroundTasks ? (
-                <SubagentPermissionCards
-                  tasks={props.backgroundTasks}
-                  onAnswered={() => props.onBackgroundTasksChanged?.()}
-                />
-              ) : null}
-            </div>
+            <TranscriptList
+              items={props.items}
+              sessionId={props.sessionId}
+              scrollerRef={messagesRef}
+              docScroll={mobileDocScroll}
+              stickToBottomRef={stickToBottomRef}
+              hasOlder={props.transcriptHasOlder === true}
+              olderLoad={props.olderTranscriptLoad ?? "idle"}
+              onLoadOlder={() => props.onLoadOlderTranscript?.()}
+              handleRef={transcriptRef}
+              // The window reaching or leaving the newest rows changes what
+              // "at the newest message" means for the same scroll position.
+              onAttachedChange={() => {
+                if (!isEmpty) syncTranscriptPosition();
+              }}
+              messageList={messageListProps}
+              tailWaits={(props.backgroundTasks ?? []).some(
+                isAwaitingPermission,
+              )}
+              tail={
+                props.backgroundTasks ? (
+                  <SubagentPermissionCards
+                    tasks={props.backgroundTasks}
+                    onAnswered={() => props.onBackgroundTasksChanged?.()}
+                  />
+                ) : null
+              }
+            />
             <div className="chat-scroll-tail" aria-hidden />
           </div>
 
@@ -827,7 +888,10 @@ export function ChatScreen(props: {
                     ? { permissionMode: props.permissionMode }
                     : {})}
                   {...(props.configuredPermissionMode !== undefined
-                    ? { configuredPermissionMode: props.configuredPermissionMode }
+                    ? {
+                        configuredPermissionMode:
+                          props.configuredPermissionMode,
+                      }
                     : {})}
                   {...(props.onPermissionModeChange
                     ? { onPermissionModeChange: props.onPermissionModeChange }
@@ -837,7 +901,9 @@ export function ChatScreen(props: {
                     : {})}
                   onChange={props.onDraftChange}
                   onSend={props.onSend}
-                  {...(props.onDocsCommand ? { onDocsCommand: props.onDocsCommand } : {})}
+                  {...(props.onDocsCommand
+                    ? { onDocsCommand: props.onDocsCommand }
+                    : {})}
                   {...(props.onContextRingOpen
                     ? { onContextRingOpen: props.onContextRingOpen }
                     : {})}

@@ -2596,7 +2596,8 @@ a.rail-brand {
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  --coddy-transcript-row-gap: 10px;
+  gap: var(--coddy-transcript-row-gap);
   padding: 0;
   animation: chat-fade-in 0.22s ease-out both;
 }
@@ -2618,6 +2619,53 @@ a.rail-brand {
 .chat-scroll-tail {
   flex: none;
   height: var(--chat-composer-reserve, 220px);
+}
+
+/* Transcript window (issue #338; DESIGN.md, Transcript window). A long
+   conversation keeps only a bounded slice of its rows in the DOM. The control
+   at the top stands for what is above - rows not rendered yet, or history
+   still on the server - and is the sentinel the window watches, so it renders
+   them by itself as the reader scrolls up to it. */
+.transcript-earlier {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 32px;
+  font-size: 12px;
+  line-height: 1.3;
+  color: color-mix(in srgb, var(--text) 48%, var(--coddy-blend-base));
+}
+
+.transcript-earlier-button {
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-glass-panel-bg));
+  padding: 5px 14px;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.transcript-earlier-button:hover {
+  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 7%, var(--coddy-glass-panel-bg));
+}
+
+.transcript-earlier-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The lower edge of a window cut short of the newest rows, for the window
+   to watch: one pixel that takes back the column's gap before it, so the
+   rows above end where they would. */
+.transcript-window-edge {
+  flex: none;
+  height: 1px;
+  margin-top: calc(-1px - var(--coddy-transcript-row-gap, 10px));
+  pointer-events: none;
 }
 
 .chat-bottom {
@@ -6569,7 +6617,8 @@ html:not([data-theme="light"]) .context-usage-note--error {
   }
 
   .messages-inner {
-    gap: var(--coddy-mobile-chat-stack-gap);
+    --coddy-transcript-row-gap: var(--coddy-mobile-chat-stack-gap);
+    gap: var(--coddy-transcript-row-gap);
   }
 
   .chat-stack {

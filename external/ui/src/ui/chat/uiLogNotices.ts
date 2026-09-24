@@ -26,6 +26,9 @@ type SystemNotice = Extract<TranscriptItem, { type: "system_notice" }>;
 export function uiLogNoticeFeed(
   rows: RawUiLogRow[] | undefined,
   newId: (prefix: string) => string,
+  /** User-role messages before the page the rows belong to (its window's
+   *  `userRowsBefore`): the count the feed starts from. */
+  userRowsBefore = 0,
 ): { beforeUserRow: () => SystemNotice[]; end: () => SystemNotice[] } {
   const pending: Array<{ turn: number; order: number; item: SystemNotice }> = [];
   (rows || []).forEach((raw, order) => {
@@ -57,7 +60,7 @@ export function uiLogNoticeFeed(
       a.order - b.order,
   );
   let next = 0;
-  let userRows = 0;
+  let userRows = userRowsBefore;
   const upTo = (turn: number): SystemNotice[] => {
     const out: SystemNotice[] = [];
     while (next < pending.length && pending[next]!.turn <= turn) {

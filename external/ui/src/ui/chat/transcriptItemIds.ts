@@ -40,6 +40,37 @@ export function stableWakeItemId(userTurnIndex: number): string {
 }
 
 /**
+ * Ids for the reasoning and answer rows of a turn a page opens in the middle
+ * of: how many of each the turn had before the page is not known there, so
+ * they are named after their message's index in the history. The older page
+ * holding the start of the turn numbers its own rows `th_<turn>_<k>`, so the
+ * two never collide once both are on screen.
+ */
+export function partialTurnThinkingItemId(
+  userTurnIndex: number,
+  messageIndex: number,
+): string {
+  return `th_${userTurnIndex}_m${messageIndex}`;
+}
+
+export function partialTurnAssistantItemId(
+  userTurnIndex: number,
+  messageIndex: number,
+): string {
+  return `as_${userTurnIndex}_m${messageIndex}`;
+}
+
+/** Stable id for a compaction summary row: its message's index in the history. */
+export function stableCompactionItemId(messageIndex: number): string {
+  return `cmp_m${messageIndex}`;
+}
+
+/** Stable id for a plan snapshot row: its message's index in the history. */
+export function stablePlanDocumentItemId(messageIndex: number): string {
+  return `pd_m${messageIndex}`;
+}
+
+/**
  * After rebuilding transcript from the server, reuse React keys (and plan expanded)
  * from the previous in-memory list when rows describe the same step.
  */
