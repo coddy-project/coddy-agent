@@ -130,7 +130,7 @@ func TestDevinUsageVerifiedWire(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			devinUsageServer(t, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(tc.raw) })
-			got, err := DevinUsageForProvider(context.Background(), devinUsageTestProvider(), "")
+			got, err := DevinUsageForProvider(context.Background(), devinUsageTestProvider(), "", true)
 			if err != nil || !reflect.DeepEqual(got, &tc.want) {
 				t.Fatalf("got %+v, %v; want %+v", got, err, tc.want)
 			}
@@ -174,7 +174,7 @@ func TestDevinUsageRequestOmitsUserJWT(t *testing.T) {
 			w.uint(18, 2000100000)
 		})))
 	})
-	got, err := DevinUsageForProvider(context.Background(), devinUsageTestProvider(), "")
+	got, err := DevinUsageForProvider(context.Background(), devinUsageTestProvider(), "", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,7 +253,7 @@ func TestDevinUsageCredentialsAndJWT(t *testing.T) {
 			if source == "managed" || source == "cli" {
 				t.Setenv(EnvDevinAPIServerURL, "")
 			}
-			cred, err := resolveDevinCredential(p.EffectiveAPIKey(), auth)
+			cred, err := resolveDevinCredential(p.EffectiveAPIKey(), auth, true)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -268,7 +268,7 @@ func TestDevinUsageCredentialsAndJWT(t *testing.T) {
 				t.Fatal(err)
 			}
 			for range 2 {
-				if _, err := DevinUsageForProvider(context.Background(), p, auth); err != nil {
+				if _, err := DevinUsageForProvider(context.Background(), p, auth, true); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -299,7 +299,7 @@ func TestDevinUsageProxy(t *testing.T) {
 	devinTestEnv(t, "http://synthetic-api.invalid")
 	p := devinUsageTestProvider()
 	p.Proxy = proxy.URL
-	if _, err := DevinUsageForProvider(context.Background(), p, ""); err != nil {
+	if _, err := DevinUsageForProvider(context.Background(), p, "", true); err != nil {
 		t.Fatal(err)
 	}
 	// One request through the proxy: the usage call alone (no JWT mint).
@@ -333,7 +333,7 @@ func TestDevinUsageInvalidWire(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			devinUsageServer(t, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(tc.raw) })
-			got, err := DevinUsageForProvider(context.Background(), devinUsageTestProvider(), "")
+			got, err := DevinUsageForProvider(context.Background(), devinUsageTestProvider(), "", true)
 			if got != nil {
 				t.Fatalf("unexpected usage %+v", got)
 			}
@@ -381,7 +381,7 @@ func TestDevinUsageHTTPFailures(t *testing.T) {
 			}))
 			defer ts.Close()
 			devinTestEnv(t, ts.URL)
-			_, err := DevinUsageForProvider(context.Background(), devinUsageTestProvider(), "")
+			_, err := DevinUsageForProvider(context.Background(), devinUsageTestProvider(), "", true)
 			status := tc.status
 			if status == 200 {
 				status = 0
@@ -403,14 +403,14 @@ func TestDevinUsageRedirectAndCancellation(t *testing.T) {
 	}))
 	defer ts.Close()
 	devinTestEnv(t, ts.URL)
-	_, err := DevinUsageForProvider(context.Background(), devinUsageTestProvider(), "")
+	_, err := DevinUsageForProvider(context.Background(), devinUsageTestProvider(), "", true)
 	_ = devinUsageAssertError(t, err, ProviderUsageUnavailable, 307)
 	if leaked.Load() != 0 {
 		t.Fatal("redirect forwarded credentials")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = DevinUsageForProvider(ctx, devinUsageTestProvider(), "")
+	_, err = DevinUsageForProvider(ctx, devinUsageTestProvider(), "", true)
 	_ = devinUsageAssertError(t, err, ProviderUsageUnavailable, 0)
 }
 
@@ -419,10 +419,10 @@ func TestDevinUsageMissingCredentialAndCommandFailure(t *testing.T) {
 	t.Setenv("USAGE_TEST_API_KEY", "")
 	p := devinUsageTestProvider()
 	p.APIKey = ""
-	_, err := DevinUsageForProvider(context.Background(), p, "")
+	_, err := DevinUsageForProvider(context.Background(), p, "", true)
 	_ = devinUsageAssertError(t, err, ProviderUsageUnauthorized, 0)
 	p.APIKeyCommand = "exit 1"
-	_, err = DevinUsageForProvider(context.Background(), p, "")
+	_, err = DevinUsageForProvider(context.Background(), p, "", true)
 	_ = devinUsageAssertError(t, err, ProviderUsageUnavailable, 0)
 }
 
@@ -435,7 +435,7 @@ func TestDevinUsageFingerprint(t *testing.T) {
 	t.Setenv(EnvDevinCLICredentials, cli)
 	p := devinUsageTestProvider()
 	p.APIKey = ""
-	if got := DevinUsageFingerprint(p, auth); got != "" {
+	if got := DevinUsageFingerprint(p, auth, true); got != "" {
 		t.Fatalf("empty source %q", got)
 	}
 	writeCLI := func(token string) {
@@ -445,28 +445,28 @@ func TestDevinUsageFingerprint(t *testing.T) {
 		}
 	}
 	writeCLI("first")
-	first := DevinUsageFingerprint(p, auth)
+	first := DevinUsageFingerprint(p, auth, true)
 	writeCLI("second")
-	second := DevinUsageFingerprint(p, auth)
+	second := DevinUsageFingerprint(p, auth, true)
 	if first == "" || first == second {
 		t.Fatal("external CLI account rotation did not invalidate")
 	}
 	if err := saveDevinAuth(auth, devinAuthFile{SessionToken: "managed"}); err != nil {
 		t.Fatal(err)
 	}
-	managed := DevinUsageFingerprint(p, auth)
+	managed := DevinUsageFingerprint(p, auth, true)
 	writeCLI("irrelevant")
-	if got := DevinUsageFingerprint(p, auth); got != managed {
+	if got := DevinUsageFingerprint(p, auth, true); got != managed {
 		t.Fatal("shadowed CLI affected fingerprint")
 	}
 	t.Setenv("USAGE_TEST_API_KEY", "env")
-	env := DevinUsageFingerprint(p, auth)
+	env := DevinUsageFingerprint(p, auth, true)
 	if env == managed {
 		t.Fatal("env did not take precedence")
 	}
 	marker := filepath.Join(dir, "must-not-exist")
 	p.APIKeyCommand = fmt.Sprintf("echo LEAK > %q", marker)
-	command := DevinUsageFingerprint(p, auth)
+	command := DevinUsageFingerprint(p, auth, true)
 	if command == env {
 		t.Fatal("command source not fingerprinted")
 	}
@@ -474,23 +474,23 @@ func TestDevinUsageFingerprint(t *testing.T) {
 		t.Fatal("fingerprint executed credential command")
 	}
 	p.APIKey = "literal"
-	literal := DevinUsageFingerprint(p, auth)
+	literal := DevinUsageFingerprint(p, auth, true)
 	p.APIKeyCommand = "echo changed"
 	t.Setenv("USAGE_TEST_API_KEY", "changed")
-	if got := DevinUsageFingerprint(p, auth); got != literal {
+	if got := DevinUsageFingerprint(p, auth, true); got != literal {
 		t.Fatal("shadowed command/env affected literal fingerprint")
 	}
 	p.APIBase = "http://ignored.invalid"
-	if got := DevinUsageFingerprint(p, auth); got != literal {
+	if got := DevinUsageFingerprint(p, auth, true); got != literal {
 		t.Fatal("ignored APIBase affected fingerprint")
 	}
 	p.Proxy = "http://proxy.invalid"
-	if got := DevinUsageFingerprint(p, auth); got == literal {
+	if got := DevinUsageFingerprint(p, auth, true); got == literal {
 		t.Fatal("proxy rotation not fingerprinted")
 	}
 	p.Proxy = "none"
 	t.Setenv(EnvDevinAPIServerURL, "http://other.invalid")
-	if got := DevinUsageFingerprint(p, auth); got == literal {
+	if got := DevinUsageFingerprint(p, auth, true); got == literal {
 		t.Fatal("endpoint rotation not fingerprinted")
 	}
 	for _, v := range []string{first, second, managed, env, command, literal} {

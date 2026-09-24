@@ -35,23 +35,27 @@ import (
 // stand-in OpenAI-compatible API that records the Authorization header.
 type neuralDeepBDDState struct {
 	home string
-	hub  *httptest.Server
+	// provider is the name of the row the scenario signs in; "neuraldeep"
+	// unless the scenario starts from a row saved under another name.
+	provider string
+	hub      *httptest.Server
 	// hubMirror stands in for the international deployment's hub; it mints a
 	// different key so a login can be traced back to the hub that issued it.
 	hubMirror *httptest.Server
 	api       *httptest.Server
 	// proxy is the provider row's own proxy, when the scenario names one.
-	proxy *proxytest.Proxy
-	server    *Server
-	ts        *httptest.Server
-	loginID   string
+	proxy   *proxytest.Proxy
+	server  *Server
+	ts      *httptest.Server
+	loginID string
 
 	mu       sync.Mutex
 	apiAuths []string
 
-	prevHubEnv  string
-	prevBaseEnv string
-	prevKeyEnv  string
+	prevHubEnv       string
+	prevBaseEnv      string
+	prevKeyEnv       string
+	prevOpenAIKeyEnv string
 }
 
 const neuralDeepBDDKey = "sk-bdd-tier-key"
@@ -62,6 +66,7 @@ const neuralDeepBDDMirrorKey = "sk-bdd-mirror-key"
 
 func (s *neuralDeepBDDState) reset() error {
 	s.home, _ = os.MkdirTemp("", "coddy-nd-bdd-*")
+	s.provider = "neuraldeep"
 	s.apiAuths = nil
 	s.loginID = ""
 
@@ -82,12 +87,17 @@ func (s *neuralDeepBDDState) reset() error {
 	s.prevHubEnv = os.Getenv(llm.EnvNeuralDeepHubURL)
 	s.prevBaseEnv = os.Getenv(llm.EnvNeuralDeepBaseURL)
 	s.prevKeyEnv = os.Getenv("NEURALDEEP_API_KEY")
+	s.prevOpenAIKeyEnv = os.Getenv("OPENAI_API_KEY")
 	if err := os.Setenv(llm.EnvNeuralDeepHubURL, s.hub.URL); err != nil {
 		return err
 	}
 	// A real $CODDY_HOME/.env loaded elsewhere in this process must not leak
 	// an explicit key into the credential-source assertions.
 	if err := os.Setenv("NEURALDEEP_API_KEY", ""); err != nil {
+		return err
+	}
+	// The same for a row named "openai": its NAME_API_KEY is OPENAI_API_KEY.
+	if err := os.Setenv("OPENAI_API_KEY", ""); err != nil {
 		return err
 	}
 	return os.Setenv(llm.EnvNeuralDeepBaseURL, s.api.URL)
@@ -172,6 +182,7 @@ func (s *neuralDeepBDDState) close() {
 	_ = os.Setenv(llm.EnvNeuralDeepHubURL, s.prevHubEnv)
 	_ = os.Setenv(llm.EnvNeuralDeepBaseURL, s.prevBaseEnv)
 	_ = os.Setenv("NEURALDEEP_API_KEY", s.prevKeyEnv)
+	_ = os.Setenv("OPENAI_API_KEY", s.prevOpenAIKeyEnv)
 	if s.home != "" {
 		_ = os.RemoveAll(s.home)
 		s.home = ""
@@ -179,7 +190,7 @@ func (s *neuralDeepBDDState) close() {
 }
 
 func (s *neuralDeepBDDState) authPath() string {
-	return config.NeuralDeepAuthPath(s.home, "neuraldeep")
+	return config.NeuralDeepAuthPath(s.home, s.provider)
 }
 
 // --- @cli scenario -----------------------------------------------------------
@@ -259,7 +270,7 @@ func (s *neuralDeepBDDState) authFileHoldsKey() error {
 func (s *neuralDeepBDDState) modelListUsesHubKey() error {
 	if s.ts != nil {
 		// @http scenario: through the running server's REST surface.
-		res, err := http.Get(s.ts.URL + "/coddy/providers/neuraldeep/models")
+		res, err := http.Get(s.ts.URL + "/coddy/providers/" + s.provider + "/models")
 		if err != nil {
 			return err
 		}
@@ -328,6 +339,23 @@ func (s *neuralDeepBDDState) startServerWithProvider() error {
 	return s.startServerWith(config.ProviderConfig{Name: "neuraldeep", Type: "neuraldeep"})
 }
 
+// startServerWithOpenAIRow saves the row config.example.yaml ships: a
+// provider named "openai" of type openai. The scenario then treats it the way
+// Settings does when the type picker is switched to neuraldeep and nothing is
+// saved yet - every call names the row, none of them carries its new type.
+func (s *neuralDeepBDDState) startServerWithOpenAIRow() error {
+	s.provider = "openai"
+	return s.startServerWith(config.ProviderConfig{Name: "openai", Type: "openai"})
+}
+
+// saveProviderAsNeuralDeep saves what the form holds after the switch: the
+// same row, now of type neuraldeep.
+func (s *neuralDeepBDDState) saveProviderAsNeuralDeep() error {
+	return s.editSavedProviderRow(func(row map[string]any) {
+		row["type"] = "neuraldeep"
+	})
+}
+
 func (s *neuralDeepBDDState) startServerWithProxiedProvider() error {
 	s.proxy = proxytest.New()
 	return s.startServerWith(config.ProviderConfig{Name: "neuraldeep", Type: "neuraldeep", Proxy: s.proxy.URL()})
@@ -372,7 +400,7 @@ func (s *neuralDeepBDDState) signInThroughRESTDeviceFlowWith(body string) error 
 	if body != "" {
 		payload = strings.NewReader(body)
 	}
-	res, err := http.Post(s.ts.URL+"/coddy/providers/neuraldeep/neuraldeep-auth/device", "application/json", payload)
+	res, err := http.Post(s.ts.URL+"/coddy/providers/"+s.provider+"/neuraldeep-auth/device", "application/json", payload)
 	if err != nil {
 		return err
 	}
@@ -395,7 +423,7 @@ func (s *neuralDeepBDDState) signInThroughRESTDeviceFlowWith(body string) error 
 
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		poll, err := http.Get(s.ts.URL + "/coddy/providers/neuraldeep/neuraldeep-auth/device/" + s.loginID)
+		poll, err := http.Get(s.ts.URL + "/coddy/providers/" + s.provider + "/neuraldeep-auth/device/" + s.loginID)
 		if err != nil {
 			return err
 		}
@@ -422,7 +450,7 @@ func (s *neuralDeepBDDState) signInThroughRESTDeviceFlowWith(body string) error 
 }
 
 func (s *neuralDeepBDDState) providerReportsConnectedMasked() error {
-	res, err := http.Get(s.ts.URL + "/coddy/providers/neuraldeep/neuraldeep-auth")
+	res, err := http.Get(s.ts.URL + "/coddy/providers/" + s.provider + "/neuraldeep-auth")
 	if err != nil {
 		return err
 	}
@@ -445,7 +473,7 @@ func (s *neuralDeepBDDState) providerReportsConnectedMasked() error {
 }
 
 func (s *neuralDeepBDDState) signOutOverREST() error {
-	req, err := http.NewRequest(http.MethodDelete, s.ts.URL+"/coddy/providers/neuraldeep/neuraldeep-auth", nil)
+	req, err := http.NewRequest(http.MethodDelete, s.ts.URL+"/coddy/providers/"+s.provider+"/neuraldeep-auth", nil)
 	if err != nil {
 		return err
 	}
@@ -461,7 +489,7 @@ func (s *neuralDeepBDDState) signOutOverREST() error {
 }
 
 func (s *neuralDeepBDDState) providerReportsDisconnected() error {
-	res, err := http.Get(s.ts.URL + "/coddy/providers/neuraldeep/neuraldeep-auth")
+	res, err := http.Get(s.ts.URL + "/coddy/providers/" + s.provider + "/neuraldeep-auth")
 	if err != nil {
 		return err
 	}
@@ -483,6 +511,14 @@ func (s *neuralDeepBDDState) providerReportsDisconnected() error {
 const neuralDeepMirrorAPIBase = "https://api.neuraldeep.tech/v1"
 
 func (s *neuralDeepBDDState) pointProviderAtMirror() error {
+	return s.editSavedProviderRow(func(row map[string]any) {
+		row["api_base"] = neuralDeepMirrorAPIBase
+	})
+}
+
+// editSavedProviderRow saves the settings document with the one provider row
+// changed by edit, validating first like Settings does.
+func (s *neuralDeepBDDState) editSavedProviderRow(edit func(row map[string]any)) error {
 	res, err := http.Get(s.ts.URL + "/coddy/config")
 	if err != nil {
 		return err
@@ -501,13 +537,13 @@ func (s *neuralDeepBDDState) pointProviderAtMirror() error {
 	if row == nil {
 		return fmt.Errorf("provider row = %+v, want an object", provs[0])
 	}
-	row["api_base"] = neuralDeepMirrorAPIBase
+	edit(row)
 	body, err := json.Marshal(doc)
 	if err != nil {
 		return err
 	}
 
-	// Settings validates before it saves; both have to accept the mirror.
+	// Settings validates before it saves; both have to accept the change.
 	val, err := http.Post(s.ts.URL+"/coddy/config/validate", "application/json", strings.NewReader(string(body)))
 	if err != nil {
 		return err
@@ -522,7 +558,7 @@ func (s *neuralDeepBDDState) pointProviderAtMirror() error {
 		return err
 	}
 	if !verdict.OK {
-		return fmt.Errorf("validate rejected the mirror: %s", verdict.Error)
+		return fmt.Errorf("validate rejected the change: %s", verdict.Error)
 	}
 
 	req, err := http.NewRequest(http.MethodPut, s.ts.URL+"/coddy/config", strings.NewReader(string(body)))
@@ -672,6 +708,8 @@ func initializeNeuralDeepScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^a coddy HTTP server with a neuraldeep provider and a stand-in hub$`, s.startServerWithProvider)
 	sc.Step(`^a coddy HTTP server with a neuraldeep provider that names a proxy of its own, and a stand-in hub$`, s.startServerWithProxiedProvider)
+	sc.Step(`^a coddy HTTP server whose saved provider "openai" is of type openai, and a stand-in hub$`, s.startServerWithOpenAIRow)
+	sc.Step(`^I save the provider as type neuraldeep over REST$`, s.saveProviderAsNeuralDeep)
 	sc.Step(`^the sign-in reached the hub through that proxy$`, s.signInReachedHubThroughProxy)
 	sc.Step(`^I sign in to NeuralDeep through the device flow over REST$`, s.signInThroughRESTDeviceFlow)
 	sc.Step(`^the neuraldeep provider reports connected with a masked key$`, s.providerReportsConnectedMasked)

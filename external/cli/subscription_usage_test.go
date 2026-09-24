@@ -18,6 +18,14 @@ func TestSubscriptionUsagePresentation(t *testing.T) {
 			if usageBrand(u) != wantBrand {
 				t.Errorf("brand = %s, want %s", usageBrand(u), wantBrand)
 			}
+			// The /usage heading names the row, which is not named after its
+			// type, so several profiles of one type are told apart.
+			if head := usageReportLines(u, "work/model", time.Now())[0]; !strings.HasPrefix(head, wantBrand+" · work · ") {
+				t.Errorf("/usage heading = %q, want the brand and the row", head)
+			}
+			if got := usageTitle(&acp.ProviderUsageUpdate{Provider: kind, ProviderType: kind}); got != wantBrand {
+				t.Errorf("heading of the row named %s = %q, want the brand alone", kind, got)
+			}
 			now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
 			var pieces []string
 			for _, s := range usageFooterSegments(u, "work/model", now) {

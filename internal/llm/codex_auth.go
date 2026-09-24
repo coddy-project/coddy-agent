@@ -99,6 +99,13 @@ func codexAuthPath() string {
 // honoring CODEX_HOME), or "" when the home directory cannot be determined.
 func CodexCLIAuthPath() string { return codexAuthPath() }
 
+// CodexCLILoginPresent reports whether a Codex CLI login file exists on this
+// machine; its content is not checked.
+func CodexCLILoginPresent() bool {
+	path := codexAuthPath()
+	return path != "" && fileExists(path)
+}
+
 // codexModelsCachePath returns the path to the Codex models cache, honoring CODEX_HOME.
 func codexModelsCachePath() string {
 	home := codexHome()
@@ -141,10 +148,12 @@ func newCodexAuthSource(path string, httpClient *http.Client) *codexAuthSource {
 }
 
 // newManagedCodexAuthSource prefers a Coddy-managed credential file and falls
-// back to the user's Codex CLI login when the managed file does not exist.
-func newManagedCodexAuthSource(path string, httpClient *http.Client) *codexAuthSource {
+// back to the user's Codex CLI login when the managed file does not exist and
+// cliLogin allows it: that login is one account, and it serves one row
+// (config.Config.CLILoginRow).
+func newManagedCodexAuthSource(path string, cliLogin bool, httpClient *http.Client) *codexAuthSource {
 	s := newCodexAuthSource(path, httpClient)
-	if strings.TrimSpace(path) != "" {
+	if cliLogin && strings.TrimSpace(path) != "" {
 		fallback := codexAuthPath()
 		if fallback != "" && filepath.Clean(fallback) != filepath.Clean(path) {
 			s.fallbackPath = fallback
@@ -207,6 +216,11 @@ func (s *codexAuthSource) load() (*codexAuthFile, string, error) {
 			data, err = os.ReadFile(activePath)
 		}
 		if err != nil && os.IsNotExist(err) {
+			if s.fallbackPath == "" && filepath.Clean(s.path) != filepath.Clean(codexAuthPath()) {
+				// A row the Codex CLI login does not serve: `codex login`
+				// would sign in the row that login belongs to, not this one.
+				return nil, "", fmt.Errorf("codex auth: no OAuth credentials found (sign this provider in from Settings or with `coddy providers login`)")
+			}
 			return nil, "", fmt.Errorf("codex auth: no OAuth credentials found (use Sign In or run `codex login`)")
 		}
 		if err != nil {
@@ -253,8 +267,9 @@ type CodexAuthStatus struct {
 }
 
 // InspectCodexAuth reports whether a usable Coddy-managed credential exists. If
-// it does not, the current Codex CLI login is reported as a compatibility fallback.
-func InspectCodexAuth(path string) (CodexAuthStatus, error) {
+// it does not and cliLogin allows it, the current Codex CLI login is reported
+// as a compatibility fallback.
+func InspectCodexAuth(path string, cliLogin bool) (CodexAuthStatus, error) {
 	codexAuthMu.Lock()
 	defer codexAuthMu.Unlock()
 
@@ -262,7 +277,7 @@ func InspectCodexAuth(path string) (CodexAuthStatus, error) {
 		path   string
 		source string
 	}{{strings.TrimSpace(path), "coddy"}}
-	if cliPath := codexAuthPath(); cliPath != "" && (path == "" || filepath.Clean(cliPath) != filepath.Clean(path)) {
+	if cliPath := codexAuthPath(); cliLogin && cliPath != "" && (path == "" || filepath.Clean(cliPath) != filepath.Clean(path)) {
 		paths = append(paths, struct {
 			path   string
 			source string
@@ -311,7 +326,8 @@ func CodexAuthNotices(cfg *config.Config) []CodexAuthNotice {
 		if prov.Type != "codex" {
 			continue
 		}
-		out = append(out, codexAuthNotice(prov.Name, config.CodexAuthPath(cfg.Paths.Home, prov.Name)))
+		out = append(out, codexAuthNotice(prov.Name, config.CodexAuthPath(cfg.Paths.Home, prov.Name),
+			cfg.ProviderMayUseCLILogin(prov.Name, "codex"), CLILoginServes(cfg, "codex")))
 	}
 	return out
 }
@@ -332,13 +348,22 @@ func LogCodexAuthNotices(log *slog.Logger, cfg *config.Config) {
 }
 
 // codexAuthNotice builds the notice for one provider, preferring the
-// Coddy-managed credential and falling back to the Codex CLI login.
-func codexAuthNotice(provider, managedPath string) CodexAuthNotice {
+// Coddy-managed credential and falling back to the Codex CLI login when
+// cliLogin allows it; serves says which row that login serves otherwise.
+func codexAuthNotice(provider, managedPath string, cliLogin bool, serves string) CodexAuthNotice {
 	notice := CodexAuthNotice{Provider: provider}
-	auth, path, err := (&codexAuthSource{path: managedPath, fallbackPath: codexAuthPath()}).load()
+	src := &codexAuthSource{path: managedPath}
+	if cliLogin {
+		src.fallbackPath = codexAuthPath()
+	}
+	auth, path, err := src.load()
 	if err != nil {
 		notice.Warning = true
 		notice.Message = fmt.Sprintf("no ChatGPT credential found, run `coddy providers login %s` or sign in from Settings", provider)
+		if cliPath := codexAuthPath(); !cliLogin && cliPath != "" && fileExists(cliPath) {
+			notice.Message = fmt.Sprintf("not signed in: the Codex CLI login at %s serves %s, run `coddy providers login %s` or sign in from Settings",
+				cliPath, serves, provider)
+		}
 		return notice
 	}
 	if auth.AuthMode != "" && auth.AuthMode != codexAuthModeChatGPT {
@@ -532,4 +557,19 @@ func ApplyCodexLoginToConfig(ctx context.Context, cfg *config.Config, name, auth
 		return nil, err
 	}
 	return added, nil
+}
+
+// CLILoginServes says which row the machine-wide CLI login of providerType
+// serves, for a line about another row of that type: `the row "codex" only`,
+// or `no row: several codex rows and none named "codex"`.
+func CLILoginServes(cfg *config.Config, providerType string) string {
+	if row := cfg.CLILoginRow(providerType, ""); row != "" {
+		return fmt.Sprintf("the row %q only", row)
+	}
+	return fmt.Sprintf("no row: several %s rows and none named %q", providerType, providerType)
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }

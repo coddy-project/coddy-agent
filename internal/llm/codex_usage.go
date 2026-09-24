@@ -55,7 +55,7 @@ type CodexAdditionalRateLimit struct {
 // rather than guessing - the trade-off is that an upstream schema change
 // flips the source to "invalid" (stale numbers stay) instead of silently
 // misreading it.
-func CodexUsageForProvider(ctx context.Context, provider config.ProviderConfig, authPath string) (*CodexUsage, error) {
+func CodexUsageForProvider(ctx context.Context, provider config.ProviderConfig, authPath string, cliLogin bool) (*CodexUsage, error) {
 	hc, err := HTTPClientForProviderProxy(provider.Proxy)
 	if err != nil {
 		return nil, &ProviderUsageError{Kind: ProviderUsageUnavailable, Detail: "invalid proxy configuration"}
@@ -70,7 +70,7 @@ func CodexUsageForProvider(ctx context.Context, provider config.ProviderConfig, 
 	// expired token must not get a second timeout on top of the first.
 	ctx, cancel := context.WithTimeout(ctx, codexUsageRequestTimeout)
 	defer cancel()
-	auth := newManagedCodexAuthSource(authPath, &client)
+	auth := newManagedCodexAuthSource(authPath, cliLogin, &client)
 	cred, err := auth.Credential(ctx)
 	if err != nil {
 		kind := ProviderUsageUnavailable
@@ -120,7 +120,7 @@ func CodexUsageForProvider(ctx context.Context, provider config.ProviderConfig, 
 	return usage, nil
 }
 
-func CodexUsageFingerprint(provider config.ProviderConfig, authPath string) string {
+func CodexUsageFingerprint(provider config.ProviderConfig, authPath string, cliLogin bool) string {
 	h := sha256.New()
 	writeField := func(s string) {
 		_, _ = io.WriteString(h, s)
@@ -131,7 +131,7 @@ func CodexUsageFingerprint(provider config.ProviderConfig, authPath string) stri
 	writeField("proxy:" + strings.TrimSpace(provider.Proxy))
 	codexAuthMu.Lock()
 	defer codexAuthMu.Unlock()
-	source, identity := codexUsageCredentialIdentityLocked(strings.TrimSpace(authPath))
+	source, identity := codexUsageCredentialIdentityLocked(strings.TrimSpace(authPath), cliLogin)
 	writeField("credential-source:" + source)
 	writeField("credential:" + identity)
 	return hex.EncodeToString(h.Sum(nil))[:16]
@@ -273,7 +273,7 @@ func (p *codexUsageWindowPayload) toPublic(name string) (*CodexUsageWindow, erro
 	return out, nil
 }
 
-func codexUsageCredentialIdentityLocked(managedPath string) (string, string) {
+func codexUsageCredentialIdentityLocked(managedPath string, cliLogin bool) (string, string) {
 	if managedPath == "" {
 		managedPath = codexAuthPath()
 	}
@@ -285,6 +285,9 @@ func codexUsageCredentialIdentityLocked(managedPath string) (string, string) {
 		}
 	}
 	cliPath := codexAuthPath()
+	if !cliLogin {
+		cliPath = ""
+	}
 	if cliPath != "" && (managedPath == "" || filepath.Clean(cliPath) != filepath.Clean(managedPath)) {
 		if data, err := os.ReadFile(cliPath); err == nil {
 			return "codex-cli:" + filepath.Clean(cliPath), codexUsageAuthIdentity(data)

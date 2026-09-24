@@ -152,8 +152,10 @@ type devinCredential struct {
 var errDevinNotSignedIn = errors.New("devin: not signed in (run `coddy providers login <name>`, or `devin auth login`)")
 
 // resolveDevinCredential applies the source order documented at the top of
-// this file. explicit is the provider's api_key after its own resolution.
-func resolveDevinCredential(explicit, authPath string) (devinCredential, error) {
+// this file. explicit is the provider's api_key after its own resolution;
+// cliLogin lets the row fall back to the Devin CLI login, which is one account
+// and serves one row (config.Config.CLILoginRow).
+func resolveDevinCredential(explicit, authPath string, cliLogin bool) (devinCredential, error) {
 	if t := normalizeDevinToken(explicit); t != "" {
 		return devinCredential{token: t, source: DevinSourceAPIKey}, nil
 	}
@@ -161,6 +163,9 @@ func resolveDevinCredential(explicit, authPath string) (devinCredential, error) 
 		return devinCredential{}, err
 	} else if f != nil && strings.TrimSpace(f.SessionToken) != "" {
 		return devinCredential{token: normalizeDevinToken(f.SessionToken), apiServer: f.APIServerURL, source: DevinSourceCoddy, path: authPath}, nil
+	}
+	if !cliLogin {
+		return devinCredential{}, errDevinNotSignedIn
 	}
 	cli, path, err := loadDevinCLICredentials()
 	if err != nil {
@@ -283,6 +288,13 @@ func devinCLICredentialCandidates() []string {
 	return out
 }
 
+// DevinCLILoginPresent reports whether the Devin CLI holds a login on this
+// machine, and where.
+func DevinCLILoginPresent() (bool, string) {
+	cli, path, err := loadDevinCLICredentials()
+	return err == nil && cli != nil && strings.TrimSpace(cli.APIKey) != "", path
+}
+
 // loadDevinCLICredentials reads the Devin CLI login. A missing file is not an
 // error: nil comes back with the path that was looked at.
 func loadDevinCLICredentials() (*devinCLICredentials, string, error) {
@@ -377,15 +389,18 @@ type DevinAuthStatus struct {
 }
 
 // InspectDevinAuth reports the login a devin provider would use without an
-// explicit api_key: the Coddy-managed file first, then the Devin CLI login.
-// No network call is made.
-func InspectDevinAuth(authPath string) (DevinAuthStatus, error) {
+// explicit api_key: the Coddy-managed file first, then the Devin CLI login
+// when cliLogin allows it. No network call is made.
+func InspectDevinAuth(authPath string, cliLogin bool) (DevinAuthStatus, error) {
 	f, err := loadDevinAuth(authPath)
 	if err != nil {
 		return DevinAuthStatus{}, err
 	}
 	if f != nil && strings.TrimSpace(f.SessionToken) != "" {
 		return DevinAuthStatus{Connected: true, Source: DevinSourceCoddy, Path: authPath, Masked: maskDevinToken(normalizeDevinToken(f.SessionToken)), Email: f.Email}, nil
+	}
+	if !cliLogin {
+		return DevinAuthStatus{}, nil
 	}
 	cli, path, err := loadDevinCLICredentials()
 	if err != nil {
@@ -640,8 +655,8 @@ func devinUnary(ctx context.Context, hc *http.Client, endpoint string, body []by
 
 // VerifyDevinCredential resolves the credential a devin provider would use
 // and proves it by minting a user JWT. It reports the source and the account.
-func VerifyDevinCredential(ctx context.Context, hc *http.Client, explicitKey, authPath string) (DevinAuthStatus, DevinAccount, error) {
-	cred, err := resolveDevinCredential(explicitKey, authPath)
+func VerifyDevinCredential(ctx context.Context, hc *http.Client, explicitKey, authPath string, cliLogin bool) (DevinAuthStatus, DevinAccount, error) {
+	cred, err := resolveDevinCredential(explicitKey, authPath, cliLogin)
 	if err != nil {
 		return DevinAuthStatus{}, DevinAccount{}, err
 	}
@@ -951,16 +966,24 @@ func LogDevinAuthNotices(log *slog.Logger, cfg *config.Config) {
 			log.Info("devin credential", "provider", prov.Name, "detail", "session token from the provider's api_key")
 			continue
 		}
-		st, err := InspectDevinAuth(config.DevinAuthPath(cfg.Paths.Home, prov.Name))
+		// The row's NAME_API_KEY comes before any login at request time, so
+		// it is what the report names when it is set.
+		if env := config.ProviderAPIKeyEnvVarName(prov.Name); env != "" && strings.TrimSpace(os.Getenv(env)) != "" {
+			log.Info("devin credential", "provider", prov.Name, "detail", "session token from "+env)
+			continue
+		}
+		cliLogin := cfg.ProviderMayUseCLILogin(prov.Name, "devin")
+		st, err := InspectDevinAuth(config.DevinAuthPath(cfg.Paths.Home, prov.Name), cliLogin)
 		switch {
 		case err != nil:
 			log.Warn("devin credential", "provider", prov.Name, "detail", err.Error())
 		case !st.Connected:
-			if env := config.ProviderAPIKeyEnvVarName(prov.Name); env != "" && strings.TrimSpace(os.Getenv(env)) != "" {
-				log.Info("devin credential", "provider", prov.Name, "detail", "session token from "+env)
-				continue
+			detail := fmt.Sprintf("not signed in, run `coddy providers login %s`", prov.Name)
+			if cli, path, _ := loadDevinCLICredentials(); !cliLogin && cli != nil && strings.TrimSpace(cli.APIKey) != "" {
+				detail = fmt.Sprintf("not signed in: the Devin CLI login at %s serves %s, run `coddy providers login %s`",
+					path, CLILoginServes(cfg, "devin"), prov.Name)
 			}
-			log.Warn("devin credential", "provider", prov.Name, "detail", fmt.Sprintf("not signed in, run `coddy providers login %s`", prov.Name))
+			log.Warn("devin credential", "provider", prov.Name, "detail", detail)
 		case st.Source == DevinSourceDevinCLI:
 			log.Info("devin credential", "provider", prov.Name, "detail", "Devin CLI login "+st.Path)
 		default:

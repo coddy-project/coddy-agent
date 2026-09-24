@@ -16,8 +16,11 @@ type ResolvedLLM struct {
 	BaseURL      string
 	// ProxyURL is providers[].proxy as written: a keyword (inherit, none) or
 	// a proxy URL; see ParseProxySetting.
-	ProxyURL    string
-	AuthPath    string
+	ProxyURL string
+	AuthPath string
+	// NoCLILogin keeps the row off the machine-wide CLI login of its type
+	// (CLILoginRow); it travels into llm.ProviderInput.NoCLILogin.
+	NoCLILogin  bool
 	MaxTokens   int
 	Temperature float64
 	// TimeoutMS, when positive, bounds each HTTP request to this provider
@@ -37,6 +40,51 @@ func (c *Config) FindProvider(name string) *ProviderConfig {
 		}
 	}
 	return nil
+}
+
+// CLILoginRow names the row of providerType that the machine-wide CLI login
+// of that type stands in for when the row has no login of its own: the Codex
+// CLI's ~/.codex/auth.json for "codex", the Devin CLI's credentials for
+// "devin". One CLI login is one account, so it serves one row - the only row
+// of the type, or, when several rows share the type, the row named after it.
+// Every other row signs in itself instead of quietly running on that account.
+// alsoRow counts a row the settings form holds but has not saved yet, or a
+// saved row it is switching to providerType. "" means no row may use it.
+func (c *Config) CLILoginRow(providerType, alsoRow string) string {
+	if providerType != "codex" && providerType != "devin" {
+		return ""
+	}
+	seen := map[string]bool{}
+	var names []string
+	add := func(name string) {
+		name = strings.TrimSpace(name)
+		if name != "" && !seen[name] {
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
+	if c != nil {
+		for i := range c.Providers {
+			if c.Providers[i].Type == providerType {
+				add(c.Providers[i].Name)
+			}
+		}
+	}
+	add(alsoRow)
+	switch {
+	case len(names) == 1:
+		return names[0]
+	case seen[providerType]:
+		return providerType
+	}
+	return ""
+}
+
+// ProviderMayUseCLILogin reports whether the row named name may fall back to
+// the CLI login of providerType when it has no login of its own (CLILoginRow).
+func (c *Config) ProviderMayUseCLILogin(name, providerType string) bool {
+	name = strings.TrimSpace(name)
+	return name != "" && c.CLILoginRow(providerType, name) == name
 }
 
 // FindModelEntry returns the model entry whose Model selector equals ref, or nil.
@@ -151,6 +199,7 @@ func (c *Config) ResolveLLM(modelRef string) (*ResolvedLLM, error) {
 		BaseURL:      prov.APIBase,
 		ProxyURL:     prov.Proxy,
 		AuthPath:     ProviderAuthPath(c.Paths.Home, prov.Name, prov.Type),
+		NoCLILogin:   !c.ProviderMayUseCLILogin(prov.Name, prov.Type),
 		MaxTokens:    entry.MaxTokens,
 		Temperature:  entry.Temperature,
 		TimeoutMS:    prov.TimeoutMS,

@@ -304,7 +304,7 @@ func fetchDevinCatalog(ctx context.Context, hc *http.Client, cred devinCredentia
 // listDevinModels answers ListModels for a devin provider: one entry per
 // family, in the catalog's own order.
 func listDevinModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
-	cred, err := resolveDevinCredential(in.APIKey, in.AuthPath)
+	cred, err := resolveDevinCredential(in.APIKey, in.AuthPath, !in.NoCLILogin)
 	if err != nil {
 		return nil, err
 	}
@@ -332,7 +332,7 @@ func ApplyDevinLoginToConfig(ctx context.Context, cfg *config.Config, name, expl
 	if cfg == nil {
 		return nil, fmt.Errorf("devin: no config to update")
 	}
-	cred, err := resolveDevinCredential(explicitKey, authPath)
+	cred, err := resolveDevinCredential(explicitKey, authPath, cfg.ProviderMayUseCLILogin(name, "devin"))
 	if err != nil {
 		return nil, err
 	}

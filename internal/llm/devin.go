@@ -22,6 +22,8 @@ type devinProvider struct {
 	effort      string
 	explicitKey string
 	authPath    string
+	// cliLogin lets the row fall back to the Devin CLI login.
+	cliLogin    bool
 	hc          *http.Client
 	maxTokens   int
 	temperature float64
@@ -46,6 +48,7 @@ func newDevinProvider(p ProviderInput, hc *http.Client) *devinProvider {
 		effort:       p.ReasoningEffort,
 		explicitKey:  p.APIKey,
 		authPath:     p.AuthPath,
+		cliLogin:     !p.NoCLILogin,
 		hc:           hc,
 		maxTokens:    p.MaxTokens,
 		temperature:  p.Temperature,
@@ -74,7 +77,7 @@ type devinReasoningCarrier struct {
 }
 
 func (p *devinProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
-	cred, err := resolveDevinCredential(p.explicitKey, p.authPath)
+	cred, err := resolveDevinCredential(p.explicitKey, p.authPath, p.cliLogin)
 	if err != nil {
 		return nil, err
 	}

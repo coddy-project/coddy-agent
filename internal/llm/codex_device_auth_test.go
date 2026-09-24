@@ -63,7 +63,7 @@ func TestCodexDeviceSignInPromptsThenPersists(t *testing.T) {
 	if login.UserCode != "CLI-CODE" || login.VerificationURL != upstream.URL+"/codex/device" {
 		t.Fatalf("prompt = %+v, want the user code and verification URL", login)
 	}
-	status, err := InspectCodexAuth(authPath)
+	status, err := InspectCodexAuth(authPath, true)
 	if err != nil {
 		t.Fatalf("InspectCodexAuth: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestCodexDeviceLoginExchangesAndPersistsTokens(t *testing.T) {
 		t.Fatalf("saved auth permissions = %o, want 600", got)
 	}
 
-	status, err := InspectCodexAuth(authPath)
+	status, err := InspectCodexAuth(authPath, true)
 	if err != nil {
 		t.Fatalf("InspectCodexAuth: %v", err)
 	}
@@ -195,5 +195,61 @@ func TestCodexDeviceLoginTreatsForbiddenAsPending(t *testing.T) {
 	}
 	if polls != 2 {
 		t.Fatalf("polls = %d, want 2", polls)
+	}
+}
+
+// TestCodexDeviceLoginWithHandsCredentialToPersist: the persistence step is
+// the caller's. The flow hands it the encoded credential once and writes
+// nothing itself, and a persist failure is the flow's failure, so a server
+// that refuses to store a cancelled login reports it.
+func TestCodexDeviceLoginWithHandsCredentialToPersist(t *testing.T) {
+	idToken := codexTestJWT(map[string]any{"chatgpt_account_id": "acct-with"})
+	accessToken := codexTestJWT(map[string]any{"exp": 4_102_444_800})
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/accounts/deviceauth/usercode":
+			_, _ = fmt.Fprint(w, `{"device_auth_id":"device-with","user_code":"WITH","interval":"0"}`)
+		case "/api/accounts/deviceauth/token":
+			_, _ = fmt.Fprint(w, `{"authorization_code":"code-with","code_challenge":"c","code_verifier":"v"}`)
+		case "/oauth/token":
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"id_token": idToken, "access_token": accessToken, "refresh_token": "refresh-with",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+
+	login, err := StartCodexDeviceLogin(context.Background(), upstream.URL, upstream.Client())
+	if err != nil {
+		t.Fatalf("StartCodexDeviceLogin: %v", err)
+	}
+	var calls int
+	var got codexAuthFile
+	err = CompleteCodexDeviceLoginWith(context.Background(), upstream.URL, upstream.Client(), login, func(_ context.Context, credential []byte) error {
+		calls++
+		return json.Unmarshal(credential, &got)
+	})
+	if err != nil {
+		t.Fatalf("CompleteCodexDeviceLoginWith: %v", err)
+	}
+	if calls != 1 || got.Tokens.AccountID != "acct-with" || got.Tokens.RefreshToken != "refresh-with" {
+		t.Fatalf("persist calls = %d, credential = %+v", calls, got)
+	}
+
+	login, err = StartCodexDeviceLogin(context.Background(), upstream.URL, upstream.Client())
+	if err != nil {
+		t.Fatalf("StartCodexDeviceLogin: %v", err)
+	}
+	refused := fmt.Errorf("refused")
+	err = CompleteCodexDeviceLoginWith(context.Background(), upstream.URL, upstream.Client(), login, func(context.Context, []byte) error {
+		return refused
+	})
+	if err == nil || err.Error() != "refused" {
+		t.Fatalf("persist failure = %v, want it returned as is", err)
+	}
+	if err := CompleteCodexDeviceLoginWith(context.Background(), upstream.URL, upstream.Client(), login, nil); err == nil {
+		t.Fatal("a nil persistence step must be refused")
 	}
 }

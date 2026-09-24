@@ -184,6 +184,24 @@ test("Codex provider replaces API credentials with ChatGPT sign in", async () =>
   );
 });
 
+test("Codex row that may not use the Codex CLI login names the row it serves", async () => {
+  // Two ChatGPT profiles: the Codex CLI login on the server serves the row
+  // named codex, so this one is not signed in and the field says why.
+  const fetchMock = vi.fn(async () => ({
+    ok: true,
+    json: async () => ({ connected: false, cli_login_row: "codex" }),
+  }));
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<Harness provider={{ name: "codex-work", type: "codex" }} />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+
+  const note = await screen.findByTestId("codex-auth-cli-other-row");
+  expect(note).toHaveTextContent("Codex CLI login");
+  expect(note).toHaveTextContent("codex");
+  expect(screen.getByTestId("codex-auth-sign-in")).toBeInTheDocument();
+});
+
 test("Codex Sign In opens ChatGPT and completes device authorization", async () => {
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -227,6 +245,17 @@ test("Codex Sign In opens ChatGPT and completes device authorization", async () 
   expect(
     await screen.findByText("Connected with ChatGPT.", {}, { timeout: 2000 }),
   ).toBeInTheDocument();
+  // The server refuses a device start that is not JSON (a cross-site page can
+  // only send the simple content types without a preflight).
+  const start = fetchMock.mock.calls.find(
+    ([input, init]) =>
+      init?.method === "POST" && String(input).endsWith("codex-auth/device"),
+  );
+  expect(
+    new Headers((start?.[1] as RequestInit | undefined)?.headers).get(
+      "Content-Type",
+    ),
+  ).toBe("application/json");
 });
 
 test("NeuralDeep provider keeps the manual api_key and offers hub sign in", async () => {
@@ -364,6 +393,9 @@ test("NeuralDeep Sign In carries the endpoint picked in the form", async () => {
   expect(JSON.parse(String((start?.[1] as RequestInit).body))).toEqual({
     api_base: "https://api.neuraldeep.tech/v1",
   });
+  expect(
+    new Headers((start?.[1] as RequestInit).headers).get("Content-Type"),
+  ).toBe("application/json");
 });
 
 test("NeuralDeep keeps polling a pending login when the endpoint changes", async () => {
@@ -491,6 +523,37 @@ test("NeuralDeep explicit api_key reports that it shadows the login", async () =
   ).toHaveTextContent("requests use it instead of this login");
   // The stored login is still displayed, masked.
   expect(screen.getByText(/sk-ab…1234/)).toBeInTheDocument();
+});
+
+test("NeuralDeep login shadowed by the NAME_API_KEY variable names that variable", async () => {
+  // A row named "openai" (the one config.example.yaml ships, switched to
+  // neuraldeep) reads OPENAI_API_KEY before the login. The api_key field is
+  // empty, so advice to clear it would send the operator nowhere.
+  const fetchMock = vi.fn(async () => ({
+    ok: true,
+    json: async () => ({
+      connected: true,
+      masked: "sk-ab…1234",
+      source: "env",
+    }),
+  }));
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(
+    <Harness
+      provider={{
+        name: "openai",
+        type: "neuraldeep",
+        api_base: "",
+        api_key: "",
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+
+  const note = await screen.findByTestId("neuraldeep-auth-shadowed");
+  expect(note).toHaveTextContent("OPENAI_API_KEY");
+  expect(note).not.toHaveTextContent("api_key field");
 });
 
 const modelsSection: SectionDescriptor = {

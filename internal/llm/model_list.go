@@ -227,7 +227,7 @@ func fetchCodexCatalogOnline(ctx context.Context, in ProviderInput, baseURL stri
 	}
 	ctx, cancel := context.WithTimeout(ctx, modelListTimeout)
 	defer cancel()
-	cred, err := newManagedCodexAuthSource(in.AuthPath, hc).Credential(ctx)
+	cred, err := newManagedCodexAuthSource(in.AuthPath, !in.NoCLILogin, hc).Credential(ctx)
 	if err != nil {
 		return nil, err
 	}

@@ -53,7 +53,7 @@ Usage:
   coddy plugin remove <name>
   coddy plugin enable <name> | disable <name>
   coddy mcp list | trust <name> | untrust <name> [--cwd DIR]
-  coddy providers list | login <name> [--browser] [--devin-cli] [--no-config] [--api-base URL] | logout <name> [--home DIR]
+  coddy providers list | login <name> [--type neuraldeep|codex|devin] [--browser] [--devin-cli] [--no-config] [--api-base URL] | logout <name> [--home DIR]
   coddy rules list [--cwd DIR]
   coddy agents list [--cwd DIR]
   coddy agents trust <name> [--cwd DIR]
@@ -280,6 +280,8 @@ Usage of providers:
     	override CODDY_HOME
   -no-config
     	login: do not add the provider and its models to config.yaml after login
+  -type string
+    	login: type of a provider config.yaml does not list yet (neuraldeep, codex or devin), so another profile of a type is created by signing it in
 flag: help requested
 ```
 

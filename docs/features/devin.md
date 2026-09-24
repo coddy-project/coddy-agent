@@ -36,7 +36,7 @@ On a machine reached over SSH there is no browser to open, and a browser on your
 coddy providers login devin --devin-cli
 ```
 
-With a Devin CLI installed and signed in, no browser is needed: the command checks the CLI's own login by minting a user JWT with it and publishes the catalog into `config.yaml`. The token stays where the Devin CLI keeps it; Coddy reads it at every request and never writes to that file. `devin auth logout` therefore ends the login for Coddy as well.
+With a Devin CLI installed and signed in, no browser is needed: the command checks the CLI's own login by minting a user JWT with it and publishes the catalog into `config.yaml`. The Devin CLI login is one account, so it serves one row: the only devin row, or the row named `devin` when there are several ([Several profiles of one provider type](../getting-started/configuration.md#several-profiles-of-one-provider-type)); `--devin-cli` refuses another row, which signs in with a login of its own. The token stays where the Devin CLI keeps it; Coddy reads it at every request and never writes to that file. `devin auth logout` therefore ends the login for Coddy as well.
 
 ## Where the session token comes from
 
@@ -44,7 +44,7 @@ A request uses the first of these that holds a token:
 
 1. the row's `api_key`, `api_key_command`, or the `DEVIN_API_KEY` variable (for a row named `devin`; the name follows the usual `NAME_API_KEY` rule). The value is a Devin session token, `devin-session-token$...`; a bare token gets that prefix;
 2. the Coddy-managed login, `$CODDY_HOME/providers/<name>/devin-auth.json`;
-3. the Devin CLI login, `credentials.toml` under `$XDG_DATA_HOME/devin` or `~/.local/share/devin` (on macOS also `~/Library/Application Support/devin`, on Windows `%LOCALAPPDATA%\devin`). `CODDY_DEVIN_CLI_CREDENTIALS` names the file explicitly.
+3. the Devin CLI login, for the one row it serves (the only devin row, or the row named `devin` among several), `credentials.toml` under `$XDG_DATA_HOME/devin` or `~/.local/share/devin` (on macOS also `~/Library/Application Support/devin`, on Windows `%LOCALAPPDATA%\devin`). `CODDY_DEVIN_CLI_CREDENTIALS` names the file explicitly.
 
 `coddy providers list` shows which one a row uses, with the token masked:
 
@@ -54,7 +54,7 @@ A request uses the first of these that holds a token:
 
 `coddy providers logout devin` deletes the Coddy-managed file only. When a Devin CLI login exists, the row keeps working through it, and the command says so. The session itself stays valid on Devin's side until you end it there.
 
-At startup `coddy acp` and the HTTP server of `coddy serve` log one `devin credential` line per devin row, naming the source it will use or warning that there is none.
+At startup `coddy acp` and the HTTP server of `coddy serve` log one `devin credential` line per devin row, naming the source it will use (the `DEVIN_API_KEY`-style variable when it is set, since it comes first) or warning that there is none - and, for a row the Devin CLI login does not serve, which row it serves.
 
 ## Models and reasoning levels
 

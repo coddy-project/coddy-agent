@@ -2023,25 +2023,23 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/providers/{name}/codex-auth": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get Codex OAuth status",
-					"description": "Reports whether the named Codex provider has a server-side ChatGPT OAuth credential. It never returns token values. A valid unsaved provider name is accepted so Settings can show status before config is saved.",
+					"description": "Reports whether the named Codex provider has a server-side ChatGPT OAuth credential, falling back to the Codex CLI login only for the row that login serves (the only codex row, or the row named `codex` among several); another row gets `cli_login_row` naming it. It never returns token values. A valid unsaved provider name is accepted so Settings can show status before config is saved, and so is a saved row of another type that Settings is switching to codex (only its `proxy` applies).",
 					"operationId": "getProviderCodexAuth",
 					"parameters":  []interface{}{codexProviderNameParameter()},
 					"responses": map[string]interface{}{
 						"200": jsonSchemaResponse("Non-secret Codex OAuth connection status.", "#/components/schemas/CodexAuthStatus"),
 						"400": errorResponseRef(),
-						"409": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
 				"delete": map[string]interface{}{
 					"summary":     "Remove Coddy-managed Codex OAuth credentials",
-					"description": "Deletes only the credential stored under `CODDY_HOME/providers/{name}/codex-auth.json`. A separate Codex CLI login may remain available as a compatibility fallback.",
+					"description": "Cancels the provider's pending device sign-in, if any, so a confirmation that arrives afterwards cannot store the credential again, then deletes only the credential stored under `CODDY_HOME/providers/{name}/codex-auth.json`. A separate Codex CLI login may remain available as a compatibility fallback.",
 					"operationId": "deleteProviderCodexAuth",
 					"parameters":  []interface{}{codexProviderNameParameter()},
 					"responses": map[string]interface{}{
 						"200": jsonSchemaResponse("Connection status after removal.", "#/components/schemas/CodexAuthStatus"),
 						"400": errorResponseRef(),
-						"409": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -2049,13 +2047,14 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/providers/{name}/codex-auth/device": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Start Codex ChatGPT device authorization",
-					"description": "Starts the official ChatGPT device flow. Open `verification_url`, enter `user_code`, then poll the returned `login_id`. The server performs the token exchange and stores credentials with restrictive file permissions.",
+					"description": "Starts the official ChatGPT device flow. The request must be `Content-Type: application/json` (the body is ignored, send `{}`); any other type is refused with 415 before the issuer is contacted, because a page on another site can send the other types without a preflight. A new start supersedes the provider's previous pending attempt, including one still waiting for the issuer to answer (that one answers 409); a sign-out cancels a pending start the same way. Open `verification_url`, enter `user_code`, then poll the returned `login_id`. The server performs the token exchange and stores credentials with restrictive file permissions.",
 					"operationId": "startProviderCodexDeviceAuth",
 					"parameters":  []interface{}{codexProviderNameParameter()},
 					"responses": map[string]interface{}{
 						"200": jsonSchemaResponse("Device authorization instructions.", "#/components/schemas/CodexAuthDeviceStart"),
 						"400": errorResponseRef(),
 						"409": errorResponseRef(),
+						"415": errorResponseRef(),
 						"502": errorResponseRef(),
 					},
 				},
@@ -2076,14 +2075,13 @@ func openAPISpec() map[string]interface{} {
 						"200": jsonSchemaResponse("Current device authorization state.", "#/components/schemas/CodexAuthDeviceStatus"),
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
-						"409": errorResponseRef(),
 					},
 				},
 			},
 			"/coddy/providers/{name}/neuraldeep-auth": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get NeuralDeep sign-in status",
-					"description": "Reports whether the named neuraldeep provider has a server-side hub login, masked, plus the credential source requests actually use (`oauth`, `api_key`, `api_key_command`, `env`, or `none`). `hub` names the hub that issued the stored login and `endpoint_hub` the hub a sign-in for the endpoint in **`api_base`** (default: the saved row's) would use; Settings warns when they differ, because a key minted by one deployment is not honored by the other. Key values are never returned. A valid unsaved provider name is accepted so Settings can show status before config is saved.",
+					"description": "Reports whether the named neuraldeep provider has a server-side hub login, masked, plus the credential source requests actually use (`oauth`, `api_key`, `api_key_command`, `env`, or `none`). `hub` names the hub that issued the stored login and `endpoint_hub` the hub a sign-in for the endpoint in **`api_base`** (default: the saved row's) would use; Settings warns when they differ, because a key minted by one deployment is not honored by the other. Key values are never returned. A valid unsaved provider name is accepted so Settings can show status before config is saved, and so is a saved row of another type that Settings is switching to neuraldeep: only its `proxy` applies, its `api_key`, `api_key_command` and `api_base` do not count toward `source` and `endpoint_hub`.",
 					"operationId": "getProviderNeuralDeepAuth",
 					"parameters": []interface{}{
 						codexProviderNameParameter(),
@@ -2096,7 +2094,6 @@ func openAPISpec() map[string]interface{} {
 					"responses": map[string]interface{}{
 						"200": jsonSchemaResponse("Non-secret NeuralDeep sign-in status.", "#/components/schemas/NeuralDeepAuthStatus"),
 						"400": errorResponseRef(),
-						"409": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -2108,7 +2105,6 @@ func openAPISpec() map[string]interface{} {
 					"responses": map[string]interface{}{
 						"200": jsonSchemaResponse("Connection status after sign-out.", "#/components/schemas/NeuralDeepAuthStatus"),
 						"400": errorResponseRef(),
-						"409": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -2116,7 +2112,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/providers/{name}/neuraldeep-auth/device": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Start NeuralDeep device authorization",
-					"description": "Starts the hub's RFC 8628 device flow for client `coddy`. The hub is the one paired with the deployment: **`api_base`** in the optional JSON body (the endpoint picked in Settings, possibly unsaved) or, when the body is absent, the saved row's `api_base`; a body value that is not one of the official endpoints is refused with 400 before the hub is contacted. A new start supersedes the provider's previous pending attempt, including one still waiting for the hub (that one answers 409); a sign-out cancels a pending start the same way. Open `verification_url` (it carries the pre-filled code), confirm on the hub portal, then poll the returned `login_id`. The server polls the hub and stores the key with restrictive file permissions.",
+					"description": "Starts the hub's RFC 8628 device flow for client `coddy`. The request must be `Content-Type: application/json`, the body optional; any other type is refused with 415 before the hub is contacted, because a page on another site can send the other types without a preflight. The hub is the one paired with the deployment: **`api_base`** in the optional JSON body (the endpoint picked in Settings, possibly unsaved) or, when the body is absent, the saved row's `api_base` (none for a row still saved as another type, so the default deployment); a body value that is not one of the official endpoints is refused with 400 before the hub is contacted. A new start supersedes the provider's previous pending attempt, including one still waiting for the hub (that one answers 409); a sign-out cancels a pending start the same way. Open `verification_url` (it carries the pre-filled code), confirm on the hub portal, then poll the returned `login_id`. The server polls the hub and stores the key with restrictive file permissions.",
 					"operationId": "startProviderNeuralDeepDeviceAuth",
 					"parameters":  []interface{}{codexProviderNameParameter()},
 					"requestBody": map[string]interface{}{
@@ -2131,6 +2127,7 @@ func openAPISpec() map[string]interface{} {
 						"200": jsonSchemaResponse("Device authorization instructions.", "#/components/schemas/NeuralDeepAuthDeviceStart"),
 						"400": errorResponseRef(),
 						"409": errorResponseRef(),
+						"415": errorResponseRef(),
 						"502": errorResponseRef(),
 					},
 				},
@@ -2171,7 +2168,6 @@ func openAPISpec() map[string]interface{} {
 						"200": jsonSchemaResponse("Current device authorization state.", "#/components/schemas/CodexAuthDeviceStatus"),
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
-						"409": errorResponseRef(),
 					},
 				},
 			},
@@ -2991,6 +2987,10 @@ func openAPISpec() map[string]interface{} {
 							"type": "string", "enum": []string{"coddy", "codex_cli"},
 						},
 						"account_id": map[string]string{"type": "string"},
+						"cli_login_row": map[string]interface{}{
+							"type":        "string",
+							"description": "Set when this row is not signed in while a Codex CLI login exists on the server that it may not use: the row that login serves. The Codex CLI login is one account and stands in for one codex row - the only one, or the row named `codex` among several.",
+						},
 					},
 					"required": []string{"connected"},
 				},
@@ -3759,7 +3759,7 @@ func codexProviderNameParameter() map[string]interface{} {
 		"in":          "path",
 		"required":    true,
 		"schema":      map[string]string{"type": "string"},
-		"description": "Codex provider name. Valid unsaved provider names are accepted by the OAuth routes.",
+		"description": "Provider name. The sign-in routes also accept a valid unsaved name and a saved row of another type, which Settings may be switching before the save.",
 	}
 }
 

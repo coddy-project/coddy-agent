@@ -7,6 +7,11 @@ type AuthStatus = {
   connected: boolean;
   source?: string;
   account_id?: string;
+  /**
+   * The row the Codex CLI login on the server serves, when this row may not
+   * use it: that login is one account and stands in for one codex row.
+   */
+  cli_login_row?: string;
 };
 
 type DeviceLogin = {
@@ -115,7 +120,13 @@ export function CodexAuthField(props: { providerName: string }) {
     setError("");
     setLogin(null);
     try {
-      const response = await fetch(`${endpoint}/device`, { method: "POST" });
+      // JSON even without a payload: the server refuses any other content
+      // type, the ones a cross-site page could send without a preflight.
+      const response = await fetch(`${endpoint}/device`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
       if (!response.ok) {
         throw new Error(await responseError(response));
       }
@@ -162,6 +173,14 @@ export function CodexAuthField(props: { providerName: string }) {
       />
       {status.connected ? (
         <p className="settings-muted codex-auth-status">{connectedLabel}</p>
+      ) : null}
+      {!status.connected && status.cli_login_row ? (
+        <p
+          className="settings-field-desc"
+          data-testid="codex-auth-cli-other-row"
+        >
+          {t("codexAuth.cliLoginOtherRow", { row: status.cli_login_row })}
+        </p>
       ) : null}
       {login?.user_code && login.verification_url ? (
         <div className="codex-auth-device">

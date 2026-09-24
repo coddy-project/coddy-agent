@@ -57,6 +57,11 @@ func (r *runner) probeProvider(ctx context.Context, prov *config.ProviderConfig,
 			fmt.Sprintf("set api_key or api_key_command, or export %s; a local server needs api_base instead", env)))
 		return append(out, r.skipModels(models, "provider "+prov.Name+" has no credential")...)
 	}
+	if msg, elsewhere := r.cliLoginElsewhere(prov, key); elsewhere {
+		out = append(out, r.check(StatusError, path, path, msg,
+			fmt.Sprintf("run `coddy providers login %s` or sign in from Settings; each row of a type keeps a login of its own", prov.Name)))
+		return append(out, r.skipModels(models, "provider "+prov.Name+" is not signed in")...)
+	}
 
 	in := llm.ProviderInput{
 		Name:     prov.Name,
@@ -65,7 +70,10 @@ func (r *runner) probeProvider(ctx context.Context, prov *config.ProviderConfig,
 		BaseURL:  prov.APIBase,
 		ProxyURL: prov.Proxy,
 		AuthPath: config.ProviderAuthPath(r.req.Paths.Home, prov.Name, prov.Type),
-		Timeout:  r.req.Timeout,
+		// The account a request of this row would use: the CLI login of the
+		// type serves one row only.
+		NoCLILogin: !r.req.Cfg.ProviderMayUseCLILogin(prov.Name, prov.Type),
+		Timeout:    r.req.Timeout,
 	}
 	pctx, cancel := context.WithTimeout(ctx, r.req.Timeout)
 	defer cancel()
@@ -245,4 +253,35 @@ func sample(names []string, n int) string {
 		return strings.Join(names, ", ")
 	}
 	return strings.Join(names[:n], ", ") + fmt.Sprintf(" and %d more", len(names)-n)
+}
+
+// cliLoginElsewhere reports a codex or devin row that has no login of its own
+// while the machine-wide CLI login of its type exists but serves another row
+// (config.Config.CLILoginRow), so the probe names that instead of failing on
+// a request with no credential.
+func (r *runner) cliLoginElsewhere(prov *config.ProviderConfig, explicitKey string) (string, bool) {
+	cfg := r.req.Cfg
+	if cfg.ProviderMayUseCLILogin(prov.Name, prov.Type) {
+		return "", false
+	}
+	switch prov.Type {
+	case "codex":
+		if !llm.CodexCLILoginPresent() {
+			return "", false
+		}
+		if st, err := llm.InspectCodexAuth(config.CodexAuthPath(r.req.Paths.Home, prov.Name), false); err != nil || st.Connected {
+			return "", false
+		}
+		return fmt.Sprintf("not signed in: the Codex CLI login at %s serves %s", llm.CodexCLIAuthPath(), llm.CLILoginServes(cfg, "codex")), true
+	case "devin":
+		present, path := llm.DevinCLILoginPresent()
+		if strings.TrimSpace(explicitKey) != "" || !present {
+			return "", false
+		}
+		if st, err := llm.InspectDevinAuth(config.DevinAuthPath(r.req.Paths.Home, prov.Name), false); err != nil || st.Connected {
+			return "", false
+		}
+		return fmt.Sprintf("not signed in: the Devin CLI login at %s serves %s", path, llm.CLILoginServes(cfg, "devin")), true
+	}
+	return "", false
 }

@@ -5,7 +5,6 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
-	"mime"
 	"net/http"
 	"strings"
 
@@ -80,12 +79,10 @@ type providerModelsRequest struct {
 // {"ok":false,"error":...} with HTTP 200 on an upstream failure, 400 for a
 // malformed or invalid body.
 func (s *Server) coddyProviderModelsPost(w http.ResponseWriter, r *http.Request) {
-	// Only a JSON body is read. A page on another site can make a browser
-	// POST here without a preflight only as a "simple" request (text/plain, a
-	// form encoding), and an unauthenticated loopback server would otherwise
-	// run the posted api_key_command, or send a stored key upstream, for it.
-	if mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mediaType != "application/json" {
-		writeCoddyConfigErr(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+	// Only a JSON body is read: an unauthenticated loopback server would
+	// otherwise run the posted api_key_command, or send a stored key
+	// upstream, for a page on another site (see requireJSONRequest).
+	if !requireJSONRequest(w, r) {
 		return
 	}
 	c := s.activeCfg()
@@ -150,6 +147,9 @@ func (s *Server) writeProviderModels(w http.ResponseWriter, ctx context.Context,
 		BaseURL:  prov.APIBase,
 		ProxyURL: prov.Proxy,
 		AuthPath: config.ProviderAuthPath(c.Paths.Home, prov.Name, prov.Type),
+		// An unsaved row counts toward the rows of its type too, so the
+		// preview uses the account a saved row would.
+		NoCLILogin: !c.ProviderMayUseCLILogin(prov.Name, prov.Type),
 	})
 	w.Header().Set("Content-Type", "application/json")
 	if err != nil {

@@ -623,6 +623,8 @@ export const messagesRu: Record<string, string> = {
   "codexAuth.connected.viaCli":
     "Подключено через вход Codex CLI на этом сервере.",
   "codexAuth.connected.withChatGpt": "Подключено через ChatGPT.",
+  "codexAuth.cliLoginOtherRow":
+    "Вход Codex CLI на этом сервере закреплён за строкой {row}. Войдите, чтобы у этой строки был свой аккаунт.",
   "codexAuth.fieldLabel": "Аккаунт ChatGPT",
   "codexAuth.description":
     "Codex использует вашу подписку ChatGPT через OAuth. Учётные данные хранятся на сервере Coddy и никогда не добавляются в config.yaml.",
@@ -651,6 +653,8 @@ export const messagesRu: Record<string, string> = {
   "neuralDeepAuth.connected": "Выполнен вход в NeuralDeep ({masked}).",
   "neuralDeepAuth.shadowedByKey":
     "Задан явный API-ключ, поэтому запросы используют его, а не этот вход. Очистите поле api_key, чтобы использовать вход.",
+  "neuralDeepAuth.shadowedByEnv":
+    "На сервере Coddy задана переменная окружения {env}, поэтому запросы используют её, а не этот вход. Уберите её или дайте провайдеру имя, для которого переменная не задана.",
   "neuralDeepAuth.hubMismatch":
     "Этот вход выдан хабом {hub}, а {endpoint} обслуживает другой хаб, поэтому запросы с этим ключом отклоняются. Войдите заново, чтобы получить ключ для этого эндпоинта.",
   "neuralDeepAuth.enterCode":

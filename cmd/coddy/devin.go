@@ -36,15 +36,21 @@ func devinLogin(cfg *config.Config, prov *config.ProviderConfig, useDevinCLI, no
 	defer stop()
 
 	if useDevinCLI {
+		// The Devin CLI login is one account and serves one row; tying a
+		// second row to it would make two profiles of one account.
+		if !cfg.ProviderMayUseCLILogin(prov.Name, "devin") {
+			return fmt.Errorf("devin login: the Devin CLI login serves %s; sign provider %q in with `%s providers login %s` instead",
+				llm.CLILoginServes(cfg, "devin"), prov.Name, os.Args[0], prov.Name)
+		}
 		// A Coddy-managed login wins over the Devin CLI one at every request,
 		// so going on would publish one account's catalog while the requests
 		// run on another.
-		if managed, _ := llm.InspectDevinAuth(authPath); managed.Source == llm.DevinSourceCoddy {
+		if managed, _ := llm.InspectDevinAuth(authPath, false); managed.Source == llm.DevinSourceCoddy {
 			return fmt.Errorf("devin login: provider %q has a Coddy-managed login at %s, which takes precedence over the Devin CLI login; run `%s providers logout %s` first",
 				prov.Name, authPath, os.Args[0], prov.Name)
 		}
 		cliPath := llm.DevinCLICredentialsPath()
-		st, account, err := llm.VerifyDevinCredential(ctx, client, "", "")
+		st, account, err := llm.VerifyDevinCredential(ctx, client, "", "", true)
 		if err != nil {
 			return fmt.Errorf("devin login: the Devin CLI login at %s cannot be used: %w", cliPath, err)
 		}
@@ -130,7 +136,8 @@ func summarizeAdded(added []string) string {
 
 // devinCredentialSummary is the `providers list` line of a devin row.
 func devinCredentialSummary(cfg *config.Config, prov *config.ProviderConfig) string {
-	st, err := llm.InspectDevinAuth(config.DevinAuthPath(cfg.Paths.Home, prov.Name))
+	cliLogin := cfg.ProviderMayUseCLILogin(prov.Name, "devin")
+	st, err := llm.InspectDevinAuth(config.DevinAuthPath(cfg.Paths.Home, prov.Name), cliLogin)
 	explicit := explicitKeySource(prov)
 	switch {
 	case err != nil:
@@ -148,6 +155,9 @@ func devinCredentialSummary(cfg *config.Config, prov *config.ProviderConfig) str
 	case st.Source == llm.DevinSourceDevinCLI:
 		return "Devin CLI login " + st.Path + " (" + st.Masked + ")"
 	default:
+		if present, _ := llm.DevinCLILoginPresent(); present && !cliLogin {
+			return "not connected (the Devin CLI login serves " + llm.CLILoginServes(cfg, "devin") + "); run `" + os.Args[0] + " providers login " + prov.Name + "`"
+		}
 		return "not connected; run `" + os.Args[0] + " providers login " + prov.Name + "` (or `devin auth login`)"
 	}
 }
@@ -158,7 +168,7 @@ func devinLogout(cfg *config.Config, prov *config.ProviderConfig) error {
 		return fmt.Errorf("providers logout: %w", err)
 	}
 	fmt.Printf("Removed the Coddy-managed Devin credential for provider %q.\n", prov.Name)
-	if st, err := llm.InspectDevinAuth(authPath); err == nil && st.Source == llm.DevinSourceDevinCLI {
+	if st, err := llm.InspectDevinAuth(authPath, cfg.ProviderMayUseCLILogin(prov.Name, "devin")); err == nil && st.Source == llm.DevinSourceDevinCLI {
 		fmt.Printf("The Devin CLI login at %s stays and the provider keeps using it; run `devin auth logout` to end that one.\n", st.Path)
 	}
 	return nil

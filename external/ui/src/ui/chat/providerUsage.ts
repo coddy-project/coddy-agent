@@ -144,7 +144,10 @@ export function formatResetTime(
   const diff = at.getTime() - now.getTime();
   const day = 24 * 3600 * 1000;
   if (diff < day) {
-    return at.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
+    return at.toLocaleTimeString(locale, {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   }
   if (diff < 7 * day) {
     return at.toLocaleString(locale, {
@@ -289,7 +292,8 @@ export function summarizeUsage(
     // bypass or wallet-only key stays silent rather than claiming the
     // account's quota could not be read.
     const quotaSource = !!u.providerType && u.providerType !== "neuraldeep";
-    if (quotaSource && (u.plan || failed)) return { kind: "unavailable", failed };
+    if (quotaSource && (u.plan || failed))
+      return { kind: "unavailable", failed };
     if (!u.wallet) return { kind: "none" };
   }
   const warn = windows.some(
@@ -307,9 +311,12 @@ export function summarizeUsage(
 }
 
 /** The window that first crosses the warning threshold (banner subject). */
-export function usageWarnWindow(u: ProviderUsage | null | undefined): UsageWindow | null {
+export function usageWarnWindow(
+  u: ProviderUsage | null | undefined,
+): UsageWindow | null {
   for (const w of u?.windows ?? []) {
-    if (usagePercent(w.usedPercent) >= USAGE_WARN_PERCENT || w.exhausted) return w;
+    if (usagePercent(w.usedPercent) >= USAGE_WARN_PERCENT || w.exhausted)
+      return w;
   }
   return null;
 }
@@ -318,9 +325,10 @@ export function usageWarnWindow(u: ProviderUsage | null | undefined): UsageWindo
  *  must reach the hub (a reset or a retry) or may come from the cache (a
  *  refresh the server deferred). Zero when nothing is pending. The
  *  per-minute rate never arms a read. */
-export function usageNextReadMs(
-  u: ProviderUsage | null | undefined,
-): { delayMs: number; forced: boolean } {
+export function usageNextReadMs(u: ProviderUsage | null | undefined): {
+  delayMs: number;
+  forced: boolean;
+} {
   if (!u) return { delayMs: 0, forced: false };
   let best = 0;
   let forced = false;
@@ -339,19 +347,28 @@ export function usageNextReadMs(
   if (best === 0) return { delayMs: 0, forced: false };
   // A browser timer past 2^31-1 ms fires at once; a block the hub measures
   // in weeks waits for the cap instead of re-reading in a loop.
-  const delayMs = Math.min(best * 1000 + USAGE_RESET_GRACE_MS, USAGE_TIMER_MAX_MS);
+  const delayMs = Math.min(
+    best * 1000 + USAGE_RESET_GRACE_MS,
+    USAGE_TIMER_MAX_MS,
+  );
   return { delayMs, forced };
 }
 
 /** A window whose reset the snapshot says has passed, keyed for the single follow-up. */
-export function usagePassedResetKey(u: ProviderUsage | null | undefined): string {
+export function usagePassedResetKey(
+  u: ProviderUsage | null | undefined,
+): string {
   // NeuralDeep's day window is a wallet budget meter that resets constantly;
   // for the quota sources a passed day reset is a real refresh signal.
   const skipDay = u?.providerType === "neuraldeep";
   for (const w of u?.windows ?? []) {
     // The server omits a zero resetInSec (Go omitempty): absent means the
     // reset already passed, the same as an explicit 0.
-    if ((w.resetInSec ?? 0) === 0 && w.resetsAt && (!skipDay || w.id !== "day")) {
+    if (
+      (w.resetInSec ?? 0) === 0 &&
+      w.resetsAt &&
+      (!skipDay || w.id !== "day")
+    ) {
       return `${w.id}@${w.resetsAt}`;
     }
   }
@@ -393,6 +410,19 @@ export function usageProviderBrand(u: ProviderUsage): string {
     default:
       return u.provider;
   }
+}
+
+/**
+ * The heading of a usage block: the brand, then the row unless it is named
+ * after its type, so several profiles of one type are told apart
+ * ("Codex · codex-work"). The banner's sentence keeps the brand alone.
+ */
+export function usageProviderTitle(u: ProviderUsage): string {
+  const brand = usageProviderBrand(u);
+  const row = (u.provider ?? "").trim();
+  return row && brand !== row && row !== u.providerType
+    ? `${brand} · ${row}`
+    : brand;
 }
 
 /**

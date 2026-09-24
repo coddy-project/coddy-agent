@@ -615,6 +615,8 @@ export const messagesEn: Record<string, string> = {
   "codexAuth.connected.viaCli":
     "Connected via the Codex CLI login on this server.",
   "codexAuth.connected.withChatGpt": "Connected with ChatGPT.",
+  "codexAuth.cliLoginOtherRow":
+    "The Codex CLI login on this server is used by the row {row}. Sign in to give this row an account of its own.",
   "codexAuth.fieldLabel": "ChatGPT account",
   "codexAuth.description":
     "Codex uses your ChatGPT subscription through OAuth. Credentials are stored on the Coddy server and are never added to config.yaml.",
@@ -643,6 +645,8 @@ export const messagesEn: Record<string, string> = {
   "neuralDeepAuth.connected": "Signed in to NeuralDeep ({masked}).",
   "neuralDeepAuth.shadowedByKey":
     "An explicit API key is configured, so requests use it instead of this login. Clear the api_key field to use the login.",
+  "neuralDeepAuth.shadowedByEnv":
+    "The {env} environment variable is set on the Coddy server, so requests use it instead of this login. Unset it, or give the provider a name whose variable is not set.",
   "neuralDeepAuth.hubMismatch":
     "This login was issued by {hub}, but {endpoint} is served by a different hub, so requests with it are rejected. Sign in again to get a key for this endpoint.",
   "neuralDeepAuth.enterCode":

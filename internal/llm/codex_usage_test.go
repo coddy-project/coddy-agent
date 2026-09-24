@@ -59,7 +59,7 @@ func TestCodexUsageHappyPayloadPreservesRawWindowsAndHeaders(t *testing.T) {
 		Type:    "codex",
 		APIBase: "https://attacker.invalid/ignored",
 		APIKey:  "ignored-key",
-	}, authPath)
+	}, authPath, true)
 	if err != nil {
 		t.Fatalf("CodexUsageForProvider: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestCodexUsagePlanOnlyAndNullWindowsAreValid(t *testing.T) {
 	defer srv.Close()
 	t.Setenv(EnvCodexBaseURL, srv.URL+"/prefix")
 
-	usage, err := CodexUsageForProvider(context.Background(), config.ProviderConfig{Name: "codex", Type: "codex"}, authPath)
+	usage, err := CodexUsageForProvider(context.Background(), config.ProviderConfig{Name: "codex", Type: "codex"}, authPath, true)
 	if err != nil {
 		t.Fatalf("CodexUsageForProvider: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestCodexUsageManagedFallbackAndTransientRefreshFailure(t *testing.T) {
 	defer srv.Close()
 	t.Setenv(EnvCodexBaseURL, srv.URL+"/backend-api/codex")
 
-	usage, err := CodexUsageForProvider(context.Background(), config.ProviderConfig{Name: "codex", Type: "codex"}, managedPath)
+	usage, err := CodexUsageForProvider(context.Background(), config.ProviderConfig{Name: "codex", Type: "codex"}, managedPath, true)
 	if err != nil {
 		t.Fatalf("fallback CodexUsageForProvider: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestCodexUsageManagedFallbackAndTransientRefreshFailure(t *testing.T) {
 	writeCodexUsageAuth(t, managedDir, makeJWT(time.Now().Add(-time.Hour)), "managed-refresh", "acct-managed")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = CodexUsageForProvider(ctx, config.ProviderConfig{Name: "codex", Type: "codex"}, managedPath)
+	_, err = CodexUsageForProvider(ctx, config.ProviderConfig{Name: "codex", Type: "codex"}, managedPath, true)
 	var ue *ProviderUsageError
 	if !errors.As(err, &ue) || ue.Kind != ProviderUsageUnavailable {
 		t.Fatalf("refresh cancellation error = %#v, want unavailable ProviderUsageError", err)
@@ -173,7 +173,7 @@ func TestCodexUsageErrorsStatusesRetryAndNoSecretLeak(t *testing.T) {
 			}))
 			defer srv.Close()
 			t.Setenv(EnvCodexBaseURL, srv.URL+"/backend-api/codex")
-			_, err := CodexUsageForProvider(context.Background(), config.ProviderConfig{Name: "codex", Type: "codex"}, authPath)
+			_, err := CodexUsageForProvider(context.Background(), config.ProviderConfig{Name: "codex", Type: "codex"}, authPath, true)
 			var ue *ProviderUsageError
 			if !errors.As(err, &ue) || ue.Status != tt.status || ue.Kind != tt.wantKind {
 				t.Fatalf("error = %#v, want status %d kind %s", err, tt.status, tt.wantKind)
@@ -206,7 +206,7 @@ func TestCodexUsageRejectsMalformedPayloads(t *testing.T) {
 			srv := codexUsageServer(t, body)
 			defer srv.Close()
 			t.Setenv(EnvCodexBaseURL, srv.URL+"/backend-api/codex")
-			_, err := CodexUsageForProvider(context.Background(), config.ProviderConfig{Name: "codex", Type: "codex"}, authPath)
+			_, err := CodexUsageForProvider(context.Background(), config.ProviderConfig{Name: "codex", Type: "codex"}, authPath, true)
 			var ue *ProviderUsageError
 			if !errors.As(err, &ue) || ue.Kind != ProviderUsageInvalid {
 				t.Fatalf("error = %#v, want invalid ProviderUsageError", err)
@@ -232,7 +232,7 @@ func TestCodexUsageBlocksRedirectsAndHonorsCancellation(t *testing.T) {
 	defer redirector.Close()
 	t.Setenv(EnvCodexBaseURL, redirector.URL+"/backend-api/codex")
 
-	_, err := CodexUsageForProvider(context.Background(), config.ProviderConfig{Name: "codex", Type: "codex"}, authPath)
+	_, err := CodexUsageForProvider(context.Background(), config.ProviderConfig{Name: "codex", Type: "codex"}, authPath, true)
 	var ue *ProviderUsageError
 	if !errors.As(err, &ue) || ue.Kind != ProviderUsageUnavailable || ue.Status != http.StatusFound {
 		t.Fatalf("redirect error = %#v", err)
@@ -243,7 +243,7 @@ func TestCodexUsageBlocksRedirectsAndHonorsCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = CodexUsageForProvider(ctx, config.ProviderConfig{Name: "codex", Type: "codex"}, authPath)
+	_, err = CodexUsageForProvider(ctx, config.ProviderConfig{Name: "codex", Type: "codex"}, authPath, true)
 	if !errors.As(err, &ue) || ue.Kind != ProviderUsageUnavailable {
 		t.Fatalf("cancellation error = %#v, want unavailable ProviderUsageError", err)
 	}
@@ -254,7 +254,7 @@ func TestCodexUsageFingerprintTracksRelevantCredentialEndpointAndProxy(t *testin
 	authPath := writeCodexUsageAuth(t, dir, "access-one", "refresh-one", "acct-one")
 	t.Setenv(EnvCodexBaseURL, "https://example.test/backend-api/codex")
 	provider := config.ProviderConfig{Name: "codex", Type: "codex", APIBase: "https://ignored.invalid", APIKey: "ignored", Proxy: "none"}
-	base := CodexUsageFingerprint(provider, authPath)
+	base := CodexUsageFingerprint(provider, authPath, true)
 	if base == "" {
 		t.Fatal("fingerprint is empty")
 	}
@@ -263,28 +263,28 @@ func TestCodexUsageFingerprintTracksRelevantCredentialEndpointAndProxy(t *testin
 	}
 	provider.APIBase = "https://changed-ignored.invalid"
 	provider.APIKey = "changed-ignored"
-	if got := CodexUsageFingerprint(provider, authPath); got != base {
+	if got := CodexUsageFingerprint(provider, authPath, true); got != base {
 		t.Fatalf("fingerprint changed for ignored api_base/api_key: %q vs %q", got, base)
 	}
 
 	writeCodexUsageAuthRaw(t, authPath, codexAuthFile{AuthMode: codexAuthModeChatGPT, LastRefresh: "later", Tokens: codexTokens{AccessToken: "access-one", RefreshToken: "refresh-one", AccountID: "acct-one"}})
-	if got := CodexUsageFingerprint(provider, authPath); got != base {
+	if got := CodexUsageFingerprint(provider, authPath, true); got != base {
 		t.Fatalf("fingerprint changed for irrelevant last_refresh: %q vs %q", got, base)
 	}
 	writeCodexUsageAuthRaw(t, authPath, codexAuthFile{AuthMode: codexAuthModeChatGPT, Tokens: codexTokens{AccessToken: "access-two", RefreshToken: "refresh-one", AccountID: "acct-one"}})
-	if got := CodexUsageFingerprint(provider, authPath); got == base {
+	if got := CodexUsageFingerprint(provider, authPath, true); got == base {
 		t.Fatalf("fingerprint did not change after access credential rotation")
 	}
 	writeCodexUsageAuthRaw(t, authPath, codexAuthFile{AuthMode: codexAuthModeChatGPT, Tokens: codexTokens{AccessToken: "access-one", RefreshToken: "refresh-one", AccountID: "acct-two"}})
-	if got := CodexUsageFingerprint(provider, authPath); got == base {
+	if got := CodexUsageFingerprint(provider, authPath, true); got == base {
 		t.Fatalf("fingerprint did not change after account id change")
 	}
 	provider.Proxy = "inherit"
-	if got := CodexUsageFingerprint(provider, authPath); got == base {
+	if got := CodexUsageFingerprint(provider, authPath, true); got == base {
 		t.Fatalf("fingerprint did not change after proxy change")
 	}
 	t.Setenv(EnvCodexBaseURL, "https://example.test/other")
-	if got := CodexUsageFingerprint(config.ProviderConfig{Name: "codex", Type: "codex", Proxy: "none"}, authPath); got == base {
+	if got := CodexUsageFingerprint(config.ProviderConfig{Name: "codex", Type: "codex", Proxy: "none"}, authPath, true); got == base {
 		t.Fatalf("fingerprint did not change after effective endpoint change")
 	}
 }
@@ -293,12 +293,12 @@ func TestCodexUsageFingerprintManagedFallbackAndMissingFiles(t *testing.T) {
 	cliHome := t.TempDir()
 	t.Setenv("CODEX_HOME", cliHome)
 	managedPath := filepath.Join(t.TempDir(), "auth.json")
-	missing := CodexUsageFingerprint(config.ProviderConfig{Name: "codex", Type: "codex"}, managedPath)
+	missing := CodexUsageFingerprint(config.ProviderConfig{Name: "codex", Type: "codex"}, managedPath, true)
 	if missing == "" {
 		t.Fatal("missing credential fingerprint should still be deterministic")
 	}
 	writeCodexUsageAuth(t, cliHome, "cli-access", "cli-refresh", "acct-cli")
-	fallback := CodexUsageFingerprint(config.ProviderConfig{Name: "codex", Type: "codex"}, managedPath)
+	fallback := CodexUsageFingerprint(config.ProviderConfig{Name: "codex", Type: "codex"}, managedPath, true)
 	if fallback == missing {
 		t.Fatalf("fingerprint did not change when CLI fallback appeared")
 	}
@@ -308,7 +308,7 @@ func TestCodexUsageFingerprintManagedFallbackAndMissingFiles(t *testing.T) {
 	if err := os.WriteFile(managedPath, []byte(`{malformed`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	managedMalformed := CodexUsageFingerprint(config.ProviderConfig{Name: "codex", Type: "codex"}, managedPath)
+	managedMalformed := CodexUsageFingerprint(config.ProviderConfig{Name: "codex", Type: "codex"}, managedPath, true)
 	if managedMalformed == fallback || managedMalformed == missing {
 		t.Fatalf("managed malformed file should win over fallback and missing: missing=%q fallback=%q managed=%q", missing, fallback, managedMalformed)
 	}
@@ -355,7 +355,7 @@ func TestCodexUsageErrorDetailsNeverEchoUpstream(t *testing.T) {
 			}))
 			defer srv.Close()
 			t.Setenv(EnvCodexBaseURL, srv.URL)
-			_, err := CodexUsageForProvider(context.Background(), config.ProviderConfig{}, authPath)
+			_, err := CodexUsageForProvider(context.Background(), config.ProviderConfig{}, authPath, true)
 			var ue *ProviderUsageError
 			if !errors.As(err, &ue) || ue.Status != 429 || ue.Kind != ProviderUsageUnavailable || ue.RetryAfter != 3*time.Second {
 				t.Fatalf("error = %#v", err)
@@ -374,7 +374,7 @@ func TestCodexUsageErrorDetailsNeverEchoUpstream(t *testing.T) {
 				}))
 			}
 			t.Setenv(EnvCodexBaseURL, "https://example.test/"+url.PathEscape(opaque))
-			_, err := CodexUsageForProvider(context.Background(), provider, authPath)
+			_, err := CodexUsageForProvider(context.Background(), provider, authPath, true)
 			var ue *ProviderUsageError
 			if !errors.As(err, &ue) || ue.Kind != ProviderUsageUnavailable {
 				t.Fatalf("error = %#v", err)
@@ -465,7 +465,7 @@ func TestCodexUsageRefreshAndUsageShareDeadline(t *testing.T) {
 		clone.URL.Scheme, clone.URL.Host = local.Scheme, local.Host
 		return srv.Client().Transport.RoundTrip(clone)
 	}))
-	if _, err := CodexUsageForProvider(context.Background(), provider, authPath); err != nil {
+	if _, err := CodexUsageForProvider(context.Background(), provider, authPath, true); err != nil {
 		t.Fatal(err)
 	}
 	if len(deadlines) != 2 || !deadlines[0].Equal(deadlines[1]) {
@@ -490,7 +490,7 @@ func TestCodexUsageRefreshHonorsShortContextAndCancellation(t *testing.T) {
 				return nil, r.Context().Err()
 			}))
 			started := time.Now()
-			_, err := CodexUsageForProvider(ctx, provider, authPath)
+			_, err := CodexUsageForProvider(ctx, provider, authPath, true)
 			var ue *ProviderUsageError
 			if !errors.As(err, &ue) || ue.Kind != ProviderUsageUnavailable || ue.Detail != "credential unavailable" {
 				t.Fatalf("error = %#v", err)
@@ -515,18 +515,18 @@ func TestCodexUsageFingerprintStableJWTIdentity(t *testing.T) {
 			dir := t.TempDir()
 			path := writeCodexUsageAuth(t, dir, jwt(identity.sub, identity.user, 100), "renew-one", "workspace-a")
 			provider := config.ProviderConfig{Type: "codex"}
-			base := CodexUsageFingerprint(provider, path)
+			base := CodexUsageFingerprint(provider, path, true)
 			writeCodexUsageAuthRaw(t, path, codexAuthFile{AuthMode: codexAuthModeChatGPT, Tokens: codexTokens{AccessToken: jwt(identity.sub, identity.user, 200), RefreshToken: "renew-two", IDToken: "rotated-id", AccountID: "workspace-a"}})
-			if got := CodexUsageFingerprint(provider, path); got != base {
+			if got := CodexUsageFingerprint(provider, path, true); got != base {
 				t.Error("JWT rotation changed stable identity")
 			}
 			writeCodexUsageAuth(t, dir, jwt(identity.sub, identity.user, 100), "renew-one", "workspace-b")
-			if got := CodexUsageFingerprint(provider, path); got == base {
+			if got := CodexUsageFingerprint(provider, path, true); got == base {
 				t.Error("account change kept identity")
 			}
 			for _, changed := range []string{jwt("subject-b", identity.user, 100), jwt(identity.sub, "user-b", 100)} {
 				writeCodexUsageAuth(t, dir, changed, "renew-one", "workspace-a")
-				if got := CodexUsageFingerprint(provider, path); got == base {
+				if got := CodexUsageFingerprint(provider, path, true); got == base {
 					t.Error("user change kept identity in same workspace")
 				}
 			}
@@ -537,9 +537,9 @@ func TestCodexUsageFingerprintStableJWTIdentity(t *testing.T) {
 func TestCodexUsageFingerprintJWTWithoutIdentityStillTracksRotation(t *testing.T) {
 	dir := t.TempDir()
 	path := writeCodexUsageAuth(t, dir, makeJWT(time.Unix(100, 0)), "renew", "workspace")
-	base := CodexUsageFingerprint(config.ProviderConfig{}, path)
+	base := CodexUsageFingerprint(config.ProviderConfig{}, path, true)
 	writeCodexUsageAuth(t, dir, makeJWT(time.Unix(200, 0)), "renew", "workspace")
-	if CodexUsageFingerprint(config.ProviderConfig{}, path) == base {
+	if CodexUsageFingerprint(config.ProviderConfig{}, path, true) == base {
 		t.Fatal("JWT without user claims must track rotation")
 	}
 }
