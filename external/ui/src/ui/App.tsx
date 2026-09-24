@@ -137,6 +137,7 @@ import { pickReasoningLevel } from "./chat/reasoningSelection";
 import { SessionsSidebar } from "./sessions/SessionsSidebar";
 import { useConfirm } from "./components/useConfirm";
 import { useT } from "./i18n/I18nProvider";
+import { composerAutoFocusAllowed } from "./chat/composerFocus";
 import type { SessionRow } from "./sessions/types";
 import {
   type ArchiveMove,
@@ -1905,7 +1906,9 @@ export function App() {
 
   const prevSessionsOpenRef = useRef(false);
   useEffect(() => {
-    if (prevSessionsOpenRef.current && !sessionsOpen) {
+    // Back to the chat from History: the caret returns to the composer, except
+    // on a phone or a tablet, where it would open the keyboard (composerFocus.ts).
+    if (prevSessionsOpenRef.current && !sessionsOpen && composerAutoFocusAllowed()) {
       requestAnimationFrame(() => {
         document.getElementById("composer")?.focus();
       });

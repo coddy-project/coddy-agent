@@ -44,3 +44,11 @@ Feature: The web UI on a phone
   Scenario: The transcript never widens the page
     Then a tool row named after an MCP tool wraps its label inside the row and moves its target and duration under it together
     And a long link or identifier in an answer breaks instead of widening the page
+
+  Scenario: The on-screen keyboard opens when the reader asks for it
+    Then on a touch-only device opening the start screen or a chat leaves the composer unfocused
+    And a narrow desktop window still focuses the composer
+
+  Scenario: The scroll-to-bottom button with the on-screen keyboard open
+    Then the composer block and its scroll-to-bottom button rise above an overlaying keyboard
+    And the scroll-to-bottom button never moves the chat up

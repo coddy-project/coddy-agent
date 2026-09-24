@@ -641,6 +641,57 @@ test("a banner rising over the composer leaves a reader who scrolled up where th
   }
 });
 
+// The button takes the reader to the newest message, which is below them. A
+// measurement that puts "the bottom" above where the page already is (an
+// on-screen keyboard that lets the page scroll past the old end) must not send
+// them back up the transcript.
+test("the scroll-to-bottom button never moves the transcript up", async () => {
+  const { container } = render(<ChatScreen {...scrollBase} items={firstTurn} />);
+  const viewport = transcriptViewport(container, { scrollHeight: 1200, clientHeight: 400 });
+  viewport.scrollTop = 200;
+  fireEvent.scroll(viewport);
+  await waitFor(() => expect(scrollButtonShown()).toBe(true));
+
+  // The page went on past the end the transcript measures (800).
+  viewport.scrollTop = 900;
+  fireEvent.click(screen.getByTestId("chat-scroll-bottom"));
+  expect(viewport.scrollTop).toBe(900);
+  await waitFor(() => expect(scrollButtonShown()).toBe(false));
+});
+
+// iOS Safari keeps innerHeight when its keyboard opens and shrinks only the
+// visual viewport, so the composer block, fixed to the layout viewport's
+// bottom, rode under the keyboard with the scroll-to-bottom button on it. The
+// stacked shell lifts it by what the keyboard covers.
+test("on the stacked shell the composer block rises above an overlaying keyboard", () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query.includes("max-width: 1199px"),
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }));
+  const vv = Object.assign(new EventTarget(), { height: window.innerHeight, offsetTop: 0, scale: 1 });
+  Object.defineProperty(window, "visualViewport", { value: vv, configurable: true });
+  const root = document.documentElement;
+  try {
+    const { unmount } = render(<ChatScreen {...scrollBase} items={firstTurn} />);
+    expect(root.style.getPropertyValue("--coddy-keyboard-inset")).toBe("0px");
+    vv.height = window.innerHeight - 320;
+    act(() => {
+      vv.dispatchEvent(new Event("resize"));
+    });
+    expect(root.style.getPropertyValue("--coddy-keyboard-inset")).toBe("320px");
+    unmount();
+    expect(root.style.getPropertyValue("--coddy-keyboard-inset")).toBe("");
+  } finally {
+    Object.defineProperty(window, "visualViewport", { value: undefined, configurable: true });
+    vi.unstubAllGlobals();
+  }
+});
+
 test("the empty hero has no scroll-to-bottom button", () => {
   render(<ChatScreen {...scrollBase} sessionId="" title="" items={[]} />);
   expect(screen.queryByTestId("chat-scroll-bottom")).toBeNull();

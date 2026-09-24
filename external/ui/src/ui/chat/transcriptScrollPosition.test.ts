@@ -8,6 +8,7 @@ import {
   elementScrollBottom,
   elementTranscriptMetrics,
   isTranscriptAtBottom,
+  keyboardInset,
   transcriptDistanceFromBottom,
   transcriptJumpDurationMs,
 } from "./transcriptScrollPosition";
@@ -120,4 +121,59 @@ test("the jump leaves fast and settles into the end", () => {
   // Monotonic, and clamped outside the unit interval.
   expect(easeTranscriptJump(-1)).toBe(0);
   expect(easeTranscriptJump(2)).toBe(1);
+});
+
+// An on-screen keyboard that overlays the page (iOS Safari, and any browser
+// that ignores interactive-widget=resizes-content) leaves innerHeight alone and
+// shrinks the visual viewport. What the reader sees is the visual viewport, so
+// that is what "at the bottom" and "the bottom" are measured against.
+test("with an overlaying keyboard the document is measured by what is visible", () => {
+  const view = {
+    scrollY: 1300,
+    innerHeight: 844,
+    visualViewport: { height: 500, offsetTop: 0, scale: 1 },
+    document: {
+      body: { scrollHeight: 1800 },
+      documentElement: { scrollHeight: 1800 },
+    },
+  } as unknown as Window;
+  // The page shows 1300..1800: the end of the document is in view.
+  expect(documentTranscriptMetrics(view)).toEqual({
+    scrollHeight: 1800,
+    scrollTop: 1300,
+    clientHeight: 500,
+  });
+  expect(isTranscriptAtBottom(documentTranscriptMetrics(view))).toBe(true);
+  // The bottom is where the end of the document meets the top of the keyboard,
+  // not 1800 - 844 = 956, which is 344px back up the page.
+  expect(documentScrollBottom(view)).toBe(1300);
+});
+
+test("a visual viewport panned down the page counts from where it stands", () => {
+  const view = {
+    scrollY: 956,
+    innerHeight: 844,
+    visualViewport: { height: 500, offsetTop: 344, scale: 1 },
+    document: {
+      body: { scrollHeight: 1800 },
+      documentElement: { scrollHeight: 1800 },
+    },
+  } as unknown as Window;
+  expect(documentTranscriptMetrics(view).scrollTop).toBe(1300);
+  expect(documentScrollBottom(view)).toBe(956);
+});
+
+// The docked composer is fixed to the bottom of the layout viewport, which an
+// overlaying keyboard covers: it is lifted by what the keyboard hides.
+test("the keyboard inset is the part of the layout viewport the keyboard covers", () => {
+  const view = (vv: Record<string, number> | undefined) =>
+    ({ innerHeight: 844, visualViewport: vv }) as unknown as Window;
+  expect(keyboardInset(view({ height: 500, offsetTop: 0, scale: 1 }))).toBe(344);
+  // Panned so its bottom meets the layout viewport's: nothing is covered.
+  expect(keyboardInset(view({ height: 500, offsetTop: 344, scale: 1 }))).toBe(0);
+  // No keyboard, a keyboard that resizes the page, or no API at all.
+  expect(keyboardInset(view({ height: 844, offsetTop: 0, scale: 1 }))).toBe(0);
+  expect(keyboardInset(view(undefined))).toBe(0);
+  // A pinch zoom shrinks the visual viewport too, and is not a keyboard.
+  expect(keyboardInset(view({ height: 422, offsetTop: 100, scale: 2 }))).toBe(0);
 });

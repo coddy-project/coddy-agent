@@ -6601,11 +6601,13 @@ html:not([data-theme="light"]) .context-usage-note--error {
     flex-shrink: 0;
   }
 
+  /* Fixed to the layout viewport's bottom, lifted above an on-screen keyboard
+     that overlays the page (ChatScreen sets the inset from visualViewport). */
   .chat-bottom:has(.composer-wrap-docked) {
     position: fixed;
     left: 0;
     right: 0;
-    bottom: 0;
+    bottom: var(--coddy-keyboard-inset, 0px);
     z-index: 32;
     padding-inline: 14px;
     padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));

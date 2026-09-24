@@ -35,6 +35,7 @@ import {
 import { transcriptItemsAffectAutoScroll } from "./transcriptAutoScroll";
 import {
   documentScrollBottom,
+  keyboardInset,
   documentTranscriptMetrics,
   easeTranscriptJump,
   elementScrollBottom,
@@ -259,7 +260,13 @@ export function ChatScreen(props: {
     const reduceMotion =
       typeof window.matchMedia === "function" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (to <= from || reduceMotion) {
+    if (to <= from) {
+      // Already at the newest message, or past where this measure puts it: a
+      // "jump" to the smaller offset would take the reader back up the page.
+      syncTranscriptPosition();
+      return;
+    }
+    if (reduceMotion) {
       writeTranscriptScrollTop(to);
       return;
     }
@@ -268,8 +275,9 @@ export function ChatScreen(props: {
     const step = (now: number) => {
       const progress = (now - started) / duration;
       // The end is re-read every frame: a streaming turn keeps moving it down,
-      // and the travel should land on where the transcript is now.
-      const end = transcriptScrollBottom();
+      // and the travel should land on where the transcript is now. It never
+      // turns back up past where the jump started.
+      const end = Math.max(transcriptScrollBottom(), from);
       writeTranscriptScrollTop(
         from + (end - from) * easeTranscriptJump(progress),
       );
@@ -406,6 +414,31 @@ export function ChatScreen(props: {
     const el = messagesRef.current;
     el?.addEventListener("scroll", onScroll, { passive: true });
     return () => el?.removeEventListener("scroll", onScroll);
+  }, [isEmpty, mobileDocScroll, syncTranscriptPosition]);
+
+  // On the stacked shell the composer block is fixed to the bottom of the
+  // layout viewport, which an overlaying on-screen keyboard covers (iOS Safari
+  // ignores interactive-widget=resizes-content): the block rode under the
+  // keyboard, scroll-to-bottom button included. --coddy-keyboard-inset lifts it
+  // by what the keyboard hides (styles.css), and the reader's position is read
+  // again, since the keyboard changes how much of the transcript is in view.
+  useEffect(() => {
+    if (!mobileDocScroll) return undefined;
+    const vv = window.visualViewport;
+    if (!vv) return undefined;
+    const root = document.documentElement;
+    const apply = () => {
+      root.style.setProperty("--coddy-keyboard-inset", `${keyboardInset(window)}px`);
+      if (!isEmpty) syncTranscriptPosition();
+    };
+    apply();
+    vv.addEventListener("resize", apply);
+    vv.addEventListener("scroll", apply);
+    return () => {
+      vv.removeEventListener("resize", apply);
+      vv.removeEventListener("scroll", apply);
+      root.style.removeProperty("--coddy-keyboard-inset");
+    };
   }, [isEmpty, mobileDocScroll, syncTranscriptPosition]);
 
   // A child session is read-only on the server (409 on any prompt), so the
