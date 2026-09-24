@@ -37,6 +37,8 @@ vi.mock("./chat/ChatScreen", () => ({
 type SidebarProps = {
   sessions?: Array<{ id: string; archived?: boolean }>;
   error?: string | null;
+  loadingMore?: boolean;
+  onArchiveFilterChange?: (value: "exclude" | "only" | "all") => void;
   rowErrors?: Readonly<Record<string, string>>;
   onArchive?: (id: string, archived: boolean) => void;
   onPick?: (id: string) => void;
@@ -74,6 +76,10 @@ let storedIds: string[] = [];
 // read while it is in flight still carries the row.
 let applyPatchOnRelease = false;
 let failArchivePatch = false;
+// Later pages (a request with a cursor) wait for the test, or fail outright.
+let holdCursorPages = false;
+let throwCursorPages = false;
+const pageGate: Array<() => void> = [];
 
 function listPage(url: string) {
   const q = new URL(url, "http://coddy.test").searchParams;
@@ -135,6 +141,15 @@ const fetchStub = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
     return answer();
   }
   if (url.startsWith("/coddy/sessions?")) {
+    if (url.includes("cursor=")) {
+      if (throwCursorPages) throw new TypeError("Failed to fetch");
+      if (holdCursorPages) {
+        // The page is read when it is answered, like the real server's.
+        return new Promise<Response>((resolve) => {
+          pageGate.push(() => resolve(listPage(url)));
+        });
+      }
+    }
     return listPage(url);
   }
   if ((init?.method ?? "GET") === "PATCH") {
@@ -175,6 +190,12 @@ function releaseArchivePatch() {
 
 beforeEach(() => {
   initLocale("en");
+  // History remembers its filters in cookies; a test that switched to the
+  // archive must not open the next one there.
+  for (const pair of document.cookie.split(";")) {
+    const name = pair.split("=")[0]?.trim();
+    if (name) document.cookie = `${name}=; Max-Age=0; path=/`;
+  }
   chatScreenRenders.length = 0;
   chatOnUnarchive = undefined;
   sidebarOnArchive = undefined;
@@ -183,6 +204,9 @@ beforeEach(() => {
   storedIds = [];
   applyPatchOnRelease = false;
   failArchivePatch = false;
+  holdCursorPages = false;
+  throwCursorPages = false;
+  pageGate.length = 0;
   archivedById.clear();
   holdMessages = false;
   holdArchivePatch = false;
@@ -487,4 +511,72 @@ test("a page loaded while an archive is in flight skips no conversation", async 
   releaseArchivePatch();
   await act(async () => {});
   expect(shownIds()).toEqual(sessionIds(45).filter((id) => id !== "sess_03"));
+});
+
+// The operator switched to the archive while the PATCH was out; when it is
+// refused, the row it would put back belongs to a listing no longer on screen.
+test("a refused archive does not put the row into a list of another filter", async () => {
+  storedIds = sessionIds(12);
+  archivedById.set("sess_10", true);
+  holdArchivePatch = true;
+  failArchivePatch = true;
+  renderApp();
+  await openHistory();
+
+  await act(async () => {
+    sidebar.onArchive?.("sess_05", true);
+  });
+  await act(async () => {
+    sidebar.onArchiveFilterChange?.("only");
+  });
+  await waitFor(() => expect(shownIds()).toEqual(["sess_10"]));
+
+  releaseArchivePatch();
+  await act(async () => {});
+  expect(shownIds()).toEqual(["sess_10"]);
+  expect(sidebar.rowErrors?.["sess_05"]).toBeUndefined();
+  expect(sidebar.error).toBe("The conversation was not archived");
+});
+
+// A page asked for before the list was read again from the top belongs to
+// the listing that read replaced: appended to the new one, it would mix in
+// rows of another filter (or of an older order).
+test("a page that comes back after the list was read again is dropped", async () => {
+  storedIds = sessionIds(45);
+  archivedById.set("sess_40", true);
+  renderApp();
+  await openHistory();
+  holdCursorPages = true;
+  await act(async () => {
+    sidebar.onLoadMore?.();
+  });
+  expect(pageGate).toHaveLength(1);
+
+  await act(async () => {
+    sidebar.onArchiveFilterChange?.("only");
+  });
+  await waitFor(() => expect(shownIds()).toEqual(["sess_40"]));
+
+  await act(async () => {
+    pageGate.splice(0).forEach((release) => release());
+  });
+  await act(async () => {});
+  expect(shownIds()).toEqual(["sess_40"]);
+});
+
+test("a page that fails to load leaves History able to load it again", async () => {
+  storedIds = sessionIds(45);
+  throwCursorPages = true;
+  renderApp();
+  await openHistory();
+
+  await act(async () => {
+    sidebar.onLoadMore?.();
+  });
+  await waitFor(() => expect(sidebar.error).toBe("Backend is unavailable (0)"));
+  expect(sidebar.loadingMore).toBe(false);
+
+  throwCursorPages = false;
+  await loadNextPage();
+  expect(shownIds()).toHaveLength(45);
 });

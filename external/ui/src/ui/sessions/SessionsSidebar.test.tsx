@@ -757,6 +757,12 @@ test("a row carries the error of the change it refused, and only that row", () =
   expect(note).toHaveAttribute("role", "alert");
   expect(note).toHaveClass("session-row-error");
   expect(screen.getByTestId("session-row-b")).toContainElement(note);
+  // Beside the link, not inside it: the link is named by the conversation,
+  // not by the error of the last thing done to it.
+  expect(note.closest("a")).toBeNull();
+  expect(screen.getByTestId("session-row-b").querySelector("a")?.textContent).not.toContain(
+    "not archived",
+  );
   expect(screen.queryByTestId("session-row-error-a")).toBeNull();
   expect(screen.queryByTestId("sessions-error")).toBeNull();
 });

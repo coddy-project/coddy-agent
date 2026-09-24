@@ -89,11 +89,16 @@ export function rowPlace(rows: SessionRow[], id: string): RowPlace | null {
 /**
  * Puts a row back where it stood: before the row that followed it, or at its
  * old index when that row has gone too. A row already in the list only takes
- * its old flag back.
+ * its old flag back; whatever else changed on it meanwhile stays.
  */
 export function restoreRow(rows: SessionRow[], place: RowPlace): SessionRow[] {
   if (rows.some((row) => row.id === place.row.id)) {
-    return rows.map((row) => (row.id === place.row.id ? place.row : row));
+    const archived = !!place.row.archived;
+    return rows.map((row) =>
+      row.id === place.row.id && !!row.archived !== archived
+        ? { ...row, archived }
+        : row,
+    );
   }
   const before =
     place.nextId !== null ? rows.findIndex((row) => row.id === place.nextId) : -1;

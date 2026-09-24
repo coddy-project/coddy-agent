@@ -242,13 +242,18 @@ export function toolCallTargetRange(context: PermissionToolCallContext): string 
   if (toolName !== "read" || readsADirectory(context.argsText)) return "";
   const args = parseArgsText(context.argsText || "");
   if (!args) return "";
-  // Only a whole number is a line: the tool itself refuses anything else.
-  const lineArg = (name: string): number => {
+  // Only a whole number is a line: the tool refuses a call that passes
+  // anything else, so such a call names no range at all.
+  const lineArg = (name: string): number | null => {
     const value = args[name];
-    return typeof value === "number" && Number.isInteger(value) ? value : 0;
+    if (value === undefined || value === null) return 0;
+    return typeof value === "number" && Number.isInteger(value) ? value : null;
   };
-  const start = Math.max(1, lineArg("offset"));
+  const offset = lineArg("offset");
   const limit = lineArg("limit");
+  if (offset === null || limit === null) return "";
+  // An offset below 1 reads from the first line, as the tool does.
+  const start = Math.max(1, offset);
   if (limit > 0) return `:${start}-${start + limit - 1}`;
   return start > 1 ? `:${start}-` : "";
 }

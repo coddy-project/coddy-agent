@@ -1842,12 +1842,16 @@ a.rail-brand {
   margin-top: 3px;
 }
 
-/* A refused archive, on the row it put back: under the title and the tags, in
-   the failure colour of a tool row's marker. */
+/* A refused archive, on the row it put back: a line of its own under the
+   title and the tags, in the failure colour of a tool row's marker. It is a
+   sibling of the row's link, not part of it, so the row wraps to hold it. */
+.session-item.has-row-error {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
 .session-row-error {
-  grid-column: 2;
-  grid-row: 3;
-  margin-top: 3px;
+  flex: 0 0 100%;
   font-size: 10.5px;
   line-height: 1.4;
   color: color-mix(in srgb, var(--diff-del-no) 82%, var(--text));

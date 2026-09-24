@@ -377,7 +377,11 @@ export function ChatScreen(props: {
     if (isEmpty || !stickToBottomRef.current || jumpFrameRef.current !== null) {
       return;
     }
-    const follow = () => writeTranscriptScrollTop(transcriptScrollBottom());
+    const follow = () => {
+      // The reader may have taken the scrollbar in the frames this waited.
+      if (!stickToBottomRef.current || jumpFrameRef.current !== null) return;
+      writeTranscriptScrollTop(transcriptScrollBottom());
+    };
     if (mobileDocScroll) {
       // The document takes its new height after layout, not on this tick.
       requestAnimationFrame(() => requestAnimationFrame(follow));

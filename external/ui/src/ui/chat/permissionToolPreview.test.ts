@@ -368,6 +368,10 @@ test("toolCallTargetRange spells the lines a read takes", () => {
   // Values the tool would not take as a line number name no range.
   expect(read({ offset: -5, limit: 10 })).toBe(":1-10");
   expect(read({ offset: "120", limit: 2.5 })).toBe("");
+  // The tool refuses a call whose line numbers are not whole: no range at all,
+  // rather than one the call never had.
+  expect(read({ offset: 120, limit: 2.5 })).toBe("");
+  expect(read({ offset: 1.5 })).toBe("");
   expect(toolCallTargetRange({ title: "read", argsText: "not json" })).toBe("");
   // A listing has no lines: the tool ignores offset and limit on a directory,
   // and the row names it the way its label does.

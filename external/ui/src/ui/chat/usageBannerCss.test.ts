@@ -67,3 +67,15 @@ test("the banner names only tokens the themes define", () => {
     expect(block, selector).not.toMatch(/var\(--border\)/);
   }
 });
+
+// The dismiss control's hover wash mixes the text colour into
+// --coddy-blend-base, which every theme has to define for it to paint.
+test("every theme defines the blend base the hover wash is mixed into", () => {
+  for (const theme of THEMES) {
+    const block = new RegExp(
+      `\\[data-theme="${theme}"\\][^{]*\\{([^}]*)\\}`,
+      "s",
+    ).exec(css);
+    expect(block?.[1], theme).toMatch(/--coddy-blend-base:\s*[^;]+;/);
+  }
+});

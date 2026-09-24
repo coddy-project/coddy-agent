@@ -52,9 +52,13 @@ test("a row is put back before the row that followed it, or at its index", () =>
   // The neighbour is gone too: the old index, within the list.
   expect(ids(restoreRow(rows("a", "d"), place!))).toEqual(["a", "b", "d"]);
   expect(ids(restoreRow(rows(), place!))).toEqual(["b"]);
-  // Still listed (the "all" view): only its old flag comes back.
-  const flagged = restoreRow([{ id: "b", title: "b", archived: true }], { ...place!, row: { id: "b", title: "b" } });
-  expect(flagged).toEqual([{ id: "b", title: "b" }]);
+  // Still listed (the "all" view): only its old flag comes back, and what
+  // changed on the row meanwhile (a new title, new tags) stays.
+  const flagged = restoreRow(
+    [{ id: "b", title: "renamed", tags: ["x"], archived: true }],
+    { ...place!, row: { id: "b", title: "b", archived: false } },
+  );
+  expect(flagged).toEqual([{ id: "b", title: "renamed", tags: ["x"], archived: false }]);
 });
 
 test("bookkeeping older than every listing still out is dropped", () => {

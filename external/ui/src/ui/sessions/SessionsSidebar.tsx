@@ -397,6 +397,7 @@ export function SessionsSidebar(props: {
           "session-item",
           s.id === props.sessionId ? "active" : "",
           s.archived ? "is-archived" : "",
+          props.rowErrors?.[s.id] ? "has-row-error" : "",
           drag?.id === s.id ? "is-dragging" : "",
           drag && pinnedIndex >= 0 && drag.over === pinnedIndex
             ? "is-drop-target"
@@ -557,15 +558,6 @@ export function SessionsSidebar(props: {
                 ))}
               </div>
             ) : null}
-            {props.rowErrors?.[s.id] ? (
-              <span
-                className="session-row-error"
-                role="alert"
-                data-testid={`session-row-error-${s.id}`}
-              >
-                {props.rowErrors[s.id]}
-              </span>
-            ) : null}
           </a>
         )}
         {(() => {
@@ -677,6 +669,17 @@ export function SessionsSidebar(props: {
             </>
           );
         })()}
+        {/* Beside the link rather than inside it, so the link keeps the
+        conversation's name and the note is announced once, as an alert. */}
+        {props.rowErrors?.[s.id] ? (
+          <span
+            className="session-row-error"
+            role="alert"
+            data-testid={`session-row-error-${s.id}`}
+          >
+            {props.rowErrors[s.id]}
+          </span>
+        ) : null}
       </div>
     );
   };

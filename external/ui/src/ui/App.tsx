@@ -1062,6 +1062,10 @@ export function App() {
         readSessionPref(SESSION_PREF_COOKIES.status, isSessionArchiveFilter) ??
         DEFAULT_ARCHIVE_FILTER,
     );
+  // The filter on screen now, for an archive request that settles after the
+  // operator changed it (see runArchiveSession).
+  const sessionsArchiveFilterRef = useRef(sessionsArchiveFilter);
+  sessionsArchiveFilterRef.current = sessionsArchiveFilter;
   const [sessionsSortKey, setSessionsSortKey] = useState<SessionSortKey>(
     () =>
       readSessionPref(SESSION_PREF_COOKIES.sort, isHistorySortKey) ??
@@ -1095,6 +1099,9 @@ export function App() {
   const archiveMovesRef = useRef<Map<string, ArchiveMove>>(new Map());
   const sessionsListSeqRef = useRef(0);
   const sessionsListOpenRef = useRef<Set<number>>(new Set());
+  // The number of the latest listing read from the first page: a page issued
+  // before it belongs to the list that read replaced.
+  const sessionsListResetSeqRef = useRef(0);
   const archiveRemovalsRef = useRef<number[]>([]);
   // A refused archive, said on the row it put back: History is usually
   // scrolled away from the top of the list, where a list error is shown.
@@ -2355,18 +2362,30 @@ export function App() {
       ps.set("order", defaultSortOrder(sessionsSortKey));
       ps.set("include_activity", "true");
       const seq = ++sessionsListSeqRef.current;
+      if (reset) sessionsListResetSeqRef.current = seq;
       sessionsListOpenRef.current.add(seq);
       let res: { ok: boolean; status: number; data?: SessionsPage };
       try {
         res = await fetchJSON<SessionsPage>(`/coddy/sessions?${ps.toString()}`, {
           headers,
         });
+      } catch {
+        // A request that never got an answer; without this the loading flag
+        // below stayed up and History never asked for the page again.
+        res = { ok: false, status: 0 };
       } finally {
         sessionsListOpenRef.current.delete(seq);
       }
       if (!reset) {
         sessionsLoadingMoreRef.current = false;
         setSessionsLoadingMore(false);
+      }
+      // The list was read again from the top after this request left: its
+      // rows and its offset belong to the listing that read replaced (another
+      // filter, another order, or the same one before an archive).
+      if (seq < sessionsListResetSeqRef.current) {
+        pruneArchiveLists();
+        return null;
       }
       if (!res.ok || !res.data) {
         setSessionsError(t("app.backendUnavailable", { status: res.status }));
@@ -3236,7 +3255,12 @@ export function App() {
       const message = t(
         archived ? "sessions.archiveFailed" : "sessions.unarchiveFailed",
       );
-      if (place) {
+      // Only back into the listing it came from: the operator may have
+      // switched to the archive (or out of it) while the request was out.
+      if (
+        place &&
+        rowVisibleUnder(sessionsArchiveFilterRef.current, !!place.row.archived)
+      ) {
         setSessions((prev) => restoreRow(prev, place));
         setSessionRowErrors((prev) => ({ ...prev, [id]: message }));
       } else {
