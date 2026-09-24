@@ -551,6 +551,10 @@ func (s *Server) coddyToolCallsList(w http.ResponseWriter, r *http.Request) {
 		writePageQueryError(w, err)
 		return
 	}
+	if hasTo && from > to {
+		writePageQueryError(w, errors.New("from must not be after to"))
+		return
+	}
 	if !hasTo || to > len(msgs) {
 		to = len(msgs)
 	}

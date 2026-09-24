@@ -268,6 +268,12 @@ func TestSessionMessagesRejectsABadWindow(t *testing.T) {
 			t.Errorf("%s: status %d, want 400: %s", q, rec.Code, rec.Body.String())
 		}
 	}
+	// A window between two messages; both ends fall on a tool result and move
+	// back to its call: [1,5), the first tool step and the second prompt.
+	rec, between := getPaged(t, srv, base+"?from=2&before=6")
+	if rec.Code != http.StatusOK || between.Window.Offset != 1 || len(between.Messages) != 4 || between.Messages[3].Content != "prompt 2" {
+		t.Fatalf("from with before: status %d, %d messages, window %+v", rec.Code, len(between.Messages), between.Window)
+	}
 	// Positions past the history are clamped, not refused.
 	rec, page := getPaged(t, srv, base+"?limit=3&before=999")
 	if rec.Code != http.StatusOK || page.Window.Total != 8 || page.Window.Offset != 4 {
@@ -309,7 +315,7 @@ func TestToolCallListReadsTheCallsOfAPage(t *testing.T) {
 	if got := strings.Join(get("?from=12"), " "); got != "call_4:completed" {
 		t.Fatalf("calls from 12 = %q", got)
 	}
-	for _, q := range []string{"?from=-1", "?to=x", "?from=a"} {
+	for _, q := range []string{"?from=-1", "?to=x", "?from=a", "?from=9&to=4"} {
 		req := httptest.NewRequest(http.MethodGet, "/coddy/sessions/"+sid+"/tool-calls"+q, nil)
 		rec := httptest.NewRecorder()
 		srv.mux.ServeHTTP(rec, req)
