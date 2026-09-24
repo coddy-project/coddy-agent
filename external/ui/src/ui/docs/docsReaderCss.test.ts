@@ -135,7 +135,7 @@ test("the pages of the contents are indented under their group title", () => {
     rule(".docs-toc-group-title,\n.docs-outline-title"),
   );
   expect(title).not.toBeNull();
-  const list = rule(".docs-toc-group ul");
+  const list = rule(".docs-toc-group > ul");
   const indent = px(list, "padding-left");
   const pagePad = /padding:\s*\d+px (\d+)px/.exec(rule(".docs-toc-page"));
   expect(pagePad).not.toBeNull();
