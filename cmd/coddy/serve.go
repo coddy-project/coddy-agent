@@ -39,6 +39,8 @@ func runServe(args []string) error {
 		switch args[0] {
 		case "setup":
 			return runServeSetup(args[1:])
+		case "uninstall":
+			return runServeUninstall(args[1:])
 		case "status":
 			return runServeStatus(args[1:])
 		case "stop":
@@ -231,6 +233,11 @@ func runServe(args []string) error {
 		defer stop()
 		return serve.RunDispatcher(ctx, daemonOpts)
 	case *daemon:
+		if hint := serviceHint(); hint != "" {
+			// Both would bind the same listeners; the second one to come up
+			// fails, and which one that is depends on who restarts first.
+			fmt.Fprintf(os.Stderr, "warning: %s\n", hint)
+		}
 		rec, err := serve.StartDetached(daemonOpts)
 		if err != nil {
 			return err
@@ -313,7 +320,7 @@ func runServe(args []string) error {
 	sup.Restartable = serve.Supervised()
 	err = sup.Run(ctx, cfg, reloads)
 	if errors.Is(err, serve.ErrRestartRequested) {
-		log.Info("exiting so the dispatcher can start a process with the new listen settings")
+		log.Info("exiting so the dispatcher or the service manager can start a process with the new listen settings")
 		return serve.ExitCodeError{Code: serve.ExitRestart, Err: err}
 	}
 	return err

@@ -101,13 +101,45 @@ and writes to
 .IR ~/.coddy/logs/serve.log .
 .TP
 .B "serve setup"
-Check the default
-.I ~/.coddy/config.yaml
-and enable the packaged systemd user service for the current user. Run
+Linux with systemd: run
+.B coddy serve
+as the systemd user service
+.I coddy.service
+of the current account. Check
+.IR ~/.coddy/config.yaml ,
+then use the unit the package installed at
+.I /usr/lib/systemd/user/coddy.service
+when this is the packaged
+.IR /usr/bin/coddy ,
+or write
+.I ~/.config/systemd/user/coddy.service
+for this binary otherwise (the install script and release archives ship no
+unit). Create the workspace
+.IR ~/Coddy ,
+where the service runs and where sessions opened without a workspace work,
+then
 .BR "systemctl --user daemon-reload" ,
-.BR "systemctl --user enable --now coddy.service" ,
-then report the unit status. Run without
+.B enable
+and
+.BR restart ,
+and report whether the service stayed up. Running it again after an update or
+a move of the binary points the unit at the new binary. Run it as the user the
+service is for, without
 .BR sudo .
+The service stops at logout unless an administrator runs
+.BR "loginctl enable-linger" .
+.TP
+.B "serve uninstall"
+Stop and disable
+.I coddy.service
+and remove the unit
+.B serve setup
+wrote. The packaged unit stays installed and disabled, a unit the user wrote by
+hand is disabled and kept, and
+.I ~/.coddy
+and
+.I ~/Coddy
+are not touched.
 .TP
 .B "serve status"
 Report the background dispatcher for this agent home: its process, when it
@@ -426,6 +458,22 @@ Persisted sessions, one directory per session.
 .I ~/.coddy/skills/
 Installed skills.
 .TP
+.I /usr/lib/systemd/user/coddy.service
+The systemd user unit the Linux packages install and do not enable;
+.B coddy serve setup
+enables it for one account.
+.TP
+.I ~/.config/systemd/user/coddy.service
+The unit
+.B coddy serve setup
+writes for a binary that came without one;
+.B coddy serve uninstall
+removes it.
+.TP
+.I ~/Coddy/
+Working directory of the systemd user service, and so the workspace of every
+session opened through it without one.
+.TP
 .I .coddy/rules/, .cursor/rules/, .claude/rules/, .codex/rules/, AGENTS.md
 Project rules, discovered under the session working directory.
 .TP
@@ -466,6 +514,16 @@ it is:
 .B coddy serve set\-password \-\-user pasha
 .RE
 .PP
+Keep
+.B coddy serve
+running for this account on Linux, across logins and crashes, and read its log:
+.PP
+.RS 4
+.B coddy serve setup
+.br
+.B journalctl \-\-user \-u coddy.service \-f
+.RE
+.PP
 Wire an editor to Coddy over ACP:
 .PP
 .RS 4
@@ -498,6 +556,9 @@ found a probe failing, or
 .B coddy update \-\-check
 found a newer release.
 .SH SEE ALSO
+.BR systemctl (1),
+.BR journalctl (1),
+.BR loginctl (1).
 Project documentation:
 .UR https://coddy.dev
 .UE ,

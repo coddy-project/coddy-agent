@@ -1,14 +1,27 @@
+# Installed by the coddy package and not enabled. Run `coddy serve setup`
+# as the user the service is for (without sudo) to enable and start it.
 [Unit]
-Description=Coddy service
-Documentation=https://coddy.dev/docs/operate/serve
+Description=Coddy agent server (coddy serve)
+Documentation=https://coddy.dev/docs/operate/serve man:coddy(1)
 
 [Service]
 Type=simple
-WorkingDirectory=%h/.coddy
+# Tells coddy serve that systemd starts it again, so a configuration change
+# that moves a listen address ends the process with status 75 instead of
+# waiting for a manual restart.
+Environment=CODDY_SERVE_ROLE=service
+# The workspace of every session opened without one. The "-" lets ExecStartPre
+# run while the folder is still missing; ExecStart then starts inside it.
+WorkingDirectory=-%h/Coddy
+ExecStartPre=/bin/mkdir -p %h/Coddy
 ExecStart=/usr/bin/coddy serve
 Restart=on-failure
+# Status 75 is coddy serve asking for a fresh process: a clean exit that is
+# restarted all the same, not a failure.
+SuccessExitStatus=75
 RestartForceExitStatus=75
 RestartSec=5s
+# systemd waits this long for coddy serve to finish after SIGTERM, then kills it.
 TimeoutStopSec=40s
 
 [Install]

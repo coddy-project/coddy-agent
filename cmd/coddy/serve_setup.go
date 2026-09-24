@@ -6,24 +6,71 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/serve"
 )
 
+// runServeSetup implements `coddy serve setup`: the systemd user service of
+// this account, written for a binary that came without a unit (the install
+// script, a release archive, a local build) or taken from the package, then
+// enabled and started.
 func runServeSetup(args []string) error {
-	fs := flag.NewFlagSet("serve setup", flag.ContinueOnError)
+	if done, err := parseServiceVerb("setup", "check ~/.coddy/config.yaml, install the systemd user unit for this binary when the package did not, enable coddy.service and start it working in ~/Coddy", args); done || err != nil {
+		return err
+	}
+	svc, err := serve.NewUserService(os.Stdout)
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return svc.Setup(ctx)
+}
+
+// runServeUninstall implements `coddy serve uninstall`: the service stopped and
+// disabled, and the unit setup wrote removed. Configuration, sessions and the
+// workspace stay where they are.
+func runServeUninstall(args []string) error {
+	if done, err := parseServiceVerb("uninstall", "stop and disable coddy.service and remove the unit setup wrote; ~/.coddy and ~/Coddy are kept", args); done || err != nil {
+		return err
+	}
+	svc, err := serve.NewUserService(os.Stdout)
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return svc.Uninstall(ctx)
+}
+
+// parseServiceVerb parses the arguments of a verb that takes none. It reports
+// true when the caller only asked for the usage text.
+func parseServiceVerb(verb, summary string, args []string) (bool, error) {
+	fs := flag.NewFlagSet("serve "+verb, flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() {
-		_, _ = fmt.Fprintln(fs.Output(), "Usage: coddy serve setup (enable and check the packaged systemd user service)")
+		_, _ = fmt.Fprintf(fs.Output(), "Usage: coddy serve %s (%s)\n", verb, summary)
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return nil
+			return true, nil
 		}
-		return err
+		return false, err
 	}
 	if fs.NArg() != 0 {
-		return fmt.Errorf("coddy serve setup takes no arguments")
+		return false, fmt.Errorf("coddy serve %s takes no arguments", verb)
 	}
-	return serve.SetupUserService(context.Background(), os.Stdout)
+	return false, nil
+}
+
+// serviceHint names the systemd user service when it is what serves this
+// account, for the daemon verbs, which only know about `coddy serve --daemon`.
+func serviceHint() string {
+	if !serve.UserServiceActive(context.Background()) {
+		return ""
+	}
+	return "coddy serve runs as the systemd user service " + serve.UnitName +
+		": systemctl --user status|stop|restart " + serve.UnitName + ", coddy serve uninstall to remove it"
 }
