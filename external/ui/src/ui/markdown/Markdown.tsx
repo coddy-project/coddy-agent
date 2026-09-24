@@ -18,6 +18,21 @@ import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
 import { docsHrefFromCoddyLink } from "../scheduler/hashRoute";
 import { remarkDocMentions } from "./remarkDocMentions";
 
+/**
+ * rehype-highlight builds a new highlighter each time its attacher runs - every
+ * grammar registered again, and compiled again the first time a block uses it -
+ * and react-markdown runs the attachers on every render of every Markdown block.
+ * One transformer, built on first use, serves them all: opening a long chat
+ * spent a fifth of its first frame here (issue #338).
+ */
+let highlightTransformer: ReturnType<typeof rehypeHighlight> | undefined;
+function rehypeHighlightShared() {
+  highlightTransformer ??= rehypeHighlight(syntaxHighlightOptions);
+  return highlightTransformer;
+}
+const REMARK_PLUGINS = [remarkGfm, remarkDocMentions];
+const REHYPE_PLUGINS = [rehypeHighlightShared];
+
 /** A video file where Markdown has an image: the documentation embeds its
  *  recordings this way, fetched from GitHub when they play. */
 const VIDEO_SRC = /\.(mp4|webm|mov)(?:[?#]|$)/i;
@@ -223,8 +238,8 @@ export const Markdown = memo(function Markdown(props: { text: string }) {
   return (
     <div className="md">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkDocMentions]}
-        rehypePlugins={[[rehypeHighlight, syntaxHighlightOptions]]}
+        remarkPlugins={REMARK_PLUGINS}
+        rehypePlugins={REHYPE_PLUGINS}
         components={components}
         urlTransform={urlTransform}
       >

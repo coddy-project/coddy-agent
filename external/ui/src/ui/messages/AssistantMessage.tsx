@@ -10,6 +10,9 @@ import { MessageCopyIconButton } from "./MessageCopyIconButton";
 
 export const AssistantMessage = memo(function AssistantMessage(props: {
   content: string;
+  /** The transcript row id, stamped on the row so the transcript window can
+   *  find it on screen. */
+  rowId?: string;
   streaming?: boolean;
   createdAtUtc?: string;
   /** Only the answer that hands the turn back carries the action row. The answers a
@@ -30,7 +33,7 @@ export const AssistantMessage = memo(function AssistantMessage(props: {
       ? formatUtcToLocalFullDetail(props.createdAtUtc)
       : "";
   return (
-    <div className="msg-assistant-stack">
+    <div className="msg-assistant-stack" data-row-id={props.rowId}>
       <div className="msg msg-assistant">
         <Markdown text={props.content} />
         {showFoot ? (

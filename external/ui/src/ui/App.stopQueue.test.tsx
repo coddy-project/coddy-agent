@@ -278,9 +278,12 @@ class Backend {
       return json({ cwd: "/workspace", is_git_repo: false });
     return json({}, 404);
   }
+  // Reads are counted by path: a transcript read carries its page in the
+  // query string (?limit= on open, ?from= on a reload).
   count(path: string, method = "GET") {
-    return this.requests.filter((r) => r.path === path && r.method === method)
-      .length;
+    return this.requests.filter(
+      (r) => r.path.split("?")[0] === path && r.method === method,
+    ).length;
   }
   turn(sid: string, active: boolean) {
     this.activity.set(sid, active);

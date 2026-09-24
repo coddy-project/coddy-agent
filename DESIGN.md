@@ -803,6 +803,16 @@ popover, and a banner speaks up only when something needs the user.
 - **`prefers-reduced-motion: reduce`** writes the end position in one step and drops both button transitions.
 - **Copy** - accessible name and tooltip are both **`chat.scrollToBottom`**.
 
+### Transcript window
+
+A long conversation keeps a bounded slice of its rows in the DOM and holds only the end of its history until the reader scrolls up (issue #338; behaviour and the numbers: **`docs/surfaces/web-ui.md`**, **Long sessions**).
+
+- **Rows are found by id.** Every row root carries **`data-row-id`** with its transcript item id (**`rowId`** prop on the row components, set by **`MessageList`**); the window measures and anchors by it. A new kind of row does the same, and it must be a **direct child** of **`.messages-inner`**: no wrapper, or the window cannot see it.
+- **The window** lives in **`chat/TranscriptList.tsx`** (**`useTranscriptWindow`**, pure arithmetic in **`chat/transcriptRenderWindow.ts`**): it opens on the last **8** rows, grows by **4** per frame toward the edge within a screen of the view, and past **120** (plus **8** of slack) drops rows more than a screen out of view on the far side, never the focused row. Its state stays in that component, so a frame that adds rows does not re-render the chat screen or the composer. Do not grow in bigger chunks: a chunk is one frame of layout on a slow phone.
+- **Nothing moves under the reader.** A change above the visible area is measured and committed in one task (**`flushSync`**), then the first visible row is put back where it stood - or, for a reader following the newest message, the end is. The correction is the window's own, not the engine's scroll anchoring, which WebKit lacks. The transcript still carries no **`content-visibility`** (see **Multi-session streaming and Stop**).
+- **The control above the rows** - **`div.transcript-earlier`** (**`data-testid="transcript-earlier"`**, **`data-state`** **`idle`** / **`loading`** / **`error`**) is the first child of **`.messages-inner`** whenever anything is above the window, and the sentinel the window watches. It is a centred line of **12px** text in a **48%** text tint, **32px** tall: **`chat.transcriptEarlier.show`** as a pill button (**`.transcript-earlier-button`**: a **10%** tint border, a **4%** tint fill on the glass panel colour, **999px** radius, **5px 14px** padding, **7%** fill and **78%** text on hover, the accent focus ring); **`chat.transcriptEarlier.loading`** as a **`role="status"`** line; **`chat.transcriptEarlier.failed`** as a **`role="alert"`** line followed by the **`chat.transcriptEarlier.retry`** pill. Scrolling to it does what the button does.
+- **The lower edge** of a window cut short of the newest rows is **`div.transcript-window-edge`**: **1px** tall with a negative top margin of the column's gap (**`--coddy-transcript-row-gap`**, which **`.messages-inner`** sets to **10px**, and to the phone's stack gap on the stacked shell), so the rows above end where they would. While the window is cut short, the live line, the tasks line and the subagent permission cards - which belong under the newest row - are not rendered.
+
 ### Composer primary action (**Send** **/** **Stop**)
 
 - Control **`#btn-send`** (**`.composer-icon`**) sits **directly right** of the context ring (**`.composer-context-tip-host`**).

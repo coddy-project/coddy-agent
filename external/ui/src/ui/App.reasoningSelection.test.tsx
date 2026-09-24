@@ -75,7 +75,8 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
   const match = path.match(/^\/coddy\/sessions\/([^/]+)(.*)$/);
   if (match) {
     const sid = decodeURIComponent(match[1]!);
-    const suffix = match[2];
+    // A transcript read names its page in the query string.
+    const suffix = match[2]!.split("?")[0];
     if (suffix === "/messages") {
       return json({
         model: MODEL,

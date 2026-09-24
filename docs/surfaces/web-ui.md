@@ -257,7 +257,7 @@ Narrow-rail tooltips (desktop)
 ### Parallel sessions and generation cancel
 
 - Several sessions may **stream at once**, each with its own **`POST /v1/responses`** and **`X-Coddy-Session-ID`**. The app keeps a **per-session shadow** transcript so rapid hash switches do not mis-route SSE updates; see **`pickStreamMutationBase`** in **`external/ui/src/ui/chat/streamMutationBase.ts`**.
-- Shadow transcripts are **bounded**: an LRU of **3** non-pinned sessions (**`ShadowTranscriptCache`** in **`external/ui/src/ui/chat/sessionTranscriptCache.ts`**). The viewed session and any session with a live stream are never evicted; an evicted session is re-fetched on the next visit with no extra request compared to today. Message rows and **`Markdown`** are memoized (**`React.memo`**, **`useStableHandler`**), so unchanged rows skip re-rendering while a token streams (**`MessageList`** still maps the transcript; plan, permission and question rows are not memoized). Transcript rows carry no **`content-visibility`**: letting off-screen rows skip layout sized every row above the opening screen from a fallback guess, so the scrollport was short by about a sixth on a long session and scrolling up pushed the position down as the real heights arrived. See **`DESIGN.md`** (**Multi-session streaming and Stop**).
+- Shadow transcripts are **bounded**: an LRU of **3** non-pinned sessions (**`ShadowTranscriptCache`** in **`external/ui/src/ui/chat/sessionTranscriptCache.ts`**). The viewed session and any session with a live stream are never evicted; an evicted session is re-fetched on the next visit with no extra request compared to today. Message rows and **`Markdown`** are memoized (**`React.memo`**, **`useStableHandler`**), so unchanged rows skip re-rendering while a token streams (**`MessageList`** maps the slice of the transcript window, see **Long sessions**; plan, permission and question rows are not memoized). Transcript rows carry no **`content-visibility`**: letting off-screen rows skip layout sized every row above the opening screen from a fallback guess, so the scrollport was short by about a sixth on a long session and scrolling up pushed the position down as the real heights arrived. See **`DESIGN.md`** (**Multi-session streaming and Stop**).
 - **Server activity is separate from the local stream reader.** The UI reads **`GET /coddy/sessions/{id}/activity`** on session open and reconnect, regardless of whether the filtered or paginated **History** list includes that session. **`chat/useSessionTurnActivity`** skips both activity and queue hydration while this tab's own POST awaits admission. A running turn keeps **Stop** and queueing available even without a local reader; losing or closing the reader does not prove the turn ended. A **`turn_ended`** overlapping this tab's pending or admitted POST requires fresh REST activity confirmation before the UI declares idle.
 - **Stop** calls **`POST /coddy/sessions/{id}/cancel`** and aborts this tab's streaming **`fetch`** of the turn right after sending it, not after the answer. A browser keeps six HTTP/1.1 connections per host across all of its tabs; with a few tabs of Coddy open, event and turn streams can hold every one of them, and the cancel request would wait for the connection this reader holds. The turn keeps running on the server without the reader. A failed request shows an error, keeps the running state and **Stop** available for a retry, and the tab rejoins the turn through the composer relay. Success acknowledges cooperative cancellation; the UI waits for the server's turn completion or a fresh activity snapshot reporting idle before treating the session as stopped. The server persists **partial** assistant **`content`** for that turn when tokens had already arrived. **`GET /coddy/sessions/{id}/messages`** may return an older snapshot briefly; the UI **merges** with local shadow or visible rows when the response is only a prefix (**`mergeTranscriptPreferLocalSuffix`**, **`keepLocalTranscriptIfServerEmpty`** in **`external/ui/src/ui/chat/transcriptServerSnapshot.ts`**). The transcript is cleared on fetch failure **only** when the failed load targets the **currently viewed** session so Stop does not wipe the chat.
 
@@ -465,6 +465,26 @@ SSE payloads
   - `token_usage`
   - `usage_update` (`used` / `size` for the current model context; emitted again after compaction)
   - Default (no `event:`): chat completion chunk deltas, including `delta.content` and optional `delta.reasoning_content`
+
+## Long sessions
+
+![The top of a long transcript while the page above it is read, dark theme at 1280 px](../assets/transcript-earlier-loading-dark-1280.png)
+
+*The top of a long transcript while the page above it is read, dark theme at 1280 px*
+
+A session can grow to thousands of messages, and the web UI used to read, map and render all of them before it showed anything: a session of 3306 messages took 7.5 s and a 5-second task on a desktop, 41 s and a 32-second task on a CPU slowed six times, the old phone of issue #338, with 94 thousand elements in the page. The web UI now holds a sliding window over the conversation.
+
+- **The newest page first.** Opening a conversation reads `GET /coddy/sessions/{id}/messages?limit=60` - a page of about sixty messages that starts at the prompt of its turn - and the previews of that page's tool calls only (`GET .../tool-calls?from=&to=`). A short session arrives whole in that one read. The response's `window` says where the page sits, and the rows are numbered from it, so ids and edit indices are what a whole read gives ([HTTP API](../reference/http-api.md)).
+- **A bounded slice on screen.** The transcript renders the last rows of what it holds and grows by a few rows per frame toward the edge the reader approaches, so no frame lays out a long stretch at once. Rows more than a screen out of view on the other side are dropped past about 130, and the row under the reader stays where it is: the window corrects the scroll position itself after every change above the visible area, because WebKit does not anchor scrolling. While the newest row is rendered the window follows new output; the scroll-to-bottom button puts a window left far up back on the newest rows and lands there at once.
+- **Older pages on the way up.** At the top of what is held the page above is read - `?limit=80&before=<the first message held>` - and put in front. A control at the top of the transcript stands for what is above: **Show earlier messages** (a button for the keyboard; scrolling to it does the same), **Loading earlier messages…** while the page is read, and **Retry** after a failed read.
+- **Let go at the newest message.** Once the reader is back at the newest message and nothing runs in the session - no turn, no answer being sent, no prompt waiting - the older pages read on the way up are dropped, and a window that grew through many turns starts over from the newest page. What is dropped is far above the screen, which stays on the newest message.
+- **Reloads read the window, not the history.** The end of a turn, a permission answer, a relay that missed frames: each re-reads the live window from its first message (`?from=`), and older pages take no part in it. A history cut under the window - a rewind from another surface, announced by `session_rewound` or noticed as a history shorter than the window - starts the window over from the newest page.
+- **Edits rewind the right prompt.** The pencil on a prompt names the index the server knows it by: the prompts before the window (`window.turnsBefore`) plus its position among the prompts held.
+- **Several browsers, tabs and surfaces.** Every tab holds its own window and the server keeps no state about it, so one session can be open in several browsers, tabs and consoles at once. A turn another tab runs streams into this one as before; a reader deep in the history keeps their place while it runs and finds it at the newest message. The console and `--remote` clients read the history without a window and get all of it, as they always did.
+- **Through a swarm relay.** Each read carries its page in the query string, which a relay's mount forwards to the node unchanged, through a tunnel too ([Swarm](../operate/swarm.md)).
+- **What it costs.** Find in page sees only the rendered rows. A tool card opened and then scrolled far out of the window is closed when it comes back into it (a plan document keeps its state). A server that predates paged reads answers with the whole history, which the web UI then holds as one page.
+
+On the same 3306-message session at CPU x6 in a phone viewport, the newest message is now on screen in 2.8 s, page load included, the longest task takes 0.9 s, and the page holds about 600 elements and 6 MB of heap; flicking up through the whole history keeps half the frames under 50 ms. **`npm run check:transcript`** measures it (see **Checking a long transcript** below).
 
 ## Transcript scroll-to-bottom
 
@@ -827,6 +847,7 @@ Automated checks:
 - **internal/session/rewind_test.go** (in-place truncation, artifact cleanup, refusals)
 - **features/session_rewind.feature** + **external/httpserver/bdd_rewind_test.go** (the endpoint's happy path)
 - **external/ui/src/ui/messages/userMsgIndices.test.ts** (the index an edit names, a wake counting as a turn)
+- **external/ui/src/ui/messages/MessageList.test.tsx** (the index an edit names when the transcript holds only the end of a long history, see **Long sessions**)
 - **external/ui/src/ui/messages/UserMessage.test.tsx** (edit control visibility)
 
 ## Background tasks panel
@@ -1300,6 +1321,26 @@ CODDY_UI_URL=http://127.0.0.1:5241 npm --prefix external/ui run check:chevron
 ```
 
 **`CODDY_ENGINE=webkit`** (or **`firefox`**) runs the same measurements in another engine, and **`CODDY_CHEVRON_TOLERANCE_PX`** raises the allowance. Like the WebKit harness above, this one is **not part of `make test`**: it is a manual check, run when a change touches the chevron, the rows it sits on or the type around them.
+
+### Checking a long transcript
+
+Whether a long conversation opens at once and scrolls without jumps is a question of layout and time that jsdom cannot answer. **`external/ui/scripts/transcript-window-check.mjs`** answers it against the real binary: it writes a session of 3306 messages (about 9 MB, the size of issue #338) and a short one to a scratch home, serves a scripted OpenAI-compatible model of its own, starts a **`coddy serve`** node with the web UI and a **`coddy serve --swarm`** relay that mounts it, and drives Chromium under CPU throttling (x4 by default). It checks, and prints as a table:
+
+- **opening** at 390 and 1280 px: the first read is the newest page, the newest message is on screen and at the bottom within the budget, no task blocks the page past it, the DOM holds a bounded slice, the heap stays small;
+- **scrolling up** through the history: older pages arrive, the row under the reader never moves by more than rounding (also with the engine's own scroll anchoring switched off, which is WebKit's case), frame times, the window stays bounded, no row id repeats; the scroll-to-bottom button then returns to the newest message and older pages are read again on the next scroll up, having been let go;
+- **the stacked shell** at 390 px, where the document scrolls;
+- **an edit** of a prompt on an older page names the index the server knows (the rewind is intercepted);
+- **a short session** is read whole and every row is reachable;
+- **two browsers** on one session: one reads far up while the other runs a turn and then rewinds it, and the reader follows both without a whole read;
+- **a swarm relay**: the same reads through the relay's mount.
+
+```bash
+make build TAGS="http ui swarm"
+npm --prefix external/ui i --no-save playwright && npx --prefix external/ui playwright install chromium
+CODDY_BIN=build/coddy npm --prefix external/ui run check:transcript
+```
+
+**`CODDY_CPU_THROTTLE`** sets the slowdown (**`1`** turns it off), **`CODDY_BUDGET_SCALE`** multiplies the time budgets for a slow machine, **`CODDY_SCENARIOS`** runs some of the scenarios (**`open`**, **`scroll`**, **`phone`**, **`edit`**, **`short`**, **`two-browsers`**, **`swarm`**), **`CODDY_ENGINE=webkit`** runs them in WebKit (without the throttling, long task and heap readings, which are Chromium's), **`CODDY_BROWSER_PATH`** points at an installed Chromium and **`CODDY_E2E_KEEP=1`** leaves the stand running. CI runs it at full speed in the **`http,scheduler,ui,memory,cli,swarm`** job of the test matrix. Run it when a change touches the transcript window, the messages or tool-calls routes, or what a transcript row renders.
 
 ### Checking the transcript at every width of the grid
 
