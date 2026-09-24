@@ -632,10 +632,11 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
         : null,
     [isSchedulerToolCall, props.argsText, rawNameLower, resultBody, status],
   );
-  const structuredCard = supportsStructuredToolCard(
-    rawNameLower,
-    props.argsText,
-    status,
+  // The raw name, not its lower-case form: an MCP server's tool keeps the
+  // spelling its server gave it in the card's header.
+  const structuredCard = useMemo(
+    () => supportsStructuredToolCard(rawName, props.argsText, status),
+    [rawName, props.argsText, status],
   );
   const searchLoading =
     loadsWholeSearch &&
@@ -764,21 +765,20 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
               <SchedulerToolCard readout={schedulerCard} status={status} />
             ) : null}
             {structuredCard ? (
-              <div
-                ref={resultViewportRef}
-                className={
+              <StructuredToolCard
+                name={rawName}
+                argsText={props.argsText}
+                resultText={resultBody}
+                status={status}
+                // A truncated answer caps the card's body, not the card: the bar
+                // naming the call stays in view while the body scrolls.
+                bodyRef={resultViewportRef}
+                bodyClassName={
                   useTallViewport
                     ? `tool-result-viewport tool-result-viewport--tall tool-result-viewport--${viewportMode}`
                     : undefined
                 }
-              >
-                <StructuredToolCard
-                  name={rawNameLower}
-                  argsText={props.argsText}
-                  resultText={resultBody}
-                  status={status}
-                />
-              </div>
+              />
             ) : null}
             {showPatchResult || showResult ? (
               <div

@@ -21,7 +21,7 @@ func runVitestScenario(file, name string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "node", "node_modules/vitest/vitest.mjs", "run",
-		"--configLoader", "runner", file, "--testNamePattern", "^"+regexp.QuoteMeta(name)+"$")
+		file, "--testNamePattern", "^"+regexp.QuoteMeta(name)+"$")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s: %q: %w\n%s", file, name, err, out)

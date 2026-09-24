@@ -1186,8 +1186,9 @@ test("an MCP call names the server and the tool, never the registry id", () => {
     screen.getByText("calling create_issue on the MCP server github"),
   ).toHaveClass("thinking-label");
   expect(screen.queryByText("mcp__github__create_issue")).toBeNull();
-  // The argument preview the row already had survives the new label.
-  expect(screen.getByText("Crash on start")).toHaveClass("tool-summary-target");
+  // The argument preview the row already had survives the new label (the
+  // card under the row names the same argument again, as a field).
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent("Crash on start");
 });
 
 test("a tool outside the catalogue keeps its own id in the summary row", () => {
@@ -1441,7 +1442,7 @@ test("background output names the task instead of opening with an empty strip", 
       kind="background_output"
       status="completed"
       argsText={JSON.stringify({ task_id: "bg_3", tail_lines: 60 })}
-      resultText="bg_3 [running] go test ./..."
+      resultText="bg_3 [running] go test ./... (elapsed 4s)"
       durationMs={4}
     />,
   );
@@ -1450,8 +1451,9 @@ test("background output names the task instead of opening with an empty strip", 
   expect(container.querySelector(".permission-preview-location")?.textContent).toBe(
     "bg_3",
   );
+  // The status reads through the Tasks drawer's own labels.
   expect(container.querySelector(".scheduler-tool-row")?.textContent).toContain(
-    "running",
+    "Running",
   );
   expect(container.querySelector(".permission-preview-code")).toBeNull();
 });

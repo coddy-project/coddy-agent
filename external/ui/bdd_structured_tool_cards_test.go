@@ -10,27 +10,30 @@ import (
 
 func TestStructuredToolCardsFeature(t *testing.T) {
 	const testFile = "src/ui/messages/StructuredToolCard.test.tsx"
+	const viewportCSS = "src/ui/chat/permissionPreviewViewportCss.test.ts"
+	steps := map[string][2]string{
+		`^the model switch card shows the model, reasoning and lifetime$`:             {testFile, "switch_model names the choice and lifetime"},
+		`^the HTTP card separates the request and response and masks credentials$`:    {testFile, "http_request separates response status, headers and body and masks credentials"},
+		`^the HTTP card names the real address, the proxy and the certificate check$`: {testFile, "http_request shows every setting that changes where it goes and what it trusts"},
+		`^the background task card lists task ids and states$`:                        {testFile, "background_list separates each task's id, state and detail"},
+		`^the preview server card links to its address$`:                              {testFile, "preview_server exposes its address as a link"},
+		`^the documentation search card lists matching sections$`:                     {testFile, "documentation search displays references as rows"},
+		`^the documentation read card renders the section with a link to the reader$`: {testFile, "documentation read renders the section and links to the reader"},
+		`^the plan cards show the list, document and saved identity$`:                 {testFile, "plan list, read and write have plan-specific bodies"},
+		`^the session filing card shows the title, the tags and what changed$`:        {testFile, "session_describe shows the title, the tags and what changed"},
+		`^the configuration card shows its answer as fields$`:                         {testFile, "config tools read their JSON answer as fields, with secrets as the server redacted them"},
+		`^the memory cards render notes and list hits$`:                               {testFile, "memory notes render as Markdown and search hits as rows"},
+		`^the MCP card shows its arguments and a JSON answer as fields$`:              {testFile, "an MCP call shows its arguments as fields and a JSON answer as fields"},
+		`^the MCP card renders a Markdown answer as a document$`:                      {testFile, "an MCP answer written in Markdown renders as a document"},
+		`^the phone cap never reaches a command block$`:                               {viewportCSS, "the phone cap never reaches a static viewport"},
+	}
 	suite := godog.TestSuite{
 		Name: "structured_tool_cards",
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
-			sc.Step(`^the model switch card shows the model, reasoning and lifetime$`, func() error {
-				return runVitestScenario(testFile, "switch_model names the choice and lifetime")
-			})
-			sc.Step(`^the HTTP card separates the request and response and masks credentials$`, func() error {
-				return runVitestScenario(testFile, "http_request separates response status, headers and body and masks credentials")
-			})
-			sc.Step(`^the background task card lists task ids and states$`, func() error {
-				return runVitestScenario(testFile, "background_list separates each task's id, state and detail")
-			})
-			sc.Step(`^the preview server card links to its address$`, func() error {
-				return runVitestScenario(testFile, "preview_server exposes its address as a link")
-			})
-			sc.Step(`^the documentation search card lists matching sections$`, func() error {
-				return runVitestScenario(testFile, "documentation search displays references as rows")
-			})
-			sc.Step(`^the plan cards show the list, document and saved identity$`, func() error {
-				return runVitestScenario(testFile, "plan list, read and write have plan-specific bodies")
-			})
+			for pattern, target := range steps {
+				file, name := target[0], target[1]
+				sc.Step(pattern, func() error { return runVitestScenario(file, name) })
+			}
 		},
 		Options: &godog.Options{
 			Format:   "pretty",
