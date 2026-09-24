@@ -30,5 +30,9 @@ Feature: Structured tool cards
     Then the MCP card shows its arguments and a JSON answer as fields
     And the MCP card renders a Markdown answer as a document
 
+  Scenario: A card shows the numbers a server sent, not the ones JavaScript can hold
+    Then the MCP card shows an id past 2^53 and a repeated key as the server wrote them
+    And the MCP card shows a JSON array answer as the server's own text, indented
+
   Scenario: A long command on a phone keeps its output below it
     Then the phone cap never reaches a command block

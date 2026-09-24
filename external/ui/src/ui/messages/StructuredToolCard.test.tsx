@@ -376,6 +376,71 @@ test("an MCP answer in plain text stays monospace text", () => {
   );
 });
 
+// Raw text on purpose: a JS number cannot carry 12345678901234567891, so these
+// answers are written the way a server sends them, not through JSON.stringify.
+function showRaw(title: string, argsText: string, resultText: string) {
+  render(
+    <ToolCallMessage
+      toolCallId={title}
+      title={title}
+      status="completed"
+      argsText={argsText}
+      resultText={resultText}
+    />,
+  );
+  fireEvent.click(screen.getByLabelText("Tool summary"));
+  return screen.getByTestId("structured-tool-card");
+}
+
+test("an MCP answer shows every number as the server wrote it", () => {
+  // A snowflake id past 2^53 came out rounded (12345678901234567000), a
+  // repeated key kept only its last value, and nested JSON was printed back
+  // from the parsed value.
+  const card = showRaw(
+    "discord__get_messages",
+    '{"channel_id":1234567890123456789,"limit":5}',
+    '{"id":12345678901234567891,"name":"caf\\u00e9","k":1,"k":2,"items":[{"id":9007199254740993,"city":"Z\\u00fcrich"}]}',
+  );
+  const text = card.textContent ?? "";
+  expect(text).toContain("1234567890123456789");
+  expect(text).toContain("12345678901234567891");
+  expect(text).toContain("9007199254740993");
+  expect(text).not.toContain("1234567890123456800");
+  expect(text).not.toContain("12345678901234567000");
+  expect(text).not.toContain("9007199254740992");
+  // A text row shows the string the literal encodes.
+  expect(within(card).getByText("café")).toHaveClass("structured-tool-text");
+  // Both values of a repeated key are rows of their own.
+  expect(within(card).getAllByText("k")).toHaveLength(2);
+  expect(within(card).getByText("1")).toHaveClass("structured-tool-mono");
+  expect(within(card).getByText("2")).toHaveClass("structured-tool-mono");
+  // Nested JSON is the server's text, indented: literals and escapes as sent.
+  expect(within(card).getByText(/"id": 9007199254740993/)).toHaveTextContent(
+    '"city": "Z\\u00fcrich"',
+  );
+});
+
+test("an MCP answer that is a JSON array is the server's text, indented", () => {
+  const card = showRaw(
+    "discord__list_guilds",
+    "{}",
+    '[{"id":9007199254740993,"name":"a"},{"id":1}]',
+  );
+  expect(card.querySelector(".structured-tool-output")?.textContent).toBe(
+    [
+      "[",
+      "  {",
+      '    "id": 9007199254740993,',
+      '    "name": "a"',
+      "  },",
+      "  {",
+      '    "id": 1',
+      "  }",
+      "]",
+    ].join("\n"),
+  );
+});
+
 test("a failed MCP call keeps the raw panels", () => {
   render(
     <ToolCallMessage

@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Transcript overflow check</title>
+  </head>
+  <body>
+    <!-- Fixture for scripts/phone-overflow-check.mjs: transcript rows that used
+         to be wider than the transcript, mounted from the real components
+         against the real stylesheet. Not part of the app bundle; vite serves
+         it in dev, and nothing links to it. -->
+    <div id="root"></div>
+    <script type="module" src="/phoneOverflowFixture.tsx"></script>
+  </body>
+</html>

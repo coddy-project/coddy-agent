@@ -681,6 +681,53 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     !!toggleButton ||
     !!backgroundTask;
 
+  // What trails the label on the summary row: the target, the failure marker and
+  // the duration. They travel together (.thinking-trail), so a label that leaves no
+  // room on its line moves all three under it rather than the duration alone.
+  const trailElements: ReactElement[] = [];
+  if (summaryTarget) {
+    trailElements.push(
+      <span
+        key="target"
+        className="tool-summary-target"
+        data-testid="tool-summary-target"
+        title={summaryTargetFull}
+      >
+        {summaryTarget}
+      </span>,
+    );
+  }
+  if (status === "failed") {
+    trailElements.push(
+      <span
+        key="failed"
+        className="tool-failed-marker"
+        data-testid="tool-failed-marker"
+      >
+        {t("messages.toolFailedMarker")}
+      </span>,
+    );
+  }
+  if (backgroundTask) {
+    if (backgroundElapsed) {
+      trailElements.push(
+        <span
+          key="dur"
+          className="thinking-dur"
+          data-testid={`tool-bgtask-elapsed-${backgroundTask.id}`}
+        >
+          {backgroundElapsed}
+        </span>,
+      );
+    }
+  } else if (durationLabel.trim() !== "") {
+    trailElements.push(
+      <span key="dur" className="thinking-dur" aria-hidden="true">
+        {durationLabel}
+      </span>,
+    );
+  }
+
   return (
     <div
       className="thinking-row coddy-tool-call-row"
@@ -700,35 +747,15 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
             <Chevron className="thinking-chevron" />
             <span className="thinking-head">
               <span className="thinking-label">{displayLabel}</span>
-              {summaryTarget ? (
+              {trailElements.length > 0 ? (
                 <span
-                  className="tool-summary-target"
-                  data-testid="tool-summary-target"
-                  title={summaryTargetFull}
+                  className={
+                    status === "failed"
+                      ? "thinking-trail thinking-trail--failed"
+                      : "thinking-trail"
+                  }
                 >
-                  {summaryTarget}
-                </span>
-              ) : null}
-              {status === "failed" ? (
-                <span
-                  className="tool-failed-marker"
-                  data-testid="tool-failed-marker"
-                >
-                  {t("messages.toolFailedMarker")}
-                </span>
-              ) : null}
-              {backgroundTask ? (
-                backgroundElapsed ? (
-                  <span
-                    className="thinking-dur"
-                    data-testid={`tool-bgtask-elapsed-${backgroundTask.id}`}
-                  >
-                    {backgroundElapsed}
-                  </span>
-                ) : null
-              ) : durationLabel.trim() !== "" ? (
-                <span className="thinking-dur" aria-hidden="true">
-                  {durationLabel}
+                  {trailElements}
                 </span>
               ) : null}
             </span>

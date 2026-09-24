@@ -24,6 +24,17 @@ fixed`** surface, run **`external/ui/scripts/webkit-scroll-check.mjs`** against 
 Mac*), and run it again with **`CODDY_ENGINE=chromium`** to tell a WebKit-only regression from a
 layout bug every engine shares.
 
+## The transcript at every width of the grid
+
+Nothing in the transcript may be wider than the transcript: on the stacked shell its column is the
+page, and one row that cannot wrap makes a phone scroll sideways (**`DESIGN.md`**, *Layout grid*,
+*Tool card UI*, *Markdown*). When the change touches the transcript's rows, the Markdown styles or a
+width query, run **`external/ui/scripts/phone-overflow-check.mjs`** against a **`vite`** dev server
+(setup in **`docs/surfaces/web-ui.md`**, *Checking the transcript at every width of the grid*): it
+mounts the rows that used to overflow and fails when the page scrolls sideways or anything sticks out
+of **`.messages-inner`** at 360 to 1280px. A new width query goes into the grid first; the vitest
+**`layoutGridCss.test.ts`** fails on one the grid does not name.
+
 ## The fold chevron
 
 The chevron is an SVG whose ink is centred in its viewBox, never a text glyph: a glyph's ink moves

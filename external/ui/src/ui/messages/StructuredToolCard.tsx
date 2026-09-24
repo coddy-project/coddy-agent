@@ -24,6 +24,7 @@ import {
   type TaskLine,
   type ToolArgs,
 } from "../chat/structuredToolDisplay";
+import { indentJson, type JsonNode } from "../chat/jsonSource";
 import { useT } from "../i18n/I18nProvider";
 import { Markdown } from "../markdown/Markdown";
 import { docsHrefFromCoddyLink } from "../scheduler/hashRoute";
@@ -159,9 +160,27 @@ function FieldValueView(props: { value: FieldValue }) {
   }
 }
 
-function objectFields(value: Record<string, unknown>): ReactNode {
+type ObjectNode = Extract<JsonNode, { kind: "object" }>;
+
+const EMPTY_OBJECT: ObjectNode = { kind: "object", source: "{}", entries: [] };
+
+/**
+ * The arguments of a call as the model wrote them: an object node, whose values
+ * keep their own text, so a field shows an id past 2^53 as it was sent.
+ */
+function argumentsNode(argsText: string | undefined): ObjectNode {
+  const node = parseJsonDocument(argsText || "");
+  return node?.kind === "object" ? node : EMPTY_OBJECT;
+}
+
+/** The same object without one of its keys. */
+function withoutKey(node: ObjectNode, key: string): ObjectNode {
+  return { ...node, entries: node.entries.filter((e) => e.key !== key) };
+}
+
+function objectFields(node: ObjectNode): ReactNode {
   return fields(
-    fieldRows(value).map(
+    fieldRows(node).map(
       (row): Row => [row.key, <FieldValueView value={row.value} />],
     ),
   );
@@ -174,17 +193,17 @@ function answerSection(node: ReactNode): ReactNode {
 
 /**
  * What a tool answered when there is no dedicated reading of it: an object as
- * fields, other JSON pretty-printed, Markdown as a document, anything else as the
- * text it is.
+ * fields, other JSON indented, Markdown as a document, anything else as the text
+ * it is. JSON is shown from its own text, never printed back from a parsed value.
  */
 function resultNode(text: string): ReactNode {
   if (!text.trim()) return null;
   const json = parseJsonDocument(text);
   if (json !== undefined) {
-    if (!Array.isArray(json) && Object.keys(json as object).length <= 30) {
-      return objectFields(json as Record<string, unknown>);
+    if (json.kind === "object" && json.entries.length <= 30) {
+      return objectFields(json);
     }
-    return output(JSON.stringify(json, null, 2));
+    return output(indentJson(json.source));
   }
   if (looksLikeMarkdown(text)) return documentNode(text);
   return output(text);
@@ -256,9 +275,11 @@ function requestBodyText(
     .join(" · ");
 }
 
-function HttpCard(props: BodyProps & { args: ToolArgs; result: string }) {
+function HttpCard(
+  props: BodyProps & { args: ToolArgs; argsNode: ObjectNode; result: string },
+) {
   const { t, tp } = useT();
-  const view = httpRequestView(props.args);
+  const view = httpRequestView(props.args, props.argsNode);
   const removed = t("structuredTool.headerRemoved");
   const exchange = parseHttpExchange(props.result);
   return (
@@ -670,7 +691,7 @@ function PlanCard(
 }
 
 function SessionFilingCard(
-  props: BodyProps & { args: ToolArgs; result: string },
+  props: BodyProps & { argsNode: ObjectNode; result: string },
 ) {
   const { t } = useT();
   const filing = sessionFilingView(props.result);
@@ -695,13 +716,15 @@ function SessionFilingCard(
   }
   return (
     <Card heading={heading} {...body}>
-      {objectFields(props.args)}
+      {objectFields(props.argsNode)}
       {resultNode(props.result)}
     </Card>
   );
 }
 
-function ConfigCard(props: BodyProps & { args: ToolArgs; result: string }) {
+function ConfigCard(
+  props: BodyProps & { args: ToolArgs; argsNode: ObjectNode; result: string },
+) {
   const { t } = useT();
   // The result repeats what the call staged with secrets redacted, so once it is in
   // it replaces the arguments rather than sitting under them.
@@ -713,7 +736,7 @@ function ConfigCard(props: BodyProps & { args: ToolArgs; result: string }) {
     >
       {props.result.trim()
         ? resultNode(props.result)
-        : objectFields(props.args)}
+        : objectFields(props.argsNode)}
     </Card>
   );
 }
@@ -831,7 +854,7 @@ function MemoryCard(
 
 /** A small call described by its arguments, answered with a sentence. */
 function ArgumentsCard(
-  props: BodyProps & { heading: string; args: ToolArgs; result: string },
+  props: BodyProps & { heading: string; argsNode: ObjectNode; result: string },
 ) {
   return (
     <Card
@@ -839,7 +862,7 @@ function ArgumentsCard(
       bodyRef={props.bodyRef}
       bodyClassName={props.bodyClassName}
     >
-      {objectFields(props.args)}
+      {objectFields(props.argsNode)}
       {props.result ? <Muted>{props.result}</Muted> : null}
     </Card>
   );
@@ -849,7 +872,7 @@ function McpCard(
   props: BodyProps & {
     server: string;
     tool: string;
-    args: ToolArgs;
+    argsNode: ObjectNode;
     result: string;
   },
 ) {
@@ -865,7 +888,7 @@ function McpCard(
       bodyRef={props.bodyRef}
       bodyClassName={props.bodyClassName}
     >
-      {objectFields(props.args)}
+      {objectFields(props.argsNode)}
       {answerSection(resultNode(props.result))}
     </Card>
   );
@@ -914,10 +937,13 @@ export const StructuredToolCard = memo(function StructuredToolCard(
   const name = props.name.toLowerCase();
   const result = props.resultText;
   const body = { bodyRef: props.bodyRef, bodyClassName: props.bodyClassName };
+  const argsNode = argumentsNode(props.argsText);
   if (name === "switch_model")
     return <ModelSwitchCard args={args} result={result} {...body} />;
   if (name === "http_request")
-    return <HttpCard args={args} result={result} {...body} />;
+    return (
+      <HttpCard args={args} argsNode={argsNode} result={result} {...body} />
+    );
   if (name === "preview_server")
     return <PreviewServerCard args={args} result={result} {...body} />;
   if (name.startsWith("background_"))
@@ -929,17 +955,18 @@ export const StructuredToolCard = memo(function StructuredToolCard(
   if (name.startsWith("plan_"))
     return <PlanCard name={name} args={args} result={result} {...body} />;
   if (name === "session_describe")
-    return <SessionFilingCard args={args} result={result} {...body} />;
+    return <SessionFilingCard argsNode={argsNode} result={result} {...body} />;
   if (name.startsWith("config_"))
-    return <ConfigCard args={args} result={result} {...body} />;
+    return (
+      <ConfigCard args={args} argsNode={argsNode} result={result} {...body} />
+    );
   if (name.startsWith("coddy_memory_"))
     return <MemoryCard name={name} args={args} result={result} {...body} />;
   if (name === "keep_result") {
-    const { path, ...rest } = args;
     return (
       <ArgumentsCard
-        heading={str(path)}
-        args={rest}
+        heading={str(args.path)}
+        argsNode={withoutKey(argsNode, "path")}
         result={result}
         {...body}
       />
@@ -949,7 +976,7 @@ export const StructuredToolCard = memo(function StructuredToolCard(
     return (
       <ArgumentsCard
         heading={t("structuredTool.compaction")}
-        args={args}
+        argsNode={argsNode}
         result={result}
         {...body}
       />
@@ -960,7 +987,7 @@ export const StructuredToolCard = memo(function StructuredToolCard(
       <McpCard
         server={mcp.server}
         tool={mcp.tool}
-        args={args}
+        argsNode={argsNode}
         result={result}
         {...body}
       />

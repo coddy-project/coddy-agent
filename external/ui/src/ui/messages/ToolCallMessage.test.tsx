@@ -1191,6 +1191,49 @@ test("an MCP call names the server and the tool, never the registry id", () => {
   expect(screen.getByTestId("tool-summary-target")).toHaveTextContent("Crash on start");
 });
 
+test("the target, the failure marker and the duration trail the label as one group", () => {
+  // The head wraps: a label that leaves no room on its line - an MCP tool names
+  // its server and its tool in a sentence - keeps the line, and the group moves
+  // under it as a whole instead of the duration landing on a line of its own.
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-mcp-trail"
+      title="github__search_repositories_with_extended_filters"
+      status="failed"
+      argsText={JSON.stringify({ query: "language:go" })}
+      resultText="boom"
+      durationMs={12}
+    />,
+  );
+  const head = container.querySelector(".thinking-head");
+  expect([...(head?.children ?? [])].map((el) => el.className)).toEqual([
+    "thinking-label",
+    "thinking-trail thinking-trail--failed",
+  ]);
+  expect(head?.querySelector(".thinking-label")?.textContent).toBe(
+    "calling search_repositories_with_extended_filters on the MCP server github",
+  );
+  const trail = head?.querySelector(".thinking-trail");
+  expect([...(trail?.children ?? [])].map((el) => el.className)).toEqual([
+    "tool-summary-target",
+    "tool-failed-marker",
+    "thinking-dur",
+  ]);
+});
+
+test("a row with nothing to trail its label renders no empty group", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-question"
+      title="question"
+      status="completed"
+      argsText={JSON.stringify({ questions: [] })}
+      resultText=""
+    />,
+  );
+  expect(container.querySelector(".thinking-trail")).toBeNull();
+});
+
 test("a tool outside the catalogue keeps its own id in the summary row", () => {
   render(
     <ToolCallMessage

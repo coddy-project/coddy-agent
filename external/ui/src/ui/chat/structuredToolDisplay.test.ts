@@ -122,6 +122,16 @@ test("an http request shows the address it really goes to and every setting that
   expect(view.rationale).toBe("probe the staging API");
 });
 
+test("an http request's JSON body is the text the model wrote, indented", () => {
+  // Printed back from the parsed arguments, the id came out as 12345678901234567000.
+  const raw = '{"url":"https://x.test/","json":{"id":12345678901234567891,"note":"caf\\u00e9"}}';
+  const view = httpRequestView(JSON.parse(raw) as Record<string, unknown>, parseJsonDocument(raw));
+  expect(view.body).toMatchObject({
+    kind: "json",
+    content: '{\n  "id": 12345678901234567891,\n  "note": "caf\\u00e9"\n}',
+  });
+});
+
 test("an http request defaults its method and names each kind of body", () => {
   expect(httpRequestView({ url: "https://x.test/" })).toMatchObject({
     method: "GET",
@@ -646,27 +656,36 @@ test("memory search hits and a memory listing read as rows", () => {
 });
 
 test("a JSON document is an object or an array, nothing else", () => {
-  expect(parseJsonDocument(' {"a":1} ')).toEqual({ a: 1 });
-  expect(parseJsonDocument("[1]")).toEqual([1]);
+  expect(parseJsonDocument(' {"a":1} ')?.kind).toBe("object");
+  expect(parseJsonDocument("[1]")?.kind).toBe("array");
   expect(parseJsonDocument("42")).toBeUndefined();
   expect(parseJsonDocument('"text"')).toBeUndefined();
   expect(parseJsonDocument('{"a":')).toBeUndefined();
   expect(parseJsonDocument("")).toBeUndefined();
 });
 
+/** The rows of a JSON object's text; the text must be one. */
+function rowsOf(text: string) {
+  const node = parseJsonDocument(text);
+  if (node?.kind !== "object") throw new Error(`not an object: ${text}`);
+  return fieldRows(node);
+}
+
 test("an object reads as rows: text, literals, short lists and nested JSON", () => {
   expect(
-    fieldRows({
-      object: "list",
-      title: "Release",
-      count: 3,
-      ok: true,
-      none: null,
-      tags: ["a", 2, false],
-      empty: [],
-      nested: { a: 1 },
-      objects: [{ a: 1 }],
-    }),
+    rowsOf(
+      JSON.stringify({
+        object: "list",
+        title: "Release",
+        count: 3,
+        ok: true,
+        none: null,
+        tags: ["a", 2, false],
+        empty: [],
+        nested: { a: 1 },
+        objects: [{ a: 1 }],
+      }),
+    ),
   ).toEqual([
     // An API's own "object" field is data like any other.
     { key: "object", value: { kind: "text", text: "list" } },
@@ -680,6 +699,32 @@ test("an object reads as rows: text, literals, short lists and nested JSON", () 
     {
       key: "objects",
       value: { kind: "json", text: '[\n  {\n    "a": 1\n  }\n]' },
+    },
+  ]);
+});
+
+test("rows keep every literal as the server wrote it", () => {
+  // JSON.parse turned 12345678901234567891 into 12345678901234567000 and kept
+  // only the last of two "k" keys; rows are read from the text instead.
+  expect(
+    rowsOf(
+      '{"id":12345678901234567891,"ratio":1.10,"name":"caf\\u00e9","k":1,"k":2,' +
+        '"ids":[9007199254740993,"x\\u00e9"],"nested":{"id":9007199254740993,"s":"\\u00e9"}}',
+    ),
+  ).toEqual([
+    { key: "id", value: { kind: "literal", text: "12345678901234567891" } },
+    { key: "ratio", value: { kind: "literal", text: "1.10" } },
+    // Text is the string the literal encodes; the JSON panels keep the escape.
+    { key: "name", value: { kind: "text", text: "café" } },
+    { key: "k", value: { kind: "literal", text: "1" } },
+    { key: "k", value: { kind: "literal", text: "2" } },
+    { key: "ids", value: { kind: "list", items: ["9007199254740993", "xé"] } },
+    {
+      key: "nested",
+      value: {
+        kind: "json",
+        text: '{\n  "id": 9007199254740993,\n  "s": "\\u00e9"\n}',
+      },
     },
   ]);
 });

@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 
+import { phoneMaxWidthMediaQuery } from "../shellBreakpoint";
+
 const css = readFileSync(join(__dirname, "..", "..", "styles.css"), "utf8");
 
 function ruleBody(selector: string): string {
@@ -327,7 +329,7 @@ test("the header control is styled from theme tokens, marks a live session and n
 
 test("at phone width the counts speak for the control and the word gives way", () => {
   const phone = css.slice(
-    css.indexOf("@media (max-width: 520px) {\n  .chat-header-tasks"),
+    css.indexOf(`@media ${phoneMaxWidthMediaQuery} {\n  .chat-header-tasks`),
   );
   const block = phone.slice(0, 260);
   expect(block).toContain(
@@ -342,7 +344,7 @@ test("no opener is left under the transcript", () => {
 
 test("on a phone the phrase keeps the first line and the turn's numbers become its caption", () => {
   const phone = css.slice(
-    css.indexOf("@media (max-width: 480px) {\n  .typing-dots {"),
+    css.indexOf(`@media ${phoneMaxWidthMediaQuery} {\n  .typing-dots {`),
   );
   const block = phone.slice(0, 900);
   expect(block).toMatch(/\.typing-dots-status-text \{\s*order: 1;/);
