@@ -10030,7 +10030,9 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
     display: none;
   }
 
-  .permission-preview-viewport {
+  /* Only the measured viewport is capped: a static one (a command block) has no
+     More / Less, and a cap there let a long command spill over its output. */
+  .permission-preview-viewport:not(.permission-preview-viewport--static) {
     max-height: 170px;
   }
 
