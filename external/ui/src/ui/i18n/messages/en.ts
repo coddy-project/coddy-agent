@@ -643,6 +643,8 @@ export const messagesEn: Record<string, string> = {
   "neuralDeepAuth.connected": "Signed in to NeuralDeep ({masked}).",
   "neuralDeepAuth.shadowedByKey":
     "An explicit API key is configured, so requests use it instead of this login. Clear the api_key field to use the login.",
+  "neuralDeepAuth.shadowedByEnv":
+    "The {env} environment variable is set on the Coddy server, so requests use it instead of this login. Unset it, or give the provider a name whose variable is not set.",
   "neuralDeepAuth.hubMismatch":
     "This login was issued by {hub}, but {endpoint} is served by a different hub, so requests with it are rejected. Sign in again to get a key for this endpoint.",
   "neuralDeepAuth.enterCode":

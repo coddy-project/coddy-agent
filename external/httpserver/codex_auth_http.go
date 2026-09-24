@@ -78,7 +78,7 @@ func (s *Server) coddyProviderCodexAuthDelete(w http.ResponseWriter, r *http.Req
 	}
 	// The account the cached usage described is gone; a stale snapshot must
 	// not outlive the credential.
-	s.dropProviderUsage(name)
+	s.dropProviderUsage(name, "codex")
 	status, err := llm.InspectCodexAuth(path)
 	if err != nil {
 		writeCoddyConfigErr(w, http.StatusInternalServerError, err.Error())
@@ -139,7 +139,7 @@ func (s *Server) coddyProviderCodexAuthDevicePost(w http.ResponseWriter, r *http
 		s.codexAuthMu.Unlock()
 		// The account changed: any cached usage describes the previous
 		// sign-in and must be re-read.
-		s.dropProviderUsage(name)
+		s.dropProviderUsage(name, "codex")
 	}()
 
 	writeCodexAuthJSON(w, http.StatusOK, codexAuthLoginResponse{
@@ -171,27 +171,40 @@ func (s *Server) coddyProviderCodexAuthDeviceGet(w http.ResponseWriter, r *http.
 	writeCodexAuthJSON(w, http.StatusOK, response)
 }
 
-// resolveCodexAuthProvider accepts saved Codex providers and valid unsaved names
-// so a newly added provider can be signed in before the settings document is saved.
+// resolveCodexAuthProvider accepts saved Codex providers, valid unsaved names
+// and saved rows the settings form is switching to codex, so a row can be
+// signed in before the settings document is saved.
 func (s *Server) resolveCodexAuthProvider(w http.ResponseWriter, rawName string) (string, config.ProviderConfig, bool) {
+	return s.resolveSignInProvider(w, rawName, "codex")
+}
+
+// resolveSignInProvider settles which row a Settings sign-in acts for. The
+// form signs a row in before it is saved, so neither the name nor the type
+// has to be saved yet: a new row has no saved entry, and a saved row whose
+// type picker was just switched (config.example.yaml ships one named
+// "openai") still carries its old type. A saved row of providerType is used
+// as saved. Any other name gets a probe of providerType that keeps only the
+// saved row's proxy: the route survives a type switch in the form, while the
+// endpoint and the credentials belong to the other type and would mislead
+// the sign-in.
+func (s *Server) resolveSignInProvider(w http.ResponseWriter, rawName, providerType string) (string, config.ProviderConfig, bool) {
 	c := s.activeCfg()
 	if c == nil || strings.TrimSpace(c.Paths.Home) == "" {
 		writeCoddyConfigErr(w, http.StatusInternalServerError, "config home unavailable")
 		return "", config.ProviderConfig{}, false
 	}
 	name := strings.TrimSpace(rawName)
-	probe := config.ProviderConfig{Name: name, Type: "codex"}
+	probe := config.ProviderConfig{Name: name, Type: providerType}
 	probe.Normalize()
 	if err := probe.Validate(); err != nil {
 		writeCoddyConfigErr(w, http.StatusBadRequest, err.Error())
 		return "", config.ProviderConfig{}, false
 	}
 	if saved := c.FindProvider(name); saved != nil {
-		if saved.Type != "codex" {
-			writeCoddyConfigErr(w, http.StatusConflict, "provider is not a Codex provider")
-			return "", config.ProviderConfig{}, false
+		if saved.Type == providerType {
+			return name, *saved, true
 		}
-		return name, *saved, true
+		probe.Proxy = saved.Proxy
 	}
 	return name, probe, true
 }

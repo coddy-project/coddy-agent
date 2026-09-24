@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { FieldLabel } from "./FieldHint";
 import { useT } from "../i18n/I18nProvider";
 import { translate } from "../i18n/i18n";
+import { providerAPIKeyEnvVarName } from "./providerApiKeyPlaceholder";
 
 type AuthStatus = {
   connected: boolean;
@@ -212,6 +213,13 @@ export function NeuralDeepAuthField(props: {
     status.connected &&
     (props.hasExplicitKey ||
       (status.source && status.source !== "oauth" && status.source !== "none"));
+  // The NAME_API_KEY variable of the server wins over the login too, and it
+  // follows the row's name: a row called "openai" reads OPENAI_API_KEY. The
+  // api_key field is empty then, so the note names the variable instead.
+  const shadowEnv =
+    !props.hasExplicitKey && status.source === "env"
+      ? providerAPIKeyEnvVarName(providerName)
+      : "";
   // A key minted by one deployment is not honored by the other; say so while
   // the login is the credential in use, instead of letting requests fail.
   const hubMismatch =
@@ -238,7 +246,9 @@ export function NeuralDeepAuthField(props: {
           className="settings-field-desc"
           data-testid="neuraldeep-auth-shadowed"
         >
-          {t("neuralDeepAuth.shadowedByKey")}
+          {shadowEnv
+            ? t("neuralDeepAuth.shadowedByEnv", { env: shadowEnv })
+            : t("neuralDeepAuth.shadowedByKey")}
         </p>
       ) : null}
       {hubMismatch ? (

@@ -241,3 +241,69 @@ func TestCodexAuthDeviceStartGoesThroughTheRowsProxy(t *testing.T) {
 		t.Fatalf("the device start did not go through the row's proxy; it carried %v", carried)
 	}
 }
+
+// TestCodexAuthRowSwitchedFromAnotherType: the settings form can switch a
+// saved row to codex and sign it in before the save (issue #334 names the
+// same refusal for neuraldeep). The sign-in routes accept the row, and its
+// own proxy still carries the device start.
+func TestCodexAuthRowSwitchedFromAnotherType(t *testing.T) {
+	issuer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/accounts/deviceauth/usercode" {
+			_, _ = fmt.Fprint(w, `{"device_auth_id":"device-switch","user_code":"SWCH","interval":"5"}`)
+			return
+		}
+		// Nobody confirms in the browser.
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer issuer.Close()
+	proxy := proxytest.New()
+	defer proxy.Close()
+
+	cfg := &config.Config{
+		Paths: config.Paths{Home: t.TempDir()},
+		Providers: []config.ProviderConfig{{
+			Name: "openai", Type: "openai", APIKey: "sk-openai-row", Proxy: proxy.URL(),
+		}},
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), t.TempDir(), nil)
+	srv := New(cfg, mgr, slog.Default(), t.TempDir())
+	srv.codexAuthIssuer = issuer.URL
+	ts := httptest.NewServer(srv.Handler())
+	defer func() {
+		ts.Close()
+		srv.Drain()
+	}()
+	endpoint := ts.URL + "/coddy/providers/openai/codex-auth"
+
+	res, err := http.Get(endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status read = %d, want 200 for a row the form is switching to codex", res.StatusCode)
+	}
+	res, err = http.Post(endpoint+"/device", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("device start = %d, want 200", res.StatusCode)
+	}
+	if carried := proxy.Carried(); !slices.Contains(carried, "/api/accounts/deviceauth/usercode") {
+		t.Fatalf("the device start did not go through the row's proxy; it carried %v", carried)
+	}
+	req, _ := http.NewRequest(http.MethodDelete, endpoint, nil)
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("sign-out = %d, want 200", res.StatusCode)
+	}
+}

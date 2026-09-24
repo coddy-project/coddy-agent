@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,6 +21,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/proxytest"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -247,7 +249,7 @@ func TestNeuralDeepAuthEdges(t *testing.T) {
 		t.Fatalf("unknown login status = %d, want 404", res.StatusCode)
 	}
 
-	// A provider of another type conflicts.
+	// A valid name that is not saved yet is accepted.
 	res, err = http.Get(ts.URL + "/coddy/providers/neuraldeep2/neuraldeep-auth")
 	if err != nil {
 		t.Fatal(err)
@@ -662,5 +664,169 @@ func TestNeuralDeepPersistSkipsCancelledAttempt(t *testing.T) {
 	}
 	if live.Status != "completed" || !live.Connected {
 		t.Fatalf("attempt = %+v, want completed", live)
+	}
+}
+
+// TestNeuralDeepAuthRowSwitchedFromAnotherType covers a saved row whose type
+// the settings form is switching to neuraldeep, the row config.example.yaml
+// ships included (issue #334): the sign-in routes accept it instead of
+// answering 409, the row's own proxy still carries every hub call, and the
+// key saved for the other type does not count as the NeuralDeep credential.
+func TestNeuralDeepAuthRowSwitchedFromAnotherType(t *testing.T) {
+	home := t.TempDir()
+	// A row named "openai" falls back to OPENAI_API_KEY; the machine running
+	// the test must not decide the credential source.
+	t.Setenv("OPENAI_API_KEY", "")
+	var revoked atomic.Bool
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/cli/device/start":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"device_code": "dev-switch", "user_code": "SWCH-0001",
+				"verification_uri": "http://hub/app/device", "interval": 0, "expires_in": 900,
+			})
+		case "/api/cli/device/token":
+			_, _ = fmt.Fprint(w, `{"access_token":"sk-switched","token_type":"bearer","label":"coddy @ host"}`)
+		case "/api/cli/revoke":
+			revoked.Store(true)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer hub.Close()
+	t.Setenv(llm.EnvNeuralDeepHubURL, hub.URL)
+	proxy := proxytest.New()
+	defer proxy.Close()
+
+	cfg := &config.Config{
+		Paths: config.Paths{Home: home},
+		Providers: []config.ProviderConfig{{
+			Name: "openai", Type: "openai",
+			APIBase: "https://api.openai.com/v1", APIKey: "sk-openai-row", Proxy: proxy.URL(),
+		}},
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), t.TempDir(), nil)
+	srv := New(cfg, mgr, slog.Default(), t.TempDir())
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	defer srv.Drain()
+	endpoint := ts.URL + "/coddy/providers/openai/neuraldeep-auth"
+
+	readStatus := func(res *http.Response, err error) neuralDeepAuthStatusResponse {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = res.Body.Close() }()
+		if res.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(res.Body)
+			t.Fatalf("status %d: %s", res.StatusCode, strings.TrimSpace(string(body)))
+		}
+		var st neuralDeepAuthStatusResponse
+		if err := json.NewDecoder(res.Body).Decode(&st); err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+
+	// The OpenAI key of the saved row is not what a NeuralDeep row would
+	// send; the form's own key is the SPA's to report.
+	if st := readStatus(http.Get(endpoint)); st.Connected || st.Source != "none" {
+		t.Fatalf("status before sign-in = %+v, want disconnected with source none", st)
+	}
+
+	res, err := http.Post(endpoint+"/device", "application/json", strings.NewReader(`{"api_base":"https://api.neuraldeep.ru/v1"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var start struct {
+		LoginID string `json:"login_id"`
+	}
+	_ = json.NewDecoder(res.Body).Decode(&start)
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusOK || start.LoginID == "" {
+		t.Fatalf("device start status = %d, login %q", res.StatusCode, start.LoginID)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		poll, err := http.Get(endpoint + "/device/" + start.LoginID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var st codexAuthLoginResponse
+		_ = json.NewDecoder(poll.Body).Decode(&st)
+		_ = poll.Body.Close()
+		if poll.StatusCode != http.StatusOK {
+			t.Fatalf("poll status = %d", poll.StatusCode)
+		}
+		if st.Status == "completed" {
+			break
+		}
+		if st.Status == "failed" || time.Now().After(deadline) {
+			t.Fatalf("device login did not complete: %+v", st)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	for _, want := range []string{"/api/cli/device/start", "/api/cli/device/token"} {
+		if !slices.Contains(proxy.Carried(), want) {
+			t.Fatalf("the row's proxy did not carry %s; it carried %v", want, proxy.Carried())
+		}
+	}
+	key, err := llm.LoadNeuralDeepKey(config.NeuralDeepAuthPath(home, "openai"))
+	if err != nil || key != "sk-switched" {
+		t.Fatalf("stored key = %q (%v), want the hub key under the row's name", key, err)
+	}
+	if st := readStatus(http.Get(endpoint)); !st.Connected || st.Source != "oauth" {
+		t.Fatalf("status after sign-in = %+v, want a connected oauth login", st)
+	}
+	// Once saved, the row still reads its NAME_API_KEY before the login, and
+	// for this name that is OPENAI_API_KEY; the status has to say so now.
+	t.Setenv("OPENAI_API_KEY", "sk-from-env")
+	if st := readStatus(http.Get(endpoint)); !st.Connected || st.Source != "env" {
+		t.Fatalf("status with OPENAI_API_KEY set = %+v, want the login shadowed by env", st)
+	}
+	t.Setenv("OPENAI_API_KEY", "")
+
+	req, _ := http.NewRequest(http.MethodDelete, endpoint, nil)
+	if st := readStatus(http.DefaultClient.Do(req)); st.Connected {
+		t.Fatalf("status after sign-out = %+v, want disconnected", st)
+	}
+	if !revoked.Load() || !slices.Contains(proxy.Carried(), "/api/cli/revoke") {
+		t.Fatalf("sign-out must revoke through the row's proxy; it carried %v", proxy.Carried())
+	}
+}
+
+// TestSignInOwnsProviderUsage: a sign-in or a sign-out changes the cached
+// account usage of the row it names only when that row is of the route's
+// type or not saved yet. A row still saved as another type (the form is
+// switching it) keeps its snapshot and its rejected-key mark; its usage
+// fingerprint catches the new type once the row is saved.
+func TestSignInOwnsProviderUsage(t *testing.T) {
+	cfg := &config.Config{Providers: []config.ProviderConfig{
+		{Name: "openai", Type: "openai"},
+		{Name: "codex", Type: "codex"},
+		{Name: "neuraldeep", Type: "neuraldeep"},
+	}}
+	for _, tc := range []struct {
+		name, providerType string
+		want               bool
+	}{
+		{"neuraldeep", "neuraldeep", true},
+		{"codex", "codex", true},
+		{"unsaved", "neuraldeep", true},
+		{"openai", "neuraldeep", false},
+		{"codex", "neuraldeep", false},
+		{"neuraldeep", "codex", false},
+	} {
+		if got := signInOwnsProviderUsage(cfg, tc.name, tc.providerType); got != tc.want {
+			t.Errorf("signInOwnsProviderUsage(%q, %q) = %v, want %v", tc.name, tc.providerType, got, tc.want)
+		}
+	}
+	if !signInOwnsProviderUsage(nil, "neuraldeep", "neuraldeep") {
+		t.Error("without a config the drop must still happen")
 	}
 }

@@ -24,6 +24,18 @@ Feature: NeuralDeep hub sign-in feeds the neuraldeep provider
     Then the neuraldeep provider reports disconnected
 
   @http
+  Scenario: A saved row switched to neuraldeep in Settings signs in before the save
+    config.example.yaml ships a provider named "openai" of type openai. Settings
+    switches that row to neuraldeep and signs in on the same unsaved form, so the
+    type the row was saved with must not refuse the sign-in (issue #334).
+
+    Given a coddy HTTP server whose saved provider "openai" is of type openai, and a stand-in hub
+    When I sign in to NeuralDeep through the device flow over REST
+    Then the neuraldeep provider reports connected with a masked key
+    When I save the provider as type neuraldeep over REST
+    Then the provider model list is fetched with the hub key
+
+  @http
   Scenario: Signing in from Settings goes through the provider's own proxy
     A row that names a proxy reaches the hub through it, the sign-in included.
 

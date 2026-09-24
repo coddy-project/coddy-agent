@@ -493,6 +493,37 @@ test("NeuralDeep explicit api_key reports that it shadows the login", async () =
   expect(screen.getByText(/sk-ab…1234/)).toBeInTheDocument();
 });
 
+test("NeuralDeep login shadowed by the NAME_API_KEY variable names that variable", async () => {
+  // A row named "openai" (the one config.example.yaml ships, switched to
+  // neuraldeep) reads OPENAI_API_KEY before the login. The api_key field is
+  // empty, so advice to clear it would send the operator nowhere.
+  const fetchMock = vi.fn(async () => ({
+    ok: true,
+    json: async () => ({
+      connected: true,
+      masked: "sk-ab…1234",
+      source: "env",
+    }),
+  }));
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(
+    <Harness
+      provider={{
+        name: "openai",
+        type: "neuraldeep",
+        api_base: "",
+        api_key: "",
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+
+  const note = await screen.findByTestId("neuraldeep-auth-shadowed");
+  expect(note).toHaveTextContent("OPENAI_API_KEY");
+  expect(note).not.toHaveTextContent("api_key field");
+});
+
 const modelsSection: SectionDescriptor = {
   id: "models",
   label: "Logical models",
