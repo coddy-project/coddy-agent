@@ -19,11 +19,12 @@ import {
   subscribeShellStack,
 } from "../shellBreakpoint";
 import {
+  parseAppHash,
   setSettingsHash,
   setSettingsSectionHash,
 } from "../scheduler/hashRoute";
 import { useT } from "../i18n/I18nProvider";
-import { translate } from "../i18n/i18n";
+import { hasTranslation, translate } from "../i18n/i18n";
 
 type ValidateResponse = { ok: boolean; error?: string };
 
@@ -105,12 +106,27 @@ function IconArrowLeft(props: { className?: string }) {
   );
 }
 
+/** The drawer's title while a row of a list section is open: the form it
+ * shows ("Provider settings"), the section's own name for a list without one. */
+function itemFormTitle(section: SectionDescriptor): string {
+  const key = `settings.item.${section.id}`;
+  return hasTranslation(key) ? translate(key) : section.label;
+}
+
+/** Whether the address keeps the history sidebar open (`?history=1`). */
+function historyOpenInAddress(): boolean {
+  const route = parseAppHash();
+  return "historyOpen" in route && route.historyOpen;
+}
+
 export function Settings(props: {
   onClose: () => void;
   /** Called after the config is successfully saved so the app can re-fetch model metadata. */
   onConfigSaved?: () => void;
   /** Section id from the `#/settings/<section>` deep link (null = default/grid). */
   initialSection?: string | null;
+  /** The row a list section has open, from `?id=` of that deep link. */
+  initialItem?: string | null;
   /** The conversation on screen; the session table keeps it out of "delete all". */
   activeSessionId?: string;
   /** Session ids the table removed, so the shell can drop them from History. */
@@ -181,6 +197,15 @@ export function Settings(props: {
     setMobileDetailId(null);
     setSettingsHash();
   }, []);
+
+  // The head is the way back, on every width. With a row of a list section
+  // open (a provider, a model) it is titled after that form and its arrow
+  // closes the form back onto the list; on the narrow shell, with no row open,
+  // it names the section and its arrow goes back to the tiles.
+  const [rowOpen, setRowOpen] = useState(false);
+  const [closeRowSignal, setCloseRowSignal] = useState(0);
+  const headSection = isMobileShell ? mobileSection : activeSection;
+  const rowTitle = rowOpen && headSection ? itemFormTitle(headSection) : null;
 
   const load = useCallback(async () => {
     setLoadErr(null);
@@ -283,7 +308,30 @@ export function Settings(props: {
                 schema={schema}
                 doc={doc}
                 setDoc={setDoc}
-                isMobileShell={isMobileShell}
+                // The address names a row of one section. For the render in
+                // which the tab has not caught up with a new address yet,
+                // another section must not take that name for its own (it
+                // would find no such row and rewrite the address to its list).
+                routeItem={
+                  section.id === (props.initialSection ?? "")
+                    ? (props.initialItem ?? null)
+                    : null
+                }
+                // Only the section the address names writes it back: in the
+                // render where the tab lags a new address, the old section
+                // would otherwise report its closed form and undo the jump.
+                onRouteItemChange={
+                  section.id === (props.initialSection ?? "")
+                    ? (item) =>
+                        setSettingsSectionHash(section.id, {
+                          item,
+                          historySidebar: historyOpenInAddress(),
+                        })
+                    : undefined
+                }
+                hideBackLink
+                onEditingChange={setRowOpen}
+                closeSignal={closeRowSignal}
                 {...(props.activeSessionId
                   ? { activeSessionId: props.activeSessionId }
                   : {})}
@@ -348,14 +396,30 @@ export function Settings(props: {
       data-variant="drawer"
     >
       <div className="sessions-head">
-        {isMobileShell && mobileSection ? (
+        {rowTitle && headSection ? (
+          <span className="settings-head-titlegroup">
+            <button
+              type="button"
+              className="settings-head-back"
+              aria-label={t("settings.array.backTo", {
+                list: headSection.label,
+              })}
+              title={t("settings.array.backTo", { list: headSection.label })}
+              data-testid="settings-head-back"
+              onClick={() => setCloseRowSignal((n) => n + 1)}
+            >
+              <IconArrowLeft />
+            </button>
+            <span className="settings-head-section">{rowTitle}</span>
+          </span>
+        ) : isMobileShell && mobileSection ? (
           <span className="settings-head-titlegroup">
             <button
               type="button"
               className="settings-head-back"
               aria-label={t("settings.backToSections")}
               title={t("settings.backToSections")}
-              data-testid="settings-mobile-back"
+              data-testid="settings-head-back"
               onClick={backToGrid}
             >
               <IconArrowLeft />

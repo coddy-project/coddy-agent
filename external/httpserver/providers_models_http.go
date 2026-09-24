@@ -5,6 +5,7 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
+	"mime"
 	"net/http"
 	"strings"
 
@@ -69,51 +70,66 @@ type providerModelsRequest struct {
 // over the wire; fields the body carries override the saved row, so the form
 // previews the provider as it is being edited. The credential pair
 // (api_key / api_key_command) is one slot: it is inherited only when the body
-// posts neither field, and only while the resolved api_base still matches the
-// saved row, so an overridden endpoint never receives stored credentials. A
+// posts neither field, and only while the resolved api_base and proxy still
+// match the saved row, so an overridden route never receives stored
+// credentials. A
 // posted api_key_command is executed server-side, exactly as it would be for a
-// saved provider. Responses follow the GET shape: {"ok":true,"models":[...]}
-// on success, {"ok":false,"error":...} with HTTP 200 on an upstream failure,
-// 400 for a malformed or invalid body.
+// saved provider. Only an application/json body is accepted (415 otherwise),
+// which keeps a cross-site page from driving this route through a browser.
+// Responses follow the GET shape: {"ok":true,"models":[...]} on success,
+// {"ok":false,"error":...} with HTTP 200 on an upstream failure, 400 for a
+// malformed or invalid body.
 func (s *Server) coddyProviderModelsPost(w http.ResponseWriter, r *http.Request) {
+	// Only a JSON body is read. A page on another site can make a browser
+	// POST here without a preflight only as a "simple" request (text/plain, a
+	// form encoding), and an unauthenticated loopback server would otherwise
+	// run the posted api_key_command, or send a stored key upstream, for it.
+	if mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mediaType != "application/json" {
+		writeCoddyConfigErr(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+		return
+	}
 	c := s.activeCfg()
 	if c == nil {
 		writeCoddyConfigErr(w, http.StatusInternalServerError, "config unavailable")
 		return
 	}
 	var req providerModelsRequest
+	// A provider row is a few hundred bytes; nothing needs more than this.
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeCoddyConfigErr(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 	prov := config.ProviderConfig{
-		Name:          req.Name,
+		Name:          strings.TrimSpace(req.Name),
 		Type:          req.Type,
 		APIBase:       req.APIBase,
 		APIKey:        req.APIKey,
 		APIKeyCommand: req.APIKeyCommand,
 		Proxy:         req.Proxy,
 	}
-	if saved := c.FindProvider(strings.TrimSpace(prov.Name)); saved != nil {
+	if saved := c.FindProvider(prov.Name); saved != nil {
 		if strings.TrimSpace(prov.Type) == "" {
 			prov.Type = saved.Type
 		}
 		if strings.TrimSpace(prov.APIBase) == "" {
 			prov.APIBase = saved.APIBase
 		}
+		if strings.TrimSpace(prov.Proxy) == "" {
+			prov.Proxy = saved.Proxy
+		}
 		// The credential pair is one slot: it is inherited only when the body
-		// posts neither field, and only while the request still targets the
-		// saved endpoint - a caller overriding api_base must post the
-		// credentials for it, otherwise the stored key would be sent to a
-		// URL it was never configured for.
+		// posts neither field, and only while the request still takes the
+		// saved route - the saved endpoint through the saved proxy. A caller
+		// overriding either must post the credentials for it, otherwise the
+		// stored key would go to a URL, or through a proxy, it was never
+		// configured for.
 		if strings.TrimSpace(prov.APIBase) == strings.TrimSpace(saved.APIBase) &&
+			strings.TrimSpace(prov.Proxy) == strings.TrimSpace(saved.Proxy) &&
 			strings.TrimSpace(prov.APIKey) == "" &&
 			strings.TrimSpace(prov.APIKeyCommand) == "" {
 			prov.APIKey = saved.APIKey
 			prov.APIKeyCommand = saved.APIKeyCommand
-		}
-		if strings.TrimSpace(prov.Proxy) == "" {
-			prov.Proxy = saved.Proxy
 		}
 	}
 	prov.Normalize()

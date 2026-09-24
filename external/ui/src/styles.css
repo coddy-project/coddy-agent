@@ -1251,9 +1251,12 @@ a.rail-brand {
   min-height: 0;
 }
 
+/* 680px: the section rail plus a content column that holds three theme cards
+   a row (Appearance) and keeps form fields at a readable measure. Narrower,
+   not wider cards: the cards keep their size (appearanceSettingsLayout test). */
 .settings.drawer {
   width: min(
-    960px,
+    680px,
     calc(
       100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) - 16px
     )
@@ -3536,6 +3539,11 @@ a.rail-brand {
 
 .coddy-chevron--down.is-open {
   transform: rotate(-90deg);
+}
+
+/* A back control (the settings list forms' "< LLM providers"). */
+.coddy-chevron--left {
+  transform: rotate(180deg);
 }
 
 /* Centred on the first line - half the label's 20px line box - never on the height
@@ -7402,11 +7410,14 @@ html:not([data-theme="light"]) .context-usage-note--error {
 }
 
 /* Settings drawer (#/settings) - same glass shell as History / Scheduler drawers.
-   The lead pane is the status slot only - it renders when a load/save result
-   needs reporting, otherwise nothing stands between the head and the tabs. */
+   The lead pane is the status band: it renders only while a load or save
+   result needs reporting, so nothing stands between the head and the tabs
+   otherwise. */
 .settings.drawer .settings-lead-pane {
   flex-shrink: 0;
   padding: 8px 14px 10px;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
 }
 
 .settings.drawer .settings-stack {
@@ -7512,22 +7523,37 @@ html:not([data-theme="light"]) .context-usage-note--error {
   place-items: center;
 }
 
-/* Back buttons (← Back to list / ← Back to sections): flex-center the arrow with
-   the label so the glyph stays vertically aligned across fonts and browsers
-   (a bare "←" text prefix rides high on its line box otherwise). */
-.settings-btn-back {
+/* The list forms' way back (< LLM providers): a quiet link, the app's chevron
+   pointing left and the list's name, level with the fields below. */
+.settings-back-link {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  line-height: 1;
+  gap: 4px;
+  align-self: flex-start;
+  margin-left: -4px;
+  padding: 4px 8px 4px 2px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  font: inherit;
+  font-size: 0.88rem;
+  line-height: 1.2;
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background 120ms ease;
 }
 
-.settings-btn-back-arrow {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.1em;
-  line-height: 1;
+.settings-back-link:hover,
+.settings-back-link:focus-visible {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+}
+
+.settings-back-link:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 1px;
 }
 
 .settings-footer-icon-svg {
@@ -7604,10 +7630,67 @@ html:not([data-theme="light"]) .context-usage-note--error {
   background: var(--coddy-surface-fieldset);
 }
 
+/* The legend's text starts on the line the fields' labels start on: the 6px
+   of padding that opens the frame's gap sits in front of it, pulled back by
+   the same 6px. */
 .settings-fieldset > legend {
+  margin-left: -6px;
   padding: 0 6px;
   font-size: 0.85rem;
   color: var(--muted);
+}
+
+/* A block of a form (SchemaForm groups): the fields inside keep the form's
+   12px rhythm. */
+.settings-form-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-form-group-body[hidden] {
+  display: none;
+}
+
+/* A fieldset that folds: its legend is the toggle, the app's chevron hanging
+   in front of the name like a transcript row's. The legend reaches 18px (the
+   14px chevron and its 4px gap) further left than a plain one (-6px - 18px), so the name
+   starts on the same line as every other legend's and, opened, the frame's
+   gap takes the chevron in too. Folded, there is no frame at all - only the
+   line; the border turns transparent rather than going away, so the name
+   stays exactly where the framed box puts it. */
+.settings-fieldset--collapsible > legend {
+  margin-left: -24px;
+}
+
+.settings-fieldset--collapsible:not(.is-open) {
+  border-color: transparent;
+  background: transparent;
+  padding: 0 0 0 14px;
+}
+
+.settings-fieldset-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: color 120ms ease;
+}
+
+.settings-fieldset-toggle:hover,
+.settings-fieldset-toggle:focus-visible {
+  color: var(--text);
+}
+
+.settings-fieldset-toggle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 .settings-nested {
@@ -7636,8 +7719,8 @@ html:not([data-theme="light"]) .context-usage-note--error {
   align-items: center;
 }
 
-/* A real <label for>: clicking the text toggles the switch. It sits in a
-   flex cell with the (i) help hint, so both centre on the switch's first line. */
+/* The label cell: the <label> and, when the field has a description, its
+   (i) (FieldHint), centred on each other and on the switch. */
 .settings-switch-field-label-cell {
   display: flex;
   align-items: center;
@@ -7645,6 +7728,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
   min-width: 0;
 }
 
+/* A real <label for>: clicking the text toggles the switch. */
 .settings-switch-field-label {
   font-size: 0.9rem;
   line-height: 1.3;
@@ -7658,45 +7742,61 @@ html:not([data-theme="light"]) .context-usage-note--error {
   cursor: default;
 }
 
-/* The (i) help control next to a field label: hover or keyboard focus opens
-   the tip on hover-capable devices; touch-only devices open the sheet. */
-.field-hint {
-  position: relative;
+/* A settings field's name with the (i) that carries its description
+   (FieldLabel, LegendWithHint): the two centred on one line, the (i) right
+   after the text. */
+.settings-label-with-hint,
+.settings-legend-line {
   display: inline-flex;
-  flex: 0 0 auto;
-  vertical-align: middle;
-  margin-left: 6px;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
 }
 
-.field-hint-btn {
-  display: grid;
+.settings-label-with-hint {
+  align-self: flex-start;
+}
+
+/* The (i): a quiet glyph at the name's size that lights up while its tip is
+   open. */
+.field-hint {
+  flex: 0 0 auto;
+  display: inline-grid;
   place-items: center;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   padding: 0;
   border: 0;
   border-radius: 50%;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 40%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
   cursor: help;
+  transition: color 120ms ease;
 }
 
-.field-hint-btn:hover,
-.field-hint:focus-within .field-hint-btn {
+.field-hint:hover,
+.field-hint.is-open,
+.field-hint:focus-visible {
   color: var(--accent);
 }
 
+.field-hint:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 1px;
+}
+
+.field-hint svg {
+  display: block;
+}
+
+/* The tip lives in <body> (portal), fixed above the (i): no scroll container
+   clips it or grows a scrollbar for it, and it sits over every panel. */
 .field-hint-tip {
-  display: none;
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  z-index: 60;
-  width: max-content;
-  max-width: min(300px, 80vw);
-  max-height: 200px;
-  overflow-y: auto;
-  padding: 10px 12px;
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 8px 11px;
   border-radius: 10px;
   border: 1px solid var(--coddy-tip-border);
   background: var(--coddy-tip-bg);
@@ -7704,108 +7804,11 @@ html:not([data-theme="light"]) .context-usage-note--error {
   color: var(--coddy-tip-fg, var(--text));
   font-size: 12px;
   font-weight: 400;
-  line-height: 1.55;
+  line-height: 1.5;
   text-align: left;
   white-space: normal;
-}
-
-@media (hover: hover) {
-  .field-hint:hover .field-hint-tip,
-  .field-hint:focus-within .field-hint-tip {
-    display: block;
-  }
-}
-
-.field-hint-para {
-  display: block;
-  margin: 0 0 6px;
-}
-
-.field-hint-para:last-child {
-  margin-bottom: 0;
-}
-
-/* Touch devices: the hint sheet hangs at the bottom edge, scrolls its text. */
-.field-hint-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 300;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  padding: 0 16px 40px;
-  background: var(--coddy-overlay-scrim-bg);
-}
-
-.field-hint-sheet {
-  display: flex;
-  flex-direction: column;
-  width: min(480px, 100%);
-  max-height: 60vh;
-  max-height: 60dvh;
-  border-radius: 16px;
-  border: 1px solid var(--coddy-tip-border);
-  background: var(--coddy-tip-bg);
-  box-shadow: var(--coddy-tip-shadow);
-  color: var(--coddy-tip-fg, var(--text));
-}
-
-.field-hint-sheet-close {
-  align-self: flex-end;
-  margin: 10px 10px 0;
-}
-
-.field-hint-sheet-body {
-  overflow-y: auto;
-  padding: 0 16px 16px;
-  font-size: 14px;
-  line-height: 1.6;
-}
-
-.field-hint-sheet-body p {
-  margin: 0 0 8px;
-}
-
-.field-hint-sheet-body p:last-child {
-  margin-bottom: 0;
-}
-
-/* Collapsed plumbing fields at the end of a schema form (the providers form
-   hides api_key_command / proxy / timeout_ms there). */
-.settings-advanced {
-  margin-top: 4px;
-}
-
-.settings-advanced-summary {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  list-style: none;
-  cursor: pointer;
-  padding: 4px 0;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
-  font-size: 0.82rem;
-  user-select: none;
-}
-
-.settings-advanced-summary::-webkit-details-marker {
-  display: none;
-}
-
-.settings-advanced-summary:hover {
-  color: var(--text);
-}
-
-.settings-advanced-body {
-  margin-left: 7px;
-  padding: 4px 0 0 14px;
-  border-left: 1px solid
-    color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
-  /* Same row rhythm as .settings-schema-root, else each label glues to the
-     previous field's input instead of its own. */
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  overflow-wrap: anywhere;
+  pointer-events: none;
 }
 
 .settings-label {
@@ -7838,22 +7841,16 @@ html:not([data-theme="light"]) .context-usage-note--error {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
+/* A list row: the value's input and its trash, nothing between rows - the
+   inputs themselves are the rhythm, 8px apart (.settings-array gap). */
 .settings-array-row {
   display: flex;
   flex-direction: row;
   align-items: flex-end;
   gap: 8px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
-}
-
-.settings-array-row:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
 }
 
 /* Field block takes the row width; the trash button sits to its right. */
@@ -8049,6 +8046,13 @@ html:not([data-theme="light"]) .context-usage-note--error {
   gap: 12px;
 }
 
+/* The lead line of a list section ("API credentials and transport selection
+   ...") belongs to the rows under it: 8px to the first row, not the 12px
+   column gap plus the paragraph's own margin. */
+.settings-master > .settings-field-desc {
+  margin: 0 0 -4px;
+}
+
 .settings-master-list {
   list-style: none;
   margin: 0;
@@ -8097,16 +8101,20 @@ html:not([data-theme="light"]) .context-usage-note--error {
   gap: 8px;
 }
 
+/* The Sessions tab: the storage fieldset above the session table, 12px
+   apart like every block of the drawer. */
+.settings-sessions-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* The System tab: one form per folded-in section, each a fieldset (or a
+   block that names itself), on the drawer's 12px rhythm. */
 .settings-group {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-}
-
-.settings-group-block {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
 /* Logical-model field: provider select + fetch button row */
@@ -8127,127 +8135,14 @@ html:not([data-theme="light"]) .context-usage-note--error {
   white-space: nowrap;
 }
 
-/* Provider edit form: the advertised model list under the fetch button. */
-.provider-models-fetch .settings-btn {
-  margin-top: 4px;
-}
-
-.provider-models-list {
-  list-style: none;
-  margin: 8px 0 0;
-  padding: 0;
-  max-height: 240px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.provider-model-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
-  border-radius: 8px;
-}
-
-.provider-model-row:hover {
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
-}
-
-.provider-model-id {
-  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 12px;
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.provider-model-name {
-  flex: 1 1 auto;
-  min-width: 0;
-  color: var(--muted);
-  font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.provider-model-ctx {
-  flex: 0 0 auto;
-  color: var(--muted);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-/* Same control the History folder headings use: a bare + glyph, quiet until
-   hovered. The listed state keeps the box and shows a check instead. */
-.provider-model-add {
-  flex: 0 0 auto;
-  width: 26px;
-  height: 22px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  background: transparent;
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-  transition: color 140ms ease;
-}
-
-.provider-model-add:hover:not(:disabled),
-.provider-model-add:focus-visible {
-  color: var(--text);
-}
-
-.provider-model-add:disabled {
-  cursor: default;
-}
-
-/* The provider type row carries the usage-panel switch to the right of the
-   combobox for the provider types that have a usage source. */
-.settings-type-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.settings-type-row > :first-child {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.settings-type-row > .settings-switch-field {
-  flex: 0 0 auto;
-}
-
-/* A model the config lists but the provider no longer advertises: amber warn
-   row under the fetched list, with a minus to drop it from logical models. */
-.provider-model-row.is-stale .provider-model-id,
-.provider-model-stale-icon {
-  color: color-mix(in srgb, #eab308 85%, var(--text));
-}
-
-.provider-model-stale-icon {
-  display: inline-flex;
-  flex: 0 0 auto;
-}
-
-.provider-model-remove {
-  color: color-mix(in srgb, #eab308 85%, var(--text));
-}
-
-.provider-models-error {
-  margin-top: 8px;
-}
-
 /* Reasoning levels: the action row sits above the level list, so it keeps the
    model-field control metrics but wraps instead of squeezing its buttons. */
+/* A button standing on its own in a field's column (the reasoning levels'
+   Add) keeps its own width instead of stretching across the field. */
+.settings-row > .settings-row-action {
+  align-self: flex-start;
+}
+
 .reasoning-levels-actions {
   flex-wrap: wrap;
   margin-bottom: 8px;
@@ -8259,6 +8154,201 @@ html:not([data-theme="light"]) .context-usage-note--error {
 
 [data-testid="reasoning-levels-field"] .settings-array {
   margin-top: 8px;
+}
+
+/* A logical model's context window: the number field beside the 40px icon
+   button that asks the provider, the input matching its height so the pair
+   reads as one row (ContextWindowField). */
+.context-window-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.context-window-controls > .settings-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  min-height: 40px;
+}
+
+.context-window-controls > .settings-btn {
+  flex: 0 0 auto;
+}
+
+/* Provider form: the models the provider advertises (ProviderModelList), the
+   last thing in the form. A compact list: the id, the context window right of
+   it, and the add / listed toggle right after, no separators; the refresh
+   icon rides in the legend. */
+.provider-models-box {
+  /* A <fieldset> defaults to min-inline-size: min-content, and a long id or
+     a long error would widen the form past a phone's panel. */
+  min-inline-size: 0;
+}
+
+/* The refresh icon beside the legend: the (i)'s metrics, so the legend line
+   reads the same as every other fieldset's. */
+.provider-models-refresh {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+  cursor: pointer;
+  transition: color 120ms ease;
+}
+
+.provider-models-refresh svg {
+  display: block;
+  width: 13px;
+  height: 13px;
+}
+
+.provider-models-refresh:hover:not(:disabled),
+.provider-models-refresh:focus-visible {
+  color: var(--accent);
+}
+
+.provider-models-refresh:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 1px;
+}
+
+.provider-models-refresh:disabled {
+  cursor: default;
+}
+
+.provider-models-status {
+  margin: 2px 0 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* An error keeps the .settings-error colour, not its margin or size. */
+.provider-models-status.settings-error {
+  margin: 2px 0 0;
+  font-size: 0.8rem;
+}
+
+.provider-models-filter {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 36px;
+  margin: 2px 0 6px;
+}
+
+.provider-models-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  /* About twelve rows, then the list scrolls inside the form. */
+  max-height: 380px;
+  overflow-y: auto;
+}
+
+/* A row is as wide as what it holds - the id, the window, the toggle - so
+   the hover lights that, not the whole width of the box. Its 6px of padding
+   hangs left of the box's content edge, so the id starts on the line the
+   legend and the labels start on. */
+.provider-models-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  max-width: calc(100% + 6px);
+  min-width: 0;
+  box-sizing: border-box;
+  margin-left: -6px;
+  padding: 3px 4px 3px 6px;
+  border-radius: 8px;
+}
+
+.provider-models-item:hover {
+  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
+}
+
+.provider-models-item-id {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12.5px;
+  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+}
+
+.provider-models-item-ctx {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+/* The toggle right after the id: a plus while the model is not in Logical
+   models, an accent check once it is; the check takes it out again. */
+.provider-models-toggle {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background 120ms ease;
+}
+
+.provider-models-toggle svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+
+.provider-models-toggle:hover,
+.provider-models-toggle:focus-visible {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+}
+
+.provider-models-toggle.is-listed {
+  color: var(--accent);
+}
+
+.provider-models-toggle.is-listed:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.provider-models-toggle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 1px;
+}
+
+/* An id Logical models lists that the provider no longer advertises: amber,
+   the reason in the row's tooltip. */
+.provider-models-item.is-stale .provider-models-item-id {
+  color: color-mix(in srgb, #f59e0b 85%, var(--text));
+}
+
+.provider-models-empty {
+  padding: 6px;
+  font-size: 0.85rem;
 }
 
 /* Editable combobox (replaces every plain <select> in settings) */
@@ -8362,25 +8452,19 @@ html:not([data-theme="light"]) .context-usage-note--error {
   flex-direction: column;
 }
 
+/* Installed skills stack with no rule between them, like every list of the
+   drawer: the rows' own padding is the rhythm. */
 .skills-list-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 0;
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  padding: 6px 0;
 }
 
-/* Dim the label/icon of a disabled skill but keep its on/off switch crisp. */
-.skills-list-item.is-disabled > svg,
+/* Dim the name of a disabled skill but keep its on/off switch crisp. The
+   switch leads the row, where an icon used to stand. */
 .skills-list-item.is-disabled .skills-list-item-text {
   opacity: 0.5;
-}
-
-/* Keep the leading skill icon square: without this the flex row squeezes the
-   16x16 <svg> horizontally when the name/description is long, slanting it. */
-.skills-list-item > svg {
-  flex-shrink: 0;
 }
 
 .skills-list-item-text {
@@ -8794,24 +8878,91 @@ html:not([data-theme="light"]) .context-usage-note--error {
   border-color: color-mix(in srgb, #ff9f0a 45%, transparent);
 }
 
-/* Subagents tab: the definition catalog reuses the MCP list chrome, so only
-   what has no MCP counterpart is defined here.
+/* Subagents tab: two blocks, the settings and the definitions, on the
+   drawer's 12px rhythm like the Skills and MCP tabs. */
+.settings-subagents-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 
-   A definition's absolute path and its comma-separated tool list are long and
+/* A definition's absolute path and its comma-separated tool list are long and
    unbreakable. A <code> does not wrap on its own, so without these rules one
    row widens the whole fieldset past the settings panel and the row
    descriptions lose their ellipsis. */
 .settings-subagents-section .subagents-catalog-box,
 .settings-subagents-section .subagents-list,
-.settings-subagents-section .mcp-list-item {
+.settings-subagents-section .subagents-item {
   min-inline-size: 0;
   max-width: 100%;
 }
 
-.subagents-workspace code,
+.subagents-item-name,
 .settings-subagents-section .subagents-file,
 .settings-subagents-section .subagents-facts code {
   overflow-wrap: anywhere;
+}
+
+/* The definitions stack with no rule between them, like every list of the
+   drawer. */
+.subagents-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.subagents-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  row-gap: 2px;
+  min-width: 0;
+}
+
+/* The fold toggle is the app's chevron in front of the definition's name, the
+   two one control (DESIGN.md "Chevron"). The chevron is centred on the name's
+   first 20px line, (20 - 14) / 2 = 3px down, so a name that wraps keeps it on
+   the line it starts. */
+.subagents-toggle {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.subagents-toggle > .coddy-chevron {
+  margin-top: 3px;
+}
+
+.subagents-toggle:hover > .coddy-chevron,
+.subagents-toggle:focus-visible > .coddy-chevron {
+  opacity: 1;
+}
+
+.subagents-toggle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* The description, the file and the facts start where the name does: the
+   14px chevron and its 4px gap. */
+.subagents-item-body {
+  min-width: 0;
+  padding-left: 18px;
 }
 
 .subagents-file {
@@ -8822,20 +8973,10 @@ html:not([data-theme="light"]) .context-usage-note--error {
   color: color-mix(in srgb, var(--text) 52%, transparent);
 }
 
-.subagents-declared {
+.subagents-facts {
   margin: 6px 0 0;
   font-size: 0.78rem;
   color: color-mix(in srgb, var(--text) 72%, transparent);
-}
-
-.subagents-declared summary {
-  cursor: pointer;
-  width: fit-content;
-  color: color-mix(in srgb, var(--text) 60%, transparent);
-}
-
-.subagents-facts {
-  margin: 6px 0 0;
 }
 
 .subagents-facts > div {
@@ -9021,8 +9162,9 @@ html:not([data-theme="light"]) .context-usage-note--error {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
     /* Same inline inset as the head and the lead pane above: the drawer has one
-       edge, and the tiles used to hug it while the text stood 14px in. */
-    padding: 4px 14px 12px;
+       edge, and the tiles used to hug it while the text stood 14px in. The
+       top keeps the same 14px off the head's rule. */
+    padding: 14px 14px 12px;
     align-content: start;
     overflow-y: auto;
     /* Fill the stack so the footer (reload/save) stays pinned at the bottom. */
@@ -13341,11 +13483,15 @@ html:not([data-theme="light"]) .swarm-graph-panel {
    "Settings session management table".
    --------------------------------------------------------------------------- */
 
+/* The session table is a fieldset (Session management): it drops the
+   min-content inline size every <fieldset> defaults to, or the table's
+   columns would widen the drawer instead of scrolling inside their wrap. */
 .sessions-manager {
   display: flex;
   flex-direction: column;
   gap: 10px;
   min-width: 0;
+  min-inline-size: 0;
 }
 
 /* The search field and the delete button share one row at every width: with a
@@ -13414,10 +13560,11 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   text-align: left;
   font-weight: 600;
   font-size: 0.74rem;
-  letter-spacing: 0.02em;
   text-transform: uppercase;
   color: var(--muted);
-  padding: 8px 7px;
+  /* 5px a side: inside the Session management fieldset the seven columns
+     fit the 680px drawer without a sideways scroll. */
+  padding: 8px 5px;
   border-bottom: 1px solid var(--coddy-glass-panel-border);
   position: sticky;
   top: 0;
@@ -13426,7 +13573,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 }
 
 .sessions-manager-table td {
-  padding: 6px 7px;
+  padding: 6px 5px;
   border-bottom: 1px solid
     color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
   color: var(--text);

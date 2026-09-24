@@ -52,6 +52,26 @@ wanted() {
 }
 
 # copy_skill SRC DST - the delivered subset of a skill checkout.
+# skill_version prints the version a SKILL.md frontmatter declares: the
+# metadata.version of the Agent Skills metadata map, else the top-level
+# version key older files carry (the same order internal/skills reads them in).
+skill_version() {
+    awk -v sq="'" '
+        NR == 1 && $0 == "---" { fm = 1; next }
+        !fm { exit }
+        $0 == "---" { exit }
+        /^metadata:[[:space:]]*$/ { meta = 1; next }
+        /^[^[:space:]]/ { meta = 0 }
+        meta && /^[[:space:]]+version:/ { v = $0; sub(/^[[:space:]]+version:[[:space:]]*/, "", v); mv = v; next }
+        /^version:/ { v = $0; sub(/^version:[[:space:]]*/, "", v); tv = v }
+        END {
+            out = (mv != "" ? mv : tv)
+            gsub(/"/, "", out); gsub(sq, "", out); gsub(/[[:space:]]+$/, "", out)
+            print out
+        }
+    ' "$1"
+}
+
 copy_skill() {
     local src=$1 dst=$2
     [ -f "$src/SKILL.md" ] || { echo "vendor-bundled-skills: $src has no SKILL.md" >&2; return 1; }
@@ -92,7 +112,7 @@ while read -r name repo ref; do
 
     staged="$tmp/staged-$name"
     copy_skill "$src" "$staged"
-    version=$(sed -n 's/^version:[[:space:]]*//p' "$staged/SKILL.md" | head -1)
+    version=$(skill_version "$staged/SKILL.md")
     [ -n "$version" ] || { echo "vendor-bundled-skills: $name has no version in its SKILL.md frontmatter" >&2; exit 1; }
 
     dst="$dest_root/$name"

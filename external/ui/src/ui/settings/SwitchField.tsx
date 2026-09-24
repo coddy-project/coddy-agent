@@ -7,7 +7,7 @@ export type SwitchFieldProps = {
   onChange: (next: boolean) => void;
   /** Visible label drawn level with the switch. Names the control unless ariaLabel is set. */
   label: React.ReactNode;
-  /** Optional help text, shown in the (i) hint next to the label. */
+  /** Optional help text, shown by the (i) beside the label (FieldHint). */
   description?: React.ReactNode;
   disabled?: boolean | undefined;
   title?: string | undefined;
@@ -18,11 +18,12 @@ export type SwitchFieldProps = {
 };
 
 // SwitchField is the one way to lay out a boolean setting: the shared Switch
-// and its label on a two-column grid (.settings-switch-field). The grid
-// centres the label on the switch, and the optional help text lives in the
-// (i) hint beside the label rather than in a paragraph under it, so the form
-// stays a compact list of fields. The label is a real <label htmlFor>, so
-// clicking the text toggles the control, and it names the switch through
+// and its label cell on a two-column grid (.settings-switch-field). The grid
+// centres the cell on the switch, so nothing depends on the switch width or on
+// a hand-tuned indent. The cell carries the label and, when there is a
+// description, the (i) that shows it (FieldHint), like every other settings
+// field. The label is a real <label htmlFor>, so clicking
+// the text toggles the control, and it names the switch through
 // aria-labelledby unless the caller passes an explicit ariaLabel.
 // Contract: DESIGN.md, "Boolean switch fields".
 export function SwitchField({
@@ -65,7 +66,12 @@ export function SwitchField({
         >
           {label}
         </label>
-        {description ? <FieldHint text={description} /> : null}
+        {description ? (
+          <FieldHint
+            text={description}
+            label={typeof label === "string" ? label : undefined}
+          />
+        ) : null}
       </span>
     </div>
   );

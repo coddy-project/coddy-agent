@@ -1991,7 +1991,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/providers/models": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Fetch models for a provider description",
-					"description": "Fetches the model list advertised by a provider row posted in the request body (**`{name, type, api_base, api_key, api_key_command, proxy}`** - the `providers[]` shape). Unlike the GET route, the row need not be saved in config.yaml: the settings form's provider editor sends the entry being edited, so a provider that only exists in the form (for example right after an OAuth device sign-in) lists its models the same way a stored one does. Fields the body leaves empty are inherited from the saved provider of the same name when there is one, so a sparse **`{name}`** post resolves the stored credentials without secrets travelling over the wire. The credential pair (**`api_key`** / **`api_key_command`**) is one slot: it is inherited only when the body posts neither field, and only while the resolved **`api_base`** still matches the saved row, so an overridden endpoint never receives stored credentials. A posted **`api_key_command`** is executed server-side, exactly as it would be for a saved provider. Returns the same **`{ok:true, models:[{id,name,context_window}]}`** / **`{ok:false, error, models:[]}`** shape as the GET (`context_window` only when the provider's listing reports one); a malformed body or an invalid provider row returns 400.",
+					"description": "Fetches the model list advertised by a provider row posted in the request body (**`{name, type, api_base, api_key, api_key_command, proxy}`** - the `providers[]` shape). Unlike the GET route, the row need not be saved in config.yaml: the settings form's provider editor sends the entry being edited, so a provider that only exists in the form (for example right after an OAuth device sign-in) lists its models the same way a stored one does. Fields the body leaves empty are inherited from the saved provider of the same name when there is one, so a sparse **`{name}`** post resolves the stored credentials without secrets travelling over the wire. The credential pair (**`api_key`** / **`api_key_command`**) is one slot: it is inherited only when the body posts neither field, and only while the resolved **`api_base`** and **`proxy`** still match the saved row, so an overridden route never receives stored credentials. The body must be **`application/json`**: any other content type (the kinds a cross-site page can send without a preflight) gets **`415`**. A posted **`api_key_command`** is executed server-side, exactly as it would be for a saved provider. Returns the same **`{ok:true, models:[{id,name,context_window}]}`** / **`{ok:false, error, models:[]}`** shape as the GET (`context_window` only when the provider's listing reports one); a malformed body or an invalid provider row returns 400.",
 					"operationId": "fetchProviderModels",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -2015,6 +2015,7 @@ func openAPISpec() map[string]interface{} {
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Model list result (ok:true with models, or ok:false with error)."},
 						"400": errorResponseRef(),
+						"415": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},

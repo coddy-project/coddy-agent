@@ -53,9 +53,8 @@ export const messagesEn: Record<string, string> = {
   "settings.aria.panel": "Settings",
   "settings.aria.close": "Close settings",
   "settings.backToSections": "Back to sections",
-  "settings.fieldHint": "Field help",
-  "settings.fieldHintClose": "Close",
-  "settings.advancedSettings": "Advanced settings",
+  "settings.fieldHint.aria": "About {label}",
+  "settings.fieldHint.ariaGeneric": "About this field",
   "settings.loading": "Loading…",
   "settings.toast.saved": "Saved all sections. In-process config reloaded.",
   "settings.reload.title": "Reload from server",
@@ -78,12 +77,12 @@ export const messagesEn: Record<string, string> = {
   "settings.section.sessions_manager.label": "Sessions",
   "settings.section.providers.label": "LLM providers",
   "settings.section.models.label": "Logical models",
-  "settings.section.agent.label": "ReAct agent",
+  "settings.section.agent.label": "ReAct loop",
   "settings.section.tools.label": "Tools and permissions",
   "settings.section.mcp_servers.label": "MCP servers",
   "settings.section.skills.label": "Skills",
-  "settings.section.memory.label": "Long-term memory",
-  "settings.section.system.label": "System",
+  "settings.section.memory.label": "Memory copilot",
+  "settings.section.system.label": "Prompts",
   "settings.section.compaction.label": "Context compaction",
   "settings.section.subagents.label": "Subagents",
   "settings.section.hooks.label": "Hooks",
@@ -91,15 +90,40 @@ export const messagesEn: Record<string, string> = {
   "settings.section.sessions_manager.desc": "Stored chats & cleanup",
   "settings.section.providers.desc": "LLM API connections",
   "settings.section.models.desc": "Named model configs",
-  "settings.section.agent.desc": "ReAct agent defaults",
+  "settings.section.agent.desc": "Model, retries, loop guard",
   "settings.section.tools.desc": "Tool permissions & limits",
   "settings.section.mcp_servers.desc": "External MCP tools",
   "settings.section.skills.desc": "Installed slash skills",
-  "settings.section.memory.desc": "Long-term memory options",
-  "settings.section.system.desc": "Scheduler, logs, prompts",
+  "settings.section.memory.desc": "Memory subagent options",
+  "settings.section.system.desc": "Templates and instruction files",
   "settings.section.compaction.desc": "Conversation history compaction",
   "settings.section.subagents.desc": "Delegation pool & trust",
   "settings.section.hooks.desc": "Lifecycle hooks & trust",
+  "settings.section.scheduler.label": "Scheduler",
+  "settings.section.scheduler.desc": "Scheduled jobs",
+  "settings.section.logger.label": "Logger",
+  "settings.section.logger.desc": "Level, outputs, rotation",
+  "settings.section.gateways.label": "Gateways",
+  "settings.section.gateways.desc": "Telegram bot",
+  "settings.group.agent.turn": "Model and turns",
+  "settings.group.agent.retries": "Retries",
+  "settings.group.agent.timeouts": "Stream timeouts",
+  "settings.group.agent.loop": "Loop guard",
+  "settings.group.agent.limits": "Usage limits",
+  "settings.group.hooks.main": "Hook settings",
+  "settings.group.hooks.mainDesc":
+    "How hooks run: whether files that came with the checkout may run, how long one hook process may take when its definition gives no timeout, how many times a Stop hook may send the agent back to work, and how much text one hook may hand over.",
+  "settings.group.compaction.summary": "Summarization",
+  "settings.group.tools.permissions": "Permissions",
+  "settings.group.memory.model": "Model and storage",
+  "settings.group.memory.runs": "Runs",
+  "settings.group.memory.limits": "Limits",
+  "settings.group.memory.instructions": "Instructions",
+  "settings.group.scheduler.jobs": "Jobs",
+  "settings.group.logger.main": "Logger settings",
+  "settings.group.sessions.storage": "Storage",
+  "settings.group.sessions.storageDesc":
+    "Where session bundles are stored on the machine running coddy.",
 
   "settings.nav.aria.scrollLeft": "Scroll sections left",
   "settings.nav.aria.scrollRight": "Scroll sections right",
@@ -112,6 +136,9 @@ export const messagesEn: Record<string, string> = {
   "settings.array.removeRowAria": "Remove {name}",
   "settings.array.unnamed": "(unnamed #{n})",
   "settings.array.back": "Back to list",
+  "settings.array.backTo": "Back to {list}",
+  "settings.item.providers": "Provider settings",
+  "settings.item.models": "Model settings",
   "settings.array.backTitle": "Back to list",
   "settings.array.empty": "Nothing here yet. Use Add to create one.",
 
@@ -119,19 +146,37 @@ export const messagesEn: Record<string, string> = {
   "settings.field.modelIdFallback": "Model id",
   "settings.field.defaultModelFallback": "Default model",
   "settings.field.provider": "Provider",
-  "settings.field.providerPlaceholder": "Select provider…",
+  "settings.field.providerPlaceholder": "provider",
   "settings.field.modelPlaceholder": "model-id",
   "settings.field.fetching": "Fetching…",
   "settings.field.fetchModels": "Fetch models",
-  "settings.field.fetchError": "Couldn't fetch models: {error}.",
-  "settings.field.noModels": "The provider returned no models.",
-  "settings.providers.modelsLegend": "Advertised models",
-  "settings.providers.addModel": "Add {id} to logical models",
-  "settings.providers.modelListed": "{id} is already in logical models",
-  "settings.providers.modelNotAdvertised":
+  "settings.contextWindow.fetch": "Fetch the context window from the provider",
+  "settings.contextWindow.reported": "{tokens}, reported by {provider}",
+  "settings.contextWindow.default": "{tokens}, the default",
+  "settings.contextWindow.notReported":
+    "{provider} does not report a context window for {id}.",
+  "settings.contextWindow.fetchError":
+    "Couldn't fetch the context window: {error}",
+  "settings.providers.group.main": "Provider settings",
+  "settings.providers.group.advanced": "Advanced settings",
+  "settings.models.group.model": "Model",
+  "settings.models.group.generation": "Generation",
+  "settings.models.group.reasoning": "Reasoning",
+  "settings.providerModels.legend": "Models",
+  "settings.providerModels.needsNameAndType":
+    "Give the provider an id and pick its type to list its models.",
+  "settings.providerModels.none": "The provider returned no models.",
+  "settings.providerModels.fetchError": "Couldn't fetch models: {error}",
+  "settings.providerModels.filterPlaceholder": "Filter models…",
+  "settings.providerModels.noMatch": "No model matches the filter.",
+  "settings.providerModels.addModel": "Add {id} to Logical models",
+  "settings.providerModels.notAdvertised":
     "{id} is not advertised by the provider anymore",
-  "settings.providers.removeModel": "Remove {id} from logical models",
-  "settings.providers.contextWindow": "Context window: {tokens}",
+  "settings.providerModels.removeModel": "Remove {id} from Logical models",
+  "settings.providerModels.contextWindow.one":
+    "Context window of {tokens} token",
+  "settings.providerModels.contextWindow.other":
+    "Context window of {tokens} tokens",
   "settings.reasoning.levelsFallback": "Reasoning levels",
   "settings.reasoning.fetch": "Fetch reasoning levels",
   "settings.reasoning.fetching": "Fetching…",
@@ -160,28 +205,27 @@ export const messagesEn: Record<string, string> = {
   // under settings.schema.system.<child>.<path>.
   "settings.schema.providers.desc":
     "API credentials and transport selection for upstream LLM vendors.",
-  "settings.schema.providers.name.label": "Provider name",
-  "settings.schema.providers.name.desc":
-    "Logical id used in model ids (provider/model-id).\n\nLetters, digits, - and _ only; must start with a letter.\n\nWith an empty api_key the key is read from NAME_API_KEY - this name uppercased, hyphens becoming underscores.",
+  "settings.schema.providers.name.label": "Provider id",
   "settings.schema.providers.name.ph": "my-provider",
+  "settings.schema.providers.name.desc":
+    "Prefix of this provider's model ids, as in provider/model-id. Letters, digits, hyphen and underscore, starting with a letter.",
   "settings.schema.providers.type.label": "Provider type",
   "settings.schema.providers.type.desc":
     "Wire protocol for this provider entry.",
-  "settings.schema.providers.type.ph": "Select type",
   "settings.schema.providers.api_base.label": "API base URL",
-  "settings.schema.providers.api_base.desc":
-    "Optional override of the provider's API base URL.\n\nFor neuraldeep it selects the deployment: https://api.neuraldeep.ru/v1 (Russia) or https://api.neuraldeep.tech/v1 (international mirror); any other value falls back to the first.\n\nIgnored for codex - it uses the fixed official endpoint.",
   "settings.schema.providers.api_base.ph": "https://api.openai.com/v1",
+  "settings.schema.providers.api_base.desc":
+    "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); ignored by codex and devin, which use their official endpoints.",
   "settings.schema.providers.api_key.label": "API key",
   "settings.schema.providers.api_key.desc":
-    "A literal key, a ${ENV} reference expanded at load, or empty to read the conventional NAME_API_KEY variable derived from the provider name (see the provider name hint).",
+    "A literal key, a ${ENV} reference expanded when the file is loaded, or empty to read the environment variable the placeholder names at call time.",
   "settings.schema.providers.api_key_command.label": "API key command",
-  "settings.schema.providers.api_key_command.desc":
-    "Optional credential-helper command used when api_key is empty.\n\nRuns via the host shell (pwsh, powershell or cmd on Windows; bash or sh elsewhere); its trimmed stdout becomes the key, like git/docker credential helpers or AWS credential_process.\n\nOn failure the NAME_API_KEY variable is used instead.",
   "settings.schema.providers.api_key_command.ph": "pass show coddy/api-key",
+  "settings.schema.providers.api_key_command.desc":
+    "Optional credential helper, run through the host shell when the API key is empty; its trimmed stdout is the key, like git or docker credential helpers. On failure the environment variable is read instead.",
   "settings.schema.providers.proxy.label": "Proxy URL",
   "settings.schema.providers.proxy.desc":
-    "Optional proxy for this provider only.\n\nhttp:// or https:// for an HTTP proxy; socks5:// or socks5h:// for SOCKS5 (the proxy resolves host names).\n\nA URL replaces the system proxy for this provider; left empty the provider follows HTTPS_PROXY, HTTP_PROXY and NO_PROXY.",
+    "Optional proxy for this provider only: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5 (with SOCKS the proxy resolves host names). A URL here replaces the system proxy for this provider. Left empty, the provider follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).",
   "settings.providerProxy.ignoreSystem": "Ignore system proxy",
   "settings.providerProxy.ignoreSystemDesc":
     "Connect directly: this provider's requests ignore HTTPS_PROXY, HTTP_PROXY and NO_PROXY of the Coddy process. Saved as proxy: none, in place of a proxy URL.",
@@ -189,10 +233,10 @@ export const messagesEn: Record<string, string> = {
   "settings.providerProxy.placeholderDirect": "Direct connection",
   "settings.schema.providers.timeout_ms.label": "Request timeout ms",
   "settings.schema.providers.timeout_ms.desc":
-    "Optional bound on each LLM HTTP request to this provider, including the streamed body read.\n\n0 (the default) sets no client timeout.",
+    "Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout.",
   "settings.schema.providers.usage_limits_panel.label": "Usage limits panel",
   "settings.schema.providers.usage_limits_panel.desc":
-    "Show this provider's account usage (the usage section and banner here, the footer line and /usage in the console) and read its usage endpoint.\n\nOff hides the panel and stops those reads for this row; only providers with a usage source (NeuralDeep, Codex, Devin) are affected.",
+    "Show the account usage of this NeuralDeep, Codex or Devin provider here, in the console footer and in /usage, reading its usage endpoint for it. Off hides the panel and stops those reads for this row.",
 
   "settings.schema.models.desc":
     "Named model entries the agent and UI can select; ids reference provider prefixes.",
@@ -205,8 +249,7 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.models.temperature.label": "Temperature",
   "settings.schema.models.temperature.desc":
     "Sampling temperature for this logical model (0 = deterministic, higher = more random).",
-  "settings.schema.models.max_context_tokens.label":
-    "Context window (tokens)",
+  "settings.schema.models.max_context_tokens.label": "Context window (tokens)",
   "settings.schema.models.max_context_tokens.desc":
     "The model's context window: what the composer context ring and automatic compaction measure against. 0 reads it from the provider's model listing when it reports one, else 128000.",
   "settings.schema.models.multimodal.label": "Multimodal",
@@ -218,6 +261,8 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.models.reasoning_default.label": "Default reasoning level",
   "settings.schema.models.reasoning_default.desc":
     "Reasoning level pre-selected for new chats with this model. Must be one of the resolved reasoning levels; ignored otherwise.",
+  "settings.schema.models.reasoning_default.ph":
+    "medium when offered, else the first level",
   "settings.schema.models.stream.label": "Stream responses",
   "settings.schema.models.stream.desc":
     "Leave on to receive the answer token by token over SSE. Turn off to send one blocking request and wait for the whole answer, for servers or proxies that handle event streams badly; the transcript then fills in at once instead of typing out. Not available for codex models, whose backend is streaming-only.",
@@ -317,9 +362,13 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.tools.preview_server.host.label": "Bind host",
   "settings.schema.tools.preview_server.host.desc":
     "Address the server binds, without a port (default 127.0.0.1). Anything that is not loopback exposes the served directory.",
+  "settings.schema.tools.preview_server.host.ph": "127.0.0.1",
   "settings.schema.tools.preview_server.public_host.label": "Public host",
   "settings.schema.tools.preview_server.public_host.desc":
     "Host written into the URL the agent hands out, when the browser is on another machine. Empty uses the bind host.",
+  "settings.schema.tools.preview_server.public_host.ph": "The bind host",
+  "settings.schema.tools.websearch.brave_api_key.ph": "Read from BRAVE_API_KEY",
+  "settings.schema.tools.websearch.searxng_url.ph": "http://localhost:8888",
 
   "settings.schema.subagents.desc":
     "User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript.",
@@ -385,6 +434,7 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.memory.dir.label": "Memory root",
   "settings.schema.memory.dir.desc":
     "Filesystem root for memory markdown; empty uses ${CODDY_HOME}/memory.",
+  "settings.schema.memory.dir.ph": "${CODDY_HOME}/memory",
   "settings.schema.memory.wait_seconds.label": "Wait for the report (seconds)",
   "settings.schema.memory.wait_seconds.desc":
     "How long a turn waits for the memory subagent's report before its first model call; 0 never waits (default 20).",
@@ -409,6 +459,8 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.memory.additional_prompt.label": "Additional instructions",
   "settings.schema.memory.additional_prompt.desc":
     "Your own instructions for the memory subagent, a section of its system prompt; the main agent never sees them.",
+  "settings.schema.memory.additional_prompt.ph":
+    "Save what I decide about this project's architecture",
   "settings.schema.memory.additional_prompt_max_chars.label":
     "Additional instructions cap (characters)",
   "settings.schema.memory.additional_prompt_max_chars.desc":
@@ -442,26 +494,27 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.compaction.result_eviction.min_result_bytes.desc":
     "Results at or below this size are never evicted (default 2000; 0 makes every result a candidate).",
 
-  "settings.schema.system.scheduler.label": "Scheduler",
-  "settings.schema.system.scheduler.enable.label": "Enabled",
-  "settings.schema.system.scheduler.enable.desc":
+  "settings.schema.scheduler.label": "Scheduler",
+  "settings.schema.scheduler.enable.label": "Enabled",
+  "settings.schema.scheduler.enable.desc":
     "When true, this process may run the scheduler daemon and REST.",
-  "settings.schema.system.scheduler.dir.label": "Jobs directory",
-  "settings.schema.system.scheduler.dir.desc":
+  "settings.schema.scheduler.dir.label": "Jobs directory",
+  "settings.schema.scheduler.dir.desc":
     "Directory of job markdown definitions.",
-  "settings.schema.system.scheduler.max_queue.label": "Max queue",
-  "settings.schema.system.scheduler.max_queue.desc":
+  "settings.schema.scheduler.max_queue.label": "Max queue",
+  "settings.schema.scheduler.max_queue.desc":
     "Maximum concurrent scheduled agent runs.",
-  "settings.schema.system.scheduler.timeout.label": "Job timeout",
-  "settings.schema.system.scheduler.timeout.desc":
+  "settings.schema.scheduler.timeout.label": "Job timeout",
+  "settings.schema.scheduler.timeout.desc":
     "Per-job wall-clock limit, e.g. 30m or 1h30m.",
-  "settings.schema.system.scheduler.retain_sessions.label": "Retain sessions",
-  "settings.schema.system.scheduler.retain_sessions.desc":
+  "settings.schema.scheduler.retain_sessions.label": "Retain sessions",
+  "settings.schema.scheduler.retain_sessions.desc":
     "How many completed scheduler session folders to keep per job id.",
-  "settings.schema.system.prompts.label": "Prompts",
+  "settings.schema.system.prompts.label": "Prompt templates",
   "settings.schema.system.prompts.dir.label": "Prompts directory",
   "settings.schema.system.prompts.dir.desc":
     "Optional override directory for prompt markdown files.",
+  "settings.schema.system.prompts.dir.ph": "Built-in prompts",
   "settings.schema.system.prompts.agent_prompt.label": "Agent prompt file",
   "settings.schema.system.prompts.agent_prompt.desc":
     "Filename for the main agent system prompt.",
@@ -475,84 +528,83 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.system.instructions.files.label": "Instruction files",
   "settings.schema.system.instructions.files.desc":
     'Filenames relative to session CWD to read as instructions. Defaults to ["AGENTS.md"].',
-  "settings.schema.system.logger.label": "Logger",
-  "settings.schema.system.logger.level.label": "Level",
-  "settings.schema.system.logger.level.desc":
+  "settings.schema.logger.label": "Logger",
+  "settings.schema.logger.level.label": "Level",
+  "settings.schema.logger.level.desc":
     "Minimum severity written to configured outputs.",
-  "settings.schema.system.logger.outputs.label": "Outputs",
-  "settings.schema.system.logger.outputs.desc": "Where log lines are written.",
-  "settings.schema.system.logger.file.label": "Log file path",
-  "settings.schema.system.logger.file.desc":
+  "settings.schema.logger.levels.label": "Component levels",
+  "settings.schema.logger.levels.desc":
+    "Raise or lower one subsystem on its own. A parent name covers what is nested under it (gateway reaches gateway.telegram), and the longest match wins.",
+  "settings.schema.logger.outputs.label": "Outputs",
+  "settings.schema.logger.outputs.desc": "Where log lines are written.",
+  "settings.schema.logger.file.label": "Log file path",
+  "settings.schema.logger.file.desc":
     "Destination file when outputs include file.",
-  "settings.schema.system.logger.format.label": "Format",
-  "settings.schema.system.logger.format.desc":
+  "settings.schema.logger.file.ph": "${CODDY_HOME}/logs/coddy.log",
+  "settings.schema.logger.format.label": "Format",
+  "settings.schema.logger.format.desc":
     "text for human logs; json for structured logs.",
-  "settings.schema.system.logger.rotation.label": "Rotation",
-  "settings.schema.system.logger.rotation.desc":
+  "settings.schema.logger.rotation.label": "Rotation",
+  "settings.schema.logger.rotation.desc":
     "Size-based rotation when logging to a file.",
-  "settings.schema.system.logger.rotation.max_size_mb.label":
-    "Max file size (MB)",
-  "settings.schema.system.logger.rotation.max_size_mb.desc":
+  "settings.schema.logger.rotation.max_size_mb.label": "Max file size (MB)",
+  "settings.schema.logger.rotation.max_size_mb.desc":
     "Rotate after the file reaches this size; 0 uses logger defaults.",
-  "settings.schema.system.logger.rotation.max_files.label": "Max files",
-  "settings.schema.system.logger.rotation.max_files.desc":
+  "settings.schema.logger.rotation.max_files.label": "Max files",
+  "settings.schema.logger.rotation.max_files.desc":
     "How many rotated segments to retain; 0 uses logger defaults.",
-  "settings.schema.system.sessions.label": "Sessions",
-  "settings.schema.system.sessions.dir.label": "Sessions directory",
-  "settings.schema.system.sessions.dir.desc":
+  "settings.schema.sessions.label": "Sessions",
+  "settings.schema.sessions.dir.label": "Sessions directory",
+  "settings.schema.sessions.dir.desc":
     "Override sessions root; empty resolves under CODDY_HOME.",
-  "settings.schema.system.gateways.label": "Messenger gateways",
-  "settings.schema.system.gateways.telegram.label": "Telegram",
-  "settings.schema.system.gateways.telegram.desc":
-    "Telegram bot adapter settings.",
-  "settings.schema.system.gateways.telegram.enable.label": "Enabled",
-  "settings.schema.system.gateways.telegram.enable.desc":
+  "settings.schema.sessions.dir.ph": "${CODDY_HOME}/sessions",
+  "settings.schema.gateways.label": "Messenger gateways",
+  "settings.schema.gateways.telegram.label": "Telegram",
+  "settings.schema.gateways.telegram.desc": "Telegram bot adapter settings.",
+  "settings.schema.gateways.telegram.enable.label": "Enabled",
+  "settings.schema.gateways.telegram.enable.desc":
     "Run the Telegram bot (requires the gateway or gateway.telegram build tag).",
-  "settings.schema.system.gateways.telegram.token.label": "Bot token",
-  "settings.schema.system.gateways.telegram.token.desc":
+  "settings.schema.gateways.telegram.token.label": "Bot token",
+  "settings.schema.gateways.telegram.token.desc":
     "BotFather token. Optional here — leave empty to read it from the TELEGRAM_BOT_TOKEN environment variable (e.g. via .env). Secret: when set it is stored in config.yaml and shown in full.",
-  "settings.schema.system.gateways.telegram.rich_messages.label":
-    "Rich messages",
-  "settings.schema.system.gateways.telegram.rich_messages.desc":
+  "settings.schema.gateways.telegram.rich_messages.label": "Rich messages",
+  "settings.schema.gateways.telegram.rich_messages.desc":
     "Use Bot API 10.1 Rich Messages: the agent's native Markdown renders verbatim, tool activity streams as a Thinking placeholder, and executed tools show in a collapsible block. Falls back to legacy formatting if unsupported.",
-  "settings.schema.system.gateways.telegram.proxy.label": "Proxy URL",
-  "settings.schema.system.gateways.telegram.proxy.desc":
+  "settings.schema.gateways.telegram.proxy.label": "Proxy URL",
+  "settings.schema.gateways.telegram.proxy.desc":
     "Optional proxy for the Bot API requests: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5 (with SOCKS the proxy resolves host names). A URL here replaces the system proxy for the bot. Left empty, the bot follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).",
   "settings.gatewayProxy.ignoreSystemDesc":
     "Connect directly: the bot's requests ignore HTTPS_PROXY, HTTP_PROXY and NO_PROXY of the Coddy process. Saved as proxy: none, in place of a proxy URL.",
-  "settings.schema.system.gateways.telegram.admins.label": "Admins",
-  "settings.schema.system.gateways.telegram.admins.desc":
+  "settings.schema.gateways.telegram.admins.label": "Admins",
+  "settings.schema.gateways.telegram.admins.desc":
     "Telegram user IDs with elevated rights; admins always pass access checks.",
-  "settings.schema.system.gateways.telegram.default_access.label":
-    "Default access",
-  "settings.schema.system.gateways.telegram.default_access.desc":
+  "settings.schema.gateways.telegram.default_access.label": "Default access",
+  "settings.schema.gateways.telegram.default_access.desc":
     "Fallback access level for chats without an override: all, admins, or group:<name>.",
-  "settings.schema.system.gateways.telegram.default_isolation.label":
+  "settings.schema.gateways.telegram.default_isolation.label":
     "Default isolation",
-  "settings.schema.system.gateways.telegram.default_isolation.desc":
+  "settings.schema.gateways.telegram.default_isolation.desc":
     "Fallback session isolation for group chats.",
-  "settings.schema.system.gateways.telegram.user_groups.label": "User groups",
-  "settings.schema.system.gateways.telegram.user_groups.desc":
+  "settings.schema.gateways.telegram.user_groups.label": "User groups",
+  "settings.schema.gateways.telegram.user_groups.desc":
     "Named sets of user IDs referenced by access as group:<name>.",
-  "settings.schema.system.gateways.telegram.user_groups.name.label":
-    "Group name",
-  "settings.schema.system.gateways.telegram.user_groups.name.desc":
+  "settings.schema.gateways.telegram.user_groups.name.label": "Group name",
+  "settings.schema.gateways.telegram.user_groups.name.desc":
     "Name referenced by access as group:<name>.",
-  "settings.schema.system.gateways.telegram.user_groups.user_ids.label":
-    "User IDs",
-  "settings.schema.system.gateways.telegram.user_groups.user_ids.desc":
+  "settings.schema.gateways.telegram.user_groups.user_ids.label": "User IDs",
+  "settings.schema.gateways.telegram.user_groups.user_ids.desc":
     "Telegram numeric user IDs that belong to this group.",
-  "settings.schema.system.gateways.telegram.chats.label": "Per-chat overrides",
-  "settings.schema.system.gateways.telegram.chats.desc":
+  "settings.schema.gateways.telegram.chats.label": "Per-chat overrides",
+  "settings.schema.gateways.telegram.chats.desc":
     "Override isolation and access for specific chats.",
-  "settings.schema.system.gateways.telegram.chats.chat_id.label": "Chat ID",
-  "settings.schema.system.gateways.telegram.chats.chat_id.desc":
+  "settings.schema.gateways.telegram.chats.chat_id.label": "Chat ID",
+  "settings.schema.gateways.telegram.chats.chat_id.desc":
     "Telegram chat id; negative for groups and supergroups.",
-  "settings.schema.system.gateways.telegram.chats.isolation.label": "Isolation",
-  "settings.schema.system.gateways.telegram.chats.isolation.desc":
+  "settings.schema.gateways.telegram.chats.isolation.label": "Isolation",
+  "settings.schema.gateways.telegram.chats.isolation.desc":
     "Per-chat session isolation override.",
-  "settings.schema.system.gateways.telegram.chats.access.label": "Access",
-  "settings.schema.system.gateways.telegram.chats.access.desc":
+  "settings.schema.gateways.telegram.chats.access.label": "Access",
+  "settings.schema.gateways.telegram.chats.access.desc":
     "Per-chat access override: all, admins, or group:<name>.",
 
   "settings.combobox.toggleAria": "Toggle options",
@@ -576,7 +628,7 @@ export const messagesEn: Record<string, string> = {
   "codexAuth.enterProviderName": "Enter a provider name before signing in.",
 
   "neuralDeepApiBase.description":
-    "NeuralDeep runs the same API at two deployments: api.neuraldeep.ru serves Russia, api.neuraldeep.tech is the mirror for everywhere else. The choice also decides which hub the sign-in below talks to. Fetching the model list below uses this row as it stands in the form.",
+    "NeuralDeep runs the same API at two deployments: api.neuraldeep.ru serves Russia, api.neuraldeep.tech is the mirror for everywhere else. The choice also decides which hub the sign-in below talks to. The model list below is fetched with the row as it stands in the form.",
   "neuralDeepApiBase.optionRu": "api.neuraldeep.ru — Russia",
   "neuralDeepApiBase.optionTech": "api.neuraldeep.tech — international mirror",
   "neuralDeepApiBase.unknown":
@@ -689,14 +741,17 @@ export const messagesEn: Record<string, string> = {
   "mcp.origin.home": "~/.coddy/mcp.json",
   "mcp.origin.project": "./.coddy/mcp.json",
   // Settings -> Subagents: the definition catalog
+  "subagents.settings.legend": "Subagent settings",
+  "subagents.settings.description":
+    "The rules of the delegation pool: whether definitions that came with the checkout may run, how many runs go at once, how deep spawning nests, and how much time and how many rounds one run gets when its definition and the call leave them out.",
   "subagents.catalog.legend": "Definitions",
   "subagents.catalog.description":
     'Every definition a session in this workspace can spawn: the built-ins, your own files under ~/.coddy/agents, and the .coddy/agents and .claude/agents files that came with the checkout. Under "ask" a project file runs only once it is approved for this workspace, from a terminal on the machine running coddy: coddy agents trust <name>.',
-  "subagents.catalog.workspace": "Workspace",
   "subagents.catalog.loading": "Loading definitions…",
   "subagents.catalog.empty":
     "No subagent definitions are visible from this workspace.",
-  "subagents.catalog.declared": "Declared bounds",
+  "subagents.catalog.showDeclared": "Show declared bounds",
+  "subagents.catalog.hideDeclared": "Hide declared bounds",
   "subagents.error.load": "Could not load the subagent catalog.",
   "subagents.error.network": "the server could not be reached",
   "subagents.scope.builtin": "built in",
@@ -827,6 +882,7 @@ export const messagesEn: Record<string, string> = {
   "sessions.delete": "Delete",
   "sessions.loadingMore": "Loading...",
 
+  "sessions.manage.legend": "Session management",
   "sessions.manage.lead":
     "Every stored conversation with what it cost. Tick the rows you no longer need, or tick the header to take the whole page; the conversation you have open is protected.",
   "sessions.manage.loadFailed": "Could not load the sessions: {error}",
@@ -1014,7 +1070,8 @@ export const messagesEn: Record<string, string> = {
   "composer.modeAsk": "Ask",
   "composer.modePlan": "Plan",
   "composer.permission": "Permissions",
-  "composer.permissionTitle": "When tools ask for approval in this session (the configuration's mode: {configured})",
+  "composer.permissionTitle":
+    "When tools ask for approval in this session (the configuration's mode: {configured})",
   "composer.permissionAsk": "Ask first",
   "composer.permissionAcceptEdits": "Accept edits",
   "composer.permissionBypass": "Bypass",
@@ -1085,7 +1142,8 @@ export const messagesEn: Record<string, string> = {
   "composer.closePicker": "Close picker",
   "composer.slashCommandsAriaLabel": "Slash commands",
   "composer.workspaceFilesTitle": "Mention",
-  "composer.workspaceFilesAriaLabel": "Mention a file, a folder, a session, a rule or a subagent",
+  "composer.workspaceFilesAriaLabel":
+    "Mention a file, a folder, a session, a rule or a subagent",
   "composer.mentionKindFile": "file",
   "composer.mentionKindDirectory": "folder",
   "composer.mentionKindSession": "session",
@@ -1093,7 +1151,8 @@ export const messagesEn: Record<string, string> = {
   "composer.mentionKindAgent": "subagent",
   "composer.mentionKindPlan": "plan",
   "composer.mentionKindScheme": "search",
-  "composer.docsCommand": "Open the built-in documentation: /docs [page or words]",
+  "composer.docsCommand":
+    "Open the built-in documentation: /docs [page or words]",
   "composer.mentionKindDoc": "docs",
   "composer.mentionSchemeSession": "Another session, with its latest messages",
   "composer.mentionSchemeRule": "A project rule",
@@ -1218,7 +1277,8 @@ export const messagesEn: Record<string, string> = {
   "scheduler.runs": "Runs",
   "scheduler.openRuns": "Open the runs of {jobId}",
   "scheduler.runsTitle": "Runs of {jobId}",
-  "scheduler.runsEmpty": "No runs yet. Run the job now or wait for its schedule.",
+  "scheduler.runsEmpty":
+    "No runs yet. Run the job now or wait for its schedule.",
   "scheduler.lastRun.running": "Running",
   "scheduler.field.agent": "agent (optional)",
   "scheduler.field.agentHelp":
@@ -1520,7 +1580,8 @@ export const messagesEn: Record<string, string> = {
   "docs.close": "Close the documentation (F1)",
   "docs.anchor.label": "Link to the section {heading}",
   "docs.site.label": "coddy.dev",
-  "docs.site.title": "The same page on the public site, to share with someone who has no Coddy",
+  "docs.site.title":
+    "The same page on the public site, to share with someone who has no Coddy",
   "docs.lightbox.label": "Image",
   "docs.lightbox.zoomIn": "Zoom in (+)",
   "docs.lightbox.zoomOut": "Zoom out (-)",
@@ -1539,9 +1600,11 @@ export const messagesEn: Record<string, string> = {
   "docs.pager.prev": "Previous",
   "docs.pager.next": "Next",
   "docs.ask.page": "Ask the agent",
-  "docs.ask.pageTitle": "Start a chat with this page, or the section being read, attached",
+  "docs.ask.pageTitle":
+    "Start a chat with this page, or the section being read, attached",
   "docs.ask.selection": "Ask about the selection",
-  "docs.ask.selectionTitle": "Start a chat with the selected text quoted and its section attached",
+  "docs.ask.selectionTitle":
+    "Start a chat with the selected text quoted and its section attached",
   "swarm.title": "Swarm",
   "swarm.summary.relays.one": "{count} relay",
   "swarm.summary.relays.other": "{count} relays",

@@ -1,100 +1,92 @@
+import React from "react";
+import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach } from "vitest";
-import { useState } from "react";
-import { expect, test } from "vitest";
 import { ModelField } from "./ModelField";
 import type { ProviderRow } from "./useProviderModels";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 const PROVIDERS: ProviderRow[] = [
-  { name: "demo", type: "openai" },
+  { name: "openai", type: "openai", api_key: "sk-a" },
   { name: "hub", type: "neuraldeep" },
 ];
 
-function Harness(props: { initial?: string; providers?: ProviderRow[] }) {
-  const [v, setV] = useState(props.initial ?? "");
+function Harness(props: { initial?: string }) {
+  const [val, setVal] = React.useState(props.initial ?? "");
   return (
     <>
-      <output data-testid="model-field-value">{v}</output>
-      <ModelField
-        value={v}
-        onChange={setV}
-        providers={props.providers ?? PROVIDERS}
-      />
+      <ModelField value={val} onChange={setVal} providers={PROVIDERS} />
+      <span data-testid="val">{val}</span>
     </>
   );
 }
 
-test("provider select lists the document's provider names", () => {
+test("the provider combobox lists the document's provider names", () => {
   render(<Harness />);
 
-  const select = screen.getByTestId(
-    "model-field-provider",
-  ) as HTMLSelectElement;
-  expect([...select.options].map((o) => o.value)).toEqual(["", "demo", "hub"]);
+  fireEvent.focus(screen.getByTestId("model-field-provider"));
+
+  expect(screen.getByText("openai")).toBeTruthy();
+  expect(screen.getByText("hub")).toBeTruthy();
 });
 
-test("picking a provider then typing the id composes provider/id", () => {
+test("picking a provider and typing the id composes provider/id", () => {
+  render(<Harness />);
+
+  fireEvent.focus(screen.getByTestId("model-field-provider"));
+  fireEvent.mouseDown(screen.getByText("openai"));
+  fireEvent.change(screen.getByTestId("model-field-model"), {
+    target: { value: "gpt-4o-mini" },
+  });
+
+  expect(screen.getByTestId("val").textContent).toBe("openai/gpt-4o-mini");
+});
+
+test("a provider the document does not list can be typed", () => {
   render(<Harness />);
 
   fireEvent.change(screen.getByTestId("model-field-provider"), {
-    target: { value: "demo" },
+    target: { value: "custom" },
   });
   fireEvent.change(screen.getByTestId("model-field-model"), {
-    target: { value: "m1" },
+    target: { value: "my-model" },
   });
 
-  expect(screen.getByTestId("model-field-value").textContent).toBe("demo/m1");
+  expect(screen.getByTestId("val").textContent).toBe("custom/my-model");
 });
 
 test("an existing value splits into provider and id on the first slash", () => {
+  render(<Harness initial="openrouter/meta/llama-3" />);
+
+  expect(
+    (screen.getByTestId("model-field-provider") as HTMLInputElement).value,
+  ).toBe("openrouter");
+  expect(
+    (screen.getByTestId("model-field-model") as HTMLInputElement).value,
+  ).toBe("meta/llama-3");
+});
+
+// The model id is a plain field: the provider form lists what a provider
+// advertises, so this one neither fetches nor offers a list of its own.
+test("the model id is a plain field that fetches nothing", () => {
+  const fetchMock = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
   render(<Harness initial="openai/gpt-4o" />);
 
+  const id = screen.getByTestId("model-field-model");
+  expect(id.tagName).toBe("INPUT");
+  expect(id.getAttribute("role")).toBeNull();
+  fireEvent.focus(id);
+
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(document.querySelector(".settings-combobox-list")).toBeNull();
   expect(
-    (screen.getByTestId("model-field-provider") as HTMLSelectElement).value,
-  ).toBe("openai");
-  expect(
-    (screen.getByTestId("model-field-model") as HTMLInputElement).value,
-  ).toBe("gpt-4o");
-});
-
-test("a model id may itself contain slashes", () => {
-  render(<Harness initial="a/b/c" />);
-
-  expect(
-    (screen.getByTestId("model-field-provider") as HTMLSelectElement).value,
-  ).toBe("a");
-  expect(
-    (screen.getByTestId("model-field-model") as HTMLInputElement).value,
-  ).toBe("b/c");
-});
-
-test("a provider missing from the document stays selectable", () => {
-  render(<Harness initial="gone/m1" />);
-
-  const select = screen.getByTestId(
-    "model-field-provider",
-  ) as HTMLSelectElement;
-  expect(select.value).toBe("gone");
-  expect([...select.options].map((o) => o.value)).toContain("gone");
-});
-
-test("the field carries no fetch button - the list lives on the provider", () => {
-  render(<Harness />);
-
-  expect(screen.queryByTestId("model-field-fetch")).toBeNull();
-});
-
-test("clearing the provider keeps the typed id", () => {
-  render(<Harness initial="demo/m1" />);
-
-  fireEvent.change(screen.getByTestId("model-field-provider"), {
-    target: { value: "" },
-  });
-
-  expect(screen.getByTestId("model-field-value").textContent).toBe("m1");
-  expect(
-    (screen.getByTestId("model-field-model") as HTMLInputElement).value,
-  ).toBe("m1");
+    document.querySelector(
+      '[data-testid="model-field"] ~ .settings-row .settings-field-desc',
+    ),
+  ).toBeNull();
 });

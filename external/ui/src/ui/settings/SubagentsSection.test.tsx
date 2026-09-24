@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { initLocale } from "../i18n/i18n";
 import type { JsonSchema } from "./SchemaForm";
 import { SubagentsSection } from "./SubagentsSection";
@@ -98,19 +104,28 @@ test("lists every definition of the session workspace with its scope, descriptio
   expect(screen.getByTestId("subagent-file-reviewer")).toHaveTextContent(
     "/work/repo/.coddy/agents/reviewer.md",
   );
-  expect(screen.getByTestId("subagents-workspace")).toHaveTextContent(
-    "/work/repo",
+  // The workspace the list answers for is the session's own; the tab does
+  // not print it.
+  expect(screen.getByTestId("subagents-catalog")).not.toHaveTextContent(
+    "Workspace",
   );
   // The generated form for the config section stays on the tab.
   expect(screen.getByText("Project definitions")).toBeInTheDocument();
 });
 
-test("the list only reads: no definition carries a control", async () => {
+test("the list only reads: a row folds, nothing acts on a definition", async () => {
   stubFetch();
   renderSection("/work/repo");
   const catalog = await screen.findByTestId("subagents-catalog");
   await screen.findByTestId("subagents-list");
-  expect(catalog.querySelectorAll("button")).toHaveLength(0);
+  // The (i) of the legend explains the list and each row's chevron folds its
+  // bounds open; there is no other control.
+  const buttons = [...catalog.querySelectorAll("button:not(.field-hint)")];
+  expect(buttons).toHaveLength(2);
+  for (const b of buttons) {
+    expect(b.className).toBe("subagents-toggle");
+    expect(b).toHaveAttribute("aria-expanded");
+  }
 });
 
 test("a definition awaiting approval says so and how, with nothing to click", async () => {
@@ -125,12 +140,28 @@ test("a definition awaiting approval says so and how, with nothing to click", as
   expect(screen.queryByTestId("subagent-pending-general")).toBeNull();
 });
 
-test("the declared bounds sit behind a disclosure on every row", async () => {
+// The name is the fold: the app's chevron in front of it, no line of its own
+// under the description and no browser disclosure triangle.
+test("the chevron beside the name folds the declared bounds open", async () => {
   stubFetch();
   renderSection("/work/repo");
   const declared = await screen.findByTestId("subagent-declared-reviewer");
-  expect(declared.tagName).toBe("DETAILS");
-  expect(declared).toHaveTextContent("Declared bounds");
+  const row = screen.getByTestId("subagent-row-reviewer");
+  expect(row.querySelector("details, summary")).toBeNull();
+  expect(row).not.toHaveTextContent("Declared bounds");
+
+  const toggle = screen.getByTestId("subagent-toggle-reviewer");
+  expect(toggle).toHaveTextContent("reviewer");
+  expect(toggle.querySelector(".coddy-chevron")).not.toBeNull();
+  expect(toggle).toHaveAttribute("aria-expanded", "false");
+  expect(toggle).toHaveAttribute("title", "Show declared bounds");
+  expect(toggle.getAttribute("aria-controls")).toBe(declared.id);
+  expect(declared).not.toBeVisible();
+
+  fireEvent.click(toggle);
+  expect(toggle).toHaveAttribute("aria-expanded", "true");
+  expect(toggle).toHaveAttribute("title", "Hide declared bounds");
+  expect(declared).toBeVisible();
   expect(declared).toHaveTextContent("read, grep");
   expect(declared).toHaveTextContent("10m");
   expect(declared).toHaveTextContent("4 KiB");
@@ -179,7 +210,41 @@ test("the catalog reads in Russian", async () => {
   expect(screen.getByTestId("subagent-row-reviewer")).toHaveTextContent(
     "из проекта",
   );
-  expect(screen.getByTestId("subagent-declared-reviewer")).toHaveTextContent(
-    "Заявленные ограничения",
+  expect(screen.getByTestId("subagent-toggle-reviewer")).toHaveAttribute(
+    "title",
+    "Показать заявленные ограничения",
   );
+});
+
+// The tab is two blocks: the section's settings in their own fieldset, then
+// the definitions, on the drawer's 12px rhythm.
+test("the subagent settings sit in their own fieldset above the definitions", async () => {
+  stubFetch();
+  renderSection("/work/repo");
+  await screen.findByTestId("subagents-list");
+
+  const settings = screen.getByTestId("settings-group-subagents");
+  expect(settings.querySelector("legend")?.textContent).toBe(
+    "Subagent settings",
+  );
+  // What the block is about sits behind the (i) of its legend.
+  const hint = settings.querySelector("legend .field-hint");
+  expect(hint).not.toBeNull();
+  expect(hint).toHaveAttribute("aria-label", "About Subagent settings");
+  expect(settings.textContent).toContain("Project definitions");
+  const catalog = screen.getByTestId("subagents-catalog");
+  expect(
+    settings.compareDocumentPosition(catalog) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+
+  const { readFileSync } = await import("node:fs");
+  const { dirname, join } = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const css = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "../../styles.css"),
+    "utf8",
+  );
+  const rule = /^\.settings-subagents-section\s*\{([^}]*)\}/m.exec(css);
+  expect(rule?.[1]).toMatch(/gap:\s*12px/);
 });

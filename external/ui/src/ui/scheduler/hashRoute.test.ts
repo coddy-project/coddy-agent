@@ -9,6 +9,7 @@ import {
   appNavHrefSchedulerNew,
   appNavHrefSession,
   appNavHrefSettings,
+  appNavHrefSettingsSection,
   appNavHrefSessionTask,
   docsHrefFromCoddyLink,
   parseAppHash,
@@ -21,6 +22,7 @@ import {
   setSchedulerListHash,
   setSessionHashInLocation,
   setSettingsHash,
+  setSettingsSectionHash,
   setSessionTasksHash,
   stripHistorySidebarFromHash,
 } from "./hashRoute";
@@ -143,6 +145,7 @@ describe("parseAppHash", () => {
       branch: "settings",
       historyOpen: true,
       section: null,
+      item: null,
     });
   });
 
@@ -152,6 +155,7 @@ describe("parseAppHash", () => {
       branch: "settings",
       historyOpen: false,
       section: "providers",
+      item: null,
     });
   });
 
@@ -161,7 +165,23 @@ describe("parseAppHash", () => {
       branch: "settings",
       historyOpen: false,
       section: "appearance",
+      item: null,
     });
+  });
+
+  test("parses the open row of a list section from ?id=", () => {
+    setHash("#/settings/models?id=demo%2Fqwen3.8-27b&history=1");
+    expect(parseAppHash()).toEqual({
+      branch: "settings",
+      historyOpen: true,
+      section: "models",
+      item: "demo/qwen3.8-27b",
+    });
+  });
+
+  test("an empty ?id= names no row", () => {
+    setHash("#/settings/providers?id=");
+    expect(parseAppHash()).toMatchObject({ section: "providers", item: null });
   });
 
   test("parses settings/<section> with history sidebar", () => {
@@ -170,11 +190,32 @@ describe("parseAppHash", () => {
       branch: "settings",
       historyOpen: true,
       section: "appearance",
+      item: null,
     });
   });
 });
 
 describe("hash writers", () => {
+  test("a settings row is written as ?id= and dropped with the list", () => {
+    expect(appNavHrefSettingsSection("providers", "demo")).toBe(
+      "#/settings/providers?id=demo",
+    );
+    expect(appNavHrefSettingsSection("models", "demo/qwen3.8-27b")).toBe(
+      "#/settings/models?id=demo%2Fqwen3.8-27b",
+    );
+    expect(appNavHrefSettingsSection("models", "demo/q", true)).toBe(
+      "#/settings/models?id=demo%2Fq&history=1",
+    );
+    expect(appNavHrefSettingsSection("providers", null)).toBe(
+      "#/settings/providers",
+    );
+    setHash("#/settings/providers");
+    setSettingsSectionHash("providers", { item: "demo" });
+    expect(window.location.hash).toBe("#/settings/providers?id=demo");
+    setSettingsSectionHash("providers", { item: null });
+    expect(window.location.hash).toBe("#/settings/providers");
+  });
+
   test("setHistoryHash writes #/history", () => {
     setHash("");
     setHistoryHash();

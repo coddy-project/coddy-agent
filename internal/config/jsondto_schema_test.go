@@ -45,6 +45,19 @@ func TestUISchemaRootPropertyOrder(t *testing.T) {
 	if agent < 0 || compaction != agent+1 {
 		t.Fatalf("compaction must follow agent: agent=%d compaction=%d order=%v", agent, compaction, ord)
 	}
+	// The tabs read in groups of meaning: the models, the loop that runs them,
+	// what the agent can do, what runs it unattended, and the operation of
+	// the process last.
+	want := []interface{}{
+		"providers", "models",
+		"agent", "compaction", "memory",
+		"tools", "mcp_servers", "skills", "subagents", "hooks",
+		"scheduler", "gateways",
+		"logger", "sessions", "prompts", "instructions",
+	}
+	if !reflect.DeepEqual(ord, want) {
+		t.Fatalf("root order:\n got %v\nwant %v", ord, want)
+	}
 }
 
 func TestUISchemaProviderNamePatternAndAPIKeyPlaceholderHint(t *testing.T) {

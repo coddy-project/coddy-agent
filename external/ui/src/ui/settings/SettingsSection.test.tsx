@@ -88,6 +88,12 @@ function Harness(props: {
   );
 }
 
+/** The proxy, the timeout and the credential command live in the folded
+ * Advanced settings fieldset of a provider form; open it. */
+function openAdvanced() {
+  fireEvent.click(screen.getByTestId("settings-group-advanced-toggle"));
+}
+
 /** The proxy setting of the first provider row of a settings document. */
 function firstProxy(doc: Record<string, unknown>): unknown {
   const rows = doc.providers as Record<string, unknown>[] | undefined;
@@ -347,14 +353,14 @@ test("NeuralDeep Sign In carries the endpoint picked in the form", async () => {
 
   // The pick has not been saved, so the device start must carry it: the hub
   // that mints the key is decided by the endpoint, not by the saved row.
+  // The provider form also posts the row to list its models, so pick the
+  // device start by its URL.
   const start = fetchMock.mock.calls.find(
     ([input, init]) =>
       (init as RequestInit | undefined)?.method === "POST" &&
       String(input).includes("neuraldeep-auth/device"),
   );
-  expect(start?.[0]).toBe(
-    "/coddy/providers/neuraldeep/neuraldeep-auth/device",
-  );
+  expect(start?.[0]).toBe("/coddy/providers/neuraldeep/neuraldeep-auth/device");
   expect(JSON.parse(String((start?.[1] as RequestInit).body))).toEqual({
     api_base: "https://api.neuraldeep.tech/v1",
   });
@@ -370,7 +376,8 @@ test("NeuralDeep keeps polling a pending login when the endpoint changes", async
           ok: true,
           json: async () => ({
             login_id: "login-pending",
-            verification_url: "https://hub.neuraldeep.test/app/device?code=PEND-0001",
+            verification_url:
+              "https://hub.neuraldeep.test/app/device?code=PEND-0001",
             user_code: "PEND-0001",
             status: "pending",
           }),
@@ -580,13 +587,12 @@ function ReasoningModelsHarness() {
   );
 }
 
-// addModel walks the form the way an operator does: Add, pick the provider,
-// then type the model id the provider's API knows.
-function addModel() {
+// addFetchedModel walks the form the way an operator does: Add, pick the
+// provider, then type the id its API expects.
+async function addFetchedModel() {
   fireEvent.click(screen.getByTestId("settings-master-add"));
-  fireEvent.change(screen.getByTestId("model-field-provider"), {
-    target: { value: "valera" },
-  });
+  fireEvent.focus(screen.getByTestId("model-field-provider"));
+  fireEvent.mouseDown(screen.getByText("valera"));
   fireEvent.change(screen.getByTestId("model-field-model"), {
     target: { value: "qwen3.8-27b" },
   });
@@ -601,7 +607,7 @@ test("adding a fetched model leaves reasoning auto-detection enabled", async () 
   stubModelsAndLevels(["low", "medium", "high"]);
 
   render(<ReasoningModelsHarness />);
-  addModel();
+  await addFetchedModel();
 
   // reasoning_levels is absent (auto-detect), while stream keeps its schema
   // default: the item factory omits the one key whose empty value means
@@ -615,7 +621,7 @@ test("fetch reasoning levels fills the field for the model being edited", async 
   const fetchMock = stubModelsAndLevels(["low", "medium", "high"]);
 
   render(<ReasoningModelsHarness />);
-  addModel();
+  await addFetchedModel();
 
   fireEvent.click(screen.getByTestId("reasoning-levels-fetch"));
   await waitFor(() =>
@@ -645,7 +651,7 @@ test("fetch reasoning levels sends the type of the provider row in the form", as
   const fetchMock = stubModelsAndLevels(["low", "medium", "high"]);
 
   render(<ReasoningModelsHarness />);
-  addModel();
+  await addFetchedModel();
   fireEvent.click(screen.getByTestId("reasoning-levels-fetch"));
 
   // valera is an openai provider in the (unsaved) settings document, and that
@@ -682,7 +688,7 @@ test("a fetch that answers after the model row was removed does not bring it bac
   vi.stubGlobal("fetch", fetchMock);
 
   render(<ReasoningModelsHarness />);
-  addModel();
+  await addFetchedModel();
   fireEvent.click(screen.getByTestId("reasoning-levels-fetch"));
 
   // Back to the list, delete the row while the request is still in flight.
@@ -724,7 +730,7 @@ test("a fetch that answers after a sibling field changed keeps that change", asy
   vi.stubGlobal("fetch", fetchMock);
 
   render(<ReasoningModelsHarness />);
-  addModel();
+  await addFetchedModel();
   fireEvent.click(screen.getByTestId("reasoning-levels-fetch"));
 
   // While the request is in flight the operator turns streaming off.
@@ -756,7 +762,7 @@ test("a model id with no reasoning family is left without an override", async ()
   stubModelsAndLevels([]);
 
   render(<ReasoningModelsHarness />);
-  addModel();
+  await addFetchedModel();
 
   fireEvent.click(screen.getByTestId("reasoning-levels-fetch"));
   await waitFor(() =>
@@ -795,6 +801,8 @@ test("renaming the sole model id follows through to agent.model", async () => {
   render(<ModelsHarness />);
   fireEvent.click(screen.getByTestId("settings-master-item-0"));
 
+  // The id field holds the part after the provider; retyping it recomposes
+  // provider/id.
   const model = screen.getByTestId("model-field-model") as HTMLInputElement;
   expect(model.value).toBe("gpt-120b-oss");
   fireEvent.change(model, { target: { value: "qwen-3.6" } });
@@ -855,7 +863,11 @@ test("the subagents tab keeps its form and asks the catalog about the session wo
       calls.push(String(url));
       return Promise.resolve({
         ok: true,
-        json: async () => ({ workspace: "/work/repo", policy: "ask", items: [] }),
+        json: async () => ({
+          workspace: "/work/repo",
+          policy: "ask",
+          items: [],
+        }),
       });
     }),
   );
@@ -907,6 +919,7 @@ test("the Ignore system proxy switch saves none and brings the URL back when tur
     />,
   );
   fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  openAdvanced();
 
   const direct = screen.getByRole("switch", { name: "Ignore system proxy" });
   const url = screen.getByLabelText("Proxy URL") as HTMLInputElement;
@@ -936,6 +949,7 @@ test("a provider saved as none shows the switch on and follows the system proxy 
     />,
   );
   fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  openAdvanced();
 
   const direct = screen.getByRole("switch", { name: "Ignore system proxy" });
   const url = screen.getByLabelText("Proxy URL") as HTMLInputElement;
@@ -959,6 +973,7 @@ test("a typed proxy URL replaces the system proxy and clearing it follows the sy
     />,
   );
   fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  openAdvanced();
 
   const url = screen.getByLabelText("Proxy URL") as HTMLInputElement;
   expect(url.value).toBe("");
@@ -985,6 +1000,7 @@ test("an explicit inherit reads as the system proxy and survives a round trip th
     />,
   );
   fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  openAdvanced();
 
   const direct = screen.getByRole("switch", { name: "Ignore system proxy" });
   const url = screen.getByLabelText("Proxy URL") as HTMLInputElement;
@@ -1005,8 +1021,11 @@ test("a Codex provider keeps the proxy setting next to its ChatGPT sign in", asy
       json: async () => ({ connected: false, source: "" }),
     })),
   );
-  render(<Harness provider={{ name: "codex", type: "codex", proxy: "none" }} />);
+  render(
+    <Harness provider={{ name: "codex", type: "codex", proxy: "none" }} />,
+  );
   fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  openAdvanced();
 
   expect(await screen.findByTestId("codex-auth-sign-in")).toBeInTheDocument();
   expect(
@@ -1025,6 +1044,7 @@ test("turning the switch off after none was pasted into the field brings back th
     />,
   );
   fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  openAdvanced();
 
   const url = screen.getByLabelText("Proxy URL") as HTMLInputElement;
   fireEvent.change(url, { target: { value: "http://b:3128" } });
@@ -1047,21 +1067,22 @@ test("renaming the provider while it connects directly keeps the URL the switch 
     />,
   );
   fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  openAdvanced();
 
   fireEvent.click(screen.getByRole("switch", { name: "Ignore system proxy" }));
   expect(firstProxy(doc)).toBe("none");
-  fireEvent.change(screen.getByLabelText("Provider name"), {
+  fireEvent.change(screen.getByLabelText("Provider id"), {
     target: { value: "corp2" },
   });
   fireEvent.click(screen.getByRole("switch", { name: "Ignore system proxy" }));
   expect(firstProxy(doc)).toBe("http://a:3128");
 });
 
-const systemSection: SectionDescriptor = {
-  id: "system",
-  label: "System",
-  kind: "group",
-  childKeys: ["gateways"],
+const gatewaysSection: SectionDescriptor = {
+  id: "gateways",
+  label: "Gateways",
+  kind: "object",
+  schemaKey: "gateways",
 };
 
 const gatewaysRootSchema: JsonSchema = {
@@ -1101,7 +1122,7 @@ function GatewaysHarness(props: {
   });
   return (
     <SettingsSection
-      section={systemSection}
+      section={gatewaysSection}
       schema={gatewaysRootSchema}
       doc={doc}
       setDoc={(next) => {
@@ -1136,7 +1157,16 @@ test("the Telegram proxy has the Ignore system proxy switch too", () => {
   fireEvent.click(direct);
   expect(telegramProxy(doc)).toBe("none");
   expect(url).toBeDisabled();
-  expect(document.body.textContent).toContain("the bot's requests ignore");
+  // The switch's description names whose requests go direct; it is the (i)
+  // beside the switch label.
+  const hint = direct
+    .closest(".settings-switch-field")!
+    .querySelector(".field-hint")!;
+  fireEvent.mouseEnter(hint);
+  expect(screen.getByRole("tooltip").textContent).toContain(
+    "the bot's requests ignore",
+  );
+  fireEvent.mouseLeave(hint);
 
   fireEvent.click(direct);
   expect(telegramProxy(doc)).toBe("socks5h://127.0.0.1:1080");
@@ -1151,7 +1181,7 @@ test("the proxy copy says an empty value follows the system proxy, in every lang
   ] as const) {
     for (const key of [
       "settings.schema.providers.proxy.desc",
-      "settings.schema.system.gateways.telegram.proxy.desc",
+      "settings.schema.gateways.telegram.proxy.desc",
     ]) {
       const sentences = (messages[key] ?? "").split(/[.;]/);
       const aboutEmpty = sentences.filter((s) => empty.test(s));
@@ -1164,16 +1194,23 @@ test("the proxy copy says an empty value follows the system proxy, in every lang
   }
 });
 
-test("the provider edit form fetches advertised models and adds one to logical models", async () => {
-  const fetchMock = vi.fn(async () => ({
+// The provider form closes with the list of models the provider advertises,
+// fetched with the row as the form holds it; one click files an id under
+// Logical models in the same unsaved document, seeded like the Add button
+// seeds a row there.
+test("the provider form lists the advertised models and adds one to Logical models", async () => {
+  const fetchMock = vi.fn(async (_input: unknown, _init?: RequestInit) => ({
     ok: true,
-    json: async () => ({ ok: true, models: [{ id: "m1" }] }),
+    json: async () => ({
+      ok: true,
+      models: [{ id: "m1", context_window: 131072 }, { id: "m2" }],
+    }),
   }));
   vi.stubGlobal("fetch", fetchMock);
   let latest: Record<string, unknown> = {};
   render(
     <Harness
-      provider={{ name: "demo", type: "openai", api_key: "sk-x" }}
+      provider={{ name: "demo", type: "openai", api_key: "sk-unsaved" }}
       onDoc={(next) => {
         latest = next;
       }}
@@ -1181,39 +1218,349 @@ test("the provider edit form fetches advertised models and adds one to logical m
   );
 
   fireEvent.click(screen.getByTestId("settings-master-item-0"));
-  fireEvent.click(screen.getByTestId("provider-fetch-models"));
-  fireEvent.click(await screen.findByTestId("provider-model-add-m1"));
+  fireEvent.click(await screen.findByTestId("provider-model-toggle-m1"));
 
+  const post = fetchMock.mock.calls.find(
+    ([input, init]) =>
+      String(input) === "/coddy/providers/models" &&
+      (init as RequestInit | undefined)?.method === "POST",
+  );
+  expect(JSON.parse(String((post?.[1] as RequestInit).body))).toMatchObject({
+    name: "demo",
+    type: "openai",
+    api_key: "sk-unsaved",
+  });
+  // The harness schema has no max_context_tokens, so only the id is seeded;
+  // the real schema also receives the reported window (next test).
   const models = latest.models as { model: string }[] | undefined;
   expect(models?.[0]?.model).toBe("demo/m1");
+  // The row the list added is checked on the next render, and unchecking it
+  // takes the model out of the document again.
+  await waitFor(() =>
+    expect(
+      screen
+        .getByTestId("provider-model-toggle-m1")
+        .getAttribute("aria-pressed"),
+    ).toBe("true"),
+  );
+  fireEvent.click(screen.getByTestId("provider-model-toggle-m1"));
+  expect(latest.models).toEqual([]);
 });
 
-test("the usage-panel switch rides beside the type picker for a provider with a usage source", async () => {
+test("the usage panel switch shows only for a provider type with a usage source", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => ({
       ok: true,
-      json: async () => ({ connected: false, source: "none", items: [] }),
+      json: async () => ({
+        connected: false,
+        source: "",
+        ok: true,
+        models: [],
+      }),
     })),
   );
-  render(<Harness />);
+  const schema: JsonSchema = {
+    type: "object",
+    properties: {
+      providers: {
+        type: "array",
+        title: "LLM providers",
+        items: {
+          type: "object",
+          properties: {
+            name: { type: "string", title: "Provider name" },
+            type: {
+              type: "string",
+              title: "Provider type",
+              enum: ["openai", "codex"],
+            },
+            usage_limits_panel: {
+              type: "boolean",
+              title: "Usage limits panel",
+              default: true,
+            },
+          },
+          "x-coddy-property-order": ["name", "type", "usage_limits_panel"],
+        },
+      },
+    },
+  };
+  function TypedHarness(props: { type: string }) {
+    const [doc, setDoc] = React.useState<Record<string, unknown>>({
+      providers: [{ name: "p", type: props.type }],
+    });
+    return (
+      <SettingsSection
+        section={providersSection}
+        schema={schema}
+        doc={doc}
+        setDoc={setDoc}
+      />
+    );
+  }
+
+  const { unmount } = render(<TypedHarness type="openai" />);
   fireEvent.click(screen.getByTestId("settings-master-item-0"));
   expect(
-    await screen.findByTestId("provider-usage-limits-panel"),
+    screen.queryByRole("switch", { name: "Usage limits panel" }),
+  ).toBeNull();
+  unmount();
+
+  render(<TypedHarness type="codex" />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  expect(
+    await screen.findByRole("switch", { name: "Usage limits panel" }),
   ).toBeTruthy();
 });
 
-test("a provider type without a usage source gets no usage-panel switch", async () => {
+// The list and the row form are one component for every array tab. Without a
+// key per section, a row form opened under LLM providers stayed on screen
+// when the operator switched to Logical models, showing the first model's
+// form instead of the model list.
+test("a row form open under LLM providers does not survive switching to Logical models", () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => ({
       ok: true,
-      json: async () => ({ connected: false, source: "none", items: [] }),
+      json: async () => ({ ok: true, models: [] }),
     })),
   );
-  render(<Harness provider={{ name: "x", type: "openai" }} />);
+  const schema: JsonSchema = {
+    type: "object",
+    properties: {
+      providers: rootSchema.properties!.providers!,
+      models: {
+        type: "array",
+        title: "Logical models",
+        items: {
+          type: "object",
+          properties: { model: { type: "string", title: "Model id" } },
+        },
+      },
+    },
+  };
+  const modelsDescriptor: SectionDescriptor = {
+    id: "models",
+    label: "Logical models",
+    kind: "array",
+    schemaKey: "models",
+    labelField: "model",
+  };
+  function TabsHarness(props: { section: SectionDescriptor }) {
+    const [doc, setDoc] = React.useState<Record<string, unknown>>({
+      providers: [{ name: "demo", type: "openai" }],
+      models: [{ model: "demo/m1" }],
+    });
+    return (
+      <SettingsSection
+        section={props.section}
+        schema={schema}
+        doc={doc}
+        setDoc={setDoc}
+      />
+    );
+  }
+
+  const { rerender } = render(<TabsHarness section={providersSection} />);
   fireEvent.click(screen.getByTestId("settings-master-item-0"));
-  // The type picker still renders; only the usage switch is absent.
-  expect(await screen.findByText("Provider type")).toBeTruthy();
-  expect(screen.queryByTestId("provider-usage-limits-panel")).toBeNull();
+  expect(screen.getByTestId("settings-detail-back")).toBeTruthy();
+
+  rerender(<TabsHarness section={modelsDescriptor} />);
+  expect(screen.queryByTestId("settings-detail-back")).toBeNull();
+  expect(screen.getByTestId("settings-master-item-0").textContent).toBe(
+    "demo/m1",
+  );
+});
+
+// A model added from the provider's list arrives with the context window the
+// provider reported for it, written into max_context_tokens.
+test("a model added from the provider list carries the context window the provider reports", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        models: [{ id: "m1", context_window: 131072 }],
+      }),
+    })),
+  );
+  const schema: JsonSchema = {
+    type: "object",
+    properties: {
+      providers: rootSchema.properties!.providers!,
+      models: {
+        type: "array",
+        title: "Logical models",
+        items: {
+          type: "object",
+          properties: {
+            model: { type: "string", title: "Model id" },
+            max_context_tokens: {
+              type: "integer",
+              title: "Context window (tokens)",
+            },
+            reasoning_levels: {
+              type: "array",
+              title: "Reasoning levels",
+              items: { type: "string" },
+            },
+          },
+          "x-coddy-property-order": [
+            "model",
+            "max_context_tokens",
+            "reasoning_levels",
+          ],
+        },
+      },
+    },
+  };
+  let latest: Record<string, unknown> = {};
+  function Seeded() {
+    const [doc, setDoc] = React.useState<Record<string, unknown>>({
+      providers: [{ name: "demo", type: "openai" }],
+      models: [],
+    });
+    return (
+      <SettingsSection
+        section={providersSection}
+        schema={schema}
+        doc={doc}
+        setDoc={(next) => {
+          latest = next;
+          setDoc(next);
+        }}
+      />
+    );
+  }
+
+  render(<Seeded />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(await screen.findByTestId("provider-model-toggle-m1"));
+
+  expect(latest.models).toEqual([
+    { model: "demo/m1", max_context_tokens: 131072 },
+  ]);
+});
+
+// The provider form is three blocks: Provider settings, Advanced settings
+// (folded until its legend is clicked: the credential command, the proxy and
+// the timeout) and the Models list.
+test("the provider form groups its fields: provider settings, folded advanced settings, models", () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ ok: true, models: [] }),
+    })),
+  );
+  render(<Harness provider={{ name: "demo", type: "openai", api_key: "k" }} />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+
+  const main = screen.getByTestId("settings-group-provider");
+  const advanced = screen.getByTestId("settings-group-advanced");
+  expect(main.querySelector("legend")?.textContent).toBe("Provider settings");
+  expect(main.querySelector('[aria-label="Provider id"]')).not.toBeNull();
+  expect(main.querySelector('[aria-label="API key"]')).not.toBeNull();
+  expect(main.querySelector('[aria-label="API key command"]')).toBeNull();
+
+  const toggle = screen.getByTestId("settings-group-advanced-toggle");
+  expect(toggle.textContent).toBe("Advanced settings");
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  const body = advanced.querySelector(".settings-form-group-body")!;
+  expect(body.hasAttribute("hidden")).toBe(true);
+  expect(body.querySelector('[aria-label="API key command"]')).not.toBeNull();
+  expect(
+    body.querySelector('[data-testid="proxy-setting-url"]'),
+  ).not.toBeNull();
+
+  fireEvent.click(toggle);
+  expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  expect(body.hasAttribute("hidden")).toBe(false);
+
+  // Blocks in order, the models list last.
+  const blocks = [
+    ...document.querySelectorAll(
+      '[data-testid="settings-group-provider"], [data-testid="settings-group-advanced"], [data-testid="provider-models"]',
+    ),
+  ].map((el) => el.getAttribute("data-testid"));
+  expect(blocks).toEqual([
+    "settings-group-provider",
+    "settings-group-advanced",
+    "provider-models",
+  ]);
+});
+
+// A logical model's form reads in three blocks: which model it is and what it
+// takes in, how it answers, and how hard it thinks.
+test("the logical model form groups its fields: model, generation, reasoning", async () => {
+  stubModelsAndLevels([]);
+  const schema: JsonSchema = {
+    type: "object",
+    properties: {
+      models: {
+        type: "array",
+        title: "Logical models",
+        items: {
+          type: "object",
+          properties: {
+            model: { type: "string", title: "Model id" },
+            max_tokens: { type: "integer", title: "Max tokens" },
+            temperature: { type: "number", title: "Temperature" },
+            max_context_tokens: {
+              type: "integer",
+              title: "Context window (tokens)",
+            },
+            multimodal: { type: "boolean", title: "Multimodal" },
+            stream: { type: "boolean", title: "Stream responses" },
+            reasoning_levels: {
+              type: "array",
+              title: "Reasoning levels",
+              items: { type: "string" },
+            },
+            reasoning_default: {
+              type: "string",
+              title: "Default reasoning level",
+            },
+          },
+          "x-coddy-property-order": [
+            "model",
+            "max_tokens",
+            "temperature",
+            "max_context_tokens",
+            "multimodal",
+            "stream",
+            "reasoning_levels",
+            "reasoning_default",
+          ],
+        },
+      },
+    },
+  } as JsonSchema;
+  render(
+    <SettingsSection
+      section={modelsSection}
+      schema={schema}
+      doc={{ providers: [{ name: "demo" }], models: [{ model: "demo/m1" }] }}
+      setDoc={() => {}}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+
+  const legends = [
+    ...document.querySelectorAll(".settings-schema-root > fieldset > legend"),
+  ].map((l) => l.textContent);
+  expect(legends).toEqual(["Model", "Generation", "Reasoning"]);
+  const model = screen.getByTestId("settings-group-model");
+  expect(model.textContent).toContain("Model id");
+  expect(model.textContent).toContain("Context window (tokens)");
+  expect(model.textContent).toContain("Multimodal");
+  const generation = screen.getByTestId("settings-group-generation");
+  expect(generation.textContent).toContain("Max tokens");
+  expect(generation.textContent).toContain("Temperature");
+  expect(generation.textContent).toContain("Stream responses");
+  const reasoning = screen.getByTestId("settings-group-reasoning");
+  expect(reasoning.textContent).toContain("Reasoning levels");
+  expect(reasoning.textContent).toContain("Default reasoning level");
 });

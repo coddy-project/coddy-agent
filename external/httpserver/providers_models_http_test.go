@@ -433,3 +433,92 @@ func TestProviderModelsPostUpstreamError(t *testing.T) {
 		t.Fatal("ok = true, want false on upstream error")
 	}
 }
+
+// A browser page on another site can send a POST without a preflight only as a
+// "simple" request - text/plain, a form encoding - never as application/json.
+// Refusing every other content type is what keeps such a page from making an
+// unauthenticated loopback server run a posted api_key_command or contact an
+// upstream on its behalf.
+func TestProviderModelsPostRequiresJSONContentType(t *testing.T) {
+	var hits int
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"m1"}]}`))
+	}))
+	defer upstream.Close()
+	ts := newProviderModelsServer(t, &config.Config{})
+	marker := filepath.Join(t.TempDir(), "ran")
+	body := `{"name":"fresh","type":"openai","api_base":"` + upstream.URL +
+		`","api_key_command":"echo key > ` + filepath.ToSlash(marker) + `"}`
+
+	for _, contentType := range []string{"text/plain", "text/plain;charset=UTF-8", "application/x-www-form-urlencoded", ""} {
+		t.Run(contentType, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodPost, ts.URL+"/coddy/providers/models", strings.NewReader(body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if contentType != "" {
+				req.Header.Set("Content-Type", contentType)
+			}
+			res, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = res.Body.Close()
+			if res.StatusCode != http.StatusUnsupportedMediaType {
+				t.Fatalf("status = %d, want 415", res.StatusCode)
+			}
+		})
+	}
+	if hits != 0 {
+		t.Fatalf("upstream contacted %d times, want 0", hits)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("the posted api_key_command ran for a request that is not JSON")
+	}
+
+	// The same body as JSON (a charset parameter included) is served.
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/coddy/providers/models", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 for application/json", res.StatusCode)
+	}
+}
+
+// A body that overrides proxy must not receive the saved row's credentials:
+// like a changed api_base, a changed route would hand the stored key to
+// whoever runs the proxy the body names.
+func TestProviderModelsPostProxyOverrideDropsSavedCredentials(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	}))
+	defer upstream.Close()
+	var proxied string
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxied = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"m1"}]}`))
+	}))
+	defer proxy.Close()
+
+	ts := newProviderModelsServer(t, &config.Config{
+		Providers: []config.ProviderConfig{
+			{Name: "demo", Type: "openai", APIBase: upstream.URL, APIKey: "sk-saved"},
+		},
+	})
+
+	res := postProviderModels(t, ts, `{"name":"demo","proxy":"`+proxy.URL+`"}`)
+	_ = res.Body.Close()
+	if strings.Contains(proxied, "sk-saved") {
+		t.Fatalf("the proxy the body named received the saved key: Authorization = %q", proxied)
+	}
+}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { FieldHint } from "./FieldHint";
+import { FieldLabel } from "./FieldHint";
 import { useT } from "../i18n/I18nProvider";
 import { translate } from "../i18n/i18n";
 
@@ -138,7 +138,9 @@ export function NeuralDeepAuthField(props: {
           return;
         }
         if (next.status === "failed") {
-          setError(next.error || translate("neuralDeepAuth.error.signInFailed"));
+          setError(
+            next.error || translate("neuralDeepAuth.error.signInFailed"),
+          );
           setLoading(false);
           return;
         }
@@ -207,7 +209,9 @@ export function NeuralDeepAuthField(props: {
 
   const { t } = useT();
   const shadowed =
-    status.connected && (props.hasExplicitKey || (status.source && status.source !== "oauth" && status.source !== "none"));
+    status.connected &&
+    (props.hasExplicitKey ||
+      (status.source && status.source !== "oauth" && status.source !== "none"));
   // A key minted by one deployment is not honored by the other; say so while
   // the login is the credential in use, instead of letting requests fail.
   const hubMismatch =
@@ -220,17 +224,20 @@ export function NeuralDeepAuthField(props: {
 
   return (
     <div className="settings-row" data-testid="neuraldeep-auth-field">
-      <span className="settings-label">
-        {t("neuralDeepAuth.fieldLabel")}
-        <FieldHint text={t("neuralDeepAuth.description")} />
-      </span>
+      <FieldLabel
+        label={t("neuralDeepAuth.fieldLabel")}
+        description={t("neuralDeepAuth.description")}
+      />
       {status.connected ? (
         <p className="settings-muted codex-auth-status">
           {t("neuralDeepAuth.connected", { masked: status.masked || "" })}
         </p>
       ) : null}
       {shadowed ? (
-        <p className="settings-field-desc" data-testid="neuraldeep-auth-shadowed">
+        <p
+          className="settings-field-desc"
+          data-testid="neuraldeep-auth-shadowed"
+        >
           {t("neuralDeepAuth.shadowedByKey")}
         </p>
       ) : null}
@@ -258,7 +265,9 @@ export function NeuralDeepAuthField(props: {
             {t("neuralDeepAuth.openSignInPage")}
           </a>
           {login.status !== "failed" && login.status !== "completed" ? (
-            <span className="settings-muted">{t("neuralDeepAuth.waiting")}</span>
+            <span className="settings-muted">
+              {t("neuralDeepAuth.waiting")}
+            </span>
           ) : null}
         </div>
       ) : null}

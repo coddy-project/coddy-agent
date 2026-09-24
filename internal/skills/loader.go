@@ -222,7 +222,7 @@ func loadFile(path string) (*Skill, error) {
 			skill.Name = fm.Name
 		}
 		skill.Description = fm.Description
-		skill.Version = strings.TrimSpace(fm.Version)
+		skill.Version = fm.version()
 		skill.Model = strings.TrimSpace(fm.Model)
 		skill.Reasoning = strings.ToLower(strings.TrimSpace(fm.Reasoning))
 		if skill.Reasoning == "" {
@@ -238,10 +238,33 @@ func loadFile(path string) (*Skill, error) {
 type frontmatter struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
-	Version     string `yaml:"version"`
-	Model       string `yaml:"model"`
-	Reasoning   string `yaml:"reasoning"`
-	Effort      string `yaml:"effort"`
+	// Metadata is the Agent Skills map of free keys; its version is where a
+	// skill declares its version now. Kept as a node: a metadata of another
+	// shape must not fail the whole frontmatter and lose the name with it.
+	Metadata yaml.Node `yaml:"metadata"`
+	// Version is the top-level key skills declared their version with before
+	// the metadata map; still read for the files that carry it.
+	Version   string `yaml:"version"`
+	Model     string `yaml:"model"`
+	Reasoning string `yaml:"reasoning"`
+	Effort    string `yaml:"effort"`
+}
+
+// version is the skill's declared version: metadata.version, else the
+// top-level version key older files carry, else "".
+func (fm *frontmatter) version() string {
+	if fm.Metadata.Kind == yaml.MappingNode {
+		for i := 0; i+1 < len(fm.Metadata.Content); i += 2 {
+			key, val := fm.Metadata.Content[i], fm.Metadata.Content[i+1]
+			if key.Value != "version" || val.Kind != yaml.ScalarNode {
+				continue
+			}
+			if v := strings.TrimSpace(val.Value); v != "" {
+				return v
+			}
+		}
+	}
+	return strings.TrimSpace(fm.Version)
 }
 
 // parseFrontmatter splits a file into frontmatter and body.

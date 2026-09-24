@@ -79,10 +79,9 @@ test("an explicit false still renders off against a true default", () => {
 });
 
 // Layout: the boolean renderer delegates to the shared SwitchField, so the
-// description lives in the (i) hint inside the label cell rather than a
-// paragraph under the label. Regression for the models[].multimodal / stream
-// rows, where the label hung below the switch and the description started
-// under it.
+// description is the (i) in the label cell, like every other field's.
+// Regression for the models[].multimodal / stream rows, where the label hung
+// below the switch and the description started under it.
 const describedSchema: JsonSchema = {
   type: "object",
   properties: {
@@ -94,7 +93,7 @@ const describedSchema: JsonSchema = {
   },
 } as unknown as JsonSchema;
 
-test("boolean field renders through SwitchField with the description in the hint", () => {
+test("boolean field renders through SwitchField with the description behind its (i)", () => {
   const { container } = render(
     <SchemaForm schema={describedSchema} value={{}} onChange={() => {}} />,
   );
@@ -102,48 +101,15 @@ test("boolean field renders through SwitchField with the description in the hint
   expect(field).not.toBeNull();
   const sw = screen.getByRole("switch", { name: /multimodal/i });
   expect(sw.parentElement).toBe(field);
-  const cell = field!.querySelector(".settings-switch-field-label-cell");
-  expect(cell?.querySelector(".field-hint-tip")?.textContent).toBe(
+  const hint = field!.querySelector(
+    ".settings-switch-field-label-cell .field-hint",
+  );
+  expect(hint).not.toBeNull();
+  fireEvent.mouseEnter(hint!);
+  expect(screen.getByRole("tooltip").textContent).toBe(
     "When true, the model accepts image or file inputs.",
   );
   expect(
     container.querySelector(".settings-field-desc-below-checkbox"),
   ).toBeNull();
-});
-
-test("advancedPaths folds the named fields into a collapsed details group", () => {
-  const schema: JsonSchema = {
-    type: "object",
-    properties: {
-      name: { type: "string", title: "Name" },
-      api_key_command: { type: "string", title: "API key command" },
-      proxy: { type: "string", title: "Proxy" },
-      timeout_ms: { type: "number", title: "Timeout" },
-    },
-  } as unknown as JsonSchema;
-  render(
-    <SchemaForm
-      schema={schema}
-      value={{}}
-      onChange={() => {}}
-      advancedPaths={["api_key_command", "proxy", "timeout_ms"]}
-    />,
-  );
-  const details = screen.getByTestId("settings-advanced");
-  expect(details.tagName).toBe("DETAILS");
-  expect(details.getAttribute("open")).toBeNull();
-  // The ordinary field stays outside the fold.
-  const root = document.querySelector(".settings-schema-root")!;
-  expect(
-    (root.children[0] as HTMLElement).querySelector(
-      '[aria-label="Name"]',
-    ),
-  ).not.toBeNull();
-  // The folded fields live inside it, hidden until opened.
-  for (const label of ["API key command", "Proxy", "Timeout"]) {
-    expect(details.querySelector(`[aria-label="${label}"]`)).not.toBeNull();
-  }
-  // Toggling the summary opens it.
-  fireEvent.click(details.querySelector("summary")!);
-  expect(details.getAttribute("open")).not.toBeNull();
 });

@@ -1,7 +1,7 @@
 /**
  * The app's one chevron: the fold marker a transcript row opens with, pointing
  * right while closed and turning down when open. A dropdown indicator points
- * down while closed and up when open. Every disclosure, submenu and dropdown
+ * down while closed and up when open. A back control points left. Every disclosure, submenu and dropdown
  * uses it rather than a glyph of its own; the visual contract is DESIGN.md
  * (Chevron), held by chevronContract.test.tsx.
  *
@@ -17,7 +17,7 @@ const SIZE = 14;
 
 export function Chevron(props: {
   open?: boolean;
-  pointing?: "right" | "down";
+  pointing?: "right" | "down" | "left";
   className?: string;
 }) {
   return (
@@ -25,6 +25,7 @@ export function Chevron(props: {
       className={[
         "coddy-chevron",
         props.pointing === "down" ? "coddy-chevron--down" : "",
+        props.pointing === "left" ? "coddy-chevron--left" : "",
         props.open ? "is-open" : "",
         props.className || "",
       ]

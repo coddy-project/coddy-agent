@@ -1,6 +1,7 @@
 ---
 name: rpa-gen-rules
-version: 1.3.0
+metadata:
+  version: 1.3.1
 description: >
   Run when the user invokes /rpa-gen-rules or asks to create or refresh agent project rules (Cursor .mdc,
   Claude Code CLAUDE.md and .claude/rules, Codex .codex hook bridge). Infers from specs, docs, and code.

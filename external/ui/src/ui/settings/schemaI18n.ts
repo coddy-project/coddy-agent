@@ -5,7 +5,7 @@ import { hasTranslation, translate } from "../i18n/i18n";
  * server-provided JSON Schema (`title` / `description`, authored in English in
  * `internal/config/ui_schema.go`). This module localizes them on the client:
  * each rendered field is addressed by its settings section (`domain`, e.g.
- * "tools" or "system.scheduler") and its dotted path inside that section
+ * "tools" or "system.prompts") and its dotted path inside that section
  * ("output_limits.read"), and the dictionary key is derived deterministically
  * as `settings.schema.<domain>.<path>.label` / `.desc`. An empty path addresses
  * the section itself (the master-list header description of an array section).

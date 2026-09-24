@@ -73,6 +73,17 @@ test("nothing draws a disclosure marker as a text glyph", () => {
   expect(container.querySelectorAll("svg")).toHaveLength(1);
 });
 
+test("no disclosure keeps the browser's own triangle", () => {
+  // A bare <details> draws the platform's disclosure triangle, a fourth mark
+  // beside the chevron (the subagent rows' "Declared bounds" had one). A
+  // <summary> is only ever the row of a component that draws <Chevron />.
+  const offenders = sources(uiRoot).filter((path) => {
+    const text = readFileSync(path, "utf8");
+    return /<summary\b/.test(text) && !/<Chevron\b/.test(text);
+  });
+  expect(offenders.map((p) => relative(uiRoot, p))).toEqual([]);
+});
+
 test("one source draws every chevron", () => {
   // A class named after a chevron belongs to <Chevron />, and no other module
   // declares one; either would be a second implementation beside this one. A

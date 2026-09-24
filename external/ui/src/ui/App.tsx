@@ -939,6 +939,10 @@ export function App() {
   const [settingsSection, setSettingsSection] = useState<string | null>(() =>
     initialRoute.branch === "settings" ? initialRoute.section : null,
   );
+  // The row a list section has open, from `?id=` (a provider or model name).
+  const [settingsItem, setSettingsItem] = useState<string | null>(() =>
+    initialRoute.branch === "settings" ? initialRoute.item : null,
+  );
   const [schedulerEditor, setSchedulerEditor] =
     useState<SchedulerEditorState>(null);
   const [schedulerJobs, setSchedulerJobs] = useState<SchedulerJob[]>([]);
@@ -1747,6 +1751,7 @@ export function App() {
     if (p.branch === "settings") {
       setSettingsRoute(true);
       setSettingsSection(p.section);
+      setSettingsItem(p.item);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
       setTasksOpen(false);
@@ -5555,6 +5560,7 @@ export function App() {
               onClose={onCloseSettings}
               onConfigSaved={() => setConfigEpoch((e) => e + 1)}
               initialSection={settingsSection}
+              initialItem={settingsItem}
               activeSessionId={sidebarActiveId}
               onSessionsDeleted={onSessionsDeletedInSettings}
               // spawn_agent resolves definitions against the session's own

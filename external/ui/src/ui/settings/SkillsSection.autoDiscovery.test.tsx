@@ -82,15 +82,70 @@ test("auto-discovery toggle is rendered by the shared SwitchField", () => {
   expect(
     field!.querySelector(".settings-switch-field-label")?.textContent,
   ).toBe("Enabled");
-  // The schema description rides in the (i) hint inside the label cell, not
-  // as a paragraph under the label. Its copy comes from the i18n dictionary
-  // (schemaFieldDesc), so pin the stable opening words.
-  expect(
-    field!.querySelector(".field-hint-tip")?.textContent,
-  ).toMatch(/^Let the agent load a matching skill/);
+  // The schema description is the (i) beside the state label, not a
+  // paragraph flush with the fieldset edge. Its copy comes from the i18n
+  // dictionary (schemaFieldDesc), so pin the stable opening words.
+  const hint = field!.querySelector(".field-hint");
+  expect(hint).not.toBeNull();
+  fireEvent.mouseEnter(hint!);
+  expect(screen.getByRole("tooltip").textContent).toMatch(
+    /^Let the agent load a matching skill/,
+  );
   expect(
     document.querySelectorAll(
       ".settings-skills-section > fieldset:first-of-type .settings-field-desc",
     ).length,
   ).toBe(0);
+});
+
+// How else a skill gets installed (npx skills, npx skillsbd) is about the
+// whole list: it is the (i) of the Installed skills legend, not a line in it.
+test("the npx install hint is the (i) of the Installed skills legend", () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [] }) }),
+  );
+  render(
+    <SkillsSection schema={skillsSchema} value={{}} onChange={() => {}} />,
+  );
+  const box = screen.getByTestId("skills-installed");
+  expect(box.querySelector("p")?.textContent ?? "").not.toMatch(/npx skills/);
+  const hint = box.querySelector("legend .field-hint")!;
+  expect(hint).toHaveAttribute("aria-label", "About Installed skills");
+  fireEvent.mouseEnter(hint);
+  expect(screen.getByRole("tooltip").textContent).toMatch(/npx skills/);
+});
+
+// An installed skill row: the on/off switch first, then the name, no icon.
+test("an installed skill row leads with its switch", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () =>
+          String(url).startsWith("/coddy/skills?") ||
+          String(url) === "/coddy/skills"
+            ? {
+                items: [
+                  {
+                    name: "rpa-feat",
+                    description: "BDD workflow",
+                    enabled: true,
+                    version: "1.0.1",
+                  },
+                ],
+              }
+            : { items: [] },
+      }),
+    ),
+  );
+  render(
+    <SkillsSection schema={skillsSchema} value={{}} onChange={() => {}} />,
+  );
+  const toggle = await screen.findByTestId("skills-toggle-rpa-feat");
+  const row = toggle.closest("li")!;
+  expect(row.firstElementChild).toBe(toggle);
+  expect(row.querySelector(":scope > svg")).toBeNull();
+  expect(row.textContent).toContain("v1.0.1");
 });
