@@ -1,37 +1,37 @@
 Feature: A finished background task can wake the agent
   A long job is only useful unattended if something restarts the conversation when it ends.
-  A task the model marked with notify_on_finish therefore starts a new agent turn on its own,
-  carrying the outcome, so the model can end its turn the moment the work is handed off. The
-  opt-in is the point: the model decides which results are worth a turn, so a batch of quick
-  commands cannot each spend one behind the operator's back.
+  A background task wakes the agent with its outcome by default, so the model
+  can end its turn after handing off the work. An explicit notify_on_finish:
+  false keeps the task quiet; results the agent already collected do not wake
+  it again. Nearby completions share one turn.
 
-  Scenario: A task that asked to be notified starts a turn when it finishes
+  Scenario: A notifying task starts a turn when it finishes
     Given a session with no woken turns
-    When a background task that asked to be notified finishes as "succeeded"
+    When a background task with notification enabled finishes as "succeeded"
     Then the agent is woken once
     And the woken turn names that task and its outcome
 
-  Scenario: A task that did not ask stays quiet
+  Scenario: A task whose wake was explicitly disabled stays quiet
     Given a session with no woken turns
-    When a background task that did not ask to be notified finishes as "succeeded"
+    When a background task with notification disabled finishes as "succeeded"
     Then the agent is not woken
 
   Scenario: A failure wakes the agent and is reported as a failure
     Given a session with no woken turns
-    When a background task that asked to be notified finishes as "failed"
+    When a background task with notification enabled finishes as "failed"
     Then the agent is woken once
     And the woken turn tells the model the work did not succeed
 
   Scenario: Tasks finishing together cost one turn, not several
     Given a session with no woken turns
-    When three background tasks that asked to be notified finish together
+    When three background tasks with notification enabled finish together
     Then the agent is woken once
     And the woken turn names all three tasks
 
   Scenario: A task that finishes while its own turn is still running is woken when that turn ends
     Given a session with no woken turns
     And an agent turn is already in flight for that session
-    When a background task that asked to be notified finishes as "failed"
+    When a background task with notification enabled finishes as "failed"
     And the turn in flight ends
     Then the agent is woken once
     And the woken turn tells the model the work did not succeed

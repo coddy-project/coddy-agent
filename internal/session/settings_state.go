@@ -172,7 +172,7 @@ func (s *State) EndTurnSettings() {
 }
 
 // SetTurnSetting changes one value for the rest of the running turn: the
-// model's own switch_model call, the frontmatter of a skill it loaded.
+// user-requested switch_model call, the frontmatter of a skill it loaded.
 func (s *State) SetTurnSetting(setting, value string) {
 	s.settingsMu.Lock()
 	s.turn.active.set(setting, value)

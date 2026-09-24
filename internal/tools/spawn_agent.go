@@ -65,7 +65,7 @@ func SpawnAgentTool() *tooling.Tool {
 					},
 					"notify_on_finish": map[string]interface{}{
 						"type":        "boolean",
-						"description": "For a background run: wake yourself with the outcome when it finishes, so you can end your turn now",
+						"description": "For a background run: wake yourself with the outcome when it finishes (default true where available); set false explicitly to prevent a wake. A completed result you collect or a task you stop does not wake you again",
 					},
 				},
 				"required": []interface{}{"agent", "prompt"},
@@ -84,7 +84,7 @@ type spawnAgentArgs struct {
 	Background      bool   `json:"background"`
 	ExpectedSeconds int    `json:"expected_seconds"`
 	TimeoutSeconds  int    `json:"timeout_seconds"`
-	NotifyOnFinish  bool   `json:"notify_on_finish"`
+	NotifyOnFinish  *bool  `json:"notify_on_finish"`
 }
 
 func executeSpawnAgent(ctx context.Context, argsJSON string, env *tooling.Env) (string, error) {
@@ -111,6 +111,6 @@ func executeSpawnAgent(ctx context.Context, argsJSON string, env *tooling.Env) (
 		Background:      args.Background,
 		ExpectedSeconds: args.ExpectedSeconds,
 		TimeoutSeconds:  args.TimeoutSeconds,
-		NotifyOnFinish:  args.NotifyOnFinish,
+		NotifyOnFinish:  args.NotifyOnFinish == nil || *args.NotifyOnFinish,
 	})
 }

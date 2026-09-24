@@ -58,11 +58,11 @@ While the session asks (`ask`), a permission prompt that belongs to the session 
 
 *The permission prompt of a session in `ask`: the session switch sits in red before Reject.*
 
-## The model switches itself
+## Changing the model on request
 
-The model can change its own settings in three ways:
+The agent changes its model or reasoning level with `switch_model` only when the user asks in the current conversation. It does not pick a different model for a difficult step or routine work on its own. The related settings have three sources:
 
-- the `switch_model` tool sets the model, the reasoning level or both, from its next request, until the turn ends or, with `scope: session`, for the session. Its description lists the configured models with their levels, so the choice is made among what exists. It is offered in every mode when there is something to switch (more than one model, or one with reasoning levels), and never to a subagent;
+- the `switch_model` tool sets the model, the reasoning level or both, from its next request. A user's request lasts for the session by default, like `/model`; `scope: turn` applies only when the user limited the change to this turn or task. Its description lists the configured models with their levels, so the choice is made among what exists. It is offered in every mode when there is something to switch (more than one model, or one with reasoning levels), and never to a subagent;
 - a skill's frontmatter `model` and `reasoning` (alias `effort`) apply for the rest of the turn, whether you typed `/skill` or the model called `load_skill`, unless the turn already runs on a value set for it by a command or by `switch_model` ([Skills](skills.md#yaml-frontmatter));
 - `spawn_agent` takes `model` and `reasoning` for the child, and a subagent definition takes `reasoning` next to `model`; the child's model is the argument, then the definition's, then the parent's ([Subagents](subagents.md#the-spawn_agent-tool)).
 
@@ -72,7 +72,7 @@ A model id or a level the configuration does not offer is an error in a `switch_
 
 ### Web UI
 
-The composer's **Mode**, **Permissions** and **Model** selectors show the session's settings as the server has them. The permission chip reads **Ask first**, **Accept edits** or **Bypass**, the last in red; a line next to the selectors lists what is changed for the next turns. A change made anywhere else - a command, the dialog, the model's own `switch_model`, a console on the same session - reaches the tab as `event: session_settings` and moves the selectors. A browser that has not seen the latest change yet does not undo it when it sends: the request carries `metadata.settingsVersion`, and an older version leaves the session's settings alone.
+The composer's **Mode**, **Permissions** and **Model** selectors show the session's settings as the server has them. The permission chip reads **Ask first**, **Accept edits** or **Bypass**, the last in red; a line next to the selectors lists what is changed for the next turns. A change made anywhere else - a command, the dialog, a user-requested `switch_model` call, a console on the same session - reaches the tab as `event: session_settings` and moves the selectors. A browser that has not seen the latest change yet does not undo it when it sends: the request carries `metadata.settingsVersion`, and an older version leaves the session's settings alone.
 
 ![The composer after a bypass from the dialog: the selectors end with a red Bypass chip, followed by "stub/qwen3.8-27b, 2 turns left"](../assets/session-settings/session-settings-composer-bypass-dark-1280.png)
 

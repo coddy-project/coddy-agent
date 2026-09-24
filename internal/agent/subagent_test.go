@@ -1151,6 +1151,40 @@ func TestSubagentForegroundResultStatusLines(t *testing.T) {
 	}
 }
 
+func TestSubagentMaxTurnsWithoutFinalAnswerFails(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	rig.approvedDefinition("reviewer", "max_turns: 1\n")
+	rig.setChildProvider(func(*session.State) llm.Provider {
+		return scripted(toolStep(llm.ToolCall{ID: "unfinished", Name: "read", InputJSON: `{"path":"README.md"}`}))
+	})
+	result, err := rig.parentAgent().spawnSubagent(context.Background(), spawnReq("reviewer"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := parseSubagentEnvelope(t, result)
+	if env.Status != "failed" || !strings.Contains(result, "max_turns") {
+		t.Fatalf("unfinished child result = %q, want failed with max_turns reason", result)
+	}
+	if snap := rig.lastAgentTask(); snap.Status != bgtask.StatusFailed || !strings.Contains(snap.Error, "max_turns") {
+		t.Fatalf("unfinished child task = %+v, want failed with max_turns reason", snap)
+	}
+}
+
+func TestSubagentEmptyAnswerFails(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	rig.approvedDefinition("reviewer", "")
+	rig.setChildProvider(func(*session.State) llm.Provider {
+		return scripted(answerStep(""), answerStep(""), answerStep(""), answerStep(""))
+	})
+	result, err := rig.parentAgent().spawnSubagent(context.Background(), spawnReq("reviewer"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env := parseSubagentEnvelope(t, result); env.Status != "failed" || !strings.Contains(result, "no final message") {
+		t.Fatalf("empty child answer = %q, want failed with the missing report named", result)
+	}
+}
+
 func TestSubagentReportBlock(t *testing.T) {
 	run := &subagentRun{def: &subagents.Definition{Name: "general"}, childID: "sess_9", taskID: "bg_2",
 		status: "failed", err: errors.New("provider exploded"), turns: 3, startedAt: time.Now()}

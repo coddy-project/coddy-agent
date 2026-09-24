@@ -58,7 +58,7 @@ func startBackgroundCommand(args runCommandArgs, env *tooling.Env) (string, erro
 		// The task records a wake only where one will happen: a child's or a
 		// scheduled run's transcript is sealed once its turn returns, and a
 		// process with no waker (coddy -p) has nobody to start the turn.
-		NotifyOnFinish: args.NotifyOnFinish && WakeAvailable(pool, env),
+		NotifyOnFinish: args.wantsWake() && WakeAvailable(pool, env),
 	})
 	if err != nil {
 		return "", err
@@ -74,7 +74,7 @@ func startBackgroundCommand(args runCommandArgs, env *tooling.Env) (string, erro
 	switch {
 	case snap.NotifyOnFinish:
 		b.WriteString("You will be woken with the outcome when it finishes, so you can end your turn now.")
-	case args.NotifyOnFinish:
+	case args.wantsWake():
 		// Promising a turn that never starts would have the model end this one
 		// waiting for it.
 		fmt.Fprintf(&b, "Nothing will wake you when it finishes here, so notify_on_finish was ignored: check on it with %s or %s, and collect the result with %s.", ToolBackgroundList, ToolBackgroundWait, ToolBackgroundOutput)
@@ -213,6 +213,9 @@ func BackgroundOutputTool() *tooling.Tool {
 			if err != nil {
 				return "", err
 			}
+			if snap.Status.Finished() {
+				_ = pool.AcknowledgeResult(env.SessionID, args.TaskID)
+			}
 
 			var b strings.Builder
 			b.WriteString(formatTaskLine(snap, time.Now()))
@@ -285,6 +288,7 @@ func BackgroundWaitTool() *tooling.Tool {
 			if !snap.Status.Finished() {
 				return line + fmt.Sprintf("\nStill running after %ds. Wait again or check %s later.", seconds, ToolBackgroundOutput), nil
 			}
+			_ = pool.AcknowledgeResult(env.SessionID, args.TaskID)
 			text, _, outErr := pool.Output(env.SessionID, args.TaskID, defaultOutputTailLines)
 			if outErr != nil || strings.TrimSpace(text) == "" {
 				return line, nil
@@ -329,6 +333,7 @@ func BackgroundStopTool() *tooling.Tool {
 			if err != nil {
 				return "", err
 			}
+			_ = pool.AcknowledgeResult(env.SessionID, args.TaskID)
 			return formatTaskLine(snap, time.Now()), nil
 		},
 	}

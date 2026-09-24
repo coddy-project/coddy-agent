@@ -1152,6 +1152,15 @@ func executeChildRun(ctx context.Context, rt SubagentRuntime, run *subagentRun, 
 	case res != nil && res.StopReason == acp.StopReasonRefused:
 		run.status = "failed"
 		run.err = fmt.Errorf("the subagent stopped without finishing (%s)", res.StopReason)
+		if strings.TrimSpace(run.report) == "" {
+			run.err = fmt.Errorf("the subagent produced no final message (stop reason %s)", res.StopReason)
+		}
+	case res != nil && res.StopReason == acp.StopReasonMaxTurns:
+		run.status = "failed"
+		run.err = fmt.Errorf("the subagent reached max_turns without a final answer")
+	case strings.TrimSpace(run.report) == "":
+		run.status = "failed"
+		run.err = fmt.Errorf("the subagent produced no final message")
 	default:
 		run.status = "end_turn"
 		if res != nil {

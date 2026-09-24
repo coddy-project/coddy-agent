@@ -45,6 +45,22 @@ func TestRenderAgentPrompt(t *testing.T) {
 	}
 }
 
+func TestModePromptsExplainRequestedModelSwitchAndBackgroundWake(t *testing.T) {
+	for _, mode := range []string{"agent", "plan", "ask"} {
+		t.Run(mode, func(t *testing.T) {
+			result, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/workspace"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{"switch_model", "user asks", "background", "wake", "subagent"} {
+				if !strings.Contains(result, want) {
+					t.Errorf("%s prompt lacks %q", mode, want)
+				}
+			}
+		})
+	}
+}
+
 // The agent invents a place for a git worktree unless the prompt names one,
 // and what it invents ends up untracked at the repository root.
 func TestAgentPromptNamesWorktreesDirectory(t *testing.T) {

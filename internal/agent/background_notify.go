@@ -111,9 +111,8 @@ func (w Wake) Record(now time.Time) *llm.BackgroundWake {
 // BackgroundWaker turns finished background tasks into agent turns, so a
 // session keeps moving while nobody is watching it.
 //
-// Only tasks the model explicitly marked with notify_on_finish are eligible:
-// the model decides what is worth a turn, so a batch of quick commands cannot
-// each start one behind the operator's back.
+// Tasks with notify_on_finish are eligible unless their outcome was already
+// collected or they were stopped. A batch of nearby completions shares a turn.
 type BackgroundWaker struct {
 	log  *slog.Logger
 	run  RunTurnFunc
@@ -254,6 +253,11 @@ func (w *BackgroundWaker) startTurn(sessionID string, batch []bgtask.Snapshot) b
 		// turn: a wait of minutes must not leave the model a stale batch and a
 		// second turn queued behind it.
 		batch = w.absorbPending(sessionID, batch)
+		batch = w.unclaimedResults(sessionID, batch)
+		if len(batch) == 0 {
+			w.refundWake(sessionID)
+			return true
+		}
 
 		w.log.Info("background_wake_start", "session_id", sessionID, "tasks", len(batch), "attempt", attempt)
 		err := w.run(context.Background(), Wake{SessionID: sessionID, Tasks: batch})
@@ -282,6 +286,23 @@ func (w *BackgroundWaker) startTurn(sessionID string, batch []bgtask.Snapshot) b
 		time.Sleep(delay)
 		delay = min(delay*2, w.busyRetryMax)
 	}
+}
+
+// unclaimedResults rechecks the pool before each wake attempt. A task may have
+// finished while its parent turn was busy, then been collected in that same
+// turn; the completion snapshot queued earlier is stale by then.
+func (w *BackgroundWaker) unclaimedResults(sessionID string, batch []bgtask.Snapshot) []bgtask.Snapshot {
+	if w.pool == nil {
+		return batch
+	}
+	kept := batch[:0]
+	for _, snap := range batch {
+		if !w.pool.WakePending(sessionID, snap.ID) {
+			continue
+		}
+		kept = append(kept, snap)
+	}
+	return kept
 }
 
 // absorbPending folds everything queued for the session into the batch in
