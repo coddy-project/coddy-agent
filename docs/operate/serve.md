@@ -24,44 +24,137 @@ coddy serve
 The process holds the terminal, prints what it started, and stops on Ctrl-C. This is the
 form to use under `systemd`, `supervisord`, Docker, or anything else that already owns
 process lifetimes - those supervisors restart the process themselves, and stacking a
-second one under them only hides failures from the first.
+second one under them only hides failures from the first. On Linux, `coddy serve setup`
+writes that systemd unit for you (next section).
 
-## systemd user service on Linux
-
-The `.deb` and `.rpm` packages install `coddy.service` under
-`/usr/lib/systemd/user/`. Each user can enable it for their own account after creating
-`~/.coddy/config.yaml` and setting a provider. Run these commands as that user, without
-`sudo`:
+## As a systemd user service on Linux
 
 ```bash
-coddy serve setup
-journalctl --user -u coddy.service -f
+coddy serve setup                        # once, as the user the service is for
+journalctl --user -u coddy.service -f    # its log
+coddy serve uninstall                    # take it away again
 ```
 
-`setup` checks `~/.coddy/config.yaml`, asks `systemctl --user` to reload its units and
-enable and start `coddy.service`, then prints its status. If a step fails, it exits with
-the command's error. The unit runs `/usr/bin/coddy serve` in the foreground with
-`~/.coddy` as its working directory. That is the default directory for sessions created
-without an explicit workspace, and relative process paths resolve there. The
-configuration and `.env` live there; service output goes to the journal, while a log
-file follows `logger.file` when configured. The unit restarts after a
-failure or a requested listener change, and gives an active turn up to 40 seconds to
-finish on shutdown. It does not start merely because the package was installed. To stop
-and disable it:
+On Linux with systemd, `coddy serve` can run as a *user* service: it belongs to one
+account, runs with that account's permissions and its `~/.coddy`, comes back after a
+crash and, with [lingering](#after-logout-and-at-boot), keeps running after logout and
+starts at boot. `coddy serve setup` puts it in place and `coddy serve uninstall` takes it
+away. Both run as the user the service is for, never under `sudo`.
+
+What `setup` has to do depends on how Coddy was installed:
+
+| Installed with | The unit | What `setup` does with it |
+|---|---|---|
+| the `.deb` or `.rpm` | `/usr/lib/systemd/user/coddy.service`, installed and **not enabled** | enables it for your account |
+| the install script, a release archive, Homebrew, a local build | none | writes `~/.config/systemd/user/coddy.service` for the binary you ran `setup` with, then enables it |
+
+The package enables the unit for nobody: which accounts on a machine run a server is
+for each of them to decide, and the message printed at installation says so. The
+install script installs no unit and ends by pointing at `coddy serve setup` the same
+way.
+
+Either way, `setup`:
+
+1. checks `~/.coddy/config.yaml` the way [`--test-config`](../reference/cli.md) does, and
+   stops on an error;
+2. refuses while a `coddy serve --daemon` runs for the same home, because both would bind
+   the same port;
+3. puts the unit in place (above), plus a drop-in
+   `~/.config/systemd/user/coddy.service.d/coddy-setup.conf` with the `PATH` of the shell
+   you ran it from;
+4. creates `~/Coddy`;
+5. runs `systemctl --user daemon-reload`, `enable` and `restart`, waits two seconds, and
+   reports whether the service stayed up, with the command that shows its log.
+
+Running `setup` again is safe, and it is how the service picks up a change: after
+`coddy update` or a package upgrade, after the binary moved, after your `PATH` changed.
+It rewrites what it wrote, restarts the service, and never overwrites a unit or a drop-in
+it did not write.
+
+### What the service runs with
+
+- **Working directory `~/Coddy`.** The working directory of `coddy serve` is the
+  workspace of every session opened without one: a web UI chat started before a folder
+  was picked, a scheduler job, a Telegram conversation. The service gets a folder of its
+  own, so what the agent writes lands there and not next to the configuration and the
+  provider keys in `~/.coddy`. The unit creates the folder when it is missing. A session
+  opened on a project folder works in that folder as usual.
+- **The agent home `~/.coddy`.** The service reads `~/.coddy/config.yaml` and
+  `~/.coddy/.env`. The user manager does not inherit your shell's environment, so a
+  `CODDY_HOME` exported in `.bashrc` does not reach it; `setup` says so when it sees one.
+- **The `PATH` of your shell.** A user manager starts services with a bare system
+  `PATH`, and an agent that cannot find the `go`, `node` or `python` your terminal finds
+  fails at the first build. The drop-in hands the service the absolute entries of the
+  `PATH` `setup` ran with.
+- **The journal.** Output goes to `journalctl --user -u coddy.service`, and to a file as
+  well when `logger.file` says so.
+- **Restarts.** `Restart=on-failure` brings back a process that crashed. A configuration
+  change that moves a listen address - the web UI port, changed from its own settings
+  screen - ends the process with status 75, and systemd starts it again on the new
+  address: the unit sets `CODDY_SERVE_ROLE=service`, which tells `coddy serve` that
+  something will ([Restarting itself](#restarting-itself)).
+- **Stopping.** systemd gives `coddy serve` 40 seconds after `SIGTERM` to finish a turn
+  in flight, then kills it.
+
+Anything else - another working directory, more environment, a flag - goes into a
+drop-in of your own, which `setup` and `uninstall` leave alone:
+
+```bash
+systemctl --user edit coddy.service
+```
+
+### After logout and at boot
+
+A user manager runs while its user has a session, so the service stops when you log out
+of the last one and starts again at the next login. To keep it running without a session
+and start it at boot, an administrator enables lingering for the account once:
+
+```bash
+sudo loginctl enable-linger <user>
+```
+
+`setup` prints that line when lingering is off. Coddy never changes it.
+
+### Controlling it
+
+systemd owns the service. The `coddy serve status | stop | restart` verbs belong to
+`--daemon`, and when they find the systemd service instead they say so:
+
+```bash
+systemctl --user status coddy.service
+systemctl --user restart coddy.service
+systemctl --user stop coddy.service       # until the next login, or the next boot
+```
+
+Do not run `coddy serve --daemon` for the same account next to it: both would bind the
+same port. `setup` refuses while the daemon runs, and `--daemon` warns while the service
+does.
+
+`setup` and `uninstall` talk to the user manager of the account over its bus. A shell
+opened with `su` or `sudo -u` keeps the session of the caller, so the manager is not
+reachable from it and both commands say so; log in as the user (ssh, a desktop session,
+`machinectl shell <user>@`) instead.
+
+### Removing it
+
+```bash
+coddy serve uninstall
+```
+
+stops and disables `coddy.service`, removes the unit and the drop-in `setup` wrote, and
+reloads the user manager. The packaged unit stays where the package put it, disabled. A
+unit or a drop-in you wrote yourself is disabled and kept. `~/.coddy` (configuration,
+sessions) and `~/Coddy` (workspace) are not touched.
+
+Run it before removing the `.deb` or `.rpm`. The package removal takes the unit file away
+but cannot reach into each account's `~/.config`, so an account that enabled the service
+keeps it enabled, and the service keeps running the deleted binary until it stops. The
+removal prints what clears it, to run as that user:
 
 ```bash
 systemctl --user disable --now coddy.service
+rm -f ~/.config/systemd/user/coddy.service.d/coddy-setup.conf
 ```
-
-The user manager normally runs while you are logged in. If this service must stay up
-after logout or start at boot before login, an administrator can enable lingering for
-your account with `sudo loginctl enable-linger "$USER"`. That setting is optional and
-is not changed by the package. After a package upgrade, restart the service to run the
-new binary: `systemctl --user restart coddy.service`. Avoid running
-`coddy serve --daemon` for the same account at the same time; both processes would try to bind the
-same port. For a local build or release archive, install the unit from
-[`packaging/systemd/coddy.service`](../../packaging/systemd/coddy.service) after adjusting
-`ExecStart` to the binary's absolute path.
 
 ## In the background
 
@@ -205,17 +298,22 @@ the very server whose settings screen they are typing into.
 
 The exit status for that request is **75** (`EX_TEMPFAIL`), so a supervisor that knows
 nothing about Coddy reads it the way it was meant: this run is over, another one is
-worth starting. Under `systemd` that is `RestartForceExitStatus=75` alongside the
-ordinary `Restart=on-failure`.
+worth starting. A foreground `coddy serve` only exits for it when it is told something
+will start it again, through `CODDY_SERVE_ROLE=service` in its environment; otherwise it
+logs that a restart is due and keeps the old listener. The unit `coddy serve setup` uses
+sets that variable, plus `SuccessExitStatus=75` and `RestartForceExitStatus=75`, so the
+restart is not recorded as a failure. A unit or a supervisor of your own needs the
+variable too.
 
 ## Which form to use
 
 | Situation | Form |
 |-----------|------|
-| a laptop, a dev box, a shell on a server | `coddy serve --daemon` |
-| `systemd` | the packaged user unit, or `coddy serve` in the foreground under a custom unit |
-| `supervisord`, `runit` | `coddy serve` in the foreground, and let them restart it |
+| Linux with systemd, a server that should outlive your login | `coddy serve setup` (a systemd user service) |
+| a laptop, a dev box, a shell on a machine without systemd | `coddy serve --daemon` |
+| `supervisord`, `runit` | `coddy serve` in the foreground with `CODDY_SERVE_ROLE=service`, and let them restart it |
 | Docker, Kubernetes | `coddy serve` in the foreground as PID 1; the orchestrator restarts the container |
 
-The packages ship a user unit and no system unit: Coddy's state remains per-user under
-`~/.coddy`. See [installation](../getting-started/install.md).
+The packages ship a user unit that they do not enable, and no system unit: Coddy's state
+is per-user under `~/.coddy`, so a system daemon would need a home and a configuration
+nobody can edit. See [installation](../getting-started/install.md).
