@@ -12000,20 +12000,25 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   color: var(--text);
 }
 
-/* The header is laid on the columns of the page: the title over the
-   contents, the search over the text, the actions over the outline. It does
-   not scroll: the page scrolls in the body under it, so the scrollbar starts
-   below the search, not beside it. */
+/* The header is laid on the columns of the page - the same three tracks as
+   .docs-layout: the title over the contents, the search over the text, the
+   actions over the outline. With a column of its own for the actions (as wide
+   as their content), the search ran on into the outline's column. It does not
+   scroll: the page scrolls in the body under it, so the scrollbar starts below
+   the search, not beside it. A classic scrollbar narrows the body's columns
+   alone, so the header leaves the same width free on its right
+   (--docs-scrollbar, measured by DocsView) and the two sets of columns stay
+   one. */
 .docs-header {
   flex: none;
   position: relative;
   z-index: 3;
   display: grid;
-  grid-template-columns: minmax(210px, 240px) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(210px, 240px) minmax(0, 1fr) minmax(170px, 210px);
   grid-template-areas: "title search actions";
   column-gap: 32px;
   align-items: center;
-  padding: 14px var(--docs-inline) 12px;
+  padding: 14px calc(var(--docs-inline) + var(--docs-scrollbar, 0px)) 12px var(--docs-inline);
   background: color-mix(in srgb, var(--bg) 82%, transparent);
   border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
 }
@@ -12291,6 +12296,12 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 .docs-pager-link:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+/* The fold the outline turns into on a narrow stacked shell; the desktop
+   and a wide tablet show the outline itself. */
+.docs-outline-toggle {
+  display: none;
 }
 
 /* On this page: a thin rule on the left, the section being read on it. */
@@ -12711,6 +12722,10 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   .docs-layout {
     grid-template-columns: minmax(210px, 240px) minmax(0, 1fr);
   }
+  /* No outline under the actions any more: they take their own width. */
+  .docs-header {
+    grid-template-columns: minmax(210px, 240px) minmax(0, 1fr) auto;
+  }
   .docs-outline {
     display: none;
   }
@@ -12733,16 +12748,18 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
     --docs-top: 14px;
     --docs-bottom: 28px;
   }
-  /* Two rows: the title with the actions, then the search under them. The
-     search keeps the text's measure (.docs-header-search, 780px) instead of
-     running on past the page into the empty sheet beside it. */
+  /* Two rows: the title with the actions, then the search under them, across
+     the sheet like the page below it. */
   .docs-header {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
       "title actions"
       "search search";
     row-gap: 10px;
-    padding: 12px var(--docs-inline) 10px;
+    padding: 12px calc(var(--docs-inline) + var(--docs-scrollbar, 0px)) 10px var(--docs-inline);
+  }
+  .docs-header-search {
+    max-width: none;
   }
   .docs-search-kbd {
     display: none;
@@ -12750,11 +12767,40 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   .docs-subtitle {
     display: none;
   }
-  /* One column as wide as the text, so the Contents button, the page and
-     the search over them share one left edge and one right edge. */
+  /* The page has the sheet to itself: one column across it, the Contents
+     button, then On this page folded the same way, then the page. The search
+     above stretches with it, so nothing leaves an empty strip beside it. */
   .docs-layout {
-    grid-template-columns: minmax(0, 780px);
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "toc"
+      "outline"
+      "page";
     gap: 12px;
+  }
+  .docs-sidebar {
+    grid-area: toc;
+  }
+  .docs-article {
+    grid-area: page;
+    max-width: none;
+  }
+  .docs-outline {
+    display: block;
+    grid-area: outline;
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+  .docs-outline-title {
+    display: none;
+  }
+  .docs-outline ul {
+    display: none;
+    margin-top: 10px;
+  }
+  .docs-outline.is-open ul {
+    display: flex;
   }
   .docs-sidebar {
     position: static;
@@ -12763,7 +12809,8 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
     padding: 0;
     margin: 0;
   }
-  .docs-toc-toggle {
+  .docs-toc-toggle,
+  .docs-outline-toggle {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -12796,6 +12843,36 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   }
   .docs-pager-next {
     grid-column: 1;
+  }
+}
+
+/* A tablet wide enough for both puts On this page beside the page, where the
+   desktop has it and where the sheet would otherwise be empty. The page takes
+   the rest of the width; the outline keeps the desktop's column, at least what
+   the header's actions need in Russian (about 182px). The contents stay folded
+   above the page, and the search keeps the full width of the header. */
+@media (min-width: 900px) and (max-width: 1199px) {
+  .docs-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(190px, 210px);
+    grid-template-areas:
+      "toc outline"
+      "page outline";
+    column-gap: 32px;
+  }
+  .docs-outline {
+    position: sticky;
+    max-height: calc(100cqh - 2 * var(--docs-top));
+    overflow: auto;
+  }
+  .docs-outline-toggle {
+    display: none;
+  }
+  .docs-outline-title {
+    display: block;
+  }
+  .docs-outline ul {
+    display: flex;
+    margin-top: 0;
   }
 }
 

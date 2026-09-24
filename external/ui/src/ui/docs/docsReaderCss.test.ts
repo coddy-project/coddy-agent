@@ -102,30 +102,28 @@ function mediaRule(query: string, selector: string): string {
   }
 }
 
-// On the stacked shell the header folds into two rows. The search in the
-// second one is still the text's own control: as wide as the text column,
-// never stretched past it over the empty space beside the page.
-test("on the stacked shell the search stays as wide as the text column", () => {
-  const article = px(rule(".docs-article"), "max-width");
-  expect(px(rule(".docs-header-search"), "max-width")).toBe(article);
+// On a tablet the reader has the sheet to itself: the search, the Contents
+// button and the page stretch across it, so nothing leaves an empty strip
+// beside the text or the search.
+test("on the stacked shell the search and the page stretch across the sheet", () => {
+  expect(px(rule(".docs-header-search"), "max-width")).toBe(px(rule(".docs-article"), "max-width"));
   expect(mediaRule("max-width: 1199px", ".docs-header")).toMatch(/"search search"/);
-  const stacked = (() => {
-    try {
-      return mediaRule("max-width: 1199px", ".docs-header-search");
-    } catch {
-      return "";
-    }
-  })();
-  expect(stacked).not.toMatch(/max-width:\s*none/);
+  expect(mediaRule("max-width: 1199px", ".docs-header-search")).toMatch(/max-width:\s*none/);
+  expect(mediaRule("max-width: 1199px", ".docs-article")).toMatch(/max-width:\s*none/);
+  const layout = mediaRule("max-width: 1199px", ".docs-layout");
+  expect(layout).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)\s*;/);
 });
 
-// The contents button and the page under the search keep the same measure,
-// so the three line up on one left edge and one right edge.
-test("the stacked page is one column as wide as the text", () => {
-  const article = px(rule(".docs-article"), "max-width");
-  expect(mediaRule("max-width: 1199px", ".docs-layout")).toMatch(
-    new RegExp(`grid-template-columns:\\s*minmax\\(0,\\s*${article}px\\)`),
-  );
+// Where the outline has no room beside the page it folds into a button above
+// it, under the Contents button, the way the contents do.
+test("a narrow stacked shell folds On this page into a button above the page", () => {
+  const layout = mediaRule("max-width: 1199px", ".docs-layout");
+  expect(layout).toMatch(/"toc"\s*"outline"\s*"page"/);
+  expect(rule(".docs-outline-toggle")).toMatch(/display:\s*none/);
+  expect(mediaRule("max-width: 1199px", ".docs-outline-toggle")).toMatch(/display:\s*flex/);
+  expect(mediaRule("max-width: 1199px", ".docs-outline")).toMatch(/position:\s*static/);
+  expect(mediaRule("max-width: 1199px", ".docs-outline ul")).toMatch(/display:\s*none/);
+  expect(mediaRule("max-width: 1199px", ".docs-outline.is-open ul")).toMatch(/display:\s*flex/);
 });
 
 // The pages of a group sit to the right of the group's title, so the title
@@ -141,4 +139,38 @@ test("the pages of the contents are indented under their group title", () => {
   expect(pagePad).not.toBeNull();
   // Where the page's text starts, against where the title's text starts.
   expect(indent + Number(pagePad![1])).toBeGreaterThanOrEqual(Number(title![1]) + 10);
+});
+
+// The header is laid on the columns of the page. With columns of its own (the
+// actions as wide as their content), the search ran past the text into the
+// On this page column beside it.
+test("on the desktop the header uses the page's own columns", () => {
+  const columns = (block: string) =>
+    /grid-template-columns:\s*([^;]+);/.exec(block)?.[1]?.replace(/\s+/g, " ").trim();
+  expect(columns(rule(".docs-header"))).toBe(columns(rule(".docs-layout")));
+});
+
+// The body scrolls and the header does not: a classic scrollbar takes its
+// width from the body's columns alone. The header makes room for the same
+// width, measured by DocsView, so the two sets of columns stay one.
+test("the header leaves room for the body's scrollbar", () => {
+  expect(rule(".docs-header")).toMatch(
+    /padding:[^;]*calc\(var\(--docs-inline\) \+ var\(--docs-scrollbar, 0px\)\)/,
+  );
+  expect(mediaRule("max-width: 1199px", ".docs-header")).toMatch(
+    /padding:[^;]*calc\(var\(--docs-inline\) \+ var\(--docs-scrollbar, 0px\)\)/,
+  );
+});
+
+// A tablet wide enough for both puts On this page beside the page, where the
+// desktop has it: the page takes the rest of the width, the outline keeps its
+// column, and the contents stay folded above the page.
+test("a wide tablet shows On this page beside the page", () => {
+  const q = "min-width: 900px) and (max-width: 1199px";
+  const layout = mediaRule(q, ".docs-layout");
+  expect(layout).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(190px,\s*210px\)/);
+  expect(layout).toMatch(/"toc outline"\s*"page outline"/);
+  expect(mediaRule(q, ".docs-outline")).toMatch(/position:\s*sticky/);
+  expect(mediaRule(q, ".docs-outline-toggle")).toMatch(/display:\s*none/);
+  expect(mediaRule(q, ".docs-outline ul")).toMatch(/display:\s*flex/);
 });

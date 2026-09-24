@@ -133,6 +133,52 @@ describe("DocsView", () => {
     expect(outline?.textContent).not.toContain("Mentions");
   });
 
+  it("hands the header the width of the body's scrollbar", async () => {
+    const callbacks: Array<() => void> = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        private readonly fire: () => void;
+        constructor(cb: ResizeObserverCallback) {
+          this.fire = () => cb([], this as unknown as ResizeObserver);
+        }
+        observe() {
+          callbacks.push(this.fire);
+        }
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    render(<DocsView slug="features/mentions" anchor={null} onOpen={() => {}} />);
+    await screen.findByText("Intro text.");
+    const view = screen.getByTestId("docs-view");
+    const body = view.querySelector(".docs-body") as HTMLElement;
+    expect(view.style.getPropertyValue("--docs-scrollbar")).toBe("0px");
+    // A classic scrollbar appears once the page is taller than the body.
+    Object.defineProperty(body, "offsetWidth", { value: 1066, configurable: true });
+    Object.defineProperty(body, "clientWidth", { value: 1056, configurable: true });
+    callbacks.forEach((fire) => fire());
+    await waitFor(() => expect(view.style.getPropertyValue("--docs-scrollbar")).toBe("10px"));
+  });
+
+  it("folds On this page into a button that a section link closes", async () => {
+    const onOpen = vi.fn();
+    render(<DocsView slug="features/mentions" anchor={null} onOpen={onOpen} />);
+    await screen.findByText("Intro text.");
+    const outline = document.querySelector(".docs-outline") as HTMLElement;
+    const toggle = screen.getByTestId("docs-outline-toggle");
+    expect(toggle.textContent).toContain("On this page");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(outline.className).not.toContain("is-open");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(outline.className).toContain("is-open");
+    // Going to a section is what the fold was opened for: it closes behind it.
+    fireEvent.click(screen.getByText("Completion", { selector: ".docs-outline a" }));
+    expect(onOpen).toHaveBeenCalledWith("features/mentions", "completion");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  });
+
   it("searches as the query is typed and opens a hit at its section", async () => {
     const onOpen = vi.fn();
     render(<DocsView slug="features/mentions" anchor={null} onOpen={onOpen} />);

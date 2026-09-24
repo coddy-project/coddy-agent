@@ -64,12 +64,16 @@ export function DocsView(props: {
   // The results hang under the search box while it is in use.
   const [resultsOpen, setResultsOpen] = useState(false);
   const [tocOpen, setTocOpen] = useState(false);
+  // On a narrow stacked shell On this page is a fold above the page too.
+  const [outlineOpen, setOutlineOpen] = useState(false);
   const [selection, setSelection] = useState("");
   // The image opened over the page, if any.
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
   // The section being read, followed as the page scrolls ("On this page").
   const [reading, setReading] = useState<string | null>(null);
   const articleRef = useRef<HTMLElement | null>(null);
+  const viewRef = useRef<HTMLElement | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const searchBoxRef = useRef<HTMLDivElement | null>(null);
 
@@ -126,6 +130,7 @@ export function DocsView(props: {
       })
       .catch(() => {});
     setTocOpen(false);
+    setOutlineOpen(false);
     return () => ac.abort();
   }, [slug]);
 
@@ -145,6 +150,31 @@ export function DocsView(props: {
       root.closest(".docs-body")?.scrollTo?.({ top: 0 });
     }
   }, [page, slug, anchor, t]);
+
+  // The header is laid on the columns of the page, but only the body scrolls:
+  // a classic scrollbar narrows the body's columns and not the header's. The
+  // header leaves the same width free on its right (--docs-scrollbar in
+  // styles.css), so the search ends where the text does. The scrollbar comes
+  // and goes with the page's height, which the layout's width follows.
+  useLayoutEffect(() => {
+    const view = viewRef.current;
+    const body = bodyRef.current;
+    if (!view || !body) return undefined;
+    const apply = () => {
+      const style = getComputedStyle(body);
+      const borders =
+        (parseFloat(style.borderLeftWidth) || 0) + (parseFloat(style.borderRightWidth) || 0);
+      const gutter = Math.max(0, body.offsetWidth - body.clientWidth - borders);
+      view.style.setProperty("--docs-scrollbar", `${gutter}px`);
+    };
+    apply();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(apply);
+    ro.observe(body);
+    const layout = body.querySelector(".docs-layout");
+    if (layout) ro.observe(layout);
+    return () => ro.disconnect();
+  }, []);
 
   // The selected hit stays in view as Up and Down move it.
   useEffect(() => {
@@ -298,7 +328,12 @@ export function DocsView(props: {
   const outline = shown ? outlineHeadings(shown.headings) : [];
 
   return (
-    <section className="docs-view" data-testid="docs-view" aria-label={t("docs.title")}>
+    <section
+      ref={viewRef}
+      className="docs-view"
+      data-testid="docs-view"
+      aria-label={t("docs.title")}
+    >
       <header className="docs-header">
         <div className="docs-title-block">
           <h1 className="docs-title">{t("docs.title")}</h1>
@@ -419,7 +454,7 @@ export function DocsView(props: {
         </div>
       </header>
 
-      <div className="docs-body">
+      <div className="docs-body" ref={bodyRef}>
         {error ? (
           <p className="docs-error" data-testid="docs-error">
             {t("docs.error", { message: error })}
@@ -529,7 +564,20 @@ export function DocsView(props: {
           </article>
 
           {outline.length > 0 ? (
-            <aside className="docs-outline" aria-label={t("docs.outline.label")}>
+            <aside
+              className={`docs-outline${outlineOpen ? " is-open" : ""}`}
+              aria-label={t("docs.outline.label")}
+            >
+              <button
+                type="button"
+                className="docs-outline-toggle"
+                data-testid="docs-outline-toggle"
+                aria-expanded={outlineOpen}
+                onClick={() => setOutlineOpen((v) => !v)}
+              >
+                <span>{t("docs.outline.label")}</span>
+                <Chevron pointing="down" open={outlineOpen} />
+              </button>
               <div className="docs-outline-title">{t("docs.outline.label")}</div>
               <ul>
                 {outline.map((h) => (
@@ -539,7 +587,10 @@ export function DocsView(props: {
                       className={h.anchor === activeSection ? "is-active" : undefined}
                       aria-current={h.anchor === activeSection ? "location" : undefined}
                       onClick={(ev) =>
-                        sameTabInAppNavClick(ev, () => onOpen(shown!.slug, h.anchor))
+                        sameTabInAppNavClick(ev, () => {
+                          setOutlineOpen(false);
+                          onOpen(shown!.slug, h.anchor);
+                        })
                       }
                     >
                       {h.text}

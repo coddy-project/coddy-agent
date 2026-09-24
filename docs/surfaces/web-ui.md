@@ -1210,10 +1210,12 @@ Guide: `docs/features/built-in-docs.md`. Visual contract: `DESIGN.md` (**Documen
   (**`assignHeadingIds`** in **`ui/docs/docsReader.ts`**), then the reader scrolls to
   the section the address names. **On this page** follows the section being read as
   the page scrolls; below 1280 px it is left out, below 1200 px the contents fold
-  into a **Contents** button above the page. There the search, the **Contents**
-  button and the page keep the width of the text (at most 780 px) on a tablet
-  window too, instead of the search running on past the page, and in the contents
-  the pages of a group sit to the right of the group's title.
+  into a **Contents** button above the page. There the search and the page
+  stretch across the sheet, and **On this page** stays: from 900 px it stands
+  to the right of the page as on the desktop, below that it folds into a second
+  button under **Contents** that a section link closes again. On the desktop the
+  search ends where the text does, a classic scrollbar of the page included. In
+  the contents the pages of a group sit to the right of the group's title.
 - The header sits on the columns of the page: the title over the contents, the
   search box over the text, **Ask the agent** and the close control over the
   outline. The header does not scroll: the page scrolls in the body under it
