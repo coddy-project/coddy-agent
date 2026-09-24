@@ -563,6 +563,135 @@ test("a transcript still following the newest output shows no button", async () 
   await waitFor(() => expect(scrollButtonShown()).toBe(false));
 });
 
+/**
+ * The block over the transcript (the usage banner, the composer) is measured by
+ * a ResizeObserver: a stand-in the test can fire, and a height it can set.
+ */
+function composerBlock(container: HTMLElement) {
+  const host = container.querySelector(".chat-bottom-inner") as HTMLElement;
+  expect(host).toBeTruthy();
+  return {
+    grow(height: number) {
+      host.getBoundingClientRect = () =>
+        ({ height, width: 0, top: 0, left: 0, right: 0, bottom: height, x: 0, y: 0 }) as DOMRect;
+      act(() => resizeCallbacks.forEach((cb) => cb()));
+    },
+  };
+}
+
+const resizeCallbacks: Array<() => void> = [];
+class ResizeObserverStandIn {
+  private readonly fire: () => void;
+  constructor(cb: ResizeObserverCallback) {
+    this.fire = () => cb([], this as unknown as ResizeObserver);
+  }
+  observe() {
+    resizeCallbacks.push(this.fire);
+  }
+  unobserve() {}
+  disconnect() {
+    const at = resizeCallbacks.indexOf(this.fire);
+    if (at >= 0) resizeCallbacks.splice(at, 1);
+  }
+}
+
+// The usage read answers after the transcript is on screen, so the banner rises
+// over a transcript already parked at its newest message. The reserve under the
+// transcript grows with it; a transcript that stays where it was then has its
+// last lines under the banner, which is opaque.
+test("a banner rising over the composer keeps a transcript at the newest message there", () => {
+  vi.stubGlobal("ResizeObserver", ResizeObserverStandIn);
+  try {
+    const { container } = render(<ChatScreen {...scrollBase} items={firstTurn} />);
+    const viewport = transcriptViewport(container, {
+      scrollHeight: 1200,
+      clientHeight: 400,
+    });
+    viewport.scrollTop = 800;
+    fireEvent.scroll(viewport);
+
+    Object.defineProperty(viewport, "scrollHeight", { value: 1260, configurable: true });
+    composerBlock(container).grow(250);
+
+    expect(viewport.scrollTop).toBe(860);
+  } finally {
+    resizeCallbacks.length = 0;
+    vi.unstubAllGlobals();
+  }
+});
+
+test("a banner rising over the composer leaves a reader who scrolled up where they are", () => {
+  vi.stubGlobal("ResizeObserver", ResizeObserverStandIn);
+  try {
+    const { container } = render(<ChatScreen {...scrollBase} items={firstTurn} />);
+    const viewport = transcriptViewport(container, {
+      scrollHeight: 1200,
+      clientHeight: 400,
+    });
+    viewport.scrollTop = 200;
+    fireEvent.scroll(viewport);
+
+    Object.defineProperty(viewport, "scrollHeight", { value: 1260, configurable: true });
+    composerBlock(container).grow(250);
+
+    expect(viewport.scrollTop).toBe(200);
+  } finally {
+    resizeCallbacks.length = 0;
+    vi.unstubAllGlobals();
+  }
+});
+
+// The button takes the reader to the newest message, which is below them. A
+// measurement that puts "the bottom" above where the page already is (an
+// on-screen keyboard that lets the page scroll past the old end) must not send
+// them back up the transcript.
+test("the scroll-to-bottom button never moves the transcript up", async () => {
+  const { container } = render(<ChatScreen {...scrollBase} items={firstTurn} />);
+  const viewport = transcriptViewport(container, { scrollHeight: 1200, clientHeight: 400 });
+  viewport.scrollTop = 200;
+  fireEvent.scroll(viewport);
+  await waitFor(() => expect(scrollButtonShown()).toBe(true));
+
+  // The page went on past the end the transcript measures (800).
+  viewport.scrollTop = 900;
+  fireEvent.click(screen.getByTestId("chat-scroll-bottom"));
+  expect(viewport.scrollTop).toBe(900);
+  await waitFor(() => expect(scrollButtonShown()).toBe(false));
+});
+
+// iOS Safari keeps innerHeight when its keyboard opens and shrinks only the
+// visual viewport, so the composer block, fixed to the layout viewport's
+// bottom, rode under the keyboard with the scroll-to-bottom button on it. The
+// stacked shell lifts it by what the keyboard covers.
+test("on the stacked shell the composer block rises above an overlaying keyboard", () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query.includes("max-width: 1199px"),
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }));
+  const vv = Object.assign(new EventTarget(), { height: window.innerHeight, offsetTop: 0, scale: 1 });
+  Object.defineProperty(window, "visualViewport", { value: vv, configurable: true });
+  const root = document.documentElement;
+  try {
+    const { unmount } = render(<ChatScreen {...scrollBase} items={firstTurn} />);
+    expect(root.style.getPropertyValue("--coddy-keyboard-inset")).toBe("0px");
+    vv.height = window.innerHeight - 320;
+    act(() => {
+      vv.dispatchEvent(new Event("resize"));
+    });
+    expect(root.style.getPropertyValue("--coddy-keyboard-inset")).toBe("320px");
+    unmount();
+    expect(root.style.getPropertyValue("--coddy-keyboard-inset")).toBe("");
+  } finally {
+    Object.defineProperty(window, "visualViewport", { value: undefined, configurable: true });
+    vi.unstubAllGlobals();
+  }
+});
+
 test("the empty hero has no scroll-to-bottom button", () => {
   render(<ChatScreen {...scrollBase} sessionId="" title="" items={[]} />);
   expect(screen.queryByTestId("chat-scroll-bottom")).toBeNull();

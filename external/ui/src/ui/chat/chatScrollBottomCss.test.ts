@@ -66,3 +66,15 @@ test("both transitions are dropped for readers who asked for less motion", () =>
   ).not.toBeNull();
   expect(block![0]).toMatch(/transition:\s*none/);
 });
+
+// The docked composer block is fixed to the layout viewport's bottom on the
+// stacked shell; an overlaying on-screen keyboard covers that bottom, so the
+// block is lifted by the inset ChatScreen measures from the visual viewport.
+test("the stacked shell's composer block sits on the keyboard inset", () => {
+  const stacked = css.indexOf("@media (max-width: 1199px)", css.indexOf(".chat-scroll-sticky-head"));
+  const at = css.indexOf(".chat-bottom:has(.composer-wrap-docked) {", stacked);
+  expect(at, "the stacked composer block rule").toBeGreaterThan(-1);
+  const body = css.slice(css.indexOf("{", at) + 1, css.indexOf("}", at));
+  expect(body).toMatch(/position:\s*fixed/);
+  expect(body).toMatch(/bottom:\s*var\(--coddy-keyboard-inset,\s*0px\)/);
+});

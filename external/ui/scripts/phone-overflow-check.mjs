@@ -110,6 +110,9 @@ async function probe(page) {
       const dur = row.querySelector(".thinking-dur")?.getBoundingClientRect();
       const target = row.querySelector(".tool-summary-target");
       const tb = target?.getBoundingClientRect();
+      // A read of part of a file: the path takes the ellipsis, the range is whole.
+      const range = row.querySelector(".tool-summary-target-range");
+      const rb = range?.getBoundingClientRect();
       return {
         id,
         durInside: !dur || (dur.right <= head.right + 0.5 && dur.left >= head.left - 0.5),
@@ -118,6 +121,12 @@ async function probe(page) {
         // A target is readable or on the next line, never a sliver.
         targetWidth: tb ? Math.round(tb.width) : null,
         targetNeeds: target ? Math.min(target.scrollWidth, 24) : 0,
+        hasRange: !!range,
+        rangeWhole:
+          !!range &&
+          rb.right <= tb.right + 0.5 &&
+          rb.width >= range.scrollWidth - 0.5 &&
+          rb.width > 0,
         // The rows whose label is short keep one line at every width.
         oneLine: !trail || Math.abs(trail.getBoundingClientRect().top - label.top) < 4,
         shortLabel: shortLabelRows.includes(id),
@@ -181,6 +190,9 @@ try {
         }
         if (row.shortLabel) {
           check(`${at} ${row.id} stays on one line`, row.oneLine);
+        }
+        if (row.hasRange) {
+          check(`${at} ${row.id} shows its whole line range`, row.rangeWhole);
         }
       }
       await page.close();

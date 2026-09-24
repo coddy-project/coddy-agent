@@ -13,7 +13,7 @@ function toolId(rawName: string): string {
  * directory when the arguments say so: a trailing separator, or one of the options only
  * a listing accepts. Anything else stays the file wording rather than guessing.
  */
-function readsADirectory(argsText: string | undefined): boolean {
+export function readsADirectory(argsText: string | undefined): boolean {
   if (!argsText?.trim()) return false;
   try {
     const value = JSON.parse(argsText) as unknown;

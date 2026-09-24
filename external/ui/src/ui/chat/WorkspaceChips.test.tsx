@@ -144,7 +144,7 @@ describe("WorkspaceChips", () => {
       "отсоединённая",
     );
     expect(screen.getByTestId("composer-worktree-chip")).toHaveTextContent(
-      "рабочее дерево",
+      "worktree",
     );
     fireEvent.click(screen.getByTestId("composer-workspace-chip"));
     expect(screen.getByTestId("workspace-folder-menu")).toHaveTextContent(

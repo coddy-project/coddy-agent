@@ -49,6 +49,18 @@ func TestWebUIPhoneFeature(t *testing.T) {
 			sc.Step(`^the composer text is large enough that iOS Safari does not zoom into it$`, func() error {
 				return runVitestScenario(layout, "text fields do not make iOS Safari zoom the composer and its highlight mirror are 16px together")
 			})
+			sc.Step(`^on a touch-only device opening the start screen or a chat leaves the composer unfocused$`, func() error {
+				return runVitestScenario(composer, "a touch-only device keeps the keyboard closed on the start screen and in a chat")
+			})
+			sc.Step(`^a narrow desktop window still focuses the composer$`, func() error {
+				return runVitestScenario(composer, "a narrow desktop window still focuses the field: it has a keyboard")
+			})
+			sc.Step(`^the composer block and its scroll-to-bottom button rise above an overlaying keyboard$`, func() error {
+				return runVitestScenario("src/ui/chat/ChatScreen.test.tsx", "on the stacked shell the composer block rises above an overlaying keyboard")
+			})
+			sc.Step(`^the scroll-to-bottom button never moves the chat up$`, func() error {
+				return runVitestScenario("src/ui/chat/ChatScreen.test.tsx", "the scroll-to-bottom button never moves the transcript up")
+			})
 			sc.Step(`^the brand gives way and the top bar icons never slide over it$`, func() error {
 				return runVitestScenario(layout, "phone top bar the brand is what gives way: it may shrink and clips, the icons never slide over it")
 			})

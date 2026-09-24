@@ -122,6 +122,19 @@ function Fixture() {
           onFetchToolCallFull={async () => {}}
         />
         <ToolCallMessage
+          toolCallId="tc-read-range"
+          title="read"
+          status="completed"
+          argsText={JSON.stringify({
+            path: `internal/${"very_long_directory_name_".repeat(4)}/tools/fs/read.go`,
+            offset: 1200,
+            limit: 81,
+          })}
+          resultText="package fs"
+          durationMs={3}
+          onFetchToolCallFull={async () => {}}
+        />
+        <ToolCallMessage
           toolCallId="tc-mcp-mid"
           title="github__create_issue"
           status="failed"
