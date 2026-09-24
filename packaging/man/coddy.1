@@ -100,7 +100,7 @@ once a worker has stayed up. The dispatcher records itself in
 and writes to
 .IR ~/.coddy/logs/serve.log .
 .TP
-.B "serve setup"
+.B "serve install"
 Linux with systemd: run
 .B coddy serve
 as the systemd user service
@@ -133,7 +133,7 @@ The service stops at logout unless an administrator runs
 Stop and disable
 .I coddy.service
 and remove the unit
-.B serve setup
+.B serve install
 wrote. The packaged unit stays installed and disabled, a unit the user wrote by
 hand is disabled and kept, and
 .I ~/.coddy
@@ -460,12 +460,12 @@ Installed skills.
 .TP
 .I /usr/lib/systemd/user/coddy.service
 The systemd user unit the Linux packages install and do not enable;
-.B coddy serve setup
+.B coddy serve install
 enables it for one account.
 .TP
 .I ~/.config/systemd/user/coddy.service
 The unit
-.B coddy serve setup
+.B coddy serve install
 writes for a binary that came without one;
 .B coddy serve uninstall
 removes it.
@@ -519,7 +519,7 @@ Keep
 running for this account on Linux, across logins and crashes, and read its log:
 .PP
 .RS 4
-.B coddy serve setup
+.B coddy serve install
 .br
 .B journalctl \-\-user \-u coddy.service \-f
 .RE

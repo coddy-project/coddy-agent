@@ -12,12 +12,12 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/serve"
 )
 
-// runServeSetup implements `coddy serve setup`: the systemd user service of
+// runServeInstall implements `coddy serve install`: the systemd user service of
 // this account, written for a binary that came without a unit (the install
 // script, a release archive, a local build) or taken from the package, then
 // enabled and started.
-func runServeSetup(args []string) error {
-	if done, err := parseServiceVerb("setup", "check ~/.coddy/config.yaml, install the systemd user unit for this binary when the package did not, enable coddy.service and start it working in ~/Coddy", args); done || err != nil {
+func runServeInstall(args []string) error {
+	if done, err := parseServiceVerb("install", "check ~/.coddy/config.yaml, install the systemd user unit for this binary when the package did not, enable coddy.service and start it working in ~/Coddy", args); done || err != nil {
 		return err
 	}
 	svc, err := serve.NewUserService(os.Stdout)
@@ -26,14 +26,14 @@ func runServeSetup(args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return svc.Setup(ctx)
+	return svc.Install(ctx)
 }
 
 // runServeUninstall implements `coddy serve uninstall`: the service stopped and
-// disabled, and the unit setup wrote removed. Configuration, sessions and the
+// disabled, and the unit install wrote removed. Configuration, sessions and the
 // workspace stay where they are.
 func runServeUninstall(args []string) error {
-	if done, err := parseServiceVerb("uninstall", "stop and disable coddy.service and remove the unit setup wrote; ~/.coddy and ~/Coddy are kept", args); done || err != nil {
+	if done, err := parseServiceVerb("uninstall", "stop and disable coddy.service and remove the unit that install wrote; ~/.coddy and ~/Coddy are kept", args); done || err != nil {
 		return err
 	}
 	svc, err := serve.NewUserService(os.Stdout)

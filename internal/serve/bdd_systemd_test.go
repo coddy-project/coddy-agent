@@ -1,6 +1,6 @@
 package serve
 
-// Godog harness for features/serve_systemd_service.feature: `coddy serve setup`
+// Godog harness for features/serve_systemd_service.feature: `coddy serve install`
 // and `coddy serve uninstall` over a temporary home, with the package's files
 // laid out under a temporary root and a systemctl stand-in that records what it
 // was asked and remembers what that did.
@@ -22,7 +22,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
-// shellPath is the PATH of the shell a scenario runs setup from.
+// shellPath is the PATH of the shell a scenario runs install from.
 var shellPath = strings.Join([]string{
 	filepath.FromSlash("/home/user/go/bin"),
 	filepath.FromSlash("/home/user/.local/bin"),
@@ -94,7 +94,7 @@ func (s *systemdFeatureState) cleanup() {
 	}
 }
 
-// systemctl answers the way a user manager does for the verbs setup and
+// systemctl answers the way a user manager does for the verbs install and
 // uninstall use, and keeps the state those verbs change.
 func (s *systemdFeatureState) systemctl(_ context.Context, args ...string) ([]byte, error) {
 	s.calls = append(s.calls, args)
@@ -184,14 +184,14 @@ agent:
 `), 0o644)
 }
 
-func (s *systemdFeatureState) runSetup() error {
-	s.err = s.svc.Setup(context.Background())
+func (s *systemdFeatureState) runInstall() error {
+	s.err = s.svc.Install(context.Background())
 	return nil
 }
 
-func (s *systemdFeatureState) ranSetup() error {
-	if err := s.svc.Setup(context.Background()); err != nil {
-		return fmt.Errorf("setup failed: %w\n%s", err, s.out.String())
+func (s *systemdFeatureState) ranInstall() error {
+	if err := s.svc.Install(context.Background()); err != nil {
+		return fmt.Errorf("install failed: %w\n%s", err, s.out.String())
 	}
 	s.calls = nil
 	s.out.Reset()
@@ -213,7 +213,7 @@ func (s *systemdFeatureState) readUnit(path string) (string, error) {
 
 func (s *systemdFeatureState) unitRuns(path, command string) error {
 	if s.err != nil {
-		return fmt.Errorf("setup failed: %w\n%s", s.err, s.out.String())
+		return fmt.Errorf("install failed: %w\n%s", s.err, s.out.String())
 	}
 	unit, err := s.readUnit(path)
 	if err != nil {
@@ -268,7 +268,7 @@ func (s *systemdFeatureState) calledInOrder(want ...[]string) error {
 
 func (s *systemdFeatureState) servicePath() error {
 	if s.err != nil {
-		return fmt.Errorf("setup failed: %w\n%s", s.err, s.out.String())
+		return fmt.Errorf("install failed: %w\n%s", s.err, s.out.String())
 	}
 	body, err := os.ReadFile(s.svc.dropIn())
 	if err != nil {
@@ -289,7 +289,7 @@ func (s *systemdFeatureState) pathGone() error {
 
 func (s *systemdFeatureState) reloadedEnabledRestarted() error {
 	if s.err != nil {
-		return fmt.Errorf("setup failed: %w\n%s", s.err, s.out.String())
+		return fmt.Errorf("install failed: %w\n%s", s.err, s.out.String())
 	}
 	return s.calledInOrder(
 		[]string{"--user", "daemon-reload"},
@@ -300,12 +300,12 @@ func (s *systemdFeatureState) reloadedEnabledRestarted() error {
 
 func (s *systemdFeatureState) reportsRunning() error {
 	if s.err != nil {
-		return fmt.Errorf("setup failed: %w\n%s", s.err, s.out.String())
+		return fmt.Errorf("install failed: %w\n%s", s.err, s.out.String())
 	}
 	out := s.out.String()
 	for _, want := range []string{"coddy.service is enabled and running", "journalctl --user -u coddy.service"} {
 		if !strings.Contains(out, want) {
-			return fmt.Errorf("setup output has no %q:\n%s", want, out)
+			return fmt.Errorf("install output has no %q:\n%s", want, out)
 		}
 	}
 	return nil
@@ -357,7 +357,7 @@ func (s *systemdFeatureState) packagedUnitKept() error {
 	return nil
 }
 
-// startedByUnit applies the Environment= lines of the unit setup writes to
+// startedByUnit applies the Environment= lines of the unit install writes to
 // this process, which is what systemd does before it runs ExecStart.
 func (s *systemdFeatureState) startedByUnit() error {
 	s.unit = UnitFile(UnitHeaderWritten, "/home/user/.local/bin/coddy", "/bin/mkdir")
@@ -409,22 +409,22 @@ func initializeSystemdScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a Linux account whose coddy runs from "([^"]*)"$`, s.scriptInstall)
 	sc.Step(`^a Linux account whose coddy is the packaged binary with its unit$`, s.packageInstall)
 	sc.Step(`^the account has a valid configuration$`, s.validConfig)
-	sc.Step(`^the user runs coddy serve setup$`, s.runSetup)
-	sc.Step(`^the user ran coddy serve setup$`, s.ranSetup)
+	sc.Step(`^the user runs coddy serve install$`, s.runInstall)
+	sc.Step(`^the user ran coddy serve install$`, s.ranInstall)
 	sc.Step(`^the user runs coddy serve uninstall$`, s.runUninstall)
 	sc.Step(`^the unit "([^"]*)" runs "([^"]*)"$`, s.unitRuns)
 	sc.Step(`^the unit works in "([^"]*)"$`, s.unitWorksIn)
 	sc.Step(`^the folder "([^"]*)" exists$`, s.folderExists)
-	sc.Step(`^the service gets the PATH of the shell setup ran from$`, s.servicePath)
-	sc.Step(`^the PATH setup handed to the service is gone$`, s.pathGone)
+	sc.Step(`^the service gets the PATH of the shell install ran from$`, s.servicePath)
+	sc.Step(`^the PATH install handed to the service is gone$`, s.pathGone)
 	sc.Step(`^systemd reloaded its units, enabled coddy\.service and restarted it$`, s.reloadedEnabledRestarted)
-	sc.Step(`^setup reports the service running and how to read its log$`, s.reportsRunning)
+	sc.Step(`^install reports the service running and how to read its log$`, s.reportsRunning)
 	sc.Step(`^no unit is written under "([^"]*)"$`, s.noUnitUnder)
 	sc.Step(`^systemd disabled and stopped coddy\.service$`, s.disabledAndStopped)
 	sc.Step(`^the unit "([^"]*)" is gone$`, s.unitGone)
 	sc.Step(`^the configuration and the folder "([^"]*)" are still there$`, s.userFilesKept)
 	sc.Step(`^the packaged unit is still installed$`, s.packagedUnitKept)
-	sc.Step(`^coddy serve was started by the unit setup writes$`, s.startedByUnit)
+	sc.Step(`^coddy serve was started by the unit install writes$`, s.startedByUnit)
 	sc.Step(`^it may end itself for a restart$`, s.mayEndForRestart)
 	sc.Step(`^the unit starts it again on the status it exits with$`, s.unitRestartsOnExitStatus)
 }

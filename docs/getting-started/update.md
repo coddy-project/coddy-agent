@@ -45,7 +45,7 @@ Nothing is created: a file that was never installed (**`--no-shell-setup`**, a b
 
 **`coddy update`** replaces the file on disk. A **`coddy serve`** that is already running keeps the
 binary it started with until it restarts: the systemd user service restarts with
-**`coddy serve setup`** (it also points a unit it wrote at a binary that moved, see
+**`coddy serve install`** (it also points a unit it wrote at a binary that moved, see
 [the service guide](../operate/serve.md#as-a-systemd-user-service-on-linux)), and a daemon with
 **`coddy serve restart`**. A package upgrade prints the same reminder.
 

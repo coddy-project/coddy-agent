@@ -85,7 +85,7 @@ the systemd user unit (**`packaging/systemd/coddy.service`**), the maintainer sc
 **`go run`**, so there is nothing to install first.
 
 The user unit is installed but not enabled, and the post-install message says so; each user who
-wants the service runs **`coddy serve setup`**. No system service, system account or files under
+wants the service runs **`coddy serve install`**. No system service, system account or files under
 **`/etc`** are created, because each user keeps state under **`~/.coddy`**. The unit is not
 written by hand: **`serve.PackagedUnitFile()`** (**`internal/serve/systemd.go`**) renders it, the
 same function that writes the unit for a script install, and **`TestPackagedUnitIsTheRenderedOne`**

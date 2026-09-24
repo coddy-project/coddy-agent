@@ -52,7 +52,7 @@ func newFakeService(t *testing.T) *fakeService {
 }
 
 // changes lists the systemctl calls that change something, leaving out the
-// question setup and uninstall ask the user manager first.
+// question install and uninstall ask the user manager first.
 func (f *fakeService) changes() []string {
 	var out []string
 	for _, c := range f.calls {
@@ -107,7 +107,7 @@ func TestUnitFileQuotesPathsForSystemd(t *testing.T) {
 	}
 }
 
-func TestSetupStopsOnTheFirstSystemctlFailure(t *testing.T) {
+func TestInstallStopsOnTheFirstSystemctlFailure(t *testing.T) {
 	f := newFakeService(t)
 	f.answer = func(args []string) ([]byte, error) {
 		if args[1] == "enable" {
@@ -115,7 +115,7 @@ func TestSetupStopsOnTheFirstSystemctlFailure(t *testing.T) {
 		}
 		return nil, nil
 	}
-	err := f.Setup(context.Background())
+	err := f.Install(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "Unit file coddy.service does not exist") {
 		t.Fatalf("error = %v", err)
 	}
@@ -124,7 +124,7 @@ func TestSetupStopsOnTheFirstSystemctlFailure(t *testing.T) {
 	}
 }
 
-func TestSetupReportsAServiceThatDidNotStayUp(t *testing.T) {
+func TestInstallReportsAServiceThatDidNotStayUp(t *testing.T) {
 	f := newFakeService(t)
 	f.answer = func(args []string) ([]byte, error) {
 		if args[1] == "status" {
@@ -132,9 +132,9 @@ func TestSetupReportsAServiceThatDidNotStayUp(t *testing.T) {
 		}
 		return nil, nil
 	}
-	err := f.Setup(context.Background())
+	err := f.Install(context.Background())
 	if err == nil {
-		t.Fatal("setup succeeded for a service that keeps restarting")
+		t.Fatal("install succeeded for a service that keeps restarting")
 	}
 	for _, want := range []string{"did not stay up", "activating (auto-restart)", "journalctl --user -u coddy.service"} {
 		if !strings.Contains(err.Error(), want) {
@@ -142,11 +142,11 @@ func TestSetupReportsAServiceThatDidNotStayUp(t *testing.T) {
 		}
 	}
 	if strings.Contains(f.out.String(), "is enabled and running") {
-		t.Fatalf("setup claimed success:\n%s", f.out.String())
+		t.Fatalf("install claimed success:\n%s", f.out.String())
 	}
 }
 
-func TestSetupChecksTheConfigurationBeforeTouchingAnything(t *testing.T) {
+func TestInstallChecksTheConfigurationBeforeTouchingAnything(t *testing.T) {
 	f := newFakeService(t)
 	f.CheckConfig = func(w io.Writer, home string) error {
 		if home != filepath.Join(f.Home, ".coddy") {
@@ -154,7 +154,7 @@ func TestSetupChecksTheConfigurationBeforeTouchingAnything(t *testing.T) {
 		}
 		return errors.New("config test failed")
 	}
-	if err := f.Setup(context.Background()); err == nil || !strings.Contains(err.Error(), "config.yaml") {
+	if err := f.Install(context.Background()); err == nil || !strings.Contains(err.Error(), "config.yaml") {
 		t.Fatalf("error = %v", err)
 	}
 	if len(f.calls) != 0 {
@@ -165,10 +165,10 @@ func TestSetupChecksTheConfigurationBeforeTouchingAnything(t *testing.T) {
 	}
 }
 
-func TestSetupRefusesWhileTheDaemonRuns(t *testing.T) {
+func TestInstallRefusesWhileTheDaemonRuns(t *testing.T) {
 	f := newFakeService(t)
 	f.DaemonRunning = func(string) (int, bool) { return 4242, true }
-	err := f.Setup(context.Background())
+	err := f.Install(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "4242") || !strings.Contains(err.Error(), "coddy serve stop") {
 		t.Fatalf("error = %v", err)
 	}
@@ -177,12 +177,12 @@ func TestSetupRefusesWhileTheDaemonRuns(t *testing.T) {
 	}
 }
 
-func TestSetupLeavesAUnitTheUserWroteAlone(t *testing.T) {
+func TestInstallLeavesAUnitTheUserWroteAlone(t *testing.T) {
 	f := newFakeService(t)
 	mine := "[Service]\nExecStart=/opt/coddy serve --port 9000\n"
 	writeTestFile(t, f.userUnit(), mine)
-	err := f.Setup(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "was not written by coddy serve setup") {
+	err := f.Install(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "was not written by coddy serve install") {
 		t.Fatalf("error = %v", err)
 	}
 	if body, _ := os.ReadFile(f.userUnit()); string(body) != mine {
@@ -193,16 +193,16 @@ func TestSetupLeavesAUnitTheUserWroteAlone(t *testing.T) {
 	}
 }
 
-func TestSetupFollowsABinaryThatMoved(t *testing.T) {
+func TestInstallFollowsABinaryThatMoved(t *testing.T) {
 	f := newFakeService(t)
-	if err := f.Setup(context.Background()); err != nil {
+	if err := f.Install(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	moved := filepath.Join(f.Home, "bin", "coddy")
 	writeTestFile(t, moved, "#!/bin/sh\n")
 	f.Exe = moved
 	f.calls = nil
-	if err := f.Setup(context.Background()); err != nil {
+	if err := f.Install(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	body, _ := os.ReadFile(f.userUnit())
@@ -214,18 +214,18 @@ func TestSetupFollowsABinaryThatMoved(t *testing.T) {
 	}
 }
 
-func TestSetupHandsAScriptUnitOverToThePackage(t *testing.T) {
+func TestInstallHandsAScriptUnitOverToThePackage(t *testing.T) {
 	f := newFakeService(t)
-	if err := f.Setup(context.Background()); err != nil {
+	if err := f.Install(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	f.installPackage(t)
 	f.out.Reset()
-	if err := f.Setup(context.Background()); err != nil {
+	if err := f.Install(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(f.userUnit()); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("the unit setup wrote still shadows the packaged one: %v", err)
+		t.Fatalf("the unit install wrote still shadows the packaged one: %v", err)
 	}
 	calls := strings.Join(f.changes(), "|")
 	disable := strings.LastIndex(calls, "--user disable coddy.service")
@@ -234,13 +234,13 @@ func TestSetupHandsAScriptUnitOverToThePackage(t *testing.T) {
 		t.Fatalf("the enable link was not made again for the packaged unit: %q", f.changes())
 	}
 	if !strings.Contains(f.out.String(), f.PackagedUnit) {
-		t.Fatalf("setup does not name the packaged unit:\n%s", f.out.String())
+		t.Fatalf("install does not name the packaged unit:\n%s", f.out.String())
 	}
 }
 
-func TestSetupSuggestsLingerOnlyWhenItIsOff(t *testing.T) {
+func TestInstallSuggestsLingerOnlyWhenItIsOff(t *testing.T) {
 	f := newFakeService(t)
-	if err := f.Setup(context.Background()); err != nil {
+	if err := f.Install(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(f.out.String(), "loginctl enable-linger user") {
@@ -248,7 +248,7 @@ func TestSetupSuggestsLingerOnlyWhenItIsOff(t *testing.T) {
 	}
 	writeTestFile(t, filepath.Join(f.LingerDir, "user"), "")
 	f.out.Reset()
-	if err := f.Setup(context.Background()); err != nil {
+	if err := f.Install(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(f.out.String(), "enable-linger") {
@@ -256,10 +256,10 @@ func TestSetupSuggestsLingerOnlyWhenItIsOff(t *testing.T) {
 	}
 }
 
-func TestSetupSaysTheServiceIgnoresTheShellsCoddyHome(t *testing.T) {
+func TestInstallSaysTheServiceIgnoresTheShellsCoddyHome(t *testing.T) {
 	f := newFakeService(t)
 	f.EnvHome = filepath.Join(f.Home, "work-coddy")
-	if err := f.Setup(context.Background()); err != nil {
+	if err := f.Install(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(f.out.String(), "CODDY_HOME is "+f.EnvHome) {
@@ -267,12 +267,12 @@ func TestSetupSaysTheServiceIgnoresTheShellsCoddyHome(t *testing.T) {
 	}
 }
 
-func TestSetupExplainsAnUnreachableUserManager(t *testing.T) {
+func TestInstallExplainsAnUnreachableUserManager(t *testing.T) {
 	f := newFakeService(t)
 	f.answer = func([]string) ([]byte, error) {
 		return []byte("Failed to connect to bus: No medium found"), errors.New("exit status 1")
 	}
-	err := f.Setup(context.Background())
+	err := f.Install(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "not reachable from this shell") {
 		t.Fatalf("error = %v", err)
 	}
@@ -300,7 +300,7 @@ func TestUninstallWithNothingInstalled(t *testing.T) {
 func TestUninstallStopsAServiceWhoseUnitThePackageTookAway(t *testing.T) {
 	f := newFakeService(t)
 	f.installPackage(t)
-	if err := f.Setup(context.Background()); err != nil {
+	if err := f.Install(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	// apt remove: the unit file and the binary go, the running service and
@@ -318,17 +318,17 @@ func TestUninstallStopsAServiceWhoseUnitThePackageTookAway(t *testing.T) {
 		t.Fatalf("systemctl calls = %q, want %q", f.changes(), want)
 	}
 	if _, err := os.Stat(f.dropIn()); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("the drop-in setup wrote is still there: %v", err)
+		t.Fatalf("the drop-in install wrote is still there: %v", err)
 	}
 	if !strings.Contains(f.out.String(), "unit file was already gone") {
 		t.Fatalf("output:\n%s", f.out.String())
 	}
 }
 
-func TestSetupReportsWhereThePathComesFrom(t *testing.T) {
+func TestInstallReportsWhereThePathComesFrom(t *testing.T) {
 	f := newFakeService(t)
 	f.ShellPath = "relative/bin"
-	if err := f.Setup(context.Background()); err != nil {
+	if err := f.Install(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(f.out.String(), "PATH       from the user manager's default") {
@@ -362,14 +362,14 @@ func TestUninstallDisablesButKeepsAUnitTheUserWrote(t *testing.T) {
 	if body, _ := os.ReadFile(f.userUnit()); string(body) != mine {
 		t.Fatalf("the user's unit was changed or removed")
 	}
-	if !strings.Contains(f.out.String(), "not written by coddy serve setup") {
+	if !strings.Contains(f.out.String(), "not written by coddy serve install") {
 		t.Fatalf("output:\n%s", f.out.String())
 	}
 }
 
 func TestUninstallKeepsTheUnitWhenSystemctlFails(t *testing.T) {
 	f := newFakeService(t)
-	if err := f.Setup(context.Background()); err != nil {
+	if err := f.Install(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	f.answer = func([]string) ([]byte, error) {
@@ -396,7 +396,7 @@ func TestDropInCarriesTheAbsoluteEntriesOfTheShellPath(t *testing.T) {
 		t.Fatalf("drop-in has no line %q:\n%s", want, got)
 	}
 	if !strings.HasPrefix(got, UnitHeaderWritten+"\n") {
-		t.Fatalf("drop-in does not say setup wrote it:\n%s", got)
+		t.Fatalf("drop-in does not say install wrote it:\n%s", got)
 	}
 }
 
@@ -410,7 +410,7 @@ func TestDropInQuotesAPathWithSpaces(t *testing.T) {
 	}
 }
 
-func TestSetupWritesUnitsWhereTheUserManagerLooks(t *testing.T) {
+func TestInstallWritesUnitsWhereTheUserManagerLooks(t *testing.T) {
 	f := newFakeService(t)
 	elsewhere := filepath.Join(f.Home, "cfg")
 	f.answer = func(args []string) ([]byte, error) {
@@ -419,7 +419,7 @@ func TestSetupWritesUnitsWhereTheUserManagerLooks(t *testing.T) {
 		}
 		return nil, nil
 	}
-	if err := f.Setup(context.Background()); err != nil {
+	if err := f.Install(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range []string{
@@ -435,7 +435,7 @@ func TestSetupWritesUnitsWhereTheUserManagerLooks(t *testing.T) {
 func TestUninstallRemovesTheDropInAndKeepsOnesTheUserWrote(t *testing.T) {
 	f := newFakeService(t)
 	f.installPackage(t)
-	if err := f.Setup(context.Background()); err != nil {
+	if err := f.Install(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	mine := filepath.Join(filepath.Dir(f.dropIn()), "override.conf")
@@ -444,7 +444,7 @@ func TestUninstallRemovesTheDropInAndKeepsOnesTheUserWrote(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(f.dropIn()); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("the drop-in setup wrote is still there: %v", err)
+		t.Fatalf("the drop-in install wrote is still there: %v", err)
 	}
 	if _, err := os.Stat(mine); err != nil {
 		t.Fatalf("the user's drop-in went with it: %v", err)
@@ -453,9 +453,9 @@ func TestUninstallRemovesTheDropInAndKeepsOnesTheUserWrote(t *testing.T) {
 
 func TestAUnitAnOlderSetupWroteIsStillOurs(t *testing.T) {
 	f := newFakeService(t)
-	writeTestFile(t, f.userUnit(), setupMarker+" by an older release, with other words after it.\n[Service]\nExecStart=/old/coddy serve\n")
-	if err := f.Setup(context.Background()); err != nil {
-		t.Fatalf("setup refused a unit an older setup wrote: %v", err)
+	writeTestFile(t, f.userUnit(), installMarker+" by an older release, with other words after it.\n[Service]\nExecStart=/old/coddy serve\n")
+	if err := f.Install(context.Background()); err != nil {
+		t.Fatalf("install refused a unit an older install wrote: %v", err)
 	}
 	body, _ := os.ReadFile(f.userUnit())
 	if !strings.Contains(string(body), "\nExecStart="+f.Exe+" serve\n") {
@@ -463,16 +463,16 @@ func TestAUnitAnOlderSetupWroteIsStillOurs(t *testing.T) {
 	}
 }
 
-func TestSetupFromAShellWithoutPathKeepsTheHandedOverPath(t *testing.T) {
+func TestInstallFromAShellWithoutPathKeepsTheHandedOverPath(t *testing.T) {
 	f := newFakeService(t)
 	f.ShellPath = strings.Join([]string{filepath.Join(f.Home, "go", "bin"), filepath.Join(f.root, "usr", "bin")}, string(filepath.ListSeparator))
-	if err := f.Setup(context.Background()); err != nil {
+	if err := f.Install(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	before, _ := os.ReadFile(f.dropIn())
 	f.ShellPath = ""
 	f.out.Reset()
-	if err := f.Setup(context.Background()); err != nil {
+	if err := f.Install(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	after, _ := os.ReadFile(f.dropIn())

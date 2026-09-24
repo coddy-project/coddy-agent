@@ -281,7 +281,7 @@ jobs:
             dpkg-deb --ctrl-tarfile "$package" | tar -xOf - ./postinst > scripts.txt
             grep -F 'NOT enabled' scripts.txt
             dpkg-deb --ctrl-tarfile "$package" | tar -xOf - ./prerm >> scripts.txt
-            grep -F 'coddy-setup.conf' scripts.txt
+            grep -F 'coddy-install.conf' scripts.txt
             # The package tells the user about the unit and never turns it on.
             # An if, not "! grep": bash's errexit ignores an inverted status.
             if grep -E 'systemctl( --user| --global)? (enable|start)' scripts.txt; then
@@ -296,7 +296,7 @@ jobs:
             cpio -i --quiet --to-stdout '*usr/lib/systemd/user/coddy.service' < payload.cpio | cmp - packaging/systemd/coddy.service
             rpm -qp --scripts "$package" > scripts.txt
             grep -F 'NOT enabled' scripts.txt        # postinstall
-            grep -F 'coddy-setup.conf' scripts.txt   # preremove
+            grep -F 'coddy-install.conf' scripts.txt   # preremove
             if grep -E 'systemctl( --user| --global)? (enable|start)' scripts.txt; then
               echo "::error::$package: a maintainer script enables or starts the unit"; exit 1
             fi

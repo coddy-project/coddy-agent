@@ -23,7 +23,7 @@ var cliSections = []cliSection{
 	{"coddy cli", []string{"cli", "--help"}},
 	{"coddy acp", []string{"acp", "--help"}},
 	{"coddy serve", []string{"serve", "--help"}},
-	{"coddy serve setup", []string{"serve", "setup", "--help"}},
+	{"coddy serve install", []string{"serve", "install", "--help"}},
 	{"coddy serve uninstall", []string{"serve", "uninstall", "--help"}},
 	{"coddy serve status | stop | restart", []string{"serve", "status", "--help"}},
 	{"coddy sessions list", []string{"sessions", "list", "--help"}},

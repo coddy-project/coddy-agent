@@ -33,13 +33,17 @@ import (
 // over one sessions directory and no way to watch a chat conversation from a
 // browser. Here they are goroutines sharing one manager, and turning one on is
 // a line of YAML.
+// serveVerbList names the verbs runServe dispatches on, for the error that
+// refuses a word it does not know.
+const serveVerbList = "install, uninstall, status, stop, restart, set-password"
+
 func runServe(args []string) error {
 	// The control verbs come before the flag set, because they are about a
 	// daemon that is already running and share none of its options.
 	if len(args) > 0 {
 		switch args[0] {
-		case "setup":
-			return runServeSetup(args[1:])
+		case "install":
+			return runServeInstall(args[1:])
 		case "uninstall":
 			return runServeUninstall(args[1:])
 		case "status":
@@ -99,6 +103,12 @@ func runServe(args []string) error {
 			return nil
 		}
 		return err
+	}
+	// serve takes no positional arguments, so a word here is a verb that does
+	// not exist - a typo, or one a release renamed. Starting a server in the
+	// foreground over it would be the worst possible reading.
+	if fs.NArg() > 0 {
+		return fmt.Errorf("coddy serve: unknown verb %q (the verbs are %s; serve itself takes flags only)", fs.Arg(0), serveVerbList)
 	}
 
 	cli := config.CLIPaths{

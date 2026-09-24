@@ -36,11 +36,11 @@ Usage:
         the swarm relay, the cron scheduler)
   coddy serve -d | --daemon (the same, in the background under a dispatcher
         that starts it again if it dies)
-  coddy serve setup (Linux: run coddy serve as a systemd user service in
+  coddy serve install (Linux: run coddy serve as a systemd user service in
         ~/Coddy - installs the unit when the package did not, enables and
         starts it)
   coddy serve uninstall (stop and disable that service and remove the unit
-        setup wrote; ~/.coddy and ~/Coddy are kept)
+        that install wrote; ~/.coddy and ~/Coddy are kept)
   coddy serve status | stop | restart [--home DIR]
   coddy serve set-password [--user NAME] [--config PATH] [--home DIR] (write the web
         UI sign-in account into config.yaml; the password is read from the
@@ -235,16 +235,16 @@ Usage of serve (runs every subsystem enabled in config.yaml):
     	check config.yaml against the schema and the loader's rules, print every problem with its line and how to fix it, then exit without starting anything
 ```
 
-### coddy serve setup
+### coddy serve install
 
 ```text
-Usage: coddy serve setup (check ~/.coddy/config.yaml, install the systemd user unit for this binary when the package did not, enable coddy.service and start it working in ~/Coddy)
+Usage: coddy serve install (check ~/.coddy/config.yaml, install the systemd user unit for this binary when the package did not, enable coddy.service and start it working in ~/Coddy)
 ```
 
 ### coddy serve uninstall
 
 ```text
-Usage: coddy serve uninstall (stop and disable coddy.service and remove the unit setup wrote; ~/.coddy and ~/Coddy are kept)
+Usage: coddy serve uninstall (stop and disable coddy.service and remove the unit that install wrote; ~/.coddy and ~/Coddy are kept)
 ```
 
 ### coddy serve status | stop | restart

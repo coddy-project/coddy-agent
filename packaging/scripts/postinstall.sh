@@ -4,7 +4,7 @@
 # there is nothing to create system-wide here. The message points the user at
 # the one file they do have to write themselves, and at the systemd user unit
 # the package installed and deliberately did not enable: which accounts run a
-# server is for each user to decide, with `coddy serve setup`.
+# server is for each user to decide, with `coddy serve install`.
 set -e
 
 # Debian passes "configure" and, on an upgrade, the version it replaces; rpm
@@ -32,7 +32,7 @@ Coddy is upgraded. The systemd user unit /usr/lib/systemd/user/coddy.service
 is installed and not enabled by the package. As the user the service is for,
 without sudo:
 
-    coddy serve setup   # enable and start it, or restart it on the new binary
+    coddy serve install   # enable and start it, or restart it on the new binary
 
 EOF
     exit 0
@@ -64,7 +64,7 @@ The systemd user unit /usr/lib/systemd/user/coddy.service is installed but
 NOT enabled. To run coddy serve as a service for your account (it works in
 ~/Coddy and comes back after a crash), run as that user, without sudo:
 
-    coddy serve setup       # enable and start coddy.service
+    coddy serve install     # enable and start coddy.service
     coddy serve uninstall   # stop and disable it again
 
 Manual: man coddy   Service guide: https://coddy.dev/docs/operate/serve

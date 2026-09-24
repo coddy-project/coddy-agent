@@ -4,7 +4,7 @@
 # it does not enable: no system service, no system account, no files under /etc.
 # Coddy keeps every piece of state in the invoking user's ~/.coddy, so one
 # installed package serves every user on the machine, and whether an account
-# runs coddy serve as a service is that user's decision (`coddy serve setup`),
+# runs coddy serve as a service is that user's decision (`coddy serve install`),
 # not the packager's.
 #
 # Not built by hand: scripts/build-packages.sh stages every file listed below
@@ -60,7 +60,7 @@ contents:
     file_info:
       mode: 0644
 
-  # A user unit, installed and not enabled. `coddy serve setup` enables it for
+  # A user unit, installed and not enabled. `coddy serve install` enables it for
   # the account that runs it; the post-install message says so.
   - src: coddy.service
     dst: /usr/lib/systemd/user/coddy.service

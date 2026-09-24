@@ -23,7 +23,7 @@ const UnitName = "coddy.service"
 
 // Where the .deb and .rpm put the binary and the user unit. The unit is
 // installed and not enabled: a package must not start a server for every
-// account on the machine, so each user turns it on with `coddy serve setup`.
+// account on the machine, so each user turns it on with `coddy serve install`.
 const (
 	PackagedBinary = "/usr/bin/coddy"
 	PackagedUnit   = "/usr/lib/systemd/user/" + UnitName
@@ -36,30 +36,30 @@ const (
 const ServiceWorkspace = "Coddy"
 
 // The first comment line of a unit tells who put it there. A first line that
-// starts with setupMarker is how setup and uninstall recognise a file setup
+// starts with installMarker is how install and uninstall recognise a file install
 // wrote, and so the only kind they overwrite or delete; a unit the user wrote
 // by hand is left alone. The rest of the line is prose and may change between
-// releases; the marker may not, or files an older setup wrote stop being ours.
-const setupMarker = "# Written by `coddy serve setup`"
+// releases; the marker may not, or files an older install wrote stop being ours.
+const installMarker = "# Written by `coddy serve install`"
 
 const (
-	UnitHeaderWritten  = setupMarker + "; `coddy serve uninstall` removes it."
-	UnitHeaderPackaged = "# Installed by the coddy package and not enabled. Run `coddy serve setup`\n# as the user the service is for (without sudo) to enable and start it."
+	UnitHeaderWritten  = installMarker + "; `coddy serve uninstall` removes it."
+	UnitHeaderPackaged = "# Installed by the coddy package and not enabled. Run `coddy serve install`\n# as the user the service is for (without sudo) to enable and start it."
 )
 
-// DropInName is the drop-in setup writes next to either unit, under
+// DropInName is the drop-in install writes next to either unit, under
 // coddy.service.d: the environment the service needs from the user's shell.
-const DropInName = "coddy-setup.conf"
+const DropInName = "coddy-install.conf"
 
 // DropInFile renders the drop-in that hands the service the PATH of the shell
-// setup ran from. A user manager starts services with a bare system PATH, and
+// install ran from. A user manager starts services with a bare system PATH, and
 // an agent that cannot find the go, node or python a terminal finds is not
 // much of a coding agent.
 func DropInFile(path string) string {
 	dirs := absolutePath(path)
 	var b strings.Builder
 	b.WriteString(UnitHeaderWritten + "\n")
-	b.WriteString("# The PATH of the shell `coddy serve setup` ran from. Run setup again to\n")
+	b.WriteString("# The PATH of the shell `coddy serve install` ran from. Run install again to\n")
 	b.WriteString("# refresh it, or add a drop-in of your own with `systemctl --user edit coddy.service`.\n")
 	b.WriteString("[Service]\n")
 	if len(dirs) > 0 {
@@ -82,7 +82,7 @@ func absolutePath(path string) []string {
 	return dirs
 }
 
-// serviceSettle is how long setup lets a freshly started service run before it
+// serviceSettle is how long install lets a freshly started service run before it
 // asks whether the service stayed up: a configuration that fails on startup
 // shows as "activating (auto-restart)" by then rather than as "active".
 const serviceSettle = 2 * time.Second
@@ -148,7 +148,7 @@ func systemdQuote(v string) string {
 	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(v) + `"`
 }
 
-// UserService is the systemd user unit of one account: `coddy serve setup`
+// UserService is the systemd user unit of one account: `coddy serve install`
 // and `coddy serve uninstall`. Every outside dependency is a field, so tests
 // run it over a temporary home and a stand-in systemctl.
 type UserService struct {
@@ -163,16 +163,16 @@ type UserService struct {
 	// binary and its unit.
 	PackagedBinary string
 	PackagedUnit   string
-	// Mkdir is the absolute path of mkdir(1) for a unit setup writes.
+	// Mkdir is the absolute path of mkdir(1) for a unit install writes.
 	Mkdir string
 	// LingerDir is where logind records the accounts whose user manager runs
 	// without a login session, and User the name it records this one under.
 	LingerDir string
 	User      string
-	// EnvHome is $CODDY_HOME in the shell setup runs from. The service does not
+	// EnvHome is $CODDY_HOME in the shell install runs from. The service does not
 	// see it: the user manager has an environment of its own.
 	EnvHome string
-	// ShellPath is $PATH in the shell setup runs from, handed to the service.
+	// ShellPath is $PATH in the shell install runs from, handed to the service.
 	ShellPath string
 	// Systemctl runs systemctl with args and returns what it printed.
 	Systemctl func(ctx context.Context, args ...string) ([]byte, error)
@@ -184,7 +184,7 @@ type UserService struct {
 	DaemonRunning func(home string) (pid int, running bool)
 	// Out is where the report goes.
 	Out io.Writer
-	// Settle is how long setup waits after starting the service before it
+	// Settle is how long install waits after starting the service before it
 	// checks the service is still up. Zero checks at once.
 	Settle time.Duration
 }
@@ -221,7 +221,7 @@ func NewUserService(out io.Writer) (*UserService, error) {
 	}
 	return &UserService{
 		Home: home,
-		// Setup asks the user manager whether it reads another one.
+		// Install asks the user manager whether it reads another one.
 		ConfigHome:     filepath.Join(home, ".config"),
 		Exe:            exe,
 		PackagedBinary: PackagedBinary,
@@ -310,7 +310,7 @@ func (s *UserService) agentHome() string { return filepath.Join(s.Home, ".coddy"
 
 func (s *UserService) workspace() string { return filepath.Join(s.Home, ServiceWorkspace) }
 
-// userUnit is where a unit setup writes goes. The user manager prefers it to
+// userUnit is where a unit install writes goes. The user manager prefers it to
 // the packaged one of the same name.
 func (s *UserService) userUnit() string {
 	return filepath.Join(s.ConfigHome, "systemd", "user", UnitName)
@@ -334,7 +334,7 @@ func (s *UserService) packaged() bool {
 	return os.SameFile(a, b)
 }
 
-// dropIn is the drop-in setup writes, which applies to whichever unit the
+// dropIn is the drop-in install writes, which applies to whichever unit the
 // user manager loads under the name.
 func (s *UserService) dropIn() string {
 	return filepath.Join(s.ConfigHome, "systemd", "user", UnitName+".d", DropInName)
@@ -361,14 +361,14 @@ func fileExists(path string) bool {
 	return err == nil && !info.IsDir()
 }
 
-// writtenBySetup reports whether the unit at path is one setup wrote.
-func writtenBySetup(path string) bool {
+// writtenByInstall reports whether the unit at path is one install wrote.
+func writtenByInstall(path string) bool {
 	body, err := os.ReadFile(path)
 	if err != nil {
 		return false
 	}
 	first, _, _ := strings.Cut(string(body), "\n")
-	return strings.HasPrefix(strings.TrimSpace(first), setupMarker)
+	return strings.HasPrefix(strings.TrimSpace(first), installMarker)
 }
 
 func (s *UserService) systemctl(ctx context.Context, args ...string) ([]byte, error) {
@@ -392,11 +392,11 @@ func (s *UserService) printf(format string, args ...any) {
 	_, _ = fmt.Fprintf(s.Out, format, args...)
 }
 
-// Setup is `coddy serve setup`: it checks the configuration, puts a unit in
+// Install is `coddy serve install`: it checks the configuration, puts a unit in
 // place for this binary, enables the service and restarts it, so a second run
 // after an update or a move picks up the new binary, and reports whether the
 // service stayed up.
-func (s *UserService) Setup(ctx context.Context) error {
+func (s *UserService) Install(ctx context.Context) error {
 	home := s.agentHome()
 	if s.EnvHome != "" && filepath.Clean(s.EnvHome) != home {
 		s.printf("note: CODDY_HOME is %s in this shell, but the service does not inherit it and reads %s\n", s.EnvHome, home)
@@ -406,7 +406,7 @@ func (s *UserService) Setup(ctx context.Context) error {
 	}
 	if s.DaemonRunning != nil {
 		if pid, ok := s.DaemonRunning(home); ok {
-			return fmt.Errorf("coddy serve --daemon is already running for %s (pid %d) and would hold the same port; stop it with `coddy serve stop`, then run setup again", home, pid)
+			return fmt.Errorf("coddy serve --daemon is already running for %s (pid %d) and would hold the same port; stop it with `coddy serve stop`, then run `coddy serve install` again", home, pid)
 		}
 	}
 
@@ -464,14 +464,14 @@ func (s *UserService) Setup(ctx context.Context) error {
 }
 
 // placeUnit makes sure the user manager finds a unit that runs this binary. A
-// packaged binary uses the package's unit, and a unit an earlier setup wrote
+// packaged binary uses the package's unit, and a unit an earlier install wrote
 // for a script install is removed so it no longer shadows that one. Any other
 // binary gets a unit written for it.
 func (s *UserService) placeUnit(ctx context.Context) (path, source string, err error) {
 	userUnit := s.userUnit()
 	userUnitExists := fileExists(userUnit)
-	if userUnitExists && !writtenBySetup(userUnit) {
-		return "", "", fmt.Errorf("%s was not written by coddy serve setup and would override it; move it aside, or keep it and enable it yourself with `systemctl --user enable --now %s`", userUnit, UnitName)
+	if userUnitExists && !writtenByInstall(userUnit) {
+		return "", "", fmt.Errorf("%s was not written by coddy serve install and would override it; move it aside, or keep it and enable it yourself with `systemctl --user enable --now %s`", userUnit, UnitName)
 	}
 	if s.packaged() {
 		if userUnitExists {
@@ -481,7 +481,7 @@ func (s *UserService) placeUnit(ctx context.Context) (path, source string, err e
 				return "", "", err
 			}
 			if err := os.Remove(userUnit); err != nil {
-				return "", "", fmt.Errorf("remove the unit an earlier setup wrote: %w", err)
+				return "", "", fmt.Errorf("remove the unit an earlier `coddy serve install` wrote: %w", err)
 			}
 			s.printf("removed %s: the packaged unit runs this binary\n", userUnit)
 		}
@@ -491,7 +491,7 @@ func (s *UserService) placeUnit(ctx context.Context) (path, source string, err e
 		return "", "", fmt.Errorf("write %s: %w", userUnit, err)
 	}
 	s.printf("wrote %s\n", userUnit)
-	return userUnit, "written by coddy serve setup", nil
+	return userUnit, "written by coddy serve install", nil
 }
 
 // placeDropIn writes the drop-in with this shell's PATH. One the user wrote
@@ -499,16 +499,16 @@ func (s *UserService) placeUnit(ctx context.Context) (path, source string, err e
 // comes from, for the report.
 func (s *UserService) placeDropIn() (string, error) {
 	path := s.dropIn()
-	if fileExists(path) && !writtenBySetup(path) {
-		s.printf("kept %s: it was not written by coddy serve setup\n", path)
+	if fileExists(path) && !writtenByInstall(path) {
+		s.printf("kept %s: it was not written by coddy serve install\n", path)
 		return "your own " + path, nil
 	}
 	if len(absolutePath(s.ShellPath)) == 0 {
 		if fileExists(path) {
 			// A shell started with an empty environment would otherwise
-			// take away the PATH an earlier setup handed over.
+			// take away the PATH an earlier install handed over.
 			s.printf("kept %s: this shell has no PATH to hand over\n", path)
-			return "an earlier setup, in " + path, nil
+			return "an earlier `coddy serve install`, in " + path, nil
 		}
 		return "the user manager's default: this shell had none to hand over", nil
 	}
@@ -549,7 +549,7 @@ func writeFileAtomic(path string, body []byte) error {
 }
 
 // Uninstall is `coddy serve uninstall`: it stops and disables the service and
-// deletes the unit setup wrote. The packaged unit belongs to the package and a
+// deletes the unit install wrote. The packaged unit belongs to the package and a
 // unit the user wrote belongs to the user, so both stay on disk, disabled. The
 // configuration, the sessions and the workspace are never touched.
 func (s *UserService) Uninstall(ctx context.Context) error {
@@ -558,9 +558,9 @@ func (s *UserService) Uninstall(ctx context.Context) error {
 	}
 	userUnit := s.userUnit()
 	userUnitExists := fileExists(userUnit)
-	ours := userUnitExists && writtenBySetup(userUnit)
+	ours := userUnitExists && writtenByInstall(userUnit)
 	dropIn := s.dropIn()
-	ourDropIn := fileExists(dropIn) && writtenBySetup(dropIn)
+	ourDropIn := fileExists(dropIn) && writtenByInstall(dropIn)
 	packagedUnit := fileExists(s.PackagedUnit)
 	if !userUnitExists && !packagedUnit {
 		// No unit file is left - a package removal takes the packaged one
@@ -616,19 +616,19 @@ func (s *UserService) Uninstall(ctx context.Context) error {
 	case ours:
 		s.printf("  removed    %s\n", userUnit)
 	case userUnitExists:
-		s.printf("  kept       %s (not written by coddy serve setup)\n", userUnit)
+		s.printf("  kept       %s (not written by coddy serve install)\n", userUnit)
 	}
 	if ourDropIn {
 		s.printf("  removed    %s\n", dropIn)
 	}
 	if packagedUnit {
-		s.printf("  kept       %s (belongs to the package; `coddy serve setup` enables it again)\n", s.PackagedUnit)
+		s.printf("  kept       %s (belongs to the package; `coddy serve install` enables it again)\n", s.PackagedUnit)
 	}
 	s.printf("  untouched  %s (configuration and sessions), %s (workspace)\n", s.agentHome(), s.workspace())
 	return nil
 }
 
-// removeDropIn deletes the drop-in setup wrote and its folder once nothing
+// removeDropIn deletes the drop-in install wrote and its folder once nothing
 // else is in it.
 func removeDropIn(path string) error {
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {

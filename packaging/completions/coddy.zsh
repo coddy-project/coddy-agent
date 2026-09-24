@@ -89,7 +89,7 @@ _coddy() {
                     ;;
                 serve)
                     _arguments \
-                        '1: :((setup\:"run coddy serve as a systemd user service" uninstall\:"stop, disable and remove the systemd user service" status\:"report the background dispatcher" stop\:"stop the background dispatcher" restart\:"restart the background dispatcher" set-password\:"write the web UI sign-in account into config.yaml"))' \
+                        '1: :((install\:"run coddy serve as a systemd user service" uninstall\:"stop, disable and remove the systemd user service" status\:"report the background dispatcher" stop\:"stop the background dispatcher" restart\:"restart the background dispatcher" set-password\:"write the web UI sign-in account into config.yaml"))' \
                         '--user[account name for the web UI sign-in form (set-password)]:user:' \
                         '(-d --daemon)'{-d,--daemon}'[run in the background under a dispatcher]' \
                         '(-t --test-config)'{-t,--test-config}'[check config.yaml against the schema and exit]' \

@@ -59,7 +59,7 @@ groups:
     pages:
       - path: operate/serve.md
         title: coddy serve and the daemon
-        summary: One process for every enabled subsystem, the systemd user service (serve setup and uninstall), --daemon with status, stop and restart, and configuration reloads.
+        summary: One process for every enabled subsystem, the systemd user service (serve install and uninstall), --daemon with status, stop and restart, and configuration reloads.
       - path: operate/remote.md
         title: Remote mode
         summary: Driving a remote coddy serve from the console, ACP or the web UI with --remote, tokens, CORS and the environment chip.

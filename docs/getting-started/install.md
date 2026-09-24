@@ -44,7 +44,7 @@ coddy -v
 ```
 
 The script installs no systemd unit. On Linux, to keep **`coddy serve`** running as a service of
-your account, run **`coddy serve setup`** once the configuration has a provider key: it writes
+your account, run **`coddy serve install`** once the configuration has a provider key: it writes
 **`~/.config/systemd/user/coddy.service`** for the binary the script installed, enables it and
 starts it in **`~/Coddy`**. The script ends by saying so. See
 [the service guide](../operate/serve.md#as-a-systemd-user-service-on-linux).
@@ -96,7 +96,7 @@ nothing under **`/etc`**. Configuration, sessions, skills and credentials stay i
 user's **`~/.coddy`**, so one installed package serves every user on the machine, each with their
 own state, and what to run - the console, the HTTP gateway, an editor over ACP, a service - stays
 each user's decision. The message printed at installation says the unit is there and not enabled;
-**`coddy serve setup`**, run as the user the service is for, enables and starts it (see
+**`coddy serve install`**, run as the user the service is for, enables and starts it (see
 [the service guide](../operate/serve.md#as-a-systemd-user-service-on-linux)).
 
 ### First run
@@ -117,7 +117,7 @@ replacing a packaged file (see [update.md](update.md#installations-owned-by-a-pa
 ```bash
 sudo apt-get install ./coddy_<newer>_linux_amd64.deb   # or dnf install ./...rpm
 sudo coddy update -y                                   # downloads and installs the package
-coddy serve setup                                      # if you run the service: restart it on the new binary
+coddy serve install                                    # if you run the service: restart it on the new binary
 ```
 
 A running service keeps the binary it started with until it restarts, which is what the last line
@@ -184,10 +184,10 @@ coddy -v
 # edit ~/.coddy/config.yaml
 coddy serve            # in this terminal
 coddy serve --daemon   # in the background, restarted if it dies
-coddy serve setup      # Linux: as a systemd user service
+coddy serve install    # Linux: as a systemd user service
 ```
 
-On Linux with systemd, **`coddy serve setup`** runs it as a user service of your account instead:
+On Linux with systemd, **`coddy serve install`** runs it as a user service of your account instead:
 it enables the unit a package installed, or writes one for a binary the install script put in
 place, and starts it working in **`~/Coddy`**. **`coddy serve uninstall`** takes it away again. See
 [the service guide](../operate/serve.md#as-a-systemd-user-service-on-linux) for the log, keeping it

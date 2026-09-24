@@ -1,4 +1,4 @@
-# Installed by the coddy package and not enabled. Run `coddy serve setup`
+# Installed by the coddy package and not enabled. Run `coddy serve install`
 # as the user the service is for (without sudo) to enable and start it.
 [Unit]
 Description=Coddy agent server (coddy serve)
