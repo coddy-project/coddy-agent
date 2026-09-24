@@ -82,6 +82,10 @@ export function useTranscriptWindow(p: {
   /** The reader follows the newest message: a change above keeps the bottom
    *  in place rather than the first visible row. */
   stickToBottomRef: RefObject<boolean>;
+  /** Something at the tail waits for the reader - a permission or a question
+   *  prompt with its choices and typed text: the window never drops the
+   *  bottom, so it stays mounted however far up the reader goes. */
+  pinTail?: boolean;
 }): {
   start: number;
   end: number;
@@ -173,10 +177,21 @@ export function useTranscriptWindow(p: {
     [captureAnchor],
   );
 
+  // A row the reader is typing in stays: a plan being edited, an answer
+  // being written. Focus on a button - a copy control clicked before
+  // scrolling away - holds nothing, and keeping its row would let the window
+  // grow without bound.
   const focusedRowId = useCallback((): string | null => {
     const list = latest.current.p.listRef.current;
-    const active = document.activeElement;
+    const active = document.activeElement as HTMLElement | null;
     if (!list || !active || !list.contains(active)) return null;
+    const editable =
+      active.isContentEditable ||
+      active instanceof HTMLTextAreaElement ||
+      active instanceof HTMLSelectElement ||
+      (active instanceof HTMLInputElement &&
+        !["button", "checkbox", "radio", "submit", "reset"].includes(active.type));
+    if (!editable) return null;
     const row = (active as HTMLElement).closest?.("[data-row-id]");
     return row instanceof HTMLElement ? (row.dataset.rowId ?? null) : null;
   }, []);
@@ -229,7 +244,7 @@ export function useTranscriptWindow(p: {
       if (newStart > range.start) {
         next = trimRenderWindowTop(cur.items, range, attached, newStart);
         above = true;
-      } else {
+      } else if (!cur.p.pinTail) {
         const newEnd = trimBottomTo(
           rows,
           cur.index,
@@ -323,7 +338,7 @@ export function useTranscriptWindow(p: {
       window.removeEventListener("resize", onScroll);
       io.disconnect();
     };
-  }, [enabled, p.docScroll, p.scrollerRef, schedule, range.start > 0 || p.hasOlder, range.end < items.length]);
+  }, [enabled, p.docScroll, p.scrollerRef, schedule, range.start > 0 || p.hasOlder, range.end < items.length, attached]);
 
   const showEarlier = useCallback(() => {
     const cur = latest.current;

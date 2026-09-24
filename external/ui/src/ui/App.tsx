@@ -713,13 +713,33 @@ export function App() {
     });
     for (const sid of victims) {
       relayLastEventIdBySidRef.current.delete(sid);
-      if (sid !== nextViewedSid.trim()) liveWindowBySidRef.current.delete(sid);
+      if (sid !== nextViewedSid.trim()) {
+        liveWindowBySidRef.current.delete(sid);
+        windowRebaseInFlightRef.current.delete(sid);
+      }
     }
+  }
+
+  /**
+   * The live window this tab holds for `sid`. A session it has rows of
+   * without having read a page - one it started and streamed from its first
+   * message - is held from message 0.
+   */
+  function heldLiveWindow(
+    sid: string,
+  ): { offset: number; seq: number } | undefined {
+    const held = liveWindowBySidRef.current.get(sid);
+    if (held) return held;
+    const hasLocalRows =
+      (streamShadowBySidRef.current.get(sid)?.length ?? 0) > 0 ||
+      (viewedSessionIdRef.current.trim() === sid &&
+        itemsRef.current.length > 0);
+    return hasLocalRows ? { offset: 0, seq: 0 } : undefined;
   }
 
   /** The query that re-reads the live window held for `sid`. */
   function liveWindowQuery(sid: string): string {
-    const held = liveWindowBySidRef.current.get(sid.trim());
+    const held = heldLiveWindow(sid.trim());
     return transcriptPageQuery(
       held ? { kind: "from", offset: held.offset } : { kind: "tail" },
     );
@@ -833,9 +853,20 @@ export function App() {
     )
       return;
     noteUsageTurnEnded(sid);
+    // A window that grew through many turns starts over from its end here,
+    // where the turn is over, unless the reader is up in its history: a
+    // session that runs turn after turn is never idle long enough for the
+    // slide below, and every reload would read everything since it opened.
+    const viewing = viewedSessionIdRef.current.trim() === sid;
+    const live = liveWindowBySidRef.current.get(sid);
+    const rebase =
+      !!live &&
+      live.total - live.offset > LIVE_WINDOW_REBASE_MESSAGES &&
+      (!viewing || readerAtTailRef.current);
     void loadMessages(sid, {
       preserveOnError: true,
-      skipSetItems: viewedSessionIdRef.current.trim() !== sid,
+      skipSetItems: !viewing,
+      ...(rebase ? { rebase: true } : {}),
     }).then(() => {
       if (viewedSessionIdRef.current.trim() === sid) slideTranscriptToTail();
     });
@@ -2701,6 +2732,9 @@ export function App() {
     skipSetItems?: boolean;
     preserveOnError?: boolean;
     freshLoad?: boolean;
+    /** Start the live window over from the newest page while keeping the
+     *  merges of an ordinary reload (a turn has just ended). */
+    rebase?: boolean;
   };
 
   /**
@@ -2720,17 +2754,12 @@ export function App() {
       setItems([]);
       return null;
     }
-    // A session this tab has held rows of without reading a page - one it
-    // started and streamed from its first message - holds it from message 0.
-    const hasLocalRows =
-      (streamShadowBySidRef.current.get(sid)?.length ?? 0) > 0 ||
-      (viewedSessionIdRef.current.trim() === sid &&
-        itemsRef.current.length > 0);
-    const held =
-      liveWindowBySidRef.current.get(sid) ??
-      (hasLocalRows && !opts?.freshLoad ? { offset: 0, seq: 0 } : undefined);
+    const held = opts?.freshLoad ? undefined : heldLiveWindow(sid);
     const request: TranscriptPageRequest =
-      opts?.freshLoad || !held || windowRebaseInFlightRef.current.has(sid)
+      opts?.freshLoad ||
+      opts?.rebase ||
+      !held ||
+      windowRebaseInFlightRef.current.has(sid)
         ? { kind: "tail" }
         : { kind: "from", offset: held.offset };
     // A read that starts the window over supersedes every read issued before
@@ -2864,7 +2893,7 @@ export function App() {
       request.kind === "from" &&
       (pageWindow.total < request.offset ||
         (pageMessages.length === 0 &&
-          (itemsRef.current.length > 0 ||
+          ((viewingNow === sid && itemsRef.current.length > 0) ||
             (streamShadowBySidRef.current.get(sid)?.length ?? 0) > 0)))
     ) {
       return loadMessages(sid, { ...opts, freshLoad: true });
@@ -3028,6 +3057,10 @@ export function App() {
     if (before <= 0) return;
     olderLoadInFlightRef.current = sid;
     setOlderTranscriptLoad("loading");
+    // Every way out settles the control: a page that arrived, a read that
+    // failed, or a read made moot by a window that moved meanwhile, which
+    // leaves the control ready to ask again rather than loading forever.
+    let settled = false;
     const stillCurrent = () => {
       const nowLive = liveWindowBySidRef.current.get(sid);
       const cur = olderTranscriptRef.current;
@@ -3065,6 +3098,7 @@ export function App() {
         pageWindow.offset + pageMessages.length !== before
       ) {
         setOlderTranscriptLoad("error");
+        settled = true;
         return;
       }
       const mapped = transcriptItemsFromMessages({
@@ -3103,10 +3137,17 @@ export function App() {
         window: pageWindow,
       });
       setOlderTranscriptLoad("idle");
+      settled = true;
     } catch {
-      if (stillCurrent()) setOlderTranscriptLoad("error");
+      if (stillCurrent()) {
+        setOlderTranscriptLoad("error");
+        settled = true;
+      }
     } finally {
       if (olderLoadInFlightRef.current === sid) olderLoadInFlightRef.current = "";
+      if (!settled) {
+        setOlderTranscriptLoad((cur) => (cur === "loading" ? "idle" : cur));
+      }
     }
   }
 

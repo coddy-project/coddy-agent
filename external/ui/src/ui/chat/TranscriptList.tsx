@@ -1,6 +1,7 @@
 import {
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type MutableRefObject,
@@ -48,8 +49,22 @@ export function TranscriptList(props: {
   messageList: Omit<MessageListProps, "items" | "renderStart" | "renderEnd">;
   /** Shown after the newest row, and only while it is rendered. */
   tail?: ReactNode;
+  /** The tail holds a prompt the reader has to answer (a background
+   *  subagent's permission card). */
+  tailWaits?: boolean;
 }) {
   const listRef = useRef<HTMLDivElement | null>(null);
+  // A prompt still waiting for its answer keeps its row, its choices and its
+  // typed text: the window does not drop the bottom while one is there.
+  const promptWaits = useMemo(
+    () =>
+      props.items.some(
+        (it) =>
+          (it.type === "permission_prompt" || it.type === "question_prompt") &&
+          !it.resolved,
+      ),
+    [props.items],
+  );
   const [enabled] = useState(transcriptWindowSupported);
   const onLoadOlderRef = useRef(props.onLoadOlder);
   onLoadOlderRef.current = props.onLoadOlder;
@@ -65,6 +80,7 @@ export function TranscriptList(props: {
     olderFailed: props.olderLoad === "error",
     onLoadOlder: () => onLoadOlderRef.current(),
     stickToBottomRef: props.stickToBottomRef,
+    pinTail: promptWaits || props.tailWaits === true,
   });
 
   useLayoutEffect(() => {

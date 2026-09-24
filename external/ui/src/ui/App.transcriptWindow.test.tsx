@@ -71,7 +71,7 @@ const reads: string[] = [];
 const held = new Map<string, () => void>();
 let holdQuery: string | null = null;
 
-const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = new URL(String(input), "http://localhost");
   const path = url.pathname;
   if (path === "/coddy/events")
@@ -100,6 +100,14 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     });
   }
   if (path === `/coddy/sessions/${SID}/tool-calls`) return json({ toolCalls: [] });
+  if (path === `/coddy/sessions/${SID}/rewind`) {
+    // Cut the history at the prompt named, the way the server does.
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    let seen = -1;
+    const at = msgs.findIndex((m) => m.role === "user" && ++seen === body.userMessageIndex);
+    if (at >= 0) msgs = msgs.slice(0, at);
+    return json({ object: "coddy.session_rewound", sessionId: SID, messagesRev: 2 });
+  }
   if (path === `/coddy/sessions/${SID}/activity`)
     return json({ sessionId: SID, turnActive: false });
   if (path === `/coddy/sessions/${SID}/background-tasks`)
@@ -119,6 +127,8 @@ type ChatProps = {
   olderTranscriptLoad?: string;
   onLoadOlderTranscript?: () => void;
   onReaderAtTailChange?: (atTail: boolean) => void;
+  onEdit?: (content: string, userMsgIdx: number) => void;
+  onSend?: (text: string) => void;
 };
 let chat: ChatProps | null = null;
 
@@ -230,8 +240,36 @@ test("a window started over while a page above was read does not take that page"
     await loaded;
   });
   await new Promise((r) => setTimeout(r, 20));
-  // The page read against the old window borders nothing on screen now.
+  // The page read against the old window borders nothing on screen now, and
+  // the control is ready to ask for the page above the new one.
   expect(prompts()).not.toContain("prompt 26");
+  expect(chat?.olderTranscriptLoad).toBe("idle");
   expect(prompts().at(-1)).toBe("later 100");
   expect(chat?.userMsgIndexBase).toBe(TURNS + 100 - prompts().length);
+});
+
+test("a page above that a rewind made moot leaves the control ready, not loading", async () => {
+  await openLongSession();
+  holdQuery = "?limit=80&before=180";
+  let loaded: Promise<void> | undefined;
+  act(() => {
+    loaded = Promise.resolve(chat!.onLoadOlderTranscript!());
+  });
+  await waitFor(() => expect(held.has("?limit=80&before=180")).toBe(true));
+  await waitFor(() => expect(chat?.olderTranscriptLoad).toBe("loading"));
+  // Meanwhile the reader edits the last prompt: the history is cut there and
+  // the window starts over from the newest page.
+  await act(async () => chat!.onEdit!(`prompt ${TURNS}`, TURNS - 1));
+  await act(async () => chat!.onSend!(`prompt ${TURNS}, edited`));
+  // The kept prefix is read from its newest page, then the edit is sent.
+  await waitFor(() =>
+    expect(reads.filter((q) => q === "?limit=60").length).toBeGreaterThanOrEqual(2),
+  );
+  await waitFor(() => expect(prompts()).toContain(`prompt ${TURNS - 1}`));
+  held.get("?limit=80&before=180")!();
+  await act(async () => {
+    await loaded;
+  });
+  await waitFor(() => expect(chat?.olderTranscriptLoad).toBe("idle"));
+  expect(prompts()).not.toContain("prompt 26");
 });

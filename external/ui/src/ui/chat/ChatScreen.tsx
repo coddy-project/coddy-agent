@@ -810,6 +810,9 @@ export function ChatScreen(props: {
                 if (!isEmpty) syncTranscriptPosition();
               }}
               messageList={messageListProps}
+              tailWaits={(props.backgroundTasks ?? []).some(
+                isAwaitingPermission,
+              )}
               tail={
                 props.backgroundTasks ? (
                   <SubagentPermissionCards

@@ -29,7 +29,8 @@
  *   CODDY_PORT_BASE     first of three loopback ports (default 19870)
  *   CODDY_BUDGET_SCALE  multiplies every time budget (a slow machine: 2)
  *   CODDY_SCENARIOS     a comma list of scenarios to run (open, scroll, phone,
- *                       edit, retry, short, two-browsers, swarm); all by default
+ *                       edit, retry, prompt, short, two-browsers, swarm); all
+ *                       by default
  *   CODDY_E2E_KEEP=1    leave the stand running after the checks, for a look
  *
  * CPU throttling, long tasks and heap readings are Chromium's (the DevTools
@@ -193,6 +194,19 @@ function startModel(port) {
         .map((m) => (m.role === "user" ? textOf(m).trim() : ""))
         .find((t) => t && !t.startsWith("<"));
       const answer = `Answer to: ${(typed || "").slice(0, 60)}`;
+      // "ask me" gets a question the reader has to answer, once per turn: the
+      // request that carries its answer gets the text.
+      const answered = (parsed.messages || []).some((m) => m.role === "tool" && m.tool_call_id === "call_question_1");
+      if ((typed || "").includes("ask me") && !answered && parsed.stream) {
+        res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "close" });
+        const send = (v) => res.write(`data: ${JSON.stringify(v)}\n\n`);
+        const args = JSON.stringify({ questions: [{ question: "Which one?", options: [{ label: "Alpha" }, { label: "Beta" }] }] });
+        send({ id: "q", object: "chat.completion.chunk", model: "coddy-demo", choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }] });
+        send({ id: "q", object: "chat.completion.chunk", model: "coddy-demo", choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "call_question_1", type: "function", function: { name: "question", arguments: args } }] }, finish_reason: null }] });
+        send({ id: "q", object: "chat.completion.chunk", model: "coddy-demo", choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] });
+        res.end("data: [DONE]\n\n");
+        return;
+      }
       if (!parsed.stream) {
         res.writeHead(200, { "Content-Type": "application/json", Connection: "close" });
         res.end(JSON.stringify({ id: "x", object: "chat.completion", model: "coddy-demo", choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", content: answer } }], usage: { prompt_tokens: 1, completion_tokens: 3, total_tokens: 4 } }));
@@ -492,6 +506,9 @@ async function scenarioScroll() {
   const { context, page, cdp, requests } = await openPage({ width: 1280, height: 900 });
   await openAndTime(page, `${NODE}/#/s/${LONG}`);
   await page.waitForTimeout(1000);
+  // The copy control of the newest answer keeps the focus while the reader
+  // flicks up: a focused button must not stop the window from dropping rows.
+  await page.locator(".msg-assistant-stack .msg-copy-icon-btn").last().click();
   const frames = await scrollFrames(page, 120, -300);
   const up = await scrollAndMeasure(page, 100, -300);
   const deep = await readTranscript(page);
@@ -598,6 +615,36 @@ async function scenarioRetry() {
   await context.close();
 }
 
+async function scenarioPrompt() {
+  // A question the model asks waits at the tail; the reader picks an answer,
+  // goes far up the history and comes back: the prompt never left the DOM and
+  // the pick is still there.
+  const { context, page } = await openPage({ width: 1280, height: 900 }, { throttle: 1 });
+  await openAndTime(page, `${NODE}/#/s/${LONG}`);
+  const box = page.locator("textarea").first();
+  await box.click();
+  await box.type("ask me which one");
+  await page.locator("#btn-send").click();
+  const frame = page.locator(".question-prompt-frame").last();
+  await frame.waitFor({ timeout: 60000 });
+  await frame.getByText("Beta", { exact: true }).click();
+  // Focus leaves the prompt, as it does when the reader clicks elsewhere: the
+  // prompt must stay because it waits, not because it holds the focus.
+  await page.evaluate(() => document.activeElement?.blur?.());
+  const handle = await frame.elementHandle();
+  const up = await scrollAndMeasure(page, 80, -400);
+  const stillThere = await handle.evaluate((el) => el.isConnected);
+  const rows = await readTranscript(page);
+  check("a waiting question stays mounted while the reader reads far up", stillThere, `${rows.rows} rows rendered, ${up.jumps} jumps`);
+  await page.click("[data-testid=chat-scroll-bottom]");
+  await page.waitForTimeout(800);
+  const picked = await frame.locator('input[type="radio"]:checked').evaluate((el) => el.closest("label")?.textContent || "").catch(() => "");
+  check("the answer picked before scrolling away is still picked", picked.includes("Beta"), `picked ${picked || "nothing"}`);
+  // Answer it, so the turn ends and the session is left idle.
+  await frame.getByRole("button").last().click().catch(() => {});
+  await context.close();
+}
+
 async function scenarioShort() {
   const { context, page, requests } = await openPage({ width: 1280, height: 900 });
   await page.goto(`${NODE}/#/s/${SHORT}`);
@@ -688,6 +735,7 @@ const SCENARIOS = [
   ["phone", scenarioPhone],
   ["edit", scenarioEditIndex],
   ["retry", scenarioRetry],
+  ["prompt", scenarioPrompt],
   ["short", scenarioShort],
   ["two-browsers", scenarioTwoBrowsers],
   ["swarm", scenarioSwarm],
