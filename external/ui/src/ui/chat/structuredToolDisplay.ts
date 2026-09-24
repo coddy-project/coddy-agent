@@ -11,6 +11,7 @@
  * fallback) for anything it does not recognise so the row keeps the raw text.
  */
 
+import { indentJson, type JsonNode, parseJsonSource } from "./jsonSource";
 import { splitPlanFileContent } from "./planContent";
 
 export type ToolArgs = Record<string, unknown>;
@@ -147,14 +148,26 @@ function formField(name: string, value: string): string {
   return SENSITIVE_HEADER.test(name) ? `${name}=•••` : `${name}=${value}`;
 }
 
-/** The body an http request will send; the first matching kind wins. */
-function httpBody(args: ToolArgs): HttpRequestView["body"] {
+/**
+ * The body an http request will send; the first matching kind wins. A JSON body
+ * is shown from the text of the arguments when they are at hand, so a number
+ * past 2^53 is not rounded; JSON.parse keeps the last of a repeated key, and so
+ * does the lookup.
+ */
+function httpBody(args: ToolArgs, argsNode?: JsonNode): HttpRequestView["body"] {
   if (args.json !== undefined) {
+    const written =
+      argsNode?.kind === "object"
+        ? argsNode.entries.filter((e) => e.key === "json").pop()?.value.source
+        : undefined;
     return {
       kind: "json",
       bytes: null,
       detail: "",
-      content: JSON.stringify(args.json, null, 2) ?? "",
+      content:
+        written !== undefined
+          ? indentJson(written)
+          : (JSON.stringify(args.json, null, 2) ?? ""),
     };
   }
   if (Array.isArray(args.form_data)) {
@@ -272,8 +285,11 @@ function httpProxy(args: ToolArgs): string {
 }
 
 /** Everything about an http request that changes where it goes and what it sends. */
-export function httpRequestView(args: ToolArgs): HttpRequestView {
-  const body = httpBody(args);
+export function httpRequestView(
+  args: ToolArgs,
+  argsNode?: JsonNode,
+): HttpRequestView {
+  const body = httpBody(args, argsNode);
   const timeout = args.timeout_seconds;
   return {
     method: str(args.method).toUpperCase() || (body ? "POST" : "GET"),
@@ -768,16 +784,15 @@ export function memoryEntries(result: string): MemoryEntry[] | null {
   return out;
 }
 
-/** A JSON document: the parsed value when it is an object or an array, else undefined. */
-export function parseJsonDocument(text: string): unknown {
-  const raw = norm(text).trim();
-  if (!raw.startsWith("{") && !raw.startsWith("[")) return undefined;
-  try {
-    const value = JSON.parse(raw) as unknown;
-    return value !== null && typeof value === "object" ? value : undefined;
-  } catch {
-    return undefined;
-  }
+/**
+ * A JSON document: an object or an array, else undefined. Read by
+ * `parseJsonSource`, so every value keeps the text the server wrote.
+ */
+export function parseJsonDocument(
+  text: string,
+): Extract<JsonNode, { kind: "object" | "array" }> | undefined {
+  const node = parseJsonSource(norm(text));
+  return node && (node.kind === "object" || node.kind === "array") ? node : undefined;
 }
 
 export type FieldValue =
@@ -787,30 +802,40 @@ export type FieldValue =
   | { kind: "json"; text: string };
 export type FieldRow = { key: string; value: FieldValue };
 
-/** An object's entries as display rows: text, literals, short scalar lists, nested JSON. */
-export function fieldRows(obj: Record<string, unknown>): FieldRow[] {
+/** A scalar as a row shows it: the string a string encodes, any other literal as written. */
+function scalarText(node: JsonNode): string | null {
+  if (node.kind === "string") return node.value;
+  if (node.kind === "literal") return node.source;
+  return null;
+}
+
+/**
+ * An object's entries as display rows: text, literals, short scalar lists, nested
+ * JSON. Numbers, booleans and nested JSON are the server's own text - a snowflake
+ * id past 2^53 is not rounded - and a repeated key gives a row per value.
+ */
+export function fieldRows(
+  obj: Extract<JsonNode, { kind: "object" }>,
+): FieldRow[] {
   const rows: FieldRow[] = [];
-  for (const key of Object.keys(obj)) {
-    const v = obj[key];
-    if (v === undefined) continue;
-    if (typeof v === "string") {
-      rows.push({ key, value: { kind: "text", text: v } });
-    } else if (v === null || typeof v === "number" || typeof v === "boolean") {
-      rows.push({ key, value: { kind: "literal", text: String(v) } });
-    } else if (
-      Array.isArray(v) &&
-      v.length > 0 &&
-      v.length <= 20 &&
-      v.every((el) => ["string", "number", "boolean"].includes(typeof el))
-    ) {
-      rows.push({ key, value: { kind: "list", items: v.map(String) } });
-    } else if (Array.isArray(v) && v.length === 0) {
+  for (const { key, value: v } of obj.entries) {
+    if (v.kind === "string") {
+      rows.push({ key, value: { kind: "text", text: v.value } });
+    } else if (v.kind === "literal") {
+      rows.push({ key, value: { kind: "literal", text: v.source } });
+    } else if (v.kind === "array" && v.items.length === 0) {
       rows.push({ key, value: { kind: "literal", text: "[]" } });
-    } else {
+    } else if (
+      v.kind === "array" &&
+      v.items.length <= 20 &&
+      v.items.every((el) => scalarText(el) !== null && el.source !== "null")
+    ) {
       rows.push({
         key,
-        value: { kind: "json", text: JSON.stringify(v, null, 2) },
+        value: { kind: "list", items: v.items.map((el) => scalarText(el) ?? "") },
       });
+    } else {
+      rows.push({ key, value: { kind: "json", text: indentJson(v.source) } });
     }
   }
   return rows;

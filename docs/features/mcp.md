@@ -152,7 +152,9 @@ The web UI names an MCP call as an action on its server (*calling get_issue on t
 server github*) and opens it as a card rather than as JSON: the bar names the server and the
 tool, the arguments are fields, and the answer is read by its shape - a JSON object as the
 same fields, other JSON indented, Markdown (a heading, a code fence, a list) as a document,
-anything else as monospace text. A failed call keeps its error as raw text. Only the text
+anything else as monospace text. Numbers and JSON are shown as the server wrote them, so
+an id past 2^53 (a Discord or Twitter snowflake) is not rounded and a repeated key keeps
+both values. A failed call keeps its error as raw text. Only the text
 parts of an answer reach the transcript: Coddy passes the `text` content of a
 `tools/call` result to the model and drops images and embedded resources. See
 [Web UI](../surfaces/web-ui.md) for the card and a screenshot.
