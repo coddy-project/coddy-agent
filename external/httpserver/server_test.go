@@ -4874,7 +4874,7 @@ func TestSessionMessagesMarkOnlyTheWake(t *testing.T) {
 	two := 2
 	rows := llmMsgsToCoddyOpenAIForSession("sess_x", "", []llm.Message{
 		{Role: llm.RoleUser, Content: "start the tests"},
-		{Role: llm.RoleUser, Content: "A background task you asked to be notified about has finished.", BackgroundWake: &llm.BackgroundWake{
+		{Role: llm.RoleUser, Content: "A background task you started has finished.", BackgroundWake: &llm.BackgroundWake{
 			Tasks: []llm.BackgroundWakeTask{{ID: "bg_1", Status: "failed", ExitCode: &two, DurationMs: 1200}},
 		}},
 	})

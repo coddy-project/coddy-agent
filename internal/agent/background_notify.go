@@ -295,7 +295,7 @@ func (w *BackgroundWaker) unclaimedResults(sessionID string, batch []bgtask.Snap
 	if w.pool == nil {
 		return batch
 	}
-	kept := batch[:0]
+	kept := make([]bgtask.Snapshot, 0, len(batch))
 	for _, snap := range batch {
 		if !w.pool.WakePending(sessionID, snap.ID) {
 			continue
@@ -337,9 +337,9 @@ func (w *BackgroundWaker) refundWake(sessionID string) {
 func WakeInstruction(batch []bgtask.Snapshot) string {
 	var b strings.Builder
 	if len(batch) == 1 {
-		b.WriteString("A background task you asked to be notified about has finished.\n\n")
+		b.WriteString("A background task you started has finished.\n\n")
 	} else {
-		fmt.Fprintf(&b, "%d background tasks you asked to be notified about have finished.\n\n", len(batch))
+		fmt.Fprintf(&b, "%d background tasks you started have finished.\n\n", len(batch))
 	}
 
 	for _, t := range batch {

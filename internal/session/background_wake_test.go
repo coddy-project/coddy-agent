@@ -52,7 +52,7 @@ func TestBackgroundWakeLastsOneTurnAndIsAnnounced(t *testing.T) {
 	defer remove()
 
 	wake := sampleWake()
-	prompt := []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "A background task you asked to be notified about has finished."}}
+	prompt := []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "A background task you started has finished."}}
 	if _, err := m.HandleSessionPromptWithSender(context.Background(),
 		acp.SessionPromptParams{SessionID: parent.ID, Prompt: prompt}, noopSender{},
 		&session.PromptRunOpts{BackgroundWake: wake}); err != nil {
@@ -141,7 +141,7 @@ func TestReloadedSessionReplaysAWakeAsTheWake(t *testing.T) {
 	wake := sampleWake()
 	parent.AddMessage(llm.Message{Role: llm.RoleUser, Content: "build it"})
 	parent.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "started bg_3"})
-	parent.AddMessage(llm.Message{Role: llm.RoleUser, Content: "A background task you asked to be notified about has finished.", BackgroundWake: wake})
+	parent.AddMessage(llm.Message{Role: llm.RoleUser, Content: "A background task you started has finished.", BackgroundWake: wake})
 	parent.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "The tests failed."})
 	if err := store.Save(parent); err != nil {
 		t.Fatal(err)

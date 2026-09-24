@@ -184,7 +184,7 @@ A **run_command** call with **`background: true`** returns the instant the task 
 
 ### Woken turn
 
-A turn nobody typed - background tasks the model started with **`notify_on_finish`** ended and the server woke the agent - shows **nothing of its own** in the transcript: no user bubble, which would put words in the operator's mouth, and no note either. The agent's answer follows the previous turn as the work carrying on, and the **bell** on the task's card in the Tasks panel says what woke it.
+A turn nobody typed - background tasks the model started ended and the server woke the agent (**`notify_on_finish`**, on by default) - shows **nothing of its own** in the transcript: no user bubble, which would put words in the operator's mouth, and no note either. The agent's answer follows the previous turn as the work carrying on, and the **bell** on the task's card in the Tasks panel says what woke it.
 
 - The first message of the turn still arrives, as a **`background_wake`** item (**`chat/backgroundWake.ts`**) built from the relay frame live and from the message's **`background_wake`** field after a reload, and **`MessageList`** renders it as nothing.
 - The item **opens a turn**: the answer that closes a woken turn keeps its action row, the live status line counts from it, the edit index of a later message counts it the way the server counts user messages, and a failed woken turn offers no retry.

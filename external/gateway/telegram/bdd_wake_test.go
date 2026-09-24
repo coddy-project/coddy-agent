@@ -116,7 +116,7 @@ func (w *wakeWorld) chatWithScriptedModel() error {
 	})
 	stub := &llmstub.Server{Rules: []llmstub.Rule{
 		{Match: "start the tests", Tool: &llmstub.ToolCall{Name: "run_command", Arguments: start}, Answer: "Started the tests in the background."},
-		{Match: "background task you asked to be notified about", Answer: "The tests failed with exit 2."},
+		{Match: "background task you started has finished", Answer: "The tests failed with exit 2."},
 	}}
 	w.model = httptest.NewServer(stub.Handler())
 

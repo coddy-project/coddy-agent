@@ -179,7 +179,7 @@ func TestReplayShowsAWakeInsteadOfAUserMessage(t *testing.T) {
 	two := 2
 	h.replayMessages("sess_1", []messageRow{
 		{Role: "user", Content: "build it"},
-		{Role: "user", Content: "A background task you asked to be notified about has finished.", BackgroundWake: &llm.BackgroundWake{
+		{Role: "user", Content: "A background task you started has finished.", BackgroundWake: &llm.BackgroundWake{
 			Tasks: []llm.BackgroundWakeTask{{ID: "bg_3", Kind: "command", Label: "make test", Status: "failed", ExitCode: &two, DurationMs: 90_000}},
 		}},
 		{Role: "assistant", Content: "The tests failed."},
@@ -295,7 +295,7 @@ func (p *relayProbe) handler(w http.ResponseWriter, r *http.Request) {
 	case "/coddy/sessions/sess_open/messages":
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprint(w, `{"messages":[{"role":"user","content":"start the tests"},`+
-			`{"role":"user","content":"A background task you asked to be notified about has finished.",`+
+			`{"role":"user","content":"A background task you started has finished.",`+
 			`"background_wake":{"tasks":[{"id":"bg_3","status":"failed"}]}}],"messagesRev":7}`)
 	case "/coddy/sessions/sess_open/activity":
 		w.Header().Set("Content-Type", "application/json")

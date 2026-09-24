@@ -274,8 +274,8 @@ machine the agent runs on. The list refreshes every 2.5 s while the overlay is
 open, a turn runs or a task runs, and every 15 s otherwise; between turns the
 footer keeps saying how many tasks still run.
 
-A task the agent started with `notify_on_finish` wakes it in this console
-when it ends ([Background tasks](../features/background-tasks.md#waking-the-agent-when-a-task-finishes)).
+A background task the agent started wakes it in this console when it ends,
+unless the call set `notify_on_finish: false` ([Background tasks](../features/background-tasks.md#waking-the-agent-when-a-task-finishes)).
 
 **F1** opens Coddy's own documentation in the place of the editor, read out of
 the binary ([Built-in documentation](../features/built-in-docs.md#the-console-help)):

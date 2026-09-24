@@ -42,11 +42,11 @@ func RunCommandToolForShell(commandShell platform.Shell) *tooling.Tool {
 						"type": "boolean",
 						"description": "Run the command as a background task and return a task id immediately instead of waiting for output. " +
 							"Use it for work that takes longer than a few seconds (builds, test suites, installs, watchers, servers, batch downloads) so you can keep working while it runs. " +
-							"Collect the result later with background_list, background_output, and background_wait; terminate with background_stop",
+							"The finished task wakes you with its outcome by default; follow or collect it sooner with background_list, background_output, and background_wait; terminate with background_stop",
 					},
 					"notify_on_finish": map[string]interface{}{
 						"type": "boolean",
-						"description": "For a background command, wake yourself with its outcome when it finishes (default true where a waker is available). " +
+						"description": "For a background command, or a foreground one handed to the background after its timeout, wake yourself with its outcome when it finishes (default true where a waker is available). " +
 							"Set false explicitly to prevent a wake. A completed result you collect with background_wait or background_output, or a task you stop, does not wake you again",
 					},
 					"expected_seconds": map[string]interface{}{
@@ -159,7 +159,7 @@ func joinNotice(notice, output string) string {
 func adoptionNotice(snap bgtask.Snapshot, timeout int) string {
 	wake := "Nothing will wake you when it finishes here; collect the result yourself."
 	if snap.NotifyOnFinish {
-		wake = "You will be woken with the outcome when it finishes, so you can end your turn now."
+		wake = "You will be woken with the outcome when it finishes, so you need not wait for it."
 	}
 	return fmt.Sprintf(
 		"Command still running after %s. It was NOT cancelled: it now runs as background task %s (hard timeout %s).\n"+

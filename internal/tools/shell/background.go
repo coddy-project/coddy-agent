@@ -76,8 +76,9 @@ func startBackgroundCommand(args runCommandArgs, env *tooling.Env) (string, erro
 		b.WriteString("You will be woken with the outcome when it finishes, so you can end your turn now.")
 	case args.wantsWake():
 		// Promising a turn that never starts would have the model end this one
-		// waiting for it.
-		fmt.Fprintf(&b, "Nothing will wake you when it finishes here, so notify_on_finish was ignored: check on it with %s or %s, and collect the result with %s.", ToolBackgroundList, ToolBackgroundWait, ToolBackgroundOutput)
+		// waiting for it. The wake is the default, so the line does not
+		// blame a flag the call most likely never set.
+		fmt.Fprintf(&b, "Nothing will wake you when it finishes here: check on it with %s or %s, and collect the result with %s before you end your turn.", ToolBackgroundList, ToolBackgroundWait, ToolBackgroundOutput)
 	default:
 		fmt.Fprintf(&b, "Keep working; check on it with %s or %s, and collect the result with %s.", ToolBackgroundList, ToolBackgroundWait, ToolBackgroundOutput)
 	}

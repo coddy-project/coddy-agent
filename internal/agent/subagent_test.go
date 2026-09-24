@@ -1170,17 +1170,50 @@ func TestSubagentMaxTurnsWithoutFinalAnswerFails(t *testing.T) {
 	}
 }
 
-func TestSubagentEmptyAnswerFails(t *testing.T) {
+// A child that wrote something on the way and then ran out of turns still
+// failed, and the parent is told the text it gets is not a conclusion.
+func TestSubagentMaxTurnsWithPartialTextSaysItIsNotAConclusion(t *testing.T) {
 	rig := newSubagentRig(t, nil)
-	rig.approvedDefinition("reviewer", "")
+	rig.approvedDefinition("reviewer", "max_turns: 1\n")
 	rig.setChildProvider(func(*session.State) llm.Provider {
-		return scripted(answerStep(""), answerStep(""), answerStep(""), answerStep(""))
+		return scripted(func(_ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) *llm.Response {
+			call := llm.ToolCall{ID: "more", Name: "read", InputJSON: `{"path":"README.md"}`}
+			onChunk(llm.StreamChunk{TextDelta: "Let me read the README first."})
+			onChunk(llm.StreamChunk{ToolCall: &call})
+			return &llm.Response{Content: "Let me read the README first.", ToolCalls: []llm.ToolCall{call}, StopReason: "tool_use"}
+		})
 	})
 	result, err := rig.parentAgent().spawnSubagent(context.Background(), spawnReq("reviewer"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if env := parseSubagentEnvelope(t, result); env.Status != "failed" || !strings.Contains(result, "no final message") {
+	env := parseSubagentEnvelope(t, result)
+	if env.Status != "failed" || !strings.Contains(result, "before its final answer") || !strings.Contains(result, "not a conclusion") {
+		t.Fatalf("partial child result = %q, want failed with the text marked as not a conclusion", result)
+	}
+}
+
+// silentChildRuntime runs no turn at all: the child's turn "ends" at once,
+// without an error and without a single assistant message.
+type silentChildRuntime struct{ *session.Manager }
+
+func (silentChildRuntime) RunSubagentTurn(context.Context, string, []acp.ContentBlock, acp.UpdateSender) (*acp.SessionPromptResult, error) {
+	return &acp.SessionPromptResult{StopReason: acp.StopReasonEndTurn}, nil
+}
+
+// A child whose turn ends cleanly without any answer has no report to give:
+// the run fails with that reason instead of passing a placeholder off as a
+// success. The loop's own "model produced no reply" error is a different path.
+func TestSubagentEmptyAnswerFails(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	rig.approvedDefinition("reviewer", "")
+	parent := rig.parentAgent()
+	parent.SetSubagentRuntime(silentChildRuntime{rig.mgr})
+	result, err := parent.spawnSubagent(context.Background(), spawnReq("reviewer"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env := parseSubagentEnvelope(t, result); env.Status != "failed" || !strings.Contains(result, "ended with an error: the subagent produced no final message") {
 		t.Fatalf("empty child answer = %q, want failed with the missing report named", result)
 	}
 }

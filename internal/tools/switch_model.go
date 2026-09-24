@@ -45,11 +45,11 @@ func SwitchModelTool(cfg *config.Config) *tooling.Tool {
 				"properties": map[string]interface{}{
 					"model": map[string]interface{}{
 						"type":        "string",
-						"description": "A configured model id from the list above; omit to keep the current model",
+						"description": "A configured model id from the list above, " + tooling.ModelChoiceRule + "; omit to keep the current model",
 					},
 					"reasoning": map[string]interface{}{
 						"type":        "string",
-						"description": "A reasoning level the chosen model offers, \"off\" or \"default\"; omit to keep the current one",
+						"description": "A reasoning level the chosen model offers, \"off\" or \"default\", " + tooling.ModelChoiceRule + "; omit to keep the current one",
 					},
 					"scope": map[string]interface{}{
 						"type":        "string",

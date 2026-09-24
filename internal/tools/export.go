@@ -90,8 +90,8 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 	if cfg == nil || cfg.Skills.AutoDiscoveryEnabled() {
 		r.Register(LoadSkillTool())
 	}
-	// The model's own switch between the configured models and reasoning
-	// levels: offered when there is something to switch to.
+	// The switch between the configured models and reasoning levels the user
+	// asks the model for: offered when there is something to switch to.
 	if modelSwitchOffered(cfg) {
 		r.Register(SwitchModelTool(cfg))
 	}

@@ -1,6 +1,6 @@
 # Session settings
 
-A session runs on four settings: the model, its reasoning level, the [operating mode](modes.md) and the permission mode. Each of them can be changed from the conversation itself, with a slash command typed in any surface, for the rest of the session or only for the next few turns. The permission dialog can switch the session out of `ask`, and the model can move itself to a stronger or a cheaper model when a step calls for it. Every change goes through one setter in the session manager (`Manager.ApplySessionSettings`, `internal/session/settings.go`), and every surface watching the session - the browser tab, a console, an editor - shows the new values.
+A session runs on four settings: the model, its reasoning level, the [operating mode](modes.md) and the permission mode. Each of them can be changed from the conversation itself, with a slash command typed in any surface, for the rest of the session or only for the next few turns. The permission dialog can switch the session out of `ask`, and the agent changes the model or the reasoning level itself when the user asks it to, never on its own. Every change goes through one setter in the session manager (`Manager.ApplySessionSettings`, `internal/session/settings.go`), and every surface watching the session - the browser tab, a console, an editor - shows the new values.
 
 ## The commands
 
@@ -60,11 +60,11 @@ While the session asks (`ask`), a permission prompt that belongs to the session 
 
 ## Changing the model on request
 
-The agent changes its model or reasoning level with `switch_model` only when the user asks in the current conversation. It does not pick a different model for a difficult step or routine work on its own. The related settings have three sources:
+The agent changes its model or reasoning level with `switch_model` only when the user asks in the current conversation. It does not pick a different model or level for a difficult step or routine work on its own, and it names a summarizer for `compact_context` only when the user named one. A subagent is different: the agent may run a child on another model or reasoning level than its own, which is expected. The system prompt describes `switch_model` only in a turn that is offered it. The related settings have three sources:
 
 - the `switch_model` tool sets the model, the reasoning level or both, from its next request. A user's request lasts for the session by default, like `/model`; `scope: turn` applies only when the user limited the change to this turn or task. Its description lists the configured models with their levels, so the choice is made among what exists. It is offered in every mode when there is something to switch (more than one model, or one with reasoning levels), and never to a subagent;
 - a skill's frontmatter `model` and `reasoning` (alias `effort`) apply for the rest of the turn, whether you typed `/skill` or the model called `load_skill`, unless the turn already runs on a value set for it by a command or by `switch_model` ([Skills](skills.md#yaml-frontmatter));
-- `spawn_agent` takes `model` and `reasoning` for the child, and a subagent definition takes `reasoning` next to `model`; the child's model is the argument, then the definition's, then the parent's ([Subagents](subagents.md#the-spawn_agent-tool)).
+- `spawn_agent` takes `model` and `reasoning` for the child, which the agent may pick itself, and a subagent definition takes `reasoning` next to `model`; the child's model is the argument, then the definition's, then the parent's ([Subagents](subagents.md#the-spawn_agent-tool)).
 
 A model id or a level the configuration does not offer is an error in a `switch_model` or a `spawn_agent` call, for the model to correct. In a skill or a definition file it is a warning in the agent log, and the session's own value stays.
 

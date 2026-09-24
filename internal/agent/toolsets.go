@@ -49,8 +49,8 @@ var planToolNames = []string{
 	// Filing the session writes nothing but the session's own title and tags,
 	// and a planning session is one that earns a name as it goes.
 	"session_describe",
-	// Choosing the model and the reasoning level changes nothing outside the
-	// session, and a hard planning step is where a stronger model pays.
+	// Changing the model or the reasoning level, when the user asks for it,
+	// changes nothing outside the session.
 	"switch_model",
 	// Coddy's own documentation, read out of the binary.
 	"coddy_docs_search",

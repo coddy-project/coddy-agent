@@ -38,7 +38,7 @@ ANSWER_FIXED = "Fixed it."
 # answer; the web UI and the console show nothing for a wake.
 WAKE_TITLE = "Woken by a finished background task"
 # The instruction a woken turn starts from (internal/agent/background_notify.go).
-WAKE_INSTRUCTION = "background task you asked to be notified about"
+WAKE_INSTRUCTION = "background task you started has finished"
 
 
 def free_port() -> int:

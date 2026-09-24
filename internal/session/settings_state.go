@@ -171,8 +171,9 @@ func (s *State) EndTurnSettings() {
 	s.bumpSettingsRevision()
 }
 
-// SetTurnSetting changes one value for the rest of the running turn: the
-// user-requested switch_model call, the frontmatter of a skill it loaded.
+// SetTurnSetting changes one value for the rest of the running turn: a
+// switch_model call the user limited to the turn, the frontmatter of a skill
+// it loaded.
 func (s *State) SetTurnSetting(setting, value string) {
 	s.settingsMu.Lock()
 	s.turn.active.set(setting, value)

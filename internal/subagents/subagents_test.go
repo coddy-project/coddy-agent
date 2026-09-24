@@ -552,6 +552,17 @@ func TestCatalogAndPromptBlockHideHiddenDefinitions(t *testing.T) {
 	}
 }
 
+// The parent reads in the catalog that a detached run wakes it by default, so
+// it can end its turn instead of waiting on a child it started.
+func TestPromptBlockSaysDetachedRunsWakeTheParent(t *testing.T) {
+	block := PromptBlock([]CatalogEntry{{Name: "general", Description: "General helper"}})
+	for _, want := range []string{"wake you", "by default", "background_stop"} {
+		if !strings.Contains(block, want) {
+			t.Errorf("prompt block lacks %q:\n%s", want, block)
+		}
+	}
+}
+
 // An approval surface decides on the bounds, not on the name: the catalog has
 // to carry what the definition declares about the child's reach. The role body
 // itself never travels - only its size - because a client would render it

@@ -260,7 +260,7 @@ func (r *Runtime) Init(opts Options) error {
 		mgr.SetPreferredSessionID(pid)
 	}
 	r.Mgr = mgr
-	// A task that asked to be notified wakes the agent whichever surfaces are
+	// A task started with a wake (notify_on_finish) wakes the agent whichever surfaces are
 	// enabled; they offer to run the turn as they come up (AddWakeSurface).
 	r.attachWaker()
 	return nil

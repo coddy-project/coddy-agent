@@ -24,8 +24,8 @@ func SpawnAgentTool() *tooling.Tool {
 			Description: "Delegate a self-contained task to a subagent listed in the Subagents section. " +
 				"The child starts with an empty context and sees none of this conversation, so the prompt must carry everything it needs. " +
 				"By default the call waits and returns the child's final report; the user does not see that report, so restate what matters in your reply. " +
-				"With background:true it returns a task id at once and you collect the report later with background_wait or background_output " +
-				"(background_stop terminates it). Use it for work that would flood this context or for independent pieces that can run in parallel; " +
+				"With background:true it returns a task id at once, and the finished run wakes you with its report by default, so you can end your turn; " +
+				"background_wait or background_output collect it sooner and background_stop terminates it. Use it for work that would flood this context or for independent pieces that can run in parallel; " +
 				"do not delegate a one-step task you can do directly.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
@@ -44,7 +44,7 @@ func SpawnAgentTool() *tooling.Tool {
 					},
 					"background": map[string]interface{}{
 						"type":        "boolean",
-						"description": "Return the task id immediately instead of waiting for the report; collect it later with background_wait or background_output",
+						"description": "Return the task id immediately instead of waiting for the report; the finished run wakes you with it by default, or collect it sooner with background_wait or background_output",
 					},
 					"expected_seconds": map[string]interface{}{
 						"type":        "integer",

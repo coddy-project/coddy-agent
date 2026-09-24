@@ -145,7 +145,7 @@ A **foreground** spawn (the default) blocks the tool call until the child's turn
 The user did not see this report: restate what matters in your own reply. The full transcript is session sess_9f1c… (Tasks panel → Show transcript).
 ```
 
-`status` is the pool's verdict for the task (`succeeded`, `failed`, `timed_out`, `stopped`); when it is anything but `succeeded` a line says so and tells the model to treat the report accordingly, and a run that ended with an error names it. A child that reaches `max_turns` or produces no final message is `failed` with that reason, even if its turn returned without an error. `turns` is the number of assistant rounds in the child's transcript. The report is wrapped in CDATA so nothing the child wrote can break the envelope.
+`status` is the pool's verdict for the task (`succeeded`, `failed`, `timed_out`, `stopped`); when it is anything but `succeeded` a line says so and tells the model to treat the report accordingly, and a run that ended with an error names it. A child that reaches `max_turns` or produces no final message is `failed` with that reason, even if its turn returned without an error; text it wrote on the way to `max_turns` comes back as the report, and the reason says it is not a conclusion. `turns` is the number of assistant rounds in the child's transcript. The report is wrapped in CDATA so nothing the child wrote can break the envelope.
 
 A **background** spawn returns at once:
 
