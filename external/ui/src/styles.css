@@ -9977,6 +9977,14 @@ html:not([data-theme="light"]) .context-usage-note--error {
   color: color-mix(in srgb, var(--diff-del-no) 70%, var(--text));
 }
 
+/* The bar of a structured card is what the call is about - an address, a task, a
+   plan - so it wraps instead of ending in an ellipsis: on a phone the query of an
+   http request is exactly the part an ellipsis would hide. */
+.structured-tool-card .permission-preview-location {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 /* An MCP call's bar: the server muted, then the tool as its server spells it. */
 .structured-tool-mcp-server {
   color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
