@@ -1190,10 +1190,10 @@ test("an MCP call names the server and the tool, never the registry id", () => {
   expect(screen.getByText("Crash on start")).toHaveClass("tool-summary-target");
 });
 
-test("the label, the target, the failure marker and the duration stay siblings of one head", () => {
-  // The head wraps: a long label - an MCP tool names its server and its tool in
-  // a sentence - takes the row's whole width, and what trails it moves under it
-  // instead of running off the right edge.
+test("the target, the failure marker and the duration trail the label as one group", () => {
+  // The head wraps: a label that leaves no room on its line - an MCP tool names
+  // its server and its tool in a sentence - keeps the line, and the group moves
+  // under it as a whole instead of the duration landing on a line of its own.
   const { container } = render(
     <ToolCallMessage
       toolCallId="tc-mcp-trail"
@@ -1207,13 +1207,30 @@ test("the label, the target, the failure marker and the duration stay siblings o
   const head = container.querySelector(".thinking-head");
   expect([...(head?.children ?? [])].map((el) => el.className)).toEqual([
     "thinking-label",
-    "tool-summary-target",
-    "tool-failed-marker",
-    "thinking-dur",
+    "thinking-trail thinking-trail--failed",
   ]);
   expect(head?.querySelector(".thinking-label")?.textContent).toBe(
     "calling search_repositories_with_extended_filters on the MCP server github",
   );
+  const trail = head?.querySelector(".thinking-trail");
+  expect([...(trail?.children ?? [])].map((el) => el.className)).toEqual([
+    "tool-summary-target",
+    "tool-failed-marker",
+    "thinking-dur",
+  ]);
+});
+
+test("a row with nothing to trail its label renders no empty group", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-question"
+      title="question"
+      status="completed"
+      argsText={JSON.stringify({ questions: [] })}
+      resultText=""
+    />,
+  );
+  expect(container.querySelector(".thinking-trail")).toBeNull();
 });
 
 test("an MCP call's JSON answer is shown indented, not as one long line", () => {

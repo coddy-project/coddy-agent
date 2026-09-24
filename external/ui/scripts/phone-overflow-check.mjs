@@ -30,12 +30,18 @@ const URL_BASE = (process.env.CODDY_UI_URL || "http://127.0.0.1:5241").replace(
 );
 const ENGINE = process.env.CODDY_ENGINE || "chromium";
 const BROWSER_PATH = process.env.CODDY_BROWSER_PATH || "";
+if (BROWSER_PATH && ENGINE !== "chromium") {
+  console.error("CODDY_BROWSER_PATH points at a Chromium; WebKit and Firefox run Playwright's own builds");
+  process.exit(2);
+}
 
 // The verification widths of the grid: the phones the issue names (Galaxy S21,
 // iPhone 13 mini, Honor X9d, a large phone), a phone's upper edge, the tablet
 // tier's edges and an iPad, and a desktop window.
 const WIDTHS = [360, 375, 393, 430, 599, 600, 834, 1199, 1280];
 const LANGS = ["ru", "en"];
+// Built-in tools with a short label: their rows keep one line at every width.
+const SHORT_LABEL_ROWS = ["tool-details-tc-command", "tool-details-tc-glob", "tool-details-tc-short-target"];
 
 let playwright;
 try {
@@ -64,16 +70,18 @@ function check(label, ok, detail) {
   }
 }
 
-// What sticks out of the transcript's column. An element inside a box that
-// scrolls or clips on its own - a table, a code block, a strip - is that box's
-// business, so only the outermost offender of each branch is reported.
+// What sticks out of the transcript's column. An element inside a box the
+// reader can scroll sideways - a table, a code block - is that box's business;
+// a box that merely clips would hide the overflow instead of fixing it, so it
+// excuses nothing. Only the outermost offender of each branch is reported.
 async function probe(page) {
-  return page.evaluate(() => {
+  return page.evaluate((shortLabelRows) => {
     const column = document.querySelector(".messages-inner");
+    if (!column) return { error: "the stand has no .messages-inner" };
     const edge = column.getBoundingClientRect();
-    const clippedInside = (el) => {
+    const scrollsInside = (el) => {
       for (let a = el.parentElement; a && a !== column; a = a.parentElement) {
-        if (/(auto|scroll|hidden|clip)/.test(getComputedStyle(a).overflowX)) {
+        if (/(auto|scroll)/.test(getComputedStyle(a).overflowX)) {
           return true;
         }
       }
@@ -84,7 +92,7 @@ async function probe(page) {
       const r = el.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) continue;
       if (r.right <= edge.right + 0.5 && r.left >= edge.left - 0.5) continue;
-      if (clippedInside(el)) continue;
+      if (scrollsInside(el)) continue;
       if (out.some((o) => o.el.contains(el))) continue;
       out.push({
         el,
@@ -92,11 +100,27 @@ async function probe(page) {
       });
     }
     const rows = [...column.querySelectorAll(".coddy-tool-call-row")].map((row) => {
-      const head = row.querySelector(".thinking-head").getBoundingClientRect();
+      const id = row.querySelector("details")?.dataset.testid || "(a row without a test id)";
+      const headEl = row.querySelector(".thinking-head");
+      if (!headEl) return { id, error: "no .thinking-head" };
+      const head = headEl.getBoundingClientRect();
+      const label = row.querySelector(".thinking-label").getBoundingClientRect();
+      const trail = row.querySelector(".thinking-trail");
+      const parts = trail ? [...trail.children].map((el) => el.getBoundingClientRect()) : [];
       const dur = row.querySelector(".thinking-dur")?.getBoundingClientRect();
+      const target = row.querySelector(".tool-summary-target");
+      const tb = target?.getBoundingClientRect();
       return {
-        id: row.querySelector("details")?.dataset.testid || "",
+        id,
         durInside: !dur || (dur.right <= head.right + 0.5 && dur.left >= head.left - 0.5),
+        // The target, the marker and the duration move together or not at all.
+        trailTogether: parts.every((b) => Math.abs(b.top - parts[0].top) < 4),
+        // A target is readable or on the next line, never a sliver.
+        targetWidth: tb ? Math.round(tb.width) : null,
+        targetNeeds: target ? Math.min(target.scrollWidth, 24) : 0,
+        // The rows whose label is short keep one line at every width.
+        oneLine: !trail || Math.abs(trail.getBoundingClientRect().top - label.top) < 4,
+        shortLabel: shortLabelRows.includes(id),
       };
     });
     return {
@@ -105,7 +129,7 @@ async function probe(page) {
       offenders: out.map((o) => o.what),
       rows,
     };
-  });
+  }, SHORT_LABEL_ROWS);
 }
 
 const browser = await launcher.launch(
@@ -119,10 +143,21 @@ try {
         waitUntil: "domcontentloaded",
       });
       await page.waitForSelector(".coddy-tool-call-row details[open]");
-      await page.waitForTimeout(200);
+      // Measure the text in the font it is set in, and the rows at rest: an
+      // opening row turns its chevron, and a square halfway through a quarter
+      // turn is wider than itself.
+      await page.evaluate(async () => {
+        await document.fonts.ready;
+        await Promise.all(document.getAnimations().map((a) => a.finished.catch(() => {})));
+      });
 
       const got = await probe(page);
       const at = `${ENGINE} ${lang} ${width}px`;
+      if (got.error) {
+        check(`${at} the stand is measurable`, false, got.error);
+        await page.close();
+        continue;
+      }
       check(`${at} the page does not scroll sideways`, got.pageOverflow <= 0, `${got.pageOverflow}px`);
       check(
         `${at} nothing sticks out of the transcript`,
@@ -131,7 +166,22 @@ try {
       );
       check(`${at} the stand mounts every tool row`, got.rows.length >= 3, `${got.rows.length} rows`);
       for (const row of got.rows) {
+        if (row.error) {
+          check(`${at} ${row.id} is measurable`, false, row.error);
+          continue;
+        }
         check(`${at} ${row.id} keeps its duration inside the row`, row.durInside);
+        check(`${at} ${row.id} keeps its target, marker and duration together`, row.trailTogether);
+        if (row.targetWidth !== null) {
+          check(
+            `${at} ${row.id} shows a readable target`,
+            row.targetWidth >= row.targetNeeds,
+            `${row.targetWidth}px`,
+          );
+        }
+        if (row.shortLabel) {
+          check(`${at} ${row.id} stays on one line`, row.oneLine);
+        }
       }
       await page.close();
     }

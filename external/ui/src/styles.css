@@ -9748,10 +9748,11 @@ html:not([data-theme="light"]) .context-usage-note--error {
 }
 
 /* Label, target and duration share one line, and the target is what gives way, clipped
-   with an ellipsis. Only a label longer than the whole row - an MCP tool names its server
-   and its tool in a sentence, one of them a long identifier - breaks the line: it wraps
-   inside the row, and the target and the duration move under it. Nothing in the row may
-   be wider than the row, since on the stacked shell the transcript's column is the page.
+   with an ellipsis. A label that leaves too little of its line - an MCP tool names its
+   server and its tool in a sentence, one of them a long identifier - breaks it: the label
+   wraps inside the row when it is longer than the row, and what trails it moves under it
+   as one group. Nothing in the row may be wider than the row, since on the stacked shell
+   the transcript's column is the page.
 
    They are three type sizes in two families - a 14px system label, a 12px monospace
    target, a 12px system duration - so centring their boxes lines up the boxes and leaves
@@ -9774,17 +9775,35 @@ html:not([data-theme="light"]) .context-usage-note--error {
   overflow-wrap: anywhere;
 }
 
+/* The target, the failure marker and the duration (.thinking-trail) travel together:
+   on the label's line while it has the room the group needs, under the label as a whole
+   when it does not, so the duration never ends up alone on a line after a target cut to
+   a sliver. The basis is that room - the duration and a readable start of the target,
+   plus the marker on a failed call - capped at the group's own width, so a short group
+   needs only what it has: the head is as wide as its content, and a basis wider than the
+   group would wrap it under a label it fits beside. The minimum is zero, because the
+   automatic one would be the target's whole unwrapped text and push the group under
+   every label. It grows into the rest of the line; the target inside gives way. */
+.thinking-trail {
+  display: inline-flex;
+  align-items: baseline;
+  flex: 1 1 7em;
+  min-width: 0;
+  max-width: max-content;
+  gap: 0 6px;
+}
+
+.thinking-trail--failed {
+  flex-basis: 11em;
+}
+
 .thinking-head .thinking-dur {
   flex: 0 0 auto;
 }
 
-/* The path, command or skill a call names, one shade lighter than the tool label.
-   A zero basis, so its text never decides whether it still fits beside the label: it
-   grows into what is left of the label's line, up to its own width so the duration
-   stays right after it, and ends in an ellipsis when that is not enough. */
+/* The path, command or skill a call names, one shade lighter than the tool label. */
 .tool-summary-target {
-  flex: 1 1 0;
-  max-width: max-content;
+  flex: 0 1 auto;
   overflow: hidden;
   min-width: 0;
   text-overflow: ellipsis;
@@ -13952,6 +13971,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
     -webkit-box-orient: vertical;
     white-space: normal;
     overflow-wrap: anywhere;
+    overflow: hidden;
     line-height: 1.3;
   }
 }

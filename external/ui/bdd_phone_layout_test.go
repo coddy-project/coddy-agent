@@ -65,12 +65,12 @@ func TestWebUIPhoneFeature(t *testing.T) {
 				if err := runVitestScenario(breakpoints, "the phone tier is the compact window class: up to 599px"); err != nil {
 					return err
 				}
-				return runVitestScenario(breakpoints, "the tiers follow one another without a gap or an overlap")
+				return runVitestScenario(breakpoints, "the tiers come in order: phone, tablet, desktop, wide")
 			})
 			sc.Step(`^every width the stylesheet asks about is an edge of the grid or a threshold it lists$`, func() error {
 				for _, name := range []string{
 					"the layout grid every width query of the stylesheet is a tier edge or a listed component threshold",
-					"the layout grid DESIGN.md names every tier edge and every component threshold the stylesheet uses",
+					"the layout grid DESIGN.md names every tier edge the stylesheet uses, and every threshold it lists is in use",
 					"the layout grid the code asks for a width only through shellBreakpoint.ts",
 				} {
 					if err := runVitestScenario(grid, name); err != nil {
@@ -82,17 +82,17 @@ func TestWebUIPhoneFeature(t *testing.T) {
 			sc.Step(`^a settings tile on a phone spells its whole name$`, func() error {
 				return runVitestScenario(layout, "phone settings a section tile spells its whole name: the title wraps to two lines instead of an ellipsis")
 			})
-			sc.Step(`^a tool row named after an MCP tool wraps its label inside the row and its duration moves under it$`, func() error {
+			sc.Step(`^a tool row named after an MCP tool wraps its label inside the row and moves its target and duration under it together$`, func() error {
 				for _, name := range []string{
 					"a tool row never widens the transcript the label keeps its line while it fits, and wraps inside the row when it does not",
 					"a tool row never widens the transcript the head wraps, so what trails a full-width label moves under it",
-					"a tool row never widens the transcript the target takes what is left of the label's line and never forces a line of its own",
+					"a tool row never widens the transcript what trails the label moves as one group, and only when the label's line lacks the room it needs",
 				} {
 					if err := runVitestScenario(wrap, name); err != nil {
 						return err
 					}
 				}
-				return runVitestScenario(toolRow, "the label, the target, the failure marker and the duration stay siblings of one head")
+				return runVitestScenario(toolRow, "the target, the failure marker and the duration trail the label as one group")
 			})
 			sc.Step(`^a long link or identifier in an answer breaks instead of widening the page$`, func() error {
 				if err := runVitestScenario(wrap, "an answer never widens the transcript a long link or word in the prose breaks where it has to"); err != nil {

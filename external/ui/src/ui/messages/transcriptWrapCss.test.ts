@@ -49,14 +49,31 @@ describe("a tool row never widens the transcript", () => {
     expect(decl(rule(".thinking-head"), "flex-wrap")).toBe("wrap");
   });
 
-  test("the target takes what is left of the label's line and never forces a line of its own", () => {
+  test("what trails the label moves as one group, and only when the label's line lacks the room it needs", () => {
+    const trail = rule(".thinking-trail");
+    expect(decl(trail, "display")).toBe("inline-flex");
+    expect(decl(trail, "align-items")).toBe("baseline");
+    expect(decl(trail, "gap")).toBe("0 6px");
+    // The basis is the room the group needs on the label's line: the duration
+    // and a readable start of the target. Not the target's whole text, which
+    // would push the group under every label with a long command.
+    const [grow, shrink, basis] = (decl(trail, "flex") ?? "").split(/\s+/);
+    expect(grow).toBe("1");
+    expect(shrink).toBe("1");
+    expect(basis).toMatch(/^\d+(\.\d+)?em$/);
+    // The automatic minimum would be that whole text again.
+    expect(decl(trail, "min-width")).toBe("0");
+    // Capped at its own width: the head is as wide as its content, so a basis
+    // wider than a short group would wrap it under a label it fits beside.
+    expect(decl(trail, "max-width")).toBe("max-content");
+    // A failed call also carries the failure marker, so it needs more.
+    const failed = decl(rule(".thinking-trail--failed"), "flex-basis") ?? "";
+    expect(parseFloat(failed)).toBeGreaterThan(parseFloat(basis ?? ""));
+  });
+
+  test("the target inside the group keeps its own width and ends in an ellipsis", () => {
     const target = rule(".tool-summary-target");
-    // A zero basis: the target's text never decides whether it still fits
-    // beside the label, so a long command ends in an ellipsis on the label's
-    // line instead of dropping under it. It grows into the room that is left,
-    // but no wider than its text, so the duration stays right after it.
-    expect(decl(target, "flex")).toBe("1 1 0");
-    expect(decl(target, "max-width")).toBe("max-content");
+    expect(decl(target, "flex")).toBe("0 1 auto");
     expect(decl(target, "min-width")).toBe("0");
     expect(decl(target, "overflow")).toBe("hidden");
     expect(decl(target, "text-overflow")).toBe("ellipsis");

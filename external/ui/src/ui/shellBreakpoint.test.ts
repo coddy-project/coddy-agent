@@ -25,7 +25,9 @@ test("the wide tier starts at 1920px", () => {
   expect(wideRailMinWidthMediaQuery).toBe("(min-width: 1920px)");
 });
 
-test("the tiers follow one another without a gap or an overlap", () => {
+test("the tiers come in order: phone, tablet, desktop, wide", () => {
+  // Each tier starts one pixel after the previous one ends; the queries are
+  // written that way (layoutGridCss.test.ts), this pins the order.
   expect(PHONE_MAX_WIDTH_PX).toBeLessThan(SHELL_STACK_MAX_WIDTH_PX);
   expect(SHELL_STACK_MAX_WIDTH_PX).toBeLessThan(WIDE_RAIL_MIN_WIDTH_PX);
 });

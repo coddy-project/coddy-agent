@@ -166,6 +166,9 @@ describe("phone settings", () => {
     expectDecl(title, "-webkit-line-clamp", /^2$/);
     expectDecl(title, "display", /^-webkit-box$/);
     expectDecl(title, "overflow-wrap", /^anywhere$/);
+    // A clamp paints past its last line without it; the phone rule does not
+    // lean on the ellipsis rule it overrides to keep it.
+    expectDecl(title, "overflow", /^hidden$/);
   });
 });
 
