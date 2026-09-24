@@ -25,7 +25,7 @@ The process holds the terminal, prints what it started, and stops on Ctrl-C. Thi
 form to use under `systemd`, `supervisord`, Docker, or anything else that already owns
 process lifetimes - those supervisors restart the process themselves, and stacking a
 second one under them only hides failures from the first. On Linux, `coddy serve setup`
-writes that systemd unit for you (next section).
+sets up that systemd unit for you, the packaged one or one it writes (next section).
 
 ## As a systemd user service on Linux
 
@@ -41,12 +41,13 @@ crash and, with [lingering](#after-logout-and-at-boot), keeps running after logo
 starts at boot. `coddy serve setup` puts it in place and `coddy serve uninstall` takes it
 away. Both run as the user the service is for, never under `sudo`.
 
-What `setup` has to do depends on how Coddy was installed:
+On macOS and Windows there is no systemd, and both commands say so; `coddy serve --daemon`
+is the route there. On Linux, what `setup` has to do depends on how Coddy was installed:
 
 | Installed with | The unit | What `setup` does with it |
 |---|---|---|
 | the `.deb` or `.rpm` | `/usr/lib/systemd/user/coddy.service`, installed and **not enabled** | enables it for your account |
-| the install script, a release archive, Homebrew, a local build | none | writes `~/.config/systemd/user/coddy.service` for the binary you ran `setup` with, then enables it |
+| the install script, a release archive, Homebrew on Linux, a local build | none | writes `~/.config/systemd/user/coddy.service` for the binary you ran `setup` with, then enables it |
 
 The package enables the unit for nobody: which accounts on a machine run a server is
 for each of them to decide, and the message printed at installation says so. The
@@ -61,7 +62,7 @@ Either way, `setup`:
    the same port;
 3. puts the unit in place (above), plus a drop-in
    `~/.config/systemd/user/coddy.service.d/coddy-setup.conf` with the `PATH` of the shell
-   you ran it from;
+   you ran it from (a shell with no `PATH` keeps the drop-in an earlier run wrote);
 4. creates `~/Coddy`;
 5. runs `systemctl --user daemon-reload`, `enable` and `restart`, waits two seconds, and
    reports whether the service stayed up, with the command that shows its log.

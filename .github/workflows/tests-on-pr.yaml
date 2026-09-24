@@ -282,7 +282,9 @@ jobs:
           done
           for package in dist/*.rpm; do
             rpm2cpio "$package" | cpio -i --quiet --to-stdout ./usr/lib/systemd/user/coddy.service | cmp - packaging/systemd/coddy.service
-            rpm -qp --scripts "$package" | grep -F 'coddy serve setup'
+            rpm -qp --scripts "$package" > scripts.txt
+            grep -F 'coddy serve setup' scripts.txt    # postinstall
+            grep -F 'coddy-setup.conf' scripts.txt     # preremove
           done
 
       # Same reasoning one step further: the Homebrew cask is rendered only by

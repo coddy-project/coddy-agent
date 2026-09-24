@@ -35,11 +35,15 @@ const (
 // the provider keys, so the service gets a folder of its own.
 const ServiceWorkspace = "Coddy"
 
-// The first comment line of a unit tells who put it there. UnitHeaderWritten is
-// how setup and uninstall recognise a unit setup wrote, and so the only one
-// they overwrite or delete; a unit the user wrote by hand is left alone.
+// The first comment line of a unit tells who put it there. A first line that
+// starts with setupMarker is how setup and uninstall recognise a file setup
+// wrote, and so the only kind they overwrite or delete; a unit the user wrote
+// by hand is left alone. The rest of the line is prose and may change between
+// releases; the marker may not, or files an older setup wrote stop being ours.
+const setupMarker = "# Written by `coddy serve setup`"
+
 const (
-	UnitHeaderWritten  = "# Written by `coddy serve setup`; `coddy serve uninstall` removes it."
+	UnitHeaderWritten  = setupMarker + "; `coddy serve uninstall` removes it."
 	UnitHeaderPackaged = "# Installed by the coddy package and not enabled. Run `coddy serve setup`\n# as the user the service is for (without sudo) to enable and start it."
 )
 
@@ -52,14 +56,7 @@ const DropInName = "coddy-setup.conf"
 // an agent that cannot find the go, node or python a terminal finds is not
 // much of a coding agent.
 func DropInFile(path string) string {
-	var dirs []string
-	for _, dir := range filepath.SplitList(path) {
-		// Only absolute entries mean the same thing in a service that has
-		// no current directory of the shell's.
-		if dir != "" && filepath.IsAbs(dir) {
-			dirs = append(dirs, dir)
-		}
-	}
+	dirs := absolutePath(path)
 	var b strings.Builder
 	b.WriteString(UnitHeaderWritten + "\n")
 	b.WriteString("# The PATH of the shell `coddy serve setup` ran from. Run setup again to\n")
@@ -69,6 +66,18 @@ func DropInFile(path string) string {
 		b.WriteString("Environment=" + systemdQuote("PATH="+strings.Join(dirs, string(filepath.ListSeparator))) + "\n")
 	}
 	return b.String()
+}
+
+// absolutePath is the entries of a PATH that mean the same thing in a service,
+// which has no current directory of the shell's: the absolute ones.
+func absolutePath(path string) []string {
+	var dirs []string
+	for _, dir := range filepath.SplitList(path) {
+		if dir != "" && filepath.IsAbs(dir) {
+			dirs = append(dirs, dir)
+		}
+	}
+	return dirs
 }
 
 // serviceSettle is how long setup lets a freshly started service run before it
@@ -186,8 +195,8 @@ func NewUserService(out io.Writer) (*UserService, error) {
 	if os.Geteuid() == 0 {
 		return nil, errors.New("run this as the user the service is for, without sudo: a systemd user service belongs to one account")
 	}
-	systemctl, err := exec.LookPath("systemctl")
-	if err != nil {
+	systemctl, ok := systemctlPath()
+	if !ok {
 		return nil, errors.New("systemctl was not found: this system does not run systemd; use `coddy serve --daemon` instead")
 	}
 	// %h in a unit is the home of the account record, which is also the
@@ -268,6 +277,20 @@ func invokedExecutable() (string, error) {
 	return exe, nil
 }
 
+// systemctlPath finds systemctl on PATH, or where every systemd distribution
+// puts it when PATH is empty or trimmed.
+func systemctlPath() (string, bool) {
+	if p, err := exec.LookPath("systemctl"); err == nil {
+		return p, true
+	}
+	for _, p := range []string{"/usr/bin/systemctl", "/bin/systemctl"} {
+		if fileExists(p) {
+			return p, true
+		}
+	}
+	return "", false
+}
+
 // mkdirPath is mkdir(1) for a unit: /bin/mkdir wherever it exists, which covers
 // merged and split /usr alike, and whatever PATH has otherwise.
 func mkdirPath() string {
@@ -342,7 +365,7 @@ func writtenBySetup(path string) bool {
 		return false
 	}
 	first, _, _ := strings.Cut(string(body), "\n")
-	return strings.TrimSpace(first) == UnitHeaderWritten
+	return strings.HasPrefix(strings.TrimSpace(first), setupMarker)
 }
 
 func (s *UserService) systemctl(ctx context.Context, args ...string) ([]byte, error) {
@@ -470,6 +493,12 @@ func (s *UserService) placeDropIn() error {
 		s.printf("kept %s: it was not written by coddy serve setup\n", path)
 		return nil
 	}
+	if len(absolutePath(s.ShellPath)) == 0 && fileExists(path) {
+		// A shell started with an empty environment would otherwise take
+		// away the PATH an earlier setup handed over.
+		s.printf("kept %s: this shell has no PATH to hand over\n", path)
+		return nil
+	}
 	if err := writeFileAtomic(path, []byte(DropInFile(s.ShellPath))); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
@@ -496,6 +525,10 @@ func writeFileAtomic(path string, body []byte) error {
 		_ = tmp.Close()
 		return err
 	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}
@@ -519,6 +552,9 @@ func (s *UserService) Uninstall(ctx context.Context) error {
 	if !userUnitExists && !packagedUnit {
 		if ourDropIn {
 			if err := removeDropIn(dropIn); err != nil {
+				return err
+			}
+			if _, err := s.systemctl(ctx, "daemon-reload"); err != nil {
 				return err
 			}
 			s.printf("removed %s; no %s is installed for this user\n", dropIn, UnitName)
@@ -581,8 +617,8 @@ func UserServiceActive(ctx context.Context) bool {
 	if runtime.GOOS != "linux" || os.Geteuid() == 0 {
 		return false
 	}
-	systemctl, err := exec.LookPath("systemctl")
-	if err != nil {
+	systemctl, ok := systemctlPath()
+	if !ok {
 		return false
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)

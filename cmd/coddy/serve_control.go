@@ -57,6 +57,9 @@ func runServeStatus(args []string) error {
 	if rec.LastError != "" {
 		fmt.Printf("  last    %s\n", rec.LastError)
 	}
+	// Both running means one of them could not bind; say so next to the
+	// daemon that is being asked about.
+	printServiceHint()
 	return nil
 }
 

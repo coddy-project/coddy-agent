@@ -385,3 +385,36 @@ func TestUninstallRemovesTheDropInAndKeepsOnesTheUserWrote(t *testing.T) {
 		t.Fatalf("the user's drop-in went with it: %v", err)
 	}
 }
+
+func TestAUnitAnOlderSetupWroteIsStillOurs(t *testing.T) {
+	f := newFakeService(t)
+	writeTestFile(t, f.userUnit(), setupMarker+" by an older release, with other words after it.\n[Service]\nExecStart=/old/coddy serve\n")
+	if err := f.Setup(context.Background()); err != nil {
+		t.Fatalf("setup refused a unit an older setup wrote: %v", err)
+	}
+	body, _ := os.ReadFile(f.userUnit())
+	if !strings.Contains(string(body), "\nExecStart="+f.Exe+" serve\n") {
+		t.Fatalf("the unit was not rewritten:\n%s", body)
+	}
+}
+
+func TestSetupFromAShellWithoutPathKeepsTheHandedOverPath(t *testing.T) {
+	f := newFakeService(t)
+	f.ShellPath = strings.Join([]string{filepath.Join(f.Home, "go", "bin"), filepath.Join(f.root, "usr", "bin")}, string(filepath.ListSeparator))
+	if err := f.Setup(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(f.dropIn())
+	f.ShellPath = ""
+	f.out.Reset()
+	if err := f.Setup(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := os.ReadFile(f.dropIn())
+	if string(after) != string(before) {
+		t.Fatalf("an empty PATH replaced the drop-in:\n%s", after)
+	}
+	if !strings.Contains(f.out.String(), "no PATH to hand over") {
+		t.Fatalf("output:\n%s", f.out.String())
+	}
+}

@@ -22,11 +22,10 @@ if [ -n "${SUDO_USER:-}" ]; then
 fi
 
 if [ "$event" = upgrade ]; then
-    # An enabled service keeps running the binary it started with. Say so only
-    # when the account that ran sudo has it enabled, or when there is no way
-    # to tell.
-    if [ -z "$user_home" ] || [ -e "$user_home/.config/systemd/user/default.target.wants/coddy.service" ]; then
-        cat <<'EOF'
+    # An enabled service keeps running the binary it started with. Which
+    # accounts enabled it is not something root can see from here (each user
+    # manager has its own config home), so the reminder goes to everyone.
+    cat <<'EOF'
 
 Coddy is upgraded. If you run it as a systemd user service, the service keeps
 the previous binary until it restarts. As that user, without sudo:
@@ -34,7 +33,6 @@ the previous binary until it restarts. As that user, without sudo:
     coddy serve setup   # reload the unit, restart the service, check it is up
 
 EOF
-    fi
     exit 0
 fi
 
