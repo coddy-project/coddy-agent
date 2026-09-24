@@ -309,6 +309,7 @@ function HttpCard(props: BodyProps & { args: ToolArgs; result: string }) {
           ? [t("structuredTool.outputFile"), <Mono>{view.outputFile}</Mono>]
           : null,
       ])}
+      {output(view.body?.content ?? "")}
       {exchange
         ? answerSection(
             <>
@@ -386,8 +387,8 @@ function BackgroundCard(
           <Muted>{t("structuredTool.noTasks")}</Muted>
         ) : (
           <ul className="scheduler-tool-rows">
-            {view.tasks.map((task) => (
-              <li key={task.id}>
+            {view.tasks.map((task, i) => (
+              <li key={`${task.id}-${i}`}>
                 <TaskRow task={task} showId />
               </li>
             ))}
@@ -422,8 +423,8 @@ function BackgroundCard(
           <Muted>{t("structuredTool.noLeftovers")}</Muted>
         ) : (
           <ul className="scheduler-tool-rows">
-            {view.tasks.map((task) => (
-              <li className="scheduler-tool-row" key={task.id}>
+            {view.tasks.map((task, i) => (
+              <li className="scheduler-tool-row" key={`${task.id}-${i}`}>
                 <span className="scheduler-tool-row-id">{task.id}</span>
                 <span className="scheduler-tool-row-text">{task.label}</span>
                 <span className="scheduler-tool-muted">pid {task.pid}</span>
@@ -525,8 +526,8 @@ function DocsSearchCard(props: BodyProps & { args: ToolArgs; result: string }) {
         <Muted>{t("structuredTool.noDocsHits")}</Muted>
       ) : (
         <ul className="scheduler-tool-rows">
-          {hits.map((hit) => (
-            <li className="structured-tool-hit" key={hit.ref}>
+          {hits.map((hit, i) => (
+            <li className="structured-tool-hit" key={`${hit.ref}-${i}`}>
               <span className="scheduler-tool-row">
                 <DocsLink reference={hit.ref}>{hit.title}</DocsLink>
                 <span className="scheduler-tool-muted">{hit.ref}</span>
@@ -600,8 +601,8 @@ function PlanCard(
           <Muted>{t("structuredTool.noPlans")}</Muted>
         ) : (
           <ul className="scheduler-tool-rows">
-            {plans.map((plan) => (
-              <li className="scheduler-tool-row" key={plan.slug}>
+            {plans.map((plan, i) => (
+              <li className="scheduler-tool-row" key={`${plan.slug}-${i}`}>
                 <span className="scheduler-tool-row-text">
                   {plan.name || plan.slug}
                 </span>
@@ -635,6 +636,9 @@ function PlanCard(
             : null,
           plan.overview ? [t("structuredTool.overview"), plan.overview] : null,
         ])}
+        {/* What this write wrote: the plan card in the chat shows the latest
+            version, the transcript keeps each one. */}
+        {documentNode(plan.body)}
         {props.result ? <Muted>{props.result}</Muted> : null}
       </Card>
     );
@@ -714,6 +718,16 @@ function ConfigCard(props: BodyProps & { args: ToolArgs; result: string }) {
   );
 }
 
+/**
+ * A memory note: a `.md` file, or text with Markdown's own structure, is a
+ * document; a `.txt` note stays the text it is, where `_` and `*` mean nothing.
+ */
+function noteNode(path: string, text: string): ReactNode {
+  return /\.md$/i.test(path) || looksLikeMarkdown(text)
+    ? documentNode(text)
+    : output(text);
+}
+
 function MemoryCard(
   props: BodyProps & { name: string; args: ToolArgs; result: string },
 ) {
@@ -724,7 +738,7 @@ function MemoryCard(
     case "coddy_memory_read":
       return (
         <Card heading={path} {...body}>
-          {documentNode(props.result)}
+          {noteNode(path, props.result)}
         </Card>
       );
     case "coddy_memory_save": {
@@ -741,7 +755,7 @@ function MemoryCard(
               : null,
             scope ? [t("structuredTool.memoryScope"), scope] : null,
           ])}
-          {documentNode(str(props.args.body))}
+          {noteNode(relative, str(props.args.body))}
           {props.result ? <Muted>{props.result}</Muted> : null}
         </Card>
       );
@@ -756,8 +770,8 @@ function MemoryCard(
             <Muted>{t("structuredTool.noMemoryHits")}</Muted>
           ) : (
             <ul className="scheduler-tool-rows">
-              {hits.map((hit) => (
-                <li className="structured-tool-hit" key={hit.path}>
+              {hits.map((hit, i) => (
+                <li className="structured-tool-hit" key={`${hit.path}-${i}`}>
                   <span className="scheduler-tool-row">
                     <Mono>{hit.path}</Mono>
                     <span className="scheduler-tool-muted">
@@ -786,8 +800,8 @@ function MemoryCard(
             <Muted>{t("structuredTool.emptyDirectory")}</Muted>
           ) : (
             <ul className="scheduler-tool-rows">
-              {entries.map((entry) => (
-                <li className="scheduler-tool-row" key={entry.name}>
+              {entries.map((entry, i) => (
+                <li className="scheduler-tool-row" key={`${entry.name}-${i}`}>
                   <Mono>{entry.name}</Mono>
                   <span className="scheduler-tool-muted">
                     {entry.kind === "dir"

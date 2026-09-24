@@ -494,3 +494,39 @@ test("a structured card's bar wraps instead of clipping", async () => {
   expect(rule?.[0]).toMatch(/white-space:\s*normal/);
   expect(rule?.[0]).toMatch(/overflow-wrap:\s*anywhere/);
 });
+
+test("http_request shows the payload it sent, as the generic preview did", () => {
+  const card = show(
+    "http_request",
+    { url: "https://x.test/items", json: { name: "demo", size: 3 } },
+    "HTTP/1.1 201 Created\n\n{}",
+  );
+  expect(within(card).getByText(/"name": "demo"/)).toHaveClass(
+    "structured-tool-output",
+  );
+});
+
+test("plan_write shows the plan it wrote", () => {
+  const card = show(
+    "plan_write",
+    {
+      slug: "launch",
+      content: "---\nname: Launch plan\n---\n# Steps\n\n- Ship it",
+    },
+    'wrote design plan "launch" (44 bytes)',
+  );
+  expect(
+    within(card).getByRole("heading", { name: "Steps" }),
+  ).toBeInTheDocument();
+});
+
+test("a plain-text memory note stays text", () => {
+  const card = show(
+    "coddy_memory_read",
+    { path: "global:notes/names.txt" },
+    "use_snake_case_names\n*not emphasis*",
+  );
+  expect(within(card).getByText(/use_snake_case_names/)).toHaveClass(
+    "structured-tool-output",
+  );
+});

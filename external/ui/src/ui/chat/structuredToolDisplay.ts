@@ -102,7 +102,14 @@ export type HttpRequestView = {
   method: string;
   url: string;
   headers: HeaderView[];
-  body: { kind: HttpBodyKind; bytes: number | null; detail: string } | null;
+  body: {
+    kind: HttpBodyKind;
+    bytes: number | null;
+    /** The body file, or the form fields as they are sent (credentials hidden). */
+    detail: string;
+    /** The payload itself, for a JSON (indented) or a raw text body. */
+    content: string;
+  } | null;
   outputFile: string;
   proxy: string;
   insecureTls: boolean;
@@ -126,32 +133,59 @@ function hideCredentials(address: string): string {
 }
 
 /** The body an http request will send; the first matching kind wins. */
+/** A form field as the request sends it, its value hidden when its name says secret. */
+function formField(name: string, value: string): string {
+  return SENSITIVE_HEADER.test(name) ? `${name}=•••` : `${name}=${value}`;
+}
+
 function httpBody(args: ToolArgs): HttpRequestView["body"] {
-  if (args.json !== undefined) return { kind: "json", bytes: null, detail: "" };
+  if (args.json !== undefined) {
+    return {
+      kind: "json",
+      bytes: null,
+      detail: "",
+      content: JSON.stringify(args.json, null, 2) ?? "",
+    };
+  }
   if (Array.isArray(args.form_data)) {
     const detail = args.form_data
       .map((part) => {
         const p =
           part !== null && typeof part === "object" ? (part as ToolArgs) : {};
+        const name = str(p.name);
         const file = str(p.file);
-        return str(p.name) + (file ? `=@${file}` : "");
+        if (file) return `${name}=@${file}`;
+        const value = scalar(p.value);
+        return value === null ? name : formField(name, value);
       })
       .join(", ");
-    return { kind: "multipart", bytes: null, detail };
+    return { kind: "multipart", bytes: null, detail, content: "" };
   }
   if (
     args.form !== null &&
     typeof args.form === "object" &&
     !Array.isArray(args.form)
   ) {
+    const form = args.form as ToolArgs;
+    const fields: string[] = [];
+    for (const name of Object.keys(form).sort()) {
+      const v = form[name];
+      for (const el of Array.isArray(v) ? v : [v]) {
+        const value = scalar(el);
+        if (value !== null) fields.push(formField(name, value));
+      }
+    }
     return {
       kind: "form",
       bytes: null,
-      detail: Object.keys(args.form).sort().join(", "),
+      detail: fields.join(", "),
+      content: "",
     };
   }
   const bodyFile = str(args.body_file);
-  if (bodyFile) return { kind: "file", bytes: null, detail: bodyFile };
+  if (bodyFile) {
+    return { kind: "file", bytes: null, detail: bodyFile, content: "" };
+  }
   const base64 = str(args.body_base64);
   if (base64) {
     const clean = base64.replace(/\s+/g, "");
@@ -160,6 +194,7 @@ function httpBody(args: ToolArgs): HttpRequestView["body"] {
       kind: "base64",
       bytes: Math.floor((clean.length * 3) / 4) - padding,
       detail: "",
+      content: "",
     };
   }
   if (typeof args.body === "string") {
@@ -167,6 +202,7 @@ function httpBody(args: ToolArgs): HttpRequestView["body"] {
       kind: "text",
       bytes: new TextEncoder().encode(args.body).length,
       detail: "",
+      content: args.body,
     };
   }
   return null;

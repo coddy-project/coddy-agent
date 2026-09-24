@@ -106,7 +106,13 @@ test("an http request shows the address it really goes to and every setting that
     { name: "User-Agent", value: "", masked: false, removed: true },
     { name: "X-Retries", value: "3", masked: false, removed: false },
   ]);
-  expect(view.body).toEqual({ kind: "json", bytes: null, detail: "" });
+  // The payload itself: the generic preview showed it inside the arguments.
+  expect(view.body).toEqual({
+    kind: "json",
+    bytes: null,
+    detail: "",
+    content: '{\n  "name": "demo"\n}',
+  });
   expect(view.proxy).toBe("http://user:•••@proxy.local:3128");
   expect(view.proxy).not.toContain("secret");
   expect(view.insecureTls).toBe(true);
@@ -130,7 +136,7 @@ test("an http request defaults its method and names each kind of body", () => {
     httpRequestView({ url: "https://x.test/", method: "put", body: "héllo" }),
   ).toMatchObject({
     method: "PUT",
-    body: { kind: "text", bytes: 6, detail: "" },
+    body: { kind: "text", bytes: 6, detail: "", content: "héllo" },
   });
   expect(
     httpRequestView({ url: "https://x.test/", body_base64: "aGVsbG8=" }).body,
@@ -138,6 +144,7 @@ test("an http request defaults its method and names each kind of body", () => {
     kind: "base64",
     bytes: 5,
     detail: "",
+    content: "",
   });
   expect(
     httpRequestView({ url: "https://x.test/", body_file: "dist/app.zip" }).body,
@@ -145,26 +152,34 @@ test("an http request defaults its method and names each kind of body", () => {
     kind: "file",
     bytes: null,
     detail: "dist/app.zip",
+    content: "",
   });
   expect(
-    httpRequestView({ url: "https://x.test/", form: { b: 1, a: "x" } }).body,
+    httpRequestView({
+      url: "https://x.test/",
+      form: { b: 1, a: "x", password: "hunter2", tag: ["p", "q"] },
+    }).body,
   ).toEqual({
     kind: "form",
     bytes: null,
-    detail: "a, b",
+    // Values as the form sends them, a credential-named field hidden.
+    detail: "a=x, b=1, password=•••, tag=p, tag=q",
+    content: "",
   });
   expect(
     httpRequestView({
       url: "https://x.test/",
       form_data: [
         { name: "note", value: "hi" },
+        { name: "api_key", value: "sk-1" },
         { name: "upload", file: "img/logo.png" },
       ],
     }).body,
   ).toEqual({
     kind: "multipart",
     bytes: null,
-    detail: "note, upload=@img/logo.png",
+    detail: "note=hi, api_key=•••, upload=@img/logo.png",
+    content: "",
   });
   expect(
     httpRequestView({ url: "https://x.test/", proxy: "DIRECT" }).proxy,
@@ -293,9 +308,26 @@ test("background_list reads as tasks, and its empty answer as none", () => {
       "background_list",
       "bg_1 [running] build (elapsed 4s)\nbg_2 [succeeded] tests (elapsed 9s, exit 0)",
     ),
-  ).toMatchObject({
+  ).toEqual({
     kind: "tasks",
-    tasks: [{ id: "bg_1" }, { id: "bg_2", status: "succeeded" }],
+    tasks: [
+      {
+        id: "bg_1",
+        status: "running",
+        label: "build",
+        url: "",
+        detail: "elapsed 4s",
+        note: "",
+      },
+      {
+        id: "bg_2",
+        status: "succeeded",
+        label: "tests",
+        url: "",
+        detail: "elapsed 9s, exit 0",
+        note: "",
+      },
+    ],
   });
   expect(
     backgroundView("background_list", "No background tasks in this session."),

@@ -9969,7 +9969,8 @@ html:not([data-theme="light"]) .context-usage-note--error {
 
 .structured-tool-answer:not(:first-child) {
   padding-top: 10px;
-  border-top: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  /* 16%: on the light theme's grey inset a lighter mix vanishes into the body. */
+  border-top: 1px solid color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
 }
 
 /* A request that skips the certificate check says so in the failure colour. */
