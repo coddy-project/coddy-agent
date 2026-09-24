@@ -1186,8 +1186,9 @@ test("an MCP call names the server and the tool, never the registry id", () => {
     screen.getByText("calling create_issue on the MCP server github"),
   ).toHaveClass("thinking-label");
   expect(screen.queryByText("mcp__github__create_issue")).toBeNull();
-  // The argument preview the row already had survives the new label.
-  expect(screen.getByText("Crash on start")).toHaveClass("tool-summary-target");
+  // The argument preview the row already had survives the new label (the
+  // card under the row names the same argument again, as a field).
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent("Crash on start");
 });
 
 test("the target, the failure marker and the duration trail the label as one group", () => {
@@ -1231,61 +1232,6 @@ test("a row with nothing to trail its label renders no empty group", () => {
     />,
   );
   expect(container.querySelector(".thinking-trail")).toBeNull();
-});
-
-test("an MCP call's JSON answer is shown indented, not as one long line", () => {
-  const answer = { total_count: 2, items: [{ id: 1, name: "a" }, { id: 2 }] };
-  render(
-    <ToolCallMessage
-      toolCallId="tc-mcp-json"
-      title="github__search_repositories"
-      status="completed"
-      argsText={JSON.stringify({ query: "coddy" })}
-      resultText={JSON.stringify(answer)}
-      durationMs={3}
-    />,
-  );
-  openToolDetails();
-  const pre = screen.getByTestId("tool-result-viewport").querySelector(".tool-result-pre");
-  expect(pre?.textContent).toBe(JSON.stringify(answer, null, 2));
-});
-
-test("an MCP answer that is not a whole JSON document stays as it came", () => {
-  // A truncated preview cuts the document short, and prose that happens to
-  // start with a bracket is not JSON: neither may be rewritten.
-  const cut = '{"total_count": 2, "items": [{"id": 1';
-  render(
-    <ToolCallMessage
-      toolCallId="tc-mcp-cut"
-      title="github__search_repositories"
-      status="completed"
-      argsText={JSON.stringify({ query: "coddy" })}
-      resultText={cut}
-      durationMs={3}
-    />,
-  );
-  openToolDetails();
-  const pre = screen.getByTestId("tool-result-viewport").querySelector(".tool-result-pre");
-  expect(pre?.textContent).toBe(cut);
-});
-
-test("a built-in tool's JSON-looking output is left alone", () => {
-  // Coddy's own tools print what the model reads; only an MCP server's answer
-  // is a document the server serialised on one line.
-  const out = '{"a":1,"b":[1,2]}';
-  render(
-    <ToolCallMessage
-      toolCallId="tc-builtin-json"
-      title="glob"
-      status="completed"
-      argsText={JSON.stringify({ pattern: "*.json" })}
-      resultText={out}
-      durationMs={3}
-    />,
-  );
-  openToolDetails();
-  const pre = screen.getByTestId("tool-result-viewport").querySelector(".tool-result-pre");
-  expect(pre?.textContent).toBe(out);
 });
 
 test("a tool outside the catalogue keeps its own id in the summary row", () => {
@@ -1531,10 +1477,7 @@ test("a command is never respelt against the session directory", () => {
   );
 });
 
-test("a call whose arguments name nothing opens with its body, not an empty strip", () => {
-  // background_output takes a task id and a line count: no path, no command,
-  // nothing for the header bar to say. The bar was rendered anyway, so the card
-  // opened with a 34px empty strip above the arguments.
+test("background output names the task instead of opening with an empty strip", () => {
   const { container } = render(
     <ToolCallMessage
       toolCallId="tc-bgout"
@@ -1542,24 +1485,21 @@ test("a call whose arguments name nothing opens with its body, not an empty stri
       kind="background_output"
       status="completed"
       argsText={JSON.stringify({ task_id: "bg_3", tail_lines: 60 })}
-      resultText="bg_3 [running] go test ./..."
+      resultText="bg_3 [running] go test ./... (elapsed 4s)"
       durationMs={4}
     />,
   );
   openToolDetails();
 
-  expect(
-    container.querySelector(".permission-preview-bar"),
-    "a header bar with nothing in it is a strip of empty border",
-  ).toBeNull();
-  // With no bar the body carries the whole card, top corners included.
-  expect(container.querySelector(".permission-preview-viewport")).toHaveClass(
-    "permission-preview-viewport--headless",
+  expect(container.querySelector(".permission-preview-location")?.textContent).toBe(
+    "bg_3",
   );
-  // The arguments themselves still show.
-  expect(
-    container.querySelector(".permission-preview-code")?.textContent,
-  ).toContain("bg_3");});
+  // The status reads through the Tasks drawer's own labels.
+  expect(container.querySelector(".scheduler-tool-row")?.textContent).toContain(
+    "Running",
+  );
+  expect(container.querySelector(".permission-preview-code")).toBeNull();
+});
 
 test("read tells a directory listing apart from a file when its arguments say so", () => {
   const { rerender } = render(

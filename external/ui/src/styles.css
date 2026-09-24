@@ -9932,6 +9932,110 @@ html:not([data-theme="light"]) .context-usage-note--error {
   overflow-wrap: anywhere;
 }
 
+/* A structured tool card (StructuredToolCard.tsx) is the scheduler card's frame: the
+   bar names the call, the body holds fields and rows. Text the tool returned as it
+   was - a log, a response body, a nested value - keeps the monospace voice of the
+   raw result panel instead of inheriting the card's prose font. */
+.structured-tool-output {
+  margin: 0;
+  padding: 8px 10px;
+  min-width: 0;
+  border-radius: 8px;
+  background: var(--coddy-surface-sunken);
+  color: var(--coddy-surface-code-fg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.structured-tool-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+
+.structured-tool-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.structured-tool-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.structured-tool-chip {
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+/* Markdown a tool returned (a plan, a documentation section, a memory note, an MCP
+   answer): the prose font in an inset, like a scheduler job's instruction. */
+.structured-tool-document {
+  min-width: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  font-size: 13px;
+}
+
+.structured-tool-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.structured-tool-card a {
+  color: var(--coddy-link);
+  overflow-wrap: anywhere;
+}
+
+/* What the tool answered, under the fields of what it was asked: a rule between the
+   two, since both can be a list of fields with the same look. */
+.structured-tool-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.structured-tool-answer:not(:first-child) {
+  padding-top: 10px;
+  /* 16%: on the light theme's grey inset a lighter mix vanishes into the body. */
+  border-top: 1px solid color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
+}
+
+/* A request that skips the certificate check says so in the failure colour. */
+.structured-tool-warning {
+  color: color-mix(in srgb, var(--diff-del-no) 70%, var(--text));
+}
+
+/* The bar of a structured card is what the call is about - an address, a task, a
+   plan - so it wraps instead of ending in an ellipsis: on a phone the query of an
+   http request is exactly the part an ellipsis would hide. */
+.structured-tool-card .permission-preview-location {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* An MCP call's bar: the server muted, then the tool as its server spells it. */
+.structured-tool-mcp-server {
+  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+}
+
+.structured-tool-mcp-separator {
+  color: color-mix(in srgb, var(--text) 30%, var(--coddy-blend-base));
+}
+
 .tool-result-loading {
   color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
   font-size: 12.5px;
@@ -10071,7 +10175,9 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
     display: none;
   }
 
-  .permission-preview-viewport {
+  /* Only the measured viewport is capped: a static one (a command block) has no
+     More / Less, and a cap there let a long command spill over its output. */
+  .permission-preview-viewport:not(.permission-preview-viewport--static) {
     max-height: 170px;
   }
 

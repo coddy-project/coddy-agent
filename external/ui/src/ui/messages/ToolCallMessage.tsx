@@ -36,12 +36,15 @@ import { parseSpawnAgentArgs } from "../chat/spawnAgentDisplay";
 import { SpawnAgentCard } from "./SpawnAgentCard";
 import { SchedulerToolCard } from "./SchedulerToolCard";
 import {
+  StructuredToolCard,
+  supportsStructuredToolCard,
+} from "./StructuredToolCard";
+import {
   isSchedulerTool,
   schedulerReadout,
 } from "../chat/schedulerToolDisplay";
 import { relativeToolTarget } from "../chat/toolTargetPath";
-import { parseMcpToolName, toolDisplayName } from "./toolDisplayName";
-import { indentJsonDocument } from "./indentJsonDocument";
+import { toolDisplayName } from "./toolDisplayName";
 import { Markdown } from "../markdown/Markdown";
 import { formatStepDuration } from "./formatStepDuration";
 
@@ -292,8 +295,6 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     [isSpawnAgentTool, props.argsText],
   );
   const isLoadSkillTool = rawNameLower === "load_skill";
-  // An MCP server's answer is whatever its tool returned, often one line of JSON.
-  const isMcpTool = useMemo(() => parseMcpToolName(rawName) !== null, [rawName]);
   const isWebSearchTool = rawNameLower === "websearch";
   const isWebFetchTool = rawNameLower === "webfetch";
   const isSchedulerToolCall = isSchedulerTool(rawNameLower);
@@ -631,14 +632,16 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
         : null,
     [isSchedulerToolCall, props.argsText, rawNameLower, resultBody, status],
   );
+  // The raw name, not its lower-case form: an MCP server's tool keeps the
+  // spelling its server gave it in the card's header.
+  const structuredCard = useMemo(
+    () => supportsStructuredToolCard(rawName, props.argsText, status),
+    [rawName, props.argsText, status],
+  );
   const searchLoading =
     loadsWholeSearch &&
     !full &&
     (isWebSearchTool ? searchResultMarkdown === null : schedulerCard === null);
-  const plainResultBody = useMemo(
-    () => (isMcpTool ? indentJsonDocument(resultBody) : resultBody),
-    [isMcpTool, resultBody],
-  );
   const markdownResultBody =
     searchResultMarkdown ??
     (isWebFetchTool && status === "completed" ? resultBody : null);
@@ -650,6 +653,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     !spawnAgent &&
     !isLoadSkillTool &&
     !schedulerCard &&
+    !structuredCard &&
     toolPreviewHasContent;
   const showPatchResult =
     isPatchTool &&
@@ -658,6 +662,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   const showResult =
     !isQuestionTool &&
     !isPatchTool &&
+    !structuredCard &&
     (!schedulerCard || searchLoading) &&
     !(
       status === "completed" &&
@@ -667,6 +672,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   const hasConnectedResult = (showToolPreview || !!spawnAgent) && (showPatchResult || showResult);
   const hasBody =
     !!schedulerCard ||
+    structuredCard ||
     !!spawnAgent ||
     isQuestionTool ||
     showToolPreview ||
@@ -785,6 +791,22 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
             {schedulerCard ? (
               <SchedulerToolCard readout={schedulerCard} status={status} />
             ) : null}
+            {structuredCard ? (
+              <StructuredToolCard
+                name={rawName}
+                argsText={props.argsText}
+                resultText={resultBody}
+                status={status}
+                // A truncated answer caps the card's body, not the card: the bar
+                // naming the call stays in view while the body scrolls.
+                bodyRef={resultViewportRef}
+                bodyClassName={
+                  useTallViewport
+                    ? `tool-result-viewport tool-result-viewport--tall tool-result-viewport--${viewportMode}`
+                    : undefined
+                }
+              />
+            ) : null}
             {showPatchResult || showResult ? (
               <div
                 className={[
@@ -820,7 +842,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                   ) : showSkillBody ? (
                     <Markdown text={markdownResultBody ?? resultBody} />
                   ) : (
-                    <pre className="tool-result-pre">{plainResultBody}</pre>
+                    <pre className="tool-result-pre">{resultBody}</pre>
                   )}
                 </div>
               </div>

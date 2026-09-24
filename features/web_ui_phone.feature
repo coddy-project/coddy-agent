@@ -44,4 +44,3 @@ Feature: The web UI on a phone
   Scenario: The transcript never widens the page
     Then a tool row named after an MCP tool wraps its label inside the row and moves its target and duration under it together
     And a long link or identifier in an answer breaks instead of widening the page
-    And an MCP server's JSON answer is shown indented instead of as one long line

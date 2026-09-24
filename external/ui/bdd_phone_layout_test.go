@@ -100,9 +100,6 @@ func TestWebUIPhoneFeature(t *testing.T) {
 				}
 				return runVitestScenario(wrap, "an answer never widens the transcript inline code is at most a line wide and wraps inside its chip")
 			})
-			sc.Step(`^an MCP server's JSON answer is shown indented instead of as one long line$`, func() error {
-				return runVitestScenario(toolRow, "an MCP call's JSON answer is shown indented, not as one long line")
-			})
 		},
 		Options: &godog.Options{
 			Format:   "pretty",
