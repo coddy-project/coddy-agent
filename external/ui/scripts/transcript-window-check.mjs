@@ -265,6 +265,9 @@ function cleanup() {
 }
 process.on("exit", cleanup);
 process.on("SIGINT", () => process.exit(130));
+// A CI step or `timeout` stops the run with SIGTERM: the node, the relay and
+// the scratch home go with it.
+process.on("SIGTERM", () => process.exit(143));
 
 const MODEL_PORT = PORT_BASE;
 const NODE_PORT = PORT_BASE + 1;
