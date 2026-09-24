@@ -1,13 +1,11 @@
 import React, { type ChangeEvent } from "react";
 
+import { FieldLabel } from "./FieldHint";
 import { SwitchField } from "./SwitchField";
 import { useT } from "../i18n/I18nProvider";
 
 /** Whether a proxy setting is the keyword kw, in any case. */
-export function isProxyKeyword(
-  value: string,
-  kw: "none" | "inherit",
-): boolean {
+export function isProxyKeyword(value: string, kw: "none" | "inherit"): boolean {
   return value.trim().toLowerCase() === kw;
 }
 
@@ -44,8 +42,7 @@ export function ProxySettingField(props: {
       beforeDirect.current = stored;
     }
   }, [direct, stored]);
-  const urlText =
-    direct || isProxyKeyword(stored, "inherit") ? "" : stored;
+  const urlText = direct || isProxyKeyword(stored, "inherit") ? "" : stored;
   return (
     <>
       <SwitchField
@@ -56,10 +53,7 @@ export function ProxySettingField(props: {
         dataTestId="proxy-setting-direct"
       />
       <div className="settings-row">
-        <span className="settings-label">{label}</span>
-        {description ? (
-          <p className="settings-field-desc">{description}</p>
-        ) : null}
+        <FieldLabel label={label} description={description} />
         <input
           className="settings-input"
           type="text"
@@ -70,7 +64,6 @@ export function ProxySettingField(props: {
               ? t("settings.providerProxy.placeholderDirect")
               : t("settings.providerProxy.placeholderSystem")
           }
-          title={description}
           aria-label={label}
           data-testid="proxy-setting-url"
           onChange={(e: ChangeEvent<HTMLInputElement>) =>

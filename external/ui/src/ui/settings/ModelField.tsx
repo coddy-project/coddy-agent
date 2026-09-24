@@ -1,87 +1,64 @@
-import { useState } from "react";
 import { Combobox } from "./Combobox";
-import { useProviderModels } from "./useProviderModels";
+import type { ProviderRow } from "./useProviderModels";
 import { useT } from "../i18n/I18nProvider";
 
-function providerOf(value: string): string {
-  const i = value.indexOf("/");
-  return i > 0 ? value.slice(0, i) : "";
+function str(v: unknown): string {
+  return v === undefined || v === null ? "" : String(v);
 }
 
 /**
- * ModelField edits a logical model id (provider/api-model-id). The provider is an
- * editable combobox over the configured providers; "Fetch models" pulls the
- * provider's advertised models (Kilo-style) into the model combobox, which is also
- * editable so the id can be typed manually when no list is available.
+ * ModelField edits a logical model id ("provider/api-model-id") as two plain
+ * fields: the provider, a combobox over the providers section of the settings
+ * document (a name the document does not list yet can still be typed), and
+ * the model id as the provider's API knows it. Picking an id out of what a
+ * provider advertises is the provider form's job (ProviderModelList), so this
+ * field lists nothing and fetches nothing. The value splits on its first
+ * slash, so an id that itself contains slashes survives the round trip.
  */
 export function ModelField(props: {
   value: string;
   onChange: (v: string) => void;
-  providers: string[];
+  providers: ProviderRow[];
   label?: string | undefined;
 }) {
   const { value, onChange, providers } = props;
   const { t } = useT();
   const label = props.label ?? t("settings.field.modelIdFallback");
 
-  const inferred = providerOf(value);
-  const [provider, setProvider] = useState<string>(
-    inferred && providers.includes(inferred) ? inferred : (providers[0] ?? ""),
-  );
-  const { loading, models, error, fetched, fetchModels, reset } =
-    useProviderModels();
+  const slash = value.indexOf("/");
+  const provider = slash >= 0 ? value.slice(0, slash) : "";
+  const modelId = slash >= 0 ? value.slice(slash + 1) : value;
+  const emit = (p: string, id: string) => onChange(p ? `${p}/${id}` : id);
 
-  const modelOptions = models.map((m) => ({
-    value: `${provider}/${m.id}`,
-    label: m.name ? `${m.name} — ${provider}/${m.id}` : `${provider}/${m.id}`,
-  }));
+  const names = providers
+    .map((p) => str(p.name).trim())
+    .filter((n) => n !== "");
 
   return (
-    <div className="settings-row" data-testid="model-field">
-      <span className="settings-label">{label}</span>
-
-      <div className="model-field-controls">
+    <>
+      <div className="settings-row" data-testid="model-field">
+        <span className="settings-label">{t("settings.field.provider")}</span>
         <Combobox
           value={provider}
-          onChange={(v) => {
-            setProvider(v);
-            reset();
-          }}
-          options={providers.map((p) => ({ value: p }))}
-          ariaLabel={t("settings.field.providerAria")}
+          onChange={(p) => emit(p, modelId)}
+          options={names.map((n) => ({ value: n }))}
+          ariaLabel={t("settings.field.provider")}
           testid="model-field-provider"
           placeholder={t("settings.field.providerPlaceholder")}
         />
-        <button
-          type="button"
-          className="settings-btn"
-          data-testid="model-field-fetch"
-          disabled={!provider || loading}
-          onClick={() => void fetchModels(provider)}
-        >
-          {loading
-            ? t("settings.field.fetching")
-            : t("settings.field.fetchModels")}
-        </button>
       </div>
-
-      {fetched && error ? (
-        <p className="settings-field-desc">
-          {t("settings.field.fetchError", { error })}
-        </p>
-      ) : null}
-      {fetched && !error && models.length === 0 ? (
-        <p className="settings-field-desc">{t("settings.field.noModels")}</p>
-      ) : null}
-
-      <Combobox
-        value={value}
-        onChange={onChange}
-        options={modelOptions}
-        ariaLabel={label}
-        testid="model-field-model"
-        placeholder={t("settings.field.modelPlaceholder")}
-      />
-    </div>
+      <div className="settings-row">
+        <span className="settings-label">{label}</span>
+        <input
+          className="settings-input"
+          type="text"
+          value={modelId}
+          aria-label={label}
+          data-testid="model-field-model"
+          placeholder={t("settings.field.modelPlaceholder")}
+          onChange={(e) => emit(provider, e.target.value)}
+        />
+      </div>
+    </>
   );
 }

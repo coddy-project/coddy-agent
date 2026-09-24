@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"io"
@@ -555,6 +556,46 @@ func TestDevinPromptsCarryImagesAndFiles(t *testing.T) {
 	if !utf8.ValidString(cyr[0].description) || !strings.HasSuffix(cyr[0].description, "...") {
 		t.Fatalf("truncated description is not valid UTF-8: %q", cyr[0].description[len(cyr[0].description)-8:])
 	}
+}
+
+// TestDevinStringFieldsAreValidUTF8: every string field reaches the wire as
+// valid UTF-8, whatever bytes the history holds - a tool result read from a
+// binary or legacy-encoded file, or a non-image attachment with such bytes -
+// because the API server refuses the whole request otherwise.
+func TestDevinStringFieldsAreValidUTF8(t *testing.T) {
+	for _, in := range []string{"caf\xe9", "\x89PNG\r\n\x1a\n\x00\xff\xfe", "ok \xd0"} {
+		var w pbWriter
+		w.str(3, in)
+		f := devinFields(t, w.buf)
+		if len(f) != 1 || !utf8.Valid(f[0]) {
+			t.Fatalf("str(%q) wrote %q, want valid UTF-8", in, w.buf)
+		}
+	}
+	var w pbWriter
+	w.str(3, "plain ж")
+	if f := devinFields(t, w.buf); len(f) != 1 || string(f[0]) != "plain ж" {
+		t.Fatalf("valid UTF-8 was changed: %q", w.buf)
+	}
+}
+
+// devinFields reads the length-delimited payloads of a flat message.
+func devinFields(t *testing.T, b []byte) [][]byte {
+	t.Helper()
+	var out [][]byte
+	for len(b) > 0 {
+		_, n := binary.Uvarint(b)
+		if n <= 0 {
+			t.Fatalf("malformed tag in %q", b)
+		}
+		b = b[n:]
+		l, m := binary.Uvarint(b)
+		if m <= 0 || int(l) > len(b)-m {
+			t.Fatalf("malformed field in %q", b)
+		}
+		out = append(out, b[m:m+int(l)])
+		b = b[m+int(l):]
+	}
+	return out
 }
 
 func TestDevinProviderAgainstStand(t *testing.T) {

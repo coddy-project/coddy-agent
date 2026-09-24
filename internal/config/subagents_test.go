@@ -59,8 +59,8 @@ func TestSubagentsMaxTurnsFallsBackToAgentMaxTurns(t *testing.T) {
 	if got := s.EffectiveMaxTurns(40); got != 40 {
 		t.Fatalf("unset max_turns must follow agent.max_turns, got %d", got)
 	}
-	if got := s.EffectiveMaxTurns(0); got != 30 {
-		t.Fatalf("with no agent cap the ReAct default applies, got %d", got)
+	if got := s.EffectiveMaxTurns(0); got != 0 {
+		t.Fatalf("with no agent cap a child has none either, got %d", got)
 	}
 	s.MaxTurns = 12
 	if got := s.EffectiveMaxTurns(40); got != 12 {

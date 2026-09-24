@@ -21,7 +21,11 @@ const gatewaysSchema: JsonSchema = {
             enable: { type: "boolean", title: "Enabled" },
             token: { type: "string", title: "Bot token" },
             rich_messages: { type: "boolean", title: "Rich messages" },
-            admins: { type: "array", title: "Admins", items: { type: "integer" } },
+            admins: {
+              type: "array",
+              title: "Admins",
+              items: { type: "integer" },
+            },
             default_isolation: {
               type: "string",
               title: "Default isolation",
@@ -69,5 +73,7 @@ test("settings form renders the Telegram gateway section", () => {
   // The token is an editable input, not read-only.
   const token = screen.getByLabelText("Bot token") as HTMLInputElement;
   fireEvent.change(token, { target: { value: "123:abc" } });
-  expect((screen.getByLabelText("Bot token") as HTMLInputElement).value).toBe("123:abc");
+  expect((screen.getByLabelText("Bot token") as HTMLInputElement).value).toBe(
+    "123:abc",
+  );
 });

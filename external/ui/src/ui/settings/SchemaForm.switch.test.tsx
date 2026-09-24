@@ -79,9 +79,9 @@ test("an explicit false still renders off against a true default", () => {
 });
 
 // Layout: the boolean renderer delegates to the shared SwitchField, so the
-// description sits in the label column of one grid instead of a separately
-// indented paragraph. Regression for the models[].multimodal / stream rows,
-// where the label hung below the switch and the description started under it.
+// description is the (i) in the label cell, like every other field's.
+// Regression for the models[].multimodal / stream rows, where the label hung
+// below the switch and the description started under it.
 const describedSchema: JsonSchema = {
   type: "object",
   properties: {
@@ -93,7 +93,7 @@ const describedSchema: JsonSchema = {
   },
 } as unknown as JsonSchema;
 
-test("boolean field renders through SwitchField with the description in the label column", () => {
+test("boolean field renders through SwitchField with the description behind its (i)", () => {
   const { container } = render(
     <SchemaForm schema={describedSchema} value={{}} onChange={() => {}} />,
   );
@@ -101,8 +101,12 @@ test("boolean field renders through SwitchField with the description in the labe
   expect(field).not.toBeNull();
   const sw = screen.getByRole("switch", { name: /multimodal/i });
   expect(sw.parentElement).toBe(field);
-  const desc = field!.querySelector(".settings-switch-field-desc");
-  expect(desc?.textContent).toBe(
+  const hint = field!.querySelector(
+    ".settings-switch-field-label-cell .field-hint",
+  );
+  expect(hint).not.toBeNull();
+  fireEvent.mouseEnter(hint!);
+  expect(screen.getByRole("tooltip").textContent).toBe(
     "When true, the model accepts image or file inputs.",
   );
   expect(

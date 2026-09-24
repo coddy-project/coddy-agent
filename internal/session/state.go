@@ -234,6 +234,11 @@ type State struct {
 	// Cleared at the start of each new turn via SetCancel. Used to distinguish intentional stop from unexpected interruption.
 	userCancelledTurn bool
 
+	// turnStopNotice is why the running turn stopped before its answer (its
+	// step limit, the model's output limit), set by the agent and taken by
+	// the manager once the turn is over (TakeTurnStopNotice).
+	turnStopNotice string
+
 	// queue holds the follow-ups written while the current turn runs, read by
 	// the ReAct loop at its next step (turn_queue.go). queueOpen is the turn
 	// boundary: a message is only ever accepted by the turn it belongs to.
@@ -1553,6 +1558,24 @@ func (s *State) SetUserCancelledTurn() {
 	s.mu.Lock()
 	s.userCancelledTurn = true
 	s.mu.Unlock()
+}
+
+// SetTurnStopNotice records why the running turn stopped before its answer,
+// in words for the user.
+func (s *State) SetTurnStopNotice(msg string) {
+	s.mu.Lock()
+	s.turnStopNotice = msg
+	s.mu.Unlock()
+}
+
+// TakeTurnStopNotice returns the notice SetTurnStopNotice recorded and clears
+// it, so it belongs to one turn.
+func (s *State) TakeTurnStopNotice() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	msg := s.turnStopNotice
+	s.turnStopNotice = ""
+	return msg
 }
 
 // IsUserCancelledTurn reports whether the current turn was explicitly cancelled by the user.

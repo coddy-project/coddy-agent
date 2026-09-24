@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/cucumber/godog"
 
@@ -45,6 +46,9 @@ type acpDevinState struct {
 	state    *session.State
 	envPrev  map[string]*string
 	cfg      *config.Config
+	// grep makes the scripted model search the file with coddy's grep tool,
+	// which returns matching lines byte for byte, instead of reading it.
+	grep bool
 }
 
 func (s *acpDevinState) setEnv(name, value string) error {
@@ -60,6 +64,7 @@ func (s *acpDevinState) setEnv(name, value string) error {
 
 func (s *acpDevinState) reset() error {
 	s.close()
+	s.grep = false
 	s.envPrev = map[string]*string{}
 	root, err := os.MkdirTemp("", "coddy-bdd-acp-devin-*")
 	if err != nil {
@@ -117,10 +122,14 @@ func (s *acpDevinState) standReadsThenQuotes() error {
 					return devinfake.Turn{Text: "The file says: " + strings.TrimSpace(p.Text), StopReason: 4, Input: 40, Output: 8}
 				}
 			}
-			args, _ := json.Marshal(map[string]string{"path": readPath})
+			tool, args := "read", map[string]string{"path": readPath}
+			if s.grep {
+				tool, args = "grep", map[string]string{"pattern": acpDevinFileText, "path": readPath}
+			}
+			raw, _ := json.Marshal(args)
 			return devinfake.Turn{
 				Thinking: acpDevinThinking, Signature: acpDevinSignature, SignatureType: "anthropic",
-				ToolCalls:  []devinfake.ToolCall{{ID: "toolu_devin_1", Name: "read", Args: string(args)}},
+				ToolCalls:  []devinfake.ToolCall{{ID: "toolu_devin_1", Name: tool, Args: string(raw)}},
 				StopReason: 10, Input: 30, Output: 12,
 			}
 		},
@@ -268,6 +277,38 @@ func (s *acpDevinState) secondRequestReplayedToolRound() error {
 	return nil
 }
 
+// workspaceFileIsNotUTF8 rewrites the file in ISO-8859-1: the e-acute of
+// "caf\xe9" is a single byte that is not valid UTF-8.
+func (s *acpDevinState) workspaceFileIsNotUTF8() error {
+	return os.WriteFile(s.readPath, []byte("caf\xe9 "+acpDevinFileText+"\n"), 0o644)
+}
+
+func (s *acpDevinState) modelGrepsTheFile() error {
+	s.grep = true
+	return nil
+}
+
+func (s *acpDevinState) toolResultWasValidUTF8() error {
+	chats := s.stand.Chats()
+	if len(chats) < 2 {
+		return fmt.Errorf("the stand saw %d chat requests, want 2", len(chats))
+	}
+	results := 0
+	for _, p := range chats[1].Prompts {
+		if p.Source != 4 {
+			continue
+		}
+		results++
+		if !utf8.ValidString(p.Text) || !strings.Contains(p.Text, acpDevinFileText) {
+			return fmt.Errorf("tool result %q is not the file as valid UTF-8", p.Text)
+		}
+	}
+	if results == 0 {
+		return fmt.Errorf("the second request carried no tool result")
+	}
+	return nil
+}
+
 func (s *acpDevinState) finalAnswerQuotesFile() error {
 	if s.state == nil {
 		return fmt.Errorf("no session state captured")
@@ -300,6 +341,9 @@ func initializeACPDevinScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the chat request carried coddy's own tools and system prompt$`, s.requestCarriedCoddyToolsAndPrompt)
 	sc.Step(`^the second chat request replayed the tool call, its result and the signed reasoning$`, s.secondRequestReplayedToolRound)
 	sc.Step(`^the final assistant message quotes the workspace file$`, s.finalAnswerQuotesFile)
+	sc.Step(`^the workspace file is Latin-1 text$`, s.workspaceFileIsNotUTF8)
+	sc.Step(`^the model searches it with coddy's grep tool, which returns the matching line byte for byte$`, s.modelGrepsTheFile)
+	sc.Step(`^the second chat request carried the tool result as valid UTF-8$`, s.toolResultWasValidUTF8)
 }
 
 func TestDevinProviderACPE2E(t *testing.T) {

@@ -1,6 +1,7 @@
 ---
 name: rpa-bugfix
-version: 1.0.0
+metadata:
+  version: 1.0.1
 description: >
   Run when the user invokes /rpa-bugfix together with a clear bug description (expected vs actual, reproduction).
   Reproduction test first, then fix, full test suite, short report. Will not work correctly without the bug details.

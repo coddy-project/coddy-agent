@@ -43,8 +43,6 @@ models:
 
 agent:
   model: "openai/gpt-5.6-terra"
-  max_turns: 30
-  max_tokens_per_turn: 200000
 ```
 
 Three rules hold the blocks together. A provider's `name` becomes the prefix of every model id, so `models[].model` is `<provider name>/<model id as the API knows it>`. `agent.model` has to be one of the `models` entries. And `api_key` is either the secret itself, a `${VAR}` reference expanded when the file loads, or empty, in which case `OPENAI_API_KEY` (the provider name in upper case plus `_API_KEY`) is read at call time.

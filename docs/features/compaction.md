@@ -153,7 +153,7 @@ as it always did. See *The turn context block* in
 [react-agent.md](../contributing/react-agent.md) for the other half of the same
 story - what Coddy stopped putting in the system prompt for the same reason.
 
-The field table with types and validation is in the [config.yaml reference](../reference/config.md#compaction); the keys are ordinary settings, editable in the web UI's Settings on the **Context compaction** tab, which follows **ReAct agent** because it is the same loop deciding what to send the model (`#/settings/compaction`). The window the threshold is a percent of belongs to the model entry: its `max_context_tokens`, else what its provider reports, else 128000 ([The context window](#the-context-window)).
+The field table with types and validation is in the [config.yaml reference](../reference/config.md#compaction); the keys are ordinary settings, editable in the web UI's Settings on the **Context compaction** tab, which follows **ReAct loop** because it is the same loop deciding what to send the model (`#/settings/compaction`). The window the threshold is a percent of belongs to the model entry: its `max_context_tokens`, else what its provider reports, else 128000 ([The context window](#the-context-window)).
 
 ## Testing
 

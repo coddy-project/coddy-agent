@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Combobox } from "./Combobox";
+import { FieldLabel } from "./FieldHint";
 import { IconTrash } from "./SchemaForm";
 import { useReasoningLevels } from "./useReasoningLevels";
 import { useT } from "../i18n/I18nProvider";
@@ -86,10 +87,7 @@ export function ReasoningLevelsField(props: {
 
   return (
     <div className="settings-row" data-testid="reasoning-levels-field">
-      <span className="settings-label">{label}</span>
-      {props.description ? (
-        <p className="settings-field-desc">{props.description}</p>
-      ) : null}
+      <FieldLabel label={label} description={props.description} />
 
       <div className="model-field-controls reasoning-levels-actions">
         <button
@@ -167,7 +165,7 @@ export function ReasoningLevelsField(props: {
 
       <button
         type="button"
-        className="settings-btn"
+        className="settings-btn settings-row-action"
         data-testid="reasoning-levels-add"
         onClick={() => editLevels([...(explicit ?? []), ""])}
       >

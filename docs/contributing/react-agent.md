@@ -233,7 +233,9 @@ messages: [
 
 6. CHECK_COMPLETION
    - If no tool calls in last response -> DONE (stopReason: end_turn)
-   - If turn_count >= max_turns -> DONE (stopReason: max_turns)
+   - If max_turns is set and turn_count >= max_turns -> DONE (stopReason: max_turns;
+     the turn's stop notice names the key that set the limit). max_turns 0, the
+     default, is no step limit
    - Otherwise -> back to step 2
 
    Loop guard (**`agent.loop_guard`**, default on) can end the turn earlier:
@@ -276,6 +278,17 @@ messages: [
      attempts, the pending recovery projection and its nudges are restored;
      signed reasoning stays in the transcript. After the budget or nudge limit is exhausted the turn
      ends with **`StopReasonRefused`**.
+   - **Provider recovery.** A call that failed because of the provider's lane
+     (**`llm.IsTransientProviderError`**: 5xx, a cut or silent stream, output
+     already emitted or not; a 429 is left to the wrapper and the limit wait)
+     does not end the turn. The answer text and
+     reasoning already streamed are kept as an assistant message without tool
+     calls, a **`notice`** row goes to the UI log, and after a pause
+     (**`providerRecoveryDelay`**: 5x then 20x **`llm_retry_base_ms`**, or a
+     longer **`Retry-After`**, capped at 2 minutes) the step runs again on a
+     fresh allowance, with an LLM-facing nudge to continue when text was kept.
+     At most **`maxProviderRecoveries`** (2) in a row; a successful call resets
+     the count. Uses a normal **`max_turns`** iteration.
 
    An explicit **`llm_retry_max: 0`** disables all of the above. The
    `loop_guard`, Stop hooks, fallback models, and `wait_for_limit_reset` are

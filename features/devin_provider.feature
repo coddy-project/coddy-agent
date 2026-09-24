@@ -37,3 +37,17 @@ Feature: A Devin account serves Coddy's own agent
     And the chat request carried coddy's own tools and system prompt
     And the second chat request replayed the tool call, its result and the signed reasoning
     And the final assistant message quotes the workspace file
+
+  @acp
+  Scenario: A tool result that is not valid UTF-8 still reaches the model
+    The Devin API server rejects a request whose protobuf strings are not
+    valid UTF-8 with an opaque invalid_argument, so bytes a tool returns as
+    they are - a grep match or a command's output from a file in a legacy
+    encoding - must not end the turn.
+    Given a Devin stand whose model reads a workspace file with coddy's tool and then quotes it
+    And the workspace file is Latin-1 text
+    And the model searches it with coddy's grep tool, which returns the matching line byte for byte
+    And an ACP session manager with a devin provider signed in through Coddy
+    When I run an agent prompt on "devin/claude-opus-5" at reasoning level "high"
+    Then the second chat request carried the tool result as valid UTF-8
+    And the final assistant message quotes the workspace file

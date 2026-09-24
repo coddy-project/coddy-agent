@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -306,5 +307,47 @@ func TestReActRetryBudgetCancellationAndPartialOutput(t *testing.T) {
 				t.Fatalf("calls=%d stop=%s err=%v", calls, stop, err)
 			}
 		})
+	}
+}
+
+// TestProviderRecoveryDelay: the pause before a provider recovery climbs from
+// five retry bases, takes a longer pause the provider named, and stops at the
+// cap.
+func TestProviderRecoveryDelay(t *testing.T) {
+	plain := errors.New("server error 500")
+	if got := providerRecoveryDelay(0, 1, plain); got != 5*time.Second {
+		t.Fatalf("first pause with the default base = %s, want 5s", got)
+	}
+	if got := providerRecoveryDelay(1000, 2, plain); got != 20*time.Second {
+		t.Fatalf("second pause = %s, want 20s", got)
+	}
+	named := &llm.QuotaResetError{Delay: 45 * time.Second, Cause: plain}
+	if got := providerRecoveryDelay(1000, 1, named); got != 45*time.Second {
+		t.Fatalf("pause with a named 45s = %s, want 45s", got)
+	}
+	if got := providerRecoveryDelay(60000, 2, plain); got != maxProviderRecoveryDelay {
+		t.Fatalf("pause past the cap = %s, want %s", got, maxProviderRecoveryDelay)
+	}
+}
+
+// TestStopNoticeNamesTheLimitAndTheWayOn: a top-level turn stopped by its
+// step limit is told to continue with a message; a subagent's transcript
+// takes none, so its notice points at the limit or a new run instead.
+func TestStopNoticeNamesTheLimitAndTheWayOn(t *testing.T) {
+	top := &session.State{ID: "sess_top"}
+	(&Agent{cfg: &config.Config{}, state: top}).noteStopReason("max_turns", nil, 40)
+	if got := top.TakeTurnStopNotice(); !strings.Contains(got, "40 steps") || !strings.Contains(got, "agent.max_turns") || !strings.Contains(got, "send a message") {
+		t.Fatalf("top-level notice = %q", got)
+	}
+	child := &session.State{ID: "sess_child"}
+	(&Agent{cfg: &config.Config{Subagents: config.Subagents{MaxTurns: 8}}, state: child, subagent: &session.SubagentMeta{Name: "explore"}}).noteStopReason("max_turns", nil, 8)
+	got := child.TakeTurnStopNotice()
+	if !strings.Contains(got, "subagents.max_turns") || strings.Contains(got, "send a message") {
+		t.Fatalf("subagent notice = %q", got)
+	}
+	failed := &session.State{ID: "sess_failed"}
+	(&Agent{cfg: &config.Config{}, state: failed}).noteStopReason("max_turns", errors.New("boom"), 40)
+	if got := failed.TakeTurnStopNotice(); got != "" {
+		t.Fatalf("a failed turn left a stop notice: %q", got)
 	}
 }

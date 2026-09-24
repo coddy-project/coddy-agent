@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -78,6 +79,8 @@ type SessionState interface {
 	ReplaceTags(tags []string) (stored []string, changed bool)
 	UpdateTags(add, remove []string) (stored []string, changed bool)
 	IsUserCancelledTurn() bool
+	// SetTurnStopNotice records why the turn stopped before its answer.
+	SetTurnStopNotice(msg string)
 	// TakeQueuedMessages drains the follow-ups written while this turn runs
 	// (session/turn_queue.go). The loop reads them between its own steps.
 	TakeQueuedMessages() []session.QueuedMessage
@@ -312,16 +315,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		messages = a.buildMessages(sys.Content)
 	}
 
-	maxTurns := a.cfg.Agent.MaxTurns
-	if maxTurns <= 0 {
-		maxTurns = 30
-	}
-	if a.subagent != nil {
-		maxTurns = a.cfg.Subagents.EffectiveMaxTurns(a.cfg.Agent.MaxTurns)
-		if a.subagent.MaxTurns > 0 {
-			maxTurns = a.subagent.MaxTurns
-		}
-	}
+	maxTurns := a.turnCap()
 
 	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
 
@@ -393,7 +387,9 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	}
 	a.applySubagentEnv(toolEnv, mode)
 
-	return a.runReActLoop(ctx, mode, sys, messages, toolDefs, transport, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns)
+	stop, err := a.runReActLoop(ctx, mode, sys, messages, toolDefs, transport, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns)
+	a.noteStopReason(stop, err, maxTurns)
+	return stop, err
 }
 
 // releasePlanContext hands back the design plan hand-off once the turn that ran
@@ -421,6 +417,118 @@ func (a *Agent) releasePlanContext() {
 // gpt-oss / harmony endpoints that leak a tool call into the reasoning channel — while
 // preventing an unbounded empty-turn loop.
 const maxEmptyAssistantContinuations = 2
+
+// turnCap is how many ReAct steps this turn may take: agent.max_turns, for a
+// subagent the definition's max_turns, then subagents.max_turns, then
+// agent.max_turns. None of them set (the default) is no step limit, which the
+// loop counts as math.MaxInt.
+func (a *Agent) turnCap() int {
+	limit := a.cfg.Agent.MaxTurns
+	if a.subagent != nil {
+		limit = a.cfg.Subagents.EffectiveMaxTurns(a.cfg.Agent.MaxTurns)
+		if a.subagent.MaxTurns > 0 {
+			limit = a.subagent.MaxTurns
+		}
+	}
+	if limit <= 0 {
+		return math.MaxInt
+	}
+	return limit
+}
+
+// noteStopReason records, for the session manager, why a turn that ended
+// without error stopped before its answer (issue #255): the step limit, named
+// by the key that set it, or the model's output limit.
+func (a *Agent) noteStopReason(stop string, err error, maxTurns int) {
+	if err != nil {
+		return
+	}
+	switch stop {
+	case string(acp.StopReasonMaxTurns):
+		if a.subagent != nil {
+			// A child's transcript takes no prompt: the way on is a higher
+			// limit or a new run, not a message.
+			key := "agent.max_turns"
+			switch {
+			case a.subagent.MaxTurns > 0:
+				key = "the max_turns of the subagent definition"
+			case a.cfg.Subagents.MaxTurns > 0:
+				key = "subagents.max_turns"
+			}
+			a.state.SetTurnStopNotice(fmt.Sprintf(
+				"The subagent stopped after %d steps, the step limit set by %s. Its report may be incomplete: raise the limit or run it again.",
+				maxTurns, key))
+			return
+		}
+		a.state.SetTurnStopNotice(fmt.Sprintf(
+			"Stopped after %d steps, the step limit set by agent.max_turns. The task may be unfinished: send a message to let the agent continue, or raise the limit.",
+			maxTurns))
+	case string(acp.StopReasonMaxTokens):
+		a.state.SetTurnStopNotice("The answer was cut off at the model's output limit (max_tokens). Send a message to let the agent continue, or raise the model's max_tokens.")
+	}
+}
+
+// maxProviderRecoveries bounds how many consecutive calls of one turn a
+// failing provider lane may cost before the turn ends with the provider's
+// error: the breaker opens after this many (issue #246).
+const maxProviderRecoveries = 2
+
+// providerRecoveryNudge asks the model to finish an answer a provider failure
+// cut off. It is added to the LLM-facing messages only, after the partial
+// answer the transcript keeps.
+const providerRecoveryNudge = "Your previous response was cut off by a provider error before it finished. Continue exactly where it stopped, without repeating what you already wrote."
+
+// maxProviderRecoveryDelay caps the pause before a recovery, a Retry-After
+// the provider named included.
+const maxProviderRecoveryDelay = 2 * time.Minute
+
+// providerRecoveryDelay is the pause before the n-th (1-based) recovery: five
+// times agent.llm_retry_base_ms, quadrupled on each further one (5 s, then
+// 20 s by default) - longer than the resilient wrapper's own ladder, which
+// already gave up - or the pause the provider asked for when that is longer.
+func providerRecoveryDelay(baseMS, n int, err error) time.Duration {
+	base := time.Duration(baseMS) * time.Millisecond
+	if base <= 0 {
+		base = config.AgentDefaultLLMRetryBaseMS * time.Millisecond
+	}
+	delay := 5 * base
+	for i := 1; i < n; i++ {
+		delay *= 4
+	}
+	if d, ok := llm.UpstreamRetryAfter(err); ok && d > delay {
+		delay = d
+	}
+	return min(delay, maxProviderRecoveryDelay)
+}
+
+// keepInterruptedAnswer adds to the transcript the part of an answer a
+// provider failure cut off: the text the user watched stream in and its
+// reasoning, without tool calls, which never finished. It reports whether any
+// answer text was kept, which is what the model is then asked to continue.
+func (a *Agent) keepInterruptedAnswer(text, reasoning string, clockStart, clockEnd time.Time) bool {
+	reasonTrim := strings.TrimSpace(reasoning)
+	if strings.TrimSpace(text) == "" && reasonTrim == "" {
+		return false
+	}
+	var reasoningMs int64
+	if reasonTrim != "" && !clockStart.IsZero() {
+		end := clockEnd
+		if end.IsZero() {
+			end = time.Now()
+		}
+		reasoningMs = max(end.Sub(clockStart), 0).Milliseconds()
+	}
+	a.state.AddMessage(llm.Message{
+		Role:                llm.RoleAssistant,
+		Content:             text,
+		Reasoning:           reasonTrim,
+		ReasoningDurationMs: reasoningMs,
+		Model:               a.state.EffectiveModelID(a.cfg),
+		CreatedAt:           time.Now().UTC().Format(time.RFC3339),
+	})
+	a.refreshConversationContextUsage(true)
+	return strings.TrimSpace(text) != ""
+}
 
 // maxEmptyAssistantReissues bounds how many times an empty turn is answered by
 // replaying the identical request before the model is talked to in words. One
@@ -528,6 +636,9 @@ func (a *Agent) runReActLoop(
 	// reset alongside emptyContinuations once the model makes progress.
 	var emptyReissues int
 	var firstTokenRetries int
+	// Consecutive calls the provider's lane failed that the turn ran again
+	// after a pause (issue #246); reset once a call succeeds.
+	var providerRecoveries int
 	var retryAllowance *llm.RetryAllowance
 	nextCallReason := "step"
 	// A new step earns a fresh allowance; consecutive unanswered requests do
@@ -643,6 +754,10 @@ func (a *Agent) runReActLoop(
 		var response *llm.Response
 		var streamErr error
 		var reasoningBuf strings.Builder
+		// answerBuf is the answer text that reached the client from this
+		// call. A provider that fails mid-stream returns no response, so this
+		// is what the transcript keeps of what the user already watched.
+		var answerBuf strings.Builder
 
 		reasonClockStart := time.Time{}
 		reasonClockEnd := time.Time{}
@@ -721,6 +836,7 @@ func (a *Agent) runReActLoop(
 		emitText := func(delta string, now time.Time, markReasonEnd bool) {
 			stopFirstTokenTimer()
 			streamedAny = true
+			answerBuf.WriteString(delta)
 			if markReasonEnd && strings.TrimSpace(delta) != "" {
 				maybeMarkReasonEnd(now)
 			}
@@ -932,6 +1048,47 @@ func (a *Agent) runReActLoop(
 				turn--
 				continue
 			}
+			// A failure of the provider's lane - a 5xx the resilient wrapper
+			// could not ride out, a stream cut or gone silent, text already
+			// shown or not - does not end the turn (issue #246). A limit
+			// (429) is left to the wrapper and the opt-in limit wait. The
+			// text the user watched stream in is kept, and after a pause the
+			// step runs again, asked to go on from where the answer broke off.
+			// Twice in a row at most; llm_retry_max: 0 turns it off.
+			if providerRecoveries < maxProviderRecoveries && a.cfg.Agent.EffectiveLLMRetryMax() > 0 &&
+				ctx.Err() == nil && !a.state.IsUserCancelledTurn() && turn+1 < maxTurns &&
+				llm.IsTransientProviderError(streamErr) {
+				providerRecoveries++
+				kept := a.keepInterruptedAnswer(answerBuf.String(), reasoningBuf.String(), reasonClockStart, reasonClockEnd)
+				delay := providerRecoveryDelay(a.cfg.Agent.LLMRetryBaseMS, providerRecoveries, streamErr)
+				a.log.Warn("provider failed mid-turn; running the step again after a pause",
+					"error", streamErr, "delay", delay, "recovery", providerRecoveries, "kept_partial_answer", kept)
+				if st := sessionStatePtr(a.state); st != nil {
+					st.AppendUILogNotice(session.CountUserTurns(a.state.GetMessages()), fmt.Sprintf(
+						"The provider failed mid-turn (%v). The turn went on after a %s pause (recovery %d of %d).",
+						streamErr, humanDuration(delay), providerRecoveries, maxProviderRecoveries))
+				}
+				timer := time.NewTimer(delay)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					if a.state.IsUserCancelledTurn() {
+						return string(acp.StopReasonCancelled), nil
+					}
+					// A deadline or a shutdown, not the user: the turn ends
+					// with the failure it was recovering from.
+					return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w (the pause before running the step again was interrupted: %v)", streamErr, ctx.Err())
+				case <-timer.C:
+				}
+				messages = a.buildMessages(sys.Content)
+				if kept {
+					// LLM-facing only; never persisted to the transcript.
+					messages = append(messages, llm.Message{Role: llm.RoleUser, Content: providerRecoveryNudge})
+				}
+				nextCallReason = "provider_recovery"
+				retryAllowance = nil
+				continue
+			}
 			// A mid-generation truncation, or a stall the idle guard cut,
 			// keeps its partial answer like a user stop: the user already
 			// watched the text stream in, so it must survive in the
@@ -988,6 +1145,8 @@ func (a *Agent) runReActLoop(
 			}
 			return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w", streamErr)
 		}
+
+		providerRecoveries = 0
 
 		// What the provider served from its prompt cache. A long conversation
 		// only stays affordable while this is most of the input, which is what

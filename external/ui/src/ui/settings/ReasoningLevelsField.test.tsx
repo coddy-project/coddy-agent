@@ -330,3 +330,13 @@ test("removing the last level while a fetch is pending keeps the opt-out", async
     "selector is hidden",
   );
 });
+
+// Add stands alone in the field's column and keeps its own width (the
+// .settings-row-action rule), instead of stretching across the field.
+test("the Add button is a lone row action, not a full-width bar", () => {
+  render(<Harness initial={["low"]} />);
+
+  const add = screen.getByTestId("reasoning-levels-add");
+  expect(add.classList.contains("settings-row-action")).toBe(true);
+  expect(add.parentElement?.classList.contains("settings-row")).toBe(true);
+});

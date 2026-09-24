@@ -48,8 +48,8 @@ export const messagesRu: Record<string, string> = {
   "settings.aria.panel": "Настройки",
   "settings.aria.close": "Закрыть настройки",
   "settings.backToSections": "Назад к разделам",
-  "settings.lead":
-    "Редактируйте конфигурацию по живой JSON-схеме. API-ключи (секреты) показываются полностью — используйте только в доверенных сетях.",
+  "settings.fieldHint.aria": "Пояснение: {label}",
+  "settings.fieldHint.ariaGeneric": "Пояснение к полю",
   "settings.loading": "Загрузка…",
   "settings.toast.saved": "Все разделы сохранены. Конфигурация перезагружена.",
   "settings.reload.title": "Перезагрузить с сервера",
@@ -72,12 +72,12 @@ export const messagesRu: Record<string, string> = {
   "settings.section.sessions_manager.label": "Сессии",
   "settings.section.providers.label": "Провайдеры LLM",
   "settings.section.models.label": "Логические модели",
-  "settings.section.agent.label": "ReAct-агент",
+  "settings.section.agent.label": "Цикл ReAct",
   "settings.section.tools.label": "Инструменты и разрешения",
   "settings.section.mcp_servers.label": "MCP-серверы",
   "settings.section.skills.label": "Навыки",
-  "settings.section.memory.label": "Долговременная память",
-  "settings.section.system.label": "Система",
+  "settings.section.memory.label": "Копайлот памяти",
+  "settings.section.system.label": "Промпты",
   "settings.section.compaction.label": "Сжатие контекста",
   "settings.section.subagents.label": "Субагенты",
   "settings.section.hooks.label": "Хуки",
@@ -85,15 +85,40 @@ export const messagesRu: Record<string, string> = {
   "settings.section.sessions_manager.desc": "Сохранённые чаты и очистка",
   "settings.section.providers.desc": "Подключения LLM API",
   "settings.section.models.desc": "Именованные конфигурации моделей",
-  "settings.section.agent.desc": "Параметры агента ReAct",
+  "settings.section.agent.desc": "Модель, повторы, защита от зацикливания",
   "settings.section.tools.desc": "Разрешения и лимиты инструментов",
   "settings.section.mcp_servers.desc": "Внешние MCP-инструменты",
   "settings.section.skills.desc": "Установленные скилы (slash)",
-  "settings.section.memory.desc": "Параметры долговременной памяти",
-  "settings.section.system.desc": "Планировщик, логи, промпты",
+  "settings.section.memory.desc": "Параметры субагента памяти",
+  "settings.section.system.desc": "Шаблоны и файлы инструкций",
   "settings.section.compaction.desc": "Сжатие истории диалога",
   "settings.section.subagents.desc": "Пул делегирования и доверие",
   "settings.section.hooks.desc": "Хуки жизненного цикла и доверие",
+  "settings.section.scheduler.label": "Планировщик",
+  "settings.section.scheduler.desc": "Задачи по расписанию",
+  "settings.section.logger.label": "Логирование",
+  "settings.section.logger.desc": "Уровень, приёмники, ротация",
+  "settings.section.gateways.label": "Шлюзы",
+  "settings.section.gateways.desc": "Бот Telegram",
+  "settings.group.agent.turn": "Модель и ходы",
+  "settings.group.agent.retries": "Повторы",
+  "settings.group.agent.timeouts": "Таймауты потока",
+  "settings.group.agent.loop": "Защита от зацикливания",
+  "settings.group.agent.limits": "Лимиты использования",
+  "settings.group.hooks.main": "Настройки хуков",
+  "settings.group.hooks.mainDesc":
+    "Как выполняются хуки, то есть можно ли запускать файлы, пришедшие с чекаутом, сколько может длиться один процесс хука без своего таймаута, сколько раз хук Stop может вернуть агента к работе и сколько текста может передать один хук.",
+  "settings.group.compaction.summary": "Суммаризация",
+  "settings.group.tools.permissions": "Разрешения",
+  "settings.group.memory.model": "Модель и хранилище",
+  "settings.group.memory.runs": "Запуски",
+  "settings.group.memory.limits": "Ограничения",
+  "settings.group.memory.instructions": "Инструкции",
+  "settings.group.scheduler.jobs": "Задания",
+  "settings.group.logger.main": "Настройки логирования",
+  "settings.group.sessions.storage": "Хранилище",
+  "settings.group.sessions.storageDesc":
+    "Где на машине с coddy хранятся бандлы сессий.",
 
   "settings.nav.aria.scrollLeft": "Прокрутить разделы влево",
   "settings.nav.aria.scrollRight": "Прокрутить разделы вправо",
@@ -106,6 +131,9 @@ export const messagesRu: Record<string, string> = {
   "settings.array.removeRowAria": "Удалить {name}",
   "settings.array.unnamed": "(без имени #{n})",
   "settings.array.back": "Назад к списку",
+  "settings.array.backTo": "Назад: {list}",
+  "settings.item.providers": "Настройки провайдера",
+  "settings.item.models": "Настройки модели",
   "settings.array.backTitle": "Назад к списку",
   "settings.array.empty":
     "Здесь пока пусто. Используйте «Добавить», чтобы создать.",
@@ -113,15 +141,40 @@ export const messagesRu: Record<string, string> = {
   "settings.field.apiBaseFallback": "Базовый URL API",
   "settings.field.modelIdFallback": "Идентификатор модели",
   "settings.field.defaultModelFallback": "Модель по умолчанию",
-  "settings.field.providerAria": "Провайдер",
+  "settings.field.provider": "Провайдер",
   "settings.field.providerPlaceholder": "провайдер",
-  "settings.field.modelPlaceholder": "провайдер/идентификатор-модели",
+  "settings.field.modelPlaceholder": "идентификатор-модели",
   "settings.field.fetching": "Получение…",
   "settings.field.fetchModels": "Получить модели",
-  "settings.field.fetchError":
-    "Не удалось получить модели: {error}. Введите идентификатор модели вручную ниже.",
-  "settings.field.noModels":
-    "Модели не возвращены. Введите идентификатор модели вручную ниже.",
+  "settings.contextWindow.fetch": "Запросить окно контекста у провайдера",
+  "settings.contextWindow.reported": "{tokens}, по данным {provider}",
+  "settings.contextWindow.default": "{tokens}, по умолчанию",
+  "settings.contextWindow.notReported":
+    "{provider} не сообщает окно контекста для {id}.",
+  "settings.contextWindow.fetchError":
+    "Не удалось получить окно контекста: {error}",
+  "settings.providers.group.main": "Настройки провайдера",
+  "settings.providers.group.advanced": "Расширенные настройки",
+  "settings.models.group.model": "Модель",
+  "settings.models.group.generation": "Генерация",
+  "settings.models.group.reasoning": "Рассуждение",
+  "settings.providerModels.legend": "Модели",
+  "settings.providerModels.needsNameAndType":
+    "Укажите ID и тип провайдера, чтобы получить список его моделей.",
+  "settings.providerModels.none": "Провайдер не вернул моделей.",
+  "settings.providerModels.fetchError": "Не удалось получить модели: {error}",
+  "settings.providerModels.filterPlaceholder": "Фильтр моделей…",
+  "settings.providerModels.noMatch": "Под фильтр не подходит ни одна модель.",
+  "settings.providerModels.addModel": "Добавить {id} в логические модели",
+  "settings.providerModels.notAdvertised":
+    "{id} больше не отдаётся провайдером",
+  "settings.providerModels.removeModel": "Убрать {id} из логических моделей",
+  "settings.providerModels.contextWindow.one": "Окно контекста {tokens} токен",
+  "settings.providerModels.contextWindow.few": "Окно контекста {tokens} токена",
+  "settings.providerModels.contextWindow.many":
+    "Окно контекста {tokens} токенов",
+  "settings.providerModels.contextWindow.other":
+    "Окно контекста {tokens} токена",
   "settings.reasoning.levelsFallback": "Уровни рассуждений",
   "settings.reasoning.fetch": "Получить уровни ризонинга",
   "settings.reasoning.fetching": "Получение уровней ризонинга…",
@@ -149,22 +202,25 @@ export const messagesRu: Record<string, string> = {
   // settings.schema.system.<child>.<path>.
   "settings.schema.providers.desc":
     "Учётные данные API и выбор транспорта для внешних LLM-провайдеров.",
-  "settings.schema.providers.name.label": "Имя провайдера",
+  "settings.schema.providers.name.label": "ID провайдера",
+  "settings.schema.providers.name.ph": "my-provider",
   "settings.schema.providers.name.desc":
-    "Логический идентификатор, используемый в id моделей (provider/model-id). Только латинские буквы, цифры, дефис и подчёркивание; должен начинаться с буквы. Если api_key пуст, исполняющая среда читает ключ из переменной окружения NAME_API_KEY (NAME — это значение поля в верхнем регистре, дефисы заменяются на подчёркивания).",
+    "Префикс идентификаторов моделей этого провайдера, как в provider/model-id. Латинские буквы, цифры, дефис и подчёркивание, первая буква.",
   "settings.schema.providers.type.label": "Тип провайдера",
   "settings.schema.providers.type.desc":
     "Сетевой протокол для этой записи провайдера.",
   "settings.schema.providers.api_base.label": "Базовый URL API",
+  "settings.schema.providers.api_base.ph": "https://api.openai.com/v1",
   "settings.schema.providers.api_base.desc":
-    "Необязательное переопределение базового URL API для этого провайдера. Для neuraldeep выбирает развёртывание: https://api.neuraldeep.ru/v1 (Россия) или https://api.neuraldeep.tech/v1 (международное зеркало); любое другое значение откатывается к первому. Для codex игнорируется, он использует фиксированный официальный адрес.",
+    "Необязательное переопределение базового URL API провайдера. Для neuraldeep выбирает развёртывание (Россия или международное зеркало); для codex и devin игнорируется, у них официальные адреса.",
   "settings.schema.providers.api_key.label": "API-ключ",
   "settings.schema.providers.api_key.desc":
-    "Можно указать ключ напрямую, сослаться на ${ENV} в YAML (разворачивается при загрузке файла) или оставить пустым — тогда процесс прочитает стандартную переменную NAME_API_KEY, производную от имени провайдера (см. описание поля «Имя провайдера»).",
+    "Ключ напрямую, ссылка ${ENV}, которая разворачивается при загрузке файла, или пусто, чтобы в момент вызова читать переменную окружения из подсказки в поле.",
   "settings.schema.providers.api_key_command.label":
     "Команда получения API-ключа",
+  "settings.schema.providers.api_key_command.ph": "pass show coddy/api-key",
   "settings.schema.providers.api_key_command.desc":
-    "Необязательная команда для получения ключа. Когда api_key пуст, она запускается через обнаруженный шелл хоста (pwsh, powershell или cmd на Windows; bash или sh в остальных случаях), и её вывод без краевых пробелов используется как ключ (как git/docker credential helpers или AWS credential_process). При ошибке используется стандартная переменная NAME_API_KEY.",
+    "Необязательная команда получения ключа, запускается через шелл хоста, когда API-ключ пуст; её вывод без краевых пробелов становится ключом, как у git или docker credential helpers. При ошибке читается переменная окружения.",
   "settings.schema.providers.proxy.label": "URL прокси",
   "settings.schema.providers.proxy.desc":
     "Необязательный прокси только для этого провайдера. Для HTTP-прокси подходят http:// и https://, для SOCKS5 подходят socks5:// и socks5h://, в обоих случаях имена хостов разрешает сам прокси. Указанный URL заменяет системный прокси для этого провайдера. Пока поле пустое, провайдер ходит через системный прокси (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).",
@@ -178,7 +234,7 @@ export const messagesRu: Record<string, string> = {
     "Необязательный предел на каждый HTTP-запрос к LLM этого провайдера, включая чтение потокового тела ответа. 0 (по умолчанию) — без клиентского таймаута.",
   "settings.schema.providers.usage_limits_panel.label": "Панель лимитов",
   "settings.schema.providers.usage_limits_panel.desc":
-    "Показывать расход лимитов аккаунта этого провайдера (секция и баннер здесь, строка футера и /usage в консоли) и читать для этого его эндпоинт лимитов. Выключите, чтобы скрыть панель и прекратить эти запросы для данной строки; влияет только на провайдеров с источником лимитов (NeuralDeep, Codex, Devin).",
+    "Показывать расход лимитов аккаунта этого провайдера NeuralDeep, Codex или Devin здесь, в футере консоли и в /usage, читая для этого его эндпоинт лимитов. Выключено скрывает панель и прекращает эти запросы для данной строки.",
 
   "settings.schema.models.desc":
     "Именованные записи моделей, которые агент и UI могут выбирать; id ссылаются на префиксы провайдеров.",
@@ -204,6 +260,8 @@ export const messagesRu: Record<string, string> = {
     "Уровень рассуждения по умолчанию",
   "settings.schema.models.reasoning_default.desc":
     "Уровень рассуждения, предвыбранный для новых чатов с этой моделью. Должен быть одним из разрешённых уровней рассуждения, иначе игнорируется.",
+  "settings.schema.models.reasoning_default.ph":
+    "medium, если он есть, иначе первый уровень",
   "settings.schema.models.stream.label": "Потоковые ответы",
   "settings.schema.models.stream.desc":
     "Оставьте включённым, чтобы получать ответ токен за токеном по SSE. Выключите, чтобы отправлять один блокирующий запрос и ждать ответ целиком — для серверов и прокси, которые плохо работают с потоками событий; транскрипт тогда заполнится разом, а не по мере набора. Недоступно для моделей codex: их бэкенд работает только в потоковом режиме.",
@@ -213,10 +271,7 @@ export const messagesRu: Record<string, string> = {
     "Логический идентификатор модели из списка моделей, используемый, когда клиент не указал модель.",
   "settings.schema.agent.max_turns.label": "Максимум итераций",
   "settings.schema.agent.max_turns.desc":
-    "Жёсткий предел итераций ReAct (вызовы LLM плюс раунды инструментов) на один запрос пользователя.",
-  "settings.schema.agent.max_tokens_per_turn.label": "Максимум токенов на шаг",
-  "settings.schema.agent.max_tokens_per_turn.desc":
-    "Верхний предел всех токенов (промпт + ответ) для одного шага агента.",
+    "Предел итераций ReAct (вызовы LLM плюс раунды инструментов) на один запрос пользователя; 0 снимает предел.",
   "settings.schema.agent.llm_retry_max.label": "Максимум повторов LLM",
   "settings.schema.agent.llm_retry_max.desc":
     "Общий лимит повторов после ошибок соединения, пустых ответов и тайм-аута первого токена. Сбрасывается после вызова инструмента или нового сообщения. 0 отключает эти повторы. Защита от циклов, Stop-хуки, резервные модели и ожидание квоты имеют отдельные лимиты.",
@@ -307,9 +362,14 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.tools.preview_server.host.label": "Адрес привязки",
   "settings.schema.tools.preview_server.host.desc":
     "Адрес, на котором слушает сервер, без порта (по умолчанию 127.0.0.1). Любой адрес, кроме loopback, открывает отдаваемый каталог наружу.",
+  "settings.schema.tools.preview_server.host.ph": "127.0.0.1",
   "settings.schema.tools.preview_server.public_host.label": "Публичный хост",
   "settings.schema.tools.preview_server.public_host.desc":
     "Хост, который подставляется в выдаваемую агентом ссылку, когда браузер находится на другой машине. Пусто - используется адрес привязки.",
+  "settings.schema.tools.preview_server.public_host.ph": "Адрес привязки",
+  "settings.schema.tools.websearch.brave_api_key.ph":
+    "Берётся из BRAVE_API_KEY",
+  "settings.schema.tools.websearch.searxng_url.ph": "http://localhost:8888",
 
   "settings.schema.subagents.desc":
     "Пользовательские дочерние агенты, которым модель может делегировать работу через spawn_agent. Определения хранятся в markdown-файлах с YAML-фронтматтером; каждый запуск выполняется как фоновая задача родительской сессии со своей дочерней сессией и транскриптом.",
@@ -376,6 +436,7 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.memory.dir.label": "Корень памяти",
   "settings.schema.memory.dir.desc":
     "Файловый корень markdown-файлов памяти; пусто - ${CODDY_HOME}/memory.",
+  "settings.schema.memory.dir.ph": "${CODDY_HOME}/memory",
   "settings.schema.memory.wait_seconds.label": "Ожидание отчёта (секунды)",
   "settings.schema.memory.wait_seconds.desc":
     "Сколько ход ждёт отчёт субагента памяти перед первым вызовом модели; 0 не ждёт (по умолчанию 20).",
@@ -402,6 +463,8 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.memory.additional_prompt.label": "Дополнительные инструкции",
   "settings.schema.memory.additional_prompt.desc":
     "Ваши собственные инструкции для субагента памяти, раздел его системного промпта; основной агент их не видит.",
+  "settings.schema.memory.additional_prompt.ph":
+    "Сохраняй решения по архитектуре этого проекта",
   "settings.schema.memory.additional_prompt_max_chars.label":
     "Предел дополнительных инструкций (символы)",
   "settings.schema.memory.additional_prompt_max_chars.desc":
@@ -436,26 +499,26 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.compaction.result_eviction.min_result_bytes.desc":
     "Результаты этого размера и меньше никогда не вытесняются (по умолчанию 2000; 0 — кандидат любой результат).",
 
-  "settings.schema.system.scheduler.label": "Планировщик",
-  "settings.schema.system.scheduler.enable.label": "Включено",
-  "settings.schema.system.scheduler.enable.desc":
+  "settings.schema.scheduler.label": "Планировщик",
+  "settings.schema.scheduler.enable.label": "Включено",
+  "settings.schema.scheduler.enable.desc":
     "Когда включено, этот процесс может запускать демон планировщика и REST API.",
-  "settings.schema.system.scheduler.dir.label": "Каталог заданий",
-  "settings.schema.system.scheduler.dir.desc":
-    "Каталог markdown-определений заданий.",
-  "settings.schema.system.scheduler.max_queue.label": "Максимум очереди",
-  "settings.schema.system.scheduler.max_queue.desc":
+  "settings.schema.scheduler.dir.label": "Каталог заданий",
+  "settings.schema.scheduler.dir.desc": "Каталог markdown-определений заданий.",
+  "settings.schema.scheduler.max_queue.label": "Максимум очереди",
+  "settings.schema.scheduler.max_queue.desc":
     "Максимум одновременных запусков агента по расписанию.",
-  "settings.schema.system.scheduler.timeout.label": "Таймаут задания",
-  "settings.schema.system.scheduler.timeout.desc":
+  "settings.schema.scheduler.timeout.label": "Таймаут задания",
+  "settings.schema.scheduler.timeout.desc":
     "Предельное время выполнения задания, например 30m или 1h30m.",
-  "settings.schema.system.scheduler.retain_sessions.label": "Хранить сессий",
-  "settings.schema.system.scheduler.retain_sessions.desc":
+  "settings.schema.scheduler.retain_sessions.label": "Хранить сессий",
+  "settings.schema.scheduler.retain_sessions.desc":
     "Сколько папок завершённых сессий планировщика хранить на каждый идентификатор задания.",
-  "settings.schema.system.prompts.label": "Промпты",
+  "settings.schema.system.prompts.label": "Шаблоны промптов",
   "settings.schema.system.prompts.dir.label": "Каталог промптов",
   "settings.schema.system.prompts.dir.desc":
     "Необязательный каталог переопределения для markdown-файлов промптов.",
+  "settings.schema.system.prompts.dir.ph": "Встроенные промпты",
   "settings.schema.system.prompts.agent_prompt.label": "Файл промпта агента",
   "settings.schema.system.prompts.agent_prompt.desc":
     "Имя файла системного промпта основного агента.",
@@ -470,88 +533,86 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.system.instructions.files.label": "Файлы инструкций",
   "settings.schema.system.instructions.files.desc":
     'Имена файлов относительно рабочего каталога сессии, читаемые как инструкции. По умолчанию ["AGENTS.md"].',
-  "settings.schema.system.logger.label": "Логирование",
-  "settings.schema.system.logger.level.label": "Уровень",
-  "settings.schema.system.logger.level.desc":
+  "settings.schema.logger.label": "Логирование",
+  "settings.schema.logger.level.label": "Уровень",
+  "settings.schema.logger.level.desc":
     "Минимальная важность, записываемая в настроенные приёмники.",
-  "settings.schema.system.logger.outputs.label": "Приёмники",
-  "settings.schema.system.logger.outputs.desc":
-    "Куда записываются строки лога.",
-  "settings.schema.system.logger.file.label": "Путь к файлу лога",
-  "settings.schema.system.logger.file.desc":
+  "settings.schema.logger.levels.label": "Уровни компонентов",
+  "settings.schema.logger.levels.desc":
+    "Повышает или понижает уровень одной подсистемы отдельно от остальных. Родительское имя покрывает вложенные (gateway действует и на gateway.telegram), побеждает самое длинное совпадение.",
+  "settings.schema.logger.outputs.label": "Приёмники",
+  "settings.schema.logger.outputs.desc": "Куда записываются строки лога.",
+  "settings.schema.logger.file.label": "Путь к файлу лога",
+  "settings.schema.logger.file.desc":
     "Файл назначения, когда приёмники включают file.",
-  "settings.schema.system.logger.format.label": "Формат",
-  "settings.schema.system.logger.format.desc":
+  "settings.schema.logger.file.ph": "${CODDY_HOME}/logs/coddy.log",
+  "settings.schema.logger.format.label": "Формат",
+  "settings.schema.logger.format.desc":
     "text — человекочитаемые логи; json — структурированные.",
-  "settings.schema.system.logger.rotation.label": "Ротация",
-  "settings.schema.system.logger.rotation.desc":
+  "settings.schema.logger.rotation.label": "Ротация",
+  "settings.schema.logger.rotation.desc":
     "Ротация по размеру при логировании в файл.",
-  "settings.schema.system.logger.rotation.max_size_mb.label":
+  "settings.schema.logger.rotation.max_size_mb.label":
     "Макс. размер файла (МБ)",
-  "settings.schema.system.logger.rotation.max_size_mb.desc":
+  "settings.schema.logger.rotation.max_size_mb.desc":
     "Ротировать после достижения файлом этого размера; 0 — значения по умолчанию логгера.",
-  "settings.schema.system.logger.rotation.max_files.label": "Максимум файлов",
-  "settings.schema.system.logger.rotation.max_files.desc":
+  "settings.schema.logger.rotation.max_files.label": "Максимум файлов",
+  "settings.schema.logger.rotation.max_files.desc":
     "Сколько сегментов ротации хранить; 0 — значения по умолчанию логгера.",
-  "settings.schema.system.sessions.label": "Сессии",
-  "settings.schema.system.sessions.dir.label": "Каталог сессий",
-  "settings.schema.system.sessions.dir.desc":
+  "settings.schema.sessions.label": "Сессии",
+  "settings.schema.sessions.dir.label": "Каталог сессий",
+  "settings.schema.sessions.dir.desc":
     "Переопределение корня сессий; пусто — внутри CODDY_HOME.",
-  "settings.schema.system.gateways.label": "Шлюзы мессенджеров",
-  "settings.schema.system.gateways.telegram.label": "Telegram",
-  "settings.schema.system.gateways.telegram.desc":
-    "Настройки адаптера Telegram-бота.",
-  "settings.schema.system.gateways.telegram.enable.label": "Включено",
-  "settings.schema.system.gateways.telegram.enable.desc":
+  "settings.schema.sessions.dir.ph": "${CODDY_HOME}/sessions",
+  "settings.schema.gateways.label": "Шлюзы мессенджеров",
+  "settings.schema.gateways.telegram.label": "Telegram",
+  "settings.schema.gateways.telegram.desc": "Настройки адаптера Telegram-бота.",
+  "settings.schema.gateways.telegram.enable.label": "Включено",
+  "settings.schema.gateways.telegram.enable.desc":
     "Запускать Telegram-бота (требуется сборочный тег gateway или gateway.telegram).",
-  "settings.schema.system.gateways.telegram.token.label": "Токен бота",
-  "settings.schema.system.gateways.telegram.token.desc":
+  "settings.schema.gateways.telegram.token.label": "Токен бота",
+  "settings.schema.gateways.telegram.token.desc":
     "Токен от BotFather. Здесь необязателен — оставьте пустым, чтобы читать из переменной окружения TELEGRAM_BOT_TOKEN (например, через .env). Секрет: если задан, хранится в config.yaml и показывается целиком.",
-  "settings.schema.system.gateways.telegram.rich_messages.label":
-    "Rich messages",
-  "settings.schema.system.gateways.telegram.rich_messages.desc":
+  "settings.schema.gateways.telegram.rich_messages.label": "Rich messages",
+  "settings.schema.gateways.telegram.rich_messages.desc":
     "Использовать Rich Messages Bot API 10.1: встроенный Markdown агента рендерится дословно, активность инструментов стримится как плейсхолдер Thinking, а выполненные инструменты показываются сворачиваемым блоком. При отсутствии поддержки откатывается к прежнему форматированию.",
-  "settings.schema.system.gateways.telegram.proxy.label": "URL прокси",
-  "settings.schema.system.gateways.telegram.proxy.desc":
+  "settings.schema.gateways.telegram.proxy.label": "URL прокси",
+  "settings.schema.gateways.telegram.proxy.desc":
     "Необязательный прокси для запросов к Bot API. Для HTTP-прокси подходят http:// и https://, для SOCKS5 подходят socks5:// и socks5h://, в обоих случаях имена хостов разрешает сам прокси. Указанный URL заменяет системный прокси для бота. Пока поле пустое, бот ходит через системный прокси (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).",
   "settings.gatewayProxy.ignoreSystemDesc":
     "Подключаться напрямую. Запросы бота не учитывают HTTPS_PROXY, HTTP_PROXY и NO_PROXY процесса Coddy. В конфиге сохраняется значение none вместо URL прокси.",
-  "settings.schema.system.gateways.telegram.admins.label": "Администраторы",
-  "settings.schema.system.gateways.telegram.admins.desc":
+  "settings.schema.gateways.telegram.admins.label": "Администраторы",
+  "settings.schema.gateways.telegram.admins.desc":
     "Идентификаторы пользователей Telegram с расширенными правами; администраторы всегда проходят проверку доступа.",
-  "settings.schema.system.gateways.telegram.default_access.label":
+  "settings.schema.gateways.telegram.default_access.label":
     "Доступ по умолчанию",
-  "settings.schema.system.gateways.telegram.default_access.desc":
+  "settings.schema.gateways.telegram.default_access.desc":
     "Резервный уровень доступа для чатов без переопределения: all, admins или group:<имя>.",
-  "settings.schema.system.gateways.telegram.default_isolation.label":
+  "settings.schema.gateways.telegram.default_isolation.label":
     "Изоляция по умолчанию",
-  "settings.schema.system.gateways.telegram.default_isolation.desc":
+  "settings.schema.gateways.telegram.default_isolation.desc":
     "Резервная изоляция сессий для групповых чатов.",
-  "settings.schema.system.gateways.telegram.user_groups.label":
-    "Группы пользователей",
-  "settings.schema.system.gateways.telegram.user_groups.desc":
+  "settings.schema.gateways.telegram.user_groups.label": "Группы пользователей",
+  "settings.schema.gateways.telegram.user_groups.desc":
     "Именованные наборы идентификаторов пользователей, на которые ссылается access как group:<имя>.",
-  "settings.schema.system.gateways.telegram.user_groups.name.label":
-    "Имя группы",
-  "settings.schema.system.gateways.telegram.user_groups.name.desc":
+  "settings.schema.gateways.telegram.user_groups.name.label": "Имя группы",
+  "settings.schema.gateways.telegram.user_groups.name.desc":
     "Имя, на которое ссылается access как group:<имя>.",
-  "settings.schema.system.gateways.telegram.user_groups.user_ids.label":
+  "settings.schema.gateways.telegram.user_groups.user_ids.label":
     "Идентификаторы пользователей",
-  "settings.schema.system.gateways.telegram.user_groups.user_ids.desc":
+  "settings.schema.gateways.telegram.user_groups.user_ids.desc":
     "Числовые идентификаторы Telegram, входящие в эту группу.",
-  "settings.schema.system.gateways.telegram.chats.label":
-    "Переопределения по чатам",
-  "settings.schema.system.gateways.telegram.chats.desc":
+  "settings.schema.gateways.telegram.chats.label": "Переопределения по чатам",
+  "settings.schema.gateways.telegram.chats.desc":
     "Переопределение изоляции и доступа для отдельных чатов.",
-  "settings.schema.system.gateways.telegram.chats.chat_id.label":
-    "Идентификатор чата",
-  "settings.schema.system.gateways.telegram.chats.chat_id.desc":
+  "settings.schema.gateways.telegram.chats.chat_id.label": "Идентификатор чата",
+  "settings.schema.gateways.telegram.chats.chat_id.desc":
     "Идентификатор чата Telegram; отрицательный для групп и супергрупп.",
-  "settings.schema.system.gateways.telegram.chats.isolation.label": "Изоляция",
-  "settings.schema.system.gateways.telegram.chats.isolation.desc":
+  "settings.schema.gateways.telegram.chats.isolation.label": "Изоляция",
+  "settings.schema.gateways.telegram.chats.isolation.desc":
     "Переопределение изоляции сессий для конкретного чата.",
-  "settings.schema.system.gateways.telegram.chats.access.label": "Доступ",
-  "settings.schema.system.gateways.telegram.chats.access.desc":
+  "settings.schema.gateways.telegram.chats.access.label": "Доступ",
+  "settings.schema.gateways.telegram.chats.access.desc":
     "Переопределение доступа для конкретного чата: all, admins или group:<имя>.",
 
   "settings.combobox.toggleAria": "Показать параметры",
@@ -575,7 +636,7 @@ export const messagesRu: Record<string, string> = {
   "codexAuth.enterProviderName": "Введите имя провайдера перед входом.",
 
   "neuralDeepApiBase.description":
-    "NeuralDeep держит одно и то же API в двух развёртываниях: api.neuraldeep.ru обслуживает Россию, а api.neuraldeep.tech служит зеркалом для остальных стран. Выбор определяет и хаб, через который идёт вход ниже. Список моделей читается из сохранённого конфига, поэтому сначала сохраните настройки.",
+    "NeuralDeep держит одно и то же API в двух развёртываниях: api.neuraldeep.ru обслуживает Россию, а api.neuraldeep.tech служит зеркалом для остальных стран. Выбор определяет и хаб, через который идёт вход ниже. Список моделей ниже запрашивается с настройками из этой формы, сохранять перед этим не нужно.",
   "neuralDeepApiBase.optionRu": "api.neuraldeep.ru — Россия",
   "neuralDeepApiBase.optionTech":
     "api.neuraldeep.tech — зеркало для остального мира",
@@ -690,14 +751,17 @@ export const messagesRu: Record<string, string> = {
   "mcp.origin.home": "~/.coddy/mcp.json",
   "mcp.origin.project": "./.coddy/mcp.json",
   // Настройки -> Субагенты: каталог определений
+  "subagents.settings.legend": "Настройки субагентов",
+  "subagents.settings.description":
+    "Правила пула делегирования, то есть можно ли запускать определения, пришедшие с чекаутом, сколько запусков идёт одновременно, насколько глубоко они вкладываются и сколько времени и итераций получает один запуск, если ни определение, ни вызов их не задают.",
   "subagents.catalog.legend": "Определения",
   "subagents.catalog.description":
     'Все определения, которые может запустить сессия этого рабочего пространства: встроенные, ваши файлы в ~/.coddy/agents и файлы .coddy/agents и .claude/agents, пришедшие вместе с чекаутом. При значении "ask" проектный файл запускается только после одобрения для этого рабочего пространства в терминале на машине, где работает coddy: coddy agents trust <name>.',
-  "subagents.catalog.workspace": "Рабочее пространство",
   "subagents.catalog.loading": "Загрузка определений…",
   "subagents.catalog.empty":
     "Из этого рабочего пространства не видно ни одного определения субагента.",
-  "subagents.catalog.declared": "Заявленные ограничения",
+  "subagents.catalog.showDeclared": "Показать заявленные ограничения",
+  "subagents.catalog.hideDeclared": "Скрыть заявленные ограничения",
   "subagents.error.load": "Не удалось загрузить каталог субагентов.",
   "subagents.error.network": "сервер недоступен",
   "subagents.scope.builtin": "встроенный",
@@ -832,6 +896,7 @@ export const messagesRu: Record<string, string> = {
   "sessions.delete": "Удалить",
   "sessions.loadingMore": "Загрузка…",
 
+  "sessions.manage.legend": "Управление сессиями",
   "sessions.manage.lead":
     "Все сохранённые диалоги и во что они обошлись. Отметьте ненужные строки или галочку в шапке, чтобы взять всю страницу; открытый диалог защищён.",
   "sessions.manage.loadFailed": "Не удалось загрузить сессии, {error}",
@@ -998,6 +1063,8 @@ export const messagesRu: Record<string, string> = {
   "composer.queueRemove": "Убрать из очереди",
   "composer.queueFull":
     "Очередь заполнена: дождитесь, пока агент прочитает то, что уже стоит.",
+  "composer.attachReadFailed":
+    "Не удалось прочитать вложенный файл {name}, сообщение не отправлено ({reason}).",
   "composer.queueFailed": "Не удалось поставить сообщение в очередь.",
   "composer.send": "Отправить",
   "composer.stopGeneration": "Остановить генерацию",

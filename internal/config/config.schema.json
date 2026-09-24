@@ -139,14 +139,8 @@
         },
         "max_turns": {
           "type": "integer",
-          "description": "Hard cap on LLM calls per prompt turn.",
-          "default": 30,
-          "minimum": 0
-        },
-        "max_tokens_per_turn": {
-          "type": "integer",
-          "description": "Max tokens across all LLM calls in one turn.",
-          "default": 200000,
+          "description": "Cap on the ReAct steps (LLM calls) of one prompt turn. 0, the default, sets no cap; a turn that reaches a cap set here ends with a notice that names it.",
+          "default": 0,
           "minimum": 0
         },
         "llm_retry_max": {

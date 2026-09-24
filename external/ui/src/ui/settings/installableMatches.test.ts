@@ -11,8 +11,14 @@ const rows: Row[] = [
 ];
 
 test("empty query yields no matches (dropdown stays closed)", () => {
-  expect(filterInstallableMatches(rows, "", 10)).toEqual({ matches: [], more: 0 });
-  expect(filterInstallableMatches(rows, "   ", 10)).toEqual({ matches: [], more: 0 });
+  expect(filterInstallableMatches(rows, "", 10)).toEqual({
+    matches: [],
+    more: 0,
+  });
+  expect(filterInstallableMatches(rows, "   ", 10)).toEqual({
+    matches: [],
+    more: 0,
+  });
 });
 
 test("matches by name, case-insensitive", () => {

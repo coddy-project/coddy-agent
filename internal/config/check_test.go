@@ -184,7 +184,7 @@ func TestCheckWrongTypeExplainsTheFix(t *testing.T) {
 	t.Run("word for a number", func(t *testing.T) {
 		rep := checkYAML(t, withModeline("agent:\n  max_turns: many\n"))
 		f := onlyError(t, rep)
-		if !strings.Contains(f.Fix, "max_turns: 30") {
+		if !strings.Contains(f.Fix, "max_turns: 0") {
 			t.Errorf("fix %q should show the schema default as an example", f.Fix)
 		}
 	})
@@ -630,7 +630,7 @@ func TestCheckPlacesASyntaxErrorOnTheLineThatBreaksTheFile(t *testing.T) {
 func TestCheckKeepsTheLinesOfEveryDecodeError(t *testing.T) {
 	// A type error carries one entry per bad value, each with its own correct line;
 	// locating the first broken line would collapse them into one.
-	rep := checkYAML(t, withModeline("agent:\n  max_turns: \"many\"\n  max_tokens_per_turn: \"lots\"\n"))
+	rep := checkYAML(t, withModeline("agent:\n  max_turns: \"many\"\n  llm_retry_base_ms: \"lots\"\n"))
 	if rep.Valid() {
 		t.Fatalf("two values of the wrong shape passed the check: %+v", rep.Findings)
 	}

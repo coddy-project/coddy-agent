@@ -12,13 +12,11 @@ function cssText(): string {
   return readFileSync(cssPath, "utf8");
 }
 
-// Regression: `.skills-list-item` is a flex row and the leading skill icon
-// (a bare 16x16 <svg>) had no `flex-shrink: 0`, so a long name/description
-// squeezed the icon horizontally, rendering it slanted/crooked. Pin it square.
-test("skills list leading icon does not shrink in the flex row", () => {
-  const css = cssText();
-  expect(css).toMatch(
-    /\.skills-list-item\s*>\s*svg\s*\{[^}]*flex-shrink:\s*0/s,
+// The row leads with its switch, not an icon: no rule sizes or dims a leading
+// <svg> of the row any more.
+test("an installed skill row has no leading icon rule", () => {
+  expect(cssText()).not.toMatch(
+    /\.skills-list-item(?:\.is-disabled)?\s*>\s*svg/,
   );
 });
 
@@ -27,7 +25,17 @@ test("skills list leading icon does not shrink in the flex row", () => {
 test("install results dropdown floats over the list, anchored to the control", () => {
   const css = cssText();
   expect(css).toMatch(/\.skills-install\s*\{[^}]*position:\s*relative/s);
-  expect(css).toMatch(/\.skills-install-results\s*\{[^}]*position:\s*absolute/s);
+  expect(css).toMatch(
+    /\.skills-install-results\s*\{[^}]*position:\s*absolute/s,
+  );
   // Sits above the following static list rows.
   expect(css).toMatch(/\.skills-install-results\s*\{[^}]*z-index:\s*\d+/s);
+});
+
+// The installed skills stack with no rule between them, like every list of
+// the settings drawer.
+test("installed skill rows carry no separator line", () => {
+  const body = /\.skills-list-item\s*\{([^}]*)\}/.exec(cssText())?.[1] ?? "";
+  expect(body).not.toBe("");
+  expect(body).not.toMatch(/border/);
 });

@@ -108,7 +108,6 @@ type ModelJSON struct {
 type AgentJSON struct {
 	Model                  string `json:"model"`
 	MaxTurns               int    `json:"max_turns,omitempty"`
-	MaxTokensPerTurn       int    `json:"max_tokens_per_turn,omitempty"`
 	LLMRetryMax            *int   `json:"llm_retry_max,omitempty"`
 	LLMRetryBaseMS         int    `json:"llm_retry_base_ms,omitempty"`
 	LLMMinIntervalMS       int    `json:"llm_min_interval_ms,omitempty"`
@@ -467,7 +466,6 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	out.Agent = AgentJSON{
 		Model:                  c.Agent.Model,
 		MaxTurns:               c.Agent.MaxTurns,
-		MaxTokensPerTurn:       c.Agent.MaxTokensPerTurn,
 		LLMRetryMax:            cloneIntPtr(c.Agent.LLMRetryMax),
 		LLMRetryBaseMS:         c.Agent.LLMRetryBaseMS,
 		LLMMinIntervalMS:       c.Agent.LLMMinIntervalMS,
@@ -695,7 +693,6 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	cfg.Agent = Agent{
 		Model:                  j.Agent.Model,
 		MaxTurns:               j.Agent.MaxTurns,
-		MaxTokensPerTurn:       j.Agent.MaxTokensPerTurn,
 		LLMRetryMax:            cloneIntPtr(j.Agent.LLMRetryMax),
 		LLMRetryBaseMS:         j.Agent.LLMRetryBaseMS,
 		LLMMinIntervalMS:       j.Agent.LLMMinIntervalMS,

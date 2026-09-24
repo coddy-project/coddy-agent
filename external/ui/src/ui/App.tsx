@@ -25,6 +25,7 @@ import {
   isAbortError,
   remoteHttpErrorMessage,
   remoteSendErrorMessage,
+  errorDetail,
 } from "./env/remoteErrors";
 import { EnvHealthBanner } from "./env/EnvHealthBanner";
 import { isNoLiveTurnRelayError } from "./chat/composerStreamError";
@@ -65,6 +66,7 @@ import {
   stableWakeItemId,
 } from "./chat/transcriptItemIds";
 import { parseBackgroundWakeTasks } from "./chat/backgroundWake";
+import { uiLogNoticeFeed } from "./chat/uiLogNotices";
 import {
   dedupeAdjacentDuplicateThinkingCompleted,
   keepLocalTranscriptIfServerEmpty,
@@ -430,6 +432,9 @@ export function App() {
     const row = readClientDraftSessions().find((r) => r.localId === id);
     return row?.draftText || "";
   });
+  // The files attached in the composer. Held here, not in the composer, so a
+  // send the server never took can put them back next to the text.
+  const [composerFiles, setComposerFiles] = useState<File[]>([]);
   // Workspace context chips: folder / git branch / worktree state per session.
   const [workspaceCtx, setWorkspaceCtx] = useState<WorkspaceContext | null>(
     null,
@@ -933,6 +938,10 @@ export function App() {
   // Active Settings section id from `#/settings/<section>` (null = default/grid).
   const [settingsSection, setSettingsSection] = useState<string | null>(() =>
     initialRoute.branch === "settings" ? initialRoute.section : null,
+  );
+  // The row a list section has open, from `?id=` (a provider or model name).
+  const [settingsItem, setSettingsItem] = useState<string | null>(() =>
+    initialRoute.branch === "settings" ? initialRoute.item : null,
   );
   const [schedulerEditor, setSchedulerEditor] =
     useState<SchedulerEditorState>(null);
@@ -1742,6 +1751,7 @@ export function App() {
     if (p.branch === "settings") {
       setSettingsRoute(true);
       setSettingsSection(p.section);
+      setSettingsItem(p.item);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
       setTasksOpen(false);
@@ -2628,53 +2638,11 @@ export function App() {
           : !!res.data.archived,
       );
     }
-    type UILogRow = {
-      id: string;
-      level: string;
-      message: string;
-      createdAt: string;
-    };
-    const noticesByTurn = new Map<number, UILogRow[]>();
-    for (const raw of res.data.uiLog || []) {
-      const msg = typeof raw.message === "string" ? raw.message.trim() : "";
-      if (!msg) continue;
-      const turn =
-        typeof raw.userTurnIndex === "number" &&
-        Number.isFinite(raw.userTurnIndex) &&
-        raw.userTurnIndex >= 1
-          ? Math.floor(raw.userTurnIndex)
-          : 1;
-      const id =
-        typeof raw.id === "string" && raw.id.trim() !== ""
-          ? raw.id.trim()
-          : newId("s");
-      const level = (raw.level || "error").trim() || "error";
-      const createdAt = typeof raw.createdAt === "string" ? raw.createdAt : "";
-      const row: UILogRow = { id, level, message: msg, createdAt };
-      const bucket = noticesByTurn.get(turn) ?? [];
-      bucket.push(row);
-      noticesByTurn.set(turn, bucket);
-    }
-    for (const [turn, bucket] of noticesByTurn) {
-      bucket.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-      noticesByTurn.set(turn, bucket);
-    }
-
     const next: TranscriptItem[] = [];
-    const pushUiNoticesForTurn = (turn: number) => {
-      for (const row of noticesByTurn.get(turn) || []) {
-        // Only the two levels the transcript knows how to render; a level a
-        // newer server may add stays invisible rather than mis-rendered.
-        if (row.level !== "error" && row.level !== "notice") continue;
-        next.push({
-          id: row.id,
-          type: "system_notice",
-          level: row.level,
-          message: row.message,
-          createdAtUtc: row.createdAt,
-        });
-      }
-    };
+    // Notices are stamped with the server's count of user-role messages, so
+    // every user-role row below - a compaction summary and a wake too - asks
+    // the feed for the notices that end the turn before it.
+    const notices = uiLogNoticeFeed(res.data.uiLog, newId);
     const toolIdx = new Map<string, number>();
     let userTurnIdx = 0;
     let thinkingInTurn = 0;
@@ -2687,6 +2655,7 @@ export function App() {
     for (const m of res.data.messages || []) {
       const role = (m.role || "").trim();
       if (role === "user") {
+        next.push(...notices.beforeUserRow());
         // A compaction summary row is a user-role message flagged by the server;
         // render it as its own "context compacted" foldout, not a user bubble,
         // and do not count it as a real user turn.
@@ -2700,20 +2669,14 @@ export function App() {
           });
           continue;
         }
-        // Flush notices for the previous turn before starting a new one so
-        // error notices land at the end of the turn they belong to, not at
-        // the top of the next one.
-        if (userTurnIdx > 0) {
-          pushUiNoticesForTurn(userTurnIdx);
-        }
         userTurnIdx++;
         thinkingInTurn = 0;
         assistantInTurn = 0;
         const cat = readMessageCreatedAtUTC(m as Record<string, unknown>);
         // Nobody typed the first message of a turn a finished background
         // task started, and nothing shows in its place: the turn reads as the
-        // agent carrying on. It still opens a turn, so the notices and the
-        // ids of the turn line up with the server's count of user messages.
+        // agent carrying on. It still opens a turn, so the ids of the turn
+        // line up with the server's count of user messages for a rewind.
         const wakeTasks = parseBackgroundWakeTasks(
           (m as Record<string, unknown>).background_wake,
         );
@@ -2849,8 +2812,8 @@ export function App() {
         };
       }
     }
-    // Flush notices for the last turn (no subsequent user message to trigger it).
-    pushUiNoticesForTurn(userTurnIdx);
+    // Notices of the last turn, and any the history no longer reaches.
+    next.push(...notices.end());
 
     // Enrich tool calls with persisted previews when available.
     const tcRes = await fetchJSON<{ toolCalls: ToolCallListRow[] }>(
@@ -3834,13 +3797,15 @@ export function App() {
       runPlanSlug?: string;
       files?: File[];
       /**
-       * Put the text back in the composer if the server refuses this send as
-       * busy. Set by the message queue's fallback: the queue closes a moment
-       * before the turn releases its admission, so a follow-up written in that
-       * gap is told "no turn is running" and then refused as busy - and what
-       * the operator wrote must not vanish between the two answers.
+       * Put the text and the files back in the composer when the server never
+       * took this send: a refusal by status, a request that failed on the way,
+       * an attachment the browser could not read. Set for what the operator
+       * wrote - the composer and the message queue's fallback (the queue
+       * closes a moment before the turn releases its admission, so a
+       * follow-up written in that gap is told "no turn is running" and then
+       * refused as busy) - and never for a retry, whose text was not typed.
        */
-      restoreDraftOnBusy?: boolean;
+      restoreOnRefusal?: boolean;
     },
   ) {
     const abortCtl = new AbortController();
@@ -3856,6 +3821,39 @@ export function App() {
       : null;
 
     let sidEffective = "";
+    // Set once the POST has an answer: a failure before it means the server
+    // never admitted this send, and the prompt goes back to the composer.
+    let responded = false;
+    // The server never took this send: the bubble drawn for it (once drawn)
+    // leaves the transcript, and what the operator wrote returns to the
+    // composer - text and files - ahead of anything typed since. Defined
+    // before anything can throw, so a failure on the way to the POST (the
+    // new chat's workspace, the file read) loses nothing either.
+    let restoreKey = "";
+    let userItemId = "";
+    const giveBack = () => {
+      const key = restoreKey || sessionId.trim();
+      if (userItemId)
+        applyStreamItemsForSession(key, (prev) =>
+          prev.filter((it) => it.id !== userItemId),
+        );
+      if (
+        !opts?.restoreOnRefusal ||
+        (key && viewedSessionIdRef.current.trim() !== key)
+      )
+        return;
+      setDraft((current) =>
+        !current.trim() || current.trim() === text.trim()
+          ? text
+          : `${text}\n\n${current}`,
+      );
+      const files = opts.files ?? [];
+      if (files.length > 0)
+        setComposerFiles((prev) => [
+          ...files,
+          ...prev.filter((f) => !files.includes(f)),
+        ]);
+    };
     const ownsPost = () =>
       postAbortBySidRef.current.get(postSessionKey) === abortCtl;
 
@@ -3876,6 +3874,7 @@ export function App() {
       sidEffective = sid;
       let latestPreviewSid = sid;
       postSessionKey = sid.trim();
+      restoreKey = postSessionKey;
       postAbortBySidRef.current.set(postSessionKey, abortCtl);
       pendingPostBySidRef.current.set(postSessionKey, abortCtl);
       streamGenerationBySidRef.current.set(
@@ -3951,6 +3950,10 @@ export function App() {
       };
       const assistantId = newId("a");
       assistantStreamId = assistantId;
+      // The server never took this send: the bubble drawn for it leaves the
+      // transcript, and what the operator wrote returns to the composer - text
+      // and files - ahead of anything typed since.
+      userItemId = userItem.id;
       let settingsOnly = false;
       streamingAssistantBySidRef.current.set(streamKey, assistantId);
       const viewingNow = viewedSessionIdRef.current.trim();
@@ -3993,24 +3996,56 @@ export function App() {
         writeLlmModelCookie(typedModel);
       }
       if (opts?.files && opts.files.length > 0) {
+        let unreadable: { name: string; reason: string } | null = null;
         const inlineFiles = await Promise.all(
           opts.files.map(
             (f) =>
-              new Promise<{ name: string; data_url: string }>(
-                (resolve, reject) => {
+              new Promise<{ name: string; data_url: string } | null>(
+                (resolve) => {
                   const reader = new FileReader();
                   reader.onload = () =>
                     resolve({
                       name: f.name,
                       data_url: reader.result as string,
                     });
-                  reader.onerror = reject;
+                  // A picked file the browser can no longer read (moved,
+                  // changed on disk, a cloud photo not on the device) is
+                  // named, and nothing is sent without it.
+                  reader.onerror = () => {
+                    unreadable ??= {
+                      name: f.name,
+                      reason:
+                        errorDetail(reader.error) || "NotReadableError",
+                    };
+                    resolve(null);
+                  };
                   reader.readAsDataURL(f);
                 },
               ),
           ),
         );
-        reqBody.inline_files = inlineFiles;
+        if (unreadable !== null) {
+          const { name, reason } = unreadable as {
+            name: string;
+            reason: string;
+          };
+          applyStreamItems((prev) => [
+            ...prev,
+            {
+              id: newId("s"),
+              type: "system_notice",
+              level: "error" as const,
+              message: t("composer.attachReadFailed", { name, reason }),
+              createdAtUtc: new Date().toISOString(),
+            },
+          ]);
+          giveBack();
+          completedNormally = true;
+          return;
+        }
+        reqBody.inline_files = inlineFiles.filter(
+          (f): f is { name: string; data_url: string } => f !== null,
+        );
       }
       const yamlSel = llmModel.trim();
       const reasoningSel = llmReasoning.trim();
@@ -4043,6 +4078,7 @@ export function App() {
         body: JSON.stringify(reqBody),
         signal: abortCtl.signal,
       });
+      responded = true;
       if (!ownsPost() || abortCtl.signal.aborted) return;
       pendingPostBySidRef.current.delete(postSessionKey);
 
@@ -4069,12 +4105,7 @@ export function App() {
             createdAtUtc: new Date().toISOString(),
           },
         ]);
-        if (
-          opts?.restoreDraftOnBusy &&
-          viewedSessionIdRef.current.trim() === postSessionKey
-        ) {
-          setDraft((current) => current || text);
-        }
+        giveBack();
         completedNormally = true;
         return;
       }
@@ -4086,6 +4117,7 @@ export function App() {
         sidEffective = sidHdr;
         postSessionKey = sidHdr.trim();
         streamKey = postSessionKey;
+        restoreKey = postSessionKey;
         queueEpoch = queueOrderRef.current.capture(streamKey).epoch;
         postAbortBySidRef.current.delete(oldKey);
         postAbortBySidRef.current.set(postSessionKey, abortCtl);
@@ -4122,7 +4154,19 @@ export function App() {
       if (!res.ok || !res.body) {
         const msg = !res.body
           ? t("app.emptyResponseBody")
-          : remoteHttpErrorMessage(res.status, getEnv());
+          : remoteHttpErrorMessage(
+              res.status,
+              getEnv(),
+              await res
+                .json()
+                .then(
+                  (b: { error?: { message?: unknown } }) =>
+                    typeof b?.error?.message === "string"
+                      ? b.error.message
+                      : "",
+                )
+                .catch(() => ""),
+            );
         applyStreamItems((prev) => [
           ...prev,
           {
@@ -4133,6 +4177,8 @@ export function App() {
             createdAtUtc: new Date().toISOString(),
           },
         ]);
+        // A refusal by status: nothing of this send is in the conversation.
+        if (!res.ok) giveBack();
         completedNormally = true;
         return;
       }
@@ -4345,6 +4391,20 @@ export function App() {
             createdAtUtc: new Date().toISOString(),
           },
         ]);
+      }
+      // The request failed before any answer (a dropped upload, a refused
+      // connection): the prompt returns to the composer, and the transcript is
+      // not read again, because that read would wipe the notice saying why and
+      // could not show a message the server does not have. Should the server
+      // have taken the turn after all, the activity refresh below attaches to
+      // it and its end reloads the transcript.
+      if (
+        !responded &&
+        !isAbortError(err) &&
+        (ownsPost() || !postSessionKey.trim())
+      ) {
+        giveBack();
+        completedNormally = true;
       }
     } finally {
       releaseSessionId?.(sidEffective);
@@ -5220,7 +5280,7 @@ export function App() {
         // ordinary prompt; if the admission has not been released yet and that
         // is refused too, the text comes back to the composer rather than
         // being lost between the two answers.
-        void streamResponses(body, { restoreDraftOnBusy: true });
+        void streamResponses(body, { restoreOnRefusal: true });
         return;
       }
       if (viewedSessionIdRef.current.trim() === sid)
@@ -5500,6 +5560,7 @@ export function App() {
               onClose={onCloseSettings}
               onConfigSaved={() => setConfigEpoch((e) => e + 1)}
               initialSection={settingsSection}
+              initialItem={settingsItem}
               activeSessionId={sidebarActiveId}
               onSessionsDeleted={onSessionsDeletedInSettings}
               // spawn_agent resolves definitions against the session's own
@@ -5686,6 +5747,8 @@ export function App() {
             {...(editingFiles.length > 0 ? { editingFiles } : {})}
             {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
             onDocsCommand={openDocsCommand}
+            attachedFiles={composerFiles}
+            onAttachedFilesChange={setComposerFiles}
             onSend={(text: string, files?: File[]) => {
               // A subagent transcript is read-only: the server answers 409.
               if (subagentTranscript) {
@@ -5696,6 +5759,9 @@ export function App() {
                 (turnActivity.get(sessionId) ??
                   activeComposerSidRef.current.has(sessionId.trim()))
               ) {
+                // Not sent: the composer already let go of the files.
+                if (files && files.length > 0)
+                  setComposerFiles((prev) => [...files, ...prev]);
                 return;
               }
               if (editingUserMsgIdx !== null) {
@@ -5707,7 +5773,10 @@ export function App() {
                 void handleRewindSend(textWithAssets, idx);
               } else {
                 setDraft("");
-                void streamResponses(text, files ? { files } : undefined);
+                void streamResponses(text, {
+                  restoreOnRefusal: true,
+                  ...(files ? { files } : {}),
+                });
               }
             }}
             onFetchToolCallFull={handleFetchToolCallFull}

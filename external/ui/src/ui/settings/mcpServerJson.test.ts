@@ -28,12 +28,10 @@ test("entry must be a JSON object with command or url", () => {
   expect(parseServerEntryJson("[]").error).toBeTruthy();
   expect(parseServerEntryJson('"str"').error).toBeTruthy();
   expect(parseServerEntryJson("{}").error).toBeTruthy();
-  expect(
-    parseServerEntryJson('{"command":"npx"}').entry?.command,
-  ).toBe("npx");
-  expect(
-    parseServerEntryJson('{"url":"https://x"}').entry?.url,
-  ).toBe("https://x");
+  expect(parseServerEntryJson('{"command":"npx"}').entry?.command).toBe("npx");
+  expect(parseServerEntryJson('{"url":"https://x"}').entry?.url).toBe(
+    "https://x",
+  );
 });
 
 test("args must be strings, env must be a string map", () => {
