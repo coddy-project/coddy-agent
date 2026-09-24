@@ -116,7 +116,7 @@ sudo loginctl enable-linger <user>
 
 `setup` prints that line when lingering is off. Coddy never changes it.
 
-### Controlling it
+### Controlling the service
 
 systemd owns the service. The `coddy serve status | stop | restart` verbs belong to
 `--daemon`, and when they find the systemd service instead they say so:
@@ -128,15 +128,17 @@ systemctl --user stop coddy.service       # until the next login, or the next bo
 ```
 
 Do not run `coddy serve --daemon` for the same account next to it: both would bind the
-same port. `setup` refuses while the daemon runs, and `--daemon` warns while the service
-does.
+same port. `setup` refuses while the daemon runs, and `--daemon` over `~/.coddy` refuses
+while the service runs (over another home it only warns, since that one may listen
+elsewhere). The daemon verbs also mention a service that is enabled but stopped, which
+comes back at the next login.
 
 `setup` and `uninstall` talk to the user manager of the account over its bus. A shell
 opened with `su` or `sudo -u` keeps the session of the caller, so the manager is not
 reachable from it and both commands say so; log in as the user (ssh, a desktop session,
 `machinectl shell <user>@`) instead.
 
-### Removing it
+### Removing the service
 
 ```bash
 coddy serve uninstall
@@ -149,8 +151,9 @@ sessions) and `~/Coddy` (workspace) are not touched.
 
 Run it before removing the `.deb` or `.rpm`. The package removal takes the unit file away
 but cannot reach into each account's `~/.config`, so an account that enabled the service
-keeps it enabled, and the service keeps running the deleted binary until it stops. The
-removal prints what clears it, to run as that user:
+keeps it enabled, and the service keeps running the deleted binary until it stops.
+`coddy serve uninstall` from another installation of Coddy still clears it; without one,
+the removal prints what does, to run as that user:
 
 ```bash
 systemctl --user disable --now coddy.service

@@ -131,7 +131,7 @@ rm -rf ~/.coddy ~/Coddy      # only if you also want the sessions, config and wo
 
 The package removal cannot reach into each account's **`~/.config`**, so it leaves an enabled
 service enabled and prints the commands that clear it
-([Removing it](../operate/serve.md#removing-it)).
+([Removing the service](../operate/serve.md#removing-the-service)).
 
 There is no apt or dnf repository to subscribe to: the packages are release assets, so a new version
 arrives when you install the newer file or run **`sudo coddy update`**, not from a background

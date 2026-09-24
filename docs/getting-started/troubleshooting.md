@@ -74,7 +74,7 @@ coddy serve --dry-run         # binds each listen address once and releases it
 coddy serve -P 12346          # or httpserver.port in the file
 ```
 
-For access from other machines bind wider and require a token: `coddy serve -H 0.0.0.0 --auth-token <secret>` (also `CODDY_HTTP_TOKEN` or `httpserver.auth_token`); without a token the process warns that it is reachable without authentication. A listen address is the one setting a running process cannot adopt: under `--daemon` the worker restarts on the new address by itself (exit status 75 asks the dispatcher for a replacement), in the foreground restart it yourself. Under `--daemon` a port that is held is reported in the terminal that typed the command and retried until it frees. See [coddy serve and the daemon](../operate/serve.md) and [HTTP API](../reference/http-api.md#cli-flags).
+For access from other machines bind wider and require a token: `coddy serve -H 0.0.0.0 --auth-token <secret>` (also `CODDY_HTTP_TOKEN` or `httpserver.auth_token`); without a token the process warns that it is reachable without authentication. A listen address is the one setting a running process cannot adopt: under `--daemon` the worker restarts on the new address by itself (exit status 75 asks the dispatcher for a replacement), and so does the systemd user service of `coddy serve setup`; in the foreground restart it yourself. Under `--daemon` a port that is held is reported in the terminal that typed the command and retried until it frees. See [coddy serve and the daemon](../operate/serve.md) and [HTTP API](../reference/http-api.md#cli-flags).
 
 ## A surface is missing from the build
 
