@@ -146,6 +146,17 @@ Cursor-style JSON editor for mcp.json entries with a scope picker (global writes
 `~/.coddy/mcp.json`, local writes `./.coddy/mcp.json`). Toggles persist into the file that
 defines the server; `config.yaml` entries are toggle-only here and edited in Settings.
 
+## MCP calls in the transcript
+
+The web UI names an MCP call as an action on its server (*calling get_issue on the MCP
+server github*) and opens it as a card rather than as JSON: the bar names the server and the
+tool, the arguments are fields, and the answer is read by its shape - a JSON object as the
+same fields, other JSON indented, Markdown (a heading, a code fence, a list) as a document,
+anything else as monospace text. A failed call keeps its error as raw text. Only the text
+parts of an answer reach the transcript: Coddy passes the `text` content of a
+`tools/call` result to the model and drops images and embedded resources. See
+[Web UI](../surfaces/web-ui.md) for the card and a screenshot.
+
 ## Supported Transports
 
 ### stdio (supported)

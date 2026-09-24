@@ -1186,8 +1186,9 @@ test("an MCP call names the server and the tool, never the registry id", () => {
     screen.getByText("calling create_issue on the MCP server github"),
   ).toHaveClass("thinking-label");
   expect(screen.queryByText("mcp__github__create_issue")).toBeNull();
-  // The argument preview the row already had survives the new label.
-  expect(screen.getByText("Crash on start")).toHaveClass("tool-summary-target");
+  // The argument preview the row already had survives the new label (the
+  // card under the row names the same argument again, as a field).
+  expect(screen.getByTestId("tool-summary-target")).toHaveTextContent("Crash on start");
 });
 
 test("a tool outside the catalogue keeps its own id in the summary row", () => {
@@ -1433,10 +1434,7 @@ test("a command is never respelt against the session directory", () => {
   );
 });
 
-test("a call whose arguments name nothing opens with its body, not an empty strip", () => {
-  // background_output takes a task id and a line count: no path, no command,
-  // nothing for the header bar to say. The bar was rendered anyway, so the card
-  // opened with a 34px empty strip above the arguments.
+test("background output names the task instead of opening with an empty strip", () => {
   const { container } = render(
     <ToolCallMessage
       toolCallId="tc-bgout"
@@ -1444,24 +1442,21 @@ test("a call whose arguments name nothing opens with its body, not an empty stri
       kind="background_output"
       status="completed"
       argsText={JSON.stringify({ task_id: "bg_3", tail_lines: 60 })}
-      resultText="bg_3 [running] go test ./..."
+      resultText="bg_3 [running] go test ./... (elapsed 4s)"
       durationMs={4}
     />,
   );
   openToolDetails();
 
-  expect(
-    container.querySelector(".permission-preview-bar"),
-    "a header bar with nothing in it is a strip of empty border",
-  ).toBeNull();
-  // With no bar the body carries the whole card, top corners included.
-  expect(container.querySelector(".permission-preview-viewport")).toHaveClass(
-    "permission-preview-viewport--headless",
+  expect(container.querySelector(".permission-preview-location")?.textContent).toBe(
+    "bg_3",
   );
-  // The arguments themselves still show.
-  expect(
-    container.querySelector(".permission-preview-code")?.textContent,
-  ).toContain("bg_3");});
+  // The status reads through the Tasks drawer's own labels.
+  expect(container.querySelector(".scheduler-tool-row")?.textContent).toContain(
+    "Running",
+  );
+  expect(container.querySelector(".permission-preview-code")).toBeNull();
+});
 
 test("read tells a directory listing apart from a file when its arguments say so", () => {
   const { rerender } = render(
