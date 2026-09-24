@@ -341,6 +341,10 @@ test("an MCP call shows its arguments as fields and a JSON answer as fields", ()
   expect(within(card).getByText("github")).toHaveClass(
     "structured-tool-mcp-server",
   );
+  // The separator is text a screen reader can read, not a pseudo-element.
+  expect(card.querySelector(".permission-preview-location")?.textContent).toBe(
+    "github · get_issue",
+  );
   expect(within(card).getByText("get_issue")).toHaveClass(
     "structured-tool-mcp-tool",
   );

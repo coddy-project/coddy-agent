@@ -204,6 +204,30 @@ test("an http request address never shows the password written into it", () => {
   );
 });
 
+test("a raw @ in a password is hidden to the last @, the way Go splits userinfo", () => {
+  expect(
+    httpRequestView({ url: "https://user:p@ss@example.test/api" }).url,
+  ).toBe("https://user:•••@example.test/api");
+  expect(
+    httpRequestView({
+      url: "https://x.test/",
+      proxy: "http://u:p@w@proxy:3128",
+    }).proxy,
+  ).toBe("http://u:•••@proxy:3128");
+});
+
+test("query parameters go before the fragment, as the request sends them", () => {
+  expect(
+    httpRequestView({ url: "https://x.test/api#frag", query: { a: "1" } }).url,
+  ).toBe("https://x.test/api?a=1#frag");
+  expect(
+    httpRequestView({ url: "https://x.test/p?x=1#f?y", query: { a: "1" } }).url,
+  ).toBe("https://x.test/p?x=1&a=1#f?y");
+  expect(
+    httpRequestView({ url: "https://x.test/p#f?y", query: { a: "1" } }).url,
+  ).toBe("https://x.test/p?a=1#f?y");
+});
+
 test("an http answer splits into status, headers, body and the tool's notes", () => {
   const exchange = parseHttpExchange(
     'HTTP/2.0 201 Created\r\nContent-Type: application/json\r\nSet-Cookie: session=abc\r\n\r\n{"id":42}\r\n\r\n[followed redirects: https://a.test/x -> https://a.test/x/]',
@@ -556,6 +580,38 @@ test("session_describe reads as the filing and what changed", () => {
   expect(sessionFilingView('{"object":"other"}')).toBeNull();
 });
 
+test("a memory hit path may hold spaces, and a header that does not parse gives up", () => {
+  expect(
+    memoryHits(
+      "### Hit 1 (project score=3 path=project:my notes/ci.md)\nThe matrix.\n",
+    ),
+  ).toEqual([
+    {
+      scope: "project",
+      score: 3,
+      path: "project:my notes/ci.md",
+      snippet: "The matrix.",
+    },
+  ]);
+  expect(
+    memoryHits(
+      "### Hit 1 (global score=7 path=global:a.md)\nA.\n\n### Hit 2 (garbled)\nB.\n",
+    ),
+  ).toBeNull();
+});
+
+test("a list preview cut by the transcript still reads as its rows", () => {
+  expect(
+    backgroundView(
+      "background_list",
+      "bg_1 [running] build (elapsed 4s)\nbg_2 [succeeded] tests (elapsed 9s, exit 0)\n...",
+    ),
+  ).toMatchObject({ kind: "tasks", tasks: [{ id: "bg_1" }, { id: "bg_2" }] });
+  expect(memoryEntries("- a.md (file) size=3\n...")).toEqual([
+    { name: "a.md", kind: "file", size: 3 },
+  ]);
+});
+
 test("memory search hits and a memory listing read as rows", () => {
   expect(
     memoryHits(
@@ -601,7 +657,7 @@ test("a JSON document is an object or an array, nothing else", () => {
 test("an object reads as rows: text, literals, short lists and nested JSON", () => {
   expect(
     fieldRows({
-      object: "session.filing",
+      object: "list",
       title: "Release",
       count: 3,
       ok: true,
@@ -612,6 +668,8 @@ test("an object reads as rows: text, literals, short lists and nested JSON", () 
       objects: [{ a: 1 }],
     }),
   ).toEqual([
+    // An API's own "object" field is data like any other.
+    { key: "object", value: { kind: "text", text: "list" } },
     { key: "title", value: { kind: "text", text: "Release" } },
     { key: "count", value: { kind: "literal", text: "3" } },
     { key: "ok", value: { kind: "literal", text: "true" } },

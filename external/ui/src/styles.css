@@ -9991,8 +9991,8 @@ html:not([data-theme="light"]) .context-usage-note--error {
   color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
 }
 
-.structured-tool-mcp-server::after {
-  content: " · ";
+.structured-tool-mcp-separator {
+  color: color-mix(in srgb, var(--text) 30%, var(--coddy-blend-base));
 }
 
 .tool-result-loading {

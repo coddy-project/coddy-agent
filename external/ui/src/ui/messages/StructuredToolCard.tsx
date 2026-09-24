@@ -858,6 +858,7 @@ function McpCard(
       heading={
         <>
           <span className="structured-tool-mcp-server">{props.server}</span>
+          <span className="structured-tool-mcp-separator"> · </span>
           <span className="structured-tool-mcp-tool">{props.tool}</span>
         </>
       }

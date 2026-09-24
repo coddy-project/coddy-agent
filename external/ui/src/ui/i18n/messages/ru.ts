@@ -1503,7 +1503,7 @@ export const messagesRu: Record<string, string> = {
   "structuredTool.compaction": "Сжатие контекста",
   "structuredTool.memoryScope": "Область",
   "structuredTool.noMemoryHits": "Подходящих заметок нет",
-  "structuredTool.score": "вес {score}",
+  "structuredTool.score": "оценка {score}",
   "structuredTool.emptyDirectory": "Пустая папка",
   "structuredTool.kindFile": "файл",
   "structuredTool.kindDir": "папка",

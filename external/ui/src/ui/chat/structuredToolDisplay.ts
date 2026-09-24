@@ -20,6 +20,14 @@ function norm(text: string): string {
   return text.replace(/\r\n/g, "\n");
 }
 
+/**
+ * The text without the "..." line the transcript appends to a cut preview, so a
+ * list whose rows all read still reads as rows until More brings the rest.
+ */
+function withoutPreviewMarker(text: string): string {
+  return text.replace(/\n\.\.\.\s*$/, "");
+}
+
 /** Trimmed string for strings, "" for anything else. */
 function str(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
@@ -120,7 +128,9 @@ export type HttpRequestView = {
 
 const SENSITIVE_HEADER =
   /(authorization|cookie|token|secret|password|api[-_]?key)/i;
-const URL_CREDENTIALS = /^([a-z][a-z0-9+.-]*:\/\/)([^@/?#]*)@(.*)$/i;
+// Greedy up to the first "/", "?" or "#": a raw "@" inside a password belongs to
+// the userinfo, which ends at the last "@" of the authority, as Go's url.Parse reads it.
+const URL_CREDENTIALS = /^([a-z][a-z0-9+.-]*:\/\/)([^/?#]*)@(.*)$/i;
 
 /** An address with the password (or the lone token) of its userinfo hidden. */
 function hideCredentials(address: string): string {
@@ -132,12 +142,12 @@ function hideCredentials(address: string): string {
   return `${m[1]}${hidden}@${m[3]}`;
 }
 
-/** The body an http request will send; the first matching kind wins. */
 /** A form field as the request sends it, its value hidden when its name says secret. */
 function formField(name: string, value: string): string {
   return SENSITIVE_HEADER.test(name) ? `${name}=•••` : `${name}=${value}`;
 }
 
+/** The body an http request will send; the first matching kind wins. */
 function httpBody(args: ToolArgs): HttpRequestView["body"] {
   if (args.json !== undefined) {
     return {
@@ -223,8 +233,12 @@ function httpUrl(args: ToolArgs): string {
     }
   }
   const encoded = params.toString();
-  if (encoded) url += (url.includes("?") ? "&" : "?") + encoded;
-  return url;
+  if (!encoded) return url;
+  // The query goes before a fragment, and only a "?" before the fragment starts one.
+  const hash = url.indexOf("#");
+  const base = hash < 0 ? url : url.slice(0, hash);
+  const fragment = hash < 0 ? "" : url.slice(hash);
+  return base + (base.includes("?") ? "&" : "?") + encoded + fragment;
 }
 
 /** The request headers, sorted, with sensitive values masked and empty ones removed. */
@@ -403,7 +417,7 @@ export function backgroundView(name: string, result: string): BackgroundView {
     if (text.trim() === "No background tasks in this session.")
       return { kind: "tasks", tasks: [] };
     const tasks: TaskLine[] = [];
-    for (const line of text.split("\n")) {
+    for (const line of withoutPreviewMarker(text).split("\n")) {
       if (!line.trim()) continue;
       const task = parseTaskLine(line);
       if (!task) return { kind: "raw", text };
@@ -694,7 +708,7 @@ export type MemoryHit = {
   snippet: string;
 };
 
-const MEMORY_HIT = /^### Hit \d+ \((\S+) score=(\d+) path=(\S+)\)$/;
+const MEMORY_HIT = /^### Hit \d+ \((\S+) score=(\d+) path=(.+)\)$/;
 
 /** The hits of a memory search: scope, score, path and the snippet under each header. */
 export function memoryHits(result: string): MemoryHit[] | null {
@@ -711,6 +725,8 @@ export function memoryHits(result: string): MemoryHit[] | null {
   };
   for (const line of text.split("\n")) {
     const m = MEMORY_HIT.exec(line);
+    // A header the pattern does not read would fold its hit into the one above.
+    if (!m && line.startsWith("### Hit ")) return null;
     if (m) {
       flush();
       current = {
@@ -739,7 +755,7 @@ export function memoryEntries(result: string): MemoryEntry[] | null {
   if (!text.trim()) return null;
   if (text.trim() === "(empty directory)") return [];
   const out: MemoryEntry[] = [];
-  for (const line of text.split("\n")) {
+  for (const line of withoutPreviewMarker(text).split("\n")) {
     if (!line.trim()) continue;
     const m = MEMORY_ENTRY.exec(line);
     if (!m) return null;
@@ -777,7 +793,6 @@ export function fieldRows(obj: Record<string, unknown>): FieldRow[] {
   for (const key of Object.keys(obj)) {
     const v = obj[key];
     if (v === undefined) continue;
-    if (key === "object" && typeof v === "string") continue;
     if (typeof v === "string") {
       rows.push({ key, value: { kind: "text", text: v } });
     } else if (v === null || typeof v === "number" || typeof v === "boolean") {
