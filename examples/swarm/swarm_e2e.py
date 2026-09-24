@@ -25,7 +25,8 @@ What it proves, in order:
 7. search reaches the work and the machine;
 8. the ring is reported once, with the short route chosen and the long one kept;
 9. the control plane is refused through a mount;
-10. a node that goes away becomes a warning rather than an error.
+10. a long transcript is read page by page through a mount and a tunnel;
+11. a node that goes away becomes a warning rather than an error.
 
 Requires ``build/coddy`` built with ``-tags "http swarm"``. No LLM is needed:
 sessions are seeded on disk, and every checked route is metadata-only.
@@ -212,6 +213,63 @@ def seed_session(home: Path, sid: str, title: str, cwd: str, first_message: str)
             {"role": "assistant", "content": "Done."},
         ]
     }), encoding="utf-8")
+
+
+def seed_long_session(home: Path, sid: str, turns: int) -> int:
+    """Writes a session of `turns` turns - a prompt, a tool step and an answer
+    each - for the paged transcript reads, and returns its message count."""
+    d = home / "sessions" / sid
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "session.json").write_text(json.dumps({
+        "version": 1, "id": sid, "cwd": "/srv/long", "mode": "agent",
+        "title": "A long conversation", "updatedAt": "2026-09-08T12:00:00Z",
+    }), encoding="utf-8")
+    messages: list[dict[str, Any]] = []
+    for i in range(1, turns + 1):
+        call_id = f"call_{i}"
+        messages += [
+            {"role": "user", "content": f"prompt {i}"},
+            {"role": "assistant", "content": "",
+             "tool_calls": [{"id": call_id, "name": "read_file", "input": '{"path":"a.go"}'}]},
+            {"role": "tool", "content": f"result {i}", "tool_call_id": call_id},
+            {"role": "assistant", "content": f"answer {i}"},
+        ]
+    (d / "messages.json").write_text(json.dumps({"version": 1, "messages": messages}), encoding="utf-8")
+    return len(messages)
+
+
+def read_long_session_in_pages(base: str, token: str, total: int, where: str) -> None:
+    """Reads a seeded long session the way the web UI does (issue #338): the
+    newest page, then older pages until the first message, each with the tool
+    calls of its own messages only."""
+    code, page, raw = call("GET", f"{base}/messages?limit=10", token)
+    if code != 200:
+        fail(f"{where}: the newest page: {code} {raw[:200]}")
+    window = page.get("window") or {}
+    msgs = page.get("messages") or []
+    if window.get("total") != total or window.get("offset", 0) <= 0:
+        fail(f"{where}: the newest page should start inside the history: {window}")
+    if window["offset"] + len(msgs) != total or msgs[0].get("role") != "user":
+        fail(f"{where}: the newest page should end the history and open with a prompt: {window}, {msgs[:1]}")
+    read = len(msgs)
+    offset = window["offset"]
+    for _ in range(total):
+        code, calls, raw = call("GET", f"{base}/tool-calls?from={offset}&to={offset + len(msgs)}", token)
+        issued = {m.get("tool_call_id") for m in msgs if m.get("tool_call_id")}
+        got = {c.get("toolCallId") for c in (calls or {}).get("toolCalls", [])}
+        if code != 200 or got != issued:
+            fail(f"{where}: the tool calls of the page at {offset}: {code} {sorted(got)} want {sorted(issued)}")
+        if offset == 0:
+            break
+        code, page, raw = call("GET", f"{base}/messages?limit=10&before={offset}", token)
+        msgs = page.get("messages") or []
+        window = page.get("window") or {}
+        if code != 200 or not msgs or window.get("offset", -1) + len(msgs) != offset:
+            fail(f"{where}: the page before {offset} does not join it: {code} {window} {raw[:200]}")
+        offset = window["offset"]
+        read += len(msgs)
+    if read != total:
+        fail(f"{where}: the pages held {read} messages, the history {total}")
 
 
 def wait_for_node(relay: str, token: str, name: str) -> None:
@@ -411,7 +469,18 @@ swarm:
         fail(f"registration must not be reachable through a mount: {code} {raw[:200]}")
     ok("the control plane stayed off the mount")
 
-    # 11. a node that goes away is a warning, not a failure
+    # 11. a long transcript is read page by page through the mounts, the page
+    #     travelling in the query to a dialled node and through a tunnel alike
+    for home, route, token, where in (
+        (home8, f"{r2}/swarm/nodes/agent8", R2_CLIENT, "agent8 through its relay"),
+        (home7, f"{r1}/swarm/nodes/shortcut/swarm/nodes/agent7", R1_CLIENT,
+         "agent7 over its tunnel, two relays away"),
+    ):
+        total = seed_long_session(home, "sess_long", 40)
+        read_long_session_in_pages(f"{route}/coddy/sessions/sess_long", token, total, where)
+    ok("a long transcript was read page by page through a mount and through a tunnel")
+
+    # 12. a node that goes away is a warning, not a failure
     os.killpg(os.getpgid(agent8_proc.pid), signal.SIGKILL)
     agent8_proc.wait(timeout=10)
     deadline = time.time() + 30

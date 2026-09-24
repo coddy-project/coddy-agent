@@ -13,6 +13,11 @@ Feature: Driving one node through a relay
     Then the node received the path "/coddy/sessions"
     And the response comes from the node
 
+  Scenario: A page of a long transcript reaches the node with its window
+    When I call "/coddy/sessions/sess_long/messages?limit=60&before=3200" on node "nas02" with the client token
+    Then the node received the path "/coddy/sessions/sess_long/messages"
+    And the node received the query "before=3200&limit=60"
+
   Scenario: The relay presents the node's own credential, not the client's
     When I call "/coddy/sessions" on node "nas02" with the client token
     Then the node saw the authorization "Bearer node-secret"
