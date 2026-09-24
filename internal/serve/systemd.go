@@ -105,8 +105,9 @@ Type=simple
 # that moves a listen address ends the process with status 75 instead of
 # waiting for a manual restart.
 Environment=` + EnvRole + `=` + RoleService + `
-# The workspace of every session opened without one. The "-" lets ExecStartPre
-# run while the folder is still missing; ExecStart then starts inside it.
+# The workspace of every session opened without one. The "-" makes a missing
+# folder non-fatal, so ExecStartPre can create it by its absolute path; the
+# working directory is applied per command, and ExecStart starts inside it.
 WorkingDirectory=-` + workspace + `
 ExecStartPre=` + systemdPath(mkdir) + ` -p ` + workspace + `
 ExecStart=` + systemdPath(exe) + ` serve
@@ -412,7 +413,7 @@ func (s *UserService) Setup(ctx context.Context) error {
 	if err := s.managerConfigHome(ctx); err != nil {
 		return err
 	}
-	unit, source, err := s.placeUnit()
+	unit, source, err := s.placeUnit(ctx)
 	if err != nil {
 		return err
 	}
@@ -466,7 +467,7 @@ func (s *UserService) Setup(ctx context.Context) error {
 // packaged binary uses the package's unit, and a unit an earlier setup wrote
 // for a script install is removed so it no longer shadows that one. Any other
 // binary gets a unit written for it.
-func (s *UserService) placeUnit() (path, source string, err error) {
+func (s *UserService) placeUnit(ctx context.Context) (path, source string, err error) {
 	userUnit := s.userUnit()
 	userUnitExists := fileExists(userUnit)
 	if userUnitExists && !writtenBySetup(userUnit) {
@@ -474,6 +475,11 @@ func (s *UserService) placeUnit() (path, source string, err error) {
 	}
 	if s.packaged() {
 		if userUnitExists {
+			// Disabled first, so the enable link that pointed at the removed
+			// file is made again for the packaged one below.
+			if _, err := s.systemctl(ctx, "disable", UnitName); err != nil {
+				return "", "", err
+			}
 			if err := os.Remove(userUnit); err != nil {
 				return "", "", fmt.Errorf("remove the unit an earlier setup wrote: %w", err)
 			}

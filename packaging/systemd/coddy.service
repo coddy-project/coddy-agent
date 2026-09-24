@@ -10,8 +10,9 @@ Type=simple
 # that moves a listen address ends the process with status 75 instead of
 # waiting for a manual restart.
 Environment=CODDY_SERVE_ROLE=service
-# The workspace of every session opened without one. The "-" lets ExecStartPre
-# run while the folder is still missing; ExecStart then starts inside it.
+# The workspace of every session opened without one. The "-" makes a missing
+# folder non-fatal, so ExecStartPre can create it by its absolute path; the
+# working directory is applied per command, and ExecStart starts inside it.
 WorkingDirectory=-%h/Coddy
 ExecStartPre=/bin/mkdir -p %h/Coddy
 ExecStart=/usr/bin/coddy serve

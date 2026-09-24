@@ -227,6 +227,12 @@ func TestSetupHandsAScriptUnitOverToThePackage(t *testing.T) {
 	if _, err := os.Stat(f.userUnit()); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the unit setup wrote still shadows the packaged one: %v", err)
 	}
+	calls := strings.Join(f.changes(), "|")
+	disable := strings.LastIndex(calls, "--user disable coddy.service")
+	enable := strings.LastIndex(calls, "--user enable coddy.service")
+	if disable < 0 || enable < disable {
+		t.Fatalf("the enable link was not made again for the packaged unit: %q", f.changes())
+	}
 	if !strings.Contains(f.out.String(), f.PackagedUnit) {
 		t.Fatalf("setup does not name the packaged unit:\n%s", f.out.String())
 	}

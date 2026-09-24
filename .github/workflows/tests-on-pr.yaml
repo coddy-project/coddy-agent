@@ -283,14 +283,19 @@ jobs:
             dpkg-deb --ctrl-tarfile "$package" | tar -xOf - ./prerm >> scripts.txt
             grep -F 'coddy-setup.conf' scripts.txt
             # The package tells the user about the unit and never turns it on.
-            ! grep -E 'systemctl( --user| --global)? (enable|start)' scripts.txt
+            # An if, not "! grep": bash's errexit ignores an inverted status.
+            if grep -E 'systemctl( --user| --global)? (enable|start)' scripts.txt; then
+              echo "::error::$package: a maintainer script enables or starts the unit"; exit 1
+            fi
           done
           for package in dist/*.rpm; do
             rpm2cpio "$package" | cpio -i --quiet --to-stdout ./usr/lib/systemd/user/coddy.service | cmp - packaging/systemd/coddy.service
             rpm -qp --scripts "$package" > scripts.txt
             grep -F 'NOT enabled' scripts.txt        # postinstall
             grep -F 'coddy-setup.conf' scripts.txt   # preremove
-            ! grep -E 'systemctl( --user| --global)? (enable|start)' scripts.txt
+            if grep -E 'systemctl( --user| --global)? (enable|start)' scripts.txt; then
+              echo "::error::$package: a maintainer script enables or starts the unit"; exit 1
+            fi
           done
 
       # Same reasoning one step further: the Homebrew cask is rendered only by
