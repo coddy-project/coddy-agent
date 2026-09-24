@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { FieldLabel } from "./FieldHint";
 import { useT } from "../i18n/I18nProvider";
 import { translate } from "../i18n/i18n";
 
@@ -155,8 +156,10 @@ export function CodexAuthField(props: { providerName: string }) {
 
   return (
     <div className="settings-row" data-testid="codex-auth-field">
-      <span className="settings-label">{t("codexAuth.fieldLabel")}</span>
-      <p className="settings-field-desc">{t("codexAuth.description")}</p>
+      <FieldLabel
+        label={t("codexAuth.fieldLabel")}
+        description={t("codexAuth.description")}
+      />
       {status.connected ? (
         <p className="settings-muted codex-auth-status">{connectedLabel}</p>
       ) : null}

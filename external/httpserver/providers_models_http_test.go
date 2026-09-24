@@ -8,10 +8,14 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -43,7 +47,7 @@ func TestProviderModelsUnknownProvider404(t *testing.T) {
 func TestProviderModelsHappyPath(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-4o"},{"id":"gpt-4o-mini"}]}`))
+		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-4o","context_length":131072},{"id":"gpt-4o-mini","max_model_len":8192}]}`))
 	}))
 	defer upstream.Close()
 
@@ -64,7 +68,8 @@ func TestProviderModelsHappyPath(t *testing.T) {
 	var body struct {
 		OK     bool `json:"ok"`
 		Models []struct {
-			ID string `json:"id"`
+			ID            string `json:"id"`
+			ContextWindow int    `json:"context_window"`
 		} `json:"models"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
@@ -72,6 +77,9 @@ func TestProviderModelsHappyPath(t *testing.T) {
 	}
 	if !body.OK || len(body.Models) != 2 {
 		t.Fatalf("unexpected body: %+v", body)
+	}
+	if body.Models[0].ContextWindow != 131072 || body.Models[1].ContextWindow != 8192 {
+		t.Fatalf("context_window not forwarded: %+v", body.Models)
 	}
 }
 
@@ -103,5 +111,414 @@ func TestProviderModelsUpstreamErrorReturnsOKFalse(t *testing.T) {
 	}
 	if body.OK {
 		t.Fatal("ok = true, want false on upstream error")
+	}
+}
+
+// postProviderModels posts the provider row JSON to POST /coddy/providers/models.
+func postProviderModels(t *testing.T, ts *httptest.Server, body string) *http.Response {
+	t.Helper()
+	res, err := http.Post(ts.URL+"/coddy/providers/models", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+// The settings form must be able to fetch models for a provider row that has
+// not been saved yet: the sign-in fields and the model fetch both operate on
+// the document being edited, not only on config.yaml on disk (issue #335).
+func TestProviderModelsPostUnsavedProvider(t *testing.T) {
+	var gotAuth string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"m1","context_window":32768},{"id":"m2"}]}`))
+	}))
+	defer upstream.Close()
+
+	ts := newProviderModelsServer(t, &config.Config{})
+
+	res := postProviderModels(t, ts, `{"name":"fresh","type":"openai","api_base":"`+upstream.URL+`","api_key":"sk-fresh"}`)
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", res.StatusCode)
+	}
+	var body struct {
+		OK     bool `json:"ok"`
+		Models []struct {
+			ID            string `json:"id"`
+			ContextWindow int    `json:"context_window"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.OK || len(body.Models) != 2 {
+		t.Fatalf("unexpected body: %+v", body)
+	}
+	if body.Models[0].ContextWindow != 32768 {
+		t.Fatalf("context_window = %d, want 32768", body.Models[0].ContextWindow)
+	}
+	if gotAuth != "Bearer sk-fresh" {
+		t.Fatalf("Authorization = %q, want Bearer sk-fresh", gotAuth)
+	}
+}
+
+// A sparse post that only names a saved provider behaves like the GET lookup:
+// the stored credentials apply without travelling in the request body.
+func TestProviderModelsPostSavedProviderByName(t *testing.T) {
+	var gotAuth string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"m1"}]}`))
+	}))
+	defer upstream.Close()
+
+	ts := newProviderModelsServer(t, &config.Config{
+		Providers: []config.ProviderConfig{
+			{Name: "demo", Type: "openai", APIBase: upstream.URL, APIKey: "sk-saved"},
+		},
+	})
+
+	res := postProviderModels(t, ts, `{"name":"demo"}`)
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", res.StatusCode)
+	}
+	var body struct {
+		OK bool `json:"ok"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.OK {
+		t.Fatal("ok = false, want true")
+	}
+	if gotAuth != "Bearer sk-saved" {
+		t.Fatalf("Authorization = %q, want Bearer sk-saved", gotAuth)
+	}
+}
+
+// Fields the body carries override the saved row, so the form previews the
+// provider as it is being edited, not as it was last saved.
+func TestProviderModelsPostPostedFieldsOverrideSaved(t *testing.T) {
+	var gotAuth string
+	upstreamA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTeapot) // must not be reached
+	}))
+	defer upstreamA.Close()
+	upstreamB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"m1"}]}`))
+	}))
+	defer upstreamB.Close()
+
+	ts := newProviderModelsServer(t, &config.Config{
+		Providers: []config.ProviderConfig{
+			{Name: "demo", Type: "openai", APIBase: upstreamA.URL, APIKey: "sk-saved"},
+		},
+	})
+
+	res := postProviderModels(t, ts, `{"name":"demo","type":"openai","api_base":"`+upstreamB.URL+`","api_key":"sk-post"}`)
+	defer func() { _ = res.Body.Close() }()
+	var body struct {
+		OK bool `json:"ok"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.OK {
+		t.Fatal("ok = false, want true")
+	}
+	if gotAuth != "Bearer sk-post" {
+		t.Fatalf("Authorization = %q, want Bearer sk-post", gotAuth)
+	}
+}
+
+// Issue #335: a provider that was signed in through the device flow but never
+// saved to config.yaml still lists its models - the stored hub credential file
+// is resolved by provider name and type, the same way sign-in resolved it.
+func TestProviderModelsPostNeuralDeepUnsaved(t *testing.T) {
+	home := t.TempDir()
+	authDir := filepath.Join(home, "providers", "nd")
+	if err := os.MkdirAll(authDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(authDir, "neuraldeep-auth.json"), []byte(`{"api_key":"nd-key"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var gotAuth, gotPath string
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"nd-m1"}]}`))
+	}))
+	defer hub.Close()
+	t.Setenv(llm.EnvNeuralDeepBaseURL, hub.URL+"/v1")
+
+	ts := newProviderModelsServer(t, &config.Config{Paths: config.Paths{Home: home}})
+
+	res := postProviderModels(t, ts, `{"name":"nd","type":"neuraldeep"}`)
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", res.StatusCode)
+	}
+	var body struct {
+		OK     bool `json:"ok"`
+		Models []struct {
+			ID string `json:"id"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.OK || len(body.Models) != 1 || body.Models[0].ID != "nd-m1" {
+		t.Fatalf("unexpected body: %+v", body)
+	}
+	if gotPath != "/v1/models" {
+		t.Fatalf("upstream path = %q, want /v1/models", gotPath)
+	}
+	if gotAuth != "Bearer nd-key" {
+		t.Fatalf("Authorization = %q, want Bearer nd-key", gotAuth)
+	}
+}
+
+func TestProviderModelsPostBadRequests(t *testing.T) {
+	ts := newProviderModelsServer(t, &config.Config{})
+
+	for name, body := range map[string]string{
+		"invalid JSON":   `{`,
+		"empty object":   `{}`,
+		"missing type":   `{"name":"fresh"}`,
+		"unknown type":   `{"name":"fresh","type":"bogus"}`,
+		"invalid name":   `{"name":"a b","type":"openai"}`,
+		"dot-dot name":   `{"name":"../x","type":"openai"}`,
+		"slash name":     `{"name":"a/b","type":"openai"}`,
+		"bad proxy word": `{"name":"fresh","type":"openai","proxy":"sure"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			res := postProviderModels(t, ts, body)
+			defer func() { _ = res.Body.Close() }()
+			if res.StatusCode != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400", res.StatusCode)
+			}
+		})
+	}
+}
+
+// A body that overrides api_base must not receive the saved row's credentials:
+// the stored key is inherited only while the request still targets the saved
+// endpoint, otherwise a changed URL would silently leak it to a different host.
+func TestProviderModelsPostBaseOverrideDropsSavedCredentials(t *testing.T) {
+	var gotAuth string
+	upstreamA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTeapot) // must not be reached
+	}))
+	defer upstreamA.Close()
+	upstreamB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"m1"}]}`))
+	}))
+	defer upstreamB.Close()
+
+	ts := newProviderModelsServer(t, &config.Config{
+		Providers: []config.ProviderConfig{
+			{Name: "demo", Type: "openai", APIBase: upstreamA.URL, APIKey: "sk-saved"},
+		},
+	})
+
+	res := postProviderModels(t, ts, `{"name":"demo","api_base":"`+upstreamB.URL+`"}`)
+	defer func() { _ = res.Body.Close() }()
+	var body struct {
+		OK bool `json:"ok"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.OK {
+		t.Fatal("ok = false, want true")
+	}
+	if strings.Contains(gotAuth, "sk-saved") {
+		t.Fatalf("Authorization = %q: saved key must not be sent to the overridden api_base", gotAuth)
+	}
+}
+
+// api_key and api_key_command are one credential slot: posting only
+// api_key_command does not resurrect the saved row's static key - the posted
+// command runs and its output is the credential sent upstream.
+func TestProviderModelsPostCredentialPairIsAtomic(t *testing.T) {
+	var gotAuth string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"m1"}]}`))
+	}))
+	defer upstream.Close()
+
+	ts := newProviderModelsServer(t, &config.Config{
+		Providers: []config.ProviderConfig{
+			{Name: "demo", Type: "openai", APIBase: upstream.URL, APIKey: "sk-saved"},
+		},
+	})
+
+	res := postProviderModels(t, ts, `{"name":"demo","api_key_command":"echo cmd-sourced-key"}`)
+	defer func() { _ = res.Body.Close() }()
+	var body struct {
+		OK bool `json:"ok"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.OK {
+		t.Fatal("ok = false, want true")
+	}
+	if gotAuth != "Bearer cmd-sourced-key" {
+		t.Fatalf("Authorization = %q, want Bearer cmd-sourced-key (posted command, not the saved key)", gotAuth)
+	}
+}
+
+// proxy "none" overrides a saved proxy URL: the fetch must reach the upstream
+// directly instead of dying on the dead proxy the saved row still names.
+func TestProviderModelsPostProxyNoneOverridesSaved(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"m1"}]}`))
+	}))
+	defer upstream.Close()
+
+	ts := newProviderModelsServer(t, &config.Config{
+		Providers: []config.ProviderConfig{
+			{Name: "demo", Type: "openai", APIBase: upstream.URL, APIKey: "sk-saved", Proxy: "http://127.0.0.1:1"},
+		},
+	})
+
+	res := postProviderModels(t, ts, `{"name":"demo","proxy":"none"}`)
+	defer func() { _ = res.Body.Close() }()
+	var body struct {
+		OK bool `json:"ok"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.OK {
+		t.Fatal(`ok = false, want true - posted "none" must bypass the saved dead proxy`)
+	}
+}
+
+func TestProviderModelsPostUpstreamError(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer upstream.Close()
+
+	ts := newProviderModelsServer(t, &config.Config{})
+
+	res := postProviderModels(t, ts, `{"name":"fresh","type":"openai","api_base":"`+upstream.URL+`","api_key":"bad"}`)
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (graceful fallback)", res.StatusCode)
+	}
+	var body struct {
+		OK bool `json:"ok"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.OK {
+		t.Fatal("ok = true, want false on upstream error")
+	}
+}
+
+// A browser page on another site can send a POST without a preflight only as a
+// "simple" request - text/plain, a form encoding - never as application/json.
+// Refusing every other content type is what keeps such a page from making an
+// unauthenticated loopback server run a posted api_key_command or contact an
+// upstream on its behalf.
+func TestProviderModelsPostRequiresJSONContentType(t *testing.T) {
+	var hits int
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"m1"}]}`))
+	}))
+	defer upstream.Close()
+	ts := newProviderModelsServer(t, &config.Config{})
+	marker := filepath.Join(t.TempDir(), "ran")
+	body := `{"name":"fresh","type":"openai","api_base":"` + upstream.URL +
+		`","api_key_command":"echo key > ` + filepath.ToSlash(marker) + `"}`
+
+	for _, contentType := range []string{"text/plain", "text/plain;charset=UTF-8", "application/x-www-form-urlencoded", ""} {
+		t.Run(contentType, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodPost, ts.URL+"/coddy/providers/models", strings.NewReader(body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if contentType != "" {
+				req.Header.Set("Content-Type", contentType)
+			}
+			res, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = res.Body.Close()
+			if res.StatusCode != http.StatusUnsupportedMediaType {
+				t.Fatalf("status = %d, want 415", res.StatusCode)
+			}
+		})
+	}
+	if hits != 0 {
+		t.Fatalf("upstream contacted %d times, want 0", hits)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("the posted api_key_command ran for a request that is not JSON")
+	}
+
+	// The same body as JSON (a charset parameter included) is served.
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/coddy/providers/models", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 for application/json", res.StatusCode)
+	}
+}
+
+// A body that overrides proxy must not receive the saved row's credentials:
+// like a changed api_base, a changed route would hand the stored key to
+// whoever runs the proxy the body names.
+func TestProviderModelsPostProxyOverrideDropsSavedCredentials(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	}))
+	defer upstream.Close()
+	var proxied string
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxied = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"m1"}]}`))
+	}))
+	defer proxy.Close()
+
+	ts := newProviderModelsServer(t, &config.Config{
+		Providers: []config.ProviderConfig{
+			{Name: "demo", Type: "openai", APIBase: upstream.URL, APIKey: "sk-saved"},
+		},
+	})
+
+	res := postProviderModels(t, ts, `{"name":"demo","proxy":"`+proxy.URL+`"}`)
+	_ = res.Body.Close()
+	if strings.Contains(proxied, "sk-saved") {
+		t.Fatalf("the proxy the body named received the saved key: Authorization = %q", proxied)
 	}
 }

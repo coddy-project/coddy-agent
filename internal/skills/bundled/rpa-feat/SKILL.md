@@ -1,6 +1,7 @@
 ---
 name: rpa-feat
-version: 1.0.0
+metadata:
+  version: 1.0.1
 description: >
   Run when the user invokes /rpa-feat together with a clear feature description (for example issue text).
   BDD workflow: plan, failing tests, implementation, green tests, full suite, docs and examples, linter at the end.

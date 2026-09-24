@@ -39,12 +39,19 @@ func (b *blockedReasoningBackend) over(inner backend) backend {
 	return b
 }
 
+// reasoningWait bounds how long a test waits for the console to settle a
+// reasoning change. The waits return as soon as the state agrees, so the bound
+// only matters on a slow runner: at 2s the Windows runner, where one of these
+// tests took 6s end to end, gave up with the session already on the new level
+// and the footer option one step behind.
+const reasoningWait = 10 * time.Second
+
 func waitForReasoningCall(t *testing.T, b *blockedReasoningBackend) string {
 	t.Helper()
 	select {
 	case level := <-b.started:
 		return level
-	case <-time.After(2 * time.Second):
+	case <-time.After(reasoningWait):
 		t.Fatal("timed out waiting for reasoning backend call")
 		return ""
 	}
@@ -104,7 +111,7 @@ func reasoningOption(t *testing.T, a *App) acp.ConfigOption {
 
 func waitForReasoning(t *testing.T, a *App, level string) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(reasoningWait)
 	for time.Now().Before(deadline) {
 		select {
 		case msg := <-a.updatesCh:
@@ -121,7 +128,9 @@ func waitForReasoning(t *testing.T, a *App, level string) {
 	if st != nil {
 		got = st.GetSelectedReasoning()
 	}
-	t.Fatalf("selected reasoning = %q, want %q", got, level)
+	// Both halves of the condition, so a failure says which one lagged.
+	t.Fatalf("selected reasoning = %q, footer option = %q, want %q for both",
+		got, reasoningOption(t, a).CurrentValue, level)
 }
 
 func TestReasoningSelectorPersistsAndRefreshesFooter(t *testing.T) {

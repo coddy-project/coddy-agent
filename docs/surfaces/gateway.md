@@ -138,7 +138,7 @@ Open Telegram, find your bot, send a message. The agent replies in the same chat
 
 ## Configuration reference
 
-All gateway config lives under the `gateways` key in `config.yaml`. When running `coddy serve` with the bundled UI, the same fields are editable under **Settings → Messenger gateways → Telegram**; the `gateways` block round-trips through `GET`/`PUT /coddy/config`, so saving settings in the UI preserves it (the bot token is shown in full — use only on trusted networks).
+All gateway config lives under the `gateways` key in `config.yaml`. When running `coddy serve` with the bundled UI, the same fields are editable under **Settings → Gateways → Telegram**; the `gateways` block round-trips through `GET`/`PUT /coddy/config`, so saving settings in the UI preserves it (the bot token is shown in full — use only on trusted networks).
 
 ```yaml
 gateways:
@@ -202,7 +202,7 @@ gateways:
     # proxy: "socks5h://127.0.0.1:1080"  # or "http://proxy.example.com:3128"
 ```
 
-Supported schemes: `http`, `https`, `socks5`, `socks5h`; with either SOCKS scheme the proxy resolves host names. In the web UI the field is the **Ignore system proxy** switch, which writes `none`, above the **Proxy URL** input (**Settings → System**, gateways block). `coddy --dry-run` asks `getMe` the way the bot will, through the same route.
+Supported schemes: `http`, `https`, `socks5`, `socks5h`; with either SOCKS scheme the proxy resolves host names. In the web UI the field is the **Ignore system proxy** switch, which writes `none`, above the **Proxy URL** input (**Settings → Gateways**, Telegram block). `coddy --dry-run` asks `getMe` the way the bot will, through the same route.
 
 ### Rich Messages
 

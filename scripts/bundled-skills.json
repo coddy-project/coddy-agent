@@ -4,7 +4,7 @@
     "Vendored copies live in internal/skills/bundled/<name>/ and are refreshed by",
     "scripts/vendor-bundled-skills.sh (make skills-vendor). Entries without a repo",
     "are written in this repository and are never overwritten by the script.",
-    "The version of a skill is the version: line of its SKILL.md frontmatter."
+    "The version of a skill is metadata.version in its SKILL.md frontmatter (a top-level version: still counts)."
   ],
   "skills": [
     {

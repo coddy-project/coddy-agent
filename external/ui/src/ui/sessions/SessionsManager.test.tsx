@@ -756,3 +756,20 @@ test("the editor offers a label another row already uses and drops one by its cr
   const patch = calls.find((c) => c.init?.method === "PATCH");
   expect(JSON.parse(String(patch?.init?.body))).toEqual({ tags: [] });
 });
+
+// The table is the Session management fieldset of the Sessions tab; what it is
+// for is the (i) of that legend, not a paragraph above the toolbar.
+test("the table is a Session management fieldset with its lead behind the (i)", async () => {
+  stubFetch();
+  renderTable();
+  await screen.findByTestId("sessions-manager-row-sess_one");
+  const box = screen.getByTestId("sessions-manager");
+  expect(box.tagName).toBe("FIELDSET");
+  expect(box.querySelector("legend")?.textContent).toBe("Session management");
+  expect(box.querySelector(":scope > p")).toBeNull();
+  const hint = box.querySelector("legend .field-hint")!;
+  fireEvent.mouseEnter(hint);
+  expect(screen.getByRole("tooltip").textContent).toContain(
+    "Every stored conversation",
+  );
+});

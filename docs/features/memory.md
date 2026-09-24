@@ -104,7 +104,7 @@ A binary built with both `http` and `memory` serves the two roots of a session a
 | POST | `/coddy/sessions/{id}/memory/dir` | `{"root","path"}` creates a folder |
 | DELETE | `/coddy/sessions/{id}/memory/file` | `root` and `path`; a file, or a folder recursively; `400` for the root itself |
 
-`workspace` is the project root of that session's cwd. Traversal outside a root is rejected. The session's own notes (`agentMemory` in `session.json`) are not editable here. These routes are the contract written down under [Long term memory](../surfaces/web-ui.md#long-term-memory) in the web UI notes; the memory keys themselves are the **Long-term memory** section of the web UI's Settings.
+`workspace` is the project root of that session's cwd. Traversal outside a root is rejected. The session's own notes (`agentMemory` in `session.json`) are not editable here. These routes are the contract written down under [Long term memory](../surfaces/web-ui.md#long-term-memory) in the web UI notes; the memory keys themselves are the **Memory copilot** tab of the web UI's Settings.
 
 ## Configuration
 
@@ -140,11 +140,11 @@ memory:
 | `additional_prompt` | `""` | your own instructions for the memory subagent, rendered as its **Operator instructions** section; the main agent never sees them |
 | `additional_prompt_max_chars` | `0` | cut `additional_prompt` at that many characters, with a warning in the agent log and a `coddy -t` finding; `0` keeps it whole |
 
-The field table is in the [config.yaml reference](../reference/config.md#memory); `config.example.yaml` carries the same block with comments. The web UI edits the same keys under **Settings → Long-term memory**.
+The field table is in the [config.yaml reference](../reference/config.md#memory); `config.example.yaml` carries the same block with comments. The web UI edits the same keys under **Settings → Memory copilot**, grouped into **Model and storage**, **Runs**, **Limits** and **Instructions**.
 
-![Settings → Long-term memory: the wait, the timeout, the runs kept, and the operator's additional instructions with their cap](../assets/memory/memory-settings-dark-1280.png)
+![Settings → Memory copilot: the Runs, Limits and Instructions blocks](../assets/memory/memory-settings-dark-1280.png)
 
-*Settings → Long-term memory: the operator's additional instructions and their cap, next to the wait, the timeout and the runs kept*
+*Settings → Memory copilot: the wait, the timeout and the runs kept, the turn and token limits, and the operator's additional instructions with their cap*
 
 ## Cost and latency
 

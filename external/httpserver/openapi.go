@@ -1972,7 +1972,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/providers/{name}/models": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List a provider's available models",
-					"description": "Fetches the model list advertised by the named provider's server (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; neuraldeep: **`GET {selected api_base}/models`**, where api_base is one of the official deployments (**`https://api.neuraldeep.ru/v1`** by default, **`https://api.neuraldeep.tech/v1`** for the international mirror); codex: the fixed official Codex backend with the saved ChatGPT OAuth token). The provider is resolved from the saved config, so its credentials and `proxy` apply server-side without exposing secrets. Returns **`{ok:true, models:[{id,name}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. Unknown provider name returns 404.",
+					"description": "Fetches the model list advertised by the named provider's server (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; neuraldeep: **`GET {selected api_base}/models`**, where api_base is one of the official deployments (**`https://api.neuraldeep.ru/v1`** by default, **`https://api.neuraldeep.tech/v1`** for the international mirror); codex: the fixed official Codex backend with the saved ChatGPT OAuth token). The provider is resolved from the saved config, so its credentials and `proxy` apply server-side without exposing secrets. Returns **`{ok:true, models:[{id,name,context_window}]}`** on success (`context_window` only when the provider's listing reports one, under `limit.context`, `context_length`, `max_model_len`, `max_context_length` or `context_window`), or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. Unknown provider name returns 404.",
 					"operationId": "listProviderModels",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -1984,6 +1984,38 @@ func openAPISpec() map[string]interface{} {
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Model list result (ok:true with models, or ok:false with error)."},
 						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/providers/models": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Fetch models for a provider description",
+					"description": "Fetches the model list advertised by a provider row posted in the request body (**`{name, type, api_base, api_key, api_key_command, proxy}`** - the `providers[]` shape). Unlike the GET route, the row need not be saved in config.yaml: the settings form's provider editor sends the entry being edited, so a provider that only exists in the form (for example right after an OAuth device sign-in) lists its models the same way a stored one does. Fields the body leaves empty are inherited from the saved provider of the same name when there is one, so a sparse **`{name}`** post resolves the stored credentials without secrets travelling over the wire. The credential pair (**`api_key`** / **`api_key_command`**) is one slot: it is inherited only when the body posts neither field, and only while the resolved **`api_base`** and **`proxy`** still match the saved row, so an overridden route never receives stored credentials. The body must be **`application/json`**: any other content type (the kinds a cross-site page can send without a preflight) gets **`415`**. A posted **`api_key_command`** is executed server-side, exactly as it would be for a saved provider. Returns the same **`{ok:true, models:[{id,name,context_window}]}`** / **`{ok:false, error, models:[]}`** shape as the GET (`context_window` only when the provider's listing reports one); a malformed body or an invalid provider row returns 400.",
+					"operationId": "fetchProviderModels",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []interface{}{"name"},
+									"properties": map[string]interface{}{
+										"name":            map[string]string{"type": "string", "description": "Provider name; when it matches a saved provider, empty fields inherit the saved row."},
+										"type":            map[string]string{"type": "string", "description": "Provider type (openai, anthropic, neuraldeep, codex, devin, ...)."},
+										"api_base":        map[string]string{"type": "string"},
+										"api_key":         map[string]string{"type": "string"},
+										"api_key_command": map[string]string{"type": "string"},
+										"proxy":           map[string]string{"type": "string"},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Model list result (ok:true with models, or ok:false with error)."},
+						"400": errorResponseRef(),
+						"415": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},

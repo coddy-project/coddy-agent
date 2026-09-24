@@ -276,3 +276,55 @@ func TestLaterDirOverridesSameName(t *testing.T) {
 		t.Errorf("expected dir2 content, got %q", loaded[0].Content)
 	}
 }
+
+// Skills declare their version under the Agent Skills metadata map now
+// (metadata.version); the top-level version key of older files still counts,
+// the metadata one wins when both are there, and a metadata of another shape
+// costs the version only, never the name or the description.
+func TestLoadSkillVersionFromMetadata(t *testing.T) {
+	cases := []struct {
+		name, front, want string
+	}{
+		{"metadata", "metadata:\n  version: 1.0.1\n", "1.0.1"},
+		{"top level", "version: 0.9.0\n", "0.9.0"},
+		{"both", "version: 0.9.0\nmetadata:\n  author: me\n  version: 1.3.1\n", "1.3.1"},
+		{"numeric", "metadata:\n  version: 2.0\n", "2.0"},
+		{"metadata not a map", "metadata: just text\n", ""},
+		{"none", "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			body := "---\nname: demo\ndescription: Does a thing.\n" + tc.front + "---\nBody.\n"
+			if err := os.MkdirAll(filepath.Join(dir, "demo"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "demo", "SKILL.md"), []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			loaded, err := skills.NewLoader([]string{dir}).LoadAll(dir, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got *skills.Skill
+			for _, s := range loaded {
+				if s.Name == "demo" {
+					got = s
+				}
+			}
+			if got == nil {
+				names := []string{}
+				for _, s := range loaded {
+					names = append(names, s.Name+"@"+s.FilePath)
+				}
+				t.Fatalf("demo not loaded: %v", names)
+			}
+			if got.Version != tc.want {
+				t.Fatalf("version = %q, want %q", got.Version, tc.want)
+			}
+			if got.Description != "Does a thing." {
+				t.Fatalf("description lost: %q", got.Description)
+			}
+		})
+	}
+}

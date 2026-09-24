@@ -1,6 +1,7 @@
 ---
 name: configure-coddy
-version: 1.1.0
+metadata:
+  version: 1.1.1
 description: "Change Coddy's own configuration when the user asks for it: edit settings, providers, models, logging, permissions, or find, install, update, and remove MCP servers and skills. Stages UCI-style commands and commits only after the user confirms saving. Load when the user explicitly asks to change a Coddy setting, or when the request implies it (install an MCP server, add a skill, switch a model, roll back the config). Do not load for ordinary coding or unrelated tasks."
 ---
 
@@ -95,7 +96,7 @@ The selector forces the stored `name` to match. After the user confirms and `con
 
 Coddy discovers skills from `skills.dirs`. Defaults are `~/.agents/skills`, `${CODDY_HOME}/skills`, and `${CWD}/.coddy/skills`. `${CWD}` stands for the workspace of each session and is resolved when that session loads its skills, so keep it literal when you stage `skills.dirs` (never replace it with the current absolute path: a `coddy serve` server serves sessions rooted in different folders). `skills.sources` registers GitHub, git, or agents-standard marketplace sources but does not download them; `EvilFreelancer/rpa-skills` is a system source, always in effect beside that key and never inside it, so never stage it into `skills.sources` and tell an operator who asks to remove it that it is built into Coddy - what they can do instead is disable the individual skills.
 
-The binary carries a standard delivery of skills - `configure-coddy` and the `rpa-*` workflow skills - and writes them into `${CODDY_HOME}/skills` the first time it sees they are missing, recording what it handed over in `${CODDY_HOME}/skills/.bundled.json`. They are ordinary skills once written: editable, disable-able, deletable. A release carrying a newer version of one replaces the copy on disk, and so does a release meeting a copy that declares no `version:` at all - so tell a user who has edited a delivered skill to raise its `version:` above the delivered one. A skill they deleted is not written again.
+The binary carries a standard delivery of skills - `configure-coddy` and the `rpa-*` workflow skills - and writes them into `${CODDY_HOME}/skills` the first time it sees they are missing, recording what it handed over in `${CODDY_HOME}/skills/.bundled.json`. They are ordinary skills once written: editable, disable-able, deletable. A release carrying a newer version of one replaces the copy on disk, and so does a release meeting a copy that declares no version at all - so tell a user who has edited a delivered skill to raise its `metadata.version` (a top-level `version:` in older files) above the delivered one. A skill they deleted is not written again.
 
 Prefer Coddy's installer for remote sources:
 

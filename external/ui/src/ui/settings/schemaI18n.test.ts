@@ -10,7 +10,12 @@ afterEach(() => {
 test("schemaFieldLabel translates a mapped domain and path", () => {
   setLocale("ru");
   expect(
-    schemaFieldLabel("tools", "permission_mode", "Permission mode", "permission_mode"),
+    schemaFieldLabel(
+      "tools",
+      "permission_mode",
+      "Permission mode",
+      "permission_mode",
+    ),
   ).toBe("Режим разрешений");
 });
 
@@ -40,9 +45,9 @@ test("unmapped paths fall back to the schema title and description", () => {
 
 test("a missing title falls back to the field name, then to undefined desc", () => {
   setLocale("ru");
-  expect(schemaFieldLabel("tools", "nowhere.known", undefined, "raw_name")).toBe(
-    "raw_name",
-  );
+  expect(
+    schemaFieldLabel("tools", "nowhere.known", undefined, "raw_name"),
+  ).toBe("raw_name");
   expect(schemaFieldDesc("tools", "nowhere.known", undefined)).toBeUndefined();
 });
 
@@ -60,7 +65,7 @@ test("the english dictionary mirrors the schema text it replaces", () => {
   expect(
     schemaFieldLabel("agent", "loop_guard", "Loop guard", "loop_guard"),
   ).toBe("Loop guard");
-  expect(
-    schemaFieldLabel("system", "logger", "Logger", "logger"),
-  ).toBe("Logger");
+  expect(schemaFieldLabel("system", "logger", "Logger", "logger")).toBe(
+    "Logger",
+  );
 });

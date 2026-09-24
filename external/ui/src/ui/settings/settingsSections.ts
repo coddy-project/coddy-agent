@@ -45,6 +45,9 @@ const SECTION_LABEL_KEYS = {
   compaction: "settings.section.compaction.label",
   subagents: "settings.section.subagents.label",
   hooks: "settings.section.hooks.label",
+  scheduler: "settings.section.scheduler.label",
+  logger: "settings.section.logger.label",
+  gateways: "settings.section.gateways.label",
 } as const;
 
 /**
@@ -68,6 +71,9 @@ const SECTION_DESC_KEYS = {
   compaction: "settings.section.compaction.desc",
   subagents: "settings.section.subagents.desc",
   hooks: "settings.section.hooks.desc",
+  scheduler: "settings.section.scheduler.desc",
+  logger: "settings.section.logger.desc",
+  gateways: "settings.section.gateways.desc",
 } as const;
 
 /** A section id the schema produced may be one the maps above do not know. */
@@ -78,15 +84,16 @@ function lookupSectionKey(
   return keys[id];
 }
 
-/** Config keys folded into the single "System" tab (rarely edited). */
-export const SYSTEM_KEYS = [
-  "scheduler",
-  "prompts",
-  "instructions",
-  "logger",
-  "sessions",
-  "gateways",
-];
+/**
+ * Config keys folded into the single "System" tab (rarely edited), which
+ * closes the list of schema tabs. The scheduler, the logger and the gateways
+ * are features of their own and have tabs; the `sessions` section belongs to
+ * the Sessions tab.
+ */
+export const SYSTEM_KEYS = ["prompts", "instructions"];
+
+/** The config section the Sessions tab edits above its table. */
+export const SESSIONS_CONFIG_KEY = "sessions";
 
 /** Array sections shown as master–detail lists, with the field used as the row label. */
 export const ARRAY_LABEL_FIELDS: Record<string, string> = {
@@ -117,15 +124,16 @@ export function deriveSettingsSections(
     kind: "appearance",
   };
 
-  // The stored history is managed, not configured: this tab reads and prunes
-  // session bundles over /coddy/sessions and edits no config key. Its id is
-  // sessions_manager because `sessions` is already a config key (the storage
-  // directory), folded into the System tab.
+  // The stored history: this tab reads and prunes session bundles over
+  // /coddy/sessions, and once the schema is in it also edits the `sessions`
+  // config section (where the bundles are stored) above the table. Its id is
+  // sessions_manager because `sessions` is that config key.
   const sessionsManager: SectionDescriptor = {
     id: "sessions_manager",
     label: labelFor("sessions_manager"),
     description: translate(SECTION_DESC_KEYS.sessions_manager),
     kind: "sessions",
+    schemaKey: SESSIONS_CONFIG_KEY,
   };
 
   if (!schema || schema.type !== "object" || !schema.properties) {
@@ -140,7 +148,7 @@ export function deriveSettingsSections(
 
   const out: SectionDescriptor[] = [];
   const seen = new Set<string>();
-  let systemEmitted = false;
+  let system: SectionDescriptor | null = null;
 
   const descFor = (id: string, sub?: JsonSchema) => {
     const key = lookupSectionKey(SECTION_DESC_KEYS, id);
@@ -156,17 +164,17 @@ export function deriveSettingsSections(
       return;
     }
     seen.add(key);
+    if (key === SESSIONS_CONFIG_KEY) {
+      return;
+    }
     if (SYSTEM_KEYS.includes(key)) {
-      if (!systemEmitted) {
-        out.push({
-          id: "system",
-          label: labelFor("system"),
-          description: descFor("system"),
-          kind: "group",
-          childKeys: SYSTEM_KEYS.filter((k) => props[k] !== undefined),
-        });
-        systemEmitted = true;
-      }
+      system ??= {
+        id: "system",
+        label: labelFor("system"),
+        description: descFor("system"),
+        kind: "group",
+        childKeys: SYSTEM_KEYS.filter((k) => props[k] !== undefined),
+      };
       return;
     }
     if (key === "skills") {
@@ -230,5 +238,8 @@ export function deriveSettingsSections(
     emit(key);
   }
 
+  if (system) {
+    out.push(system);
+  }
   return [appearance, sessionsManager, ...out];
 }
