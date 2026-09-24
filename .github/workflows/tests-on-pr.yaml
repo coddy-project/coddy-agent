@@ -269,6 +269,39 @@ jobs:
       - name: Build deb and rpm
         run: make deb rpm PKG_TAGS="http scheduler memory cli gateway swarm"
 
+      # The unit is rendered by internal/serve and held to the source file by a
+      # Go test; this checks that both package formats carry that file byte for
+      # byte, and the maintainer scripts that tell the user it is not enabled.
+      - name: Check the packaged systemd user unit
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm cpio
+          for package in dist/*.deb; do
+            dpkg-deb --fsys-tarfile "$package" | tar -xOf - ./usr/lib/systemd/user/coddy.service | cmp - packaging/systemd/coddy.service
+            dpkg-deb --ctrl-tarfile "$package" | tar -xOf - ./postinst > scripts.txt
+            grep -F 'NOT enabled' scripts.txt
+            dpkg-deb --ctrl-tarfile "$package" | tar -xOf - ./prerm >> scripts.txt
+            grep -F 'coddy-install.conf' scripts.txt
+            # The package tells the user about the unit and never turns it on.
+            # An if, not "! grep": bash's errexit ignores an inverted status.
+            if grep -E 'systemctl( --user| --global)? (enable|start)' scripts.txt; then
+              echo "::error::$package: a maintainer script enables or starts the unit"; exit 1
+            fi
+          done
+          for package in dist/*.rpm; do
+            # rpm 4.18's rpm2cpio exits 1 after writing the whole payload, and
+            # names members /usr/... where newer ones write ./usr/...; a short
+            # payload still fails the cmp.
+            rpm2cpio "$package" > payload.cpio || true
+            cpio -i --quiet --to-stdout '*usr/lib/systemd/user/coddy.service' < payload.cpio | cmp - packaging/systemd/coddy.service
+            rpm -qp --scripts "$package" > scripts.txt
+            grep -F 'NOT enabled' scripts.txt        # postinstall
+            grep -F 'coddy-install.conf' scripts.txt   # preremove
+            if grep -E 'systemctl( --user| --global)? (enable|start)' scripts.txt; then
+              echo "::error::$package: a maintainer script enables or starts the unit"; exit 1
+            fi
+          done
+
       # Same reasoning one step further: the Homebrew cask is rendered only by
       # the release job and the formula only by hand, so a template that stopped
       # being valid Ruby would surface at the worst moment. Rendering needs a

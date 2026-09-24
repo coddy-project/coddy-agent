@@ -69,7 +69,7 @@ agent:
 | Swarm | `coddy serve` with `swarm.enable` | A relay that lists and reaches many Coddy nodes, including ones that can only dial out | [Swarm](docs/operate/swarm.md), [video](docs/assets/video/swarm.mp4) |
 | Remote | `coddy --remote host:port` | The console, an editor or the browser driving a `coddy serve` on another machine | [Remote mode](docs/operate/remote.md) |
 
-`coddy serve` runs whatever `config.yaml` enables in one process, and `coddy serve --daemon` keeps it running in the background with `status`, `stop` and `restart` ([coddy serve and the daemon](docs/operate/serve.md)).
+`coddy serve` runs whatever `config.yaml` enables in one process. On Linux, `coddy serve install` runs it as a systemd user service of your account, working in `~/Coddy` (`coddy serve uninstall` removes it); elsewhere `coddy serve --daemon` keeps it running in the background with `status`, `stop` and `restart` ([coddy serve and the daemon](docs/operate/serve.md)).
 
 ## What it does
 

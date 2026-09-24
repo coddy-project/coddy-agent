@@ -26,7 +26,7 @@ var topLevelCommands = []string{
 // serveVerbs control a daemon that is already running. They are subcommands of
 // `serve` rather than commands of their own, so the top-level assertions above
 // say nothing about them - and the same three files still have to carry them.
-var serveVerbs = []string{"status", "stop", "restart", "set-password"}
+var serveVerbs = []string{"install", "uninstall", "status", "stop", "restart", "set-password"}
 
 func TestUsageListsEveryCommand(t *testing.T) {
 	assertSameSet(t, "the usage text", usageCommands(t), "topLevelCommands", topLevelCommands)
@@ -220,5 +220,41 @@ func TestPackagingFilesCarryTheDryRunFlag(t *testing.T) {
 	}
 	if !strings.Contains(readRepoFile(t, "../../packaging/man/coddy.1"), `\-\-dry\-run`) {
 		t.Error("packaging/man/coddy.1 does not document --dry-run")
+	}
+}
+
+// TestServiceVerbsTakeNoArguments pins the argument handling of `serve install`
+// and `serve uninstall`: --help answers without touching systemd, and a stray
+// argument is refused rather than read as something it is not.
+func TestServiceVerbsTakeNoArguments(t *testing.T) {
+	for _, verb := range []string{"install", "uninstall"} {
+		if err := runServe([]string{verb, "--help"}); err != nil {
+			t.Errorf("coddy serve %s --help: %v", verb, err)
+		}
+		err := runServe([]string{verb, "--now"})
+		if err == nil {
+			t.Errorf("coddy serve %s --now: accepted a flag it does not have", verb)
+		}
+		err = runServe([]string{verb, "coddy.service"})
+		if err == nil || !strings.Contains(err.Error(), "takes no arguments") {
+			t.Errorf("coddy serve %s coddy.service: %v", verb, err)
+		}
+	}
+}
+
+// TestServeRefusesAnUnknownVerb keeps a mistyped or retired verb from starting
+// a server in the foreground: `serve` takes no positional arguments, so a word
+// that is not one of its verbs is an error that names the verbs it has.
+func TestServeRefusesAnUnknownVerb(t *testing.T) {
+	for _, args := range [][]string{{"setup"}, {"stauts"}, {"--http=false", "install"}} {
+		err := runServe(args)
+		if err == nil {
+			t.Fatalf("coddy serve %v: accepted", args)
+		}
+		for _, verb := range serveVerbs {
+			if !strings.Contains(err.Error(), verb) {
+				t.Errorf("coddy serve %v: the error does not name the verb %q: %v", args, verb, err)
+			}
+		}
 	}
 }

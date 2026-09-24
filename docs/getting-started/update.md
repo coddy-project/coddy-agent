@@ -41,6 +41,14 @@ The Linux and macOS archives carry **`coddy.1`**, **`coddy.bash`** and **`coddy.
 
 Nothing is created: a file that was never installed (**`--no-shell-setup`**, a binary copied by hand) is left alone, and an executable outside a **`bin`** directory - a build tree, a bare download - has no **`share`** directory to pair with. A release from before the archives carried those files leaves the installed copies as they are and says so. A file it cannot write is reported after the binary is installed, and the command exits non-zero.
 
+## A server that is already running
+
+**`coddy update`** replaces the file on disk. A **`coddy serve`** that is already running keeps the
+binary it started with until it restarts: the systemd user service restarts with
+**`coddy serve install`** (it also points a unit it wrote at a binary that moved, see
+[the service guide](../operate/serve.md#as-a-systemd-user-service-on-linux)), and a daemon with
+**`coddy serve restart`**. A package upgrade prints the same reminder.
+
 ## Installations owned by a package manager
 
 A **`coddy`** that **`apt`** or **`dnf`** put on disk is listed in the package database, file by file. Overwriting **`/usr/bin/coddy`** in place would leave that database describing a build that is gone, the next **`apt upgrade`** or **`dnf reinstall`** would quietly put the old version back, and **`dpkg --verify`** would report a checksum mismatch nobody asked for. So **`coddy update`** does not replace a packaged executable. It asks **`dpkg-query -S`** and **`rpm -qf`** who owns the file it is about to write and takes one of two other routes:

@@ -77,14 +77,21 @@ make rpm PKG_TAGS="http cli"      # lean binary, no npm step
 
 The recipe is **`packaging/nfpm.yaml`**, driven by **`scripts/build-packages.sh`**, which stages the
 man page (**`packaging/man/coddy.1`**), the shell completions (**`packaging/completions/`**),
+the systemd user unit (**`packaging/systemd/coddy.service`**), the maintainer scripts
+(**`packaging/scripts/postinstall.sh`**, **`preremove.sh`**),
 **`config.example.yaml`** and **`LICENSE`** into one directory and runs
 [nfpm](https://nfpm.goreleaser.com/) over it. nfpm is not a module dependency: the script uses the
 **`nfpm`** on **`PATH`** when there is one and otherwise fetches the pinned version with
 **`go run`**, so there is nothing to install first.
 
-The package installs a binary and its documentation and nothing else - no service, no system
-account, no files under **`/etc`** - because Coddy's state lives in the invoking user's
-**`~/.coddy`**.
+The user unit is installed but not enabled, and the post-install message says so; each user who
+wants the service runs **`coddy serve install`**. No system service, system account or files under
+**`/etc`** are created, because each user keeps state under **`~/.coddy`**. The unit is not
+written by hand: **`serve.PackagedUnitFile()`** (**`internal/serve/systemd.go`**) renders it, the
+same function that writes the unit for a script install, and **`TestPackagedUnitIsTheRenderedOne`**
+fails until **`packaging/systemd/coddy.service`** matches it byte for byte. The **Distribution
+packages** CI job then checks that both package formats carry that file and the maintainer
+scripts.
 
 Version strings are normalised for the two formats by **`scripts/package-version.sh`** - rpm forbids
 **`-`** in a version and dpkg reads the last one as the start of the Debian revision, so

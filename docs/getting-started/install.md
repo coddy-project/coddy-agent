@@ -43,6 +43,12 @@ source ~/.zshrc   # or open a new terminal
 coddy -v
 ```
 
+The script installs no systemd unit. On Linux, to keep **`coddy serve`** running as a service of
+your account, run **`coddy serve install`** once the configuration has a provider key: it writes
+**`~/.config/systemd/user/coddy.service`** for the binary the script installed, enables it and
+starts it in **`~/Coddy`**. The script ends by saying so. See
+[the service guide](../operate/serve.md#as-a-systemd-user-service-on-linux).
+
 ## Linux packages (deb, rpm)
 
 Every release publishes a **`.deb`** and an **`.rpm`** for **x86_64** and **arm64** beside the
@@ -81,13 +87,17 @@ sha256sum -c --ignore-missing SHA256SUMS
 | **`/usr/share/man/man1/coddy.1.gz`** | **`man coddy`** |
 | **`/usr/share/bash-completion/completions/coddy`** | bash completion |
 | **`/usr/share/zsh/site-functions/_coddy`** | zsh completion |
+| **`/usr/lib/systemd/user/coddy.service`** | systemd user unit for **`coddy serve`**, installed and **not enabled** |
 | **`/usr/share/doc/coddy/config.example.yaml`** | starting point for **`~/.coddy/config.yaml`** |
 | **`/usr/share/doc/coddy/LICENSE`**, **`copyright`** | licence |
 
-That is the whole package: a binary and its documentation. No service, no system account, nothing
-under **`/etc`**. Configuration, sessions, skills and credentials stay in the invoking user's
-**`~/.coddy`**, so one installed package serves every user on the machine, each with their own
-state, and what to run - the console, the HTTP gateway, an editor over ACP - stays your decision.
+The package enables the unit for nobody, and there is no system service, no system account and
+nothing under **`/etc`**. Configuration, sessions, skills and credentials stay in the invoking
+user's **`~/.coddy`**, so one installed package serves every user on the machine, each with their
+own state, and what to run - the console, the HTTP gateway, an editor over ACP, a service - stays
+each user's decision. The message printed at installation says the unit is there and not enabled;
+**`coddy serve install`**, run as the user the service is for, enables and starts it (see
+[the service guide](../operate/serve.md#as-a-systemd-user-service-on-linux)).
 
 ### First run
 
@@ -107,12 +117,21 @@ replacing a packaged file (see [update.md](update.md#installations-owned-by-a-pa
 ```bash
 sudo apt-get install ./coddy_<newer>_linux_amd64.deb   # or dnf install ./...rpm
 sudo coddy update -y                                   # downloads and installs the package
+coddy serve install                                    # if you run the service: restart it on the new binary
 ```
 
+A running service keeps the binary it started with until it restarts, which is what the last line
+does; the upgrade prints the same reminder.
+
 ```bash
+coddy serve uninstall        # first, as each user that enabled the service
 sudo apt-get remove coddy    # or: sudo dnf remove coddy
-rm -rf ~/.coddy              # only if you also want the sessions and config gone
+rm -rf ~/.coddy ~/Coddy      # only if you also want the sessions, config and workspace gone
 ```
+
+The package removal cannot reach into each account's **`~/.config`**, so it leaves an enabled
+service enabled and prints the commands that clear it
+([Removing the service](../operate/serve.md#removing-the-service)).
 
 There is no apt or dnf repository to subscribe to: the packages are release assets, so a new version
 arrives when you install the newer file or run **`sudo coddy update`**, not from a background
@@ -165,12 +184,15 @@ coddy -v
 # edit ~/.coddy/config.yaml
 coddy serve            # in this terminal
 coddy serve --daemon   # in the background, restarted if it dies
+coddy serve install    # Linux: as a systemd user service
 ```
 
-The packages install no service unit, because Coddy's state is per-user under
-**`~/.coddy`**. **`coddy serve --daemon`** is the built-in way to keep it running without
-one; under a supervisor that already owns process lifetimes (`systemd`, Docker) use the
-foreground form and let that supervisor restart it. See [the daemon guide](../operate/serve.md).
+On Linux with systemd, **`coddy serve install`** runs it as a user service of your account instead:
+it enables the unit a package installed, or writes one for a binary the install script put in
+place, and starts it working in **`~/Coddy`**. **`coddy serve uninstall`** takes it away again. See
+[the service guide](../operate/serve.md#as-a-systemd-user-service-on-linux) for the log, keeping it
+running after logout and removing it. **`coddy serve --daemon`** is the route where there is no
+systemd.
 
 ## Windows
 

@@ -31,6 +31,7 @@ func runServeStatus(args []string) error {
 	rec, err := serve.ReadRecord(home)
 	if errors.Is(err, serve.ErrNoDispatcher) {
 		fmt.Printf("coddy serve is not running (no dispatcher recorded in %s)\n", home)
+		printServiceHint()
 		return nil
 	}
 	if err != nil {
@@ -38,6 +39,7 @@ func runServeStatus(args []string) error {
 	}
 	if !rec.Running() {
 		fmt.Printf("coddy serve is not running (pid %d from a previous run is gone)\n  log     %s\n", rec.PID, rec.Log)
+		printServiceHint()
 		return nil
 	}
 	fmt.Printf("coddy serve %s is running\n  pid     %d\n  since   %s\n  config  %s\n  log     %s\n",
@@ -55,6 +57,9 @@ func runServeStatus(args []string) error {
 	if rec.LastError != "" {
 		fmt.Printf("  last    %s\n", rec.LastError)
 	}
+	// Both running means one of them could not bind; say so next to the
+	// daemon that is being asked about.
+	printServiceHint()
 	return nil
 }
 
@@ -67,6 +72,7 @@ func runServeStop(args []string) error {
 	rec, err := serve.ReadRecord(home)
 	if errors.Is(err, serve.ErrNoDispatcher) {
 		fmt.Println("coddy serve is not running")
+		printServiceHint()
 		return nil
 	}
 	if err != nil {
@@ -100,6 +106,9 @@ func runServeRestart(args []string) error {
 	}
 	rec, err := serve.ReadRecord(home)
 	if errors.Is(err, serve.ErrNoDispatcher) {
+		if hint, _ := serviceHint(); hint != "" {
+			return errors.New(hint)
+		}
 		return errors.New("coddy serve is not running; start it with `coddy serve --daemon`")
 	}
 	if err != nil {
@@ -122,6 +131,14 @@ func runServeRestart(args []string) error {
 	fmt.Printf("coddy serve %s restarted\n  pid     %d\n  config  %s\n  log     %s\n",
 		started.Version, started.PID, started.Config, started.Log)
 	return nil
+}
+
+// printServiceHint says, under a "not running" from a daemon verb, that the
+// systemd user service is what serves this account, when it is.
+func printServiceHint() {
+	if hint, _ := serviceHint(); hint != "" {
+		fmt.Println(hint)
+	}
 }
 
 // controlHome resolves which agent home a control verb is about. The verbs
