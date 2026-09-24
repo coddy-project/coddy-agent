@@ -744,3 +744,19 @@ test("a tag write that lands says nothing", async () => {
   await Promise.resolve();
   expect(screen.queryByTestId("session-tag-error")).toBeNull();
 });
+
+// A refused archive puts the row back; the reason is said on that row, since
+// the list error at the top is out of view once History has been scrolled.
+test("a row carries the error of the change it refused, and only that row", () => {
+  renderDrawer({
+    sessions: [row("a", "A"), row("b", "B")],
+    rowErrors: { b: "The conversation was not archived" },
+  });
+  const note = screen.getByTestId("session-row-error-b");
+  expect(note).toHaveTextContent("The conversation was not archived");
+  expect(note).toHaveAttribute("role", "alert");
+  expect(note).toHaveClass("session-row-error");
+  expect(screen.getByTestId("session-row-b")).toContainElement(note);
+  expect(screen.queryByTestId("session-row-error-a")).toBeNull();
+  expect(screen.queryByTestId("sessions-error")).toBeNull();
+});

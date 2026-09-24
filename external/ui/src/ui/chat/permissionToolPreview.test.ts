@@ -5,6 +5,7 @@ import {
   buildToolCallPreview,
   permissionPromptToolName,
   toolCallTargetIsPath,
+  toolCallTargetRange,
   toolCallTargetText,
 } from "./permissionToolPreview";
 import type { CoddyPermissionPayload } from "./permissionTypes";
@@ -345,6 +346,54 @@ test("toolCallTargetText stays empty when there is nothing to name", () => {
   ).toBe("");
   expect(toolCallTargetText({ title: "read" })).toBe("");
   expect(toolCallTargetText({ title: "read", argsText: "not json" })).toBe("");
+});
+
+// A read that takes part of a file says which part, in the spelling of a
+// mention (1-based and inclusive, like @path:120-180), so the collapsed row
+// tells two pages of the same file apart.
+test("toolCallTargetRange spells the lines a read takes", () => {
+  const read = (args: Record<string, unknown>) =>
+    toolCallTargetRange({ title: "read", argsText: JSON.stringify({ path: "a.go", ...args }) });
+  expect(read({ offset: 120, limit: 61 })).toBe(":120-180");
+  // One line is still a range a mention can hold.
+  expect(read({ offset: 120, limit: 1 })).toBe(":120-120");
+  // The start defaults to the first line.
+  expect(read({ limit: 40 })).toBe(":1-40");
+  // Without a limit the read runs to the end of the file.
+  expect(read({ offset: 120 })).toBe(":120-");
+  // The whole file reads as it always did.
+  expect(read({})).toBe("");
+  expect(read({ offset: 1 })).toBe("");
+  expect(read({ offset: 0, limit: 0 })).toBe("");
+  // Values the tool would not take as a line number name no range.
+  expect(read({ offset: -5, limit: 10 })).toBe(":1-10");
+  expect(read({ offset: "120", limit: 2.5 })).toBe("");
+  expect(toolCallTargetRange({ title: "read", argsText: "not json" })).toBe("");
+  // A listing has no lines: the tool ignores offset and limit on a directory,
+  // and the row names it the way its label does.
+  expect(read({ path: "internal/", offset: 10, limit: 20 })).toBe("");
+  expect(read({ recursive: true, limit: 20 })).toBe("");
+});
+
+test("only a file read carries a line range", () => {
+  // keep_result pages a tool result and coddy_docs_read a documentation
+  // section: an offset there is not a line of the file the row names.
+  expect(
+    toolCallTargetRange({
+      title: "coddy_docs_read",
+      argsText: '{"page":"features/mentions","offset":40}',
+    }),
+  ).toBe("");
+  expect(
+    toolCallTargetRange({
+      title: "keep_result",
+      argsText: '{"tool_call_id":"call_1","offset":10,"limit":20}',
+    }),
+  ).toBe("");
+  // The path itself stays the target: the live status line reads it alone.
+  expect(
+    toolCallTargetText({ title: "read", argsText: '{"path":"a.go","offset":3,"limit":2}' }),
+  ).toBe("a.go");
 });
 
 // An MCP server names its own arguments, so a call taking none of the names a

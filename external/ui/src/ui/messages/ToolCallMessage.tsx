@@ -28,6 +28,7 @@ import type { BackgroundTask } from "../tasks/types";
 import {
   buildToolCallPreview,
   toolCallTargetIsPath,
+  toolCallTargetRange,
   toolCallTargetText,
 } from "../chat/permissionToolPreview";
 import type { TodoPlanEntry } from "../chat/todoToolPreview";
@@ -328,6 +329,13 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
         ? relativeToolTarget(summaryTargetFull, props.pathRoots || [])
         : summaryTargetFull,
     [props.pathRoots, summaryTargetFull, targetContext],
+  );
+  // The lines a read takes, in a mention's spelling (":120-180"), so a collapsed
+  // row tells two pages of one file apart. Empty for a whole file and for every
+  // tool but read.
+  const summaryTargetRange = useMemo(
+    () => (summaryTargetFull ? toolCallTargetRange(targetContext) : ""),
+    [summaryTargetFull, targetContext],
   );
   const isPatchTool = rawNameLower === "apply_patch";
   const isWriteTool =
@@ -685,7 +693,21 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   // the duration. They travel together (.thinking-trail), so a label that leaves no
   // room on its line moves all three under it rather than the duration alone.
   const trailElements: ReactElement[] = [];
-  if (summaryTarget) {
+  if (summaryTarget && summaryTargetRange) {
+    // The path gives way to the ellipsis and the range never does: a long path
+    // clipped at its end would take the range with it.
+    trailElements.push(
+      <span
+        key="target"
+        className="tool-summary-target tool-summary-target--ranged"
+        data-testid="tool-summary-target"
+        title={summaryTargetFull + summaryTargetRange}
+      >
+        <span className="tool-summary-target-path">{summaryTarget}</span>
+        <span className="tool-summary-target-range">{summaryTargetRange}</span>
+      </span>,
+    );
+  } else if (summaryTarget) {
     trailElements.push(
       <span
         key="target"

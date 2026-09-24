@@ -1,3 +1,4 @@
+import { readsADirectory } from "../messages/toolDisplayName";
 import {
   flattenDiffLines,
   parseDiffPatch,
@@ -218,6 +219,38 @@ export function toolCallTargetText(context: PermissionToolCallContext): string {
       return firstLabelArg(args);
     }
   }
+}
+
+/**
+ * The lines a file read takes, spelled the way a mention writes a range: ":120-180"
+ * for a 1-based inclusive window (`read` takes a 1-based `offset` and a line count
+ * `limit`), ":1-40" for a limit alone, ":120-" for an offset that reads to the end
+ * of the file. Returns "" for a read of the whole file, of a directory, and for
+ * every other tool:
+ * an offset of `coddy_docs_read` or `keep_result` is not a line of the path the
+ * row names. Kept apart from `toolCallTargetText`, which stays the path alone for
+ * the live status line and for `relativeToolTarget`.
+ */
+export function toolCallTargetRange(context: PermissionToolCallContext): string {
+  const toolName = (
+    normalizedToolName(context.title) ||
+    normalizedToolName(context.kind) ||
+    ""
+  ).toLowerCase();
+  // A listing has no lines: the tool ignores offset and limit on a directory,
+  // and the row calls it one on the same evidence (toolDisplayName).
+  if (toolName !== "read" || readsADirectory(context.argsText)) return "";
+  const args = parseArgsText(context.argsText || "");
+  if (!args) return "";
+  // Only a whole number is a line: the tool itself refuses anything else.
+  const lineArg = (name: string): number => {
+    const value = args[name];
+    return typeof value === "number" && Number.isInteger(value) ? value : 0;
+  };
+  const start = Math.max(1, lineArg("offset"));
+  const limit = lineArg("limit");
+  if (limit > 0) return `:${start}-${start + limit - 1}`;
+  return start > 1 ? `:${start}-` : "";
 }
 
 /** Argument names whose value is a filesystem path rather than a url or a name. */

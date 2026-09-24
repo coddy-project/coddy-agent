@@ -79,3 +79,66 @@ test("a zoomed picture in the lightbox offers the grab cursor", () => {
   expect(rule(".docs-lightbox-stage.is-panning")).toMatch(/cursor:\s*grabbing/);
   expect(rule(".docs-lightbox-stage.is-panning img.is-zoomed")).toMatch(/cursor:\s*grabbing/);
 });
+
+// The rules one width query sets for a selector: the body of the first
+// `@media (<query>)` block that holds `selector {`.
+function mediaRule(query: string, selector: string): string {
+  const head = `@media (${query}) {`;
+  let from = 0;
+  for (;;) {
+    const at = css.indexOf(head, from);
+    expect(at, `${head} holding ${selector}`).toBeGreaterThan(-1);
+    let depth = 0;
+    let end = at + head.length - 1;
+    for (; end < css.length; end++) {
+      if (css[end] === "{") depth++;
+      else if (css[end] === "}" && --depth === 0) break;
+    }
+    const block = css.slice(at + head.length, end);
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const m = new RegExp(`(?:^|\\n)\\s*${escaped}\\s*\\{([^}]+)\\}`).exec(block);
+    if (m) return m[1]!;
+    from = end;
+  }
+}
+
+// On the stacked shell the header folds into two rows. The search in the
+// second one is still the text's own control: as wide as the text column,
+// never stretched past it over the empty space beside the page.
+test("on the stacked shell the search stays as wide as the text column", () => {
+  const article = px(rule(".docs-article"), "max-width");
+  expect(px(rule(".docs-header-search"), "max-width")).toBe(article);
+  expect(mediaRule("max-width: 1199px", ".docs-header")).toMatch(/"search search"/);
+  const stacked = (() => {
+    try {
+      return mediaRule("max-width: 1199px", ".docs-header-search");
+    } catch {
+      return "";
+    }
+  })();
+  expect(stacked).not.toMatch(/max-width:\s*none/);
+});
+
+// The contents button and the page under the search keep the same measure,
+// so the three line up on one left edge and one right edge.
+test("the stacked page is one column as wide as the text", () => {
+  const article = px(rule(".docs-article"), "max-width");
+  expect(mediaRule("max-width: 1199px", ".docs-layout")).toMatch(
+    new RegExp(`grid-template-columns:\\s*minmax\\(0,\\s*${article}px\\)`),
+  );
+});
+
+// The pages of a group sit to the right of the group's title, so the title
+// reads as the heading of the list under it rather than as one more row.
+test("the pages of the contents are indented under their group title", () => {
+  const title = /margin:\s*0 0 6px (\d+)px/.exec(
+    rule(".docs-toc-group-title,\n.docs-outline-title"),
+  );
+  expect(title).not.toBeNull();
+  const list = rule(".docs-toc-group ul");
+  const indent = px(list, "padding-left");
+  const pagePad = /padding:\s*\d+px (\d+)px/.exec(rule(".docs-toc-page"));
+  expect(pagePad).not.toBeNull();
+  // Where the page's text starts, against where the title's text starts.
+  expect(indent + Number(pagePad![1])).toBeGreaterThanOrEqual(Number(title![1]) + 10);
+});

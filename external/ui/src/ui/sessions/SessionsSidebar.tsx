@@ -155,6 +155,11 @@ export function SessionsSidebar(props: {
   questionPendingSessionIds?: ReadonlySet<string>;
   sessions: SessionRow[];
   error?: string | null;
+  /**
+   * What a refused change says, by the row it happened to. History is usually
+   * scrolled away from the top of the list, where `error` is shown.
+   */
+  rowErrors?: Readonly<Record<string, string>>;
   open?: boolean;
   /** Extra classes on the root aside (e.g. offset when Scheduler is docked). */
   className?: string;
@@ -551,6 +556,15 @@ export function SessionsSidebar(props: {
                   </span>
                 ))}
               </div>
+            ) : null}
+            {props.rowErrors?.[s.id] ? (
+              <span
+                className="session-row-error"
+                role="alert"
+                data-testid={`session-row-error-${s.id}`}
+              >
+                {props.rowErrors[s.id]}
+              </span>
             ) : null}
           </a>
         )}

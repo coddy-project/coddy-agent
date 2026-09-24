@@ -1842,6 +1842,17 @@ a.rail-brand {
   margin-top: 3px;
 }
 
+/* A refused archive, on the row it put back: under the title and the tags, in
+   the failure colour of a tool row's marker. */
+.session-row-error {
+  grid-column: 2;
+  grid-row: 3;
+  margin-top: 3px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--diff-del-no) 82%, var(--text));
+}
+
 .session-tag {
   padding: 0 6px;
   border-radius: 999px;
@@ -5890,7 +5901,11 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 }
 
 /* Provider account usage: the pill left of the context ring and the notice
-   above the composer (DESIGN.md, Context popover usage section and usage banner). */
+   above the composer (DESIGN.md, Context popover usage section and usage banner).
+   The notice stands in .chat-bottom, over the transcript that scrolls under the
+   docked composer, so its plate is opaque: the tone's tint is mixed into the
+   theme's canvas colour (--bg, a solid colour in every theme) rather than laid
+   over whatever scrolls behind it. */
 .usage-banner {
   display: flex;
   box-sizing: border-box;
@@ -5901,15 +5916,15 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   padding: 8px 12px;
   border-radius: 12px;
   border: 1px solid rgba(245, 158, 11, 0.45);
-  background: rgba(245, 158, 11, 0.1);
-  color: var(--fg);
+  background: color-mix(in srgb, #f59e0b 10%, var(--bg));
+  color: var(--text);
   font-size: 13px;
   line-height: 1.4;
 }
 
 .usage-banner--error {
   border-color: rgba(239, 68, 68, 0.5);
-  background: rgba(239, 68, 68, 0.1);
+  background: color-mix(in srgb, #ef4444 10%, var(--bg));
 }
 
 .usage-banner-text {
@@ -5932,8 +5947,8 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 }
 
 .usage-banner-dismiss:hover {
-  background: var(--border);
-  color: var(--fg);
+  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  color: var(--text);
 }
 
 @media (max-width: 1199px) {
@@ -9816,6 +9831,23 @@ html:not([data-theme="light"]) .context-usage-note--error {
   line-height: 20px;
 }
 
+/* A read of part of a file: the path and its line range (":120-180"). The path
+   takes the ellipsis and the range keeps its width, so a long path never clips
+   the lines away. */
+.tool-summary-target--ranged {
+  display: inline-flex;
+}
+
+.tool-summary-target-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tool-summary-target-range {
+  flex: none;
+}
+
 /* A rendered skill body replaces the monospace result panel with prose: the panel's
    own mono stack would keep the markdown looking like raw tool output. */
 .tool-call-result-content--markdown {
@@ -12219,6 +12251,13 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   gap: 2px;
 }
 
+/* The pages of a group sit to the right of its title (12px past the 10px the
+   title is set in), so the title reads as the heading of the list under it
+   and not as one more page of it. */
+.docs-toc-group ul {
+  padding-left: 12px;
+}
+
 /* A page of the contents reads like a Settings tab: the same radius, tint
    and accent frame for the one being read. */
 .docs-toc-page {
@@ -12690,6 +12729,9 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
     --docs-top: 14px;
     --docs-bottom: 28px;
   }
+  /* Two rows: the title with the actions, then the search under them. The
+     search keeps the text's measure (.docs-header-search, 780px) instead of
+     running on past the page into the empty sheet beside it. */
   .docs-header {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
@@ -12698,17 +12740,16 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
     row-gap: 10px;
     padding: 12px var(--docs-inline) 10px;
   }
-  .docs-header-search {
-    max-width: none;
-  }
   .docs-search-kbd {
     display: none;
   }
   .docs-subtitle {
     display: none;
   }
+  /* One column as wide as the text, so the Contents button, the page and
+     the search over them share one left edge and one right edge. */
   .docs-layout {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 780px);
     gap: 12px;
   }
   .docs-sidebar {

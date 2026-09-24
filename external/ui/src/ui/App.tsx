@@ -139,6 +139,15 @@ import { useConfirm } from "./components/useConfirm";
 import { useT } from "./i18n/I18nProvider";
 import type { SessionRow } from "./sessions/types";
 import {
+  type ArchiveMove,
+  cursorAfterRemovals,
+  overlayArchiveMoves,
+  pruneArchiveBookkeeping,
+  restoreRow,
+  rowPlace,
+  rowVisibleUnder,
+} from "./sessions/archiveMoves";
+import {
   DEFAULT_SESSION_GROUP_MODE,
   readSessionGroupCookie,
   writeSessionGroupCookie,
@@ -352,6 +361,13 @@ function randomSessionId(): string {
     .join("");
   return `sess_${hex}`;
 }
+
+/** One page of GET /coddy/sessions. */
+type SessionsPage = {
+  sessions: SessionRow[];
+  nextCursor?: string | null;
+  hasMore?: boolean;
+};
 
 async function fetchJSON<T>(
   path: string,
@@ -1071,6 +1087,20 @@ export function App() {
   const newChatWorkspaceRef = useRef<PendingNewChatWorkspace>(null);
   // Sessions with an archive change in flight; see archiveSession.
   const archivingRef = useRef<Set<string>>(new Set());
+  // History moves a row the moment it is archived, so a listing issued before
+  // the server had the new flag must not put it back (archiveMoves.ts): the
+  // moves this tab made, the listings issued so far and the ones still out,
+  // and the points at which an archive took a loaded row out of the server's
+  // listing, which the offset of the next page has to account for.
+  const archiveMovesRef = useRef<Map<string, ArchiveMove>>(new Map());
+  const sessionsListSeqRef = useRef(0);
+  const sessionsListOpenRef = useRef<Set<number>>(new Set());
+  const archiveRemovalsRef = useRef<number[]>([]);
+  // A refused archive, said on the row it put back: History is usually
+  // scrolled away from the top of the list, where a list error is shown.
+  const [sessionRowErrors, setSessionRowErrors] = useState<
+    Record<string, string>
+  >({});
   // The archive flag's last write this client made, so a transcript read that
   // was issued before the PATCH settled cannot put the older flag back (see
   // loadMessages, which compares the read's issue time against this).
@@ -2270,6 +2300,19 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [sessionsOpen, schedulerOpen, schedulerEditor, closeSchedulerDrawer]);
 
+  // Forgets the archive moves and removals that no listing still out, or yet
+  // to be issued, can be affected by (archiveMoves.ts).
+  const pruneArchiveLists = useCallback(() => {
+    const open = sessionsListOpenRef.current;
+    const oldest =
+      open.size > 0 ? Math.min(...open) : sessionsListSeqRef.current + 1;
+    archiveRemovalsRef.current = pruneArchiveBookkeeping(
+      archiveMovesRef.current,
+      archiveRemovalsRef.current,
+      oldest,
+    );
+  }, []);
+
   const loadSessionsList = useCallback(
     async (reset: boolean): Promise<SessionRow[] | null> => {
       if (reset) {
@@ -2288,7 +2331,15 @@ export function App() {
       const ps = new URLSearchParams();
       ps.set("limit", "30");
       if (!reset) {
-        const cur = sessionsCursorRef.current;
+        // An archive still in flight may reach the server before this page
+        // does and move every row after it up by one; starting a row earlier
+        // per such archive costs at worst a row fetched twice, which the merge
+        // below drops by id, where the plain offset would skip one.
+        let inFlight = 0;
+        for (const move of archiveMovesRef.current.values()) {
+          if (move.settledAtSeq === null && move.removesLoaded) inFlight++;
+        }
+        const cur = cursorAfterRemovals(sessionsCursorRef.current, inFlight);
         if (cur) {
           ps.set("cursor", cur);
         }
@@ -2303,13 +2354,16 @@ export function App() {
       ps.set("sort", sessionsSortKey);
       ps.set("order", defaultSortOrder(sessionsSortKey));
       ps.set("include_activity", "true");
-      const res = await fetchJSON<{
-        sessions: SessionRow[];
-        nextCursor?: string | null;
-        hasMore?: boolean;
-      }>(`/coddy/sessions?${ps.toString()}`, {
-        headers,
-      });
+      const seq = ++sessionsListSeqRef.current;
+      sessionsListOpenRef.current.add(seq);
+      let res: { ok: boolean; status: number; data?: SessionsPage };
+      try {
+        res = await fetchJSON<SessionsPage>(`/coddy/sessions?${ps.toString()}`, {
+          headers,
+        });
+      } finally {
+        sessionsListOpenRef.current.delete(seq);
+      }
       if (!reset) {
         sessionsLoadingMoreRef.current = false;
         setSessionsLoadingMore(false);
@@ -2319,7 +2373,18 @@ export function App() {
         return null;
       }
       setSessionsError(null);
-      const next = res.data.sessions || [];
+      // A listing issued before an archive this tab made had settled still
+      // lists the row as it was, and counts it in the offset it hands back.
+      const next = overlayArchiveMoves(
+        res.data.sessions || [],
+        archiveMovesRef.current,
+        seq,
+        sessionsArchiveFilter,
+      );
+      const removedSince = archiveRemovalsRef.current.filter(
+        (at) => at >= seq,
+      ).length;
+      pruneArchiveLists();
       setSessions((prev) => {
         if (reset) {
           return next;
@@ -2327,7 +2392,10 @@ export function App() {
         const seen = new Set(prev.map((s) => s.id));
         return [...prev, ...next.filter((s) => !seen.has(s.id))];
       });
-      const nextCur = res.data.nextCursor ?? null;
+      const nextCur = cursorAfterRemovals(
+        res.data.nextCursor ?? null,
+        removedSince,
+      );
       setSessionsCursor(nextCur);
       sessionsCursorRef.current = nextCur;
       const hm = !!res.data.hasMore;
@@ -2342,6 +2410,7 @@ export function App() {
       sessionsSortKey,
       headers,
       t,
+      pruneArchiveLists,
     ],
   );
 
@@ -3106,11 +3175,13 @@ export function App() {
   /**
    * Puts a conversation in the archive, or takes it back out.
    *
-   * The row moves only once the server has agreed. Moving it first reads better
-   * for the half second it saves, but it is a lie the UI then has to take back:
-   * a refused PATCH would leave the drawer showing a state that is not on disk,
-   * and a listing already in flight could put the row back anyway. The request
-   * is quick, and what the drawer shows stays what the server said.
+   * The row moves at once and the PATCH goes behind it, and the list is not
+   * read again: a re-read from the first page dropped the rows scrolling had
+   * loaded, and with them the place the next conversation to archive sat at.
+   * A refused PATCH puts the row back where it stood, with the reason said on
+   * the row. Until the server has the new flag, and until every listing issued
+   * before that has come back, a listing is shown with the move applied, so a
+   * read already in flight cannot put the row back either (archiveMoves.ts).
    */
   async function archiveSession(id: string, archived: boolean) {
     // One conversation, one request at a time. Two PATCHes for the same session
@@ -3129,21 +3200,64 @@ export function App() {
   }
 
   async function runArchiveSession(id: string, archived: boolean) {
-    let res: Response;
+    const rowStays = rowVisibleUnder(sessionsArchiveFilter, archived);
+    const place = rowPlace(sessions, id);
+    const removesLoaded = !!place && !rowStays;
+    archiveMovesRef.current.set(id, {
+      archived,
+      removesLoaded,
+      settledAtSeq: null,
+    });
+    setSessionRowErrors((prev) => {
+      if (!(id in prev)) return prev;
+      const rest = { ...prev };
+      delete rest[id];
+      return rest;
+    });
+    setSessions((prev) =>
+      rowStays
+        ? prev.map((s) => (s.id === id ? { ...s, archived } : s))
+        : prev.filter((s) => s.id !== id),
+    );
+    let ok = false;
     try {
-      res = await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
+      const res = await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
         method: "PATCH",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ archived }),
       });
+      ok = res.ok;
     } catch {
-      setSessionsError(t("app.backendUnavailable", { status: 0 }));
+      ok = false;
+    }
+    if (!ok) {
+      archiveMovesRef.current.delete(id);
+      pruneArchiveLists();
+      const message = t(
+        archived ? "sessions.archiveFailed" : "sessions.unarchiveFailed",
+      );
+      if (place) {
+        setSessions((prev) => restoreRow(prev, place));
+        setSessionRowErrors((prev) => ({ ...prev, [id]: message }));
+      } else {
+        setSessionsError(message);
+      }
       return;
     }
-    if (!res.ok) {
-      setSessionsError(t("app.backendUnavailable", { status: res.status }));
-      return;
+    archiveMovesRef.current.set(id, {
+      archived,
+      removesLoaded,
+      settledAtSeq: sessionsListSeqRef.current,
+    });
+    if (removesLoaded) {
+      // The row was part of what History had loaded and has now left the
+      // server's listing, so the next page starts one row earlier.
+      archiveRemovalsRef.current.push(sessionsListSeqRef.current);
+      const cursor = cursorAfterRemovals(sessionsCursorRef.current, 1);
+      sessionsCursorRef.current = cursor;
+      setSessionsCursor(cursor);
     }
+    pruneArchiveLists();
     // The conversation on screen learns its new state with the row: the
     // composer swaps for the archived notice (or comes back) without waiting
     // for the next transcript load. The ref is re-read here, not captured
@@ -3156,15 +3270,6 @@ export function App() {
     if (viewedSessionIdRef.current.trim() === id) {
       setViewedArchived(archived);
     }
-    const rowStays =
-      sessionsArchiveFilter === "all" ||
-      (sessionsArchiveFilter === "only") === archived;
-    setSessions((prev) =>
-      rowStays
-        ? prev.map((s) => (s.id === id ? { ...s, archived } : s))
-        : prev.filter((s) => s.id !== id),
-    );
-    await loadSessionsList(true);
   }
 
   /**
@@ -5145,9 +5250,11 @@ export function App() {
     questionPendingSessionIds: questionPendingSids,
     sessions: sessionsForSidebar,
     ...(sessionsError ? { error: sessionsError } : {}),
+    rowErrors: sessionRowErrors,
     open: sessionsOpen,
     onClose: () => {
       setSessionsOpen(false);
+      setSessionRowErrors({});
       const p = parseAppHash();
       if (p.branch === "history") {
         const sid = sessionId.trim();

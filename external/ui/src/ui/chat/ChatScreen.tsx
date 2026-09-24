@@ -365,6 +365,33 @@ export function ChatScreen(props: {
     writeTranscriptScrollTop,
   ]);
 
+  // The reserve under the transcript is the height of the block over it, and a
+  // usage banner rises into that block after the transcript is on screen (the
+  // usage read answers later). A transcript parked at its newest message stays
+  // there as the tail grows, or the last lines of the answer end up under the
+  // banner; a reader who scrolled away keeps their place.
+  const lastReserveRef = useRef(composerReserve);
+  useLayoutEffect(() => {
+    if (composerReserve === lastReserveRef.current) return;
+    lastReserveRef.current = composerReserve;
+    if (isEmpty || !stickToBottomRef.current || jumpFrameRef.current !== null) {
+      return;
+    }
+    const follow = () => writeTranscriptScrollTop(transcriptScrollBottom());
+    if (mobileDocScroll) {
+      // The document takes its new height after layout, not on this tick.
+      requestAnimationFrame(() => requestAnimationFrame(follow));
+      return;
+    }
+    follow();
+  }, [
+    composerReserve,
+    isEmpty,
+    mobileDocScroll,
+    transcriptScrollBottom,
+    writeTranscriptScrollTop,
+  ]);
+
   useEffect(() => {
     if (isEmpty) return;
     const onScroll = () => syncTranscriptPosition();

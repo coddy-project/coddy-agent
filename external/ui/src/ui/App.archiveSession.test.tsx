@@ -35,16 +35,24 @@ vi.mock("./chat/ChatScreen", () => ({
 }));
 
 type SidebarProps = {
+  sessions?: Array<{ id: string; archived?: boolean }>;
+  error?: string | null;
+  rowErrors?: Readonly<Record<string, string>>;
   onArchive?: (id: string, archived: boolean) => void;
   onPick?: (id: string) => void;
+  onClose?: () => void;
+  onLoadMore?: () => void;
 };
 let sidebarOnArchive: SidebarProps["onArchive"];
 let sidebarOnPick: SidebarProps["onPick"];
+// The props of the latest sidebar render: what History shows right now.
+let sidebar: SidebarProps = {};
 
 vi.mock("./sessions/SessionsSidebar", () => ({
   SessionsSidebar: (props: SidebarProps) => {
     sidebarOnArchive = props.onArchive;
     sidebarOnPick = props.onPick;
+    sidebar = props;
     return <div data-testid="sessions-sidebar-stub" />;
   },
 }));
@@ -58,6 +66,46 @@ let holdMessages = false;
 let holdArchivePatch = false;
 const messageGate: Array<() => void> = [];
 const patchGate: Array<() => void> = [];
+// The stored history the listing pages through, in listing order. Like the
+// real server, a page is an offset into the rows the filter keeps, so a row
+// archived since the last page shifts the ones after it up by one.
+let storedIds: string[] = [];
+// The PATCH reaches the disk only when the test releases it, so a listing
+// read while it is in flight still carries the row.
+let applyPatchOnRelease = false;
+let failArchivePatch = false;
+
+function listPage(url: string) {
+  const q = new URL(url, "http://coddy.test").searchParams;
+  const filter = q.get("archived") ?? "exclude";
+  const limit = Number(q.get("limit") ?? "30");
+  const offset = Number(q.get("cursor") ?? "0");
+  const rows = storedIds
+    .map((id) => ({
+      id,
+      title: id,
+      archived: archivedById.get(id) ?? false,
+    }))
+    .filter((row) =>
+      filter === "all" ? true : filter === "only" ? row.archived : !row.archived,
+    );
+  const end = offset + limit;
+  return json({
+    sessions: rows.slice(offset, end),
+    nextCursor: end < rows.length ? String(end) : null,
+    hasMore: end < rows.length,
+  });
+}
+
+function listCalls(): string[] {
+  return fetchStub.mock.calls
+    .map(([input]) => (typeof input === "string" ? input : String(input)))
+    .filter((url) => url.startsWith("/coddy/sessions?"));
+}
+
+function shownIds(): string[] {
+  return (sidebar.sessions ?? []).map((row) => row.id);
+}
 
 const fetchStub = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   const url =
@@ -86,6 +134,9 @@ const fetchStub = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
     }
     return answer();
   }
+  if (url.startsWith("/coddy/sessions?")) {
+    return listPage(url);
+  }
   if ((init?.method ?? "GET") === "PATCH") {
     const patchMatch = url.match(/\/coddy\/sessions\/([^/?]+)/);
     const body = JSON.parse(String(init?.body ?? "{}")) as {
@@ -93,12 +144,21 @@ const fetchStub = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
     };
     if (patchMatch && body.archived !== undefined) {
       const sid = decodeURIComponent(patchMatch[1] ?? "");
-      archivedById.set(sid, body.archived);
+      const archived = body.archived;
+      const answer = () => {
+        if (failArchivePatch) return json({ error: "disk full" }, 500);
+        if (applyPatchOnRelease) archivedById.set(sid, archived);
+        return json({ ok: true });
+      };
+      if (!applyPatchOnRelease && !failArchivePatch) {
+        archivedById.set(sid, archived);
+      }
       if (holdArchivePatch) {
         return new Promise<Response>((resolve) => {
-          patchGate.push(() => resolve(json({ ok: true })));
+          patchGate.push(() => resolve(answer()));
         });
       }
+      return answer();
     }
     return json({ ok: true });
   }
@@ -119,6 +179,10 @@ beforeEach(() => {
   chatOnUnarchive = undefined;
   sidebarOnArchive = undefined;
   sidebarOnPick = undefined;
+  sidebar = {};
+  storedIds = [];
+  applyPatchOnRelease = false;
+  failArchivePatch = false;
   archivedById.clear();
   holdMessages = false;
   holdArchivePatch = false;
@@ -268,4 +332,159 @@ test("the notice's unarchive control brings the composer back", async () => {
   await waitFor(() =>
     expect(chatScreenRenders.at(-1)?.sessionArchived).toBe(false),
   );
+});
+
+function sessionIds(n: number): string[] {
+  return Array.from({ length: n }, (_, i) => `sess_${String(i).padStart(2, "0")}`);
+}
+
+async function openHistory() {
+  const historyBtn = document.querySelector(
+    '[data-testid="nav-history"]',
+  ) as HTMLElement;
+  await act(async () => {
+    historyBtn.click();
+  });
+  await waitFor(() => expect(shownIds().length).toBeGreaterThan(0));
+}
+
+async function loadNextPage() {
+  const before = shownIds().length;
+  await act(async () => {
+    sidebar.onLoadMore?.();
+  });
+  await waitFor(() => expect(shownIds().length).toBeGreaterThan(before));
+}
+
+// Archiving from History used to wait for the PATCH and then read the list
+// again from its first page: the rows scrolling had loaded were gone, and so
+// was the place in the list the next conversation to archive sat at.
+test("archiving from History takes the row out at once and keeps the rows scrolling loaded", async () => {
+  storedIds = sessionIds(45);
+  holdArchivePatch = true;
+  renderApp();
+  await openHistory();
+  await loadNextPage();
+  expect(shownIds()).toHaveLength(45);
+  const listsBefore = listCalls().length;
+
+  await act(async () => {
+    sidebar.onArchive?.("sess_40", true);
+  });
+
+  // Gone before the server has answered.
+  expect(patchGate).toHaveLength(1);
+  expect(shownIds()).not.toContain("sess_40");
+  expect(shownIds()).toHaveLength(44);
+
+  releaseArchivePatch();
+  await act(async () => {});
+
+  // The list is not read again: the second page is still on screen.
+  expect(listCalls()).toHaveLength(listsBefore);
+  expect(shownIds()).toHaveLength(44);
+  expect(shownIds()).toContain("sess_44");
+  expect(shownIds()).not.toContain("sess_40");
+});
+
+test("a refused archive puts the row back where it was and says so on it", async () => {
+  storedIds = sessionIds(12);
+  holdArchivePatch = true;
+  failArchivePatch = true;
+  renderApp();
+  await openHistory();
+  const order = shownIds();
+
+  await act(async () => {
+    sidebar.onArchive?.("sess_05", true);
+  });
+  expect(shownIds()).not.toContain("sess_05");
+
+  releaseArchivePatch();
+  await waitFor(() => expect(shownIds()).toEqual(order));
+  expect(sidebar.rowErrors?.["sess_05"]).toBe("The conversation was not archived");
+  expect((sidebar.sessions ?? []).find((row) => row.id === "sess_05")?.archived).toBeFalsy();
+  // Trying again takes the note away with the row.
+  failArchivePatch = false;
+  await act(async () => {
+    sidebar.onArchive?.("sess_05", true);
+  });
+  expect(sidebar.rowErrors?.["sess_05"]).toBeUndefined();
+  expect(shownIds()).not.toContain("sess_05");
+  releaseArchivePatch();
+  await act(async () => {});
+});
+
+// The listing pages by offset: a row archived out of the loaded part moves the
+// rest of the history up by one, so the next page starts one row earlier or a
+// conversation falls between the two pages.
+test("the page after an archive starts where the list now ends, so nothing is skipped", async () => {
+  storedIds = sessionIds(45);
+  renderApp();
+  await openHistory();
+  expect(shownIds()).toHaveLength(30);
+
+  await act(async () => {
+    sidebar.onArchive?.("sess_03", true);
+  });
+  await waitFor(() => expect(archivedById.get("sess_03")).toBe(true));
+  await act(async () => {});
+  expect(shownIds()).toHaveLength(29);
+
+  await loadNextPage();
+  expect(listCalls().at(-1)).toContain("cursor=29");
+  expect(shownIds()).toEqual(sessionIds(45).filter((id) => id !== "sess_03"));
+});
+
+test("a listing read while the archive is in flight does not bring the row back", async () => {
+  storedIds = sessionIds(12);
+  holdArchivePatch = true;
+  applyPatchOnRelease = true;
+  renderApp();
+  await openHistory();
+
+  await act(async () => {
+    sidebar.onArchive?.("sess_05", true);
+  });
+  expect(shownIds()).not.toContain("sess_05");
+
+  // Closing and opening History reads the first page again while the server
+  // still lists the row as it was.
+  const listsBefore = listCalls().length;
+  await act(async () => {
+    sidebar.onClose?.();
+  });
+  await openHistory();
+  await waitFor(() => expect(listCalls().length).toBeGreaterThan(listsBefore));
+  await act(async () => {});
+  expect(shownIds()).not.toContain("sess_05");
+
+  releaseArchivePatch();
+  await act(async () => {});
+  expect(shownIds()).not.toContain("sess_05");
+  expect(shownIds()).toHaveLength(11);
+});
+
+// A page asked for while the PATCH is still out may be answered after the
+// server has already taken the row out of its listing: counted from the old
+// offset, that page would start one row too far and a conversation would fall
+// between two pages. It starts a row earlier instead; the row it fetches twice
+// is dropped by id.
+test("a page loaded while an archive is in flight skips no conversation", async () => {
+  storedIds = sessionIds(45);
+  holdArchivePatch = true;
+  renderApp();
+  await openHistory();
+  expect(shownIds()).toHaveLength(30);
+
+  await act(async () => {
+    sidebar.onArchive?.("sess_03", true);
+  });
+  // The fake server has the flag from the moment the PATCH arrived.
+  await loadNextPage();
+  expect(listCalls().at(-1)).toContain("cursor=29");
+
+  releaseArchivePatch();
+  await act(async () => {});
+  expect(shownIds()).toEqual(sessionIds(45).filter((id) => id !== "sess_03"));
 });

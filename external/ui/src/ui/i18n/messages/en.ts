@@ -984,6 +984,8 @@ export const messagesEn: Record<string, string> = {
   "sessions.tags.addHint": "Enter files it as {tag}",
   "sessions.tags.add": "Add a tag",
   "sessions.tags.failed": "The tags were not saved",
+  "sessions.archiveFailed": "The conversation was not archived",
+  "sessions.unarchiveFailed": "The conversation was not taken out of the archive",
   "sessions.tags.editRow": "Edit the tags",
   "sessions.tags.done": "Done",
   "sessions.tagFilterClear": "Clear the tag filter",
