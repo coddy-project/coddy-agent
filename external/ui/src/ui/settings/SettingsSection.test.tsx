@@ -227,6 +227,17 @@ test("Codex Sign In opens ChatGPT and completes device authorization", async () 
   expect(
     await screen.findByText("Connected with ChatGPT.", {}, { timeout: 2000 }),
   ).toBeInTheDocument();
+  // The server refuses a device start that is not JSON (a cross-site page can
+  // only send the simple content types without a preflight).
+  const start = fetchMock.mock.calls.find(
+    ([input, init]) =>
+      init?.method === "POST" && String(input).endsWith("codex-auth/device"),
+  );
+  expect(
+    new Headers((start?.[1] as RequestInit | undefined)?.headers).get(
+      "Content-Type",
+    ),
+  ).toBe("application/json");
 });
 
 test("NeuralDeep provider keeps the manual api_key and offers hub sign in", async () => {
@@ -364,6 +375,9 @@ test("NeuralDeep Sign In carries the endpoint picked in the form", async () => {
   expect(JSON.parse(String((start?.[1] as RequestInit).body))).toEqual({
     api_base: "https://api.neuraldeep.tech/v1",
   });
+  expect(
+    new Headers((start?.[1] as RequestInit).headers).get("Content-Type"),
+  ).toBe("application/json");
 });
 
 test("NeuralDeep keeps polling a pending login when the endpoint changes", async () => {

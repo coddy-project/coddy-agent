@@ -101,9 +101,32 @@ func StartCodexDeviceLogin(ctx context.Context, issuer string, client *http.Clie
 // CompleteCodexDeviceLogin waits for browser confirmation, exchanges the
 // authorization code, and persists a Codex-compatible auth file at authPath.
 func CompleteCodexDeviceLogin(ctx context.Context, issuer string, client *http.Client, login CodexDeviceLogin, authPath string) error {
+	if strings.TrimSpace(authPath) == "" {
+		return fmt.Errorf("codex auth: credential path is required")
+	}
+	return CompleteCodexDeviceLoginWith(ctx, issuer, client, login, func(ctx context.Context, credential []byte) error {
+		// A cancelled wait (Ctrl-C, a sign-out) must not store what the
+		// issuer handed over after the cancellation.
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("codex auth: login cancelled before the credential was stored: %w", err)
+		}
+		return SaveCodexAuthFile(authPath, credential)
+	})
+}
+
+// CompleteCodexDeviceLoginWith is CompleteCodexDeviceLogin with the
+// persistence step supplied by the caller: persist receives the encoded
+// Codex auth file once and decides whether and where it is stored. A server
+// that can be signed out while the wait runs uses it to check for
+// cancellation and write the credential under one lock, so a sign-out cannot
+// slip in between.
+func CompleteCodexDeviceLoginWith(ctx context.Context, issuer string, client *http.Client, login CodexDeviceLogin, persist func(ctx context.Context, credential []byte) error) error {
 	issuer = strings.TrimRight(strings.TrimSpace(issuer), "/")
-	if issuer == "" || strings.TrimSpace(authPath) == "" {
-		return fmt.Errorf("codex auth: OAuth issuer and credential path are required")
+	if issuer == "" {
+		return fmt.Errorf("codex auth: OAuth issuer is required")
+	}
+	if persist == nil {
+		return fmt.Errorf("codex auth: no persistence step")
 	}
 	if client == nil {
 		client = http.DefaultClient
@@ -135,9 +158,18 @@ func CompleteCodexDeviceLogin(ctx context.Context, issuer string, client *http.C
 	if err != nil {
 		return fmt.Errorf("codex auth: encode credentials: %w", err)
 	}
+	return persist(ctx, data)
+}
+
+// SaveCodexAuthFile writes an encoded Codex auth file at authPath with
+// private permissions, under the lock the token refresh writes under.
+func SaveCodexAuthFile(authPath string, credential []byte) error {
+	if strings.TrimSpace(authPath) == "" {
+		return fmt.Errorf("codex auth: credential path is empty")
+	}
 	codexAuthMu.Lock()
 	defer codexAuthMu.Unlock()
-	if err := writePrivateFile(authPath, data); err != nil {
+	if err := writePrivateFile(authPath, credential); err != nil {
 		return fmt.Errorf("codex auth: save credentials: %w", err)
 	}
 	return nil

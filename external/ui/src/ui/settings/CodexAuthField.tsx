@@ -115,7 +115,13 @@ export function CodexAuthField(props: { providerName: string }) {
     setError("");
     setLogin(null);
     try {
-      const response = await fetch(`${endpoint}/device`, { method: "POST" });
+      // JSON even without a payload: the server refuses any other content
+      // type, the ones a cross-site page could send without a preflight.
+      const response = await fetch(`${endpoint}/device`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
       if (!response.ok) {
         throw new Error(await responseError(response));
       }

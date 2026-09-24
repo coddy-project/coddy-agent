@@ -166,16 +166,13 @@ export function NeuralDeepAuthField(props: {
     setError("");
     setLogin(null);
     try {
-      const response = await fetch(
-        `${endpoint}/device`,
-        apiBase
-          ? {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ api_base: apiBase }),
-            }
-          : { method: "POST" },
-      );
+      // Always JSON: the server refuses any other content type, the ones a
+      // cross-site page could send without a preflight.
+      const response = await fetch(`${endpoint}/device`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(apiBase ? { api_base: apiBase } : {}),
+      });
       if (!response.ok) {
         throw new Error(await responseError(response));
       }

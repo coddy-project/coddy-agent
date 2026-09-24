@@ -167,6 +167,9 @@ func (s *Server) coddyProviderNeuralDeepAuthDelete(w http.ResponseWriter, r *htt
 }
 
 func (s *Server) coddyProviderNeuralDeepAuthDevicePost(w http.ResponseWriter, r *http.Request) {
+	if !requireJSONRequest(w, r) {
+		return
+	}
 	name, provider, ok := s.resolveNeuralDeepAuthProvider(w, r.PathValue("name"))
 	if !ok {
 		return
