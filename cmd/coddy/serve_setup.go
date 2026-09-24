@@ -65,12 +65,18 @@ func parseServiceVerb(verb, summary string, args []string) (bool, error) {
 	return false, nil
 }
 
-// serviceHint names the systemd user service when it is what serves this
-// account, for the daemon verbs, which only know about `coddy serve --daemon`.
-func serviceHint() string {
-	if !serve.UserServiceActive(context.Background()) {
-		return ""
+// serviceHint names the systemd user service when it serves this account, or
+// will at the next login, for the daemon verbs, which only know about
+// `coddy serve --daemon`. active reports whether it is running right now.
+func serviceHint() (hint string, active bool) {
+	active, enabled := serve.UserServiceState(context.Background())
+	switch {
+	case active:
+		return "coddy serve runs as the systemd user service " + serve.UnitName +
+			": systemctl --user status|stop|restart " + serve.UnitName + ", coddy serve uninstall to remove it", true
+	case enabled:
+		return "the systemd user service " + serve.UnitName + " is enabled for this account and starts at the next login or boot" +
+			": systemctl --user start " + serve.UnitName + ", coddy serve uninstall to remove it", false
 	}
-	return "coddy serve runs as the systemd user service " + serve.UnitName +
-		": systemctl --user status|stop|restart " + serve.UnitName + ", coddy serve uninstall to remove it"
+	return "", false
 }

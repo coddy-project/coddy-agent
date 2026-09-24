@@ -73,7 +73,9 @@ func DropInFile(path string) string {
 func absolutePath(path string) []string {
 	var dirs []string
 	for _, dir := range filepath.SplitList(path) {
-		if dir != "" && filepath.IsAbs(dir) {
+		// A line break would end the Environment= line and start another
+		// setting of the unit's.
+		if dir != "" && filepath.IsAbs(dir) && !strings.ContainsAny(dir, "\r\n") {
 			dirs = append(dirs, dir)
 		}
 	}
@@ -414,7 +416,8 @@ func (s *UserService) Setup(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := s.placeDropIn(); err != nil {
+	pathSource, err := s.placeDropIn()
+	if err != nil {
 		return err
 	}
 	if err := os.MkdirAll(s.workspace(), 0o755); err != nil {
@@ -450,7 +453,7 @@ func (s *UserService) Setup(ctx context.Context) error {
 	s.printf("  binary     %s\n", s.Exe)
 	s.printf("  config     %s\n", filepath.Join(home, "config.yaml"))
 	s.printf("  workspace  %s\n", s.workspace())
-	s.printf("  PATH       from this shell, in %s\n", s.dropIn())
+	s.printf("  PATH       from %s\n", pathSource)
 	s.printf("  log        journalctl --user -u %s -f\n", UnitName)
 	s.printf("  remove     coddy serve uninstall\n")
 	if s.User != "" && s.LingerDir != "" && !fileExists(filepath.Join(s.LingerDir, s.User)) {
@@ -486,23 +489,27 @@ func (s *UserService) placeUnit() (path, source string, err error) {
 }
 
 // placeDropIn writes the drop-in with this shell's PATH. One the user wrote
-// under the same name is left alone.
-func (s *UserService) placeDropIn() error {
+// under the same name is left alone. It returns what the service's PATH now
+// comes from, for the report.
+func (s *UserService) placeDropIn() (string, error) {
 	path := s.dropIn()
 	if fileExists(path) && !writtenBySetup(path) {
 		s.printf("kept %s: it was not written by coddy serve setup\n", path)
-		return nil
+		return "your own " + path, nil
 	}
-	if len(absolutePath(s.ShellPath)) == 0 && fileExists(path) {
-		// A shell started with an empty environment would otherwise take
-		// away the PATH an earlier setup handed over.
-		s.printf("kept %s: this shell has no PATH to hand over\n", path)
-		return nil
+	if len(absolutePath(s.ShellPath)) == 0 {
+		if fileExists(path) {
+			// A shell started with an empty environment would otherwise
+			// take away the PATH an earlier setup handed over.
+			s.printf("kept %s: this shell has no PATH to hand over\n", path)
+			return "an earlier setup, in " + path, nil
+		}
+		return "the user manager's default: this shell had none to hand over", nil
 	}
 	if err := writeFileAtomic(path, []byte(DropInFile(s.ShellPath))); err != nil {
-		return fmt.Errorf("write %s: %w", path, err)
+		return "", fmt.Errorf("write %s: %w", path, err)
 	}
-	return nil
+	return "this shell, in " + path, nil
 }
 
 func writeFileAtomic(path string, body []byte) error {
@@ -550,17 +557,31 @@ func (s *UserService) Uninstall(ctx context.Context) error {
 	ourDropIn := fileExists(dropIn) && writtenBySetup(dropIn)
 	packagedUnit := fileExists(s.PackagedUnit)
 	if !userUnitExists && !packagedUnit {
+		// No unit file is left - a package removal takes the packaged one
+		// away - but the user manager may still have the service loaded,
+		// enabled and running the deleted binary. Disabling it is what
+		// clears that; with nothing loaded systemctl refuses, and then there
+		// was nothing to clear.
+		_, disableErr := s.systemctl(ctx, "disable", "--now", UnitName)
 		if ourDropIn {
 			if err := removeDropIn(dropIn); err != nil {
 				return err
 			}
+		}
+		if disableErr == nil || ourDropIn {
 			if _, err := s.systemctl(ctx, "daemon-reload"); err != nil {
 				return err
 			}
-			s.printf("removed %s; no %s is installed for this user\n", dropIn, UnitName)
-			return nil
+			_, _ = s.Systemctl(ctx, "--user", "reset-failed", UnitName)
 		}
-		s.printf("no %s is installed for this user; nothing to remove\n", UnitName)
+		if disableErr == nil {
+			s.printf("%s is stopped and disabled; its unit file was already gone\n", UnitName)
+		} else {
+			s.printf("no %s is installed for this user; nothing to stop\n", UnitName)
+		}
+		if ourDropIn {
+			s.printf("  removed    %s\n", dropIn)
+		}
 		return nil
 	}
 
@@ -611,17 +632,32 @@ func removeDropIn(path string) error {
 	return nil
 }
 
-// UserServiceActive reports whether the coddy systemd user service is running
-// for this account. It is false wherever there is no systemd to ask.
-func UserServiceActive(ctx context.Context) bool {
+// UserServiceState reports whether the coddy systemd user service of this
+// account is running, and whether it is enabled and so comes back at the next
+// login or boot. Both are false wherever there is no systemd to ask.
+func UserServiceState(ctx context.Context) (active, enabled bool) {
 	if runtime.GOOS != "linux" || os.Geteuid() == 0 {
-		return false
+		return false, false
 	}
 	systemctl, ok := systemctlPath()
 	if !ok {
-		return false
+		return false, false
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	return exec.CommandContext(ctx, systemctl, "--user", "--quiet", "is-active", UnitName).Run() == nil
+	active = exec.CommandContext(ctx, systemctl, "--user", "--quiet", "is-active", UnitName).Run() == nil
+	enabled = exec.CommandContext(ctx, systemctl, "--user", "--quiet", "is-enabled", UnitName).Run() == nil
+	return active, enabled
+}
+
+// ServiceAgentHome is the agent home the systemd user service reads: ~/.coddy
+// of the account record, whatever this shell exports.
+func ServiceAgentHome() string {
+	if u, err := user.Current(); err == nil && u.HomeDir != "" {
+		return filepath.Join(u.HomeDir, ".coddy")
+	}
+	if h, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(h, ".coddy")
+	}
+	return ""
 }

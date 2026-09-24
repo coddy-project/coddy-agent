@@ -278,13 +278,19 @@ jobs:
           sudo apt-get install -y rpm cpio
           for package in dist/*.deb; do
             dpkg-deb --fsys-tarfile "$package" | tar -xOf - ./usr/lib/systemd/user/coddy.service | cmp - packaging/systemd/coddy.service
-            dpkg-deb --ctrl-tarfile "$package" | tar -tf - | grep -Fx -e ./postinst -e ./prerm | wc -l | grep -Fx 2
+            dpkg-deb --ctrl-tarfile "$package" | tar -xOf - ./postinst > scripts.txt
+            grep -F 'NOT enabled' scripts.txt
+            dpkg-deb --ctrl-tarfile "$package" | tar -xOf - ./prerm >> scripts.txt
+            grep -F 'coddy-setup.conf' scripts.txt
+            # The package tells the user about the unit and never turns it on.
+            ! grep -E 'systemctl( --user| --global)? (enable|start)' scripts.txt
           done
           for package in dist/*.rpm; do
             rpm2cpio "$package" | cpio -i --quiet --to-stdout ./usr/lib/systemd/user/coddy.service | cmp - packaging/systemd/coddy.service
             rpm -qp --scripts "$package" > scripts.txt
-            grep -F 'coddy serve setup' scripts.txt    # postinstall
-            grep -F 'coddy-setup.conf' scripts.txt     # preremove
+            grep -F 'NOT enabled' scripts.txt        # postinstall
+            grep -F 'coddy-setup.conf' scripts.txt   # preremove
+            ! grep -E 'systemctl( --user| --global)? (enable|start)' scripts.txt
           done
 
       # Same reasoning one step further: the Homebrew cask is rendered only by

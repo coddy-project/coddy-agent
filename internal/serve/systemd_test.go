@@ -36,6 +36,7 @@ func newFakeService(t *testing.T) *fakeService {
 		Mkdir:          "/bin/mkdir",
 		LingerDir:      filepath.Join(root, "linger"),
 		User:           "user",
+		ShellPath:      filepath.Join(root, "usr", "bin"),
 		Systemctl: func(_ context.Context, args ...string) ([]byte, error) {
 			f.calls = append(f.calls, strings.Join(args, " "))
 			if f.answer != nil {
@@ -273,14 +274,72 @@ func TestSetupExplainsAnUnreachableUserManager(t *testing.T) {
 
 func TestUninstallWithNothingInstalled(t *testing.T) {
 	f := newFakeService(t)
+	f.answer = func(args []string) ([]byte, error) {
+		if args[1] == "disable" {
+			return []byte("Failed to disable unit: Unit file coddy.service does not exist."), errors.New("exit status 1")
+		}
+		return nil, nil
+	}
 	if err := f.Uninstall(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.changes()) != 0 {
-		t.Fatalf("systemctl was asked to change something: %q", f.changes())
+	if want := []string{"--user disable --now coddy.service"}; strings.Join(f.changes(), "|") != strings.Join(want, "|") {
+		t.Fatalf("systemctl calls = %q, want %q", f.changes(), want)
 	}
-	if !strings.Contains(f.out.String(), "nothing to remove") {
+	if !strings.Contains(f.out.String(), "nothing to stop") {
 		t.Fatalf("output:\n%s", f.out.String())
+	}
+}
+
+func TestUninstallStopsAServiceWhoseUnitThePackageTookAway(t *testing.T) {
+	f := newFakeService(t)
+	f.installPackage(t)
+	if err := f.Setup(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// apt remove: the unit file and the binary go, the running service and
+	// its enable link stay with the user manager.
+	if err := os.Remove(f.PackagedUnit); err != nil {
+		t.Fatal(err)
+	}
+	f.calls = nil
+	f.out.Reset()
+	if err := f.Uninstall(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"--user disable --now coddy.service", "--user daemon-reload", "--user reset-failed coddy.service"}
+	if strings.Join(f.changes(), "|") != strings.Join(want, "|") {
+		t.Fatalf("systemctl calls = %q, want %q", f.changes(), want)
+	}
+	if _, err := os.Stat(f.dropIn()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the drop-in setup wrote is still there: %v", err)
+	}
+	if !strings.Contains(f.out.String(), "unit file was already gone") {
+		t.Fatalf("output:\n%s", f.out.String())
+	}
+}
+
+func TestSetupReportsWhereThePathComesFrom(t *testing.T) {
+	f := newFakeService(t)
+	f.ShellPath = "relative/bin"
+	if err := f.Setup(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(f.out.String(), "PATH       from the user manager's default") {
+		t.Fatalf("output:\n%s", f.out.String())
+	}
+	if _, err := os.Stat(f.dropIn()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a drop-in without a PATH was written: %v", err)
+	}
+}
+
+func TestDropInDropsEntriesThatWouldBreakTheLine(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX PATH")
+	}
+	got := DropInFile("/usr/bin:/tmp/x\nExecStartPre=/bin/evil:/bin")
+	if strings.Contains(got, "evil") || !strings.Contains(got, "\nEnvironment=PATH=/usr/bin:/bin\n") {
+		t.Fatalf("drop-in:\n%s", got)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -233,9 +234,13 @@ func runServe(args []string) error {
 		defer stop()
 		return serve.RunDispatcher(ctx, daemonOpts)
 	case *daemon:
-		if hint := serviceHint(); hint != "" {
-			// Both would bind the same listeners; the second one to come up
-			// fails, and which one that is depends on who restarts first.
+		if hint, active := serviceHint(); hint != "" {
+			// Over the same agent home both would bind the same listeners,
+			// and the worker that loses would be restarted forever. Another
+			// home may well listen elsewhere, so that one is only warned.
+			if active && filepath.Clean(paths.Home) == serve.ServiceAgentHome() {
+				return fmt.Errorf("%s; it serves %s already, so a daemon there would only fight it for the port", hint, paths.Home)
+			}
 			fmt.Fprintf(os.Stderr, "warning: %s\n", hint)
 		}
 		rec, err := serve.StartDetached(daemonOpts)
@@ -318,6 +323,10 @@ func runServe(args []string) error {
 	// over a configuration change. In the foreground the operator is the only
 	// one who would bring it back, so they are told instead.
 	sup.Restartable = serve.Supervised()
+	// The role is this process's, not its children's: a `coddy serve` the
+	// agent starts from a tool call must not believe a dispatcher or systemd
+	// will bring it back.
+	_ = os.Unsetenv(serve.EnvRole)
 	err = sup.Run(ctx, cfg, reloads)
 	if errors.Is(err, serve.ErrRestartRequested) {
 		log.Info("exiting so the dispatcher or the service manager can start a process with the new listen settings")

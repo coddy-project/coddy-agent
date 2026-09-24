@@ -106,7 +106,7 @@ func runServeRestart(args []string) error {
 	}
 	rec, err := serve.ReadRecord(home)
 	if errors.Is(err, serve.ErrNoDispatcher) {
-		if hint := serviceHint(); hint != "" {
+		if hint, _ := serviceHint(); hint != "" {
 			return errors.New(hint)
 		}
 		return errors.New("coddy serve is not running; start it with `coddy serve --daemon`")
@@ -136,7 +136,7 @@ func runServeRestart(args []string) error {
 // printServiceHint says, under a "not running" from a daemon verb, that the
 // systemd user service is what serves this account, when it is.
 func printServiceHint() {
-	if hint := serviceHint(); hint != "" {
+	if hint, _ := serviceHint(); hint != "" {
 		fmt.Println(hint)
 	}
 }
