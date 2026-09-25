@@ -2117,7 +2117,6 @@ export function App() {
   useEffect(() => {
     void (async () => {
       const res = await fetchJSON<{
-        default_agent_model?: string;
         data?: Array<{
           id?: string;
           owned_by?: string;

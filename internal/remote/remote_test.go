@@ -472,7 +472,7 @@ func TestPreferredReopenPropagatesServerFailures(t *testing.T) {
 			http.Error(w, `{"error":{"message":"disk on fire"}}`, http.StatusInternalServerError)
 			return
 		}
-		_, _ = w.Write([]byte(`{"object":"list","default_agent_model":"remote/alpha","data":[{"id":"remote/alpha","owned_by":"r"}]}`))
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"remote/alpha","default":true,"owned_by":"r"}]}`))
 	}))
 	defer srv.Close()
 	h, err := NewHandler(Options{BaseURL: srv.URL})
@@ -486,15 +486,38 @@ func TestPreferredReopenPropagatesServerFailures(t *testing.T) {
 	}
 }
 
+// The server marks the row a session with no model of its own runs on, and
+// that is the model the client shows and checks reasoning levels against - not
+// the first backend it lists.
+func TestRemoteDefaultModelIsTheRowTheServerMarks(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"object":"list","data":[
+			{"id":"agent","owned_by":"coddy"},
+			{"id":"remote/alpha","owned_by":"remote"},
+			{"id":"remote/beta","owned_by":"remote","default":true}]}`))
+	}))
+	defer srv.Close()
+	h, err := NewHandler(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.ensureModels(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if h.defModel != "remote/beta" {
+		t.Fatalf("default model = %q, want the row the server marks", h.defModel)
+	}
+}
+
 // ---- config options ----
 
 func TestSetConfigOptionValidatesModelsAndCarriesThePermissionMode(t *testing.T) {
 	var input string
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"object":"list","default_agent_model":"remote/alpha","data":[
+		_, _ = w.Write([]byte(`{"object":"list","data":[
 			{"id":"agent","owned_by":"coddy"},
-			{"id":"remote/alpha","owned_by":"remote"}]}`))
+			{"id":"remote/alpha","default":true,"owned_by":"remote"}]}`))
 	})
 	// The session does not exist on the server until its first prompt.
 	mux.HandleFunc("PATCH /coddy/sessions/{id}", func(w http.ResponseWriter, _ *http.Request) {
@@ -560,9 +583,9 @@ func TestRemoteReasoningConfigOptionPersistsAndRestores(t *testing.T) {
 	var patches []map[string]string
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"object":"list","default_agent_model":"remote/terra","data":[
+		_, _ = w.Write([]byte(`{"object":"list","data":[
 			{"id":"agent","owned_by":"coddy"},
-			{"id":"remote/terra","owned_by":"remote","reasoning_levels":["minimal","low","medium","high"],"reasoning_default":"medium"}]}`))
+			{"id":"remote/terra","default":true,"owned_by":"remote","reasoning_levels":["minimal","low","medium","high"],"reasoning_default":"medium"}]}`))
 	})
 	mux.HandleFunc("GET /coddy/sessions/{id}/messages", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"messages":[],"selectedModelId":"remote/terra","selectedReasoning":"low"}`))
@@ -630,8 +653,8 @@ func TestRemoteReasoningConfigOptionPersistsAndRestores(t *testing.T) {
 func TestRemoteReasoningConfigOptionClampsAfterModelSwitch(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"object":"list","default_agent_model":"remote/alpha","data":[
-			{"id":"remote/alpha","owned_by":"remote","reasoning_levels":["minimal","high"],"reasoning_default":"minimal"},
+		_, _ = w.Write([]byte(`{"object":"list","data":[
+			{"id":"remote/alpha","default":true,"owned_by":"remote","reasoning_levels":["minimal","high"],"reasoning_default":"minimal"},
 			{"id":"remote/beta","owned_by":"remote","reasoning_levels":["minimal","low"],"reasoning_default":"minimal"}]}`))
 	})
 	mux.HandleFunc("PATCH /coddy/sessions/{id}", func(w http.ResponseWriter, _ *http.Request) {
@@ -661,7 +684,7 @@ func TestRemoteReasoningConfigOptionClampsAfterModelSwitch(t *testing.T) {
 func TestRemoteReasoningConfigOptionRetainsSelectionBeforeFirstPrompt(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"object":"list","default_agent_model":"remote/terra","data":[{"id":"remote/terra","owned_by":"remote","reasoning_levels":["low","high"],"reasoning_default":"low"}]}`))
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"remote/terra","default":true,"owned_by":"remote","reasoning_levels":["low","high"],"reasoning_default":"low"}]}`))
 	})
 	mux.HandleFunc("PATCH /coddy/sessions/{id}", func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
@@ -699,7 +722,7 @@ func TestRemotePromptSendsPrePromptReasoningSelection(t *testing.T) {
 	var request responsesRequest
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"object":"list","default_agent_model":"remote/terra","data":[{"id":"remote/terra","owned_by":"remote","reasoning_levels":["low","high"],"reasoning_default":"low"}]}`))
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"remote/terra","default":true,"owned_by":"remote","reasoning_levels":["low","high"],"reasoning_default":"low"}]}`))
 	})
 	mux.HandleFunc("PATCH /coddy/sessions/{id}", func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
@@ -762,7 +785,7 @@ func assertRemoteReasoningOption(t *testing.T, options []acp.ConfigOption, curre
 func TestRemoteReasoningPatchFailureDoesNotUpdateLocalState(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"object":"list","default_agent_model":"remote/terra","data":[{"id":"remote/terra","owned_by":"remote","reasoning_levels":["low","high"],"reasoning_default":"low"}]}`))
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"remote/terra","default":true,"owned_by":"remote","reasoning_levels":["low","high"],"reasoning_default":"low"}]}`))
 	})
 	mux.HandleFunc("PATCH /coddy/sessions/{id}", func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, `{"error":{"message":"disk on fire"}}`, http.StatusInternalServerError)

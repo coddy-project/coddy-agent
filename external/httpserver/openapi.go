@@ -50,7 +50,7 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "List models (profiles and configured LLM backends)",
 					"description": "Returns **agent**, **plan**, then **ask** (**`owned_by`**: **`coddy`**), then each **`models[].model`** from configuration (**`owned_by`**: provider segment of **`id`**). " +
-						"Optional **`default_agent_model`** echoes configured **`agent.model`** for clients that default **`metadata.model`** on profile requests. " +
+						"The row a session that selects no model runs on carries **`default: true`**: configured **`agent.model`**, the first row when it names a model the configuration does not list, no row while it is empty. " +
 						"Choose any returned **`id`** as the HTTP **`model`** on **`POST /v1/chat/completions`** or **`POST /v1/responses`**.",
 					"operationId": "listModels",
 					"responses": map[string]interface{}{
@@ -3134,10 +3134,6 @@ func openAPISpec() map[string]interface{} {
 					"type": "object",
 					"properties": map[string]interface{}{
 						"object": map[string]string{"type": "string", "example": "list"},
-						"default_agent_model": map[string]interface{}{
-							"type":        "string",
-							"description": "Configured **`agent.model`** (**`models[].model`** selector). Omitted when empty. The embedded UI uses it as the default LLM choice for ReAct turns.",
-						},
 						"data": map[string]interface{}{
 							"type": "array",
 							"items": map[string]interface{}{
@@ -3160,6 +3156,10 @@ func openAPISpec() map[string]interface{} {
 									"reasoning_default": map[string]string{
 										"type":        "string",
 										"description": "Reasoning level pre-selected for new chats with this model. Omitted when none is configured.",
+									},
+									"default": map[string]string{
+										"type":        "boolean",
+										"description": "True on the one backend row a session that selects no model runs on: configured `agent.model`, or the first row when `agent.model` names a model the configuration does not list. Omitted elsewhere, and on every row while `agent.model` is empty. The embedded UI keeps its own pick; the remote console shows this model.",
 									},
 								},
 							},

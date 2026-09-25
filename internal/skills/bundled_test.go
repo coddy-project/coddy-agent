@@ -70,9 +70,9 @@ func TestLoadAllPrependsBundled(t *testing.T) {
 // it names has to exist. A snake_case name written as code is a key or an enum
 // value the config schema declares, or the name of a tool; a dotted path that
 // starts at a top-level key (agent.model, models.N.reasoning_levels) resolves
-// through the schema. A name that lives only in an HTTP response
-// (default_agent_model of GET /v1/models) or a mistyped path sends the agent to
-// stage a key that config.yaml does not have.
+// through the schema. A name that is not a config key (default_agent_model,
+// once a field of GET /v1/models) or a mistyped path sends the agent to stage
+// a key that config.yaml does not have.
 func TestConfigureCoddyNamesOnlyRealKeys(t *testing.T) {
 	var body string
 	for _, s := range skills.Bundled() {

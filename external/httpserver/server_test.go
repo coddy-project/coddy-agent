@@ -78,13 +78,13 @@ func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 		t.Fatalf("status %d", res.StatusCode)
 	}
 	var body struct {
-		Object            string `json:"object"`
-		DefaultAgentModel string `json:"default_agent_model"`
-		Data              []struct {
+		Object string `json:"object"`
+		Data   []struct {
 			ID               string `json:"id"`
 			Object           string `json:"object"`
 			OwnedBy          string `json:"owned_by"`
 			MaxContextTokens int    `json:"max_context_tokens"`
+			Default          bool   `json:"default"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
@@ -102,8 +102,8 @@ func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 	if body.Object != "list" || len(body.Data) != len(want) {
 		t.Fatalf("unexpected body %+v", body)
 	}
-	if body.DefaultAgentModel != "openai/gpt-4o" {
-		t.Fatalf("default_agent_model: want openai/gpt-4o got %q", body.DefaultAgentModel)
+	if !body.Data[3].Default {
+		t.Fatalf("the agent.model row is not marked default: %+v", body.Data[3])
 	}
 	for i, w := range want {
 		item := body.Data[i]
@@ -120,6 +120,63 @@ func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 // its compaction threshold against: its own max_context_tokens, the window its
 // provider's listing reports, or the default - never the default agent
 // model's number borrowed for a model that has none (#245).
+// The row a session with no model of its own runs on carries "default": the
+// configured agent.model, the first row when agent.model names a model the
+// configuration does not list (the session falls back the same way), and no
+// row at all while agent.model is empty. The response has no separate
+// default_agent_model field: it only repeated agent.model.
+func TestGETModelsMarksTheRowASessionRunsOnByDefault(t *testing.T) {
+	for _, tc := range []struct {
+		name, agentModel, want string
+	}{
+		{"agent.model", "vendor/b", "vendor/b"},
+		{"unknown agent.model falls back to the first row", "vendor/gone", "vendor/a"},
+		{"no agent.model", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &config.Config{
+				Agent:  config.Agent{Model: tc.agentModel},
+				Models: []config.ModelEntry{{Model: "vendor/a", MaxTokens: 100}, {Model: "vendor/b", MaxTokens: 100}},
+			}
+			runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+				return "", nil
+			}
+			mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), t.TempDir(), nil)
+			srv := New(cfg, mgr, slog.Default(), t.TempDir())
+			ts := httptest.NewServer(srv.Handler())
+			defer ts.Close()
+			res, err := http.Get(ts.URL + "/v1/models")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = res.Body.Close() }()
+			var raw map[string]json.RawMessage
+			if err := json.NewDecoder(res.Body).Decode(&raw); err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := raw["default_agent_model"]; ok {
+				t.Fatal("the response still carries default_agent_model")
+			}
+			var rows []struct {
+				ID      string `json:"id"`
+				Default bool   `json:"default"`
+			}
+			if err := json.Unmarshal(raw["data"], &rows); err != nil {
+				t.Fatal(err)
+			}
+			var marked []string
+			for _, row := range rows {
+				if row.Default {
+					marked = append(marked, row.ID)
+				}
+			}
+			if tc.want == "" && len(marked) != 0 || tc.want != "" && (len(marked) != 1 || marked[0] != tc.want) {
+				t.Fatalf("rows marked default = %v, want %q", marked, tc.want)
+			}
+		})
+	}
+}
+
 func TestGETModelsReportsEachModelsOwnContextWindow(t *testing.T) {
 	listing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/models" {

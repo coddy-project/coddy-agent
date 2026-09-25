@@ -54,7 +54,6 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
   if (path === "/coddy/events") return eventsStream();
   if (path === "/v1/models") {
     return json({
-      default_agent_model: MODEL,
       data: [
         { id: "agent", owned_by: "coddy", max_context_tokens: 128000 },
         {

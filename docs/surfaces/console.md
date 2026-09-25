@@ -595,7 +595,9 @@ the transcript, tool boxes, thinking, plan updates, token and context stats
 stream back over SSE;
 permission and question modals answer through the server's REST endpoints;
 `ctrl+o` fetches full tool output from the server. The model selector lists
-the remote catalog (`GET /v1/models`), and `/resume`, `-c`, and
+the remote catalog (`GET /v1/models`) and shows a session with no model of
+its own on the row the server marks `default` (the server's `agent.model`),
+and `/resume`, `-c`, and
 `--session-id` operate on the server's session list (the local folder filter
 does not apply). The settings commands change the server's session through
 the same `PATCH /coddy/sessions/{id}` the browser uses, the permission mode
