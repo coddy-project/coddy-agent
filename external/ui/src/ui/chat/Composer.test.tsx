@@ -578,6 +578,26 @@ describe("/docs", () => {
   });
 });
 
+test("/mcp opens MCP settings without sending a prompt", () => {
+  const onSend = vi.fn();
+  const onMCPCommand = vi.fn();
+  render(
+    <Composer
+      value=" /mcp "
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={onSend}
+      onMCPCommand={onMCPCommand}
+    />,
+  );
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Enter" });
+  expect(onMCPCommand).toHaveBeenCalledOnce();
+  expect(onSend).not.toHaveBeenCalled();
+});
+
 test("generating shows stop and calls onStop", () => {
   let stopped = false;
   render(

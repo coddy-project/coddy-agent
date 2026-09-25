@@ -105,6 +105,36 @@ func TestReloadConfigForSessionConnectsNewMCPImmediately(t *testing.T) {
 	}
 }
 
+func TestMCPServerDisabledFromConsoleIsAbsentOnNextTurn(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	cfg := &config.Config{Paths: config.Paths{Home: home, CWD: cwd}}
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "toggle-mcp", config.MCPJSONServer{
+		Command: os.Args[0], Args: []string{"-test.run=TestConfigReloadMCPHelperProcess"},
+		Env: map[string]string{"GO_WANT_CONFIG_RELOAD_MCP": "1"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	mgr := NewManager(cfg, nil, nil, slog.Default(), cwd, nil)
+	created, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := mgr.SessionByID(created.SessionID)
+	defer st.CloseAll()
+	if len(st.GetMCPClients()) != 1 {
+		t.Fatal("server did not connect")
+	}
+	if err := mgr.SetMCPEnabled(context.Background(), cwd, "toggle-mcp", "", false); err != nil {
+		t.Fatal(err)
+	}
+	if len(st.GetMCPClients()) != 0 {
+		t.Fatal("disabled server remained connected")
+	}
+	if st.GetMCPToolFilter()("toggle-mcp", "ping") {
+		t.Fatal("next turn still offers disabled server tool")
+	}
+}
+
 func TestReloadConfigForSessionRequiresProjectTrustAndRefreshesFilter(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.yaml")

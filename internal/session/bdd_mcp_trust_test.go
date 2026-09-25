@@ -74,13 +74,14 @@ func TestHelperMCPMarkerServer(t *testing.T) {
 }
 
 type mcpTrustState struct {
-	root       string
-	home       string
-	cwd        string
-	cfg        *config.Config
-	mgr        *session.Manager
-	markerPath string
-	cleanup    []func()
+	root            string
+	home            string
+	cwd             string
+	cfg             *config.Config
+	mgr             *session.Manager
+	markerPath      string
+	projectOriginal []byte
+	cleanup         []func()
 }
 
 func (s *mcpTrustState) reset() error {
@@ -135,7 +136,28 @@ func (s *mcpTrustState) markerServerEntry(marker string) config.MCPJSONServer {
 
 func (s *mcpTrustState) projectMCPJSONRunsMarker() error {
 	s.markerPath = filepath.Join(s.root, "marker-1.txt")
-	return config.UpsertMCPJSONServer(config.MCPJSONPath(s.cwd), "marker", s.markerServerEntry(s.markerPath))
+	path := config.MCPJSONPath(s.cwd)
+	if err := config.UpsertMCPJSONServer(path, "marker", s.markerServerEntry(s.markerPath)); err != nil {
+		return err
+	}
+	data, err := os.ReadFile(path)
+	s.projectOriginal = data
+	return err
+}
+
+func (s *mcpTrustState) disableServer(name string) error {
+	return s.mgr.SetMCPEnabled(context.Background(), s.cwd, name, "", false)
+}
+
+func (s *mcpTrustState) projectUnchanged() error {
+	data, err := os.ReadFile(config.MCPJSONPath(s.cwd))
+	if err != nil {
+		return err
+	}
+	if string(data) != string(s.projectOriginal) {
+		return fmt.Errorf("project mcp.json changed after disabling server")
+	}
+	return nil
 }
 
 func (s *mcpTrustState) globalMCPJSONRunsMarker() error {
@@ -242,6 +264,8 @@ func initializeMCPTrustScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a workspace whose global mcp\.json runs a marker command$`, s.globalMCPJSONRunsMarker)
 	sc.Step(`^the project mcp\.json is rewritten to run a different marker command$`, s.projectMCPJSONRewritten)
 	sc.Step(`^the operator approved the project MCP server "([^"]*)" for that workspace$`, s.operatorApproved)
+	sc.Step(`^the operator disables the MCP server "([^"]*)"$`, s.disableServer)
+	sc.Step(`^the project mcp\.json is unchanged$`, s.projectUnchanged)
 	sc.Step(`^an ACP client creates a session for that workspace$`, s.createSession)
 	sc.Step(`^an ACP client has a live session for that workspace$`, s.liveSession)
 	sc.Step(`^the operator saves settings that change the configured MCP servers$`, s.settingsSaved)

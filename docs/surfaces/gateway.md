@@ -512,7 +512,7 @@ In a group the bot **only responds** when explicitly addressed. It will react to
 
 1. A message that **@mentions** the bot (`@coddy_agent_bot hello`)
 2. A **direct reply** to a previous bot message
-3. A bot command (`/clear`, `/resume`, `/model`, `/context`, `/help`, `/start`) or a settings command (`/agent`, `/plan`, `/ask`, `/reasoning`, `/think`, `/nothink`), with or without the mention
+3. A bot command (`/clear`, `/resume`, `/model`, `/mcp`, `/context`, `/help`, `/start`) or a settings command (`/agent`, `/plan`, `/ask`, `/reasoning`, `/think`, `/nothink`), with or without the mention
 
 When `isolation` is `admin`, the bot additionally ignores everyone who is not in the `admins` list.
 
@@ -523,6 +523,7 @@ When `isolation` is `admin`, the bot additionally ignores everyone who is not in
 | `/start` | all users | Greeting and quick introduction. |
 | `/help` | all users | Lists all available commands. |
 | `/model [id]` | all permitted users | Bare, opens an inline keyboard to switch the active LLM model (from the configured `models` list); with an id, switches to it at once. |
+| `/mcp` | all permitted users | Lists global and project MCP servers with status and tool count. Buttons enable or disable servers already trusted for the workspace. Project trust must be granted through the CLI, console or web UI. |
 | `/agent`, `/plan`, `/ask` | all permitted users | Switch the session mode. |
 | `/reasoning <level>`, `/think [level]`, `/nothink` | all permitted users | Set the reasoning level, or turn thinking on or off where the model's provider can. Not in the command menu. |
 | `/context` | all permitted users | Displays the current session's context window usage broken down by category (conversation, system prompt, tool definitions, rules, skills, MCP). |

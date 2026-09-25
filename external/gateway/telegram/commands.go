@@ -213,6 +213,10 @@ func (b *Bot) handleCallback(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgb
 		b.handleResumeCallback(ctx, bot, cbq, key, payload)
 		return
 	}
+	if action == callbackActionMCP {
+		b.handleMCPCallback(ctx, bot, cbq, payload)
+		return
+	}
 
 	// The keyboard outlives the process that sent it: a chat keeps showing the
 	// buttons long after a restart, and a tap then addresses a session that is
@@ -253,7 +257,7 @@ func (b *Bot) handleCallback(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgb
 // knownCallbackAction reports whether action names a keyboard this bot sends.
 func knownCallbackAction(action string) bool {
 	switch action {
-	case callbackActionModel, callbackActionResume:
+	case callbackActionModel, callbackActionResume, callbackActionMCP:
 		return true
 	}
 	return false

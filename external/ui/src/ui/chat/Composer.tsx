@@ -319,13 +319,11 @@ const MODE_TAB_CLASS: Record<string, string> = {
  * composer can open the reader (docsLabel is its description, null where it
  * cannot), in name order once /docs joins.
  */
-function commandGroup(rows: SlashRow[], docsLabel: string | null): SlashRow[] {
-  if (docsLabel === null || rows.some((r) => r.name === "docs")) {
-    return rows;
-  }
-  return [...rows, { name: "docs", description: docsLabel }].sort((a, b) =>
-    a.name.localeCompare(b.name),
-  );
+function commandGroup(rows: SlashRow[], docsLabel: string | null, mcpLabel: string | null): SlashRow[] {
+  const extra: SlashRow[] = [];
+  if (docsLabel !== null && !rows.some((r) => r.name === "docs")) extra.push({ name: "docs", description: docsLabel });
+  if (mcpLabel !== null && !rows.some((r) => r.name === "mcp")) extra.push({ name: "mcp", description: mcpLabel });
+  return [...rows, ...extra].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /**
@@ -393,6 +391,7 @@ export function Composer(props: {
    * is what follows the command, "" for the command alone.
    */
   onDocsCommand?: (arg: string) => void;
+  onMCPCommand?: () => void;
   /** Follow-ups waiting for the running turn to read them (the message queue). */
   queuedMessages?: QueuedMessage[];
   /** Add the draft to that queue instead of starting a turn. Only while generating. */
@@ -470,6 +469,10 @@ export function Composer(props: {
     props.value.trim().length > 0;
   /** Runs a `/docs` draft in the browser; false when the draft is anything else. */
   const openDocsFromDraft = (): boolean => {
+    if (props.onMCPCommand && sendableAttachedFiles.length === 0 && props.value.trim() === "/mcp") {
+      props.onMCPCommand();
+      return true;
+    }
     if (!props.onDocsCommand || sendableAttachedFiles.length > 0) {
       return false;
     }
@@ -529,9 +532,10 @@ export function Composer(props: {
   // /docs runs in the browser, so the server's catalog does not carry it: it
   // joins the group only where this composer can open the reader.
   const docsLabel = props.onDocsCommand ? t("composer.docsCommand") : null;
+  const mcpLabel = props.onMCPCommand ? t("composer.mcpCommand") : null;
   const allCommandItems = useMemo(
-    () => commandGroup(commandItems, docsLabel),
-    [commandItems, docsLabel],
+	() => commandGroup(commandItems, docsLabel, mcpLabel),
+	[commandItems, docsLabel, mcpLabel],
   );
   // The server's rows as soon as they arrive, before the render that shows
   // them: a skills answer landing in between must still see the commands, or
@@ -539,6 +543,8 @@ export function Composer(props: {
   const commandItemsRef = useRef<SlashRow[]>([]);
   const docsLabelRef = useRef(docsLabel);
   docsLabelRef.current = docsLabel;
+  const mcpLabelRef = useRef(mcpLabel);
+  mcpLabelRef.current = mcpLabel;
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashPrefix, setSlashPrefix] = useState("");
   const [slashLoading, setSlashLoading] = useState(false);
@@ -1173,7 +1179,7 @@ export function Composer(props: {
           if (rows.length === 0) {
             // No skills match — but keep the menu open if a built-in command does.
             const cmdMatches = filterCommandRows(
-              commandGroup(commandItemsRef.current, docsLabelRef.current),
+				commandGroup(commandItemsRef.current, docsLabelRef.current, mcpLabelRef.current),
               after.prefix,
             );
             if (cmdMatches.length === 0) {

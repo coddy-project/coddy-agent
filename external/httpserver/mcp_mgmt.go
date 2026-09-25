@@ -168,16 +168,16 @@ func (s *Server) coddyMCPGet(w http.ResponseWriter, r *http.Request) {
 			rows[i] = row
 			continue
 		}
-		if srv.Config.Disabled {
-			row.Status = "disabled"
-			rows[i] = row
-			continue
-		}
 		// A gated project entry is reported, never probed: probing it would
 		// start exactly the command the approval is about.
 		if trust != mcp.TrustStateAllowed {
 			row.Status = string(trust)
 			row.Error = gate.Check(s.defaultCWD, srv).Error()
+			rows[i] = row
+			continue
+		}
+		if srv.Config.Disabled {
+			row.Status = "disabled"
 			rows[i] = row
 			continue
 		}
@@ -248,6 +248,7 @@ func (s *Server) coddyMCPServerTrust(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.invalidateMCPProbe(name)
+		s.mgr.RefreshMCPServers(r.Context())
 		slog.Info("mcp server approved for workspace",
 			"name", name, "workspace", s.defaultCWD, "digest", mcp.Fingerprint(srv.Config))
 		w.Header().Set("Content-Type", "application/json")
@@ -293,13 +294,14 @@ func (s *Server) coddyMCPServerUntrust(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.invalidateMCPProbe(name)
+	s.mgr.RefreshMCPServers(r.Context())
 	slog.Info("mcp server approval revoked", "name", name, "workspace", s.defaultCWD, "removed", removed)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "removed": removed})
 }
 
-// coddyMCPServerToggle enables or disables a whole server, persisting into
-// the file that defines it (config.yaml or .coddy/mcp.json).
+// coddyMCPServerToggle enables or disables a whole server. Project switches
+// stay in the operator's home, outside the checkout.
 func (s *Server) coddyMCPServerToggle(disable bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
@@ -308,6 +310,7 @@ func (s *Server) coddyMCPServerToggle(disable bool) http.HandlerFunc {
 			return
 		}
 		s.reloadConfigFromDisk()
+		s.mgr.RefreshMCPServers(r.Context())
 		slog.Info("mcp server toggled", "name", name, "disabled", disable)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
@@ -328,6 +331,7 @@ func (s *Server) coddyMCPToolToggle(disable bool) http.HandlerFunc {
 			return
 		}
 		s.reloadConfigFromDisk()
+		s.mgr.RefreshMCPServers(r.Context())
 		slog.Info("mcp tool toggled", "server", name, "tool", tool, "disabled", disable)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})

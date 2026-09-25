@@ -242,13 +242,22 @@ func TestSetServerDisabledPersistsToOwningFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Project-owned toggle lands in <cwd>/.coddy/mcp.json.
+	// Project-owned toggle stays in the operator's home, outside the checkout.
 	if err := SetServerDisabled(cfg, cwd, "proj-srv", true); err != nil {
 		t.Fatalf("disable project server: %v", err)
 	}
 	entries, _ := config.ReadMCPJSONFile(config.MCPJSONPath(cwd))
-	if !entries["proj-srv"].Disabled {
-		t.Errorf("proj-srv not disabled in project mcp.json: %+v", entries)
+	if entries["proj-srv"].Disabled {
+		t.Errorf("proj-srv declaration changed in project mcp.json: %+v", entries)
+	}
+	managed, err := ListManagedServers(cfg, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, srv := range managed {
+		if srv.Config.Name == "proj-srv" && !srv.Config.Disabled {
+			t.Errorf("proj-srv switch not applied: %+v", srv.Config)
+		}
 	}
 
 	// Home-owned toggle lands in <home>/mcp.json.

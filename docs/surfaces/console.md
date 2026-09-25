@@ -211,7 +211,7 @@ Slash commands: the settings commands `/model`, `/reasoning` (`/effort`),
 `/think`, `/nothink`, `/agent`, `/plan`, `/ask` and `/permissions`, each with
 `--once` or `--count=N` for the next turns only
 ([Session settings](../features/session-settings.md)); client-side `/resume`,
-`/new`, `/theme`, `/hotkeys`, `/queue`, `/usage`, `/tasks`, `/docs`, `/quit`; server-driven `/compact`, `/export`,
+`/new`, `/theme`, `/hotkeys`, `/queue`, `/usage`, `/tasks`, `/mcp`, `/docs`, `/quit`; server-driven `/compact`, `/export`,
 `/plugin`, and every loaded skill (from the ACP available-commands catalog).
 A bare `/model`, `/reasoning` or `/permissions` opens its picker; with a value
 the command is applied by the session manager, which answers with a notice
@@ -246,6 +246,17 @@ cooldown or a wallet, and a source with nothing to report prints `quota
 unavailable` rather than inventing numbers. Under `--remote` the
 server's own key is read, so a `key rejected` line there is informational
 (sign in on the server).
+
+`/mcp` opens a server list with scope, status and tool count. Enter opens a
+server's controls for enable/disable, project trust and individual tools.
+For a project declaration the console displays its command or URL before
+approval; disabling it stores a switch under the operator's home instead of
+editing the checkout. The same menu works over `--remote` through the MCP
+management routes.
+
+![The console /mcp server list with a disabled global server and an untrusted project server](../assets/mcp/mcp-console-dark-1280.png)
+
+*`/mcp` shows both scopes and the trust state before opening a server's controls.*
 
 `/tasks` opens the background tasks of the session in the place of the editor
 ([Background tasks](../features/background-tasks.md#in-the-console)). The

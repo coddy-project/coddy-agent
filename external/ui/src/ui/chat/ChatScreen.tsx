@@ -103,6 +103,7 @@ export function ChatScreen(props: {
   onAttachedFilesChange?: Dispatch<SetStateAction<File[]>>;
   /** `/docs [page or words]` typed in the composer opens the documentation reader. */
   onDocsCommand?: (arg: string) => void;
+  onMCPCommand?: () => void;
   onContextRingOpen?: () => void;
   generating?: boolean;
   onStop?: () => void;
@@ -710,6 +711,7 @@ export function ChatScreen(props: {
                 {...(props.onDocsCommand
                   ? { onDocsCommand: props.onDocsCommand }
                   : {})}
+                {...(props.onMCPCommand ? { onMCPCommand: props.onMCPCommand } : {})}
                 {...(props.onContextRingOpen
                   ? { onContextRingOpen: props.onContextRingOpen }
                   : {})}
@@ -904,6 +906,7 @@ export function ChatScreen(props: {
                   {...(props.onDocsCommand
                     ? { onDocsCommand: props.onDocsCommand }
                     : {})}
+                  {...(props.onMCPCommand ? { onMCPCommand: props.onMCPCommand } : {})}
                   {...(props.onContextRingOpen
                     ? { onContextRingOpen: props.onContextRingOpen }
                     : {})}

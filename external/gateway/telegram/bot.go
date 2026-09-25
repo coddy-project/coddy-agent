@@ -158,6 +158,7 @@ func (b *Bot) Start(ctx context.Context) error {
 		tgbotapi.BotCommand{Command: "start", Description: "Greeting and quick intro"},
 		tgbotapi.BotCommand{Command: "help", Description: "Show available commands"},
 		tgbotapi.BotCommand{Command: "model", Description: "Switch LLM model"},
+		tgbotapi.BotCommand{Command: "mcp", Description: "List and toggle MCP servers"},
 		tgbotapi.BotCommand{Command: "agent", Description: "Agent mode: every tool (add --once for one message)"},
 		tgbotapi.BotCommand{Command: "plan", Description: "Plan mode: read-only, plans the work"},
 		tgbotapi.BotCommand{Command: "ask", Description: "Ask mode: read-only answers"},
@@ -353,6 +354,7 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 			"*Available commands:*\n\n"+
 				"/start — greeting and quick intro\n"+
 				"/model — switch LLM model (/model <id> sets it directly)\n"+
+				"/mcp — list and toggle approved MCP servers\n"+
 				"/agent, /plan, /ask — switch the session mode\n"+
 				"/think, /nothink, /reasoning <level> — thinking and reasoning level\n"+
 				"Add --once or --count=N to change a setting for the next messages only, and write the message after it.\n"+
@@ -365,6 +367,10 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 	}
 	if isCommand(msg, "model") && strings.TrimSpace(msg.CommandArguments()) == "" {
 		b.handleModelCommand(ctx, bot, msg, key)
+		return
+	}
+	if isCommand(msg, "mcp") {
+		b.handleMCPCommand(ctx, bot, msg)
 		return
 	}
 	if isCommand(msg, "context") {

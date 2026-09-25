@@ -1184,6 +1184,7 @@ export const messagesRu: Record<string, string> = {
   "composer.mentionKindScheme": "поиск",
   "composer.docsCommand":
     "Открыть встроенную документацию: /docs [страница или слова]",
+  "composer.mcpCommand": "Открыть настройки MCP-серверов",
   "composer.mentionKindDoc": "документация",
   "composer.mentionSchemeSession": "Другая сессия и её последние сообщения",
   "composer.mentionSchemeRule": "Правило проекта",

@@ -165,6 +165,55 @@ func (m *Manager) ReplaceConfig(next *config.Config) {
 	m.reloadConfiguredMCPServers(ctx)
 }
 
+// RefreshMCPServers applies trust and switch changes to live sessions. A turn
+// in progress keeps its clients until it ends, then adopts the new set.
+func (m *Manager) RefreshMCPServers(ctx context.Context) {
+	m.reloadConfiguredMCPServers(ctx)
+}
+
+// MCPServers and SetMCPEnabled back the console's /mcp control with the same
+// managed declarations and trust gate as the HTTP settings surface.
+func (m *Manager) MCPServers(ctx context.Context, cwd string) ([]mcp.ServerStatus, error) {
+	return mcp.ListStatus(ctx, m.activeCfg(), cwd, m.log)
+}
+
+func (m *Manager) SetMCPEnabled(ctx context.Context, cwd, name, tool string, enabled bool) error {
+	if err := mcp.SetStatus(m.activeCfg(), cwd, name, tool, enabled); err != nil {
+		return err
+	}
+	m.RefreshMCPServers(ctx)
+	return nil
+}
+
+func (m *Manager) SetMCPTrust(ctx context.Context, cwd, name string, trusted bool) error {
+	gate := mcp.NewTrustGate(m.activeCfg())
+	if !trusted {
+		if _, err := gate.Revoke(cwd, name); err != nil {
+			return err
+		}
+	} else {
+		servers, err := mcp.ListManagedServers(m.activeCfg(), cwd)
+		if err != nil {
+			return err
+		}
+		found := false
+		for _, srv := range servers {
+			if srv.Config.Name == name {
+				if err := gate.Approve(cwd, srv); err != nil {
+					return err
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("MCP server %q not found", name)
+		}
+	}
+	m.RefreshMCPServers(ctx)
+	return nil
+}
+
 // storeConfig replaces the process configuration and the loader used by new
 // sessions. It returns the previous configuration so callers can decide
 // whether active MCP clients need reconnecting.

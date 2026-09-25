@@ -2242,7 +2242,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/mcp/{name}/enable": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Enable an MCP server",
-					"description": "Clears the disabled flag, persisting into the file that defines the server (config.yaml or `.coddy/mcp.json`). New sessions connect it; live sessions see its tools on their next turn.",
+					"description": "Clears the disabled flag. Global entries persist in their defining file; project entries persist in `<home>/mcp-overrides.json`, leaving the checkout unchanged. Live sessions refresh configured MCP clients; an active turn adopts the change when it ends.",
 					"operationId": "enableMCPServer",
 					"parameters":  []interface{}{mcpServerNameParam()},
 					"responses": map[string]interface{}{
@@ -2254,7 +2254,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/mcp/{name}/disable": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Disable an MCP server",
-					"description": "Sets the disabled flag in the owning file. The server's tools disappear from live sessions on their next turn; new sessions skip connecting it.",
+					"description": "Sets the disabled flag under the same scope rule as enable. The server's tools disappear from live sessions on their next turn; new sessions skip connecting it.",
 					"operationId": "disableMCPServer",
 					"parameters":  []interface{}{mcpServerNameParam()},
 					"responses": map[string]interface{}{
@@ -2292,7 +2292,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/mcp/{name}/untrust": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Withdraw a project MCP server approval",
-					"description": "Removes the workspace approval of a project-local server. Sessions already holding a connected client keep it; new sessions no longer start the server. `removed` reports whether an approval was actually on file.",
+					"description": "Removes the workspace approval of a project-local server. Live sessions refresh configured MCP clients; an active turn keeps its client until it ends. `removed` reports whether an approval was actually on file.",
 					"operationId": "untrustMCPServer",
 					"parameters":  []interface{}{mcpServerNameParam()},
 					"responses": map[string]interface{}{
@@ -2355,7 +2355,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/mcp/{name}/tools/{tool}/enable": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Enable a single MCP tool",
-					"description": "Removes **{tool}** from the server's disabled-tools list in the owning file.",
+					"description": "Enables **{tool}** in the effective tool list. Global switches persist in their defining file; project switches persist in `<home>/mcp-overrides.json`.",
 					"operationId": "enableMCPTool",
 					"parameters":  []interface{}{mcpServerNameParam(), mcpToolNameParam()},
 					"responses": map[string]interface{}{
@@ -2367,7 +2367,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/mcp/{name}/tools/{tool}/disable": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Disable a single MCP tool",
-					"description": "Adds **{tool}** to the server's disabled-tools list (`disabled_tools` in config.yaml, `disabledTools` in `.coddy/mcp.json`). The tool is hidden from the agent and rejected at dispatch.",
+					"description": "Disables **{tool}** under the same scope rule as enable. The tool is hidden from the agent and rejected at dispatch.",
 					"operationId": "disableMCPTool",
 					"parameters":  []interface{}{mcpServerNameParam(), mcpToolNameParam()},
 					"responses": map[string]interface{}{

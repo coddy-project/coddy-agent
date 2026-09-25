@@ -1,6 +1,6 @@
 // Management operations shared by the HTTP API and CLI: merged server list
-// with scope/origin labels, enable/disable persistence into the owning file
-// (config.yaml, <home>/mcp.json, or <cwd>/.coddy/mcp.json), and mcp.json
+// with scope/origin labels, enable/disable persistence into config.yaml,
+// <home>/mcp.json, or operator-owned project overrides, and mcp.json
 // server CRUD.
 package mcp
 
@@ -47,7 +47,7 @@ func ListManagedServers(cfg *config.Config, cwd string) ([]ManagedServer, error)
 	if err != nil {
 		return nil, err
 	}
-	return mergeManaged(cfg.MCPServers, global, project), nil
+	return applyProjectSwitches(cfg.Paths.Home, cwd, mergeManaged(cfg.MCPServers, global, project))
 }
 
 // ListManagedServersTolerant is ListManagedServers with a broken mcp.json
@@ -64,9 +64,17 @@ func ListManagedServersTolerant(cfg *config.Config, cwd string, log *slog.Logger
 		}
 		return servers
 	}
-	return mergeManaged(cfg.MCPServers,
+	servers := mergeManaged(cfg.MCPServers,
 		load(config.GlobalMCPJSONPath(cfg.Paths.Home)),
 		load(config.MCPJSONPath(cwd)))
+	servers, err := applyProjectSwitches(cfg.Paths.Home, cwd, servers)
+	if err != nil {
+		if log != nil {
+			log.Warn("failed to load MCP overrides", "error", err)
+		}
+		return nil
+	}
+	return servers
 }
 
 // mergeManaged overlays the two mcp.json levels onto config.yaml and labels
@@ -122,11 +130,15 @@ func owningJSONPath(cfg *config.Config, cwd string, srv *ManagedServer) string {
 	}
 }
 
-// SetServerDisabled persists the server-level switch into the owning file.
+// SetServerDisabled persists the server-level switch outside the checkout for
+// project entries, or into the owning file for global entries.
 func SetServerDisabled(cfg *config.Config, cwd, name string, disabled bool) error {
 	srv, err := findManaged(cfg, cwd, name)
 	if err != nil {
 		return err
+	}
+	if srv.Origin == OriginProject {
+		return updateProjectSwitch(cfg, cwd, name, func(s *projectSwitches) { s.Disabled = &disabled })
 	}
 	if path := owningJSONPath(cfg, cwd, srv); path != "" {
 		return config.SetMCPJSONServerDisabled(path, name, disabled)
@@ -136,11 +148,19 @@ func SetServerDisabled(cfg *config.Config, cwd, name string, disabled bool) erro
 	})
 }
 
-// SetToolDisabled persists a per-tool switch into the owning file.
+// SetToolDisabled persists a per-tool switch using the same scope rule.
 func SetToolDisabled(cfg *config.Config, cwd, name, tool string, disabled bool) error {
 	srv, err := findManaged(cfg, cwd, name)
 	if err != nil {
 		return err
+	}
+	if srv.Origin == OriginProject {
+		return updateProjectSwitch(cfg, cwd, name, func(s *projectSwitches) {
+			if s.DisabledTools == nil {
+				s.DisabledTools = make(map[string]bool)
+			}
+			s.DisabledTools[tool] = disabled
+		})
 	}
 	if path := owningJSONPath(cfg, cwd, srv); path != "" {
 		return config.SetMCPJSONToolDisabled(path, name, tool, disabled)

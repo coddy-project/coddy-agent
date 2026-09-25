@@ -129,7 +129,10 @@ removing their definitions:
 
 - `config.yaml`: `disabled: true` and `disabled_tools: ["tool_a"]` per `mcp_servers` entry
 - `~/.coddy/mcp.json` and `./.coddy/mcp.json`: `"disabled": true` and
-  `"disabledTools": ["tool_a"]` per entry
+  `"disabledTools": ["tool_a"]` per entry when editing the declarations directly
+- For project entries, switches made through `/mcp` or Settings are stored in
+  `<home>/mcp-overrides.json`, keyed by workspace and server. The checkout's
+  `.coddy/mcp.json` stays unchanged; these switches override its defaults.
 
 Disabled servers are not connected for new sessions. Disabled tools (and all tools of a
 disabled server) are hidden from the LLM's tool list and rejected at dispatch. The switches
@@ -143,8 +146,23 @@ inventories and toggle endpoints under **`/coddy/mcp*`** (see `docs/reference/ht
 bundled web UI shows them under **Settings -> MCP servers**: status dot per server, a
 `global` / `local` scope badge, expandable tool list with per-tool switches, and a
 Cursor-style JSON editor for mcp.json entries with a scope picker (global writes
-`~/.coddy/mcp.json`, local writes `./.coddy/mcp.json`). Toggles persist into the file that
-defines the server; `config.yaml` entries are toggle-only here and edited in Settings.
+`~/.coddy/mcp.json`, local writes `./.coddy/mcp.json`). Global switches persist
+into their defining file; project switches persist in the operator's home.
+`config.yaml` entries are toggle-only here and edited in Settings.
+
+Type `/mcp` in the web composer to open this Settings section. In the console,
+`/mcp` opens a list of global and project servers with connection status and
+tool counts. Enter opens a server's controls: toggle the server, expand its
+tools and toggle one, or grant/revoke trust for a project declaration. The
+console shows the command or URL again before recording trust. These controls
+also work in `--remote` mode through the server's MCP management routes.
+Telegram `/mcp` lists servers and offers enable/disable buttons only for
+already-trusted entries. Approve project declarations in the console, CLI or
+web UI; a chat cannot grant workspace trust.
+
+![The MCP settings section opened from the web composer's /mcp command](../assets/mcp/mcp-settings-dark-1280.png)
+
+*The web `/mcp` command opens the server controls, including project trust and per-server switches.*
 
 ## MCP calls in the transcript
 

@@ -1163,6 +1163,7 @@ export const messagesEn: Record<string, string> = {
   "composer.mentionKindScheme": "search",
   "composer.docsCommand":
     "Open the built-in documentation: /docs [page or words]",
+  "composer.mcpCommand": "Open MCP server settings",
   "composer.mentionKindDoc": "docs",
   "composer.mentionSchemeSession": "Another session, with its latest messages",
   "composer.mentionSchemeRule": "A project rule",
