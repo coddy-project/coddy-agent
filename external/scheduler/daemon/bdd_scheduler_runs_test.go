@@ -122,6 +122,7 @@ type schedulerRunsState struct {
 
 	retain    int
 	maxQueue  int
+	levels    []string
 	agentName string
 	lastErr   error
 	refs      []schedservice.RunRef
@@ -146,6 +147,7 @@ func (s *schedulerRunsState) reset() error {
 	}
 	s.retain = 0
 	s.maxQueue = 0
+	s.levels = nil
 	s.agentName = ""
 	s.lastErr = nil
 	s.refs = nil
@@ -192,6 +194,10 @@ func (s *schedulerRunsState) buildConfig() *config.Config {
 		Agent:     config.Agent{Model: "fake/model", MaxTurns: 8},
 		Sessions:  config.Sessions{Dir: filepath.Join(s.root, "sessions")},
 		Scheduler: config.SchedulerConfig{Enabled: true, Dir: s.schedDir, Timeout: "1m", RetainSessions: s.retain, MaxQueue: s.maxQueue},
+	}
+	if s.levels != nil {
+		levels := append([]string(nil), s.levels...)
+		cfg.Models[0].ReasoningLevels = &levels
 	}
 	cfg.Tools.PermissionMode = config.PermModeAsk
 	cfg.Subagents.Dirs = []string{filepath.Join(s.home, "agents")}
@@ -290,6 +296,46 @@ func (s *schedulerRunsState) definition(name, tools, role string) error {
 	}
 	body := fmt.Sprintf("---\nname: %s\ndescription: BDD helper %s.\ntools: %s\n---\n%s\n", name, name, tools, role)
 	return os.WriteFile(filepath.Join(dir, name+".md"), []byte(body), 0o644)
+}
+
+// modelOffersLevels gives the configured model its reasoning levels; it has to
+// run before the scheduler starts, since the configuration is built then.
+func (s *schedulerRunsState) modelOffersLevels(list string) error {
+	if s.mgr != nil {
+		return fmt.Errorf("the scheduler already started; set the model's levels first")
+	}
+	s.levels = nil
+	for _, lv := range strings.Split(list, ",") {
+		s.levels = append(s.levels, strings.TrimSpace(lv))
+	}
+	return nil
+}
+
+// reasoningDefinition writes a user-scope definition that names a reasoning
+// level for the runs made under it.
+func (s *schedulerRunsState) reasoningDefinition(name, level string) error {
+	dir := filepath.Join(s.home, "agents")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	body := fmt.Sprintf("---\nname: %s\ndescription: BDD helper %s.\nreasoning: %s\n---\nYou review.\n", name, name, level)
+	return os.WriteFile(filepath.Join(dir, name+".md"), []byte(body), 0o644)
+}
+
+// runRunsAtReasoning reads the level the run session was created with.
+func (s *schedulerRunsState) runRunsAtReasoning(jobID, level string) error {
+	run, err := s.lastRun(jobID)
+	if err != nil {
+		return err
+	}
+	meta, err := s.store.ReadMeta(run.SessionID)
+	if err != nil {
+		return err
+	}
+	if meta.SelectedReasoning != level {
+		return fmt.Errorf("run session reasoning = %q, want %q", meta.SelectedReasoning, level)
+	}
+	return nil
 }
 
 // projectDefinition writes a definition inside the job's workspace, where the
@@ -787,6 +833,9 @@ func initializeSchedulerRunsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a scheduler with a job "([^"]*)" retaining (\d+) runs$`, s.jobRetaining)
 	sc.Step(`^a user-scope subagent definition "([^"]*)" allowing only "([^"]*)" with the role "([^"]*)"$`, s.definition)
 	sc.Step(`^a scheduler with a job "([^"]*)" running the agent "([^"]*)"$`, s.jobRunningAgent)
+	sc.Step(`^the configured model offers the reasoning levels "([^"]*)"$`, s.modelOffersLevels)
+	sc.Step(`^a user-scope subagent definition "([^"]*)" that asks for reasoning "([^"]*)"$`, s.reasoningDefinition)
+	sc.Step(`^the run session of "([^"]*)" runs at reasoning "([^"]*)"$`, s.runRunsAtReasoning)
 	sc.Step(`^the job "([^"]*)" is run by hand and the model answers "([^"]*)"$`, s.runByHand)
 	sc.Step(`^the job "([^"]*)" was run by hand and the model answered "([^"]*)"$`, s.runByHand)
 	sc.Step(`^the job "([^"]*)" is run by hand (\d+) times and the model answers "([^"]*)"$`, s.runByHandTimes)

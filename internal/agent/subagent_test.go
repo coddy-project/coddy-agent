@@ -2251,6 +2251,57 @@ func TestSpawnSubagentChildInheritsTheParentModelUnlessTheDefinitionNamesAConfig
 	}
 }
 
+// A scheduled run made under a definition runs at the definition's reasoning
+// level, as a spawn does: the level applies when the run's model offers it, is
+// dropped with a warning when it does not, and "default" is the model's own.
+func TestScheduledRunTakesTheDefinitionsReasoningLevel(t *testing.T) {
+	levels := []string{"low", "medium", "high"}
+	rig := newSubagentRig(t, func(cfg *config.Config) {
+		cfg.Models = []config.ModelEntry{{Model: "fake/model", MaxTokens: 100, ReasoningLevels: &levels, ReasoningDefault: "medium"}}
+	})
+	rig.setChildProvider(func(*session.State) llm.Provider { return scripted(answerStep("REPORT: done")) })
+	for _, tc := range []struct {
+		name, reasoning, want string
+	}{
+		{"a level the model offers", "high", "high"},
+		{"a level the model does not offer", "xhigh", ""},
+		{"the model's own level", "default", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			def, err := subagents.Parse("nightly.md", []byte("---\ndescription: nightly check\nreasoning: "+tc.reasoning+"\n---\nCheck the build.\n"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			runID := session.NewSessionID()
+			snap, err := RunScheduledJob(context.Background(), rig.cfg, rig.mgr, bgtask.Default(), slog.Default(), ScheduledRunSpec{
+				JobID:         "nightly",
+				JobSessionID:  rig.parent.ID,
+				JobSessionDir: rig.parent.GetPersistedSessionDir(),
+				RunSessionID:  runID,
+				Label:         "nightly (manual)",
+				Trigger:       "manual",
+				CWD:           rig.cwd,
+				Mode:          "agent",
+				Instruction:   "Check the build and report.",
+				Definition:    def,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := bgtask.Default().Wait(context.Background(), rig.parent.ID, snap.ID, 10*time.Second); err != nil {
+				t.Fatal(err)
+			}
+			run, err := rig.store.ReadSnapshot(runID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := run.Meta.SelectedReasoning; got != tc.want {
+				t.Fatalf("scheduled run reasoning = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestSpawnSubagentRefusesADefinitionWhoseToolSetIsEmpty(t *testing.T) {
 	rig := newSubagentRig(t, nil)
 	rig.approvedDefinition("toothless", "tools: no_such_tool_anywhere\n")
