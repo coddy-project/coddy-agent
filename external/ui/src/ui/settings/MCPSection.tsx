@@ -360,19 +360,27 @@ export function MCPSection() {
     setEditorBusy(true);
     setEditorError(null);
     void (async () => {
-      const res = await apiSend(
-        `/coddy/mcp/${encodeURIComponent(editor.name.trim())}?scope=${editor.scope}`,
-        "PUT",
-        entry,
-      );
-      if (!res.ok) {
-        setEditorError(res.error || translate("mcp.error.saveServer"));
-      } else {
-        setPinNotice(pinNoticeOf(res.body, t));
-        setEditor(null);
-        await loadServers();
+      // A request that rejects (the network, a malformed answer) must not
+      // leave the editor busy for good: the error is shown and the busy
+      // state is cleared whatever happened.
+      try {
+        const res = await apiSend(
+          `/coddy/mcp/${encodeURIComponent(editor.name.trim())}?scope=${editor.scope}`,
+          "PUT",
+          entry,
+        );
+        if (!res.ok) {
+          setEditorError(res.error || translate("mcp.error.saveServer"));
+        } else {
+          setPinNotice(pinNoticeOf(res.body, t));
+          setEditor(null);
+          await loadServers();
+        }
+      } catch {
+        setEditorError(translate("mcp.error.saveServer"));
+      } finally {
+        setEditorBusy(false);
       }
-      setEditorBusy(false);
     })();
   };
 

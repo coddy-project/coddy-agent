@@ -1,0 +1,676 @@
+{
+  "runs": 5,
+  "timeout_s": 30.0,
+  "binaries": {
+    "release": {
+      "path": "/usr/bin/coddy",
+      "version": "1.2.17",
+      "bare_version_ms": 8.434154005954042
+    },
+    "main": {
+      "path": "/home/huron/code/coddy-agent/build/coddy",
+      "version": "1.2.17-3-gb16204ea-dirty",
+      "bare_version_ms": 8.661008003400639
+    }
+  },
+  "scenarios": {
+    "empty": {
+      "release": {
+        "first_bytes": "23 ms (min 21, max 27)",
+        "header": "33 ms (min 29, max 42)",
+        "ready": "33 ms (min 29, max 42)",
+        "echo": "117 ms (min 111, max 124)",
+        "runs": [
+          {
+            "first_bytes": 0.02679555499344133,
+            "header": 0.042110049005714245,
+            "ready": 0.042110049005714245,
+            "echo": 0.12371312000323087,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.019334405995323323
+          },
+          {
+            "first_bytes": 0.022569527995074168,
+            "header": 0.03304009400017094,
+            "ready": 0.03304009400017094,
+            "echo": 0.12035385699709877,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.019255870996857993
+          },
+          {
+            "first_bytes": 0.02104357500502374,
+            "header": 0.02926050500536803,
+            "ready": 0.02926050500536803,
+            "echo": 0.11733504799485672,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.02122685698850546
+          },
+          {
+            "first_bytes": 0.02423845800512936,
+            "header": 0.033052494007279165,
+            "ready": 0.033052494007279165,
+            "echo": 0.11482351500308141,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.019513623003149405
+          },
+          {
+            "first_bytes": 0.02117805799935013,
+            "header": 0.03011787199648097,
+            "ready": 0.03011787199648097,
+            "echo": 0.1112201859941706,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.019103099999483675
+          }
+        ]
+      },
+      "main": {
+        "first_bytes": "21 ms (min 20, max 23)",
+        "header": "31 ms (min 28, max 32)",
+        "ready": "31 ms (min 28, max 32)",
+        "echo": "112 ms (min 109, max 120)",
+        "runs": [
+          {
+            "first_bytes": 0.020355724991532043,
+            "header": 0.029139329999452457,
+            "ready": 0.029139329999452457,
+            "echo": 0.11203253499115817,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.019361286002094857
+          },
+          {
+            "first_bytes": 0.023078503989381716,
+            "header": 0.032190799989621155,
+            "ready": 0.032190799989621155,
+            "echo": 0.12027274799766019,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.02018260399927385
+          },
+          {
+            "first_bytes": 0.02147866299492307,
+            "header": 0.03238402299757581,
+            "ready": 0.03238402299757581,
+            "echo": 0.1192690719908569,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.024601557001005858
+          },
+          {
+            "first_bytes": 0.021762243995908648,
+            "header": 0.031438279009307735,
+            "ready": 0.031438279009307735,
+            "echo": 0.11221811900031753,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.018658097993466072
+          },
+          {
+            "first_bytes": 0.019768679994740523,
+            "header": 0.028337500989437103,
+            "ready": 0.028337500989437103,
+            "echo": 0.10918942399439402,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.018747795998933725
+          }
+        ]
+      }
+    },
+    "real": {
+      "release": {
+        "first_bytes": "26 ms (min 22, max 27)",
+        "header": "36 ms (min 31, max 36)",
+        "ready": "36 ms (min 31, max 36)",
+        "echo": "118 ms (min 112, max 128)",
+        "runs": [
+          {
+            "first_bytes": 0.02732319298957009,
+            "header": 0.035957246989710256,
+            "ready": 0.035957246989710256,
+            "echo": 0.11950835499737877,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.01941731800616253
+          },
+          {
+            "first_bytes": 0.023913487006211653,
+            "header": 0.03210116000263952,
+            "ready": 0.03210116000263952,
+            "echo": 0.11312941700452939,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.01885321000008844
+          },
+          {
+            "first_bytes": 0.0272183750057593,
+            "header": 0.0360127660096623,
+            "ready": 0.0360127660096623,
+            "echo": 0.1283247790124733,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.024995958010549657
+          },
+          {
+            "first_bytes": 0.022482336004031822,
+            "header": 0.030878214005497284,
+            "ready": 0.030878214005497284,
+            "echo": 0.11198762600542977,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.01866197300842032
+          },
+          {
+            "first_bytes": 0.02636487099516671,
+            "header": 0.03581643399957102,
+            "ready": 0.03581643399957102,
+            "echo": 0.1182693409937201,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.019875892001437023
+          }
+        ]
+      },
+      "main": {
+        "first_bytes": "32 ms (min 25, max 46)",
+        "header": "46 ms (min 37, max 57)",
+        "ready": "46 ms (min 37, max 57)",
+        "echo": "140 ms (min 120, max 147)",
+        "runs": [
+          {
+            "first_bytes": 0.027391525989514776,
+            "header": 0.03689602199301589,
+            "ready": 0.03689602199301589,
+            "echo": 0.11974175600335002,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.019447091995971277
+          },
+          {
+            "first_bytes": 0.0461366499948781,
+            "header": 0.054362552997190505,
+            "ready": 0.054362552997190505,
+            "echo": 0.14048598600493278,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.023157345000072382
+          },
+          {
+            "first_bytes": 0.04583273200842086,
+            "header": 0.05727337700955104,
+            "ready": 0.05727337700955104,
+            "echo": 0.14744580100523308,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.02317244600271806
+          },
+          {
+            "first_bytes": 0.03190714700031094,
+            "header": 0.04183722699235659,
+            "ready": 0.04183722699235659,
+            "echo": 0.13440835299843457,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.028741178000927903
+          },
+          {
+            "first_bytes": 0.02511741701164283,
+            "header": 0.04557072400348261,
+            "ready": 0.04557072400348261,
+            "echo": 0.14472318701155018,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.008383807013160549
+          }
+        ]
+      }
+    },
+    "real+sources": {
+      "release": {
+        "first_bytes": "28 ms (min 23, max 51)",
+        "header": "43 ms (min 33, max 59)",
+        "ready": "43 ms (min 33, max 59)",
+        "echo": "138 ms (min 126, max 144)",
+        "runs": [
+          {
+            "first_bytes": 0.02816912998969201,
+            "header": 0.0432832919905195,
+            "ready": 0.0432832919905195,
+            "echo": 0.1444776029966306,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.030316611999296583
+          },
+          {
+            "first_bytes": 0.023255526000866666,
+            "header": 0.035917754998081364,
+            "ready": 0.035917754998081364,
+            "echo": 0.13769696399685927,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.029663403998711146
+          },
+          {
+            "first_bytes": 0.023822820992791094,
+            "header": 0.032958445997792296,
+            "ready": 0.032958445997792296,
+            "echo": 0.12563113500073086,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.02304116300365422
+          },
+          {
+            "first_bytes": 0.037403863010695204,
+            "header": 0.04555936700489838,
+            "ready": 0.04555936700489838,
+            "echo": 0.12640712500433438,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.018567075007013045
+          },
+          {
+            "first_bytes": 0.05079704899981152,
+            "header": 0.05896638799458742,
+            "ready": 0.05896638799458742,
+            "echo": 0.14043859599041753,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.01889743100036867
+          }
+        ]
+      },
+      "main": {
+        "first_bytes": "32 ms (min 27, max 53)",
+        "header": "41 ms (min 36, max 61)",
+        "ready": "41 ms (min 36, max 61)",
+        "echo": "123 ms (min 118, max 143)",
+        "runs": [
+          {
+            "first_bytes": 0.052814562994171865,
+            "header": 0.061252890998730436,
+            "ready": 0.061252890998730436,
+            "echo": 0.14278396699228324,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.019224885007133707
+          },
+          {
+            "first_bytes": 0.032272964002913795,
+            "header": 0.04062155399878975,
+            "ready": 0.04062155399878975,
+            "echo": 0.128433258010773,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.0226853110070806
+          },
+          {
+            "first_bytes": 0.03332819399656728,
+            "header": 0.04140990099404007,
+            "ready": 0.04140990099404007,
+            "echo": 0.12252688499575015,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.01902269700076431
+          },
+          {
+            "first_bytes": 0.029875838008592837,
+            "header": 0.03834431600989774,
+            "ready": 0.03834431600989774,
+            "echo": 0.12005720600427594,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.018887782003730536
+          },
+          {
+            "first_bytes": 0.02707931298937183,
+            "header": 0.03594900399912149,
+            "ready": 0.03594900399912149,
+            "echo": 0.11772096100321505,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.01893285800179001
+          }
+        ]
+      }
+    },
+    "synth300": {
+      "release": {
+        "first_bytes": "41 ms (min 39, max 47)",
+        "header": "54 ms (min 50, max 72)",
+        "ready": "54 ms (min 50, max 72)",
+        "echo": "150 ms (min 141, max 163)",
+        "runs": [
+          {
+            "first_bytes": 0.04701554299390409,
+            "header": 0.05622870799561497,
+            "ready": 0.05622870799561497,
+            "echo": 0.15221763600129634,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.018589946994325146
+          },
+          {
+            "first_bytes": 0.04690864200529177,
+            "header": 0.07231972500449046,
+            "ready": 0.07231972500449046,
+            "echo": 0.16313900100067258,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.018300522002391517
+          },
+          {
+            "first_bytes": 0.04093380599806551,
+            "header": 0.05048001300019678,
+            "ready": 0.05048001300019678,
+            "echo": 0.14169115900585894,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.019483027994283475
+          },
+          {
+            "first_bytes": 0.04063239099923521,
+            "header": 0.05401261399674695,
+            "ready": 0.05401261399674695,
+            "echo": 0.14997897799185012,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.017990446998737752
+          },
+          {
+            "first_bytes": 0.03934999900229741,
+            "header": 0.0498988480103435,
+            "ready": 0.0498988480103435,
+            "echo": 0.1412409420008771,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.018346979006309994
+          }
+        ]
+      },
+      "main": {
+        "first_bytes": "43 ms (min 42, max 49)",
+        "header": "54 ms (min 52, max 59)",
+        "ready": "54 ms (min 52, max 59)",
+        "echo": "152 ms (min 144, max 171)",
+        "runs": [
+          {
+            "first_bytes": 0.04552569099178072,
+            "header": 0.058899589988868684,
+            "ready": 0.058899589988868684,
+            "echo": 0.17122845699486788,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.032384762991569005
+          },
+          {
+            "first_bytes": 0.04313169899978675,
+            "header": 0.05220871699566487,
+            "ready": 0.05220871699566487,
+            "echo": 0.14421141799539328,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.01887877999979537
+          },
+          {
+            "first_bytes": 0.04880178799794521,
+            "header": 0.058554593997541815,
+            "ready": 0.058554593997541815,
+            "echo": 0.15166049600520637,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.01806592800130602
+          },
+          {
+            "first_bytes": 0.042547706005279906,
+            "header": 0.05156821101263631,
+            "ready": 0.05156821101263631,
+            "echo": 0.14543087300262414,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.020224836000124924
+          },
+          {
+            "first_bytes": 0.04244327198830433,
+            "header": 0.05365095999150071,
+            "ready": 0.05365095999150071,
+            "echo": 0.15877103399543557,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.025655195000581443
+          }
+        ]
+      }
+    },
+    "synth300+dead": {
+      "release": {
+        "first_bytes": "46 ms (min 39, max 48)",
+        "header": "56 ms (min 48, max 62)",
+        "ready": "56 ms (min 48, max 62)",
+        "echo": "154 ms (min 139, max 166)",
+        "runs": [
+          {
+            "first_bytes": 0.04761899200093467,
+            "header": 0.056246309002744965,
+            "ready": 0.056246309002744965,
+            "echo": 0.1537947540055029,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.02200627699494362,
+            "dead_source_connections": 0
+          },
+          {
+            "first_bytes": 0.04603900699294172,
+            "header": 0.06030217598890886,
+            "ready": 0.06030217598890886,
+            "echo": 0.16623179298767354,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.021131354005774483,
+            "dead_source_connections": 0
+          },
+          {
+            "first_bytes": 0.039437876010197215,
+            "header": 0.05397773301228881,
+            "ready": 0.05397773301228881,
+            "echo": 0.14858429800369777,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.01827431000128854,
+            "dead_source_connections": 0
+          },
+          {
+            "first_bytes": 0.04765106400009245,
+            "header": 0.06190820399206132,
+            "ready": 0.06190820399206132,
+            "echo": 0.16562137099390384,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.021445018996018916,
+            "dead_source_connections": 0
+          },
+          {
+            "first_bytes": 0.03941957499773707,
+            "header": 0.04792174798785709,
+            "ready": 0.04792174798785709,
+            "echo": 0.13877766899531707,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.020677298001828603,
+            "dead_source_connections": 0
+          }
+        ]
+      },
+      "main": {
+        "first_bytes": "44 ms (min 40, max 44)",
+        "header": "55 ms (min 49, max 61)",
+        "ready": "55 ms (min 49, max 61)",
+        "echo": "145 ms (min 141, max 151)",
+        "runs": [
+          {
+            "first_bytes": 0.04046315800223965,
+            "header": 0.048736355995060876,
+            "ready": 0.048736355995060876,
+            "echo": 0.1444763790059369,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.022988547003478743,
+            "dead_source_connections": 0
+          },
+          {
+            "first_bytes": 0.04373707200284116,
+            "header": 0.05187849700450897,
+            "ready": 0.05187849700450897,
+            "echo": 0.14100213200435974,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.018003862001933157,
+            "dead_source_connections": 0
+          },
+          {
+            "first_bytes": 0.043058034003479406,
+            "header": 0.058959506000974216,
+            "ready": 0.058959506000974216,
+            "echo": 0.1510938889987301,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.017880040002637543,
+            "dead_source_connections": 0
+          },
+          {
+            "first_bytes": 0.04391947400290519,
+            "header": 0.06062332299188711,
+            "ready": 0.06062332299188711,
+            "echo": 0.15145232999930158,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.017961838995688595,
+            "dead_source_connections": 0
+          },
+          {
+            "first_bytes": 0.04378957999870181,
+            "header": 0.05486588198982645,
+            "ready": 0.05486588198982645,
+            "echo": 0.14519128498795908,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.01874033200147096,
+            "dead_source_connections": 0
+          }
+        ]
+      }
+    },
+    "synth1000": {
+      "release": {
+        "first_bytes": "91 ms (min 81, max 103)",
+        "header": "114 ms (min 106, max 123)",
+        "ready": "114 ms (min 106, max 123)",
+        "echo": "239 ms (min 228, max 249)",
+        "runs": [
+          {
+            "first_bytes": 0.08104812799138017,
+            "header": 0.10634387399477419,
+            "ready": 0.10634387399477419,
+            "echo": 0.22759141099231783,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.05910395400132984
+          },
+          {
+            "first_bytes": 0.10289734799880534,
+            "header": 0.12336132599739358,
+            "ready": 0.12336132599739358,
+            "echo": 0.24437316600233316,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.05908308600191958
+          },
+          {
+            "first_bytes": 0.09149912500288337,
+            "header": 0.11372602499614004,
+            "ready": 0.11372602499614004,
+            "echo": 0.2488992589933332,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.07355190500675235
+          },
+          {
+            "first_bytes": 0.09176263099652715,
+            "header": 0.11902813099732157,
+            "ready": 0.11902813099732157,
+            "echo": 0.23851084399211686,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.05562397300673183
+          },
+          {
+            "first_bytes": 0.09021516800567042,
+            "header": 0.11276519901002757,
+            "ready": 0.11276519901002757,
+            "echo": 0.2316981830081204,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.055825581002864055
+          }
+        ]
+      },
+      "main": {
+        "first_bytes": "87 ms (min 85, max 121)",
+        "header": "109 ms (min 107, max 141)",
+        "ready": "109 ms (min 107, max 141)",
+        "echo": "236 ms (min 228, max 268)",
+        "runs": [
+          {
+            "first_bytes": 0.09678659398923628,
+            "header": 0.12291251900023781,
+            "ready": 0.12291251900023781,
+            "echo": 0.25188661699939985,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.01948443299625069
+          },
+          {
+            "first_bytes": 0.08696162700653076,
+            "header": 0.10723968400270678,
+            "ready": 0.10723968400270678,
+            "echo": 0.2281555869994918,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.052251301996875554
+          },
+          {
+            "first_bytes": 0.08532933601236437,
+            "header": 0.10916834400268272,
+            "ready": 0.10916834400268272,
+            "echo": 0.2359108950040536,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.017447352001909167
+          },
+          {
+            "first_bytes": 0.12086302999523468,
+            "header": 0.14127906499197707,
+            "ready": 0.14127906499197707,
+            "echo": 0.2681314410001505,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.06017318900558166
+          },
+          {
+            "first_bytes": 0.08588586200494319,
+            "header": 0.10666632199718151,
+            "ready": 0.10666632199718151,
+            "echo": 0.23591021700121928,
+            "exited": false,
+            "screen": "",
+            "echo_after_ready": 0.06039646500721574
+          }
+        ]
+      }
+    }
+  }
+}

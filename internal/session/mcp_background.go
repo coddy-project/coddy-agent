@@ -42,6 +42,12 @@ type MCPServerConnect struct {
 type MCPConnectUpdate struct {
 	Servers []MCPServerConnect `json:"servers"`
 	Done    bool               `json:"done"`
+	// Generation is the dial the snapshot describes, one higher for every
+	// dial a session started and for every reload or teardown that ended
+	// one. A surface drops a snapshot older than the last it applied: the
+	// sender of a superseded dial may enqueue its snapshot after the
+	// replacement's, and the footer would otherwise show the old count.
+	Generation uint64 `json:"generation"`
 }
 
 // Counts reports how many servers are connected out of the ones that could
@@ -61,7 +67,7 @@ func (u MCPConnectUpdate) Counts() (connected, total int) {
 }
 
 func (u MCPConnectUpdate) clone() MCPConnectUpdate {
-	out := MCPConnectUpdate{Done: u.Done}
+	out := MCPConnectUpdate{Done: u.Done, Generation: u.Generation}
 	if u.Servers != nil {
 		out.Servers = append([]MCPServerConnect(nil), u.Servers...)
 	}

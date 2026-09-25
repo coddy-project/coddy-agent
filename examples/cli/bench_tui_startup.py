@@ -6,9 +6,13 @@ the script spawns `coddy cli --plain --theme dark --model <demo model>` the
 way examples/cli/cli_e2e_startup.py does, feeds the pty through a pyte
 terminal and records, from the spawn:
 
-  first_bytes  the first byte the console wrote to the terminal
+  first_bytes  the first read of the pty returned data (a read may hold
+               more than one frame; this is when output was first observed)
   header       the version header ("coddy v") is on screen - the first frame
-  ready        the "escape interrupt" hint is on screen - the console takes keys
+  ready        the "escape interrupt" hint is on screen
+  echo         a probe typed after the hint is echoed by the editor - the
+               console has taken and rendered input (an input round trip;
+               the three points above only say what was on screen)
 
 Scenarios:
   empty          the demo config with an empty skills directory (what CI runs)
@@ -48,10 +52,23 @@ import pyte
 REPO = Path(__file__).resolve().parents[2]
 DEMO_CONFIG = REPO / "examples" / "config.demo.yaml"
 MODEL = "rpa/qwen3.6-35b-a3b"  # the demo provider row that reports no account usage
-COLS, ROWS = 100, 35
+# A tall screen: a long [Skills] section of the header would otherwise
+# scroll the version line off the emulated screen before it is checked.
+COLS, ROWS = 100, 200
 HEADER_NEEDLE = "coddy v"
 READY_NEEDLE = "escape interrupt"
+ECHO_PROBE = "probe9q"  # a token no chrome of the console contains
 CTRL_C = b"\x03"
+
+# Escape sequences of the console's byte stream: CSI, OSC (hyperlinks), APC
+# (the cursor marker), two-character ESC sequences.
+ANSI = re.compile(r"\x1b\[[0-9;?<>=!]*[A-Za-z@`]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b_[^\x1b]*\x1b\\|\x1b[()][A-Za-z0-9]|\x1b[A-Za-z=>]")
+
+
+def plain_text(raw: bytes) -> str:
+    """The console's output with its escape sequences removed: what it wrote,
+    whether or not the emulated screen still shows it."""
+    return ANSI.sub("", raw.decode("utf-8", "replace")).replace("\r", "")
 
 
 # --- fixtures -----------------------------------------------------------------
@@ -194,8 +211,12 @@ def start_once(
     child = pexpect.spawn(
         binary, args, env=env, cwd=str(work), dimensions=(ROWS, COLS), encoding=None, timeout=5
     )
-    result: dict = {"first_bytes": None, "header": None, "ready": None, "exited": False, "screen": ""}
+    result: dict = {"first_bytes": None, "header": None, "ready": None, "echo": None, "exited": False, "screen": ""}
     deadline = t0 + timeout
+    # The needles are searched on the emulated screen and in everything the
+    # console wrote so far: a frame that scrolled off the screen between two
+    # reads still counts, and it is the writing that is timed.
+    raw = bytearray()
     while time.perf_counter() < deadline:
         try:
             data = child.read_nonblocking(size=65536, timeout=0.05)
@@ -213,7 +234,8 @@ def start_once(
         if result["first_bytes"] is None:
             result["first_bytes"] = now
         stream.feed(data)
-        text = "\n".join(screen.display)
+        raw += data
+        text = "\n".join(screen.display) + "\n" + plain_text(bytes(raw))
         if result["header"] is None and HEADER_NEEDLE in text:
             result["header"] = now
         if READY_NEEDLE in text:
@@ -221,6 +243,25 @@ def start_once(
             break
     if result["ready"] is None:
         result["screen"] = "\n".join(line.rstrip() for line in screen.display if line.strip())[:1500]
+    else:
+        # The input round trip: a probe the editor has to echo. Typed as one
+        # write, timed until the whole token is on screen.
+        child.send(ECHO_PROBE.encode())
+        sent = time.perf_counter()
+        while time.perf_counter() < deadline:
+            try:
+                data = child.read_nonblocking(size=65536, timeout=0.05)
+            except pexpect.TIMEOUT:
+                continue
+            except pexpect.EOF:
+                break
+            if data:
+                stream.feed(data)
+                raw += data
+                if ECHO_PROBE in "\n".join(screen.display) or ECHO_PROBE in plain_text(bytes(raw)):
+                    result["echo"] = time.perf_counter() - t0
+                    result["echo_after_ready"] = time.perf_counter() - sent
+                    break
 
     # Leave the way the CI script does: ctrl+c asks for a second press, the second exits.
     try:
@@ -243,6 +284,14 @@ def start_once(
         except Exception:
             pass
     return result
+
+
+def version_of(binary: str) -> str:
+    """The binary's version line, run as a process, never through a shell."""
+    import subprocess
+
+    out = subprocess.run([binary, "-v"], capture_output=True, text=True, check=False, timeout=30)
+    return (out.stdout + out.stderr).strip()
 
 
 def bare_version_time(binary: str, runs: int) -> float:
@@ -317,7 +366,7 @@ def main() -> int:
     results: dict = {"runs": args.runs, "timeout_s": args.timeout, "binaries": {}, "scenarios": {}}
     try:
         for label, path in binaries:
-            ver = os.popen(f"{path} -v 2>&1").read().strip()
+            ver = version_of(path)
             results["binaries"][label] = {"path": path, "version": ver, "bare_version_ms": bare_version_time(path, args.runs) * 1000}
             print(f"[{label}] {ver}: `coddy -v` median {results['binaries'][label]['bare_version_ms']:.0f} ms", file=sys.stderr)
 
@@ -337,7 +386,7 @@ def main() -> int:
                         r["dead_source_connections"] = dead.accepted - before
                     runs.append(r)
                     print(
-                        f"  {name:14s} {label:8s} run {i + 1}: bytes {fmt(r['first_bytes'])}, header {fmt(r['header'])}, ready {fmt(r['ready'])}"
+                        f"  {name:14s} {label:8s} run {i + 1}: bytes {fmt(r['first_bytes'])}, header {fmt(r['header'])}, ready {fmt(r['ready'])}, echo {fmt(r.get('echo'))}"
                         + (" (exited)" if r["exited"] else ""),
                         file=sys.stderr,
                     )
@@ -349,6 +398,7 @@ def main() -> int:
                     "first_bytes": summarize([r["first_bytes"] for r in runs]),
                     "header": summarize([r["header"] for r in runs]),
                     "ready": summarize([r["ready"] for r in runs]),
+                    "echo": summarize([r.get("echo") for r in runs]),
                     "runs": runs,
                 }
     finally:
@@ -358,11 +408,11 @@ def main() -> int:
 
     args.out.write_text(json.dumps(results, indent=2))
 
-    print("\n| scenario | binary | first bytes | header (first frame) | ready (interactive) |")
-    print("|---|---|---|---|---|")
+    print("\n| scenario | binary | first output | header (first frame) | ready (hint) | echo (input round trip) |")
+    print("|---|---|---|---|---|---|")
     for name, per_bin in results["scenarios"].items():
         for label, s in per_bin.items():
-            print(f"| {name} | {label} | {s['first_bytes']} | {s['header']} | {s['ready']} |")
+            print(f"| {name} | {label} | {s['first_bytes']} | {s['header']} | {s['ready']} | {s['echo']} |")
     for name, per_bin in results["scenarios"].items():
         for label, s in per_bin.items():
             for r in s["runs"]:

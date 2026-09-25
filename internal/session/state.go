@@ -1854,7 +1854,9 @@ func (s *State) MCPConnectSnapshot() (MCPConnectUpdate, bool) {
 	if !s.mcpConnectRecorded {
 		return MCPConnectUpdate{}, false
 	}
-	return s.mcpConnect.clone(), true
+	snap := s.mcpConnect.clone()
+	snap.Generation = s.mcpClientsGen
+	return snap, true
 }
 
 // WaitMCPConnect blocks until the session's background MCP dial has settled,

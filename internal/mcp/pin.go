@@ -35,15 +35,22 @@ type NPXSpec struct {
 	Version string
 }
 
-// npxValueFlags are the npx flags that take the next argument as their value,
-// so the scan for the package spec must step over it. A flag outside this
-// list and the boolean ones ends the scan: the spec after it may not be a
-// package at all.
+// npxValueFlags are the npx flags that take the next argument as their value
+// without changing what the first positional argument is, so the scan for
+// the package spec steps over them. A flag outside this list and the
+// boolean ones ends the scan: the spec after it may not be a package at all.
 var npxValueFlags = map[string]bool{
-	"-p": true, "--package": true,
-	"-c": true, "--call": true,
 	"--registry": true, "--cache": true, "--prefix": true,
 	"--loglevel": true, "--userconfig": true,
+}
+
+// npxPackageFlags name the package to install apart from the command to run
+// (`npx -y --package some-package some-command`): the positional argument is
+// then a binary, not a package, and the packages may be several. That form
+// is left alone rather than pinned wrongly.
+var npxPackageFlags = map[string]bool{
+	"-p": true, "--package": true,
+	"-c": true, "--call": true,
 }
 
 // npxBoolFlags are the npx flags that stand alone.
@@ -64,10 +71,13 @@ func isNPX(command string) bool {
 // FindUnpinnedNPX finds the package an `npx -y <package>` server runs when
 // that package carries no exact version. It reports nothing for a command
 // that is not npx, for a run without -y / --yes (npx would prompt, so it is
-// not a server anybody starts unattended), for a spec that already names a
+// not a server anybody starts unattended), for the option forms that name
+// the package apart from the command (`--package`, `-p`, `--call`, `-c`, in
+// any spelling that carries a value), for a spec that already names a
 // version, a range or a tag other than latest, and for anything that is not
 // a registry package: a path, a URL, a git or file spec, a tarball, or a
-// spec that still holds a ${VAR} placeholder.
+// spec that still holds a ${VAR} placeholder. Only the direct form is
+// pinned; the rest is the operator's to pin by hand.
 func FindUnpinnedNPX(command string, args []string) (NPXSpec, bool) {
 	if !isNPX(command) {
 		return NPXSpec{}, false
@@ -75,16 +85,21 @@ func FindUnpinnedNPX(command string, args []string) (NPXSpec, bool) {
 	yes := false
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
+		flag, _, _ := strings.Cut(arg, "=")
 		switch {
 		case arg == "-y" || arg == "--yes":
 			yes = true
 			continue
 		case arg == "--":
 			continue
+		case npxPackageFlags[flag]:
+			return NPXSpec{}, false
 		case npxBoolFlags[arg]:
 			continue
-		case npxValueFlags[arg]:
-			i++
+		case npxValueFlags[flag]:
+			if flag == arg {
+				i++
+			}
 			continue
 		case strings.HasPrefix(arg, "-"):
 			// A flag this scan does not know: whatever follows may be its

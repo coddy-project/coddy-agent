@@ -308,3 +308,19 @@ func TestHeldServerIsReportedNotDialed(t *testing.T) {
 		t.Fatalf("counts = %d/%d, want 1/1 (the held server is not dialed)", connected, total)
 	}
 }
+
+// TestSnapshotGenerationMovesWithTheDial: a superseded dial's snapshot is
+// older than the replacement's, which is what lets a surface drop it.
+func TestSnapshotGenerationMovesWithTheDial(t *testing.T) {
+	f := newBackgroundFixture(t, nil, func(m *Manager) { m.SetMCPConnectTimeoutForTest(300 * time.Millisecond) })
+	first, _ := f.st.MCPConnectSnapshot()
+	if first.Generation == 0 {
+		t.Fatal("the first snapshot carries no generation")
+	}
+	f.mgr.ReplaceConfig(reloadTestConfig(reloadTestMCPServer("good")))
+	after, _ := f.st.MCPConnectSnapshot()
+	if after.Generation <= first.Generation {
+		t.Fatalf("generation after the reload = %d, want above %d", after.Generation, first.Generation)
+	}
+	f.releaseServer()
+}

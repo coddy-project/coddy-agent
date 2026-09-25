@@ -34,7 +34,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from bench_tui_startup import DeadSource, REPO, fmt, start_once, summarize  # noqa: E402
+from bench_tui_startup import DeadSource, REPO, fmt, start_once, summarize, version_of  # noqa: E402
 
 REAL_HOME = Path.home() / ".coddy"
 COPY_DIRS = ["providers", "skills", "agents", "memory", "project-agents"]
@@ -43,11 +43,25 @@ SKIP_TOP = {"sessions", "logs", "coddy.log", "config.yaml.bak", "config.yaml.pre
 
 
 def real_state_snapshot() -> dict:
-    """What a run must not change under the real home."""
-    entries = sorted(p.name for p in REAL_HOME.iterdir())
-    sessions = sorted(p.name for p in (REAL_HOME / "sessions").iterdir()) if (REAL_HOME / "sessions").exists() else []
-    log = REAL_HOME / "coddy.log"
-    return {"entries": entries, "sessions": sessions, "log_size": log.stat().st_size if log.exists() else -1}
+    """Every file under the real home with its size and mtime: what a run must not change.
+
+    Something else on the machine (the operator's own console, a daemon) may
+    still write there during a run; the report names what changed, so a
+    change can be told from a leak.
+    """
+    snapshot: dict = {}
+    for path in sorted(REAL_HOME.rglob("*")):
+        if path.is_file():
+            st = path.stat()
+            snapshot[str(path.relative_to(REAL_HOME))] = (st.st_size, st.st_mtime_ns)
+    return snapshot
+
+
+def snapshot_diff(before: dict, after: dict) -> list[str]:
+    changed = [f"changed: {k}" for k in before if k in after and before[k] != after[k]]
+    added = [f"added: {k}" for k in after if k not in before]
+    removed = [f"removed: {k}" for k in before if k not in after]
+    return changed + added + removed
 
 
 def build_home(base: Path, no_mcp: bool) -> Path:
@@ -73,8 +87,16 @@ def build_home(base: Path, no_mcp: bool) -> Path:
 
 
 def proxy_env(url: str | None) -> dict:
-    env: dict = {"NO_PROXY": None, "no_proxy": None}
-    for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+    """Route every outbound request of the console through url.
+
+    Go's transport reads HTTP(S)_PROXY, npm its own npm_config_* variables,
+    and some tools ALL_PROXY; all of them are set, and the exclusion lists
+    are cleared. A provider row with its own `proxy` setting is outside this
+    variant's reach: the real config's rows were `inherit` when measured.
+    """
+    env: dict = {"NO_PROXY": None, "no_proxy": None, "npm_config_noproxy": None}
+    for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy",
+              "npm_config_proxy", "npm_config_https_proxy"):
         env[k] = url
     return env
 
@@ -104,7 +126,7 @@ def main() -> int:
     results: dict = {"runs": args.runs, "timeout_s": args.timeout, "binaries": {}, "scenarios": {}}
     try:
         for label, path in binaries:
-            results["binaries"][label] = {"path": path, "version": os.popen(f"{path} -v 2>&1").read().strip()}
+            results["binaries"][label] = {"path": path, "version": version_of(path)}
         for name in args.variants.split(","):
             no_mcp, cwd, env_extra = variants[name]
             results["scenarios"][name] = {}
@@ -113,9 +135,11 @@ def main() -> int:
                 for i in range(args.runs):
                     home = build_home(base, no_mcp)
                     work = Path(cwd) if cwd else Path(tempfile.mkdtemp(prefix="work-", dir=base))
+                    accepted_before = dead.accepted
                     r = start_once(path, home, work, args.timeout, model=None, env_extra=env_extra)
                     if name.endswith("proxy-dead"):
-                        r["dead_proxy_connections"] = dead.accepted
+                        # This run's connections alone, not the listener's total.
+                        r["dead_proxy_connections"] = dead.accepted - accepted_before
                     r["sessions_written"] = len([p for p in (home / "sessions").iterdir()]) + len(
                         [p for p in home.iterdir() if p.name.startswith("sess_")]
                     )
@@ -149,12 +173,14 @@ def main() -> int:
         shutil.rmtree(base, ignore_errors=True)
 
     after = real_state_snapshot()
-    results["real_home_untouched"] = before == after
+    diff = snapshot_diff(before, after)
+    results["real_home_untouched"] = not diff
+    results["real_home_changes"] = diff
     args.out.write_text(json.dumps(results, indent=2))
 
-    print(f"\nreal ~/.coddy untouched: {before == after}")
-    if before != after:
-        print(f"  before: {before}\n  after:  {after}")
+    print(f"\nreal ~/.coddy untouched: {not diff}")
+    for line in diff:
+        print("  " + line)
     print("\n| variant | binary | first bytes | header (first frame) | ready (interactive) |")
     print("|---|---|---|---|---|")
     for name, per_bin in results["scenarios"].items():

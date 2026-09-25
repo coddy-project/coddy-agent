@@ -11,31 +11,57 @@ this file keeps the numbers and the decisions as they were taken.
 
 The console is started in a real pty (pexpect + pyte, the driver of
 `examples/cli/cli_tui_driver.py`) and the clock runs from the spawn to three
-points: the first byte written to the terminal, the version header on screen
-(the first frame) and the `escape interrupt` hint (the console takes keys).
-Five runs per case, medians reported, Linux amd64, release 1.2.16 and `main`
-(1.2.17) side by side. `examples/cli/bench_tui_startup.py` runs the skill
-cases on the demo config; `examples/cli/bench_tui_real.py` runs a private copy
-of the operator's real `~/.coddy` (paths rewritten, the real home never
-written to). The three points always coincided within a few milliseconds: the
-console is drawn interactive, there is no phase with a frame and no input.
+points: the first read of the pty that returned data (one read can carry
+more than one frame, so this is when output was first observed), the version
+header on screen (the first frame) and the `escape interrupt` hint. Five runs
+per case, medians reported, Linux amd64. `examples/cli/bench_tui_startup.py`
+runs the skill cases on the demo config; `examples/cli/bench_tui_real.py` runs
+a private copy of the operator's real `~/.coddy` (paths rewritten; every file
+of the real home is compared before and after, and the report names anything
+that changed). In every run the first read that carried the header also
+carried the hint, so no frame without the hint was observed; that says what
+was on screen, not that a key had been taken. The script has since gained an
+input round trip, a probe typed after the hint and timed until the editor
+echoes it (`echo` in the results), and the needles are searched in
+everything the console wrote as well as on the emulated screen, since a long
+`[Skills]` section scrolls the header off a short screen between two reads.
+The table of section 2 is the committed run
+`examples/cli/bench_results/tui-startup-2026-09-25.json`: release 1.2.17 and
+the branch build side by side. The tables of section 3 were measured earlier,
+with release 1.2.16 and `main` at 1.2.17, before the input round trip
+existed; their result files name the operator's servers and stay out of the
+repository.
+
+Two numbers in section 3 were measured by hand, not by the scripts: the cost
+of one `npx` spawn (`/usr/bin/time -f '%e s wall, %U s user' timeout 30 npx -y <package> </dev/null`,
+package in the npm cache, network up) and the same under a refused proxy
+(`HTTP_PROXY=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9 NO_PROXY=`,
+150 s limit). The operator's `time coddy` is their own observation.
+
+The proxy variants set `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and npm's own
+`npm_config_proxy` / `npm_config_https_proxy` for the console's process and
+clear the exclusion lists; a provider row with its own `proxy` setting is
+outside their reach (the rows measured were `inherit`). With
+`mcp_servers: []` the same variants cost 26-27 ms, so nothing else the
+console does before its first frame depends on the network.
 
 ## 2. Skills are not the cause
 
-Demo config, an empty working directory:
+Demo config, an empty working directory, the first frame (header on screen)
+for both binaries and the input round trip for the branch build:
 
-| Skill set | Sources | release 1.2.16 | main |
-|---|---|---|---|
-| none | none | 25 ms | 28 ms |
-| the operator's 11 | none | 26 ms | 26 ms |
-| the operator's 11 | the operator's 3 (one git marketplace, one `marketplace.json` URL, one repository) | 22 ms | 25 ms |
-| 300 synthetic `SKILL.md` | none | 54 ms | 52 ms |
-| 300 synthetic | one that accepts TCP and never answers | 56 ms | 60 ms |
-| 1000 synthetic | none | 140 ms | 130 ms |
+| Skill set | Sources | first frame, release 1.2.17 | first frame, branch | probe echoed, branch |
+|---|---|---|---|---|
+| none | none | 33 ms | 31 ms | 112 ms |
+| the operator's 11 | none | 36 ms | 46 ms | 140 ms |
+| the operator's 11 | the operator's 3 (one git marketplace, one `marketplace.json` URL, one repository) | 43 ms | 41 ms | 123 ms |
+| 300 synthetic `SKILL.md` | none | 54 ms | 54 ms | 152 ms |
+| 300 synthetic | one that accepts TCP and never answers | 56 ms | 55 ms | 145 ms |
+| 1000 synthetic | none | 114 ms | 109 ms | 236 ms |
 
-`coddy -v` alone takes 9-10 ms. The loader (`skills.Loader.LoadAll`) reads
-and parses every `SKILL.md`, about 0.11 ms each: the two-second budget the
-issue proposed is 18 000 skills away. The dead source was never contacted:
+`coddy -v` alone takes 8-9 ms. The loader (`skills.Loader.LoadAll`) reads
+and parses every `SKILL.md`, about 0.1 ms each: the two-second budget the
+issue proposed is some 20 000 skills away. The dead source was never contacted:
 nothing at startup reads `skills.sources`, neither in `internal/session` nor
 in `external/cli`. Hypothesis 1 of the issue (a blocking manifest refresh)
 does not exist in the code; hypothesis 2 (O(N) scanning) is true with a

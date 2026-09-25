@@ -24,6 +24,16 @@ const mcpStatusStep = "mcp"
 // the transcript, and a turn parked on the connect resumes its waiting
 // status once the dial has settled.
 func (a *App) applyMCPConnect(u session.MCPConnectUpdate) {
+	// The sender of a superseded dial can enqueue its snapshot after the
+	// replacement's: a reload started generation B while A's last update
+	// was on its way. Only the newest generation is rendered; a snapshot
+	// without one (a test's) is taken as it comes.
+	if u.Generation != 0 {
+		if u.Generation < a.mcpGeneration {
+			return
+		}
+		a.mcpGeneration = u.Generation
+	}
 	connected, total := u.Counts()
 	a.mcpConnected, a.mcpTotal, a.mcpPending = connected, total, !u.Done
 	a.foot.SetMCP(connected, total, !u.Done)
@@ -73,7 +83,7 @@ func (a *App) reportMCPOnce(name string) bool {
 // session/new and the first frame, or whose updates were dropped as stale
 // during a switch, is still shown correctly.
 func (a *App) seedMCPStatus() {
-	a.mcpConnected, a.mcpTotal, a.mcpPending = 0, 0, false
+	a.mcpConnected, a.mcpTotal, a.mcpPending, a.mcpGeneration = 0, 0, false, 0
 	a.foot.SetMCP(0, 0, false)
 	if a.mgr == nil || a.sessionID == "" {
 		return

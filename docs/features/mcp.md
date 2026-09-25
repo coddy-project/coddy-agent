@@ -391,10 +391,13 @@ The version comes from the registry `npm_config_registry` (or
 with a ten-second bound through the proxy environment. When it cannot be
 read - offline, a private registry that needs the credentials of a `.npmrc`,
 a package whose `latest` is not an exact version - the server is saved as it
-was and the report says so, with the pin to add by hand. A spec that is not a
-registry package (a path, a URL, a `git+` or `file:` spec, a tarball, a
-`${VAR}` placeholder), a range, another tag, or a run without `-y` is left
-alone.
+was and the report says so, with the pin to add by hand. Only the direct form
+`npx -y <package>` is pinned. A spec that is not a registry package (a path,
+a URL, a `git+` or `file:` spec, a tarball, a `${VAR}` placeholder), a range,
+another tag, a run without `-y`, and the option forms that name the package
+apart from the command (`--package` / `-p`, `--call` / `-c`, where the
+positional argument is a binary and the packages may be several) are left
+alone: pin those by hand, `--package <package>@<version>`.
 
 To move a pinned server to a newer release, change the version in `args`, or
 remove it and save again: the current release is pinned anew. Servers

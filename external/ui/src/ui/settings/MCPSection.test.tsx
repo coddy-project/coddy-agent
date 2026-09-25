@@ -477,3 +477,31 @@ test("an unresolved npx entry is a warning under the list", async () => {
   );
   expect(screen.getByTestId("mcp-pin-notice").className).toContain("settings-error");
 });
+
+// A save whose request rejects shows the error and frees the editor again.
+test("a rejected save frees the editor and says so", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.method === "PUT") {
+        return Promise.reject(new TypeError("network down"));
+      }
+      return Promise.resolve({ ok: true, json: async () => listResponse });
+    }),
+  );
+  render(<MCPSection />);
+  await waitFor(() => expect(screen.getByTestId("mcp-list")).toBeTruthy());
+
+  fireEvent.click(screen.getByTestId("mcp-add-server"));
+  fireEvent.change(screen.getByTestId("mcp-editor-name"), {
+    target: { value: "flaky" },
+  });
+  fireEvent.click(screen.getByTestId("mcp-editor-save"));
+
+  await waitFor(() =>
+    expect(
+      document.querySelector(".mcp-editor .settings-error")?.textContent,
+    ).toBeTruthy(),
+  );
+  expect((screen.getByTestId("mcp-editor-save") as HTMLButtonElement).disabled).toBe(false);
+});

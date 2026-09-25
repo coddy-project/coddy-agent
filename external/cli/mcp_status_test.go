@@ -160,3 +160,31 @@ func TestTurnStartsOnTheConnectStepWhilePending(t *testing.T) {
 		t.Fatalf("initial status = %+v, want waiting for the model", got)
 	}
 }
+
+// TestStaleGenerationIsDropped: the last update of a superseded dial that
+// lands after the replacement's does not overwrite what the replacement
+// showed; an update without a generation is taken as it comes.
+func TestStaleGenerationIsDropped(t *testing.T) {
+	a := newTestApp(t)
+	newer := mcpUpdate(true, session.MCPServerConnect{Name: "one", State: session.MCPConnectStateConnected})
+	newer.Generation = 4
+	a.applyMCPConnect(newer)
+	stale := mcpUpdate(false, session.MCPServerConnect{Name: "old", State: session.MCPConnectStateFailed, Error: "gone"})
+	stale.Generation = 3
+	a.applyMCPConnect(stale)
+	if a.mcpPending || a.mcpGeneration != 4 {
+		t.Fatalf("stale generation applied: pending %v generation %d", a.mcpPending, a.mcpGeneration)
+	}
+	if strings.Contains(transcriptText(a), "did not connect") {
+		t.Fatal("the stale generation's failure row was shown")
+	}
+	untagged := mcpUpdate(false, session.MCPServerConnect{Name: "one", State: session.MCPConnectStateConnecting})
+	a.applyMCPConnect(untagged)
+	if !a.mcpPending {
+		t.Fatal("an update without a generation was dropped")
+	}
+	a.seedMCPStatus()
+	if a.mcpGeneration != 0 {
+		t.Fatalf("seeding kept generation %d", a.mcpGeneration)
+	}
+}

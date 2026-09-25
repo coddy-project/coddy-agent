@@ -140,7 +140,8 @@ on a private copy of the operator's `~/.coddy` (the home itself is never
 written), and `cli/capture_mcp.py` renders the two captures of the console
 connecting its servers after the first frame, with `cli/mcp_stub_server.py`
 as the stdio server that answers at once or never. The numbers behind the
-change are in `docs/plans/console-mcp-startup.md`.
+change are in `docs/plans/console-mcp-startup.md`, and the result file of the
+demo-config run it quotes is committed under `cli/bench_results/`.
 
 ## `swarm/`
 

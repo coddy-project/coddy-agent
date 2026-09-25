@@ -84,10 +84,13 @@ type App struct {
 	// mcpConnected of mcpTotal configured MCP servers have answered while
 	// mcpPending (mcp_status.go); mcpReported remembers the servers whose
 	// failure or hold was already said, per session.
-	mcpConnected  int
-	mcpTotal      int
-	mcpPending    bool
-	mcpReported   map[string]bool
+	mcpConnected int
+	mcpTotal     int
+	mcpPending   bool
+	mcpReported  map[string]bool
+	// mcpGeneration is the dial the shown progress belongs to; an update of
+	// an older dial that arrives late is dropped (mcp_status.go).
+	mcpGeneration uint64
 	turnSessionID string
 	// The running turn's own numbers, which lead the status line (status.go): when it
 	// started, the tokens the model has generated in it (acp.TurnProgressUpdate) and
