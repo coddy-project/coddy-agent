@@ -666,7 +666,7 @@ type MemoryRunUpdate struct {
 }
 
 // BackgroundWakeUpdate opens a turn nobody typed: background tasks the model
-// asked to be notified about (notify_on_finish) finished, and the process
+// started with a wake (notify_on_finish, on by default) finished, and the process
 // started a turn to report them. It is sent once, before the turn's first
 // message, in place of a message from the user: a client knows the turn was
 // not typed, and shows nothing for it or a one-line note naming the tasks;

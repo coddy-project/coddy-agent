@@ -1,8 +1,8 @@
 package llm
 
 // BackgroundWake marks the user-role message that opens a turn nobody typed:
-// background tasks the model asked to be notified about (notify_on_finish) have
-// finished, and the process started a turn to report them. The model reads the
+// background tasks the model started with a wake (notify_on_finish, on by
+// default) have finished, and the process started a turn to report them. The model reads the
 // message's Content like any other user message; the marker is for the
 // surfaces, which never show the message as a bubble somebody wrote, live or
 // after a reload: the web UI and the console show nothing in its place, an

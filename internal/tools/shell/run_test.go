@@ -632,7 +632,8 @@ func TestBackgroundToolsHideSystemTasksFromTheModel(t *testing.T) {
 // turn waiting for a turn that never comes. Where a waker is subscribed the
 // promise stands, and the task records the wake it will get.
 func TestBackgroundNotifyIsHonestAboutWhetherAnythingCanWake(t *testing.T) {
-	args, err := json.Marshal(runCommandArgs{Command: "sleep 0", Background: true, NotifyOnFinish: true})
+	notify := true
+	args, err := json.Marshal(runCommandArgs{Command: "sleep 0", Background: true, NotifyOnFinish: &notify})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -690,5 +691,99 @@ func TestBackgroundNotifyIsHonestAboutWhetherAnythingCanWake(t *testing.T) {
 	}
 	if strings.Contains(out, "You will be woken") || !strings.Contains(out, "Nothing will wake you") {
 		t.Fatalf("a sealed session was promised a wake:\n%s", out)
+	}
+}
+
+func TestBackgroundCommandWakesByDefaultUnlessExplicitlyDisabled(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args string
+		wake bool
+	}{
+		{"omitted", `{"command":"echo done","background":true}`, true},
+		{"explicit false", `{"command":"echo done","background":true,"notify_on_finish":false}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pool := bgtask.NewWithRunner(bgtask.Config{}, bgtask.NewCommandRunner())
+			pool.SubscribeKeyed(bgtask.WakeWatcherKey, func(bgtask.Snapshot) {})
+			env := &tooling.Env{SessionID: "s1", CWD: t.TempDir(), BackgroundEnabled: true, Background: pool, WakeableSession: true}
+			t.Cleanup(func() { pool.StopSession("s1") })
+			if _, err := executeRunCommandWithShell(context.Background(), tc.args, env, platform.CurrentShell()); err != nil {
+				t.Fatal(err)
+			}
+			tasks := pool.List("s1")
+			if len(tasks) != 1 || tasks[0].NotifyOnFinish != tc.wake {
+				t.Fatalf("tasks = %+v, want notify_on_finish=%v", tasks, tc.wake)
+			}
+		})
+	}
+}
+
+func TestCollectingOrStoppingATaskSuppressesItsWake(t *testing.T) {
+	for _, name := range []string{"background_wait", "background_output", "background_stop"} {
+		t.Run(name, func(t *testing.T) {
+			pool := bgtask.NewWithRunner(bgtask.Config{}, bgtask.NewCommandRunner())
+			h := &idleHandle{done: make(chan struct{})}
+			env := &tooling.Env{SessionID: "s1", BackgroundEnabled: true, Background: pool}
+			snap, err := pool.Launch(bgtask.Spec{SessionID: "s1", Kind: bgtask.KindAgent, Label: "child", NotifyOnFinish: true}, func(string, io.Writer) (bgtask.Handle, error) {
+				return h, nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { pool.StopSession("s1") })
+			if name != "background_stop" {
+				h.finish()
+				if _, err := pool.Wait(context.Background(), "s1", snap.ID, time.Second); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var tool *tooling.Tool
+			switch name {
+			case "background_wait":
+				tool = BackgroundWaitTool()
+			case "background_output":
+				tool = BackgroundOutputTool()
+			case "background_stop":
+				tool = BackgroundStopTool()
+			}
+			if _, err := tool.Execute(context.Background(), fmt.Sprintf(`{"task_id":%q}`, snap.ID), env); err != nil {
+				t.Fatal(err)
+			}
+			if pool.WakePending("s1", snap.ID) {
+				t.Fatal("a result the model already handled must not wake")
+			}
+		})
+	}
+}
+
+func TestAdoptedForegroundCommandWakesWhenItFinishes(t *testing.T) {
+	command, err := sleepCommand(platform.CurrentShell().Kind, 2)
+	if err != nil {
+		t.Skip(err)
+	}
+	pool := bgtask.NewWithRunner(bgtask.Config{}, bgtask.NewCommandRunner())
+	finished := make(chan bgtask.Snapshot, 1)
+	pool.SubscribeKeyed(bgtask.WakeWatcherKey, func(s bgtask.Snapshot) {
+		if s.Status.Finished() {
+			finished <- s
+		}
+	})
+	env := &tooling.Env{SessionID: "s1", CWD: t.TempDir(), BackgroundEnabled: true, Background: pool, WakeableSession: true}
+	t.Cleanup(func() { pool.StopSession("s1") })
+	out, err := executeRunCommandWithShell(context.Background(), fmt.Sprintf(`{"command":%q,"timeout_seconds":1}`, command), env, platform.CurrentShell())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "background task") || !strings.Contains(out, "You will be woken") {
+		t.Fatalf("foreground timeout did not promise the adopted task's wake: %q", out)
+	}
+	select {
+	case snap := <-finished:
+		if !snap.NotifyOnFinish || snap.Status != bgtask.StatusSucceeded {
+			t.Fatalf("adopted task completion = %+v, want a waking success", snap)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("adopted task never finished")
 	}
 }

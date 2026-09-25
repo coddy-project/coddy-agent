@@ -45,6 +45,74 @@ func TestRenderAgentPrompt(t *testing.T) {
 	}
 }
 
+func TestModePromptsExplainRequestedModelSwitchAndBackgroundWake(t *testing.T) {
+	for _, mode := range []string{"agent", "plan", "ask"} {
+		t.Run(mode, func(t *testing.T) {
+			result, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/workspace", ModelSwitch: true, BackgroundWake: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{"switch_model", "user asks", "reasoning level", "background", "wake", "subagent"} {
+				if !strings.Contains(result, want) {
+					t.Errorf("%s prompt lacks %q", mode, want)
+				}
+			}
+		})
+	}
+}
+
+// A turn that is not offered switch_model - a single model without reasoning
+// levels, a subagent - is not told about it: a prompt describing a tool the
+// model cannot call invites a call that only fails.
+func TestModePromptsNameSwitchModelOnlyWhereItIsOffered(t *testing.T) {
+	for _, mode := range []string{"agent", "plan", "ask"} {
+		t.Run(mode, func(t *testing.T) {
+			result, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/workspace"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(result, "switch_model") {
+				t.Errorf("%s prompt names switch_model although the turn is not offered it", mode)
+			}
+		})
+	}
+}
+
+// Where nothing can wake the session - a subagent, a scheduled run, coddy -p -
+// the prompt does not promise a wake: it tells the model to collect results
+// before the turn ends, which is what the tool results say there too.
+func TestModePromptsPromiseAWakeOnlyWhereOneCanHappen(t *testing.T) {
+	for _, mode := range []string{"agent", "plan"} {
+		t.Run(mode, func(t *testing.T) {
+			for _, wake := range []bool{true, false} {
+				result, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/workspace", BackgroundWake: wake})
+				if err != nil {
+					t.Fatal(err)
+				}
+				promised := strings.Contains(result, "wake you with their outcome")
+				told := strings.Contains(result, "Nothing wakes you here")
+				if promised != wake || told == wake {
+					t.Errorf("BackgroundWake=%v: wake promised %v, collect-yourself line %v", wake, promised, told)
+				}
+			}
+		})
+	}
+}
+
+// Ask mode allows the user's model or reasoning change and nothing else: a
+// user asking for an edit is still told to continue in Agent mode.
+func TestAskPromptKeepsRefusingRequestedChanges(t *testing.T) {
+	result, err := prompts.Render("ask", "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/workspace", ModelSwitch: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"user requests that ask you to make changes", "session state"} {
+		if !strings.Contains(result, want) {
+			t.Errorf("ask prompt lost %q from its read-only boundary", want)
+		}
+	}
+}
+
 // The agent invents a place for a git worktree unless the prompt names one,
 // and what it invents ends up untracked at the repository root.
 func TestAgentPromptNamesWorktreesDirectory(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/prompts"
 	"github.com/EvilFreelancer/coddy-agent/internal/rules"
@@ -182,6 +183,12 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 		Instructions:   instructionsMD,
 		Subagents:      a.subagentCatalogBlock(),
 		SubagentRole:   a.subagentRoleBlock(),
+		// The templates describe switch_model only to a turn that can call
+		// it: a child never can, nor a configuration with nothing to switch.
+		ModelSwitch: offersTool(toolDefs, tools.ToolSwitchModel),
+		// The same holds for the wake a finished background task starts:
+		// promised only where one can happen (shell.WakeAvailable).
+		BackgroundWake: a.subagent == nil && bgtask.Default().CanWake(),
 		// The built-in templates no longer render this: a wall clock in the
 		// system message breaks the provider's prefix cache on every request,
 		// and the turn context block carries the clock instead. It stays
@@ -214,6 +221,16 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 	}
 	a.refreshContextBreakdown(build, "")
 	return build
+}
+
+// offersTool reports whether the turn's tool definitions include name.
+func offersTool(defs []llm.ToolDefinition, name string) bool {
+	for _, d := range defs {
+		if d.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // buildTemplatedChildPrompt renders the system prompt of a system child that

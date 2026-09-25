@@ -57,7 +57,7 @@ func (r *Runtime) AddWakeSurface(surface agent.WakeSurface, rank agent.WakeRank)
 var _ agent.WakeSurfaces = (*Runtime)(nil)
 
 // attachWaker subscribes the process waker to the task pool. One process has
-// one: whichever surfaces are enabled, a task that asked to be notified wakes
+// one: whichever surfaces are enabled, a task started with a wake wakes
 // the agent, and run_command and spawn_agent can promise it (Pool.CanWake).
 func (r *Runtime) attachWaker() {
 	agent.NewBackgroundWaker(r.Log, r.runBackgroundWake).Attach(bgtask.Default())

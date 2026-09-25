@@ -160,7 +160,7 @@ func TestCoddyEventsStreamSnapshotsAWokenTurnAsTheWake(t *testing.T) {
 		defer wg.Done()
 		_, _ = srv.mgr.HandleSessionPromptWithSender(context.Background(), acp.SessionPromptParams{
 			SessionID: sn.SessionID,
-			Prompt:    []acp.ContentBlock{{Type: "text", Text: "A background task you asked to be notified about has finished."}},
+			Prompt:    []acp.ContentBlock{{Type: "text", Text: "A background task you started has finished."}},
 		}, noopSender{}, &session.PromptRunOpts{BackgroundWake: wake})
 	}()
 	defer wg.Wait()

@@ -3129,6 +3129,7 @@ func newSettingsHarness(t *testing.T, models ...string) *settingsHarness {
 		Paths:     config.Paths{Home: root, CWD: cwd, ConfigPath: filepath.Join(root, "config.yaml")},
 		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
 		Agent:     config.Agent{Model: models[0], MaxTurns: 8},
+		Sessions:  config.Sessions{Dir: filepath.Join(root, "sessions")},
 	}
 	for _, m := range models {
 		cfg.Models = append(cfg.Models, config.ModelEntry{Model: m, MaxTokens: 100})
@@ -3144,7 +3145,8 @@ func newSettingsHarness(t *testing.T, models ...string) *settingsHarness {
 		loop.SetProviderFactory(func(in llm.ProviderInput) (llm.Provider, error) { return h.provider(in.Model), nil })
 		return loop.Run(ctx, prompt)
 	}
-	h.mgr = session.NewManager(cfg, &todoSnapshotSender{}, runner, slog.Default(), cwd, nil)
+	// Sessions persist, because a subagent's bundle nests in its parent's.
+	h.mgr = session.NewManager(cfg, &todoSnapshotSender{}, runner, slog.Default(), cwd, &session.FileStore{Root: cfg.Sessions.Dir})
 	res, err := h.mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: cwd})
 	if err != nil {
 		t.Fatal(err)
@@ -3181,7 +3183,7 @@ func TestSwitchModelTakesEffectFromTheNextRequest(t *testing.T) {
 		toolStep(llm.ToolCall{ID: "sw1", Name: "switch_model", InputJSON: `{"model":"fake/b","scope":"turn"}`}),
 	}
 	h.provider("b").steps = []scriptStep{answerStep("done on b")}
-	h.prompt(t, "this needs the stronger model")
+	h.prompt(t, "use fake/b for this turn only")
 	if a, b := h.provider("a").calls, h.provider("b").calls; a != 1 || b != 1 {
 		t.Fatalf("requests served: a=%d b=%d, want the first on a and the next on b", a, b)
 	}
@@ -3194,6 +3196,42 @@ func TestSwitchModelTakesEffectFromTheNextRequest(t *testing.T) {
 	h.prompt(t, "and now")
 	if a := h.provider("a").calls; a != 2 {
 		t.Fatalf("the next turn was not served by the session's model: a=%d", a)
+	}
+}
+
+// The system prompt describes switch_model only to a turn that is offered it:
+// a parent with two models reads the rule, a subagent - never offered the
+// tool - and a configuration with nothing to switch do not.
+func TestSystemPromptDescribesSwitchModelOnlyWhereItIsOffered(t *testing.T) {
+	const rule = "Use `switch_model`"
+	h := newSettingsHarness(t, "fake/a", "fake/b")
+	h.provider("a").steps = []scriptStep{
+		toolStep(llm.ToolCall{ID: "sp", Name: "spawn_agent", InputJSON: `{"agent":"general","prompt":"Report the working directory."}`}),
+		answerStep("REPORT: done"),
+		answerStep("done"),
+	}
+	h.prompt(t, "delegate it")
+	reqs := h.provider("a").requests
+	if len(reqs) != 3 {
+		t.Fatalf("requests = %d, want the parent's, the child's and the parent's again", len(reqs))
+	}
+	if !strings.Contains(reqs[0][0].Content, rule) {
+		t.Error("the parent's system prompt does not describe switch_model")
+	}
+	if strings.Contains(reqs[1][0].Content, rule) {
+		t.Error("the subagent's system prompt describes switch_model, which it is never offered")
+	}
+	// Nothing wakes a subagent either: its transcript is sealed when its
+	// turn returns, so its prompt tells it to collect results itself.
+	if !strings.Contains(reqs[1][0].Content, "Nothing wakes you here") {
+		t.Error("the subagent's system prompt promises a background wake it can never get")
+	}
+
+	single := newSettingsHarness(t, "fake/a")
+	single.provider("a").steps = []scriptStep{answerStep("hi")}
+	single.prompt(t, "hello")
+	if strings.Contains(single.provider("a").requests[0][0].Content, rule) {
+		t.Error("a single model without reasoning levels is told about switch_model")
 	}
 }
 

@@ -123,10 +123,10 @@ func newFakeRemoteServer(answer string) *fakeRemoteServer {
 	}))
 	mux.HandleFunc("GET /v1/models", f.withAuth(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"object":"list","default_agent_model":"remote/deep-1","data":[
+		_, _ = w.Write([]byte(`{"object":"list","data":[
 			{"id":"agent","object":"model","owned_by":"coddy"},
 			{"id":"plan","object":"model","owned_by":"coddy"},
-			{"id":"remote/deep-1","object":"model","owned_by":"neuraldeep"},
+			{"id":"remote/deep-1","default":true,"object":"model","owned_by":"neuraldeep"},
 			{"id":"remote/deep-2","object":"model","owned_by":"neuraldeep"}]}`))
 	}))
 	mux.HandleFunc("POST /v1/responses", f.withAuth(func(w http.ResponseWriter, r *http.Request) {
@@ -343,7 +343,10 @@ func (s *cliRemoteState) screenShowsRemoteBanner() error {
 }
 
 func (s *cliRemoteState) footerNamesRemoteModel() error {
-	// The footer renders the selector as "(provider) model".
+	// The footer renders the selector as "(provider) model". A new console
+	// session starts on the console's own pick (the remembered model, else the
+	// alphabetically first), so the server's marked default is the same row
+	// here; features/remote_client.feature covers a default that is not first.
 	return s.waitScreen("(remote) deep-1", 2*time.Second)
 }
 

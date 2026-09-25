@@ -65,7 +65,14 @@ test("a model switch still running shows what was asked, scope in any case", () 
     scope: "session",
     applied: false,
   });
+  // switch_model lasts for the session unless the call limits it to the turn.
   expect(modelSwitchView({ model: "fast/m" }, "")).toMatchObject({
+    scope: "session",
+    applied: false,
+  });
+  expect(
+    modelSwitchView({ model: "fast/m", scope: " Turn " }, ""),
+  ).toMatchObject({
     scope: "turn",
     applied: false,
   });

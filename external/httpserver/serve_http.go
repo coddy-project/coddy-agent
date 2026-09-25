@@ -58,7 +58,7 @@ func Serve(ctx context.Context, opts Options) error {
 		opts.OnServer(s)
 		defer opts.OnServer(nil)
 	}
-	// A task that asked to be notified wakes the agent. In `coddy serve` the
+	// A notifying task wakes the agent. In `coddy serve` the
 	// runtime owns the waker and this server is where a woken turn runs when
 	// no chat owns the session; on its own the server attaches a waker itself.
 	if opts.Wakes != nil {

@@ -42,13 +42,12 @@ func RunCommandToolForShell(commandShell platform.Shell) *tooling.Tool {
 						"type": "boolean",
 						"description": "Run the command as a background task and return a task id immediately instead of waiting for output. " +
 							"Use it for work that takes longer than a few seconds (builds, test suites, installs, watchers, servers, batch downloads) so you can keep working while it runs. " +
-							"Collect the result later with background_list, background_output, and background_wait; terminate with background_stop",
+							"The finished task wakes you with its outcome by default; follow or collect it sooner with background_list, background_output, and background_wait; terminate with background_stop",
 					},
 					"notify_on_finish": map[string]interface{}{
 						"type": "boolean",
-						"description": "Wake yourself when this background task finishes: a new turn starts automatically with the outcome, even if nobody sends a message. " +
-							"Use it for work whose result you must act on (a build, a migration, a long test run) so the session can continue unattended. " +
-							"Leave it off for chores you will simply read later with background_list, otherwise every one of them costs a separate turn",
+						"description": "For a background command, or a foreground one handed to the background after its timeout, wake yourself with its outcome when it finishes (default true where a waker is available). " +
+							"Set false explicitly to prevent a wake. A completed result you collect with background_wait or background_output, or a task you stop, does not wake you again",
 					},
 					"expected_seconds": map[string]interface{}{
 						"type": "integer",
@@ -91,7 +90,11 @@ type runCommandArgs struct {
 	TimeoutSeconds      int    `json:"timeout_seconds"`
 	Background          bool   `json:"background"`
 	ExpectedSeconds     int    `json:"expected_seconds"`
-	NotifyOnFinish      bool   `json:"notify_on_finish"`
+	NotifyOnFinish      *bool  `json:"notify_on_finish"`
+}
+
+func (a runCommandArgs) wantsWake() bool {
+	return a.NotifyOnFinish == nil || *a.NotifyOnFinish
 }
 
 func executeRunCommandWithShell(ctx context.Context, argsJSON string, env *tooling.Env, commandShell platform.Shell) (string, error) {
@@ -154,14 +157,19 @@ func joinNotice(notice, output string) string {
 // adoptionNotice tells the model that nothing was cancelled, names the task it
 // now owns, and closes the door on the retry loop a bare timeout used to invite.
 func adoptionNotice(snap bgtask.Snapshot, timeout int) string {
+	wake := "Nothing will wake you when it finishes here; collect the result yourself."
+	if snap.NotifyOnFinish {
+		wake = "You will be woken with the outcome when it finishes, so you need not wait for it."
+	}
 	return fmt.Sprintf(
 		"Command still running after %s. It was NOT cancelled: it now runs as background task %s (hard timeout %s).\n"+
 			"Follow it with %s task_id=%q, %s, or terminate it with %s. Its stdout and stderr are both captured there, so an error will show up in that output.\n"+
 			"Do NOT start this work a second time while %s runs: not the same command with a larger timeout_seconds, not a variant with different flags, not another tool that does the same job. "+
 			"A second copy fights this one for the same ports, locks and files, and wrecks what the first one is halfway through. Wait for it, read its output, or stop it first.\n"+
+			"%s\n"+
 			"Output captured so far:",
 		humanSeconds(timeout), snap.ID, humanSeconds(snap.TimeoutSeconds),
-		ToolBackgroundOutput, snap.ID, ToolBackgroundWait, ToolBackgroundStop, snap.ID,
+		ToolBackgroundOutput, snap.ID, ToolBackgroundWait, ToolBackgroundStop, snap.ID, wake,
 	)
 }
 

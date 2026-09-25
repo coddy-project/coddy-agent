@@ -199,6 +199,13 @@ func (e *Env) CommandAllowed(command string) bool {
 	return false
 }
 
+// ModelChoiceRule is part of the description of the tool arguments that pick
+// the model or the reasoning level the session itself runs on (switch_model)
+// or summarizes with (compact_context): that choice is the user's, and the
+// model never makes it on its own for a hard step or a routine one. A
+// subagent is different - spawn_agent lets the model pick the child's.
+const ModelChoiceRule = "only when the user asked for it"
+
 // SpawnRequest is what the spawn_agent tool asks the runtime to run.
 type SpawnRequest struct {
 	// Agent is the definition name.

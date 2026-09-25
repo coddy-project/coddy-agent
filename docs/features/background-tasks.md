@@ -13,11 +13,11 @@
 | `background_stop` | Terminate a task and the whole process group it started, including one left behind by an earlier coddy run. |
 | `background_reap` | Kill every background process of this session that outlived the coddy run which started it. |
 
-Two extra `run_command` arguments drive the pool:
+Three extra `run_command` arguments drive the pool:
 
 - **`background`** (bool) — run detached.
 - **`expected_seconds`** (int) — the model's own estimate of how long the work takes. It is **advisory**: it drives the status ticker the operator sees and, when `timeout_seconds` is omitted, the hard timeout. Guessing low only marks the task **overdue**; it never kills the task early.
-- **`notify_on_finish`** (bool) — wake the agent when this task ends (see below).
+- **`notify_on_finish`** (bool) — wake the agent when this task ends. It defaults to true for background commands, detached subagents and commands adopted after a foreground timeout where a waker is available. Set it to false explicitly to disable the wake (see below).
 
 **The model is told what still runs on every request.** A model starts a task, keeps working, and several steps later has to remember that the task exists - and that a server it started is still up when it writes its summary. The turn context block that closes every request ([Context compaction](compaction.md) keeps the system prompt frozen, so what moves travels after the history) carries a `## Background tasks` section with one line per running task of the session, in the wording of `background_list` (`bg_3 [running] make test (elapsed 2m5s, estimated 5m) silent for 1m10s`). It costs a line per task and saves the `background_list` call that was the only way to find out. Finished tasks and [system tasks](#system-tasks) are left out, and with `tools.background.enable: false` the section is not written at all (`backgroundTasksSection` in `internal/agent/turn_context.go`).
 
@@ -25,9 +25,9 @@ The prompt (`internal/prompts/agent.md`, and the plan-mode equivalent) tells the
 
 ## Waking the agent when a task finishes
 
-A long job is only useful unattended if something restarts the conversation when it ends. A task started with `notify_on_finish: true` therefore begins a **new agent turn on its own** once it reaches a terminal state, so the model can end its turn the moment the work is handed off.
+A long job is only useful unattended if something restarts the conversation when it ends. A background command, detached subagent or adopted foreground command therefore begins a **new agent turn on its own** when it finishes, so the model can end its turn after handing off the work. An explicit `notify_on_finish: false` disables this.
 
-The opt-in is the point. The model decides which results are worth a turn, so a batch of quick commands cannot each spend one behind the operator's back; everything else simply lands in the history for the model to read later.
+`background_wait` returning a finished task, `background_output` read after completion, and `background_stop` mark its outcome as handled. Such a task does not start another turn. Reading output while a task still runs does not suppress its eventual wake. Tasks finishing near each other are batched into one turn, and the per-session wake limit still applies.
 
 ### Which process wakes the agent
 
@@ -119,7 +119,7 @@ Output captured so far:
 
 The notice leads and the output follows, because the tool output ceiling truncates from the end. The result is a normal tool result, not an error: the agent loop shows the model an error's text and discards the result string, so reporting a timeout as an error is what threw the captured output away.
 
-From there the task is an ordinary one — `background_list`, `background_output`, `background_wait`, `background_stop` all reach it, `notify_on_finish` is off (the model is being told right now), and its elapsed time counts from the original foreground start rather than from the handover.
+From there the task is an ordinary one — `background_list`, `background_output`, `background_wait`, `background_stop` all reach it. It wakes the agent on completion by default where a waker is available, unless the call set `notify_on_finish: false`; its elapsed time counts from the original foreground start rather than from the handover.
 
 The command **is** terminated, process group and all, in the three cases where nothing can take ownership: the turn was cancelled, no pool is wired, or the pool refused (`tools.background.enable: false`, session at `max_concurrent`, process draining). The answer then names the exact reason and points at `background: true`.
 

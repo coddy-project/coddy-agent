@@ -130,7 +130,7 @@ Approval surfaces:
 | `timeout_seconds` | Hard limit for the run. |
 | `model` | A configured model id for the child, over the definition's `model` and the parent's. An id the configuration does not know is refused with the list of configured ones. |
 | `reasoning` | The child's reasoning level: a level its model offers, `off` or `default`; over the definition's `reasoning`. A level the model does not offer is refused. |
-| `notify_on_finish` | For a background run: wake the parent with the outcome when the child finishes (see `docs/features/background-tasks.md`). Forced **off** for a foreground spawn, whose report already comes back in the tool result, and for any spawn made by a child. |
+| `notify_on_finish` | For a background run: wake the parent with the outcome when the child finishes, by default where a waker is available; set `false` explicitly to disable it ([Background tasks](background-tasks.md)). Forced **off** for a foreground spawn, whose report already comes back in the tool result, and for any spawn made by a child. |
 
 The tool is registered when `subagents.enable` is on and offered in `agent` and `plan` mode, never in `ask` mode. It needs **no permission prompt of its own**: launching a child changes nothing by itself, every tool call the child makes is gated on its own, and project trust is decided inside the runtime hook before anything starts.
 
@@ -145,17 +145,17 @@ A **foreground** spawn (the default) blocks the tool call until the child's turn
 The user did not see this report: restate what matters in your own reply. The full transcript is session sess_9f1c… (Tasks panel → Show transcript).
 ```
 
-`status` is the pool's verdict for the task (`succeeded`, `failed`, `timed_out`, `stopped`); when it is anything but `succeeded` a line says so and tells the model to treat the report accordingly, and a run that ended with an error names it. `turns` is the number of assistant rounds in the child's transcript. The report is wrapped in CDATA so nothing the child wrote can break the envelope.
+`status` is the pool's verdict for the task (`succeeded`, `failed`, `timed_out`, `stopped`); when it is anything but `succeeded` a line says so and tells the model to treat the report accordingly, and a run that ended with an error names it. A child that reaches `max_turns` or produces no final message is `failed` with that reason, even if its turn returned without an error; text it wrote on the way to `max_turns` comes back as the report, and the reason says it is not a conclusion. `turns` is the number of assistant rounds in the child's transcript. The report is wrapped in CDATA so nothing the child wrote can break the envelope.
 
 A **background** spawn returns at once:
 
 ```
 Started subagent explore as background task bg_3 (child session sess_9f1c…).
 Hard timeout 30m.
-Keep working; follow it with background_list or background_output, and collect the report with background_wait.
+You will be woken with the outcome when it finishes, so you can end your turn now.
 ```
 
-With `notify_on_finish: true` the last line instead tells the model it will be woken with the outcome - where something can wake it: `coddy -p` runs no waker and a child's transcript closes with its turn, so there the line says that nothing will wake the model, and the task records no wake ([Background tasks](background-tasks.md#which-process-wakes-the-agent)). From here the run is an ordinary task: `background_list` shows it, `background_output` streams the child's progress log, `background_wait` blocks for it and returns the log ending in the report block, and `background_stop` cancels the child.
+That last line is the default where something can wake the parent. `coddy -p` runs no waker and a child's transcript closes with its turn, so there the line says that nothing will wake the model, and the task records no wake ([Background tasks](background-tasks.md#which-process-wakes-the-agent)). An explicit `notify_on_finish: false` also keeps the task quiet. From here the run is an ordinary task: `background_list` shows it, `background_output` streams the child's progress log, `background_wait` blocks for it and returns the log ending in the report block, and `background_stop` cancels the child. Collecting a finished report or stopping the task prevents a redundant wake.
 
 Refusals are returned as tool errors that name the knob that applies: an unknown name (with the list of visible definitions), a project file without a receipt (with the approval commands), `subagents.max_depth` reached, a prompt over 32 KiB, `subagents.max_concurrent` runs already in flight, the pool's own per-session limit (`tools.background.max_concurrent`), and the pool draining for shutdown. With `subagents.enable: false` the tool is not registered at all. A surface without a session manager is never advertised the tool, and a call anyway answers that subagents are not available in this session.
 
@@ -228,7 +228,7 @@ Every run creates a child session with an ordinary session id, generated before 
 
 ## Scheduled runs
 
-A run the scheduler starts ([Scheduler](../operate/scheduler.md)) is a child of this same kind: a task of kind `agent` under the job's session, a child session with its transcript, the same progress log, the same retirement and the same read-only rule. What differs is the parent - a job session that never runs a turn, not a chat - and what the child is told: its role block says it is a scheduled job started unattended, its `session.json` carries `schedulerJobId` and `schedulerTrigger`, and the transcript's notice links back to the job's runs instead of a parent chat. A job may name a definition (`agent:` in its frontmatter) to run under its role, tools, model and permission narrowing, with the same trust rule as a spawn; without one the run has the full tool set of its mode. It sits at depth 0, so within `subagents.max_depth` it may spawn children of its own, which count against `subagents.max_concurrent` like any spawn.
+A run the scheduler starts ([Scheduler](../operate/scheduler.md)) is a child of this same kind: a task of kind `agent` under the job's session, a child session with its transcript, the same progress log, the same retirement and the same read-only rule. What differs is the parent - a job session that never runs a turn, not a chat - and what the child is told: its role block says it is a scheduled job started unattended, its `session.json` carries `schedulerJobId` and `schedulerTrigger`, and the transcript's notice links back to the job's runs instead of a parent chat. A job may name a definition (`agent:` in its frontmatter) to run under its role, tools, model, reasoning level and permission narrowing, with the same trust rule as a spawn and the same rule for the level (applied when the run's model offers it); without one the run has the full tool set of its mode. It sits at depth 0, so within `subagents.max_depth` it may spawn children of its own, which count against `subagents.max_concurrent` like any spawn.
 
 ## Lifecycle rules
 
@@ -341,4 +341,3 @@ The Subagents tab is shown under [Scopes and project trust](#scopes-and-project-
 ![The child session opened read-only from the task row](../assets/subagents/child-transcript-readonly-dark.png)
 
 *The child session opened read-only from the task row*
-

@@ -1151,6 +1151,73 @@ func TestSubagentForegroundResultStatusLines(t *testing.T) {
 	}
 }
 
+func TestSubagentMaxTurnsWithoutFinalAnswerFails(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	rig.approvedDefinition("reviewer", "max_turns: 1\n")
+	rig.setChildProvider(func(*session.State) llm.Provider {
+		return scripted(toolStep(llm.ToolCall{ID: "unfinished", Name: "read", InputJSON: `{"path":"README.md"}`}))
+	})
+	result, err := rig.parentAgent().spawnSubagent(context.Background(), spawnReq("reviewer"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := parseSubagentEnvelope(t, result)
+	if env.Status != "failed" || !strings.Contains(result, "max_turns") {
+		t.Fatalf("unfinished child result = %q, want failed with max_turns reason", result)
+	}
+	if snap := rig.lastAgentTask(); snap.Status != bgtask.StatusFailed || !strings.Contains(snap.Error, "max_turns") {
+		t.Fatalf("unfinished child task = %+v, want failed with max_turns reason", snap)
+	}
+}
+
+// A child that wrote something on the way and then ran out of turns still
+// failed, and the parent is told the text it gets is not a conclusion.
+func TestSubagentMaxTurnsWithPartialTextSaysItIsNotAConclusion(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	rig.approvedDefinition("reviewer", "max_turns: 1\n")
+	rig.setChildProvider(func(*session.State) llm.Provider {
+		return scripted(func(_ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) *llm.Response {
+			call := llm.ToolCall{ID: "more", Name: "read", InputJSON: `{"path":"README.md"}`}
+			onChunk(llm.StreamChunk{TextDelta: "Let me read the README first."})
+			onChunk(llm.StreamChunk{ToolCall: &call})
+			return &llm.Response{Content: "Let me read the README first.", ToolCalls: []llm.ToolCall{call}, StopReason: "tool_use"}
+		})
+	})
+	result, err := rig.parentAgent().spawnSubagent(context.Background(), spawnReq("reviewer"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := parseSubagentEnvelope(t, result)
+	if env.Status != "failed" || !strings.Contains(result, "before its final answer") || !strings.Contains(result, "not a conclusion") {
+		t.Fatalf("partial child result = %q, want failed with the text marked as not a conclusion", result)
+	}
+}
+
+// silentChildRuntime runs no turn at all: the child's turn "ends" at once,
+// without an error and without a single assistant message.
+type silentChildRuntime struct{ *session.Manager }
+
+func (silentChildRuntime) RunSubagentTurn(context.Context, string, []acp.ContentBlock, acp.UpdateSender) (*acp.SessionPromptResult, error) {
+	return &acp.SessionPromptResult{StopReason: acp.StopReasonEndTurn}, nil
+}
+
+// A child whose turn ends cleanly without any answer has no report to give:
+// the run fails with that reason instead of passing a placeholder off as a
+// success. The loop's own "model produced no reply" error is a different path.
+func TestSubagentEmptyAnswerFails(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	rig.approvedDefinition("reviewer", "")
+	parent := rig.parentAgent()
+	parent.SetSubagentRuntime(silentChildRuntime{rig.mgr})
+	result, err := parent.spawnSubagent(context.Background(), spawnReq("reviewer"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env := parseSubagentEnvelope(t, result); env.Status != "failed" || !strings.Contains(result, "ended with an error: the subagent produced no final message") {
+		t.Fatalf("empty child answer = %q, want failed with the missing report named", result)
+	}
+}
+
 func TestSubagentReportBlock(t *testing.T) {
 	run := &subagentRun{def: &subagents.Definition{Name: "general"}, childID: "sess_9", taskID: "bg_2",
 		status: "failed", err: errors.New("provider exploded"), turns: 3, startedAt: time.Now()}
@@ -2179,6 +2246,67 @@ func TestSpawnSubagentChildInheritsTheParentModelUnlessTheDefinitionNamesAConfig
 			}
 			if tc.wantLog == "" && strings.Contains(out, "is not configured") {
 				t.Fatalf("task log carries a fallback note without reason:\n%s", out)
+			}
+		})
+	}
+}
+
+// A scheduled run made under a definition runs at the definition's reasoning
+// level, as a spawn does: the level applies when the run's model offers it, is
+// dropped with a warning when it does not, and "default" is the model's own.
+func TestScheduledRunTakesTheDefinitionsReasoningLevel(t *testing.T) {
+	levels := []string{"low", "medium", "high"}
+	shallow := []string{"minimal"}
+	// agent.model (fake/model) is not the first row, and the two models share
+	// no level, so a check against the wrong model fails one of the cases.
+	rig := newSubagentRig(t, func(cfg *config.Config) {
+		cfg.Models = []config.ModelEntry{
+			{Model: "fake/shallow", MaxTokens: 100, ReasoningLevels: &shallow},
+			{Model: "fake/model", MaxTokens: 100, ReasoningLevels: &levels, ReasoningDefault: "medium"},
+		}
+	})
+	rig.setChildProvider(func(*session.State) llm.Provider { return scripted(answerStep("REPORT: done")) })
+	for _, tc := range []struct {
+		name, jobModel, reasoning, want string
+	}{
+		{"a level the model offers", "", "high", "high"},
+		{"a level the model does not offer", "", "xhigh", ""},
+		{"the model's own level", "", "default", ""},
+		// The job's model decides which levels there are.
+		{"a level the job's model does not offer", "fake/shallow", "high", ""},
+		{"a level only the job's model offers", "fake/shallow", "minimal", "minimal"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			def, err := subagents.Parse("nightly.md", []byte("---\ndescription: nightly check\nreasoning: "+tc.reasoning+"\n---\nCheck the build.\n"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			runID := session.NewSessionID()
+			snap, err := RunScheduledJob(context.Background(), rig.cfg, rig.mgr, bgtask.Default(), slog.Default(), ScheduledRunSpec{
+				JobID:         "nightly",
+				JobSessionID:  rig.parent.ID,
+				JobSessionDir: rig.parent.GetPersistedSessionDir(),
+				RunSessionID:  runID,
+				Label:         "nightly (manual)",
+				Trigger:       "manual",
+				CWD:           rig.cwd,
+				Mode:          "agent",
+				Model:         tc.jobModel,
+				Instruction:   "Check the build and report.",
+				Definition:    def,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := bgtask.Default().Wait(context.Background(), rig.parent.ID, snap.ID, 10*time.Second); err != nil {
+				t.Fatal(err)
+			}
+			run, err := rig.store.ReadSnapshot(runID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := run.Meta.SelectedReasoning; got != tc.want {
+				t.Fatalf("scheduled run reasoning = %q, want %q", got, tc.want)
 			}
 		})
 	}

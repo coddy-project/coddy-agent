@@ -27,9 +27,9 @@ func newUsageRemoteStand(t *testing.T) *usageRemoteStand {
 	s := &usageRemoteStand{answers: make(chan string, 8)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"object":"list","default_agent_model":"neuraldeep/qwen","data":[
+		_, _ = w.Write([]byte(`{"object":"list","data":[
 			{"id":"agent","owned_by":"coddy"},
-			{"id":"neuraldeep/qwen","owned_by":"neuraldeep"},
+			{"id":"neuraldeep/qwen","default":true,"owned_by":"neuraldeep"},
 			{"id":"stub/model","owned_by":"stub"}]}`))
 	})
 	mux.HandleFunc("POST /v1/responses", func(w http.ResponseWriter, _ *http.Request) {
@@ -189,7 +189,7 @@ func TestRemoteCloseDropsAPullAlreadyInFlight(t *testing.T) {
 	entered := make(chan struct{}, 1)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"object":"list","default_agent_model":"neuraldeep/qwen","data":[{"id":"neuraldeep/qwen","owned_by":"neuraldeep"}]}`))
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"neuraldeep/qwen","default":true,"owned_by":"neuraldeep"}]}`))
 	})
 	mux.HandleFunc("GET /coddy/providers/{name}/usage", func(w http.ResponseWriter, _ *http.Request) {
 		select {

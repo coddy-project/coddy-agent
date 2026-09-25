@@ -201,11 +201,12 @@ type modelRow struct {
 	Multimodal       bool     `json:"multimodal,omitempty"`
 	ReasoningLevels  []string `json:"reasoning_levels,omitempty"`
 	ReasoningDefault string   `json:"reasoning_default,omitempty"`
+	// Default marks the row the server runs a session that selected no model on.
+	Default bool `json:"default,omitempty"`
 }
 
 type modelsResponse struct {
-	Data              []modelRow `json:"data"`
-	DefaultAgentModel string     `json:"default_agent_model"`
+	Data []modelRow `json:"data"`
 }
 
 // ensureModels fetches the remote model catalog once. It doubles as the
@@ -222,15 +223,27 @@ func (h *Handler) ensureModels(ctx context.Context) error {
 		return err
 	}
 	var models []remoteModel
+	defModel := ""
 	for _, row := range res.Data {
 		if row.OwnedBy == "coddy" {
 			continue // "agent"/"plan"/"ask" profiles, not selectable backends
 		}
-		models = append(models, remoteModel(row))
+		if row.Default && defModel == "" {
+			defModel = row.ID
+		}
+		models = append(models, remoteModel{
+			ID:               row.ID,
+			OwnedBy:          row.OwnedBy,
+			Multimodal:       row.Multimodal,
+			ReasoningLevels:  row.ReasoningLevels,
+			ReasoningDefault: row.ReasoningDefault,
+		})
 	}
 	h.mu.Lock()
 	h.models = models
-	h.defModel = res.DefaultAgentModel
+	// A server that marks no row (agent.model empty, or an older server)
+	// leaves the first backend as the best guess.
+	h.defModel = defModel
 	if h.defModel == "" && len(models) > 0 {
 		h.defModel = models[0].ID
 	}

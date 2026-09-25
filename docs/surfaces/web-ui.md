@@ -710,7 +710,7 @@ The chat transcript renders a flat list of UI message blocks. Each block has a `
 - `user_message`
   - Plain user input text (**no Markdown**; **`pre-wrap`** preserves line breaks).
 - `background_wake`
-  - The first row of a turn nobody typed: background tasks the model started with **`notify_on_finish`** ended and the server woke the agent ([Background tasks](../features/background-tasks.md#what-the-woken-turn-looks-like)). It renders as **nothing**, neither a user bubble nor a note: the agent's answer follows the previous turn as the work carrying on, and the bell on the task's card in the Tasks panel says what woke it (*Woke the agent when it ended*).
+  - The first row of a turn nobody typed: background tasks the model started ended and the server woke the agent (**`notify_on_finish`**, on by default) ([Background tasks](../features/background-tasks.md#what-the-woken-turn-looks-like)). It renders as **nothing**, neither a user bubble nor a note: the agent's answer follows the previous turn as the work carrying on, and the bell on the task's card in the Tasks panel says what woke it (*Woke the agent when it ended*).
   - Built from the **`background_wake`** frame of the relay while the turn streams and from the **`background_wake`** field of the message after a reload (**`parseBackgroundWakeTasks`** in **`chat/backgroundWake.ts`** reads both shapes). It opens a turn like a user message: the live status line counts from it, the next edit counts it the way the server counts user messages, and a failed woken turn offers no retry - nothing typed to send again.
 - `thinking`
   - Renders model reasoning as a lightweight disclosure row.

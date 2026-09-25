@@ -14,12 +14,8 @@ import (
 // reasoning level it runs on.
 const ToolSwitchModel = "switch_model"
 
-// SwitchModelTool lets the model pick its own model and reasoning level from
-// the configured ones: a stronger model or deeper reasoning for a hard step, a
-// faster or cheaper one for bulk work. The change applies from the next model
-// request; it lasts until the turn ends unless the call asks for the session.
-// The configured models are listed in the description, so the choice is made
-// among what exists.
+// SwitchModelTool changes the model or reasoning level when the user requests
+// it. The configured models are listed so the requested choice can be checked.
 func SwitchModelTool(cfg *config.Config) *tooling.Tool {
 	var models []string
 	if cfg != nil {
@@ -32,11 +28,10 @@ func SwitchModelTool(cfg *config.Config) *tooling.Tool {
 			models = append(models, line)
 		}
 	}
-	description := "Switch the model you run on and/or its reasoning level, from your next request. " +
-		"Pick a stronger model or a higher reasoning level for a step that needs it (a hard bug, a design decision, a subtle review) " +
-		"and a faster one or a lower level for bulk or routine work; say why in your reply. " +
-		"By default the change lasts until this turn ends; scope \"session\" keeps it for the conversation, as the user's /model command would, " +
-		"so use it only when the user asked for a lasting change. The reasoning level \"off\" turns thinking off where the model offers it, " +
+	description := "Switch the model you run on and/or its reasoning level from your next request, only when the user asks in this conversation. " +
+		"Do not switch on your own for a difficult step or for ordinary work. " +
+		"By default the user's choice lasts for the session, like /model. Use scope \"turn\" only when the user limited the request to this turn or task. " +
+		"The reasoning level \"off\" turns thinking off where the model offers it, " +
 		"\"default\" goes back to the model's own level."
 	if len(models) > 0 {
 		description += "\n\nConfigured models:\n" + strings.Join(models, "\n")
@@ -50,16 +45,16 @@ func SwitchModelTool(cfg *config.Config) *tooling.Tool {
 				"properties": map[string]interface{}{
 					"model": map[string]interface{}{
 						"type":        "string",
-						"description": "A configured model id from the list above; omit to keep the current model",
+						"description": "A configured model id from the list above, " + tooling.ModelChoiceRule + "; omit to keep the current model",
 					},
 					"reasoning": map[string]interface{}{
 						"type":        "string",
-						"description": "A reasoning level the chosen model offers, \"off\" or \"default\"; omit to keep the current one",
+						"description": "A reasoning level the chosen model offers, \"off\" or \"default\", " + tooling.ModelChoiceRule + "; omit to keep the current one",
 					},
 					"scope": map[string]interface{}{
 						"type":        "string",
 						"enum":        []interface{}{"turn", "session"},
-						"description": "turn (default): until this turn ends; session: for the rest of the conversation",
+						"description": "session (default): for the rest of the conversation; turn: only for this turn or task when the user asks",
 					},
 				},
 			},
@@ -86,9 +81,9 @@ func executeSwitchModel(ctx context.Context, argsJSON string, env *tooling.Env) 
 		Reasoning: strings.TrimSpace(args.Reasoning),
 	}
 	switch strings.ToLower(strings.TrimSpace(args.Scope)) {
-	case "", "turn":
-	case "session":
+	case "", "session":
 		req.Session = true
+	case "turn":
 	default:
 		return "", fmt.Errorf("scope must be turn or session, got %q", args.Scope)
 	}

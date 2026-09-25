@@ -734,8 +734,8 @@ is what deleting it meant.
 ## Woken turns land in the chat
 
 The agent in a chat can start a long command or a subagent in the background
-with `notify_on_finish` and end its turn: when the task ends, the process
-wakes the agent ([Background tasks](../features/background-tasks.md#waking-the-agent-when-a-task-finishes)).
+and end its turn: when the task ends, the process wakes the agent, unless the
+call set `notify_on_finish: false` ([Background tasks](../features/background-tasks.md#waking-the-agent-when-a-task-finishes)).
 The woken turn belongs to the chat bound to the session, so the bot runs it
 there, through the chat's own sender, exactly like a message the person sent:
 

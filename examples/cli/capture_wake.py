@@ -37,7 +37,7 @@ RULES = [
     {"match": "start the build", "tool": {"name": "run_command", "arguments": {
         "command": "make build", "background": True, "notify_on_finish": True, "expected_seconds": 600}},
      "answer": "The build is running in the background; I will be woken when it ends."},
-    {"match": "background task you asked to be notified about", "answer": WOKEN_ANSWER},
+    {"match": "background task you started has finished", "answer": WOKEN_ANSWER},
 ]
 
 tmp = Path(tempfile.mkdtemp(prefix="coddy-wake-shot-"))
@@ -151,7 +151,7 @@ try:
     tui.wait_for("pick up the result", timeout=30)
     # The test run fails a few seconds later and the agent carries on by itself.
     tui.wait_for("fix the parser next", timeout=60)
-    for unwanted in ("background task you asked to be notified about", "Woken by"):
+    for unwanted in ("background task you started has finished", "Woken by"):
         if unwanted in tui.text():
             raise AssertionError(f"the woken turn shows {unwanted!r}:\n{tui.text()}")
     tui.pump(1.0)
