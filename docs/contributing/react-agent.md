@@ -209,7 +209,7 @@ messages: [
 1. BUILD_MESSAGES
    - Load applicable skills and project rules for current context (separate prompt sections)
    - Build system prompt (template + TemplateData incl. TodoList snapshot)
-   - For the last user message, detect `/name` invocations: prepend each matched skill's body to the message content before the LLM call. This augmentation is ephemeral — not persisted to session history, not shown in the chat transcript.
+   - Skill bodies are already in the history: on Run entry, before the user turn is persisted, Run appends the body of each skill the typed text invokes as `/name` to that message as a `<coddy_attachment kind="skill">` element (`invokedSkillBlocks`), so later requests replay the same bytes and the prefix cache holds. Surfaces leave the element out of the transcript (`mention.ForDisplay`, `stripCoddyAttachments.ts`); queued follow-ups get their skill bodies the same way.
    - Prepend system to session history (user turn already persisted on Run entry)
 
 2. LLM_CALL

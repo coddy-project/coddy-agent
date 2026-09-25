@@ -1,6 +1,6 @@
 # Slash commands
 
-The built-in commands on each surface and how skills become commands. A slash command is one of five things: a settings command (`/model`, `/reasoning`, `/think`, `/nothink`, `/agent`, `/plan`, `/ask`, `/permissions`), which the session manager takes off the start of a prompt on every surface and applies before any turn starts; a client-side command of the console, which never leaves the terminal; a deterministic built-in (`/compact`, `/export`, `/plugin`), which the agent recognises before the prompt becomes a message and runs without a turn of the model; a Telegram bot command, handled by the adapter; or a skill, whose body is prepended to the message for the model. The first four run whatever the session mode is, because they are operator input rather than tool calls.
+The built-in commands on each surface and how skills become commands. A slash command is one of five things: a settings command (`/model`, `/reasoning`, `/think`, `/nothink`, `/agent`, `/plan`, `/ask`, `/permissions`), which the session manager takes off the start of a prompt on every surface and applies before any turn starts; a client-side command of the console, which never leaves the terminal; a deterministic built-in (`/compact`, `/export`, `/plugin`), which the agent recognises before the prompt becomes a message and runs without a turn of the model; a Telegram bot command, handled by the adapter; or a skill, whose body the agent writes into the message that invokes it, as an attachment after the typed text. The first four run whatever the session mode is, because they are operator input rather than tool calls.
 
 ## The commands
 
@@ -26,7 +26,7 @@ The built-in commands on each surface and how skills become commands. A slash co
 | `/start`, `/help` | Telegram | The greeting and the command list of the bot. | [Telegram gateway](../surfaces/gateway.md#commands) |
 | `/context` | Telegram | The context window usage of the chat's session by category. | [Telegram gateway](../surfaces/gateway.md#commands) |
 | `/clear` | Telegram | Starts a new session for the chat; the old one stays on disk, and `/resume` brings it back. | [Telegram gateway](../surfaces/gateway.md#session-lifecycle) |
-| `/<skill>` | console, web UI, ACP editors, `POST /v1/responses` | Runs a skill: the full `SKILL.md` body is prepended to the message the model receives for this turn. | [Skills](../features/skills.md#how-skills-are-applied) |
+| `/<skill>` | console, web UI, ACP editors, `POST /v1/responses` | Runs a skill: the full `SKILL.md` body is written into the message that invokes it, as an attachment after the typed text, and later turns replay it. | [Skills](../features/skills.md#how-skills-are-applied) |
 
 Three boundaries follow from the code:
 
