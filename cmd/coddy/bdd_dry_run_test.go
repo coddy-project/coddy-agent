@@ -16,6 +16,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -270,6 +271,44 @@ func (s *dryRunState) marksOKMentioning(path, text string) error {
 	return nil
 }
 
+// mcpRunning writes a server whose command line is given in words, and puts
+// a stand-in for its command on PATH so the command check passes and the
+// args check is what the scenario reads.
+func (s *dryRunState) mcpRunning(server, cmdline string) error {
+	words := strings.Fields(cmdline)
+	if len(words) == 0 {
+		return fmt.Errorf("empty command line")
+	}
+	bin := filepath.Join(filepath.Dir(s.cfgPath), "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		return err
+	}
+	name, body := words[0], "#!/bin/sh\nexit 0\n"
+	if runtime.GOOS == "windows" {
+		name, body = words[0]+".cmd", "@echo off\r\n"
+	}
+	if err := os.WriteFile(filepath.Join(bin, name), []byte(body), 0o755); err != nil {
+		return err
+	}
+	s.setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	args := make([]string, 0, len(words)-1)
+	for _, w := range words[1:] {
+		args = append(args, strconv.Quote(w))
+	}
+	return s.write(dryRunModeline + fmt.Sprintf("mcp_servers:\n  - name: %s\n    command: %s\n    args: [%s]\n", server, words[0], strings.Join(args, ", ")))
+}
+
+func (s *dryRunState) marksWarningMentioning(path, text string) error {
+	l, err := s.checkLine("warning", path)
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(l, text) {
+		return fmt.Errorf("the warning line for %s does not mention %q: %s", path, text, l)
+	}
+	return nil
+}
+
 func (s *dryRunState) marksErrorMentioning(path, text string) error {
 	l, err := s.checkLine("error", path)
 	if err != nil {
@@ -312,6 +351,7 @@ func initializeDryRunScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the config uses model "([^"]*)"$`, s.usesModel)
 	sc.Step(`^a config\.yaml whose provider "([^"]*)" points at a model server that rejects every request$`, s.providerRejecting)
 	sc.Step(`^a config\.yaml with an MCP server "([^"]*)" whose command is "([^"]*)"$`, s.mcpCommand)
+	sc.Step(`^a config\.yaml with an MCP server "([^"]*)" running "([^"]*)"$`, s.mcpRunning)
 	sc.Step(`^a config\.yaml enabling the Telegram gateway with a token the Bot API accepts as "([^"]*)"$`, s.telegramAccepting)
 	sc.Step(`^a config\.yaml whose prompts\.dir points at a folder that does not exist$`, s.promptsDirMissing)
 	sc.Step(`^a config\.yaml whose httpserver section says "enabled: true" on line (\d+)$`, s.misspelledHTTPServerKey)
@@ -330,6 +370,7 @@ func initializeDryRunScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the report marks ([^ ]+) as ok$`, s.marksOK)
 	sc.Step(`^the report marks ([^ ]+) as ok mentioning "([^"]*)"$`, s.marksOKMentioning)
 	sc.Step(`^the report marks ([^ ]+) as an error mentioning "([^"]*)"$`, s.marksErrorMentioning)
+	sc.Step(`^the report marks ([^ ]+) as a warning mentioning "([^"]*)"$`, s.marksWarningMentioning)
 	sc.Step(`^the report points at line (\d+) of the config file$`, s.pointsAtLine)
 	sc.Step(`^the report points at the line of "([^"]*)"$`, s.pointsAtLineOf)
 }

@@ -31,7 +31,7 @@ Configuration edits never apply immediately. The flow is always:
 | `set agent.max_turns=40` | Set a scalar field |
 | `set logger.level=debug` | String fields take the literal text |
 | `add_list logger.levels={"component":"gateway.telegram","level":"debug"}` | Raise one subsystem without turning the whole process to debug |
-| `set mcp_servers[name=context7]={"command":"npx","args":["-y","@upstash/context7-mcp"]}` | Set (or append) a named sequence entry; value is JSON |
+| `set mcp_servers[name=context7]={"command":"npx","args":["-y","@upstash/context7-mcp"]}` | Set (or append) a named sequence entry; value is JSON. An `npx -y` package without a version is pinned to its current release as one more staged command (see MCP servers) |
 | `add_list skills.dirs=/home/dev/.agents/skills` | Append to a list |
 | `del_list skills.dirs=/home/dev/.agents/skills` | Remove a matching list entry |
 | `delete mcp_servers[name=context7]` | Delete a field or entry |
@@ -90,7 +90,7 @@ For third-party MCP servers, use `websearch` and `webfetch` to verify the offici
 set mcp_servers[name=context7]={"command":"npx","args":["-y","@upstash/context7-mcp"],"env":[{"name":"API_KEY","value":"${CONTEXT7_API_KEY}"}]}
 ```
 
-The selector forces the stored `name` to match. After the user confirms and `config_commit` succeeds, the server's tools become available in the same turn under the server namespace. If the commit returns an MCP connection warning, diagnose it before claiming the installation succeeded. To remove a server, stage `delete mcp_servers[name=...]` and commit the same way.
+The selector forces the stored `name` to match. When the staged entry runs `npx -y <package>` without a version, `config_set` reads the package's current release from the npm registry and stages a second command, `set mcp_servers[name=context7].args=["-y","@upstash/context7-mcp@<version>"]`, so the server starts from the cache instead of asking the registry on every session start (an unpinned package puts a network round trip in front of each start and hangs the console when the network is down). The tool's answer carries a `pinned` list - `package`, `version`, `pinned`, `message` - and you **tell the user what it says before asking them to save**: which package was pinned to which version, or, when `pinned` is `false`, that the registry could not be read and the pin should be added by hand as `<package>@<version>`. To update a pinned server later, stage its `args` with the new version (or without one: the current release is pinned again). After the user confirms and `config_commit` succeeds, the server's tools become available in the same turn under the server namespace. If the commit returns an MCP connection warning, diagnose it before claiming the installation succeeded. To remove a server, stage `delete mcp_servers[name=...]` and commit the same way.
 
 ## Skills
 

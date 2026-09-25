@@ -232,6 +232,11 @@ skills:
 # ~/.cursor/mcp.json). Project-local servers live in <workspace>/.coddy/mcp.json
 # (the "local" scope). Later levels override same-named servers from earlier ones.
 # Remove the [] below when uncommenting an example entry.
+# Give an npx package a version ("@modelcontextprotocol/server-github@2026.9.1"):
+# without one, npx asks the npm registry for the latest release on every start,
+# even from its cache, so each session waits on the network and the console
+# hangs without it. Servers registered from Settings or by the agent are pinned
+# for you; `coddy --dry-run` warns about an unpinned one written here by hand.
 mcp_servers: []
   # Example: filesystem MCP server
   # - name: "filesystem"

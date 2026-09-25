@@ -113,9 +113,14 @@ def prepare_home(name: str, model: str = DEFAULT_MODEL) -> tuple[Path, Path]:
     return home, work
 
 
-def _render_config_into(home: Path, model: str) -> None:
+def _render_config_into(home: Path, model: str, mcp_servers: list[dict] | None = None) -> None:
     template = (REPO_ROOT / "examples" / "config.demo.yaml").read_text()
     resolved = template.replace("__E2E_LOG_PATH__", str(home / "e2e.log"))
+    if mcp_servers:
+        # YAML reads JSON, so the list lands as a flow sequence in place of
+        # the template's empty one.
+        assert "mcp_servers: []" in resolved, "config.demo.yaml lost its mcp_servers line"
+        resolved = resolved.replace("mcp_servers: []", "mcp_servers: " + json.dumps(mcp_servers))
     resolved = resolved.replace(
         'model: "rpa/qwen3.6-35b-a3b"\n  max_turns', f'model: "{model}"\n  max_turns'
     )
@@ -152,9 +157,11 @@ class CoddyTUI:
         workdir: str | None = None,
         permission_mode: str | None = None,
         env_extra: dict[str, str] | None = None,
+        mcp_servers: list[dict] | None = None,
     ) -> None:
         self.name = name
         self.model = model
+        self.mcp_servers = mcp_servers
         self.home = Path(home) if home else Path(tempfile.mkdtemp(prefix=f"coddy-cli-{name}-home-"))
         self.workdir = Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix=f"coddy-cli-{name}-work-"))
         self.home.mkdir(parents=True, exist_ok=True)
@@ -195,7 +202,7 @@ class CoddyTUI:
         )
 
     def _render_config(self) -> None:
-        _render_config_into(self.home, self.model)
+        _render_config_into(self.home, self.model, self.mcp_servers)
 
     def _seed_env_file(self) -> None:
         """Copy exactly the NEURALDEEP_API_KEY line into the temp home .env."""

@@ -99,6 +99,15 @@ type State struct {
 	// definitions the turn already sent to the model, so the reload is parked
 	// here and drained when the turn releases the lock.
 	mcpReloadPending bool
+	// mcpConnect is the progress of a background dial of the configured
+	// servers (mcp_background.go); mcpConnectRecorded says one was started.
+	// mcpConnectDone is closed when it settles, mcpConnectCancel ends it
+	// early, and mcpClientsGen tells a late result from a superseded dial.
+	mcpConnect         MCPConnectUpdate
+	mcpConnectRecorded bool
+	mcpConnectDone     chan struct{}
+	mcpConnectCancel   context.CancelFunc
+	mcpClientsGen      uint64
 
 	// pendingReadyNotify holds session updates that must not reach the client
 	// before the response carrying this session id is on the wire. Only
@@ -528,6 +537,7 @@ func (s *State) replaceConfiguredMCPClients(clients []*mcp.Client) {
 		}
 		return
 	}
+	s.cancelBackgroundMCPLocked()
 	previous := s.configuredMCPClients
 	s.configuredMCPClients = append([]*mcp.Client(nil), clients...)
 	s.mu.Unlock()
@@ -1601,6 +1611,7 @@ func (s *State) CloseAll() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.mcpClosed = true
+	s.cancelBackgroundMCPLocked()
 	for _, c := range s.configuredMCPClients {
 		_ = c.Close()
 	}
@@ -1737,4 +1748,129 @@ func (s *State) AddWriteGrantIfNew(key string) {
 	s.PermissionWriteGrants = append(s.PermissionWriteGrants, key)
 	s.mu.Unlock()
 	s.touchPersist()
+}
+
+// ---- background MCP connect (mcp_background.go) ----
+
+// beginBackgroundMCP records the servers a background dial is about to
+// connect and returns the generation the dial belongs to and the context it
+// runs under. The context is the state's own: a teardown or a settings
+// reload cancels it, a request ending does not.
+func (s *State) beginBackgroundMCP(servers []MCPServerConnect) (uint64, context.Context) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cancelBackgroundMCPLocked()
+	s.mcpClientsGen++
+	ctx, cancel := context.WithCancel(context.Background())
+	s.mcpConnect = MCPConnectUpdate{Servers: append([]MCPServerConnect(nil), servers...)}
+	s.mcpConnectRecorded = true
+	s.mcpConnectDone = make(chan struct{})
+	s.mcpConnectCancel = cancel
+	if s.mcpClosed {
+		// Nothing to dial for: the caller's finish closes what it connected.
+		cancel()
+	}
+	return s.mcpClientsGen, ctx
+}
+
+// settleBackgroundMCP records how one server of the dial of generation gen
+// ended. It reports whether the record was taken; a superseded dial is ignored.
+func (s *State) settleBackgroundMCP(gen uint64, i int, entry MCPServerConnect) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if gen != s.mcpClientsGen || i < 0 || i >= len(s.mcpConnect.Servers) {
+		return false
+	}
+	s.mcpConnect.Servers[i] = entry
+	return true
+}
+
+// finishBackgroundMCP installs the clients the dial of generation gen
+// connected and marks it done, releasing the turns waiting for it. A dial a
+// reload or a teardown superseded keeps nothing: its clients are closed, and
+// it reports false.
+func (s *State) finishBackgroundMCP(gen uint64, clients []*mcp.Client) bool {
+	s.mu.Lock()
+	if gen != s.mcpClientsGen || s.mcpClosed {
+		s.mu.Unlock()
+		for _, client := range clients {
+			_ = client.Close()
+		}
+		return false
+	}
+	s.configuredMCPClients = append(s.configuredMCPClients, clients...)
+	s.mcpConnect.Done = true
+	done, cancel := s.mcpConnectDone, s.mcpConnectCancel
+	s.mcpConnectDone, s.mcpConnectCancel = nil, nil
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if done != nil {
+		close(done)
+	}
+	return true
+}
+
+// cancelBackgroundMCPLocked ends a background dial still running, marks its
+// record done so a waiting turn proceeds with what there is, and moves the
+// generation on so the dial's late result is closed instead of installed.
+// The caller holds s.mu.
+func (s *State) cancelBackgroundMCPLocked() {
+	if s.mcpConnectCancel != nil {
+		s.mcpConnectCancel()
+		s.mcpConnectCancel = nil
+	}
+	if s.mcpConnectDone != nil {
+		close(s.mcpConnectDone)
+		s.mcpConnectDone = nil
+	}
+	if s.mcpConnectRecorded && !s.mcpConnect.Done {
+		for i := range s.mcpConnect.Servers {
+			if s.mcpConnect.Servers[i].State == MCPConnectStateConnecting {
+				s.mcpConnect.Servers[i].State = MCPConnectStateFailed
+				s.mcpConnect.Servers[i].Error = "connect cancelled"
+			}
+		}
+		s.mcpConnect.Done = true
+	}
+	s.mcpClientsGen++
+}
+
+// cancelBackgroundMCPConnect ends a background dial still running for the
+// session (see cancelBackgroundMCPLocked).
+func (s *State) cancelBackgroundMCPConnect() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cancelBackgroundMCPLocked()
+}
+
+// MCPConnectSnapshot returns a copy of the background connect's progress and
+// whether the session ever started one. A session created with connects in
+// the foreground reports false, and its surface shows nothing.
+func (s *State) MCPConnectSnapshot() (MCPConnectUpdate, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if !s.mcpConnectRecorded {
+		return MCPConnectUpdate{}, false
+	}
+	return s.mcpConnect.clone(), true
+}
+
+// WaitMCPConnect blocks until the session's background MCP dial has settled,
+// or ctx ends. A session with no dial pending returns at once. The dial is
+// bounded by the per-server connect timeout, so the wait is too.
+func (s *State) WaitMCPConnect(ctx context.Context) error {
+	s.mu.RLock()
+	done := s.mcpConnectDone
+	s.mu.RUnlock()
+	if done == nil {
+		return nil
+	}
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }

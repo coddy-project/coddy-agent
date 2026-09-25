@@ -408,3 +408,72 @@ test("under deny the shields disappear too", async () => {
     screen.getByTestId("mcp-trust-note-audit-marker").textContent,
   ).toContain("mcp.project_trust: deny");
 });
+
+// The save response of an npx entry carries what the server did about its
+// version; the notice under the list says it in the operator's language.
+test("saving an npx entry shows what was pinned", async () => {
+  const pin = {
+    server: "context7",
+    package: "@upstash/context7-mcp",
+    version: "1.0.14",
+    pinned: true,
+    message: "Pinned @upstash/context7-mcp to 1.0.14",
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.method === "PUT") {
+        return Promise.resolve({ ok: true, json: async () => ({ ok: true, pin }) });
+      }
+      return Promise.resolve({ ok: true, json: async () => listResponse });
+    }),
+  );
+  render(<MCPSection />);
+  await waitFor(() => expect(screen.getByTestId("mcp-list")).toBeTruthy());
+
+  fireEvent.click(screen.getByTestId("mcp-add-server"));
+  fireEvent.change(screen.getByTestId("mcp-editor-name"), {
+    target: { value: "context7" },
+  });
+  fireEvent.click(screen.getByTestId("mcp-editor-save"));
+
+  await waitFor(() =>
+    expect(screen.getByTestId("mcp-pin-notice").textContent).toContain(
+      "@upstash/context7-mcp to 1.0.14",
+    ),
+  );
+  expect(screen.getByTestId("mcp-pin-notice").className).toContain("settings-muted");
+});
+
+test("an unresolved npx entry is a warning under the list", async () => {
+  const pin = {
+    server: "docker",
+    package: "mcp-server-docker",
+    pinned: false,
+    message: "Could not read the current version",
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.method === "PUT") {
+        return Promise.resolve({ ok: true, json: async () => ({ ok: true, pin }) });
+      }
+      return Promise.resolve({ ok: true, json: async () => listResponse });
+    }),
+  );
+  render(<MCPSection />);
+  await waitFor(() => expect(screen.getByTestId("mcp-list")).toBeTruthy());
+
+  fireEvent.click(screen.getByTestId("mcp-add-server"));
+  fireEvent.change(screen.getByTestId("mcp-editor-name"), {
+    target: { value: "docker" },
+  });
+  fireEvent.click(screen.getByTestId("mcp-editor-save"));
+
+  await waitFor(() =>
+    expect(screen.getByTestId("mcp-pin-notice").textContent).toContain(
+      "mcp-server-docker@<version>",
+    ),
+  );
+  expect(screen.getByTestId("mcp-pin-notice").className).toContain("settings-error");
+});

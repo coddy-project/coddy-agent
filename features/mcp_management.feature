@@ -47,3 +47,9 @@ Feature: MCP server management
     When I delete the MCP server "added"
     Then the MCP list does not show server "added"
     And the project mcp.json does not contain server "added"
+
+  Scenario: Adding an unpinned npx server pins the current release
+    Given the npm registry reports version "1.0.14" for "@upstash/context7-mcp"
+    When I add a project MCP server "context7" running "npx -y @upstash/context7-mcp"
+    Then the project mcp.json runs "@upstash/context7-mcp@1.0.14" for server "context7"
+    And the save response says "@upstash/context7-mcp" was pinned to "1.0.14"

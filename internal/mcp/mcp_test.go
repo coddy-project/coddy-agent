@@ -317,7 +317,7 @@ func TestUpsertServerScopes(t *testing.T) {
 	cfg, _, home := writeTestConfig(t)
 	cwd := t.TempDir()
 
-	if err := UpsertServer(cfg, cwd, "glob", ScopeGlobal, config.MCPJSONServer{Command: "glob-mcp"}); err != nil {
+	if _, err := UpsertServer(context.Background(), cfg, cwd, "glob", ScopeGlobal, config.MCPJSONServer{Command: "glob-mcp"}, nil); err != nil {
 		t.Fatalf("upsert global: %v", err)
 	}
 	entries, _ := config.ReadMCPJSONFile(config.GlobalMCPJSONPath(home))
@@ -325,7 +325,7 @@ func TestUpsertServerScopes(t *testing.T) {
 		t.Errorf("global mcp.json = %+v, want glob", entries)
 	}
 
-	if err := UpsertServer(cfg, cwd, "loc", ScopeLocal, config.MCPJSONServer{Command: "loc-mcp"}); err != nil {
+	if _, err := UpsertServer(context.Background(), cfg, cwd, "loc", ScopeLocal, config.MCPJSONServer{Command: "loc-mcp"}, nil); err != nil {
 		t.Fatalf("upsert local: %v", err)
 	}
 	entries, _ = config.ReadMCPJSONFile(config.MCPJSONPath(cwd))
@@ -333,7 +333,7 @@ func TestUpsertServerScopes(t *testing.T) {
 		t.Errorf("project mcp.json = %+v, want loc", entries)
 	}
 
-	if err := UpsertServer(cfg, cwd, "x", "nope", config.MCPJSONServer{Command: "x"}); err == nil {
+	if _, err := UpsertServer(context.Background(), cfg, cwd, "x", "nope", config.MCPJSONServer{Command: "x"}, nil); err == nil {
 		t.Error("unknown scope must error")
 	}
 }

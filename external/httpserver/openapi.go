@@ -2398,7 +2398,31 @@ func openAPISpec() map[string]interface{} {
 						},
 					},
 					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Server saved."},
+						"200": map[string]interface{}{
+							"description": "Server saved. `pin` is present when the entry runs `npx -y <package>`: an unpinned package is rewritten to the registry's current release before the file is written (`pinned: true`, `version`), or saved as it was when the registry could not be read (`pinned: false`); `message` explains either outcome in the operator's words.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"ok": map[string]interface{}{"type": "boolean"},
+											"pin": map[string]interface{}{
+												"type": "object",
+												"properties": map[string]interface{}{
+													"server":  map[string]interface{}{"type": "string"},
+													"package": map[string]interface{}{"type": "string", "description": "The npm package the entry runs, scope included."},
+													"version": map[string]interface{}{"type": "string", "description": "The release the arguments now name; absent when not pinned."},
+													"pinned":  map[string]interface{}{"type": "boolean"},
+													"message": map[string]interface{}{"type": "string", "description": "What was done and why: an unpinned `npx -y` asks the registry for the latest release on every start, so the console waits on the network before its first frame."},
+												},
+												"required": []string{"server", "package", "pinned", "message"},
+											},
+										},
+										"required": []string{"ok"},
+									},
+								},
+							},
+						},
 						"400": errorResponseRef(),
 						"500": errorResponseRef(),
 					},

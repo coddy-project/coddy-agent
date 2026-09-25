@@ -128,3 +128,15 @@ Feature: Agent-managed Coddy configuration
     Then the rollback warns that the previous configuration replaced the current one
     And config path "agent.max_turns" equals "17"
     And the runtime config is reloaded twice
+
+  Scenario: Staging an unpinned npx server pins the current release
+    Given the npm registry reports version "1.0.14" for "@upstash/context7-mcp"
+    When the agent stages config commands:
+      """
+      set mcp_servers[name=context7]={"command":"npx","args":["-y","@upstash/context7-mcp"]}
+      """
+    Then the staging result reports "@upstash/context7-mcp" pinned to "1.0.14"
+    And the change list shows the command:
+      """
+      set mcp_servers[name=context7].args=["-y","@upstash/context7-mcp@1.0.14"]
+      """

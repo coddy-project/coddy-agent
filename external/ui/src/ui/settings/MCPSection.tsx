@@ -44,11 +44,22 @@ async function fetchServers(refresh = false): Promise<MCPList> {
   };
 }
 
+// MCPPinResult is what the server says about the version of an
+// `npx -y <package>` entry it just saved: pinned to the registry's current
+// release, or saved as it was when the registry could not be read.
+export type MCPPinResult = {
+  server: string;
+  package: string;
+  version?: string;
+  pinned: boolean;
+  message: string;
+};
+
 async function apiSend(
   path: string,
   method: "POST" | "PUT" | "DELETE",
   body?: unknown,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; body?: Record<string, unknown> }> {
   const init: RequestInit = { method };
   if (body !== undefined) {
     init.headers = { "Content-Type": "application/json" };
@@ -63,7 +74,29 @@ async function apiSend(
       return { ok: false, error: `HTTP ${res.status}` };
     }
   }
-  return { ok: true };
+  try {
+    const parsed = (await res.json()) as Record<string, unknown>;
+    return { ok: true, body: parsed };
+  } catch {
+    return { ok: true };
+  }
+}
+
+// pinNoticeOf turns a save response's pin into the sentence the operator
+// reads under the list: what was pinned and why, or what was left unpinned.
+export function pinNoticeOf(
+  body: Record<string, unknown> | undefined,
+  tr: (key: string, params?: Record<string, string | number>) => string,
+): { text: string; warning: boolean } | null {
+  const pin = body?.pin as MCPPinResult | undefined;
+  if (!pin || typeof pin !== "object" || !pin.package) return null;
+  if (pin.pinned) {
+    return {
+      text: tr("mcp.pin.pinned", { package: pin.package, version: pin.version ?? "" }),
+      warning: false,
+    };
+  }
+  return { text: tr("mcp.pin.unresolved", { package: pin.package }), warning: true };
 }
 
 // Plug glyph shared with the Skills list style.
@@ -175,6 +208,9 @@ export function MCPSection() {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // What the last save said about an npx package's version, shown under
+  // the list until the next save.
+  const [pinNotice, setPinNotice] = useState<{ text: string; warning: boolean } | null>(null);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [editor, setEditor] = useState<EditorState | null>(null);
@@ -332,6 +368,7 @@ export function MCPSection() {
       if (!res.ok) {
         setEditorError(res.error || translate("mcp.error.saveServer"));
       } else {
+        setPinNotice(pinNoticeOf(res.body, t));
         setEditor(null);
         await loadServers();
       }
@@ -394,6 +431,14 @@ export function MCPSection() {
         </div>
 
         {error ? <p className="settings-error">{error}</p> : null}
+        {pinNotice ? (
+          <p
+            className={pinNotice.warning ? "settings-error" : "settings-muted"}
+            data-testid="mcp-pin-notice"
+          >
+            {pinNotice.text}
+          </p>
+        ) : null}
 
         {editor && editor.isNew ? (
           <MCPEditorCard

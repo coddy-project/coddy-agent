@@ -165,6 +165,12 @@ type cliTUIState struct {
 	usageEnvSet bool
 	// usageAsked counts the stand-in's requests (under mu).
 	usageAsked int
+
+	// mcpRelease is the file the gated MCP server of the scenario waits for
+	// before it answers initialize; mcpOffered (under mu) records the MCP
+	// clients the stub turn found on its session when it started.
+	mcpRelease string
+	mcpOffered []string
 }
 
 // syncBuffer is a goroutine-safe string sink for the one-shot print steps.
@@ -197,6 +203,7 @@ func (s *cliTUIState) reset() {
 	s.toolSeq = 0
 	s.blockedCh = nil
 	s.prevSessionID = ""
+	s.mcpRelease, s.mcpOffered = "", nil
 	if s.outside != "" {
 		_ = os.RemoveAll(s.outside)
 	}
@@ -312,6 +319,9 @@ func (s *cliTUIState) stubRunner(ctx context.Context, st *session.State, prompt 
 	}
 	s.mu.Lock()
 	s.prompts = append(s.prompts, userText)
+	for _, c := range st.GetMCPClients() {
+		s.mcpOffered = append(s.mcpOffered, c.Name())
+	}
 	s.mu.Unlock()
 	// Like the agent: a woken turn tells the surface what woke it before its
 	// first message is persisted, and the message keeps the marker.
@@ -529,6 +539,7 @@ func (s *cliTUIState) buildAppWithModels(neuraldeep, panel bool, models []config
 	var app *App
 	late := &lateBoundSender{}
 	mgr := session.NewManager(cfg, late, s.stubRunner, log, s.cwd, s.store)
+	wireLocalManager(mgr)
 	if neuraldeep {
 		s.usageClock = &usageClock{}
 		mgr.SetProviderUsageClock(s.usageClock.Now, func(d time.Duration, fn func()) func() bool {
@@ -1762,6 +1773,11 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^rules discovery is switched on for that app$`, s.rulesDiscoveryOn)
 	sc.Step(`^the session catalog holds no nested AGENTS\.md$`, s.catalogHoldsNoNestedAgents)
 	sc.Step(`^the console app starts$`, s.theConsoleAppStarts)
+	sc.Step(`^the console config declares an MCP server "([^"]*)" that answers only when released$`, s.consoleDeclaresGatedMCP)
+	sc.Step(`^the MCP server "([^"]*)" is released$`, s.mcpServerReleased)
+	sc.Step(`^the footer shows "([^"]*)"$`, s.footerShows)
+	sc.Step(`^the footer no longer shows "([^"]*)"$`, s.footerNoLongerShows)
+	sc.Step(`^the stub turn was offered the MCP server "([^"]*)"$`, s.stubTurnWasOfferedMCP)
 	sc.Step(`^the screen shows the coddy version header$`, s.screenShowsVersionHeader)
 	sc.Step(`^the screen shows the editor between horizontal borders$`, s.screenShowsEditorBorders)
 	sc.Step(`^the footer names the configured default model$`, s.footerNamesDefaultModel)
@@ -1994,4 +2010,59 @@ func (s *cliTUIState) oneShotEndsCleanly() error {
 	case <-time.After(3 * time.Second):
 		return fmt.Errorf("one-shot run did not finish")
 	}
+}
+
+// consoleDeclaresGatedMCP adds a stdio server to the scenario's config that
+// answers initialize only once its release file exists (TestHelperConsoleMCP).
+func (s *cliTUIState) consoleDeclaresGatedMCP(name string) error {
+	if s.app == nil {
+		if err := s.buildApp(); err != nil {
+			return err
+		}
+	}
+	s.mcpRelease = filepath.Join(s.home, "mcp-release-"+name)
+	s.cfg.MCPServers = append(s.cfg.MCPServers, config.MCPServerConfig{
+		Type:    "stdio",
+		Name:    name,
+		Command: os.Args[0],
+		Args:    []string{"-test.run=^TestHelperConsoleMCP$"},
+		Env: []config.EnvVarConfig{
+			{Name: consoleMCPHelperEnv, Value: "1"},
+			{Name: consoleMCPReleaseEnv, Value: s.mcpRelease},
+		},
+	})
+	return nil
+}
+
+func (s *cliTUIState) mcpServerReleased(string) error {
+	return os.WriteFile(s.mcpRelease, []byte("1"), 0o644)
+}
+
+func (s *cliTUIState) footerShows(text string) error { return s.waitScreen(text, 5*time.Second) }
+
+func (s *cliTUIState) footerNoLongerShows(text string) error {
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if !strings.Contains(s.screenText(), text) {
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("screen still shows %q; last frame:\n%s", text, s.screenText())
+}
+
+func (s *cliTUIState) stubTurnWasOfferedMCP(name string) error {
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		s.mu.Lock()
+		offered := append([]string(nil), s.mcpOffered...)
+		s.mu.Unlock()
+		for _, n := range offered {
+			if n == name {
+				return nil
+			}
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("the stub turn never saw the MCP server %q", name)
 }

@@ -274,15 +274,7 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 	if spec.ConnectMCP {
 		dialCtx, cancel := context.WithTimeout(ctx, subagentMCPDialTimeout)
 		m.connectConfiguredMCPServers(dialCtx, state)
-		for _, srv := range spec.ClientMCPServers {
-			client, err := m.connectMCPServer(dialCtx, state, srv)
-			if err != nil {
-				m.log.Warn("failed to redial client MCP server for subagent", "server", srv.Name, "error", err)
-				continue
-			}
-			state.AddSessionMCPClient(client)
-			state.RememberSessionMCPDeclaration(srv)
-		}
+		m.connectSessionMCPServers(dialCtx, state, spec.ClientMCPServers)
 		cancel()
 	}
 	if err := ctx.Err(); err != nil {

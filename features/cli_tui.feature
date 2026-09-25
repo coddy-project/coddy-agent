@@ -368,3 +368,19 @@ Feature: Interactive console TUI
     When the console app starts
     And the operator types the mention "@coddy:mentions"
     Then the mention list offers "features/mentions"
+
+  Scenario: The console draws before its MCP servers answer
+    Given the console config declares an MCP server "slow" that answers only when released
+    When the console app starts
+    Then the screen shows the coddy version header
+    And the footer shows "MCP 0/1"
+    When the MCP server "slow" is released
+    Then the footer no longer shows "MCP 0/1"
+
+  Scenario: A prompt sent while an MCP server connects waits for its tools
+    Given the console config declares an MCP server "slow" that answers only when released
+    When the console app starts
+    And the operator submits the prompt "use the slow tool"
+    Then the status line shows "Connecting MCP servers"
+    When the MCP server "slow" is released
+    Then the stub turn was offered the MCP server "slow"

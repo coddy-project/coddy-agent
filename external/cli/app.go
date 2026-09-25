@@ -77,10 +77,17 @@ type App struct {
 	editor     *tui.Editor
 	foot       *footer
 
-	spinner       *tui.Loader
-	stepStatus    liveStatus
-	stepBlocked   string
-	turnActive    bool
+	spinner     *tui.Loader
+	stepStatus  liveStatus
+	stepBlocked string
+	turnActive  bool
+	// mcpConnected of mcpTotal configured MCP servers have answered while
+	// mcpPending (mcp_status.go); mcpReported remembers the servers whose
+	// failure or hold was already said, per session.
+	mcpConnected  int
+	mcpTotal      int
+	mcpPending    bool
+	mcpReported   map[string]bool
 	turnSessionID string
 	// The running turn's own numbers, which lead the status line (status.go): when it
 	// started, the tokens the model has generated in it (acp.TurnProgressUpdate) and
@@ -444,6 +451,17 @@ func (a *App) populateHeader() {
 		mcpNames = append(mcpNames, srv.Name)
 	}
 	a.header.SetSections(contextFiles, skillNames, rulesCount, mcpNames)
+	a.seedMCPStatus()
+}
+
+// initialTurnStatus is the first step of a turn: waiting for the model, or,
+// while the session's configured MCP servers are still connecting, the wait
+// for their tool list that comes before it.
+func (a *App) initialTurnStatus() liveStatus {
+	if a.mcpPending {
+		return newWorkingStatus(statusConnectingMCP, mcpStatusStep)
+	}
+	return newWaitingStatus()
 }
 
 // Run drives the UI loop until quit. The terminal must already be started.
@@ -804,7 +822,7 @@ func (a *App) startTurnWorker(params acp.SessionPromptParams, opts *session.Prom
 		a.setQueueRows(nil)
 	}
 	a.curAssistant = nil
-	a.stepStatus = newWaitingStatus()
+	a.stepStatus = a.initialTurnStatus()
 	a.stepBlocked = ""
 	a.turnStartedAt = time.Now()
 	a.turnTokens = 0
