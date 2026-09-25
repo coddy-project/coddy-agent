@@ -126,8 +126,8 @@ func newFakeRemoteServer(answer string) *fakeRemoteServer {
 		_, _ = w.Write([]byte(`{"object":"list","data":[
 			{"id":"agent","object":"model","owned_by":"coddy"},
 			{"id":"plan","object":"model","owned_by":"coddy"},
-			{"id":"remote/deep-1","object":"model","owned_by":"neuraldeep"},
-			{"id":"remote/deep-2","default":true,"object":"model","owned_by":"neuraldeep"}]}`))
+			{"id":"remote/deep-1","default":true,"object":"model","owned_by":"neuraldeep"},
+			{"id":"remote/deep-2","object":"model","owned_by":"neuraldeep"}]}`))
 	}))
 	mux.HandleFunc("POST /v1/responses", f.withAuth(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
@@ -166,7 +166,7 @@ func newFakeRemoteServer(answer string) *fakeRemoteServer {
 		})
 		_, _ = fmt.Fprintf(w, "event: token_usage\ndata: {\"sessionUpdate\":\"token_usage\",\"inputTokens\":7,\"outputTokens\":3,\"totalTokens\":10}\n\n")
 		_, _ = fmt.Fprintf(w, "data: %s\n\n", chunk)
-		_, _ = fmt.Fprintf(w, "event: coddy_meta\ndata: {\"metadata\":{\"model\":\"remote/deep-2\",\"api_model\":\"deep-2\"}}\n\n")
+		_, _ = fmt.Fprintf(w, "event: coddy_meta\ndata: {\"metadata\":{\"model\":\"remote/deep-1\",\"api_model\":\"deep-1\"}}\n\n")
 		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
 	}))
 	// The three background-task routes of external/httpserver/background_http.go.
@@ -343,9 +343,11 @@ func (s *cliRemoteState) screenShowsRemoteBanner() error {
 }
 
 func (s *cliRemoteState) footerNamesRemoteModel() error {
-	// The footer renders the selector as "(provider) model"; the server's
-	// default is the row it marks, not the first one it lists.
-	return s.waitScreen("(remote) deep-2", 2*time.Second)
+	// The footer renders the selector as "(provider) model". A new console
+	// session starts on the console's own pick (the remembered model, else the
+	// alphabetically first), so the server's marked default is the same row
+	// here; features/remote_client.feature covers a default that is not first.
+	return s.waitScreen("(remote) deep-1", 2*time.Second)
 }
 
 func (s *cliRemoteState) remoteSessionHasRunningTask(command, output string) error {
