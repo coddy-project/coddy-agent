@@ -289,8 +289,8 @@ machine the agent runs on. The list refreshes every 2.5 s while the overlay is
 open, a turn runs or a task runs, and every 15 s otherwise; between turns the
 footer keeps saying how many tasks still run.
 
-A task the agent started with `notify_on_finish` wakes it in this console
-when it ends ([Background tasks](../features/background-tasks.md#waking-the-agent-when-a-task-finishes)).
+A background task the agent started wakes it in this console when it ends,
+unless the call set `notify_on_finish: false` ([Background tasks](../features/background-tasks.md#waking-the-agent-when-a-task-finishes)).
 
 **F1** opens Coddy's own documentation in the place of the editor, read out of
 the binary ([Built-in documentation](../features/built-in-docs.md#the-console-help)):
@@ -610,7 +610,10 @@ the transcript, tool boxes, thinking, plan updates, token and context stats
 stream back over SSE;
 permission and question modals answer through the server's REST endpoints;
 `ctrl+o` fetches full tool output from the server. The model selector lists
-the remote catalog (`GET /v1/models`), and `/resume`, `-c`, and
+the remote catalog (`GET /v1/models`) and shows a session with no model of
+its own on the row the server marks `default` (the server's `agent.model`, or
+its first `models` row when `agent.model` names one it does not list),
+and `/resume`, `-c`, and
 `--session-id` operate on the server's session list (the local folder filter
 does not apply). The settings commands change the server's session through
 the same `PATCH /coddy/sessions/{id}` the browser uses, the permission mode

@@ -286,7 +286,7 @@ Full skill body here...
 
 `name` sets the canonical slash-command identifier (e.g. `/code-review`). It overrides the filesystem-derived name when set. `description` is shown in the catalog and the Settings → Skills panel.
 
-Two optional fields pick what the skill runs on. `model` names a configured model id and `reasoning` (alias `effort`) a level that model offers, `off` or `default`; when the skill is invoked, by `/code-review` in a prompt or by the model's `load_skill`, they apply for the rest of that turn and the session's own settings return with the next one ([Session settings](session-settings.md#the-model-switches-itself)):
+Two optional fields pick what the skill runs on. `model` names a configured model id and `reasoning` (alias `effort`) a level that model offers, `off` or `default`; when the skill is invoked, by `/code-review` in a prompt or by the model's `load_skill`, they apply for the rest of that turn and the session's own settings return with the next one ([Session settings](session-settings.md#changing-the-model-on-request)):
 
 ```markdown
 ---

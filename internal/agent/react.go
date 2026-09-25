@@ -2195,8 +2195,8 @@ func (a *Agent) settings() settingsApplier {
 	return nil
 }
 
-// switchModel backs the switch_model tool: the model's own choice of model
-// and reasoning level, for the rest of the turn or for the session. It goes
+// switchModel backs a user-requested change through the switch_model tool:
+// the model and reasoning level apply for the rest of the turn or session. It goes
 // through the manager's setter like the operator's command, so it is checked
 // against the configuration, logged and shown on every surface; the loop
 // builds the new transport before its next request.

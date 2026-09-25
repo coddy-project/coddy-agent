@@ -83,13 +83,12 @@ export function modelSwitchView(
       applied: true,
     };
   }
+  // Without a scope the switch lasts for the session, as the tool applies it.
   return {
     model: str(args.model),
     reasoning: str(args.reasoning),
     scope:
-      String(args.scope).trim().toLowerCase() === "session"
-        ? "session"
-        : "turn",
+      String(args.scope).trim().toLowerCase() === "turn" ? "turn" : "session",
     applied: false,
   };
 }

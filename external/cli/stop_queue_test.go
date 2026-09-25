@@ -98,7 +98,7 @@ func (f *remoteControlStand) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	switch {
 	case r.URL.Path == "/v1/models":
-		_, _ = io.WriteString(w, `{"default_agent_model":"test","data":[{"id":"test","owned_by":"stub"}]}`)
+		_, _ = io.WriteString(w, `{"data":[{"id":"test","default":true,"owned_by":"stub"}]}`)
 	case strings.HasSuffix(r.URL.Path, "/messages"):
 		_, _ = io.WriteString(w, `{"messages":[]}`)
 	case strings.HasSuffix(r.URL.Path, "/activity"):

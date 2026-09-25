@@ -341,20 +341,19 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		Multimodal       bool     `json:"multimodal,omitempty"`
 		ReasoningLevels  []string `json:"reasoning_levels,omitempty"`
 		ReasoningDefault string   `json:"reasoning_default,omitempty"`
+		// Default marks the row a session that selected no model runs on,
+		// so a client (the remote console) shows the model that will run.
+		Default bool `json:"default,omitempty"`
 	}
 	out := struct {
-		Object            string     `json:"object"`
-		Data              []modelObj `json:"data"`
-		DefaultAgentModel string     `json:"default_agent_model,omitempty"`
+		Object string     `json:"object"`
+		Data   []modelObj `json:"data"`
 	}{
 		Object: "list",
 		Data:   nil,
 	}
 	cfg := s.activeCfg()
 	if cfg != nil {
-		if dm := strings.TrimSpace(cfg.Agent.Model); dm != "" {
-			out.DefaultAgentModel = dm
-		}
 		// max_context_tokens is the window the composer ring draws against,
 		// so it is the one the session's compaction trigger measures against
 		// (session.Manager.ContextWindow). A model without the key reads its
@@ -381,6 +380,10 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	if cfg != nil {
+		// The same resolution a session applies to an empty selection:
+		// agent.model when it is listed, the first models[] row when it names
+		// one that is not, nothing while it is empty.
+		defaultModel := session.ResolveModelID(cfg, "")
 		for i := range cfg.Models {
 			ent := &cfg.Models[i]
 			mid := strings.TrimSpace(ent.Model)
@@ -396,6 +399,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 				Multimodal:       ent.Multimodal,
 				ReasoningLevels:  cfg.ReasoningLevelsFor(ent),
 				ReasoningDefault: cfg.DefaultReasoningLevelFor(ent),
+				Default:          defaultModel != "" && mid == defaultModel,
 			})
 		}
 	}

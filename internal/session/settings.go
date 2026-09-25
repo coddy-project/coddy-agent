@@ -545,7 +545,8 @@ func AnnounceSettingsNotice(sender acp.UpdateSender, sessionID, notice string) {
 }
 
 // ApplyTurnSettings changes settings for the rest of the running turn only:
-// the model's own switch_model call, the frontmatter of a skill. It validates
+// a switch_model call the user limited to the turn, the frontmatter of a
+// skill. It validates
 // like ApplySessionSettings, against the model the turn runs on, takes effect
 // from the turn's next model request, and is gone when the turn ends.
 func (m *Manager) ApplyTurnSettings(_ context.Context, sessionID string, ch SettingsChange) (acp.SessionSettings, error) {

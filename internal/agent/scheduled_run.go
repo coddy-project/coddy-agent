@@ -47,7 +47,8 @@ type ScheduledRunSpec struct {
 	// Mode is agent, plan or ask; anything else is agent.
 	Mode string
 	// Model is the job's model override; empty follows the definition, then
-	// the configuration.
+	// the configuration. The reasoning level is the definition's, when the
+	// run's model offers it.
 	Model string
 	// PermissionMode is what the run may do without asking: ask, accept_edits
 	// or bypass. Empty is bypass, the unattended default. A definition can
@@ -155,6 +156,18 @@ func RunScheduledJob(ctx context.Context, cfg *config.Config, rt SubagentRuntime
 			log.Warn("scheduled run: the definition names an unknown model; the configured model is used", "job_id", jobID, "agent", def.Name, "model", def.Model)
 		}
 	}
+	// The definition's reasoning level, applied as a spawn applies it: a
+	// level the run's model offers, dropped with a warning otherwise, and
+	// "default" meaning the model's own. A job has no level of its own.
+	reasoning := ""
+	if def != nil && def.Reasoning != "" && def.Reasoning != config.ReasoningDefault {
+		runModel := session.ResolveModelID(cfg, model)
+		if containsString(cfg.ReasoningChoicesFor(cfg.FindModelEntry(runModel)), def.Reasoning) {
+			reasoning = def.Reasoning
+		} else {
+			log.Warn("scheduled run: the definition names a reasoning level its model does not offer; the default is used", "job_id", jobID, "agent", def.Name, "reasoning", def.Reasoning, "model", runModel)
+		}
+	}
 
 	label := strings.TrimSpace(spec.Label)
 	if label == "" {
@@ -213,12 +226,14 @@ func RunScheduledJob(ctx context.Context, cfg *config.Config, rt SubagentRuntime
 			Mode:            mode,
 			PermissionMode:  perm,
 			SelectedModelID: model,
-			Title:           label,
-			Role:            role,
-			Depth:           0,
-			MaxTurns:        maxTurns,
-			ConnectMCP:      connectMCP,
-			ResolveTools:    resolve,
+			// Empty runs at the model's default level.
+			SelectedReasoning: reasoning,
+			Title:             label,
+			Role:              role,
+			Depth:             0,
+			MaxTurns:          maxTurns,
+			ConnectMCP:        connectMCP,
+			ResolveTools:      resolve,
 			Scheduler: &session.SchedulerRunMeta{
 				JobID:    jobID,
 				Trigger:  strings.TrimSpace(spec.Trigger),

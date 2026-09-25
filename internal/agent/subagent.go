@@ -947,7 +947,7 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 		// Nothing here will start that turn - a child's transcript closes
 		// with its turn, and coddy -p has no waker - so the run is real and
 		// only the notice is not.
-		b.WriteString("Nothing will wake you when it finishes here, so notify_on_finish was ignored: follow it with background_list or background_output, and collect the report with background_wait.")
+		b.WriteString("Nothing will wake you when it finishes here: follow it with background_list or background_output, and collect the report with background_wait before you end your turn.")
 	default:
 		b.WriteString("Keep working; follow it with background_list or background_output, and collect the report with background_wait.")
 	}
@@ -1152,6 +1152,19 @@ func executeChildRun(ctx context.Context, rt SubagentRuntime, run *subagentRun, 
 	case res != nil && res.StopReason == acp.StopReasonRefused:
 		run.status = "failed"
 		run.err = fmt.Errorf("the subagent stopped without finishing (%s)", res.StopReason)
+		if strings.TrimSpace(run.report) == "" {
+			run.err = fmt.Errorf("the subagent produced no final message (stop reason %s)", res.StopReason)
+		}
+	case res != nil && res.StopReason == acp.StopReasonMaxTurns:
+		run.status = "failed"
+		run.err = fmt.Errorf("the subagent reached max_turns without a final answer")
+		if strings.TrimSpace(run.report) != "" {
+			// The text is the last one it wrote on the way, not its answer.
+			run.err = fmt.Errorf("the subagent reached max_turns before its final answer; the report is the last text it wrote, not a conclusion")
+		}
+	case strings.TrimSpace(run.report) == "":
+		run.status = "failed"
+		run.err = fmt.Errorf("the subagent produced no final message")
 	default:
 		run.status = "end_turn"
 		if res != nil {

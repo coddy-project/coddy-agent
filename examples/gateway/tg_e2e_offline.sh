@@ -72,7 +72,7 @@ cat >"$RULES" <<'EOF_RULES'
   {"match": "start the tests",
    "tool": {"name": "run_command", "arguments": {"command": "echo 'tests failed' >&2; exit 2", "background": true, "notify_on_finish": true, "expected_seconds": 1}},
    "answer": "Started the tests in the background."},
-  {"match": "background task you asked to be notified about", "answer": "The tests failed with exit 2."}
+  {"match": "background task you started has finished", "answer": "The tests failed with exit 2."}
 ]
 EOF_RULES
 

@@ -26,6 +26,11 @@ Feature: Remote client for the coddy HTTP API
     When the client starts a session
     Then the session model options come from the remote server catalog
 
+  Scenario: A new session shows the model the server runs it on
+    Given the remote server's agent.model is "remote/beta", the second configured model
+    When the client starts a session
+    Then the new session's model option shows "remote/beta"
+
   Scenario: A permission request round-trips through the client
     Given the remote agent asks permission before replying "guarded answer"
     And the client answers permissions with "allow"

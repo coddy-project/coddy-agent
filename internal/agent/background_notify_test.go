@@ -75,7 +75,7 @@ func TestWakerOnlyRunsForTasksThatAskedForIt(t *testing.T) {
 	runner := &recordingRunner{}
 	w := NewBackgroundWaker(slog.Default(), runner.run)
 
-	// Neither of these should wake anything: one did not opt in, the other is
+	// Neither of these should wake anything: one explicitly disabled it, the other is
 	// still running.
 	w.OnSnapshot(finished("bg_1", "s1", bgtask.StatusSucceeded, false))
 	running := finished("bg_2", "s1", bgtask.StatusRunning, true)
@@ -170,7 +170,7 @@ func TestWakerDoesNotWakeWhileTheProcessIsShuttingDown(t *testing.T) {
 }
 
 func TestAttachReplacesAPreviousWakerInsteadOfStacking(t *testing.T) {
-	pool := bgtask.NewWithRunner(bgtask.Config{}, nil)
+	pool := bgtask.NewWithRunner(bgtask.Config{}, bgtask.NewCommandRunner())
 
 	first := &recordingRunner{}
 	NewBackgroundWaker(slog.Default(), first.run).Attach(pool)
@@ -185,7 +185,13 @@ func TestAttachReplacesAPreviousWakerInsteadOfStacking(t *testing.T) {
 	w := NewBackgroundWaker(slog.Default(), third.run)
 	w.Attach(pool)
 
-	w.OnSnapshot(finished("bg_1", "s1", bgtask.StatusSucceeded, true))
+	snap, err := pool.Start(bgtask.Spec{SessionID: "s1", Command: "echo done", NotifyOnFinish: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Wait(context.Background(), "s1", snap.ID, time.Second); err != nil {
+		t.Fatal(err)
+	}
 	waitForCalls(t, third, 1)
 
 	if sessions, _ := first.calls(); len(sessions) != 0 {
@@ -193,6 +199,27 @@ func TestAttachReplacesAPreviousWakerInsteadOfStacking(t *testing.T) {
 	}
 	if sessions, _ := second.calls(); len(sessions) != 0 {
 		t.Fatalf("the replaced waker still ran %d turns", len(sessions))
+	}
+}
+
+func TestWakerSkipsAResultCollectedBeforeTheNextTurn(t *testing.T) {
+	runner := &recordingRunner{}
+	w := NewBackgroundWaker(slog.Default(), runner.run)
+	pool := bgtask.NewWithRunner(bgtask.Config{}, bgtask.NewCommandRunner())
+	w.Attach(pool)
+	snap, err := pool.Start(bgtask.Spec{SessionID: "s1", Command: "echo done", NotifyOnFinish: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Wait(context.Background(), "s1", snap.ID, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.AcknowledgeResult("s1", snap.ID); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(wakeSettleDelay + 300*time.Millisecond)
+	if sessions, _ := runner.calls(); len(sessions) != 0 {
+		t.Fatalf("collected result started %d redundant turns", len(sessions))
 	}
 }
 

@@ -223,6 +223,9 @@ type task struct {
 	// termination claim that arrives afterwards lose: work that already
 	// succeeded must not be relabelled as stopped.
 	exitObserved bool
+	// resultAcknowledged means the model already received the terminal result
+	// or stopped the task; its completion must not start a redundant turn.
+	resultAcknowledged bool
 }
 
 // claimTermination records the reason a task is about to be terminated and
@@ -304,8 +307,8 @@ func (p *Pool) Launch(spec Spec, launch LaunchFunc) (Snapshot, error) {
 // default: adopted work has no estimate behind it, and the foreground limit it
 // just outlived is the one value that must never be reused - resolveTimeoutSeconds
 // honours an explicit timeout verbatim, so passing the expired one would kill the
-// task immediately. NotifyOnFinish is forced off because the caller is being told
-// about this task right now, in the tool result.
+// task immediately. The caller's NotifyOnFinish choice is retained: the tool
+// result reports the handover, while the eventual outcome may arrive later.
 func (p *Pool) Adopt(spec Spec, adopt AdoptFunc) (Snapshot, error) {
 	if adopt == nil {
 		return Snapshot{}, fmt.Errorf("adopt callback is nil")
@@ -315,7 +318,6 @@ func (p *Pool) Adopt(spec Spec, adopt AdoptFunc) (Snapshot, error) {
 		spec.TimeoutSeconds = p.cfg.MaxTimeoutSeconds
 		p.mu.RUnlock()
 	}
-	spec.NotifyOnFinish = false
 	return p.start(spec, func(_ string, out io.Writer) (Handle, error) { return adopt(out) })
 }
 
@@ -607,6 +609,31 @@ func (p *Pool) MarkWokeAgent(sessionID string, taskIDs ...string) {
 			p.persist(t)
 		}
 	}
+}
+
+// AcknowledgeResult prevents a task's pending completion from waking the
+// session after the model collected its result or stopped it. Reading output
+// while the task still runs does not call this method.
+func (p *Pool) AcknowledgeResult(sessionID, taskID string) error {
+	t, err := p.lookup(sessionID, taskID)
+	if err != nil {
+		return err
+	}
+	t.mu.Lock()
+	t.resultAcknowledged = true
+	t.mu.Unlock()
+	return nil
+}
+
+// WakePending reports whether a completed task still has an unclaimed wake.
+func (p *Pool) WakePending(sessionID, taskID string) bool {
+	t, err := p.lookup(sessionID, taskID)
+	if err != nil {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.snap.NotifyOnFinish && t.snap.Status.Finished() && !t.resultAcknowledged && !t.snap.WokeAgent
 }
 
 // Output returns the retained output window for a task. A positive tailLines

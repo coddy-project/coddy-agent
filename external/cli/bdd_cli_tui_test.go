@@ -665,7 +665,7 @@ func (s *cliTUIState) sessionRunsWakingBackgroundCommand(command string) error {
 // the wake is on screen.
 func (s *cliTUIState) transcriptShowsNothingOfTheWake() error {
 	text := s.screenText()
-	for _, unwanted := range []string{"background task you asked to be notified about", "Woken by", s.bgTaskID} {
+	for _, unwanted := range []string{"background task you started has finished", "Woken by", s.bgTaskID} {
 		if strings.Contains(text, unwanted) {
 			return fmt.Errorf("the woken turn shows %q:\n%s", unwanted, text)
 		}

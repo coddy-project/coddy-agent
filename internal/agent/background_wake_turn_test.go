@@ -72,7 +72,7 @@ func TestWokenTurnAnnouncesTheWakeBeforeItRecordsTheMessage(t *testing.T) {
 		ID: "bg_3", Kind: "command", Label: "make test", Status: "failed", ExitCode: &code, DurationMs: 90_000,
 	}}}
 	st.SetTurnWake(wake)
-	instruction := "A background task you asked to be notified about has finished."
+	instruction := "A background task you started has finished."
 	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: acp.ContentTypeText, Text: instruction}}); err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestWokenTurnMarksTheTasksThatWokeIt(t *testing.T) {
 	ag := NewAgent(wakeTurnConfig(), st, sender, nil)
 	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return scripted(answerStep("The review is in.")), nil }
 	st.SetTurnWake(&llm.BackgroundWake{Tasks: []llm.BackgroundWakeTask{{ID: snap.ID, Kind: "agent", Agent: "general", Status: "succeeded"}}})
-	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "A background task you asked to be notified about has finished."}}); err != nil {
+	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "A background task you started has finished."}}); err != nil {
 		t.Fatal(err)
 	}
 	if !markedAtWake {

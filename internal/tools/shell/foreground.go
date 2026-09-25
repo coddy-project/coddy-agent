@@ -224,6 +224,7 @@ func adoptForeground(sc *startedCommand, args runCommandArgs, env *tooling.Env) 
 		// TimeoutSeconds is deliberately left unset: the foreground limit that
 		// just expired must not become the task's hard limit.
 		ExpectedSeconds: args.ExpectedSeconds,
+		NotifyOnFinish:  args.wantsWake() && WakeAvailable(pool, env),
 	}, func(out io.Writer) (bgtask.Handle, error) {
 		prefix = sc.writer.Redirect(out)
 		adopted = true

@@ -1381,8 +1381,8 @@ func TestLaunchCallbackFailureIsRecordedAsAFailedTask(t *testing.T) {
 }
 
 func TestLaunchKeepsNotifyAndTimeoutFromTheSpec(t *testing.T) {
-	// Unlike Adopt, Launch starts fresh work: the caller's timeout and notify
-	// choice are honoured verbatim, the estimate rule applies when unset.
+	// Launch starts fresh work: the caller's timeout and notify choice are
+	// honoured verbatim, and the estimate rule applies when unset.
 	pool := NewWithRunner(Config{}, &stubRunner{})
 	t.Cleanup(func() { pool.StopSession("s") })
 	h := &stubHandle{release: make(chan struct{})}
@@ -1403,6 +1403,46 @@ func TestLaunchKeepsNotifyAndTimeoutFromTheSpec(t *testing.T) {
 		t.Fatalf("timeout = %d, want the estimate floor %d", snap.TimeoutSeconds, minEstimatedTimeoutSeconds)
 	}
 	h.finish(0)
+}
+
+func TestAdoptKeepsNotifyOnFinish(t *testing.T) {
+	pool := NewWithRunner(Config{}, &stubRunner{})
+	h := &stubHandle{release: make(chan struct{})}
+	snap, err := pool.Adopt(Spec{SessionID: "s", Command: "build", NotifyOnFinish: true}, func(io.Writer) (Handle, error) {
+		return h, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snap.NotifyOnFinish {
+		t.Fatal("adopted work lost its requested wake")
+	}
+	h.finish(0)
+	if _, err := pool.Wait(context.Background(), "s", snap.ID, time.Second); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAcknowledgedResultIsNotPendingForWake(t *testing.T) {
+	runner := &stubRunner{}
+	pool := NewWithRunner(Config{}, runner)
+	snap, err := pool.Start(Spec{SessionID: "s", Command: "build", NotifyOnFinish: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.last().finish(0)
+	if _, err := pool.Wait(context.Background(), "s", snap.ID, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if !pool.WakePending("s", snap.ID) {
+		t.Fatal("unread completed result should still wake")
+	}
+	if err := pool.AcknowledgeResult("s", snap.ID); err != nil {
+		t.Fatal(err)
+	}
+	if pool.WakePending("s", snap.ID) {
+		t.Fatal("a result already collected should not wake")
+	}
 }
 
 func TestAgentIdentityPersistsWithTheTaskRecord(t *testing.T) {

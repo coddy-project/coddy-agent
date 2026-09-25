@@ -114,9 +114,8 @@ type Spec struct {
 	// admitted, because the listener is opened first.
 	URL string
 	// NotifyOnFinish asks the pool to wake the agent when this task reaches a
-	// terminal state. It is opt-in per task: the model decides which work is
-	// worth an autonomous turn, so a batch of quick commands cannot each start
-	// one behind the operator's back.
+	// terminal state. Model-started background work defaults to this where a
+	// waker is available; an explicit false in a tool call disables it.
 	NotifyOnFinish bool
 	// StartedAt is when the work actually began, for work the pool is adopting
 	// rather than launching. Zero means now. Without it an adopted task reports

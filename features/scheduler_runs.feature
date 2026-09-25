@@ -65,6 +65,13 @@ Feature: Scheduled jobs run as background subagent tasks
     Then the run's model was offered "read" and not "run_command"
     And the run's system prompt names the scheduled job "audit" and carries the role "You only read."
 
+  Scenario: A job under a definition runs at the definition's reasoning level
+    Given the configured model offers the reasoning levels "low, medium, high"
+    And a user-scope subagent definition "deep" that asks for reasoning "high"
+    And a scheduler with a job "review" running the agent "deep"
+    When the job "review" is run by hand and the model answers "reviewed"
+    Then the run session of "review" runs at reasoning "high"
+
   Scenario: Clearing the history removes finished runs and their transcripts
     Given a scheduler with a job "nightly" whose instruction says "Report the marker"
     And the job "nightly" was run by hand and the model answered "done"

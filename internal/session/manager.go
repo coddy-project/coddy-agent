@@ -724,7 +724,7 @@ type PromptRunOpts struct {
 	SurfaceSystemPrompt string
 
 	// BackgroundWake says the prompt was not typed by anybody: finished
-	// background tasks the model asked to be notified about started this
+	// background tasks that finished with notification enabled started this
 	// turn, and the prompt is the instruction that reports them. The turn's
 	// first message is persisted with the marker, the agent tells the clients
 	// before it (acp.BackgroundWakeUpdate), and the turn observers hear a
