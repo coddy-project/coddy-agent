@@ -596,7 +596,8 @@ stream back over SSE;
 permission and question modals answer through the server's REST endpoints;
 `ctrl+o` fetches full tool output from the server. The model selector lists
 the remote catalog (`GET /v1/models`) and shows a session with no model of
-its own on the row the server marks `default` (the server's `agent.model`),
+its own on the row the server marks `default` (the server's `agent.model`, or
+its first `models` row when `agent.model` names one it does not list),
 and `/resume`, `-c`, and
 `--session-id` operate on the server's session list (the local folder filter
 does not apply). The settings commands change the server's session through

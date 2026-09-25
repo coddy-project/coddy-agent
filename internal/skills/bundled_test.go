@@ -157,16 +157,15 @@ func TestConfigureCoddyNamesOnlyRealKeys(t *testing.T) {
 }
 
 // schemaPathExists walks a dotted config path through the schema: a property
-// name, an array index (N or a number) into items, or a free-form map key.
+// name, an array index (N or a number) into items, or a free-form map key -
+// which a number or N may be as well.
 func schemaPathExists(node map[string]interface{}, segs []string) bool {
 	for _, seg := range segs {
 		if _, err := strconv.Atoi(seg); err == nil || seg == "N" {
-			items, ok := node["items"].(map[string]interface{})
-			if !ok {
-				return false
+			if items, ok := node["items"].(map[string]interface{}); ok {
+				node = items
+				continue
 			}
-			node = items
-			continue
 		}
 		props, _ := node["properties"].(map[string]interface{})
 		if next, ok := props[seg].(map[string]interface{}); ok {

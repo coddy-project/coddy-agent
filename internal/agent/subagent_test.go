@@ -2256,16 +2256,25 @@ func TestSpawnSubagentChildInheritsTheParentModelUnlessTheDefinitionNamesAConfig
 // dropped with a warning when it does not, and "default" is the model's own.
 func TestScheduledRunTakesTheDefinitionsReasoningLevel(t *testing.T) {
 	levels := []string{"low", "medium", "high"}
+	shallow := []string{"minimal"}
+	// agent.model (fake/model) is not the first row, and the two models share
+	// no level, so a check against the wrong model fails one of the cases.
 	rig := newSubagentRig(t, func(cfg *config.Config) {
-		cfg.Models = []config.ModelEntry{{Model: "fake/model", MaxTokens: 100, ReasoningLevels: &levels, ReasoningDefault: "medium"}}
+		cfg.Models = []config.ModelEntry{
+			{Model: "fake/shallow", MaxTokens: 100, ReasoningLevels: &shallow},
+			{Model: "fake/model", MaxTokens: 100, ReasoningLevels: &levels, ReasoningDefault: "medium"},
+		}
 	})
 	rig.setChildProvider(func(*session.State) llm.Provider { return scripted(answerStep("REPORT: done")) })
 	for _, tc := range []struct {
-		name, reasoning, want string
+		name, jobModel, reasoning, want string
 	}{
-		{"a level the model offers", "high", "high"},
-		{"a level the model does not offer", "xhigh", ""},
-		{"the model's own level", "default", ""},
+		{"a level the model offers", "", "high", "high"},
+		{"a level the model does not offer", "", "xhigh", ""},
+		{"the model's own level", "", "default", ""},
+		// The job's model decides which levels there are.
+		{"a level the job's model does not offer", "fake/shallow", "high", ""},
+		{"a level only the job's model offers", "fake/shallow", "minimal", "minimal"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			def, err := subagents.Parse("nightly.md", []byte("---\ndescription: nightly check\nreasoning: "+tc.reasoning+"\n---\nCheck the build.\n"))
@@ -2282,6 +2291,7 @@ func TestScheduledRunTakesTheDefinitionsReasoningLevel(t *testing.T) {
 				Trigger:       "manual",
 				CWD:           rig.cwd,
 				Mode:          "agent",
+				Model:         tc.jobModel,
 				Instruction:   "Check the build and report.",
 				Definition:    def,
 			})

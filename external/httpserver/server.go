@@ -381,8 +381,8 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	}
 	if cfg != nil {
 		// The same resolution a session applies to an empty selection:
-		// agent.model when it is listed, the first row when it names one that
-		// is not, nothing while it is empty.
+		// agent.model when it is listed, the first models[] row when it names
+		// one that is not, nothing while it is empty.
 		defaultModel := session.ResolveModelID(cfg, "")
 		for i := range cfg.Models {
 			ent := &cfg.Models[i]
