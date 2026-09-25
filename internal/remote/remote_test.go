@@ -490,22 +490,33 @@ func TestPreferredReopenPropagatesServerFailures(t *testing.T) {
 // that is the model the client shows and checks reasoning levels against - not
 // the first backend it lists.
 func TestRemoteDefaultModelIsTheRowTheServerMarks(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"object":"list","data":[
-			{"id":"agent","owned_by":"coddy"},
-			{"id":"remote/alpha","owned_by":"remote"},
-			{"id":"remote/beta","owned_by":"remote","default":true}]}`))
-	}))
-	defer srv.Close()
-	h, err := NewHandler(Options{BaseURL: srv.URL})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := h.ensureModels(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if h.defModel != "remote/beta" {
-		t.Fatalf("default model = %q, want the row the server marks", h.defModel)
+	for _, tc := range []struct {
+		name, beta, want string
+	}{
+		{"the marked row", `,"default":true`, "remote/beta"},
+		// A server with no agent.model, or one from before the flag, marks
+		// nothing: the first backend is the best guess.
+		{"no row marked", "", "remote/alpha"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(`{"object":"list","data":[
+					{"id":"agent","owned_by":"coddy"},
+					{"id":"remote/alpha","owned_by":"remote"},
+					{"id":"remote/beta","owned_by":"remote"` + tc.beta + `}]}`))
+			}))
+			defer srv.Close()
+			h, err := NewHandler(Options{BaseURL: srv.URL})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := h.ensureModels(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if h.defModel != tc.want {
+				t.Fatalf("default model = %q, want %q", h.defModel, tc.want)
+			}
+		})
 	}
 }
 
