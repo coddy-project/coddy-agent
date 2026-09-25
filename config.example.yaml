@@ -135,6 +135,7 @@ models:
 agent:
   model: "openai/gpt-5.6-terra"
   max_turns: 0             # ReAct steps per prompt; 0 (the default) sets no limit
+  # queue_mode: steer       # Enter during a turn: steer or after_turn; unset asks on first use
   # LLM retry and pacing. Transport retries and consecutive empty-answer or
   # first-token recoveries share llm_retry_max extra attempts per model step.
   # Tool progress starts a fresh allowance; recovery also uses max_turns.

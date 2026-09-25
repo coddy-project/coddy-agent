@@ -23,7 +23,7 @@ import capture  # noqa: E402
 from cli_tui_driver import COLS, ROWS, CR  # noqa: E402
 
 MODEL = "stub/coddy-demo"
-SHOT = "message-queue-console-dark"
+SHOT = "message-queue-console-modes-dark"
 
 # How long the first answer is held open. The screen is captured inside this
 # window, so it only has to outlast the typing, not a human.
@@ -138,6 +138,7 @@ models:
     max_context_tokens: 131072
 agent:
   model: {MODEL}
+  queue_mode: steer
 tools:
   permission_mode: bypass
 """)
@@ -219,12 +220,12 @@ tui.pump(1.0)
 tui.send(PROMPT + CR)
 # The turn is genuinely in flight once its first words are on screen.
 tui.wait_for("Checking what the release archive ships", timeout=60)
-for follow in FOLLOW_UPS:
-    tui.send(follow + CR)
+for follow, key in zip(FOLLOW_UPS, (CR, "\t")):
+    tui.send(follow + key)
     tui.pump(0.8)
 
 # The shot is only worth keeping if the rows it exists to show are on screen.
-for row in ("queued for the next step", "Check the Windows path too", "skip the integration suite"):
+for row in ("queued messages", "[steer]", "[after_turn]", "Check the Windows path too", "skip the integration suite"):
     if row not in tui.text():
         raise AssertionError(f"{row!r} is not on the captured screen:\n{tui.text()}")
 capture.snapshot(tui, OUT, SHOT)

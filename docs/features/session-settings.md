@@ -37,7 +37,7 @@ A message that is nothing but commands runs no turn. The settings are applied, t
 
 A message with text after the commands applies the session-wide changes and runs the text as a turn with the turn-scoped ones. The override travels with that prompt and is installed only once the turn is admitted, so a second tab or a background wake cannot take it first.
 
-While a turn is running, a session-wide command applies at once and any text after it goes to the [message queue](message-queue.md) as an ordinary follow-up. A turn-scoped command with text is refused there (`409 turn_scoped_follow_up` over HTTP), since a queued message has no turn of its own to scope it to. A new model or reasoning level is used from the next model request of the running turn, never in the middle of a stream; the permission mode is read on every tool call; a new operating mode starts with the next turn. A subagent already running keeps what it was spawned with.
+While a turn is running, a session-wide command applies at once and any text after it goes to the [message queue](message-queue.md) as an ordinary follow-up. A turn-scoped command with text is refused there (`409 turn_scoped_follow_up` over HTTP), because the queued message can change mode or be cancelled before delivery, so the command has no stable target turn. A new model or reasoning level is used from the next model request of the running turn, never in the middle of a stream; the permission mode is read on every tool call; a new operating mode starts with the next turn. A subagent already running keeps what it was spawned with.
 
 ## Thinking off
 

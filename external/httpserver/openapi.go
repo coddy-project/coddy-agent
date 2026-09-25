@@ -1132,7 +1132,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/queue": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Follow-ups queued for the running turn",
-					"description": "Lists what the operator wrote while the session's current turn is working: each row carries **id**, **text** and **createdAt**, and the answer carries the **version** the SSE frames carry, so a client applying both keeps whichever is newer. The queue belongs to the turn, not to the session bundle - it opens when a turn is admitted and is gone when that turn releases - so a session that is not working answers with an empty list. The running turn reads the queue at its next step (between the tool calls it just made and the request that follows them) and publishes the change as the **message_queue** SSE event on the composer stream.",
+					"description": "Lists messages waiting in this process: each row carries **id**, **text**, **mode** (**steer** or **after_turn**), optional **imageParts**, and **createdAt**. The answer carries the same **version** as **message_queue** SSE updates. Steer rows enter the running turn at its next ReAct step. After-turn rows start separate prompts after the answer; Stop retains them without auto-starting, so an idle session can have waiting rows.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -1148,7 +1148,7 @@ func openAPISpec() map[string]interface{} {
 				},
 				"post": map[string]interface{}{
 					"summary":     "Queue a follow-up for the running turn",
-					"description": "Adds **text** to the queue of the turn in flight and answers **201** with the stored **message** (its **id** is what a later **DELETE** names) and the whole **messages** list. Settings commands at the start of **text** (**`/model x`**, **`/permissions bypass`** ...) apply at once and never reach the model: only the rest is queued, and a text that was only commands answers **200** with a **notice** and the **settings** snapshot, queuing nothing. A **`--once`** or **`--count=N`** command followed by a message answers **409** with code **turn_scoped_follow_up**: the running turn has no next turn of its own to give it. A session with no turn running answers **409** with code **no_active_turn**: the caller sends that text as an ordinary prompt through **POST /v1/responses** instead. Past " + strconv.Itoa(session.MaxQueuedMessages) + " waiting messages the answer is **409** with code **queue_full**; a child (subagent) session answers **409** with code **subagent_read_only**. Nothing is persisted: a queued message the turn never read is dropped when the turn ends.",
+					"description": "Adds a message to the queue of the turn in flight and answers **201** with the stored **message** and whole **messages** list. **mode** is **steer** (default, read at the next ReAct step) or **after_turn** (a new prompt after the current answer). **inline_files** carries image data URIs with the text. Settings commands at the start of **text** apply at once and only the rest is queued; a command-only request answers **200**. A **`--once`** or **`--count=N`** command followed by a message answers **409** with code **turn_scoped_follow_up**. No active turn answers **409** with **no_active_turn**; past " + strconv.Itoa(session.MaxQueuedMessages) + " messages answers **queue_full**; a child session answers **subagent_read_only**. Stop drops steer messages but leaves after_turn messages waiting without auto-starting them.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -1164,7 +1164,9 @@ func openAPISpec() map[string]interface{} {
 									"type":     "object",
 									"required": []interface{}{"text"},
 									"properties": map[string]interface{}{
-										"text": map[string]interface{}{"type": "string", "description": "What the operator wrote. Trimmed; empty is a **400**."},
+										"text":         map[string]interface{}{"type": "string", "description": "What the operator wrote. May be empty when inline_files is non-empty."},
+										"mode":         map[string]interface{}{"type": "string", "enum": []interface{}{"steer", "after_turn"}},
+										"inline_files": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"name": map[string]string{"type": "string"}, "data_url": map[string]string{"type": "string"}}}},
 									},
 								},
 							},
@@ -1195,6 +1197,25 @@ func openAPISpec() map[string]interface{} {
 				},
 			},
 			"/coddy/sessions/{id}/queue/{message_id}": map[string]interface{}{
+				"patch": map[string]interface{}{
+					"summary":    "Change a queued message's mode",
+					"parameters": []interface{}{map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}}, map[string]interface{}{"name": "message_id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}}},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []interface{}{"mode"},
+									"properties": map[string]interface{}{
+										"mode": map[string]interface{}{"type": "string", "enum": []interface{}{"steer", "after_turn"}},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{"200": map[string]interface{}{"description": "Updated queue"}, "400": errorResponseRef(), "404": errorResponseRef()},
+				},
 				"delete": map[string]interface{}{
 					"summary":     "Take one queued follow-up back",
 					"description": "Removes a message the agent has not read yet and answers with the rest of the queue. A message the turn read a moment ago is gone from the queue and answers **404** with code **not_found** - losing that race is ordinary, and the message is already part of the conversation.",

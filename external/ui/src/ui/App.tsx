@@ -10,7 +10,7 @@ import {
 import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
 import { useStableHandler } from "./components/useStableHandler";
-import type { QueuedMessage } from "./chat/Composer";
+import type { QueuedMessage, QueueMode } from "./chat/Composer";
 import {
   contextUsagePercent,
   withContextUsedTokens,
@@ -773,6 +773,7 @@ export function App() {
   const [queueBySid, setQueueBySid] = useState<Record<string, QueuedMessage[]>>(
     {},
   );
+  const [queueMode, setQueueMode] = useState<QueueMode | undefined>();
   /**
    * Highest queue version applied per session.
    *
@@ -841,7 +842,7 @@ export function App() {
     sessionId.trim() !== "" &&
     (turnActivity.get(sessionId) ??
       activeComposerSidRef.current.has(sessionId.trim()));
-  const queuedMessages = generating ? (queueBySid[sessionId.trim()] ?? []) : [];
+  const queuedMessages = queueBySid[sessionId.trim()] ?? [];
 
   function reconcileEndedTurn(sid: string) {
     removeActiveComposer(sid);
@@ -2528,9 +2529,12 @@ export function App() {
         const policy = parseToolsPermissionPolicy(res.data);
         toolsPermissionPolicyRef.current = policy;
         setToolsPermissionPolicy(policy);
+        const agent = res.data.agent as { queue_mode?: QueueMode } | undefined;
+        const preferred = agent?.queue_mode;
+        setQueueMode(preferred === "steer" || preferred === "after_turn" ? preferred : undefined);
       }
     })();
-  }, [headers]);
+  }, [headers, configEpoch]);
 
   useEffect(() => {
     const ids = new Set(permissionPendingSessionIdsFromStorage());
@@ -5521,12 +5525,27 @@ export function App() {
    * prompt rather than dropped. Any other refusal puts the text back in the
    * composer, because losing it is worse than a second attempt.
    */
-  const handleQueueMessage = useStableHandler((text: string) => {
+  const handleQueueModeChange = useStableHandler((mode: QueueMode) => {
+    setQueueMode(mode);
+    void (async () => {
+      const current = await fetchJSON<Record<string, unknown>>("/coddy/config", { headers });
+      if (!current.ok || !current.data) return;
+      const agent = (current.data.agent ?? {}) as Record<string, unknown>;
+      const res = await fetch("/coddy/config", {
+        method: "PUT",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ ...current.data, agent: { ...agent, queue_mode: mode } }),
+      });
+      if (res.ok) setConfigEpoch((e) => e + 1);
+    })();
+  });
+
+  const handleQueueMessage = useStableHandler((text: string, mode: QueueMode, files: File[] = []) => {
     const sid = sessionId.trim();
     const generation = turnActivity.generation(sid);
     const queueEpoch = queueOrderRef.current.capture(sid).epoch;
     const body = text.trim();
-    if (!sid || !body) return;
+    if (!sid || (!body && files.length === 0)) return;
     setDraft("");
     void (async () => {
       type QueueAnswer = {
@@ -5537,12 +5556,18 @@ export function App() {
       let payload: QueueAnswer | null = null;
       let status = 0;
       try {
+        const inlineFiles = await Promise.all(files.map((file) => new Promise<{ name: string; data_url: string }>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve({ name: file.name, data_url: reader.result as string });
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(file);
+        })));
         const res = await fetch(
           `/coddy/sessions/${encodeURIComponent(sid)}/queue`,
           {
             method: "POST",
             headers: { [HDR]: sid, "Content-Type": "application/json" },
-            body: JSON.stringify({ text: body }),
+            body: JSON.stringify({ text: body, mode, inline_files: inlineFiles }),
           },
         );
         status = res.status;
@@ -5564,11 +5589,13 @@ export function App() {
         // ordinary prompt; if the admission has not been released yet and that
         // is refused too, the text comes back to the composer rather than
         // being lost between the two answers.
-        void streamResponses(body, { restoreOnRefusal: true });
+        void streamResponses(body, { files, restoreOnRefusal: true });
         return;
       }
-      if (viewedSessionIdRef.current.trim() === sid)
+      if (viewedSessionIdRef.current.trim() === sid) {
         setDraft((current) => current || body);
+        setComposerFiles((current) => [...files, ...current]);
+      }
       applyStreamItemsForSession(sid, (prev) => [
         ...prev,
         {
@@ -5622,9 +5649,27 @@ export function App() {
             current.trim() ? `${text}\n\n${current}` : text,
           );
         }
+        if (res.ok && taken?.imageParts?.length && viewedSessionIdRef.current.trim() === sid) {
+          const files = await Promise.all(taken.imageParts.map(async (part) => {
+            const blob = await (await fetch(part.data_url)).blob();
+            return new File([blob], part.name, { type: blob.type });
+          }));
+          setComposerFiles((current) => [...files, ...current]);
+        }
       } catch {
         // The next message_queue frame corrects the list.
       }
+    })();
+  });
+  const handleSetQueuedMode = useStableHandler((id: string, mode: QueueMode) => {
+    const sid = sessionId.trim();
+    if (!sid) return;
+    void (async () => {
+      const res = await fetch(`/coddy/sessions/${encodeURIComponent(sid)}/queue/${encodeURIComponent(id)}`, {
+        method: "PATCH", headers: { [HDR]: sid, "Content-Type": "application/json" }, body: JSON.stringify({ mode }),
+      });
+      const data = await res.json().catch(() => null) as { messages?: QueuedMessage[]; version?: number } | null;
+      if (data?.messages) applyQueue(sid, data.messages, data.version ?? 0);
     })();
   });
   const handleRetryLast = useStableHandler(
@@ -5977,6 +6022,9 @@ export function App() {
               : {
                   queuedMessages,
                   onQueue: handleQueueMessage,
+                  ...(queueMode ? { queueMode } : {}),
+                  onQueueModeChange: handleQueueModeChange,
+                  onSetQueuedMode: handleSetQueuedMode,
                   onCancelQueued: handleCancelQueued,
                 })}
             onQuestionPromptResolved={resolveQuestionPrompt}

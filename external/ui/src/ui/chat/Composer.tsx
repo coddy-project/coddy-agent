@@ -283,7 +283,8 @@ function AttachedFileChip({
 }
 
 /** One follow-up waiting for the running turn to read it. */
-export type QueuedMessage = { id: string; text: string };
+export type QueueMode = "steer" | "after_turn";
+export type QueuedMessage = { id: string; text: string; mode?: QueueMode; imageParts?: { name: string; data_url: string }[] };
 
 type SlashRow = {
   name: string;
@@ -396,7 +397,10 @@ export function Composer(props: {
   /** Follow-ups waiting for the running turn to read them (the message queue). */
   queuedMessages?: QueuedMessage[];
   /** Add the draft to that queue instead of starting a turn. Only while generating. */
-  onQueue?: (text: string) => void;
+  onQueue?: (text: string, mode: QueueMode, files?: File[]) => void;
+  queueMode?: QueueMode;
+  onQueueModeChange?: (mode: QueueMode) => void;
+  onSetQueuedMode?: (id: string, mode: QueueMode) => void;
   /** Take one queued follow-up back before the agent reads it. */
   onCancelQueued?: (id: string) => void;
   /** Workspace context chips (folder / branch / worktree) above the field. */
@@ -458,16 +462,17 @@ export function Composer(props: {
   const attachmentSendingEnabled = props.llmModelMultimodal === true;
   const sendableAttachedFiles = attachmentSendingEnabled ? attachedFiles : [];
   const queuedMessages = props.queuedMessages ?? [];
+  const [queueChoiceOpen, setQueueChoiceOpen] = useState(false);
   /**
    * While a turn runs, a draft with text in it is a follow-up, not a Stop: the
    * primary action queues it for the turn to read at its next step. An empty
    * draft leaves the button as Stop, which is how the turn is still cancelled.
-   * Attachments are not queued - they stay in the composer for the next prompt.
+   * Attachments follow the text into the same queued message.
    */
   const queueArmed =
     props.generating === true &&
     typeof props.onQueue === "function" &&
-    props.value.trim().length > 0;
+    (props.value.trim().length > 0 || sendableAttachedFiles.length > 0);
   /** Runs a `/docs` draft in the browser; false when the draft is anything else. */
   const openDocsFromDraft = (): boolean => {
     if (!props.onDocsCommand || sendableAttachedFiles.length > 0) {
@@ -480,15 +485,23 @@ export function Composer(props: {
     props.onDocsCommand(arg);
     return true;
   };
-  const queueDraft = () => {
+  const queueDraft = (mode?: QueueMode) => {
     if (openDocsFromDraft()) {
       return;
     }
     const txt = props.value.trim();
-    if (!txt || !props.onQueue) {
+    if ((!txt && sendableAttachedFiles.length === 0) || !props.onQueue) {
       return;
     }
-    props.onQueue(txt);
+    const chosen = mode ?? props.queueMode;
+    if (!chosen) {
+      setQueueChoiceOpen(true);
+      return;
+    }
+    setQueueChoiceOpen(false);
+    const files = [...sendableAttachedFiles];
+    if (files.length > 0) setAttachedFiles([]);
+    props.onQueue(txt, chosen, files);
   };
   /** Attachment-only send is valid only while the selected model accepts it. */
   const idleSendDisabled =
@@ -2460,6 +2473,8 @@ export function Composer(props: {
                 data-testid="composer-queue-item"
               >
                 <span className="composer-queue-text">{q.text}</span>
+                {q.imageParts?.length ? <span className="composer-queue-files">📎 {q.imageParts.length}</span> : null}
+                <button type="button" className="composer-queue-mode" onClick={() => props.onSetQueuedMode?.(q.id, q.mode === "after_turn" ? "steer" : "after_turn")}>{q.mode === "after_turn" ? t("composer.queueModeAfterTurn") : t("composer.queueModeSteer")}</button>
                 <button
                   type="button"
                   className="sessions-close composer-queue-remove"
@@ -2473,6 +2488,13 @@ export function Composer(props: {
               </li>
             ))}
           </ul>
+        ) : null}
+        {queueChoiceOpen ? (
+          <div className="composer-queue-choice" role="group" aria-label={t("composer.queueChoiceLabel")}>
+            <span>{t("composer.queueChoiceQuestion")}</span>
+            <button type="button" onClick={() => { props.onQueueModeChange?.("steer"); queueDraft("steer"); }}>{t("composer.queueChoiceSteer")}</button>
+            <button type="button" onClick={() => { props.onQueueModeChange?.("after_turn"); queueDraft("after_turn"); }}>{t("composer.queueChoiceAfterTurn")}</button>
+          </div>
         ) : null}
         <div
           className={`composer-card${dragOverCard ? " composer-card--dragover" : ""}`}
@@ -2853,6 +2875,11 @@ export function Composer(props: {
                     if (pick) {
                       applySlashChoice(pick);
                     }
+                    return;
+                  }
+                  if (ev.key === "Tab" && props.generating && queueArmed && !ev.shiftKey && !ev.ctrlKey && !ev.altKey && !ev.metaKey) {
+                    ev.preventDefault();
+                    queueDraft(props.queueMode ? (props.queueMode === "after_turn" ? "steer" : "after_turn") : undefined);
                     return;
                   }
                   const enterAction = composerEnterAction(

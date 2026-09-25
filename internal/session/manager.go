@@ -1125,23 +1125,42 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	// where a message is accepted by a turn that is already over.
 	//
 	// Only a turn that ended with an answer continues. A cancelled turn is a
-	// Stop, and a Stop drops what was waiting rather than answering it; a turn
+	// Stop, and a Stop drops unread steer messages but retains after_turn; a turn
 	// that stopped for any other reason (its turn cap, a refusal, a hook) says
 	// why (the stop notice below, or its error), and running it again would
 	// bury that. The run count is
 	// bounded for the same reason the ReAct loop is: each continuation is a
 	// fresh Agent.Run with its own budget, so without a cap one admission
-	// could hold the session's turn lock indefinitely.
+	// could hold the session's turn lock indefinitely. The cap covers a full
+	// queue of after_turn messages.
 	for runs := 0; stopReason == string(acp.StopReasonEndTurn) && turnCtx.Err() == nil; runs++ {
 		if runs >= maxQueuedFollowUpRuns {
 			left := state.CloseMessageQueue()
-			m.log.Warn("message queue follow-ups capped; the rest is dropped",
-				"session_id", params.SessionID, "runs", runs, "dropped", len(left))
+			if len(left) > 0 || len(state.QueuedMessages()) > 0 {
+				m.log.Warn("message queue follow-ups capped; unread steer messages dropped",
+					"session_id", params.SessionID, "runs", runs, "dropped", len(left))
+			}
 			break
 		}
 		queued, more := state.TakeQueuedMessagesOrClose()
 		if !more {
-			break
+			if next, ok := state.TakeNextAfterTurnOrClose(); ok {
+				queued = []QueuedMessage{next}
+			} else {
+				break
+			}
+		}
+		var images []llm.ImagePart
+		for _, q := range queued {
+			for _, p := range q.ImageParts {
+				images = append(images, llm.ImagePart{DataURL: p.DataURL, Name: p.Name})
+			}
+		}
+		if len(images) > 0 {
+			if saveErr := SavePartsToAssets(images, sessionDir); saveErr != nil {
+				m.log.Warn("save queued files to assets", "error", saveErr)
+			}
+			state.SetPendingImageParts(images)
 		}
 		stopReason, err = m.runner(turnCtx, state, state.ResolveQueuedMentions(QueuedPromptBlocks(queued)), sender)
 		if err != nil {
@@ -1170,9 +1189,9 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 // Each continuation is a full Agent.Run with its own agent.max_turns budget, so
 // an operator (or a script) writing one follow-up per boundary could otherwise
 // hold the session's turn lock for as long as they keep typing. Past the cap
-// the queue is closed and what is left is dropped with a warning, exactly as a
-// Stop drops it: the alternative is a session no other surface can ever enter.
-const maxQueuedFollowUpRuns = 8
+// the queue is closed and unread steer messages are dropped with a warning;
+// after_turn messages remain waiting for the next ordinary turn.
+const maxQueuedFollowUpRuns = MaxQueuedMessages
 
 func (m *Manager) HandleSessionSetMode(ctx context.Context, params acp.SessionSetModeParams) error {
 	mode := params.ModeID

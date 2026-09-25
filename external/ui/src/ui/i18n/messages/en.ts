@@ -1054,6 +1054,12 @@ export const messagesEn: Record<string, string> = {
   "composer.queueSend": "Queue this message",
   "composer.queueLabel": "Queued messages",
   "composer.queueRemove": "Remove from the queue",
+  "composer.queueModeSteer": "Steer",
+  "composer.queueModeAfterTurn": "After turn",
+  "composer.queueChoiceLabel": "Choose the default queue mode",
+  "composer.queueChoiceQuestion": "When a turn is running, how should Enter send your message?",
+  "composer.queueChoiceSteer": "Steer now",
+  "composer.queueChoiceAfterTurn": "After this turn",
   "composer.queueFull":
     "The queue is full: wait for the agent to read what is waiting.",
   "composer.attachReadFailed":

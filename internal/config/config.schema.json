@@ -133,6 +133,11 @@
       "description": "Defaults for the main agent loop (model id and safety caps).",
       "additionalProperties": false,
       "properties": {
+        "queue_mode": {
+          "type": "string",
+          "description": "Preferred queue mode for Enter during a running turn: steer joins the next ReAct step, after_turn starts a new turn after the current answer. When absent, interactive surfaces ask on first use.",
+          "enum": ["steer", "after_turn"]
+        },
         "model": {
           "type": "string",
           "description": "Optional default models[].model id. Interactive surfaces (web UI, console) pick a model per session; unattended calls that name no model (coddy -p, coddy acp, API requests without a model selector) need it set - they report 'no model configured' when it is empty."

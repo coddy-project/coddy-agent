@@ -497,7 +497,7 @@ func (s *cliTUIState) buildAppWithModels(neuraldeep, panel bool, models []config
 			{Model: "stub/model-one", MaxTokens: 1000, MaxContextTokens: 100000},
 			{Model: "stub/model-two", MaxTokens: 1000, MaxContextTokens: 100000},
 		},
-		Agent: config.Agent{Model: "stub/model-one"},
+		Agent: config.Agent{Model: "stub/model-one", QueueMode: "steer"},
 	}
 	if neuraldeep {
 		if err := s.startUsageStand(); err != nil {
@@ -903,17 +903,27 @@ func (s *cliTUIState) stubStreamsText(text string) error {
 // screenShowsQueuedMessage asserts the queue widget above the input is showing
 // that follow-up, under the header naming how many are waiting.
 func (s *cliTUIState) screenShowsQueuedMessage(text string) error {
-	if err := s.waitScreen("queued for the next step", 2*time.Second); err != nil {
+	if err := s.waitScreen("queued messages", 2*time.Second); err != nil {
 		return err
 	}
 	return s.waitScreen(text, 2*time.Second)
+}
+
+func (s *cliTUIState) operatorTabsPrompt(text string) error {
+	s.typeText(text)
+	s.press("\t")
+	return nil
+}
+
+func (s *cliTUIState) screenShowsQueueMode(mode, text string) error {
+	return s.waitScreen("["+mode+"] "+text, 2*time.Second)
 }
 
 // screenShowsNothingQueued asserts the widget is gone once the turn is over.
 func (s *cliTUIState) screenShowsNothingQueued() error {
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if !strings.Contains(s.screenText(), "queued for the next step") {
+		if !strings.Contains(s.screenText(), "queued messages") {
 			return nil
 		}
 		time.Sleep(15 * time.Millisecond)
@@ -1808,6 +1818,8 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the background subagent "([^"]*)" is answered "([^"]*)"$`, s.backgroundSubagentAnswered)
 	sc.Step(`^the stub turn blocks until cancelled$`, s.stubBlocksUntilCancelled)
 	sc.Step(`^the screen shows the queued message "([^"]*)"$`, s.screenShowsQueuedMessage)
+	sc.Step(`^the operator queues "([^"]*)" with Tab$`, s.operatorTabsPrompt)
+	sc.Step(`^the screen shows "([^"]*)" queued as "([^"]*)"$`, func(text, mode string) error { return s.screenShowsQueueMode(mode, text) })
 	sc.Step(`^the screen shows nothing queued$`, s.screenShowsNothingQueued)
 	sc.Step(`^the operator presses escape$`, s.operatorPressesEscape)
 	sc.Step(`^the operator presses F1$`, s.operatorPressesF1)

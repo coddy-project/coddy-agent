@@ -38,7 +38,11 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 				if a.remoteURL != "" {
 					a.refreshRemoteControls()
 				} else {
-					a.queue.SetRows(nil)
+					if a.mgr == nil {
+						a.queue.SetRows(nil)
+					} else if rows, err := a.mgr.QueuedTurnMessages(a.sessionID); err == nil {
+						a.setQueueRows(session.QueuedMessagesWire(rows))
+					}
 				}
 			}
 			a.stopUsageResume()

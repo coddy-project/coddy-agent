@@ -11,8 +11,46 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
+
+func (h *Handler) SetQueueModePreference(mode session.QueueMode) error {
+	if !session.ValidQueueMode(mode) {
+		return fmt.Errorf("invalid queue mode %q", mode)
+	}
+	var doc config.ConfigJSON
+	if err := h.getJSON(h.controlCtx, "/coddy/config", &doc); err != nil {
+		return err
+	}
+	doc.Agent.QueueMode = string(mode)
+	raw, err := json.Marshal(doc)
+	if err != nil {
+		return err
+	}
+	req, err := h.newRequest(h.controlCtx, http.MethodPut, "/coddy/config", bytes.NewReader(raw))
+	if err != nil {
+		return err
+	}
+	res, err := h.hc.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	answer, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+	if res.StatusCode != http.StatusOK {
+		return h.remoteError(res, answer)
+	}
+	return nil
+}
+
+func (h *Handler) QueueModePreference() (session.QueueMode, error) {
+	var doc config.ConfigJSON
+	if err := h.getJSON(h.controlCtx, "/coddy/config", &doc); err != nil {
+		return "", err
+	}
+	return session.QueueMode(doc.Agent.QueueMode), nil
+}
 
 // ApplySessionSettings changes the remote session's settings through PATCH
 // /coddy/sessions/{id}, the setter the server's browser uses, and mirrors
@@ -89,12 +127,16 @@ func (h *Handler) ApplySessionSettings(ctx context.Context, sessionID string, ch
 // server takes settings commands off its start (they apply at once) and
 // answers without a message when nothing was left to queue.
 func (h *Handler) EnqueueFollowUp(_ context.Context, sessionID, text, _ string) (session.QueuedMessage, bool, string, error) {
+	return h.EnqueueFollowUpWithMode(context.Background(), sessionID, text, "", session.QueueModeSteer, nil)
+}
+
+func (h *Handler) EnqueueFollowUpWithMode(_ context.Context, sessionID, text, _ string, mode session.QueueMode, parts []acp.ImagePartRef) (session.QueuedMessage, bool, string, error) {
 	fence := h.queueRequestFence(sessionID)
 	var out struct {
 		queueResponse
 		Notice string `json:"notice"`
 	}
-	if err := h.postJSON(h.controlCtx, queuePath(sessionID), map[string]string{"text": text}, &out); err != nil {
+	if err := h.postJSON(h.controlCtx, queuePath(sessionID), map[string]interface{}{"text": text, "mode": mode, "inline_files": parts}, &out); err != nil {
 		return session.QueuedMessage{}, false, "", translateQueueError(err)
 	}
 	h.publishQueue(sessionID, out.queueResponse, fence)

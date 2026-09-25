@@ -1071,6 +1071,12 @@ export const messagesRu: Record<string, string> = {
   "composer.queueSend": "Поставить сообщение в очередь",
   "composer.queueLabel": "Сообщения в очереди",
   "composer.queueRemove": "Убрать из очереди",
+  "composer.queueModeSteer": "В текущий ход",
+  "composer.queueModeAfterTurn": "После хода",
+  "composer.queueChoiceLabel": "Режим очереди по умолчанию",
+  "composer.queueChoiceQuestion": "Куда Enter отправляет сообщение во время хода?",
+  "composer.queueChoiceSteer": "В текущий ход",
+  "composer.queueChoiceAfterTurn": "После этого хода",
   "composer.queueFull":
     "Очередь заполнена: дождитесь, пока агент прочитает то, что уже стоит.",
   "composer.attachReadFailed":

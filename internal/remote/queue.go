@@ -136,6 +136,20 @@ func (h *Handler) EnqueueTurnMessage(sessionID, text string) (session.QueuedMess
 	return *out.Message, out.Messages, nil
 }
 
+func (h *Handler) SetQueuedTurnMessageMode(sessionID, messageID string, mode session.QueueMode) ([]session.QueuedMessage, error) {
+	fence := h.queueRequestFence(sessionID)
+	path := queuePath(sessionID) + "/" + url.PathEscape(messageID)
+	if err := h.patchJSON(h.controlCtx, path, map[string]string{"mode": string(mode)}); err != nil {
+		return nil, translateQueueError(err)
+	}
+	var out queueResponse
+	if err := h.getJSON(h.controlCtx, queuePath(sessionID), &out); err != nil {
+		return nil, translateQueueError(err)
+	}
+	h.publishQueue(sessionID, out, fence)
+	return out.Messages, nil
+}
+
 // QueuedTurnMessages lists what the remote session is holding.
 func (h *Handler) QueuedTurnMessages(sessionID string) ([]session.QueuedMessage, error) {
 	fence := h.queueRequestFence(sessionID)

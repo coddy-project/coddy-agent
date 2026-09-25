@@ -10,7 +10,7 @@ afterEach(() => cleanup());
 function renderGenerating(opts: {
   value: string;
   queued?: { id: string; text: string }[];
-  onQueue?: (text: string) => void;
+  onQueue?: (text: string, mode: "steer" | "after_turn", files?: File[]) => void;
   onStop?: () => void;
   onCancelQueued?: (id: string) => void;
 }) {
@@ -27,6 +27,7 @@ function renderGenerating(opts: {
       onStop={opts.onStop ?? (() => {})}
       queuedMessages={opts.queued ?? []}
       onQueue={opts.onQueue ?? (() => {})}
+      queueMode="steer"
       onCancelQueued={opts.onCancelQueued ?? (() => {})}
     />,
   );
@@ -41,7 +42,7 @@ test("the primary control queues the draft while a turn runs", () => {
   expect(btn).toHaveAttribute("data-queue", "true");
   fireEvent.click(btn);
 
-  expect(onQueue).toHaveBeenCalledWith("check the Windows path too");
+  expect(onQueue).toHaveBeenCalledWith("check the Windows path too", "steer", []);
   expect(onStop).not.toHaveBeenCalled();
 });
 
@@ -64,7 +65,18 @@ test("Enter queues the draft instead of being swallowed", () => {
 
   fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
 
-  expect(onQueue).toHaveBeenCalledWith("one more thing");
+  expect(onQueue).toHaveBeenCalledWith("one more thing", "steer", []);
+});
+
+test("first queued message asks for the Enter preference once", () => {
+  const onQueue = vi.fn();
+  const onQueueModeChange = vi.fn();
+  render(<Composer value="check this" isEmpty={false} mode="agent" modes={["agent"]} generating={true} onModeChange={() => {}} onChange={() => {}} onSend={() => {}} onQueue={onQueue} onQueueModeChange={onQueueModeChange} />);
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Enter" });
+  expect(onQueue).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "After this turn" }));
+  expect(onQueueModeChange).toHaveBeenCalledWith("after_turn");
+  expect(onQueue).toHaveBeenCalledWith("check this", "after_turn", []);
 });
 
 test("queued messages are listed in order, each with its own remove control", () => {

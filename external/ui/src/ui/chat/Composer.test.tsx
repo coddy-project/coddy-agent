@@ -1142,6 +1142,19 @@ test("send with attached file passes files to onSend", async () => {
   vi.unstubAllGlobals();
 });
 
+test("Tab queues the alternate mode and clears attached images", async () => {
+  stubMatchMediaMobile(false);
+  const onQueue = vi.fn();
+  render(<Composer value="inspect this" isEmpty={false} generating={true} mode="agent" modes={["agent"]} llmModelMultimodal={true} queueMode="steer" onModeChange={() => {}} onChange={() => {}} onSend={() => {}} onQueue={onQueue} />);
+  const file = new File(["image"], "img.png", { type: "image/png" });
+  fireEvent.change(screen.getByTestId("composer-file-input"), { target: { files: [file] } });
+  await waitFor(() => screen.getByText("img.png"));
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Tab" });
+  expect(onQueue).toHaveBeenCalledWith("inspect this", "after_turn", [file]);
+  expect(screen.queryByText("img.png")).toBeNull();
+  vi.unstubAllGlobals();
+});
+
 /** jsdom has no real clipboard: dispatch a native paste event carrying image items. */
 function pasteWithImages(el: Element, files: File[]) {
   const ev = new Event("paste", { bubbles: true, cancelable: true });

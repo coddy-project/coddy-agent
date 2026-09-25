@@ -94,7 +94,10 @@ type Editor struct {
 	requestSync func()
 
 	OnSubmit func(text string)
-	OnChange func(text string)
+	// OnAlternateSubmit handles Tab when a turn is running and no completion is open.
+	// It returns true only when the editor should submit instead of completing.
+	OnAlternateSubmit func(text string) bool
+	OnChange          func(text string)
 	// OnUnhandled receives key sequences the editor did not consume.
 	OnUnhandled func(data []byte)
 }
@@ -222,6 +225,10 @@ func (e *Editor) HandleInput(data []byte) {
 			e.insertNewline()
 			return
 		case "tab":
+			if e.OnAlternateSubmit != nil && e.OnAlternateSubmit(strings.TrimSpace(e.expandPasteMarkers(e.Text()))) {
+				e.clearAfterSubmit()
+				return
+			}
 			e.refreshAutocomplete(true)
 			if !e.acOpen {
 				e.insertText("\t")
@@ -390,6 +397,13 @@ func (e *Editor) submit() {
 		return
 	}
 	text := strings.TrimSpace(e.expandPasteMarkers(e.Text()))
+	e.clearAfterSubmit()
+	if e.OnSubmit != nil {
+		e.OnSubmit(text)
+	}
+}
+
+func (e *Editor) clearAfterSubmit() {
 	e.lines = []string{""}
 	e.cursorLine, e.cursorCol = 0, 0
 	e.scrollOffset = 0
@@ -399,9 +413,6 @@ func (e *Editor) submit() {
 	e.pasteCounter = 0
 	e.closeAutocomplete()
 	e.notifyChange()
-	if e.OnSubmit != nil {
-		e.OnSubmit(text)
-	}
 }
 
 func (e *Editor) insertNewline() {

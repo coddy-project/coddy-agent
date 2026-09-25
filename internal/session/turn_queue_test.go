@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 )
 
 // A queue that was never opened belongs to no turn, so it refuses rather than
@@ -35,6 +37,61 @@ func TestEnqueueTrimsAndRefusesEmpty(t *testing.T) {
 	}
 	if msg.ID == "" || msg.CreatedAt == "" {
 		t.Fatalf("queued message is missing its identity: %+v", msg)
+	}
+}
+
+func TestAfterTurnWaitsWhileSteerIsTaken(t *testing.T) {
+	st := &State{ID: "sess_queue_modes"}
+	st.OpenMessageQueue()
+	if _, err := st.EnqueueMessageWithMode("next turn", QueueModeAfterTurn, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.EnqueueMessageWithMode("correct this step", QueueModeSteer, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := st.TakeQueuedMessages(); len(got) != 1 || got[0].Text != "correct this step" {
+		t.Fatalf("steer drain = %+v", got)
+	}
+	if got := st.QueuedMessages(); len(got) != 1 || got[0].Mode != QueueModeAfterTurn {
+		t.Fatalf("waiting queue = %+v", got)
+	}
+	if got, ok := st.TakeNextAfterTurnOrClose(); !ok || got.Text != "next turn" {
+		t.Fatalf("next turn = %+v, %v", got, ok)
+	}
+}
+
+func TestRetainedMessageCanSwitchToSteerBeforeNextTurn(t *testing.T) {
+	st := &State{ID: "sess_queue_retained"}
+	st.OpenMessageQueue()
+	msg, err := st.EnqueueMessageWithMode("next turn", QueueModeAfterTurn, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.CloseMessageQueue()
+	if !st.SetQueuedMessageMode(msg.ID, QueueModeSteer) {
+		t.Fatal("retained message missing")
+	}
+	st.OpenMessageQueue()
+	if got := st.TakeQueuedMessages(); len(got) != 1 || got[0].ID != msg.ID {
+		t.Fatalf("next turn steer = %+v", got)
+	}
+}
+
+func TestModeSwitchBetweenBoundaryReadsIsNotLost(t *testing.T) {
+	st := &State{ID: "sess_queue_boundary_switch"}
+	st.OpenMessageQueue()
+	msg, err := st.EnqueueMessageWithMode("late change", QueueModeAfterTurn, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows, ok := st.TakeQueuedMessagesOrClose(); ok || len(rows) != 0 {
+		t.Fatalf("steer drain = %+v, %v", rows, ok)
+	}
+	if !st.SetQueuedMessageMode(msg.ID, QueueModeSteer) {
+		t.Fatal("mode switch failed")
+	}
+	if got, ok := st.TakeNextAfterTurnOrClose(); !ok || got.ID != msg.ID {
+		t.Fatalf("boundary lost switched message: %+v, %v", got, ok)
 	}
 }
 
@@ -88,6 +145,21 @@ func TestQueuedMessagesIsACopy(t *testing.T) {
 	snapshot[0].Text = "rewritten"
 	if got := st.QueuedMessages()[0].Text; got != "original" {
 		t.Fatalf("the queue was mutated through its snapshot: %q", got)
+	}
+}
+
+func TestQueuedImagePartsAreCopied(t *testing.T) {
+	st := &State{ID: "sess_queue_image_copy"}
+	st.OpenMessageQueue()
+	parts := []acp.ImagePartRef{{Name: "original.png", DataURL: "data:image/png;base64,YQ=="}}
+	if _, err := st.EnqueueMessageWithMode("image", QueueModeSteer, parts); err != nil {
+		t.Fatal(err)
+	}
+	parts[0].Name = "changed.png"
+	rows := st.QueuedMessages()
+	rows[0].ImageParts[0].Name = "snapshot.png"
+	if got := st.QueuedMessages()[0].ImageParts[0].Name; got != "original.png" {
+		t.Fatalf("queued image mutated: %q", got)
 	}
 }
 

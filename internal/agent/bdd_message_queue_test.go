@@ -37,8 +37,9 @@ type queueFeatureState struct {
 	mu sync.Mutex
 	// pending is what the scenario asked to be queued from inside the model
 	// call; cancelled names the texts taken back in the same breath.
-	pending   []string
-	cancelled map[string]bool
+	pending       []string
+	pendingImages map[string][]acp.ImagePartRef
+	cancelled     map[string]bool
 	// enqueueErr is the first refusal the queue returned.
 	enqueueErr error
 
@@ -61,6 +62,7 @@ func (s *queueFeatureState) reset() error {
 	}
 	s.client = &recordingClient{answer: "allow"}
 	s.pending = nil
+	s.pendingImages = map[string][]acp.ImagePartRef{}
 	s.cancelled = map[string]bool{}
 	s.enqueueErr = nil
 	s.stopReason = ""
@@ -88,7 +90,10 @@ func (s *queueFeatureState) drainPending() {
 	s.pending = nil
 	s.mu.Unlock()
 	for _, text := range texts {
-		msg, _, err := s.mgr.EnqueueTurnMessage(s.sess.GetID(), text)
+		s.mu.Lock()
+		images := s.pendingImages[text]
+		s.mu.Unlock()
+		msg, _, err := s.mgr.EnqueueTurnMessageWithMode(s.sess.GetID(), text, session.QueueModeSteer, images)
 		s.mu.Lock()
 		if err != nil && s.enqueueErr == nil {
 			s.enqueueErr = err
@@ -169,6 +174,37 @@ func (s *queueFeatureState) operatorQueues(text string) error {
 	s.pending = append(s.pending, text)
 	s.mu.Unlock()
 	return nil
+}
+
+func (s *queueFeatureState) operatorQueuesImage(text string) error {
+	s.mu.Lock()
+	s.pending = append(s.pending, text)
+	s.pendingImages[text] = []acp.ImagePartRef{{Name: "pixel.png", DataURL: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/L9kAAAAASUVORK5CYII="}}
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *queueFeatureState) nextRequestCarriesImage() error {
+	s.provider.mu.Lock()
+	defer s.provider.mu.Unlock()
+	if len(s.provider.requests) < 2 {
+		return fmt.Errorf("no next model request")
+	}
+	for _, msg := range s.provider.requests[1] {
+		if msg.Role == llm.RoleUser && len(msg.ImageParts) == 1 && msg.ImageParts[0].Name == "pixel.png" {
+			return nil
+		}
+	}
+	return fmt.Errorf("next request does not carry the queued image")
+}
+
+func (s *queueFeatureState) transcriptRecordsImage() error {
+	for _, msg := range s.sess.GetMessages() {
+		if msg.Role == llm.RoleUser && strings.Contains(msg.Content, "inspect this image") && len(msg.ImageParts) == 1 {
+			return nil
+		}
+	}
+	return fmt.Errorf("transcript does not show the queued image")
 }
 
 // cancelLastQueued takes the most recently written follow-up back, in the same
@@ -351,6 +387,7 @@ func initializeMessageQueueScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^an agent turn that calls a tool before it answers$`, s.turnCallsToolFirst)
 	sc.Step(`^an agent turn that answers without calling a tool$`, s.turnAnswersWithoutTool)
 	sc.Step(`^the operator queues "([^"]*)" while the tool is running$`, s.operatorQueues)
+	sc.Step(`^the operator queues an image with "([^"]*)" while the tool is running$`, s.operatorQueuesImage)
 	sc.Step(`^the operator queues "([^"]*)" before the turn releases$`, s.operatorQueues)
 	sc.Step(`^the operator cancels that queued message before the step ends$`, s.cancelLastQueued)
 	sc.Step(`^the agent reads that message on its next step$`, func() error {
@@ -379,6 +416,9 @@ func initializeMessageQueueScenario(sc *godog.ScenarioContext) {
 	})
 	sc.Step(`^the turn finishes$`, s.turnFinishes)
 	sc.Step(`^the session holds no queued messages$`, s.sessionHoldsNoQueuedMessages)
+	sc.Step(`^the agent reads that image on its next step$`, func() error { return s.agentReadsOnNextStep("inspect this image") })
+	sc.Step(`^the next model request carries the image$`, s.nextRequestCarriesImage)
+	sc.Step(`^the transcript records the image on the operator's message$`, s.transcriptRecordsImage)
 }
 
 func TestMessageQueueFeature(t *testing.T) {

@@ -3,15 +3,62 @@
 package httpserver
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"slices"
 	"sync"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
+
+func TestQueueHTTPAcceptsModeAndImageAndAllowsSwitch(t *testing.T) {
+	s := &queueHTTPState{}
+	s.reset()
+	defer s.close()
+	if err := s.startServer(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.haveSession(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.turnIsRunning(); err != nil {
+		t.Fatal(err)
+	}
+	post, err := http.Post(s.queueURL(""), "application/json", bytes.NewBufferString(`{"text":"inspect","mode":"after_turn","inline_files":[{"name":"pixel.png","data_url":"data:image/png;base64,YQ=="}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var added struct {
+		Message session.QueuedMessage `json:"message"`
+	}
+	if err := json.NewDecoder(post.Body).Decode(&added); err != nil {
+		t.Fatal(err)
+	}
+	_ = post.Body.Close()
+	if post.StatusCode != http.StatusCreated || added.Message.Mode != session.QueueModeAfterTurn || len(added.Message.ImageParts) != 1 {
+		t.Fatalf("queued image = %+v, status %d", added.Message, post.StatusCode)
+	}
+	req, err := http.NewRequest(http.MethodPatch, s.queueURL("/"+added.Message.ID), bytes.NewBufferString(`{"mode":"steer"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("patch status %d", res.StatusCode)
+	}
+	rows, err := s.srv.mgr.QueuedTurnMessages(s.sessionID)
+	if err != nil || len(rows) != 1 || rows[0].Mode != session.QueueModeSteer {
+		t.Fatalf("switched rows = %+v, %v", rows, err)
+	}
+}
 
 func TestQueueResponseUsesOneCurrentSnapshot(t *testing.T) {
 	st := &session.State{ID: "sess_queue_snapshot"}
@@ -82,7 +129,7 @@ func TestQueueResponsesRemainConsistentDuringMutations(t *testing.T) {
 	}
 	for _, got := range responses {
 		want, ok := snapshots.Load(got.Version)
-		if !ok || !slices.Equal(got.Messages, want.([]session.QueuedMessage)) {
+		if !ok || !slices.EqualFunc(got.Messages, want.([]session.QueuedMessage), func(a, b session.QueuedMessage) bool { return reflect.DeepEqual(a, b) }) {
 			t.Fatalf("version %d: response messages %+v, recorded snapshot %+v", got.Version, got.Messages, want)
 		}
 	}

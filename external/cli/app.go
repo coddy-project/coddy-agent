@@ -72,10 +72,13 @@ type App struct {
 	status *tui.Container
 	plan   *planWidget
 	// queue shows the follow-ups waiting for the running turn (queue.go).
-	queue      *queueWidget
-	editorWrap *tui.Container
-	editor     *tui.Editor
-	foot       *footer
+	queue                 *queueWidget
+	queuePreference       session.QueueMode
+	pendingQueueText      string
+	pendingQueueAlternate bool
+	editorWrap            *tui.Container
+	editor                *tui.Editor
+	foot                  *footer
 
 	spinner       *tui.Loader
 	stepStatus    liveStatus
@@ -248,8 +251,16 @@ func (a *App) buildTree() {
 	a.status = &tui.Container{}
 	a.plan = newPlanWidget(a.theme)
 	a.queue = newQueueWidget(a.theme)
+	a.queuePreference = session.QueueMode(a.config().Agent.QueueMode)
 	a.editor = tui.NewEditor(a.term, tui.EditorTheme{BorderColor: a.theme.FgFn(roleBorderMuted)}, 0)
 	a.editor.OnSubmit = a.onSubmit
+	a.editor.OnAlternateSubmit = func(text string) bool {
+		if text == "" || (!a.turnActive && !a.remoteTurnActive) {
+			return false
+		}
+		a.submitQueueChoice(text, true)
+		return true
+	}
 	a.editor.OnChange = a.onEditorChange
 	a.editorWrap = &tui.Container{}
 	a.editorWrap.AddChild(a.editor)
@@ -621,6 +632,27 @@ func (a *App) handleGlobalKey(data []byte) bool {
 	if a.modal != nil {
 		return false
 	}
+	if a.pendingQueueText != "" {
+		switch key.String() {
+		case "1", "2":
+			mode := session.QueueModeSteer
+			if key.String() == "2" {
+				mode = session.QueueModeAfterTurn
+			}
+			text, alternate := a.pendingQueueText, a.pendingQueueAlternate
+			a.pendingQueueText = ""
+			a.queuePreference = mode
+			if alternate {
+				mode = oppositeQueueMode(mode)
+			}
+			a.enqueuePromptWithMode(text, mode, true)
+			return true
+		case "escape":
+			a.editor.SetText(a.pendingQueueText)
+			a.pendingQueueText = ""
+			return true
+		}
+	}
 	switch key.String() {
 	case "escape":
 		if a.editor.AutocompleteOpen() {
@@ -778,7 +810,7 @@ func (a *App) submitPrompt(text string) {
 		// The moment an operator knows most about what the agent should do next
 		// is while it is working, so a second prompt joins the queue the turn
 		// reads at its next step instead of being refused (queue.go).
-		a.enqueuePrompt(text)
+		a.submitQueueChoice(text, false)
 		return
 	}
 	if a.shellActive {
@@ -800,9 +832,6 @@ func (a *App) submitPrompt(text string) {
 // background wake waits on it (background.go), so the waker starts at most one
 // turn at a time and hears a busy session as busy.
 func (a *App) startTurnWorker(params acp.SessionPromptParams, opts *session.PromptRunOpts, done chan<- error) {
-	if a.remoteURL == "" {
-		a.setQueueRows(nil)
-	}
 	a.curAssistant = nil
 	a.stepStatus = newWaitingStatus()
 	a.stepBlocked = ""

@@ -2,6 +2,7 @@ package session_test
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -101,7 +102,75 @@ func TestTurnBoundaryAnswersAFollowUpTheLoopNeverSaw(t *testing.T) {
 	}
 }
 
-// A cancelled turn is a Stop, and a Stop drops what was waiting instead of
+func TestAfterTurnMessagesRunOneAtATime(t *testing.T) {
+	r := &queueRunner{}
+	var mgr *session.Manager
+	var sid string
+	r.onRun = func(run int) {
+		if run != 0 {
+			return
+		}
+		for _, text := range []string{"first deferred", "second deferred"} {
+			if _, _, err := mgr.EnqueueTurnMessageWithMode(sid, text, session.QueueModeAfterTurn, nil); err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	mgr, sid = newQueueManager(t, r)
+	if _, err := mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{SessionID: sid, Prompt: []acp.ContentBlock{{Type: "text", Text: "start"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.seen(); len(got) != 3 || got[0] != "start" || got[1] != "first deferred" || got[2] != "second deferred" {
+		t.Fatalf("runs = %v", got)
+	}
+}
+
+func TestFullAfterTurnQueueRunsEveryMessage(t *testing.T) {
+	r := &queueRunner{}
+	var mgr *session.Manager
+	var sid string
+	r.onRun = func(run int) {
+		if run != 0 {
+			return
+		}
+		for i := 0; i < session.MaxQueuedMessages; i++ {
+			if _, _, err := mgr.EnqueueTurnMessageWithMode(sid, fmt.Sprintf("deferred %d", i), session.QueueModeAfterTurn, nil); err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	mgr, sid = newQueueManager(t, r)
+	if _, err := mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{SessionID: sid, Prompt: []acp.ContentBlock{{Type: "text", Text: "start"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.seen(); len(got) != session.MaxQueuedMessages+1 {
+		t.Fatalf("ran %d prompts, want %d", len(got), session.MaxQueuedMessages+1)
+	}
+}
+
+func TestStopKeepsAfterTurnWithoutStartingIt(t *testing.T) {
+	r := &queueRunner{stop: string(acp.StopReasonCancelled)}
+	var mgr *session.Manager
+	var sid string
+	r.onRun = func(run int) {
+		if _, _, err := mgr.EnqueueTurnMessageWithMode(sid, "after stop", session.QueueModeAfterTurn, nil); err != nil {
+			t.Error(err)
+		}
+	}
+	mgr, sid = newQueueManager(t, r)
+	if _, err := mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{SessionID: sid, Prompt: []acp.ContentBlock{{Type: "text", Text: "start"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.seen(); len(got) != 1 {
+		t.Fatalf("runs = %v", got)
+	}
+	rows, err := mgr.QueuedTurnMessages(sid)
+	if err != nil || len(rows) != 1 || rows[0].Text != "after stop" {
+		t.Fatalf("queued = %+v, %v", rows, err)
+	}
+}
+
+// A cancelled turn is a Stop, and a Stop drops unread steer messages instead of
 // answering it: the operator asked the work to end, not to continue.
 func TestACancelledTurnDropsTheQueueInsteadOfAnsweringIt(t *testing.T) {
 	r := &queueRunner{stop: string(acp.StopReasonCancelled)}
@@ -165,7 +234,7 @@ func TestTurnBoundaryStopsAfterTheFollowUpCap(t *testing.T) {
 	if len(got) < 2 {
 		t.Fatalf("the boundary never continued the turn: %v", got)
 	}
-	if len(got) > 16 {
+	if len(got) > session.MaxQueuedMessages+1 {
 		t.Fatalf("the boundary ran the runner %d times: the cap does not hold", len(got))
 	}
 	// The session must be usable again: a turn that never released would be

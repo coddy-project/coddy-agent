@@ -381,9 +381,11 @@ type SessionSettingsUpdate struct {
 
 // QueuedMessage is one follow-up waiting for the running turn to read it.
 type QueuedMessage struct {
-	ID        string `json:"id"`
-	Text      string `json:"text"`
-	CreatedAt string `json:"createdAt,omitempty"`
+	ID         string         `json:"id"`
+	Text       string         `json:"text"`
+	Mode       string         `json:"mode"`
+	ImageParts []ImagePartRef `json:"imageParts,omitempty"`
+	CreatedAt  string         `json:"createdAt,omitempty"`
 }
 
 // MessageQueueUpdate publishes what the session's message queue holds now.

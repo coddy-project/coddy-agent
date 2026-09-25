@@ -39,6 +39,9 @@ const (
 type Agent struct {
 	// Model is the models[].id used for LLM calls until the session overrides the model in the client.
 	Model string `yaml:"model"`
+	// QueueMode is the preferred action of Enter while a turn runs. Empty asks
+	// the operator on first use; steer and after_turn are explicit choices.
+	QueueMode string `yaml:"queue_mode"`
 	// MaxTurns caps the ReAct steps of one prompt turn; 0 (the default) sets
 	// no cap.
 	MaxTurns int `yaml:"max_turns"`
@@ -164,6 +167,9 @@ func (c *Agent) ApplyDefaults() {
 
 // Validate checks bounds after defaults.
 func (c *Agent) Validate() error {
+	if c.QueueMode != "" && c.QueueMode != "steer" && c.QueueMode != "after_turn" {
+		return fmt.Errorf("agent.queue_mode: must be steer or after_turn")
+	}
 	if c.MaxTurns < 0 {
 		return fmt.Errorf("agent.max_turns: must be >= 0")
 	}

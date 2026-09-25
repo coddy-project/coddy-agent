@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -16,19 +17,21 @@ import (
 // writes while a turn is running, waiting for that turn to read it at its next
 // step (docs/features/message-queue.md).
 //
-// The queue belongs to the turn, not to the session bundle: it is opened when a
-// turn is admitted and gone when that turn releases, so every route here
-// answers about a session that is working right now.
+// The queue lives in process memory. Admission opens during a turn; an
+// after_turn message may remain visible after Stop until it is removed or run.
 func (s *Server) registerQueueRoutes() {
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/queue", s.coddyQueueList)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/queue", s.coddyQueuePost)
 	s.mux.HandleFunc("DELETE /coddy/sessions/{id}/queue", s.coddyQueueClear)
 	s.mux.HandleFunc("DELETE /coddy/sessions/{id}/queue/{message_id}", s.coddyQueueDelete)
+	s.mux.HandleFunc("PATCH /coddy/sessions/{id}/queue/{message_id}", s.coddyQueuePatch)
 }
 
 // queueBody is what a client posts to add a follow-up.
 type queueBody struct {
-	Text string `json:"text"`
+	Text        string             `json:"text"`
+	Mode        session.QueueMode  `json:"mode,omitempty"`
+	InlineFiles []acp.ImagePartRef `json:"inline_files,omitempty"`
 }
 
 // writeQueue answers with the queue as it now stands.
@@ -79,13 +82,16 @@ func (s *Server) coddyQueuePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body queueBody
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<20)).Decode(&body); err != nil {
 		http.Error(w, `{"error":{"message":"invalid JSON body"}}`, http.StatusBadRequest)
 		return
 	}
 	// Settings commands at the start of the text apply at once and never
 	// reach the model; only the rest is queued (session.EnqueueFollowUp).
-	msg, queued, notice, err := s.mgr.EnqueueFollowUp(r.Context(), id, body.Text, "web")
+	if body.Mode == "" {
+		body.Mode = session.QueueModeSteer
+	}
+	msg, queued, notice, err := s.mgr.EnqueueFollowUpWithMode(r.Context(), id, body.Text, "web", body.Mode, body.InlineFiles)
 	switch {
 	case errors.Is(err, session.ErrTurnScopedFollowUp):
 		s.queueError(w, http.StatusConflict, "turn_scoped_follow_up", err)
@@ -124,6 +130,30 @@ func (s *Server) coddyQueuePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeQueue(w, http.StatusCreated, id, st, &msg)
+}
+
+func (s *Server) coddyQueuePatch(w http.ResponseWriter, r *http.Request) {
+	id, st := s.queueSession(w, r)
+	if st == nil {
+		return
+	}
+	var body struct {
+		Mode session.QueueMode `json:"mode"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&body); err != nil || !session.ValidQueueMode(body.Mode) {
+		s.queueError(w, http.StatusBadRequest, "invalid_request", fmt.Errorf("mode must be steer or after_turn"))
+		return
+	}
+	_, err := s.mgr.SetQueuedTurnMessageMode(id, strings.TrimSpace(r.PathValue("message_id")), body.Mode)
+	if errors.Is(err, session.ErrQueuedMessageNotFound) {
+		s.queueError(w, http.StatusNotFound, "not_found", err)
+		return
+	}
+	if err != nil {
+		s.queueError(w, http.StatusBadRequest, "invalid_request", err)
+		return
+	}
+	writeQueue(w, http.StatusOK, id, st, nil)
 }
 
 func (s *Server) coddyQueueDelete(w http.ResponseWriter, r *http.Request) {

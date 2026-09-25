@@ -272,7 +272,7 @@ class Backend {
     }
     if (path === "/v1/models")
       return json({ data: [{ id: "test-model", owned_by: "test" }] });
-    if (path === "/coddy/config") return json({});
+    if (path === "/coddy/config") return json({ agent: { queue_mode: "steer" } });
     if (path.startsWith("/coddy/slash-commands")) return json({ items: [] });
     if (path === "/coddy/workspace/context")
       return json({ cwd: "/workspace", is_git_repo: false });

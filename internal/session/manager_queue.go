@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
 // EnqueueTurnMessage adds a follow-up to the turn running on sessionID and
@@ -17,11 +18,15 @@ import (
 // here for the same reason it is read-only everywhere - its only turn is the
 // task its parent wrote.
 func (m *Manager) EnqueueTurnMessage(sessionID, text string) (QueuedMessage, []QueuedMessage, error) {
+	return m.EnqueueTurnMessageWithMode(sessionID, text, QueueModeSteer, nil)
+}
+
+func (m *Manager) EnqueueTurnMessageWithMode(sessionID, text string, mode QueueMode, parts []acp.ImagePartRef) (QueuedMessage, []QueuedMessage, error) {
 	st, err := m.queueSession(sessionID)
 	if err != nil {
 		return QueuedMessage{}, nil, err
 	}
-	msg, err := st.EnqueueMessage(text)
+	msg, err := st.EnqueueMessageWithMode(text, mode, parts)
 	if err != nil {
 		return QueuedMessage{}, st.QueuedMessages(), err
 	}
@@ -36,12 +41,19 @@ func (m *Manager) EnqueueTurnMessage(sessionID, text string) (QueuedMessage, []Q
 // reach the model, and only the rest of the text is queued. queued is false
 // when nothing was left to queue; notice says what the commands changed.
 func (m *Manager) EnqueueFollowUp(ctx context.Context, sessionID, text, source string) (msg QueuedMessage, queued bool, notice string, err error) {
+	return m.EnqueueFollowUpWithMode(ctx, sessionID, text, source, QueueModeSteer, nil)
+}
+
+func (m *Manager) EnqueueFollowUpWithMode(ctx context.Context, sessionID, text, source string, mode QueueMode, parts []acp.ImagePartRef) (msg QueuedMessage, queued bool, notice string, err error) {
+	if !ValidQueueMode(mode) {
+		return QueuedMessage{}, false, "", fmt.Errorf("invalid queue mode %q", mode)
+	}
 	line, err := ParseSettingsCommands(text)
 	if err != nil {
 		return QueuedMessage{}, false, "", err
 	}
 	if line.Empty() {
-		msg, _, err = m.EnqueueTurnMessage(sessionID, text)
+		msg, _, err = m.EnqueueTurnMessageWithMode(sessionID, text, mode, parts)
 		return msg, err == nil, "", err
 	}
 	st, err := m.queueSession(sessionID)
@@ -49,7 +61,7 @@ func (m *Manager) EnqueueFollowUp(ctx context.Context, sessionID, text, source s
 		return QueuedMessage{}, false, "", err
 	}
 	rest := strings.TrimSpace(line.Rest)
-	if rest != "" {
+	if rest != "" || len(parts) > 0 {
 		if len(line.Turns) > 0 {
 			return QueuedMessage{}, false, "", ErrTurnScopedFollowUp
 		}
@@ -67,7 +79,7 @@ func (m *Manager) EnqueueFollowUp(ctx context.Context, sessionID, text, source s
 	if taken.Handled {
 		return QueuedMessage{}, false, taken.Notice, nil
 	}
-	msg, _, err = m.EnqueueTurnMessage(sessionID, line.Rest)
+	msg, _, err = m.EnqueueTurnMessageWithMode(sessionID, line.Rest, mode, parts)
 	return msg, err == nil, taken.Notice, err
 }
 
@@ -89,6 +101,26 @@ func (m *Manager) CancelQueuedTurnMessage(sessionID, messageID string) ([]Queued
 	if !st.CancelQueuedMessage(messageID) {
 		return st.QueuedMessages(), ErrQueuedMessageNotFound
 	}
+	if !st.MessageQueueOpen() {
+		m.PublishMessageQueue(sessionID, st)
+	}
+	return st.QueuedMessages(), nil
+}
+
+func (m *Manager) SetQueuedTurnMessageMode(sessionID, messageID string, mode QueueMode) ([]QueuedMessage, error) {
+	if !ValidQueueMode(mode) {
+		return nil, fmt.Errorf("invalid queue mode %q", mode)
+	}
+	st, err := m.queueSession(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if !st.SetQueuedMessageMode(messageID, mode) {
+		return st.QueuedMessages(), ErrQueuedMessageNotFound
+	}
+	if !st.MessageQueueOpen() {
+		m.PublishMessageQueue(sessionID, st)
+	}
 	return st.QueuedMessages(), nil
 }
 
@@ -99,6 +131,9 @@ func (m *Manager) ClearQueuedTurnMessages(sessionID string) error {
 		return err
 	}
 	st.ClearQueuedMessages()
+	if !st.MessageQueueOpen() {
+		m.PublishMessageQueue(sessionID, st)
+	}
 	return nil
 }
 
@@ -117,6 +152,19 @@ func (m *Manager) queueSession(sessionID string) (*State, error) {
 		return nil, err
 	}
 	return st, nil
+}
+
+// SetQueueModePreference persists the operator's default for interactive surfaces.
+func (m *Manager) SetQueueModePreference(mode QueueMode) error {
+	if !ValidQueueMode(mode) {
+		return fmt.Errorf("invalid queue mode %q", mode)
+	}
+	result, err := config.CommitUCICommands(m.activeCfg().Paths, []config.UCICommand{{Op: config.UCIOpSet, Path: "agent.queue_mode", Value: string(mode)}})
+	if err != nil {
+		return err
+	}
+	m.ReplaceConfig(result.Config)
+	return nil
 }
 
 // AddMessageQueueObserver registers fn for every change of any session's
