@@ -86,6 +86,31 @@ def build_home(base: Path, no_mcp: bool) -> Path:
     return home
 
 
+def mcp_desc(r: dict) -> str:
+    """One run's MCP connect in words: the count, when it settled, who failed."""
+    m = r.get("mcp")
+    if not m or m["first_seen"] is None:
+        return "not shown"
+    out = f"{m['connected']}/{m['total']} settled in {fmt(m['settled'])}"
+    if m["failed"]:
+        out += " (failed: " + ", ".join(m["failed"]) + ")"
+    if m["held"]:
+        out += " (held: " + ", ".join(m["held"]) + ")"
+    return out
+
+
+def mcp_outcome(runs: list[dict]) -> str:
+    """The connected/total of the runs and every server that failed in any."""
+    counts = sorted({f"{m['connected']}/{m['total']}" for m in (r.get("mcp") for r in runs) if m and m["first_seen"] is not None})
+    if not counts:
+        return "not shown"
+    failed = sorted({name for r in runs for name in (r.get("mcp") or {}).get("failed", [])})
+    out = ", ".join(counts)
+    if failed:
+        out += "; failed: " + ", ".join(failed)
+    return out
+
+
 def proxy_env(url: str | None) -> dict:
     """Route every outbound request of the console through url.
 
@@ -106,6 +131,8 @@ def main() -> int:
     ap.add_argument("--bin", action="append", required=True, help="label=path, repeatable")
     ap.add_argument("--runs", type=int, default=5)
     ap.add_argument("--timeout", type=float, default=60.0)
+    ap.add_argument("--mcp-timeout", type=float, default=90.0,
+                    help="seconds to wait, after the first frame, for every MCP server to settle (0 skips)")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--variants", default="real/empty-cwd,real/repo-cwd,real/no-mcp,real/proxy-refused,real/proxy-dead")
     args = ap.parse_args()
@@ -136,7 +163,7 @@ def main() -> int:
                     home = build_home(base, no_mcp)
                     work = Path(cwd) if cwd else Path(tempfile.mkdtemp(prefix="work-", dir=base))
                     accepted_before = dead.accepted
-                    r = start_once(path, home, work, args.timeout, model=None, env_extra=env_extra)
+                    r = start_once(path, home, work, args.timeout, model=None, env_extra=env_extra, mcp_timeout=args.mcp_timeout)
                     if name.endswith("proxy-dead"):
                         # This run's connections alone, not the listener's total.
                         r["dead_proxy_connections"] = dead.accepted - accepted_before
@@ -154,6 +181,7 @@ def main() -> int:
                     print(
                         f"  {name:20s} {label:8s} run {i + 1}: bytes {fmt(r['first_bytes'])}, header {fmt(r['header'])}, ready {fmt(r['ready'])}"
                         + (" (exited)" if r["exited"] else "")
+                        + f", mcp {mcp_desc(r)}"
                         + f", sessions in temp home: {r['sessions_written']}",
                         file=sys.stderr,
                     )
@@ -166,6 +194,8 @@ def main() -> int:
                     "first_bytes": summarize([r["first_bytes"] for r in runs]),
                     "header": summarize([r["header"] for r in runs]),
                     "ready": summarize([r["ready"] for r in runs]),
+                    "mcp_settled": summarize([(r.get("mcp") or {}).get("settled") for r in runs]),
+                    "mcp_outcome": mcp_outcome(runs),
                     "runs": runs,
                 }
     finally:
@@ -181,11 +211,11 @@ def main() -> int:
     print(f"\nreal ~/.coddy untouched: {not diff}")
     for line in diff:
         print("  " + line)
-    print("\n| variant | binary | first bytes | header (first frame) | ready (interactive) |")
-    print("|---|---|---|---|---|")
+    print("\n| variant | binary | first bytes | header (first frame) | ready (hint) | all MCP servers settled | MCP outcome |")
+    print("|---|---|---|---|---|---|---|")
     for name, per_bin in results["scenarios"].items():
         for label, s in per_bin.items():
-            print(f"| {name} | {label} | {s['first_bytes']} | {s['header']} | {s['ready']} |")
+            print(f"| {name} | {label} | {s['first_bytes']} | {s['header']} | {s['ready']} | {s['mcp_settled']} | {s['mcp_outcome']} |")
     for name, per_bin in results["scenarios"].items():
         for label, s in per_bin.items():
             ex = s["runs"][0].get("log_excerpt")

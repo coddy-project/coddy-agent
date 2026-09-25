@@ -105,6 +105,23 @@ With the servers off the first-frame path, the console with the real
 configuration starts as fast as one without MCP servers, and the network
 has no say in when it draws.
 
+How long the servers themselves take, measured by the same run through the
+console's own account of them (`bench_tui_real.py --mcp-timeout`: the
+footer's `MCP n/m` segment from the first frame until it leaves, the rows
+for the servers that failed), 26 configured servers:
+
+| Variant | first frame | every server settled | outcome |
+|---|---|---|---|
+| network up, 5 runs | 49 ms | 3.5 s (3.1-3.8 s) | 7 connected, 19 failed, the same 19 every run |
+| the proxy accepts and never answers, 3 runs | 58 ms | 20.05 s | 0 connected: every server hit the 20 s bound |
+
+The 19 that fail with the network up fail in the release as well, where each
+one cost its spawn before the first frame and said nothing; here they are
+rows of the transcript with the reason and, for an `npx` package without a
+version, the hint to pin it. The 3.5 s is the slowest of 26 concurrent
+spawns and handshakes; a prompt sent inside that window waits on
+`Connecting MCP servers`, one sent after it starts at once.
+
 What one `npx -y <package>` costs on that machine, package already in the npm
 cache, network up:
 

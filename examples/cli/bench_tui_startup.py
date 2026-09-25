@@ -60,6 +60,13 @@ READY_NEEDLE = "escape interrupt"
 ECHO_PROBE = "probe9q"  # a token no chrome of the console contains
 CTRL_C = b"\x03"
 
+# The console's own account of its MCP servers connecting after the first
+# frame: the footer segment while any is still connecting, and the rows for
+# the ones that failed or wait for approval (external/cli/mcp_status.go).
+MCP_COUNT = re.compile(r"• MCP (\d+)/(\d+)")
+MCP_FAILED = re.compile(r"MCP server (\S+) did not connect")
+MCP_HELD = re.compile(r"MCP server (\S+) waits for approval")
+
 # Escape sequences of the console's byte stream: CSI, OSC (hyperlinks), APC
 # (the cursor marker), two-character ESC sequences.
 ANSI = re.compile(r"\x1b\[[0-9;?<>=!]*[A-Za-z@`]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b_[^\x1b]*\x1b\\|\x1b[()][A-Za-z0-9]|\x1b[A-Za-z=>]")
@@ -185,7 +192,12 @@ class DeadSource:
 def start_once(
     binary: str, home: Path, work: Path, timeout: float,
     model: str | None = MODEL, env_extra: dict | None = None,
+    mcp_timeout: float = 0.0,
 ) -> dict:
+    """One console start, timed. With mcp_timeout > 0 the run goes on after
+    the first frame until the footer's `MCP n/m` segment has gone, which is
+    when every configured server has settled, and records how long that took
+    and which servers failed (result["mcp"])."""
     env = dict(os.environ)
     env.update(
         {
@@ -262,6 +274,45 @@ def start_once(
                     result["echo"] = time.perf_counter() - t0
                     result["echo_after_ready"] = time.perf_counter() - sent
                     break
+    if result["ready"] is not None and mcp_timeout > 0:
+        mcp: dict = {"first_seen": None, "settled": None, "connected": None, "total": None, "failed": [], "held": []}
+        seen = False
+        absent_since = None
+        mcp_deadline = t0 + mcp_timeout
+        while time.perf_counter() < mcp_deadline:
+            try:
+                data = child.read_nonblocking(size=65536, timeout=0.05)
+            except pexpect.TIMEOUT:
+                data = b""
+            except pexpect.EOF:
+                break
+            if data:
+                stream.feed(data)
+                raw += data
+            now = time.perf_counter() - t0
+            m = MCP_COUNT.search("\n".join(screen.display))
+            if m:
+                if not seen:
+                    seen, mcp["first_seen"] = True, now
+                mcp["connected"], mcp["total"] = int(m.group(1)), int(m.group(2))
+                absent_since = None
+            elif seen:
+                # The segment leaves the footer once every server settled. A
+                # redraw can leave the footer off the emulated screen for a
+                # read or two, so the absence has to last a second.
+                if absent_since is None:
+                    absent_since = now
+                elif now - absent_since >= 1.0:
+                    mcp["settled"] = absent_since
+                    break
+            elif now - result["ready"] > 3:
+                # No segment within seconds of the first frame: this binary
+                # does not defer its servers, or has none to connect.
+                break
+        plain = plain_text(bytes(raw))
+        mcp["failed"] = sorted(set(MCP_FAILED.findall(plain)))
+        mcp["held"] = sorted(set(MCP_HELD.findall(plain)))
+        result["mcp"] = mcp
 
     # Leave the way the CI script does: ctrl+c asks for a second press, the second exits.
     try:
