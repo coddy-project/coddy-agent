@@ -88,6 +88,23 @@ The operator's own `time coddy` (start, two ctrl+c) read 8.3 s real and 1.4 s
 of user CPU: the startup above plus the keystrokes, the CPU belonging to the
 `npx` processes.
 
+The same measurement once the fix was in, on the same copy of the real
+configuration, which by then listed more `npx` servers (the operator had
+installed a marketplace of them in the meantime), release 1.2.17 against the
+branch build `1.2.17-4-g64ec3ab1`, the operator's proxy in place:
+
+| Variant | release 1.2.17 | branch build |
+|---|---|---|
+| real config, empty working directory | 34.7 s | 62 ms |
+| real config, cwd = this repository | 33.4 s | 59 ms |
+| real config with `mcp_servers: []` | 32 ms | 33 ms |
+| real config, the proxy refuses connections (branch build only, 3 runs) | - | 55 ms |
+| real config, the proxy accepts and never answers (branch build only, 3 runs) | - | 50 ms |
+
+With the servers off the first-frame path, the console with the real
+configuration starts as fast as one without MCP servers, and the network
+has no say in when it draws.
+
 What one `npx -y <package>` costs on that machine, package already in the npm
 cache, network up:
 
