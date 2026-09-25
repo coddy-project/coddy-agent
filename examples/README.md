@@ -133,6 +133,15 @@ console-unique permissions (ask-mode modal) and resume (transcript replay).
 REST-only surfaces (`e2e_scheduler_api`, `e2e_remote`,
 `e2e_background_reap`) have no console equivalent.
 
+Startup timing and the MCP connect: `cli/bench_tui_startup.py` times the
+console from spawn to its first frame in the same pty (the demo config with
+an empty, a real and a synthetic skill set), `cli/bench_tui_real.py` does it
+on a private copy of the operator's `~/.coddy` (the home itself is never
+written), and `cli/capture_mcp.py` renders the two captures of the console
+connecting its servers after the first frame, with `cli/mcp_stub_server.py`
+as the stdio server that answers at once or never. The numbers behind the
+change are in `docs/plans/console-mcp-startup.md`.
+
 ## `swarm/`
 
 `swarm_e2e.py` boots a real swarm - three `coddy serve` relays wired into a ring, one agent
