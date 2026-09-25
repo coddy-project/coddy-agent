@@ -83,7 +83,7 @@ type App struct {
 	turnActive  bool
 	// mcpConnected of mcpTotal configured MCP servers have answered while
 	// mcpPending (mcp_status.go); mcpReported remembers the servers whose
-	// failure or hold was already said, per session.
+	// failure or hold was already said in the visible transcript.
 	mcpConnected int
 	mcpTotal     int
 	mcpPending   bool
@@ -1296,6 +1296,7 @@ func (a *App) resetTranscript() {
 	a.remoteTurnActive, a.remoteActivityRevision = false, 0
 	a.queue.Reset()
 	a.chat.Clear()
+	a.mcpReported = nil
 	a.plan.SetEntries(nil)
 	a.toolBoxes = map[string]*toolBox{}
 	a.curShell, a.lastShell = nil, nil

@@ -65,7 +65,7 @@ func (a *App) applyMCPConnect(u session.MCPConnectUpdate) {
 }
 
 // reportMCPOnce records that the server's row has been shown for the current
-// session and reports whether this call is the first to show it.
+// session's visible transcript and reports whether this is the first time.
 func (a *App) reportMCPOnce(name string) bool {
 	if a.mcpReported == nil {
 		a.mcpReported = map[string]bool{}

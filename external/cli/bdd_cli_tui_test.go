@@ -1454,14 +1454,37 @@ func (s *cliTUIState) editorAcceptsNewInput() error {
 }
 
 func (s *cliTUIState) operatorStartsNewSession() error {
-	// Captured before any input is sent: the later sessionID write on the UI
-	// goroutine is ordered after this read via the input channel.
-	s.prevSessionID = s.app.sessionID
+	// Read the current session on the UI loop before submitting /new.
+	if err := s.onLoop(3*time.Second, func() { s.prevSessionID = s.app.sessionID }); err != nil {
+		return err
+	}
 	s.typeText("/new")
 	s.press("\r")
 	// The status line confirms adoption; reading the frame snapshot is
 	// mutex-guarded, so no direct app-field polling is needed.
 	return s.waitScreen("Started new session", 3*time.Second)
+}
+
+func (s *cliTUIState) operatorResumesPreviousSession() error {
+	if err := s.onLoop(3*time.Second, func() { s.app.resumeInto(s.prevSessionID) }); err != nil {
+		return err
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		var resumed bool
+		if err := s.onLoop(time.Second, func() {
+			resumed = !s.app.switching && s.app.sessionID == s.prevSessionID
+		}); err != nil {
+			return err
+		}
+		// Wait for a frame from the resumed transcript, so the next step
+		// cannot mistake the new session's MCP warning for a restored one.
+		if resumed && !strings.Contains(s.screenText(), "Started new session") {
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("the previous session was not resumed")
 }
 
 func (s *cliTUIState) cancelledTurnEmitsLateChunk(text string) error {
@@ -1874,6 +1897,7 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the transcript shows an error notice containing "([^"]*)"$`, s.transcriptShowsErrorNotice)
 	sc.Step(`^the editor accepts new input$`, s.editorAcceptsNewInput)
 	sc.Step(`^the operator starts a new session$`, s.operatorStartsNewSession)
+	sc.Step(`^the operator resumes the previous session$`, s.operatorResumesPreviousSession)
 	sc.Step(`^the cancelled turn emits a late text chunk "([^"]*)"$`, s.cancelledTurnEmitsLateChunk)
 	sc.Step(`^the transcript does not show "([^"]*)"$`, s.transcriptDoesNotShow)
 	sc.Step(`^the operator presses ctrl\+c twice$`, s.operatorPressesCtrlCTwice)

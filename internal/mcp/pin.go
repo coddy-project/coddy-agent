@@ -33,6 +33,9 @@ type NPXSpec struct {
 	// Version is the version or tag after the name; empty when the spec
 	// carries none.
 	Version string
+	// Registry is the last explicit --registry option before the package.
+	// Nil means the resolver's configured registry applies.
+	Registry *string
 }
 
 // npxValueFlags are the npx flags that take the next argument as their value
@@ -83,9 +86,10 @@ func FindUnpinnedNPX(command string, args []string) (NPXSpec, bool) {
 		return NPXSpec{}, false
 	}
 	yes := false
+	var registry *string
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		flag, _, _ := strings.Cut(arg, "=")
+		flag, value, hasValue := strings.Cut(arg, "=")
 		switch {
 		case arg == "-y" || arg == "--yes":
 			yes = true
@@ -97,8 +101,15 @@ func FindUnpinnedNPX(command string, args []string) (NPXSpec, bool) {
 		case npxBoolFlags[arg]:
 			continue
 		case npxValueFlags[flag]:
-			if flag == arg {
+			if !hasValue {
 				i++
+				if i >= len(args) {
+					return NPXSpec{}, false
+				}
+				value = args[i]
+			}
+			if flag == "--registry" {
+				registry = &value
 			}
 			continue
 		case strings.HasPrefix(arg, "-"):
@@ -114,6 +125,7 @@ func FindUnpinnedNPX(command string, args []string) (NPXSpec, bool) {
 			return NPXSpec{}, false
 		}
 		spec.ArgIndex = i
+		spec.Registry = registry
 		return spec, true
 	}
 	return NPXSpec{}, false
@@ -282,7 +294,18 @@ func PinNPXArgs(ctx context.Context, r *Resolver, server, command string, args [
 		return nil, nil
 	}
 	result := &PinResult{Server: server, Package: spec.Name}
-	version, err := r.Latest(ctx, spec.Name)
+	resolver := *r
+	if spec.Registry != nil {
+		registry := strings.TrimSpace(*spec.Registry)
+		if registry == "" || strings.Contains(registry, "${") {
+			result.Message = UnresolvedMessage(spec.Name, fmt.Errorf("the explicit npx registry is empty or contains an unresolved placeholder"))
+			return nil, result
+		}
+		// Keep the caller's client and timeout without changing its resolver
+		// for other servers. A failed custom lookup must not fall back.
+		resolver.Registry = registry
+	}
+	version, err := resolver.Latest(ctx, spec.Name)
 	if err != nil {
 		result.Message = UnresolvedMessage(spec.Name, err)
 		return nil, result

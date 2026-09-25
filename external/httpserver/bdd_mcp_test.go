@@ -106,6 +106,7 @@ type mcpFeatureState struct {
 	// registry stands in for the npm registry (npm_config_registry) with the
 	// versions a scenario declared; prevRegistry is the variable to put back.
 	registry         *httptest.Server
+	customRegistry   *httptest.Server
 	registryVersions map[string]string
 	prevRegistry     string
 	prevRegistrySet  bool
@@ -133,6 +134,10 @@ func (s *mcpFeatureState) reset() error {
 }
 
 func (s *mcpFeatureState) close() {
+	if s.customRegistry != nil {
+		s.customRegistry.Close()
+		s.customRegistry = nil
+	}
 	if s.ts != nil {
 		s.ts.Close()
 		s.ts = nil
@@ -503,6 +508,7 @@ func initializeMCPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I enable the MCP server "([^"]*)"$`, s.enableServer)
 	sc.Step(`^I add a project MCP server "([^"]*)" running the fake MCP command$`, s.addServer)
 	sc.Step(`^the npm registry reports version "([^"]*)" for "([^"]*)"$`, s.registryReports)
+	sc.Step(`^a custom npm registry reports version "([^"]*)" for "([^"]*)"$`, s.customRegistryReports)
 	sc.Step(`^I add a project MCP server "([^"]*)" running "([^"]*)"$`, s.addServerRunning)
 	sc.Step(`^the project mcp\.json runs "([^"]*)" for server "([^"]*)"$`, s.fileRunsForServer)
 	sc.Step(`^the save response says "([^"]*)" was pinned to "([^"]*)"$`, s.saveResponseSaysPinned)
@@ -591,6 +597,9 @@ func (s *mcpFeatureState) registryReports(version, pkg string) error {
 // words; the server is never listed afterwards, since listing would probe
 // it and that would spawn npx.
 func (s *mcpFeatureState) addServerRunning(name, cmdline string) error {
+	if s.customRegistry != nil {
+		cmdline = strings.ReplaceAll(cmdline, "CUSTOM_REGISTRY", s.customRegistry.URL)
+	}
 	words := strings.Fields(cmdline)
 	if len(words) == 0 {
 		return fmt.Errorf("empty command line")
@@ -602,6 +611,18 @@ func (s *mcpFeatureState) addServerRunning(name, cmdline string) error {
 	if s.status != http.StatusOK {
 		return fmt.Errorf("add server status %d body %v", s.status, s.body)
 	}
+	return nil
+}
+
+func (s *mcpFeatureState) customRegistryReports(version, pkg string) error {
+	s.customRegistry = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/"+pkg+"/latest" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"name":%q,"version":%q}`, pkg, version)
+	}))
 	return nil
 }
 

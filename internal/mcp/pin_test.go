@@ -174,6 +174,69 @@ func TestPinNPXArgsReportsAnUnresolvedPackage(t *testing.T) {
 	}
 }
 
+func TestPinNPXArgsUsesTheCommandRegistry(t *testing.T) {
+	for _, name := range []string{"split", "equals", "last wins", "server argument"} {
+		t.Run(name, func(t *testing.T) {
+			fallback, fallbackSeen := registryStub(t, map[string]string{"pkg": "1.0.0"}, 0, "")
+			custom, customSeen := registryStub(t, map[string]string{"pkg": "2.0.0"}, 0, "")
+			resolver := &Resolver{Registry: fallback.URL, Client: custom.Client(), Timeout: time.Second}
+			before := *resolver
+			args := []string{"-y", "--registry", custom.URL, "pkg", "--stdio"}
+			wantVersion := "2.0.0"
+			switch name {
+			case "equals":
+				args = []string{"-y", "--registry=" + custom.URL, "pkg", "--stdio"}
+			case "last wins":
+				args = []string{"-y", "--registry", fallback.URL, "--registry=" + custom.URL, "pkg"}
+			case "server argument":
+				args = []string{"-y", "pkg", "--registry", custom.URL}
+				wantVersion = "1.0.0"
+			}
+			original := strings.Join(args, " ")
+			pinned, result := PinNPXArgs(context.Background(), resolver, "example", "npx", args)
+			if result == nil || !result.Pinned || result.Version != wantVersion {
+				t.Fatalf("result = %+v, want version %s", result, wantVersion)
+			}
+			want := strings.Replace(original, "pkg", "pkg@"+wantVersion, 1)
+			if got := strings.Join(pinned, " "); got != want {
+				t.Fatalf("args = %q, want %q", got, want)
+			}
+			if *resolver != before || strings.Join(args, " ") != original {
+				t.Fatal("pinning modified the shared resolver or input arguments")
+			}
+			if wantVersion == "2.0.0" && (*customSeen == "" || *fallbackSeen != "") {
+				t.Fatalf("registry requests: custom %q, fallback %q", *customSeen, *fallbackSeen)
+			}
+			if wantVersion == "1.0.0" && (*fallbackSeen == "" || *customSeen != "") {
+				t.Fatalf("server argument changed the registry: custom %q, fallback %q", *customSeen, *fallbackSeen)
+			}
+		})
+	}
+}
+
+func TestPinNPXArgsDoesNotFallBackFromAnExplicitRegistry(t *testing.T) {
+	for _, name := range []string{"missing package", "empty", "placeholder"} {
+		t.Run(name, func(t *testing.T) {
+			fallback, seen := registryStub(t, map[string]string{"pkg": "1.0.0"}, 0, "")
+			custom, _ := registryStub(t, nil, 0, "")
+			registry := custom.URL
+			switch name {
+			case "empty":
+				registry = ""
+			case "placeholder":
+				registry = "${NPM_REGISTRY}"
+			}
+			args, result := PinNPXArgs(context.Background(), &Resolver{Registry: fallback.URL}, "example", "npx", []string{"-y", "--registry=" + registry, "pkg"})
+			if args != nil || result == nil || result.Pinned || !strings.Contains(result.Message, "saved unpinned") {
+				t.Fatalf("args = %v, result = %+v; want an unresolved pin", args, result)
+			}
+			if *seen != "" {
+				t.Fatalf("queried the fallback registry at %q", *seen)
+			}
+		})
+	}
+}
+
 func TestPinNPXArgsLeavesOtherServersAlone(t *testing.T) {
 	ts, seen := registryStub(t, map[string]string{"pkg": "1.0.0"}, 0, "")
 	r := &Resolver{Registry: ts.URL, Timeout: 2 * time.Second}

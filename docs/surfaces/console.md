@@ -26,9 +26,10 @@ console has drawn, all at once and each under a 20-second bound, and the
 footer counts them (`MCP 2/5`) until every one has answered. A prompt sent
 before that waits for its tool list on the status line (`Connecting MCP
 servers`), and Escape ends the wait like any other step. A server that fails
-or that the trust gate holds is said once as a row of the transcript, with
-what to do about it; an `npx` package without a version, which sends npx to
-the registry on every start, gets the hint to pin it
+or that the trust gate holds is said once as a row of the visible transcript,
+with what to do about it. Resuming a session restores its current MCP notices
+after the transcript is cleared. An `npx` package without a version, which
+sends npx to the registry on every start, gets the hint to pin it
 ([MCP servers](../features/mcp.md#pinning-npx-packages)). Nothing reads the
 workspace tree: nested `AGENTS.md` files are read on demand, from the folders
 a tool enters (`docs/features/rules.md`), so a console opened in a home

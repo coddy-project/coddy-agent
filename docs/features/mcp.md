@@ -386,10 +386,13 @@ Coddy therefore pins the version when it registers a server:
   `config_revert` drops it with the rest; the tool's answer carries the same
   report under `pinned`, and the agent relays it before asking to save.
 
-The version comes from the registry `npm_config_registry` (or
-`NPM_CONFIG_REGISTRY`) names, `https://registry.npmjs.org` by default, read
-with a ten-second bound through the proxy environment. When it cannot be
-read - offline, a private registry that needs the credentials of a `.npmrc`,
+The version comes from an explicit `--registry URL` or `--registry=URL`
+option before the npx package, otherwise from the registry
+`npm_config_registry` (or `NPM_CONFIG_REGISTRY`) names,
+`https://registry.npmjs.org` by default. The lookup has a ten-second bound
+and uses the proxy environment. A failed explicit registry lookup never
+falls back to another registry. When the version cannot be read - offline,
+a private registry that needs the credentials of a `.npmrc`,
 a package whose `latest` is not an exact version - the server is saved as it
 was and the report says so, with the pin to add by hand. Only the direct form
 `npx -y <package>` is pinned. A spec that is not a registry package (a path,

@@ -392,6 +392,15 @@ Feature: Interactive console TUI
     And the project MCP server "project-tool" has not been started
     And the footer does not show "• MCP"
 
+  Scenario: Resuming a session restores its MCP approval notice
+    Given the workspace holds a project mcp.json with an MCP server "project-tool"
+    When the console app starts
+    Then the screen shows "MCP server project-tool waits for approval"
+    When the operator starts a new session
+    And the operator resumes the previous session
+    Then the screen shows "MCP server project-tool waits for approval"
+    And the project MCP server "project-tool" has not been started
+
   Scenario: An approved project server connects in the background like a configured one
     Given the workspace holds a project mcp.json with an MCP server "project-tool"
     And the project MCP server "project-tool" is approved for that workspace

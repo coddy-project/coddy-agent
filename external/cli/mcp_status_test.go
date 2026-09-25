@@ -154,6 +154,33 @@ func TestSettledConnectHandsTheStatusLineBack(t *testing.T) {
 	}
 }
 
+func TestMCPWarningsReturnAfterTranscriptReset(t *testing.T) {
+	for _, tc := range []struct {
+		state string
+		text  string
+	}{
+		{session.MCPConnectStateFailed, "did not connect"},
+		{session.MCPConnectStateHeld, "waits for approval"},
+	} {
+		t.Run(tc.state, func(t *testing.T) {
+			a := newTestApp(t)
+			a.sessionID = "original"
+			update := mcpUpdate(true, session.MCPServerConnect{Name: "example", State: tc.state})
+			a.applyMCPConnect(update)
+			a.resetTranscript()
+			a.sessionID = "other"
+			a.applyMCPConnect(update)
+			a.resetTranscript()
+			a.sessionID = "original"
+			a.applyMCPConnect(update)
+			a.applyMCPConnect(update)
+			if text := transcriptText(a); strings.Count(text, tc.text) != 1 {
+				t.Fatalf("want one restored %q warning after resuming, got:\n%s", tc.text, text)
+			}
+		})
+	}
+}
+
 // TestTurnStartsOnTheConnectStepWhilePending: a prompt sent while servers
 // connect shows the connect as its first step.
 func TestTurnStartsOnTheConnectStepWhilePending(t *testing.T) {
