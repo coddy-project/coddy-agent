@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,16 +26,22 @@ type configToolsRead struct {
 }
 
 type configToolsFeatureState struct {
-	dir      string
-	path     string
-	env      *tooling.Env
-	registry *Registry
-	result   string
-	lastErr  error
-	reloads  int
-	reloaded *config.Config
-	readRaw  string
-	read     configToolsRead
+	// npmRegistry is the scenario's npm registry stub (see reset);
+	// prevNPMRegistry is the npm_config_registry to put back.
+	npmRegistry        *httptest.Server
+	npmVersions        map[string]string
+	prevNPMRegistry    string
+	prevNPMRegistrySet bool
+	dir                string
+	path               string
+	env                *tooling.Env
+	registry           *Registry
+	result             string
+	lastErr            error
+	reloads            int
+	reloaded           *config.Config
+	readRaw            string
+	read               configToolsRead
 }
 
 func (s *configToolsFeatureState) reset() error {
@@ -42,6 +50,24 @@ func (s *configToolsFeatureState) reset() error {
 		return err
 	}
 	s.dir = dir
+	// The npm registry of the scenario: config_set pins an npx package it
+	// stages, and nothing here may reach the real registry. It answers the
+	// versions a step declares and 404 for the rest.
+	s.npmVersions = map[string]string{}
+	s.npmRegistry = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/"), "/latest")
+		v, ok := s.npmVersions[name]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"name":%q,"version":%q}`, name, v)
+	}))
+	s.prevNPMRegistry, s.prevNPMRegistrySet = os.LookupEnv("npm_config_registry")
+	if err := os.Setenv("npm_config_registry", s.npmRegistry.URL); err != nil {
+		return err
+	}
 	s.path = filepath.Join(dir, "config.yaml")
 	s.registry = NewRegistry()
 	s.result = ""
@@ -66,6 +92,15 @@ func (s *configToolsFeatureState) reset() error {
 func (s *configToolsFeatureState) cleanup() {
 	if s.dir != "" {
 		_ = os.RemoveAll(s.dir)
+	}
+	if s.npmRegistry != nil {
+		s.npmRegistry.Close()
+		s.npmRegistry = nil
+		if s.prevNPMRegistrySet {
+			_ = os.Setenv("npm_config_registry", s.prevNPMRegistry)
+		} else {
+			_ = os.Unsetenv("npm_config_registry")
+		}
 	}
 }
 
@@ -340,6 +375,9 @@ func initializeConfigToolsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the read is marked as redacted$`, s.readIsRedacted)
 	sc.Step(`^the read does not expose "([^"]*)"$`, s.readDoesNotExpose)
 	sc.Step(`^the agent stages config commands:$`, s.stageConfigCommands)
+	sc.Step(`^the npm registry reports version "([^"]*)" for "([^"]*)"$`, s.registryReports)
+	sc.Step(`^the staging result reports "([^"]*)" pinned to "([^"]*)"$`, s.stagingReportsPinned)
+	sc.Step(`^the change list shows the command:$`, s.changeListShowsCommand)
 	sc.Step(`^the staging result lists (\d+) pending commands$`, s.stagingListsPending)
 	sc.Step(`^the agent lists config changes$`, s.listConfigChanges)
 	sc.Step(`^the change list shows "([^"]+)"$`, s.changeListShows)
@@ -373,4 +411,39 @@ func TestConfigToolsFeature(t *testing.T) {
 	if suite.Run() != 0 {
 		t.Fatal("config tools feature suite failed")
 	}
+}
+
+func (s *configToolsFeatureState) registryReports(version, pkg string) error {
+	s.npmVersions[pkg] = version
+	return nil
+}
+
+func (s *configToolsFeatureState) stagingReportsPinned(pkg, version string) error {
+	if s.lastErr != nil {
+		return s.lastErr
+	}
+	var got struct {
+		Pinned []struct {
+			Package string `json:"package"`
+			Version string `json:"version"`
+			Pinned  bool   `json:"pinned"`
+			Message string `json:"message"`
+		} `json:"pinned"`
+	}
+	if err := json.Unmarshal([]byte(s.result), &got); err != nil {
+		return err
+	}
+	for _, pin := range got.Pinned {
+		if pin.Package == pkg && pin.Version == version && pin.Pinned {
+			if !strings.Contains(pin.Message, "first frame") {
+				return fmt.Errorf("pin message %q does not say why pinning matters", pin.Message)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("config_set result %s does not report %s pinned to %s", s.result, pkg, version)
+}
+
+func (s *configToolsFeatureState) changeListShowsCommand(doc *godog.DocString) error {
+	return s.changeListShows(strings.TrimSpace(doc.Content))
 }

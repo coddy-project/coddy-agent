@@ -42,3 +42,6 @@ func SetDeleteSettleTimeoutForTest(d time.Duration) (restore func()) {
 	deleteSettleTimeout = d
 	return func() { deleteSettleTimeout = prev }
 }
+
+// SetMCPConnectTimeoutForTest shortens the per-server MCP connect budget.
+func (m *Manager) SetMCPConnectTimeoutForTest(d time.Duration) { m.mcpConnectTimeout = d }

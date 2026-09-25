@@ -307,7 +307,15 @@ mcp_servers:
 
 1. On `session/new`, the agent connects every enabled server from the merged
    config.yaml + `~/.coddy/mcp.json` + `./.coddy/mcp.json` list that the workspace
-   trust gate admits, then any ACP client-supplied servers
+   trust gate admits, then any ACP client-supplied servers. The servers are
+   dialed **concurrently**, each under its own 20-second budget: the call costs
+   the slowest server rather than the sum of them, and a server that starts
+   and never answers `initialize` fails alone, with a warning, while the
+   others connect beside it. The interactive console goes one step further
+   and connects them **after its first frame** ([Console](../surfaces/console.md)):
+   `coddy` draws at once, the footer counts the servers while they come up,
+   and a prompt sent before they have answered waits for its tool list on the
+   status line (`Connecting MCP servers`)
 2. The agent calls `tools/list` on each server and registers the tools
 3. The staged config tools can add, replace, or delete a global `mcp_servers`
    entry while the session is running: `config_set` stages the uci-like command
@@ -344,12 +352,67 @@ mcp_servers:
 
 For example, `config_set` can stage
 `set mcp_servers[name=context7]={"command":"npx","args":["-y","@upstash/context7-mcp"]}`;
-the selector makes the edit independent of list ordering. The bundled
+the selector makes the edit independent of list ordering, and the staged
+batch gains a second command that pins the package to its current release
+(see [Pinning npx packages](#pinning-npx-packages)). The bundled
 `/configure-coddy` skill documents the full command syntax, the
 confirm-then-commit workflow, and discovery safety checks.
+
+## Pinning npx packages
+
+Most stdio servers are npm packages run through `npx -y <package>`. Without a
+version, npx asks the npm registry which release is `latest` **on every
+start**, even when the package is already in its cache, and npm retries a
+registry it cannot reach for minutes. Every Coddy session starts its servers,
+so an unpinned package puts a network round trip in front of each session and
+turns a network outage into a console that shows nothing: measured on a
+laptop, four such servers cost about five seconds per start with the network
+up, and one of them took over a minute to give up with it down. With
+`<package>@<version>` in the arguments and that release cached, npx starts
+the server without contacting anyone.
+
+Coddy therefore pins the version when it registers a server:
+
+- **Settings → MCP servers** and `PUT /coddy/mcp/{name}`: an entry whose
+  command is `npx` (or `npx.cmd`), with `-y` / `--yes` and a package that
+  names no exact version (`@scope/name`, `name`, `name@latest`), is rewritten
+  to `<package>@<version>` before the file is written, and the save's answer
+  carries a `pin` (`package`, `version`, `pinned`, `message`). The web UI shows
+  the message under the list.
+- **`config_set`** (the staged self-configuration the agent runs): a server
+  the batch adds or whose command or arguments it changes is pinned the same
+  way, as one more staged command
+  (`set mcp_servers[name=<n>].args=[...]`), so `config_changes` lists it and
+  `config_revert` drops it with the rest; the tool's answer carries the same
+  report under `pinned`, and the agent relays it before asking to save.
+
+The version comes from an explicit `--registry URL` or `--registry=URL`
+option before the npx package, otherwise from the registry
+`npm_config_registry` (or `NPM_CONFIG_REGISTRY`) names,
+`https://registry.npmjs.org` by default. The lookup has a ten-second bound
+and uses the proxy environment. A failed explicit registry lookup never
+falls back to another registry. When the version cannot be read - offline,
+a private registry that needs the credentials of a `.npmrc`,
+a package whose `latest` is not an exact version - the server is saved as it
+was and the report says so, with the pin to add by hand. Only the direct form
+`npx -y <package>` is pinned. A spec that is not a registry package (a path,
+a URL, a `git+` or `file:` spec, a tarball, a `${VAR}` placeholder), a range,
+another tag, a run without `-y`, and the option forms that name the package
+apart from the command (`--package` / `-p`, `--call` / `-c`, where the
+positional argument is a binary and the packages may be several) are left
+alone: pin those by hand, `--package <package>@<version>`.
+
+To move a pinned server to a newer release, change the version in `args`, or
+remove it and save again: the current release is pinned anew. Servers
+written by hand into `config.yaml` or an `mcp.json` are not rewritten;
+`coddy --dry-run` reports an unpinned package as a warning at the server's
+line, and the log says so once per process when the server is dialed.
 
 ## Error Handling
 
 - If an MCP server fails to start, the session still proceeds with a warning
+- A server that starts and never answers `initialize` is given up after 20
+  seconds; the warning names the bound, and an `npx` package without a
+  version adds the hint to pin it
 - Failed MCP tool calls return an error observation to the LLM
 - The LLM can decide to retry, use alternative tools, or inform the user

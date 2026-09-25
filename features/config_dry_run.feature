@@ -57,3 +57,8 @@ Feature: A dry run checks that the configured world exists before anything start
     When I run coddy with --dry-run
     Then the command fails
     And the report points at line 3 of the config file
+
+  Scenario: an npx package without a version is a warning at its args line
+    Given a config.yaml with an MCP server "github" running "npx -y @modelcontextprotocol/server-github"
+    When I run coddy with --dry-run
+    Then the report marks mcp_servers[github] as a warning mentioning "no version"

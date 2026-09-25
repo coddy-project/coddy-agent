@@ -318,6 +318,7 @@ func buildApp(cfg *config.Config, store *session.FileStore, log *slog.Logger, te
 	}
 	lateSender := &lateBoundSender{}
 	mgr = session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
+	wireLocalManager(mgr)
 	app = newApp(cfg, mgr, log, term, themeName, plain)
 	lateSender.inner = app.Sender()
 	// A task the model started with notify_on_finish begins its own turn in
@@ -399,8 +400,28 @@ func buildRemoteApp(cfg *config.Config, ropts *remote.Options, log *slog.Logger,
 	return app, nil
 }
 
+// wireLocalManager sets what the interactive console asks of a manager it
+// owns: the configured MCP servers connect in the background, so the first
+// frame is drawn while they come up and a prompt sent before they answer
+// waits for its tool list on the status line (mcp_status.go).
+func wireLocalManager(mgr *session.Manager) {
+	mgr.SetBackgroundMCPConnect(true)
+}
+
 // lateBoundSender lets the manager be constructed before the app exists.
 type lateBoundSender struct{ inner acp.UpdateSender }
+
+// SendControlUpdate forwards a backend-local control notification to the
+// console once it exists; the manager's background MCP connect reports
+// through it.
+func (l *lateBoundSender) SendControlUpdate(sessionID string, update any) error {
+	if controls, ok := l.inner.(interface {
+		SendControlUpdate(sessionID string, update any) error
+	}); ok {
+		return controls.SendControlUpdate(sessionID, update)
+	}
+	return nil
+}
 
 func (l *lateBoundSender) SendSessionUpdate(sessionID string, update interface{}) error {
 	if l.inner == nil {

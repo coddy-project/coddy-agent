@@ -676,6 +676,10 @@ export const messagesEn: Record<string, string> = {
   "mcp.error.delete": "Failed to delete {name}",
   "mcp.error.invalidEntry": "Invalid entry.",
   "mcp.error.saveServer": "Failed to save server",
+  "mcp.pin.pinned":
+    "Pinned {package} to {version}. An unpinned npx -y package asks the npm registry for the latest release on every start, even when it is cached, so the console waits on the network before its first frame and hangs without one. To update, change the version in args, or remove it and save again to pin the current release.",
+  "mcp.pin.unresolved":
+    "{package} was saved without a version: the npm registry could not be read. An unpinned npx -y package asks the registry for the latest release on every start and hangs without a network; pin it by hand in args as {package}@<version>.",
   "mcp.discovery.legend": "MCP discovery",
   "mcp.discovery.projectServersLabel": "Project servers",
   "mcp.servers.legend": "MCP servers",

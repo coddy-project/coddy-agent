@@ -368,3 +368,54 @@ Feature: Interactive console TUI
     When the console app starts
     And the operator types the mention "@coddy:mentions"
     Then the mention list offers "features/mentions"
+
+  Scenario: The console draws before its MCP servers answer
+    Given the console config declares an MCP server "slow" that answers only when released
+    When the console app starts
+    Then the screen shows the coddy version header
+    And the footer shows "MCP 0/1"
+    When the MCP server "slow" is released
+    Then the footer no longer shows "MCP 0/1"
+
+  Scenario: A prompt sent while an MCP server connects waits for its tools
+    Given the console config declares an MCP server "slow" that answers only when released
+    When the console app starts
+    And the operator submits the prompt "use the slow tool"
+    Then the status line shows "Connecting MCP servers"
+    When the MCP server "slow" is released
+    Then the stub turn was offered the MCP server "slow"
+
+  Scenario: A project server the trust gate holds is named in the transcript, not started
+    Given the workspace holds a project mcp.json with an MCP server "project-tool"
+    When the console app starts
+    Then the screen shows "MCP server project-tool waits for approval"
+    And the project MCP server "project-tool" has not been started
+    And the footer does not show "• MCP"
+
+  Scenario: Resuming a session restores its MCP approval notice
+    Given the workspace holds a project mcp.json with an MCP server "project-tool"
+    When the console app starts
+    Then the screen shows "MCP server project-tool waits for approval"
+    When the operator starts a new session
+    And the operator resumes the previous session
+    Then the screen shows "MCP server project-tool waits for approval"
+    And the project MCP server "project-tool" has not been started
+
+  Scenario: An approved project server connects in the background like a configured one
+    Given the workspace holds a project mcp.json with an MCP server "project-tool"
+    And the project MCP server "project-tool" is approved for that workspace
+    When the console app starts
+    Then the footer no longer shows "MCP 0/1"
+    And the project MCP server "project-tool" has been started
+    And the screen does not show "waits for approval"
+
+  Scenario: The tool list is the same for every turn once the servers answered
+    Given the console config declares an MCP server "slow" that answers only when released
+    When the console app starts
+    And the MCP server "slow" is released
+    And the footer no longer shows "MCP 0/1"
+    And the operator submits the prompt "first"
+    Then the stub turn was offered the MCP server "slow"
+    When the stub turn ends
+    And the operator submits the prompt "second"
+    Then the stub turn was offered the same MCP servers as the turn before

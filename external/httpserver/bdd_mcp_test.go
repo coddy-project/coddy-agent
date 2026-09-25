@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cucumber/godog"
@@ -102,15 +103,22 @@ func TestHelperMCPServerHTTP(t *testing.T) {
 }
 
 type mcpFeatureState struct {
-	root     string
-	home     string
-	cwd      string
-	ts       *httptest.Server
-	mgr      *session.Manager
-	srv      *Server
-	status   int
-	body     map[string]interface{}
-	prevHOME string
+	// registry stands in for the npm registry (npm_config_registry) with the
+	// versions a scenario declared; prevRegistry is the variable to put back.
+	registry         *httptest.Server
+	customRegistry   *httptest.Server
+	registryVersions map[string]string
+	prevRegistry     string
+	prevRegistrySet  bool
+	root             string
+	home             string
+	cwd              string
+	ts               *httptest.Server
+	mgr              *session.Manager
+	srv              *Server
+	status           int
+	body             map[string]interface{}
+	prevHOME         string
 }
 
 func (s *mcpFeatureState) reset() error {
@@ -126,9 +134,22 @@ func (s *mcpFeatureState) reset() error {
 }
 
 func (s *mcpFeatureState) close() {
+	if s.customRegistry != nil {
+		s.customRegistry.Close()
+		s.customRegistry = nil
+	}
 	if s.ts != nil {
 		s.ts.Close()
 		s.ts = nil
+	}
+	if s.registry != nil {
+		s.registry.Close()
+		s.registry = nil
+		if s.prevRegistrySet {
+			_ = os.Setenv("npm_config_registry", s.prevRegistry)
+		} else {
+			_ = os.Unsetenv("npm_config_registry")
+		}
 	}
 	if s.srv != nil {
 		s.srv.Drain()
@@ -486,6 +507,12 @@ func initializeMCPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I disable the MCP server "([^"]*)"$`, s.disableServer)
 	sc.Step(`^I enable the MCP server "([^"]*)"$`, s.enableServer)
 	sc.Step(`^I add a project MCP server "([^"]*)" running the fake MCP command$`, s.addServer)
+	sc.Step(`^the npm registry reports version "([^"]*)" for "([^"]*)"$`, s.registryReports)
+	sc.Step(`^a custom npm registry reports version "([^"]*)" for "([^"]*)"$`, s.customRegistryReports)
+	sc.Step(`^I add a project MCP server "([^"]*)" running "([^"]*)"$`, s.addServerRunning)
+	sc.Step(`^the project mcp\.json runs "([^"]*)" for server "([^"]*)"$`, s.fileRunsForServer)
+	sc.Step(`^the save response says "([^"]*)" was pinned to "([^"]*)"$`, s.saveResponseSaysPinned)
+	sc.Step(`^the project MCP server "([^"]*)" is approved as written$`, s.projectServerApprovedAsWritten)
 	sc.Step(`^I delete the MCP server "([^"]*)"$`, s.deleteServer)
 	sc.Step(`^I approve the MCP server "([^"]*)"$`, s.approveServer)
 	sc.Step(`^the project MCP server "([^"]*)" is approved$`, s.approveServer)
@@ -541,3 +568,106 @@ func TestMCPProjectTrustHTTPFeature(t *testing.T) {
 // initializeMCPTrustScenario reuses the management harness: the @http trust
 // scenario drives the same /coddy/mcp surface.
 func initializeMCPTrustScenario(sc *godog.ScenarioContext) { initializeMCPScenario(sc) }
+
+// registryReports stands the npm registry stub up on first use and records
+// one package's current version. Nothing else the stub is asked for exists.
+func (s *mcpFeatureState) registryReports(version, pkg string) error {
+	if s.registry == nil {
+		s.registryVersions = map[string]string{}
+		s.registry = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			name := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/"), "/latest")
+			v, ok := s.registryVersions[name]
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"name":%q,"version":%q}`, name, v)
+		}))
+		s.prevRegistry, s.prevRegistrySet = os.LookupEnv("npm_config_registry")
+		if err := os.Setenv("npm_config_registry", s.registry.URL); err != nil {
+			return err
+		}
+	}
+	s.registryVersions[pkg] = version
+	return nil
+}
+
+// addServerRunning PUTs a project entry whose command line is given in
+// words; the server is never listed afterwards, since listing would probe
+// it and that would spawn npx.
+func (s *mcpFeatureState) addServerRunning(name, cmdline string) error {
+	if s.customRegistry != nil {
+		cmdline = strings.ReplaceAll(cmdline, "CUSTOM_REGISTRY", s.customRegistry.URL)
+	}
+	words := strings.Fields(cmdline)
+	if len(words) == 0 {
+		return fmt.Errorf("empty command line")
+	}
+	entry := config.MCPJSONServer{Command: words[0], Args: words[1:]}
+	if err := s.do(http.MethodPut, "/coddy/mcp/"+url.PathEscape(name), entry); err != nil {
+		return err
+	}
+	if s.status != http.StatusOK {
+		return fmt.Errorf("add server status %d body %v", s.status, s.body)
+	}
+	return nil
+}
+
+func (s *mcpFeatureState) customRegistryReports(version, pkg string) error {
+	s.customRegistry = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/"+pkg+"/latest" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"name":%q,"version":%q}`, pkg, version)
+	}))
+	return nil
+}
+
+func (s *mcpFeatureState) fileRunsForServer(spec, server string) error {
+	entries, err := config.ReadMCPJSONFile(config.MCPJSONPath(s.cwd))
+	if err != nil {
+		return err
+	}
+	entry, ok := entries[server]
+	if !ok {
+		return fmt.Errorf("mcp.json does not contain %q: %+v", server, entries)
+	}
+	for _, arg := range entry.Args {
+		if arg == spec {
+			return nil
+		}
+	}
+	return fmt.Errorf("mcp.json runs %v for %q, want %q among the args", entry.Args, server, spec)
+}
+
+func (s *mcpFeatureState) saveResponseSaysPinned(pkg, version string) error {
+	pin, _ := s.body["pin"].(map[string]interface{})
+	if pin == nil {
+		return fmt.Errorf("save response has no pin: %v", s.body)
+	}
+	if pin["package"] != pkg || pin["version"] != version || pin["pinned"] != true {
+		return fmt.Errorf("pin = %v, want %s pinned to %s", pin, pkg, version)
+	}
+	if msg, _ := pin["message"].(string); !strings.Contains(msg, "first frame") {
+		return fmt.Errorf("pin message %q does not say why pinning matters", msg)
+	}
+	return nil
+}
+
+// projectServerApprovedAsWritten: the approval the save recorded binds to the
+// declaration as it is in the file, pinned arguments included, so the gate
+// admits it and a rewrite by hand would withdraw it.
+func (s *mcpFeatureState) projectServerApprovedAsWritten(name string) error {
+	cfg := s.srv.activeCfg()
+	srv, err := managedMCPServer(cfg, s.cwd, name)
+	if err != nil {
+		return err
+	}
+	if state := mcp.NewTrustGate(cfg).Evaluate(s.cwd, *srv); state != mcp.TrustStateAllowed {
+		return fmt.Errorf("project server %q is %s, want allowed for the saved declaration %v", name, state, srv.Config.Args)
+	}
+	return nil
+}

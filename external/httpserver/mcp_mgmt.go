@@ -356,14 +356,21 @@ func (s *Server) coddyMCPServerPut(w http.ResponseWriter, r *http.Request) {
 		writeCoddyMCPErr(w, http.StatusBadRequest, "either command or url is required")
 		return
 	}
-	if err := mcp.UpsertServer(s.activeCfg(), s.defaultCWD, name, scope, entry); err != nil {
+	pin, err := mcp.UpsertServer(r.Context(), s.activeCfg(), s.defaultCWD, name, scope, entry, mcp.DefaultResolver())
+	if err != nil {
 		writeCoddyMCPErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	s.invalidateMCPProbe(name)
 	slog.Info("mcp server saved", "name", name, "scope", scope)
+	// pin is present when the entry runs an npx package: pinned to the
+	// registry's current release, or saved unpinned with the reason.
+	result := map[string]interface{}{"ok": true}
+	if pin != nil {
+		result["pin"] = pin
+	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
+	_ = json.NewEncoder(w).Encode(result)
 }
 
 // coddyMCPServerDelete removes an mcp.json-defined server from its owning

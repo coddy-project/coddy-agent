@@ -11,6 +11,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/hooks"
+	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 )
 
 // paths checks every filesystem location the configuration names. A
@@ -211,6 +212,14 @@ func (r *runner) mcpCommands() {
 		case cmd == "" && strings.TrimSpace(srv.URL) == "":
 			r.rep.add(r.check(StatusError, path, path, "neither command nor url is set", "give the server a command (stdio) or a url (http)"))
 		case cmd != "":
+			// An npx package without a version sends npx to the registry on
+			// every start; the console then waits on the network before its
+			// first frame. Said here, next to the command, without a request.
+			if spec, ok := mcp.FindUnpinnedNPX(cmd, srv.Args); ok {
+				r.rep.add(r.check(StatusWarning, path, path+".args",
+					"npx -y "+spec.Name+" has no version: npx asks the npm registry for the latest release on every start, even when the package is cached",
+					"pin it in args as "+spec.Name+"@<version> (coddy.dev/docs/mcp#pinning-npx-packages)"))
+			}
 			resolved, err := exec.LookPath(cmd)
 			if err != nil {
 				fix := "install it or write an absolute path in " + path + ".command"

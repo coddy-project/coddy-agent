@@ -152,21 +152,32 @@ func SetToolDisabled(cfg *config.Config, cwd, name, tool string, disabled bool) 
 
 // UpsertServer creates or updates one entry in the mcp.json file selected by
 // scope: ScopeGlobal writes <home>/mcp.json, ScopeLocal writes
-// <cwd>/.coddy/mcp.json.
-func UpsertServer(cfg *config.Config, cwd, name, scope string, entry config.MCPJSONServer) error {
+// <cwd>/.coddy/mcp.json. An entry that runs `npx -y <package>` without a
+// version is pinned to the registry's current release first (PinNPXArgs),
+// so the approval digest of a project entry binds to the pinned arguments;
+// the result of that, if any, is returned for the operator. A nil resolver
+// pins nothing, and a resolution failure never fails the save.
+func UpsertServer(ctx context.Context, cfg *config.Config, cwd, name, scope string, entry config.MCPJSONServer, pin *Resolver) (*PinResult, error) {
+	var result *PinResult
+	if pinned, res := PinNPXArgs(ctx, pin, name, entry.Command, entry.Args); res != nil {
+		result = res
+		if pinned != nil {
+			entry.Args = pinned
+		}
+	}
 	switch scope {
 	case ScopeLocal:
 		if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), name, entry); err != nil {
-			return err
+			return nil, err
 		}
 		// Writing a project entry through this API is the operator typing the
 		// command themselves, which is exactly the decision the trust gate
 		// asks for; recording it here avoids asking twice for the same thing.
-		return approveOwnDeclaration(cfg, cwd, name)
+		return result, approveOwnDeclaration(cfg, cwd, name)
 	case ScopeGlobal:
-		return config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(cfg.Paths.Home), name, entry)
+		return result, config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(cfg.Paths.Home), name, entry)
 	default:
-		return fmt.Errorf("unknown mcp scope %q (use %q or %q)", scope, ScopeGlobal, ScopeLocal)
+		return nil, fmt.Errorf("unknown mcp scope %q (use %q or %q)", scope, ScopeGlobal, ScopeLocal)
 	}
 }
 

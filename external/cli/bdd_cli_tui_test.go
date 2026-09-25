@@ -34,6 +34,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/docs"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/rules"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
@@ -165,6 +166,16 @@ type cliTUIState struct {
 	usageEnvSet bool
 	// usageAsked counts the stand-in's requests (under mu).
 	usageAsked int
+
+	// mcpRelease is the file the gated MCP server of the scenario waits for
+	// before it answers initialize; mcpOffered (under mu) records the MCP
+	// clients the stub turn found on its session when it started.
+	mcpRelease string
+	// mcpOffered holds, per stub turn, the MCP clients the turn found on its
+	// session when it started.
+	mcpOffered [][]string
+	// mcpStarted is the marker the project mcp.json stub writes when spawned.
+	mcpStarted string
 }
 
 // syncBuffer is a goroutine-safe string sink for the one-shot print steps.
@@ -197,6 +208,7 @@ func (s *cliTUIState) reset() {
 	s.toolSeq = 0
 	s.blockedCh = nil
 	s.prevSessionID = ""
+	s.mcpRelease, s.mcpOffered, s.mcpStarted = "", nil, ""
 	if s.outside != "" {
 		_ = os.RemoveAll(s.outside)
 	}
@@ -312,6 +324,11 @@ func (s *cliTUIState) stubRunner(ctx context.Context, st *session.State, prompt 
 	}
 	s.mu.Lock()
 	s.prompts = append(s.prompts, userText)
+	var offered []string
+	for _, c := range st.GetMCPClients() {
+		offered = append(offered, c.Name())
+	}
+	s.mcpOffered = append(s.mcpOffered, offered)
 	s.mu.Unlock()
 	// Like the agent: a woken turn tells the surface what woke it before its
 	// first message is persisted, and the message keeps the marker.
@@ -529,6 +546,7 @@ func (s *cliTUIState) buildAppWithModels(neuraldeep, panel bool, models []config
 	var app *App
 	late := &lateBoundSender{}
 	mgr := session.NewManager(cfg, late, s.stubRunner, log, s.cwd, s.store)
+	wireLocalManager(mgr)
 	if neuraldeep {
 		s.usageClock = &usageClock{}
 		mgr.SetProviderUsageClock(s.usageClock.Now, func(d time.Duration, fn func()) func() bool {
@@ -1436,14 +1454,37 @@ func (s *cliTUIState) editorAcceptsNewInput() error {
 }
 
 func (s *cliTUIState) operatorStartsNewSession() error {
-	// Captured before any input is sent: the later sessionID write on the UI
-	// goroutine is ordered after this read via the input channel.
-	s.prevSessionID = s.app.sessionID
+	// Read the current session on the UI loop before submitting /new.
+	if err := s.onLoop(3*time.Second, func() { s.prevSessionID = s.app.sessionID }); err != nil {
+		return err
+	}
 	s.typeText("/new")
 	s.press("\r")
 	// The status line confirms adoption; reading the frame snapshot is
 	// mutex-guarded, so no direct app-field polling is needed.
 	return s.waitScreen("Started new session", 3*time.Second)
+}
+
+func (s *cliTUIState) operatorResumesPreviousSession() error {
+	if err := s.onLoop(3*time.Second, func() { s.app.resumeInto(s.prevSessionID) }); err != nil {
+		return err
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		var resumed bool
+		if err := s.onLoop(time.Second, func() {
+			resumed = !s.app.switching && s.app.sessionID == s.prevSessionID
+		}); err != nil {
+			return err
+		}
+		// Wait for a frame from the resumed transcript, so the next step
+		// cannot mistake the new session's MCP warning for a restored one.
+		if resumed && !strings.Contains(s.screenText(), "Started new session") {
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("the previous session was not resumed")
 }
 
 func (s *cliTUIState) cancelledTurnEmitsLateChunk(text string) error {
@@ -1762,6 +1803,20 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^rules discovery is switched on for that app$`, s.rulesDiscoveryOn)
 	sc.Step(`^the session catalog holds no nested AGENTS\.md$`, s.catalogHoldsNoNestedAgents)
 	sc.Step(`^the console app starts$`, s.theConsoleAppStarts)
+	sc.Step(`^the console config declares an MCP server "([^"]*)" that answers only when released$`, s.consoleDeclaresGatedMCP)
+	sc.Step(`^the MCP server "([^"]*)" is released$`, s.mcpServerReleased)
+	sc.Step(`^the footer shows "([^"]*)"$`, s.footerShows)
+	sc.Step(`^the footer no longer shows "([^"]*)"$`, s.footerNoLongerShows)
+	sc.Step(`^the stub turn was offered the MCP server "([^"]*)"$`, s.stubTurnWasOfferedMCP)
+	sc.Step(`^the stub turn was offered the same MCP servers as the turn before$`, s.stubTurnOfferedSameAsBefore)
+	sc.Step(`^the stub turn ends$`, s.stubTurnEnds)
+	sc.Step(`^the workspace holds a project mcp\.json with an MCP server "([^"]*)"$`, s.workspaceHoldsProjectMCP)
+	sc.Step(`^the project MCP server "([^"]*)" is approved for that workspace$`, s.projectMCPApproved)
+	sc.Step(`^the project MCP server "([^"]*)" has not been started$`, s.projectMCPNotStarted)
+	sc.Step(`^the project MCP server "([^"]*)" has been started$`, s.projectMCPStarted)
+	sc.Step(`^the screen shows "([^"]*)"$`, s.screenShowsText)
+	sc.Step(`^the screen does not show "([^"]*)"$`, s.screenDoesNotShow)
+	sc.Step(`^the footer does not show "([^"]*)"$`, s.screenDoesNotShow)
 	sc.Step(`^the screen shows the coddy version header$`, s.screenShowsVersionHeader)
 	sc.Step(`^the screen shows the editor between horizontal borders$`, s.screenShowsEditorBorders)
 	sc.Step(`^the footer names the configured default model$`, s.footerNamesDefaultModel)
@@ -1842,6 +1897,7 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the transcript shows an error notice containing "([^"]*)"$`, s.transcriptShowsErrorNotice)
 	sc.Step(`^the editor accepts new input$`, s.editorAcceptsNewInput)
 	sc.Step(`^the operator starts a new session$`, s.operatorStartsNewSession)
+	sc.Step(`^the operator resumes the previous session$`, s.operatorResumesPreviousSession)
 	sc.Step(`^the cancelled turn emits a late text chunk "([^"]*)"$`, s.cancelledTurnEmitsLateChunk)
 	sc.Step(`^the transcript does not show "([^"]*)"$`, s.transcriptDoesNotShow)
 	sc.Step(`^the operator presses ctrl\+c twice$`, s.operatorPressesCtrlCTwice)
@@ -1994,4 +2050,159 @@ func (s *cliTUIState) oneShotEndsCleanly() error {
 	case <-time.After(3 * time.Second):
 		return fmt.Errorf("one-shot run did not finish")
 	}
+}
+
+// consoleDeclaresGatedMCP adds a stdio server to the scenario's config that
+// answers initialize only once its release file exists (TestHelperConsoleMCP).
+func (s *cliTUIState) consoleDeclaresGatedMCP(name string) error {
+	if s.app == nil {
+		if err := s.buildApp(); err != nil {
+			return err
+		}
+	}
+	s.mcpRelease = filepath.Join(s.home, "mcp-release-"+name)
+	s.cfg.MCPServers = append(s.cfg.MCPServers, config.MCPServerConfig{
+		Type:    "stdio",
+		Name:    name,
+		Command: os.Args[0],
+		Args:    []string{"-test.run=^TestHelperConsoleMCP$"},
+		Env: []config.EnvVarConfig{
+			{Name: consoleMCPHelperEnv, Value: "1"},
+			{Name: consoleMCPReleaseEnv, Value: s.mcpRelease},
+		},
+	})
+	return nil
+}
+
+func (s *cliTUIState) mcpServerReleased(string) error {
+	return os.WriteFile(s.mcpRelease, []byte("1"), 0o644)
+}
+
+func (s *cliTUIState) footerShows(text string) error { return s.waitScreen(text, 5*time.Second) }
+
+func (s *cliTUIState) footerNoLongerShows(text string) error {
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if !strings.Contains(s.screenText(), text) {
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("screen still shows %q; last frame:\n%s", text, s.screenText())
+}
+
+func (s *cliTUIState) stubTurnWasOfferedMCP(name string) error {
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		s.mu.Lock()
+		var last []string
+		if n := len(s.mcpOffered); n > 0 {
+			last = append([]string(nil), s.mcpOffered[n-1]...)
+		}
+		s.mu.Unlock()
+		for _, n := range last {
+			if n == name {
+				return nil
+			}
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("the stub turn never saw the MCP server %q", name)
+}
+
+// stubTurnOfferedSameAsBefore: the tool list a turn is offered is the one
+// the previous turn had, so the tools prefix the provider caches does not
+// move between turns once the servers have answered.
+func (s *cliTUIState) stubTurnOfferedSameAsBefore() error {
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		s.mu.Lock()
+		n := len(s.mcpOffered)
+		var prev, last []string
+		if n >= 2 {
+			prev = append([]string(nil), s.mcpOffered[n-2]...)
+			last = append([]string(nil), s.mcpOffered[n-1]...)
+		}
+		s.mu.Unlock()
+		if n >= 2 {
+			if strings.Join(prev, ",") != strings.Join(last, ",") {
+				return fmt.Errorf("the turn was offered %v, the one before %v", last, prev)
+			}
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("fewer than two stub turns ran")
+}
+
+// stubTurnEnds ends the running stub turn and waits for the console to see it end.
+func (s *cliTUIState) stubTurnEnds() error {
+	s.directives <- stubDirective{kind: "end"}
+	select {
+	case <-s.turnEnds:
+	case <-time.After(10 * time.Second):
+		return fmt.Errorf("the stub turn did not end")
+	}
+	return s.waitScreen("escape interrupt", 5*time.Second)
+}
+
+// workspaceHoldsProjectMCP writes a project-local .coddy/mcp.json running the
+// console's stdio stub, which the trust gate holds until approved.
+func (s *cliTUIState) workspaceHoldsProjectMCP(name string) error {
+	if s.app == nil {
+		if err := s.buildApp(); err != nil {
+			return err
+		}
+	}
+	s.mcpStarted = filepath.Join(s.home, "mcp-started-"+name)
+	entry := config.MCPJSONServer{
+		Command: os.Args[0],
+		Args:    []string{"-test.run=^TestHelperConsoleMCP$"},
+		Env:     map[string]string{consoleMCPHelperEnv: "1", consoleMCPStartedEnv: s.mcpStarted},
+	}
+	return config.UpsertMCPJSONServer(config.MCPJSONPath(s.cwd), name, entry)
+}
+
+// projectMCPApproved records the operator's approval of the exact project
+// declaration, the way `coddy mcp trust` does.
+func (s *cliTUIState) projectMCPApproved(name string) error {
+	servers, err := mcp.ListManagedServers(s.cfg, s.cwd)
+	if err != nil {
+		return err
+	}
+	for _, srv := range servers {
+		if srv.Config.Name == name {
+			return mcp.NewTrustStore(s.home).Approve(s.cwd, config.MCPJSONPath(s.cwd), srv.Config)
+		}
+	}
+	return fmt.Errorf("project server %q not in the merged list", name)
+}
+
+func (s *cliTUIState) projectMCPNotStarted(string) error {
+	time.Sleep(500 * time.Millisecond)
+	if _, err := os.Stat(s.mcpStarted); err == nil {
+		return fmt.Errorf("the project server was started although the trust gate holds it")
+	}
+	return nil
+}
+
+func (s *cliTUIState) projectMCPStarted(string) error {
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(s.mcpStarted); err == nil {
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("the approved project server was never started")
+}
+
+func (s *cliTUIState) screenShowsText(text string) error { return s.waitScreen(text, 5*time.Second) }
+
+func (s *cliTUIState) screenDoesNotShow(text string) error {
+	time.Sleep(500 * time.Millisecond)
+	if strings.Contains(s.screenText(), text) {
+		return fmt.Errorf("screen shows %q; last frame:\n%s", text, s.screenText())
+	}
+	return nil
 }

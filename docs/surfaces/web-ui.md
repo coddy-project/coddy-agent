@@ -1148,6 +1148,18 @@ a project-local one awaiting workspace approval):
   `PUT /coddy/mcp/{name}?scope=local|global` after client-side validation
   (`mcpServerJson.ts`: JSON object, `command` or `url` required, name without
   `__`, spaces, or path separators).
+- An entry that runs `npx -y <package>` without a version is saved with the
+  package pinned to the npm registry's current release, and the save's `pin`
+  is shown under the list (`mcp-pin-notice`): what was pinned to which
+  version and why, in the muted style, or, when the registry could not be
+  read, the warning that the server was saved unpinned and how to pin it by
+  hand. The notice stays until the next save ([MCP
+  servers](../features/mcp.md#pinning-npx-packages)). `MCPSection.test.tsx`
+  covers both notices.
+
+  ![The MCP servers tab after saving an npx entry: the notice under the list names the pinned version and why](../assets/mcp-pin-notice-dark-1280.png)
+
+  *After saving `npx -y @upstash/context7-mcp`: the entry is listed with its pinned version and the notice under the list says what was pinned and why.*
 - Refresh re-probes all servers via `GET /coddy/mcp?refresh=1`.
 - List refreshes never unmount the list (initial-load-only placeholder), so the
   drawer scroll position is preserved.

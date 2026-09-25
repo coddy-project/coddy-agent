@@ -96,9 +96,38 @@ def interrupt_during_startup() -> None:
         tui.close()
 
 
+def first_frame_with_hung_mcp() -> None:
+    """A configured stdio server that never answers does not hold the first frame.
+
+    The console connects its MCP servers after it has drawn (coddy-project/coddy-agent#319):
+    the footer counts them while they come up, and the console still leaves
+    through double ctrl+c while one is stuck in its handshake.
+    """
+    hung = {"name": "hung", "type": "stdio", "command": "sleep", "args": ["600"]}
+    tui = CoddyTUI("startup-hung-mcp", model=STARTUP_MODEL, mcp_servers=[hung])
+    try:
+        started = time.time()
+        tui.wait_for("coddy v", timeout=5)
+        took = time.time() - started
+        if took > 5:
+            raise AssertionError(f"first frame took {took:.1f}s with a hung MCP server")
+        tui.wait_for("escape interrupt", timeout=5)
+        tui.wait_for("MCP 0/1", timeout=5)
+        tui.send(CTRL_C)
+        tui.wait_for("Press ctrl+c again to exit", timeout=5)
+        tui.send(CTRL_C)
+        tui.child.expect(pexpect.EOF, timeout=10)
+        tui.child.close()
+        if tui.child.exitstatus != 0:
+            raise AssertionError(f"console exited with {tui.child.exitstatus} (signal {tui.child.signalstatus})")
+    finally:
+        tui.close()
+
+
 def main() -> int:
     first_frame_keys_and_exit()
     interrupt_during_startup()
+    first_frame_with_hung_mcp()
     return ok("cli_e2e_startup")
 
 

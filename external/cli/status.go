@@ -36,6 +36,11 @@ const (
 	statusWaitingModel = "Waiting for the model"
 	statusWaitingSlow  = "The model is taking longer than usual"
 	statusWaitingStuck = "Still no response from the server"
+	// statusConnectingMCP is the step of a turn sent while the session's
+	// configured MCP servers are still connecting in the background: the
+	// turn waits for its tool list. The SPA has no twin, since no web
+	// surface defers the connect.
+	statusConnectingMCP = "Connecting MCP servers"
 )
 
 // liveStatus is the current step of a running turn. counts says the step shows a clock

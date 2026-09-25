@@ -279,6 +279,8 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		}
 	case settingsApplied:
 		a.applySettingsSnapshot(u.settings)
+	case session.MCPConnectUpdate:
+		a.applyMCPConnect(u)
 	case acp.AvailableCommandsUpdate:
 		a.refreshServerCommands(u.AvailableCommands)
 	case acp.MemoryRunUpdate:
