@@ -857,7 +857,14 @@ comparison, as described under **Visual model**.
   resume hint and the exit status; a second case configures a stdio MCP
   server that never answers (`sleep 600`) and checks that the first frame
   still comes within seconds, with `MCP 0/1` in the footer, and that the
-  console still leaves through double ctrl+c. CI runs it in the `cli` job of the Linux test
+  console still leaves through double ctrl+c; that second case is the one
+  startup bound CI enforces. The performance of the startup itself is
+  measured, not gated: `make bench-cli-startup` times the first frame and a
+  typed probe's echo across skill sets in the same pty, and
+  `make bench-cli-startup-real` does it on a private copy of the operator's
+  `~/.coddy`, MCP servers included, reporting when every server settled and
+  which failed (`docs/plans/console-mcp-startup.md` keeps the numbers a
+  change cited). CI runs it in the `cli` job of the Linux test
   matrix and on `macos-latest` (job `test-macos`, which also runs the platform packages and
   the console suite on macOS), because the Go suite never opens a pty and the
   console's terminal path is exactly what differs between hosts.

@@ -506,6 +506,7 @@ func initializeMCPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I add a project MCP server "([^"]*)" running "([^"]*)"$`, s.addServerRunning)
 	sc.Step(`^the project mcp\.json runs "([^"]*)" for server "([^"]*)"$`, s.fileRunsForServer)
 	sc.Step(`^the save response says "([^"]*)" was pinned to "([^"]*)"$`, s.saveResponseSaysPinned)
+	sc.Step(`^the project MCP server "([^"]*)" is approved as written$`, s.projectServerApprovedAsWritten)
 	sc.Step(`^I delete the MCP server "([^"]*)"$`, s.deleteServer)
 	sc.Step(`^I approve the MCP server "([^"]*)"$`, s.approveServer)
 	sc.Step(`^the project MCP server "([^"]*)" is approved$`, s.approveServer)
@@ -631,6 +632,21 @@ func (s *mcpFeatureState) saveResponseSaysPinned(pkg, version string) error {
 	}
 	if msg, _ := pin["message"].(string); !strings.Contains(msg, "first frame") {
 		return fmt.Errorf("pin message %q does not say why pinning matters", msg)
+	}
+	return nil
+}
+
+// projectServerApprovedAsWritten: the approval the save recorded binds to the
+// declaration as it is in the file, pinned arguments included, so the gate
+// admits it and a rewrite by hand would withdraw it.
+func (s *mcpFeatureState) projectServerApprovedAsWritten(name string) error {
+	cfg := s.srv.activeCfg()
+	srv, err := managedMCPServer(cfg, s.cwd, name)
+	if err != nil {
+		return err
+	}
+	if state := mcp.NewTrustGate(cfg).Evaluate(s.cwd, *srv); state != mcp.TrustStateAllowed {
+		return fmt.Errorf("project server %q is %s, want allowed for the saved declaration %v", name, state, srv.Config.Args)
 	}
 	return nil
 }

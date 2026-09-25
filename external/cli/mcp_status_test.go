@@ -22,6 +22,10 @@ import (
 const (
 	consoleMCPHelperEnv  = "CODDY_TEST_CONSOLE_MCP"
 	consoleMCPReleaseEnv = "CODDY_TEST_CONSOLE_MCP_RELEASE"
+	// consoleMCPStartedEnv names a file the stub writes as soon as it runs,
+	// so a scenario can tell a server that was spawned from one the trust
+	// gate held.
+	consoleMCPStartedEnv = "CODDY_TEST_CONSOLE_MCP_STARTED"
 )
 
 // TestHelperConsoleMCP is the stdio MCP stub of the console scenarios: it
@@ -31,6 +35,9 @@ func TestHelperConsoleMCP(t *testing.T) {
 		return
 	}
 	release := os.Getenv(consoleMCPReleaseEnv)
+	if started := os.Getenv(consoleMCPStartedEnv); started != "" {
+		_ = os.WriteFile(started, []byte("1"), 0o644)
+	}
 	scanner := bufio.NewScanner(os.Stdin)
 	encoder := json.NewEncoder(os.Stdout)
 	for scanner.Scan() {

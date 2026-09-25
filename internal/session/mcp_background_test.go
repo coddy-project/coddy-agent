@@ -16,6 +16,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 )
 
 // controlCapture is a sender that also listens for control updates, the way
@@ -323,4 +324,59 @@ func TestSnapshotGenerationMovesWithTheDial(t *testing.T) {
 		t.Fatalf("generation after the reload = %d, want above %d", after.Generation, first.Generation)
 	}
 	f.releaseServer()
+}
+
+// TestApprovedProjectServerConnectsInTheBackground: a project declaration the
+// operator approved is dialed like a configured one, through the gate, and
+// installed when it answers.
+func TestApprovedProjectServerConnectsInTheBackground(t *testing.T) {
+	cwd := t.TempDir()
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(cwd, ".coddy"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	started := filepath.Join(t.TempDir(), "started")
+	entry := config.MCPJSONServer{
+		Command: os.Args[0],
+		Args:    []string{"-test.run=^TestGatedMCPHelperProcess$"},
+		Env:     map[string]string{reloadTestMCPHelperEnv: "1", gatedMCPStartedEnv: started},
+	}
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "project-tool", entry); err != nil {
+		t.Fatal(err)
+	}
+	cfg := reloadTestConfig()
+	cfg.MCP.ProjectTrust = config.ProjectTrustAsk
+	cfg.Paths.Home = home
+	servers, err := mcp.ListManagedServers(cfg, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, srv := range servers {
+		if srv.Config.Name == "project-tool" {
+			if err := mcp.NewTrustStore(home).Approve(cwd, config.MCPJSONPath(cwd), srv.Config); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	mgr := NewManager(cfg, mcpTestSender{}, nil, slog.Default(), cwd, nil)
+	mgr.SetBackgroundMCPConnect(true)
+	res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := mgr.SessionByID(res.SessionID)
+	t.Cleanup(st.CloseAll)
+	if !waitUntil(t, 10*time.Second, func() bool { s, _ := st.MCPConnectSnapshot(); return s.Done }) {
+		t.Fatal("the dial never settled")
+	}
+	snap, _ := st.MCPConnectSnapshot()
+	if len(snap.Servers) != 1 || snap.Servers[0].Name != "project-tool" || snap.Servers[0].State != MCPConnectStateConnected {
+		t.Fatalf("snapshot = %+v, want project-tool connected", snap.Servers)
+	}
+	if got := clientNames(st); len(got) != 1 || got[0] != "project-tool" {
+		t.Fatalf("clients = %v, want [project-tool]", got)
+	}
+	if _, err := os.Stat(started); err != nil {
+		t.Fatal("the approved server was never spawned")
+	}
 }

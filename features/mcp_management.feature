@@ -53,3 +53,9 @@ Feature: MCP server management
     When I add a project MCP server "context7" running "npx -y @upstash/context7-mcp"
     Then the project mcp.json runs "@upstash/context7-mcp@1.0.14" for server "context7"
     And the save response says "@upstash/context7-mcp" was pinned to "1.0.14"
+
+  Scenario: A pinned project entry is approved as it was written
+    Given the npm registry reports version "1.0.14" for "@upstash/context7-mcp"
+    When I add a project MCP server "context7" running "npx -y @upstash/context7-mcp"
+    Then the project mcp.json runs "@upstash/context7-mcp@1.0.14" for server "context7"
+    And the project MCP server "context7" is approved as written

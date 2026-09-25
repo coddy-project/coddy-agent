@@ -43,6 +43,13 @@ func pinRegistry(t *testing.T, versions map[string]string) {
 // newPinTestServer runs the HTTP surface over a manager with no sessions,
 // which is all a PUT of an mcp.json entry needs.
 func newPinTestServer(t *testing.T) (*httptest.Server, string) {
+	ts, _, home := newPinTestServerWithHandler(t)
+	return ts, home
+}
+
+// newPinTestServerWithHandler also hands back the Server, for a test that
+// looks at its probe cache.
+func newPinTestServerWithHandler(t *testing.T) (*httptest.Server, *Server, string) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("CODDY_HOME", home)
@@ -59,7 +66,36 @@ func newPinTestServer(t *testing.T) (*httptest.Server, string) {
 	srv := New(cfg, mgr, slog.Default(), home)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
-	return ts, home
+	return ts, srv, home
+}
+
+// TestMCPServerPutDropsTheProbeOfTheSavedServer: the list's cached probe of
+// a server is dropped by a save, so the next listing probes the entry as it
+// is now written (its pinned arguments included) rather than serve the old
+// tool list.
+func TestMCPServerPutDropsTheProbeOfTheSavedServer(t *testing.T) {
+	pinRegistry(t, map[string]string{"@upstash/context7-mcp": "1.0.14"})
+	ts, srv, _ := newPinTestServerWithHandler(t)
+	srv.mcpProbeMu.Lock()
+	srv.mcpProbeCache = map[string]mcpProbeEntry{
+		"context7": {fingerprint: "stale", err: "stale probe"},
+		"other":    {fingerprint: "kept"},
+	}
+	srv.mcpProbeMu.Unlock()
+	status, out := putMCPServer(t, ts, "context7", config.MCPJSONServer{Command: "npx", Args: []string{"-y", "@upstash/context7-mcp"}})
+	if status != http.StatusOK {
+		t.Fatalf("status = %d body %v", status, out)
+	}
+	srv.mcpProbeMu.Lock()
+	_, stale := srv.mcpProbeCache["context7"]
+	_, kept := srv.mcpProbeCache["other"]
+	srv.mcpProbeMu.Unlock()
+	if stale {
+		t.Fatal("the saved server's stale probe survived the save")
+	}
+	if !kept {
+		t.Fatal("another server's probe was dropped by the save")
+	}
 }
 
 func putMCPServer(t *testing.T, ts *httptest.Server, name string, entry config.MCPJSONServer) (int, map[string]interface{}) {
