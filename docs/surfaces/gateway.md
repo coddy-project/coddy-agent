@@ -448,10 +448,13 @@ The same page is an HTTP API, which is what a script or a coding agent drives:
 The fake is strict where Telegram is. An edit that changes nothing, an edit
 of a message that was never sent, a text over 4096 characters, a reply to a
 message the chat does not hold (unless `allow_sending_without_reply` says to
-send it anyway), an answer to a callback query the fake never issued, and a
-keyboard whose `callback_data` is longer than 64 bytes (`BUTTON_DATA_INVALID`)
-are refused with Telegram's own error, so a keyboard that works on the stand
-works in a chat.
+send it anyway), an answer to a callback query the fake never issued, a second
+answer to one it did (a query takes one answer, so a failure told in an alert
+after the tap was acknowledged never reaches the user), a `reply_markup` whose
+`inline_keyboard` is not an array (`null` included, what an empty keyboard of
+the Go library encodes to), and a keyboard whose `callback_data` is longer than
+64 bytes (`BUTTON_DATA_INVALID`) are refused with Telegram's own error, so a
+keyboard that works on the stand works in a chat.
 
 It also remembers `allowed_updates` the way Telegram does. A bot token that
 once ran under another framework may be subscribed to messages alone, and a
