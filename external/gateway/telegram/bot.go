@@ -505,7 +505,7 @@ func (b *Bot) chatSender(bot *tgbotapi.BotAPI, chatID int64, replyTo int, rich r
 func (b *Bot) shouldRespond(msg *tgbotapi.Message, text string) bool {
 	if msg.IsCommand() {
 		switch strings.ToLower(msg.Command()) {
-		case "clear", "start", "help", "model", "context", "resume":
+		case "clear", "start", "help", "model", "mcp", "context", "resume":
 			return true
 		}
 		if isSettingsCommand(msg) {

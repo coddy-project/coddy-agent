@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -210,11 +211,15 @@ func TestMCPTapFailuresEditTheMenu(t *testing.T) {
 			},
 			spoil: func(m *mcpTest) {
 				// A project switch is written through a temporary file next
-				// to the overrides; a directory in its place fails the write
-				// and nothing else.
-				if err := os.Mkdir(filepath.Join(m.home, "mcp-overrides.json.tmp"), 0o700); err != nil {
+				// to the overrides; a home the process may read but not write
+				// fails the write and nothing else.
+				if runtime.GOOS == "windows" {
+					m.t.Skip("Windows ignores a directory's write bit")
+				}
+				if err := os.Chmod(m.home, 0o500); err != nil {
 					m.t.Fatal(err)
 				}
+				m.t.Cleanup(func() { _ = os.Chmod(m.home, 0o700) })
 			},
 			tap:         "Enable checkout",
 			wantFailure: "❌ MCP: ",
@@ -418,4 +423,15 @@ func (m *mcpTest) menu(id int) tgfake.MessageView {
 		m.t.Fatalf("no message %d in the chat", id)
 	}
 	return msg
+}
+
+// In a group /mcp is answered without a mention, like the other bot
+// commands the command menu lists (docs/surfaces/gateway.md, Group chats).
+func TestGroupChatAnswersMCPWithoutAMention(t *testing.T) {
+	b := New(&config.TelegramGatewayConfig{}, nil, "", slog.New(slog.DiscardHandler), "", nil)
+	b.botName = "coddy_bot"
+	msg := commandMessage("/mcp")
+	if !b.shouldRespond(msg, msg.Text) {
+		t.Fatal("/mcp in a group is not answered")
+	}
 }
