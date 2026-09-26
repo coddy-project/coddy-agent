@@ -8953,6 +8953,9 @@ html:not([data-theme="light"]) .context-usage-note--error {
 
 .mcp-trust-note {
   margin: 6px 0 0 var(--mcp-row-inset);
+  /* The file a declaration came from is one long path: it wraps anywhere
+     rather than run past the row on a phone. */
+  overflow-wrap: anywhere;
   font-size: 0.78rem;
   color: color-mix(in srgb, var(--text) 72%, transparent);
 }

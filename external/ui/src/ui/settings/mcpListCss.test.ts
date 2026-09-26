@@ -43,3 +43,10 @@ test("the tools and the trust note start where the server name does", () => {
     /margin:\s*6px 0 0 var\(--mcp-row-inset\)/,
   );
 });
+
+// The trust note names the file a declaration came from, one long path with
+// nothing to break at; it wraps anywhere rather than run past the row on a
+// phone (42px at 360px wide before this rule).
+test("the trust note wraps a long path instead of overflowing the row", () => {
+  expect(ruleBody(".mcp-trust-note")).toMatch(/overflow-wrap:\s*anywhere/);
+});
