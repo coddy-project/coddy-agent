@@ -78,7 +78,7 @@ func recordResult(a *Agent, tc llm.ToolCall, cwd string) llm.Message {
 func TestScopedAgentsRuleArrivesWithTheCallThatEntersItsDirectory(t *testing.T) {
 	a, tmp := scopedRulesProject(t, "internal/agent", "external/httpserver")
 
-	before := a.buildSystemPrompt("agent", nil, nil, nil)
+	before := a.buildSystemPrompt("agent", nil, nil)
 	if !strings.Contains(before, "ROOT_AGENTS_TOKEN") {
 		t.Fatal("root AGENTS.md must always be in the prompt")
 	}
@@ -95,7 +95,7 @@ func TestScopedAgentsRuleArrivesWithTheCallThatEntersItsDirectory(t *testing.T) 
 	}
 	// The system prompt is what the provider has cached: an activation never
 	// rewrites it, on this turn or on the next one.
-	if after := a.buildSystemPrompt("agent", nil, nil, nil); after != before {
+	if after := a.buildSystemPrompt("agent", nil, nil); after != before {
 		t.Fatal("an activated rule changed the system prompt")
 	}
 }
@@ -128,6 +128,116 @@ func TestToolCallRulesComeBackAfterACompaction(t *testing.T) {
 	}
 }
 
+// A call that targets a rule document itself does not get the document back
+// as a rule: a read carries its text in the output, a write the text the model
+// is putting there.
+func TestACallOnARuleDocumentDoesNotAttachIt(t *testing.T) {
+	a, tmp := scopedRulesProject(t, "internal", "internal/agent")
+
+	got := a.toolCallRules("agent", readCall("r1", "internal/agent/AGENTS.md"), tmp)
+	if strings.Contains(got, nestedToken("internal/agent")) {
+		t.Fatalf("the read of internal/agent/AGENTS.md attached the file it reads: %q", got)
+	}
+	if !strings.Contains(got, nestedToken("internal")) {
+		t.Fatalf("the folder above still governs the read and must come along: %q", got)
+	}
+
+	writeGlobRule(t, tmp, "rulebook", "**/*.mdc", "RULEBOOK_TOKEN")
+	b := rulesTestAgent(t, tmp)
+	if got := b.toolCallRules("agent", readCall("r2", ".coddy/rules/rulebook.mdc"), tmp); strings.Contains(got, "RULEBOOK_TOKEN") {
+		t.Fatalf("a rule file read as a file came back as a rule too: %q", got)
+	}
+}
+
+// A rule whose file changed after it was attached is attached again with its
+// new text, where the conversation grows; the old copy stays where it was.
+func TestAnEditedRuleComesWithItsNewText(t *testing.T) {
+	a, tmp := scopedRulesProject(t, "pkg")
+	recordResult(a, readCall("r1", "pkg/one.go"), tmp)
+
+	if again := a.toolCallRules("agent", readCall("r2", "pkg/two.go"), tmp); again != "" {
+		t.Fatalf("an unchanged rule was attached again: %q", again)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "pkg", "AGENTS.md"), []byte("PKG_RULES_REWRITTEN"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := a.toolCallRules("agent", readCall("r3", "pkg/two.go"), tmp)
+	if !strings.Contains(got, "PKG_RULES_REWRITTEN") || strings.Contains(got, nestedToken("pkg")) {
+		t.Fatalf("the edited AGENTS.md did not come with its new text alone: %q", got)
+	}
+}
+
+// A compaction reads the catalog again; a rule attached before it and still in
+// the kept part of the history comes with its new text at the next match.
+func TestARuleChangedBeforeACompactionComesWithItsNewText(t *testing.T) {
+	tmp := t.TempDir()
+	writeGlobRule(t, tmp, "gofiles", "**/*.go", "GO_RULE_V1")
+	a := rulesTestAgent(t, tmp)
+	recordResult(a, readCall("r1", "main.go"), tmp)
+
+	writeGlobRule(t, tmp, "gofiles", "**/*.go", "GO_RULE_V2")
+	if got := a.toolCallRules("agent", readCall("r2", "other.go"), tmp); got != "" {
+		t.Fatalf("the catalog of this generation still holds the old text: %q", got)
+	}
+	a.rereadRules()
+	if got := a.toolCallRules("agent", readCall("r3", "other.go"), tmp); !strings.Contains(got, "GO_RULE_V2") {
+		t.Fatalf("the rule read again did not come with its new text: %q", got)
+	}
+}
+
+func TestAMentionedRuleDocumentIsNotAttachedAsARule(t *testing.T) {
+	a, tmp := scopedRulesProject(t, "pkg")
+	doc := filepath.Join(tmp, "pkg", "AGENTS.md")
+	blocks := a.attachActivatedRules([]acp.ContentBlock{
+		{Type: acp.ContentTypeText, Text: "read @pkg/AGENTS.md"},
+		{Type: acp.ContentTypeResource, Resource: &acp.Resource{URI: "file://" + filepath.ToSlash(doc), Text: nestedToken("pkg")}},
+	})
+	if n := strings.Count(contentBlocksToText(blocks), nestedToken("pkg")); n != 1 {
+		t.Fatalf("the mentioned AGENTS.md is in the message %d times, want once (the file)", n)
+	}
+}
+
+func TestTemplateWithoutRulesGetsNoRulesWithMentions(t *testing.T) {
+	tmp := t.TempDir()
+	writeGlobRule(t, tmp, "gofiles", "**/*.go", "NO_RULES_MENTION_TOKEN")
+	promptsDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(promptsDir, "agent.md"), []byte("You are Coddy. {{.CWD}}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a := rulesTestAgent(t, tmp)
+	a.cfg.Prompts.Dir = promptsDir
+	blocks := a.attachActivatedRules([]acp.ContentBlock{
+		{Type: acp.ContentTypeText, Text: "look"},
+		{Type: acp.ContentTypeResource, Resource: &acp.Resource{URI: "file://" + filepath.ToSlash(filepath.Join(tmp, "main.go"))}},
+	})
+	if strings.Contains(contentBlocksToText(blocks), "NO_RULES_MENTION_TOKEN") {
+		t.Fatal("a template without {{.Rules}} received a rule with a mention")
+	}
+}
+
+// The result eviction collapses a read the model moved past; the rules that
+// read brought in stay in what the provider is sent.
+func TestAnEvictedReadKeepsItsRules(t *testing.T) {
+	tmp := t.TempDir()
+	body := strings.Repeat("line of the file\n", 200)
+	history := []llm.Message{
+		{Role: llm.RoleSystem, Content: "system"},
+		{Role: llm.RoleUser, Content: "go"},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{readCall("r1", "a.go")}},
+		{Role: llm.RoleTool, ToolCallID: "r1", Content: body, Rules: "EVICTED_READ_RULES"},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{readCall("r2", "b.go")}},
+		{Role: llm.RoleTool, ToolCallID: "r2", Content: body},
+	}
+	pruned := pruneToolResults(history, resultEvictionOptions{Enabled: true, KeepRecent: 1, MinResultBytes: 10, CWD: tmp})
+	if pruned[3].Content == body {
+		t.Fatal("the older read was not evicted; the test needs it to be")
+	}
+	sent := withToolRules(pruned)
+	if !strings.Contains(sent[3].Content, "EVICTED_READ_RULES") {
+		t.Fatalf("the evicted read lost its rules: %q", sent[3].Content)
+	}
+}
+
 func TestToolCallRulesSkipARuleAMentionDelivered(t *testing.T) {
 	tmp := t.TempDir()
 	writeGlobRule(t, tmp, "gofiles", "**/*.go", "MENTIONED_GO_RULE_TOKEN")
@@ -146,7 +256,7 @@ func TestToolCallRulesSkipARuleAMentionDelivered(t *testing.T) {
 	if !strings.Contains(a.state.GetMessages()[0].Content, "MENTIONED_GO_RULE_TOKEN") {
 		t.Fatal("the attached file did not bring the glob rule into its message")
 	}
-	if sys := a.buildSystemPrompt("agent", nil, nil, nil); strings.Contains(sys, "MENTIONED_GO_RULE_TOKEN") {
+	if sys := a.buildSystemPrompt("agent", nil, nil); strings.Contains(sys, "MENTIONED_GO_RULE_TOKEN") {
 		t.Fatal("a glob rule reached the system prompt")
 	}
 	if got := a.toolCallRules("agent", readCall("r1", "other.go"), tmp); got != "" {
@@ -393,7 +503,7 @@ func TestStandingPromptKeepsItsGenerationUntilTheCatalogIsReplaced(t *testing.T)
 		t.Fatal(err)
 	}
 	a := rulesTestAgent(t, tmp)
-	first := a.buildSystemPrompt("agent", nil, nil, nil)
+	first := a.buildSystemPrompt("agent", nil, nil)
 	if !strings.Contains(first, "AGENTS_V1") {
 		t.Fatal("the first prompt does not carry AGENTS.md")
 	}
@@ -401,13 +511,23 @@ func TestStandingPromptKeepsItsGenerationUntilTheCatalogIsReplaced(t *testing.T)
 	if err := os.WriteFile(agentsMD, []byte("AGENTS_V2"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if again := a.buildSystemPrompt("agent", nil, nil, nil); again != first {
+	if again := a.buildSystemPrompt("agent", nil, nil); again != first {
 		t.Fatal("an AGENTS.md edited mid-session moved the system prompt")
 	}
 
 	a.rereadRules()
-	if next := a.buildSystemPrompt("agent", nil, nil, nil); !strings.Contains(next, "AGENTS_V2") || strings.Contains(next, "AGENTS_V1") {
+	if next := a.buildSystemPrompt("agent", nil, nil); !strings.Contains(next, "AGENTS_V2") || strings.Contains(next, "AGENTS_V1") {
 		t.Fatal("a new rules generation did not read AGENTS.md again")
+	}
+
+	// A configuration that names another instruction file is rendered afresh
+	// within the same generation.
+	if err := os.WriteFile(filepath.Join(tmp, "TEAM.md"), []byte("TEAM_NOTES"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a.cfg.Instructions.Files = append(a.cfg.Instructions.Files, "TEAM.md")
+	if next := a.buildSystemPrompt("agent", nil, nil); !strings.Contains(next, "TEAM_NOTES") {
+		t.Fatal("a new instructions.files list was answered from the old rendering")
 	}
 }
 
@@ -422,7 +542,7 @@ func TestCompactionReadsTheStandingRulesAgain(t *testing.T) {
 	keep := 1
 	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, &compactCannedProvider{t: t, summary: "summary"})
 	ag.cfg.Prompts.ApplyDefaults()
-	if first := ag.buildSystemPrompt("agent", nil, nil, nil); !strings.Contains(first, "BEFORE_COMPACTION") {
+	if first := ag.buildSystemPrompt("agent", nil, nil); !strings.Contains(first, "BEFORE_COMPACTION") {
 		t.Fatal("the first prompt does not carry AGENTS.md")
 	}
 	if err := os.WriteFile(agentsMD, []byte("AFTER_COMPACTION"), 0o644); err != nil {
@@ -431,7 +551,7 @@ func TestCompactionReadsTheStandingRulesAgain(t *testing.T) {
 	if _, err := ag.CompactSession(context.Background(), CompactOptions{Force: true}); err != nil {
 		t.Fatal(err)
 	}
-	if next := ag.buildSystemPrompt("agent", nil, nil, nil); !strings.Contains(next, "AFTER_COMPACTION") {
+	if next := ag.buildSystemPrompt("agent", nil, nil); !strings.Contains(next, "AFTER_COMPACTION") {
 		t.Fatal("the compaction did not start a new rules generation")
 	}
 }

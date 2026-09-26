@@ -227,28 +227,41 @@ func TestRulesPromptLastsForOneGeneration(t *testing.T) {
 	st := &session.State{ID: "t", CWD: t.TempDir(), Mode: session.ModeAgent}
 	st.ReplaceRulesCatalog(nil)
 
-	cached, gen := st.CachedRulesPrompt(true)
+	cached, gen := st.CachedRulesPrompt(true, "inputs")
 	if cached != nil {
 		t.Fatalf("a fresh generation has a cached prompt: %+v", cached)
 	}
-	st.StoreRulesPrompt(&session.RulesPrompt{Generation: gen, RendersRules: true, Rules: "RULES_V1", Instructions: "INSTR_V1"})
-	if cached, _ := st.CachedRulesPrompt(true); cached == nil || cached.Rules != "RULES_V1" || cached.Instructions != "INSTR_V1" {
+	st.StoreRulesPrompt(&session.RulesPrompt{Generation: gen, RendersRules: true, Inputs: "inputs", Rules: "RULES_V1", Instructions: "INSTR_V1"})
+	if cached, _ := st.CachedRulesPrompt(true, "inputs"); cached == nil || cached.Rules != "RULES_V1" || cached.Instructions != "INSTR_V1" {
 		t.Fatalf("the stored prompt is not handed back: %+v", cached)
 	}
 	// A template that does not print {{.Rules}} embedded no documents, so it
-	// does not share the rendering of one that does.
-	if cached, _ := st.CachedRulesPrompt(false); cached != nil {
+	// does not share the rendering of one that does; each kind keeps its own,
+	// and storing one does not drop the other.
+	if cached, _ := st.CachedRulesPrompt(false, "inputs"); cached != nil {
 		t.Fatalf("a rendering for the other template kind was handed back: %+v", cached)
+	}
+	st.StoreRulesPrompt(&session.RulesPrompt{Generation: gen, RendersRules: false, Inputs: "inputs", Rules: "RULES_PLAIN"})
+	if cached, _ := st.CachedRulesPrompt(true, "inputs"); cached == nil || cached.Rules != "RULES_V1" {
+		t.Fatalf("storing the other kind dropped this one: %+v", cached)
+	}
+	if cached, _ := st.CachedRulesPrompt(false, "inputs"); cached == nil || cached.Rules != "RULES_PLAIN" {
+		t.Fatalf("the other kind was not kept: %+v", cached)
+	}
+	// A configuration that names other files is not answered from the old
+	// rendering, even within one generation.
+	if cached, _ := st.CachedRulesPrompt(true, "other inputs"); cached != nil {
+		t.Fatalf("a rendering of other inputs was handed back: %+v", cached)
 	}
 
 	st.ReplaceRulesCatalog(nil)
-	if cached, next := st.CachedRulesPrompt(true); cached != nil || next == gen {
+	if cached, next := st.CachedRulesPrompt(true, "inputs"); cached != nil || next == gen {
 		t.Fatalf("a new catalog kept the old prompt (generation %d -> %d): %+v", gen, next, cached)
 	}
 	// A rendering of the generation that just ended is dropped rather than
 	// taking the place of the new one.
-	st.StoreRulesPrompt(&session.RulesPrompt{Generation: gen, RendersRules: true, Rules: "STALE"})
-	if cached, _ := st.CachedRulesPrompt(true); cached != nil {
+	st.StoreRulesPrompt(&session.RulesPrompt{Generation: gen, RendersRules: true, Inputs: "inputs", Rules: "STALE"})
+	if cached, _ := st.CachedRulesPrompt(true, "inputs"); cached != nil {
 		t.Fatalf("a stale rendering was stored: %+v", cached)
 	}
 }

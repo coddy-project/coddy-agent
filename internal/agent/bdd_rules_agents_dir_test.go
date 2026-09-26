@@ -490,6 +490,7 @@ func initializeAgentsDirRulesScenario(sc *godog.ScenarioContext) {
 	// cannot match them and every step has exactly one definition.
 	sc.Step(`^the request carries ("[^"]+"(?:(?:,| and) "[^"]+")*)$`, s.lastRequestCarries)
 	sc.Step(`^the request carries neither (.+)$`, s.lastRequestCarriesNone)
+	sc.Step(`^the request does not carry (.+)$`, s.lastRequestCarriesNone)
 	sc.Step(`^the system prompt carries neither (.+)$`, s.lastRequestCarriesNone)
 	sc.Step(`^the user's message carries ("[^"]+"(?:(?:,| and) "[^"]+")*)$`, s.userMessageCarries)
 	sc.Step(`^the first request carries neither (.+)$`, s.firstRequestCarriesNone)

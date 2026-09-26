@@ -50,6 +50,23 @@ func TestAlwaysOnRules(t *testing.T) {
 	if !always.AlwaysOn() {
 		t.Fatal("an auto rule without patterns or scope is always on")
 	}
+
+	// The loader sets AlwaysApply exactly when a rule is an auto rule, so the
+	// files the documentation calls active immediately are always on.
+	for path, src := range map[string]string{
+		"plain.md":        "BODY",
+		"described.md":    "---\ndescription: house style\n---\nBODY",
+		"no-header.mdc":   "BODY",
+		"always-true.mdc": "---\nalwaysApply: true\n---\nBODY",
+	} {
+		r, err := rules.ParseRuleFile(path, rules.SourceCoddy, []byte(src))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !r.AlwaysOn() {
+			t.Fatalf("%s: %+v must be always on", path, r)
+		}
+	}
 }
 
 func TestMentionOnlyNoAuto(t *testing.T) {
@@ -167,6 +184,30 @@ func TestDiscoverSkipsProjectFolderWithoutRuleFiles(t *testing.T) {
 	}
 }
 
+// TestDiscoverKeepsAFolderWithAnUnreadableSubfolder: a subfolder that cannot be
+// read costs its own rules only, so the chain does not pass over the folder to
+// another agent's copy of the same rules.
+func TestDiscoverKeepsAFolderWithAnUnreadableSubfolder(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("permission bits do not hide a folder here")
+	}
+	tmp := t.TempDir()
+	writeRuleTree(t, tmp, ".coddy/rules/house.mdc", ".coddy/rules/locked/secret.mdc", ".cursor/rules/workflow.mdc")
+	locked := filepath.Join(tmp, ".coddy", "rules", "locked")
+	if err := os.Chmod(locked, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+
+	got, err := rules.DefaultFactory("").Discover(tmp, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Source != rules.SourceCoddy || filepath.Base(got[0].FilePath) != "house.mdc" {
+		t.Fatalf("got %v, want house.mdc from .coddy/rules alone", ruleSources(got))
+	}
+}
+
 // TestDiscoverSystemsNarrowTheChain: rules.systems takes folders out of the
 // chain, and the first admitted folder that holds rules is read.
 func TestDiscoverSystemsNarrowTheChain(t *testing.T) {
@@ -227,6 +268,48 @@ func TestInspectNamesTheFoldersItReadAndSkipped(t *testing.T) {
 	}
 	if chain := rules.DefaultFactory("").ProjectFolders(); strings.Join(chain, " ") != ".coddy/rules .agents/rules .cursor/rules .claude/rules .codex/rules" {
 		t.Fatalf("ProjectFolders = %v", chain)
+	}
+	if strings.Join(d.Chain, " ") != ".coddy/rules .agents/rules .cursor/rules .claude/rules .codex/rules" {
+		t.Fatalf("Chain = %v, want every folder", d.Chain)
+	}
+	// rules.systems takes folders out of the chain the pass reports as well.
+	narrowed, err := rules.DefaultFactory(home).Inspect(cwd, rules.ParseSystems([]string{"claude", "cursor"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(narrowed.Chain, " ") != ".cursor/rules .claude/rules" || narrowed.ProjectFolder != ".cursor/rules" {
+		t.Fatalf("narrowed = %+v", narrowed)
+	}
+}
+
+// TestInspectReportsAnUnreadableFolder: a folder of the chain that exists and
+// cannot be read is passed over, and the listing says so instead of showing the
+// next agent's rules as if nothing had happened.
+func TestInspectReportsAnUnreadableFolder(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("permission bits do not hide a folder here")
+	}
+	cwd := t.TempDir()
+	writeRuleTree(t, cwd, ".coddy/rules/house.mdc", ".cursor/rules/workflow.mdc")
+	locked := filepath.Join(cwd, ".coddy", "rules")
+	if err := os.Chmod(locked, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+
+	d, err := rules.DefaultFactory("").Inspect(cwd, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.ProjectFolder != ".cursor/rules" || len(d.Unreadable) != 1 || !strings.HasPrefix(d.Unreadable[0], ".coddy/rules (") {
+		t.Fatalf("inspect = %+v", d)
+	}
+	var buf strings.Builder
+	if err := rules.RenderCatalog(&buf, cwd, rules.DefaultFactory(""), nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "Could not read: .coddy/rules (") {
+		t.Fatalf("the listing does not name the unreadable folder:\n%s", buf.String())
 	}
 }
 
@@ -1173,6 +1256,26 @@ func TestRenderCatalogNamesTheFolderItRead(t *testing.T) {
 	}
 	if out := buf.String(); strings.Contains(out, "Not read:") || !strings.Contains(out, "Project rules folder: .claude/rules") {
 		t.Fatalf("a single folder was explained wrongly:\n%s", out)
+	}
+
+	// A rule the skipped folder holds under a name the folder read lacks is
+	// no mirror: it is named, since the session goes without it.
+	writeRuleTree(t, cwd, ".claude/rules/claude-only.md")
+	buf.Reset()
+	if err := rules.RenderCatalog(&buf, cwd, rules.DefaultFactory(""), nil); err != nil {
+		t.Fatal(err)
+	}
+	if out := buf.String(); !strings.Contains(out, "Only in a folder not read: .claude/rules/claude-only.md\n") {
+		t.Fatalf("the rule only the skipped folder holds is not named:\n%s", out)
+	}
+
+	// The explanation names the chain rules.systems left, not every folder.
+	buf.Reset()
+	if err := rules.RenderCatalog(&buf, cwd, rules.DefaultFactory(""), rules.ParseSystems([]string{"cursor", "claude"})); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "the first of .cursor/rules, .claude/rules that holds a rule file") {
+		t.Fatalf("the explanation names folders outside the chain:\n%s", buf.String())
 	}
 }
 

@@ -119,10 +119,11 @@ type State struct {
 	// RulesCatalog is discovered project rules for the session CWD.
 	RulesCatalog []*rules.Rule
 	// rulesGeneration counts the catalogs this session has had: every
-	// ReplaceRulesCatalog starts a new generation. rulesPrompt is the standing
-	// part of the system prompt rendered for the current one (rules_load.go).
+	// ReplaceRulesCatalog starts a new generation. rulesPrompts are the
+	// standing part of the system prompt rendered for the current one, one per
+	// kind of template: with {{.Rules}} and without (rules_load.go).
 	rulesGeneration uint64
-	rulesPrompt     *RulesPrompt
+	rulesPrompts    [2]*RulesPrompt
 	// LastContextBreakdown is the latest per-category token estimate for the UI.
 	LastContextBreakdown *ContextBreakdown
 	// contextWindows reads the provider-reported context windows cached by
@@ -1510,7 +1511,7 @@ func (s *State) ReplaceRulesCatalog(cat []*rules.Rule) {
 	s.mu.Lock()
 	s.RulesCatalog = cat
 	s.rulesGeneration++
-	s.rulesPrompt = nil
+	s.rulesPrompts = [2]*RulesPrompt{}
 	s.mu.Unlock()
 }
 

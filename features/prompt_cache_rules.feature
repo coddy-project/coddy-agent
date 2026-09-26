@@ -32,3 +32,12 @@ Feature: Rules reach the model once and keep the provider's prompt cache
     And the user asks again, and the model reads "main.go", then "internal/api/handler.go", and answers
     Then every request opens with the system message of the first request
     And every request repeats the one before it up to its turn context block
+
+  Scenario: An AGENTS.md edited during the session reaches the model without breaking the prefix
+    When the model reads "internal/api/handler.go", and answers
+    And someone rewrites the AGENTS.md of "internal/api" to read "API_AGENTS_REWRITTEN"
+    And the user asks again, and the model reads "internal/api/routes.go", and answers
+    Then "API_AGENTS_REWRITTEN" reaches the model with the first read of "internal/api/routes.go"
+    And every request carries each rule at most once
+    And every request opens with the system message of the first request
+    And every request repeats the one before it up to its turn context block

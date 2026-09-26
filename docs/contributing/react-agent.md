@@ -120,9 +120,10 @@ kept in the transcript row's own **`Rules`** field so the output a surface shows
 eviction replaces stays the tool's own, and joined to the content only at the same send boundary
 (**`withToolRules`**). Written once with the result, it is replayed byte for byte by every later
 request, where the block would have sent it again on every step and the next turn's system prompt
-would have taken it in. A rule the model can already read - in an earlier result or message it is
-still sent - is not attached again; one a compaction folded away comes back with the next matching
-call. The rules and instructions blocks of the system prompt themselves are rendered once per rules
+would have taken it in. A rule the model can already read with the same text - in an earlier result
+or message it is still sent - is not attached again; one a compaction folded away, or whose file has
+changed since, comes back with the next matching call, and a call on the rule document itself does
+not get it back as a rule. The rules and instructions blocks of the system prompt themselves are rendered once per rules
 generation of the session (**`standingPrompt`**, **`session.RulesPrompt`**), so an **`AGENTS.md`**
 edited mid-session does not move **`messages[0]`** either; a compaction starts the next generation.
 See [Rules and the prompt cache](../features/rules.md#rules-and-the-prompt-cache).

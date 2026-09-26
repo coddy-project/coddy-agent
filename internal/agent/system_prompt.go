@@ -107,8 +107,8 @@ type systemPromptBuild struct {
 }
 
 // buildSystemPrompt constructs the system prompt for the current mode and skills.
-func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition, contextFiles []string) string {
-	return a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles).Content
+func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition) string {
+	return a.buildSystemPromptParts(mode, activeSkills, toolDefs).Content
 }
 
 // buildSystemPromptParts renders the system message for the turn. It is built
@@ -123,7 +123,7 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 // would make every turn's system message a new one and cost the cached copy of
 // the whole conversation each time. The rules and instructions blocks do not
 // move between turns either (standingPrompt).
-func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition, contextFiles []string) *systemPromptBuild {
+func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition) *systemPromptBuild {
 	promptsDir := a.cfg.Prompts.ResolvedDir(a.state.GetCWD())
 	clock := a.now().UTC()
 	if a.subagent != nil && strings.TrimSpace(a.subagent.PromptTemplate) != "" {

@@ -40,7 +40,7 @@ func identityAgent(t *testing.T, cwd string) *Agent {
 func TestBuildSystemPromptIdentifiesCoddyInEveryMode(t *testing.T) {
 	a := identityAgent(t, t.TempDir())
 	for _, mode := range []string{"agent", "plan", "ask"} {
-		assertPromptIdentifiesCoddy(t, a.buildSystemPrompt(mode, nil, nil, nil), mode+" mode prompt")
+		assertPromptIdentifiesCoddy(t, a.buildSystemPrompt(mode, nil, nil), mode+" mode prompt")
 	}
 }
 
@@ -59,7 +59,7 @@ func TestBuildSystemPromptIdentifiesCoddyWithCustomPromptsDir(t *testing.T) {
 	a.cfg.Prompts.Dir = dir
 
 	for _, mode := range []string{"agent", "plan", "ask"} {
-		prompt := a.buildSystemPrompt(mode, nil, nil, nil)
+		prompt := a.buildSystemPrompt(mode, nil, nil)
 		assertPromptIdentifiesCoddy(t, prompt, "custom "+mode+" prompt")
 		if !strings.Contains(prompt, "You are a terse assistant.") {
 			t.Errorf("custom %s template body was dropped:\n%s", mode, prompt)
@@ -72,7 +72,7 @@ func TestBuildSystemPromptIdentifiesCoddyOnRenderFallback(t *testing.T) {
 	a := identityAgent(t, t.TempDir())
 	a.cfg.Prompts.Dir = filepath.Join(t.TempDir(), "missing")
 
-	assertPromptIdentifiesCoddy(t, a.buildSystemPrompt("agent", nil, nil, nil), "fallback prompt")
+	assertPromptIdentifiesCoddy(t, a.buildSystemPrompt("agent", nil, nil), "fallback prompt")
 }
 
 // The summarizer runs as its own request with its own system prompt, so it is
@@ -92,7 +92,7 @@ func TestCompactionRequestIdentifiesCoddy(t *testing.T) {
 func TestIdentityLineAppearsOnce(t *testing.T) {
 	a := identityAgent(t, t.TempDir())
 	for _, mode := range []string{"agent", "plan", "ask"} {
-		prompt := strings.ToLower(a.buildSystemPrompt(mode, nil, nil, nil))
+		prompt := strings.ToLower(a.buildSystemPrompt(mode, nil, nil))
 		if n := strings.Count(prompt, "you are coddy"); n != 1 {
 			t.Errorf("%s mode prompt names Coddy %d times, want 1", mode, n)
 		}

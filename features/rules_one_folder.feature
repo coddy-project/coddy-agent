@@ -30,7 +30,7 @@ Feature: Project rules come from one agent's folder
     And a coddy agent session in that project
     When the model answers without touching any file
     Then the request carries "CURSOR_WORKFLOW_TOKEN" exactly once
-    And the request carries neither "CLAUDE_WORKFLOW_TOKEN"
+    And the request does not carry "CLAUDE_WORKFLOW_TOKEN"
 
   Scenario: Coddy's own folder is read before any other agent's
     Given a project whose ".coddy/rules" folder holds these rule files:
@@ -42,7 +42,7 @@ Feature: Project rules come from one agent's folder
     And a coddy agent session in that project
     When the model answers without touching any file
     Then the request carries "CODDY_TOKEN"
-    And the request carries neither "CURSOR_TOKEN"
+    And the request does not carry "CURSOR_TOKEN"
 
   Scenario: Claude Code's folder is read when no folder before it holds a rule
     Given a project whose ".claude/rules" folder holds these rule files:

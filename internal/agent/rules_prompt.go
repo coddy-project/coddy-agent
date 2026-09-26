@@ -16,7 +16,7 @@ type rulesState interface {
 	GetMessages() []llm.Message
 	GetLastContextBreakdown() *session.ContextBreakdown
 	SetLastContextBreakdown(*session.ContextBreakdown)
-	CachedRulesPrompt(rendersRules bool) (*session.RulesPrompt, uint64)
+	CachedRulesPrompt(rendersRules bool, inputs string) (*session.RulesPrompt, uint64)
 	StoreRulesPrompt(*session.RulesPrompt)
 }
 
@@ -36,7 +36,11 @@ func (a *Agent) standingPrompt(rendersRules bool) (rulesMD, instructionsMD strin
 	if !ok {
 		return "", session.LoadInstructions(cwd, home, a.cfg.Instructions.Files, nil)
 	}
-	cached, generation := rs.CachedRulesPrompt(rendersRules)
+	// A configuration reloaded without a new generation - another agent home,
+	// another instructions.files list - renders afresh; the files behind an
+	// unchanged configuration are read once per generation.
+	inputs := strings.Join(append([]string{home, cwd}, a.cfg.Instructions.Files...), "\x00")
+	cached, generation := rs.CachedRulesPrompt(rendersRules, inputs)
 	if cached != nil {
 		return cached.Rules, cached.Instructions
 	}
@@ -53,6 +57,7 @@ func (a *Agent) standingPrompt(rendersRules bool) (rulesMD, instructionsMD strin
 	rs.StoreRulesPrompt(&session.RulesPrompt{
 		Generation:   generation,
 		RendersRules: rendersRules,
+		Inputs:       inputs,
 		Rules:        rulesMD,
 		Instructions: instructionsMD,
 	})
@@ -100,10 +105,10 @@ func conversationText(msgs []llm.Message) string {
 		}
 		b.WriteString(string(m.Role))
 		b.WriteString(":\n")
-		b.WriteString(m.Content)
 		if m.Rules != "" {
-			b.WriteString("\n\n")
-			b.WriteString(m.Rules)
+			b.WriteString(joinToolRules(m.Content, m.Rules))
+		} else {
+			b.WriteString(m.Content)
 		}
 		b.WriteString("\n\n")
 	}

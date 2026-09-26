@@ -43,16 +43,18 @@ func resourceAttachmentXML(res *acp.Resource) string {
 // them, and the nested AGENTS.md (and DESIGN.md) files on the chain of folders
 // down to each. Their text travels in the user message, never in the system
 // prompt, so the system message this turn starts with stays the one the
-// previous turn ended with. A rule the model can already read - attached to a
-// message or a tool result it is still sent, or named in this very prompt - is
-// not attached again.
+// previous turn ended with. A rule the model can already read with the same
+// text - attached to a message or a tool result it is still sent, or named in
+// this very prompt - is not attached again, and neither is a rule document the
+// prompt attaches as a file of its own. A template without {{.Rules}} gets none
+// of them, as it gets none with a tool result.
 func (a *Agent) attachActivatedRules(blocks []acp.ContentBlock) []acp.ContentBlock {
 	rs, ok := a.state.(rulesState)
 	if !ok {
 		return blocks
 	}
 	paths := extractContextFiles(blocks)
-	if len(paths) == 0 {
+	if len(paths) == 0 || !a.rulesRendered(a.state.EffectiveMode()) {
 		return blocks
 	}
 	cwd := rs.GetCWD()
@@ -67,10 +69,12 @@ func (a *Agent) attachActivatedRules(blocks []acp.ContentBlock) []acp.ContentBlo
 	if a.agentsOnDemand() {
 		matched = append(matched, rules.AgentsForPaths(cwd, paths, nil)...)
 	}
-	delivered := deliveredRulePaths(rs.GetMessages())
+	matched = withoutTargets(matched, paths)
+	delivered := deliveredRules(rs.GetMessages())
 	for _, b := range blocks {
 		if res := b.Resource; res != nil && res.Mention != nil && res.Mention.Kind == mention.KindRule {
-			delivered[res.URI] = true
+			path, body := ruleAttachmentKey(res)
+			delivered[path] = body
 		}
 	}
 	home := a.homeDir()

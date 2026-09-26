@@ -652,7 +652,7 @@ func TestComputeContextBreakdownSystemPromptNonZero(t *testing.T) {
 	a := NewAgent(cfg, st, nil, nil)
 	toolsMD := "## Tools\n\ntool_a: does things"
 	_ = toolsMD
-	_ = a.buildSystemPrompt("agent", nil, []llm.ToolDefinition{{Name: "tool_a", Description: "does things"}}, nil)
+	_ = a.buildSystemPrompt("agent", nil, []llm.ToolDefinition{{Name: "tool_a", Description: "does things"}})
 	b := st.GetLastContextBreakdown()
 	if b == nil {
 		t.Fatal("expected breakdown")
@@ -682,7 +682,7 @@ func TestBuildSystemPromptIncludesRuntimeEnvironment(t *testing.T) {
 		Shell: platform.Shell{Kind: platform.ShellPwsh, Path: "pwsh"},
 	}
 
-	prompt := a.buildSystemPrompt("agent", nil, nil, nil)
+	prompt := a.buildSystemPrompt("agent", nil, nil)
 	for _, want := range []string{"<os>windows</os>", "<arch>amd64</arch>", "<shell>pwsh</shell>"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("system prompt does not contain %q", want)
@@ -726,7 +726,7 @@ func TestBuildSystemPromptIncludesRulesBlock(t *testing.T) {
 	cfg.Agent.ApplyDefaults()
 	cfg.Prompts.ApplyDefaults()
 	a := NewAgent(cfg, st, nil, nil)
-	prompt := a.buildSystemPrompt("agent", nil, nil, []string{filepath.Join(tmp, "main.go")})
+	prompt := a.buildSystemPrompt("agent", nil, nil)
 	if !strings.Contains(prompt, "## Active project rules") || !strings.Contains(prompt, "RULE_ALWAYS_TOKEN") {
 		t.Fatal("expected the always-on rule under the rules heading")
 	}
@@ -759,7 +759,7 @@ func TestMentionOnlyRuleRidesInTheUserMessage(t *testing.T) {
 	cfg.Agent.ApplyDefaults()
 	cfg.Prompts.ApplyDefaults()
 	a := NewAgent(cfg, st, nil, nil)
-	before := a.buildSystemPrompt("agent", nil, nil, nil)
+	before := a.buildSystemPrompt("agent", nil, nil)
 	if strings.Contains(before, "RULE_MENTION_ONLY") {
 		t.Fatal("mention-only rule must not appear without @mention")
 	}
@@ -770,7 +770,7 @@ func TestMentionOnlyRuleRidesInTheUserMessage(t *testing.T) {
 			t.Fatalf("%q: the rule must ride in the user message, got:\n%s", typed, msg)
 		}
 		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: msg})
-		if after := a.buildSystemPrompt("agent", nil, nil, nil); after != before {
+		if after := a.buildSystemPrompt("agent", nil, nil); after != before {
 			t.Fatalf("%q: the system prompt moved:\n--- before\n%s\n--- after\n%s", typed, before, after)
 		}
 	}
@@ -790,7 +790,7 @@ func TestBuildSystemPromptProjectDocsInRules(t *testing.T) {
 	cfg.Agent.ApplyDefaults()
 	cfg.Prompts.ApplyDefaults()
 	a := NewAgent(cfg, st, nil, nil)
-	prompt := a.buildSystemPrompt("agent", nil, nil, nil)
+	prompt := a.buildSystemPrompt("agent", nil, nil)
 	if !strings.Contains(prompt, "AGENTS_DOC_TOKEN") || !strings.Contains(prompt, "DESIGN_DOC_TOKEN") {
 		t.Fatal("expected project docs in rules block")
 	}
@@ -2483,14 +2483,14 @@ func TestBuildSystemPromptCustomTemplateWithoutRulesKeepsInstructions(t *testing
 	cfg.Prompts.Dir = promptsDir
 	a := NewAgent(cfg, st, nil, nil)
 
-	prompt := a.buildSystemPrompt("agent", nil, nil, nil)
+	prompt := a.buildSystemPrompt("agent", nil, nil)
 	if n := strings.Count(prompt, "PROJECT_DOC_TOKEN"); n != 1 {
 		t.Fatalf("a template without {{.Rules}} carries the project AGENTS.md %d time(s), want 1:\n%s", n, prompt)
 	}
 
 	// With the built-in template the rules block carries it, exactly once.
 	cfg.Prompts.Dir = ""
-	if n := strings.Count(a.buildSystemPrompt("agent", nil, nil, nil), "PROJECT_DOC_TOKEN"); n != 1 {
+	if n := strings.Count(a.buildSystemPrompt("agent", nil, nil), "PROJECT_DOC_TOKEN"); n != 1 {
 		t.Fatalf("the built-in template carries the project AGENTS.md %d time(s), want 1", n)
 	}
 }
@@ -2543,7 +2543,7 @@ func TestBuildTurnContextCarriesClockAndTodoButNoRules(t *testing.T) {
 	a := NewAgent(cfg, st, nil, nil)
 	a.clock = func() time.Time { return time.Date(2038, 1, 19, 3, 14, 7, 0, time.UTC) }
 
-	sys := a.buildSystemPromptParts("agent", nil, nil, nil)
+	sys := a.buildSystemPromptParts("agent", nil, nil)
 	if strings.Contains(sys.Content, "TURN_CTX_RULE_TOKEN") {
 		t.Fatal("a glob rule reached the system prompt before any tool touched a matching file")
 	}
@@ -2574,7 +2574,7 @@ func TestBuildTurnContextCarriesClockAndTodoButNoRules(t *testing.T) {
 	if strings.Contains(block, "TURN_CTX_RULE_TOKEN") {
 		t.Fatalf("turn context repeats the rule the read's result carries: %q", block)
 	}
-	if next := a.buildSystemPromptParts("agent", nil, nil, nil); next.Content != sys.Content {
+	if next := a.buildSystemPromptParts("agent", nil, nil); next.Content != sys.Content {
 		t.Fatal("the activated rule rewrote the system prompt")
 	}
 }
@@ -2593,14 +2593,14 @@ func TestSystemPromptRebuildKeepsThePlanContext(t *testing.T) {
 	a := NewAgent(cfg, st, nil, nil)
 
 	for i := 1; i <= 3; i++ {
-		if got := a.buildSystemPromptParts("agent", nil, nil, nil); !strings.Contains(got.Content, "PLAN_HANDOFF_TOKEN") {
+		if got := a.buildSystemPromptParts("agent", nil, nil); !strings.Contains(got.Content, "PLAN_HANDOFF_TOKEN") {
 			t.Fatalf("build %d lost the plan hand-off", i)
 		}
 	}
 
 	// And it is let go when the turn ends, so the next one starts clean.
 	a.releasePlanContext()
-	if got := a.buildSystemPromptParts("agent", nil, nil, nil); strings.Contains(got.Content, "PLAN_HANDOFF_TOKEN") {
+	if got := a.buildSystemPromptParts("agent", nil, nil); strings.Contains(got.Content, "PLAN_HANDOFF_TOKEN") {
 		t.Fatal("the plan hand-off outlived the turn that ran the plan")
 	}
 }
@@ -2658,7 +2658,7 @@ func TestTurnContextCarriesTheChecklistInAgentModeOnly(t *testing.T) {
 	a := NewAgent(cfg, st, nil, nil)
 
 	for mode, want := range map[string]bool{"agent": true, "plan": false, "ask": false} {
-		sys := a.buildSystemPromptParts(mode, nil, nil, nil)
+		sys := a.buildSystemPromptParts(mode, nil, nil)
 		block := a.buildTurnContext(sys)
 		if got := strings.Contains(block, "MODE_TODO_TOKEN"); got != want {
 			t.Errorf("%s mode: checklist in the turn context = %v, want %v", mode, got, want)
@@ -2687,7 +2687,7 @@ func TestVolatileCustomTemplateKeepsThePerStepRefresh(t *testing.T) {
 	st := &session.State{ID: "t", CWD: tmp, Mode: session.ModeAgent}
 	a := NewAgent(cfg, st, nil, nil)
 
-	sys := a.buildSystemPromptParts("agent", nil, nil, nil)
+	sys := a.buildSystemPromptParts("agent", nil, nil)
 	if !sys.Volatile {
 		t.Fatal("a template printing UTCNow and TodoList must be marked volatile")
 	}
@@ -2697,7 +2697,7 @@ func TestVolatileCustomTemplateKeepsThePerStepRefresh(t *testing.T) {
 
 	// The built-in template is the other way round.
 	cfg.Prompts.Dir = ""
-	builtin := a.buildSystemPromptParts("agent", nil, nil, nil)
+	builtin := a.buildSystemPromptParts("agent", nil, nil)
 	if builtin.Volatile {
 		t.Fatal("the built-in agent template must not be volatile")
 	}
@@ -2730,7 +2730,7 @@ func TestTemplateWithoutRulesGetsNoRulesAfterTheHistory(t *testing.T) {
 	st.ReplaceRulesCatalog(session.DiscoverRules(cfg, tmp))
 	a := NewAgent(cfg, st, nil, nil)
 
-	sys := a.buildSystemPromptParts("agent", nil, nil, nil)
+	sys := a.buildSystemPromptParts("agent", nil, nil)
 	read := llm.ToolCall{ID: "r1", Name: "read", InputJSON: `{"path":"main.go"}`}
 	if res := toolResultMessage(read, "package main", nil, a.toolCallRules("agent", read, tmp)); res.Rules != "" {
 		t.Fatalf("a template without {{.Rules}} still received a rule with a tool result: %q", res.Rules)
@@ -2773,7 +2773,7 @@ func TestRuleAnAttachmentBroughtIsNotRepeatedWithAToolResult(t *testing.T) {
 	if !strings.Contains(st.GetMessages()[0].Content, "ALREADY_SENT_RULE_TOKEN") {
 		t.Fatal("the attached file did not bring the glob rule into its message")
 	}
-	sys := a.buildSystemPromptParts("agent", nil, nil, []string{filepath.Join(tmp, "main.go")})
+	sys := a.buildSystemPromptParts("agent", nil, nil)
 	if strings.Contains(sys.Content, "ALREADY_SENT_RULE_TOKEN") {
 		t.Fatal("a glob rule reached the system prompt")
 	}
@@ -2803,7 +2803,7 @@ func TestTurnClockDoesNotTickBetweenTheStepsOfATurn(t *testing.T) {
 		return time.Date(2038, 1, 19, 3, 14, 7+ticks, 0, time.UTC)
 	}
 
-	sys := a.buildSystemPromptParts("agent", nil, nil, nil)
+	sys := a.buildSystemPromptParts("agent", nil, nil)
 	first := a.buildTurnContext(sys)
 	second := a.buildTurnContext(sys)
 	if first != second {

@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/mention"
 	"github.com/EvilFreelancer/coddy-agent/internal/prompts"
@@ -31,28 +32,31 @@ const toolCallRulesLead = "Project rules for the path this call touched; follow 
 // path it targets, read at this moment and never before - a session looks at a
 // folder only when a tool enters it. Callers read it before the call runs, on
 // the arguments the model wrote (or the approved ones, when a permission answer
-// resumes the call). A rule the model can already read, attached to an earlier
-// result or message it is still sent, is left out; one a compaction folded away
-// comes back with the next call that matches it. It is the empty string when
-// there is nothing new.
+// resumes the call). A rule document the call itself targets is left out: a
+// read carries its text in the output, a write carries the text the model is
+// putting there. So is a rule the model can already read with the same text,
+// attached to an earlier result or message it is still sent; one a compaction
+// folded away, or whose file has changed since it was attached, comes with the
+// next call that matches it. It is the empty string when there is nothing new.
 func (a *Agent) toolCallRules(mode string, tc llm.ToolCall, cwd string) string {
 	rs, ok := a.state.(rulesState)
 	if !ok {
 		return ""
 	}
 	paths := toolfs.ToolCallPaths(tc.Name, tc.InputJSON, cwd)
-	if len(paths) == 0 {
+	if len(paths) == 0 || !a.rulesRendered(mode) {
 		return ""
 	}
 	matched := rules.MatchScoped(rs.GetRulesCatalog(), withoutDirectories(paths))
 	if a.agentsOnDemand() {
 		matched = append(matched, rules.AgentsForPaths(cwd, paths, nil)...)
 	}
-	if len(matched) == 0 || !a.rulesRendered(mode) {
+	matched = withoutTargets(matched, paths)
+	if len(matched) == 0 {
 		return ""
 	}
 	home := a.homeDir()
-	fresh := freshRules(deliveredRulePaths(rs.GetMessages()), cwd, home, matched)
+	fresh := freshRules(deliveredRules(rs.GetMessages()), cwd, home, matched)
 	if len(fresh) == 0 {
 		return ""
 	}
@@ -82,14 +86,36 @@ func withoutDirectories(paths []string) []string {
 	return out
 }
 
-// deliveredRulePaths returns the attachment paths of the rules the model can
-// read in msgs: the rule attachments of user messages (a rule the user named,
-// one a mentioned path activated) and of tool results (one a call activated),
-// in the window the provider is sent - everything from the last compaction
-// summary on. The summary itself does not count: whatever of a rule a
-// summarizer retold is not the rule, and the next match attaches it whole.
-func deliveredRulePaths(msgs []llm.Message) map[string]bool {
-	out := map[string]bool{}
+// withoutTargets drops the rules whose own file is one of paths.
+func withoutTargets(rs []*rules.Rule, paths []string) []*rules.Rule {
+	out := rs[:0:0]
+	for _, r := range rs {
+		if r == nil {
+			continue
+		}
+		targeted := false
+		for _, p := range paths {
+			if rules.SamePath(r.FilePath, p) {
+				targeted = true
+				break
+			}
+		}
+		if !targeted {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// deliveredRules returns the rules the model can read in msgs, by the path of
+// their attachment, with the text each was last attached with: the rule
+// attachments of user messages (a rule the user named, one a mentioned path
+// activated) and of tool results (one a call activated), in the window the
+// provider is sent - everything from the last compaction summary on. The
+// summary itself does not count: whatever of a rule a summarizer retold is not
+// the rule, and the next match attaches it whole.
+func deliveredRules(msgs []llm.Message) map[string]string {
+	out := map[string]string{}
 	for _, m := range session.MessagesForLLM(msgs) {
 		if m.CompactionSummary {
 			continue
@@ -106,26 +132,38 @@ func deliveredRulePaths(msgs []llm.Message) map[string]bool {
 		}
 		for _, blk := range mention.Blocks(text) {
 			if blk.Kind == mention.KindRule {
-				out[blk.Path] = true
+				out[blk.Path] = blk.Body(text)
 			}
 		}
 	}
 	return out
 }
 
-// freshRules returns the candidates whose attachment path is not in delivered,
-// each once. delivered is updated with what it returns.
-func freshRules(delivered map[string]bool, cwd, home string, candidates []*rules.Rule) []*rules.Rule {
+// ruleAttachmentKey is how an attached rule resource is known in the history:
+// the path and the text its <coddy_attachment> element carries, read back from
+// the element itself so the two sides can never spell the path differently.
+func ruleAttachmentKey(res *acp.Resource) (path, body string) {
+	element := resourceAttachmentXML(res)
+	for _, blk := range mention.Blocks(element) {
+		return blk.Path, blk.Body(element)
+	}
+	return res.URI, res.Text
+}
+
+// freshRules returns the candidates the model cannot read yet, each once: a
+// rule never attached in delivered, or attached with other text - its file
+// changed and was read again since. delivered is updated with what it returns.
+func freshRules(delivered map[string]string, cwd, home string, candidates []*rules.Rule) []*rules.Rule {
 	var out []*rules.Rule
 	for _, r := range candidates {
 		if r == nil {
 			continue
 		}
-		p := session.RuleAttachmentPath(cwd, home, r)
-		if delivered[p] {
+		path, body := ruleAttachmentKey(session.RuleAttachment(cwd, home, r))
+		if sent, ok := delivered[path]; ok && sent == body {
 			continue
 		}
-		delivered[p] = true
+		delivered[path] = body
 		out = append(out, r)
 	}
 	return out

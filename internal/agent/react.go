@@ -302,7 +302,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// Build the full message list starting with the system prompt. It is
 	// rendered once here and then frozen for the whole turn so the provider's
 	// prefix cache keeps the conversation behind it (buildSystemPromptParts).
-	sys := a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles)
+	sys := a.buildSystemPromptParts(mode, activeSkills, toolDefs)
 	messages := a.buildMessages(sys.Content)
 	// The hand-off belongs to this turn and to its continuation after a
 	// permission prompt, and to nothing after that.
@@ -311,7 +311,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// buildSystemPromptParts refreshed the context breakdown; compact before the
 	// first LLM call when the estimate crossed the auto-compaction threshold.
 	if a.maybeAutoCompact(ctx) {
-		sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles)
+		sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs)
 		messages = a.buildMessages(sys.Content)
 	}
 
@@ -727,7 +727,7 @@ func (a *Agent) runReActLoop(
 		// itself: its own conditionals have to keep matching the state, so it is
 		// re-rendered here as every template was before, and carries no block.
 		if sys.Volatile && len(messages) > 0 && messages[0].Role == llm.RoleSystem {
-			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles)
+			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs)
 			messages[0].Content = sys.Content
 		}
 		turnCtx := a.buildTurnContext(sys)
@@ -739,7 +739,7 @@ func (a *Agent) runReActLoop(
 		// empty assistant messages kept in the transcript.
 		a.refreshContextBreakdown(sys, turnCtx)
 		if turn > 0 && a.maybeAutoCompact(ctx) {
-			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles)
+			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs)
 			messages = a.buildMessages(sys.Content)
 			if emptyReissues > 0 || emptyContinuations > 0 {
 				messages = emptyRecoveryProjection(messages, emptyContinuations)

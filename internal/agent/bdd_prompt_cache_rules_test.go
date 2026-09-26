@@ -111,6 +111,13 @@ func (s *pcRulesFeatureState) folderDescribesItself(dir, token string) error {
 	return os.WriteFile(path, []byte(token+"\n"), 0o644)
 }
 
+// rewriteFolderAgents changes a nested AGENTS.md on disk between two turns, the
+// way the agent's own edit or the person watching it would.
+func (s *pcRulesFeatureState) rewriteFolderAgents(dir, token string) error {
+	s.tokens = append(s.tokens, token)
+	return os.WriteFile(filepath.Join(s.cwd, filepath.FromSlash(dir), "AGENTS.md"), []byte(token+"\n"), 0o644)
+}
+
 func (s *pcRulesFeatureState) session() error {
 	s.buildAgent()
 	return nil
@@ -231,6 +238,7 @@ func initializePromptCacheRulesScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a coddy agent session in that project$`, s.session)
 	sc.Step(`^the model reads ("[^"]+"(?:, then "[^"]+")*), and answers$`, s.modelReadsAndAnswers)
 	sc.Step(`^the user asks again, and the model reads ("[^"]+"(?:, then "[^"]+")*), and answers$`, s.userAsksAgainModelReads)
+	sc.Step(`^someone rewrites the AGENTS\.md of "([^"]*)" to read "([^"]*)"$`, s.rewriteFolderAgents)
 
 	sc.Step(`^every request carries each rule at most once$`, s.eachRuleAtMostOnce)
 	sc.Step(`^every request carries "([^"]*)" in its system message$`, s.systemMessageOfEveryRequestCarries)

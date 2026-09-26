@@ -19,12 +19,12 @@ func TestSurfaceSystemPromptReachesTheSystemPrompt(t *testing.T) {
 	a := NewAgent(cfg, st, nil, nil)
 
 	const block = "## Answering in a Telegram chat\n\nNo `#` headings."
-	if got := a.buildSystemPrompt("agent", nil, nil, nil); strings.Contains(got, block) {
+	if got := a.buildSystemPrompt("agent", nil, nil); strings.Contains(got, block) {
 		t.Fatal("a turn nobody spoke for carries no surface block")
 	}
 
 	st.SetSurfaceSystemPrompt(block)
-	got := a.buildSystemPrompt("agent", nil, nil, nil)
+	got := a.buildSystemPrompt("agent", nil, nil)
 	if !strings.Contains(got, block) {
 		t.Fatalf("the surface block is missing from the system prompt:\n%s", got)
 	}
@@ -32,7 +32,7 @@ func TestSurfaceSystemPromptReachesTheSystemPrompt(t *testing.T) {
 	// It is the turn's, not the session's: cleared, the next prompt is the
 	// one every other surface would have built.
 	st.SetSurfaceSystemPrompt("")
-	if after := a.buildSystemPrompt("agent", nil, nil, nil); strings.Contains(after, block) {
+	if after := a.buildSystemPrompt("agent", nil, nil); strings.Contains(after, block) {
 		t.Fatal("the block outlived the turn that contributed it")
 	}
 }

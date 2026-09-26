@@ -3,15 +3,15 @@ package rules
 import (
 	"errors"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 )
 
 // Factory holds the rule providers of a session. The operator's own folder
-// always contributes; the project folders form a chain, of which only the
-// first that holds a rule file is read. Every coding agent keeps its rules in
+// contributes in every workspace (unless rules.systems leaves it out); the
+// project folders form a chain, of which only the first that holds a rule file
+// is read. Every coding agent keeps its rules in
 // a folder of its own, and a project that works with several of them keeps
 // the same rules in each - .cursor/rules/workflow.mdc and its Claude Code
 // mirror .claude/rules/workflow.md - so reading them all would hand the model
@@ -74,9 +74,20 @@ type Discovery struct {
 	// names it (".cursor/rules"), or "" when no folder of the chain holds a
 	// rule file.
 	ProjectFolder string
+	// Chain is the chain this pass looked at: the project folders
+	// rules.systems admits, in order.
+	Chain []string
 	// Skipped are the project folders after ProjectFolder that hold rule
 	// files too and were not read. Only Inspect looks at them.
 	Skipped []string
+	// OnlySkipped are the rule files of the Skipped folders whose name the
+	// folder read has no file for, relative to the workspace: not a mirror of
+	// a rule that was read, but a rule the session goes without.
+	OnlySkipped []string
+	// Unreadable are the project folders that exist but could not be read,
+	// each with the reason; the chain passed over them. Only Inspect reports
+	// them.
+	Unreadable []string
 	// UserFolder is the operator's own folder when one of its rules is in
 	// Rules.
 	UserFolder string
@@ -95,7 +106,8 @@ func (f *Factory) Discover(cwd string, systems []Source) ([]*Rule, error) {
 }
 
 // Inspect is Discover for a reader: it also names the project folder that was
-// read and the folders further down the chain that hold rules and were not.
+// read, the folders further down the chain that hold rules and were not, and
+// the folders that could not be read at all.
 func (f *Factory) Inspect(cwd string, systems []Source) (*Discovery, error) {
 	return f.discover(cwd, systems, true)
 }
@@ -127,24 +139,40 @@ func (f *Factory) discover(cwd string, systems []Source, inspect bool) (*Discove
 
 	d := &Discovery{}
 	var loaded []*Rule
+	read := map[string]bool{}
 	for _, p := range f.chain {
 		if !admitted(p) {
 			continue
 		}
-		if d.ProjectFolder != "" {
-			if !inspect {
-				break
-			}
-			if holdsRuleFile(rootOf(p)) {
-				d.Skipped = append(d.Skipped, p.RulesRoot())
+		d.Chain = append(d.Chain, p.RulesRoot())
+		if d.ProjectFolder != "" && !inspect {
+			continue
+		}
+		// A folder further down the chain is judged the way the one that was
+		// read was chosen: it counts when it yields a rule.
+		rs, err := p.Load(rootOf(p))
+		if err != nil {
+			if inspect && !errors.Is(err, fs.ErrNotExist) {
+				d.Unreadable = append(d.Unreadable, p.RulesRoot()+" ("+err.Error()+")")
 			}
 			continue
 		}
-		rs, err := p.Load(rootOf(p))
-		if err != nil || len(rs) == 0 {
+		if len(rs) == 0 {
+			continue
+		}
+		if d.ProjectFolder != "" {
+			d.Skipped = append(d.Skipped, p.RulesRoot())
+			for _, r := range rs {
+				if !read[strings.ToLower(r.CanonicalName())] {
+					d.OnlySkipped = append(d.OnlySkipped, workspaceRel(projectRoot, r.FilePath))
+				}
+			}
 			continue
 		}
 		d.ProjectFolder = p.RulesRoot()
+		for _, r := range rs {
+			read[strings.ToLower(r.CanonicalName())] = true
+		}
 		loaded = append(loaded, rs...)
 	}
 	for _, p := range f.always {
@@ -175,16 +203,19 @@ func (f *Factory) discover(cwd string, systems []Source, inspect bool) (*Discove
 		}
 	}
 	d.Rules = make([]*Rule, 0, len(byKey))
+	userListed := false
 	for _, r := range byKey {
 		d.Rules = append(d.Rules, r)
-		if r.Source == SourceUser && d.UserFolder == "" {
-			for _, p := range f.always {
-				if p.ID() == SourceUser {
-					d.UserFolder = p.RulesRoot()
-				}
+		userListed = userListed || r.Source == SourceUser
+	}
+	if userListed {
+		for _, p := range f.always {
+			if p.ID() == SourceUser {
+				d.UserFolder = p.RulesRoot()
 			}
 		}
 	}
+	sort.Strings(d.OnlySkipped)
 	sort.Slice(d.Rules, func(i, j int) bool {
 		if d.Rules[i].Source != d.Rules[j].Source {
 			return d.Rules[i].Source < d.Rules[j].Source
@@ -194,26 +225,12 @@ func (f *Factory) discover(cwd string, systems []Source, inspect bool) (*Discove
 	return d, nil
 }
 
-// errFound stops the walk of holdsRuleFile at the first rule file.
-var errFound = errors.New("found")
-
-// holdsRuleFile reports whether root is a directory with at least one .md or
-// .mdc file anywhere under it.
-func holdsRuleFile(root string) bool {
-	info, err := os.Stat(root)
-	if err != nil || !info.IsDir() {
-		return false
+// workspaceRel names path relative to root, slash-separated, or as it is when
+// it lies outside.
+func workspaceRel(root, path string) string {
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return filepath.ToSlash(path)
 	}
-	err = filepath.WalkDir(root, func(_ string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return nil
-		}
-		if !d.IsDir() {
-			if _, ok := FormatForPath(d.Name()); ok {
-				return errFound
-			}
-		}
-		return nil
-	})
-	return errors.Is(err, errFound)
+	return filepath.ToSlash(rel)
 }

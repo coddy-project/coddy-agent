@@ -35,7 +35,7 @@ func RenderCatalog(w io.Writer, cwd string, f *Factory, systems []Source) error 
 		if _, err := fmt.Fprintln(w, "No rules found."); err != nil {
 			return err
 		}
-		if err := renderFolders(w, f, d); err != nil {
+		if err := renderFolders(w, d); err != nil {
 			return err
 		}
 		return renderAgentsNote(w, systems)
@@ -76,7 +76,7 @@ func RenderCatalog(w io.Writer, cwd string, f *Factory, systems []Source) error 
 	if _, err = fmt.Fprintf(w, "\n%d rule(s) under %s\n", len(rules), catalogRoots(cwd, d)); err != nil {
 		return err
 	}
-	if err := renderFolders(w, f, d); err != nil {
+	if err := renderFolders(w, d); err != nil {
 		return err
 	}
 	return renderAgentsNote(w, systems)
@@ -92,22 +92,40 @@ func catalogRoots(cwd string, d *Discovery) string {
 	return cwd
 }
 
-// renderFolders names the project folder the rules came from and the folders
-// of the chain that hold rules and were left alone - most often another
-// agent's mirror of the same rules, which a reader would otherwise expect in
-// the table.
-func renderFolders(w io.Writer, f *Factory, d *Discovery) error {
+// renderFolders names the project folder the rules came from, the folders of
+// the chain that hold rules and were left alone - most often another agent's
+// mirror of the same rules, which a reader would otherwise expect in the table
+// - the rules of those folders that are no mirror of anything read, and the
+// folders that could not be read at all.
+func renderFolders(w io.Writer, d *Discovery) error {
 	if d.ProjectFolder != "" {
 		if _, err := fmt.Fprintf(w, "Project rules folder: %s\n", d.ProjectFolder); err != nil {
 			return err
 		}
 	}
-	if len(d.Skipped) == 0 {
-		return nil
+	if len(d.Skipped) > 0 {
+		if _, err := fmt.Fprintf(w, "Not read: %s (one project folder is read: the first of %s that holds a rule file)\n",
+			strings.Join(d.Skipped, ", "), strings.Join(d.Chain, ", ")); err != nil {
+			return err
+		}
 	}
-	_, err := fmt.Fprintf(w, "Not read: %s (one project folder is read: the first of %s that holds a rule file)\n",
-		strings.Join(d.Skipped, ", "), strings.Join(f.ProjectFolders(), ", "))
-	return err
+	if len(d.OnlySkipped) > 0 {
+		names := d.OnlySkipped
+		more := ""
+		if len(names) > 10 {
+			more = fmt.Sprintf(" and %d more", len(names)-10)
+			names = names[:10]
+		}
+		if _, err := fmt.Fprintf(w, "Only in a folder not read: %s%s\n", strings.Join(names, ", "), more); err != nil {
+			return err
+		}
+	}
+	if len(d.Unreadable) > 0 {
+		if _, err := fmt.Fprintf(w, "Could not read: %s\n", strings.Join(d.Unreadable, "; ")); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // agentsOnDemandNote tells a reader of the catalog why no nested document

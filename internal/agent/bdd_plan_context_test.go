@@ -121,7 +121,7 @@ func (s *planContextState) parkedOnPermission() error {
 	s.st.SetPendingPlanContext(planHandoffToken)
 	// The turn that stopped had already rendered its system prompt - that is
 	// where the hand-off reached the model, and where it used to be consumed.
-	if !strings.Contains(s.newAgent().buildSystemPrompt("agent", nil, nil, nil), planHandoffToken) {
+	if !strings.Contains(s.newAgent().buildSystemPrompt("agent", nil, nil), planHandoffToken) {
 		return fmt.Errorf("the turn that ran the plan never carried the hand-off")
 	}
 	if err := s.store.Save(s.st); err != nil {

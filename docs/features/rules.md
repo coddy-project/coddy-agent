@@ -27,7 +27,8 @@ starts, then reused by every turn byte for byte. An `AGENTS.md` edited during th
 agent or by you, does not move it either: the block is read again after a
 [compaction](compaction.md), which rewrites the cached history anyway, after a config reload or a
 workspace switch, and when a session is opened in a new process. To hand the model an edited file
-right away, mention it: `@AGENTS.md` attaches its current text to your message.
+right away, mention it: `@AGENTS.md` attaches its current text to your message, later in the
+conversation than the older text the system message keeps until the next generation.
 
 A rule scoped to paths never enters the system message. It rides in the conversation, where the
 conversation already grows, and costs its own length once:
@@ -39,11 +40,14 @@ conversation already grows, and costs its own length once:
   rule the user names, and a path-gated rule or a nested `AGENTS.md` that a mentioned file or folder
   activates. See [Mentions](mentions.md#mentions-and-the-prompt-cache).
 
-Either way it arrives **once**: while an earlier result or message that carries it is still sent to
-the model, a later match attaches nothing. When a compaction folds that result or message into its
-summary, the next tool call or mention that matches brings the rule again. The result shown in the
-web UI, the console and an editor is the tool's own output; the rules travel with it only to the
-model.
+Either way it arrives **once**: while an earlier result or message that carries it with the same
+text is still sent to the model, a later match attaches nothing. When a compaction folds that result
+or message into its summary, or the rule's file has changed since, the next tool call or mention
+that matches brings the rule again, with its current text. A call that reads or writes a rule
+document itself - `read internal/api/AGENTS.md`, an edit of `.cursor/rules/go.mdc` - does not get
+that document back as a rule: the output already carries its text, or the model is writing it. The
+result shown in the web UI, the console and an editor is the tool's own output; the rules travel with
+it only to the model.
 
 ## Discovery
 
@@ -69,7 +73,7 @@ This is what keeps a repo with vendored sibling checkouts usable — 45 nested f
 
 The **root** `AGENTS.md` is not part of this set — it already enters the prompt unconditionally as a project docs preamble (below).
 
-CLI: `coddy rules list [--cwd DIR]` prints the discovered catalog: the source folder (`SOURCE`), the dialect each file was read with (`FORMAT`), the activation mode (`APPLY`: `auto` or `mention`), whether the rule is in every prompt (`ALWAYS`: an auto rule with no patterns and no directory scope) and what activates the others (`ACTIVATES ON`). Under the table, `Project rules folder:` names the folder the project rules came from, and `Not read:` names the folders further down the chain that hold rules too - usually another agent's copy of the same rules. Nested `AGENTS.md` and `DESIGN.md` files are not in the table, since listing them would mean walking the workspace; a line under the table says they are read on demand from the folders a tool enters.
+CLI: `coddy rules list [--cwd DIR]` prints the discovered catalog: the source folder (`SOURCE`), the dialect each file was read with (`FORMAT`), the activation mode (`APPLY`: `auto` or `mention`), whether the rule is in every prompt (`ALWAYS`: an auto rule with no patterns and no directory scope) and what activates the others (`ACTIVATES ON`). Under the table, `Project rules folder:` names the folder the project rules came from, `Not read:` names the folders further down the chain that hold rules too - usually another agent's copy of the same rules - and `Only in a folder not read:` lists the files of those folders whose name the folder read has no file for, the rules a session goes without rather than mirrors of rules it has. `Could not read:` names a folder of the chain that exists and could not be read; the chain passed over it. Nested `AGENTS.md` and `DESIGN.md` files are not in the table, since listing them would mean walking the workspace; a line under the table says they are read on demand from the folders a tool enters.
 
 ```text
 11 rule(s) under .
@@ -125,7 +129,6 @@ Rule files already on disk may change mode after this release; `coddy rules list
 - The rule folders of the project are no longer merged: only the first of `.coddy/rules`, `.agents/rules`, `.cursor/rules`, `.claude/rules` and `.codex/rules` that holds a rule file is read. A project that kept different rules in, say, `.cursor/rules` and `.claude/rules` now gets the Cursor ones alone; `coddy rules list` names the folder it skipped under the table. Put what Coddy should read in `.coddy/rules` or `.agents/rules`, or narrow the chain with `rules.systems`.
 - A rule gated by patterns, and a nested `AGENTS.md`, no longer move into the system prompt once they have matched: they arrive once with the tool result or the message that brought their path in, and again after a compaction.
 - `AGENTS.md`, `DESIGN.md` and the files of `instructions.files` are read when the session starts and after a compaction, a config reload or a workspace switch, not on every turn. Mention `@AGENTS.md` to hand the model an edit right away.
-
 - `alwaysApply: false` together with `globs` is auto-attached once a matching file is attached or read. Earlier releases kept such a rule mention-only. Drop the `globs` to keep a rule manual.
 - `.md` rules without `alwaysApply` follow Claude Code: unconditional without `paths`, path-gated with them. Earlier releases treated them as mention-only. Write `alwaysApply: false` to keep a `.md` rule manual.
 - A directory-less pattern such as `*.go` matches files in the project root only. Earlier releases matched it against the file name at any depth; write `**/*.go` for that.
@@ -135,13 +138,13 @@ Rule files already on disk may change mode after this release; `coddy rules list
 
 | Rule | Behavior |
 |------|----------|
-| Patterns (`globs` / `paths`), any `alwaysApply` | Arrives **once**, the first time a matching file comes into play: a filesystem tool call (`read`, `edit`, `write`, ...) that targets a matching file brings the body in its result, and a mentioned file or folder (`@src/app.go`, an editor's `file://` attachment) in that user message. A folder a call lists or searches (`grep`, `glob` over a directory) brings no glob rule; the call that reads or writes a matching file inside it does. After a compaction folds it away, the next match brings it again |
+| Patterns (`globs` / `paths`), any `alwaysApply` | Arrives **once**, the first time a matching file comes into play: a filesystem tool call (`read`, `edit`, `write`, ...) that targets a matching file brings the body in its result, and a mentioned file or folder (`@src/app.go`, an editor's `file://` attachment) in that user message. A folder a call lists or searches (`grep`, `glob` over a directory) brings no glob rule; the call that reads or writes a matching file inside it does. After a compaction folds it away, or once its file has changed and been read again, the next match brings it again |
 | `alwaysApply: true` without patterns | Active immediately for the session |
 | `alwaysApply: false` without patterns | **Never** auto-included. Its body rides in the user message that names it: **`@ruleName`** or **`@rule:ruleName`** |
 | No `alwaysApply`, no patterns, `.mdc` | Mention-only (Cursor's default) |
 | No `alwaysApply`, no patterns, `.md` | Active immediately (Claude Code loads it unconditionally) |
 | No frontmatter | Active immediately |
-| Nested `AGENTS.md`, `DESIGN.md` | Read on demand. The first filesystem tool call inside its directory reads it (with every such document on the chain of folders above it) into that call's result, and the first mention of a path there into that user message; like a glob rule, it comes once and comes back after a compaction. Nothing is read for folders no tool enters and no mention names |
+| Nested `AGENTS.md`, `DESIGN.md` | Read on demand. The first filesystem tool call inside its directory reads it (with every such document on the chain of folders above it) into that call's result, and the first mention of a path there into that user message; like a glob rule, it comes once, and again after a compaction or when the file has changed - an edit made during the session reaches the model with the next call in that folder. Nothing is read for folders no tool enters and no mention names |
 
 Mention-only rules use **`@name`** (file stem) or **`@rule:name`**; `@rule:name` also attaches any other rule of the catalog by name. They are **not** slash commands and do not appear in the skills catalog. `run_command` activates nothing: a shell string cannot be attributed to a path reliably.
 
@@ -163,7 +166,7 @@ A checkout describes itself: how it is built, what its conventions are, which co
 | File | Reaches the prompt as | Read when |
 |------|-----------------------|-----------|
 | `~/.coddy/AGENTS.md`, `~/.coddy/DESIGN.md` | **`{{.Rules}}`**, the first preamble sections, above the project's own pair | when a session starts, and again after a compaction, in every workspace |
-| `~/.coddy/rules/*.md`, `*.mdc` | **`{{.Rules}}`**, like any project rule | per their own frontmatter (always on, glob-gated or `@mention`) |
+| `~/.coddy/rules/*.md`, `*.mdc` | like any project rule: **`{{.Rules}}`** when they always apply, otherwise the tool result or message that brings their path in, or the message that names them | per their own frontmatter (always on, glob-gated or `@mention`) |
 
 Nothing is configured for either. Writing the file is the switch, deleting it is the off switch, and no key in `config.yaml` mentions them:
 
