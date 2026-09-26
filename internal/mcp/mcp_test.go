@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1332,5 +1333,56 @@ func TestListStatusProbesServersConcurrently(t *testing.T) {
 		if row.Status != "connected" || len(row.Tools) != 1 {
 			t.Fatalf("row %s = %+v", row.Name, row)
 		}
+	}
+}
+
+// A client the trust gate starts knows the declaration it was started from,
+// so a later reconcile can tell an edited declaration from the running one.
+func TestTrustGateConnectRecordsTheDeclaration(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Paths.Home = t.TempDir()
+	srv := ManagedServer{Config: fakeServerConfig("fake"), Scope: ScopeGlobal, Origin: OriginHome}
+	client, err := NewTrustGate(cfg).Connect(testCtx(t), srv, t.TempDir(), slog.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = client.Close() }()
+	if client.Declared() != Fingerprint(srv.Config) {
+		t.Fatalf("Declared() = %q, want %q", client.Declared(), Fingerprint(srv.Config))
+	}
+	if NewStaticClient("acp", nil).Declared() != "" {
+		t.Fatal("a client no gate started claims a declaration")
+	}
+}
+
+// When the switches of a project server cannot be dropped, the server stays
+// declared and the delete can be retried, instead of a failed delete of a
+// server already gone that keeps its switches for the next one of its name.
+func TestDeleteServerKeepsTheDeclarationWhenItsSwitchesStay(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows ignores a directory's write bit")
+	}
+	home, cwd := t.TempDir(), t.TempDir()
+	cfg := &config.Config{}
+	cfg.Paths.Home = home
+	if err := UpsertServer(cfg, cwd, "demo", ScopeLocal, config.MCPJSONServer{Command: "demo-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetServerDisabled(cfg, cwd, "demo", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(home, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(home, 0o700) })
+	if err := DeleteServer(cfg, cwd, "demo"); err == nil {
+		t.Fatal("the delete reported success although the switches could not be dropped")
+	}
+	entries, err := config.ReadMCPJSONFile(config.MCPJSONPath(cwd))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := entries["demo"]; !ok {
+		t.Fatal("the declaration is gone although the delete failed")
 	}
 }

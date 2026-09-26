@@ -105,8 +105,10 @@ type State struct {
 	// (connectDeferredMCPServers), and reloads and switches leave it alone.
 	mcpDeferred bool
 	// mcpServersPending names configured servers whose switch or trust changed
-	// while a turn held the turn lock (RefreshMCPServer). They are reconciled
-	// one by one when the turn releases it; a full reload covers them.
+	// while a turn held the turn lock, or whose dial ran out of time
+	// (RefreshMCPServer, startConfiguredMCPServers). A turn's release closes
+	// those that should no longer run, the next turn's start dials the rest; a
+	// full reload covers them all.
 	mcpServersPending map[string]struct{}
 
 	// pendingReadyNotify holds session updates that must not reach the client
@@ -567,6 +569,14 @@ func (s *State) hasPendingMCPReload() bool {
 	return s.mcpReloadPending || len(s.mcpServersPending) > 0
 }
 
+// hasPendingMCPServers reports whether single servers are parked for the
+// session's next turn, without clearing them.
+func (s *State) hasPendingMCPServers() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.mcpServersPending) > 0
+}
+
 // deferConfiguredMCP marks the configured MCP servers as not started yet.
 func (s *State) deferConfiguredMCP() {
 	s.mu.Lock()
@@ -620,6 +630,20 @@ func (s *State) takeMCPServersPending() []string {
 	s.mcpServersPending = nil
 	sort.Strings(names)
 	return names
+}
+
+// configuredMCPClientDeclared reports whether a configured server of that name
+// is connected to the session, and the fingerprint of the declaration it was
+// started from.
+func (s *State) configuredMCPClientDeclared(name string) (string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, client := range s.configuredMCPClients {
+		if client.Name() == name {
+			return client.Declared(), true
+		}
+	}
+	return "", false
 }
 
 // hasConfiguredMCPClient reports whether a configured server of that name is

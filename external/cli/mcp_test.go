@@ -98,3 +98,16 @@ func TestMCPServerSummaryNamesASwitchedOffServer(t *testing.T) {
 		}
 	}
 }
+
+// The controls' title says a server is off even when its status is a trust
+// verdict, like the line of the list does.
+func TestMCPServerTitleNamesASwitchedOffServer(t *testing.T) {
+	row := mcp.ServerStatus{Name: "proj", Status: "needs_approval", Enabled: false}
+	if got := mcpServerTitle(row); got != "proj · needs_approval · off" {
+		t.Fatalf("title = %q", got)
+	}
+	row.Enabled = true
+	if got := mcpServerTitle(row); got != "proj · needs_approval" {
+		t.Fatalf("title = %q", got)
+	}
+}

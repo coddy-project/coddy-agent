@@ -140,12 +140,21 @@ func mcpServerItems(row mcp.ServerStatus) []tui.SelectItem {
 	return items
 }
 
-func (a *App) showMCPServer(row mcp.ServerStatus) {
+// mcpServerTitle heads a server's controls: its name and its status, with
+// "off" when the status is a trust verdict that would hide the switch.
+func mcpServerTitle(row mcp.ServerStatus) string {
 	status := row.Status
+	if !row.Enabled && row.Status != "disabled" {
+		status += " · off"
+	}
 	if row.Error != "" {
 		status += ": " + tui.SanitizeText(row.Error)
 	}
-	sel := newSelectorModal(a.theme, tui.SanitizeText(row.Name)+" · "+status, mcpServerItems(row), 12, a.screen.RequestRender)
+	return tui.SanitizeText(row.Name) + " · " + status
+}
+
+func (a *App) showMCPServer(row mcp.ServerStatus) {
+	sel := newSelectorModal(a.theme, mcpServerTitle(row), mcpServerItems(row), 12, a.screen.RequestRender)
 	sel.OnDone = func(item *tui.SelectItem) {
 		if item == nil {
 			a.refreshMCP(row.Name)

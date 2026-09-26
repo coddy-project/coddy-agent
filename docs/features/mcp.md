@@ -146,8 +146,12 @@ A switch made through `/mcp`, Settings or the HTTP API also reaches live session
 one server at a time: switching a server on connects it in every live session the trust
 gate admits it for, switching it off closes it there, and the other servers keep their
 processes, so a browser-automation server keeps its pages open. A tool switch reconnects
-nothing. A session with a turn in flight keeps its tools until the turn ends and takes the
-switch then.
+nothing. A session in the middle of a turn keeps its tools for that turn: a server switched
+off or no longer trusted is closed when the turn ends, and one switched on starts when the
+session's next turn starts. Saving or deleting a server through the API or Settings reaches
+live sessions the same way, and a server whose declaration was edited is started again from
+the new one. A server that does not answer its handshake within 30 seconds does not hold
+anything up: it is left out and the session's next turn tries it again.
 
 ## Management API and UI
 

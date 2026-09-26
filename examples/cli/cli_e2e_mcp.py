@@ -62,8 +62,12 @@ class Model(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
         if body.get("stream"):
             tools = [tool.get("function", {}).get("name", "") for tool in body.get("tools", [])]
-            with offered_lock:
-                offered.setdefault(turn_prompt(body), []).append(tools)
+            # A turn's request offers the tools; an auxiliary one (a title,
+            # a summary) quoting the same prompt carries none and says
+            # nothing about them.
+            if tools:
+                with offered_lock:
+                    offered.setdefault(turn_prompt(body), []).append(tools)
             payload = []
             for delta, finish in [({"content": "Ready."}, None), ({}, "stop")]:
                 payload.append("data: " + json.dumps({"id": "stub", "object": "chat.completion.chunk", "created": 1,

@@ -166,8 +166,14 @@ func newMCPToggleSession(t *testing.T, servers map[string]config.MCPJSONServer) 
 			t.Fatal(err)
 		}
 	}
-	cfg := &config.Config{Paths: config.Paths{Home: home, CWD: cwd}}
-	mgr := NewManager(cfg, nil, nil, slog.Default(), cwd, nil)
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: home, CWD: cwd},
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 200}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}
+	runner := func(context.Context, *State, []acp.ContentBlock, acp.UpdateSender) (string, error) { return "", nil }
+	mgr := NewManager(cfg, mcpTurnSender{}, runner, slog.Default(), cwd, nil)
 	created, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: cwd})
 	if err != nil {
 		t.Fatal(err)
@@ -277,7 +283,7 @@ func TestMCPTrustConnectsAndClosesOnlyThatServer(t *testing.T) {
 }
 
 // A session in the middle of a turn keeps the tool list that turn handed the
-// model; the switch reaches it when the turn releases its lock.
+// model; the switch reaches it when its next turn starts.
 func TestMCPSwitchWaitsForTheTurnInFlight(t *testing.T) {
 	off := reloadHelperEntry("1")
 	off.Disabled = true
@@ -298,8 +304,14 @@ func TestMCPSwitchWaitsForTheTurnInFlight(t *testing.T) {
 		t.Fatal("the server connected under a turn in flight")
 	}
 	unlock()
+	if _, err := mgr.HandleSessionPromptWithSender(context.Background(), acp.SessionPromptParams{
+		SessionID: st.GetID(),
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "go"}},
+	}, mcpTurnSender{}, nil); err != nil {
+		t.Fatal(err)
+	}
 	if configuredClient(st, "alpha") == nil {
-		t.Fatal("the switch was not applied when the turn ended")
+		t.Fatal("the switch was not applied when the next turn started")
 	}
 }
 
@@ -324,7 +336,7 @@ func TestMCPRefreshGivesUpAtItsDeadline(t *testing.T) {
 	if configuredClient(st, "hang") != nil {
 		t.Fatal("a server that never answered was installed")
 	}
-	if !st.hasPendingMCPReload() {
+	if !st.hasPendingMCPServers() {
 		t.Fatal("the switch was dropped instead of left for the next turn")
 	}
 }
@@ -427,6 +439,161 @@ func TestStoredSessionStartsItsMCPServersOnlyForItsFirstTurn(t *testing.T) {
 	if configuredClient(st, "alpha") != alpha || len(st.GetMCPClients()) != 2 {
 		t.Fatalf("a second turn restarted the servers: %+v", st.GetMCPClients())
 	}
+}
+
+// A first-turn dial the deadline cuts short does not leave the session without
+// its servers for good: what it did not reach is parked, and the next turn
+// connects it before the model is handed its tools.
+func TestDeferredMCPDialCutShortIsRetriedByTheNextTurn(t *testing.T) {
+	previous := mcpStartTimeout
+	mcpStartTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { mcpStartTimeout = previous })
+	hang := reloadHelperServer("slow")
+	hang.Env = []config.EnvVarConfig{{Name: "GO_WANT_CONFIG_RELOAD_MCP", Value: "hang"}}
+	mgr, st := newStoredMCPSession(t, hang)
+	ctx := context.Background()
+	prompt := func(text string) {
+		t.Helper()
+		if _, err := mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
+			SessionID: st.GetID(),
+			Prompt:    []acp.ContentBlock{{Type: "text", Text: text}},
+		}, mcpTurnSender{}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	prompt("first")
+	if configuredClient(st, "slow") != nil {
+		t.Fatal("a server that never answered was installed")
+	}
+	if !st.hasPendingMCPServers() {
+		t.Fatal("the server the first turn could not reach was dropped instead of parked")
+	}
+
+	// The server answers now; the next turn connects it before it runs.
+	next := *mgr.activeCfg()
+	next.MCPServers = []config.MCPServerConfig{func() config.MCPServerConfig {
+		srv := reloadHelperServer("slow")
+		return srv
+	}()}
+	mgr.storeConfig(&next)
+	var seenByTurn []string
+	mgr.runner = func(_ context.Context, turn *State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		for _, client := range turn.GetMCPClients() {
+			seenByTurn = append(seenByTurn, client.Name())
+		}
+		return "", nil
+	}
+	prompt("second")
+	if len(seenByTurn) != 1 || seenByTurn[0] != "slow" {
+		t.Fatalf("the second turn ran with MCP clients %v, want [slow]", seenByTurn)
+	}
+}
+
+// A switch whose dial the refresh deadline cut short is not left until some
+// turn ends: the session's next turn connects the server before it runs.
+func TestParkedMCPSwitchIsAppliedWhenTheNextTurnStarts(t *testing.T) {
+	previous := mcpRefreshTimeout
+	mcpRefreshTimeout = time.Nanosecond
+	t.Cleanup(func() { mcpRefreshTimeout = previous })
+	off := reloadHelperEntry("1")
+	off.Disabled = true
+	mgr, st, cwd := newMCPToggleSession(t, map[string]config.MCPJSONServer{"alpha": off})
+	ctx := context.Background()
+	if err := mgr.SetMCPEnabled(ctx, cwd, "alpha", "", true); err != nil {
+		t.Fatal(err)
+	}
+	if configuredClient(st, "alpha") != nil {
+		t.Fatal("the dial was not cut short; the test needs a refresh that runs out of time")
+	}
+	var seenByTurn []string
+	mgr.runner = func(_ context.Context, turn *State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		for _, client := range turn.GetMCPClients() {
+			seenByTurn = append(seenByTurn, client.Name())
+		}
+		return "", nil
+	}
+	if _, err := mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
+		SessionID: st.GetID(),
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "go"}},
+	}, mcpTurnSender{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(seenByTurn) != 1 || seenByTurn[0] != "alpha" {
+		t.Fatalf("the turn ran with MCP clients %v, want [alpha]", seenByTurn)
+	}
+}
+
+// A server switched off while a turn runs is closed when that turn lets go of
+// the session, not left running until some later turn: an idle session would
+// otherwise keep the process for the life of the server.
+func TestMCPSwitchedOffDuringATurnClosesWhenTheTurnEnds(t *testing.T) {
+	mgr, st, cwd := newMCPToggleSession(t, map[string]config.MCPJSONServer{"alpha": reloadHelperEntry("1")})
+	if configuredClient(st, "alpha") == nil {
+		t.Fatal("alpha did not connect at session start")
+	}
+	unlock, err := mgr.acquireTurnLockWithReloadDrain(st.GetID(), st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.SetMCPEnabled(context.Background(), cwd, "alpha", "", false); err != nil {
+		unlock()
+		t.Fatal(err)
+	}
+	if configuredClient(st, "alpha") == nil {
+		unlock()
+		t.Fatal("the server was closed under the turn in flight")
+	}
+	unlock()
+	if configuredClient(st, "alpha") != nil {
+		t.Fatal("the switched-off server kept running after the turn ended")
+	}
+}
+
+// A server whose declaration was edited is started again from the new one by
+// its refresh, where a check of the name alone would keep the old process.
+func TestMCPRefreshRestartsAServerWhoseDeclarationChanged(t *testing.T) {
+	mgr, st, cwd := newMCPToggleSession(t, map[string]config.MCPJSONServer{
+		"alpha": reloadHelperEntry("1"), "beta": reloadHelperEntry("1"),
+	})
+	alpha, beta := configuredClient(st, "alpha"), configuredClient(st, "beta")
+	edited := reloadHelperEntry("1")
+	edited.Args = append(edited.Args, "-test.v")
+	home := mgr.activeCfg().Paths.Home
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "alpha", edited); err != nil {
+		t.Fatal(err)
+	}
+	mgr.RefreshMCPServer(context.Background(), "alpha")
+	if got := configuredClient(st, "alpha"); got == nil || got == alpha {
+		t.Fatalf("alpha was not started again from its edited declaration: %v", got)
+	}
+	if configuredClient(st, "beta") != beta {
+		t.Fatal("refreshing alpha restarted beta")
+	}
+	_ = cwd
+}
+
+// A new session no longer waits for a server that never answers its
+// handshake: its creation returns at the deadline and the server is parked
+// for the session's first turn.
+func TestNewSessionDoesNotWaitForAHungMCPServer(t *testing.T) {
+	previous := mcpStartTimeout
+	mcpStartTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { mcpStartTimeout = previous })
+	started := time.Now()
+	mgr, st, _ := newMCPToggleSession(t, map[string]config.MCPJSONServer{
+		"hang": reloadHelperEntry("hang"), "alpha": reloadHelperEntry("1"),
+	})
+	if elapsed := time.Since(started); elapsed > 10*time.Second {
+		t.Fatalf("creating the session took %v", elapsed)
+	}
+	if configuredClient(st, "alpha") == nil {
+		t.Fatal("a hung neighbour kept the healthy server from starting")
+	}
+	if configuredClient(st, "hang") != nil || !st.hasPendingMCPServers() {
+		t.Fatalf("the hung server was not parked for the first turn: clients %+v", st.GetMCPClients())
+	}
+	_ = mgr
 }
 
 func TestReloadConfigForSessionRequiresProjectTrustAndRefreshesFilter(t *testing.T) {

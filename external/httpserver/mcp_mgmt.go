@@ -360,7 +360,8 @@ func (s *Server) coddyMCPToolToggle(disable bool) http.HandlerFunc {
 
 // coddyMCPServerPut creates or updates a server entry in the mcp.json file
 // selected by ?scope=: "local" (default) writes <cwd>/.coddy/mcp.json,
-// "global" writes <home>/mcp.json.
+// "global" writes <home>/mcp.json. Live sessions start it, or start it again
+// from the new declaration.
 func (s *Server) coddyMCPServerPut(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if err := mcp.ValidateServerName(name); err != nil {
@@ -385,13 +386,17 @@ func (s *Server) coddyMCPServerPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.invalidateMCPProbe(name)
+	// Live sessions start the server, or start it again from the edited
+	// declaration, and leave their other servers running.
+	s.refreshLiveMCPServer(r, name)
 	slog.Info("mcp server saved", "name", name, "scope", scope)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
 }
 
 // coddyMCPServerDelete removes an mcp.json-defined server from its owning
-// file. Config.yaml-defined servers are refused (edit Settings instead).
+// file and closes it in live sessions. Config.yaml-defined servers are
+// refused (edit Settings instead).
 func (s *Server) coddyMCPServerDelete(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if err := mcp.DeleteServer(s.activeCfg(), s.defaultCWD, name); err != nil {
@@ -399,6 +404,8 @@ func (s *Server) coddyMCPServerDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.invalidateMCPProbe(name)
+	// Live sessions close the server the declaration named.
+	s.refreshLiveMCPServer(r, name)
 	slog.Info("mcp server deleted", "name", name)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})

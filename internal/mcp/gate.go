@@ -108,7 +108,12 @@ func (g *TrustGate) Connect(ctx context.Context, srv ManagedServer, workspace st
 	if err := g.Check(workspace, srv); err != nil {
 		return nil, err
 	}
-	return Connect(ctx, srv.Config, workspace, log)
+	client, err := Connect(ctx, srv.Config, workspace, log)
+	if err != nil {
+		return nil, err
+	}
+	client.declared = Fingerprint(srv.Config)
+	return client, nil
 }
 
 // Probe checks the gate and then probes, so listing servers in the UI never

@@ -2263,7 +2263,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/mcp/{name}/enable": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Enable an MCP server",
-					"description": "Clears the disabled flag. Global entries persist in their defining file; project entries persist in `<home>/mcp-overrides.json`, leaving the checkout unchanged. Live sessions connect this server if the trust gate admits it; their other servers keep running. A session with a turn in flight connects it when the turn ends.",
+					"description": "Clears the disabled flag. Global entries persist in their defining file; project entries persist in `<home>/mcp-overrides.json`, leaving the checkout unchanged. Live sessions connect this server if the trust gate admits it; their other servers keep running. A session with a turn in flight connects it when its next turn starts.",
 					"operationId": "enableMCPServer",
 					"parameters":  []interface{}{mcpServerNameParam()},
 					"responses": map[string]interface{}{
@@ -2414,7 +2414,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/mcp/{name}": map[string]interface{}{
 				"put": map[string]interface{}{
 					"summary":     "Create or update an mcp.json MCP server",
-					"description": "Upserts one named entry in an mcp.json file (Cursor format: `env` and `headers` are objects, per-tool switches use `disabledTools`). **`?scope=local`** (default) writes the project **`.coddy/mcp.json`**; **`?scope=global`** writes the user-global **`<home>/mcp.json`**. Either `command` (stdio) or `url` is required; names must not contain `__`. Config.yaml-defined servers are edited via **PUT** `/coddy/config` instead.",
+					"description": "Upserts one named entry in an mcp.json file (Cursor format: `env` and `headers` are objects, per-tool switches use `disabledTools`). **`?scope=local`** (default) writes the project **`.coddy/mcp.json`**; **`?scope=global`** writes the user-global **`<home>/mcp.json`**. Either `command` (stdio) or `url` is required; names must not contain `__`. Live sessions start the server, or start it again from the edited declaration, and keep their other servers running. Config.yaml-defined servers are edited via **PUT** `/coddy/config` instead.",
 					"operationId": "putMCPServer",
 					"parameters": []interface{}{
 						mcpServerNameParam(),
@@ -2440,7 +2440,7 @@ func openAPISpec() map[string]interface{} {
 				},
 				"delete": map[string]interface{}{
 					"summary":     "Delete an mcp.json MCP server",
-					"description": "Removes the named entry from the mcp.json file that defines it (project **`.coddy/mcp.json`** or global **`<home>/mcp.json`**). Servers defined in config.yaml are refused with 400.",
+					"description": "Removes the named entry from the mcp.json file that defines it (project **`.coddy/mcp.json`** or global **`<home>/mcp.json`**); a project entry's switches in `<home>/mcp-overrides.json` go with it. Live sessions close the server. Servers defined in config.yaml are refused with 400.",
 					"operationId": "deleteMCPServer",
 					"parameters":  []interface{}{mcpServerNameParam()},
 					"responses": map[string]interface{}{
