@@ -11,6 +11,8 @@ import { useT } from "../i18n/I18nProvider";
 export function SettingsTileGrid(props: {
   sections: SectionDescriptor[];
   onSelect: (id: string) => void;
+  /** Grey tiles after the sections, for the ones the schema has yet to bring. */
+  placeholders?: number;
 }) {
   const { sections, onSelect } = props;
   const { t } = useT();
@@ -39,6 +41,16 @@ export function SettingsTileGrid(props: {
             </span>
           ) : null}
         </button>
+      ))}
+      {Array.from({ length: props.placeholders ?? 0 }, (_, i) => (
+        <span
+          key={`placeholder-${i}`}
+          className="settings-tile settings-tile--placeholder"
+          aria-hidden="true"
+        >
+          <span className="settings-skeleton-bar settings-skeleton-title" />
+          <span className="settings-skeleton-bar settings-skeleton-desc" />
+        </span>
       ))}
     </div>
   );

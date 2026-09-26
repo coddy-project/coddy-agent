@@ -29,6 +29,13 @@ type ConfigJSON struct {
 	UI           UIJSON           `json:"ui,omitempty"`
 	Scheduler    SchedulerJSON    `json:"scheduler,omitempty"`
 	Gateways     GatewaysJSON     `json:"gateways,omitempty"`
+	// Revision names the configuration a GET /coddy/config document was read from.
+	// It is no setting: a client sends the document back with it unchanged, so a PUT
+	// can tell the values the client changed from the ones it only read, even when
+	// the live configuration moved in between (another save, the agent's
+	// config_commit, a hand edit). A document without one is measured against the
+	// configuration live when the PUT arrives.
+	Revision string `json:"revision,omitempty"`
 }
 
 // GatewaysJSON mirrors GatewayConfig for JSON APIs.

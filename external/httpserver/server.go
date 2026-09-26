@@ -68,6 +68,9 @@ type Server struct {
 	sessions *webauth.SessionStore
 	// loginThrottle slows repeated wrong passwords per source address.
 	loginThrottle *webauth.Throttle
+	// served remembers the configurations GET /coddy/config handed out, so a
+	// PUT is measured against what its client read (config_revisions.go).
+	served *servedConfigs
 
 	slashMu    sync.Mutex
 	slashCache map[string]slashListCacheEntry
@@ -166,6 +169,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		codexAuthLogins:      make(map[string]*codexAuthLoginAttempt),
 		neuralDeepAuthLogins: make(map[string]*codexAuthLoginAttempt),
 		events:               newServerEventsHub(),
+		served:               newServedConfigs(),
 		sessions:             webauth.NewSessionStore(),
 		loginThrottle:        &webauth.Throttle{},
 	}

@@ -249,6 +249,7 @@ import {
 import type { BackgroundTask } from "./tasks/types";
 import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
 import { Settings } from "./settings/Settings";
+import { noteSettingsConfigReloaded } from "./settings/settingsConfigStore";
 import { wideRailMinWidthMediaQuery } from "./shellBreakpoint";
 
 const HDR = "X-Coddy-Session-ID";
@@ -2640,7 +2641,12 @@ export function App() {
       void turnActivity.refresh(key);
     },
     providerUsage: providerUsageState.applyPushed,
-    configReloaded: () => setConfigEpoch((e) => e + 1),
+    // The configuration swapped: every config-derived list reads again, and
+    // so does the copy of the config the Settings drawer keeps.
+    configReloaded: () => {
+      setConfigEpoch((e) => e + 1);
+      noteSettingsConfigReloaded();
+    },
     // A session is shared: this is what someone else queued, in another
     // browser or from a console attached over --remote.
     messageQueue: (sid: string, queue: QueuedMessageEvent) =>
@@ -2674,6 +2680,9 @@ export function App() {
       void loadMessages(key, { freshLoad: true });
     },
     ready: () => {
+      // A config_reloaded may have been missed while the stream was down: the
+      // Settings copy is read again if the drawer ever held one.
+      noteSettingsConfigReloaded();
       // Recovery can miss the idle edge. Retire pending acknowledgements too,
       // so an old Stop cannot re-establish the fence after this reconnect.
       stoppedTurnBySidRef.current.clear();

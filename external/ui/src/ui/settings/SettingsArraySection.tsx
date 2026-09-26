@@ -67,6 +67,10 @@ export function SettingsArraySection(props: {
   onEditingChange?: ((editing: boolean) => void) | undefined;
   /** Each change closes an open row form, back onto the list. */
   closeSignal?: number | undefined;
+  /** Each change says the value was replaced by a newer copy of the config
+   * (not edited here): an open form finds its row again by the name the
+   * address holds, since the row may stand elsewhere in the new list. */
+  replacedSignal?: number | undefined;
   /** Settings section id ("providers", "models") selecting the dictionary domain. */
   i18nDomain?: string | undefined;
   /** Rendered after the item form in edit mode (the providers section closes
@@ -100,6 +104,22 @@ export function SettingsArraySection(props: {
     const i = findByLabel(routeItem);
     return i >= 0 ? { mode: "edit", index: i } : { mode: "list" };
   });
+  // A newer copy of the config replaced the list under an open form: the row
+  // the address names is found again by its name, before any effect reads the
+  // index, which in the new list may belong to another row.
+  const replaced = props.replacedSignal ?? 0;
+  const [seenReplaced, setSeenReplaced] = useState(replaced);
+  if (replaced !== seenReplaced) {
+    setSeenReplaced(replaced);
+    if (
+      view.mode === "edit" &&
+      routeItem !== "" &&
+      labelOf(arr[view.index]) !== routeItem
+    ) {
+      const i = findByLabel(routeItem);
+      setView(i >= 0 ? { mode: "edit", index: i } : { mode: "list" });
+    }
+  }
   const openLabel = view.mode === "edit" ? labelOf(arr[view.index]) : "";
 
   // The address followed: open the row it names, or the list when it names

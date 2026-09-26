@@ -289,6 +289,8 @@ export function SettingsSection(props: {
   onEditingChange?: ((editing: boolean) => void) | undefined;
   /** Each change closes an open row form (the head's back arrow). */
   closeSignal?: number | undefined;
+  /** Each change says a copy of the config replaced the document. */
+  replacedSignal?: number | undefined;
   /** The conversation on screen, so the session table can spare it. */
   activeSessionId?: string;
   /** Session ids the table removed, so the shell can drop them from History. */
@@ -541,6 +543,7 @@ export function SettingsSection(props: {
         hideBackLink={props.hideBackLink}
         onEditingChange={props.onEditingChange}
         closeSignal={props.closeSignal}
+        replacedSignal={props.replacedSignal}
         i18nDomain={section.id}
         groups={
           key === "providers"

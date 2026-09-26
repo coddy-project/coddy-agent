@@ -57,6 +57,9 @@ func (s *Server) coddyConfigGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dto := config.ConfigToJSONDTO(c)
+	// The document names the configuration it was read from, and a PUT that
+	// sends it back is measured against that one (config_revisions.go).
+	dto.Revision = s.served.revision(c)
 	// Report the effective auth state (YAML token or out-of-band --auth-token / CODDY_HTTP_TOKEN),
 	// not just the config-file token, so the UI can reflect that auth is on regardless of source.
 	pol := s.authPolicyNow()
@@ -133,9 +136,24 @@ func (s *Server) coddyConfigPut(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return fmt.Errorf("%w: %s", errCoddyConfigParse, err.Error())
 		}
-		// Rendered over the file that is there, so the operator's comments and the
-		// editor schema modeline survive a save from the settings screen.
-		yb, err := config.MarshalConfigYAMLForFile(newCfg, cfgPath)
+		// What the client read: the configuration its document names by
+		// revision, or the live one for a document without it (another client,
+		// a script) or from further back than this process remembers.
+		served := c
+		var read struct {
+			Revision string `json:"revision"`
+		}
+		if json.Unmarshal(body, &read) == nil {
+			if old := s.served.lookup(read.Revision); old != nil {
+				served = old
+			}
+		}
+		// Rendered over the file that is there, so the operator's comments, the
+		// editor schema modeline and the spelling of every value the form did not
+		// change survive a save from the settings screen. A value sent back as it
+		// was served keeps what the file says now - not what this process made of
+		// it, and not what the client was shown before another save replaced it.
+		yb, err := config.MarshalConfigYAMLForEdit(newCfg, served, c, cfgPath)
 		if err != nil {
 			return errCoddyConfigSerialize
 		}

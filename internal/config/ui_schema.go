@@ -794,12 +794,15 @@ func toIfaceOrder(keys []string) []interface{} {
 //	             edits the user-global file, where it rarely needs touching.
 //	ui         - toggles the SPA the page is served from; like httpserver, the
 //	             page cannot switch itself off.
+//	revision   - not a setting: it names the configuration a GET document was
+//	             read from (ConfigJSON.Revision) and travels back with the PUT.
 var uiHiddenConfigKeys = map[string]struct{}{
 	"httpserver": {},
 	"mcp":        {},
 	"swarm":      {},
 	"rules":      {},
 	"ui":         {},
+	"revision":   {},
 }
 
 // UISchemaCoversConfigJSONFields checks that UI schema properties match ConfigJSON

@@ -9,7 +9,7 @@ This page is the narrative guide. Two companion artifacts cover the full key lis
 # yaml-language-server: $schema=https://coddy.dev/config.schema.json
 ```
 
-**Coddy writes that line itself.** Every save that rewrites `config.yaml` - the settings screen (`PUT /coddy/config`), `coddy mcp add`, a skill source, the agent's own `config_set` / `config_commit` - adds the header when the file has none, and leaves a `$schema` you chose yourself (a pinned tag, a local path) alone. The same saves keep your comments, including commented-out keys, and the order the keys are already in. A save writes the keys the file already has plus whatever actually differs from the built-in defaults - optional fields that were never set are left out entirely rather than written as `null`, so a file that keeps whole sections commented out stays that way. JetBrains IDEs do not read the header; if `config.yaml` is not validated there, map the same URL by hand under **Settings - Languages & Frameworks - Schemas and DTDs - JSON Schema Mappings**. VS Code can be told the same thing without touching the file:
+**Coddy writes that line itself.** Every save that rewrites `config.yaml` - the settings screen (`PUT /coddy/config`), `coddy mcp add`, a skill source, the agent's own `config_set` / `config_commit` - adds the header when the file has none, and leaves a `$schema` you chose yourself (a pinned tag, a local path) alone. The same saves keep your comments, including commented-out keys, the order the keys are already in and the way you wrote every value they do not change (see [Environment variable references](#environment-variable-references)). A save writes the keys the file already has plus whatever actually differs from the built-in defaults - optional fields that were never set are left out entirely rather than written as `null`, so a file that keeps whole sections commented out stays that way, and a provider or a model entry keeps only the fields it named. JetBrains IDEs do not read the header; if `config.yaml` is not validated there, map the same URL by hand under **Settings - Languages & Frameworks - Schemas and DTDs - JSON Schema Mappings**. VS Code can be told the same thing without touching the file:
 
 ```json
 "yaml.schemas": { "https://coddy.dev/config.schema.json": ["**/.coddy/config.yaml"] }
@@ -478,7 +478,7 @@ httpserver:
     session_ttl_hours: 720                   # 0 = the browser drops the cookie on close (the server still expires its record after 30 days)
 ```
 
-A hash written into this file by hand needs every `$` doubled (`$$argon2id$$v=19$$...`), because a `$NAME` is expanded as an environment reference when the file loads. The command does that for you; `coddy -t` names the problem when it finds a hash that no longer parses. A `${VAR}` reference in `user` or `password_hash` works like every other value here, which also means a save from the settings screen writes the expanded value back into the file - keep a credential out of the document entirely with `CODDY_HTTP_USER` / `CODDY_HTTP_PASSWORD` instead.
+A hash written into this file by hand needs every `$` doubled (`$$argon2id$$v=19$$...`), because a `$NAME` is expanded as an environment reference when the file loads. The command does that for you; `coddy -t` names the problem when it finds a hash that no longer parses. A `${VAR}` reference in `user` or `password_hash` works like every other value here and survives a save from the settings screen as a reference; to keep a credential out of the document entirely, use `CODDY_HTTP_USER` / `CODDY_HTTP_PASSWORD` instead.
 
 The account can also come from the environment alone - `CODDY_HTTP_USER` and `CODDY_HTTP_PASSWORD`, see the `.env` section below - which is the route for a container or a systemd unit. The form is for browsers; `coddy --remote`, `coddy acp --remote`, a swarm relay and every script still present the bearer token. Full behaviour: [HTTP API](../reference/http-api.md#web-ui-sign-in-optional), [Remote mode](../operate/remote.md#the-sign-in-form).
 
@@ -622,10 +622,18 @@ corrupting the secret. The Settings UI does this automatically for the `proxy` f
 write `$$` by hand.
 
 **A save keeps the references.** The loaded configuration holds what a reference resolved to, so the
-Settings UI works with the secret itself. When it saves, a value written as `${VAR}` in the file is
-written back as `${VAR}` as long as it still resolves to the value being saved; only a value you
-changed on the screen replaces the reference. A key kept in the environment or in `~/.coddy/.env`
-therefore never lands in `config.yaml` because of an unrelated save.
+Settings UI works with the secret itself and with absolute paths. When it saves, a value written as
+`${VAR}`, `${CODDY_HOME}/...` or `~/...` in the file is written back that way as long as it still
+loads as the value being saved - in a single value (`memory.dir`) and in a list entry (`skills.dirs`,
+`subagents.dirs`, `hooks.files`, `instructions.files`) alike; only a value you changed on the screen
+replaces the reference. A key kept in the environment or in `~/.coddy/.env` therefore never lands in
+`config.yaml` because of an unrelated save, and a save of an untouched form leaves the file as it
+was. The same holds for what the process changes after reading the file: a command-line flag, the
+relay listen address `coddy serve` fills in or a pairing token from the environment is not written
+into `config.yaml` unless you change that value on the screen, and a value another save changed
+after you opened the form is not put back by yours. When the file on disk does not load at the
+moment of the save (a broken hand edit, a deleted file), the save writes the configuration the
+server runs, as it always did.
 
 Two placeholders are not environment variables:
 
