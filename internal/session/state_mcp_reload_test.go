@@ -573,6 +573,118 @@ func TestMCPRefreshRestartsAServerWhoseDeclarationChanged(t *testing.T) {
 	_ = cwd
 }
 
+// A config.yaml server switched from the console or a chat reaches live
+// sessions: the switch is written to the file and mirrored into the active
+// configuration, so the refresh sees it. The settings reload the HTTP route
+// runs after a switch finds nothing new in mcp_servers and restarts nothing.
+func TestConfigYAMLSwitchReachesLiveSessionsAlone(t *testing.T) {
+	dir := t.TempDir()
+	paths := config.Paths{Home: filepath.Join(dir, "home"), CWD: dir, ConfigPath: filepath.Join(dir, "config.yaml")}
+	raw, err := config.MarshalConfigYAML(&config.Config{
+		Providers:  []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:     []config.ModelEntry{{Model: "fake/model", MaxTokens: 200}},
+		Agent:      config.Agent{Model: "fake/model"},
+		MCPServers: []config.MCPServerConfig{reloadHelperServer("alpha"), reloadHelperServer("beta")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.ConfigPath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadWithPaths(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr := NewManager(cfg, mcpTurnSender{}, nil, slog.Default(), dir, nil)
+	ctx := context.Background()
+	created, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := mgr.SessionByID(created.SessionID)
+	t.Cleanup(st.CloseAll)
+	alpha := configuredClient(st, "alpha")
+	if alpha == nil || configuredClient(st, "beta") == nil {
+		t.Fatalf("clients at start = %+v", st.GetMCPClients())
+	}
+
+	if err := mgr.SetMCPEnabled(ctx, dir, "beta", "", false); err != nil {
+		t.Fatal(err)
+	}
+	if configuredClient(st, "beta") != nil {
+		t.Fatal("the config.yaml server switched off is still connected")
+	}
+	reloaded, err := config.LoadWithPaths(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.MCPServers) != 2 || !reloaded.MCPServers[1].Disabled {
+		t.Fatalf("the switch did not reach config.yaml: %+v", reloaded.MCPServers)
+	}
+	mgr.ReplaceConfig(reloaded)
+	if configuredClient(st, "alpha") != alpha {
+		t.Fatal("the settings reload after a switch restarted another server")
+	}
+
+	if err := mgr.SetMCPEnabled(ctx, dir, "alpha", "ping", false); err != nil {
+		t.Fatal(err)
+	}
+	if st.GetMCPToolFilter()("alpha", "ping") {
+		t.Fatal("the config.yaml tool switched off is still offered")
+	}
+}
+
+// A switch that lands while a settings reload is dialing is not swallowed by
+// that reload. The reload dials the configuration of the moment it started,
+// so the server the switch parked is reconciled once the reload lets go of
+// the session: a server switched off, or whose approval was withdrawn, while
+// the reload was starting it does not keep running.
+func TestMCPSwitchDuringAFullReloadIsNotLost(t *testing.T) {
+	gate := t.TempDir()
+	t.Cleanup(func() { _ = os.WriteFile(filepath.Join(gate, "open"), nil, 0o600) })
+	slow := reloadHelperEntry("gate:" + gate)
+	slow.Disabled = true
+	mgr, st, cwd := newMCPToggleSession(t, map[string]config.MCPJSONServer{"slow": slow})
+	home := mgr.activeCfg().Paths.Home
+	// The change a settings save brings: slow is switched on in its file.
+	if err := config.SetMCPJSONServerDisabled(config.GlobalMCPJSONPath(home), "slow", false); err != nil {
+		t.Fatal(err)
+	}
+	reloaded := make(chan struct{})
+	go func() {
+		defer close(reloaded)
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		mgr.reloadConfiguredMCPServers(ctx)
+	}()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if _, err := os.Stat(filepath.Join(gate, "started")); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the reload never dialed the server")
+		}
+	}
+
+	// The operator switches slow off while the reload is dialing it: the
+	// refresh finds the session held by the reload and parks the server.
+	if err := mgr.SetMCPEnabled(context.Background(), cwd, "slow", "", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gate, "open"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-reloaded:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the reload did not finish")
+	}
+	if configuredClient(st, "slow") != nil {
+		t.Fatal("the server switched off during the reload kept running")
+	}
+}
+
 // A new session no longer waits for a server that never answers its
 // handshake: its creation returns at the deadline and the server is parked
 // for the session's first turn.
@@ -665,12 +777,23 @@ func TestReloadConfigForSessionRequiresProjectTrustAndRefreshesFilter(t *testing
 }
 
 func TestConfigReloadMCPHelperProcess(t *testing.T) {
-	switch os.Getenv("GO_WANT_CONFIG_RELOAD_MCP") {
-	case "1":
-	case "hang":
+	mode := os.Getenv("GO_WANT_CONFIG_RELOAD_MCP")
+	switch {
+	case mode == "1":
+	case mode == "hang":
 		// Reads the handshake and never answers it.
 		_, _ = io.Copy(io.Discard, os.Stdin)
 		os.Exit(0)
+	case strings.HasPrefix(mode, "gate:"):
+		// Says it started and holds its handshake until the test opens the
+		// gate, so a test can act while a dial of it is in flight.
+		dir := strings.TrimPrefix(mode, "gate:")
+		_ = os.WriteFile(filepath.Join(dir, "started"), nil, 0o600)
+		for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			if _, err := os.Stat(filepath.Join(dir, "open")); err == nil {
+				break
+			}
+		}
 	default:
 		return
 	}

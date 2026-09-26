@@ -1690,11 +1690,20 @@ func (m *Manager) reloadConfiguredMCPServersExcept(ctx context.Context, skip *St
 // save, so this is what a server hanging in the session dialed first costs the
 // rest. It reports whether the swap happened; a discarded dial leaves the
 // reload parked for a later turn to retry.
+//
+// The servers parked on the session are taken before the dial, not after it:
+// the reload covers what was parked by the moment it read the configuration,
+// and a switch that lands while it dials parks its server anew, for the drain
+// that follows the reload to reconcile. Taken after the dial, that newer
+// switch would be dropped with the rest and the reload's older view of the
+// server - started, while the operator had just switched it off or withdrawn
+// its approval - would stand. A discarded dial leaves the full reload parked,
+// which covers the servers taken here.
 func (m *Manager) applyConfiguredMCPReload(ctx context.Context, st *State) bool {
+	st.takeMCPServersPending()
 	if st.configuredMCPDeferred() {
 		// Nothing was started for this session yet: its first turn dials the
 		// configuration of that moment, so a reload has nothing to swap.
-		st.takeMCPServersPending()
 		return true
 	}
 	clients := m.dialConfiguredMCPServers(ctx, st.GetCWD())
@@ -1708,7 +1717,6 @@ func (m *Manager) applyConfiguredMCPReload(ctx context.Context, st *State) bool 
 		return false
 	}
 	st.replaceConfiguredMCPClients(clients)
-	st.takeMCPServersPending()
 	return true
 }
 
@@ -1727,17 +1735,18 @@ func (m *Manager) drainPendingMCPReload(sessionID string, st *State) {
 	}
 	defer unlock()
 	if st.takeMCPReloadPending() {
-		// A full reload re-dials every configured server, the parked single
-		// servers included.
+		// A full reload re-dials every configured server, the servers parked
+		// so far included.
 		ctx, cancel := context.WithTimeout(context.Background(), mcpReloadTimeout)
 		defer cancel()
-		_ = m.applyConfiguredMCPReload(ctx, st)
-		return
+		if !m.applyConfiguredMCPReload(ctx, st) {
+			return
+		}
 	}
-	// Single servers parked during the turn: what should no longer run is
-	// closed now, and a dial waits for the session's next turn
-	// (applyParkedMCPServers), so a server that does not answer cannot hold
-	// the end of this one.
+	// Single servers parked during the turn, or during the reload above:
+	// what should no longer run is closed now, and a dial waits for the
+	// session's next turn (applyParkedMCPServers), so a server that does not
+	// answer cannot hold the end of this one.
 	m.applyPendingMCPServers(context.Background(), st, false)
 }
 
