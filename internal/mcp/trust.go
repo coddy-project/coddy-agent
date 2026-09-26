@@ -19,7 +19,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -56,10 +55,12 @@ type trustFile struct {
 
 // TrustStore persists approvals at <home>/mcp-trust.json. Every operation
 // re-reads the file, so an approval granted through the HTTP API or the CLI
-// reaches an already running agent on its next session.
+// reaches an already running agent on its next session. Instances are cheap
+// and made per call; a write is a transaction under the file's lock, shared
+// by every instance of the path and by the other processes of the home
+// (updateStateFile).
 type TrustStore struct {
 	path string
-	mu   sync.Mutex
 }
 
 // NewTrustStore returns the store backed by <home>/mcp-trust.json. home is
@@ -187,31 +188,17 @@ func (s *TrustStore) read() (trustFile, error) {
 
 func (s *TrustStore) write(file trustFile) error {
 	file.Version = trustFileVersion
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return fmt.Errorf("create %s: %w", filepath.Dir(s.path), err)
-	}
 	data, err := json.MarshalIndent(file, "", "  ")
 	if err != nil {
 		return err
 	}
-	data = append(data, '\n')
-	tmp := s.path + ".tmp"
 	// 0o600: the receipts name local commands and workspaces of this operator only.
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return fmt.Errorf("write %s: %w", tmp, err)
-	}
-	if err := os.Rename(tmp, s.path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("replace %s: %w", s.path, err)
-	}
-	return nil
+	return writeStateFile(s.path, append(data, '\n'))
 }
 
 // Records returns the approvals recorded for a workspace, newest write order
 // preserved. A corrupt store yields no records.
 func (s *TrustStore) Records(workspace string) []TrustRecord {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	file, err := s.read()
 	if err != nil {
 		return nil
@@ -243,47 +230,53 @@ func (s *TrustStore) Approve(workspace, source string, srv config.MCPServerConfi
 	if strings.TrimSpace(srv.Name) == "" {
 		return fmt.Errorf("mcp trust: empty server name")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	file, err := s.read()
-	if err != nil {
-		return err
-	}
-	kept := make([]TrustRecord, 0, len(file.Workspaces[key])+1)
-	for _, rec := range file.Workspaces[key] {
-		if rec.Server != srv.Name {
-			kept = append(kept, rec)
+	return updateStateFile(s.path, func() error {
+		file, err := s.read()
+		if err != nil {
+			return err
 		}
-	}
-	kept = append(kept, NewTrustRecord(srv, source, time.Now()))
-	file.Workspaces[key] = kept
-	return s.write(file)
+		kept := make([]TrustRecord, 0, len(file.Workspaces[key])+1)
+		for _, rec := range file.Workspaces[key] {
+			if rec.Server != srv.Name {
+				kept = append(kept, rec)
+			}
+		}
+		kept = append(kept, NewTrustRecord(srv, source, time.Now()))
+		file.Workspaces[key] = kept
+		return s.write(file)
+	})
 }
 
 // Revoke drops every approval of one server name in a workspace and reports
 // whether anything was removed.
 func (s *TrustStore) Revoke(workspace, name string) (bool, error) {
 	key := CanonicalWorkspace(workspace)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	file, err := s.read()
+	removed := false
+	err := updateStateFile(s.path, func() error {
+		file, err := s.read()
+		if err != nil {
+			return err
+		}
+		records := file.Workspaces[key]
+		kept := make([]TrustRecord, 0, len(records))
+		for _, rec := range records {
+			if rec.Server != name {
+				kept = append(kept, rec)
+			}
+		}
+		if len(kept) == len(records) {
+			return nil
+		}
+		if len(kept) == 0 {
+			delete(file.Workspaces, key)
+		} else {
+			file.Workspaces[key] = kept
+		}
+		removed = true
+		return s.write(file)
+	})
 	if err != nil {
 		return false, err
 	}
-	records := file.Workspaces[key]
-	kept := make([]TrustRecord, 0, len(records))
-	for _, rec := range records {
-		if rec.Server != name {
-			kept = append(kept, rec)
-		}
-	}
-	if len(kept) == len(records) {
-		return false, nil
-	}
-	if len(kept) == 0 {
-		delete(file.Workspaces, key)
-	} else {
-		file.Workspaces[key] = kept
-	}
-	return true, s.write(file)
+	return removed, nil
 }

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
@@ -24,13 +23,12 @@ type overridesFile struct {
 	Workspaces map[string]map[string]projectSwitches `json:"workspaces"`
 }
 
-var overridesMu sync.Mutex
-
 func overridesPath(home string) string { return filepath.Join(home, overridesFileName) }
 
 func readOverrides(home string) (overridesFile, error) {
 	var file overridesFile
-	data, err := os.ReadFile(overridesPath(home)) //nolint:gosec // operator-owned home path
+	path := overridesPath(home)
+	data, err := os.ReadFile(path) //nolint:gosec // operator-owned home path
 	if os.IsNotExist(err) {
 		return overridesFile{Workspaces: make(map[string]map[string]projectSwitches)}, nil
 	}
@@ -38,7 +36,8 @@ func readOverrides(home string) (overridesFile, error) {
 		return file, err
 	}
 	if err := json.Unmarshal(data, &file); err != nil {
-		return file, fmt.Errorf("parse MCP overrides: %w", err)
+		// The path is named: this is the file an operator has to repair.
+		return file, fmt.Errorf("parse MCP overrides %s: %w", path, err)
 	}
 	if file.Workspaces == nil {
 		file.Workspaces = make(map[string]map[string]projectSwitches)
@@ -47,56 +46,34 @@ func readOverrides(home string) (overridesFile, error) {
 }
 
 func writeOverrides(home string, file overridesFile) error {
-	path := overridesPath(home)
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
 	data, err := json.MarshalIndent(file, "", "  ")
 	if err != nil {
 		return err
 	}
-	data = append(data, '\n')
-	// A temp file of its own: the console and coddy serve may share one home,
-	// and a fixed name would let one process truncate the other's write.
-	tmp, err := os.CreateTemp(filepath.Dir(path), overridesFileName+".*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpPath)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return err
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		_ = os.Remove(tmpPath)
-		return err
-	}
-	return nil
+	return writeStateFile(overridesPath(home), append(data, '\n'))
 }
 
+// updateProjectSwitch changes the operator's switches for one project server
+// of a workspace. The read-modify-write holds the file's lock, so a console
+// and coddy serve sharing one home never write over each other's switches.
 func updateProjectSwitch(cfg *config.Config, cwd, name string, change func(*projectSwitches)) error {
 	if cfg.Paths.Home == "" {
 		return fmt.Errorf("MCP home directory is required for project switches")
 	}
-	overridesMu.Lock()
-	defer overridesMu.Unlock()
-	file, err := readOverrides(cfg.Paths.Home)
-	if err != nil {
-		return err
-	}
-	workspace := CanonicalWorkspace(cwd)
-	if file.Workspaces[workspace] == nil {
-		file.Workspaces[workspace] = make(map[string]projectSwitches)
-	}
-	switches := file.Workspaces[workspace][name]
-	change(&switches)
-	file.Workspaces[workspace][name] = switches
-	return writeOverrides(cfg.Paths.Home, file)
+	return updateStateFile(overridesPath(cfg.Paths.Home), func() error {
+		file, err := readOverrides(cfg.Paths.Home)
+		if err != nil {
+			return err
+		}
+		workspace := CanonicalWorkspace(cwd)
+		if file.Workspaces[workspace] == nil {
+			file.Workspaces[workspace] = make(map[string]projectSwitches)
+		}
+		switches := file.Workspaces[workspace][name]
+		change(&switches)
+		file.Workspaces[workspace][name] = switches
+		return writeOverrides(cfg.Paths.Home, file)
+	})
 }
 
 // dropProjectSwitches forgets the operator's switches for one project server
@@ -105,34 +82,32 @@ func dropProjectSwitches(cfg *config.Config, cwd, name string) error {
 	if cfg.Paths.Home == "" {
 		return nil
 	}
-	overridesMu.Lock()
-	defer overridesMu.Unlock()
-	file, err := readOverrides(cfg.Paths.Home)
-	if err != nil {
-		return err
-	}
-	workspace := CanonicalWorkspace(cwd)
-	entries, ok := file.Workspaces[workspace]
-	if !ok {
-		return nil
-	}
-	if _, ok := entries[name]; !ok {
-		return nil
-	}
-	delete(entries, name)
-	if len(entries) == 0 {
-		delete(file.Workspaces, workspace)
-	}
-	return writeOverrides(cfg.Paths.Home, file)
+	return updateStateFile(overridesPath(cfg.Paths.Home), func() error {
+		file, err := readOverrides(cfg.Paths.Home)
+		if err != nil {
+			return err
+		}
+		workspace := CanonicalWorkspace(cwd)
+		entries, ok := file.Workspaces[workspace]
+		if !ok {
+			return nil
+		}
+		if _, ok := entries[name]; !ok {
+			return nil
+		}
+		delete(entries, name)
+		if len(entries) == 0 {
+			delete(file.Workspaces, workspace)
+		}
+		return writeOverrides(cfg.Paths.Home, file)
+	})
 }
 
 func applyProjectSwitches(home, cwd string, servers []ManagedServer) ([]ManagedServer, error) {
 	if home == "" {
 		return servers, nil
 	}
-	overridesMu.Lock()
 	file, err := readOverrides(home)
-	overridesMu.Unlock()
 	if err != nil {
 		return nil, err
 	}

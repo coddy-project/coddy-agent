@@ -233,22 +233,25 @@ func DeleteServer(cfg *config.Config, cwd, name string) error {
 	if path == "" {
 		return fmt.Errorf("mcp server %q is defined in config.yaml; edit mcp_servers there", name)
 	}
-	if srv.Origin == OriginProject {
-		// The switches belong to the declaration about to go, so a later
-		// server of the same name starts from its own declaration. They are
-		// dropped first: a failure then leaves the server listed and the
-		// delete can be retried, where the other order reported a failed
-		// delete of a server already gone and kept its switches.
-		if err := dropProjectSwitches(cfg, cwd, name); err != nil {
-			return err
-		}
-	}
 	removed, err := config.DeleteMCPJSONServer(path, name)
 	if err != nil {
 		return err
 	}
 	if !removed {
 		return fmt.Errorf("mcp server %q not found in %s", name, path)
+	}
+	if srv.Origin == OriginProject {
+		// The switches belong to the declaration that went, so a later server
+		// of the same name starts from its own declaration. They are dropped
+		// after it, never before: a delete that fails must leave a server the
+		// operator switched off switched off. Switches the home cannot drop
+		// name a server no longer declared and start nothing, so the delete
+		// stands and the leftover is logged.
+		if err := dropProjectSwitches(cfg, cwd, name); err != nil {
+			slog.Warn("mcp server deleted; its switches stay in the overrides file",
+				"name", name, "workspace", CanonicalWorkspace(cwd),
+				"file", overridesPath(cfg.Paths.Home), "error", err)
+		}
 	}
 	return nil
 }

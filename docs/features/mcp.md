@@ -133,9 +133,14 @@ removing their definitions:
 - For project entries, switches made through `/mcp` or Settings are stored in
   `<home>/mcp-overrides.json`, keyed by workspace and server. The checkout's
   `.coddy/mcp.json` stays unchanged; these switches override its defaults. Deleting a
-  project server through the API or the UI drops its switches, so a later server of the
-  same name starts from its own declaration. While the file cannot be read, every project
-  server stays off and the global servers keep their own switches.
+  project server through the API or the UI drops its switches once the declaration is gone,
+  so a later server of the same name starts from its own declaration, and a delete that
+  fails leaves the server switched as it was. While the file cannot be read, every project
+  server stays off and the global servers keep their own switches; `/mcp` and Settings
+  name the file and the parse error instead of listing the servers until it is repaired.
+  This file and `mcp-trust.json` are written under a lock that every process of the home
+  takes, so a console and `coddy serve` switching or approving at the same moment do not
+  write over each other.
 
 Disabled servers are not connected for new sessions. Disabled tools (and all tools of a
 disabled server) are hidden from the LLM's tool list and rejected at dispatch. The switches

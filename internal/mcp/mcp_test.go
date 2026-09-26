@@ -11,8 +11,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1355,10 +1357,172 @@ func TestTrustGateConnectRecordsTheDeclaration(t *testing.T) {
 	}
 }
 
-// When the switches of a project server cannot be dropped, the server stays
-// declared and the delete can be retried, instead of a failed delete of a
-// server already gone that keeps its switches for the next one of its name.
-func TestDeleteServerKeepsTheDeclarationWhenItsSwitchesStay(t *testing.T) {
+// Switches written by other processes that share the home - the console and
+// coddy serve - are not lost. Each read-modify-write of the overrides file
+// holds a lock the other processes wait on, so no writer replaces the file
+// with a copy it read before another writer's change landed.
+func TestProjectSwitchesSurviveWritersInOtherProcesses(t *testing.T) {
+	home, cwd, gate := t.TempDir(), t.TempDir(), t.TempDir()
+	const writers, writes = 4, 50
+	cmds := make([]*exec.Cmd, writers)
+	outs := make([]*strings.Builder, writers)
+	for i := range cmds {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestOverridesWriterHelperProcess$") //nolint:gosec // the test binary itself
+		cmd.Env = append(os.Environ(),
+			"GO_WANT_MCP_OVERRIDES_WRITER=1",
+			"MCP_OVERRIDES_HOME="+home,
+			"MCP_OVERRIDES_CWD="+cwd,
+			"MCP_OVERRIDES_GATE="+gate,
+			"MCP_OVERRIDES_SERVER=server-"+strconv.Itoa(i),
+			"MCP_OVERRIDES_WRITES="+strconv.Itoa(writes))
+		outs[i] = &strings.Builder{}
+		cmd.Stdout, cmd.Stderr = outs[i], outs[i]
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		cmds[i] = cmd
+	}
+	// Every writer is up before the first write, so the writes overlap.
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		ready, _ := filepath.Glob(filepath.Join(gate, "ready-*"))
+		if len(ready) == writers {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%d of %d writers came up", len(ready), writers)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(gate, "go"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for i, cmd := range cmds {
+		if err := cmd.Wait(); err != nil {
+			t.Fatalf("writer %d: %v\n%s", i, err, outs[i].String())
+		}
+	}
+	file, err := readOverrides(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	switches := file.Workspaces[CanonicalWorkspace(cwd)]
+	for i := range writers {
+		name := "server-" + strconv.Itoa(i)
+		if got := len(switches[name].DisabledTools); got != writes {
+			t.Errorf("%s kept %d of its %d switches", name, got, writes)
+		}
+	}
+}
+
+// TestOverridesWriterHelperProcess is one writer of
+// TestProjectSwitchesSurviveWritersInOtherProcesses: it switches tools of its
+// own server off one write at a time.
+func TestOverridesWriterHelperProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_MCP_OVERRIDES_WRITER") != "1" {
+		t.Skip("helper process")
+	}
+	home, cwd, gate := os.Getenv("MCP_OVERRIDES_HOME"), os.Getenv("MCP_OVERRIDES_CWD"), os.Getenv("MCP_OVERRIDES_GATE")
+	name := os.Getenv("MCP_OVERRIDES_SERVER")
+	writes, err := strconv.Atoi(os.Getenv("MCP_OVERRIDES_WRITES"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gate, "ready-"+name), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(time.Millisecond) {
+		if _, err := os.Stat(filepath.Join(gate, "go")); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the test never opened the gate")
+		}
+	}
+	cfg := &config.Config{}
+	cfg.Paths.Home = home
+	for i := range writes {
+		tool := "tool-" + strconv.Itoa(i)
+		if err := updateProjectSwitch(cfg, cwd, name, func(s *projectSwitches) {
+			if s.DisabledTools == nil {
+				s.DisabledTools = make(map[string]bool)
+			}
+			s.DisabledTools[tool] = true
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// Approvals recorded side by side through separate stores of one home - the
+// HTTP route, the console and a chat each open their own - are all kept: the
+// stores of one file share its lock, and every write goes through a temporary
+// file of its own.
+func TestTrustStoreKeepsEveryApprovalOfConcurrentWriters(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	const writers, approvals = 8, 25
+	var wg sync.WaitGroup
+	errs := make(chan error, writers*approvals)
+	for w := range writers {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			for a := range approvals {
+				srv := config.MCPServerConfig{Name: fmt.Sprintf("server-%d-%d", w, a), Command: "demo-mcp"}
+				if err := NewTrustStore(home).Approve(cwd, "", srv); err != nil {
+					errs <- err
+				}
+			}
+		}(w)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Errorf("approve: %v", err)
+	}
+	if got := len(NewTrustStore(home).Records(cwd)); got != writers*approvals {
+		t.Fatalf("kept %d of %d approvals", got, writers*approvals)
+	}
+}
+
+// A delete that fails leaves the server as it was, switches included. The
+// declaration goes first: a project directory that cannot be written keeps a
+// server that was switched off switched off, where dropping its switches
+// ahead of the delete listed it enabled - and let sessions start it - once
+// the delete itself failed.
+func TestFailedDeleteKeepsTheServerSwitchedOff(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows ignores a directory's write bit")
+	}
+	home, cwd := t.TempDir(), t.TempDir()
+	cfg := &config.Config{}
+	cfg.Paths.Home = home
+	if err := UpsertServer(cfg, cwd, "demo", ScopeLocal, config.MCPJSONServer{Command: "demo-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetServerDisabled(cfg, cwd, "demo", true); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Dir(config.MCPJSONPath(cwd))
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	if err := DeleteServer(cfg, cwd, "demo"); err == nil {
+		t.Fatal("the delete reported success although the declaration could not be removed")
+	}
+	servers, err := ListManagedServers(cfg, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(servers) != 1 || !servers[0].Config.Disabled {
+		t.Fatalf("the server a failed delete left behind lost its switch: %+v", servers)
+	}
+}
+
+// The declaration is what a delete removes. When the operator's switches
+// cannot be dropped after it (the home is not writable), the delete still
+// stands: switches that name a server no longer declared start nothing, so
+// the failure is logged instead of reported as a delete that did not happen.
+func TestDeleteServerStandsWhenItsSwitchesCannotBeDropped(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows ignores a directory's write bit")
 	}
@@ -1375,14 +1539,14 @@ func TestDeleteServerKeepsTheDeclarationWhenItsSwitchesStay(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(home, 0o700) })
-	if err := DeleteServer(cfg, cwd, "demo"); err == nil {
-		t.Fatal("the delete reported success although the switches could not be dropped")
+	if err := DeleteServer(cfg, cwd, "demo"); err != nil {
+		t.Fatalf("the delete failed over the switches it could not drop: %v", err)
 	}
 	entries, err := config.ReadMCPJSONFile(config.MCPJSONPath(cwd))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := entries["demo"]; !ok {
-		t.Fatal("the declaration is gone although the delete failed")
+	if _, ok := entries["demo"]; ok {
+		t.Fatal("the declaration survived its delete")
 	}
 }
