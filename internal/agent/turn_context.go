@@ -15,8 +15,6 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
-	"github.com/EvilFreelancer/coddy-agent/internal/mention"
-	"github.com/EvilFreelancer/coddy-agent/internal/rules"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/shell"
 )
 
@@ -29,12 +27,14 @@ const (
 )
 
 // buildTurnContext renders the block appended after the history on every
-// request of a turn: the wall clock, the live todo checklist, the rules a
-// tool call activated after the system prompt was frozen, and the memory
-// subagent's report for this turn. A volatile template under prompts.dir
-// prints the clock and the checklist into the system message itself and is
-// re-rendered per step, so its block carries the memory report alone, and
-// nothing at all when there is none; the caller then sends the history alone.
+// request of a turn: the wall clock, the live todo checklist, the memory
+// subagent's report for this turn and the background tasks still running. A
+// rule a tool call activates is not in it: that rides in the call's result,
+// written once, where it is not sent again on every later step
+// (rules_activation.go). A volatile template under prompts.dir prints the clock
+// and the checklist into the system message itself and is re-rendered per
+// step, so its block carries the memory report alone, and nothing at all when
+// there is none; the caller then sends the history alone.
 func (a *Agent) buildTurnContext(frozen *systemPromptBuild) string {
 	if frozen != nil && frozen.Volatile {
 		// No template prints these two, so a volatile one gets them here too.
@@ -59,10 +59,6 @@ func (a *Agent) buildTurnContext(frozen *systemPromptBuild) string {
 		if todo := checklistMarkdownFromPlan(a.state.GetPlan()); todo != "" {
 			parts = append(parts, "## Current todo checklist\n\n"+todo)
 		}
-	}
-
-	if section := a.activatedRulesSection(frozen); section != "" {
-		parts = append(parts, section)
 	}
 
 	// The memory subagent's report for this turn (memory_run.go). It rides
@@ -105,28 +101,6 @@ func (a *Agent) backgroundTasksSection() string {
 	}
 	return "## Background tasks\n\nStill running in this session. Read one with `background_output`, end one with `background_stop`, " +
 		"and tell the user about any you leave running.\n\n" + strings.Join(lines, "\n")
-}
-
-// activatedRulesSection renders the rules that became active after frozen was
-// built - a glob rule or a nested AGENTS.md that a filesystem tool call reached
-// mid-turn. They are not folded into the system prompt, which stays as the turn
-// started it; the next turn's prompt picks them up from the sticky set.
-func (a *Agent) activatedRulesSection(frozen *systemPromptBuild) string {
-	if frozen == nil || !frozen.RendersRules {
-		return ""
-	}
-	rs, ok := a.state.(rulesState)
-	if !ok {
-		return ""
-	}
-	added := rules.Added(frozen.RenderedRules, rs.GetActiveAutoRules())
-	if len(added) == 0 {
-		return ""
-	}
-	// A follow-up the turn read mid-way may have carried a rule in its own
-	// message (mentions.go); the history already holds that one.
-	added = withoutRules(added, rulesInHistory(rs.GetMessages(), rs.GetCWD(), mention.HomeDir(), nil, added))
-	return rules.RenderSection("## Project rules activated by this turn", added)
 }
 
 // turnClock is the reading this turn was stamped with when its system prompt

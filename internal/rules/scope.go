@@ -25,6 +25,13 @@ func PathUnderDir(dir, p string) bool {
 	return strings.HasPrefix(q, d+string(filepath.Separator))
 }
 
+// SamePath reports whether a and b name the same path, normalized the way
+// PathUnderDir compares them.
+func SamePath(a, b string) bool {
+	x := normalizeScopePath(a)
+	return x != "" && x == normalizeScopePath(b)
+}
+
 // PathsUnderDir reports whether any of paths is dir itself or lives inside dir.
 func PathsUnderDir(dir string, paths []string) bool {
 	for _, p := range paths {

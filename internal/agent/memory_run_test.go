@@ -123,7 +123,7 @@ func TestTemplatedChildPromptRendersOnlyTheTemplate(t *testing.T) {
 	})
 	a := NewAgent(cfg, st, &recordingClient{}, nil)
 	defs := []llm.ToolDefinition{{Name: "read", Description: "read a file"}}
-	build := a.buildSystemPromptParts("agent", nil, defs, nil)
+	build := a.buildSystemPromptParts("agent", nil, defs)
 	if !strings.Contains(build.Content, "memory subagent in "+cwd) || !strings.Contains(build.Content, "## Available tools") || !strings.Contains(build.Content, "`read`") {
 		t.Fatalf("the template was not rendered with its data:\n%s", build.Content)
 	}
@@ -197,7 +197,7 @@ func TestVolatileTemplateGetsTheReportInItsTurnContext(t *testing.T) {
 	run := &subagentRun{name: "memory", system: true, childID: "sess_mem_child", out: &log, startedAt: time.Now()}
 	a.memoryRun = &memoryTurnRun{parentID: st.ID, taskID: snap.ID, childID: "sess_mem_child", run: run, pool: pool, startedAt: time.Now()}
 
-	first := a.buildSystemPromptParts("agent", nil, nil, nil)
+	first := a.buildSystemPromptParts("agent", nil, nil)
 	if !first.Volatile {
 		t.Fatal("a template printing the clock must be volatile")
 	}
@@ -217,7 +217,7 @@ func TestVolatileTemplateGetsTheReportInItsTurnContext(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	second := a.buildSystemPromptParts("agent", nil, nil, nil)
+	second := a.buildSystemPromptParts("agent", nil, nil)
 	if strings.Contains(second.Content, "Already on disk") {
 		t.Fatalf("the system message carries the report; it must stay out of the prefix:\n%s", second.Content)
 	}

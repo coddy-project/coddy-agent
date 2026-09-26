@@ -164,6 +164,36 @@ func Blocks(s string) []Block {
 	return out
 }
 
+// Body returns the text the block carries in s, the string Blocks found it in:
+// its CDATA sections joined back together, the way XML split a body that holds
+// "]]>". A block written without CDATA carries no body this reads.
+func (b Block) Body(s string) string {
+	if b.Start < 0 || b.End > len(s) || b.Start >= b.End {
+		return ""
+	}
+	inner := s[b.Start:b.End]
+	open := strings.IndexByte(inner, '>')
+	if open < 0 {
+		return ""
+	}
+	rest := strings.TrimSuffix(inner[open+1:], attachmentCloseTag)
+	var out strings.Builder
+	for {
+		i := strings.Index(rest, cdataOpen)
+		if i < 0 {
+			break
+		}
+		rest = rest[i+len(cdataOpen):]
+		j := strings.Index(rest, cdataClose)
+		if j < 0 {
+			break
+		}
+		out.WriteString(rest[:j])
+		rest = rest[j+len(cdataClose):]
+	}
+	return out.String()
+}
+
 // bodyEnd returns the offset just past the closing tag of one body, skipping
 // CDATA sections, or -1 when the block is unterminated.
 func bodyEnd(body string) int {

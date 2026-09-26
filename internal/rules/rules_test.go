@@ -11,7 +11,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/rules"
 )
 
-func TestMatchAutoStickyGlob(t *testing.T) {
+func TestMatchAutoGlob(t *testing.T) {
 	r := &rules.Rule{
 		ID:          "coddy:/tmp/go.mdc",
 		Name:        "go-standards",
@@ -21,18 +21,51 @@ func TestMatchAutoStickyGlob(t *testing.T) {
 		Content:     "RULE_GLOB_TOKEN",
 	}
 	catalog := []*rules.Rule{r}
-	matched := rules.MatchAuto(catalog, []string{"/proj/main.go"})
-	if len(matched) != 1 {
+	if matched := rules.MatchAuto(catalog, []string{"/proj/main.go"}); len(matched) != 1 {
 		t.Fatalf("expected 1 match, got %d", len(matched))
 	}
-	sticky := rules.UnionStable(nil, matched)
-	if len(sticky) != 1 {
-		t.Fatalf("sticky len %d", len(sticky))
+	if matched := rules.MatchAuto(catalog, nil); len(matched) != 0 {
+		t.Fatalf("no context file must match nothing, got %d", len(matched))
 	}
-	// No glob match this turn — still sticky.
-	sticky2 := rules.UnionStable(sticky, rules.MatchAuto(catalog, nil))
-	if len(sticky2) != 1 {
-		t.Fatalf("expected sticky to remain, got %d", len(sticky2))
+}
+
+// TestAlwaysOnRules pins what a system prompt may carry: the rules that apply
+// from the first turn whatever the session touches, and none that waits for a
+// path or a mention.
+func TestAlwaysOnRules(t *testing.T) {
+	always := &rules.Rule{ID: "a", Name: "always", AlwaysApply: true, ApplyMode: rules.ApplyAuto}
+	globbed := &rules.Rule{ID: "g", Name: "go", AlwaysApply: true, ApplyMode: rules.ApplyAuto, Globs: []string{"**/*.go"}}
+	scoped := &rules.Rule{ID: "s", Name: "sub/AGENTS.md", AlwaysApply: true, ApplyMode: rules.ApplyAuto, ScopeDir: "/proj/sub"}
+	manual := &rules.Rule{ID: "m", Name: "deploy", ApplyMode: rules.ApplyMention}
+
+	got := rules.AlwaysOnRules([]*rules.Rule{always, globbed, nil, scoped, manual})
+	if len(got) != 1 || got[0] != always {
+		t.Fatalf("AlwaysOnRules = %+v, want the unconditional rule alone", got)
+	}
+	for _, r := range []*rules.Rule{globbed, scoped, manual, nil} {
+		if r.AlwaysOn() {
+			t.Fatalf("%+v must not count as always on", r)
+		}
+	}
+	if !always.AlwaysOn() {
+		t.Fatal("an auto rule without patterns or scope is always on")
+	}
+
+	// The loader sets AlwaysApply exactly when a rule is an auto rule, so the
+	// files the documentation calls active immediately are always on.
+	for path, src := range map[string]string{
+		"plain.md":        "BODY",
+		"described.md":    "---\ndescription: house style\n---\nBODY",
+		"no-header.mdc":   "BODY",
+		"always-true.mdc": "---\nalwaysApply: true\n---\nBODY",
+	} {
+		r, err := rules.ParseRuleFile(path, rules.SourceCoddy, []byte(src))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !r.AlwaysOn() {
+			t.Fatalf("%s: %+v must be always on", path, r)
+		}
 	}
 }
 
@@ -57,37 +90,226 @@ func TestRenderPromptDedupe(t *testing.T) {
 		t.Fatal(err)
 	}
 	auto := &rules.Rule{ID: "a:1", Name: "a", AlwaysApply: true, ApplyMode: rules.ApplyAuto, Content: "auto body"}
-	mention := &rules.Rule{ID: "b:2", Name: "b", AlwaysApply: false, ApplyMode: rules.ApplyMention, Content: "mention body"}
-	out, _ := rules.RenderPrompt("", tmp, []*rules.Rule{auto}, []*rules.Rule{auto, mention})
+	other := &rules.Rule{ID: "b:2", Name: "b", AlwaysApply: true, ApplyMode: rules.ApplyAuto, Content: "other body"}
+	out, _ := rules.RenderPrompt("", tmp, []*rules.Rule{auto, nil, other, auto})
 	if !strings.Contains(out, "AGENTS.md") {
 		t.Fatal("missing agents")
 	}
 	if strings.Count(out, "auto body") != 1 {
 		t.Fatal("dedupe failed for auto")
 	}
-	if !strings.Contains(out, "mention body") {
-		t.Fatal("missing mention")
+	if !strings.Contains(out, "other body") {
+		t.Fatal("missing the second rule")
 	}
 }
 
-func TestDiscoverPrecedence(t *testing.T) {
-	tmp := t.TempDir()
-	for _, sub := range []string{".cursor/rules", ".coddy/rules"} {
-		if err := os.MkdirAll(filepath.Join(tmp, sub), 0o755); err != nil {
+// writeRuleTree creates the named rule files under cwd, each holding its own
+// path, so a test can tell which folder a rule came from.
+func writeRuleTree(t testing.TB, cwd string, files ...string) {
+	t.Helper()
+	for _, f := range files {
+		path := filepath.Join(cwd, filepath.FromSlash(f))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("---\nalwaysApply: true\n---\nfrom "+f), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	_ = os.WriteFile(filepath.Join(tmp, ".cursor/rules", "dup.mdc"), []byte("---\nalwaysApply: true\nglobs: ['**/*']\n---\nfrom cursor"), 0o644)
-	_ = os.WriteFile(filepath.Join(tmp, ".coddy/rules", "dup.mdc"), []byte("---\nalwaysApply: true\nglobs: ['**/*']\n---\nfrom coddy"), 0o644)
+}
+
+func ruleSources(rs []*rules.Rule) map[rules.Source]int {
+	out := map[rules.Source]int{}
+	for _, r := range rs {
+		out[r.Source]++
+	}
+	return out
+}
+
+// TestDiscoverReadsOneProjectFolder is the duplicate of issue #366: a project
+// that mirrors its Cursor rules for Claude Code hands the model one copy.
+func TestDiscoverReadsOneProjectFolder(t *testing.T) {
+	tmp := t.TempDir()
+	writeRuleTree(t, tmp, ".cursor/rules/x.mdc", ".claude/rules/x.md", ".claude/rules/only-claude.md")
+
 	got, err := rules.DefaultFactory("").Discover(tmp, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 1 {
-		t.Fatalf("dedupe expected 1, got %d", len(got))
+		t.Fatalf("expected the Cursor rule alone, got %d: %+v", len(got), got)
 	}
-	if !strings.Contains(got[0].Content, "from coddy") {
-		t.Fatalf("want coddy win, got %q", got[0].Content)
+	if got[0].Source != rules.SourceCursor || filepath.Base(got[0].FilePath) != "x.mdc" {
+		t.Fatalf("rule = %s from %q, want x.mdc from cursor", got[0].FilePath, got[0].Source)
+	}
+}
+
+// TestDiscoverProjectChainOrder walks the chain: whichever folders a project
+// holds, the first of coddy, agents-dir, cursor, claude, codex is read alone.
+func TestDiscoverProjectChainOrder(t *testing.T) {
+	all := []string{".coddy/rules/c.mdc", ".agents/rules/a.mdc", ".cursor/rules/u.mdc", ".claude/rules/l.md", ".codex/rules/x.md"}
+	want := []rules.Source{rules.SourceCoddy, rules.SourceAgentsDir, rules.SourceCursor, rules.SourceClaude, rules.SourceCodex}
+	for i := range all {
+		tmp := t.TempDir()
+		writeRuleTree(t, tmp, all[i:]...)
+		got, err := rules.DefaultFactory("").Discover(tmp, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got[0].Source != want[i] {
+			t.Fatalf("folders %v: got %v, want one rule from %s", all[i:], ruleSources(got), want[i])
+		}
+	}
+}
+
+// TestDiscoverSkipsProjectFolderWithoutRuleFiles: a folder counts only when it
+// holds a .md or .mdc file; an empty one, or one of Codex's *.rules policy
+// files, leaves the chain to the next.
+func TestDiscoverSkipsProjectFolderWithoutRuleFiles(t *testing.T) {
+	tmp := t.TempDir()
+	for _, dir := range []string{".coddy/rules", ".cursor/rules/nested"} {
+		if err := os.MkdirAll(filepath.Join(tmp, filepath.FromSlash(dir)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = os.WriteFile(filepath.Join(tmp, ".cursor", "rules", "nested", "notes.txt"), []byte("not a rule"), 0o644)
+	writeRuleTree(t, tmp, ".claude/rules/style.md")
+
+	got, err := rules.DefaultFactory("").Discover(tmp, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Source != rules.SourceClaude {
+		t.Fatalf("got %v, want the Claude Code folder", ruleSources(got))
+	}
+}
+
+// TestDiscoverKeepsAFolderWithAnUnreadableSubfolder: a subfolder that cannot be
+// read costs its own rules only, so the chain does not pass over the folder to
+// another agent's copy of the same rules.
+func TestDiscoverKeepsAFolderWithAnUnreadableSubfolder(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("permission bits do not hide a folder here")
+	}
+	tmp := t.TempDir()
+	writeRuleTree(t, tmp, ".coddy/rules/house.mdc", ".coddy/rules/locked/secret.mdc", ".cursor/rules/workflow.mdc")
+	locked := filepath.Join(tmp, ".coddy", "rules", "locked")
+	if err := os.Chmod(locked, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+
+	got, err := rules.DefaultFactory("").Discover(tmp, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Source != rules.SourceCoddy || filepath.Base(got[0].FilePath) != "house.mdc" {
+		t.Fatalf("got %v, want house.mdc from .coddy/rules alone", ruleSources(got))
+	}
+}
+
+// TestDiscoverSystemsNarrowTheChain: rules.systems takes folders out of the
+// chain, and the first admitted folder that holds rules is read.
+func TestDiscoverSystemsNarrowTheChain(t *testing.T) {
+	tmp := t.TempDir()
+	writeRuleTree(t, tmp, ".coddy/rules/c.mdc", ".cursor/rules/u.mdc", ".claude/rules/l.md")
+
+	got, err := rules.DefaultFactory("").Discover(tmp, rules.ParseSystems([]string{"cursor", "claude"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Source != rules.SourceCursor {
+		t.Fatalf("cursor+claude filter: got %v, want cursor", ruleSources(got))
+	}
+	got, err = rules.DefaultFactory("").Discover(tmp, rules.ParseSystems([]string{"claude"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Source != rules.SourceClaude {
+		t.Fatalf("claude filter: got %v, want claude", ruleSources(got))
+	}
+	got, err = rules.DefaultFactory("").Discover(tmp, rules.ParseSystems([]string{"agents-dir"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("a filter naming a folder the project lacks reads nothing, got %v", ruleSources(got))
+	}
+}
+
+// TestInspectNamesTheFoldersItReadAndSkipped is what `coddy rules list`
+// explains under its table: the folder the project rules came from, and the
+// folders further down the chain that hold rules too.
+func TestInspectNamesTheFoldersItReadAndSkipped(t *testing.T) {
+	home := t.TempDir()
+	cwd := t.TempDir()
+	writeRuleTree(t, home, "rules/mine.md")
+	writeRuleTree(t, cwd, ".cursor/rules/u.mdc", ".claude/rules/l.md")
+	if err := os.MkdirAll(filepath.Join(cwd, ".codex", "rules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(cwd, ".codex", "rules", "default.rules"), []byte("prefix_rule()"), 0o644)
+
+	d, err := rules.DefaultFactory(home).Inspect(cwd, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.ProjectFolder != ".cursor/rules" {
+		t.Fatalf("ProjectFolder = %q, want .cursor/rules", d.ProjectFolder)
+	}
+	if len(d.Skipped) != 1 || d.Skipped[0] != ".claude/rules" {
+		t.Fatalf("Skipped = %v, want .claude/rules alone (.codex/rules holds no rule file)", d.Skipped)
+	}
+	if d.UserFolder != rules.UserRulesDir(home) {
+		t.Fatalf("UserFolder = %q, want %q", d.UserFolder, rules.UserRulesDir(home))
+	}
+	if got := ruleSources(d.Rules); got[rules.SourceCursor] != 1 || got[rules.SourceUser] != 1 || len(got) != 2 {
+		t.Fatalf("rules = %v, want the cursor rule and the operator's", got)
+	}
+	if chain := rules.DefaultFactory("").ProjectFolders(); strings.Join(chain, " ") != ".coddy/rules .agents/rules .cursor/rules .claude/rules .codex/rules" {
+		t.Fatalf("ProjectFolders = %v", chain)
+	}
+	if strings.Join(d.Chain, " ") != ".coddy/rules .agents/rules .cursor/rules .claude/rules .codex/rules" {
+		t.Fatalf("Chain = %v, want every folder", d.Chain)
+	}
+	// rules.systems takes folders out of the chain the pass reports as well.
+	narrowed, err := rules.DefaultFactory(home).Inspect(cwd, rules.ParseSystems([]string{"claude", "cursor"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(narrowed.Chain, " ") != ".cursor/rules .claude/rules" || narrowed.ProjectFolder != ".cursor/rules" {
+		t.Fatalf("narrowed = %+v", narrowed)
+	}
+}
+
+// TestInspectReportsAnUnreadableFolder: a folder of the chain that exists and
+// cannot be read is passed over, and the listing says so instead of showing the
+// next agent's rules as if nothing had happened.
+func TestInspectReportsAnUnreadableFolder(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("permission bits do not hide a folder here")
+	}
+	cwd := t.TempDir()
+	writeRuleTree(t, cwd, ".coddy/rules/house.mdc", ".cursor/rules/workflow.mdc")
+	locked := filepath.Join(cwd, ".coddy", "rules")
+	if err := os.Chmod(locked, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+
+	d, err := rules.DefaultFactory("").Inspect(cwd, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.ProjectFolder != ".cursor/rules" || len(d.Unreadable) != 1 || !strings.HasPrefix(d.Unreadable[0], ".coddy/rules (") {
+		t.Fatalf("inspect = %+v", d)
+	}
+	var buf strings.Builder
+	if err := rules.RenderCatalog(&buf, cwd, rules.DefaultFactory(""), nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "Could not read: .coddy/rules (") {
+		t.Fatalf("the listing does not name the unreadable folder:\n%s", buf.String())
 	}
 }
 
@@ -687,7 +909,10 @@ func TestDiscoverAgentsDirSource(t *testing.T) {
 	}
 }
 
-func TestDiscoverAgentsDirPrecedence(t *testing.T) {
+// TestDiscoverAgentsDirComesBeforeToolFolders: the shared folder is written
+// for every agent, so it is read ahead of another agent's own folder, and both
+// dialects in it are kept; Coddy's own folder still comes first.
+func TestDiscoverAgentsDirComesBeforeToolFolders(t *testing.T) {
 	tmp := t.TempDir()
 	for _, sub := range []string{".cursor/rules", ".agents/rules", ".claude/rules"} {
 		if err := os.MkdirAll(filepath.Join(tmp, filepath.FromSlash(sub)), 0o755); err != nil {
@@ -704,15 +929,14 @@ func TestDiscoverAgentsDirPrecedence(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(got) != 2 {
-		t.Fatalf("expected dup.mdc and dup.md once each, got %d", len(got))
+		t.Fatalf("expected dup.mdc and dup.md of the shared folder, got %d", len(got))
 	}
 	for _, r := range got {
 		if r.Source != rules.SourceAgentsDir {
-			t.Fatalf("%s: source %q, want the shared folder to win over tool folders", filepath.Base(r.FilePath), r.Source)
+			t.Fatalf("%s: source %q, want the shared folder alone", filepath.Base(r.FilePath), r.Source)
 		}
 	}
 
-	// Coddy's own folder still wins over the shared one.
 	if err := os.MkdirAll(filepath.Join(tmp, ".coddy", "rules"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -721,10 +945,8 @@ func TestDiscoverAgentsDirPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, r := range got {
-		if filepath.Base(r.FilePath) == "dup.mdc" && r.Source != rules.SourceCoddy {
-			t.Fatalf("dup.mdc: source %q, want coddy", r.Source)
-		}
+	if len(got) != 1 || got[0].Source != rules.SourceCoddy {
+		t.Fatalf("with .coddy/rules present: got %v, want coddy alone", ruleSources(got))
 	}
 }
 
@@ -953,7 +1175,7 @@ func TestRenderPromptReportsProjectDocs(t *testing.T) {
 	if err := os.WriteFile(agents, []byte("PROJECT_DOC"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, docs := rules.RenderPrompt("", tmp, nil, nil)
+	out, docs := rules.RenderPrompt("", tmp, nil)
 	if !strings.Contains(out, "PROJECT_DOC") {
 		t.Fatalf("prompt = %q, want the project doc", out)
 	}
@@ -962,7 +1184,7 @@ func TestRenderPromptReportsProjectDocs(t *testing.T) {
 	}
 
 	empty := t.TempDir()
-	if _, docs := rules.RenderPrompt("", empty, nil, nil); len(docs) != 0 {
+	if _, docs := rules.RenderPrompt("", empty, nil); len(docs) != 0 {
 		t.Fatalf("a project without docs reported %v", docs)
 	}
 }
@@ -1000,6 +1222,60 @@ func TestRenderCatalogNamesTheUserRoot(t *testing.T) {
 	}
 	if out := buf.String(); strings.Contains(out, rules.UserRulesDir(home)) {
 		t.Fatalf("the project copy won, so the user root must not be named:\n%s", out)
+	}
+}
+
+// TestRenderCatalogNamesTheFolderItRead: the lines under the table say which
+// project folder the rules came from and which folders holding rules were left
+// alone, so a mirror nobody sees in the listing is not a mystery either.
+func TestRenderCatalogNamesTheFolderItRead(t *testing.T) {
+	cwd := t.TempDir()
+	writeRuleTree(t, cwd, ".cursor/rules/workflow.mdc", ".claude/rules/workflow.md")
+
+	var buf strings.Builder
+	if err := rules.RenderCatalog(&buf, cwd, rules.DefaultFactory(""), nil); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "1 rule(s) under "+cwd) {
+		t.Fatalf("summary line missing:\n%s", out)
+	}
+	if !strings.Contains(out, "Project rules folder: .cursor/rules\n") {
+		t.Fatalf("the folder read is not named:\n%s", out)
+	}
+	if !strings.Contains(out, "Not read: .claude/rules (") {
+		t.Fatalf("the skipped folder is not named:\n%s", out)
+	}
+
+	// A project with one folder has nothing to explain about the others.
+	lone := t.TempDir()
+	writeRuleTree(t, lone, ".claude/rules/style.md")
+	buf.Reset()
+	if err := rules.RenderCatalog(&buf, lone, rules.DefaultFactory(""), nil); err != nil {
+		t.Fatal(err)
+	}
+	if out := buf.String(); strings.Contains(out, "Not read:") || !strings.Contains(out, "Project rules folder: .claude/rules") {
+		t.Fatalf("a single folder was explained wrongly:\n%s", out)
+	}
+
+	// A rule the skipped folder holds under a name the folder read lacks is
+	// no mirror: it is named, since the session goes without it.
+	writeRuleTree(t, cwd, ".claude/rules/claude-only.md")
+	buf.Reset()
+	if err := rules.RenderCatalog(&buf, cwd, rules.DefaultFactory(""), nil); err != nil {
+		t.Fatal(err)
+	}
+	if out := buf.String(); !strings.Contains(out, "Only in a folder not read: .claude/rules/claude-only.md\n") {
+		t.Fatalf("the rule only the skipped folder holds is not named:\n%s", out)
+	}
+
+	// The explanation names the chain rules.systems left, not every folder.
+	buf.Reset()
+	if err := rules.RenderCatalog(&buf, cwd, rules.DefaultFactory(""), rules.ParseSystems([]string{"cursor", "claude"})); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "the first of .cursor/rules, .claude/rules that holds a rule file") {
+		t.Fatalf("the explanation names folders outside the chain:\n%s", buf.String())
 	}
 }
 

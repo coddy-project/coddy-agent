@@ -74,7 +74,7 @@ agent:
 ## What it does
 
 - **Three operating modes**: `agent` with every tool, `plan` for planning and text files, `ask` for read-only research, switched from any surface ([Operating modes](docs/features/modes.md)).
-- **Rules and project files**: `.coddy/rules`, `.agents/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules` and nested `AGENTS.md` are picked up as the agent works, and your own `~/.coddy/AGENTS.md`, `~/.coddy/DESIGN.md` and `~/.coddy/rules` apply in every workspace ([Rules and instructions](docs/features/rules.md)).
+- **Rules and project files**: the first of `.coddy/rules`, `.agents/rules`, `.cursor/rules`, `.claude/rules` and `.codex/rules` that holds rules, so a mirror kept for another agent is not loaded twice, and nested `AGENTS.md` are picked up as the agent works without moving the cached system prompt; your own `~/.coddy/AGENTS.md`, `~/.coddy/DESIGN.md` and `~/.coddy/rules` apply in every workspace ([Rules and instructions](docs/features/rules.md)).
 - **Skills**: `SKILL.md` packs become slash commands. Five ship inside the binary and are there on the first run - `/rpa-init`, `/rpa-feat`, `/rpa-bugfix`, `/rpa-gen-rules` and `/configure-coddy` - and more install from skills.sh, the skillsbd registry or any repository ([Skills](docs/features/skills.md)).
 - **Subagents**: `spawn_agent` delegates a bounded task to a child with its own context and session, tools and permissions only narrowing ([Subagents](docs/features/subagents.md)).
 - **Hooks**: your own commands at every lifecycle point, in Claude Code's `hooks.json` shape, able to deny, approve or rewrite a tool call ([Hooks](docs/features/hooks.md)).

@@ -346,6 +346,13 @@ func TestAttachmentXMLRoundTrip(t *testing.T) {
 	if len(blocks) != 2 || blocks[0].Typed != "~/notes.md" || blocks[0].Lines != (Range{2, 3}) || blocks[1].Path != "src/" {
 		t.Fatalf("blocks: %+v", blocks)
 	}
+	// The body comes back as it went in, the "]]>" the writer split included.
+	if got := blocks[0].Body(msg); got != a.Body {
+		t.Fatalf("body = %q, want %q", got, a.Body)
+	}
+	if got := blocks[1].Body(msg); got != "src/a.go" {
+		t.Fatalf("second body = %q", got)
+	}
 	if got := ForDisplay(msg); got != "look at @~/notes.md:2-3\n\n@src/" {
 		t.Fatalf("display: %q", got)
 	}

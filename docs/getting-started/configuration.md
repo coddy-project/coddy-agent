@@ -266,8 +266,8 @@ prompts:
   # Built-in templates order: Tools, Skills, Memory (session notes).
   # They deliberately render neither {{.TodoList}} nor {{.UTCNow}}: both move between the steps of a
   # turn, and the system prompt is what the provider's prompt cache keys the whole conversation on.
-  # Coddy sends the clock, the checklist and the rules a tool call activated after the history instead,
-  # in a <turn_context> block. Your own template may still render them, at the cost of that cache.
+  # Coddy sends the clock and the checklist after the history instead, in a <turn_context> block,
+  # and a rule a tool call activates rides in that call's result. Your own template may still render them, at the cost of that cache.
   # See docs/contributing/react-agent.md (The turn context block).
   dir: ""
   agent_prompt: "agent.md"     # optional; default agent.md
@@ -329,12 +329,16 @@ skills:
     - "${CWD}/.coddy/skills"
 
 # Rules (Go: config.Rules, internal/config/rules.go)
-# Discovered from .coddy/rules, the shared .agents/rules, .cursor/rules,
-# .claude/rules, .codex/rules, and nested **/AGENTS.md under session CWD, plus
-# your own ~/.coddy/rules, which applies in every workspace. Your own
+# One project folder is read under the session CWD: the first of .coddy/rules,
+# the shared .agents/rules, .cursor/rules, .claude/rules and .codex/rules that
+# holds a rule file, so another agent's mirror of the same rules is not loaded
+# twice. Your own ~/.coddy/rules joins it in every workspace, and nested
+# **/AGENTS.md are read for the folders a tool enters. Your own
 # ~/.coddy/AGENTS.md is read too, ahead of the project's, and has no key here.
 # .mdc files are read as Cursor rules, .md files as Claude Code rules.
-# Injected into {{.Rules}} in the system prompt (separate from skills). See docs/features/rules.md.
+# The rules that always apply go into {{.Rules}} in the system prompt (separate
+# from skills); a rule scoped to paths arrives with the tool result or message
+# that touches a matching path. See docs/features/rules.md.
 rules:
   auto_discover: true
   systems: []   # optional: user, coddy, agents-dir, cursor, claude, codex, agents

@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
-	"github.com/EvilFreelancer/coddy-agent/internal/mention"
 	"github.com/EvilFreelancer/coddy-agent/internal/rules"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
@@ -14,43 +13,55 @@ import (
 type rulesState interface {
 	GetCWD() string
 	GetRulesCatalog() []*rules.Rule
-	GetActiveAutoRules() []*rules.Rule
-	SetActiveAutoRules([]*rules.Rule)
 	GetMessages() []llm.Message
 	GetLastContextBreakdown() *session.ContextBreakdown
 	SetLastContextBreakdown(*session.ContextBreakdown)
+	CachedRulesPrompt(rendersRules bool, inputs string) (*session.RulesPrompt, uint64)
+	StoreRulesPrompt(*session.RulesPrompt)
 }
 
-// buildRulesPromptMarkdown renders the {{.Rules}} block for one request and
-// reports the project docs it embedded, which the instructions block then
-// leaves alone, plus the rules the block carries. With agentsOnDemand the
-// nested AGENTS.md files on the chain down to every context path are read
-// here, the same way a filesystem tool call reads them
-// (activateScopedRulesForToolCall); both stick for the session.
-//
-// A rule whose attachment the model can read in its history - one the user
-// mentioned, or one a mentioned path activated (mentions.go) - is left out:
-// it is already in the conversation, and rendering it here would change the
-// system message the provider has cached. A compaction that folds the
-// message away brings it back.
-//
-// The third return value is the snapshot the turn context block diffs against
-// (rules.Added): every sticky rule, the ones left out for being in the
-// history included, since the model has all of them already.
-func buildRulesPromptMarkdown(st rulesState, home string, contextFiles []string, agentsOnDemand bool) (string, []string, []*rules.Rule) {
-	catalog := st.GetRulesCatalog()
-	active := st.GetActiveAutoRules()
-	newAuto := rules.MatchAuto(catalog, contextFiles)
-	if agentsOnDemand {
-		newAuto = append(newAuto, rules.AgentsForPaths(st.GetCWD(), contextFiles, active)...)
+// standingPrompt returns the {{.Rules}} and {{.Instructions}} blocks of the
+// system prompt: the project docs preamble and the always-on rules, then the
+// files of instructions.files. They are rendered once per rules generation of
+// the session and reused by every later turn (session.RulesPrompt), so neither a
+// rule that activates nor an AGENTS.md edited mid-session moves the system
+// message the provider has cached; a compaction, a config reload, a workspace
+// switch or a restart starts the next generation, which reads the files again.
+// A rule scoped to paths is never part of it: it arrives with the tool result
+// or the message that brought its path into play (rules_activation.go,
+// mentions.go).
+func (a *Agent) standingPrompt(rendersRules bool) (rulesMD, instructionsMD string) {
+	cwd, home := a.state.GetCWD(), a.cfg.Paths.Home
+	rs, ok := a.state.(rulesState)
+	if !ok {
+		return "", session.LoadInstructions(cwd, home, a.cfg.Instructions.Files, nil)
 	}
-	sticky := rules.UnionStable(active, newAuto)
-	st.SetActiveAutoRules(sticky)
-	inHistory := rulesInHistory(st.GetMessages(), st.GetCWD(), mention.HomeDir(), catalog, sticky)
-	md, embedded := rules.RenderPrompt(home, st.GetCWD(), withoutRules(sticky, inHistory), nil)
-	// A copy: the state keeps handing out the live slice, and the snapshot has
-	// to stay what this render carried however the sticky set grows later.
-	return md, embedded, append([]*rules.Rule(nil), sticky...)
+	// A configuration reloaded without a new generation - another agent home,
+	// another instructions.files list - renders afresh; the files behind an
+	// unchanged configuration are read once per generation.
+	inputs := strings.Join(append([]string{home, cwd}, a.cfg.Instructions.Files...), "\x00")
+	cached, generation := rs.CachedRulesPrompt(rendersRules, inputs)
+	if cached != nil {
+		return cached.Rules, cached.Instructions
+	}
+	rulesMD, embedded := rules.RenderPrompt(home, cwd, rules.AlwaysOnRules(rs.GetRulesCatalog()))
+	// Project docs the rules block already carries: instructions.files names
+	// AGENTS.md too, and one system prompt does not need it twice. A template
+	// under prompts.dir may render {{.Instructions}} and not {{.Rules}}, and
+	// then nothing carries them - so the skip list is taken only from a
+	// template that actually prints the block.
+	if !rendersRules {
+		embedded = nil
+	}
+	instructionsMD = session.LoadInstructions(cwd, home, a.cfg.Instructions.Files, embedded)
+	rs.StoreRulesPrompt(&session.RulesPrompt{
+		Generation:   generation,
+		RendersRules: rendersRules,
+		Inputs:       inputs,
+		Rules:        rulesMD,
+		Instructions: instructionsMD,
+	})
+	return rulesMD, instructionsMD
 }
 
 // computeContextBreakdown estimates category sizes for the context UI.
@@ -84,15 +95,21 @@ func computeContextBreakdown(
 	return b
 }
 
+// conversationText is the conversation as the provider reads it, the rules a
+// tool call brought in joined to its result, for the token estimates.
 func conversationText(msgs []llm.Message) string {
 	var b strings.Builder
 	for _, m := range msgs {
-		if strings.TrimSpace(m.Content) == "" {
+		if strings.TrimSpace(m.Content) == "" && m.Rules == "" {
 			continue
 		}
 		b.WriteString(string(m.Role))
 		b.WriteString(":\n")
-		b.WriteString(m.Content)
+		if m.Rules != "" {
+			b.WriteString(joinToolRules(m.Content, m.Rules))
+		} else {
+			b.WriteString(m.Content)
+		}
 		b.WriteString("\n\n")
 	}
 	return b.String()

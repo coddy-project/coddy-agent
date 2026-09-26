@@ -43,7 +43,7 @@ func TestTurnContextListsTheRunningBackgroundTasksOfTheSession(t *testing.T) {
 		pool.StopSession(sessionID)
 		pool.ReleaseSession(sessionID)
 	})
-	sys := a.buildSystemPromptParts("agent", nil, nil, nil)
+	sys := a.buildSystemPromptParts("agent", nil, nil)
 
 	if block := a.buildTurnContext(sys); strings.Contains(block, "## Background tasks") {
 		t.Fatalf("a session with nothing running names background tasks:\n%s", block)
@@ -112,7 +112,7 @@ func TestTurnContextNamesNoTasksWhenBackgroundRunsAreSwitchedOff(t *testing.T) {
 		t.Fatalf("Start(): %v", err)
 	}
 	// With the tools gone the model has nothing to read or stop a task with.
-	sys := a.buildSystemPromptParts("agent", nil, nil, nil)
+	sys := a.buildSystemPromptParts("agent", nil, nil)
 	if block := a.buildTurnContext(sys); strings.Contains(block, "## Background tasks") {
 		t.Fatalf("background tasks are named with tools.background.enable false:\n%s", block)
 	}
