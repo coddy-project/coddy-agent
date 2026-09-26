@@ -285,10 +285,12 @@ async function openPage({ throughRelay, width = 1280, height = 820 }) {
     if (msg.type() === "error" || msg.type() === "warning") console.log(`     console ${msg.type()}: ${msg.text().slice(0, 300)}`);
   });
   const mountRequests = [];
+  const allRequests = [];
   page.on("request", (r) => {
+    allRequests.push(r.url());
     if (r.url().startsWith(MOUNT)) mountRequests.push(`${r.method()} ${r.url().slice(MOUNT.length)}`);
   });
-  return { context, page, origin, mountRequests };
+  return { context, page, origin, mountRequests, allRequests };
 }
 
 async function shoot(page, name) {
@@ -352,6 +354,15 @@ async function until(what, fn, timeout = 20000) {
 async function attachImage(page) {
   await page.getByTestId("composer-file-input").setInputFiles({ name: "shot.png", mimeType: "image/png", buffer: PNG });
   await page.getByTestId("composer-attachment-chip").first().waitFor({ timeout: 10000 });
+}
+
+/** The natural width of the first user-message thumbnail once it has loaded, else 0. */
+function thumbLoaded(page) {
+  return until("a loaded thumbnail", () =>
+    page.evaluate(() => {
+      const img = document.querySelector(".msg-user-file-thumb");
+      return img && img.complete && img.naturalWidth > 0 ? img.naturalWidth : 0;
+    }), 20000).catch(() => 0);
 }
 
 async function sessionIdOf(page) {
@@ -457,22 +468,37 @@ async function scenario() {
     return row ? [...row.querySelectorAll(".msg-user-file-chip")].map((c) => c.textContent || c.getAttribute("title") || "") : [];
   });
   check("the deferred message's bubble shows its image", deferredFiles.length === 1, JSON.stringify(deferredFiles));
+  // Through the relay the thumbnail comes through the mount, with the
+  // environment's token, and the original opens the same way; the relay's
+  // own origin is never asked for an asset, and no URL carries the token.
+  check("its image thumbnail loads through the relay", (await thumbLoaded(a.page)) > 0);
+  await shoot(a.page, "relay-thumbnail-dark-1280");
+  await a.page.reload();
+  await composer(a.page).waitFor();
+  check("and again after a reload", (await thumbLoaded(a.page)) > 0);
+  await a.page.locator("[data-testid=msg-user-file-open]").first().click();
+  const full = await until("the original in the lightbox", () =>
+    a.page.evaluate(() => {
+      const img = document.querySelector(".docs-lightbox-stage img");
+      return img && img.complete && img.naturalWidth > 0 ? img.naturalWidth : 0;
+    }), 20000).catch(() => 0);
+  check("the original opens through the relay", full > 0, `${full}px`);
+  await a.page.keyboard.press("Escape");
+  const assetOfRelay = (u) => u.startsWith(`${RELAY}/coddy/sessions/`) && u.includes("/assets/");
+  check(
+    "no asset is asked of the relay's own origin, and no URL carries the token",
+    !a.allRequests.some(assetOfRelay) && !a.allRequests.some((u) => u.includes(RELAY_TOKEN)),
+    a.allRequests.filter((u) => assetOfRelay(u) || u.includes(RELAY_TOKEN)).slice(0, 3).join(" "),
+  );
   // The browser on the node watched the same turn: the deferred message sits
-  // above its answer there too, and once the turn is read back its thumbnail
-  // loads. (Through a relay an <img> is not routed through the mount, so the
-  // thumbnail is checked where the page and the assets share an origin.)
+  // above its answer there too, and its thumbnail loads from the node itself.
   await until("the deferred answer in the second browser", async () =>
     (await transcript(b.page)).some((row) => row.startsWith("assistant:") && row.includes("Answer to: Summarize after the answer")), 30000);
   const rowsB = await transcript(b.page);
   const jB = rowsB.findIndex((r) => r.startsWith("user:Summarize after the answer"));
   const kB = rowsB.findIndex((r) => r.startsWith("assistant:") && r.includes("Answer to: Summarize after the answer"));
   check("a browser that only watched the turn shows the deferred message above its answer", jB >= 0 && jB < kB, `${jB} < ${kB}`);
-  const thumb = await until("the thumbnail loaded in the second browser", () =>
-    b.page.evaluate(() => {
-      const img = document.querySelector(".msg-user-file-thumb");
-      return img && img.complete && img.naturalWidth > 0 ? img.naturalWidth : 0;
-    }), 20000).catch(() => 0);
-  check("its image thumbnail loads", thumb > 0, `${thumb}px`);
+  check("its image thumbnail loads on the node", (await thumbLoaded(b.page)) > 0);
 
 
   // Stop keeps what waits for after the turn, without starting it.
