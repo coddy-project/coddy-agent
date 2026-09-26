@@ -106,6 +106,7 @@ type ModelJSON struct {
 // llm_first_token_timeout_ms (0 disables the silence guard) and
 // llm_stream_idle_timeout_ms (0 disables the stall guard).
 type AgentJSON struct {
+	QueueMode              string `json:"queue_mode,omitempty"`
 	Model                  string `json:"model"`
 	MaxTurns               int    `json:"max_turns,omitempty"`
 	LLMRetryMax            *int   `json:"llm_retry_max,omitempty"`
@@ -464,6 +465,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		out.Models = append(out.Models, mj)
 	}
 	out.Agent = AgentJSON{
+		QueueMode:              c.Agent.QueueMode,
 		Model:                  c.Agent.Model,
 		MaxTurns:               c.Agent.MaxTurns,
 		LLMRetryMax:            cloneIntPtr(c.Agent.LLMRetryMax),
@@ -691,6 +693,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		cfg.Models = append(cfg.Models, me)
 	}
 	cfg.Agent = Agent{
+		QueueMode:              j.Agent.QueueMode,
 		Model:                  j.Agent.Model,
 		MaxTurns:               j.Agent.MaxTurns,
 		LLMRetryMax:            cloneIntPtr(j.Agent.LLMRetryMax),

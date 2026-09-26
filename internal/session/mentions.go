@@ -715,7 +715,7 @@ func digestLines(msgs []llm.Message) []string {
 			if m.BackgroundWake != nil || m.CompactionSummary {
 				continue
 			}
-			text := strings.TrimSpace(mention.ForDisplay(stripCoddySessionAssetsXML(m.Content)))
+			text := UserMessageDisplayText(m.Content)
 			if text == "" {
 				continue
 			}

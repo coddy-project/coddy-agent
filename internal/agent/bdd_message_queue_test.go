@@ -37,8 +37,11 @@ type queueFeatureState struct {
 	mu sync.Mutex
 	// pending is what the scenario asked to be queued from inside the model
 	// call; cancelled names the texts taken back in the same breath.
-	pending   []string
-	cancelled map[string]bool
+	pending       []string
+	pendingImages map[string][]acp.ImagePartRef
+	// pendingModes names the texts queued for after the turn; the rest steer.
+	pendingModes map[string]session.QueueMode
+	cancelled    map[string]bool
 	// enqueueErr is the first refusal the queue returned.
 	enqueueErr error
 
@@ -61,6 +64,8 @@ func (s *queueFeatureState) reset() error {
 	}
 	s.client = &recordingClient{answer: "allow"}
 	s.pending = nil
+	s.pendingImages = map[string][]acp.ImagePartRef{}
+	s.pendingModes = map[string]session.QueueMode{}
 	s.cancelled = map[string]bool{}
 	s.enqueueErr = nil
 	s.stopReason = ""
@@ -88,7 +93,14 @@ func (s *queueFeatureState) drainPending() {
 	s.pending = nil
 	s.mu.Unlock()
 	for _, text := range texts {
-		msg, _, err := s.mgr.EnqueueTurnMessage(s.sess.GetID(), text)
+		s.mu.Lock()
+		images := s.pendingImages[text]
+		mode, ok := s.pendingModes[text]
+		s.mu.Unlock()
+		if !ok {
+			mode = session.QueueModeSteer
+		}
+		msg, _, err := s.mgr.EnqueueTurnMessageWithMode(s.sess.GetID(), text, mode, images)
 		s.mu.Lock()
 		if err != nil && s.enqueueErr == nil {
 			s.enqueueErr = err
@@ -155,6 +167,18 @@ func (s *queueFeatureState) turnCallsToolFirst() error {
 	})
 }
 
+// turnCallsToolThenHasAnotherAnswer scripts a turn whose first prompt calls a
+// tool and answers, plus the answer of one more prompt: the one a message
+// queued for after the turn starts.
+func (s *queueFeatureState) turnCallsToolThenHasAnotherAnswer() error {
+	call := llm.ToolCall{ID: "call_q1", Name: "glob", InputJSON: `{"pattern":"**/*.go"}`}
+	return s.buildSession([]scriptStep{
+		s.queueingStep(toolStep(call)),
+		answerStep("done"),
+		answerStep("changelog updated"),
+	})
+}
+
 func (s *queueFeatureState) turnAnswersWithoutTool() error {
 	return s.buildSession([]scriptStep{
 		s.queueingStep(answerStep("here is the answer")),
@@ -169,6 +193,136 @@ func (s *queueFeatureState) operatorQueues(text string) error {
 	s.pending = append(s.pending, text)
 	s.mu.Unlock()
 	return nil
+}
+
+// operatorQueuesAfterTurn records a follow-up the operator wants answered
+// after the current one, not inside it.
+func (s *queueFeatureState) operatorQueuesAfterTurn(text string) error {
+	s.mu.Lock()
+	s.pending = append(s.pending, text)
+	s.pendingModes[text] = session.QueueModeAfterTurn
+	s.mu.Unlock()
+	return nil
+}
+
+// stepAfterToolDoesNotCarry runs the turn and checks that the request which
+// answers the tool result was built without the deferred message.
+func (s *queueFeatureState) stepAfterToolDoesNotCarry(text string) error {
+	if err := s.turnRuns(); err != nil {
+		return err
+	}
+	s.provider.mu.Lock()
+	defer s.provider.mu.Unlock()
+	if len(s.provider.requests) < 2 {
+		return fmt.Errorf("the model was called %d times; the step after the tool never happened", len(s.provider.requests))
+	}
+	for _, m := range s.provider.requests[1] {
+		if m.Role == llm.RoleUser && strings.Contains(m.Content, text) {
+			return fmt.Errorf("the step after the tool result carries %q: it steered the turn instead of waiting for it", text)
+		}
+	}
+	return nil
+}
+
+// answeredByOwnPrompt checks that the deferred message was the prompt of a
+// request made after the first answer, and that the transcript holds it
+// between the two answers.
+func (s *queueFeatureState) answeredByOwnPrompt(text string) error {
+	s.provider.mu.Lock()
+	requests := append([][]llm.Message(nil), s.provider.requests...)
+	s.provider.mu.Unlock()
+	if len(requests) != 3 {
+		return fmt.Errorf("the model was called %d times, want 3 (tool, answer, the deferred prompt)", len(requests))
+	}
+	// The turn context block rides after the history of every request; it is
+	// Coddy's, not the conversation's, so it takes no part in the order.
+	var last []llm.Message
+	for _, m := range requests[2] {
+		if m.Role == llm.RoleUser && strings.HasPrefix(strings.TrimSpace(m.Content), "<turn_context>") {
+			continue
+		}
+		last = append(last, m)
+	}
+	if len(last) < 2 {
+		return fmt.Errorf("the deferred request is too short: %d messages", len(last))
+	}
+	prompt, before := last[len(last)-1], last[len(last)-2]
+	if prompt.Role != llm.RoleUser || !strings.Contains(prompt.Content, text) {
+		return fmt.Errorf("the deferred request ends with %s %q, want the operator's %q", prompt.Role, prompt.Content, text)
+	}
+	if before.Role != llm.RoleAssistant || !strings.Contains(before.Content, "done") {
+		return fmt.Errorf("the deferred prompt follows %s %q, want the first answer", before.Role, before.Content)
+	}
+	if s.stopReason != string(acp.StopReasonEndTurn) {
+		return fmt.Errorf("turn ended with %q, want %q", s.stopReason, acp.StopReasonEndTurn)
+	}
+	return nil
+}
+
+// clientsSeeDeferredPromptBetweenAnswers checks the frames a watching client
+// got, in order: the first answer, the deferred message as the operator's
+// message, then the answer to it. Without the middle frame a live transcript
+// runs the second answer on from the first, with no question above it.
+func (s *queueFeatureState) clientsSeeDeferredPromptBetweenAnswers(text string) error {
+	s.client.mu.Lock()
+	updates := append([]interface{}(nil), s.client.updates...)
+	s.client.mu.Unlock()
+	first, user, second := -1, -1, -1
+	for i, u := range updates {
+		chunk, ok := u.(acp.MessageChunkUpdate)
+		if !ok {
+			continue
+		}
+		switch {
+		case chunk.SessionUpdate == acp.UpdateTypeAgentMessageChunk && chunk.Content.Text == "done" && first < 0:
+			first = i
+		case chunk.SessionUpdate == acp.UpdateTypeUserMessageChunk && strings.Contains(chunk.Content.Text, text) && user < 0:
+			user = i
+		case chunk.SessionUpdate == acp.UpdateTypeAgentMessageChunk && chunk.Content.Text == "changelog updated" && second < 0:
+			second = i
+		}
+	}
+	if first < 0 || second < 0 {
+		return fmt.Errorf("the clients did not get both answers (first at %d, second at %d)", first, second)
+	}
+	if user < 0 {
+		return fmt.Errorf("the clients never got %q as a message of the operator", text)
+	}
+	if first >= user || user >= second {
+		return fmt.Errorf("frames out of order: first answer %d, operator message %d, second answer %d", first, user, second)
+	}
+	return nil
+}
+
+func (s *queueFeatureState) operatorQueuesImage(text string) error {
+	s.mu.Lock()
+	s.pending = append(s.pending, text)
+	s.pendingImages[text] = []acp.ImagePartRef{{Name: "pixel.png", DataURL: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/L9kAAAAASUVORK5CYII="}}
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *queueFeatureState) nextRequestCarriesImage() error {
+	s.provider.mu.Lock()
+	defer s.provider.mu.Unlock()
+	if len(s.provider.requests) < 2 {
+		return fmt.Errorf("no next model request")
+	}
+	for _, msg := range s.provider.requests[1] {
+		if msg.Role == llm.RoleUser && len(msg.ImageParts) == 1 && msg.ImageParts[0].Name == "pixel.png" {
+			return nil
+		}
+	}
+	return fmt.Errorf("next request does not carry the queued image")
+}
+
+func (s *queueFeatureState) transcriptRecordsImage() error {
+	for _, msg := range s.sess.GetMessages() {
+		if msg.Role == llm.RoleUser && strings.Contains(msg.Content, "inspect this image") && len(msg.ImageParts) == 1 {
+			return nil
+		}
+	}
+	return fmt.Errorf("transcript does not show the queued image")
 }
 
 // cancelLastQueued takes the most recently written follow-up back, in the same
@@ -351,6 +505,7 @@ func initializeMessageQueueScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^an agent turn that calls a tool before it answers$`, s.turnCallsToolFirst)
 	sc.Step(`^an agent turn that answers without calling a tool$`, s.turnAnswersWithoutTool)
 	sc.Step(`^the operator queues "([^"]*)" while the tool is running$`, s.operatorQueues)
+	sc.Step(`^the operator queues an image with "([^"]*)" while the tool is running$`, s.operatorQueuesImage)
 	sc.Step(`^the operator queues "([^"]*)" before the turn releases$`, s.operatorQueues)
 	sc.Step(`^the operator cancels that queued message before the step ends$`, s.cancelLastQueued)
 	sc.Step(`^the agent reads that message on its next step$`, func() error {
@@ -379,6 +534,20 @@ func initializeMessageQueueScenario(sc *godog.ScenarioContext) {
 	})
 	sc.Step(`^the turn finishes$`, s.turnFinishes)
 	sc.Step(`^the session holds no queued messages$`, s.sessionHoldsNoQueuedMessages)
+	sc.Step(`^the agent reads that image on its next step$`, func() error { return s.agentReadsOnNextStep("inspect this image") })
+	sc.Step(`^the next model request carries the image$`, s.nextRequestCarriesImage)
+	sc.Step(`^the transcript records the image on the operator's message$`, s.transcriptRecordsImage)
+	sc.Step(`^an agent turn that calls a tool, answers, and has an answer for one more prompt$`, s.turnCallsToolThenHasAnotherAnswer)
+	sc.Step(`^the operator queues "([^"]*)" for after the turn while the tool is running$`, s.operatorQueuesAfterTurn)
+	sc.Step(`^the step after the tool result does not carry that message$`, func() error {
+		return s.stepAfterToolDoesNotCarry("then update the changelog")
+	})
+	sc.Step(`^that message is answered by a prompt of its own after the first answer$`, func() error {
+		return s.answeredByOwnPrompt("then update the changelog")
+	})
+	sc.Step(`^the clients see that message arrive between the two answers$`, func() error {
+		return s.clientsSeeDeferredPromptBetweenAnswers("then update the changelog")
+	})
 }
 
 func TestMessageQueueFeature(t *testing.T) {

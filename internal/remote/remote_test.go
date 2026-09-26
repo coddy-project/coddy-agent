@@ -976,3 +976,76 @@ func TestSessionListForwardsTheWorkspaceFilter(t *testing.T) {
 		t.Fatalf("sessions = %+v", res.Sessions)
 	}
 }
+
+// A message the turn reads from the queue, or a deferred one that starts a
+// prompt of its own, reaches the console as the operator's message, between
+// the answers it sits between.
+func TestPromptForwardsQueuedUserMessagesInPlace(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"object\":\"chat.completion.chunk\",\"choices\":[{\"delta\":{\"content\":\"first answer\"}}]}\n\n" +
+			"event: user_message\ndata: {\"sessionUpdate\":\"user_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"then update the changelog\"}}\n\n" +
+			"event: user_message\ndata: {\"sessionUpdate\":\"user_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"  \"}}\n\n" +
+			"data: {\"object\":\"chat.completion.chunk\",\"choices\":[{\"delta\":{\"content\":\"second answer\"}}]}\n\n" +
+			"data: [DONE]\n\n"))
+	}))
+	defer srv.Close()
+	sender := &collectSender{}
+	if _, err := promptOnce(t, srv, sender); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	sender.mu.Lock()
+	for _, u := range sender.updates {
+		if c, ok := u.(acp.MessageChunkUpdate); ok {
+			got = append(got, c.SessionUpdate+":"+c.Content.Text)
+		}
+	}
+	sender.mu.Unlock()
+	want := []string{
+		acp.UpdateTypeAgentMessageChunk + ":first answer",
+		acp.UpdateTypeUserMessageChunk + ":then update the changelog",
+		acp.UpdateTypeAgentMessageChunk + ":second answer",
+	}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("chunks = %q, want %q", got, want)
+	}
+}
+
+// Saving the queue mode changes that one key: a field this client does not
+// know - a server newer than the console - goes back exactly as it came.
+func TestSetQueueModePreferenceKeepsWhatItDoesNotKnow(t *testing.T) {
+	var put map[string]json.RawMessage
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/coddy/config":
+			_, _ = w.Write([]byte(`{"agent":{"model":"stub/a","future_agent_key":7},"future_section":{"on":true}}`))
+		case r.Method == http.MethodPut && r.URL.Path == "/coddy/config":
+			if err := json.NewDecoder(r.Body).Decode(&put); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	h, err := NewHandler(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.SetQueueModePreference(session.QueueModeAfterTurn); err != nil {
+		t.Fatal(err)
+	}
+	var agent map[string]json.RawMessage
+	if err := json.Unmarshal(put["agent"], &agent); err != nil {
+		t.Fatalf("agent section: %v (%s)", err, put["agent"])
+	}
+	if string(agent["queue_mode"]) != `"after_turn"` || string(agent["future_agent_key"]) != "7" || string(agent["model"]) != `"stub/a"` {
+		t.Fatalf("agent section written back as %s", put["agent"])
+	}
+	if string(put["future_section"]) != `{"on":true}` {
+		t.Fatalf("an unknown section was not kept: %s", put["future_section"])
+	}
+}

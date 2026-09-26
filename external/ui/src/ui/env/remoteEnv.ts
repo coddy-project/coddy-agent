@@ -337,10 +337,26 @@ export function installRemoteFetchShim(): void {
       });
     }
 
-    if (path == null || !isApiPath(path)) return nativeFetch(input, init);
-
-    const headers = new Headers(init?.headers ?? undefined);
-    if (env.token) headers.set("Authorization", "Bearer " + env.token);
-    return nativeFetch(env.baseUrl + path, { ...init, headers });
+    const request = path == null ? null : remoteApiRequest(path, init);
+    if (!request) return nativeFetch(input, init);
+    return nativeFetch(request.url, request.init);
   };
+}
+
+/**
+ * remoteApiRequest maps a same-origin API path onto the selected remote: its
+ * base URL in front of the path and its token in an Authorization header, never
+ * in the URL. Null when nothing is rewritten - the local origin, or a path that
+ * is not the API's. The fetch shim sends every API call this way; what the
+ * browser loads by itself (an <img> src) has to be fetched through it too.
+ */
+export function remoteApiRequest(
+  path: string,
+  init?: RequestInit,
+): { url: string; init: RequestInit } | null {
+  const env = getEnv();
+  if (env.mode !== "remote" || !isApiPath(path)) return null;
+  const headers = new Headers(init?.headers ?? undefined);
+  if (env.token) headers.set("Authorization", "Bearer " + env.token);
+  return { url: env.baseUrl + path, init: { ...init, headers } };
 }

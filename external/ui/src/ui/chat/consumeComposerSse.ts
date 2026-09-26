@@ -8,6 +8,7 @@ import {
 } from "./streamError";
 import { normalizeTodoPlanSnapshot } from "./todoToolPreview";
 import { parseSSEBlocks } from "./sse";
+import { queuedUserMessageItem } from "./queuedUserMessage";
 import type { TokenUsage, TranscriptItem } from "./types";
 import { turnProgressFromFrame, type TurnProgress } from "./turnProgress";
 import type { ProviderUsage } from "./providerUsage";
@@ -603,25 +604,10 @@ export async function consumeComposerSseReader(
           // here, where it was read - not at the end, where a transcript reload
           // would otherwise be the first place it appears.
           if (ev.event === "user_message") {
-            try {
-              const raw = JSON.parse(ev.data) as {
-                content?: { text?: string };
-              };
-              const text = String(raw?.content?.text || "");
-              if (text.trim()) {
-                applyStreamItems((prev) => [
-                  ...prev,
-                  {
-                    id: newId("u"),
-                    type: "user_message" as const,
-                    content: text,
-                    createdAtUtc: new Date().toISOString(),
-                  },
-                ]);
-                assistantSegmentDirty = true;
-              }
-            } catch {
-              // ignore
+            const item = queuedUserMessageItem(ev.data, newId("u"), new Date().toISOString());
+            if (item) {
+              applyStreamItems((prev) => [...prev, item]);
+              assistantSegmentDirty = true;
             }
             continue;
           }
@@ -878,25 +864,10 @@ export async function consumeComposerSseReader(
           // here, where it was read - not at the end, where a transcript reload
           // would otherwise be the first place it appears.
           if (ev.event === "user_message") {
-            try {
-              const raw = JSON.parse(ev.data) as {
-                content?: { text?: string };
-              };
-              const text = String(raw?.content?.text || "");
-              if (text.trim()) {
-                applyStreamItems((prev) => [
-                  ...prev,
-                  {
-                    id: newId("u"),
-                    type: "user_message" as const,
-                    content: text,
-                    createdAtUtc: new Date().toISOString(),
-                  },
-                ]);
-                assistantSegmentDirty = true;
-              }
-            } catch {
-              // ignore
+            const item = queuedUserMessageItem(ev.data, newId("u"), new Date().toISOString());
+            if (item) {
+              applyStreamItems((prev) => [...prev, item]);
+              assistantSegmentDirty = true;
             }
             continue;
           }

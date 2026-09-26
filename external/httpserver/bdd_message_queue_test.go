@@ -34,6 +34,9 @@ import (
 
 const queueFeatureReply = "the parked answer"
 
+// queueFeatureImage is a one-pixel PNG, the image a scenario attaches.
+const queueFeatureImage = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/L9kAAAAASUVORK5CYII="
+
 type queueHTTPState struct {
 	root      string
 	ts        *httptest.Server
@@ -58,6 +61,9 @@ type queueHTTPState struct {
 	// over --remote, that is merely looking at the session.
 	eventsBody  *sseStream
 	closeEvents func()
+
+	// textOnlyModel configures a session model that reads no images.
+	textOnlyModel bool
 }
 
 func (s *queueHTTPState) reset() {
@@ -140,7 +146,7 @@ func (s *queueHTTPState) startServer() error {
 	}
 	cfg := &config.Config{
 		Paths:  config.Paths{Home: home, CWD: s.root},
-		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100}},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Multimodal: !s.textOnlyModel}},
 		Agent:  config.Agent{Model: "openai/gpt-4o"},
 	}
 	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), s.root, &session.FileStore{Root: sessRoot})
@@ -263,6 +269,102 @@ func (s *queueHTTPState) call(method, suffix string, body []byte) error {
 	s.lastRaw = string(raw)
 	s.lastBody = map[string]interface{}{}
 	_ = json.Unmarshal(raw, &s.lastBody)
+	return nil
+}
+
+// postsWithImageAfterTurn queues text with one image, for after the turn.
+func (s *queueHTTPState) postsWithImageAfterTurn(text string) error {
+	body, err := json.Marshal(map[string]interface{}{
+		"text":         text,
+		"mode":         "after_turn",
+		"inline_files": []map[string]string{{"name": "shot.png", "data_url": queueFeatureImage}},
+	})
+	if err != nil {
+		return err
+	}
+	return s.call(http.MethodPost, "", body)
+}
+
+// answeredAfterTurnWithImage checks the stored message: its mode, and its
+// image named and described rather than carried.
+func (s *queueHTTPState) answeredAfterTurnWithImage() error {
+	if s.lastStatus != http.StatusCreated {
+		return fmt.Errorf("queue answered %d: %s", s.lastStatus, s.lastRaw)
+	}
+	msg, _ := s.lastBody["message"].(map[string]interface{})
+	if mode, _ := msg["mode"].(string); mode != "after_turn" {
+		return fmt.Errorf("queued mode = %q, want after_turn: %s", mode, s.lastRaw)
+	}
+	images, _ := msg["imageParts"].([]interface{})
+	if len(images) != 1 {
+		return fmt.Errorf("the message lists %d images, want 1: %s", len(images), s.lastRaw)
+	}
+	img, _ := images[0].(map[string]interface{})
+	if img["name"] != "shot.png" || img["mimeType"] != "image/png" {
+		return fmt.Errorf("the image is described as %v", img)
+	}
+	if strings.Contains(s.lastRaw, "base64") {
+		return fmt.Errorf("the answer carries the image bytes: %s", s.lastRaw)
+	}
+	return nil
+}
+
+func (s *queueHTTPState) subscribedToldImageWithoutBytes() error {
+	if s.eventsBody == nil {
+		return fmt.Errorf("no client is subscribed to the event stream")
+	}
+	frame, err := s.eventsBody.awaitFrame("event: message_queue", `"name":"shot.png"`)
+	if err != nil {
+		return err
+	}
+	if strings.Contains(frame, "base64") {
+		return fmt.Errorf("the queue frame carries the image bytes: %s", frame)
+	}
+	return nil
+}
+
+func (s *queueHTTPState) switchesToSteer() error {
+	msg, _ := s.lastBody["message"].(map[string]interface{})
+	id, _ := msg["id"].(string)
+	if strings.TrimSpace(id) == "" {
+		return fmt.Errorf("no queued message to switch: %s", s.lastRaw)
+	}
+	if err := s.call(http.MethodPatch, "/"+url.PathEscape(id), []byte(`{"mode":"steer"}`)); err != nil {
+		return err
+	}
+	if s.lastStatus != http.StatusOK {
+		return fmt.Errorf("the switch answered %d: %s", s.lastStatus, s.lastRaw)
+	}
+	return nil
+}
+
+func (s *queueHTTPState) readingQueueListsSteer(text string) error {
+	if err := s.call(http.MethodGet, "", nil); err != nil {
+		return err
+	}
+	msgs := s.queuedMessages()
+	if len(msgs) != 1 || msgs[0]["text"] != text || msgs[0]["mode"] != "steer" {
+		return fmt.Errorf("the queue lists %v, want %q as steer", msgs, text)
+	}
+	return nil
+}
+
+func (s *queueHTTPState) answerHandsBackImage() error {
+	if s.lastStatus != http.StatusOK {
+		return fmt.Errorf("the delete answered %d: %s", s.lastStatus, s.lastRaw)
+	}
+	msg, _ := s.lastBody["message"].(map[string]interface{})
+	files, _ := msg["inline_files"].([]interface{})
+	if len(files) != 1 {
+		return fmt.Errorf("the answer hands back %d images, want 1: %s", len(files), s.lastRaw)
+	}
+	f, _ := files[0].(map[string]interface{})
+	if f["name"] != "shot.png" || f["data_url"] != queueFeatureImage {
+		return fmt.Errorf("the image handed back is %v", f)
+	}
+	if msg["text"] != "compare with this screenshot" {
+		return fmt.Errorf("the text handed back is %v", msg["text"])
+	}
 	return nil
 }
 
@@ -471,12 +573,18 @@ func newSSEStream(r *bufio.Reader, what string) *sseStream {
 
 // await reads whole frames until one contains want (and body, when given).
 func (st *sseStream) await(want, body string) error {
+	_, err := st.awaitFrame(want, body)
+	return err
+}
+
+// awaitFrame is await that hands back the frame it found.
+func (st *sseStream) awaitFrame(want, body string) (string, error) {
 	deadline := time.After(10 * time.Second)
 	for {
 		select {
 		case got := <-st.lines:
 			if got.err != nil {
-				return fmt.Errorf("read %s (seen %q): %w", st.what, st.frame.String(), got.err)
+				return "", fmt.Errorf("read %s (seen %q): %w", st.what, st.frame.String(), got.err)
 			}
 			st.frame.WriteString(got.text)
 			if !strings.HasSuffix(st.frame.String(), "\n\n") {
@@ -485,10 +593,10 @@ func (st *sseStream) await(want, body string) error {
 			whole := st.frame.String()
 			st.frame.Reset()
 			if strings.Contains(whole, want) && (body == "" || strings.Contains(whole, body)) {
-				return nil
+				return whole, nil
 			}
 		case <-deadline:
-			return fmt.Errorf("timed out waiting for %q on %s", want, st.what)
+			return "", fmt.Errorf("timed out waiting for %q on %s", want, st.what)
 		}
 	}
 }
@@ -534,6 +642,15 @@ func initializeMessageQueueHTTPScenario(sc *godog.ScenarioContext) {
 		return s.awaitEvents("event: turn_ended", s.sessionID)
 	})
 	sc.Step(`^the session accepts the next ordinary prompt$`, s.nextPromptIsAccepted)
+	sc.Step(`^the operator posts? "([^"]*)" with an image to the session queue for after the turn$`, s.postsWithImageAfterTurn)
+	sc.Step(`^the operator posted "([^"]*)" with an image to the session queue for after the turn$`, s.postsWithImageAfterTurn)
+	sc.Step(`^the queue answers with that message waiting for after the turn with one image$`, s.answeredAfterTurnWithImage)
+	sc.Step(`^the subscribed client is told about the image without its bytes$`, s.subscribedToldImageWithoutBytes)
+	sc.Step(`^the operator switches that queued message to steer$`, s.switchesToSteer)
+	sc.Step(`^reading the queue lists that message as steer$`, func() error {
+		return s.readingQueueListsSteer("compare with this screenshot")
+	})
+	sc.Step(`^the answer hands back the message with its image$`, s.answerHandsBackImage)
 }
 
 func TestMessageQueueHTTPFeature(t *testing.T) {

@@ -108,3 +108,33 @@ func TestSender_Legacy_RejectedMarkdownIsRetriedPlain(t *testing.T) {
 		t.Fatalf("the answer must survive the rejection: %+v", msgs)
 	}
 }
+
+// A message another client queued is the operator's, not the bot's: the frame
+// that announces it where the turn read it - or where its own prompt starts -
+// never becomes part of the answer the chat is sent.
+func TestSender_OperatorMessagesStayOutOfTheAnswer(t *testing.T) {
+	f := newFakeAPI(t, tgfake.Options{})
+	s := newSender(f.api, 5, 0, slog.Default(), richConfig{})
+
+	_ = s.SendSessionUpdate("sess", chunk("First answer."))
+	_ = s.SendSessionUpdate("sess", acp.MessageChunkUpdate{
+		SessionUpdate: acp.UpdateTypeUserMessageChunk,
+		Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: "then update the changelog"},
+	})
+	_ = s.SendSessionUpdate("sess", chunk(" Done."))
+	s.Flush()
+
+	msgs := f.fake.Chat(5).Messages
+	var bot []string
+	for _, m := range msgs {
+		if strings.Contains(m.Text, "changelog") {
+			t.Fatalf("the operator's message reached the bot's answer: %+v", msgs)
+		}
+		if m.From == "bot" && !m.Deleted {
+			bot = append(bot, m.Text)
+		}
+	}
+	if len(bot) != 1 || bot[0] != "First answer. Done." {
+		t.Fatalf("the answer should be the agent's words only: %q", bot)
+	}
+}

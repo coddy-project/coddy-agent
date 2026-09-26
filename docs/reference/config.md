@@ -81,6 +81,7 @@ Defaults for the main agent loop (model id and safety caps).
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| `agent.queue_mode` | string, one of `steer`, `after_turn` |  | Preferred queue mode for Enter during a running turn: steer joins the next ReAct step, after_turn starts a new turn after the current answer. When absent, interactive surfaces ask on first use. |
 | `agent.model` | string |  | Optional default models[].model id. Interactive surfaces (web UI, console) pick a model per session; unattended calls that name no model (coddy -p, coddy acp, API requests without a model selector) need it set - they report 'no model configured' when it is empty. |
 | `agent.max_turns` | integer | 0 | Cap on the ReAct steps (LLM calls) of one prompt turn. 0, the default, sets no cap; a turn that reaches a cap set here ends with a notice that names it. |
 | `agent.llm_retry_max` | integer or null | 3 | Extra attempts shared by transport retries, empty-answer recovery and first-token re-issues until tool progress or a new follow-up. 0 disables these retries. Loop guards, Stop hooks, fallback models and quota-reset waits have separate limits. |

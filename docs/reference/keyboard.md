@@ -8,7 +8,7 @@ Keys are parsed into the `ctrl+x` / `shift+enter` / `alt+backspace` notation of 
 
 | Key | Action |
 |---|---|
-| enter | send |
+| enter | send when idle; during a turn queue in `agent.queue_mode` (first use asks for the default) |
 | shift+enter / ctrl+j | newline (a backslash right before enter also splits the line, for terminals that do not report shift+enter) |
 | escape | close the suggestion menu if open; otherwise stop a running `!!` command; otherwise interrupt the running turn (`HandleSessionCancel`) |
 | ctrl+c | clear the editor; on an empty editor, twice within 2 s exits |
@@ -20,7 +20,8 @@ Keys are parsed into the `ctrl+x` / `shift+enter` / `alt+backspace` notation of 
 | ctrl+o | expand the header hints, the last tool output (a live draft while `write` / `edit` / `apply_patch` arguments still stream) and the last `!!` block |
 | ctrl+t | collapse or expand thinking blocks |
 | up / down | prompt history on the first / last line of the draft; cursor movement otherwise |
-| tab | open the suggestion menu for the word at the cursor; inserts a tab when there is nothing to suggest |
+| tab | during a turn with a draft and no suggestion menu open, queue in the mode opposite to Enter; otherwise open completion or insert a tab |
+| 1 / 2 | only while the first-use queue question is on the status line: save Steer / After turn as the Enter mode and queue the message; escape puts the draft back |
 | `/` at the start of the draft, `@` anywhere | open the command menu and the mention menu as you type ([Mentions](../features/mentions.md#in-the-console)) |
 | tab / enter | mention menu open: take the highlighted row; a folder or `@session:` keeps the menu open on what it holds |
 | escape | mention menu open: close it |
@@ -83,7 +84,8 @@ The composer is a plain `textarea`; keys not listed here keep their browser mean
 
 | Key | Where | Action |
 |---|---|---|
-| Enter | composer, any device with a keyboard, a narrow window included | send when idle: the draft, or the attachments alone when the selected model is multimodal; while a turn runs, queue the draft for its next step |
+| Enter | composer, any device with a keyboard, a narrow window included | send when idle; while a turn runs, queue text and attachments in the configured `agent.queue_mode` (first use asks which mode to prefer) |
+| Tab | composer while a turn runs, with a draft and no picker open | queue text and attachments in the mode opposite to the Enter preference |
 | Shift+Enter | composer | newline (browser default, not intercepted) |
 | Ctrl+Enter / Alt+Enter | composer | newline at the caret, replacing a selection (browsers insert none, so the composer does) |
 | Cmd+Enter | composer | send, like Enter |

@@ -244,10 +244,8 @@ type State struct {
 	turnStopNotice string
 
 	// queue holds the follow-ups written while the current turn runs, read by
-	// the ReAct loop at its next step (turn_queue.go). queueOpen is the turn
-	// boundary: a message is only ever accepted by the turn it belongs to.
-	// Turn-scoped and never persisted - a queued message outliving the process
-	// would be answered by a conversation that has moved on.
+	// the ReAct loop at its next step (turn_queue.go). queueOpen gates admission;
+	// after_turn messages can remain after Stop, but none survives a restart.
 	queueMu   sync.Mutex
 	queue     []QueuedMessage
 	queueOpen bool
