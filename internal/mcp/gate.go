@@ -8,6 +8,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -107,7 +108,12 @@ func (g *TrustGate) Connect(ctx context.Context, srv ManagedServer, workspace st
 	if err := g.Check(workspace, srv); err != nil {
 		return nil, err
 	}
-	return Connect(ctx, srv.Config, workspace, log)
+	client, err := Connect(ctx, srv.Config, workspace, log)
+	if err != nil {
+		return nil, err
+	}
+	client.declared = Fingerprint(srv.Config)
+	return client, nil
 }
 
 // Probe checks the gate and then probes, so listing servers in the UI never
@@ -131,6 +137,23 @@ func (g *TrustGate) Approve(workspace string, srv ManagedServer) error {
 			srv.Config.Name, config.ProjectTrustDeny)
 	}
 	return g.store.Approve(workspace, config.MCPJSONPath(workspace), srv.Config)
+}
+
+// ErrDeclarationChanged is returned by ApproveShown when the declaration on
+// disk is no longer the one the operator was shown.
+var ErrDeclarationChanged = errors.New("the declaration changed since it was shown")
+
+// ApproveShown records the operator's decision for the declaration they were
+// shown. shown is the fingerprint of that declaration as listed: a checkout
+// that rewrote the entry between the listing and the approval would otherwise
+// have the approval land on a command nobody read. An empty shown approves the
+// current declaration, for callers that print it and record it in one step
+// (coddy mcp trust).
+func (g *TrustGate) ApproveShown(workspace string, srv ManagedServer, shown string) error {
+	if shown != "" && shown != Fingerprint(srv.Config) {
+		return fmt.Errorf("mcp %s: %w; review it and approve again", srv.Config.Name, ErrDeclarationChanged)
+	}
+	return g.Approve(workspace, srv)
 }
 
 // Revoke withdraws the approval of one server name in a workspace.

@@ -129,12 +129,34 @@ removing their definitions:
 
 - `config.yaml`: `disabled: true` and `disabled_tools: ["tool_a"]` per `mcp_servers` entry
 - `~/.coddy/mcp.json` and `./.coddy/mcp.json`: `"disabled": true` and
-  `"disabledTools": ["tool_a"]` per entry
+  `"disabledTools": ["tool_a"]` per entry when editing the declarations directly
+- For project entries, switches made through `/mcp` or Settings are stored in
+  `<home>/mcp-overrides.json`, keyed by workspace and server. The checkout's
+  `.coddy/mcp.json` stays unchanged; these switches override its defaults. Deleting a
+  project server through the API or the UI drops its switches once the declaration is gone,
+  so a later server of the same name starts from its own declaration, and a delete that
+  fails leaves the server switched as it was. While the file cannot be read, every project
+  server stays off and the global servers keep their own switches; `/mcp` and Settings
+  name the file and the parse error instead of listing the servers until it is repaired.
+  This file and `mcp-trust.json` are written under a lock that every process of the home
+  takes, so a console and `coddy serve` switching or approving at the same moment do not
+  write over each other.
 
 Disabled servers are not connected for new sessions. Disabled tools (and all tools of a
 disabled server) are hidden from the LLM's tool list and rejected at dispatch. The switches
 are re-read on every agent turn, so toggling them (by editing the files or through the
 HTTP API / web UI below) also applies to **already running** sessions on their next turn.
+
+A switch made through `/mcp`, Settings or the HTTP API also reaches live sessions at once,
+one server at a time: switching a server on connects it in every live session the trust
+gate admits it for, switching it off closes it there, and the other servers keep their
+processes, so a browser-automation server keeps its pages open. A tool switch reconnects
+nothing. A session in the middle of a turn keeps its tools for that turn: a server switched
+off or no longer trusted is closed when the turn ends, and one switched on starts when the
+session's next turn starts. Saving or deleting a server through the API or Settings reaches
+live sessions the same way, and a server whose declaration was edited is started again from
+the new one. A server that does not answer its handshake within 30 seconds does not hold
+anything up: it is left out and the session's next turn tries it again.
 
 ## Management API and UI
 
@@ -143,8 +165,36 @@ inventories and toggle endpoints under **`/coddy/mcp*`** (see `docs/reference/ht
 bundled web UI shows them under **Settings -> MCP servers**: status dot per server, a
 `global` / `local` scope badge, expandable tool list with per-tool switches, and a
 Cursor-style JSON editor for mcp.json entries with a scope picker (global writes
-`~/.coddy/mcp.json`, local writes `./.coddy/mcp.json`). Toggles persist into the file that
-defines the server; `config.yaml` entries are toggle-only here and edited in Settings.
+`~/.coddy/mcp.json`, local writes `./.coddy/mcp.json`). Global switches persist
+into their defining file; project switches persist in the operator's home.
+`config.yaml` entries are toggle-only here and edited in Settings.
+
+Type `/mcp` in the web composer to open this Settings section; words after the
+command are ignored, as in the console. In the console, `/mcp` opens a list of
+global and project servers with connection status and tool counts, and `off`
+beside a switched-off server whose status is a trust verdict. Enter opens a
+server's controls: toggle the server, expand its tools and toggle one, or
+grant or revoke trust for a project declaration. The trust control follows the
+rule of the web shield and is offered only under `mcp.project_trust: ask`, since
+under `allow` and `deny` there is no per-server decision to take. Before it
+records trust the console prints the whole declaration above the choice: the
+transport, the command line or the URL, the names of its variables and headers,
+the workspace and the file. These controls also work in `--remote` mode through
+the server's MCP management routes. Telegram `/mcp` lists servers and offers
+enable/disable buttons only for already-trusted entries; in a group it is
+answered without a mention, and a failed tap is reported in the menu message.
+Approve project declarations in the console, CLI or web UI; a chat cannot grant
+workspace trust.
+
+An approval from the console, the web shield or the remote console names the
+declaration it was shown by the `fingerprint` the list reported. When the
+checkout rewrote the entry between the listing and the approval, the approval is
+refused (`409` over HTTP) and nothing is recorded: list the servers again and
+review the new declaration.
+
+![The MCP settings section opened from the web composer's /mcp command](../assets/mcp/mcp-settings-dark-1280.png)
+
+*The web `/mcp` command opens the server controls, including project trust and per-server switches.*
 
 ## MCP calls in the transcript
 
@@ -307,7 +357,12 @@ mcp_servers:
 
 1. On `session/new`, the agent connects every enabled server from the merged
    config.yaml + `~/.coddy/mcp.json` + `./.coddy/mcp.json` list that the workspace
-   trust gate admits, then any ACP client-supplied servers
+   trust gate admits, then any ACP client-supplied servers. A session restored from
+   disk - reopened by an editor with `session/load`, or read by the web UI, a chat
+   or the console - connects its configured servers before its first turn instead,
+   through the same gate: reading a stored conversation starts no process, where it
+   used to start a set per session that stayed for the life of the server. Its ACP
+   client-supplied servers still connect on load
 2. The agent calls `tools/list` on each server and registers the tools
 3. The staged config tools can add, replace, or delete a global `mcp_servers`
    entry while the session is running: `config_set` stages the uci-like command

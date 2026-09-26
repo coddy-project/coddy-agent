@@ -8839,6 +8839,9 @@ html:not([data-theme="light"]) .context-usage-note--error {
 }
 
 .mcp-list {
+  /* Where a server row's name starts: the chevron, its gap, the status dot
+     and its gap. The tools and the trust note under a row start there too. */
+  --mcp-row-inset: calc(22px + 8px + 9px + 8px);
   list-style: none;
   margin: 0;
   padding: 0;
@@ -8859,13 +8862,8 @@ html:not([data-theme="light"]) .context-usage-note--error {
   padding: 6px 0;
 }
 
-.mcp-list-item.is-disabled .mcp-list-item-text,
-.mcp-list-item.is-disabled .mcp-list-item-head > svg {
+.mcp-list-item.is-disabled .mcp-list-item-text {
   opacity: 0.5;
-}
-
-.mcp-list-item-head > svg {
-  flex-shrink: 0;
 }
 
 /* Trailing controls in an MCP row never shrink (same rule as skill rows), so
@@ -8954,7 +8952,10 @@ html:not([data-theme="light"]) .context-usage-note--error {
 }
 
 .mcp-trust-note {
-  margin: 6px 0 0 26px;
+  margin: 6px 0 0 var(--mcp-row-inset);
+  /* The file a declaration came from is one long path: it wraps anywhere
+     rather than run past the row on a phone. */
+  overflow-wrap: anywhere;
   font-size: 0.78rem;
   color: color-mix(in srgb, var(--text) 72%, transparent);
 }
@@ -9133,11 +9134,11 @@ html:not([data-theme="light"]) .context-usage-note--error {
   text-transform: uppercase;
 }
 
-/* Expanded per-tool rows, indented under the server head. */
+/* Expanded per-tool rows, under the server's name. */
 .mcp-tools {
   list-style: none;
   margin: 0 0 6px;
-  padding: 0 0 0 39px;
+  padding: 0 0 0 var(--mcp-row-inset);
   display: flex;
   flex-direction: column;
 }
@@ -9168,7 +9169,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
 
 .mcp-tools-empty {
   margin: 0 0 8px;
-  padding-left: 39px;
+  padding-left: var(--mcp-row-inset);
 }
 
 /* JSON editor card for one .coddy/mcp.json entry (add or edit). */
@@ -14291,6 +14292,19 @@ html:not([data-theme="light"]) .swarm-graph-panel {
     overflow-wrap: anywhere;
     overflow: hidden;
     line-height: 1.3;
+  }
+
+  /* MCP servers: four 40px controls beside the name left it a few letters
+     wide. The name and its command line take the first line of the row, and
+     the controls wrap to the row's end below them. */
+  .mcp-list-item-head {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    row-gap: 6px;
+  }
+
+  .mcp-list-item-text {
+    flex-basis: calc(100% - var(--mcp-row-inset));
   }
 }
 

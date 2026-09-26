@@ -679,6 +679,7 @@ export const messagesEn: Record<string, string> = {
   "mcp.error.delete": "Failed to delete {name}",
   "mcp.error.invalidEntry": "Invalid entry.",
   "mcp.error.saveServer": "Failed to save server",
+  "mcp.error.load": "Could not load the MCP servers: {message}",
   "mcp.discovery.legend": "MCP discovery",
   "mcp.discovery.projectServersLabel": "Project servers",
   "mcp.servers.legend": "MCP servers",
@@ -725,7 +726,7 @@ export const messagesEn: Record<string, string> = {
   "mcp.discovery.description":
     "The project-local ./.coddy/mcp.json arrives with the checkout, so the repository — not you — picks the command a session would start. On Ask its servers are neither started nor contacted until you approve that exact declaration for this workspace (shield button in the list below); rewriting an approved entry asks again. Servers you add here are approved by the act of writing them. Entries from config.yaml and ~/.coddy/mcp.json are yours and are never gated.",
   "mcp.servers.description":
-    "Model Context Protocol servers from three levels: config.yaml (mcp_servers) and the global ~/.coddy/mcp.json, merged with the local ./.coddy/mcp.json of the project (Cursor-compatible; later levels override by name). Switch off a whole server or individual tools — toggles persist into the file that defines the server and reach running sessions on their next turn.",
+    "Model Context Protocol servers from three levels: config.yaml (mcp_servers) and the global ~/.coddy/mcp.json, merged with the local ./.coddy/mcp.json of the project (Cursor-compatible; later levels override by name). Switch off a whole server or individual tools. A global server's switch is saved in the file that defines it, a project server's in ~/.coddy/mcp-overrides.json, so the checkout stays as it is. A server switch reaches running sessions at once, a tool switch on their next turn.",
   "mcp.empty":
     "No MCP servers configured. Add one here (saved to the local ./.coddy/mcp.json or the global ~/.coddy/mcp.json) or declare it under mcp_servers in config.yaml.",
   "mcp.note.declaredBy":
@@ -1178,6 +1179,7 @@ export const messagesEn: Record<string, string> = {
   "composer.mentionKindScheme": "search",
   "composer.docsCommand":
     "Open the built-in documentation: /docs [page or words]",
+  "composer.mcpCommand": "Open MCP server settings",
   "composer.mentionKindDoc": "docs",
   "composer.mentionSchemeSession": "Another session, with its latest messages",
   "composer.mentionSchemeRule": "A project rule",

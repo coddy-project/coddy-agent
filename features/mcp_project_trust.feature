@@ -44,6 +44,15 @@ Feature: Project-local MCP servers need approval before they run
     When an ACP client creates a session for that workspace
     Then the marker command has run
 
+  @acp
+  Scenario: Disabling an approved project server leaves the checkout untouched
+    Given a workspace whose project mcp.json runs a marker command
+    And the operator approved the project MCP server "marker" for that workspace
+    When the operator disables the MCP server "marker"
+    And an ACP client creates a session for that workspace
+    Then the marker command has not run
+    And the project mcp.json is unchanged
+
   @http
   Scenario: The MCP list reports an unapproved project server instead of probing it
     Given a running coddy HTTP server

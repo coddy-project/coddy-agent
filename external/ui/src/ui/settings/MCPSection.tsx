@@ -29,18 +29,35 @@ type MCPList = {
   workspace: string;
 };
 
-async function fetchServers(refresh = false): Promise<MCPList> {
-  const res = await fetch(`/coddy/mcp${refresh ? "?refresh=1" : ""}`);
-  if (!res.ok) return { items: [], projectTrust: "ask", workspace: "" };
+/** A listing, or why there is none: the server's own message when it sent one. */
+type MCPListResult = { list: MCPList } | { error: string };
+
+async function fetchServers(refresh = false): Promise<MCPListResult> {
+  let res: Response;
+  try {
+    res = await fetch(`/coddy/mcp${refresh ? "?refresh=1" : ""}`);
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+  if (!res.ok) {
+    try {
+      const j = (await res.json()) as { error?: { message?: string } };
+      return { error: j.error?.message || `HTTP ${res.status}` };
+    } catch {
+      return { error: `HTTP ${res.status}` };
+    }
+  }
   const data = (await res.json()) as {
     items?: MCPServerRow[];
     project_trust?: ProjectTrust;
     workspace?: string;
   };
   return {
-    items: data.items ?? [],
-    projectTrust: data.project_trust ?? "ask",
-    workspace: data.workspace ?? "",
+    list: {
+      items: data.items ?? [],
+      projectTrust: data.project_trust ?? "ask",
+      workspace: data.workspace ?? "",
+    },
   };
 }
 
@@ -64,28 +81,6 @@ async function apiSend(
     }
   }
   return { ok: true };
-}
-
-// Plug glyph shared with the Skills list style.
-function IconServer() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <rect x="2" y="3" width="20" height="7" rx="2" />
-      <rect x="2" y="14" width="20" height="7" rx="2" />
-      <line x1="6" y1="6.5" x2="6.01" y2="6.5" />
-      <line x1="6" y1="17.5" x2="6.01" y2="17.5" />
-    </svg>
-  );
 }
 
 function IconPencil() {
@@ -173,6 +168,7 @@ export function MCPSection() {
   const [projectTrust, setProjectTrust] = useState<ProjectTrust>("ask");
   const [workspace, setWorkspace] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
@@ -182,15 +178,22 @@ export function MCPSection() {
   const [editorBusy, setEditorBusy] = useState(false);
 
   // firstLoad guards the "Loading…" placeholder so refreshes never collapse
-  // the list height (same pattern as the Skills tab).
+  // the list height (same pattern as the Skills tab). A listing that fails
+  // says why - a broken mcp-overrides.json names itself - and keeps the rows
+  // an earlier load showed, instead of reading as "no servers configured".
   const loadServers = useCallback(
     async (firstLoad = false, refresh = false) => {
       if (firstLoad) setLoading(true);
       if (refresh) setRefreshing(true);
-      const list = await fetchServers(refresh);
-      setServers(list.items);
-      setProjectTrust(list.projectTrust);
-      setWorkspace(list.workspace);
+      const result = await fetchServers(refresh);
+      if ("list" in result) {
+        setServers(result.list.items);
+        setProjectTrust(result.list.projectTrust);
+        setWorkspace(result.list.workspace);
+        setLoadError(null);
+      } else {
+        setLoadError(translate("mcp.error.load", { message: result.error }));
+      }
       if (firstLoad) setLoading(false);
       if (refresh) setRefreshing(false);
     },
@@ -260,9 +263,13 @@ export function MCPSection() {
   const onToggleTrust = (row: MCPServerRow) => {
     withBusy(row.name, async () => {
       const action = row.trusted ? "untrust" : "trust";
+      // An approval names the declaration the note showed by its fingerprint,
+      // so the server refuses it (409) when the checkout rewrote the entry
+      // between the listing and the click.
       const res = await apiSend(
         `/coddy/mcp/${encodeURIComponent(row.name)}/${action}`,
         "POST",
+        row.trusted ? undefined : { fingerprint: row.fingerprint ?? "" },
       );
       if (!res.ok) {
         setError(
@@ -394,6 +401,11 @@ export function MCPSection() {
         </div>
 
         {error ? <p className="settings-error">{error}</p> : null}
+        {loadError ? (
+          <p className="settings-error" data-testid="mcp-load-error">
+            {loadError}
+          </p>
+        ) : null}
 
         {editor && editor.isNew ? (
           <MCPEditorCard
@@ -410,7 +422,7 @@ export function MCPSection() {
         {servers.length === 0 ? (
           loading ? (
             <p className="settings-muted">{t("mcp.loading")}</p>
-          ) : (
+          ) : loadError ? null : (
             <p className="settings-muted">{t("mcp.empty")}</p>
           )
         ) : (
@@ -451,7 +463,6 @@ export function MCPSection() {
                       title={statusTitle(row)}
                       data-testid={`mcp-status-${row.name}`}
                     />
-                    <IconServer />
                     <div className="mcp-list-item-text">
                       <div className="skills-list-item-name">
                         {row.name}

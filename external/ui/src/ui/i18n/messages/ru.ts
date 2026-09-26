@@ -686,6 +686,7 @@ export const messagesRu: Record<string, string> = {
   "mcp.error.delete": "Не удалось удалить {name}",
   "mcp.error.invalidEntry": "Некорректная запись.",
   "mcp.error.saveServer": "Не удалось сохранить сервер",
+  "mcp.error.load": "Не удалось загрузить серверы MCP: {message}",
   "mcp.discovery.legend": "Обнаружение MCP",
   "mcp.discovery.projectServersLabel": "Проектные серверы",
   "mcp.servers.legend": "Серверы MCP",
@@ -733,7 +734,7 @@ export const messagesRu: Record<string, string> = {
   "mcp.discovery.description":
     "Проектный ./.coddy/mcp.json приходит вместе с чекаутом, поэтому команду, которую запустит сессия, выбирает репозиторий, а не вы. В режиме «Спрашивать» его серверы не запускаются и не опрашиваются, пока вы не одобрите именно это объявление для данного рабочего пространства (кнопка-щит в списке ниже); изменение одобренной записи снова потребует одобрения. Серверы, добавленные здесь, одобряются самим фактом записи. Записи из config.yaml и ~/.coddy/mcp.json — ваши и никогда не блокируются.",
   "mcp.servers.description":
-    "Серверы Model Context Protocol из трёх уровней: config.yaml (mcp_servers) и глобальный ~/.coddy/mcp.json, объединённые с локальным ./.coddy/mcp.json проекта (формат Cursor; более поздние уровни переопределяют по имени). Можно отключить весь сервер или отдельные инструменты — переключатели сохраняются в файл, определяющий сервер, и применяются в работающих сессиях на следующем ходе.",
+    "Серверы Model Context Protocol берутся из трёх уровней, это config.yaml (mcp_servers), глобальный ~/.coddy/mcp.json и локальный ./.coddy/mcp.json проекта (формат Cursor, более поздний уровень переопределяет запись с тем же именем). Можно отключить весь сервер или отдельные инструменты. Переключатель глобального сервера сохраняется в файл, где сервер объявлен, переключатель проектного в ~/.coddy/mcp-overrides.json, поэтому checkout остаётся как есть. Переключатель сервера применяется в работающих сессиях сразу, переключатель инструмента на их следующем ходе.",
   "mcp.empty":
     "Серверы MCP не настроены. Добавьте сервер здесь (сохранится в локальный ./.coddy/mcp.json или глобальный ~/.coddy/mcp.json) либо объявите его в mcp_servers в config.yaml.",
   "mcp.note.declaredBy":
@@ -1201,6 +1202,7 @@ export const messagesRu: Record<string, string> = {
   "composer.mentionKindScheme": "поиск",
   "composer.docsCommand":
     "Открыть встроенную документацию: /docs [страница или слова]",
+  "composer.mcpCommand": "Открыть настройки MCP-серверов",
   "composer.mentionKindDoc": "документация",
   "composer.mentionSchemeSession": "Другая сессия и её последние сообщения",
   "composer.mentionSchemeRule": "Правило проекта",

@@ -74,13 +74,16 @@ func TestHelperMCPMarkerServer(t *testing.T) {
 }
 
 type mcpTrustState struct {
-	root       string
-	home       string
-	cwd        string
-	cfg        *config.Config
-	mgr        *session.Manager
-	markerPath string
-	cleanup    []func()
+	root            string
+	home            string
+	cwd             string
+	cfg             *config.Config
+	mgr             *session.Manager
+	markerPath      string
+	projectOriginal []byte
+	store           *session.FileStore
+	storedID        string
+	cleanup         []func()
 }
 
 func (s *mcpTrustState) reset() error {
@@ -107,7 +110,8 @@ func (s *mcpTrustState) reset() error {
 	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
 		return "", nil
 	}
-	s.mgr = session.NewManager(s.cfg, noopSender{}, runner, slog.Default(), s.cwd, nil)
+	s.store = &session.FileStore{Root: filepath.Join(root, "sessions")}
+	s.mgr = session.NewManager(s.cfg, noopSender{}, runner, slog.Default(), s.cwd, s.store)
 	return nil
 }
 
@@ -135,7 +139,28 @@ func (s *mcpTrustState) markerServerEntry(marker string) config.MCPJSONServer {
 
 func (s *mcpTrustState) projectMCPJSONRunsMarker() error {
 	s.markerPath = filepath.Join(s.root, "marker-1.txt")
-	return config.UpsertMCPJSONServer(config.MCPJSONPath(s.cwd), "marker", s.markerServerEntry(s.markerPath))
+	path := config.MCPJSONPath(s.cwd)
+	if err := config.UpsertMCPJSONServer(path, "marker", s.markerServerEntry(s.markerPath)); err != nil {
+		return err
+	}
+	data, err := os.ReadFile(path)
+	s.projectOriginal = data
+	return err
+}
+
+func (s *mcpTrustState) disableServer(name string) error {
+	return s.mgr.SetMCPEnabled(context.Background(), s.cwd, name, "", false)
+}
+
+func (s *mcpTrustState) projectUnchanged() error {
+	data, err := os.ReadFile(config.MCPJSONPath(s.cwd))
+	if err != nil {
+		return err
+	}
+	if string(data) != string(s.projectOriginal) {
+		return fmt.Errorf("project mcp.json changed after disabling server")
+	}
+	return nil
 }
 
 func (s *mcpTrustState) globalMCPJSONRunsMarker() error {
@@ -202,6 +227,41 @@ func (s *mcpTrustState) settingsSaved() error {
 	return nil
 }
 
+// storedSession writes a session bundle and drops it from memory, the way
+// sessions a server restart or an earlier one-off run leave on disk.
+func (s *mcpTrustState) storedSession() error {
+	res, err := s.mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: s.cwd})
+	if err != nil {
+		return fmt.Errorf("session/new: %w", err)
+	}
+	s.storedID = res.SessionID
+	s.mgr.ForgetLiveSession(res.SessionID)
+	if !s.store.HasPersistedSnapshot(res.SessionID) {
+		return fmt.Errorf("session %s was not stored", res.SessionID)
+	}
+	return nil
+}
+
+// webPageReadsStoredSession is what a /coddy/sessions/{id}/... read does to a
+// session that is only on disk: it loads it into the manager.
+func (s *mcpTrustState) webPageReadsStoredSession() error {
+	st, err := s.mgr.EnsureHTTPSession(context.Background(), s.storedID, s.cwd)
+	if err != nil {
+		return err
+	}
+	s.cleanup = append(s.cleanup, func() { s.mgr.ForgetLiveSession(s.storedID) })
+	_ = st.GetMessages()
+	return nil
+}
+
+func (s *mcpTrustState) turnRunsOnStoredSession() error {
+	_, err := s.mgr.HandleSessionPromptWithSender(context.Background(), acp.SessionPromptParams{
+		SessionID: s.storedID,
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "go on"}},
+	}, noopSender{}, nil)
+	return err
+}
+
 func (s *mcpTrustState) markerHasRun() error {
 	if _, err := os.Stat(s.markerPath); err != nil {
 		return fmt.Errorf("marker %s missing: the approved MCP server did not start", s.markerPath)
@@ -211,7 +271,7 @@ func (s *mcpTrustState) markerHasRun() error {
 
 func (s *mcpTrustState) markerHasNotRun() error {
 	if _, err := os.Stat(s.markerPath); err == nil {
-		return fmt.Errorf("marker %s exists: the project MCP command ran without approval", s.markerPath)
+		return fmt.Errorf("marker %s exists: the MCP command ran", s.markerPath)
 	}
 	return nil
 }
@@ -242,12 +302,33 @@ func initializeMCPTrustScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a workspace whose global mcp\.json runs a marker command$`, s.globalMCPJSONRunsMarker)
 	sc.Step(`^the project mcp\.json is rewritten to run a different marker command$`, s.projectMCPJSONRewritten)
 	sc.Step(`^the operator approved the project MCP server "([^"]*)" for that workspace$`, s.operatorApproved)
+	sc.Step(`^the operator disables the MCP server "([^"]*)"$`, s.disableServer)
+	sc.Step(`^the project mcp\.json is unchanged$`, s.projectUnchanged)
 	sc.Step(`^an ACP client creates a session for that workspace$`, s.createSession)
 	sc.Step(`^an ACP client has a live session for that workspace$`, s.liveSession)
 	sc.Step(`^the operator saves settings that change the configured MCP servers$`, s.settingsSaved)
 	sc.Step(`^the marker command has run$`, s.markerHasRun)
+	sc.Step(`^a stored session for a workspace$`, s.storedSession)
+	sc.Step(`^a web page reads that stored session$`, s.webPageReadsStoredSession)
+	sc.Step(`^a turn runs on that stored session$`, s.turnRunsOnStoredSession)
 	sc.Step(`^the marker command has not run$`, s.markerHasNotRun)
 	sc.Step(`^coddy reports the project MCP server "([^"]*)" as awaiting approval$`, s.reportedAwaitingApproval)
+}
+
+func TestMCPSessionRestoreFeature(t *testing.T) {
+	suite := godog.TestSuite{
+		Name:                "mcp-session-restore",
+		ScenarioInitializer: initializeMCPTrustScenario,
+		Options: &godog.Options{
+			Format:   "pretty",
+			Paths:    []string{"../../features/mcp_session_restore.feature"},
+			TestingT: t,
+			Strict:   true,
+		},
+	}
+	if suite.Run() != 0 {
+		t.Fatal("mcp session restore feature failed")
+	}
 }
 
 func TestMCPProjectTrustACP(t *testing.T) {

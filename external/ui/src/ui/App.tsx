@@ -6113,6 +6113,14 @@ export function App() {
             {...(editingFiles.length > 0 ? { editingFiles } : {})}
             {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
             onDocsCommand={openDocsCommand}
+            onMCPCommand={() => {
+              setDraft("");
+              setSchedulerOpen(false);
+              setSchedulerEditor(null);
+              setTasksOpen(false);
+              setSessionsOpen(false);
+              setSettingsSectionHash("mcp_servers");
+            }}
             attachedFiles={composerFiles}
             onAttachedFilesChange={setComposerFiles}
             onSend={(text: string, files?: File[]) => {

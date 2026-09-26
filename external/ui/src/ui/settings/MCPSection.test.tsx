@@ -115,6 +115,24 @@ test("renders merged servers with scope badges and per-origin locks", async () =
   );
 });
 
+// The row leads with its chevron and its status dot, then the name: a server
+// glyph between them said nothing the name did not, and on a phone it took
+// width the name needed.
+test("a server row leads with the chevron and the status dot, no glyph", async () => {
+  stubFetch();
+  render(<MCPSection />);
+  await waitFor(() => expect(screen.getByTestId("mcp-list")).toBeTruthy());
+
+  const dot = screen.getByTestId("mcp-status-files");
+  const head = dot.parentElement!;
+  expect(head.className).toContain("mcp-list-item-head");
+  expect(head.querySelectorAll(":scope > svg")).toHaveLength(0);
+  const [first, second, third] = Array.from(head.children);
+  expect(first).toBe(screen.getByTestId("mcp-expand-files"));
+  expect(second).toBe(dot);
+  expect(third!.className).toContain("mcp-list-item-text");
+});
+
 test("expanding a server shows per-tool switches reflecting disabled state", async () => {
   stubFetch();
   render(<MCPSection />);
@@ -273,6 +291,36 @@ test("an unapproved project server shows what it would run and offers approval",
   );
 });
 
+// The approval names the declaration the note showed by its fingerprint, so
+// the server refuses it (409) when the checkout rewrote the entry since.
+test("approving sends the fingerprint of the declaration shown", async () => {
+  const bodies: Array<{ url: string; body: string | undefined }> = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        bodies.push({
+          url: String(url),
+          body: init.body as string | undefined,
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => pendingListResponse,
+      });
+    }),
+  );
+  render(<MCPSection />);
+  await waitFor(() => expect(screen.getByTestId("mcp-list")).toBeTruthy());
+
+  fireEvent.click(screen.getByTestId("mcp-trust-audit-marker"));
+  await waitFor(() => expect(bodies).toHaveLength(1));
+  expect(bodies[0]!.url).toBe("/coddy/mcp/audit-marker/trust");
+  expect(JSON.parse(bodies[0]!.body ?? "{}")).toEqual({
+    fingerprint: pendingListResponse.items[0]!.fingerprint,
+  });
+});
+
 test("an approved project server offers withdrawal instead", async () => {
   const approved = {
     ...pendingListResponse,
@@ -407,4 +455,66 @@ test("under deny the shields disappear too", async () => {
   expect(
     screen.getByTestId("mcp-trust-note-audit-marker").textContent,
   ).toContain("mcp.project_trust: deny");
+});
+
+// A list the server cannot build is reported with its reason - a broken
+// mcp-overrides.json names itself - instead of reading as "no servers
+// configured", and a refresh that fails keeps the rows it had.
+test("a list that fails to load says why instead of reading as empty", async () => {
+  const failure = {
+    ok: false,
+    status: 500,
+    json: async () => ({
+      error: {
+        message:
+          "parse MCP overrides /home/op/.coddy/mcp-overrides.json: unexpected end of JSON input",
+      },
+    }),
+  };
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(failure));
+  render(<MCPSection />);
+
+  const note = await screen.findByTestId("mcp-load-error");
+  expect(note.textContent).toContain("/home/op/.coddy/mcp-overrides.json");
+  expect(screen.queryByText(/No MCP servers configured/)).toBeNull();
+});
+
+test("a refresh that fails keeps the rows and says why", async () => {
+  let fail = false;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation(() =>
+      Promise.resolve(
+        fail
+          ? {
+              ok: false,
+              status: 500,
+              json: async () => ({
+                error: { message: "probe budget spent" },
+              }),
+            }
+          : { ok: true, json: async () => listResponse },
+      ),
+    ),
+  );
+  render(<MCPSection />);
+  await waitFor(() => expect(screen.getByTestId("mcp-list")).toBeTruthy());
+
+  fail = true;
+  fireEvent.click(screen.getByTestId("mcp-refresh"));
+  const note = await screen.findByTestId("mcp-load-error");
+  expect(note.textContent).toContain("probe budget spent");
+  expect(screen.getByTestId("mcp-toggle-files")).toBeTruthy();
+});
+
+test("a list that cannot be reached at all says so instead of loading forever", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockRejectedValue(new TypeError("Failed to fetch")),
+  );
+  render(<MCPSection />);
+
+  const note = await screen.findByTestId("mcp-load-error");
+  expect(note.textContent).toContain("Failed to fetch");
+  expect(screen.queryByText("Loading…")).toBeNull();
 });

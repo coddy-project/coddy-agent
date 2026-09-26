@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
 
 // TrustFileName is the receipts file inside the coddy home directory.
@@ -130,7 +132,7 @@ func (s *TrustStore) transaction() (func(), error) {
 		mu.Unlock()
 		return nil, fmt.Errorf("hooks trust store: %w", err)
 	}
-	unlockFile, err := lockFile(s.path + ".lock")
+	unlockFile, err := platform.LockFile(s.path + ".lock")
 	if err != nil {
 		mu.Unlock()
 		return nil, err

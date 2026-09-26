@@ -448,10 +448,13 @@ The same page is an HTTP API, which is what a script or a coding agent drives:
 The fake is strict where Telegram is. An edit that changes nothing, an edit
 of a message that was never sent, a text over 4096 characters, a reply to a
 message the chat does not hold (unless `allow_sending_without_reply` says to
-send it anyway), an answer to a callback query the fake never issued, and a
-keyboard whose `callback_data` is longer than 64 bytes (`BUTTON_DATA_INVALID`)
-are refused with Telegram's own error, so a keyboard that works on the stand
-works in a chat.
+send it anyway), an answer to a callback query the fake never issued, a second
+answer to one it did (a query takes one answer, so a failure told in an alert
+after the tap was acknowledged never reaches the user), a `reply_markup` whose
+`inline_keyboard` is not an array (`null` included, what an empty keyboard of
+the Go library encodes to), and a keyboard whose `callback_data` is longer than
+64 bytes (`BUTTON_DATA_INVALID`) are refused with Telegram's own error, so a
+keyboard that works on the stand works in a chat.
 
 It also remembers `allowed_updates` the way Telegram does. A bot token that
 once ran under another framework may be subscribed to messages alone, and a
@@ -512,7 +515,7 @@ In a group the bot **only responds** when explicitly addressed. It will react to
 
 1. A message that **@mentions** the bot (`@coddy_agent_bot hello`)
 2. A **direct reply** to a previous bot message
-3. A bot command (`/clear`, `/resume`, `/model`, `/context`, `/help`, `/start`) or a settings command (`/agent`, `/plan`, `/ask`, `/reasoning`, `/think`, `/nothink`), with or without the mention
+3. A bot command (`/clear`, `/resume`, `/model`, `/mcp`, `/context`, `/help`, `/start`) or a settings command (`/agent`, `/plan`, `/ask`, `/reasoning`, `/think`, `/nothink`), with or without the mention
 
 When `isolation` is `admin`, the bot additionally ignores everyone who is not in the `admins` list.
 
@@ -523,6 +526,7 @@ When `isolation` is `admin`, the bot additionally ignores everyone who is not in
 | `/start` | all users | Greeting and quick introduction. |
 | `/help` | all users | Lists all available commands. |
 | `/model [id]` | all permitted users | Bare, opens an inline keyboard to switch the active LLM model (from the configured `models` list); with an id, switches to it at once. |
+| `/mcp` | all permitted users | Lists global and project MCP servers with status and tool count; a server that is switched off while its status is a trust verdict reads `off` as well (`checkout · needs_approval · off · 0 tools`). Buttons enable or disable servers already trusted for the workspace; a project server nobody approved gets none, because project trust is granted through the CLI, console or web UI. A tap that fails says why on the first line of the menu message, above the menu drawn afresh, or alone and without buttons when the server list cannot be read. |
 | `/agent`, `/plan`, `/ask` | all permitted users | Switch the session mode. |
 | `/reasoning <level>`, `/think [level]`, `/nothink` | all permitted users | Set the reasoning level, or turn thinking on or off where the model's provider can. Not in the command menu. |
 | `/context` | all permitted users | Displays the current session's context window usage broken down by category (conversation, system prompt, tool definitions, rules, skills, MCP). |
@@ -822,8 +826,10 @@ Next message → runs in the resumed session
 The session the chat came from stays loaded. `/resume` is a switch, not an
 ending - the chat may come straight back - while `/clear` says a conversation
 is over, and dropping it from memory belongs there. A tap on a keyboard that
-outlived its session - deleted from the web UI since the list was shown - is
-answered with an alert and binds nothing.
+outlived its session - deleted from the web UI since the list was shown -
+binds nothing and is answered in the chat, as a reply to the keyboard. It is
+not an alert: the bot acknowledges every tap as it arrives, and Telegram takes
+one answer per tap.
 
 ---
 

@@ -4,6 +4,7 @@ package session
 import (
 	"context"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -99,6 +100,16 @@ type State struct {
 	// definitions the turn already sent to the model, so the reload is parked
 	// here and drained when the turn releases the lock.
 	mcpReloadPending bool
+	// mcpDeferred marks a session restored from disk whose configured MCP
+	// servers have not been started yet: the first turn starts them
+	// (connectDeferredMCPServers), and reloads and switches leave it alone.
+	mcpDeferred bool
+	// mcpServersPending names configured servers whose switch or trust changed
+	// while a turn held the turn lock, or whose dial ran out of time
+	// (RefreshMCPServer, startConfiguredMCPServers). A turn's release closes
+	// those that should no longer run, the next turn's start dials the rest; a
+	// full reload covers them all.
+	mcpServersPending map[string]struct{}
 
 	// pendingReadyNotify holds session updates that must not reach the client
 	// before the response carrying this session id is on the wire. Only
@@ -549,13 +560,123 @@ func (s *State) markMCPReloadPending() {
 	s.mu.Unlock()
 }
 
-// hasPendingMCPReload reports whether a parked reload is waiting, without
-// clearing it. It lets the turn-lock release skip the lock dance on the common
-// path where nothing is parked.
+// hasPendingMCPReload reports whether a parked reload or a parked server is
+// waiting, without clearing it. It lets the turn-lock release skip the lock
+// dance on the common path where nothing is parked.
 func (s *State) hasPendingMCPReload() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.mcpReloadPending
+	return s.mcpReloadPending || len(s.mcpServersPending) > 0
+}
+
+// hasPendingMCPServers reports whether single servers are parked for the
+// session's next turn, without clearing them.
+func (s *State) hasPendingMCPServers() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.mcpServersPending) > 0
+}
+
+// deferConfiguredMCP marks the configured MCP servers as not started yet.
+func (s *State) deferConfiguredMCP() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.mcpClosed {
+		s.mcpDeferred = true
+	}
+}
+
+// configuredMCPDeferred reports whether the configured MCP servers still wait
+// for the session's first turn.
+func (s *State) configuredMCPDeferred() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.mcpDeferred
+}
+
+// takeDeferredConfiguredMCP clears the mark and reports whether it was set, so
+// exactly one turn starts the servers.
+func (s *State) takeDeferredConfiguredMCP() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	deferred := s.mcpDeferred
+	s.mcpDeferred = false
+	return deferred
+}
+
+// markMCPServerPending parks one configured server for reconciliation. A
+// closed session drops it: there is nothing left to reconcile.
+func (s *State) markMCPServerPending(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.mcpClosed {
+		return
+	}
+	if s.mcpServersPending == nil {
+		s.mcpServersPending = make(map[string]struct{})
+	}
+	s.mcpServersPending[name] = struct{}{}
+}
+
+// takeMCPServersPending clears the parked servers and returns their names in
+// order, so exactly one of several racing drainers reconciles them.
+func (s *State) takeMCPServersPending() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	names := make([]string, 0, len(s.mcpServersPending))
+	for name := range s.mcpServersPending {
+		names = append(names, name)
+	}
+	s.mcpServersPending = nil
+	sort.Strings(names)
+	return names
+}
+
+// configuredMCPClientDeclared reports whether a configured server of that name
+// is connected to the session, and the fingerprint of the declaration it was
+// started from.
+func (s *State) configuredMCPClientDeclared(name string) (string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, client := range s.configuredMCPClients {
+		if client.Name() == name {
+			return client.Declared(), true
+		}
+	}
+	return "", false
+}
+
+// hasConfiguredMCPClient reports whether a configured server of that name is
+// connected to the session.
+func (s *State) hasConfiguredMCPClient(name string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, client := range s.configuredMCPClients {
+		if client.Name() == name {
+			return true
+		}
+	}
+	return false
+}
+
+// closeConfiguredMCPClient disconnects one configured server from the session
+// and stops its process, leaving every other client connected.
+func (s *State) closeConfiguredMCPClient(name string) {
+	s.mu.Lock()
+	kept := make([]*mcp.Client, 0, len(s.configuredMCPClients))
+	var closing []*mcp.Client
+	for _, client := range s.configuredMCPClients {
+		if client.Name() == name {
+			closing = append(closing, client)
+			continue
+		}
+		kept = append(kept, client)
+	}
+	s.configuredMCPClients = kept
+	s.mu.Unlock()
+	for _, client := range closing {
+		_ = client.Close()
+	}
 }
 
 // setPendingReadyNotify parks session updates until the response that first

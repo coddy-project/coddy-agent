@@ -36,6 +36,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
@@ -3646,6 +3647,54 @@ mcp_servers:
 	}
 	if status, _ := do(http.MethodDelete, "/coddy/mcp/homer", ""); status != http.StatusOK {
 		t.Errorf("DELETE home-sourced status %d, want 200", status)
+	}
+
+	// An approval names the declaration the operator was shown: a checkout
+	// rewritten between the listing and the click answers 409 and records
+	// nothing, the fingerprint listed now is accepted, and a body without one
+	// approves the current declaration as before.
+	projectPath := config.MCPJSONPath(home)
+	if err := config.UpsertMCPJSONServer(projectPath, "proj", config.MCPJSONServer{Command: "/nonexistent-proj-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	listedFingerprint := func() string {
+		t.Helper()
+		_, b := do(http.MethodGet, "/coddy/mcp", "")
+		var list struct {
+			Items []struct {
+				Name        string `json:"name"`
+				Fingerprint string `json:"fingerprint"`
+			} `json:"items"`
+		}
+		if err := json.Unmarshal(b, &list); err != nil {
+			t.Fatal(err)
+		}
+		for _, item := range list.Items {
+			if item.Name == "proj" {
+				return item.Fingerprint
+			}
+		}
+		t.Fatalf("proj missing from %s", b)
+		return ""
+	}
+	shown := listedFingerprint()
+	if err := config.UpsertMCPJSONServer(projectPath, "proj", config.MCPJSONServer{Command: "/nonexistent-other-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	if status, body := do(http.MethodPost, "/coddy/mcp/proj/trust", `{"fingerprint":"`+shown+`"}`); status != http.StatusConflict {
+		t.Errorf("trust a rewritten declaration = %d %s, want 409", status, body)
+	}
+	if records := mcp.NewTrustStore(home).Records(home); len(records) != 0 {
+		t.Errorf("a refused approval was recorded: %+v", records)
+	}
+	if status, body := do(http.MethodPost, "/coddy/mcp/proj/trust", `{"fingerprint":"`+listedFingerprint()+`"}`); status != http.StatusOK {
+		t.Errorf("trust the listed declaration = %d %s, want 200", status, body)
+	}
+	if status, body := do(http.MethodPost, "/coddy/mcp/proj/trust", ""); status != http.StatusOK {
+		t.Errorf("trust without a fingerprint = %d %s, want 200", status, body)
+	}
+	if status, body := do(http.MethodPost, "/coddy/mcp/proj/trust", `{broken`); status != http.StatusBadRequest {
+		t.Errorf("trust with a malformed body = %d %s, want 400", status, body)
 	}
 
 	// Trust applies to project entries only: config.yaml servers are the

@@ -427,12 +427,24 @@ func (s *mcpFeatureState) fileRecordsDisabledTool(tool, server string) error {
 	if err != nil {
 		return err
 	}
-	for _, t := range entries[server].DisabledTools {
-		if t == tool {
-			return nil
+	if len(entries[server].DisabledTools) != 0 {
+		return fmt.Errorf("project mcp.json was modified: %+v", entries[server])
+	}
+	managed, err := mcp.ListManagedServers(s.mgr.Cfg(), s.cwd)
+	if err != nil {
+		return err
+	}
+	for _, row := range managed {
+		if row.Config.Name != server {
+			continue
+		}
+		for _, name := range row.Config.DisabledTools {
+			if name == tool {
+				return nil
+			}
 		}
 	}
-	return fmt.Errorf("mcp.json %q disabledTools = %v, want %q", server, entries[server].DisabledTools, tool)
+	return fmt.Errorf("operator state did not disable %s on %s", tool, server)
 }
 
 func (s *mcpFeatureState) fileRecordsServerDisabled(server string) error {
@@ -440,10 +452,19 @@ func (s *mcpFeatureState) fileRecordsServerDisabled(server string) error {
 	if err != nil {
 		return err
 	}
-	if !entries[server].Disabled {
-		return fmt.Errorf("mcp.json %q not disabled: %+v", server, entries[server])
+	if entries[server].Disabled {
+		return fmt.Errorf("project mcp.json was modified: %+v", entries[server])
 	}
-	return nil
+	managed, err := mcp.ListManagedServers(s.mgr.Cfg(), s.cwd)
+	if err != nil {
+		return err
+	}
+	for _, row := range managed {
+		if row.Config.Name == server && row.Config.Disabled {
+			return nil
+		}
+	}
+	return fmt.Errorf("operator state did not disable %s", server)
 }
 
 func (s *mcpFeatureState) fileContainsServer(server string) error {
@@ -501,8 +522,8 @@ func initializeMCPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^server "([^"]*)" exposes the tool "([^"]*)" as disabled$`, func(server, tool string) error {
 		return s.toolDisabled(server, tool)
 	})
-	sc.Step(`^the project mcp\.json records "([^"]*)" as a disabled tool of "([^"]*)"$`, s.fileRecordsDisabledTool)
-	sc.Step(`^the project mcp\.json records server "([^"]*)" as disabled$`, s.fileRecordsServerDisabled)
+	sc.Step(`^operator state records "([^"]*)" as a disabled tool of "([^"]*)"$`, s.fileRecordsDisabledTool)
+	sc.Step(`^operator state records server "([^"]*)" as disabled$`, s.fileRecordsServerDisabled)
 	sc.Step(`^the project mcp\.json contains server "([^"]*)"$`, s.fileContainsServer)
 	sc.Step(`^the project mcp\.json does not contain server "([^"]*)"$`, s.fileDoesNotContainServer)
 }

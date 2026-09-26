@@ -19,6 +19,10 @@ type selectorModal struct {
 	list   *tui.SelectList
 	filter string
 	help   string
+	// body is wrapped text between the title and the list: what the choice
+	// is about, read whole before choosing (the declaration a trust
+	// confirmation approves). Empty for a plain selector.
+	body string
 
 	OnDone   func(item *tui.SelectItem) // nil item = cancelled
 	onChange func()
@@ -51,6 +55,9 @@ func (m *selectorModal) rebuild() {
 		title += th.Fg(roleMuted, "  filter: "+m.filter)
 	}
 	m.AddChild(tui.NewText(title, 1, 0, nil))
+	if m.body != "" {
+		m.AddChild(tui.NewText(m.body, 1, 0, nil))
+	}
 	m.AddChild(m.list)
 	m.AddChild(tui.NewText(th.Fg(roleDim, m.help), 1, 0, nil))
 	m.AddChild(tui.NewDynamicBorder(th.FgFn(roleBorderAccent)))

@@ -578,6 +578,54 @@ describe("/docs", () => {
   });
 });
 
+test("/mcp opens MCP settings without sending a prompt", () => {
+  const onSend = vi.fn();
+  const onMCPCommand = vi.fn();
+  render(
+    <Composer
+      value=" /mcp "
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={onSend}
+      onMCPCommand={onMCPCommand}
+    />,
+  );
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Enter" });
+  expect(onMCPCommand).toHaveBeenCalledOnce();
+  expect(onSend).not.toHaveBeenCalled();
+});
+
+// The console opens its /mcp controls whatever follows the command; the web
+// composer does the same rather than send "/mcp github" to the model. A word
+// that only starts with the command is an ordinary prompt.
+test.each([
+  ["/mcp github", true],
+  ["/mcp\tgithub tools", true],
+  ["/mcpx", false],
+  ["/mcp-servers", false],
+])("%j runs the MCP command: %s", (value, opens) => {
+  const onSend = vi.fn();
+  const onMCPCommand = vi.fn();
+  render(
+    <Composer
+      value={value}
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={onSend}
+      onMCPCommand={onMCPCommand}
+    />,
+  );
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Enter" });
+  expect(onMCPCommand).toHaveBeenCalledTimes(opens ? 1 : 0);
+  expect(onSend).toHaveBeenCalledTimes(opens ? 0 : 1);
+});
+
 test("generating shows stop and calls onStop", () => {
   let stopped = false;
   render(

