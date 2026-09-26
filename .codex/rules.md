@@ -33,7 +33,7 @@ echo '{"hook_event_name":"PreToolUse","session_id":"probe","tool_input":{"comman
 | [architecture.mdc](../.cursor/rules/architecture.mdc) | Go architecture, layers, optional build tags | always |
 | [code-style.mdc](../.cursor/rules/code-style.mdc) | Go formatting, linting, code comments | always |
 | [testing.mdc](../.cursor/rules/testing.mdc) | Go test commands, tags, and conventions | always |
-| [workflow.mdc](../.cursor/rules/workflow.mdc) | BDD/TDD workflow, UI screenshots in the PR, final checks | always |
+| [workflow.mdc](../.cursor/rules/workflow.mdc) | BDD/TDD workflow, UI screenshots in the PR, final checks, the comment on an issue a merge closes | always |
 | [russian-wording.mdc](../.cursor/rules/russian-wording.mdc) | Russian wording: `агентный` (never `агентский`), `субагент` (never `сабагент`), `worktree` (never `рабочее дерево`) | always |
 | [api-layer.mdc](../.cursor/rules/api-layer.mdc) | HTTP API handlers, OpenAPI, HTTP docs | `external/httpserver/**/*.go` |
 | [core-modules.mdc](../.cursor/rules/core-modules.mdc) | Main `internal/*` package boundaries | `internal/**/*.go` |
