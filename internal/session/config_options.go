@@ -82,7 +82,14 @@ func BuildACPConfigOptions(cfg *config.Config, state *State) []acp.ConfigOption 
 	if effectivePerm == "" {
 		effectivePerm = cfg.Tools.ResolvedPermMode()
 	}
-	permOpt := acp.ConfigOption{
+	return append(out, PermissionModeOption(effectivePerm))
+}
+
+// PermissionModeOption is the ACP config option of a session's permission
+// mode with current as its value: what an editor shows as a selector and a
+// console reads for its footer on entering the session.
+func PermissionModeOption(current string) acp.ConfigOption {
+	return acp.ConfigOption{
 		ID:          "permission_mode",
 		Name:        "Permission mode",
 		Description: "Controls when the agent asks for user approval before running tools.",
@@ -90,12 +97,11 @@ func BuildACPConfigOptions(cfg *config.Config, state *State) []acp.ConfigOption 
 		// namespace ACP leaves to an agent's own options.
 		Category:     "_permission_mode",
 		Type:         "select",
-		CurrentValue: effectivePerm,
+		CurrentValue: current,
 		Options: []acp.ConfigOptionValue{
 			{Value: config.PermModeAsk, Name: "Ask", Description: "Always ask before running commands or writing files"},
 			{Value: config.PermModeAcceptEdits, Name: "Accept edits", Description: "Auto-approve file writes; ask before running commands"},
 			{Value: config.PermModeBypass, Name: "Bypass", Description: "Never ask for permission"},
 		},
 	}
-	return append(out, permOpt)
 }

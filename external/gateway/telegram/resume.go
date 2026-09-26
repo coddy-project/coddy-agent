@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
@@ -161,13 +163,43 @@ func (b *Bot) resumeSession(ctx context.Context, key string, row acp.SessionList
 	if old == id {
 		return "▶️ This chat is already on " + resumeTitle(row) + "\n" + id, nil
 	}
-	if _, err := b.runner.EnsureHTTPSession(ctx, id, b.cwd); err != nil {
+	st, err := b.runner.EnsureHTTPSession(ctx, id, b.cwd)
+	if err != nil {
 		b.log.Warn("telegram: resume session", "err", err, "session", id, "user", userID, "chat", chatID)
 		return "", err
 	}
 	b.store.Bind(key, id)
 	b.log.Info("telegram: session resumed", "old", old, "new", id, "user", userID, "chat", chatID)
-	return "▶️ Resumed: " + resumeTitle(row) + "\n" + id + "\n\nSend a message to continue it.", nil
+	text := "▶️ Resumed: " + resumeTitle(row) + "\n" + id
+	if line := sessionSettingsLine(b.runner.Cfg(), st); line != "" {
+		text += "\n" + line
+	}
+	return text + "\n\nSend a message to continue it.", nil
+}
+
+// sessionSettingsLine names what a resumed session runs on, as it keeps it:
+// its model, its reasoning level where the model offers any ("default" when
+// neither the session nor the model names one, so the provider's own level
+// applies), and its mode when it is not agent. It is the session's own, never
+// the model last picked on this bot, which only a fresh chat starts on (#362).
+func sessionSettingsLine(cfg *config.Config, st *session.State) string {
+	if cfg == nil || st == nil {
+		return ""
+	}
+	model := st.SessionModelID(cfg)
+	if model == "" {
+		return ""
+	}
+	line := "Model: " + model
+	if level := st.SessionReasoning(cfg); level != "" {
+		line += ", reasoning " + level
+	} else if len(cfg.ReasoningChoicesFor(cfg.FindModelEntry(model))) > 0 {
+		line += ", reasoning default"
+	}
+	if mode := st.GetMode(); mode != "" && mode != string(session.ModeAgent) {
+		line += ", " + mode + " mode"
+	}
+	return line
 }
 
 // listSessions asks the server for the sessions it keeps, newest first. No

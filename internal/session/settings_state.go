@@ -79,6 +79,57 @@ type turnSettings struct {
 	last turnValues
 }
 
+// processSettings are the settings of a session that live in the process's
+// memory and nowhere else: its permission mode (a restart returns to
+// tools.permission_mode, #292), the overrides armed for its next turns, and
+// what its last operator turn held, which a permission resume takes back.
+type processSettings struct {
+	permissionMode string
+	armed          map[string]armedOverride
+	last           turnValues
+}
+
+func (p processSettings) empty() bool {
+	return p.permissionMode == "" && len(p.armed) == 0 && p.last == (turnValues{})
+}
+
+// readProcessSettings reads what the session keeps in process memory only.
+func (s *State) readProcessSettings() processSettings {
+	out := processSettings{permissionMode: s.GetPermissionMode()}
+	s.settingsMu.Lock()
+	defer s.settingsMu.Unlock()
+	out.last = s.turn.last
+	for setting, o := range s.turn.armed {
+		if o != nil && o.turnsLeft > 0 {
+			if out.armed == nil {
+				out.armed = make(map[string]armedOverride, len(s.turn.armed))
+			}
+			out.armed[setting] = *o
+		}
+	}
+	return out
+}
+
+// restoreProcessSettings puts back what readProcessSettings read from the live
+// state of this session before a surface let go of it. The state is being
+// built, so nothing is persisted and nobody is told.
+func (s *State) restoreProcessSettings(p processSettings) {
+	s.mu.Lock()
+	s.PermissionMode = p.permissionMode
+	s.mu.Unlock()
+	s.settingsMu.Lock()
+	for setting, o := range p.armed {
+		if s.turn.armed == nil {
+			s.turn.armed = make(map[string]*armedOverride, len(p.armed))
+		}
+		copied := o
+		s.turn.armed[setting] = &copied
+	}
+	s.turn.last = p.last
+	s.settingsMu.Unlock()
+	s.bumpSettingsRevision()
+}
+
 // settingsRevision counts changes of anything a model request reads - the
 // session's model and reasoning, the running turn's values - so the loop can
 // tell between two requests that it has to build a new transport.

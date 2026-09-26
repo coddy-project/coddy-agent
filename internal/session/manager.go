@@ -97,6 +97,14 @@ type Manager struct {
 	// (context_window.go).
 	windows contextWindowState
 
+	// kept holds the process-memory settings of the sessions no surface holds
+	// live right now (settings_state.go): a surface that lets go of a session
+	// - the console does on /new and /resume - must not take its permission
+	// mode and its armed overrides with it, since those last as long as the
+	// process (#362).
+	keptMu sync.Mutex
+	kept   map[string]processSettings
+
 	// testHooks pause the manager at points a test needs to observe; every
 	// field is nil outside tests (see export_test.go).
 	testHooks struct {
@@ -512,6 +520,10 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		// no turn ever runs on it.
 		st.SetSchedulerJobWithoutPersist(snap.Meta.SchedulerJobID)
 		jobSession = true
+	} else if kept, ok := m.keptProcessSettings(params.SessionID); ok {
+		// A surface let go of this session earlier in this process: its
+		// permission mode and its armed overrides come back with it.
+		st.restoreProcessSettings(kept)
 	}
 	st.SetTitlePinnedWithoutPersist(snap.Meta.TitlePinned)
 	st.SetTagsWithoutPersist(snap.Meta.Tags)
@@ -645,14 +657,74 @@ func (m *Manager) EnsureHTTPSession(ctx context.Context, sessionID string, defau
 	return st, nil
 }
 
-// ForgetLiveSession disconnects MCP clients for the id and removes it from the active map (does not touch disk).
+// ForgetLiveSession disconnects MCP clients for the id and removes it from the
+// active map (does not touch disk). What the session keeps in process memory
+// only is set aside for the next load of the same id, unless the session is
+// being deleted.
 func (m *Manager) ForgetLiveSession(sessionID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if st, ok := m.sessions[sessionID]; ok {
+	st := m.sessions[sessionID]
+	m.keepProcessSettings(sessionID, st)
+	if st != nil {
 		st.CloseAll()
 		delete(m.sessions, sessionID)
 	}
+}
+
+// keepProcessSettings sets aside the process-memory settings of an ordinary
+// session a surface lets go of (st nil: not live, what was set aside stays). A
+// child's settings were fixed at spawn and a job session runs nothing, so
+// neither is kept; nor is anything for a session being deleted, whose id never
+// comes back.
+func (m *Manager) keepProcessSettings(sessionID string, st *State) {
+	deleting := m.isDeleting(sessionID)
+	if st == nil && !deleting {
+		return
+	}
+	var p processSettings
+	if st != nil && !deleting && st.Subagent() == nil && !st.IsSchedulerJob() {
+		p = st.readProcessSettings()
+	}
+	m.keptMu.Lock()
+	defer m.keptMu.Unlock()
+	if p.empty() {
+		delete(m.kept, sessionID)
+		return
+	}
+	if m.kept == nil {
+		m.kept = make(map[string]processSettings)
+	}
+	m.kept[sessionID] = p
+}
+
+// keptProcessSettings is what keepProcessSettings set aside for sessionID.
+func (m *Manager) keptProcessSettings(sessionID string) (processSettings, bool) {
+	m.keptMu.Lock()
+	defer m.keptMu.Unlock()
+	p, ok := m.kept[sessionID]
+	return p, ok
+}
+
+// dropKeptProcessSettings forgets what was set aside for sessionID: the live
+// state holds it again, or the session is gone.
+func (m *Manager) dropKeptProcessSettings(sessionID string) {
+	m.keptMu.Lock()
+	defer m.keptMu.Unlock()
+	delete(m.kept, sessionID)
+}
+
+// keepIfLetGo sets aside the process-memory settings of st when a surface let
+// go of it while a change to it was being written: the change would otherwise
+// live on a state no load returns to. A state loaded again meanwhile holds
+// what was set aside before the change; that interleaving is left as it is.
+func (m *Manager) keepIfLetGo(sessionID string, st *State) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, live := m.sessions[sessionID]; live {
+		return
+	}
+	m.keepProcessSettings(sessionID, st)
 }
 
 // FileStore returns the persistence backend or nil when the manager runs without disk (tests only).
@@ -1276,6 +1348,10 @@ func (m *Manager) registerSession(id string, st *State) (winner *State, register
 		return existing, false
 	}
 	m.sessions[id] = st
+	// What a surface let go of is the live state's again (loadSessionFromDisk
+	// restored it). Taken under the lock ForgetLiveSession sets it aside under,
+	// so a let-go right after this registration keeps what it reads.
+	m.dropKeptProcessSettings(id)
 	return st, true
 }
 

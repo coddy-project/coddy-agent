@@ -50,9 +50,11 @@ const (
 )
 
 // providerContextWindows reads the provider-reported windows a manager has
-// cached; the manager hands itself to every state it registers.
+// cached, and fetches the ones it lacks; the manager hands itself to every
+// state it registers.
 type providerContextWindows interface {
 	reportedContextWindow(cfg *config.Config, ent *config.ModelEntry) (int, bool)
+	AwaitContextWindows(ctx context.Context, cfg *config.Config, modelRefs []string, maxWait time.Duration)
 }
 
 // ModelListerFunc lists a provider's models; llm.ListModels in production.
@@ -138,6 +140,17 @@ func (s *State) ContextWindowFor(cfg *config.Config, modelRef string) (tokens in
 		return s.ContextWindow(cfg)
 	}
 	return resolveContextWindow(cfg, modelRef, s.contextWindows)
+}
+
+// AwaitContextWindow makes sure the window of modelRef is read before a
+// request measures against it - the model a running turn just switched to -
+// waiting up to ContextWindowWait, or until ctx ends, for a provider listing
+// that has never answered. A state no manager built has nothing to fetch.
+func (s *State) AwaitContextWindow(ctx context.Context, cfg *config.Config, modelRef string) {
+	if s == nil || cfg == nil || s.contextWindows == nil || strings.TrimSpace(modelRef) == "" {
+		return
+	}
+	s.contextWindows.AwaitContextWindows(ctx, cfg, []string{modelRef}, ContextWindowWait)
 }
 
 // ContextWindow resolves the context window of modelRef without waiting: the

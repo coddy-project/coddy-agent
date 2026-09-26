@@ -1227,21 +1227,57 @@ export function App() {
   });
   const [llmReasoning, setLlmReasoning] = useState("");
   /**
-   * Raw model/reasoning stored on the opened session. Held until the backends
-   * list (`llmModelIds`) is available so the restore survives whichever of
-   * `/v1/models` and `/coddy/sessions/.../messages` resolves first on reload.
+   * The opened session's own model and reasoning, as its settings snapshot
+   * names them, with the levels the snapshot says it may hold. Held until the
+   * backends list (`llmModelIds`) is available so the restore survives
+   * whichever of `/v1/models` and `/coddy/sessions/.../messages` resolves
+   * first on reload.
    */
   const [openSessionSelection, setOpenSessionSelection] = useState<{
     sid: string;
     model: string;
     reasoning: string;
+    choices: string[];
   } | null>(null);
   /** The selection object already applied to the composer; see the effect below. */
   const appliedSessionSelectionRef = useRef<{
     sid: string;
     model: string;
     reasoning: string;
+    choices: string[];
   } | null>(null);
+  /**
+   * The reasoning levels the viewed session's last snapshot named for its
+   * model (`reasoningChoices`): the menu's levels plus `off` where the
+   * provider can turn thinking off, which `GET /v1/models` does not list. The
+   * level is checked against them wherever the composer re-validates it, so a
+   * session running with thinking off is shown and sent as such.
+   */
+  const sessionReasoningChoicesRef = useRef<{
+    sid: string;
+    model: string;
+    choices: string[];
+  }>({ sid: "", model: "", choices: [] });
+  /** The same record as state, for what renders from it (the level menu). */
+  const [sessionReasoningChoices, setSessionReasoningChoicesState] = useState<{
+    sid: string;
+    model: string;
+    choices: string[];
+  }>({ sid: "", model: "", choices: [] });
+  const setSessionReasoningChoices = useCallback(
+    (next: { sid: string; model: string; choices: string[] }) => {
+      sessionReasoningChoicesRef.current = next;
+      setSessionReasoningChoicesState(next);
+    },
+    [],
+  );
+  /**
+   * Set while the level on the chip is the one the chooser resolved for an
+   * existing session that has none of its own (a model with no
+   * `reasoning_default`): shown so the chip names what the turn runs at, and
+   * never sent, so the session is not pinned to a level nobody chose.
+   */
+  const reasoningImpliedRef = useRef(false);
   const [describePreview, setDescribePreview] = useState<{
     sessionId: string;
     title: string;
@@ -2281,10 +2317,12 @@ export function App() {
       return;
     }
     appliedSessionSelectionRef.current = openSessionSelection;
+    // The session's own model. What the start page picked, and the cookie that
+    // remembers it, are a new chat's default: shown here they would ride into
+    // this session with its next message (#362).
     const nextModel = pickLlmModelForOpenSession({
       backends: llmModelIds,
       sessionModel: openSessionSelection.model,
-      cookie: readLlmModelCookie(),
     });
     setLlmModel(nextModel);
     // A session carries a reasoning level only once something chose one for it,
@@ -2292,13 +2330,22 @@ export function App() {
     // effective level as empty. Applied as it comes, that empties the composer
     // while the turn still runs at the model's default - so it goes through the
     // same chooser as every other path, with the session's value as the
-    // preference rather than as the answer.
+    // preference rather than as the answer, and without the cookie.
     const openRow = modelInfos.find((m) => m.id === nextModel);
+    const choices =
+      nextModel === openSessionSelection.model ? openSessionSelection.choices : [];
+    setSessionReasoningChoices({
+      sid: openSessionSelection.sid,
+      model: nextModel,
+      choices,
+    });
+    reasoningImpliedRef.current = !openSessionSelection.reasoning.trim();
     setLlmReasoning(
       pickReasoningLevel({
         levels: openRow?.reasoningLevels ?? [],
-        cookie: readReasoningCookie(),
+        cookie: null,
         sessionLevel: openSessionSelection.reasoning,
+        sessionChoices: choices,
         modelDefault: openRow?.reasoningDefault ?? null,
       }),
     );
@@ -2856,17 +2903,33 @@ export function App() {
       return null;
     }
     if (viewingNow === sid) {
-      // Stash the session's saved selection; an effect applies it once the
-      // backends list is loaded (the two fetches race on reload). The reasoning
-      // level is later validated by the clamp effect against the chosen model.
-      setOpenSessionSelection({
-        sid,
-        model: (res.data.model || res.data.selectedModelId || "").trim(),
-        reasoning: (res.data.selectedReasoning || "").trim(),
-      });
-      // The whole snapshot: the mode, the permission mode, the overrides for
-      // the next turns, and the version the next send names.
+      // The whole snapshot: the model, the level, the mode, the permission
+      // mode, the overrides for the next turns, and the version the next send
+      // names.
       const snap = parseSessionSettings(res.data.settings);
+      // Stash the session's own selection; an effect applies it once the
+      // backends list is loaded (the two fetches race on reload). It is the
+      // snapshot's: the top-level model and selectedReasoning name what a
+      // running turn holds, and a turn override taken for the session's
+      // model would become it with the next message. A read whose snapshot
+      // is older than the one this tab already applied - the events stream
+      // got ahead of a slow read - says nothing new and moves nothing back.
+      const held =
+        settingsVersionRef.current.sid === sid
+          ? settingsVersionRef.current.version
+          : 0;
+      if (!snap || isNewerSettings(held, sid, snap)) {
+        setOpenSessionSelection({
+          sid,
+          model: snap
+            ? snap.model
+            : (res.data.model || res.data.selectedModelId || "").trim(),
+          reasoning: snap
+            ? snap.reasoning
+            : (res.data.selectedReasoning || "").trim(),
+          choices: snap?.reasoningChoices ?? [],
+        });
+      }
       if (snap) {
         applySessionSettings(snap);
       }
@@ -3277,18 +3340,33 @@ export function App() {
     // Drop any stashed session selection so its restore effect cannot reapply
     // the old session's model over the new chat default.
     setOpenSessionSelection(null);
+    setSessionReasoningChoices({ sid: "", model: "", choices: [] });
+    // A new chat sends its level with the first message: that is its own.
+    reasoningImpliedRef.current = false;
     // A new chat runs under the configured permission mode until it is changed.
     settingsVersionRef.current = { sid: "", version: 0 };
     pendingPermissionModeRef.current = "";
     setPermissionMode(configuredPermissionMode);
     setSettingsOverrides([]);
     if (llmModelIds.length > 0) {
-      setLlmModel(
-        pickDefaultLlmModelForNewChat({
-          backends: llmModelIds,
-          cookie: readLlmModelCookie(),
-        }),
-      );
+      const model = pickDefaultLlmModelForNewChat({
+        backends: llmModelIds,
+        cookie: readLlmModelCookie(),
+      });
+      setLlmModel(model);
+      // A new chat starts from this surface's defaults, never from the level
+      // the session it left behind ran at (#362): the cookie, then the model's
+      // default. A model whose row has not arrived is left to the clamp effect.
+      const row = modelInfos.find((m) => m.id === model);
+      if (row) {
+        setLlmReasoning(
+          pickReasoningLevel({
+            levels: row.reasoningLevels ?? [],
+            cookie: readReasoningCookie(),
+            modelDefault: row.reasoningDefault ?? null,
+          }),
+        );
+      }
     }
   }
 
@@ -4344,10 +4422,14 @@ export function App() {
         settingsVersionRef.current.sid === sid.trim()
           ? settingsVersionRef.current.version
           : 0;
-      if (yamlSel || reasoningSel || runSlug || heldVersion > 0) {
+      // The level the chip names for a session with none of its own is shown,
+      // not chosen: sent, it would pin the session to it (#362).
+      const sendReasoning =
+        reasoningSel !== "" && !(sid.trim() && reasoningImpliedRef.current);
+      if (yamlSel || sendReasoning || runSlug || heldVersion > 0) {
         const meta: Record<string, string> = {};
         if (yamlSel) meta.model = yamlSel;
-        if (reasoningSel) meta.reasoning = reasoningSel;
+        if (sendReasoning) meta.reasoning = reasoningSel;
         if (runSlug) meta.runPlanSlug = runSlug;
         if (heldVersion > 0) meta.settingsVersion = String(heldVersion);
         reqBody.metadata = meta;
@@ -4828,11 +4910,27 @@ export function App() {
 
   const llmReasoningLevels = useMemo(() => {
     const row = modelInfos.find((m) => m.id === llmModel);
-    return row?.reasoningLevels ?? [];
-  }, [modelInfos, llmModel]);
+    const levels = row?.reasoningLevels ?? [];
+    // Off is not a level GET /v1/models lists; the viewed session's snapshot
+    // names it where the provider can turn thinking off, and the menu offers
+    // it there, so a session can be switched back to it as well as shown so.
+    const known = sessionReasoningChoices;
+    if (
+      levels.length > 0 &&
+      known.sid !== "" &&
+      known.sid === sessionId.trim() &&
+      known.model === llmModel &&
+      known.choices.includes("off") &&
+      !levels.includes("off")
+    ) {
+      return [...levels, "off"];
+    }
+    return levels;
+  }, [modelInfos, llmModel, sessionReasoningChoices, sessionId]);
 
   // Keep the selected reasoning level valid for the current model: keep the user's
-  // pick when the new model still offers it, else fall back (cookie -> model default).
+  // pick when the new model still offers it, else fall back (the cookie for a new
+  // chat, then the model default).
   useEffect(() => {
     const row = modelInfos.find((m) => m.id === llmModel);
     // Nothing is known about a model whose row has not arrived - the list is still
@@ -4844,11 +4942,16 @@ export function App() {
       return;
     }
     const levels = row.reasoningLevels ?? [];
+    const viewed = viewedSessionIdRef.current.trim();
+    const known = sessionReasoningChoicesRef.current;
     setLlmReasoning((prev) =>
       pickReasoningLevel({
         levels,
-        cookie: readReasoningCookie(),
+        // An open session's level is its own; the cookie seeds a new chat only.
+        cookie: viewed ? null : readReasoningCookie(),
         sessionLevel: prev,
+        sessionChoices:
+          viewed && known.sid === viewed && known.model === llmModel ? known.choices : [],
         modelDefault: row.reasoningDefault ?? null,
       }),
     );
@@ -4882,7 +4985,28 @@ export function App() {
     if (snap.model && llmModelIds.includes(snap.model)) {
       setLlmModel(snap.model);
     }
-    setLlmReasoning(snap.reasoning);
+    setSessionReasoningChoices({
+      sid: snap.sessionId,
+      model: snap.model,
+      choices: snap.reasoningChoices,
+    });
+    reasoningImpliedRef.current = !snap.reasoning.trim();
+    // An empty level is the model's own default when the model names none:
+    // shown as it comes, it blanks the chip while the session still runs at
+    // that default, so it goes through the chooser the open path uses. A
+    // model whose row has not arrived is left to the clamp effect.
+    const row = modelInfos.find((m) => m.id === snap.model);
+    setLlmReasoning(
+      row
+        ? pickReasoningLevel({
+            levels: row.reasoningLevels ?? [],
+            cookie: null,
+            sessionLevel: snap.reasoning,
+            sessionChoices: snap.reasoningChoices,
+            modelDefault: row.reasoningDefault ?? null,
+          })
+        : snap.reasoning,
+    );
   });
 
   /** patchSessionSettings sends a settings change and mirrors the answer. */
@@ -4931,6 +5055,7 @@ export function App() {
       }
       setLlmReasoning(lv);
       writeReasoningCookie(lv);
+      reasoningImpliedRef.current = false;
       const sid = sessionId.trim();
       if (!sid) {
         return;

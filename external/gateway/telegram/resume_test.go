@@ -16,6 +16,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 func sessionRow(id, title, updated string) acp.SessionListInfo {
@@ -457,5 +458,33 @@ func TestGroupChatAnswersResumeWithoutAMention(t *testing.T) {
 	msg := commandMessage("/resume login")
 	if !b.shouldRespond(msg, msg.Text) {
 		t.Fatal("/resume in a group is not answered")
+	}
+}
+
+// The line a resume answers with names the session's own settings: a level it
+// chose, "default" when neither it nor its model names one, nothing for a model
+// without levels, and a mode other than agent.
+func TestSessionSettingsLineNamesTheSessionsOwnSettings(t *testing.T) {
+	levels := []string{"low", "medium", "high"}
+	cfg := &config.Config{
+		Models: []config.ModelEntry{
+			{Model: "stub/plain"},
+			{Model: "stub/thinker", ReasoningLevels: &levels},
+		},
+		Agent: config.Agent{Model: "stub/plain"},
+	}
+	for _, tc := range []struct {
+		name string
+		st   *session.State
+		want string
+	}{
+		{"agent model, no levels", &session.State{Mode: session.ModeAgent}, "Model: stub/plain"},
+		{"a level of its own", &session.State{Mode: session.ModeAgent, SelectedModelID: "stub/thinker", SelectedReasoning: "high"}, "Model: stub/thinker, reasoning high"},
+		{"no level of its own", &session.State{Mode: session.ModeAgent, SelectedModelID: "stub/thinker"}, "Model: stub/thinker, reasoning default"},
+		{"plan mode", &session.State{Mode: session.ModePlan, SelectedModelID: "stub/thinker", SelectedReasoning: "low"}, "Model: stub/thinker, reasoning low, plan mode"},
+	} {
+		if got := sessionSettingsLine(cfg, tc.st); got != tc.want {
+			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }

@@ -5,7 +5,9 @@ Feature: Session settings from the dialogue
   --count=N, for that many turns; a prompt that is only commands runs no turn.
   The permission dialog can switch the session to bypass for the rest of the
   session (#292). Every change is published as a versioned snapshot, so every
-  browser tab mirrors it.
+  browser tab mirrors it. A model switched while a turn runs answers from the
+  turn's next request, and the answer in flight keeps the name of the model
+  that wrote it (#362).
 
   Background:
     Given a running coddy server with the models "fake/a" and "fake/b"
@@ -40,3 +42,10 @@ Feature: Session settings from the dialogue
     And the session permission mode is switched to "ask" over the API
     When the user sends "run it" and answers the first prompt with "allow"
     Then 1 permission prompt was shown
+
+  Scenario: A model switched during a turn answers the turn's next step
+    Given the browser switches the session to "fake/b" while the model "a" answers
+    When the user sends "go on"
+    Then the model "a" answered 1 request
+    And the model "b" answered 1 request
+    And the transcript signs the answers "fake/a, fake/b"

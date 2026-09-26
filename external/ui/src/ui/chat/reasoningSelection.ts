@@ -4,11 +4,16 @@
  * Precedence: a valid stored session level wins (when opening a session), then the
  * user's cookie preference, then the model's configured default, then "medium" if
  * offered, else the first level. Returns "" when the model has no reasoning levels.
+ * An existing session passes no cookie: the cookie is a new chat's default and
+ * never stands in for a session's own level. `sessionChoices` are the levels the
+ * session's snapshot says it may hold (`reasoningChoices`), which add "off" where
+ * the provider can turn thinking off: the menu's levels do not name it.
  */
 export function pickReasoningLevel(opts: {
   levels: readonly string[];
   cookie: string | null;
   sessionLevel?: string | null;
+  sessionChoices?: readonly string[];
   modelDefault?: string | null;
 }): string {
   const levels = opts.levels || [];
@@ -18,7 +23,7 @@ export function pickReasoningLevel(opts: {
   const has = (v: string) => levels.includes(v);
 
   const session = (opts.sessionLevel || "").trim();
-  if (session && has(session)) {
+  if (session && (has(session) || (opts.sessionChoices ?? []).includes(session))) {
     return session;
   }
   const cookie = (opts.cookie || "").trim();

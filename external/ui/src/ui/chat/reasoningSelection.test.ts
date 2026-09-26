@@ -47,3 +47,16 @@ test("session level invalid for model falls through to cookie", () => {
     pickReasoningLevel({ levels, sessionLevel: "ultra", cookie: "high" }),
   ).toBe("high");
 });
+
+test("a session holds a level its snapshot offers beyond the menu's, such as off", () => {
+  expect(
+    pickReasoningLevel({
+      levels,
+      cookie: null,
+      sessionLevel: "off",
+      sessionChoices: [...levels, "off"],
+    }),
+  ).toBe("off");
+  // Without the snapshot's word for it, off is not a level of the model.
+  expect(pickReasoningLevel({ levels, cookie: null, sessionLevel: "off" })).toBe("medium");
+});

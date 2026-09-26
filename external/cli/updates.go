@@ -121,6 +121,9 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 	case sessionResumed:
 		a.switching = false
 		a.adoptSession(u.id, u.modes, u.opts)
+		if u.settings != nil {
+			a.adoptSettingsSnapshot(*u.settings)
+		}
 		a.populateHeader()
 		a.refreshFooterModel()
 		a.foot.SetSession("", a.modeID)

@@ -308,6 +308,9 @@ type messagesResponse struct {
 	SelectedReasoning string `json:"selectedReasoning,omitempty"`
 	Model             string `json:"model,omitempty"`
 	Mode              string `json:"mode,omitempty"`
+	// Settings is the session's settings snapshot: what a surface entering
+	// the session shows, its permission mode included (#362).
+	Settings *acp.SessionSettings `json:"settings,omitempty"`
 }
 
 func (h *Handler) sessionMessages(ctx context.Context, id string) (*messagesResponse, error) {

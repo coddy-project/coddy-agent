@@ -108,3 +108,50 @@ func TestRegisterSessionKeepsFirstWriter(t *testing.T) {
 		t.Fatalf("a second writer must not replace the live session")
 	}
 }
+
+// What a surface lets go of is set aside once and handed back once: the
+// registration of the next load takes it, a change written to a state already
+// let go of is set aside with it, and a session being deleted leaves nothing
+// behind, live or not (#362).
+func TestKeptProcessSettingsFollowTheSessionsLife(t *testing.T) {
+	mgr := newLoadTestManager(t, t.TempDir(), nil)
+	first := &State{ID: "s1"}
+	first.SetPermissionMode("bypass")
+	first.ArmTurnOverride(SettingModel, "p/m", 2)
+	if _, ok := mgr.registerSession("s1", first); !ok {
+		t.Fatal("registerSession lost an empty map")
+	}
+	mgr.ForgetLiveSession("s1")
+	kept, ok := mgr.keptProcessSettings("s1")
+	if !ok || kept.permissionMode != "bypass" || kept.armed[SettingModel].turnsLeft != 2 {
+		t.Fatalf("set aside %+v (%v), want bypass and the model armed for 2 turns", kept, ok)
+	}
+
+	// A change that reaches the state after it was let go of is set aside too.
+	first.SetPermissionMode("accept_edits")
+	mgr.keepIfLetGo("s1", first)
+	if kept, _ := mgr.keptProcessSettings("s1"); kept.permissionMode != "accept_edits" {
+		t.Fatalf("a change to a state let go of was lost: %+v", kept)
+	}
+
+	again := &State{ID: "s1"}
+	if _, ok := mgr.registerSession("s1", again); !ok {
+		t.Fatal("registerSession did not take the id back")
+	}
+	if _, ok := mgr.keptProcessSettings("s1"); ok {
+		t.Fatal("the registration left the set-aside settings behind")
+	}
+
+	// Deleted while nothing holds it live: the set-aside entry goes too.
+	again.SetPermissionMode("bypass")
+	mgr.ForgetLiveSession("s1")
+	if _, ok := mgr.keptProcessSettings("s1"); !ok {
+		t.Fatal("nothing set aside for the second let-go")
+	}
+	mgr.markDeleting([]string{"s1"}, true)
+	mgr.ForgetLiveSession("s1")
+	mgr.markDeleting([]string{"s1"}, false)
+	if _, ok := mgr.keptProcessSettings("s1"); ok {
+		t.Fatal("a deleted session left its settings set aside")
+	}
+}

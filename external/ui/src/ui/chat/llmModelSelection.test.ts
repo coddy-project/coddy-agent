@@ -33,22 +33,26 @@ test("new chat ignores a cookie naming a model that is gone", () => {
   ).toBe("aaa/m");
 });
 
-test("open session uses stored model even when cookie differs", () => {
+test("open session uses its stored model", () => {
   expect(
     pickLlmModelForOpenSession({
       backends,
       sessionModel: "openai/gpt-4o-mini",
-      cookie: "openai/gpt-4o",
     }),
   ).toBe("openai/gpt-4o-mini");
 });
 
-test("open session without stored model falls back to new-chat default", () => {
+test("open session without a listed model falls back to the alphabetically first backend", () => {
   expect(
     pickLlmModelForOpenSession({
       backends: ["zed/m", "aaa/m"],
       sessionModel: "",
-      cookie: null,
+    }),
+  ).toBe("aaa/m");
+  expect(
+    pickLlmModelForOpenSession({
+      backends: ["zed/m", "aaa/m"],
+      sessionModel: "removed/m",
     }),
   ).toBe("aaa/m");
 });

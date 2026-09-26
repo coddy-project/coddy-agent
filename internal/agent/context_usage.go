@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -51,6 +52,23 @@ func (a *Agent) setContextBreakdown(b *session.ContextBreakdown, persist bool) {
 type contextWindowState interface {
 	ContextWindow(cfg *config.Config) (tokens int, source string)
 	ContextWindowFor(cfg *config.Config, modelRef string) (tokens int, source string)
+}
+
+// contextWindowAwaiter is implemented by session.State: it reads the window
+// of a model the session just switched to through its manager, waiting a
+// bounded moment for a provider listing that has never answered.
+type contextWindowAwaiter interface {
+	AwaitContextWindow(ctx context.Context, cfg *config.Config, modelRef string)
+}
+
+// awaitContextWindow makes sure the window of model is known before the next
+// request measures its context against it. A state without a manager behind
+// it has only max_context_tokens and the default to go by, so it returns at
+// once.
+func (a *Agent) awaitContextWindow(ctx context.Context, model string) {
+	if cw, ok := a.state.(contextWindowAwaiter); ok {
+		cw.AwaitContextWindow(ctx, a.cfg, model)
+	}
 }
 
 // contextWindow is the window the compaction trigger and usage_update measure

@@ -3147,9 +3147,19 @@ type settingsHarness struct {
 	sessionID string
 	mu        sync.Mutex
 	providers map[string]*scriptedProvider
+	// onBuild, when set, runs whenever the agent builds a provider for an
+	// API model id, before the provider is handed back.
+	onBuild func(apiModel string)
 }
 
 func newSettingsHarness(t *testing.T, models ...string) *settingsHarness {
+	t.Helper()
+	return newSettingsHarnessWith(t, nil, models...)
+}
+
+// newSettingsHarnessWith is newSettingsHarness with tune applied to the
+// configuration before the manager sees it.
+func newSettingsHarnessWith(t *testing.T, tune func(*config.Config), models ...string) *settingsHarness {
 	t.Helper()
 	root := t.TempDir()
 	cwd := t.TempDir()
@@ -3162,6 +3172,9 @@ func newSettingsHarness(t *testing.T, models ...string) *settingsHarness {
 	for _, m := range models {
 		cfg.Models = append(cfg.Models, config.ModelEntry{Model: m, MaxTokens: 100})
 	}
+	if tune != nil {
+		tune(cfg)
+	}
 	cfg.Tools.PermissionMode = config.PermModeBypass
 	cfg.Subagents.ApplyDefaults(cfg.Paths)
 	cfg.Hooks.ApplyDefaults(cfg.Paths)
@@ -3170,7 +3183,15 @@ func newSettingsHarness(t *testing.T, models ...string) *settingsHarness {
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
 		loop := NewAgent(cfg, st, snd, slog.Default())
 		loop.SetSubagentRuntime(h.mgr)
-		loop.SetProviderFactory(func(in llm.ProviderInput) (llm.Provider, error) { return h.provider(in.Model), nil })
+		loop.SetProviderFactory(func(in llm.ProviderInput) (llm.Provider, error) {
+			h.mu.Lock()
+			onBuild := h.onBuild
+			h.mu.Unlock()
+			if onBuild != nil {
+				onBuild(in.Model)
+			}
+			return h.provider(in.Model), nil
+		})
 		return loop.Run(ctx, prompt)
 	}
 	// Sessions persist, because a subagent's bundle nests in its parent's.
@@ -3224,6 +3245,167 @@ func TestSwitchModelTakesEffectFromTheNextRequest(t *testing.T) {
 	h.prompt(t, "and now")
 	if a := h.provider("a").calls; a != 2 {
 		t.Fatalf("the next turn was not served by the session's model: a=%d", a)
+	}
+}
+
+// switchModelDuring answers like a model a browser interrupts with
+// PATCH /coddy/sessions/{id}: part of the answer streams, the session's model
+// is switched to model, and the answer ends with a tool call, so the turn
+// takes another step.
+func switchModelDuring(t *testing.T, h *settingsHarness, model, text string) scriptStep {
+	return func(_ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) *llm.Response {
+		onChunk(llm.StreamChunk{TextDelta: text})
+		to := model
+		if _, err := h.mgr.ApplySessionSettings(context.Background(), h.sessionID, session.SettingsChange{Model: &to, Source: "web"}); err != nil {
+			t.Errorf("switch the model: %v", err)
+		}
+		call := llm.ToolCall{ID: "g1", Name: "glob", InputJSON: `{"pattern":"*.none"}`}
+		onChunk(llm.StreamChunk{ToolCall: &call})
+		return &llm.Response{Content: text, ToolCalls: []llm.ToolCall{call}, StopReason: "tool_use"}
+	}
+}
+
+// seedExchanges gives the session earlier turns, so a compaction has
+// something to fold.
+func (h *settingsHarness) seedExchanges(n int, model string) {
+	st := h.mgr.SessionByID(h.sessionID)
+	for i := 0; i < n; i++ {
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("earlier question %d", i+1)})
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("earlier answer %d", i+1), Model: model})
+	}
+}
+
+func (h *settingsHarness) compacted() bool {
+	for _, m := range h.mgr.SessionByID(h.sessionID).GetMessages() {
+		if m.CompactionSummary {
+			return true
+		}
+	}
+	return false
+}
+
+// A model switched while an answer streams takes the turn's next request, and
+// the answer in flight keeps the name of the model that wrote it (#362).
+func TestAnswerIsSignedByTheModelThatWroteIt(t *testing.T) {
+	h := newSettingsHarness(t, "fake/a", "fake/b")
+	h.provider("a").steps = []scriptStep{switchModelDuring(t, h, "fake/b", "written by a")}
+	h.provider("b").steps = []scriptStep{answerStep("written by b")}
+	h.prompt(t, "go")
+	if a, b := h.provider("a").calls, h.provider("b").calls; a != 1 || b != 1 {
+		t.Fatalf("requests served: a=%d b=%d, want the step after the switch on b", a, b)
+	}
+	var signed []string
+	for _, m := range h.mgr.SessionByID(h.sessionID).GetMessages() {
+		if m.Role == llm.RoleAssistant {
+			signed = append(signed, m.Content+" | "+m.Model)
+		}
+	}
+	if want := []string{"written by a | fake/a", "written by b | fake/b"}; !reflect.DeepEqual(signed, want) {
+		t.Fatalf("assistant rows %q, want %q", signed, want)
+	}
+}
+
+// A switch that lands after the turn built its transport and before its first
+// request - here while the turn compacts first - reaches that request: the
+// loop compares the settings with what the transport was built for, not with
+// what it found when it started.
+func TestSwitchBeforeTheFirstRequestReachesIt(t *testing.T) {
+	keep := 1
+	h := newSettingsHarnessWith(t, func(cfg *config.Config) {
+		// The system prompt alone crosses 80% of this window, so the turn
+		// compacts before its first request.
+		cfg.Models[0].MaxContextTokens = 50
+		cfg.Compaction.KeepRecentTurns = &keep
+	}, "fake/a", "fake/b")
+	h.seedExchanges(3, "fake/a")
+	b := "fake/b"
+	h.provider("a").steps = []scriptStep{func(_ []llm.Message, _ []llm.ToolDefinition, _ func(llm.StreamChunk)) *llm.Response {
+		// The summarizer's request: the operator switches meanwhile.
+		if _, err := h.mgr.ApplySessionSettings(context.Background(), h.sessionID, session.SettingsChange{Model: &b, Source: "web"}); err != nil {
+			t.Errorf("switch the model: %v", err)
+		}
+		return &llm.Response{Content: "summary of the earlier turns", StopReason: "end_turn"}
+	}}
+	h.provider("b").steps = []scriptStep{answerStep("written by b")}
+	h.prompt(t, "go")
+	if !h.compacted() {
+		t.Fatal("the turn did not compact before its first request")
+	}
+	if a, bCalls := h.provider("a").calls, h.provider("b").calls; a != 1 || bCalls != 1 {
+		t.Fatalf("requests served: a=%d b=%d, want the summary on a and the first request on b", a, bCalls)
+	}
+}
+
+// A second switch that lands while the loop builds the transport for the
+// first is not left for the step after: the request goes to the model the
+// session names when it is sent.
+func TestSwitchDuringTheRebuildReachesTheRequest(t *testing.T) {
+	h := newSettingsHarness(t, "fake/a", "fake/b", "fake/c")
+	var once sync.Once
+	h.onBuild = func(apiModel string) {
+		if apiModel != "b" {
+			return
+		}
+		once.Do(func() {
+			c := "fake/c"
+			if _, err := h.mgr.ApplySessionSettings(context.Background(), h.sessionID, session.SettingsChange{Model: &c, Source: "web"}); err != nil {
+				t.Errorf("switch the model: %v", err)
+			}
+		})
+	}
+	h.provider("a").steps = []scriptStep{switchModelDuring(t, h, "fake/b", "written by a")}
+	h.provider("c").steps = []scriptStep{answerStep("written by c")}
+	h.prompt(t, "go")
+	if a, b, c := h.provider("a").calls, h.provider("b").calls, h.provider("c").calls; a != 1 || b != 0 || c != 1 {
+		t.Fatalf("requests served: a=%d b=%d c=%d, want the step after the switches on c", a, b, c)
+	}
+}
+
+// A switch to a model whose window only its provider's listing reports reads
+// that listing before the next request and compacts against it, in the middle
+// of a turn and between turns alike, instead of measuring against the 128000
+// default (#362).
+func TestSwitchToASmallerWindowCompactsBeforeTheNextRequest(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		midTurn  bool
+		wantACnt int
+	}{
+		{name: "in the middle of a turn", midTurn: true, wantACnt: 1},
+		{name: "between turns", wantACnt: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newSettingsHarnessWith(t, func(cfg *config.Config) {
+				// fake/b reports its window through the provider's listing
+				// only; fake/a declares a large one of its own.
+				cfg.Providers[0].APIBase = "https://listing.invalid/v1"
+				cfg.Models[0].MaxContextTokens = 1_000_000
+			}, "fake/a", "fake/b")
+			var listings atomic.Int32
+			h.mgr.SetContextWindowLister(func(context.Context, llm.ProviderInput) ([]llm.ModelEntry, error) {
+				listings.Add(1)
+				return []llm.ModelEntry{{ID: "b", ContextWindow: 50}}, nil
+			}, nil)
+			t.Cleanup(func() { _ = h.mgr.WaitContextWindowsIdle(5 * time.Second) })
+			h.seedExchanges(4, "fake/a")
+			if tc.midTurn {
+				h.provider("a").steps = []scriptStep{switchModelDuring(t, h, "fake/b", "written by a")}
+			} else {
+				b := "fake/b"
+				if _, err := h.mgr.ApplySessionSettings(context.Background(), h.sessionID, session.SettingsChange{Model: &b, Source: "web"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			h.provider("b").steps = []scriptStep{answerStep("summary of the earlier turns"), answerStep("written by b")}
+			h.prompt(t, "go")
+			if !h.compacted() {
+				w, source := h.mgr.SessionByID(h.sessionID).ContextWindow(h.mgr.Cfg())
+				t.Fatalf("no compaction before the request to fake/b; the session measures against %d (%s), listings read: %d", w, source, listings.Load())
+			}
+			if a := h.provider("a").calls; a != tc.wantACnt {
+				t.Fatalf("fake/a served %d requests, want %d", a, tc.wantACnt)
+			}
+		})
 	}
 }
 

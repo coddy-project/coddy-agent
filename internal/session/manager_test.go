@@ -1398,6 +1398,49 @@ func TestSessionWideChangeEndsATurnOverride(t *testing.T) {
 	}
 }
 
+// A session keeps its permission mode and what is armed for its next turns for
+// as long as the process runs, also when a surface lets go of it in between:
+// the console does on /new and /resume (#362).
+func TestSessionKeepsItsProcessSettingsWhenLetGo(t *testing.T) {
+	cfg := settingsTestConfig()
+	root := t.TempDir()
+	store := &session.FileStore{Root: filepath.Join(root, "sessions")}
+	if err := os.MkdirAll(store.Root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", store)
+	ctx := context.Background()
+	res, err := m.HandleSessionNew(ctx, acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bypass, mini := "bypass", "p2/gpt-4o-mini"
+	if _, err := m.ApplySessionSettings(ctx, res.SessionID, session.SettingsChange{PermissionMode: &bypass}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.ApplySessionSettings(ctx, res.SessionID, session.SettingsChange{Model: &mini, Turns: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(m.SessionByID(res.SessionID)); err != nil {
+		t.Fatal(err)
+	}
+
+	m.ForgetLiveSession(res.SessionID)
+	if _, err := m.HandleSessionLoad(ctx, acp.SessionLoadParams{SessionID: res.SessionID}); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := m.SessionSettings(res.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.PermissionMode != "bypass" {
+		t.Fatalf("permission mode after the session was let go and loaded again = %q, want bypass", snap.PermissionMode)
+	}
+	if len(snap.Overrides) != 1 || snap.Overrides[0].Setting != session.SettingModel || snap.Overrides[0].Value != mini || snap.Overrides[0].TurnsLeft != 2 {
+		t.Fatalf("turn overrides after the session was let go and loaded again = %+v, want the model for 2 turns", snap.Overrides)
+	}
+}
+
 func TestPermissionModeOverrideDoesNotOutliveTheProcess(t *testing.T) {
 	cfg := settingsTestConfig()
 	root := t.TempDir()
