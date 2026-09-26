@@ -4264,6 +4264,45 @@ a.rail-brand {
   font-size: 15px;
 }
 
+.composer-queue-mode,
+.composer-queue-choice button {
+  flex: 0 0 auto;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 8px;
+  background: var(--coddy-glass-panel-bg);
+  color: var(--text);
+  padding: 3px 8px;
+  cursor: pointer;
+  font: inherit;
+}
+
+/* The paperclip and the count of images a queued message carries; the images
+   themselves stay on the server until the message is read or taken back. */
+.composer-queue-files {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.composer-queue-choice {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 12px;
+  background: var(--coddy-glass-panel-bg);
+  color: var(--text);
+  font-size: 12px;
+}
+
 /* The primary control keeps its circle and swaps only its meaning: a draft
    written during a turn is queued, an empty one still stops the turn. */
 .composer-run-icon--queue {

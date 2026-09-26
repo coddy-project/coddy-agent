@@ -1,6 +1,6 @@
 # Slash commands
 
-The built-in commands on each surface and how skills become commands. A slash command is one of five things: a settings command (`/model`, `/reasoning`, `/think`, `/nothink`, `/agent`, `/plan`, `/ask`, `/permissions`), which the session manager takes off the start of a prompt on every surface and applies before any turn starts; a local surface command (such as `/mcp`), which opens its controls without a model turn; a deterministic built-in (`/compact`, `/export`, `/plugin`), which the agent recognises before the prompt becomes a message and runs without a turn of the model; a Telegram bot command, handled by the adapter; or a skill, whose body is prepended to the message for the model. The first four run whatever the session mode is, because they are operator input rather than tool calls.
+The built-in commands on each surface and how skills become commands. A slash command is one of five things: a settings command (`/model`, `/reasoning`, `/think`, `/nothink`, `/agent`, `/plan`, `/ask`, `/permissions`), which the session manager takes off the start of a prompt on every surface and applies before any turn starts; a client-side command of the console or the web composer (`/tasks`, `/docs`, `/mcp` and the like), which opens its screen and never reaches the agent; a deterministic built-in (`/compact`, `/export`, `/plugin`), which the agent recognises before the prompt becomes a message and runs without a turn of the model; a Telegram bot command, handled by the adapter; or a skill, whose body the agent writes into the message that invokes it, as an attachment after the typed text. The first four run whatever the session mode is, because they are operator input rather than tool calls.
 
 ## The commands
 
@@ -15,7 +15,7 @@ The built-in commands on each surface and how skills become commands. A slash co
 | `/new` | console | Starts a new session in the same folder. | [Console](../surfaces/console.md#commands-and-keys) |
 | `/theme` | console | Selector between the dark and the light palette. | [Console](../surfaces/console.md#flags) |
 | `/hotkeys` | console | Prints the key list. | [Keyboard](keyboard.md) |
-| `/queue [list\|drop <n>\|clear]` | console | Lists the follow-ups waiting for the running turn, takes one back by its number, or empties the queue. Works against a remote server too. | [Message queue](../features/message-queue.md#in-the-console) |
+| `/queue [list\|drop <n>\|mode <n> <steer\|after_turn>\|clear]` | console | Lists waiting messages, changes one mode, takes one back into the input, or clears the queue. Works against a remote server too. | [Message queue](../features/message-queue.md#in-the-console) |
 | `/usage` | console | Forces a fresh read of the active provider's account usage and prints the breakdown; under `--remote` the server's own key is read. | [Console](../surfaces/console.md#commands-and-keys) |
 | `/tasks` | console | Opens the background tasks of the session in the place of the editor: what runs, what finished, a task's output on **enter**, **s** to stop one. Under `--remote` it lists and stops the processes of the server. | [Background tasks](../features/background-tasks.md#in-the-console) |
 | `/mcp` | console, web UI, Telegram | Console: opens a server list with connection status, tool count, server and tool switches, and project trust controls. Web UI: opens Settings → MCP servers. Telegram: lists servers and offers enable/disable buttons for trusted entries only. | [MCP](../features/mcp.md#management-api-and-ui) |
@@ -27,7 +27,7 @@ The built-in commands on each surface and how skills become commands. A slash co
 | `/start`, `/help` | Telegram | The greeting and the command list of the bot. | [Telegram gateway](../surfaces/gateway.md#commands) |
 | `/context` | Telegram | The context window usage of the chat's session by category. | [Telegram gateway](../surfaces/gateway.md#commands) |
 | `/clear` | Telegram | Starts a new session for the chat; the old one stays on disk, and `/resume` brings it back. | [Telegram gateway](../surfaces/gateway.md#session-lifecycle) |
-| `/<skill>` | console, web UI, ACP editors, `POST /v1/responses` | Runs a skill: the full `SKILL.md` body is prepended to the message the model receives for this turn. | [Skills](../features/skills.md#how-skills-are-applied) |
+| `/<skill>` | console, web UI, ACP editors, `POST /v1/responses` | Runs a skill: the full `SKILL.md` body is written into the message that invokes it, as an attachment after the typed text, and later turns replay it. | [Skills](../features/skills.md#how-skills-are-applied) |
 
 Three boundaries follow from the code:
 

@@ -341,7 +341,9 @@ On each `session/prompt` the agent:
 1. Scans `skills.dirs` for the session cwd and `CODDY_HOME`.
 2. All loaded (and enabled) skills are always active — their bodies are available as slash commands and injected on demand.
 3. Builds the **`{{.Skills}}`** system-prompt block: the slash-command catalog listing all skills, plus the full body of any always-active or glob-matched skill whose name is **not** already in the catalog.
-4. At LLM call time, if the last user message contains `/name` invocations, each matched skill's body is **prepended to the user message** before it is sent to the model. This augmentation happens only inside the LLM request — it is **not stored in session history** and is **not visible in the chat transcript**.
+4. Looks for `/name` invocations in the text the user typed and **appends each matched skill's body to the user message**, as a `<coddy_attachment path="skill:name" kind="skill">` element after the typed text. The message goes into **session history with the body in it**, so later turns replay the same bytes: the provider's cached prefix holds, and the model keeps the instructions it was given until a compaction folds the message into its summary ([Mentions and the prompt cache](mentions.md#mentions-and-the-prompt-cache)). The transcript shows the message as typed, because the web UI drops `kind="skill"` elements, and so does the history replay a reopened console or an ACP editor receives. A follow-up queued during a turn gets its skill bodies the same way.
+
+A body the model loads itself with the `load_skill` tool (offered while `skills.auto_discovery` is on) comes back as the result of that call and stays in session history like any other tool result.
 
 ACP clients receive `available_commands_update` after `session/new` and `session/load`. The HTTP UI queries `GET /coddy/slash-commands` for autocomplete.
 

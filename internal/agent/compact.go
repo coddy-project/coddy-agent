@@ -198,6 +198,12 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	}
 
 	a.state.InsertCompactionSummary(splitIdx, session.NewCompactionSummaryMessage(summary, modelID))
+	// The history the provider had cached is rewritten from here on, which
+	// makes this the moment to read the standing rules again: an AGENTS.md or
+	// a rule file edited since the session started reaches the next system
+	// prompt, and a rule the summary folded away comes back with the next
+	// tool call or mention that matches it.
+	a.rereadRules()
 	a.refreshConversationContextUsage(true)
 	a.runPostCompactHooks(ctx, mode, trigger, summary)
 

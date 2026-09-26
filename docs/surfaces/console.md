@@ -310,20 +310,25 @@ left with `/new` or `/resume` waits until the operator comes back to that
 session, and a dim line says once where it is waiting. `coddy -p` runs no
 waker, so there the tool tells the model that nothing will wake it.
 
-Submitting while a turn is running does not refuse the prompt: it joins the
-session's message queue, which the running turn reads at its next step
-(`docs/features/message-queue.md`). What is waiting shows directly above the
-input, numbered in reading order:
+Submitting while a turn runs the first time asks for the default queue mode on
+the status line: **1** steer, **2** after the turn, **Esc** puts the draft back.
+The answer is saved as `agent.queue_mode` and the message is queued; one sent
+with **Tab** still goes in the other mode, and a second message written before
+the answer joins the first. Thereafter **Enter** uses that mode and **Tab** the
+other: `steer` reaches the next ReAct step, while `after_turn` runs as a
+separate prompt after the answer ([Message queue](../features/message-queue.md)).
+Waiting messages appear above the input, numbered for `/queue` commands:
 
 ```
-queued for the next step (2) · /queue to manage
-1. check the Windows path too
-2. and skip the integration suite
+queued messages (2) · /queue to manage
+1. [steer] check the Windows path too
+2. [after_turn] and skip the integration suite
 ```
 
-`/queue` lists them, `/queue drop <n>` takes one back, `/queue clear` empties
-the queue, and `escape` cancels the turn together with everything queued for
-it. Under `--remote`, these controls also work for a turn another client
+`/queue` lists them, `/queue mode <n> steer|after_turn` changes one, `/queue drop <n>` takes one back and puts its text into the input, ahead of anything typed since, and `/queue clear` empties
+the queue. A message the turn reads, and an after-turn message as its prompt
+starts, appear in the transcript as your message, with the files a mention
+brought collapsed to the mention. `escape` cancels the turn and its unread steer messages; after-turn messages remain waiting without auto-starting. Under `--remote`, these controls also work for a turn another client
 started on the same `coddy serve`: **Enter** queues text for that turn and
 **Escape** requests cancellation. A successful cancel response acknowledges
 the request; the server can still be releasing the turn.
@@ -846,6 +851,13 @@ comparison, as described under **Visual model**.
   matrix and on `macos-latest` (job `test-macos`, which also runs the platform packages and
   the console suite on macOS), because the Go suite never opens a pty and the
   console's terminal path is exactly what differs between hosts.
+- Message queue on a real pty, no model: `examples/cli/cli_e2e_queue.py`
+  serves a scripted model whose first answer waits for the script, and checks
+  the first-use question and the saved `agent.queue_mode`, Tab queueing the
+  other mode, `/queue drop` putting a message back into the input, and, once
+  the answer is released, the steer message read in the turn and the deferred
+  one answered after it, shown between the two answers. CI runs it in the
+  `cli` job of the Linux test matrix.
 - Live e2e: `./examples/test_cli.sh` drives the real binary in a pty
   (pexpect + pyte, Linux-only) against `neuraldeep/qwen3.8-27b` by default —
   see `examples/README.md`.

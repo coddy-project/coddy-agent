@@ -58,7 +58,7 @@ func newRemoteControlStandOver(t *testing.T, wrap func(backend) backend) *remote
 	srv := httptest.NewServer(http.HandlerFunc(f.serveHTTP))
 	t.Cleanup(srv.Close)
 	var err error
-	f.app, err = buildRemoteApp(&config.Config{Paths: config.Paths{CWD: t.TempDir()}}, &remote.Options{
+	f.app, err = buildRemoteApp(&config.Config{Paths: config.Paths{CWD: t.TempDir()}, Agent: config.Agent{QueueMode: "steer"}}, &remote.Options{
 		BaseURL: srv.URL, Log: slog.New(slog.DiscardHandler),
 	}, slog.New(slog.DiscardHandler), &bddTerminal{cols: 100, rows: 30}, "dark", true)
 	if err != nil {

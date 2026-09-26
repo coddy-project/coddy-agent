@@ -81,6 +81,7 @@ Defaults for the main agent loop (model id and safety caps).
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| `agent.queue_mode` | string, one of `steer`, `after_turn` |  | Preferred queue mode for Enter during a running turn: steer joins the next ReAct step, after_turn starts a new turn after the current answer. When absent, interactive surfaces ask on first use. |
 | `agent.model` | string |  | Optional default models[].model id. Interactive surfaces (web UI, console) pick a model per session; unattended calls that name no model (coddy -p, coddy acp, API requests without a model selector) need it set - they report 'no model configured' when it is empty. |
 | `agent.max_turns` | integer | 0 | Cap on the ReAct steps (LLM calls) of one prompt turn. 0, the default, sets no cap; a turn that reaches a cap set here ends with a notice that names it. |
 | `agent.llm_retry_max` | integer or null | 3 | Extra attempts shared by transport retries, empty-answer recovery and first-token re-issues until tool progress or a new follow-up. 0 disables these retries. Loop guards, Stop hooks, fallback models and quota-reset waits have separate limits. |
@@ -126,12 +127,12 @@ Directories scanned for skills (SKILL.md and root .md/.mdc files).
 
 ### `rules`
 
-Discovery of rule files from ${CODDY_HOME}/rules (the operator's own, applied in every workspace) and from .coddy/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules under the session CWD, plus the AGENTS.md and DESIGN.md of a folder a tool enters; .mdc files are Cursor rules, .md files Claude Code rules. See https://coddy.dev/docs/features/rules.
+Discovery of rule files from ${CODDY_HOME}/rules (the operator's own, applied in every workspace) and from one project folder under the session CWD, the first of .coddy/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules that holds a rule file, plus the AGENTS.md and DESIGN.md of a folder a tool enters; .mdc files are Cursor rules, .md files Claude Code rules. See https://coddy.dev/docs/features/rules.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `rules.auto_discover` | boolean or null | true | Scan the session CWD rule roots automatically. |
-| `rules.systems` | list of strings | [] | Restrict which rule systems are loaded: user (${CODDY_HOME}/rules), coddy, agents-dir (.agents/rules), cursor, claude, codex, agents (nested AGENTS.md and DESIGN.md). Empty means all. |
+| `rules.systems` | list of strings | [] | Restrict which rule systems are loaded: user (${CODDY_HOME}/rules), coddy, agents-dir (.agents/rules), cursor, claude, codex, agents (nested AGENTS.md and DESIGN.md). Empty means all. A project folder left out drops out of the chain; of the ones admitted, the first that holds a rule file is read. |
 
 ### `mcp_servers`
 

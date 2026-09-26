@@ -18,3 +18,63 @@ func DiscoverRules(cfg *config.Config, cwd string) []*rules.Rule {
 	}
 	return cat
 }
+
+// RulesPrompt is the standing part of a session's system prompt: the {{.Rules}}
+// block (the project docs preamble and the always-on rules) and the
+// {{.Instructions}} block. A session renders it once per rules generation and
+// reuses it on every later turn, so a file behind it that is edited during the
+// session - an AGENTS.md the agent itself updates - does not move the system
+// message and throw away the provider's cached copy of the conversation behind
+// it. The next generation reads the files again: a compaction, a config reload,
+// a workspace switch, a restart.
+type RulesPrompt struct {
+	// Generation is the rules generation the blocks were rendered for.
+	Generation uint64
+	// RendersRules records whether the template printed {{.Rules}}: only then
+	// were the documents the rules block embedded left out of Instructions.
+	RendersRules bool
+	// Inputs names what the blocks were rendered from besides the files
+	// themselves - the agent home, the workspace, the instructions.files
+	// list - so a configuration that changed them is not answered from a
+	// rendering of the old one.
+	Inputs       string
+	Rules        string
+	Instructions string
+}
+
+// CachedRulesPrompt returns the standing prompt rendered for the current rules
+// generation, for a template of this kind (rendersRules) and from the same
+// inputs - nil when there is none yet - and the current generation, which a
+// caller stores its own rendering under. A session whose modes run on
+// templates of both kinds keeps one rendering of each, so switching between
+// them does not read the files again halfway through a generation.
+func (s *State) CachedRulesPrompt(rendersRules bool, inputs string) (*RulesPrompt, uint64) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	p := s.rulesPrompts[rulesPromptSlot(rendersRules)]
+	if p == nil || p.Generation != s.rulesGeneration || p.Inputs != inputs {
+		return nil, s.rulesGeneration
+	}
+	return p, s.rulesGeneration
+}
+
+// StoreRulesPrompt keeps p for the rest of its generation. A rendering of a
+// generation that has already ended is dropped: the catalog it was built from
+// has been replaced.
+func (s *State) StoreRulesPrompt(p *RulesPrompt) {
+	if p == nil {
+		return
+	}
+	s.mu.Lock()
+	if p.Generation == s.rulesGeneration {
+		s.rulesPrompts[rulesPromptSlot(p.RendersRules)] = p
+	}
+	s.mu.Unlock()
+}
+
+func rulesPromptSlot(rendersRules bool) int {
+	if rendersRules {
+		return 1
+	}
+	return 0
+}

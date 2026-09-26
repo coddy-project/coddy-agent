@@ -85,7 +85,12 @@ class ControlledStream {
   }
 }
 
-type Queue = { messages: { id: string; text: string }[]; version: number };
+type QueuedRow = {
+  id: string;
+  text: string;
+  imageParts?: { name?: string; mimeType?: string; sizeBytes?: number }[];
+};
+type Queue = { messages: QueuedRow[]; version: number };
 type Request = { path: string; method: string; init: RequestInit };
 class Backend {
   activity = new Map([
@@ -94,6 +99,9 @@ class Backend {
   ]);
   history = [A, B];
   queues = new Map<string, Queue>();
+  // The images a queued row carries, by id: the server keeps them and hands
+  // them back only to the DELETE that takes the row back.
+  queuedFiles = new Map<string, { name: string; data_url: string }[]>();
   messages = new Map<string, { role: string; content: string }[]>([
     [
       A,
@@ -244,12 +252,16 @@ class Backend {
         const id = decodeURIComponent(suffix.slice("/queue/".length));
         if (!queue.messages.some((m) => m.id === id))
           return json({ error: { code: "not_found" } }, 404);
+        const taken = queue.messages.find((m) => m.id === id)!;
         const next = {
           messages: queue.messages.filter((m) => m.id !== id),
           version: queue.version + 1,
         };
         this.queues.set(sid, next);
-        return json(next);
+        return json({
+          ...next,
+          message: { ...taken, inline_files: this.queuedFiles.get(id) ?? [] },
+        });
       }
       if (suffix === "/queue") {
         const queue = this.queues.get(sid) ?? { messages: [], version: 1 };
@@ -272,7 +284,7 @@ class Backend {
     }
     if (path === "/v1/models")
       return json({ data: [{ id: "test-model", owned_by: "test" }] });
-    if (path === "/coddy/config") return json({});
+    if (path === "/coddy/config") return json({ agent: { queue_mode: "steer" } });
     if (path.startsWith("/coddy/slash-commands")) return json({ items: [] });
     if (path === "/coddy/workspace/context")
       return json({ cwd: "/workspace", is_git_repo: false });
@@ -749,6 +761,32 @@ test("taking a queued message back puts its text in the composer", async () => {
   fireEvent.click(screen.getByTestId("composer-queue-remove-q1"));
   await waitFor(() => expect(composer()).toHaveValue("Use the EU prices"));
   expect(screen.queryByTestId("composer-queue")).not.toBeInTheDocument();
+});
+
+// The images of a queued message never ride the list every client is sent; they
+// come back in the answer that takes the message back, into the draft with the text.
+test("taking a queued message back puts its image back in the composer", async () => {
+  backend.activity.set(A, true);
+  backend.queues.set(A, {
+    messages: [
+      {
+        id: "q1",
+        text: "Compare with this screenshot",
+        imageParts: [{ name: "shot.png", mimeType: "image/png", sizeBytes: 5 }],
+      },
+    ],
+    version: 3,
+  });
+  backend.queuedFiles.set("q1", [{ name: "shot.png", data_url: "data:image/png;base64,aGVsbG8=" }]);
+  await mount();
+  await screen.findByText("Compare with this screenshot");
+  fireEvent.click(screen.getByTestId("composer-queue-remove-q1"));
+  await waitFor(() => expect(composer()).toHaveValue("Compare with this screenshot"));
+  await waitFor(() =>
+    expect(screen.getAllByTestId("composer-attachment-chip").map((c) => c.textContent)).toEqual(
+      expect.arrayContaining([expect.stringContaining("shot.png")]),
+    ),
+  );
 });
 
 test("a message the agent read before it was taken back does not return", async () => {

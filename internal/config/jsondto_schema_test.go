@@ -11,6 +11,21 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
+func TestQueueModeJSONRoundTripAndValidation(t *testing.T) {
+	original := &config.Config{Agent: config.Agent{QueueMode: "after_turn"}}
+	got := config.JSONDTOToConfig(config.ConfigToJSONDTO(original), config.Paths{})
+	if got.Agent.QueueMode != "after_turn" {
+		t.Fatalf("queue mode = %q", got.Agent.QueueMode)
+	}
+	if err := got.Agent.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	got.Agent.QueueMode = "unknown"
+	if err := got.Agent.Validate(); err == nil {
+		t.Fatal("invalid queue mode accepted")
+	}
+}
+
 func TestUISchemaOmitsHTTPServerFromUI(t *testing.T) {
 	doc := config.UISchemaMap()
 	props, ok := doc["properties"].(map[string]interface{})

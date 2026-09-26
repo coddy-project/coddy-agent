@@ -26,14 +26,3 @@ func (p *MarkdownProvider) RulesRoot() string { return p.root }
 func (p *MarkdownProvider) Load(root string) ([]*Rule, error) {
 	return loadMarkdownRulesFromRoot(root, p.source)
 }
-
-// CodexProvider loads markdown rules; *.rules Starlark files are listed but not injected as prompt rules.
-type CodexProvider struct{}
-
-func (p *CodexProvider) ID() Source { return SourceCodex }
-
-func (p *CodexProvider) RulesRoot() string { return ".codex/rules" }
-
-func (p *CodexProvider) Load(root string) ([]*Rule, error) {
-	return loadMarkdownRulesFromRoot(root, SourceCodex)
-}

@@ -389,6 +389,9 @@ func buildRemoteApp(cfg *config.Config, ropts *remote.Options, log *slog.Logger,
 		return nil, err
 	}
 	app := newApp(cfg, h, log, term, themeName, plain)
+	if mode, err := h.QueueModePreference(); err == nil && session.ValidQueueMode(mode) {
+		app.queuePreference = mode
+	}
 	app.remoteURL = h.BaseURL()
 	h.SetServer(app.Sender())
 	// A session on the server is shared: this is how the console hears that

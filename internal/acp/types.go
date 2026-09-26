@@ -381,9 +381,21 @@ type SessionSettingsUpdate struct {
 
 // QueuedMessage is one follow-up waiting for the running turn to read it.
 type QueuedMessage struct {
-	ID        string `json:"id"`
-	Text      string `json:"text"`
-	CreatedAt string `json:"createdAt,omitempty"`
+	ID         string        `json:"id"`
+	Text       string        `json:"text"`
+	Mode       string        `json:"mode"`
+	ImageParts []QueuedImage `json:"imageParts,omitempty"`
+	CreatedAt  string        `json:"createdAt,omitempty"`
+}
+
+// QueuedImage describes an image that waits with a queued message: its name,
+// type and size, never its bytes. Every change of a queue is published to
+// every client of the session, so the bytes stay on the server until the agent
+// reads the message or the operator takes it back.
+type QueuedImage struct {
+	Name      string `json:"name,omitempty"`
+	MimeType  string `json:"mimeType,omitempty"`
+	SizeBytes int    `json:"sizeBytes,omitempty"`
 }
 
 // MessageQueueUpdate publishes what the session's message queue holds now.

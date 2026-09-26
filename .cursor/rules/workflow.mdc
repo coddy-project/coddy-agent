@@ -1,5 +1,5 @@
 ---
-description: BDD-style workflow, UI screenshots in the PR, HTTP OpenAPI, config schema and CLI packaging sync before lint, final checks
+description: BDD-style workflow, UI screenshots in the PR, HTTP OpenAPI, config schema and CLI packaging sync before lint, final checks, the comment on an issue a merge closes
 globs: **/*.go, docs/**/*.md, README.md, external/ui/**/*
 alwaysApply: true
 ---
@@ -163,3 +163,40 @@ Then report briefly: goal, tests added or changed, `make test` and `make lint` o
 - **`make docs-check`** clean: every new page in **`docs/nav.yaml`**, the generated pages regenerated with **`make docs`**, no broken relative link or anchor, no asset without a page. The page of every user-visible change updated, with a screenshot on the page when the change is visible in the web UI or the console.
 - **`make lint`** clean.
 - **Rules sync** — if any `.claude/rules/*.md` file was added or changed, propagate to `.cursor/rules/`: copy the content body, replace `paths:` with Cursor-compatible `globs:`/`alwaysApply:`, rename to `.mdc`. Files without `paths:` get `alwaysApply: true`.
+
+## Merging the pull request
+
+When the operator says the pull request can be merged and it is set to close an issue on merge (a
+closing keyword such as `Closes #N` or `Fixes #N` in the description or a commit message, or an
+issue linked to the pull request by hand), the issue gets a comment saying what came of it. GitHub
+records only that the pull request closed the issue, and without the comment whoever filed or
+follows it has to open the pull request and work that out; issues #265 and #305 closed that way.
+
+1. Before the merge, list the issues it is set to close:
+   **`gh pr view <PR> --json closingIssuesReferences --jq '.closingIssuesReferences[].number'`**.
+2. Merge, and make sure the merge went through before writing about it: **`gh pr merge`** has
+   reported an error after the merge had already landed (pull request #369), so read
+   **`git log origin/main`** before retrying.
+3. Comment on each of those issues, one comment per issue
+   (**`gh issue comment <N> --body-file <file>`**), in the language the issue is written in,
+   whatever the language of the session: an English issue gets an English comment even when the
+   operator talks to you in Russian. When the title and the body are in different languages (an
+   English title over a Russian body is common here), go by the body. A Russian comment follows
+   **`.cursor/rules/russian-wording.mdc`**. The comment covers:
+   - the pull request, the merge commit and the release. **`.github/workflows/tag-on-merge.yaml`**
+     puts the next patch tag on the merge commit within a minute or two of a merge through GitHub;
+     after **`git fetch --tags`**, **`git describe --tags --exact-match <merge commit>`** prints the
+     version, and until it does, the comment says the change ships with the next release;
+   - what changed, point by point against the issue and in its terms rather than a copy of the pull
+     request description: each acceptance criterion the issue lists with the test or check that now
+     holds it, and the numbers before and after when the issue was about speed or size;
+   - how to use or check the change: the command, the config key or the place in the UI, with the
+     **`coddy.dev/docs/<slug>`** link when a documentation page describes it;
+   - what went differently from the issue: the option an open question got, a point done another
+     way or left out, and the issue that tracks the rest when there is one.
+
+   When someone other than the operator filed the issue, thank them, and for a bug give the cause in
+   a sentence or two, since the reporter has only seen the symptom.
+4. An issue from step 1 that the merge left open is closed by hand once its comment is up:
+   **`gh issue close <N> --reason completed`**; issue #368 stayed open that way after pull
+   request #369.

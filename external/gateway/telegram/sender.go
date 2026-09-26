@@ -115,6 +115,12 @@ func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
 		if u.Content.Type != acp.ContentTypeText {
 			return nil
 		}
+		// A message the operator queued from another client, announced where
+		// the turn read it or where its own prompt starts: it is not part of
+		// the answer this chat is sent.
+		if u.SessionUpdate == acp.UpdateTypeUserMessageChunk {
+			return nil
+		}
 		s.mu.Lock()
 		s.responseBuf.WriteString(u.Content.Text)
 		s.currentTool = "" // LLM is writing → last tool has finished

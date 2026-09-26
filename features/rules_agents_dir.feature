@@ -1,10 +1,10 @@
 Feature: Rules from the shared .agents/rules folder
   The .agents/ directory is the tool-neutral home for agent configuration:
   skills already live in .agents/skills. A project can keep its rules in
-  .agents/rules and coddy picks them up out of the box, next to the
-  tool-specific folders. The file extension names the dialect: a .mdc file
-  is a Cursor rule (description, globs, alwaysApply), a .md file is a Claude
-  Code rule (paths; loaded unconditionally when paths is absent).
+  .agents/rules and coddy picks them up out of the box, ahead of the
+  tool-specific folders of other agents. The file extension names the dialect:
+  a .mdc file is a Cursor rule (description, globs, alwaysApply), a .md file is
+  a Claude Code rule (paths; loaded unconditionally when paths is absent).
 
   Background:
     Given a project whose ".agents/rules" folder holds these rule files:
@@ -26,11 +26,12 @@ Feature: Rules from the shared .agents/rules folder
     Then the request carries "ALWAYS_RULE_TOKEN" and "STYLE_RULE_TOKEN"
     And the request carries neither "RUNBOOK_RULE_TOKEN", "GO_RULE_TOKEN" nor "HTTP_RULE_TOKEN"
 
-  Scenario: Path-scoped rules of both dialects enter the prompt once the model reads a matching file
+  Scenario: Path-scoped rules of both dialects arrive with the read of a matching file
     Given a coddy agent session in that project
     When the model reads "internal/api/handler.go" and then answers
     Then the first request carries neither "GO_RULE_TOKEN" nor "HTTP_RULE_TOKEN"
-    And every request after the read carries "GO_RULE_TOKEN" and "HTTP_RULE_TOKEN"
+    And the result of the read carries "GO_RULE_TOKEN" and "HTTP_RULE_TOKEN"
+    And every request opens with the same system message
 
   Scenario: A mention-only Cursor rule rides in the user's message when the user names it
     Given a coddy agent session in that project

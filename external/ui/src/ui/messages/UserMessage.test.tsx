@@ -1,7 +1,8 @@
 import React from "react";
 import { afterEach } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
+import { setEnv } from "../env/remoteEnv";
 import { UserMessage } from "./UserMessage";
 
 afterEach(() => cleanup());
@@ -209,4 +210,62 @@ test("leaving the screen closes the picture the bubble opened", () => {
 
   fireEvent(window, new HashChangeEvent("hashchange"));
   expect(document.querySelector(".docs-lightbox")).toBeNull();
+});
+
+// Through a relay, or any remote environment, the page's own origin does not
+// serve the node's API, and an <img> would ask it without the environment's
+// token. The picture is fetched through the environment instead - its base
+// URL, its token in a header, never in a URL - and shown from an object URL
+// that goes when the bubble does.
+test("in a remote environment the picture comes through it, from an object URL", async () => {
+  setEnv({ mode: "remote", baseUrl: "http://relay.example/swarm/nodes/node", token: "tok" });
+  const fetchMock = vi.fn(async () => new Response(new Blob(["png"], { type: "image/png" })));
+  vi.stubGlobal("fetch", fetchMock);
+  // jsdom has no object URLs: the test hands them out and records the release.
+  let made = 0;
+  const saved = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+  const revoke = vi.fn();
+  URL.createObjectURL = vi.fn(() => `blob:remote-${++made}`);
+  URL.revokeObjectURL = revoke;
+  try {
+    const view = render(
+      <UserMessage
+        content="look at this"
+        files={[
+          {
+            name: "pasted-1.png",
+            mimeType: "image/png",
+            previewUrl: "/coddy/sessions/s1/assets/pasted-1.png/thumbnail",
+            url: "/coddy/sessions/s1/assets/pasted-1.png",
+          },
+        ]}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("msg-user-file-thumb")).toHaveAttribute("src", "blob:remote-1"),
+    );
+    const [thumbUrl, thumbInit] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(thumbUrl).toBe("http://relay.example/swarm/nodes/node/coddy/sessions/s1/assets/pasted-1.png/thumbnail");
+    expect(new Headers(thumbInit.headers).get("Authorization")).toBe("Bearer tok");
+
+    fireEvent.click(screen.getByLabelText("Open pasted-1.png enlarged"));
+    await waitFor(() =>
+      expect(document.querySelector(".docs-lightbox-stage img")?.getAttribute("src")).toBe("blob:remote-2"),
+    );
+    expect((fetchMock.mock.calls[1] as unknown as [string])[0]).toBe(
+      "http://relay.example/swarm/nodes/node/coddy/sessions/s1/assets/pasted-1.png",
+    );
+    for (const [u] of fetchMock.mock.calls as unknown as [string][]) {
+      expect(u).not.toContain("tok");
+    }
+
+    view.unmount();
+    expect(revoke).toHaveBeenCalledWith("blob:remote-1");
+    expect(revoke).toHaveBeenCalledWith("blob:remote-2");
+  } finally {
+    URL.createObjectURL = saved.create;
+    URL.revokeObjectURL = saved.revoke;
+    setEnv({ mode: "local" });
+    vi.unstubAllGlobals();
+  }
 });

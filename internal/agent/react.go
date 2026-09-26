@@ -261,6 +261,17 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		a.markWokeTasks(wake)
 		_ = a.server.SendSessionUpdate(a.state.GetID(), session.BackgroundWakeUpdate(wake))
 	}
+	// A prompt the turn boundary started from the queue was typed into no
+	// client's view of this run, unlike an ordinary prompt, which its surface
+	// shows the moment it is sent. It is announced the way a steer read is
+	// (message_queue.go), before it is persisted, so a live transcript shows
+	// the operator's message above the answer to it.
+	if wake == nil && session.PromptEcho(ctx, a.state.GetID()) {
+		_ = a.server.SendSessionUpdate(a.state.GetID(), acp.MessageChunkUpdate{
+			SessionUpdate: acp.UpdateTypeUserMessageChunk,
+			Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: messageContent},
+		})
+	}
 	a.state.AddMessage(llm.Message{
 		Role:           llm.RoleUser,
 		Content:        messageContent,
@@ -302,7 +313,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// Build the full message list starting with the system prompt. It is
 	// rendered once here and then frozen for the whole turn so the provider's
 	// prefix cache keeps the conversation behind it (buildSystemPromptParts).
-	sys := a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles)
+	sys := a.buildSystemPromptParts(mode, activeSkills, toolDefs)
 	messages := a.buildMessages(sys.Content)
 	// The hand-off belongs to this turn and to its continuation after a
 	// permission prompt, and to nothing after that.
@@ -311,7 +322,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// buildSystemPromptParts refreshed the context breakdown; compact before the
 	// first LLM call when the estimate crossed the auto-compaction threshold.
 	if a.maybeAutoCompact(ctx) {
-		sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles)
+		sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs)
 		messages = a.buildMessages(sys.Content)
 	}
 
@@ -727,7 +738,7 @@ func (a *Agent) runReActLoop(
 		// itself: its own conditionals have to keep matching the state, so it is
 		// re-rendered here as every template was before, and carries no block.
 		if sys.Volatile && len(messages) > 0 && messages[0].Role == llm.RoleSystem {
-			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles)
+			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs)
 			messages[0].Content = sys.Content
 		}
 		turnCtx := a.buildTurnContext(sys)
@@ -739,7 +750,7 @@ func (a *Agent) runReActLoop(
 		// empty assistant messages kept in the transcript.
 		a.refreshContextBreakdown(sys, turnCtx)
 		if turn > 0 && a.maybeAutoCompact(ctx) {
-			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs, contextFiles)
+			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs)
 			messages = a.buildMessages(sys.Content)
 			if emptyReissues > 0 || emptyContinuations > 0 {
 				messages = emptyRecoveryProjection(messages, emptyContinuations)
@@ -849,8 +860,10 @@ func (a *Agent) runReActLoop(
 
 		// Prune superseded read/grep results from the projection sent to the model;
 		// the working `messages` slice keeps full content (copy-on-write) so state,
-		// the transcript, and later appends stay intact.
-		sendMessages := withTurnContext(a.prunedForLLM(messages), turnCtx)
+		// the transcript, and later appends stay intact. The rules a tool call
+		// brought in are joined to its result only here, so an evicted result
+		// keeps them and every request replays them byte for byte.
+		sendMessages := withTurnContext(withToolRules(a.prunedForLLM(messages)), turnCtx)
 		// The call's own clock: when it went out, when the first chunk came
 		// back and how many followed. It names the silence in the errors
 		// below and is the debug-level account of every call.
@@ -1350,22 +1363,12 @@ func (a *Agent) runReActLoop(
 				continue
 			}
 
+			// The rules the call brings into play are read before it runs, on
+			// the paths the model aimed it at: the call may write the very
+			// AGENTS.md it would otherwise bring back.
+			callRules := a.toolCallRules(mode, tc, toolEnv.CWD)
 			result, execErr := a.executeToolCall(ctx, tc, toolEnv, mode, a.state.GetID(), false)
-
-			var toolResultMsg llm.Message
-			if execErr != nil {
-				toolResultMsg = llm.Message{
-					Role:       llm.RoleTool,
-					Content:    fmt.Sprintf("error: %v", execErr),
-					ToolCallID: tc.ID,
-				}
-			} else {
-				toolResultMsg = llm.Message{
-					Role:       llm.RoleTool,
-					Content:    result,
-					ToolCallID: tc.ID,
-				}
-			}
+			toolResultMsg := toolResultMessage(tc, result, execErr, callRules)
 
 			messages = append(messages, toolResultMsg)
 			a.state.AddMessage(toolResultMsg)
@@ -1576,12 +1579,6 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		env.ToolCallID = ""
 		a.currentToolCallID = ""
 	}()
-
-	// Touching a directory pulls its nested AGENTS.md into the prompt. Done up
-	// front so it holds regardless of the outcome below (permission denial,
-	// tool error), and so both callers — the ReAct loop and the resume-after-
-	// permission path — are covered without threading state through.
-	a.activateScopedRulesForToolCall(tc.Name, tc.InputJSON, env.CWD)
 
 	sessionDir := ""
 	if st := sessionStatePtr(a.state); st != nil {
@@ -1857,6 +1854,23 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	}
 	a.finishToolCall(sessionDir, sessionID, tc, result, execErr, status)
 	return result, execErr
+}
+
+// toolResultMessage is the transcript row of a tool call's outcome: the output,
+// or the error, and the rules the call brought into play for the first time
+// (toolCallRules). The rules travel whatever the outcome: a denied or failed
+// call was still aimed at that path.
+func toolResultMessage(tc llm.ToolCall, result string, execErr error, callRules string) llm.Message {
+	content := result
+	if execErr != nil {
+		content = fmt.Sprintf("error: %v", execErr)
+	}
+	return llm.Message{
+		Role:       llm.RoleTool,
+		Content:    content,
+		ToolCallID: tc.ID,
+		Rules:      callRules,
+	}
 }
 
 // finishToolCall persists the outcome of one tool call and publishes the final

@@ -12,6 +12,7 @@ import { MessageCopyIconButton } from "./MessageCopyIconButton";
 import { fileTypeIcon } from "./fileTypeIcon";
 import { splitDocMentions } from "../docs/docMentions";
 import { appNavHrefDocs } from "../scheduler/hashRoute";
+import { useApiImageSrc } from "../env/apiImage";
 
 /** Prose of a sent message with its **`@coddy:`** mentions as links to the reader. */
 function withDocMentions(text: string, keyPrefix: string) {
@@ -28,6 +29,34 @@ function withDocMentions(text: string, keyPrefix: string) {
       </a>
     );
   });
+}
+
+/**
+ * An <img> of an image the server named. Through a relay or any remote
+ * environment the bytes come through that environment (useApiImageSrc); until
+ * they arrive the image has no src rather than a broken one.
+ */
+function ApiImage(props: {
+  src: string;
+  alt: string;
+  className: string;
+  "data-testid": string;
+}) {
+  const src = useApiImageSrc(props.src);
+  return (
+    <img
+      className={props.className}
+      alt={props.alt}
+      data-testid={props["data-testid"]}
+      {...(src ? { src } : {})}
+    />
+  );
+}
+
+/** The original of an attached image, enlarged, read the same way as its thumbnail. */
+function ApiImageLightbox(props: { src: string; alt: string; onClose: () => void }) {
+  const src = useApiImageSrc(props.src);
+  return src ? <ImageLightbox src={src} alt={props.alt} onClose={props.onClose} /> : null;
 }
 
 function fmtBytes(
@@ -118,7 +147,7 @@ export const UserMessage = memo(function UserMessage(props: {
                     data-testid="msg-user-file-open"
                     onClick={() => setLightbox({ src: fullSrc, alt: f.name })}
                   >
-                    <img
+                    <ApiImage
                       className="msg-user-file-thumb"
                       src={thumbSrc}
                       alt=""
@@ -205,7 +234,7 @@ export const UserMessage = memo(function UserMessage(props: {
         ) : null}
       </div>
       {lightbox ? (
-        <ImageLightbox
+        <ApiImageLightbox
           src={lightbox.src}
           alt={lightbox.alt}
           onClose={() => setLightbox(null)}

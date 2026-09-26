@@ -82,6 +82,8 @@ The boundary is the `keep_recent_turns`-th most recent user message (2 by defaul
 
 The summary is requested from `compaction.model` when set, otherwise from the session's model, with a fixed system prompt that asks, in order, for the user's goals and constraints, the decisions taken and the approaches rejected, the state of the work, the exact paths, names, commands and values that matter, and the open questions and next steps. The result-eviction projection below is applied to the history first, so a page the model had already moved past is not summarised in full.
 
+The project rules a tool result or a message carried are not summarised: a rule the summary folds away comes back with the next tool call or mention that touches a matching path, and one the kept tail still carries comes again only if its file has changed. A compaction is also the moment the standing rules are read again - the `AGENTS.md` and `DESIGN.md` pairs, the rules that always apply and the files of `instructions.files` - so an edit made to them during the session reaches the next system prompt ([Rules and the prompt cache](rules.md#rules-and-the-prompt-cache)).
+
 ## The summary row and the context estimate
 
 The summary row is a user-role message flagged `compaction_summary` that starts with `The earlier conversation was compacted. Summary of the compacted part:`; the model's window begins at the latest such row, and the rows before it stay in `messages.json` for the transcript only. `PreCompact` hooks run before either trigger and may veto it, `PostCompact` hooks receive the summary ([Hooks](hooks.md#events)).

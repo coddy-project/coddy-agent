@@ -1,6 +1,6 @@
 package agent
 
-// Godog harness for features/mention_prompt_cache.feature. Two real turns of
+// Godog harness for features/prompt_cache_mentions.feature. Two real turns of
 // Agent.Run against a provider that records every request; the prompt of each
 // turn is resolved the way the manager resolves it
 // (session.Manager.ResolvePromptMentions). The provider's view is the only
@@ -184,13 +184,13 @@ func initializeMentionCacheScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the second turn replays the first turn's message unchanged$`, s.replayedUnchanged)
 }
 
-func TestMentionPromptCacheFeature(t *testing.T) {
+func TestPromptCacheMentionsFeature(t *testing.T) {
 	suite := godog.TestSuite{
 		Name:                "mention-prompt-cache",
 		ScenarioInitializer: initializeMentionCacheScenario,
 		Options: &godog.Options{
 			Format:   "pretty",
-			Paths:    []string{"../../features/mention_prompt_cache.feature"},
+			Paths:    []string{"../../features/prompt_cache_mentions.feature"},
 			TestingT: t,
 			Strict:   true,
 		},

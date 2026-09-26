@@ -28,7 +28,7 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 			// The attachments a message was sent with ride in its content;
 			// a client shows the mentions that brought them, not their bodies
 			// (mention.ForDisplay, the web UI's stripCoddyAttachments twin).
-			content := strings.TrimSpace(mention.ForDisplay(stripCoddySessionAssetsXML(msg.Content)))
+			content := UserMessageDisplayText(msg.Content)
 			if content != "" {
 				_ = m.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 					SessionUpdate: "user_message_chunk",
@@ -116,4 +116,13 @@ func replayToolKind(name string) string {
 	default:
 		return "other"
 	}
+}
+
+// UserMessageDisplayText is what a surface shows for the content of a user
+// message: its attachments collapsed to the mentions that brought them
+// (mention.ForDisplay) and the note of the files saved with the session's
+// assets left out. It is the twin of the web UI's
+// stripCoddyAttachmentsForUserDisplay.
+func UserMessageDisplayText(content string) string {
+	return strings.TrimSpace(mention.ForDisplay(stripCoddySessionAssetsXML(content)))
 }

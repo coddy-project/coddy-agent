@@ -84,10 +84,6 @@ Runtime state refreshed by Coddy for this step. It is not a message from the use
 ## Current todo checklist
 - [ ] ...
 
-## Project rules activated by this turn
-### go-files (Go style)
-...
-
 ## Long-term memory
 Already on disk:
 - ...
@@ -101,11 +97,6 @@ Already on disk:
 - the **todo checklist** (markdown from **`internal/tools/todo.FormatPlanMarkdown`** over
   **`session.Plan`**), when the session has one - so a **`coddy_todo_*`** call in this turn is
   reflected on the very next step;
-- the **rules a tool call activated** after the system prompt was frozen - a glob rule or a nested
-  **`AGENTS.md`** that a filesystem tool reached mid-turn (**`activateScopedRulesForToolCall`**).
-  They are **not** folded back into the frozen prompt; the next turn's prompt picks them up from
-  the sticky set, and **`rules.Added`** is what keeps the block down to what the model has not been
-  given yet;
 - the **memory subagent's report** for this turn, when long-term memory is on
   ([memory.md](../features/memory.md)). A recall differs from turn to turn, so rendering it into
   the system message would make **`messages[0]`** a new one on every turn and cost the cached
@@ -121,6 +112,21 @@ The block is never persisted: it is appended at the **`provider.Stream`** send b
 read/grep eviction projection, and the working message slice the loop keeps appending to never sees
 it. Only the last few hundred tokens of a request are therefore uncached; the conversation behind
 them is a cache hit.
+
+A **rule a tool call activates** - a glob rule whose pattern matches a file the call reads or writes,
+the nested **`AGENTS.md`** and **`DESIGN.md`** of the folders it enters - is not in the block. It
+rides in the **result of that call** (**`toolCallRules`**, **`internal/agent/rules_activation.go`**),
+kept in the transcript row's own **`Rules`** field so the output a surface shows and the result
+eviction replaces stays the tool's own, and joined to the content only at the same send boundary
+(**`withToolRules`**). Written once with the result, it is replayed byte for byte by every later
+request, where the block would have sent it again on every step and the next turn's system prompt
+would have taken it in. A rule the model can already read with the same text - in an earlier result
+or message it is still sent - is not attached again; one a compaction folded away, or whose file has
+changed since, comes back with the next matching call, and a call on the rule document itself does
+not get it back as a rule. The rules and instructions blocks of the system prompt themselves are rendered once per rules
+generation of the session (**`standingPrompt`**, **`session.RulesPrompt`**), so an **`AGENTS.md`**
+edited mid-session does not move **`messages[0]`** either; a compaction starts the next generation.
+See [Rules and the prompt cache](../features/rules.md#rules-and-the-prompt-cache).
 
 **`UTCNow`** and **`TodoList`** stay available to a template under **`prompts.dir`**, which may still
 render them - at the cost of that cache, on every request. Such a template gets no clock and no
@@ -209,7 +215,7 @@ messages: [
 1. BUILD_MESSAGES
    - Load applicable skills and project rules for current context (separate prompt sections)
    - Build system prompt (template + TemplateData incl. TodoList snapshot)
-   - For the last user message, detect `/name` invocations: prepend each matched skill's body to the message content before the LLM call. This augmentation is ephemeral — not persisted to session history, not shown in the chat transcript.
+   - Skill bodies are already in the history: on Run entry, before the user turn is persisted, Run appends the body of each skill the typed text invokes as `/name` to that message as a `<coddy_attachment kind="skill">` element (`invokedSkillBlocks`), so later requests replay the same bytes and the prefix cache holds. Surfaces leave the element out of the transcript (`mention.ForDisplay`, `stripCoddyAttachments.ts`); queued follow-ups get their skill bodies the same way.
    - Prepend system to session history (user turn already persisted on Run entry)
 
 2. LLM_CALL

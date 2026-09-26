@@ -40,3 +40,17 @@ Feature: A follow-up written while the agent is working
     When the operator queues "check the Windows path too" while the tool is running
     And the turn finishes
     Then the session holds no queued messages
+
+  Scenario: A queued image reaches the next model request and the transcript
+    Given an agent turn that calls a tool before it answers
+    When the operator queues an image with "inspect this image" while the tool is running
+    Then the agent reads that image on its next step
+    And the next model request carries the image
+    And the transcript records the image on the operator's message
+
+  Scenario: A message queued for after the turn is answered by a prompt of its own
+    Given an agent turn that calls a tool, answers, and has an answer for one more prompt
+    When the operator queues "then update the changelog" for after the turn while the tool is running
+    Then the step after the tool result does not carry that message
+    And that message is answered by a prompt of its own after the first answer
+    And the clients see that message arrive between the two answers

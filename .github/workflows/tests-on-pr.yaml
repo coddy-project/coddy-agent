@@ -110,6 +110,13 @@ jobs:
         run: |
           CODDY_BIN="$PWD/build/coddy" .venv/bin/python examples/cli/cli_e2e_print_input.py
 
+      # The console's message queue (issue #364) on a real pty against a
+      # scripted model the script serves: the first-use question, steer and
+      # after-turn messages, /queue drop, the deferred prompt after the answer.
+      - name: Drive the console's message queue through a real pty
+        if: matrix.tags == 'cli'
+        run: CODDY_BIN="$PWD/build/coddy" .venv/bin/python examples/cli/cli_e2e_queue.py
+
       # A long conversation in the web UI (issue #338): the real binary with a
       # 3306-message session and a swarm relay in front of it, driven in
       # Chromium. It opens on the newest page, scrolls through the history
@@ -126,6 +133,14 @@ jobs:
           npm --prefix external/ui i --no-save playwright
           (cd external/ui && npx playwright install --with-deps chromium)
           CODDY_BIN="$PWD/build/coddy" CODDY_CPU_THROTTLE=1 npm --prefix external/ui run check:transcript
+
+      # The message queue (issue #364) through the same kind of stand: the
+      # first-use question, steer and after-turn messages with an image, a mode
+      # switched and a message taken back through the relay's mount, the
+      # deferred prompt answered above its answer, and a Stop that keeps it.
+      - name: Drive the message queue through a swarm relay
+        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        run: CODDY_BIN="$PWD/build/coddy" npm --prefix external/ui run check:queue
 
       # The gateway suite runs the bot against the fake Bot API in-process. In
       # the combination that is the gateway alone, the real binary is started

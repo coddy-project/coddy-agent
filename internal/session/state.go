@@ -118,8 +118,12 @@ type State struct {
 
 	// RulesCatalog is discovered project rules for the session CWD.
 	RulesCatalog []*rules.Rule
-	// ActiveAutoRules are sticky auto rules (alwaysApply true after first match).
-	ActiveAutoRules []*rules.Rule
+	// rulesGeneration counts the catalogs this session has had: every
+	// ReplaceRulesCatalog starts a new generation. rulesPrompts are the
+	// standing part of the system prompt rendered for the current one, one per
+	// kind of template: with {{.Rules}} and without (rules_load.go).
+	rulesGeneration uint64
+	rulesPrompts    [2]*RulesPrompt
 	// LastContextBreakdown is the latest per-category token estimate for the UI.
 	LastContextBreakdown *ContextBreakdown
 	// contextWindows reads the provider-reported context windows cached by
@@ -240,10 +244,8 @@ type State struct {
 	turnStopNotice string
 
 	// queue holds the follow-ups written while the current turn runs, read by
-	// the ReAct loop at its next step (turn_queue.go). queueOpen is the turn
-	// boundary: a message is only ever accepted by the turn it belongs to.
-	// Turn-scoped and never persisted - a queued message outliving the process
-	// would be answered by a conversation that has moved on.
+	// the ReAct loop at its next step (turn_queue.go). queueOpen gates admission;
+	// after_turn messages can remain after Stop, but none survives a restart.
 	queueMu   sync.Mutex
 	queue     []QueuedMessage
 	queueOpen bool
@@ -1500,25 +1502,14 @@ func (s *State) GetRulesCatalog() []*rules.Rule {
 	return s.RulesCatalog
 }
 
-// ReplaceRulesCatalog sets the rules catalog (session bootstrap).
+// ReplaceRulesCatalog sets the rules catalog and starts a new rules
+// generation, so the next turn renders the standing part of its system prompt
+// from the files again (RulesPrompt).
 func (s *State) ReplaceRulesCatalog(cat []*rules.Rule) {
 	s.mu.Lock()
 	s.RulesCatalog = cat
-	s.ActiveAutoRules = nil
-	s.mu.Unlock()
-}
-
-// GetActiveAutoRules returns sticky auto rules.
-func (s *State) GetActiveAutoRules() []*rules.Rule {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.ActiveAutoRules
-}
-
-// SetActiveAutoRules updates sticky auto rules.
-func (s *State) SetActiveAutoRules(r []*rules.Rule) {
-	s.mu.Lock()
-	s.ActiveAutoRules = r
+	s.rulesGeneration++
+	s.rulesPrompts = [2]*RulesPrompt{}
 	s.mu.Unlock()
 }
 

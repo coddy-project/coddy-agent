@@ -306,6 +306,12 @@ func loadMarkdownRulesFromRoot(root string, src Source) ([]*Rule, error) {
 	var out []*Rule
 	err = filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
+			// A subfolder that cannot be read costs its own rules, not the
+			// folder's: the chain would otherwise pass over a folder that
+			// holds rules to another agent's copy of them.
+			if path != root {
+				return nil
+			}
 			return walkErr
 		}
 		if d.IsDir() {
