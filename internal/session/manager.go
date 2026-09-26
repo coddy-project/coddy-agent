@@ -628,7 +628,12 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 
 		m.runSessionStartHooks(ctx, st, hookSourceResume)
 
-		m.connectConfiguredMCPServers(ctx, st)
+		// A stored conversation is loaded to be read as often as to be
+		// continued - its transcript, its activity, its stats - so its
+		// configured MCP servers are not started here but before its first
+		// turn (beginTurn). Starting them on every load left one process per
+		// session anybody had looked at, for the life of the server.
+		m.deferConfiguredMCPServers(st)
 
 		for _, srv := range params.MCPServers {
 			cfgSrv := acpMCPServerToConfig(srv)
@@ -915,6 +920,12 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 			}
 			return nil, nil, err
 		}
+	}
+	// A session restored from disk starts its configured MCP servers now,
+	// under the turn lock, before the turn needs their tools. Work that is not
+	// a prompt (a compaction) calls no tool and starts nothing.
+	if !adm.noQueue {
+		m.connectDeferredMCPServers(ctx, state)
 	}
 	// From here the session is running a turn, so a follow-up written while it
 	// works has somewhere to go (turn_queue.go), and the clients watching this
@@ -1468,8 +1479,37 @@ func (m *Manager) connectConfiguredMCPServers(ctx context.Context, state *State)
 	for _, client := range m.dialConfiguredMCPServers(ctx, cwd) {
 		state.addConfiguredMCPClient(client)
 	}
-	// The factory reads the cwd lazily: a later workspace switch must not leave
-	// the per-turn tool filter evaluating the old workspace's merged list.
+	m.installMCPFilter(state)
+}
+
+// deferConfiguredMCPServers prepares a session restored from disk: the per-turn
+// tool filter is installed and the configured servers are left for
+// connectDeferredMCPServers to start before the session's first turn.
+func (m *Manager) deferConfiguredMCPServers(state *State) {
+	state.deferConfiguredMCP()
+	m.installMCPFilter(state)
+}
+
+// connectDeferredMCPServers starts the configured MCP servers of a session
+// restored from disk, once, before its first turn and under the turn lock, so
+// the dial is a fresh trust evaluation of the configuration of that moment.
+// The dial has its own deadline; the processes outlive it.
+func (m *Manager) connectDeferredMCPServers(ctx context.Context, state *State) {
+	if !state.takeDeferredConfiguredMCP() {
+		return
+	}
+	dialCtx, cancel := context.WithTimeout(ctx, mcpReloadTimeout)
+	defer cancel()
+	for _, client := range m.dialConfiguredMCPServers(dialCtx, state.GetCWD()) {
+		state.addConfiguredMCPClient(client)
+	}
+}
+
+// installMCPFilter installs the per-turn tool filter factory, so disable
+// toggles reach the session. The factory reads the cwd lazily: a later
+// workspace switch must not leave the filter evaluating the old workspace's
+// merged list.
+func (m *Manager) installMCPFilter(state *State) {
 	state.MCPFilterFactory = func() func(server, tool string) bool {
 		return config.BuildMCPToolFilter(EffectiveMCPServers(m.activeCfg(), state.GetCWD(), m.log))
 	}
@@ -1572,6 +1612,12 @@ func (m *Manager) reloadConfiguredMCPServersExcept(ctx context.Context, skip *St
 // rest. It reports whether the swap happened; a discarded dial leaves the
 // reload parked for a later turn to retry.
 func (m *Manager) applyConfiguredMCPReload(ctx context.Context, st *State) bool {
+	if st.configuredMCPDeferred() {
+		// Nothing was started for this session yet: its first turn dials the
+		// configuration of that moment, so a reload has nothing to swap.
+		st.takeMCPServersPending()
+		return true
+	}
 	clients := m.dialConfiguredMCPServers(ctx, st.GetCWD())
 	if err := ctx.Err(); err != nil {
 		for _, client := range clients {
@@ -1616,7 +1662,9 @@ func (m *Manager) drainPendingMCPReload(sessionID string, st *State) {
 // session, under the turn lock the caller holds.
 func (m *Manager) applyPendingMCPServers(ctx context.Context, st *State) {
 	names := st.takeMCPServersPending()
-	if len(names) == 0 {
+	if len(names) == 0 || st.configuredMCPDeferred() {
+		// A session whose servers wait for its first turn starts none of them
+		// for a switch either.
 		return
 	}
 	cfg := m.activeCfg()

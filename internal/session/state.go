@@ -100,6 +100,10 @@ type State struct {
 	// definitions the turn already sent to the model, so the reload is parked
 	// here and drained when the turn releases the lock.
 	mcpReloadPending bool
+	// mcpDeferred marks a session restored from disk whose configured MCP
+	// servers have not been started yet: the first turn starts them
+	// (connectDeferredMCPServers), and reloads and switches leave it alone.
+	mcpDeferred bool
 	// mcpServersPending names configured servers whose switch or trust changed
 	// while a turn held the turn lock (RefreshMCPServer). They are reconciled
 	// one by one when the turn releases it; a full reload covers them.
@@ -561,6 +565,33 @@ func (s *State) hasPendingMCPReload() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.mcpReloadPending || len(s.mcpServersPending) > 0
+}
+
+// deferConfiguredMCP marks the configured MCP servers as not started yet.
+func (s *State) deferConfiguredMCP() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.mcpClosed {
+		s.mcpDeferred = true
+	}
+}
+
+// configuredMCPDeferred reports whether the configured MCP servers still wait
+// for the session's first turn.
+func (s *State) configuredMCPDeferred() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.mcpDeferred
+}
+
+// takeDeferredConfiguredMCP clears the mark and reports whether it was set, so
+// exactly one turn starts the servers.
+func (s *State) takeDeferredConfiguredMCP() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	deferred := s.mcpDeferred
+	s.mcpDeferred = false
+	return deferred
 }
 
 // markMCPServerPending parks one configured server for reconciliation. A

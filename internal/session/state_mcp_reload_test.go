@@ -329,6 +329,106 @@ func TestMCPRefreshGivesUpAtItsDeadline(t *testing.T) {
 	}
 }
 
+// mcpTurnSender answers a turn's updates and permissions without a client.
+type mcpTurnSender struct{}
+
+func (mcpTurnSender) SendSessionUpdate(string, interface{}) error { return nil }
+
+func (mcpTurnSender) RequestPermission(context.Context, acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	return &acp.PermissionResult{Outcome: "allow"}, nil
+}
+
+func (mcpTurnSender) RequestQuestion(context.Context, acp.QuestionRequestParams) (*acp.QuestionResult, error) {
+	return &acp.QuestionResult{}, nil
+}
+
+// reloadHelperServer is reloadHelperEntry as a config.yaml server.
+func reloadHelperServer(name string) config.MCPServerConfig {
+	return config.MCPServerConfig{
+		Name: name, Command: os.Args[0], Args: []string{"-test.run=TestConfigReloadMCPHelperProcess"},
+		Env: []config.EnvVarConfig{{Name: "GO_WANT_CONFIG_RELOAD_MCP", Value: "1"}},
+	}
+}
+
+// newStoredMCPSession leaves a session on disk under a configuration with
+// config.yaml MCP servers and loads it back, the way a read of it does.
+func newStoredMCPSession(t *testing.T, servers ...config.MCPServerConfig) (*Manager, *State) {
+	t.Helper()
+	home, cwd := t.TempDir(), t.TempDir()
+	cfg := &config.Config{
+		Paths:      config.Paths{Home: home, CWD: cwd},
+		Providers:  []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:     []config.ModelEntry{{Model: "fake/model", MaxTokens: 200}},
+		Agent:      config.Agent{Model: "fake/model"},
+		MCPServers: servers,
+	}
+	runner := func(context.Context, *State, []acp.ContentBlock, acp.UpdateSender) (string, error) { return "", nil }
+	mgr := NewManager(cfg, mcpTurnSender{}, runner, slog.Default(), cwd, &FileStore{Root: filepath.Join(home, "sessions")})
+	ctx := context.Background()
+	created, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr.ForgetLiveSession(created.SessionID)
+	st, err := mgr.EnsureHTTPSession(ctx, created.SessionID, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { mgr.ForgetLiveSession(created.SessionID) })
+	return mgr, st
+}
+
+// Nothing a stored session is loaded for starts its MCP servers - a settings
+// save, a server switch, a compaction - and its first turn starts the servers
+// of the configuration of that moment.
+func TestStoredSessionStartsItsMCPServersOnlyForItsFirstTurn(t *testing.T) {
+	mgr, st := newStoredMCPSession(t, reloadHelperServer("alpha"))
+	ctx := context.Background()
+	if clients := st.GetMCPClients(); len(clients) != 0 {
+		t.Fatalf("loading the session started %d MCP servers", len(clients))
+	}
+
+	next := *mgr.activeCfg()
+	next.MCPServers = []config.MCPServerConfig{reloadHelperServer("alpha"), reloadHelperServer("beta")}
+	mgr.ReplaceConfig(&next)
+	if clients := st.GetMCPClients(); len(clients) != 0 {
+		t.Fatalf("a settings save started %d MCP servers of a session nobody ran", len(clients))
+	}
+	mgr.RefreshMCPServer(ctx, "alpha")
+	if clients := st.GetMCPClients(); len(clients) != 0 {
+		t.Fatalf("a server switch started %d MCP servers of a session nobody ran", len(clients))
+	}
+	_, finish, err := mgr.BeginSessionWork(ctx, st.GetID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	finish()
+	if clients := st.GetMCPClients(); len(clients) != 0 {
+		t.Fatalf("a compaction started %d MCP servers", len(clients))
+	}
+
+	if _, err := mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
+		SessionID: st.GetID(),
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "go on"}},
+	}, mcpTurnSender{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if configuredClient(st, "alpha") == nil || configuredClient(st, "beta") == nil {
+		t.Fatalf("the first turn did not start the servers of the current configuration: %+v", st.GetMCPClients())
+	}
+	// A later turn keeps them rather than starting them again.
+	alpha := configuredClient(st, "alpha")
+	if _, err := mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
+		SessionID: st.GetID(),
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "and again"}},
+	}, mcpTurnSender{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if configuredClient(st, "alpha") != alpha || len(st.GetMCPClients()) != 2 {
+		t.Fatalf("a second turn restarted the servers: %+v", st.GetMCPClients())
+	}
+}
+
 func TestReloadConfigForSessionRequiresProjectTrustAndRefreshesFilter(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.yaml")
