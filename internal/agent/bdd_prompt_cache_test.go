@@ -3,9 +3,9 @@ package agent
 // Godog harness for features/prompt_cache_prefix.feature: drives the real Agent
 // through a scripted provider over a real temp workspace and asserts what the
 // request prefix looks like from the provider's side - one frozen system
-// message per turn, a history that only ever grows, and every volatile fact
-// (clock, checklist, rules a tool call activated) carried in the turn context
-// block that trails the history.
+// message per turn, a history that only ever grows, every volatile fact (clock,
+// checklist) carried in the turn context block that trails the history, and a
+// rule scoped to paths carried in the result of the call that first matched it.
 
 import (
 	"context"
@@ -159,8 +159,30 @@ func (s *pcFeatureState) sessionWithScopedGoRule() error {
 	return nil
 }
 
+// sessionWithAgentsMD opens a session in a workspace whose AGENTS.md holds text.
+func (s *pcFeatureState) sessionWithAgentsMD(text string) error {
+	if err := s.reset(); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(s.cwd, "AGENTS.md"), []byte(text+"\n"), 0o644); err != nil {
+		return err
+	}
+	s.buildAgent()
+	return nil
+}
+
+func (s *pcFeatureState) rewriteAgentsMD(text string) error {
+	return os.WriteFile(filepath.Join(s.cwd, "AGENTS.md"), []byte(text+"\n"), 0o644)
+}
+
 func (s *pcFeatureState) run() error {
-	_, err := s.ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "go"}})
+	return s.runPrompt("go")
+}
+
+// runPrompt runs one turn of the session on the steps scripted for it.
+func (s *pcFeatureState) runPrompt(text string) error {
+	s.provider.i = 0
+	_, err := s.ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: text}})
 	return err
 }
 
@@ -194,6 +216,36 @@ func (s *pcFeatureState) readGoFileThenAnswer() error {
 		{text: "answer"},
 	}
 	return s.run()
+}
+
+// askAgainReadingTheSameGoFile is a second turn that reads main.go again, as
+// call r2.
+func (s *pcFeatureState) askAgainReadingTheSameGoFile() error {
+	s.provider.steps = []pcStep{
+		{calls: []llm.ToolCall{pcReadCall("r2", "main.go")}},
+		{text: "answer again"},
+	}
+	return s.runPrompt("look at it once more")
+}
+
+func (s *pcFeatureState) askAgainAnswerStraightAway() error {
+	s.provider.steps = []pcStep{{text: "answer again"}}
+	return s.runPrompt("and now?")
+}
+
+// operatorCompacts runs the /compact command, which folds the whole
+// conversation into a summary the scripted provider writes.
+func (s *pcFeatureState) operatorCompacts() error {
+	_, err := s.ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "/compact"}})
+	if err != nil {
+		return err
+	}
+	for _, m := range s.st.GetMessages() {
+		if m.CompactionSummary {
+			return nil
+		}
+	}
+	return fmt.Errorf("the /compact command left no summary in the transcript")
 }
 
 func (s *pcFeatureState) requests() [][]llm.Message {
@@ -317,17 +369,103 @@ func (s *pcFeatureState) turnContextCarriesTodo() error {
 	return nil
 }
 
-func (s *pcFeatureState) scopedRuleInTurnContextAfterRead() error {
+// toolResultOf returns the content of the result of call id in req, the way
+// the provider was sent it.
+func toolResultOf(req []llm.Message, id string) (string, bool) {
+	for _, m := range req {
+		if m.Role == llm.RoleTool && m.ToolCallID == id {
+			return m.Content, true
+		}
+	}
+	return "", false
+}
+
+func (s *pcFeatureState) scopedRuleInReadResult() error {
 	reqs := s.requests()
 	if len(reqs) < 2 {
 		return fmt.Errorf("expected at least two requests, got %d", len(reqs))
 	}
-	block, err := turnContextOf(reqs[1])
-	if err != nil {
-		return err
+	res, ok := toolResultOf(reqs[1], "r1")
+	if !ok {
+		return fmt.Errorf("the request after the read carries no result of it")
 	}
-	if !strings.Contains(block, pcScopedRuleTag) {
-		return fmt.Errorf("turn context block after the read carries no scoped rule: %q", truncateForError(block))
+	if !strings.Contains(res, pcScopedRuleTag) {
+		return fmt.Errorf("the result of the read carries no scoped rule: %q", truncateForError(res))
+	}
+	return nil
+}
+
+func (s *pcFeatureState) noTurnContextCarriesScopedRule() error {
+	for i, r := range s.requests() {
+		block, err := turnContextOf(r)
+		if err != nil {
+			return fmt.Errorf("request %d: %w", i, err)
+		}
+		if strings.Contains(block, pcScopedRuleTag) {
+			return fmt.Errorf("the turn context block of request %d carries the scoped rule", i)
+		}
+	}
+	return nil
+}
+
+// onlyFirstReadCarriesScopedRule looks at the last request, which replays both
+// reads: the rule rides in the first one's result and in nothing else.
+func (s *pcFeatureState) onlyFirstReadCarriesScopedRule() error {
+	reqs := s.requests()
+	if len(reqs) == 0 {
+		return fmt.Errorf("no requests recorded")
+	}
+	last := reqs[len(reqs)-1]
+	first, ok := toolResultOf(last, "r1")
+	if !ok {
+		return fmt.Errorf("the last request does not replay the first read")
+	}
+	if !strings.Contains(first, pcScopedRuleTag) {
+		return fmt.Errorf("the first read's result lost the scoped rule: %q", truncateForError(first))
+	}
+	second, ok := toolResultOf(last, "r2")
+	if !ok {
+		return fmt.Errorf("the last request does not carry the second read")
+	}
+	if strings.Contains(second, pcScopedRuleTag) {
+		return fmt.Errorf("the second read's result repeats the scoped rule: %q", truncateForError(second))
+	}
+	var all strings.Builder
+	for _, m := range last {
+		all.WriteString(m.Content)
+	}
+	if n := strings.Count(all.String(), pcScopedRuleTag); n != 1 {
+		return fmt.Errorf("the last request carries the scoped rule %d times, want once", n)
+	}
+	return nil
+}
+
+func (s *pcFeatureState) secondReadCarriesScopedRuleAgain() error {
+	reqs := s.requests()
+	if len(reqs) == 0 {
+		return fmt.Errorf("no requests recorded")
+	}
+	last := reqs[len(reqs)-1]
+	if _, ok := toolResultOf(last, "r1"); ok {
+		return fmt.Errorf("the compaction left the first read in the request")
+	}
+	second, ok := toolResultOf(last, "r2")
+	if !ok {
+		return fmt.Errorf("the last request does not carry the second read")
+	}
+	if !strings.Contains(second, pcScopedRuleTag) {
+		return fmt.Errorf("the second read's result carries no scoped rule after the compaction: %q", truncateForError(second))
+	}
+	return nil
+}
+
+func (s *pcFeatureState) systemMessageCarries(text string) error {
+	reqs := s.requests()
+	if len(reqs) == 0 {
+		return fmt.Errorf("no requests recorded")
+	}
+	if !strings.Contains(reqs[0][0].Content, text) {
+		return fmt.Errorf("the system message does not carry %q", text)
 	}
 	return nil
 }
@@ -363,9 +501,14 @@ func initializePromptCacheScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^an agent session in a workspace$`, s.session)
 	sc.Step(`^an agent session in a workspace holding a rule scoped to Go files$`, s.sessionWithScopedGoRule)
+	sc.Step(`^an agent session in a workspace whose AGENTS\.md says "([^"]*)"$`, s.sessionWithAgentsMD)
 	sc.Step(`^the model reads a file, adds a todo item, then answers$`, s.readThenTodoThenAnswer)
 	sc.Step(`^the model answers straight away$`, s.answerStraightAway)
 	sc.Step(`^the model reads a Go file, then answers$`, s.readGoFileThenAnswer)
+	sc.Step(`^the user asks again, and the model reads the same Go file, then answers$`, s.askAgainReadingTheSameGoFile)
+	sc.Step(`^the user asks again, and the model answers straight away$`, s.askAgainAnswerStraightAway)
+	sc.Step(`^the operator compacts the conversation$`, s.operatorCompacts)
+	sc.Step(`^the workspace AGENTS\.md is rewritten to say "([^"]*)"$`, s.rewriteAgentsMD)
 
 	sc.Step(`^every request of that turn carries the same system message$`, s.sameSystemMessageEveryRequest)
 	sc.Step(`^every request repeats the previous one up to its turn context block$`, s.requestsGrowByAppendOnly)
@@ -374,8 +517,13 @@ func initializePromptCacheScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the turn context block of the request carries the current UTC time$`, s.turnContextCarriesUTCNow)
 	sc.Step(`^no request carries the todo checklist in its system message$`, s.noTodoInSystemMessage)
 	sc.Step(`^the turn context block of the last request carries the new todo item$`, s.turnContextCarriesTodo)
-	sc.Step(`^the request after the read carries the scoped rule in its turn context block$`, s.scopedRuleInTurnContextAfterRead)
+	sc.Step(`^the result of the read carries the scoped rule$`, s.scopedRuleInReadResult)
+	sc.Step(`^no turn context block carries the scoped rule$`, s.noTurnContextCarriesScopedRule)
 	sc.Step(`^the request after the read carries the system message the turn started with$`, s.systemMessageUnchangedAfterRead)
+	sc.Step(`^every request of both turns opens with the same system message$`, s.sameSystemMessageEveryRequest)
+	sc.Step(`^only the first read's result carries the scoped rule$`, s.onlyFirstReadCarriesScopedRule)
+	sc.Step(`^the second read's result carries the scoped rule again$`, s.secondReadCarriesScopedRuleAgain)
+	sc.Step(`^that system message carries "([^"]*)"$`, s.systemMessageCarries)
 }
 
 func TestPromptCachePrefixFeature(t *testing.T) {

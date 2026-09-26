@@ -9,7 +9,6 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/prompts"
-	"github.com/EvilFreelancer/coddy-agent/internal/rules"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
@@ -85,9 +84,7 @@ func (a *Agent) loadSkillBody(name string) (string, []string, bool) {
 
 // systemPromptBuild is a rendered system message plus what the turn still needs
 // from it once it is frozen: the component blocks the context estimate
-// subtracts, the tool definitions it described, and the sticky rule set it
-// already carries, so a rule activated later can be told apart from one the
-// model has already been given.
+// subtracts and the tool definitions it described.
 type systemPromptBuild struct {
 	Mode     string
 	Content  string
@@ -95,19 +92,12 @@ type systemPromptBuild struct {
 	ToolsMD  string
 	RulesMD  string
 	ToolDefs []llm.ToolDefinition
-	// RenderedRules is what the {{.Rules}} block of this message carries, and
-	// what the turn context block diffs a later activation against.
-	RenderedRules []*rules.Rule
 	// Clock is the wall clock this build was stamped with: the {{.UTCNow}} a
 	// template may render and the reading the turn context block carries. It is
 	// taken once per turn and reused by every step, so a step the lane re-issues
 	// sends byte for byte the request that failed (react.go, lane replays)
 	// rather than one that ticked a second forward.
 	Clock time.Time
-	// RendersRules is false for a template under prompts.dir with no
-	// {{.Rules}} in it. That operator asked for no rules block at all, so a
-	// rule a tool call activates is not smuggled in after the history either.
-	RendersRules bool
 	// Volatile marks a template under prompts.dir that prints {{.UTCNow}} or
 	// {{.TodoList}}. Such a message cannot be frozen for the turn - its own
 	// conditionals have to keep matching the state - so the loop re-renders it
@@ -125,12 +115,14 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 // once per turn and then frozen: a provider caches a request by its prefix, and
 // the system message sits in front of the whole conversation, so rewriting it
 // between the steps of a turn throws away the cached copy of everything behind
-// it. What moves while the turn runs - the wall clock, the todo checklist, the
-// rules a tool call activated - travels in the turn context block appended
-// after the history instead (turn_context.go). So does the memory subagent's
-// report, which moves between turns: a recall answers one message, and a
-// report rendered here would make every turn's system message a new one and
-// cost the cached copy of the whole conversation each time.
+// it. What moves while the turn runs - the wall clock, the todo checklist -
+// travels in the turn context block appended after the history instead
+// (turn_context.go), and a rule a tool call activates rides in that call's
+// result (rules_activation.go). So does the memory subagent's report, which
+// moves between turns: a recall answers one message, and a report rendered here
+// would make every turn's system message a new one and cost the cached copy of
+// the whole conversation each time. The rules and instructions blocks do not
+// move between turns either (standingPrompt).
 func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition, contextFiles []string) *systemPromptBuild {
 	promptsDir := a.cfg.Prompts.ResolvedDir(a.state.GetCWD())
 	clock := a.now().UTC()
@@ -155,22 +147,7 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 	}
 	skillsMD := buildSkillsPromptMarkdown(a.state.GetSkills(), activeSkills, a.cfg.Skills.AutoDiscoveryEnabled())
 	toolsMD := tools.FormatDefinitionsForPrompt(toolDefs)
-	rulesMD := ""
-	// Project docs the rules block already carries: instructions.files names
-	// AGENTS.md too, and one system prompt does not need it twice. A template
-	// under prompts.dir may render {{.Instructions}} and not {{.Rules}}, and
-	// then nothing carries them - so the skip list is taken only from a
-	// template that actually prints the block.
-	var embeddedDocs []string
-	var renderedRules []*rules.Rule
-	rendersRules := prompts.RendersRules(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile())
-	if rs, ok := a.state.(rulesState); ok {
-		rulesMD, embeddedDocs, renderedRules = buildRulesPromptMarkdown(rs, a.cfg.Paths.Home, contextFiles, a.agentsOnDemand())
-		if !rendersRules {
-			embeddedDocs = nil
-		}
-	}
-	instructionsMD := session.LoadInstructions(a.state.GetCWD(), a.cfg.Paths.Home, a.cfg.Instructions.Files, embeddedDocs)
+	rulesMD, instructionsMD := a.standingPrompt(a.rulesRendered(mode))
 	full := prompts.RenderWithFallback(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile(), prompts.TemplateData{
 		CWD:            a.state.GetCWD(),
 		Skills:         skillsMD,
@@ -208,16 +185,14 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 	// what is actually sent. See internal/prompts/identity.go.
 	full = prompts.WithIdentity(full)
 	build := &systemPromptBuild{
-		Mode:          mode,
-		Content:       full,
-		SkillsMD:      skillsMD,
-		ToolsMD:       toolsMD,
-		RulesMD:       rulesMD,
-		ToolDefs:      toolDefs,
-		RenderedRules: renderedRules,
-		Clock:         clock,
-		RendersRules:  rendersRules,
-		Volatile:      prompts.RendersVolatile(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile()),
+		Mode:     mode,
+		Content:  full,
+		SkillsMD: skillsMD,
+		ToolsMD:  toolsMD,
+		RulesMD:  rulesMD,
+		ToolDefs: toolDefs,
+		Clock:    clock,
+		Volatile: prompts.RendersVolatile(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile()),
 	}
 	a.refreshContextBreakdown(build, "")
 	return build

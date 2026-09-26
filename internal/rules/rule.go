@@ -92,6 +92,14 @@ type Rule struct {
 	ScopeDir string
 }
 
+// AlwaysOn reports whether r applies from the first turn of a session,
+// whatever it touches: an auto rule that no pattern and no directory scope
+// gates. Only these rules are carried by the system prompt; every other rule
+// waits for a path or a mention and arrives in the message that brought it.
+func (r *Rule) AlwaysOn() bool {
+	return r != nil && r.ApplyMode == ApplyAuto && r.AlwaysApply && len(r.Globs) == 0 && r.ScopeDir == ""
+}
+
 // CanonicalName is the @mention identifier (file stem).
 func (r *Rule) CanonicalName() string {
 	if r == nil {

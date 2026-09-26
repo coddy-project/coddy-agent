@@ -712,8 +712,12 @@ func TestBuildSystemPromptIncludesRulesBlock(t *testing.T) {
 	if err := os.MkdirAll(rulePath, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	content := "---\nalwaysApply: true\nglobs: ['**/*.go']\n---\nRULE_GLOB_TOKEN:xyz\n"
-	if err := os.WriteFile(filepath.Join(rulePath, "go.mdc"), []byte(content), 0o644); err != nil {
+	always := "---\nalwaysApply: true\n---\nRULE_ALWAYS_TOKEN:xyz\n"
+	if err := os.WriteFile(filepath.Join(rulePath, "house.mdc"), []byte(always), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	globbed := "---\nalwaysApply: true\nglobs: ['**/*.go']\n---\nRULE_GLOB_TOKEN:xyz\n"
+	if err := os.WriteFile(filepath.Join(rulePath, "go.mdc"), []byte(globbed), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	st := &session.State{ID: "t", CWD: tmp, Mode: session.ModeAgent}
@@ -723,11 +727,16 @@ func TestBuildSystemPromptIncludesRulesBlock(t *testing.T) {
 	cfg.Prompts.ApplyDefaults()
 	a := NewAgent(cfg, st, nil, nil)
 	prompt := a.buildSystemPrompt("agent", nil, nil, []string{filepath.Join(tmp, "main.go")})
-	if !strings.Contains(prompt, "RULE_GLOB_TOKEN") {
-		t.Fatal("expected rule token in prompt")
+	if !strings.Contains(prompt, "## Active project rules") || !strings.Contains(prompt, "RULE_ALWAYS_TOKEN") {
+		t.Fatal("expected the always-on rule under the rules heading")
 	}
 	if strings.Contains(prompt, "## Active Skills") {
 		t.Fatal("rule token should be under Rules not Skills heading")
+	}
+	// A glob rule waits for its path and then rides in the message or the
+	// tool result that brought it, never in the system prompt.
+	if strings.Contains(prompt, "RULE_GLOB_TOKEN") {
+		t.Fatal("a glob rule reached the system prompt")
 	}
 }
 
@@ -2516,7 +2525,7 @@ func TestWithTurnContextSendsHistoryAloneWhenTheBlockIsEmpty(t *testing.T) {
 	}
 }
 
-func TestBuildTurnContextCarriesClockTodoAndNewlyActivatedRules(t *testing.T) {
+func TestBuildTurnContextCarriesClockAndTodoButNoRules(t *testing.T) {
 	tmp := t.TempDir()
 	rulesDir := filepath.Join(tmp, ".coddy", "rules")
 	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
@@ -2548,19 +2557,25 @@ func TestBuildTurnContextCarriesClockTodoAndNewlyActivatedRules(t *testing.T) {
 	}
 
 	st.SetPlan([]acp.PlanEntry{{Content: "TURN_CTX_TODO_TOKEN", Status: "pending"}})
-	a.activateScopedRulesForToolCall("read", `{"path":"main.go"}`, tmp)
+	read := llm.ToolCall{ID: "r1", Name: "read", InputJSON: `{"path":"main.go"}`}
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{read}})
+	result := toolResultMessage(read, "package main", nil, a.toolCallRules("agent", read, tmp))
+	st.AddMessage(result)
+	if !strings.Contains(result.Rules, "TURN_CTX_RULE_TOKEN") {
+		t.Fatalf("the read's result lost the rule it activated: %+v", result)
+	}
 
 	block = a.buildTurnContext(sys)
 	if !strings.Contains(block, "TURN_CTX_TODO_TOKEN") {
 		t.Fatalf("turn context lost the checklist: %q", block)
 	}
-	if !strings.Contains(block, "TURN_CTX_RULE_TOKEN") {
-		t.Fatalf("turn context lost the rule the read activated: %q", block)
+	// The rule rides in the result of the read, written once; repeating it in
+	// the block would send it again on every step.
+	if strings.Contains(block, "TURN_CTX_RULE_TOKEN") {
+		t.Fatalf("turn context repeats the rule the read's result carries: %q", block)
 	}
-	// The frozen prompt is what the provider already has cached: the rule must
-	// not be folded back into it mid-turn.
-	if frozen := sys.Content; strings.Contains(frozen, "TURN_CTX_RULE_TOKEN") {
-		t.Fatal("the activated rule rewrote the frozen system prompt")
+	if next := a.buildSystemPromptParts("agent", nil, nil, nil); next.Content != sys.Content {
+		t.Fatal("the activated rule rewrote the system prompt")
 	}
 }
 
@@ -2693,7 +2708,7 @@ func TestVolatileCustomTemplateKeepsThePerStepRefresh(t *testing.T) {
 
 // A template with no {{.Rules}} in it asked for no rules at all. A rule a tool
 // call activates must not be smuggled in after the history either.
-func TestTemplateWithoutRulesGetsNoRulesInTheTurnContext(t *testing.T) {
+func TestTemplateWithoutRulesGetsNoRulesAfterTheHistory(t *testing.T) {
 	tmp := t.TempDir()
 	rulesDir := filepath.Join(tmp, ".coddy", "rules")
 	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
@@ -2716,16 +2731,19 @@ func TestTemplateWithoutRulesGetsNoRulesInTheTurnContext(t *testing.T) {
 	a := NewAgent(cfg, st, nil, nil)
 
 	sys := a.buildSystemPromptParts("agent", nil, nil, nil)
-	a.activateScopedRulesForToolCall("read", `{"path":"main.go"}`, tmp)
+	read := llm.ToolCall{ID: "r1", Name: "read", InputJSON: `{"path":"main.go"}`}
+	if res := toolResultMessage(read, "package main", nil, a.toolCallRules("agent", read, tmp)); res.Rules != "" {
+		t.Fatalf("a template without {{.Rules}} still received a rule with a tool result: %q", res.Rules)
+	}
 	if block := a.buildTurnContext(sys); strings.Contains(block, "NO_RULES_TEMPLATE_TOKEN") {
 		t.Fatalf("a template without {{.Rules}} still received a rule: %q", block)
 	}
 }
 
-// A rule the frozen system prompt already carries must never be repeated after
-// the history: that is what rules.Added is for, and repeating it would spend on
-// every step exactly the tokens this change is saving.
-func TestRuleAlreadyInTheSystemPromptIsNotRepeatedInTheTurnContext(t *testing.T) {
+// A glob rule an attached file brought in rides in the user's message, never
+// in the system prompt, and is not repeated with a later tool result: that
+// would spend exactly the tokens the attachment already paid.
+func TestRuleAnAttachmentBroughtIsNotRepeatedWithAToolResult(t *testing.T) {
 	tmp := t.TempDir()
 	rulesDir := filepath.Join(tmp, ".coddy", "rules")
 	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
@@ -2747,14 +2765,24 @@ func TestRuleAlreadyInTheSystemPromptIsNotRepeatedInTheTurnContext(t *testing.T)
 	st.ReplaceRulesCatalog(session.DiscoverRules(cfg, tmp))
 	a := NewAgent(cfg, st, nil, nil)
 
-	// An attachment already made the rule sticky, so the frozen prompt carries it.
-	sys := a.buildSystemPromptParts("agent", nil, nil, []string{filepath.Join(tmp, "main.go")})
-	if !strings.Contains(sys.Content, "ALREADY_SENT_RULE_TOKEN") {
-		t.Fatal("the attached file did not activate the glob rule")
+	prompt := a.attachActivatedRules([]acp.ContentBlock{
+		{Type: acp.ContentTypeText, Text: "look"},
+		{Type: acp.ContentTypeResource, Resource: &acp.Resource{URI: "file://" + filepath.ToSlash(filepath.Join(tmp, "main.go"))}},
+	})
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: contentBlocksToText(prompt)})
+	if !strings.Contains(st.GetMessages()[0].Content, "ALREADY_SENT_RULE_TOKEN") {
+		t.Fatal("the attached file did not bring the glob rule into its message")
 	}
-	a.activateScopedRulesForToolCall("read", `{"path":"other.go"}`, tmp)
+	sys := a.buildSystemPromptParts("agent", nil, nil, []string{filepath.Join(tmp, "main.go")})
+	if strings.Contains(sys.Content, "ALREADY_SENT_RULE_TOKEN") {
+		t.Fatal("a glob rule reached the system prompt")
+	}
+	read := llm.ToolCall{ID: "r1", Name: "read", InputJSON: `{"path":"other.go"}`}
+	if res := toolResultMessage(read, "package main", nil, a.toolCallRules("agent", read, tmp)); strings.Contains(res.Rules, "ALREADY_SENT_RULE_TOKEN") {
+		t.Fatalf("a rule the user's message carries was repeated with a tool result: %q", res.Rules)
+	}
 	if block := a.buildTurnContext(sys); strings.Contains(block, "ALREADY_SENT_RULE_TOKEN") {
-		t.Fatalf("a rule the system prompt already carried was repeated after the history: %q", block)
+		t.Fatalf("a rule the user's message carries was repeated after the history: %q", block)
 	}
 }
 

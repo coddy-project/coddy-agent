@@ -4,7 +4,7 @@ package rules
 // "@rule:deploy"): internal/session/mentions.go resolves it into that user
 // message, never into the system prompt.
 
-// MatchAuto returns rules newly matched this turn (alwaysApply true only).
+// MatchAuto returns the auto rules a set of context paths matches.
 // Directory-scoped rules require a context path inside their subtree; rules with
 // globs require a context file match; rules with neither match immediately.
 func MatchAuto(catalog []*Rule, contextFiles []string) []*Rule {
@@ -29,27 +29,16 @@ func MatchAuto(catalog []*Rule, contextFiles []string) []*Rule {
 	return out
 }
 
-// UnionStable merges newly matched auto rules into sticky set by ID.
-func UnionStable(sticky, newly []*Rule) []*Rule {
-	if len(newly) == 0 {
-		return sticky
-	}
-	seen := make(map[string]struct{}, len(sticky)+len(newly))
-	out := append([]*Rule(nil), sticky...)
-	for _, r := range sticky {
-		if r != nil {
-			seen[r.ID] = struct{}{}
+// AlwaysOnRules returns the rules of catalog a system prompt carries: the ones
+// that apply from the first turn whatever the session touches (Rule.AlwaysOn).
+// They depend on the catalog alone, so the block they render stays the same for
+// as long as the catalog does.
+func AlwaysOnRules(catalog []*Rule) []*Rule {
+	var out []*Rule
+	for _, r := range catalog {
+		if r.AlwaysOn() {
+			out = append(out, r)
 		}
-	}
-	for _, r := range newly {
-		if r == nil {
-			continue
-		}
-		if _, ok := seen[r.ID]; ok {
-			continue
-		}
-		seen[r.ID] = struct{}{}
-		out = append(out, r)
 	}
 	return out
 }

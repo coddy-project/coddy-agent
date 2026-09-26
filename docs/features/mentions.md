@@ -63,10 +63,10 @@ What each kind carries:
 A provider caches a request by its prefix, and the system message opens every request. A mention must never move what came before it, so:
 
 - A mention is resolved once, when its message enters the conversation, and the message is persisted with its attachments. A later turn replays it byte for byte; a file edited afterwards does not rewrite an old message - mention it again to show the model the new version.
-- A rule never enters the system prompt because of a mention. A rule the user names rides in the user's message, and so does a rule a mentioned path activates - a glob rule whose patterns match the file, the `AGENTS.md` and `DESIGN.md` of the folders down to it. While that message is in the model's view the system prompt leaves those rules out; a compaction that folds the message into its summary brings them back ([Rules](rules.md)).
+- A rule never enters the system prompt because of a mention. A rule the user names rides in the user's message, and so does a rule a mentioned path activates - a glob rule whose patterns match the file, the `AGENTS.md` and `DESIGN.md` of the folders down to it. While that message is in the model's view, no later tool call or mention attaches those rules again; a compaction that folds the message into its summary lets the next match bring them back ([Rules and the prompt cache](rules.md#rules-and-the-prompt-cache)).
 - A skill invoked as `/name` writes its body into the message that invoked it, once, instead of being added to whichever message happens to be the last one.
 
-`features/mention_prompt_cache.feature` holds the story: a turn that mentions a file, names a rule and invokes a skill, then a second turn - every request of both opens with the same system message, and the second turn replays the first turn's message unchanged.
+`features/prompt_cache_mentions.feature` holds the story: a turn that mentions a file, names a rule and invokes a skill, then a second turn - every request of both opens with the same system message, and the second turn replays the first turn's message unchanged.
 
 ## Who may mention what
 

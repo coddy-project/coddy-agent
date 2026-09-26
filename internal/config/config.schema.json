@@ -319,7 +319,7 @@
     "rules": {
       "type": "object",
       "title": "Project rules",
-      "description": "Discovery of rule files from ${CODDY_HOME}/rules (the operator's own, applied in every workspace) and from .coddy/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules under the session CWD, plus the AGENTS.md and DESIGN.md of a folder a tool enters; .mdc files are Cursor rules, .md files Claude Code rules. See https://coddy.dev/docs/features/rules.",
+      "description": "Discovery of rule files from ${CODDY_HOME}/rules (the operator's own, applied in every workspace) and from one project folder under the session CWD, the first of .coddy/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules that holds a rule file, plus the AGENTS.md and DESIGN.md of a folder a tool enters; .mdc files are Cursor rules, .md files Claude Code rules. See https://coddy.dev/docs/features/rules.",
       "additionalProperties": false,
       "properties": {
         "auto_discover": {
@@ -332,7 +332,7 @@
         },
         "systems": {
           "type": "array",
-          "description": "Restrict which rule systems are loaded: user (${CODDY_HOME}/rules), coddy, agents-dir (.agents/rules), cursor, claude, codex, agents (nested AGENTS.md and DESIGN.md). Empty means all.",
+          "description": "Restrict which rule systems are loaded: user (${CODDY_HOME}/rules), coddy, agents-dir (.agents/rules), cursor, claude, codex, agents (nested AGENTS.md and DESIGN.md). Empty means all. A project folder left out drops out of the chain; of the ones admitted, the first that holds a rule file is read.",
           "default": [],
           "items": {
             "type": "string"

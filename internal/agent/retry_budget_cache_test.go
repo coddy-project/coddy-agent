@@ -15,7 +15,7 @@ import (
 
 // Compare the actual HTTP bodies, not just the Agent's projection: retry
 // bookkeeping must not change the prefix the provider uses for its KV cache.
-func TestReActRetryBudgetPreservesPromptCachePrefix(t *testing.T) {
+func TestPromptCacheRetryBudgetKeepsThePrefix(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		replies []string

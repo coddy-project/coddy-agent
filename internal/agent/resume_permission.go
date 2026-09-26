@@ -81,22 +81,9 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 	if sd != "" {
 		_ = session.ClearPendingPermission(sd)
 	}
+	callRules := a.toolCallRules(mode, tc, toolEnv.CWD)
 	result, execErr := a.executeToolCall(ctx, tc, toolEnv, mode, a.state.GetID(), true)
-	var toolResultMsg llm.Message
-	if execErr != nil {
-		toolResultMsg = llm.Message{
-			Role:       llm.RoleTool,
-			Content:    fmt.Sprintf("error: %v", execErr),
-			ToolCallID: tc.ID,
-		}
-	} else {
-		toolResultMsg = llm.Message{
-			Role:       llm.RoleTool,
-			Content:    result,
-			ToolCallID: tc.ID,
-		}
-	}
-	a.state.AddMessage(toolResultMsg)
+	a.state.AddMessage(toolResultMessage(tc, result, execErr, callRules))
 	return a.continueReAct(ctx, mode, toolEnv)
 }
 

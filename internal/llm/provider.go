@@ -50,6 +50,13 @@ type Message struct {
 	ReasoningDurationMs int64      `json:"reasoning_duration_ms,omitempty"`
 	ToolCalls           []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID          string     `json:"tool_call_id,omitempty"` // for RoleTool messages
+	// Rules, on a RoleTool message, are the project rules the call brought
+	// into play for the first time, rendered as the model reads them after
+	// Content. They are kept apart from the output, which every surface shows
+	// and the result eviction replaces, and are joined to it only in what the
+	// provider is sent; written once with the result, they replay byte for
+	// byte on every later request.
+	Rules string `json:"rules,omitempty"`
 	// Model is the YAML models[].model selector used to generate this assistant message (HTTP/Coddy), if set.
 	Model string `json:"model,omitempty"`
 	// CreatedAt is RFC3339 timestamp in UTC when the message was appended to history (UI and Coddy REST).

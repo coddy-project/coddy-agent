@@ -73,16 +73,16 @@ func TestMatchScopedGlobRules(t *testing.T) {
 	globbed := &rules.Rule{
 		ID: "cursor:go", Name: "go",
 		AlwaysApply: true, ApplyMode: rules.ApplyAuto,
-		Globs:       []string{"internal/**/*.go"},
-		Root:        root,
-		Content:     "glob body",
+		Globs:   []string{"internal/**/*.go"},
+		Root:    root,
+		Content: "glob body",
 	}
 	mention := &rules.Rule{
 		ID: "cursor:manual", Name: "manual",
 		AlwaysApply: false, ApplyMode: rules.ApplyMention,
-		Globs:       []string{"**/*.go"},
-		Root:        root,
-		Content:     "manual body",
+		Globs:   []string{"**/*.go"},
+		Root:    root,
+		Content: "manual body",
 	}
 	catalog := []*rules.Rule{always, globbed, mention}
 
@@ -110,21 +110,6 @@ func TestMatchAutoScopedMentionRuleNeverMatches(t *testing.T) {
 	catalog := []*rules.Rule{r}
 	if got := rules.MatchAuto(catalog, []string{filepath.Join("/proj", "sub", "x.go")}); len(got) != 0 {
 		t.Fatalf("mention rule must not auto-match, got %d", len(got))
-	}
-}
-
-func TestScopedRuleStaysStickyAfterMatch(t *testing.T) {
-	scope := filepath.Join("/proj", "internal", "agent")
-	catalog := []*rules.Rule{scopedRule("agents:a", scope, "body")}
-
-	sticky := rules.UnionStable(nil, rules.MatchAuto(catalog, []string{filepath.Join(scope, "react.go")}))
-	if len(sticky) != 1 {
-		t.Fatalf("sticky len %d after match, want 1", len(sticky))
-	}
-	// A later turn touching an unrelated directory must not drop it.
-	sticky = rules.UnionStable(sticky, rules.MatchAuto(catalog, []string{filepath.Join("/proj", "docs", "x.md")}))
-	if len(sticky) != 1 {
-		t.Fatalf("sticky len %d after unrelated turn, want 1", len(sticky))
 	}
 }
 
@@ -180,17 +165,20 @@ func TestPathsUnderDir(t *testing.T) {
 	}
 }
 
-func TestPromptOmitsScopedRuleUntilMatched(t *testing.T) {
+// TestPromptNeverCarriesScopedRules: the system prompt is built from the
+// always-on rules of a catalog, so a directory-scoped rule stays out of it
+// whether or not a path of its folder has come into play.
+func TestPromptNeverCarriesScopedRules(t *testing.T) {
 	tmp := t.TempDir()
 	scope := filepath.Join(tmp, "internal", "agent")
-	catalog := []*rules.Rule{scopedRule("agents:a", scope, "SCOPED_BODY_TOKEN")}
+	always := &rules.Rule{ID: "coddy:always", Name: "always", AlwaysApply: true, ApplyMode: rules.ApplyAuto, Content: "ALWAYS_BODY_TOKEN"}
+	catalog := []*rules.Rule{scopedRule("agents:a", scope, "SCOPED_BODY_TOKEN"), always}
 
-	out, _ := rules.RenderPrompt("", tmp, rules.MatchAuto(catalog, nil), nil)
+	out, _ := rules.RenderPrompt("", tmp, rules.AlwaysOnRules(catalog))
 	if strings.Contains(out, "SCOPED_BODY_TOKEN") {
-		t.Fatalf("untouched scoped rule leaked into the prompt: %q", out)
+		t.Fatalf("a scoped rule leaked into the prompt: %q", out)
 	}
-	out, _ = rules.RenderPrompt("", tmp, rules.MatchAuto(catalog, []string{filepath.Join(scope, "react.go")}), nil)
-	if !strings.Contains(out, "SCOPED_BODY_TOKEN") {
-		t.Fatalf("touched scoped rule missing from the prompt: %q", out)
+	if !strings.Contains(out, "ALWAYS_BODY_TOKEN") {
+		t.Fatalf("the always-on rule is missing from the prompt: %q", out)
 	}
 }

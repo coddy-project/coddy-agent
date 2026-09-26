@@ -849,8 +849,10 @@ func (a *Agent) runReActLoop(
 
 		// Prune superseded read/grep results from the projection sent to the model;
 		// the working `messages` slice keeps full content (copy-on-write) so state,
-		// the transcript, and later appends stay intact.
-		sendMessages := withTurnContext(a.prunedForLLM(messages), turnCtx)
+		// the transcript, and later appends stay intact. The rules a tool call
+		// brought in are joined to its result only here, so an evicted result
+		// keeps them and every request replays them byte for byte.
+		sendMessages := withTurnContext(withToolRules(a.prunedForLLM(messages)), turnCtx)
 		// The call's own clock: when it went out, when the first chunk came
 		// back and how many followed. It names the silence in the errors
 		// below and is the debug-level account of every call.
@@ -1350,22 +1352,12 @@ func (a *Agent) runReActLoop(
 				continue
 			}
 
+			// The rules the call brings into play are read before it runs, on
+			// the paths the model aimed it at: the call may write the very
+			// AGENTS.md it would otherwise bring back.
+			callRules := a.toolCallRules(mode, tc, toolEnv.CWD)
 			result, execErr := a.executeToolCall(ctx, tc, toolEnv, mode, a.state.GetID(), false)
-
-			var toolResultMsg llm.Message
-			if execErr != nil {
-				toolResultMsg = llm.Message{
-					Role:       llm.RoleTool,
-					Content:    fmt.Sprintf("error: %v", execErr),
-					ToolCallID: tc.ID,
-				}
-			} else {
-				toolResultMsg = llm.Message{
-					Role:       llm.RoleTool,
-					Content:    result,
-					ToolCallID: tc.ID,
-				}
-			}
+			toolResultMsg := toolResultMessage(tc, result, execErr, callRules)
 
 			messages = append(messages, toolResultMsg)
 			a.state.AddMessage(toolResultMsg)
@@ -1576,12 +1568,6 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		env.ToolCallID = ""
 		a.currentToolCallID = ""
 	}()
-
-	// Touching a directory pulls its nested AGENTS.md into the prompt. Done up
-	// front so it holds regardless of the outcome below (permission denial,
-	// tool error), and so both callers — the ReAct loop and the resume-after-
-	// permission path — are covered without threading state through.
-	a.activateScopedRulesForToolCall(tc.Name, tc.InputJSON, env.CWD)
 
 	sessionDir := ""
 	if st := sessionStatePtr(a.state); st != nil {
@@ -1857,6 +1843,23 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	}
 	a.finishToolCall(sessionDir, sessionID, tc, result, execErr, status)
 	return result, execErr
+}
+
+// toolResultMessage is the transcript row of a tool call's outcome: the output,
+// or the error, and the rules the call brought into play for the first time
+// (toolCallRules). The rules travel whatever the outcome: a denied or failed
+// call was still aimed at that path.
+func toolResultMessage(tc llm.ToolCall, result string, execErr error, callRules string) llm.Message {
+	content := result
+	if execErr != nil {
+		content = fmt.Sprintf("error: %v", execErr)
+	}
+	return llm.Message{
+		Role:       llm.RoleTool,
+		Content:    content,
+		ToolCallID: tc.ID,
+		Rules:      callRules,
+	}
 }
 
 // finishToolCall persists the outcome of one tool call and publishes the final

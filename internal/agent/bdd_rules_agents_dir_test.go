@@ -1,12 +1,14 @@
 package agent
 
-// Godog harness for features/rules_agents_dir.feature: rules kept in the
-// tool-neutral .agents/rules folder, parsed in the dialect their extension
-// names (.mdc is a Cursor rule, .md a Claude Code rule). The catalog scenario
-// renders the same table `coddy rules list` prints; the prompt scenarios drive
-// the real Agent.Run against a fake provider and inspect the system message of
-// every request it received, which is the only honest view of what the model
-// was told.
+// Godog harness for features/rules_agents_dir.feature and
+// features/rules_one_folder.feature: rules kept in the tool-neutral
+// .agents/rules folder, parsed in the dialect their extension names (.mdc is a
+// Cursor rule, .md a Claude Code rule), and the one project folder of the chain
+// .coddy/rules, .agents/rules, .cursor/rules, .claude/rules that is read. The
+// catalog scenarios render the same table `coddy rules list` prints; the prompt
+// scenarios drive the real Agent.Run against a fake provider and inspect every
+// request it received, which is the only honest view of what the model was
+// told.
 
 import (
 	"bytes"
@@ -78,16 +80,52 @@ func (s *agentsDirRulesFeatureState) tempDir() (string, error) {
 	return d, nil
 }
 
-// projectWithAgentsDirRules writes the table rows as rule files. The
-// frontmatter column carries YAML lines separated by ";" because a Gherkin
-// cell cannot hold a newline; an empty cell means no frontmatter at all.
+// projectWithAgentsDirRules starts a project and writes the table rows as rule
+// files of folder.
 func (s *agentsDirRulesFeatureState) projectWithAgentsDirRules(folder string, table *godog.Table) error {
 	cwd, err := s.tempDir()
 	if err != nil {
 		return err
 	}
 	s.cwd = cwd
-	root := filepath.Join(cwd, filepath.FromSlash(folder))
+	if err := s.writeRuleFiles(folder, table); err != nil {
+		return err
+	}
+	// The file the model will read in the path-scoped scenario.
+	apiDir := filepath.Join(cwd, "internal", "api")
+	if err := os.MkdirAll(apiDir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(apiDir, "handler.go"), []byte("package api\n"), 0o644)
+}
+
+// projectAlsoHoldsRules writes rule files into another folder of the project
+// the scenario already started.
+func (s *agentsDirRulesFeatureState) projectAlsoHoldsRules(folder string, table *godog.Table) error {
+	if s.cwd == "" {
+		return fmt.Errorf("no project prepared")
+	}
+	return s.writeRuleFiles(folder, table)
+}
+
+// projectFolderHoldsNoRuleFile creates folder with a file that is not a rule,
+// so the folder exists and still holds nothing to read.
+func (s *agentsDirRulesFeatureState) projectFolderHoldsNoRuleFile(folder string) error {
+	if s.cwd == "" {
+		return fmt.Errorf("no project prepared")
+	}
+	root := filepath.Join(s.cwd, filepath.FromSlash(folder))
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(root, "notes.txt"), []byte("not a rule\n"), 0o644)
+}
+
+// writeRuleFiles writes the table rows as rule files of folder. The
+// frontmatter column carries YAML lines separated by ";" because a Gherkin
+// cell cannot hold a newline; an empty cell means no frontmatter at all.
+func (s *agentsDirRulesFeatureState) writeRuleFiles(folder string, table *godog.Table) error {
+	root := filepath.Join(s.cwd, filepath.FromSlash(folder))
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return err
 	}
@@ -114,12 +152,7 @@ func (s *agentsDirRulesFeatureState) projectWithAgentsDirRules(folder string, ta
 			return err
 		}
 	}
-	// The file the model will read in the path-scoped scenario.
-	apiDir := filepath.Join(cwd, "internal", "api")
-	if err := os.MkdirAll(apiDir, 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(apiDir, "handler.go"), []byte("package api\n"), 0o644)
+	return nil
 }
 
 func (s *agentsDirRulesFeatureState) operatorListsCatalog() error {
@@ -156,6 +189,46 @@ func (s *agentsDirRulesFeatureState) catalogListsRule(name, source, format strin
 		}
 	}
 	return fmt.Errorf("no catalog row with source %q, format %q and name %q in:\n%s", source, format, name, s.catalog)
+}
+
+// catalogRows returns the cells of every table row of the catalog.
+func (s *agentsDirRulesFeatureState) catalogRows() [][]string {
+	var rows [][]string
+	for _, line := range strings.Split(s.catalog, "\n") {
+		if !strings.Contains(line, "│") {
+			continue
+		}
+		var cells []string
+		for _, c := range strings.Split(line, "│") {
+			if t := strings.TrimSpace(c); t != "" {
+				cells = append(cells, t)
+			}
+		}
+		if len(cells) >= 3 {
+			rows = append(rows, cells)
+		}
+	}
+	return rows
+}
+
+func (s *agentsDirRulesFeatureState) catalogListsNoRuleFrom(source string) error {
+	for _, cells := range s.catalogRows() {
+		if cells[0] == source {
+			return fmt.Errorf("the catalog lists %q from source %q:\n%s", cells[2], source, s.catalog)
+		}
+	}
+	return nil
+}
+
+// catalogNamesSkippedFolder finds the line under the table that names the
+// project folders holding rules that were not read.
+func (s *agentsDirRulesFeatureState) catalogNamesSkippedFolder(folder string) error {
+	for _, line := range strings.Split(s.catalog, "\n") {
+		if strings.HasPrefix(line, "Not read: ") && strings.Contains(line, folder) {
+			return nil
+		}
+	}
+	return fmt.Errorf("the catalog does not name %s as a folder it did not read:\n%s", folder, s.catalog)
 }
 
 func (s *agentsDirRulesFeatureState) agentSessionInThatProject() error {
@@ -321,6 +394,59 @@ func (s *agentsDirRulesFeatureState) userMessageCarries(tail string) error {
 	return nil
 }
 
+// requestCarriesOnce counts tok over everything the last request says.
+func (s *agentsDirRulesFeatureState) requestCarriesOnce(tok string) error {
+	all, err := s.wholeRequest(len(s.seen) - 1)
+	if err != nil {
+		return err
+	}
+	if n := strings.Count(all, tok); n != 1 {
+		return fmt.Errorf("the request carries %s %d times, want once", tok, n)
+	}
+	return nil
+}
+
+// resultOfReadCarries checks the tool result of the read in the last request:
+// a rule the read activated rides there, not in the system message.
+func (s *agentsDirRulesFeatureState) resultOfReadCarries(tail string) error {
+	if len(s.seen) == 0 {
+		return fmt.Errorf("no request was made")
+	}
+	var result string
+	found := false
+	for _, m := range s.seen[len(s.seen)-1] {
+		if m.Role == llm.RoleTool {
+			result, found = m.Content, true
+		}
+	}
+	if !found {
+		return fmt.Errorf("the last request carries no tool result")
+	}
+	for _, tok := range quotedTokens(tail) {
+		if !strings.Contains(result, tok) {
+			return fmt.Errorf("the result of the read is missing %s:\n%s", tok, result)
+		}
+	}
+	return nil
+}
+
+func (s *agentsDirRulesFeatureState) everyRequestOpensWithSameSystemMessage() error {
+	first, err := s.systemPrompt(0)
+	if err != nil {
+		return err
+	}
+	for n := 1; n < len(s.seen); n++ {
+		sp, err := s.systemPrompt(n)
+		if err != nil {
+			return err
+		}
+		if sp != first {
+			return fmt.Errorf("the system message of request %d differs from the first one", n)
+		}
+	}
+	return nil
+}
+
 func (s *agentsDirRulesFeatureState) requestsAfterReadCarry(tail string) error {
 	if len(s.seen) < 2 {
 		return fmt.Errorf("expected a request after the read, got %d request(s)", len(s.seen))
@@ -350,8 +476,12 @@ func initializeAgentsDirRulesScenario(sc *godog.ScenarioContext) {
 	})
 
 	sc.Step(`^a project whose "([^"]*)" folder holds these rule files:$`, s.projectWithAgentsDirRules)
+	sc.Step(`^its "([^"]*)" folder holds these rule files:$`, s.projectAlsoHoldsRules)
+	sc.Step(`^its "([^"]*)" folder holds no rule file$`, s.projectFolderHoldsNoRuleFile)
 	sc.Step(`^the operator lists the rules catalog$`, s.operatorListsCatalog)
 	sc.Step(`^the catalog lists "([^"]*)" from source "([^"]*)" in the "([^"]*)" format$`, s.catalogListsRule)
+	sc.Step(`^the catalog lists no rule from source "([^"]*)"$`, s.catalogListsNoRuleFrom)
+	sc.Step(`^the catalog names "([^"]*)" as a folder it did not read$`, s.catalogNamesSkippedFolder)
 	sc.Step(`^a coddy agent session in that project$`, s.agentSessionInThatProject)
 	sc.Step(`^the model answers without touching any file$`, s.modelAnswersWithoutTouchingFiles)
 	sc.Step(`^the model reads "([^"]*)" and then answers$`, s.modelReadsFileThenAnswers)
@@ -364,6 +494,9 @@ func initializeAgentsDirRulesScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the user's message carries ("[^"]+"(?:(?:,| and) "[^"]+")*)$`, s.userMessageCarries)
 	sc.Step(`^the first request carries neither (.+)$`, s.firstRequestCarriesNone)
 	sc.Step(`^every request after the read carries ("[^"]+"(?:(?:,| and) "[^"]+")*)$`, s.requestsAfterReadCarry)
+	sc.Step(`^the request carries "([^"]*)" exactly once$`, s.requestCarriesOnce)
+	sc.Step(`^the result of the read carries ("[^"]+"(?:(?:,| and) "[^"]+")*)$`, s.resultOfReadCarries)
+	sc.Step(`^every request opens with the same system message$`, s.everyRequestOpensWithSameSystemMessage)
 }
 
 func TestAgentsDirRulesFeature(t *testing.T) {
@@ -379,5 +512,21 @@ func TestAgentsDirRulesFeature(t *testing.T) {
 	}
 	if suite.Run() != 0 {
 		t.Fatal(".agents/rules feature suite failed")
+	}
+}
+
+func TestRulesOneFolderFeature(t *testing.T) {
+	suite := godog.TestSuite{
+		Name:                "rules-one-folder",
+		ScenarioInitializer: initializeAgentsDirRulesScenario,
+		Options: &godog.Options{
+			Format:   "pretty",
+			Paths:    []string{"../../features/rules_one_folder.feature"},
+			TestingT: t,
+			Strict:   true,
+		},
+	}
+	if suite.Run() != 0 {
+		t.Fatal("one project rules folder feature suite failed")
 	}
 }
