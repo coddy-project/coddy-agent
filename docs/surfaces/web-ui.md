@@ -1147,6 +1147,11 @@ a project-local one awaiting workspace approval):
   switch persists into the file that defines it, a project entry's into
   `<home>/mcp-overrides.json`, leaving the checkout alone. Live sessions connect or
   close that one server and keep the others running.
+- A listing the server cannot build (`GET /coddy/mcp` answers an error, or the
+  request never arrives) is reported above the list (`mcp-load-error`) with the
+  server's message, which names the file when `mcp-overrides.json` cannot be parsed,
+  instead of reading as "no servers configured"; a refresh that fails keeps the rows
+  the tab already showed.
 - Expanding a row lists tools with per-tool switches
   (`POST /coddy/mcp/{name}/tools/{tool}/enable|disable`); tool switches are
   locked while the server is disabled.

@@ -29,18 +29,35 @@ type MCPList = {
   workspace: string;
 };
 
-async function fetchServers(refresh = false): Promise<MCPList> {
-  const res = await fetch(`/coddy/mcp${refresh ? "?refresh=1" : ""}`);
-  if (!res.ok) return { items: [], projectTrust: "ask", workspace: "" };
+/** A listing, or why there is none: the server's own message when it sent one. */
+type MCPListResult = { list: MCPList } | { error: string };
+
+async function fetchServers(refresh = false): Promise<MCPListResult> {
+  let res: Response;
+  try {
+    res = await fetch(`/coddy/mcp${refresh ? "?refresh=1" : ""}`);
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+  if (!res.ok) {
+    try {
+      const j = (await res.json()) as { error?: { message?: string } };
+      return { error: j.error?.message || `HTTP ${res.status}` };
+    } catch {
+      return { error: `HTTP ${res.status}` };
+    }
+  }
   const data = (await res.json()) as {
     items?: MCPServerRow[];
     project_trust?: ProjectTrust;
     workspace?: string;
   };
   return {
-    items: data.items ?? [],
-    projectTrust: data.project_trust ?? "ask",
-    workspace: data.workspace ?? "",
+    list: {
+      items: data.items ?? [],
+      projectTrust: data.project_trust ?? "ask",
+      workspace: data.workspace ?? "",
+    },
   };
 }
 
@@ -151,6 +168,7 @@ export function MCPSection() {
   const [projectTrust, setProjectTrust] = useState<ProjectTrust>("ask");
   const [workspace, setWorkspace] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
@@ -160,15 +178,22 @@ export function MCPSection() {
   const [editorBusy, setEditorBusy] = useState(false);
 
   // firstLoad guards the "Loading…" placeholder so refreshes never collapse
-  // the list height (same pattern as the Skills tab).
+  // the list height (same pattern as the Skills tab). A listing that fails
+  // says why - a broken mcp-overrides.json names itself - and keeps the rows
+  // an earlier load showed, instead of reading as "no servers configured".
   const loadServers = useCallback(
     async (firstLoad = false, refresh = false) => {
       if (firstLoad) setLoading(true);
       if (refresh) setRefreshing(true);
-      const list = await fetchServers(refresh);
-      setServers(list.items);
-      setProjectTrust(list.projectTrust);
-      setWorkspace(list.workspace);
+      const result = await fetchServers(refresh);
+      if ("list" in result) {
+        setServers(result.list.items);
+        setProjectTrust(result.list.projectTrust);
+        setWorkspace(result.list.workspace);
+        setLoadError(null);
+      } else {
+        setLoadError(translate("mcp.error.load", { message: result.error }));
+      }
       if (firstLoad) setLoading(false);
       if (refresh) setRefreshing(false);
     },
@@ -376,6 +401,11 @@ export function MCPSection() {
         </div>
 
         {error ? <p className="settings-error">{error}</p> : null}
+        {loadError ? (
+          <p className="settings-error" data-testid="mcp-load-error">
+            {loadError}
+          </p>
+        ) : null}
 
         {editor && editor.isNew ? (
           <MCPEditorCard
@@ -392,7 +422,7 @@ export function MCPSection() {
         {servers.length === 0 ? (
           loading ? (
             <p className="settings-muted">{t("mcp.loading")}</p>
-          ) : (
+          ) : loadError ? null : (
             <p className="settings-muted">{t("mcp.empty")}</p>
           )
         ) : (
