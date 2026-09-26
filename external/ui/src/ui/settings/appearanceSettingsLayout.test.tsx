@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { Settings } from "./Settings";
+import { resetSettingsConfigForTests } from "./settingsConfigStore";
 import { I18nProvider } from "../i18n/I18nProvider";
 import { initLocale, setLocale } from "../i18n/i18n";
 
@@ -8,6 +9,8 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   initLocale("en");
+  // The app keeps the config Settings read; every test starts without it.
+  resetSettingsConfigForTests();
 });
 
 // Regression: while the config schema is still loading (fetch pending, no error),

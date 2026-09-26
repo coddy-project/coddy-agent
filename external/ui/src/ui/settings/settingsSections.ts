@@ -76,6 +76,16 @@ const SECTION_DESC_KEYS = {
   gateways: "settings.section.gateways.desc",
 } as const;
 
+/**
+ * The tab label of a known section id, before any schema has been read: what
+ * the drawer can name while the tab the address asks for is still loading.
+ * Null for an id the dictionary does not know (a key a newer server added).
+ */
+export function knownSectionLabel(id: string): string | null {
+  const key = lookupSectionKey(SECTION_LABEL_KEYS, id);
+  return key ? translate(key) : null;
+}
+
 /** A section id the schema produced may be one the maps above do not know. */
 function lookupSectionKey(
   keys: Record<string, string>,

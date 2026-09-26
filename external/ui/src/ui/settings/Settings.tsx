@@ -2,17 +2,27 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from "react";
 import { type JsonSchema } from "./SchemaForm";
 import {
   deriveSettingsSections,
+  knownSectionLabel,
   type SectionDescriptor,
 } from "./settingsSections";
 import { SettingsNav } from "./SettingsNav";
 import { SettingsSection } from "./SettingsSection";
+import { SettingsSkeleton } from "./SettingsSkeleton";
 import { SettingsTileGrid } from "./SettingsTileGrid";
+import {
+  ensureSettingsConfig,
+  noteSettingsConfigSaved,
+  refreshSettingsConfig,
+  snapshotSettingsConfig,
+  subscribeSettingsConfig,
+} from "./settingsConfigStore";
 import {
   serverSnapshotShellStack,
   snapshotShellStack,
@@ -28,20 +38,29 @@ import { hasTranslation, translate } from "../i18n/i18n";
 
 type ValidateResponse = { ok: boolean; error?: string };
 
-async function readJSON<T>(
-  path: string,
-): Promise<{ ok: boolean; data?: T; error?: string }> {
-  const res = await fetch(path);
-  if (!res.ok) {
-    return { ok: false, error: `${res.status}` };
-  }
-  try {
-    const data = (await res.json()) as T;
-    return { ok: true, data };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "parse" };
-  }
-}
+/** How long a save that went through lights the Save button green. */
+export const SAVE_SUCCESS_MS = 2000;
+
+/**
+ * Grey rows the section rail and the tile grid show in place of the tabs the
+ * schema will bring, while the first read of the page is on its way.
+ */
+const PLACEHOLDER_TABS = 12;
+
+/**
+ * The form's document: the operator's edits (doc) over the config it started
+ * from (base, null before the first read lands). While doc is base itself
+ * nothing was edited, and a newer copy of the config may take its place. seen
+ * is the last copy the draft was measured against, so a copy is taken or passed
+ * over once. replaced counts the times a copy took the place of the document,
+ * which an open row form re-reads its row by (SettingsArraySection).
+ */
+type Draft = {
+  seen: Record<string, unknown> | null;
+  base: Record<string, unknown> | null;
+  doc: Record<string, unknown>;
+  replaced: number;
+};
 
 function IconSave(props: { className?: string }) {
   return (
@@ -139,21 +158,95 @@ export function Settings(props: {
   workspacePath?: string | undefined;
   onSessionTagsChanged?: (id: string, tags: string[]) => void;
 }) {
-  const [schema, setSchema] = useState<JsonSchema | null>(null);
-  const [doc, setDoc] = useState<Record<string, unknown>>({});
-  const [loadErr, setLoadErr] = useState<string | null>(null);
+  // The schema and the config the app keeps for every open of the drawer
+  // (settingsConfigStore.ts): the first open reads them, later ones draw from
+  // the copy at once, and a reload of the server's config refreshes it.
+  const copy = useSyncExternalStore(
+    subscribeSettingsConfig,
+    snapshotSettingsConfig,
+    snapshotSettingsConfig,
+  );
+  const schema = copy.schema;
+  // An open after a failed first read reads again (ensureSettingsConfig below):
+  // until that read starts, the error of the attempt before is not the state
+  // of this one, and the requested tab shows as loading, not as Appearance.
+  const [mountCopy] = useState(copy);
+  const retrying = copy === mountCopy && copy.error !== null;
+  const loading = schema === null && (copy.error === null || retrying);
+  const [draft, setDraft] = useState<Draft>(() => ({
+    seen: copy.config,
+    base: copy.config,
+    doc: copy.config ?? {},
+    replaced: 0,
+  }));
+  // A newer copy - the first read landing, the server's config reloaded by
+  // anyone - replaces a form that holds no edits of its own; unsaved edits
+  // stay, and Reload is the deliberate way to drop them. It is taken while
+  // rendering, not in an effect after it: a frame drawn from the older document
+  // would show a list with no rows, and the list reads an address naming one of
+  // its rows as a stale one and rewrites it.
+  if (copy.config !== null && copy.config !== draft.seen) {
+    const untouched = draft.base === null || draft.doc === draft.base;
+    setDraft(
+      untouched
+        ? {
+            seen: copy.config,
+            base: copy.config,
+            doc: copy.config,
+            replaced: draft.replaced + 1,
+          }
+        : { ...draft, seen: copy.config },
+    );
+  }
+  const doc = draft.doc;
+  // Counts the operator's edits (a newer copy taking the place of an untouched
+  // form is none), so a save knows whether the form changed while it ran.
+  const edits = useRef(0);
+  const setDoc = useCallback((next: Record<string, unknown>) => {
+    edits.current++;
+    setDraft((d) => ({ ...d, doc: next }));
+  }, []);
+  useEffect(() => {
+    void ensureSettingsConfig();
+  }, []);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { locale, t } = useT();
   const [activeTab, setActiveTab] = useState<string>(
     props.initialSection ?? "",
   );
   // Animation feedback: bump reloadKey to replay the form dissolve/reappear on
-  // reload; reloading spins the refresh icon; justSaved pulses the save button.
+  // reload; reloading spins the refresh icon; justSaved turns the save button
+  // green for SAVE_SUCCESS_MS.
   const [reloadKey, setReloadKey] = useState(0);
   const [reloading, setReloading] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
+  const savedTimer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (savedTimer.current !== null) {
+        window.clearTimeout(savedTimer.current);
+      }
+    },
+    [],
+  );
+  const clearSaved = useCallback(() => {
+    if (savedTimer.current !== null) {
+      window.clearTimeout(savedTimer.current);
+      savedTimer.current = null;
+    }
+    setJustSaved(false);
+  }, []);
+  const flashSaved = useCallback(() => {
+    setJustSaved(true);
+    if (savedTimer.current !== null) {
+      window.clearTimeout(savedTimer.current);
+    }
+    savedTimer.current = window.setTimeout(() => {
+      savedTimer.current = null;
+      setJustSaved(false);
+    }, SAVE_SUCCESS_MS);
+  }, []);
 
   // On narrow shells the section picker is a tile grid (master) that opens one
   // section at a time (detail); `mobileDetailId` null means the grid is showing.
@@ -170,11 +263,18 @@ export function Settings(props: {
     () => deriveSettingsSections(schema),
     [schema, locale],
   );
+  // A tab the address names that is not among the tabs yet: the schema that
+  // describes it is on its way. It shows as a skeleton rather than as another
+  // tab first (Appearance, which needs no schema, used to stand in for it).
+  const pendingTab = (id: string | null): string | null =>
+    loading && id && !sections.some((s) => s.id === id) ? id : null;
   const activeSection =
-    sections.find((s) => s.id === activeTab) ?? sections[0] ?? null;
+    sections.find((s) => s.id === activeTab) ??
+    (pendingTab(activeTab) ? null : (sections[0] ?? null));
   const mobileSection = mobileDetailId
     ? (sections.find((s) => s.id === mobileDetailId) ?? null)
     : null;
+  const mobilePending = pendingTab(mobileDetailId);
 
   // Reflect the `#/settings/<section>` deep link (initial load and browser
   // back/forward) into local tab state; writing the hash below re-enters here
@@ -207,49 +307,45 @@ export function Settings(props: {
   const headSection = isMobileShell ? mobileSection : activeSection;
   const rowTitle = rowOpen && headSection ? itemFormTitle(headSection) : null;
 
-  const load = useCallback(async () => {
-    setLoadErr(null);
-    const [sRes, cRes] = await Promise.all([
-      readJSON<JsonSchema>("/coddy/config/schema"),
-      readJSON<Record<string, unknown>>("/coddy/config"),
-    ]);
-    if (!sRes.ok || !sRes.data) {
-      setLoadErr(sRes.error || translate("settings.error.schemaLoadFailed"));
-      return;
-    }
-    if (!cRes.ok || !cRes.data) {
-      setLoadErr(cRes.error || translate("settings.error.configLoadFailed"));
-      return;
-    }
-    setSchema(sRes.data);
-    setDoc(cRes.data);
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
   // Reload with visible feedback: spin the refresh icon and replay the form
   // dissolve/reappear animation (key bump remounts the content) while re-fetching.
+  // It is the deliberate way back to what the server has, so the form takes the
+  // new copy over the edits it held when Reload was pressed - not over any typed
+  // while the read was on its way.
   const onReload = useCallback(async () => {
+    const pressedOn = doc;
     setReloading(true);
     setReloadKey((k) => k + 1);
+    setError(null);
     try {
-      await Promise.all([
-        load(),
+      const [read] = await Promise.all([
+        refreshSettingsConfig(),
         new Promise((r) => window.setTimeout(r, 500)),
       ]);
+      if (read.ok && read.copy.config) {
+        const fresh = read.copy.config;
+        setDraft((d) =>
+          d.doc === pressedOn
+            ? { seen: fresh, base: fresh, doc: fresh, replaced: d.replaced + 1 }
+            : { ...d, seen: fresh },
+        );
+      } else if (!read.ok) {
+        setError(translate("settings.error.failedToLoad", { error: read.error }));
+      }
     } finally {
       setReloading(false);
     }
-  }, [load]);
+  }, [doc]);
 
   const onSave = useCallback(async () => {
     setBusy(true);
-    setMessage(null);
     setError(null);
+    // The green of an earlier save says nothing about this one.
+    clearSaved();
+    const sent = doc;
+    const editsAtSend = edits.current;
     try {
-      const body = JSON.stringify(doc);
+      const body = JSON.stringify(sent);
       const v = await fetch("/coddy/config/validate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -258,7 +354,6 @@ export function Settings(props: {
       const vj = (await v.json()) as ValidateResponse;
       if (!vj.ok) {
         setError(vj.error || translate("settings.error.validationFailed"));
-        setBusy(false);
         return;
       }
       const p = await fetch("/coddy/config", {
@@ -272,14 +367,24 @@ export function Settings(props: {
           pj.error ||
             translate("settings.error.saveFailed", { status: p.status }),
         );
-        setBusy(false);
         return;
       }
-      setMessage(translate("settings.toast.saved"));
-      setJustSaved(true);
-      window.setTimeout(() => setJustSaved(false), 1100);
+      // Green says the form on screen is saved. Edits typed while the request
+      // was on its way are not in the file, so they leave the button as it is
+      // and the form as holding unsaved edits.
+      if (edits.current === editsAtSend) {
+        flashSaved();
+      }
+      // What was sent is what the file has now, and the kept copy says so at
+      // once (a reopen before the read below lands draws it). The copy read
+      // here, and the one config_reloaded brings, replaces it with what the
+      // server made of the save, unless the operator types something first.
+      // A form a newer copy took over meanwhile is left as it is.
+      setDraft((d) => (d.doc === sent ? { ...d, base: sent } : d));
+      noteSettingsConfigSaved(sent);
       props.onConfigSaved?.();
-      await load();
+      setBusy(false);
+      void refreshSettingsConfig();
     } catch (e) {
       setError(
         e instanceof Error
@@ -289,12 +394,12 @@ export function Settings(props: {
     } finally {
       setBusy(false);
     }
-  }, [doc, load, props]);
+  }, [doc, clearSaved, flashSaved, props]);
 
   // Renders the content panel for a section, reusing the schema-present and
   // appearance-without-schema paths for both the desktop rail and the mobile
   // tile-grid detail view.
-  const renderSectionBody = (section: SectionDescriptor | null) => {
+  const renderSectionBody = (section: SectionDescriptor) => {
     if (schema) {
       return (
         <div className="settings-scroll">
@@ -302,90 +407,78 @@ export function Settings(props: {
             className={`settings-body${reloadKey > 0 ? " settings-form-anim" : ""}`}
             key={reloadKey}
           >
-            {section ? (
-              <SettingsSection
-                section={section}
-                schema={schema}
-                doc={doc}
-                setDoc={setDoc}
-                // The address names a row of one section. For the render in
-                // which the tab has not caught up with a new address yet,
-                // another section must not take that name for its own (it
-                // would find no such row and rewrite the address to its list).
-                routeItem={
-                  section.id === (props.initialSection ?? "")
-                    ? (props.initialItem ?? null)
-                    : null
-                }
-                // Only the section the address names writes it back: in the
-                // render where the tab lags a new address, the old section
-                // would otherwise report its closed form and undo the jump.
-                onRouteItemChange={
-                  section.id === (props.initialSection ?? "")
-                    ? (item) =>
-                        setSettingsSectionHash(section.id, {
-                          item,
-                          historySidebar: historyOpenInAddress(),
-                        })
-                    : undefined
-                }
-                hideBackLink
-                onEditingChange={setRowOpen}
-                closeSignal={closeRowSignal}
-                {...(props.activeSessionId
-                  ? { activeSessionId: props.activeSessionId }
-                  : {})}
-                {...(props.onSessionsDeleted
-                  ? { onSessionsDeleted: props.onSessionsDeleted }
-                  : {})}
-                workspacePath={props.workspacePath}
-                {...(props.onSessionTagsChanged
-                  ? { onSessionTagsChanged: props.onSessionTagsChanged }
-                  : {})}
-              />
-            ) : null}
+            <SettingsSection
+              section={section}
+              schema={schema}
+              doc={doc}
+              setDoc={setDoc}
+              // The address names a row of one section. For the render in
+              // which the tab has not caught up with a new address yet,
+              // another section must not take that name for its own (it
+              // would find no such row and rewrite the address to its list).
+              routeItem={
+                section.id === (props.initialSection ?? "")
+                  ? (props.initialItem ?? null)
+                  : null
+              }
+              // Only the section the address names writes it back: in the
+              // render where the tab lags a new address, the old section
+              // would otherwise report its closed form and undo the jump.
+              onRouteItemChange={
+                section.id === (props.initialSection ?? "")
+                  ? (item) =>
+                      setSettingsSectionHash(section.id, {
+                        item,
+                        historySidebar: historyOpenInAddress(),
+                      })
+                  : undefined
+              }
+              hideBackLink
+              onEditingChange={setRowOpen}
+              closeSignal={closeRowSignal}
+              replacedSignal={draft.replaced}
+              {...(props.activeSessionId
+                ? { activeSessionId: props.activeSessionId }
+                : {})}
+              {...(props.onSessionsDeleted
+                ? { onSessionsDeleted: props.onSessionsDeleted }
+                : {})}
+              workspacePath={props.workspacePath}
+              {...(props.onSessionTagsChanged
+                ? { onSessionTagsChanged: props.onSessionTagsChanged }
+                : {})}
+            />
           </div>
         </div>
       );
     }
-    if (!loadErr) {
-      // Appearance is client-side content (the theme picker), available before
-      // the config schema loads. Render it in the normal scroll flow — NOT the
-      // centered `settings-scroll-placeholder` used for the "Loading…" spinner,
-      // which shrinks and off-centers the swatch grid.
-      if (
-        section &&
-        (section.kind === "appearance" || section.kind === "sessions")
-      ) {
-        return (
-          <div className="settings-scroll">
-            <div className="settings-body">
-              <SettingsSection
-                section={section}
-                schema={{ type: "object", properties: {} } as JsonSchema}
-                doc={doc}
-                setDoc={setDoc}
-                {...(props.activeSessionId
-                  ? { activeSessionId: props.activeSessionId }
-                  : {})}
-                {...(props.onSessionsDeleted
-                  ? { onSessionsDeleted: props.onSessionsDeleted }
-                  : {})}
-                {...(props.onSessionTagsChanged
-                  ? { onSessionTagsChanged: props.onSessionTagsChanged }
-                  : {})}
-              />
-            </div>
-          </div>
-        );
-      }
+    // Appearance and Sessions are client-side content (the theme picker, the
+    // session table), available before the config schema loads, and they render
+    // in the normal scroll flow like any other tab.
+    if (section.kind === "appearance" || section.kind === "sessions") {
       return (
-        <div className="settings-scroll settings-scroll-placeholder">
-          <p className="settings-muted">{t("settings.loading")}</p>
+        <div className="settings-scroll">
+          <div className="settings-body">
+            <SettingsSection
+              section={section}
+              schema={{ type: "object", properties: {} } as JsonSchema}
+              doc={doc}
+              setDoc={setDoc}
+              {...(props.activeSessionId
+                ? { activeSessionId: props.activeSessionId }
+                : {})}
+              {...(props.onSessionsDeleted
+                ? { onSessionsDeleted: props.onSessionsDeleted }
+                : {})}
+              {...(props.onSessionTagsChanged
+                ? { onSessionTagsChanged: props.onSessionTagsChanged }
+                : {})}
+            />
+          </div>
         </div>
       );
     }
-    return null;
+    return loading ? <SettingsSkeleton /> : null;
   };
 
   return (
@@ -412,7 +505,7 @@ export function Settings(props: {
             </button>
             <span className="settings-head-section">{rowTitle}</span>
           </span>
-        ) : isMobileShell && mobileSection ? (
+        ) : isMobileShell && (mobileSection || mobilePending) ? (
           <span className="settings-head-titlegroup">
             <button
               type="button"
@@ -424,7 +517,11 @@ export function Settings(props: {
             >
               <IconArrowLeft />
             </button>
-            <span className="settings-head-section">{mobileSection.label}</span>
+            <span className="settings-head-section">
+              {mobileSection
+                ? mobileSection.label
+                : (knownSectionLabel(mobilePending ?? "") ?? "")}
+            </span>
           </span>
         ) : (
           <span>{t("settings.title")}</span>
@@ -440,15 +537,16 @@ export function Settings(props: {
         </button>
       </div>
 
-      {loadErr || error || message ? (
+      {/* The status band says what went wrong, in words; a save that went
+          through says so on the Save button alone. */}
+      {copy.error || error ? (
         <div className="settings-lead-pane">
-          {loadErr ? (
+          {copy.error ? (
             <p className="settings-error">
-              {t("settings.error.failedToLoad", { error: loadErr })}
+              {t("settings.error.failedToLoad", { error: copy.error })}
             </p>
           ) : null}
           {error ? <p className="settings-error">{error}</p> : null}
-          {message ? <p className="settings-ok">{message}</p> : null}
         </div>
       ) : null}
 
@@ -458,8 +556,16 @@ export function Settings(props: {
             <div className="settings-mobile-detail">
               {renderSectionBody(mobileSection)}
             </div>
+          ) : mobilePending ? (
+            <div className="settings-mobile-detail">
+              <SettingsSkeleton />
+            </div>
           ) : (
-            <SettingsTileGrid sections={sections} onSelect={selectSection} />
+            <SettingsTileGrid
+              sections={sections}
+              onSelect={selectSection}
+              placeholders={loading ? PLACEHOLDER_TABS : 0}
+            />
           )
         ) : (
           <div className="settings-tabs-layout">
@@ -467,8 +573,13 @@ export function Settings(props: {
               sections={sections}
               active={activeSection ? activeSection.id : ""}
               onSelect={selectSection}
+              placeholders={loading ? PLACEHOLDER_TABS : 0}
             />
-            {renderSectionBody(activeSection)}
+            {activeSection ? (
+              renderSectionBody(activeSection)
+            ) : loading ? (
+              <SettingsSkeleton />
+            ) : null}
           </div>
         )}
 
@@ -497,6 +608,11 @@ export function Settings(props: {
           >
             <IconSave className="settings-footer-icon-svg" />
           </button>
+          {/* The green button is the whole message on screen; a screen reader
+              hears it here. */}
+          <span className="sr-only" role="status">
+            {justSaved ? t("settings.save.saved") : ""}
+          </span>
         </div>
       </div>
     </aside>
