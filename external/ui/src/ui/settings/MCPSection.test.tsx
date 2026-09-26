@@ -291,6 +291,36 @@ test("an unapproved project server shows what it would run and offers approval",
   );
 });
 
+// The approval names the declaration the note showed by its fingerprint, so
+// the server refuses it (409) when the checkout rewrote the entry since.
+test("approving sends the fingerprint of the declaration shown", async () => {
+  const bodies: Array<{ url: string; body: string | undefined }> = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        bodies.push({
+          url: String(url),
+          body: init.body as string | undefined,
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => pendingListResponse,
+      });
+    }),
+  );
+  render(<MCPSection />);
+  await waitFor(() => expect(screen.getByTestId("mcp-list")).toBeTruthy());
+
+  fireEvent.click(screen.getByTestId("mcp-trust-audit-marker"));
+  await waitFor(() => expect(bodies).toHaveLength(1));
+  expect(bodies[0]!.url).toBe("/coddy/mcp/audit-marker/trust");
+  expect(JSON.parse(bodies[0]!.body ?? "{}")).toEqual({
+    fingerprint: pendingListResponse.items[0]!.fingerprint,
+  });
+});
+
 test("an approved project server offers withdrawal instead", async () => {
   const approved = {
     ...pendingListResponse,

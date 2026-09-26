@@ -64,15 +64,26 @@ func ListManagedServersTolerant(cfg *config.Config, cwd string, log *slog.Logger
 		}
 		return servers
 	}
-	servers := mergeManaged(cfg.MCPServers,
+	merged := mergeManaged(cfg.MCPServers,
 		load(config.GlobalMCPJSONPath(cfg.Paths.Home)),
 		load(config.MCPJSONPath(cwd)))
-	servers, err := applyProjectSwitches(cfg.Paths.Home, cwd, servers)
+	servers, err := applyProjectSwitches(cfg.Paths.Home, cwd, merged)
 	if err != nil {
+		// The operator's switches for the project servers cannot be read, so
+		// none of them is known to be on: they stay off until the file is
+		// repaired. Global servers keep their own declarations and switches;
+		// an empty list here would also have emptied the per-turn tool filter,
+		// turning back on every tool the operator switched off.
 		if log != nil {
-			log.Warn("failed to load MCP overrides", "error", err)
+			log.Warn("failed to load MCP overrides; project MCP servers stay off until it is repaired",
+				"path", overridesPath(cfg.Paths.Home), "error", err)
 		}
-		return nil
+		for i := range merged {
+			if merged[i].Origin == OriginProject {
+				merged[i].Config.Disabled = true
+			}
+		}
+		return merged
 	}
 	return servers
 }
@@ -228,6 +239,11 @@ func DeleteServer(cfg *config.Config, cwd, name string) error {
 	}
 	if !removed {
 		return fmt.Errorf("mcp server %q not found in %s", name, path)
+	}
+	if srv.Origin == OriginProject {
+		// The switches belonged to the declaration just removed; a later
+		// server of the same name starts from its own declaration.
+		return dropProjectSwitches(cfg, cwd, name)
 	}
 	return nil
 }

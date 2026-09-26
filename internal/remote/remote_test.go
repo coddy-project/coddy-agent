@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -1047,5 +1048,78 @@ func TestSetQueueModePreferenceKeepsWhatItDoesNotKnow(t *testing.T) {
 	}
 	if string(put["future_section"]) != `{"on":true}` {
 		t.Fatalf("an unknown section was not kept: %s", put["future_section"])
+	}
+}
+
+// The remote /mcp controls read the policy the server reports: a trust
+// control exists only for a gated row under ask. An approval sends back the
+// fingerprint the list reported, so the server can refuse it when the
+// checkout rewrote the declaration in between; a withdrawal sends nothing.
+func TestRemoteMCPTrustFollowsThePolicyAndNamesTheDeclarationShown(t *testing.T) {
+	type call struct{ path, body string }
+	var calls []call
+	policy := "ask"
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /coddy/mcp", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"object": "coddy.mcp_list", "workspace": "/work", "project_trust": policy,
+			"items": []any{
+				map[string]any{"name": "proj", "source": "local", "origin": "project", "gated": true,
+					"status": "needs_approval", "transport": "stdio", "command": "proj-mcp",
+					"env": map[string]string{"TOKEN": "secret"}, "fingerprint": "sha256:shown", "tools": []any{}},
+				map[string]any{"name": "glob", "source": "global", "origin": "home", "gated": false,
+					"status": "connected", "transport": "stdio", "command": "glob-mcp",
+					"fingerprint": "sha256:glob", "tools": []any{}},
+			},
+		})
+	})
+	record := func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		calls = append(calls, call{r.URL.Path, string(raw)})
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}
+	mux.HandleFunc("POST /coddy/mcp/{name}/trust", record)
+	mux.HandleFunc("POST /coddy/mcp/{name}/untrust", record)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	h, err := NewHandler(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(h.Close)
+	ctx := context.Background()
+
+	for _, tc := range []struct {
+		policy string
+		want   map[string]bool
+	}{
+		{"ask", map[string]bool{"proj": true, "glob": false}},
+		{"allow", map[string]bool{"proj": false, "glob": false}},
+		{"deny", map[string]bool{"proj": false, "glob": false}},
+	} {
+		policy = tc.policy
+		rows, err := h.MCPServers(ctx, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range rows {
+			if row.Approvable != tc.want[row.Name] {
+				t.Errorf("policy %s, row %s: Approvable = %v", tc.policy, row.Name, row.Approvable)
+			}
+			if row.Name == "proj" && (row.Fingerprint != "sha256:shown" || strings.Contains(row.Declaration, "secret")) {
+				t.Errorf("proj row = %+v", row)
+			}
+		}
+	}
+
+	if err := h.SetMCPTrust(ctx, "", "proj", "sha256:shown", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.SetMCPTrust(ctx, "", "proj", "", false); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 2 || calls[0].path != "/coddy/mcp/proj/trust" || !strings.Contains(calls[0].body, `"fingerprint":"sha256:shown"`) ||
+		calls[1].path != "/coddy/mcp/proj/untrust" || calls[1].body != "" {
+		t.Fatalf("calls = %+v", calls)
 	}
 }

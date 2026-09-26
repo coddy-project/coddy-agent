@@ -56,12 +56,24 @@ func writeOverrides(home string, file overridesFile) error {
 		return err
 	}
 	data = append(data, '\n')
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	// A temp file of its own: the console and coddy serve may share one home,
+	// and a fixed name would let one process truncate the other's write.
+	tmp, err := os.CreateTemp(filepath.Dir(path), overridesFileName+".*.tmp")
+	if err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
+	tmpPath := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath)
 		return err
 	}
 	return nil
@@ -84,6 +96,33 @@ func updateProjectSwitch(cfg *config.Config, cwd, name string, change func(*proj
 	switches := file.Workspaces[workspace][name]
 	change(&switches)
 	file.Workspaces[workspace][name] = switches
+	return writeOverrides(cfg.Paths.Home, file)
+}
+
+// dropProjectSwitches forgets the operator's switches for one project server
+// of a workspace, and the workspace entry once it holds none.
+func dropProjectSwitches(cfg *config.Config, cwd, name string) error {
+	if cfg.Paths.Home == "" {
+		return nil
+	}
+	overridesMu.Lock()
+	defer overridesMu.Unlock()
+	file, err := readOverrides(cfg.Paths.Home)
+	if err != nil {
+		return err
+	}
+	workspace := CanonicalWorkspace(cwd)
+	entries, ok := file.Workspaces[workspace]
+	if !ok {
+		return nil
+	}
+	if _, ok := entries[name]; !ok {
+		return nil
+	}
+	delete(entries, name)
+	if len(entries) == 0 {
+		delete(file.Workspaces, workspace)
+	}
 	return writeOverrides(cfg.Paths.Home, file)
 }
 

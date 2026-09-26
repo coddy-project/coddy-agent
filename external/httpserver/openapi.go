@@ -2263,7 +2263,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/mcp/{name}/enable": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Enable an MCP server",
-					"description": "Clears the disabled flag. Global entries persist in their defining file; project entries persist in `<home>/mcp-overrides.json`, leaving the checkout unchanged. Live sessions refresh configured MCP clients; an active turn adopts the change when it ends.",
+					"description": "Clears the disabled flag. Global entries persist in their defining file; project entries persist in `<home>/mcp-overrides.json`, leaving the checkout unchanged. Live sessions connect this server if the trust gate admits it; their other servers keep running. A session with a turn in flight connects it when the turn ends.",
 					"operationId": "enableMCPServer",
 					"parameters":  []interface{}{mcpServerNameParam()},
 					"responses": map[string]interface{}{
@@ -2275,7 +2275,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/mcp/{name}/disable": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Disable an MCP server",
-					"description": "Sets the disabled flag under the same scope rule as enable. The server's tools disappear from live sessions on their next turn; new sessions skip connecting it.",
+					"description": "Sets the disabled flag under the same scope rule as enable. Live sessions close this server, leaving their other servers running (a turn in flight keeps it until the turn ends); new sessions skip connecting it.",
 					"operationId": "disableMCPServer",
 					"parameters":  []interface{}{mcpServerNameParam()},
 					"responses": map[string]interface{}{
@@ -2287,9 +2287,22 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/mcp/{name}/trust": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Approve a project MCP server for this workspace",
-					"description": "Records the operator's approval of the **current** declaration of a project-local (`.coddy/mcp.json`) server for the server's workspace, so sessions may start it. The approval is bound to the workspace and to a digest of the command-bearing declaration (transport, command, args, env, url, headers), and is stored in `<home>/mcp-trust.json` with a receipt naming what was approved (env and header **names** only). Rewriting the entry withdraws it. Refused with 400 for servers defined in config.yaml or `<home>/mcp.json` (they need no approval) and under `mcp.project_trust: deny`.",
+					"description": "Records the operator's approval of a project-local (`.coddy/mcp.json`) server's declaration for the server's workspace, so sessions may start it, and connects it in live sessions. The optional body names the declaration the operator was shown by the `fingerprint` the list reported; when the checkout rewrote the entry since, the approval is refused with **409** and nothing is recorded. Without a body the current declaration is approved. The approval is bound to the workspace and to a digest of the command-bearing declaration (transport, command, args, env, url, headers), and is stored in `<home>/mcp-trust.json` with a receipt naming what was approved (env and header **names** only). Rewriting the entry withdraws it. Refused with 400 for servers defined in config.yaml or `<home>/mcp.json` (they need no approval) and under `mcp.project_trust: deny`.",
 					"operationId": "trustMCPServer",
 					"parameters":  []interface{}{mcpServerNameParam()},
+					"requestBody": map[string]interface{}{
+						"required": false,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"fingerprint": map[string]interface{}{"type": "string", "description": "The `fingerprint` of the declaration the operator was shown, from `GET /coddy/mcp`."},
+									},
+								},
+							},
+						},
+					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
 							"description": "Server approved; the response carries the approved `fingerprint`.",
@@ -2306,6 +2319,7 @@ func openAPISpec() map[string]interface{} {
 							},
 						},
 						"400": errorResponseRef(),
+						"409": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -2313,7 +2327,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/mcp/{name}/untrust": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Withdraw a project MCP server approval",
-					"description": "Removes the workspace approval of a project-local server. Live sessions refresh configured MCP clients; an active turn keeps its client until it ends. `removed` reports whether an approval was actually on file.",
+					"description": "Removes the workspace approval of a project-local server. Live sessions close it (a turn in flight keeps it until the turn ends) and new sessions no longer start it. `removed` reports whether an approval was actually on file.",
 					"operationId": "untrustMCPServer",
 					"parameters":  []interface{}{mcpServerNameParam()},
 					"responses": map[string]interface{}{
@@ -2376,7 +2390,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/mcp/{name}/tools/{tool}/enable": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Enable a single MCP tool",
-					"description": "Enables **{tool}** in the effective tool list. Global switches persist in their defining file; project switches persist in `<home>/mcp-overrides.json`.",
+					"description": "Enables **{tool}** in the effective tool list. Global switches persist in their defining file; project switches persist in `<home>/mcp-overrides.json`. Nothing reconnects: live sessions offer the tool again on their next turn.",
 					"operationId": "enableMCPTool",
 					"parameters":  []interface{}{mcpServerNameParam(), mcpToolNameParam()},
 					"responses": map[string]interface{}{
@@ -2388,7 +2402,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/mcp/{name}/tools/{tool}/disable": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Disable a single MCP tool",
-					"description": "Disables **{tool}** under the same scope rule as enable. The tool is hidden from the agent and rejected at dispatch.",
+					"description": "Disables **{tool}** under the same scope rule as enable. The tool is hidden from the agent and rejected at dispatch from the next turn on; nothing reconnects.",
 					"operationId": "disableMCPTool",
 					"parameters":  []interface{}{mcpServerNameParam(), mcpToolNameParam()},
 					"responses": map[string]interface{}{

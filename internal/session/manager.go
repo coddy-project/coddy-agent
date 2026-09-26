@@ -165,27 +165,68 @@ func (m *Manager) ReplaceConfig(next *config.Config) {
 	m.reloadConfiguredMCPServers(ctx)
 }
 
-// RefreshMCPServers applies trust and switch changes to live sessions. A turn
-// in progress keeps its clients until it ends, then adopts the new set.
-func (m *Manager) RefreshMCPServers(ctx context.Context) {
-	m.reloadConfiguredMCPServers(ctx)
+// mcpRefreshTimeout bounds RefreshMCPServer: the dials of the one server in
+// every live session share it, as the sessions of a settings save share
+// mcpReloadTimeout. A variable so a test can shorten it.
+var mcpRefreshTimeout = mcpReloadTimeout
+
+// RefreshMCPServer brings every live session in line with one configured
+// server after its switch or its trust changed. A session that should run the
+// server and does not dials it, a session that runs it and should not closes
+// it, and every other server keeps its process: a stateful neighbour (a
+// browser-automation server with its pages open) is not restarted by another
+// server's switch. Each session decides for its own workspace. A session with
+// a turn in flight keeps the tool list that turn handed the model; the server
+// is parked on it and reconciled when the turn releases its lock, as a
+// settings reload is. A dial the deadline cuts short leaves the server parked
+// for the session's next turn.
+func (m *Manager) RefreshMCPServer(ctx context.Context, name string) {
+	ctx, cancel := context.WithTimeout(ctx, mcpRefreshTimeout)
+	defer cancel()
+	m.mu.RLock()
+	states := make([]*State, 0, len(m.sessions))
+	for _, st := range m.sessions {
+		states = append(states, st)
+	}
+	m.mu.RUnlock()
+	for _, st := range states {
+		st.markMCPServerPending(name)
+		unlock, err := m.acquirePromptTurnLock(st.GetID(), st)
+		if err != nil {
+			// A turn holds the lock; its release drains the parked server.
+			continue
+		}
+		m.applyPendingMCPServers(ctx, st)
+		unlock()
+	}
 }
 
-// MCPServers and SetMCPEnabled back the console's /mcp control with the same
-// managed declarations and trust gate as the HTTP settings surface.
+// MCPServers lists the configured servers of a workspace for the /mcp
+// controls of the console and the chat, through the same managed declarations
+// and trust gate as the HTTP settings surface.
 func (m *Manager) MCPServers(ctx context.Context, cwd string) ([]mcp.ServerStatus, error) {
 	return mcp.ListStatus(ctx, m.activeCfg(), cwd, m.log)
 }
 
+// SetMCPEnabled flips a server's switch, or one tool's when tool is set, and
+// brings live sessions in line. A tool switch reconnects nothing: every turn
+// rebuilds its tool filter from the switches (MCPFilterFactory).
 func (m *Manager) SetMCPEnabled(ctx context.Context, cwd, name, tool string, enabled bool) error {
 	if err := mcp.SetStatus(m.activeCfg(), cwd, name, tool, enabled); err != nil {
 		return err
 	}
-	m.RefreshMCPServers(ctx)
+	if tool == "" {
+		m.RefreshMCPServer(ctx, name)
+	}
 	return nil
 }
 
-func (m *Manager) SetMCPTrust(ctx context.Context, cwd, name string, trusted bool) error {
+// SetMCPTrust records or withdraws the workspace approval of a project
+// server and brings live sessions in line: an approved server connects, one
+// whose approval was withdrawn closes. fingerprint is the digest of the
+// declaration the operator was shown; the approval is refused with
+// mcp.ErrDeclarationChanged when the checkout rewrote the entry since.
+func (m *Manager) SetMCPTrust(ctx context.Context, cwd, name, fingerprint string, trusted bool) error {
 	gate := mcp.NewTrustGate(m.activeCfg())
 	if !trusted {
 		if _, err := gate.Revoke(cwd, name); err != nil {
@@ -199,7 +240,7 @@ func (m *Manager) SetMCPTrust(ctx context.Context, cwd, name string, trusted boo
 		found := false
 		for _, srv := range servers {
 			if srv.Config.Name == name {
-				if err := gate.Approve(cwd, srv); err != nil {
+				if err := gate.ApproveShown(cwd, srv, fingerprint); err != nil {
 					return err
 				}
 				found = true
@@ -210,7 +251,7 @@ func (m *Manager) SetMCPTrust(ctx context.Context, cwd, name string, trusted boo
 			return fmt.Errorf("MCP server %q not found", name)
 		}
 	}
-	m.RefreshMCPServers(ctx)
+	m.RefreshMCPServer(ctx, name)
 	return nil
 }
 
@@ -1542,6 +1583,7 @@ func (m *Manager) applyConfiguredMCPReload(ctx context.Context, st *State) bool 
 		return false
 	}
 	st.replaceConfiguredMCPClients(clients)
+	st.takeMCPServersPending()
 	return true
 }
 
@@ -1559,12 +1601,70 @@ func (m *Manager) drainPendingMCPReload(sessionID string, st *State) {
 		return
 	}
 	defer unlock()
-	if !st.takeMCPReloadPending() {
-		return
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), mcpReloadTimeout)
 	defer cancel()
-	_ = m.applyConfiguredMCPReload(ctx, st)
+	if st.takeMCPReloadPending() {
+		// A full reload re-dials every configured server, the parked single
+		// servers included.
+		_ = m.applyConfiguredMCPReload(ctx, st)
+		return
+	}
+	m.applyPendingMCPServers(ctx, st)
+}
+
+// applyPendingMCPServers reconciles the servers RefreshMCPServer parked on the
+// session, under the turn lock the caller holds.
+func (m *Manager) applyPendingMCPServers(ctx context.Context, st *State) {
+	names := st.takeMCPServersPending()
+	if len(names) == 0 {
+		return
+	}
+	cfg := m.activeCfg()
+	gate := mcp.NewTrustGate(cfg)
+	managed := mcp.ListManagedServersTolerant(cfg, st.GetCWD(), m.log)
+	for _, name := range names {
+		m.reconcileConfiguredMCPServer(ctx, st, gate, managed, name)
+	}
+}
+
+// reconcileConfiguredMCPServer dials or closes one configured server of a
+// session, so that it runs exactly when it is enabled and the trust gate
+// admits it for the session's workspace. The dial goes through
+// TrustGate.Connect like every other configured dial.
+func (m *Manager) reconcileConfiguredMCPServer(ctx context.Context, st *State, gate *mcp.TrustGate, managed []mcp.ManagedServer, name string) {
+	cwd := st.GetCWD()
+	var want *mcp.ManagedServer
+	for i := range managed {
+		if managed[i].Config.Name == name {
+			want = &managed[i]
+			break
+		}
+	}
+	wanted := want != nil && !want.Config.Disabled && gate.Evaluate(cwd, *want) == mcp.TrustStateAllowed
+	running := st.hasConfiguredMCPClient(name)
+	switch {
+	case running && !wanted:
+		st.closeConfiguredMCPClient(name)
+		m.log.Info("closed MCP server", "name", name, "session", st.GetID())
+	case wanted && !running:
+		client, err := gate.Connect(ctx, *want, cwd, m.log)
+		if ctx.Err() != nil {
+			if client != nil {
+				_ = client.Close()
+			}
+			st.markMCPServerPending(name)
+			m.log.Warn("MCP server refresh ran out of time; the session's next turn retries it",
+				"server", name, "session", st.GetID())
+			return
+		}
+		if err != nil {
+			m.log.Warn("failed to connect MCP server", "server", name, "session", st.GetID(), "error", err)
+			return
+		}
+		st.addConfiguredMCPClient(client)
+		m.log.Info("connected MCP server", "name", name, "session", st.GetID(),
+			"transport", mcp.EffectiveTransport(want.Config), "tools", len(client.Tools()))
+	}
 }
 
 // acquireTurnLockWithReloadDrain wraps the raw turn lock so its release also

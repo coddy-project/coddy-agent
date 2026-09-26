@@ -11,7 +11,9 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"sort"
@@ -229,10 +231,22 @@ func mcpSourcePath(cfg *config.Config, cwd, origin string) string {
 	}
 }
 
-// coddyMCPServerTrust approves the current declaration of a project-local
-// server for this workspace, so sessions may start it.
+// coddyMCPServerTrust approves the declaration of a project-local server the
+// operator was shown, for this workspace, and connects it in live sessions.
+// The optional body {"fingerprint": "..."} names that declaration by the
+// fingerprint the list reported: when the checkout rewrote the entry since,
+// the approval is refused with 409 and nothing is recorded. Without a body the
+// current declaration is approved, for a client that shows it and approves it
+// in one step.
 func (s *Server) coddyMCPServerTrust(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
+	var body struct {
+		Fingerprint string `json:"fingerprint"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		writeCoddyMCPErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
 	servers, err := mcp.ListManagedServers(s.activeCfg(), s.defaultCWD)
 	if err != nil {
 		writeCoddyMCPErr(w, http.StatusInternalServerError, err.Error())
@@ -243,12 +257,16 @@ func (s *Server) coddyMCPServerTrust(w http.ResponseWriter, r *http.Request) {
 		if srv.Config.Name != name {
 			continue
 		}
-		if err := gate.Approve(s.defaultCWD, srv); err != nil {
-			writeCoddyMCPErr(w, http.StatusBadRequest, err.Error())
+		if err := gate.ApproveShown(s.defaultCWD, srv, body.Fingerprint); err != nil {
+			code := http.StatusBadRequest
+			if errors.Is(err, mcp.ErrDeclarationChanged) {
+				code = http.StatusConflict
+			}
+			writeCoddyMCPErr(w, code, err.Error())
 			return
 		}
 		s.invalidateMCPProbe(name)
-		s.mgr.RefreshMCPServers(r.Context())
+		s.refreshLiveMCPServer(r, name)
 		slog.Info("mcp server approved for workspace",
 			"name", name, "workspace", s.defaultCWD, "digest", mcp.Fingerprint(srv.Config))
 		w.Header().Set("Content-Type", "application/json")
@@ -284,8 +302,9 @@ func (s *Server) coddyMCPProjectTrust(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// coddyMCPServerUntrust withdraws an approval; running sessions keep their
-// already connected clients, new sessions do not start the server again.
+// coddyMCPServerUntrust withdraws an approval: live sessions close the server
+// (a turn in flight keeps it until the turn ends) and new sessions do not
+// start it again.
 func (s *Server) coddyMCPServerUntrust(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	removed, err := mcp.NewTrustGate(s.activeCfg()).Revoke(s.defaultCWD, name)
@@ -294,14 +313,15 @@ func (s *Server) coddyMCPServerUntrust(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.invalidateMCPProbe(name)
-	s.mgr.RefreshMCPServers(r.Context())
+	s.refreshLiveMCPServer(r, name)
 	slog.Info("mcp server approval revoked", "name", name, "workspace", s.defaultCWD, "removed", removed)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "removed": removed})
 }
 
-// coddyMCPServerToggle enables or disables a whole server. Project switches
-// stay in the operator's home, outside the checkout.
+// coddyMCPServerToggle enables or disables a whole server and connects or
+// closes it in live sessions, leaving their other servers running. Project
+// switches stay in the operator's home, outside the checkout.
 func (s *Server) coddyMCPServerToggle(disable bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
@@ -310,14 +330,15 @@ func (s *Server) coddyMCPServerToggle(disable bool) http.HandlerFunc {
 			return
 		}
 		s.reloadConfigFromDisk()
-		s.mgr.RefreshMCPServers(r.Context())
+		s.refreshLiveMCPServer(r, name)
 		slog.Info("mcp server toggled", "name", name, "disabled", disable)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
 	}
 }
 
-// coddyMCPToolToggle enables or disables a single tool of a server.
+// coddyMCPToolToggle enables or disables a single tool of a server. Nothing
+// reconnects: every turn rebuilds its tool filter from the switches.
 func (s *Server) coddyMCPToolToggle(disable bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
@@ -331,7 +352,6 @@ func (s *Server) coddyMCPToolToggle(disable bool) http.HandlerFunc {
 			return
 		}
 		s.reloadConfigFromDisk()
-		s.mgr.RefreshMCPServers(r.Context())
 		slog.Info("mcp tool toggled", "server", name, "tool", tool, "disabled", disable)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
@@ -382,6 +402,14 @@ func (s *Server) coddyMCPServerDelete(w http.ResponseWriter, r *http.Request) {
 	slog.Info("mcp server deleted", "name", name)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
+}
+
+// refreshLiveMCPServer brings live sessions in line with one server whose
+// switch or trust the request changed. The change is already on disk, so a
+// client that goes away does not cut the refresh short: it keeps the request's
+// values but not its cancellation, and the manager bounds its own time.
+func (s *Server) refreshLiveMCPServer(r *http.Request, name string) {
+	s.mgr.RefreshMCPServer(context.WithoutCancel(r.Context()), name)
 }
 
 func writeCoddyMCPErr(w http.ResponseWriter, code int, msg string) {

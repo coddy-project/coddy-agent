@@ -13,6 +13,7 @@ func (h *Handler) MCPServers(ctx context.Context, _ string) ([]mcp.ServerStatus,
 	var response struct {
 		Items []struct {
 			mcp.ServerStatus
+			Gated      bool              `json:"gated"`
 			Command    string            `json:"command"`
 			Args       []string          `json:"args"`
 			URL        string            `json:"url"`
@@ -21,7 +22,8 @@ func (h *Handler) MCPServers(ctx context.Context, _ string) ([]mcp.ServerStatus,
 			Headers    map[string]string `json:"headers"`
 			SourcePath string            `json:"source_path"`
 		} `json:"items"`
-		Workspace string `json:"workspace"`
+		Workspace    string `json:"workspace"`
+		ProjectTrust string `json:"project_trust"`
 	}
 	if err := h.getJSON(ctx, "/coddy/mcp", &response); err != nil {
 		return nil, err
@@ -29,6 +31,9 @@ func (h *Handler) MCPServers(ctx context.Context, _ string) ([]mcp.ServerStatus,
 	rows := make([]mcp.ServerStatus, 0, len(response.Items))
 	for _, item := range response.Items {
 		row := item.ServerStatus
+		// The server's policy decides whether a per-server trust decision
+		// exists, the same rule the web's shield follows.
+		row.Approvable = item.Gated && response.ProjectTrust == "ask"
 		envKeys := make([]string, 0, len(item.Env))
 		for key := range item.Env {
 			envKeys = append(envKeys, key)
@@ -43,6 +48,7 @@ func (h *Handler) MCPServers(ctx context.Context, _ string) ([]mcp.ServerStatus,
 	return rows, nil
 }
 
+// SetMCPEnabled flips a server's switch, or one tool's, on the server.
 func (h *Handler) SetMCPEnabled(ctx context.Context, _, name, tool string, enabled bool) error {
 	verb := "disable"
 	if enabled {
@@ -55,10 +61,13 @@ func (h *Handler) SetMCPEnabled(ctx context.Context, _, name, tool string, enabl
 	return h.postJSON(ctx, path+"/"+verb, nil, nil)
 }
 
-func (h *Handler) SetMCPTrust(ctx context.Context, _, name string, trusted bool) error {
-	verb := "untrust"
-	if trusted {
-		verb = "trust"
+// SetMCPTrust approves or withdraws a project server on the server. An
+// approval names the declaration the operator was shown by its fingerprint,
+// so the server refuses it (409) when the checkout rewrote the entry since.
+func (h *Handler) SetMCPTrust(ctx context.Context, _, name, fingerprint string, trusted bool) error {
+	path := "/coddy/mcp/" + url.PathEscape(name)
+	if !trusted {
+		return h.postJSON(ctx, path+"/untrust", nil, nil)
 	}
-	return h.postJSON(ctx, "/coddy/mcp/"+url.PathEscape(name)+"/"+verb, nil, nil)
+	return h.postJSON(ctx, path+"/trust", map[string]string{"fingerprint": fingerprint}, nil)
 }

@@ -238,9 +238,13 @@ export function MCPSection() {
   const onToggleTrust = (row: MCPServerRow) => {
     withBusy(row.name, async () => {
       const action = row.trusted ? "untrust" : "trust";
+      // An approval names the declaration the note showed by its fingerprint,
+      // so the server refuses it (409) when the checkout rewrote the entry
+      // between the listing and the click.
       const res = await apiSend(
         `/coddy/mcp/${encodeURIComponent(row.name)}/${action}`,
         "POST",
+        row.trusted ? undefined : { fingerprint: row.fingerprint ?? "" },
       );
       if (!res.ok) {
         setError(

