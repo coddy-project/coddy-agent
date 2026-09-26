@@ -150,6 +150,57 @@ func TestKeyboard_CallbackDataLimit(t *testing.T) {
 	}
 }
 
+// Telegram reads inline_keyboard as an array and refuses a value of any other
+// type, null included. A Bot API library marshals a markup built from no rows
+// as {"inline_keyboard":null}, so a bot that attaches an empty keyboard sends
+// nothing at all to a real chat. A markup without the key (another kind of
+// keyboard) and an array, an empty one too, still go through.
+func TestKeyboard_InlineKeyboardMustBeAnArray(t *testing.T) {
+	const refusal = `Bad Request: Field "inline_keyboard" must be of type Array`
+	s := newStand(t, Options{})
+	for _, markup := range []string{`{"inline_keyboard":null}`, `{"inline_keyboard":{}}`, `{"inline_keyboard":"[]"}`, `{"inline_keyboard":0}`} {
+		status, body := s.call("sendMessage", url.Values{"chat_id": {"4242"}, "text": {"menu"}, "reply_markup": {markup}})
+		if status != http.StatusBadRequest || body["description"] != refusal {
+			t.Fatalf("sendMessage with %s: %d %v", markup, status, body)
+		}
+	}
+	// A JSON body carries the markup as a nested object rather than a string.
+	resp, err := http.Post(s.srv.URL+"/bot1/sendMessage", "application/json",
+		strings.NewReader(`{"chat_id":4242,"text":"menu","reply_markup":{"inline_keyboard":null}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("JSON body with a null keyboard: %d", resp.StatusCode)
+	}
+	if n := len(s.fake.Chat(4242).Messages); n != 0 {
+		t.Fatalf("a refused keyboard delivered %d messages", n)
+	}
+
+	for _, markup := range []string{`{"inline_keyboard":[]}`, `{"remove_keyboard":true}`} {
+		if status, body := s.call("sendMessage", url.Values{"chat_id": {"4242"}, "text": {"menu"}, "reply_markup": {markup}}); status != http.StatusOK {
+			t.Fatalf("sendMessage with %s: %d %v", markup, status, body)
+		}
+	}
+	if msgs := s.fake.Chat(4242).Messages; len(msgs) != 2 || msgs[0].Keyboard != nil || msgs[1].Keyboard != nil {
+		t.Fatalf("an empty array and another kind of markup should arrive without a keyboard: %+v", msgs)
+	}
+
+	s.call("sendMessage", url.Values{"chat_id": {"4242"}, "text": {"menu"},
+		"reply_markup": {`{"inline_keyboard":[[{"text":"A","callback_data":"a"}]]}`}})
+	for _, method := range []string{"editMessageText", "editMessageReplyMarkup"} {
+		status, body := s.call(method, url.Values{"chat_id": {"4242"}, "message_id": {"3"}, "text": {"menu 2"},
+			"reply_markup": {`{"inline_keyboard":null}`}})
+		if status != http.StatusBadRequest || body["description"] != refusal {
+			t.Fatalf("%s with a null keyboard: %d %v", method, status, body)
+		}
+	}
+	if m := s.fake.Chat(4242).Messages[2]; m.Edited || m.Text != "menu" || len(m.Keyboard) != 1 {
+		t.Fatalf("a refused edit must leave the message as it was: %+v", m)
+	}
+}
+
 func TestChatView_FindButton(t *testing.T) {
 	s := newStand(t, Options{})
 	s.call("sendMessage", url.Values{"chat_id": {"4242"}, "text": {"old menu"},
@@ -442,6 +493,41 @@ func TestAnswerCallbackQuery_UnknownIDIsRefused(t *testing.T) {
 	s.fake.Reset()
 	if status, _ := s.call("answerCallbackQuery", url.Values{"callback_query_id": {cbq}}); status != http.StatusBadRequest {
 		t.Fatalf("a query from before Reset: %d", status)
+	}
+}
+
+// A callback query takes one answer. A bot that answers every tap at once to
+// stop the spinner and then sends an alert about a failure found later has the
+// alert refused, and the person never sees it; the refused answer is not
+// recorded. Another tap is another query and is answered on its own.
+func TestAnswerCallbackQuery_SecondAnswerIsRefused(t *testing.T) {
+	s := newStand(t, Options{})
+	s.fake.InjectMessage(IncomingMessage{Text: "/mcp"})
+	s.call("sendMessage", url.Values{"chat_id": {"4242"}, "text": {"menu"},
+		"reply_markup": {`{"inline_keyboard":[[{"text":"Enable demo","callback_data":"mcp:1:demo"}]]}`}})
+	_, first, err := s.fake.InjectCallback(IncomingCallback{Label: "Enable demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, body := s.call("answerCallbackQuery", url.Values{"callback_query_id": {first}}); status != http.StatusOK {
+		t.Fatalf("first answer: %d %v", status, body)
+	}
+	status, body := s.call("answerCallbackQuery", url.Values{"callback_query_id": {first}, "text": {"❌ failed"}, "show_alert": {"true"}})
+	if status != http.StatusBadRequest || body["description"] != "Bad Request: query is too old and response timeout expired or query ID is invalid" {
+		t.Fatalf("second answer to the same query: %d %v", status, body)
+	}
+	if answers := s.fake.Chat(4242).Callbacks; len(answers) != 1 || answers[0].ID != first || answers[0].Text != "" || answers[0].ShowAlert {
+		t.Fatalf("only the first answer should be recorded: %+v", answers)
+	}
+	_, second, err := s.fake.InjectCallback(IncomingCallback{Label: "Enable demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, body := s.call("answerCallbackQuery", url.Values{"callback_query_id": {second}, "text": {"done"}}); status != http.StatusOK {
+		t.Fatalf("answer to another tap: %d %v", status, body)
+	}
+	if answers := s.fake.Chat(4242).Callbacks; len(answers) != 2 || answers[1].ID != second {
+		t.Fatalf("a new tap should be answered on its own: %+v", answers)
 	}
 }
 

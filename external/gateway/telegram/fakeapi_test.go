@@ -87,6 +87,44 @@ func (f *fakeAPI) userMessage(chatID, userID int64, text string) *tgbotapi.Messa
 	return msg
 }
 
+// message returns a message of the chat by id, as the chat shows it now.
+func (f *fakeAPI) message(chatID int64, messageID int) (tgfake.MessageView, bool) {
+	for _, m := range f.fake.Chat(chatID).Messages {
+		if m.MessageID == messageID {
+			return m, true
+		}
+	}
+	return tgfake.MessageView{}, false
+}
+
+// repliesTo returns the bot's messages that quote messageID, oldest first.
+func (f *fakeAPI) repliesTo(chatID int64, messageID int) []tgfake.MessageView {
+	var out []tgfake.MessageView
+	for _, m := range f.fake.Chat(chatID).Messages {
+		if m.From == "bot" && m.ReplyToMessageID == messageID {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// requireOneAnswer fails the test unless the bot answered the callback query
+// exactly once and Telegram took that answer. A query takes one answer, and
+// the bot gives it as the tap arrives, so whatever goes wrong afterwards has to
+// reach the person through the chat: a second answer is refused unseen.
+func requireOneAnswer(t *testing.T, f *fakeAPI, queryID string) {
+	t.Helper()
+	var answers []tgfake.Call
+	for _, c := range f.fake.Calls("answerCallbackQuery") {
+		if c.Params["callback_query_id"] == queryID {
+			answers = append(answers, c)
+		}
+	}
+	if len(answers) != 1 || answers[0].Status != http.StatusOK {
+		t.Fatalf("callback query %s was answered %d times, want once and accepted: %+v", queryID, len(answers), answers)
+	}
+}
+
 // tap presses the button a person would see under that label and returns the
 // callback query for it: the message is the one that really carries the
 // keyboard, the payload is what the bot put behind the button.

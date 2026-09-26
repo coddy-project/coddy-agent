@@ -3,7 +3,10 @@
 package telegram
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -13,9 +16,12 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	"github.com/EvilFreelancer/coddy-agent/external/gateway/sessionstore"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/EvilFreelancer/coddy-agent/internal/tgfake"
 )
 
 func sessionRow(id, title, updated string) acp.SessionListInfo {
@@ -319,8 +325,10 @@ func TestResumeRefusesAnIDNobodyStores(t *testing.T) {
 	}
 }
 
-// The keyboard outlives the sessions it lists: a tap for one deleted since
-// answers with an alert and binds nothing.
+// The keyboard outlives the sessions it lists: a tap for one deleted since is
+// answered in the chat, as a reply to the keyboard, and binds nothing. The
+// callback query carries no alert: it was answered as the tap arrived, and
+// Telegram refuses a second answer.
 func TestResumeTapForASessionSinceDeletedLeavesTheMappingAlone(t *testing.T) {
 	w := newResumeTestWorld(t,
 		sessionRow("sess_aaaaaaaaaaaaaaaaaaaaaaaa", "Kept", "2026-09-18T10:00:00Z"),
@@ -341,16 +349,91 @@ func TestResumeTapForASessionSinceDeletedLeavesTheMappingAlone(t *testing.T) {
 	if len(w.runner.ensured) != 0 {
 		t.Fatalf("the server was asked for %v", w.runner.ensured)
 	}
-	alerted := false
+	replied := false
 	w.mu.Lock()
 	for _, call := range w.calls {
-		if call.method == "answerCallbackQuery" && strings.Contains(call.form.Get("text"), "no longer exists") {
-			alerted = true
+		switch {
+		case call.method == "sendMessage" && strings.Contains(call.form.Get("text"), "no longer exists") &&
+			call.form.Get("reply_to_message_id") == "2":
+			replied = true
+		case call.method == "answerCallbackQuery" && call.form.Get("text") != "":
+			t.Errorf("the tap was answered with the alert %q, which Telegram refuses after the acknowledgement", call.form.Get("text"))
 		}
 	}
 	w.mu.Unlock()
-	if !alerted {
-		t.Fatal("the tap was not answered with an alert")
+	if !replied {
+		t.Fatal("the chat was not told that the session no longer exists")
+	}
+}
+
+// failingResumeRunner is the resume spec's server with the failures a tap on
+// the /resume keyboard can meet, switched on once the keyboard is in the chat.
+type failingResumeRunner struct {
+	*resumeRunner
+	listErr   error
+	ensureErr error
+}
+
+func (r *failingResumeRunner) HandleSessionList(ctx context.Context, params acp.SessionListParams) (*acp.SessionListResult, error) {
+	if r.listErr != nil {
+		return nil, r.listErr
+	}
+	return r.resumeRunner.HandleSessionList(ctx, params)
+}
+
+func (r *failingResumeRunner) EnsureHTTPSession(ctx context.Context, sessionID, cwd string) (*session.State, error) {
+	if r.ensureErr != nil {
+		return nil, r.ensureErr
+	}
+	return r.resumeRunner.EnsureHTTPSession(ctx, sessionID, cwd)
+}
+
+// A resume tap that fails says why in the chat, as a reply to the keyboard,
+// and binds nothing. The query already has its one answer, the
+// acknowledgement sent as the tap arrives, and Telegram refuses a second: an
+// alert would never be seen.
+func TestResumeTapFailuresReplyInTheChat(t *testing.T) {
+	cases := []struct {
+		name  string
+		spoil func(r *failingResumeRunner)
+		want  string
+	}{
+		{"sessions cannot be listed", func(r *failingResumeRunner) { r.listErr = errors.New("sessions dir unreadable") },
+			"❌ Cannot list sessions: sessions dir unreadable"},
+		{"session deleted since the keyboard was sent", func(r *failingResumeRunner) {
+			r.mu.Lock()
+			r.rows = r.rows[:1]
+			r.mu.Unlock()
+		}, "❌ That session no longer exists."},
+		{"session cannot be loaded", func(r *failingResumeRunner) { r.ensureErr = errors.New("bundle unreadable") },
+			"❌ Cannot resume that session: bundle unreadable"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeAPI(t, tgfake.Options{})
+			runner := &failingResumeRunner{resumeRunner: newResumeRunner()}
+			runner.keep("sess_aaaaaaaaaaaaaaaaaaaaaaaa", "Kept", "")
+			runner.keep("sess_bbbbbbbbbbbbbbbbbbbbbbbb", "Gone", "")
+			bot := New(&config.TelegramGatewayConfig{DefaultAccess: config.AccessAll, DefaultIsolation: config.IsolationIndividual},
+				runner, "/work", slog.New(slog.DiscardHandler), "", nil)
+			key := sessionstore.SessionKey(adapterName, resumeChatID, resumeUserID, config.IsolationIndividual, false)
+			bot.processMessage(t.Context(), f.api, f.userMessage(resumeChatID, resumeUserID, "/resume"), key)
+			tc.spoil(runner)
+			cbq, err := f.tap(resumeChatID, resumeUserID, "Gone")
+			if err != nil {
+				t.Fatal(err)
+			}
+			bot.handleCallback(t.Context(), f.api, cbq)
+
+			replies := f.repliesTo(resumeChatID, cbq.Message.MessageID)
+			if len(replies) != 1 || replies[0].Text != tc.want {
+				t.Fatalf("replies to the keyboard = %+v, want one saying %q:\n%s", replies, tc.want, f.fake.Chat(resumeChatID).Text())
+			}
+			if got := bot.store.Peek(key); got != "" {
+				t.Fatalf("the chat was bound to %q", got)
+			}
+			requireOneAnswer(t, f, cbq.ID)
+		})
 	}
 }
 

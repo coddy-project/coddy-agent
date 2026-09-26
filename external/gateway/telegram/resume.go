@@ -99,7 +99,7 @@ func (b *Bot) handleResumeCallback(ctx context.Context, bot *tgbotapi.BotAPI, cb
 	rows, err := b.listSessions(ctx)
 	if err != nil {
 		b.log.Warn("telegram: resume list", "err", err, "user", userID, "chat", chatID)
-		_, _ = bot.Request(tgbotapi.NewCallbackWithAlert(cbq.ID, "❌ Cannot list sessions: "+err.Error()))
+		b.replyToTap(bot, cbq, "❌ Cannot list sessions: "+err.Error())
 		return
 	}
 	current := b.store.Peek(key)
@@ -127,7 +127,7 @@ func (b *Bot) handleResumeCallback(ctx context.Context, bot *tgbotapi.BotAPI, cb
 		row, ok := resolveResumeCallback(rows, value)
 		if !ok {
 			b.log.Warn("telegram: callback session unknown", "payload", value, "user", userID, "chat", chatID)
-			_, _ = bot.Request(tgbotapi.NewCallbackWithAlert(cbq.ID, "❌ That session no longer exists."))
+			b.replyToTap(bot, cbq, "❌ That session no longer exists.")
 			return
 		}
 		b.log.Debug("telegram: callback",
@@ -139,7 +139,7 @@ func (b *Bot) handleResumeCallback(ctx context.Context, bot *tgbotapi.BotAPI, cb
 		)
 		text, err := b.resumeSession(ctx, key, row, userID, chatID)
 		if err != nil {
-			_, _ = bot.Request(tgbotapi.NewCallbackWithAlert(cbq.ID, "❌ Cannot resume that session: "+err.Error()))
+			b.replyToTap(bot, cbq, "❌ Cannot resume that session: "+err.Error())
 			return
 		}
 		// The confirmation replaces the menu, keyboard included.

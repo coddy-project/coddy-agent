@@ -523,7 +523,7 @@ When `isolation` is `admin`, the bot additionally ignores everyone who is not in
 | `/start` | all users | Greeting and quick introduction. |
 | `/help` | all users | Lists all available commands. |
 | `/model [id]` | all permitted users | Bare, opens an inline keyboard to switch the active LLM model (from the configured `models` list); with an id, switches to it at once. |
-| `/mcp` | all permitted users | Lists global and project MCP servers with status and tool count. Buttons enable or disable servers already trusted for the workspace. Project trust must be granted through the CLI, console or web UI. |
+| `/mcp` | all permitted users | Lists global and project MCP servers with status and tool count; a server that is switched off while its status is a trust verdict reads `off` as well (`checkout · needs_approval · off · 0 tools`). Buttons enable or disable servers already trusted for the workspace; a project server nobody approved gets none, because project trust is granted through the CLI, console or web UI. A tap that fails says why on the first line of the menu message, above the menu drawn afresh, or alone and without buttons when the server list cannot be read. |
 | `/agent`, `/plan`, `/ask` | all permitted users | Switch the session mode. |
 | `/reasoning <level>`, `/think [level]`, `/nothink` | all permitted users | Set the reasoning level, or turn thinking on or off where the model's provider can. Not in the command menu. |
 | `/context` | all permitted users | Displays the current session's context window usage broken down by category (conversation, system prompt, tool definitions, rules, skills, MCP). |
@@ -823,8 +823,10 @@ Next message → runs in the resumed session
 The session the chat came from stays loaded. `/resume` is a switch, not an
 ending - the chat may come straight back - while `/clear` says a conversation
 is over, and dropping it from memory belongs there. A tap on a keyboard that
-outlived its session - deleted from the web UI since the list was shown - is
-answered with an alert and binds nothing.
+outlived its session - deleted from the web UI since the list was shown -
+binds nothing and is answered in the chat, as a reply to the keyboard. It is
+not an alert: the bot acknowledges every tap as it arrives, and Telegram takes
+one answer per tap.
 
 ---
 

@@ -4,14 +4,19 @@ package telegram
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"strings"
 	"testing"
 
+	"github.com/EvilFreelancer/coddy-agent/external/gateway/sessionstore"
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/EvilFreelancer/coddy-agent/internal/tgfake"
 )
 
 // An id that fills callback_data exactly travels as itself; one byte more and
@@ -103,6 +108,72 @@ func TestModelKeyboardButtonsRoundTrip(t *testing.T) {
 	}
 	if seen != len(models) {
 		t.Fatalf("keyboard offered %d buttons, want %d", seen, len(models))
+	}
+}
+
+// failingRunner is the stub runner with the failures a model tap can meet on
+// the session side, switched on once the keyboard is in the chat.
+type failingRunner struct {
+	*stubRunner
+	ensureErr error
+	setErr    error
+}
+
+func (r *failingRunner) EnsureHTTPSession(ctx context.Context, sessionID, cwd string) (*session.State, error) {
+	if r.ensureErr != nil {
+		return nil, r.ensureErr
+	}
+	return r.stubRunner.EnsureHTTPSession(ctx, sessionID, cwd)
+}
+
+func (r *failingRunner) HandleSessionSetConfigOption(ctx context.Context, params acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error) {
+	if r.setErr != nil {
+		return nil, r.setErr
+	}
+	return r.stubRunner.HandleSessionSetConfigOption(ctx, params)
+}
+
+// A model tap that fails says why in the chat, as a reply to the keyboard it
+// came from. The query already has its one answer, the acknowledgement sent
+// as the tap arrives, and Telegram refuses a second: an alert would never be
+// seen.
+func TestModelTapFailuresReplyInTheChat(t *testing.T) {
+	cases := []struct {
+		name  string
+		spoil func(r *failingRunner)
+		want  string
+	}{
+		{"session cannot be loaded", func(r *failingRunner) { r.ensureErr = errors.New("bundle unreadable") },
+			"❌ Session error: bundle unreadable"},
+		{"model dropped from the configuration", func(r *failingRunner) { r.cfg.Models = r.cfg.Models[:1] },
+			"❌ That model is no longer configured."},
+		{"manager refuses the model", func(r *failingRunner) { r.setErr = errors.New("model is not available") },
+			"❌ model is not available"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeAPI(t, tgfake.Options{})
+			runner := &failingRunner{stubRunner: newStubRunner(&config.Config{
+				Models: []config.ModelEntry{{Model: "openai/gpt-4o"}, {Model: "rpa/qwen3.6-35b-a3b"}},
+				Agent:  config.Agent{Model: "openai/gpt-4o"},
+			})}
+			bot := New(&config.TelegramGatewayConfig{DefaultAccess: config.AccessAll}, runner, t.TempDir(),
+				slog.New(slog.DiscardHandler), "", nil)
+			key := sessionstore.SessionKey(adapterName, modelSwitchChatID, modelSwitchUserID, config.IsolationIndividual, false)
+			bot.processMessage(t.Context(), f.api, f.userMessage(modelSwitchChatID, modelSwitchUserID, "/model"), key)
+			tc.spoil(runner)
+			cbq, err := f.tap(modelSwitchChatID, modelSwitchUserID, "rpa/qwen3.6-35b-a3b")
+			if err != nil {
+				t.Fatal(err)
+			}
+			bot.handleCallback(t.Context(), f.api, cbq)
+
+			replies := f.repliesTo(modelSwitchChatID, cbq.Message.MessageID)
+			if len(replies) != 1 || replies[0].Text != tc.want {
+				t.Fatalf("replies to the keyboard = %+v, want one saying %q:\n%s", replies, tc.want, f.fake.Chat(modelSwitchChatID).Text())
+			}
+			requireOneAnswer(t, f, cbq.ID)
+		})
 	}
 }
 

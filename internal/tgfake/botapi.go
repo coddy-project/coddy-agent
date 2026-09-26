@@ -195,8 +195,11 @@ func (s *Server) sendMessage(w http.ResponseWriter, method string, params url.Va
 		s.writeError(w, method, params, http.StatusBadRequest, "Bad Request: message is too long", 0)
 		return
 	}
-	markup := parseKeyboard(params.Get("reply_markup"))
-	if problem := validateKeyboard(markup); problem != "" {
+	markup, problem := parseKeyboard(params.Get("reply_markup"))
+	if problem == "" {
+		problem = validateKeyboard(markup)
+	}
+	if problem != "" {
 		s.writeError(w, method, params, http.StatusBadRequest, problem, 0)
 		return
 	}
@@ -259,8 +262,11 @@ func (s *Server) editMessage(w http.ResponseWriter, method string, params url.Va
 			return
 		}
 	}
-	newMarkup := parseKeyboard(params.Get("reply_markup"))
-	if problem := validateKeyboard(newMarkup); problem != "" {
+	newMarkup, problem := parseKeyboard(params.Get("reply_markup"))
+	if problem == "" {
+		problem = validateKeyboard(newMarkup)
+	}
+	if problem != "" {
 		s.mu.Unlock()
 		s.writeError(w, method, params, http.StatusBadRequest, problem, 0)
 		return
@@ -328,8 +334,8 @@ func (s *Server) answerCallbackQuery(w http.ResponseWriter, method string, param
 	answer := CallbackAnswer{ID: id, Text: params.Get("text"), ShowAlert: params.Get("show_alert") == "true"}
 	s.mu.Lock()
 	// The query names no chat; the tap that minted it does. A query the fake
-	// never issued (or one minted before a Reset) is refused the way Telegram
-	// refuses an answer to a query it does not know.
+	// never issued, one minted before a Reset and one already answered are
+	// refused the way Telegram refuses an answer to a query it does not know.
 	chatID, known := s.cbqChat[id]
 	if !known {
 		s.mu.Unlock()
@@ -340,6 +346,10 @@ func (s *Server) answerCallbackQuery(w http.ResponseWriter, method string, param
 	if chat := s.chats[chatID]; chat != nil {
 		chat.callbacks = append(chat.callbacks, answer)
 	}
+	// A query takes one answer, so it is forgotten once answered: a bot that
+	// acknowledges a tap at once and sends an alert about a later failure
+	// loses that alert on Telegram, and the stand has to lose it too.
+	delete(s.cbqChat, id)
 	s.mu.Unlock()
 	s.writeResult(w, method, params, true)
 }
@@ -486,17 +496,36 @@ func replyTargetLocked(chat *chatState, params url.Values) (*Message, string) {
 	return target.quoted(), ""
 }
 
+// inlineKeyboardNotArray is what Telegram answers when reply_markup names
+// inline_keyboard with a value that is not an array.
+const inlineKeyboardNotArray = `Bad Request: Field "inline_keyboard" must be of type Array`
+
 // parseKeyboard reads reply_markup; a markup of another kind (a reply
-// keyboard, a remove) is not an inline keyboard and reads as none.
-func parseKeyboard(raw string) *InlineKeyboardMarkup {
+// keyboard, a remove) is not an inline keyboard and reads as none, and so does
+// an empty array. An inline_keyboard of any other type, null included, is
+// refused the way the Bot API server refuses it: that null is what a library
+// sends for a keyboard built from no rows, and a real chat never shows the
+// message it came with. It returns the keyboard, or the error description.
+func parseKeyboard(raw string) (*InlineKeyboardMarkup, string) {
 	if strings.TrimSpace(raw) == "" {
-		return nil
+		return nil, ""
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &fields); err != nil {
+		return nil, ""
+	}
+	value, ok := fields["inline_keyboard"]
+	if !ok {
+		return nil, ""
+	}
+	if trimmed := strings.TrimSpace(string(value)); !strings.HasPrefix(trimmed, "[") {
+		return nil, inlineKeyboardNotArray
 	}
 	var kb InlineKeyboardMarkup
 	if err := json.Unmarshal([]byte(raw), &kb); err != nil || len(kb.InlineKeyboard) == 0 {
-		return nil
+		return nil, ""
 	}
-	return &kb
+	return &kb, ""
 }
 
 // callbackDataMax is Telegram's limit on a button's callback_data, in bytes.
