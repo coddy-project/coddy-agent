@@ -66,28 +66,6 @@ async function apiSend(
   return { ok: true };
 }
 
-// Plug glyph shared with the Skills list style.
-function IconServer() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <rect x="2" y="3" width="20" height="7" rx="2" />
-      <rect x="2" y="14" width="20" height="7" rx="2" />
-      <line x1="6" y1="6.5" x2="6.01" y2="6.5" />
-      <line x1="6" y1="17.5" x2="6.01" y2="17.5" />
-    </svg>
-  );
-}
-
 function IconPencil() {
   return (
     <svg
@@ -451,7 +429,6 @@ export function MCPSection() {
                       title={statusTitle(row)}
                       data-testid={`mcp-status-${row.name}`}
                     />
-                    <IconServer />
                     <div className="mcp-list-item-text">
                       <div className="skills-list-item-name">
                         {row.name}

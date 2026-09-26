@@ -115,6 +115,24 @@ test("renders merged servers with scope badges and per-origin locks", async () =
   );
 });
 
+// The row leads with its chevron and its status dot, then the name: a server
+// glyph between them said nothing the name did not, and on a phone it took
+// width the name needed.
+test("a server row leads with the chevron and the status dot, no glyph", async () => {
+  stubFetch();
+  render(<MCPSection />);
+  await waitFor(() => expect(screen.getByTestId("mcp-list")).toBeTruthy());
+
+  const dot = screen.getByTestId("mcp-status-files");
+  const head = dot.parentElement!;
+  expect(head.className).toContain("mcp-list-item-head");
+  expect(head.querySelectorAll(":scope > svg")).toHaveLength(0);
+  const [first, second, third] = Array.from(head.children);
+  expect(first).toBe(screen.getByTestId("mcp-expand-files"));
+  expect(second).toBe(dot);
+  expect(third!.className).toContain("mcp-list-item-text");
+});
+
 test("expanding a server shows per-tool switches reflecting disabled state", async () => {
   stubFetch();
   render(<MCPSection />);

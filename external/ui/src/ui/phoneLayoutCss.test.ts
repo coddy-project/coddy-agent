@@ -170,6 +170,16 @@ describe("phone settings", () => {
     // lean on the ellipsis rule it overrides to keep it.
     expectDecl(title, "overflow", /^hidden$/);
   });
+
+  test("an MCP server row puts its controls under the name instead of squeezing it", () => {
+    // Four 40px controls beside the name left it 35px at 390px and broke
+    // project-search in two. On a phone the name and its command line take
+    // the first line of the row, and the controls wrap to the row's end below.
+    const head = declarations(phone, ".mcp-list-item-head");
+    expectDecl(head, "flex-wrap", /^wrap$/);
+    expectDecl(head, "justify-content", /^flex-end$/);
+    expectDecl(declarations(phone, ".mcp-list-item-text"), "flex-basis", /^calc\(100% - var\(--mcp-row-inset\)\)$/);
+  });
 });
 
 describe("text fields do not make iOS Safari zoom", () => {
