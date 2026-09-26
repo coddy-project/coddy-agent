@@ -286,6 +286,15 @@ func (t *turnStream) onFrame(f sseFrame) error {
 		if json.Unmarshal([]byte(f.data), &u) == nil {
 			_ = t.sender.SendSessionUpdate(t.sessionID, u)
 		}
+	case "user_message":
+		// A queued message the turn has just read, or a deferred one that
+		// starts a prompt of its own: the operator's message, where it
+		// entered the conversation.
+		var u acp.MessageChunkUpdate
+		if json.Unmarshal([]byte(f.data), &u) == nil && strings.TrimSpace(u.Content.Text) != "" {
+			u.SessionUpdate = acp.UpdateTypeUserMessageChunk
+			_ = t.sender.SendSessionUpdate(t.sessionID, u)
+		}
 	case "background_wake":
 		// The first frame of a turn a finished background task started.
 		var u acp.BackgroundWakeUpdate

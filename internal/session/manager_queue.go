@@ -76,7 +76,10 @@ func (m *Manager) EnqueueFollowUpWithMode(ctx context.Context, sessionID, text, 
 	if err != nil {
 		return QueuedMessage{}, false, "", err
 	}
-	if taken.Handled {
+	// Only the text goes to TakeSettingsCommands, so a text of commands alone
+	// reads as handled even when images came with it. The images are still a
+	// message for the turn: they are queued, with the commands taken off.
+	if taken.Handled && len(parts) == 0 {
 		return QueuedMessage{}, false, taken.Notice, nil
 	}
 	msg, _, err = m.EnqueueTurnMessageWithMode(sessionID, line.Rest, mode, parts)
@@ -94,17 +97,26 @@ func (m *Manager) QueuedTurnMessages(sessionID string) ([]QueuedMessage, error) 
 
 // CancelQueuedTurnMessage takes one queued message back and returns the rest.
 func (m *Manager) CancelQueuedTurnMessage(sessionID, messageID string) ([]QueuedMessage, error) {
+	_, rest, err := m.TakeBackQueuedTurnMessage(sessionID, messageID)
+	return rest, err
+}
+
+// TakeBackQueuedTurnMessage is CancelQueuedTurnMessage that also hands back the
+// message it removed, whole: its images travel only here, never in the list
+// every client is sent.
+func (m *Manager) TakeBackQueuedTurnMessage(sessionID, messageID string) (QueuedMessage, []QueuedMessage, error) {
 	st, err := m.queueSession(sessionID)
 	if err != nil {
-		return nil, err
+		return QueuedMessage{}, nil, err
 	}
-	if !st.CancelQueuedMessage(messageID) {
-		return st.QueuedMessages(), ErrQueuedMessageNotFound
+	taken, ok := st.TakeBackQueuedMessage(messageID)
+	if !ok {
+		return QueuedMessage{}, st.QueuedMessages(), ErrQueuedMessageNotFound
 	}
 	if !st.MessageQueueOpen() {
 		m.PublishMessageQueue(sessionID, st)
 	}
-	return st.QueuedMessages(), nil
+	return taken, st.QueuedMessages(), nil
 }
 
 func (m *Manager) SetQueuedTurnMessageMode(sessionID, messageID string, mode QueueMode) ([]QueuedMessage, error) {

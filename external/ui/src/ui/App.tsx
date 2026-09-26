@@ -11,6 +11,7 @@ import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
 import { useStableHandler } from "./components/useStableHandler";
 import type { QueuedMessage, QueueMode } from "./chat/Composer";
+import { fileFromDataUrl } from "./chat/dataUrlFile";
 import {
   contextUsagePercent,
   withContextUsedTokens,
@@ -5636,6 +5637,9 @@ export function App() {
         const data = (await res.json().catch(() => null)) as {
           messages?: QueuedMessage[];
           version?: number;
+          message?: QueuedMessage & {
+            inline_files?: { name?: string; data_url?: string }[];
+          };
         } | null;
         if (Array.isArray(data?.messages)) {
           applyQueue(sid, data.messages, data.version ?? 0, queueEpoch);
@@ -5643,17 +5647,18 @@ export function App() {
         // Taken back before the agent read it: the text returns to the composer to be
         // edited, ahead of anything typed since. A 404 means the agent read it first,
         // and it is already in the conversation.
-        const text = taken?.text ?? "";
+        const text = data?.message?.text ?? taken?.text ?? "";
         if (res.ok && text.trim() && viewedSessionIdRef.current.trim() === sid) {
           setDraft((current) =>
             current.trim() ? `${text}\n\n${current}` : text,
           );
         }
-        if (res.ok && taken?.imageParts?.length && viewedSessionIdRef.current.trim() === sid) {
-          const files = await Promise.all(taken.imageParts.map(async (part) => {
-            const blob = await (await fetch(part.data_url)).blob();
-            return new File([blob], part.name, { type: blob.type });
-          }));
+        // Its images come back only in this answer: the queue every client is
+        // sent names them and never carries them.
+        const files = (data?.message?.inline_files ?? [])
+          .map((f) => fileFromDataUrl(f.data_url ?? "", f.name ?? ""))
+          .filter((f): f is File => f !== null);
+        if (res.ok && files.length > 0 && viewedSessionIdRef.current.trim() === sid) {
           setComposerFiles((current) => [...files, ...current]);
         }
       } catch {
@@ -5661,15 +5666,36 @@ export function App() {
       }
     })();
   });
+  /**
+   * Switch a waiting message between steering the running turn and waiting for
+   * its answer. The answer carries the whole queue; a message the agent read a
+   * moment ago answers 404 and the next `message_queue` frame settles the list.
+   */
   const handleSetQueuedMode = useStableHandler((id: string, mode: QueueMode) => {
     const sid = sessionId.trim();
-    if (!sid) return;
+    const messageID = id.trim();
+    if (!sid || !messageID) return;
+    const queueEpoch = queueOrderRef.current.capture(sid).epoch;
     void (async () => {
-      const res = await fetch(`/coddy/sessions/${encodeURIComponent(sid)}/queue/${encodeURIComponent(id)}`, {
-        method: "PATCH", headers: { [HDR]: sid, "Content-Type": "application/json" }, body: JSON.stringify({ mode }),
-      });
-      const data = await res.json().catch(() => null) as { messages?: QueuedMessage[]; version?: number } | null;
-      if (data?.messages) applyQueue(sid, data.messages, data.version ?? 0);
+      try {
+        const res = await fetch(
+          `/coddy/sessions/${encodeURIComponent(sid)}/queue/${encodeURIComponent(messageID)}`,
+          {
+            method: "PATCH",
+            headers: { [HDR]: sid, "Content-Type": "application/json" },
+            body: JSON.stringify({ mode }),
+          },
+        );
+        const data = (await res.json().catch(() => null)) as {
+          messages?: QueuedMessage[];
+          version?: number;
+        } | null;
+        if (res.ok && Array.isArray(data?.messages)) {
+          applyQueue(sid, data.messages, data.version ?? 0, queueEpoch);
+        }
+      } catch {
+        // The next message_queue frame corrects the list.
+      }
     })();
   });
   const handleRetryLast = useStableHandler(

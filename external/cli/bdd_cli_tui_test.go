@@ -919,6 +919,39 @@ func (s *cliTUIState) screenShowsQueueMode(mode, text string) error {
 	return s.waitScreen("["+mode+"] "+text, 2*time.Second)
 }
 
+// appStartsWithNoQueueMode starts a console whose config names no Enter
+// preference, with a config file the answer can be saved into.
+func (s *cliTUIState) appStartsWithNoQueueMode() error {
+	if err := s.buildApp(); err != nil {
+		return err
+	}
+	s.cfg.Paths.ConfigPath = filepath.Join(s.home, "config.yaml")
+	if err := os.WriteFile(s.cfg.Paths.ConfigPath, []byte("agent:\n  model: stub/model-one\n"), 0o600); err != nil {
+		return err
+	}
+	s.cfg.Agent.QueueMode = ""
+	s.app.queuePreference = ""
+	return s.startApp("")
+}
+
+func (s *cliTUIState) screenAsksForQueueMode() error {
+	return s.waitScreen("Choose the default queue mode once", 2*time.Second)
+}
+
+// savedQueueModeIs reads the answer back from the config file on disk.
+func (s *cliTUIState) savedQueueModeIs(mode string) error {
+	deadline := time.Now().Add(2 * time.Second)
+	var raw []byte
+	for time.Now().Before(deadline) {
+		raw, _ = os.ReadFile(s.cfg.Paths.ConfigPath)
+		if strings.Contains(string(raw), "queue_mode: "+mode) {
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("config.yaml does not save queue_mode %q:\n%s", mode, raw)
+}
+
 // screenShowsNothingQueued asserts the widget is gone once the turn is over.
 func (s *cliTUIState) screenShowsNothingQueued() error {
 	deadline := time.Now().Add(2 * time.Second)
@@ -1820,6 +1853,10 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the screen shows the queued message "([^"]*)"$`, s.screenShowsQueuedMessage)
 	sc.Step(`^the operator queues "([^"]*)" with Tab$`, s.operatorTabsPrompt)
 	sc.Step(`^the screen shows "([^"]*)" queued as "([^"]*)"$`, func(text, mode string) error { return s.screenShowsQueueMode(mode, text) })
+	sc.Step(`^the console app starts with no queue mode chosen$`, s.appStartsWithNoQueueMode)
+	sc.Step(`^the screen asks which mode Enter uses$`, s.screenAsksForQueueMode)
+	sc.Step(`^the operator presses "([^"]*)"$`, func(key string) error { s.press(key); return nil })
+	sc.Step(`^the saved queue mode is "([^"]*)"$`, s.savedQueueModeIs)
 	sc.Step(`^the screen shows nothing queued$`, s.screenShowsNothingQueued)
 	sc.Step(`^the operator presses escape$`, s.operatorPressesEscape)
 	sc.Step(`^the operator presses F1$`, s.operatorPressesF1)

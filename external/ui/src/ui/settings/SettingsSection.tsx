@@ -706,7 +706,7 @@ function objectSectionGroups(key: string): SchemaFormGroup[] | undefined {
       {
         id: "turn",
         legend: translate("settings.group.agent.turn"),
-        paths: ["model", "max_turns"],
+        paths: ["model", "max_turns", "queue_mode"],
       },
       {
         id: "retries",

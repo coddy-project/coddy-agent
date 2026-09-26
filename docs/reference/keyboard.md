@@ -20,8 +20,8 @@ Keys are parsed into the `ctrl+x` / `shift+enter` / `alt+backspace` notation of 
 | ctrl+o | expand the header hints, the last tool output (a live draft while `write` / `edit` / `apply_patch` arguments still stream) and the last `!!` block |
 | ctrl+t | collapse or expand thinking blocks |
 | up / down | prompt history on the first / last line of the draft; cursor movement otherwise |
-| tab | during a turn with a draft, queue in the mode opposite to Enter; otherwise open completion or insert a tab |
-| 1 / 2 | first queue-mode choice | select Steer / After turn and save the Enter preference |
+| tab | during a turn with a draft and no suggestion menu open, queue in the mode opposite to Enter; otherwise open completion or insert a tab |
+| 1 / 2 | only while the first-use queue question is on the status line: save Steer / After turn as the Enter mode and queue the message; escape puts the draft back |
 | `/` at the start of the draft, `@` anywhere | open the command menu and the mention menu as you type ([Mentions](../features/mentions.md#in-the-console)) |
 | tab / enter | mention menu open: take the highlighted row; a folder or `@session:` keeps the menu open on what it holds |
 | escape | mention menu open: close it |

@@ -15,6 +15,7 @@
     "check:chevron": "node scripts/chevron-align-check.mjs",
     "check:overflow": "node scripts/phone-overflow-check.mjs",
     "check:transcript": "node scripts/transcript-window-check.mjs",
+    "check:queue": "node scripts/queue-modes-check.mjs",
     "fmt": "prettier -w ."
   },
   "keywords": [],

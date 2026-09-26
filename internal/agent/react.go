@@ -261,6 +261,17 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		a.markWokeTasks(wake)
 		_ = a.server.SendSessionUpdate(a.state.GetID(), session.BackgroundWakeUpdate(wake))
 	}
+	// A prompt the turn boundary started from the queue was typed into no
+	// client's view of this run, unlike an ordinary prompt, which its surface
+	// shows the moment it is sent. It is announced the way a steer read is
+	// (message_queue.go), before it is persisted, so a live transcript shows
+	// the operator's message above the answer to it.
+	if wake == nil && session.PromptEcho(ctx, a.state.GetID()) {
+		_ = a.server.SendSessionUpdate(a.state.GetID(), acp.MessageChunkUpdate{
+			SessionUpdate: acp.UpdateTypeUserMessageChunk,
+			Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: messageContent},
+		})
+	}
 	a.state.AddMessage(llm.Message{
 		Role:           llm.RoleUser,
 		Content:        messageContent,

@@ -270,6 +270,9 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.agent.model.label": "Default model",
   "settings.schema.agent.model.desc":
     "Logical model id from the models list used when the client omits a model.",
+  "settings.schema.agent.queue_mode.label": "Queue mode",
+  "settings.schema.agent.queue_mode.desc":
+    "What Enter does with a message written while a turn runs: steer joins the running turn at its next step, after_turn starts a prompt of its own after the answer. Tab sends the other way. Unset, the browser and the console ask on the first such message.",
   "settings.schema.agent.max_turns.label": "Max turns",
   "settings.schema.agent.max_turns.desc":
     "Cap on ReAct iterations (LLM calls plus tool rounds) for one user request; 0 means no limit.",
@@ -1060,6 +1063,12 @@ export const messagesEn: Record<string, string> = {
   "composer.queueChoiceQuestion": "When a turn is running, how should Enter send your message?",
   "composer.queueChoiceSteer": "Steer now",
   "composer.queueChoiceAfterTurn": "After this turn",
+  "composer.queueModeSteerTitle":
+    "Joins the running turn at its next step. Click to send it after the answer instead.",
+  "composer.queueModeAfterTurnTitle":
+    "Starts a prompt of its own after the answer. Click to join the running turn instead.",
+  "composer.queueImages.one": "{count} image attached",
+  "composer.queueImages.other": "{count} images attached",
   "composer.queueFull":
     "The queue is full: wait for the agent to read what is waiting.",
   "composer.attachReadFailed":

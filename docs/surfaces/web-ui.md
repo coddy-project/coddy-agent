@@ -540,14 +540,14 @@ Regression
 
 The composer stays live while the agent works: a follow-up can steer the next ReAct step or wait for a separate prompt after the current answer. Full behaviour: [Message queue](../features/message-queue.md).
 
-- **Queueing** - the first follow-up asks which mode **Enter** should use and saves it to `agent.queue_mode`. **Tab** uses the other mode. The primary control uses the Enter mode. The POST body carries **`text`**, **`mode`**, and optional **`inline_files`**; the composer clears both text and attachments. A **409 no_active_turn** falls back to an ordinary prompt; other refusals restore the draft and files.
-- **The list** — queued rows render as **`.composer-queue-item`** above the composer, with the mode and attachment count. Click the mode to switch it through **PATCH**. The framed **×** removes the row through **DELETE** and returns its text and files to the composer; **404** means the agent read it first. After-turn rows remain visible after Stop.
+- **Queueing** - the first follow-up asks which mode **Enter** should use and saves it to `agent.queue_mode`. **Tab** uses the other mode. The primary control uses the Enter mode. The POST body carries **`text`**, **`mode`**, and optional **`inline_files`**; the composer clears both text and attachments. A message sent with **Tab** before the first answer still goes in the other mode once the mode is chosen. **Tab** belongs to an open slash or mention picker, even an empty one. A **409 no_active_turn** falls back to an ordinary prompt; other refusals restore the draft and files.
+- **The list** — queued rows render as **`.composer-queue-item`** above the composer, with the mode and, for a message with images, a paperclip and their count (the queue names images and never carries their bytes). Click the mode to switch it through **PATCH**. The framed **×** removes the row through **DELETE** and returns its text to the composer, and its images from the **`inline_files`** of the answer; **404** means the agent read it first. After-turn rows remain visible after Stop.
 - **Open and reconnect** - the UI reads **`GET /coddy/sessions/{id}/queue`** for the selected session alongside its activity snapshot. Existing waiting messages appear without another queue mutation, a live turn reader, or a matching row in **History**.
-- **Staying in step** - clients of the same **`coddy serve`** receive **`event: message_queue`** with the whole queue and a **`version`** through the turn's stream and **`GET /coddy/events`**. HTTP responses carry the same snapshot. **`QueueDeliveryOrder`** keeps the newest version and fences restart recovery. A consumed steer message arrives as **`event: user_message`** where the agent read it.
+- **Staying in step** - clients of the same **`coddy serve`** receive **`event: message_queue`** with the whole queue and a **`version`** through the turn's stream and **`GET /coddy/events`**. HTTP responses carry the same snapshot. **`QueueDeliveryOrder`** keeps the newest version and fences restart recovery. A consumed steer message arrives as **`event: user_message`** where the agent read it, and an after-turn message the same way where its own prompt starts, so the second answer never runs on from the first.
 - **Scope** - these are Stop and queue controls, not a shared session bus. Existing transcript relay and permission/question ownership stay unchanged. Separate local console or ACP processes sharing a sessions directory share the cancel marker, not their in-memory queues or answer channels.
 - **Placeholder** — while generating, the field reads **`composer.placeholderQueue`** instead of the idle placeholder.
-- **Attachments travel with the queued message.** An image appears on the user bubble after the agent reads it and reaches multimodal providers.
-- Vitest: **`composerQueue.test.tsx`**.
+- **Attachments travel with the queued message.** An image reaches a multimodal model; the live bubble names it as a file chip (**`chat/queuedUserMessage.ts`**), and the transcript read after the turn brings its thumbnail.
+- Vitest: **`composerQueue.test.tsx`**, **`queuedUserMessage.test.ts`**, **`App.stopQueue.test.tsx`** (taking a message back, text and image).
 
 Functional regression checklist:
 
@@ -1343,6 +1343,25 @@ CODDY_BIN=build/coddy npm --prefix external/ui run check:transcript
 ```
 
 **`CODDY_CPU_THROTTLE`** sets the slowdown (**`1`** turns it off), **`CODDY_BUDGET_SCALE`** multiplies the time budgets for a slow machine, **`CODDY_SCENARIOS`** runs some of the scenarios (**`open`**, **`scroll`**, **`phone`**, **`edit`**, **`retry`**, **`prompt`**, **`short`**, **`two-browsers`**, **`swarm`**), **`CODDY_ENGINE=webkit`** runs them in WebKit (without the throttling, long task and heap readings, which are Chromium's), **`CODDY_BROWSER_PATH`** points at an installed Chromium and **`CODDY_E2E_KEEP=1`** leaves the stand running. CI runs it at full speed in the **`http,scheduler,ui,memory,cli,swarm`** job of the test matrix. Run it when a change touches the transcript window, the messages or tool-calls routes, or what a transcript row renders.
+
+### Checking the message queue through a swarm relay
+
+Whether a queued message reaches the model in the right mode, and whether every browser sees it, is a question for the real binary with a turn genuinely running. **`external/ui/scripts/queue-modes-check.mjs`** answers it: it serves a scripted OpenAI-compatible model that keeps its opening answers open until the script releases them, starts a **`coddy serve`** node with no **`agent.queue_mode`** and a **`coddy serve --swarm`** relay that mounts it, and drives Chromium through the relay's mount while a second browser watches the same session on the node directly. It checks:
+
+- **the first-use question** appears for the first message written during a turn, and its answer is saved as **`agent.queue_mode`** in the node's **`config.yaml`** through the relay;
+- **Tab** queues the other mode with an image, the queue names the image and never carries its bytes, and the other browser sees both rows;
+- **a mode switch** (PATCH) and **taking a message back** (its text and image return to the draft) work through the relay;
+- **after the answer** the model reads the steer message, then the deferred one as a prompt of its own with its image, and the live transcript shows the deferred message above its answer;
+- **Stop** keeps an after-turn message waiting without starting it, and it runs after the next answer;
+- **Settings → Agent** shows the saved mode.
+
+```bash
+make build TAGS="http ui swarm"
+npm --prefix external/ui i --no-save playwright && npx --prefix external/ui playwright install chromium
+CODDY_BIN=build/coddy npm --prefix external/ui run check:queue
+```
+
+**`CODDY_SHOTS_DIR`** also takes the screenshots of [Message queue](../features/message-queue.md) on a second node reached directly, **`CODDY_BROWSER_PATH`** points at an installed Chromium, **`CODDY_PORT_BASE`** moves its four ports and **`CODDY_E2E_KEEP=1`** leaves the stand running. CI runs it in the **`http,scheduler,ui,memory,cli,swarm`** job of the test matrix, after the transcript check.
 
 ### Checking the transcript at every width of the grid
 

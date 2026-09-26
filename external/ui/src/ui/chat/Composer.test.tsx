@@ -2497,3 +2497,44 @@ test("a keyCode 229 long after a composition ended still takes the @ row", async
   now.mockRestore();
   vi.unstubAllGlobals();
 });
+
+// The picker's FileList is live: clearing the input empties it. React runs a
+// state update later whenever the app has other updates queued - as it does
+// all through a running turn - so the files must be copied before the input is
+// cleared, or an image picked during a turn silently goes missing.
+test("files picked from the dialog survive the input being cleared before the update runs", () => {
+  stubMatchMediaMobile(false);
+  let updater: unknown = null;
+  render(
+    <Composer
+      value=""
+      isEmpty={true}
+      mode="agent"
+      modes={["agent"]}
+      llmModelMultimodal={true}
+      attachedFiles={[]}
+      onAttachedFilesChange={(u) => {
+        updater = u;
+      }}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const input = screen.getByTestId("composer-file-input") as HTMLInputElement;
+  const file = new File(["image"], "shot.png", { type: "image/png" });
+  const live: File[] = [file];
+  Object.defineProperty(input, "files", { configurable: true, get: () => live });
+  Object.defineProperty(input, "value", {
+    configurable: true,
+    get: () => (live.length ? "C:\\fakepath\\shot.png" : ""),
+    set: (v: string) => {
+      if (v === "") live.length = 0;
+    },
+  });
+  fireEvent.change(input);
+  // The update runs only now, after the handler cleared the input.
+  const next = typeof updater === "function" ? (updater as (p: File[]) => File[])([]) : updater;
+  expect(next).toEqual([file]);
+  vi.unstubAllGlobals();
+});

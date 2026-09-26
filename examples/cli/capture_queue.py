@@ -2,9 +2,10 @@
 """Capture the console message queue: follow-ups written while a turn works.
 
 Stands a local OpenAI-compatible endpoint whose first streamed answer is held
-open, so the console is genuinely mid-turn while two more prompts are typed;
-they join the session's queue instead of being refused, and the widget above
-the input shows what the turn will read at its next step.
+open, so the console is genuinely mid-turn while two more prompts are typed.
+The config names no queue mode, so the first follow-up asks which mode Enter
+should use (the first shot); answered with 1 it is queued to steer, and the
+second, sent with Tab, waits for after the turn (the second shot).
 
 Usage: python3 capture_queue.py [repo] [outdir]   (default docs/assets/message-queue)
 Needs a cli-tagged build/coddy (make build TAGS=cli), pexpect, pyte and
@@ -24,6 +25,7 @@ from cli_tui_driver import COLS, ROWS, CR  # noqa: E402
 
 MODEL = "stub/coddy-demo"
 SHOT = "message-queue-console-modes-dark"
+SHOT_CHOICE = "message-queue-console-choice-dark"
 
 # How long the first answer is held open. The screen is captured inside this
 # window, so it only has to outlast the typing, not a human.
@@ -138,7 +140,6 @@ models:
     max_context_tokens: 131072
 agent:
   model: {MODEL}
-  queue_mode: steer
 tools:
   permission_mode: bypass
 """)
@@ -151,8 +152,10 @@ class Shot:
         self.screen = pyte.Screen(COLS, ROWS)
         self.stream = pyte.ByteStream(self.screen)
         env = dict(os.environ)
+        # HOME too: the console also reads ~/.agents/skills and the operator's
+        # own instructions, and a documentation shot must not show them.
         env.update({"TERM": "xterm-256color", "COLORTERM": "truecolor", "CODDY_HOME": str(home),
-                    "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8"})
+                    "HOME": str(home), "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8"})
         for k in ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy", "ALL_PROXY"):
             env.pop(k, None)
         self.child = pexpect.spawn(os.environ["CODDY_BIN"], ["cli", "--theme", "dark"], env=env,
@@ -220,9 +223,17 @@ tui.pump(1.0)
 tui.send(PROMPT + CR)
 # The turn is genuinely in flight once its first words are on screen.
 tui.wait_for("Checking what the release archive ships", timeout=60)
-for follow, key in zip(FOLLOW_UPS, (CR, "\t")):
-    tui.send(follow + key)
-    tui.pump(0.8)
+# The first follow-up asks what Enter should do; 1 saves steer and queues it.
+tui.send(FOLLOW_UPS[0] + CR)
+tui.wait_for("Choose the default queue mode once", timeout=10)
+capture.snapshot(tui, OUT, SHOT_CHOICE)
+print("queue mode question captured")
+tui.send("1")
+tui.wait_for("[steer]", timeout=10)
+# Tab sends the second one the other way: after the turn.
+tui.send(FOLLOW_UPS[1] + "\t")
+tui.wait_for("[after_turn]", timeout=10)
+tui.pump(0.8)
 
 # The shot is only worth keeping if the rows it exists to show are on screen.
 for row in ("queued messages", "[steer]", "[after_turn]", "Check the Windows path too", "skip the integration suite"):
@@ -234,6 +245,7 @@ tui.send("\x03")
 time.sleep(0.2)
 tui.send("\x03")
 tui.pump(1)
-render_pngs(OUT, [SHOT])
-for ext in (".txt", ".html"):
-    (OUT / f"{SHOT}{ext}").unlink(missing_ok=True)
+render_pngs(OUT, [SHOT_CHOICE, SHOT])
+for name in (SHOT_CHOICE, SHOT):
+    for ext in (".txt", ".html"):
+        (OUT / f"{name}{ext}").unlink(missing_ok=True)

@@ -1144,11 +1144,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		}
 		queued, more := state.TakeQueuedMessagesOrClose()
 		if !more {
-			if next, ok := state.TakeNextAfterTurnOrClose(); ok {
-				queued = []QueuedMessage{next}
-			} else {
-				break
-			}
+			break
 		}
 		var images []llm.ImagePart
 		for _, q := range queued {
@@ -1162,7 +1158,17 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 			}
 			state.SetPendingImageParts(images)
 		}
-		stopReason, err = m.runner(turnCtx, state, state.ResolveQueuedMentions(QueuedPromptBlocks(queued)), sender)
+		// No client typed this prompt into its view of the turn, so the run
+		// announces it (PromptEcho) before it answers it.
+		rev := state.MessagesRev()
+		stopReason, err = m.runner(withPromptEcho(turnCtx, params.SessionID), state, state.ResolveQueuedMentions(QueuedPromptBlocks(queued)), sender)
+		if turnCtx.Err() != nil && state.MessagesRev() == rev {
+			// Stopped before the prompt entered the conversation: nothing read
+			// it. An after_turn message waits again, as Stop promises, and the
+			// images it was to carry are not left for the next prompt.
+			state.TakePendingImageParts()
+			state.ReturnQueuedMessages(keepAfterTurn(queued))
+		}
 		if err != nil {
 			state.TakeTurnStopNotice()
 			if !errors.Is(err, context.Canceled) {

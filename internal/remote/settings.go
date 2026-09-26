@@ -15,15 +15,36 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
+// SetQueueModePreference saves the operator's answer to the first queued send
+// as agent.queue_mode in the server's config.yaml. The server takes the whole
+// document on PUT, so the one key is changed on the document it answers with,
+// kept as raw JSON: a field this console does not know - a server newer than
+// the console - goes back exactly as it came instead of being dropped.
 func (h *Handler) SetQueueModePreference(mode session.QueueMode) error {
 	if !session.ValidQueueMode(mode) {
 		return fmt.Errorf("invalid queue mode %q", mode)
 	}
-	var doc config.ConfigJSON
+	var doc map[string]json.RawMessage
 	if err := h.getJSON(h.controlCtx, "/coddy/config", &doc); err != nil {
 		return err
 	}
-	doc.Agent.QueueMode = string(mode)
+	agent := map[string]json.RawMessage{}
+	if raw, ok := doc["agent"]; ok && len(raw) > 0 && string(raw) != "null" {
+		if err := json.Unmarshal(raw, &agent); err != nil {
+			return fmt.Errorf("read agent config: %w", err)
+		}
+	}
+	value, err := json.Marshal(string(mode))
+	if err != nil {
+		return err
+	}
+	agent["queue_mode"] = value
+	if doc == nil {
+		doc = map[string]json.RawMessage{}
+	}
+	if doc["agent"], err = json.Marshal(agent); err != nil {
+		return err
+	}
 	raw, err := json.Marshal(doc)
 	if err != nil {
 		return err
@@ -44,6 +65,7 @@ func (h *Handler) SetQueueModePreference(mode session.QueueMode) error {
 	return nil
 }
 
+// QueueModePreference reads agent.queue_mode from the server's config.
 func (h *Handler) QueueModePreference() (session.QueueMode, error) {
 	var doc config.ConfigJSON
 	if err := h.getJSON(h.controlCtx, "/coddy/config", &doc); err != nil {

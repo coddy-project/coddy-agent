@@ -127,7 +127,9 @@ self-booted `coddy serve`), one-shot input (`cli_e2e_print_input.py`: no model a
 model the script serves itself records every request - prompts piped into `-p`, read with `-i` and
 redirected into `-p -` arriving byte for byte, piped data attached under a typed prompt, a
 `while read` loop kept whole by `--no-stdin`, refused input sending nothing, and a bare `-p` on a
-pty), subagents (`coddy agents trust` then a `spawn_agent` run), toolcalls
+pty), the message queue (`cli_e2e_queue.py`: no model at all - the first-use question, steer and
+after-turn messages, `/queue drop` into the input, the deferred prompt answered after the turn),
+subagents (`coddy agents trust` then a `spawn_agent` run), toolcalls
 persist, compact, plan files, ask mode, scheduler agent, plus
 console-unique permissions (ask-mode modal) and resume (transcript replay).
 REST-only surfaces (`e2e_scheduler_api`, `e2e_remote`,

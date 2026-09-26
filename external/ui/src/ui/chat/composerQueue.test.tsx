@@ -111,3 +111,39 @@ test("the placeholder says a draft joins the running turn", () => {
     "Add a follow-up for the running turn",
   );
 });
+
+test("a first message sent with Tab still goes the other way once Enter's mode is chosen", () => {
+  const onQueue = vi.fn();
+  const onQueueModeChange = vi.fn();
+  render(<Composer value="review the answer" isEmpty={false} mode="agent" modes={["agent"]} generating={true} onModeChange={() => {}} onChange={() => {}} onSend={() => {}} onQueue={onQueue} onQueueModeChange={onQueueModeChange} />);
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Tab" });
+  expect(onQueue).not.toHaveBeenCalled();
+  expect(screen.getByTestId("composer-queue-choice")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Steer now" }));
+  expect(onQueueModeChange).toHaveBeenCalledWith("steer");
+  expect(onQueue).toHaveBeenCalledWith("review the answer", "after_turn", []);
+  expect(screen.queryByTestId("composer-queue-choice")).not.toBeInTheDocument();
+});
+
+test("a queued message with images shows a paperclip and their count, not the images", () => {
+  render(
+    <Composer
+      value=""
+      isEmpty={true}
+      mode="agent"
+      modes={["agent"]}
+      generating={true}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+      onQueue={() => {}}
+      queueMode="steer"
+      queuedMessages={[{ id: "q1", text: "compare", mode: "after_turn", imageParts: [{ name: "a.png", mimeType: "image/png", sizeBytes: 3 }, { name: "b.png" }] }]}
+    />,
+  );
+  const files = screen.getByTestId("composer-queue-files-q1");
+  expect(files).toHaveTextContent("2");
+  expect(files).toHaveAttribute("aria-label", "2 images attached");
+  expect(files.querySelector("svg")).not.toBeNull();
+  expect(screen.getByTestId("composer-queue-mode-q1")).toHaveTextContent("After turn");
+});

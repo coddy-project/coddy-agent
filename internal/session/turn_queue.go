@@ -1,6 +1,8 @@
 package session
 
 import (
+	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
@@ -75,9 +77,30 @@ var queuedMessageSeq atomic.Uint64
 // frame of the new turn would be dropped as stale.
 var queueVersionSeq atomic.Uint64
 
-// Wire converts the message to the shape published over ACP and HTTP.
+// Wire converts the message to the shape published over ACP and HTTP. Its
+// images are described, not carried (acp.QueuedImage): the same list goes to
+// every client on every change of the queue.
 func (q QueuedMessage) Wire() acp.QueuedMessage {
-	return acp.QueuedMessage{ID: q.ID, Text: q.Text, Mode: string(q.Mode), ImageParts: q.ImageParts, CreatedAt: q.CreatedAt}
+	out := acp.QueuedMessage{ID: q.ID, Text: q.Text, Mode: string(q.Mode), CreatedAt: q.CreatedAt}
+	for _, p := range q.ImageParts {
+		out.ImageParts = append(out.ImageParts, queuedImage(p))
+	}
+	return out
+}
+
+// queuedImage describes an image part without its bytes: the type from the
+// data URI's header, the size its base64 payload decodes to.
+func queuedImage(p acp.ImagePartRef) acp.QueuedImage {
+	img := acp.QueuedImage{Name: p.Name}
+	header, payload, ok := strings.Cut(p.DataURL, ",")
+	if !ok || !strings.HasPrefix(strings.ToLower(header), "data:") {
+		return img
+	}
+	img.MimeType = strings.TrimSuffix(strings.TrimPrefix(strings.ToLower(header), "data:"), ";base64")
+	if strings.HasSuffix(strings.ToLower(header), ";base64") {
+		img.SizeBytes = base64.StdEncoding.DecodedLen(len(payload)) - strings.Count(payload[max(0, len(payload)-2):], "=")
+	}
+	return img
 }
 
 // QueuedMessagesWire converts a queue snapshot for the wire.
@@ -265,16 +288,26 @@ func (s *State) QueueSnapshot() ([]QueuedMessage, uint64) {
 // CancelQueuedMessage removes a message the agent has not read yet and reports
 // whether it was still there.
 func (s *State) CancelQueuedMessage(id string) bool {
+	_, found := s.TakeBackQueuedMessage(id)
+	return found
+}
+
+// TakeBackQueuedMessage removes a message the agent has not read yet and hands
+// it back whole, images included, so the surface that took it back can put it
+// into its draft exactly as it was written.
+func (s *State) TakeBackQueuedMessage(id string) (QueuedMessage, bool) {
 	want := strings.TrimSpace(id)
 	if want == "" {
-		return false
+		return QueuedMessage{}, false
 	}
 	s.queueMu.Lock()
+	var taken QueuedMessage
 	found := false
 	for i, m := range s.queue {
 		if m.ID != want {
 			continue
 		}
+		taken = m
 		s.queue = append(s.queue[:i:i], s.queue[i+1:]...)
 		s.bumpQueueLocked()
 		found = true
@@ -284,7 +317,7 @@ func (s *State) CancelQueuedMessage(id string) bool {
 	if found {
 		s.notifyQueue()
 	}
-	return found
+	return taken, found
 }
 
 // SetQueuedMessageMode changes the destination of a message still waiting.
@@ -340,63 +373,78 @@ func (s *State) TakeQueuedMessages() []QueuedMessage {
 	return taken
 }
 
-// TakeQueuedMessagesOrClose drains steer messages at the turn boundary. When
-// only after_turn messages remain, the manager takes one separately. With no
-// messages at all it closes admission in the same critical section.
+// TakeQueuedMessagesOrClose is the turn boundary, and it is one atomic step on
+// purpose. It hands back, in this order of preference:
+//   - every steer message still waiting, as one batch: they were written for
+//     the turn that is ending, so one more run of it answers them together;
+//   - otherwise the oldest after_turn message on its own: a deferred prompt
+//     gets a run of its own, one at a time, in the order they were queued;
+//
+// and the queue stays open for the run that follows. Finding nothing, it
+// closes the queue in the same critical section.
 //
 // Draining and closing as two operations would leave a window between them in
 // which a message is accepted by a turn that is already over - the one way a
-// queued message could be silently lost.
+// queued message could be silently lost. Choosing between the two kinds under
+// the same lock means a row switched from one mode to the other a moment ago
+// is taken as what it is now, never skipped.
 func (s *State) TakeQueuedMessagesOrClose() ([]QueuedMessage, bool) {
 	s.queueMu.Lock()
 	taken := takeSteer(s.queue)
-	if len(taken) == 0 {
-		if len(s.queue) > 0 {
-			s.queueMu.Unlock()
-			return nil, false
-		}
+	switch {
+	case len(taken) > 0:
+		s.queue = keepAfterTurn(s.queue)
+	case len(s.queue) > 0:
+		// Only after_turn rows are left, oldest first.
+		taken = []QueuedMessage{s.queue[0]}
+		s.queue = append([]QueuedMessage(nil), s.queue[1:]...)
+	default:
 		s.queueOpen = false
 		s.bumpQueueLocked()
 		s.queueMu.Unlock()
 		return nil, false
 	}
-	s.queue = keepAfterTurn(s.queue)
 	s.bumpQueueLocked()
 	s.queueMu.Unlock()
 	s.notifyQueue()
 	return taken, true
 }
 
-// TakeNextAfterTurnOrClose starts exactly one deferred message after the
-// current answer. A Stop leaves these messages queued without starting them.
-func (s *State) TakeNextAfterTurnOrClose() (QueuedMessage, bool) {
+// ReturnQueuedMessages puts messages the boundary took back at the head of the
+// queue, in their order and with their modes. It is for a run that was
+// stopped before its prompt entered the conversation: nothing read those
+// messages, and a Stop keeps what the turn never read for later rather than
+// losing it. The queue may already be closed; a retained message waits there
+// the same way.
+func (s *State) ReturnQueuedMessages(msgs []QueuedMessage) {
+	if len(msgs) == 0 {
+		return
+	}
 	s.queueMu.Lock()
-	for i, q := range s.queue {
-		if q.Mode != QueueModeAfterTurn {
-			continue
-		}
-		s.queue = append(s.queue[:i:i], s.queue[i+1:]...)
-		s.bumpQueueLocked()
-		s.queueMu.Unlock()
-		s.notifyQueue()
-		return q, true
-	}
-	// A mode change may have turned an after_turn row into steer between the
-	// manager's steer drain and this read. Answer it instead of closing over it.
-	if len(s.queue) > 0 {
-		q := s.queue[0]
-		s.queue = s.queue[1:]
-		s.bumpQueueLocked()
-		s.queueMu.Unlock()
-		s.notifyQueue()
-		return q, true
-	}
-	if len(s.queue) == 0 {
-		s.queueOpen = false
-		s.bumpQueueLocked()
-	}
+	s.queue = append(append([]QueuedMessage(nil), msgs...), s.queue...)
+	s.bumpQueueLocked()
 	s.queueMu.Unlock()
-	return QueuedMessage{}, false
+	s.notifyQueue()
+}
+
+// promptEchoKey marks the context of a run the turn boundary started from
+// queued messages (withPromptEcho).
+type promptEchoKey struct{}
+
+// withPromptEcho marks ctx as the run of a queued prompt on sessionID.
+func withPromptEcho(ctx context.Context, sessionID string) context.Context {
+	return context.WithValue(ctx, promptEchoKey{}, sessionID)
+}
+
+// PromptEcho reports whether the run on ctx for sessionID must announce its
+// prompt to the clients as the operator's message. An ordinary prompt is shown
+// by the surface that sends it the moment it is sent; a queued one that the
+// turn boundary starts was typed into no client's view of that run, so the
+// runner announces it before answering it. The session id keeps the mark from
+// reaching the run of a subagent, whose context derives from this one.
+func PromptEcho(ctx context.Context, sessionID string) bool {
+	id, _ := ctx.Value(promptEchoKey{}).(string)
+	return id != "" && id == sessionID
 }
 
 func takeSteer(rows []QueuedMessage) []QueuedMessage {

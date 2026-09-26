@@ -4276,9 +4276,17 @@ a.rail-brand {
   font: inherit;
 }
 
+/* The paperclip and the count of images a queued message carries; the images
+   themselves stay on the server until the message is read or taken back. */
 .composer-queue-files {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   padding-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .composer-queue-choice {

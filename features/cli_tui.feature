@@ -138,6 +138,26 @@ Feature: Interactive console TUI
     Then the screen shows "check the current step" queued as "steer"
     And the screen shows "review the final answer" queued as "after_turn"
 
+  Scenario: The first message written during a turn asks which mode Enter uses
+    When the console app starts with no queue mode chosen
+    And the operator submits the prompt "read the readme"
+    And the stub turn blocks until cancelled
+    And the operator queues "review the final answer" with Tab
+    Then the screen asks which mode Enter uses
+    When the operator presses "1"
+    Then the screen shows "review the final answer" queued as "after_turn"
+    And the saved queue mode is "steer"
+
+  Scenario: A queued message taken back returns to the input
+    When the console app starts
+    And the operator submits the prompt "read the readme"
+    And the stub turn blocks until cancelled
+    And the operator submits the prompt "check the Windows path too"
+    And the screen shows the queued message "check the Windows path too"
+    And the operator submits the command "/queue drop 1"
+    Then the screen shows nothing queued
+    And the editor holds "check the Windows path too"
+
   Scenario: Escape cancels the running turn
     When the console app starts
     And the operator submits the prompt "long task"

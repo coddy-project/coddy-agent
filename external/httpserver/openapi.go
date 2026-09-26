@@ -1132,7 +1132,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/queue": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Follow-ups queued for the running turn",
-					"description": "Lists messages waiting in this process: each row carries **id**, **text**, **mode** (**steer** or **after_turn**), optional **imageParts**, and **createdAt**. The answer carries the same **version** as **message_queue** SSE updates. Steer rows enter the running turn at its next ReAct step. After-turn rows start separate prompts after the answer; Stop retains them without auto-starting, so an idle session can have waiting rows.",
+					"description": "Lists messages waiting in this process: each row carries **id**, **text**, **mode** (**steer** or **after_turn**), optional **imageParts** (each image's **name**, **mimeType** and **sizeBytes** - never its bytes, which come back only to **DELETE**), and **createdAt**. The answer carries the same **version** as **message_queue** SSE updates. Steer rows enter the running turn at its next ReAct step. After-turn rows start separate prompts after the answer; Stop retains them without auto-starting, so an idle session can have waiting rows.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -1148,7 +1148,7 @@ func openAPISpec() map[string]interface{} {
 				},
 				"post": map[string]interface{}{
 					"summary":     "Queue a follow-up for the running turn",
-					"description": "Adds a message to the queue of the turn in flight and answers **201** with the stored **message** and whole **messages** list. **mode** is **steer** (default, read at the next ReAct step) or **after_turn** (a new prompt after the current answer). **inline_files** carries image data URIs with the text. Settings commands at the start of **text** apply at once and only the rest is queued; a command-only request answers **200**. A **`--once`** or **`--count=N`** command followed by a message answers **409** with code **turn_scoped_follow_up**. No active turn answers **409** with **no_active_turn**; past " + strconv.Itoa(session.MaxQueuedMessages) + " messages answers **queue_full**; a child session answers **subagent_read_only**. Stop drops steer messages but leaves after_turn messages waiting without auto-starting them.",
+					"description": "Adds a message to the queue of the turn in flight and answers **201** with the stored **message** and whole **messages** list. **mode** is **steer** (default, read at the next ReAct step) or **after_turn** (a new prompt after the current answer). **inline_files** carries images with the text as base64 **data:image/...** URIs; any other value is a **400** with code **invalid_request**, and a session model without **multimodal: true** gets the text without the images, as **POST /v1/responses** does. Settings commands at the start of **text** apply at once and only the rest is queued; a command-only request without images answers **200**, and one with images queues the images. A **`--once`** or **`--count=N`** command followed by a message answers **409** with code **turn_scoped_follow_up**. No active turn answers **409** with **no_active_turn**; past " + strconv.Itoa(session.MaxQueuedMessages) + " messages answers **queue_full**; a child session answers **subagent_read_only**. Stop drops steer messages but leaves after_turn messages waiting without auto-starting them.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -1161,12 +1161,11 @@ func openAPISpec() map[string]interface{} {
 						"content": map[string]interface{}{
 							"application/json": map[string]interface{}{
 								"schema": map[string]interface{}{
-									"type":     "object",
-									"required": []interface{}{"text"},
+									"type": "object",
 									"properties": map[string]interface{}{
 										"text":         map[string]interface{}{"type": "string", "description": "What the operator wrote. May be empty when inline_files is non-empty."},
-										"mode":         map[string]interface{}{"type": "string", "enum": []interface{}{"steer", "after_turn"}},
-										"inline_files": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"name": map[string]string{"type": "string"}, "data_url": map[string]string{"type": "string"}}}},
+										"mode":         map[string]interface{}{"type": "string", "enum": []interface{}{"steer", "after_turn"}, "description": "When the message is read: **steer** (default) at the next step of the running turn, **after_turn** as a prompt of its own after the answer."},
+										"inline_files": map[string]interface{}{"type": "array", "description": "Images sent with the message, each a base64 **data:image/...** URI.", "items": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"name": map[string]string{"type": "string"}, "data_url": map[string]string{"type": "string"}}}},
 									},
 								},
 							},
@@ -1198,8 +1197,9 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/coddy/sessions/{id}/queue/{message_id}": map[string]interface{}{
 				"patch": map[string]interface{}{
-					"summary":    "Change a queued message's mode",
-					"parameters": []interface{}{map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}}, map[string]interface{}{"name": "message_id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}}},
+					"summary":     "Change a queued message's mode",
+					"description": "Switches a message the agent has not read yet between **steer** and **after_turn** and answers with the whole queue and its **version**. Another mode is a **400** with code **invalid_request**; a message the turn read a moment ago answers **404** with code **not_found**.",
+					"parameters":  []interface{}{map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}}, map[string]interface{}{"name": "message_id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}}},
 					"requestBody": map[string]interface{}{
 						"required": true,
 						"content": map[string]interface{}{
@@ -1218,7 +1218,7 @@ func openAPISpec() map[string]interface{} {
 				},
 				"delete": map[string]interface{}{
 					"summary":     "Take one queued follow-up back",
-					"description": "Removes a message the agent has not read yet and answers with the rest of the queue. A message the turn read a moment ago is gone from the queue and answers **404** with code **not_found** - losing that race is ordinary, and the message is already part of the conversation.",
+					"description": "Removes a message the agent has not read yet and answers with the rest of the queue, plus **message**: the message taken back, with its images in full under **inline_files** (**[{name, data_url}]**, the shape POST takes), so a client can put it back into its draft. A message the turn read a moment ago is gone from the queue and answers **404** with code **not_found** - losing that race is ordinary, and the message is already part of the conversation.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,

@@ -39,7 +39,10 @@ type queueBody struct {
 // The answer carries the same version the SSE frames do, so a client applying
 // both keeps whichever is newer rather than letting a request that finished
 // late overwrite a change it already heard about.
-func writeQueue(w http.ResponseWriter, status int, sessionID string, st *session.State, added *session.QueuedMessage) {
+//
+// message is the one message the request was about, when there is one: the
+// row it added, or the row it took back (takenBack).
+func writeQueue(w http.ResponseWriter, status int, sessionID string, st *session.State, message interface{}) {
 	queue, version := st.QueueSnapshot()
 	out := map[string]interface{}{
 		"object":    "coddy.message_queue",
@@ -47,10 +50,38 @@ func writeQueue(w http.ResponseWriter, status int, sessionID string, st *session
 		"messages":  session.QueuedMessagesWire(queue),
 		"version":   version,
 	}
-	if added != nil {
-		out["message"] = added.Wire()
+	if message != nil {
+		out["message"] = message
 	}
 	writeJSON(w, status, out)
+}
+
+// takenBackMessage is a message the operator took back, with everything it
+// carried: inline_files holds its images in full, in the shape POST takes, so a
+// client can put the message back into its draft exactly as it was written.
+// Rows everywhere else name their images and never carry them.
+type takenBackMessage struct {
+	acp.QueuedMessage
+	InlineFiles []acp.ImagePartRef `json:"inline_files,omitempty"`
+}
+
+func takenBack(q session.QueuedMessage) takenBackMessage {
+	return takenBackMessage{QueuedMessage: q.Wire(), InlineFiles: q.ImageParts}
+}
+
+// queueInlineFiles checks the images a follow-up brings. They are kept in
+// memory until the agent reads the message, then saved with the session's
+// assets and sent to the model, so only an image carried in the request itself
+// is taken: a base64 data URI of an image type, never a URL to fetch.
+func queueInlineFiles(files []acp.ImagePartRef) ([]acp.ImagePartRef, error) {
+	for i, f := range files {
+		header, payload, ok := strings.Cut(f.DataURL, ",")
+		h := strings.ToLower(header)
+		if !ok || !strings.HasPrefix(h, "data:image/") || !strings.HasSuffix(h, ";base64") || payload == "" {
+			return nil, fmt.Errorf("inline_files[%d]: data_url must be a base64 data URI of an image (data:image/...;base64,...)", i)
+		}
+	}
+	return files, nil
 }
 
 // queueSession resolves the session a queue route names, loading a persisted
@@ -91,7 +122,17 @@ func (s *Server) coddyQueuePost(w http.ResponseWriter, r *http.Request) {
 	if body.Mode == "" {
 		body.Mode = session.QueueModeSteer
 	}
-	msg, queued, notice, err := s.mgr.EnqueueFollowUpWithMode(r.Context(), id, body.Text, "web", body.Mode, body.InlineFiles)
+	files, err := queueInlineFiles(body.InlineFiles)
+	if err != nil {
+		s.queueError(w, http.StatusBadRequest, "invalid_request", err)
+		return
+	}
+	// Images reach the model only when it reads them - the rule POST
+	// /v1/responses applies to an ordinary prompt.
+	if cfg := s.activeCfg(); len(files) > 0 && !configuredModelMultimodal(cfg, effectiveYAMLModel(cfg, st)) {
+		files = nil
+	}
+	msg, queued, notice, err := s.mgr.EnqueueFollowUpWithMode(r.Context(), id, body.Text, "web", body.Mode, files)
 	switch {
 	case errors.Is(err, session.ErrTurnScopedFollowUp):
 		s.queueError(w, http.StatusConflict, "turn_scoped_follow_up", err)
@@ -129,7 +170,7 @@ func (s *Server) coddyQueuePost(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, out)
 		return
 	}
-	writeQueue(w, http.StatusCreated, id, st, &msg)
+	writeQueue(w, http.StatusCreated, id, st, msg.Wire())
 }
 
 func (s *Server) coddyQueuePatch(w http.ResponseWriter, r *http.Request) {
@@ -162,7 +203,7 @@ func (s *Server) coddyQueueDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	messageID := strings.TrimSpace(r.PathValue("message_id"))
-	_, err := s.mgr.CancelQueuedTurnMessage(id, messageID)
+	taken, _, err := s.mgr.TakeBackQueuedTurnMessage(id, messageID)
 	switch {
 	case errors.Is(err, session.ErrQueuedMessageNotFound):
 		// Losing the race with the agent is the ordinary way this happens: the
@@ -173,7 +214,7 @@ func (s *Server) coddyQueueDelete(w http.ResponseWriter, r *http.Request) {
 		s.queueError(w, http.StatusBadRequest, "invalid_request", err)
 		return
 	}
-	writeQueue(w, http.StatusOK, id, st, nil)
+	writeQueue(w, http.StatusOK, id, st, takenBack(taken))
 }
 
 func (s *Server) coddyQueueClear(w http.ResponseWriter, r *http.Request) {

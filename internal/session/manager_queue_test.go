@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -53,8 +54,13 @@ func (r *queueRunner) seen() []string {
 
 func newQueueManager(t *testing.T, r *queueRunner) (*session.Manager, string) {
 	t.Helper()
+	return newQueueManagerWith(t, r.run)
+}
+
+func newQueueManagerWith(t *testing.T, run session.AgentRunner) (*session.Manager, string) {
+	t.Helper()
 	dir := t.TempDir()
-	m := session.NewManager(testConfig(), noopSender{}, r.run, slog.Default(), dir, nil)
+	m := session.NewManager(testConfig(), noopSender{}, run, slog.Default(), dir, nil)
 	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: dir})
 	if err != nil {
 		t.Fatalf("HandleSessionNew: %v", err)
@@ -167,6 +173,113 @@ func TestStopKeepsAfterTurnWithoutStartingIt(t *testing.T) {
 	rows, err := mgr.QueuedTurnMessages(sid)
 	if err != nil || len(rows) != 1 || rows[0].Text != "after stop" {
 		t.Fatalf("queued = %+v, %v", rows, err)
+	}
+}
+
+// A settings command with an image and no text applies at once, and the image
+// is still queued: the command is the operator's, the image is a message.
+func TestSettingsCommandWithAnImageQueuesTheImage(t *testing.T) {
+	r := &queueRunner{}
+	var mgr *session.Manager
+	var sid string
+	var msg session.QueuedMessage
+	var queued bool
+	r.onRun = func(run int) {
+		if run != 0 {
+			return
+		}
+		parts := []acp.ImagePartRef{{Name: "shot.png", DataURL: "data:image/png;base64,YQ=="}}
+		var err error
+		msg, queued, _, err = mgr.EnqueueFollowUpWithMode(context.Background(), sid, "/ask", "web", session.QueueModeAfterTurn, parts)
+		if err != nil {
+			t.Errorf("enqueue: %v", err)
+		}
+	}
+	mgr, sid = newQueueManager(t, r)
+	if _, err := mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{SessionID: sid, Prompt: []acp.ContentBlock{{Type: "text", Text: "start"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if !queued || len(msg.ImageParts) != 1 || msg.ImageParts[0].Name != "shot.png" || strings.TrimSpace(msg.Text) != "" {
+		t.Fatalf("queued=%v message=%+v; want the image queued without the command", queued, msg)
+	}
+	if got := mgr.SessionByID(sid).GetMode(); got != string(session.ModeAsk) {
+		t.Fatalf("session mode = %q, want the command applied", got)
+	}
+	if got := r.seen(); len(got) != 2 {
+		t.Fatalf("runs = %q; want the image to start a run of its own after the answer", got)
+	}
+}
+
+// deferredStopRunner answers the first prompt after queueing one after_turn
+// message, then stops the turn from inside the run that message starts -
+// before or after that run puts its prompt into the conversation.
+func deferredStopRunner(t *testing.T, mgr **session.Manager, sid *string, addFirst bool) (session.AgentRunner, func() []string) {
+	var mu sync.Mutex
+	var prompts []string
+	run := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		text := ""
+		if len(prompt) > 0 {
+			text = prompt[0].Text
+		}
+		mu.Lock()
+		idx := len(prompts)
+		prompts = append(prompts, text)
+		mu.Unlock()
+		if idx == 0 {
+			if _, _, err := (*mgr).EnqueueTurnMessageWithMode(*sid, "deferred", session.QueueModeAfterTurn, nil); err != nil {
+				t.Error(err)
+			}
+			return string(acp.StopReasonEndTurn), nil
+		}
+		if addFirst {
+			st.AddMessage(llm.Message{Role: llm.RoleUser, Content: text})
+		}
+		(*mgr).HandleSessionCancel(acp.SessionCancelParams{SessionID: *sid})
+		return string(acp.StopReasonCancelled), nil
+	}
+	seen := func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), prompts...)
+	}
+	return run, seen
+}
+
+// A Stop that lands after the boundary took a deferred message, but before its
+// run put the prompt into the conversation, must not lose it: nothing read it,
+// and a Stop keeps after_turn messages for later.
+func TestStopBeforeADeferredPromptIsReadKeepsItQueued(t *testing.T) {
+	var mgr *session.Manager
+	var sid string
+	run, seen := deferredStopRunner(t, &mgr, &sid, false)
+	mgr, sid = newQueueManagerWith(t, run)
+	if _, err := mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{SessionID: sid, Prompt: []acp.ContentBlock{{Type: "text", Text: "start"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := seen(); len(got) != 2 || got[1] != "deferred" {
+		t.Fatalf("runs = %v, want the prompt and the deferred message", got)
+	}
+	rows, err := mgr.QueuedTurnMessages(sid)
+	if err != nil || len(rows) != 1 || rows[0].Text != "deferred" || rows[0].Mode != session.QueueModeAfterTurn {
+		t.Fatalf("queued after the Stop = %+v, %v; want the deferred message back", rows, err)
+	}
+}
+
+// Once the run has put the deferred prompt into the conversation, a Stop ends
+// that run like any other: the message is read, so it is not queued again.
+func TestStopAfterADeferredPromptIsReadDoesNotQueueItAgain(t *testing.T) {
+	var mgr *session.Manager
+	var sid string
+	run, seen := deferredStopRunner(t, &mgr, &sid, true)
+	mgr, sid = newQueueManagerWith(t, run)
+	if _, err := mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{SessionID: sid, Prompt: []acp.ContentBlock{{Type: "text", Text: "start"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := seen(); len(got) != 2 {
+		t.Fatalf("runs = %v", got)
+	}
+	if rows, err := mgr.QueuedTurnMessages(sid); err != nil || len(rows) != 0 {
+		t.Fatalf("queued after the Stop = %+v, %v; the read message came back", rows, err)
 	}
 }
 

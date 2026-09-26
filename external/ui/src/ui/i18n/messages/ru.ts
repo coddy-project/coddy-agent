@@ -269,6 +269,9 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.agent.model.label": "Модель по умолчанию",
   "settings.schema.agent.model.desc":
     "Логический идентификатор модели из списка моделей, используемый, когда клиент не указал модель.",
+  "settings.schema.agent.queue_mode.label": "Режим очереди",
+  "settings.schema.agent.queue_mode.desc":
+    "Определяет, что делает Enter с сообщением, написанным во время хода. В режиме steer сообщение встраивается в текущий ход на ближайшем шаге, в режиме after_turn запускает отдельный промпт после ответа. Tab отправляет в другом режиме. Если режим не задан, браузер и консоль спросят при первом таком сообщении.",
   "settings.schema.agent.max_turns.label": "Максимум итераций",
   "settings.schema.agent.max_turns.desc":
     "Предел итераций ReAct (вызовы LLM плюс раунды инструментов) на один запрос пользователя; 0 снимает предел.",
@@ -1077,6 +1080,14 @@ export const messagesRu: Record<string, string> = {
   "composer.queueChoiceQuestion": "Куда Enter отправляет сообщение во время хода?",
   "composer.queueChoiceSteer": "В текущий ход",
   "composer.queueChoiceAfterTurn": "После этого хода",
+  "composer.queueModeSteerTitle":
+    "Попадёт в текущий ход на ближайшем шаге. Нажмите, чтобы отправить после ответа.",
+  "composer.queueModeAfterTurnTitle":
+    "Запустит отдельный промпт после ответа. Нажмите, чтобы отправить в текущий ход.",
+  "composer.queueImages.one": "{count} картинка во вложении",
+  "composer.queueImages.few": "{count} картинки во вложении",
+  "composer.queueImages.many": "{count} картинок во вложении",
+  "composer.queueImages.other": "{count} картинки во вложении",
   "composer.queueFull":
     "Очередь заполнена: дождитесь, пока агент прочитает то, что уже стоит.",
   "composer.attachReadFailed":

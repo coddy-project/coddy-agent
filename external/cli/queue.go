@@ -136,6 +136,12 @@ func oppositeQueueMode(mode session.QueueMode) session.QueueMode {
 func (a *App) submitQueueChoice(text string, alternate bool) {
 	mode := a.queuePreference
 	if !session.ValidQueueMode(mode) {
+		if a.pendingQueueText != "" {
+			// A second message while the choice is still open joins the first
+			// rather than replacing it: both wait for the same answer, and the
+			// first keeps the key it was sent with.
+			text, alternate = a.pendingQueueText+"\n"+text, a.pendingQueueAlternate
+		}
 		a.pendingQueueText, a.pendingQueueAlternate = text, alternate
 		a.appendStatus(roleDim, "Choose the default queue mode once: 1 Steer next step · 2 After this turn (Esc restores draft)")
 		return
@@ -246,11 +252,7 @@ func (a *App) refreshRemoteControls() {
 func (a *App) applyQueueResult(u queueResult) {
 	if u.err != nil {
 		if u.action == "enqueue" {
-			text := u.text
-			if draft := a.editor.PendingText(); draft != "" {
-				text += "\n" + draft
-			}
-			a.editor.SetText(text)
+			a.restoreDraft(u.text)
 			if isNoActiveTurn(u.err) {
 				a.refreshRemoteControls()
 			}
@@ -279,8 +281,30 @@ func (a *App) applyQueueResult(u queueResult) {
 	case "clear":
 		a.appendStatus(roleDim, "The queue is empty.")
 	case "drop":
-		a.appendStatus(roleDim, "Dropped from the queue: "+queuePreview(u.text))
+		// Taken back before the turn read it: the text returns to the input,
+		// the way the browser's cross gives it back - taking a message back is
+		// how it gets edited.
+		a.restoreDraft(u.text)
+		a.appendStatus(roleDim, "Taken back into the input: "+queuePreview(u.text))
 	}
+}
+
+// restoreDraft puts text back into the input, ahead of anything typed since.
+func (a *App) restoreDraft(text string) {
+	if strings.TrimSpace(text) == "" {
+		return
+	}
+	if draft := a.editor.PendingText(); draft != "" {
+		text += "\n" + draft
+	}
+	a.editor.SetText(text)
+}
+
+// queueVerb is the first word of a /queue argument: "/queue model" is not a
+// misspelt "/queue mode".
+func queueVerb(arg string) string {
+	verb, _, _ := strings.Cut(strings.TrimSpace(arg), " ")
+	return verb
 }
 
 func runQueueCommand(mgr backend, sessionID, arg string) queueResult {
@@ -296,7 +320,7 @@ func runQueueCommand(mgr backend, sessionID, arg string) queueResult {
 			return queueResult{err: fmt.Errorf("could not clear the queue: %w", err)}
 		}
 		return queueResult{action: "clear"}
-	case strings.HasPrefix(arg, "drop"):
+	case queueVerb(arg) == "drop":
 		rest := strings.TrimSpace(strings.TrimPrefix(arg, "drop"))
 		rows, err := mgr.QueuedTurnMessages(sessionID)
 		if err != nil {
@@ -311,7 +335,7 @@ func runQueueCommand(mgr backend, sessionID, arg string) queueResult {
 			return queueResult{err: fmt.Errorf("could not drop that message: %w", err)}
 		}
 		return queueResult{action: "drop", rows: left, text: rows[idx-1].Text}
-	case strings.HasPrefix(arg, "mode"):
+	case queueVerb(arg) == "mode":
 		var idx int
 		var rawMode string
 		if _, err := fmt.Sscanf(strings.TrimSpace(strings.TrimPrefix(arg, "mode")), "%d %s", &idx, &rawMode); err != nil || !session.ValidQueueMode(session.QueueMode(rawMode)) {
