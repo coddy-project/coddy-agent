@@ -140,7 +140,10 @@ tools:
   permission_mode: bypass
 """)
     env = dict(os.environ, CODDY_HOME=str(home), TERM="xterm-256color", COLORTERM="truecolor")
-    child = pexpect.spawn(env.get("CODDY_BIN", "build/coddy"), ["cli", "--theme", "dark"],
+    # The console starts in its own workspace, so a relative binary path is
+    # resolved here, against the directory the script was started from.
+    binary = os.path.abspath(env.get("CODDY_BIN", "build/coddy"))
+    child = pexpect.spawn(binary, ["cli", "--theme", "dark"],
                           cwd=str(cwd), env=env, dimensions=(35, 128), encoding=None, timeout=5)
     screen = pyte.Screen(128, 35)
     screen.stream = pyte.ByteStream(screen)
