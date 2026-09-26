@@ -57,7 +57,9 @@ func FormatForPath(path string) (Format, bool) {
 type ApplyMode string
 
 const (
-	// ApplyAuto: alwaysApply true; sticky after first glob match (or immediate if no globs).
+	// ApplyAuto: alwaysApply true; in the system prompt when no glob or
+	// directory gates it, otherwise attached with the first tool call or
+	// mention of a matching path.
 	ApplyAuto ApplyMode = "auto"
 	// ApplyMention: alwaysApply false; body only when @ruleName appears in user text.
 	ApplyMention ApplyMode = "mention"
@@ -85,10 +87,10 @@ type Rule struct {
 	// since tool calls and file:// attachments deliver absolute paths.
 	Root string
 	// ScopeDir, when non-empty, restricts an auto rule to a directory subtree.
-	// The rule enters the prompt on the first turn a context path is ScopeDir
-	// itself or lives under it, then sticks for the session (see UnionStable).
-	// Set for nested AGENTS.md files read on demand (AgentsForPaths); empty
-	// for every other source.
+	// The rule reaches the model with the first tool call or mention whose
+	// path is ScopeDir itself or lives under it, and again after a compaction
+	// or a change to its file. Set for nested AGENTS.md files read on demand
+	// (AgentsForPaths); empty for every other source.
 	ScopeDir string
 }
 
