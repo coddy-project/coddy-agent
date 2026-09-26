@@ -1038,7 +1038,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/config": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get current configuration as JSON",
-					"description": "Returns the active process configuration (including **api_key** and optional **proxy** fields on providers). Per-session path fields (**`skills.dirs`**, **`subagents.dirs`**, **`hooks.files`**, **`prompts.dir`**, **`mcp_servers[].command`** / **`args`** / **`url`** / **`env`** / **`headers`**) are returned as written in **config.yaml**, including a **`${CWD}`** placeholder, which each session resolves against its own workspace; **`${CODDY_HOME}`** and the process-scoped directories are returned expanded.",
+					"description": "Returns the active process configuration (including **api_key** and optional **proxy** fields on providers). Per-session path fields (**`skills.dirs`**, **`subagents.dirs`**, **`hooks.files`**, **`prompts.dir`**, **`mcp_servers[].command`** / **`args`** / **`url`** / **`env`** / **`headers`**) are returned as written in **config.yaml**, including a **`${CWD}`** placeholder, which each session resolves against its own workspace; **`${CODDY_HOME}`** and the process-scoped directories are returned expanded. The document carries a **`revision`** naming the configuration it was read from; send it back with a **PUT**.",
 					"operationId": "coddyConfigGet",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
@@ -1054,7 +1054,7 @@ func openAPISpec() map[string]interface{} {
 				},
 				"put": map[string]interface{}{
 					"summary":     "Replace configuration from JSON",
-					"description": "Validates the body, writes **config.yaml** atomically over its current content - comments, commented-out keys and the existing key order survive the save, a file with no **`# yaml-language-server: $schema=`** header gets the published one (**`https://coddy.dev/config.schema.json`**), and a header naming another schema is left alone - and reloads in-process config. **`agent.model`** is optional and stored as sent: calls that need a default model (`coddy -p`, `coddy acp`, **`POST /v1/responses`** without **`metadata.model`**) report a missing model when it is empty. Keys the file never had appear only when their value differs from the built-in defaults: unset optional fields are omitted rather than written as **`null`**, so commented-out sections stay out of the file. Changed **mcp_servers** are reconnected for active sessions, re-running the workspace trust gate so unapproved project declarations stay cold; a session with a turn in flight is reconnected when that turn ends, not mid-turn, while ACP client-provided session servers stay connected. On reload failure after write, restores **config.yaml.bak** to the primary path.",
+					"description": "Validates the body, writes **config.yaml** atomically over its current content - comments, commented-out keys, the existing key order and the spelling of every value the body did not change survive the save (a **`${VAR}`** reference, **`${CODDY_HOME}`**, **`~`**, quotes, a list written on one line), a file with no **`# yaml-language-server: $schema=`** header gets the published one (**`https://coddy.dev/config.schema.json`**), and a header naming another schema is left alone - and reloads in-process config. A value sent back as the client read it keeps what the file says now: what the process runs differently from the file (a command-line flag, the relay address **coddy serve** fills in, a pairing token from the environment) is not written into it by an unrelated save, and a value another save changed after the client's **GET** is not put back. \"As the client read it\" is measured against the configuration the body's **`revision`** names, else against the one live when the **PUT** arrives. A list is one value: an edited list is written as sent. **`agent.model`** is optional and stored as sent: calls that need a default model (`coddy -p`, `coddy acp`, **`POST /v1/responses`** without **`metadata.model`**) report a missing model when it is empty. Keys the file never had appear only when their value differs from the built-in defaults and from what the file loads them as: unset optional fields are omitted rather than written as **`null`**, so commented-out sections stay out of the file, and an entry of a list (a provider, a model, an MCP server) keeps only the fields it named plus the ones the body set. Changed **mcp_servers** are reconnected for active sessions, re-running the workspace trust gate so unapproved project declarations stay cold; a session with a turn in flight is reconnected when that turn ends, not mid-turn, while ACP client-provided session servers stay connected. On reload failure after write, restores **config.yaml.bak** to the primary path.",
 					"operationId": "coddyConfigPut",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -2997,6 +2997,12 @@ func openAPISpec() map[string]interface{} {
 				"CoddyConfigJSON": map[string]interface{}{
 					"type":        "object",
 					"description": "Coddy configuration as JSON (same logical fields as **config.yaml**). See **GET** `/coddy/config/schema` for the machine-readable JSON Schema.",
+					"properties": map[string]interface{}{
+						"revision": map[string]interface{}{
+							"type":        "string",
+							"description": "The configuration a **GET** document was read from; not a setting. Sent back unchanged with a **PUT**, it makes the save measure the values a client left alone against what that client read, so a save does not put back what another save changed in between.",
+						},
+					},
 				},
 				"CoddyConfigValidateResponse": map[string]interface{}{
 					"type": "object",
