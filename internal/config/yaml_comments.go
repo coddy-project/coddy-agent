@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -339,14 +340,20 @@ func keepPreviousSpelling(prev, loaded, next *yaml.Node, paths Paths) {
 }
 
 // spellingExpansions lists what a spelling may load as when the loader cannot be asked:
-// the expansion of the whole text (${CODDY_HOME}, ${VAR}) and, for a path, a leading ~
-// as well. Nothing for a spelling that has neither.
+// the expansion of the whole text (${CODDY_HOME}, ${VAR}), for a path a leading ~ as
+// well, and the same path in the separators of the system, which is how the loader
+// cleans the process-scoped directories (memory.dir comes back with backslashes on
+// Windows). Nothing for a spelling that has neither a $ nor a leading ~.
 func spellingExpansions(s string, paths Paths) []string {
 	if !strings.Contains(s, "$") && !strings.HasPrefix(s, "~") {
 		return nil
 	}
 	expanded := expandConfigText(s, paths)
-	return []string{expanded, expandHome(expanded)}
+	out := []string{expanded, expandHome(expanded)}
+	if native := filepath.FromSlash(expanded); native != expanded {
+		out = append(out, native)
+	}
+	return out
 }
 
 // adoptSpelling writes next the way prev was written: its text, its quotes and its
@@ -457,13 +464,16 @@ func mergeSequenceComments(prev, loaded, next *yaml.Node, paths Paths, comments 
 		if !ok {
 			return false
 		}
-		var old string
-		if byReading {
-			old, ok = readingIdentity(prev.Content[j], reading(j), paths)
-		} else {
-			old, ok = sequenceItemIdentity(prev.Content[j])
+		if !byReading {
+			old, ok := sequenceItemIdentity(prev.Content[j])
+			return ok && old == id
 		}
-		return ok && old == id
+		for _, old := range readingIdentities(prev.Content[j], reading(j), paths) {
+			if old == id {
+				return true
+			}
+		}
+		return false
 	}
 	used := make([]bool, len(prev.Content))
 	matched := make([]int, len(next.Content))
@@ -518,23 +528,27 @@ func mergeSequenceComments(prev, loaded, next *yaml.Node, paths Paths, comments 
 	}
 }
 
-// readingIdentity is the identity of the previous entry old as the loader reads it:
-// the identity of its reading, or, when the previous document does not load, of what a
-// ${VAR}, ${CODDY_HOME} or ~ spelling of a plain value expands to (the first expansion
-// that differs from the text, see spellingExpansions).
-func readingIdentity(old, reading *yaml.Node, paths Paths) (string, bool) {
+// readingIdentities are the identities the previous entry old may have as the loader
+// reads it: the identity of its reading, or, when the previous document does not load,
+// of each thing a ${VAR}, ${CODDY_HOME} or ~ spelling of a plain value may expand to
+// (see spellingExpansions).
+func readingIdentities(old, reading *yaml.Node, paths Paths) []string {
 	if reading != nil {
-		return sequenceItemIdentity(reading)
+		if id, ok := sequenceItemIdentity(reading); ok {
+			return []string{id}
+		}
+		return nil
 	}
 	if old == nil || old.Kind != yaml.ScalarNode {
-		return "", false
+		return nil
 	}
+	var ids []string
 	for _, expanded := range spellingExpansions(old.Value, paths) {
 		if expanded != old.Value && expanded != "" {
-			return "=" + expanded, true
+			ids = append(ids, "="+expanded)
 		}
 	}
-	return "", false
+	return ids
 }
 
 // leaveOutUnwrittenFields drops from a list entry the fields its previous version did

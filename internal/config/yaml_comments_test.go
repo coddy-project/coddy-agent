@@ -333,7 +333,7 @@ func TestSettingsSaveWritesAChangedPathAsTyped(t *testing.T) {
 		dirs[1] = "/srv/skills"
 	})
 	want := strings.NewReplacer(
-		"dir: ${CODDY_HOME}/memory", "dir: /srv/memory",
+		"dir: ${CODDY_HOME}/memory", "dir: "+filepath.Clean("/srv/memory"),
 		"- ${CODDY_HOME}/skills", "- /srv/skills",
 	).Replace(raw)
 	if got != want {
@@ -430,7 +430,7 @@ func TestSettingsSaveKeepsAnOutsideEditOfAValueTheFormDidNotTouch(t *testing.T) 
 	got := saveFromSettings(t, live, func(doc map[string]any) {
 		object(t, doc, "memory")["dir"] = "/srv/memory"
 	})
-	want := strings.Replace(onDisk, "dir: ${CODDY_HOME}/memory", "dir: /srv/memory", 1)
+	want := strings.Replace(onDisk, "dir: ${CODDY_HOME}/memory", "dir: "+filepath.Clean("/srv/memory"), 1)
 	if got != want {
 		t.Errorf("saved config:\n%s\nwant:\n%s", got, want)
 	}
@@ -614,7 +614,7 @@ func TestSettingsSaveKeepsWhatAnotherSaveWroteAfterTheRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := strings.Replace(onDisk, "dir: ${CODDY_HOME}/memory", "dir: /srv/memory", 1)
+	want := strings.Replace(onDisk, "dir: ${CODDY_HOME}/memory", "dir: "+filepath.Clean("/srv/memory"), 1)
 	if string(out) != want {
 		t.Errorf("saved config:\n%s\nwant:\n%s", out, want)
 	}
