@@ -123,6 +123,8 @@ class Backend {
   posts: { sid: string; stream: ControlledStream }[] = [];
   relays: { sid: string; stream: ControlledStream }[] = [];
   messagesRev = new Map<string, number>();
+  /** The model every session's transcript read names as its own. */
+  sessionModel = "";
   abortPostReads = true;
   override?: (request: Request) => Response | Promise<Response> | undefined;
   /** Connections the browser keeps open to this host, shared by every tab of
@@ -231,6 +233,7 @@ class Backend {
           ...(this.messagesRev.has(sid)
             ? { messagesRev: this.messagesRev.get(sid) }
             : {}),
+          ...(this.sessionModel ? { model: this.sessionModel } : {}),
         });
       if (suffix === "/tool-calls") return json({ toolCalls: [] });
       if (suffix === "/rewind")
@@ -354,7 +357,9 @@ async function navigate(sid: string) {
 test.each(["post", "relay"])(
   "a late provider window replaces the model-list fallback on the %s stream",
   async (transport) => {
-    document.cookie = "coddy_llm_model=test-model; Path=/";
+    // Both sessions run on test-model: an open session shows its own model,
+    // never the one a cookie remembers for a new chat.
+    backend.sessionModel = "test-model";
     backend.override = (r) => {
       if (r.path === "/v1/models")
         return json({

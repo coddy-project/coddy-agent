@@ -357,7 +357,7 @@ Malformed ids (**HTTP 400**). Dedicated **`/coddy/*`** helpers return **503** if
 
 - **`GET /coddy/sessions/{id}/messages`** returns **`model`** (effective YAML backend for the session), **`selectedModelId`** (stored override in **`session.json`**, may be empty), **`selectedReasoning`** (effective reasoning level for the session, empty when the model has none), and **`mode`** (session profile `agent`, `plan`, or `ask`; remote clients restore it on load).
 - **`PATCH /coddy/sessions/{id}`** accepts **`selectedModelId`** to set the YAML **`models[].model`** selector for that session (unknown ids **400**) and **`selectedReasoning`** to set the reasoning level (must be one of the model's **`reasoning_levels`**; empty clears it; unsupported value **400**).
-- The SPA restores **Model** from **`model`** when opening a chat. Changing **Model** writes cookie **`coddy_llm_model`** (default for the next **New chat**) and **`PATCH`**es the active session.
+- The SPA restores **Model** and the reasoning level from the **`settings`** snapshot when opening a chat: the session's own values, while **`model`** and **`selectedReasoning`** name what a running turn holds. Changing **Model** writes cookie **`coddy_llm_model`** (default for the next **New chat**) and **`PATCH`**es the active session.
 
 ## Memory roots
 

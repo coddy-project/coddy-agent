@@ -50,6 +50,11 @@ type Handler struct {
 	controlStop context.CancelFunc
 	activitySeq uint64
 
+	// serverPermission is the server's tools.permission_mode as the last
+	// settings snapshot named it: what a session the server has not pinned
+	// yet runs under. Guarded by mu.
+	serverPermission string
+
 	// cancelWG tracks server-side cancels posted from HandleSessionCancel.
 	cancelWG sync.WaitGroup
 
@@ -71,16 +76,16 @@ type Handler struct {
 }
 
 type sessionState struct {
-	mode             string
-	modelID          string
-	reasoning        string
+	mode      string
+	modelID   string
+	reasoning string
 	// permissionMode mirrors the server session's permission mode, and
 	// settingsVersion the last settings snapshot adopted (settings.go).
 	permissionMode  string
 	settingsVersion uint64
 	// pendingSettings are changes held for a session the server has not
 	// created yet; they ride in at the start of its first prompt.
-	pendingSettings []session.SettingsChange
+	pendingSettings  []session.SettingsChange
 	pendingReplay    []messageRow
 	turn             *remoteTurn
 	activityRevision uint64
@@ -89,6 +94,15 @@ type sessionState struct {
 	// historyLoaded whether it loaded one (follow.go).
 	historyRev    uint64
 	historyLoaded bool
+
+	// reasoningChoices are the levels the last snapshot offered for
+	// choicesModel: the model's own plus off where its provider can turn
+	// thinking off, which the model list does not name.
+	reasoningChoices []string
+	choicesModel     string
+	// overrides are what the last snapshot said the session changed for its
+	// running and next turns.
+	overrides []acp.TurnOverride
 }
 
 // remoteTurn is the identity of one locally admitted request, not the server's
@@ -285,15 +299,24 @@ func (h *Handler) HandleSessionLoad(ctx context.Context, params acp.SessionLoadP
 	}
 	st := h.session(id)
 	h.mu.Lock()
-	if msgs.SelectedModelID != "" {
-		st.modelID = msgs.SelectedModelID
-	}
-	st.reasoning = msgs.SelectedReasoning
-	if msgs.Mode != "" {
-		st.mode = msgs.Mode
+	// The snapshot is the session's own settings, the permission mode among
+	// them: what the console shows on entering the session. The top-level
+	// selectedReasoning names what a running turn holds, so it stands in
+	// only for a server that sends no snapshot.
+	if msgs.Settings == nil {
+		if msgs.SelectedModelID != "" {
+			st.modelID = msgs.SelectedModelID
+		}
+		st.reasoning = msgs.SelectedReasoning
+		if msgs.Mode != "" {
+			st.mode = msgs.Mode
+		}
 	}
 	st.historyRev, st.historyLoaded = msgs.MessagesRev, true
 	h.mu.Unlock()
+	if msgs.Settings != nil {
+		h.mirrorSettings(id, *msgs.Settings)
+	}
 	h.replayMessages(id, msgs.Messages)
 	// A background subagent of this session may have asked before the console
 	// opened it; the server announced that prompt then, and it is shown now.
@@ -426,6 +449,11 @@ func (h *Handler) HandleSessionSetConfigOption(ctx context.Context, params acp.S
 				levels = model.ReasoningLevels
 				break
 			}
+		}
+		// The server's snapshot names off where the provider can turn
+		// thinking off; the model list does not.
+		if st.choicesModel == modelID && len(st.reasoningChoices) > 0 {
+			levels = st.reasoningChoices
 		}
 		h.mu.Unlock()
 		if len(levels) == 0 {
@@ -592,12 +620,32 @@ func (h *Handler) modeState(st *sessionState) *acp.ModeState {
 }
 
 // configOptions mirrors session.BuildACPConfigOptions with the remote model
-// catalog. The permission option is omitted: the remote server owns it.
+// catalog. The permission option is there once a snapshot of the server's was
+// adopted (a loaded session, a change), for a session the server has not
+// pinned yet as the mode the server is configured with; before any snapshot
+// the answer is the server's alone.
 func (h *Handler) configOptions(st *sessionState) []acp.ConfigOption {
+	out := h.modelConfigOptions(st)
+	h.mu.Lock()
+	permission := st.permissionMode
+	if permission == "" {
+		permission = h.serverPermission
+	}
+	h.mu.Unlock()
+	if permission != "" {
+		out = append(out, session.PermissionModeOption(permission))
+	}
+	return out
+}
+
+// modelConfigOptions is the mode, the model and the reasoning option of a
+// session over the remote model catalog.
+func (h *Handler) modelConfigOptions(st *sessionState) []acp.ConfigOption {
 	h.mu.Lock()
 	mode := st.mode
 	current := st.modelID
 	reasoning := st.reasoning
+	choices, choicesModel := st.reasoningChoices, st.choicesModel
 	models := h.models
 	if current == "" {
 		current = h.defModel
@@ -636,17 +684,21 @@ func (h *Handler) configOptions(st *sessionState) []acp.ConfigOption {
 		Options:      values,
 	})
 	for _, model := range models {
-		if model.ID != current || len(model.ReasoningLevels) == 0 {
+		levels := model.ReasoningLevels
+		if choicesModel == model.ID && len(choices) > 0 {
+			levels = choices
+		}
+		if model.ID != current || len(levels) == 0 {
 			continue
 		}
 		currentReasoning := ""
-		if hasReasoningLevel(model.ReasoningLevels, reasoning) {
+		if hasReasoningLevel(levels, reasoning) {
 			currentReasoning = reasoning
-		} else if hasReasoningLevel(model.ReasoningLevels, model.ReasoningDefault) {
+		} else if hasReasoningLevel(levels, model.ReasoningDefault) {
 			currentReasoning = model.ReasoningDefault
 		}
-		reasoningValues := make([]acp.ConfigOptionValue, 0, len(model.ReasoningLevels))
-		for _, level := range model.ReasoningLevels {
+		reasoningValues := make([]acp.ConfigOptionValue, 0, len(levels))
+		for _, level := range levels {
 			reasoningValues = append(reasoningValues, acp.ConfigOptionValue{Value: level, Name: level})
 		}
 		out = append(out, acp.ConfigOption{

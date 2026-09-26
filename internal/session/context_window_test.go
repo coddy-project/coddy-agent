@@ -356,3 +356,44 @@ func TestSessionsResolveTheirWindowThroughTheManager(t *testing.T) {
 		t.Fatalf("bare state: %d/%q, want the default", tokens, source)
 	}
 }
+
+// A switch reads the new model's window at once, whichever setter made it: the
+// running turn's next step and the next prompt then measure against it, and
+// never against the default while the listing is still unread (#362).
+func TestSwitchingModelReadsItsWindowAtOnce(t *testing.T) {
+	cfg := windowTestConfig(t.TempDir())
+	cfg.Agent.Model = "oai/gpt-4o"
+	listing := &windowListing{windows: map[string]int{"reported": 262144, "qwen3.8-27b": 131072}}
+	m := newWindowTestManager(t, cfg, listing, nil)
+	ctx := context.Background()
+	res, err := m.HandleSessionNew(ctx, acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := listing.calls.Load(); n != 0 {
+		t.Fatalf("the listing was read %d times before any switch", n)
+	}
+
+	hub := "hub/reported"
+	if _, err := m.ApplySessionSettings(ctx, res.SessionID, SettingsChange{Model: &hub}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.WaitContextWindowsIdle(5 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if tokens, source := m.SessionByID(res.SessionID).ContextWindow(cfg); tokens != 262144 || source != ContextWindowFromProvider {
+		t.Fatalf("after the switch the session measures against %d/%q, want the provider's 262144", tokens, source)
+	}
+
+	// A model armed for the next turn only is read as well.
+	nd := "nd/qwen3.8-27b"
+	if _, err := m.ApplySessionSettings(ctx, res.SessionID, SettingsChange{Model: &nd, Turns: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.WaitContextWindowsIdle(5 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if tokens, source := m.ContextWindow(cfg, nd); tokens != 131072 || source != ContextWindowFromProvider {
+		t.Fatalf("the model armed for the next turn: %d/%q, want the provider's 131072", tokens, source)
+	}
+}

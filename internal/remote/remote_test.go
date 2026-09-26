@@ -661,6 +661,87 @@ func TestRemoteReasoningConfigOptionPersistsAndRestores(t *testing.T) {
 	assertRemoteReasoningOption(t, loaded.ConfigOptions, "low")
 }
 
+// Loading a remote session adopts the settings snapshot the server answers
+// with, so the console shows that session's model, level, mode and permission
+// mode on entering it, not the ones of the session it left (#362).
+func TestRemoteLoadAdoptsTheSessionsSettings(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"remote/terra","default":true,"owned_by":"remote","reasoning_levels":["low","high"],"reasoning_default":"low"}]}`))
+	})
+	mux.HandleFunc("GET /coddy/sessions/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintf(w, `{"messages":[],"selectedModelId":"remote/terra","selectedReasoning":"high","mode":"plan",
+			"settings":{"sessionId":%q,"version":7,"model":"remote/terra","reasoning":"high","reasoningChoices":["low","high","off"],"mode":"plan","permissionMode":"bypass","configuredPermissionMode":"ask",
+				"overrides":[{"setting":"model","value":"remote/terra","turnsLeft":2}]}}`, r.PathValue("id"))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	h, err := NewHandler(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetServer(&collectSender{})
+	loaded, err := h.HandleSessionLoad(context.Background(), acp.SessionLoadParams{SessionID: "sess_bypass"})
+	if err != nil {
+		t.Fatalf("HandleSessionLoad: %v", err)
+	}
+	current := map[string]string{}
+	for _, opt := range loaded.ConfigOptions {
+		current[opt.ID] = opt.CurrentValue
+	}
+	want := map[string]string{"mode": "plan", "model": "remote/terra", "reasoning": "high", "permission_mode": "bypass"}
+	for id, value := range want {
+		if current[id] != value {
+			t.Fatalf("loaded config options %v, want %s = %q", current, id, value)
+		}
+	}
+	// The whole snapshot is there for the console to show, the overrides of
+	// the next turns included.
+	snap, err := h.SessionSettings("sess_bypass")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.PermissionMode != "bypass" || snap.Version != 7 || len(snap.Overrides) != 1 || snap.Overrides[0].TurnsLeft != 2 {
+		t.Fatalf("SessionSettings = %+v, want the loaded snapshot", snap)
+	}
+	// A load answered with an older snapshot than the one the client holds
+	// leaves the client's alone: its top-level level is the running turn's.
+	h.mirrorSettings("sess_bypass", acp.SessionSettings{SessionID: "sess_bypass", Version: 9, Model: "remote/terra", Reasoning: "low", Mode: "plan", PermissionMode: "bypass", ReasoningChoices: []string{"low", "high", "off"}})
+	reloaded, err := h.HandleSessionLoad(context.Background(), acp.SessionLoadParams{SessionID: "sess_bypass"})
+	if err != nil {
+		t.Fatalf("second HandleSessionLoad: %v", err)
+	}
+	for _, opt := range reloaded.ConfigOptions {
+		if opt.ID == "reasoning" && opt.CurrentValue != "low" {
+			t.Fatalf("a stale load moved the level to %q, want the held low", opt.CurrentValue)
+		}
+	}
+	// A later snapshot that names no off takes it away again.
+	h.mirrorSettings("sess_bypass", acp.SessionSettings{SessionID: "sess_bypass", Version: 10, Model: "remote/terra", Reasoning: "high", PermissionMode: "bypass", ReasoningChoices: []string{"low", "high"}})
+	if _, err := h.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
+		SessionID: "sess_bypass", ConfigID: "reasoning", Value: "off",
+	}); err == nil {
+		t.Fatal("off is still accepted after a snapshot that no longer offers it")
+	}
+
+	// A session the server has not pinned yet runs under the mode the server
+	// is configured with, which the snapshot named.
+	fresh, err := h.HandleSessionNew(context.Background(), acp.SessionNewParams{})
+	if err != nil {
+		t.Fatalf("HandleSessionNew: %v", err)
+	}
+	for _, opt := range fresh.ConfigOptions {
+		if opt.ID == "permission_mode" {
+			if opt.CurrentValue != "ask" {
+				t.Fatalf("a new session's permission mode = %q, want the server's ask", opt.CurrentValue)
+			}
+			return
+		}
+	}
+	t.Fatalf("a new session has no permission option: %+v", fresh.ConfigOptions)
+}
+
 func TestRemoteReasoningConfigOptionClampsAfterModelSwitch(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {

@@ -154,7 +154,9 @@ Top to bottom:
   then `↑in ↓out  N.N%/ctx (auto)` left and `(provider) model [• reasoning]`
   right. The permission mode closes the first line when it is not `ask`,
   `bypass` in the warning colour, so a session that approves everything never
-  looks like one that asks. A setting changed for a number of turns adds a line
+  looks like one that asks; it is the mode of the session on screen, and
+  `/new` and `/resume` move it, with the line of turn overrides, to the
+  session entered. A setting changed for a number of turns adds a line
   in the accent colour under the second one, `next turn: model x • next 3
   turns: reasoning high` (`this turn` while the running turn holds it). The running-task note stays after the turn that started the tasks has
   ended, which is when the status line that counted them is gone. When the
@@ -609,7 +611,8 @@ does not apply). The settings commands change the server's session through
 the same `PATCH /coddy/sessions/{id}` the browser uses, the permission mode
 included: `/permissions`, `--permission-mode` and the dialog's session switch
 all reach the server, and the footer follows the server's
-`session_settings` events. A change made before the server has the session
+`session_settings` events and, when a session is loaded, the snapshot the
+server answers with. A change made before the server has the session
 is held and sent as command lines ahead of the first prompt. `/reasoning`
 and `shift+tab` persist the selected reasoning level on the server session. Sessions persist only on the server; the startup banner shows
 `remote: <url>` and the exit hint prints a reconnect command with `--remote`

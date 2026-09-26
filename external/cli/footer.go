@@ -87,6 +87,11 @@ func (f *footer) SetSettings(permission string, overrides []acp.TurnOverride) {
 	f.overrides = append([]acp.TurnOverride(nil), overrides...)
 }
 
+// SetPermission adopts the permission mode alone, keeping the override line.
+func (f *footer) SetPermission(permission string) {
+	f.permission = permission
+}
+
 // overridesText renders the turn overrides: "next 2 turns: model x".
 func (f *footer) overridesText() string {
 	if len(f.overrides) == 0 {

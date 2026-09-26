@@ -5,7 +5,9 @@ Feature: Resuming another session from a Telegram chat
   newest first, and a tap binds the chat to the one chosen. With a query it
   resumes the session whose id or title the words name, and offers the keyboard
   when more than one does. The choice rewrites the same mapping /clear writes,
-  so it survives a restart of the gateway.
+  so it survives a restart of the gateway. The reply names what the resumed
+  session runs on: its own model and reasoning level, never the ones last
+  picked on this bot (#362).
 
   Background:
     Given a telegram gateway over a server keeping these sessions:
@@ -29,6 +31,11 @@ Feature: Resuming another session from a Telegram chat
     Then the chat received "Resumed: Write release notes"
     When the user sends "continue"
     Then the agent was prompted in the session "sess_cccccccccccccccccccccccc"
+
+  Scenario: The reply names the model and the level the resumed session runs on
+    Given the session "sess_cccccccccccccccccccccccc" runs on the model "stub/thinker" with reasoning "high"
+    When the user sends "/resume release notes"
+    Then the chat received "Model: stub/thinker, reasoning high"
 
   Scenario: A unique id prefix names a session too
     When the user sends "/resume sess_bbbb"

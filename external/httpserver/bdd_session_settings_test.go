@@ -33,11 +33,13 @@ import (
 )
 
 // settingsProvider answers a scripted list of responses, then plain text.
+// during, when set, runs while the first scripted response streams.
 type settingsProvider struct {
-	mu    sync.Mutex
-	name  string
-	steps []*llm.Response
-	calls int
+	mu     sync.Mutex
+	name   string
+	steps  []*llm.Response
+	calls  int
+	during func()
 }
 
 func (p *settingsProvider) Complete(ctx context.Context, m []llm.Message, d []llm.ToolDefinition) (*llm.Response, error) {
@@ -51,7 +53,13 @@ func (p *settingsProvider) Stream(_ context.Context, _ []llm.Message, _ []llm.To
 	if len(p.steps) > 0 {
 		step, p.steps = p.steps[0], p.steps[1:]
 	}
+	during := p.during
+	p.during = nil
 	p.mu.Unlock()
+	if step != nil && during != nil {
+		onChunk(llm.StreamChunk{TextDelta: step.Content})
+		during()
+	}
 	if step == nil {
 		text := "answered by " + p.name
 		onChunk(llm.StreamChunk{TextDelta: text})
@@ -388,6 +396,59 @@ func (s *settingsFeatureState) switchPermissionOverAPI(mode string) error {
 	return nil
 }
 
+// browserSwitchesModelDuringAnswer scripts the model's first answer to end in a
+// tool call, and has the browser switch the session's model with
+// PATCH /coddy/sessions/{id} while that answer streams.
+func (s *settingsFeatureState) browserSwitchesModelDuringAnswer(model, name string) error {
+	p := s.provider(name)
+	p.steps = []*llm.Response{{
+		Content:    "written by " + name,
+		ToolCalls:  []llm.ToolCall{{ID: "g1", Name: "glob", InputJSON: `{"pattern":"*.none"}`}},
+		StopReason: "tool_use",
+	}}
+	p.during = func() {
+		body, _ := json.Marshal(map[string]string{"selectedModelId": model})
+		req, err := http.NewRequest(http.MethodPatch, s.ts.URL+"/coddy/sessions/"+s.sessionID, bytes.NewReader(body))
+		if err != nil {
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if res, err := http.DefaultClient.Do(req); err == nil {
+			_ = res.Body.Close()
+		}
+	}
+	return nil
+}
+
+// transcriptSignsAnswers reads the transcript the way a browser does and
+// compares the model each assistant row names, in order.
+func (s *settingsFeatureState) transcriptSignsAnswers(list string) error {
+	res, err := http.Get(s.ts.URL + "/coddy/sessions/" + s.sessionID + "/messages")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	var page struct {
+		Messages []struct {
+			Role  string `json:"role"`
+			Model string `json:"model"`
+		} `json:"messages"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&page); err != nil {
+		return err
+	}
+	var got []string
+	for _, m := range page.Messages {
+		if m.Role == "assistant" {
+			got = append(got, m.Model)
+		}
+	}
+	if strings.Join(got, ", ") != list {
+		return fmt.Errorf("assistant rows are signed %q, want %q", strings.Join(got, ", "), list)
+	}
+	return nil
+}
+
 func (s *settingsFeatureState) promptsShown(want int) error {
 	if s.prompts != want {
 		return fmt.Errorf("%d permission prompts were shown, want %d", s.prompts, want)
@@ -446,6 +507,8 @@ func initializeSessionSettingsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^(\d+) permission prompts? (?:was|were) shown$`, s.promptsShown)
 	sc.Step(`^the session permission mode is "([^"]*)"$`, s.sessionPermissionIs)
 	sc.Step(`^both commands ran$`, s.bothCommandsRan)
+	sc.Step(`^the browser switches the session to "([^"]*)" while the model "([^"]*)" answers$`, s.browserSwitchesModelDuringAnswer)
+	sc.Step(`^the transcript signs the answers "([^"]*)"$`, s.transcriptSignsAnswers)
 }
 
 func TestSessionSettingsFeature(t *testing.T) {

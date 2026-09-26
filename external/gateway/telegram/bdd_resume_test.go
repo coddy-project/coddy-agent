@@ -59,12 +59,27 @@ type resumeRunner struct {
 	ensured []string
 	// forgot records the ids ForgetLiveSession was given.
 	forgot []string
+	// stored are the settings a stored session was saved with, restored when
+	// it is made live, the way the manager reads them from session.json.
+	stored map[string]storedSettings
+}
+
+// storedSettings is the model and the reasoning level of a stored session.
+type storedSettings struct {
+	model, reasoning string
 }
 
 func newResumeRunner() *resumeRunner {
 	return &resumeRunner{
-		cfg:  &config.Config{Models: []config.ModelEntry{{Model: "stub/model"}}, Agent: config.Agent{Model: "stub/model"}},
-		live: map[string]*session.State{},
+		cfg: &config.Config{
+			Models: []config.ModelEntry{
+				{Model: "stub/model"},
+				{Model: "stub/thinker", ReasoningLevels: &[]string{"low", "medium", "high"}},
+			},
+			Agent: config.Agent{Model: "stub/model"},
+		},
+		live:   map[string]*session.State{},
+		stored: map[string]storedSettings{},
 	}
 }
 
@@ -104,6 +119,9 @@ func (r *resumeRunner) EnsureHTTPSession(_ context.Context, sessionID, cwd strin
 		return st, nil
 	}
 	st := &session.State{ID: sessionID, CWD: cwd, Mode: session.ModeAgent}
+	if saved, ok := r.stored[sessionID]; ok {
+		st.SelectedModelID, st.SelectedReasoning = saved.model, saved.reasoning
+	}
 	r.live[sessionID] = st
 	if !r.hasRow(sessionID) {
 		u := time.Now().UTC().Format(time.RFC3339)
@@ -442,6 +460,13 @@ func (w *resumeWorld) keyboardMarksTheChatSession() error {
 	return nil
 }
 
+func (w *resumeWorld) sessionRunsOn(id, model, reasoning string) error {
+	w.runner.mu.Lock()
+	defer w.runner.mu.Unlock()
+	w.runner.stored[id] = storedSettings{model: model, reasoning: reasoning}
+	return nil
+}
+
 func (w *resumeWorld) restartOverTheSameStore() error {
 	w.runner.restart()
 	return w.buildBot()
@@ -462,6 +487,7 @@ func initializeResumeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the chat received "([^"]*)"$`, w.chatReceived)
 	sc.Step(`^the keyboard marks the session behind the chat as the current one$`, w.keyboardMarksTheChatSession)
 	sc.Step(`^the gateway is restarted over the same session store$`, w.restartOverTheSameStore)
+	sc.Step(`^the session "([^"]*)" runs on the model "([^"]*)" with reasoning "([^"]*)"$`, w.sessionRunsOn)
 }
 
 func TestResumeFeature(t *testing.T) {

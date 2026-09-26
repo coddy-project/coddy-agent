@@ -23,20 +23,21 @@ export function pickDefaultLlmModelForNewChat(opts: {
   return firstAlphabeticalBackend(backends);
 }
 
-/** YAML backend when opening an existing session (session wins over cookie). */
+/**
+ * YAML backend when opening an existing session: the session's own model. The
+ * surface's remembered pick (the cookie the start page writes) is a new chat's
+ * default and never stands in for it; a model the list does not hold falls back
+ * to the alphabetically first backend.
+ */
 export function pickLlmModelForOpenSession(opts: {
   backends: readonly string[];
   sessionModel: string | null | undefined;
-  cookie: string | null;
 }): string {
   const sessionModel = (opts.sessionModel || "").trim();
   if (sessionModel && opts.backends.includes(sessionModel)) {
     return sessionModel;
   }
-  return pickDefaultLlmModelForNewChat({
-    backends: opts.backends,
-    cookie: opts.cookie,
-  });
+  return firstAlphabeticalBackend(opts.backends);
 }
 
 /**

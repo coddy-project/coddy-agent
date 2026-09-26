@@ -199,6 +199,39 @@ func (h *Handler) mirrorSettings(sessionID string, snap acp.SessionSettings) {
 		st.mode = snap.Mode
 	}
 	st.permissionMode = snap.PermissionMode
+	if snap.ConfiguredPermissionMode != "" {
+		h.serverPermission = snap.ConfiguredPermissionMode
+	}
+	// Every snapshot names the choices of its model, none included: an
+	// empty list clears what an older one offered.
+	st.reasoningChoices = append([]string(nil), snap.ReasoningChoices...)
+	st.choicesModel = snap.Model
+	st.overrides = append([]acp.TurnOverride(nil), snap.Overrides...)
+}
+
+// SessionSettings returns what this client holds of a session's settings:
+// the server's last snapshot it adopted - a loaded session's, a change's -
+// with what it holds for a session the server has not created yet. The
+// console shows it on entering the session.
+func (h *Handler) SessionSettings(sessionID string) (acp.SessionSettings, error) {
+	sid := strings.TrimSpace(sessionID)
+	if sid == "" {
+		return acp.SessionSettings{}, fmt.Errorf("remote: settings need a session id")
+	}
+	st := h.session(sid)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	snap := h.localSettingsLocked(sid, st)
+	snap.Version = st.settingsVersion
+	snap.ConfiguredPermissionMode = h.serverPermission
+	if snap.PermissionMode == "" {
+		snap.PermissionMode = h.serverPermission
+	}
+	if st.choicesModel == snap.Model && len(st.reasoningChoices) > 0 {
+		snap.ReasoningChoices = append([]string(nil), st.reasoningChoices...)
+	}
+	snap.Overrides = append(append([]acp.TurnOverride(nil), st.overrides...), snap.Overrides...)
+	return snap, nil
 }
 
 // localSettingsLocked builds a snapshot from what this client holds, for a

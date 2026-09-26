@@ -25,14 +25,14 @@ Over HTTP the same action is `POST /coddy/sessions/{id}/compact` with an optiona
 
 ## Automatic compaction
 
-The agent estimates the context it is about to send - system prompt, tool definitions, rules, skills, MCP and the conversation - and compares it with the context window of the session's model. When the estimate reaches `compaction.threshold_percent` of the window (80 by default) the history is compacted before the call: once before the first model call of a turn, a turn resumed after a permission answer included, and again between rounds when tool results grew the context past the threshold mid-turn. Any failure - a summariser error, a hook veto - is logged and the turn continues uncompacted.
+The agent estimates the context it is about to send - system prompt, tool definitions, rules, skills, MCP and the conversation - and compares it with the context window of the session's model. When the estimate reaches `compaction.threshold_percent` of the window (80 by default) the history is compacted before the call: once before the first model call of a turn, a turn resumed after a permission answer included, again between rounds when tool results grew the context past the threshold mid-turn, and before the first request to a model the session switched to, whose window may be smaller ([Session settings](session-settings.md#what-happens-when-you-send-one)). Any failure - a summariser error, a hook veto - is logged and the turn continues uncompacted.
 
 ### The context window
 
 Every reader resolves the window the same way - the trigger, the `usage_update` behind the console's context percentage, and the `max_context_tokens` of `GET /v1/models` that the web UI draws its context ring against - so what the ring shows is what the trigger measures:
 
 1. the model entry's `max_context_tokens`;
-2. the window the provider's model listing reports for the model: `limit.context` (the NeuralDeep hub), `context_length` (OpenRouter), `max_model_len` (vLLM), `max_context_length` (LM Studio) or `context_window`. The listing is read for `neuraldeep` providers and for `openai` providers with an explicit `api_base`, never for api.openai.com, Anthropic or Codex, whose listings carry no window. It is read when a turn starts or the model list is served, with a turn waiting at most three seconds for a listing that has never answered, and it is trusted for an hour; a failed read is retried after five minutes;
+2. the window the provider's model listing reports for the model: `limit.context` (the NeuralDeep hub), `context_length` (OpenRouter), `max_model_len` (vLLM), `max_context_length` (LM Studio) or `context_window`. The listing is read for `neuraldeep` providers and for `openai` providers with an explicit `api_base`, never for api.openai.com, Anthropic or Codex, whose listings carry no window. It is read when a turn starts, when the model list is served and when a session switches to the model, with a turn waiting at most three seconds for a listing that has never answered - the step after a switch in the middle of a turn waits the same way before it measures - and it is trusted for an hour; a failed read is retried after five minutes;
 3. 128000.
 
 Set `max_context_tokens` when the provider reports no window, or a larger one than the deployment actually serves (a local server started with a smaller context).
