@@ -10,6 +10,11 @@
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <script>
+      // Keep Telegram launch parameters before its SDK can consume the URL hash.
+      window.__coddyTelegramLaunchURL = location.search + location.hash;
+    </script>
+    <script src="https://telegram.org/js/telegram-web-app.js?63"></script>
+    <script>
       (function () {
         var LIGHT = { light: 1 };
         var VALID = { dark: 1, light: 1, midnight: 1, "solarized-dark": 1, monokai: 1, nord: 1, "rose-pine": 1 };

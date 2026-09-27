@@ -10,10 +10,12 @@ import { I18nProvider } from "./ui/i18n/I18nProvider";
 import { installRemoteFetchShim } from "./ui/env/remoteEnv";
 import { AuthGate } from "./ui/auth/AuthGate";
 import { startActiveHealthMonitor } from "./ui/env/activeHealth";
+import { initTelegramMiniApp } from "./ui/telegramMiniApp";
 
 // Route API calls to the selected remote environment (no-op in local mode). Must run before the
 // app issues any fetch so remote sessions/config/streaming all target the chosen backend.
 installRemoteFetchShim();
+initTelegramMiniApp();
 // Begin probing the active environment's reachability (issue #60) so a dead remote is visible.
 startActiveHealthMonitor();
 bootstrapUiThemeFromCookie();
