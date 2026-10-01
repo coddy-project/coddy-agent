@@ -407,6 +407,19 @@ Messenger bot adapters (used only by binaries built with -tags gateway or -tags 
 | `gateways.telegram.chats[].chat_id` | integer |  | Telegram chat id (negative for groups/supergroups). |
 | `gateways.telegram.chats[].isolation` | string, one of `individual`, `shared`, `admin` |  | Per-chat session isolation override. |
 | `gateways.telegram.chats[].access` | string |  | Per-chat access override: "all", "admins", or "group:<name>". |
+
+### `supervisor`
+
+Checks goals and watches for stalled or repetitive turns; see https://coddy.dev/docs/features/session-supervisor.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `supervisor.enable` | boolean | false | Watch ordinary turns even without a /goal. A session goal activates supervision regardless of this switch. |
+| `supervisor.model` | string | "" | Configured models[].model used for short completion checks. Empty uses the session model. |
+| `supervisor.stall_seconds` | integer or null | 180 | Seconds without output or tool activity before a stalled turn is interrupted. Permission prompts and running background tasks pause this timer. 0 disables it. |
+| `supervisor.max_nudges` | integer or null | 2 | Maximum stall and loop recovery nudges per user request. |
+| `supervisor.max_continuations` | integer or null | 3 | Maximum automatic continuation turns per user request. |
+| `supervisor.loop_repeat` | integer or null | 3 | Consecutive matching tool operations before a loop nudge. |
 <!-- docsgen:config:end -->
 
 ## Notes

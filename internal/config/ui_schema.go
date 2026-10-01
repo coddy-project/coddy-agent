@@ -370,6 +370,16 @@ func UISchemaMap() map[string]interface{} {
 				[]string{"model", "max_tokens", "temperature", "max_context_tokens", "multimodal", "stream", "reasoning_levels", "reasoning_default"},
 				[]string{"model"}),
 		},
+		"supervisor": objectSchema("Session supervisor", "Checks goals and watches for stalled or repetitive turns.",
+			map[string]interface{}{
+				"enable":            boolProp("Enable watchdog", "Watch ordinary turns even when no /goal is set. A session goal activates supervision regardless of this switch."),
+				"model":             strProp("Supervisor model", "Configured model used for short completion checks. Empty uses the session model."),
+				"stall_seconds":     intProp("Stall seconds", "Silence before interrupting a turn, excluding permission prompts and running background tasks. 0 disables stall detection."),
+				"max_nudges":        intProp("Max nudges", "How many stall or loop recovery nudges one turn may receive."),
+				"max_continuations": intProp("Max continuations", "Maximum automatic follow-up turns per user request."),
+				"loop_repeat":       intProp("Loop repeat", "Consecutive matching tool operations before a loop nudge."),
+			},
+			[]string{"enable", "model", "stall_seconds", "max_nudges", "max_continuations", "loop_repeat"}, nil),
 		"agent": objectSchema("ReAct loop", "Defaults for the main agent loop (model id and safety caps).",
 			map[string]interface{}{
 				"queue_mode": map[string]interface{}{"type": "string", "title": "Queue mode", "description": "Preferred action for Enter while a turn runs. Choose steer for the next ReAct step or after_turn for a new turn after the answer.", "enum": []interface{}{"steer", "after_turn"}},
@@ -758,7 +768,7 @@ func UISchemaMap() map[string]interface{} {
 	// folds into one System tab). The sessions key belongs to the Sessions tab.
 	rootOrder := []string{
 		"providers", "models",
-		"agent", "compaction", "memory",
+		"agent", "supervisor", "compaction", "memory",
 		"tools", "mcp_servers", "skills", "subagents", "hooks",
 		"scheduler", "gateways",
 		"logger", "sessions", "prompts", "instructions",

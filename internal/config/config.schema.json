@@ -238,6 +238,20 @@
         }
       }
     },
+    "supervisor": {
+      "type": "object",
+      "title": "Session supervisor",
+      "description": "Checks goals and watches for stalled or repetitive turns; see https://coddy.dev/docs/features/session-supervisor.",
+      "additionalProperties": false,
+      "properties": {
+        "enable": {"type": "boolean", "description": "Watch ordinary turns even without a /goal. A session goal activates supervision regardless of this switch.", "default": false},
+        "model": {"type": "string", "description": "Configured models[].model used for short completion checks. Empty uses the session model.", "default": ""},
+        "stall_seconds": {"type": ["integer", "null"], "description": "Seconds without output or tool activity before a stalled turn is interrupted. Permission prompts and running background tasks pause this timer. 0 disables it.", "default": 180, "minimum": 0},
+        "max_nudges": {"type": ["integer", "null"], "description": "Maximum stall and loop recovery nudges per user request.", "default": 2, "minimum": 0},
+        "max_continuations": {"type": ["integer", "null"], "description": "Maximum automatic continuation turns per user request.", "default": 3, "minimum": 0},
+        "loop_repeat": {"type": ["integer", "null"], "description": "Consecutive matching tool operations before a loop nudge.", "default": 3, "minimum": 0}
+      }
+    },
     "prompts": {
       "type": "object",
       "title": "System prompt templates",

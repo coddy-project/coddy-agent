@@ -1928,7 +1928,7 @@ func TestCoddyCommandsEndpoint(t *testing.T) {
 	for _, it := range items {
 		names = append(names, fmt.Sprint(it["name"]))
 	}
-	want := "model reasoning think nothink agent plan ask permissions compact export plugin"
+	want := "model reasoning think nothink agent plan ask permissions compact goal export plugin"
 	if strings.Join(names, " ") != want {
 		t.Fatalf("commands = %v, want %s", names, want)
 	}
@@ -1937,6 +1937,9 @@ func TestCoddyCommandsEndpoint(t *testing.T) {
 	}
 	if items[0]["hint"] != "<model id> [--once|--count=N]" {
 		t.Fatalf("model hint = %v", items[0]["hint"])
+	}
+	if items[9]["name"] != "goal" || items[9]["hint"] != "[<text>|clear]" {
+		t.Fatalf("goal command = %v", items[9])
 	}
 	for _, it := range items {
 		if strings.TrimSpace(fmt.Sprint(it["description"])) == "" {

@@ -11,8 +11,10 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
 	"github.com/EvilFreelancer/coddy-agent/external/gateway/sessionstore"
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/tgfake"
 )
 
@@ -33,6 +35,43 @@ func TestTelegramAPIEndpoint(t *testing.T) {
 				t.Fatalf("telegramAPIEndpoint(%q) = %q, want %q", tc.base, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestGoalCommandReachesSessionInTelegram(t *testing.T) {
+	for _, tc := range []struct{ name, text, chatType string }{
+		{"private", "/goal ship the fix", "private"},
+		{"group mention", "/goal@coddy_bot ship the fix", "group"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runner := newScriptedRunner()
+			bot := New(&config.TelegramGatewayConfig{Enabled: true, Token: "t", DefaultAccess: config.AccessAll},
+				runner, "", slog.New(slog.DiscardHandler), t.TempDir(), nil)
+			bot.botName = "coddy_bot"
+			fake := newFakeAPI(t, tgfake.Options{})
+			key := sessionstore.SessionKey(adapterName, resumeChatID, resumeUserID, config.IsolationIndividual, tc.chatType == "group")
+			msg := commandMessage(tc.text)
+			msg.Chat.Type = tc.chatType
+			bot.processMessage(context.Background(), fake.api, msg, key)
+			if len(runner.prompts) != 1 || runner.prompts[0] != "/goal ship the fix" {
+				t.Fatalf("Telegram did not forward /goal: %q", runner.prompts)
+			}
+		})
+	}
+}
+
+func TestTelegramShowsSupervisorContinuationAsSeparateNote(t *testing.T) {
+	fake := newFakeAPI(t, tgfake.Options{})
+	sender := newSender(fake.api, 7072, 0, slog.New(slog.DiscardHandler), richConfig{})
+	text := session.SupervisorContinuationPrefix + "Finish the tests"
+	if err := sender.SendSessionUpdate("sess_goal", acp.MessageChunkUpdate{
+		SessionUpdate: acp.UpdateTypeUserMessageChunk,
+		Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: text},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := fake.fake.Chat(7072).Text(); !strings.Contains(got, "🔁 Finish the tests") {
+		t.Fatalf("supervisor continuation note missing from chat: %q", got)
 	}
 }
 

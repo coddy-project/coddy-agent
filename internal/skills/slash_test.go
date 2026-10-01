@@ -117,15 +117,15 @@ func TestBuiltinCommands(t *testing.T) {
 		return out
 	}
 	withCompact := skills.BuiltinCommands(true)
-	if got := names(withCompact); len(got) != 3 || got[0] != "compact" || got[1] != "export" || got[2] != "plugin" {
-		t.Fatalf("with compaction: got %v, want [compact export plugin]", got)
+	if got := names(withCompact); len(got) != 4 || got[0] != "compact" || got[1] != "goal" || got[2] != "export" || got[3] != "plugin" {
+		t.Fatalf("with compaction: got %v, want [compact goal export plugin]", got)
 	}
 	for _, c := range withCompact {
 		if strings.TrimSpace(c.Description) == "" {
 			t.Fatalf("builtin command %q must have a description", c.Name)
 		}
 	}
-	if got := names(skills.BuiltinCommands(false)); len(got) != 2 || got[0] != "export" || got[1] != "plugin" {
-		t.Fatalf("without compaction: got %v, want [export plugin]", got)
+	if got := names(skills.BuiltinCommands(false)); len(got) != 3 || got[0] != "goal" || got[1] != "export" || got[2] != "plugin" {
+		t.Fatalf("without compaction: got %v, want [goal export plugin]", got)
 	}
 }

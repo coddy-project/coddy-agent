@@ -163,6 +163,7 @@ func (b *Bot) Start(ctx context.Context) error {
 		tgbotapi.BotCommand{Command: "plan", Description: "Plan mode: read-only, plans the work"},
 		tgbotapi.BotCommand{Command: "ask", Description: "Ask mode: read-only answers"},
 		tgbotapi.BotCommand{Command: "context", Description: "Show context window usage"},
+		tgbotapi.BotCommand{Command: "goal", Description: "Set, show or clear the session goal"},
 		tgbotapi.BotCommand{Command: "resume", Description: "Continue another session (pick from the list or name it)"},
 		tgbotapi.BotCommand{Command: "clear", Description: "Start a new session (forget context)"},
 	)); err != nil {
@@ -359,6 +360,7 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 				"/think, /nothink, /reasoning <level> — thinking and reasoning level\n"+
 				"Add --once or --count=N to change a setting for the next messages only, and write the message after it.\n"+
 				"/context — show context window usage\n"+
+				"/goal <text>, /goal, /goal clear — set, show or clear the session goal\n"+
 				"/resume [id or title] — continue another session\n"+
 				"/clear — start a new session (forgets previous context)\n"+
 				"/help — show this message\n\n"+
@@ -388,7 +390,7 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 	// and answers with a notice, or applies it to the turn the rest starts.
 	// /permissions is not one of them here: the bot approves its chat agent
 	// itself, and the mode would only change what other surfaces ask.
-	if text == "" || (msg.IsCommand() && !isSettingsCommand(msg)) {
+	if text == "" || (msg.IsCommand() && !isSettingsCommand(msg) && !isCommand(msg, "goal")) {
 		return
 	}
 
@@ -506,7 +508,7 @@ func (b *Bot) chatSender(bot *tgbotapi.BotAPI, chatID int64, replyTo int, rich r
 func (b *Bot) shouldRespond(msg *tgbotapi.Message, text string) bool {
 	if msg.IsCommand() {
 		switch strings.ToLower(msg.Command()) {
-		case "clear", "start", "help", "model", "mcp", "context", "resume":
+		case "clear", "start", "help", "model", "mcp", "context", "goal", "resume":
 			return true
 		}
 		if isSettingsCommand(msg) {

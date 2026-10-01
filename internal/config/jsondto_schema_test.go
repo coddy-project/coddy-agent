@@ -46,8 +46,7 @@ func TestUISchemaRootPropertyOrder(t *testing.T) {
 	if ord[0] != "providers" {
 		t.Fatalf("first key %v", ord[0])
 	}
-	// Context compaction is a tab of its own, right after the ReAct agent tab:
-	// the same loop, and the settings an operator reads together.
+	// The supervisor follows the ReAct loop; compaction stays beside both.
 	at := func(key string) int {
 		for i, v := range ord {
 			if v == key {
@@ -56,16 +55,16 @@ func TestUISchemaRootPropertyOrder(t *testing.T) {
 		}
 		return -1
 	}
-	agent, compaction := at("agent"), at("compaction")
-	if agent < 0 || compaction != agent+1 {
-		t.Fatalf("compaction must follow agent: agent=%d compaction=%d order=%v", agent, compaction, ord)
+	agent, supervisor, compaction := at("agent"), at("supervisor"), at("compaction")
+	if agent < 0 || supervisor != agent+1 || compaction != supervisor+1 {
+		t.Fatalf("supervisor and compaction must follow agent: order=%v", ord)
 	}
 	// The tabs read in groups of meaning: the models, the loop that runs them,
 	// what the agent can do, what runs it unattended, and the operation of
 	// the process last.
 	want := []interface{}{
 		"providers", "models",
-		"agent", "compaction", "memory",
+		"agent", "supervisor", "compaction", "memory",
 		"tools", "mcp_servers", "skills", "subagents", "hooks",
 		"scheduler", "gateways",
 		"logger", "sessions", "prompts", "instructions",

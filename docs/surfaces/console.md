@@ -242,7 +242,7 @@ Slash commands: the settings commands `/model`, `/reasoning` (`/effort`),
 `/think`, `/nothink`, `/agent`, `/plan`, `/ask` and `/permissions`, each with
 `--once` or `--count=N` for the next turns only
 ([Session settings](../features/session-settings.md)); client-side `/resume`,
-`/new`, `/theme`, `/hotkeys`, `/queue`, `/usage`, `/tasks`, `/mcp`, `/docs`, `/quit`; server-driven `/compact`, `/export`,
+`/new`, `/theme`, `/hotkeys`, `/queue`, `/usage`, `/tasks`, `/mcp`, `/docs`, `/quit`; server-driven `/compact`, `/goal`, `/export`,
 `/plugin`, and every loaded skill (from the ACP available-commands catalog).
 A bare `/model`, `/reasoning` or `/permissions` opens its picker; with a value
 the command is applied by the session manager and the footer shows the change,

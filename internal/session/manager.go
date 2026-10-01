@@ -30,11 +30,12 @@ type AgentRunner func(ctx context.Context, state *State, prompt []acp.ContentBlo
 
 // Manager handles all active sessions and implements acp.Handler.
 type Manager struct {
-	cfgAt      atomic.Pointer[config.Config]
-	server     acp.UpdateSender
-	skillsLoad *skills.Loader
-	runner     AgentRunner
-	log        *slog.Logger
+	cfgAt           atomic.Pointer[config.Config]
+	server          acp.UpdateSender
+	skillsLoad      *skills.Loader
+	runner          AgentRunner
+	supervisorJudge supervisorJudge
+	log             *slog.Logger
 	// defaultCWD is used when session/new passes an empty cwd (from CLI default or os.Getwd).
 	defaultCWD string
 	store      *FileStore
@@ -701,6 +702,9 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		mode = ModeAgent
 	}
 	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.SelectedReasoning, snap.Meta.AgentMemory)
+	if snap.Meta.Goal != nil {
+		st.RestoreGoalWithoutPersist(*snap.Meta.Goal)
+	}
 	jobSession := false
 	if snap.Meta.IsSubagentRun() {
 		// A restored child is a read-only transcript; the meta keeps the guard
@@ -1380,7 +1384,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 
 	ranRunner = true
 	MarkTurnRan(turnCtx)
-	stopReason, err := m.runner(turnCtx, state, hydrated, sender)
+	stopReason, err := m.runSupervisedTurn(turnCtx, state, hydrated, sender, opts)
 	if err != nil {
 		state.TakeTurnStopNotice()
 		if !errors.Is(err, context.Canceled) {
@@ -1434,7 +1438,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		// No client typed this prompt into its view of the turn, so the run
 		// announces it (PromptEcho) before it answers it.
 		rev := state.MessagesRev()
-		stopReason, err = m.runner(withPromptEcho(turnCtx, params.SessionID), state, state.ResolveQueuedMentions(QueuedPromptBlocks(queued)), sender)
+		stopReason, err = m.runSupervisedTurn(withPromptEcho(turnCtx, params.SessionID), state, state.ResolveQueuedMentions(QueuedPromptBlocks(queued)), sender, opts)
 		if turnCtx.Err() != nil && state.MessagesRev() == rev {
 			// Stopped before the prompt entered the conversation: nothing read
 			// it. An after_turn message waits again, as Stop promises, and the

@@ -39,6 +39,12 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			LoopNudgeMax:           intPtr(AgentDefaultLoopNudgeMax),
 			WaitForLimitResetMaxMS: intPtr(AgentDefaultWaitForLimitResetMaxMS),
 		},
+		Supervisor: Supervisor{
+			StallSeconds:     intPtr(SupervisorDefaultStallSeconds),
+			MaxNudges:        intPtr(SupervisorDefaultMaxNudges),
+			MaxContinuations: intPtr(SupervisorDefaultMaxContinuations),
+			LoopRepeat:       intPtr(SupervisorDefaultLoopRepeat),
+		},
 		Prompts: PromptsJSON{
 			Dir:         "",
 			AgentPrompt: "agent.md",

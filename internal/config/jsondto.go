@@ -11,6 +11,7 @@ type ConfigJSON struct {
 	Providers    []ProviderJSON   `json:"providers,omitempty"`
 	Models       []ModelJSON      `json:"models,omitempty"`
 	Agent        AgentJSON        `json:"agent,omitempty"`
+	Supervisor   Supervisor       `json:"supervisor,omitempty"`
 	Prompts      PromptsJSON      `json:"prompts,omitempty"`
 	Instructions InstructionsJSON `json:"instructions,omitempty"`
 	Skills       SkillsJSON       `json:"skills,omitempty"`
@@ -496,6 +497,11 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		WaitForLimitReset:      c.Agent.WaitForLimitReset,
 		WaitForLimitResetMaxMS: cloneIntPtr(c.Agent.WaitForLimitResetMaxMS),
 	}
+	out.Supervisor = c.Supervisor
+	out.Supervisor.StallSeconds = cloneIntPtr(c.Supervisor.StallSeconds)
+	out.Supervisor.MaxNudges = cloneIntPtr(c.Supervisor.MaxNudges)
+	out.Supervisor.MaxContinuations = cloneIntPtr(c.Supervisor.MaxContinuations)
+	out.Supervisor.LoopRepeat = cloneIntPtr(c.Supervisor.LoopRepeat)
 	out.Prompts = PromptsJSON{
 		Dir: c.Prompts.Dir, AgentPrompt: c.Prompts.AgentPrompt, PlanPrompt: c.Prompts.PlanPrompt, AskPrompt: c.Prompts.AskPrompt,
 	}
@@ -726,6 +732,11 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		WaitForLimitReset:      j.Agent.WaitForLimitReset,
 		WaitForLimitResetMaxMS: cloneIntPtr(j.Agent.WaitForLimitResetMaxMS),
 	}
+	cfg.Supervisor = j.Supervisor
+	cfg.Supervisor.StallSeconds = cloneIntPtr(j.Supervisor.StallSeconds)
+	cfg.Supervisor.MaxNudges = cloneIntPtr(j.Supervisor.MaxNudges)
+	cfg.Supervisor.MaxContinuations = cloneIntPtr(j.Supervisor.MaxContinuations)
+	cfg.Supervisor.LoopRepeat = cloneIntPtr(j.Supervisor.LoopRepeat)
 	cfg.Prompts = Prompts{
 		Dir: j.Prompts.Dir, AgentPrompt: j.Prompts.AgentPrompt, PlanPrompt: j.Prompts.PlanPrompt, AskPrompt: j.Prompts.AskPrompt,
 	}

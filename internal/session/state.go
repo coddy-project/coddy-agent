@@ -62,6 +62,7 @@ type State struct {
 	// HookContext is the context SessionStart hooks handed to the session;
 	// every system prompt of the session carries it (see docs/features/hooks.md).
 	HookContext string
+	goal        GoalState
 
 	// Messages is the conversation history.
 	Messages []llm.Message

@@ -8,6 +8,7 @@ type Config struct {
 	Providers    []ProviderConfig  `yaml:"providers"`
 	Models       []ModelEntry      `yaml:"models"`
 	Agent        Agent             `yaml:"agent"`
+	Supervisor   Supervisor        `yaml:"supervisor"`
 	Prompts      Prompts           `yaml:"prompts"`
 	Instructions Instructions      `yaml:"instructions"`
 	Skills       Skills            `yaml:"skills"`

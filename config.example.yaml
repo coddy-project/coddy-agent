@@ -166,6 +166,16 @@ agent:
   #                                          # included; under 60 s it also bounds ordinary 429 retries;
   #                                          # a longer pause ends the turn; 0 never waits
 
+# Session-level objective checks and watchdog. /goal <text> activates this
+# for its session even when enable is false; enable also watches ordinary turns.
+# supervisor:
+#   enable: false
+#   model: "openai/gpt-5.6-terra"  # use a configured inexpensive model if available
+#   stall_seconds: 180            # 0 disables silence detection
+#   max_nudges: 2                 # stall or loop recovery prompts
+#   max_continuations: 3          # automatic follow-up turns per goal
+#   loop_repeat: 3                # repeated matching tool operations; 0 disables
+
 sessions:
   # Directory to store session bundles.
   # Leave empty to use default $CODDY_HOME/sessions.

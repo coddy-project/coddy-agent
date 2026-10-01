@@ -234,6 +234,9 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// arguments.
 	if a.subagent == nil {
 		typed := typedText(prompt)
+		if arg, ok := parseGoalCommand(typed); ok {
+			return a.runGoalCommand(ctx, arg, userText)
+		}
 		// The built-in /compact command compacts history instead of running the
 		// ReAct loop. The command text is persisted (so it shows in the transcript
 		// like any other message) by runCompactCommand itself.

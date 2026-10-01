@@ -124,6 +124,12 @@ func (s *Sender) SendSessionUpdate(sessionID string, update interface{}) error {
 		// the turn read it or where its own prompt starts: it is not part of
 		// the answer this chat is sent.
 		if u.SessionUpdate == acp.UpdateTypeUserMessageChunk {
+			if note, ok := strings.CutPrefix(u.Content.Text, session.SupervisorContinuationPrefix); ok {
+				msg := tgbotapi.NewMessage(s.chatID, "🔁 "+note)
+				if _, err := s.bot.Send(msg); err != nil {
+					s.log.Warn("telegram: supervisor continuation note not delivered", "err", err, "chat", s.chatID)
+				}
+			}
 			return nil
 		}
 		s.mu.Lock()
