@@ -1008,6 +1008,14 @@ browses that session's workspace. Its address preserves the file and optional li
 the chat; closing returns focus to the opener. On a phone the dock fits between the
 navigation bar and the safe-area insets.
 
+![Files showing a workspace README with a relative image, a Mermaid diagram and a formula](../assets/workspace-files-preview-dark-1280.png)
+
+*Files shares the right dock with Tasks and Changed files; the selected workspace
+README renders beside the chat.*
+
+Additional captures: [Light theme, 1280 px](../assets/workspace-files-preview-light-1280.png)
+and [narrow layout, 390 px](../assets/workspace-files-preview-dark-390.png).
+
 Directories load as they expand. **Filter loaded files** searches the rows already
 loaded, and **Hidden files** includes dotfiles, `node_modules` and `vendor`. This
 filter does not restrict access: an explicit workspace path may still open a hidden

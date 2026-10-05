@@ -16333,14 +16333,27 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 
 
 /* ── Shared dock tabs ─────────────────────────────────────────────────────
-   Tasks and Changes are two faces of one right dock; the strip sits in the
-   panel head between the title and the close button. */
+   Tasks, Changes and Files share one right dock. The active tab labels the
+   panel, leaving room for its close control even when translated tabs scroll. */
+
+.bgtasks-panel-head:has(> .dock-tabs) > span:first-child,
+.changes-panel-head:has(> .dock-tabs) > span:first-child {
+  display: none;
+}
+
+.bgtasks-panel-head .sessions-close,
+.changes-panel-head .sessions-close {
+  flex: 0 0 34px;
+}
 
 .dock-tabs {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
   margin-left: auto;
   margin-right: 6px;
   padding: 2px;
