@@ -50,7 +50,7 @@ func splitLines(s string) []string {
 	if s == "" {
 		return nil
 	}
-	lines := strings.Split(s, "\n")
+	lines := strings.SplitAfter(s, "\n")
 	// A trailing newline yields one empty trailing element that is not a line.
 	if lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
@@ -170,8 +170,11 @@ func Unified(path, before, after string, context int) (patch string, truncated b
 			case opInsert:
 				b.WriteString("+")
 			}
-			b.WriteString(o.text)
+			b.WriteString(strings.TrimSuffix(o.text, "\n"))
 			b.WriteString("\n")
+			if !strings.HasSuffix(o.text, "\n") {
+				b.WriteString("\\ No newline at end of file\n")
+			}
 			if b.Len() > maxPatchBytes {
 				return b.String(), true
 			}

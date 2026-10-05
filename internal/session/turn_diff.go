@@ -1,11 +1,14 @@
 package session
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -60,7 +63,7 @@ func IsToolStatePath(path string) bool {
 
 const (
 	maxFileSizeBytes  = 10 * 1024 * 1024  // skip files larger than 10 MB
-	maxTotalSizeBytes = 100 * 1024 * 1024 // stop scanning after 100 MB total
+	maxTotalSizeBytes = 100 * 1024 * 1024 // stop reading content after 100 MB total
 	maxScanDepth      = 20
 )
 
@@ -86,19 +89,28 @@ type WorkspaceChange struct {
 // WorkspaceDiff is the set of file changes captured during one turn.
 type WorkspaceDiff struct {
 	Changes []WorkspaceChange `json:"changes"`
+	CWD     string            `json:"cwd,omitempty"`
 }
 
 // WorkspaceSnapshot is a pre-turn snapshot used to compute the delta afterwards.
 type WorkspaceSnapshot struct {
-	files map[string]*WorkspaceFile // relative path → state
+	files    map[string]*WorkspaceFile // relative path → state
+	paths    map[string]bool           // includes files omitted by the content limits
+	complete bool
+	exclude  []string
 }
 
 // TakeWorkspaceSnapshot records the current state of all files under cwd.
 // Returns a non-nil snapshot even when cwd is empty (snapshot will be empty).
-func TakeWorkspaceSnapshot(cwd string) *WorkspaceSnapshot {
-	snap := &WorkspaceSnapshot{files: make(map[string]*WorkspaceFile)}
-	walkWorkspace(cwd, func(rel, path string, info fs.FileInfo) bool {
-		content, err := os.ReadFile(path)
+func TakeWorkspaceSnapshot(cwd string, exclude ...string) *WorkspaceSnapshot {
+	snap := &WorkspaceSnapshot{files: make(map[string]*WorkspaceFile), paths: make(map[string]bool), exclude: exclude}
+	root, err := os.OpenRoot(cwd)
+	if err != nil {
+		return snap
+	}
+	defer func() { _ = root.Close() }()
+	snap.complete = walkWorkspace(cwd, exclude, func(rel string) { snap.paths[rel] = true }, func(rel, path string, info fs.FileInfo) bool {
+		content, err := root.ReadFile(rel)
 		if err != nil {
 			return false
 		}
@@ -113,23 +125,31 @@ func TakeWorkspaceSnapshot(cwd string) *WorkspaceSnapshot {
 
 // walkWorkspace visits every file a snapshot covers, in lexical order and under
 // the snapshot's limits: tool state, generated folders and git worktrees are
-// skipped, files over maxFileSizeBytes are left out, and the walk stops once
-// maxTotalSizeBytes have been taken. visit reports whether it took the file,
+// skipped, files over maxFileSizeBytes are left out, and content is read until
+// maxTotalSizeBytes have been taken. Paths are still observed after the cap.
+// visit reports whether it took the file,
 // and only a taken file counts toward that total.
 //
 // The snapshot and the live diff both walk through here, so a file one of them
 // reaches the other reaches too - otherwise a workspace past the size cap would
 // show files beyond it as created the moment the two walks disagreed.
-func walkWorkspace(cwd string, visit func(rel, path string, info fs.FileInfo) bool) {
+func walkWorkspace(cwd string, exclude []string, observe func(string), visit func(rel, path string, info fs.FileInfo) bool) bool {
 	if cwd == "" {
-		return
+		return true
 	}
+	complete := true
 	var totalBytes int64
 	_ = filepath.WalkDir(cwd, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
+			complete = false
 			return nil // skip unreadable entries
 		}
 		if d.IsDir() {
+			for _, excluded := range exclude {
+				if excluded != "" && sameWorkspace(path, excluded) {
+					return filepath.SkipDir
+				}
+			}
 			// The worktrees folder holds whole checkouts of other branches: a
 			// turn here neither reads them nor rolls them back.
 			if ignoredDirs[d.Name()] || toolStateDirs[d.Name()] || gitws.IsWorktreesRoot(path) {
@@ -141,6 +161,10 @@ func walkWorkspace(cwd string, visit func(rel, path string, info fs.FileInfo) bo
 			}
 			return nil
 		}
+		rel, _ := filepath.Rel(cwd, path)
+		if observe != nil {
+			observe(rel)
+		}
 		if !d.Type().IsRegular() {
 			return nil // skip symlinks, pipes, etc.
 		}
@@ -149,14 +173,14 @@ func walkWorkspace(cwd string, visit func(rel, path string, info fs.FileInfo) bo
 			return nil
 		}
 		if totalBytes+info.Size() > maxTotalSizeBytes {
-			return filepath.SkipAll
+			return nil // keep listing paths without reading their contents
 		}
-		rel, _ := filepath.Rel(cwd, path)
 		if visit(rel, path, info) {
 			totalBytes += info.Size()
 		}
 		return nil
 	})
+	return complete
 }
 
 // LiveWorkspaceDiff is ComputeWorkspaceDiff for a turn that is still running.
@@ -170,19 +194,31 @@ func walkWorkspace(cwd string, visit func(rel, path string, info fs.FileInfo) bo
 // until the turn ends - the stored diff, the one a rollback replays, still
 // compares contents.
 func LiveWorkspaceDiff(cwd string, before *WorkspaceSnapshot) (*WorkspaceDiff, error) {
+	root, err := os.OpenRoot(cwd)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
 	beforeFiles := map[string]*WorkspaceFile{}
 	if before != nil {
 		beforeFiles = before.files
 	}
 	var changes []WorkspaceChange
 	seen := make(map[string]bool)
-	walkWorkspace(cwd, func(rel, path string, info fs.FileInfo) bool {
+	var exclude []string
+	if before != nil {
+		exclude = before.exclude
+	}
+	walkWorkspace(cwd, exclude, nil, func(rel, path string, info fs.FileInfo) bool {
 		bf := beforeFiles[rel]
+		if bf == nil && before != nil && (before.paths[rel] || !before.complete) {
+			return false
+		}
 		if bf != nil && bf.size == info.Size() && bf.modTime.Equal(info.ModTime()) && bf.Mode == info.Mode() {
 			seen[rel] = true
 			return true
 		}
-		content, err := os.ReadFile(path)
+		content, err := root.ReadFile(rel)
 		if err != nil {
 			return false
 		}
@@ -197,7 +233,7 @@ func LiveWorkspaceDiff(cwd string, before *WorkspaceSnapshot) (*WorkspaceDiff, e
 		return true
 	})
 	for rel, bf := range beforeFiles {
-		if !seen[rel] {
+		if !seen[rel] && workspaceFileMissing(cwd, rel) {
 			changes = append(changes, WorkspaceChange{Path: rel, Before: bf})
 		}
 	}
@@ -205,13 +241,17 @@ func LiveWorkspaceDiff(cwd string, before *WorkspaceSnapshot) (*WorkspaceDiff, e
 		return nil, nil
 	}
 	sort.Slice(changes, func(i, j int) bool { return changes[i].Path < changes[j].Path })
-	return &WorkspaceDiff{Changes: changes}, nil
+	return &WorkspaceDiff{Changes: changes, CWD: cwd}, nil
 }
 
 // ComputeWorkspaceDiff compares the current state of cwd against the before snapshot
 // and returns a WorkspaceDiff describing what changed. Returns nil diff if nothing changed.
 func ComputeWorkspaceDiff(cwd string, before *WorkspaceSnapshot) (*WorkspaceDiff, error) {
-	after := TakeWorkspaceSnapshot(cwd)
+	var exclude []string
+	if before != nil {
+		exclude = before.exclude
+	}
+	after := TakeWorkspaceSnapshot(cwd, exclude...)
 	beforeFiles := make(map[string]*WorkspaceFile)
 	if before != nil {
 		beforeFiles = before.files
@@ -225,6 +265,9 @@ func ComputeWorkspaceDiff(cwd string, before *WorkspaceSnapshot) (*WorkspaceDiff
 		seen[rel] = true
 		bf := beforeFiles[rel]
 		if bf == nil {
+			if before != nil && (before.paths[rel] || !before.complete) {
+				continue
+			}
 			// New file.
 			changes = append(changes, WorkspaceChange{Path: rel, After: af})
 		} else if string(bf.Content) != string(af.Content) || bf.Mode != af.Mode {
@@ -235,7 +278,7 @@ func ComputeWorkspaceDiff(cwd string, before *WorkspaceSnapshot) (*WorkspaceDiff
 
 	// Files that existed before but are gone now.
 	for rel, bf := range beforeFiles {
-		if !seen[rel] {
+		if !seen[rel] && workspaceFileMissing(cwd, rel) {
 			changes = append(changes, WorkspaceChange{Path: rel, Before: bf})
 		}
 	}
@@ -244,7 +287,13 @@ func ComputeWorkspaceDiff(cwd string, before *WorkspaceSnapshot) (*WorkspaceDiff
 		return nil, nil
 	}
 	sort.Slice(changes, func(i, j int) bool { return changes[i].Path < changes[j].Path })
-	return &WorkspaceDiff{Changes: changes}, nil
+	return &WorkspaceDiff{Changes: changes, CWD: cwd}, nil
+}
+
+// An omitted file (unreadable or past a capture limit) is not a deletion.
+func workspaceFileMissing(cwd, rel string) bool {
+	_, err := os.Lstat(filepath.Join(cwd, rel))
+	return os.IsNotExist(err)
 }
 
 // TurnDiffsDir returns the directory where per-turn workspace diffs are stored.
@@ -253,10 +302,10 @@ func TurnDiffsDir(sessionDir string) string {
 }
 
 // StoreWorkspaceDiff writes the diff to <sessionDir>/diffs/turn_<n>.json atomically.
-// If diff is nil (no changes), no file is written.
+// Empty turns are stored too, so the last-turn scope does not show an older edit.
 func StoreWorkspaceDiff(sessionDir string, turnN int, diff *WorkspaceDiff) error {
-	if diff == nil || len(diff.Changes) == 0 {
-		return nil
+	if diff == nil {
+		diff = &WorkspaceDiff{}
 	}
 	dir := TurnDiffsDir(sessionDir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -324,41 +373,82 @@ func RestoreWorkspaceFiles(cwd, sessionDir string, afterTurn int) (string, error
 		return "", err
 	}
 
-	var applied, skipped int
-	var msgs []string
-
+	// Collapse the selected turns to their endpoints. Preflight every file
+	// before writing any, and allow already-restored endpoints on a retry.
+	byPath := make(map[string]*WorkspaceChange)
 	for _, n := range all {
 		if n <= afterTurn {
 			break
 		}
 		diff, err := LoadWorkspaceDiff(sessionDir, n)
-		if err != nil || diff == nil || len(diff.Changes) == 0 {
-			skipped++
+		if err != nil {
+			return "", fmt.Errorf("load turn %d: %w", n, err)
+		}
+		if diff == nil {
 			continue
 		}
-		restored, err := reverseWorkspaceDiff(cwd, diff)
-		if err != nil {
-			skipped++
-			msgs = append(msgs, fmt.Sprintf("turn %d partial rollback: %v", n, err))
-		} else {
-			applied++
-			// Counted from what was written rather than from what was recorded:
-			// tool state is skipped below and never was the user's edit.
-			msgs = append(msgs, fmt.Sprintf("reversed turn %d (%d file(s))", n, restored))
+		if diff.CWD != "" && !sameWorkspace(cwd, diff.CWD) {
+			return "", fmt.Errorf("%w: turn %d belongs to another workspace", ErrWorkspaceConflict, n)
+		}
+		for _, ch := range diff.Changes {
+			if existing := byPath[ch.Path]; existing != nil {
+				existing.Before = ch.Before
+			} else {
+				copy := ch
+				byPath[ch.Path] = &copy
+			}
 		}
 	}
-
-	if len(msgs) == 0 {
+	if len(byPath) == 0 {
 		return "no file changes to roll back", nil
 	}
-	return strings.Join(msgs, "; ") + fmt.Sprintf(" (%d applied, %d skipped)", applied, skipped), nil
+	diff := &WorkspaceDiff{}
+	for _, ch := range byPath {
+		diff.Changes = append(diff.Changes, *ch)
+	}
+	sort.Slice(diff.Changes, func(i, j int) bool { return diff.Changes[i].Path < diff.Changes[j].Path })
+	restored, err := reverseWorkspaceDiff(cwd, diff)
+	return fmt.Sprintf("restored %d file(s)", restored), err
+}
+
+// ErrWorkspaceConflict means rollback would overwrite a later edit or a file
+// outside the workspace captured by the session.
+var ErrWorkspaceConflict = errors.New("workspace changed since the recorded turn")
+
+func sameWorkspace(a, b string) bool {
+	canonical := func(p string) string {
+		if abs, err := filepath.Abs(p); err == nil {
+			p = abs
+		}
+		if real, err := filepath.EvalSymlinks(p); err == nil {
+			p = real
+		}
+		p = filepath.Clean(p)
+		if runtime.GOOS == "windows" {
+			p = strings.ToLower(p)
+		}
+		return p
+	}
+	return canonical(a) == canonical(b)
+}
+
+func workspaceFilesEqual(a, b *WorkspaceFile) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return bytes.Equal(a.Content, b.Content) &&
+		(runtime.GOOS == "windows" || a.Mode.Perm() == b.Mode.Perm())
 }
 
 // reverseWorkspaceDiff restores each file to its Before state (or removes if Before is nil),
 // and reports how many it wrote.
 func reverseWorkspaceDiff(cwd string, diff *WorkspaceDiff) (int, error) {
-	var errs []string
-	restored := 0
+	root, err := os.OpenRoot(cwd)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = root.Close() }()
+	var pending []WorkspaceChange
 	for _, ch := range diff.Changes {
 		if IsToolStatePath(ch.Path) {
 			// Recorded by an older build. Putting wc.db or .git/index back to
@@ -367,33 +457,55 @@ func reverseWorkspaceDiff(cwd string, diff *WorkspaceDiff) (int, error) {
 			// working copy it was asked to clean up.
 			continue
 		}
-		absPath := filepath.Join(cwd, ch.Path)
+		if !filepath.IsLocal(ch.Path) {
+			return 0, fmt.Errorf("%w: invalid path %q", ErrWorkspaceConflict, ch.Path)
+		}
+		var current *WorkspaceFile
+		info, err := root.Lstat(ch.Path)
+		if err == nil {
+			if !info.Mode().IsRegular() {
+				return 0, fmt.Errorf("%w: %s is not a regular file", ErrWorkspaceConflict, ch.Path)
+			}
+			content, err := root.ReadFile(ch.Path)
+			if err != nil {
+				return 0, err
+			}
+			current = &WorkspaceFile{Content: content, Mode: info.Mode()}
+		} else if !os.IsNotExist(err) {
+			return 0, err
+		}
+		if workspaceFilesEqual(current, ch.Before) {
+			continue
+		}
+		if !workspaceFilesEqual(current, ch.After) {
+			return 0, fmt.Errorf("%w: %s", ErrWorkspaceConflict, ch.Path)
+		}
+		pending = append(pending, ch)
+	}
+	restored := 0
+	for _, ch := range pending {
 		if ch.Before == nil {
 			// File was created during the turn; delete it.
-			if err := os.Remove(absPath); err != nil && !os.IsNotExist(err) {
-				errs = append(errs, fmt.Sprintf("remove %s: %v", ch.Path, err))
-			} else {
-				restored++
+			if err := root.Remove(ch.Path); err != nil && !os.IsNotExist(err) {
+				return restored, err
 			}
 		} else {
 			// File was modified or deleted; restore original content.
-			if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
-				errs = append(errs, fmt.Sprintf("mkdir for %s: %v", ch.Path, err))
-				continue
+			if err := root.MkdirAll(filepath.Dir(ch.Path), 0o755); err != nil {
+				return restored, err
 			}
-			mode := ch.Before.Mode
+			mode := ch.Before.Mode.Perm()
 			if mode == 0 {
 				mode = 0o644
 			}
-			if err := os.WriteFile(absPath, ch.Before.Content, mode); err != nil {
-				errs = append(errs, fmt.Sprintf("restore %s: %v", ch.Path, err))
-			} else {
-				restored++
+			if err := root.WriteFile(ch.Path, ch.Before.Content, mode); err != nil {
+				return restored, err
+			}
+			if err := root.Chmod(ch.Path, mode); err != nil {
+				return restored, err
 			}
 		}
-	}
-	if len(errs) > 0 {
-		return restored, fmt.Errorf("%s", strings.Join(errs, "; "))
+		restored++
 	}
 	return restored, nil
 }

@@ -999,6 +999,37 @@ A held project hooks file surfaces in the transcript as a **notice-level system 
 - **external/ui/src/ui/messages/SystemNoticeMessage.test.tsx** (notice row: status role, notice class, no retry)
 - **external/ui/src/ui/settings/settingsSections.test.ts** (translated label and blurb for the `hooks` config tab)
 
+## Workspace files
+
+Open **Files** beside the workspace chip in a chat's composer, select the **Files**
+tab in the right dock, or click a workspace mention or a file tool's path. The dock
+browses that session's workspace. Its address preserves the file and optional line:
+`#/s/<id>/files?path=notes/readme.md&line=15`. Escape or the close button returns to
+the chat; closing returns focus to the opener. On a phone the dock fits between the
+navigation bar and the safe-area insets.
+
+Directories load as they expand. **Filter loaded files** searches the rows already
+loaded, and **Hidden files** includes dotfiles, `node_modules` and `vendor`. This
+filter does not restrict access: an explicit workspace path may still open a hidden
+file. Symlinks and special files are listed but cannot be previewed.
+
+Source files show numbered, highlighted line windows, wrapping and line navigation.
+Large text is paged without the old 512 KiB file limit. Markdown switches between
+rendered and source views and uses the chat's Mermaid and formula rendering.
+Relative images load from the workspace with authentication; external images require
+**Load external image**. HTML is displayed as text. Raster images have fit and actual
+size controls and show their dimensions; images above 20 MiB remain downloadable.
+
+Audio and video use native controls and byte ranges, including on an authenticated
+remote server. The temporary media URL expires after one hour; **Reload** renews it.
+PDF and unsupported binary formats can be downloaded safely. PDF remains a download
+because a sandboxed native viewer did not work across all three supported engines.
+
+The header shows size and modification time. Returning to the page or finishing a
+tool call revalidates the preview. A changed file shows **File changed** and resets
+an old text page instead of combining lines from different versions. Selected remote
+environments apply to file previews, Markdown images and session image thumbnails.
+
 ## Session changed files card
 
 The card sits at the **end of the transcript**, next to the subagent permission
@@ -1045,6 +1076,12 @@ together, not any single message.
   created files are removed. Tool state is skipped here too - putting `.git/index`
   back would leave the client describing a tree that is no longer there. Git is
   not involved, so the confirmation says plainly that it undoes the whole session.
+  Before writing, Undo checks every file against its recorded state. A later
+  edit or a workspace switch returns **409** and preserves both the workspace
+  and the recordings. A read or write error returns **500** and keeps the
+  recordings for recovery. Capture and Undo hold the session turn lock, so a
+  new turn cannot overlap either operation. An empty final turn stays empty in
+  the **Last turn** scope.
 - `ui.session_changes: false` in config.yaml hides the card and stops it
   fetching; omitted keeps the default (on).
 

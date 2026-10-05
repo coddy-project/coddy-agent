@@ -4,7 +4,7 @@ package httpserver
 
 import (
 	"encoding/json"
-	"fmt"
+	"errors"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -432,6 +432,16 @@ func (s *Server) coddySessionChangesRevert(w http.ResponseWriter, r *http.Reques
 		writeSubagentsError(w, http.StatusConflict, "session "+id+" has a turn in flight")
 		return
 	}
+	unlock, err := s.mgr.AcquireComposerTurnLock(id, st)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, session.ErrSessionTurnBusy) {
+			status = http.StatusConflict
+		}
+		writeSubagentsError(w, status, err.Error())
+		return
+	}
+	defer unlock()
 	cwd := strings.TrimSpace(st.GetCWD())
 	if cwd == "" {
 		http.Error(w, `{"error":{"message":"session has no workspace"}}`, http.StatusBadRequest)
@@ -440,7 +450,11 @@ func (s *Server) coddySessionChangesRevert(w http.ResponseWriter, r *http.Reques
 	note, err := session.RestoreWorkspaceFiles(cwd, sd, 0)
 	if err != nil {
 		s.log.Error("revert session changes", "session", id, "error", err)
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
+		status := http.StatusInternalServerError
+		if errors.Is(err, session.ErrWorkspaceConflict) {
+			status = http.StatusConflict
+		}
+		writeSubagentsError(w, status, err.Error())
 		return
 	}
 	// The workspace is back where the session found it, so the recorded diffs
@@ -448,6 +462,8 @@ func (s *Server) coddySessionChangesRevert(w http.ResponseWriter, r *http.Reques
 	// reporting work that has been undone.
 	if err := session.ClearStoredTurnDiffs(sd); err != nil {
 		s.log.Warn("clear turn diffs after revert", "session", id, "error", err)
+		writeSubagentsError(w, http.StatusInternalServerError, "could not clear turn diffs after rollback")
+		return
 	}
 	// Another window showing this session reads the empty set as well.
 	s.publishSessionChanges(id)

@@ -22,7 +22,7 @@ import {
 } from "./diffViewPrefs";
 import type { DiffView } from "./diffViewPrefs";
 import { fetchSessionChangeFile, fetchSessionChanges } from "./api";
-import { baseName, dirName, fileCountKeySuffix } from "./sessionChangesText";
+import { baseName, dirName } from "./sessionChangesText";
 import { CHANGE_SCOPES, EMPTY_SESSION_CHANGES } from "./types";
 import type { ChangeScope, SessionChanges } from "./types";
 
@@ -33,6 +33,7 @@ const PATCH_CONCURRENCY = 4;
 interface PatchState {
   patch?: string;
   error?: string;
+  truncated?: boolean;
 }
 
 /**
@@ -74,7 +75,9 @@ function usePatches(
           const copy = new Map(prev);
           copy.set(
             path,
-            res.ok ? { patch: res.data.patch } : { error: res.message },
+            res.ok
+              ? { patch: res.data.patch, truncated: res.data.truncated }
+              : { error: res.message },
           );
           return copy;
         });
@@ -104,7 +107,7 @@ export function DiffViewerModal(props: {
   sessionId: string;
   onClose: () => void;
 }) {
-  const { t } = useT();
+  const { t, tp } = useT();
   const [scope, setScope] = useState<ChangeScope>("session");
   const [changes, setChanges] = useState<SessionChanges>(EMPTY_SESSION_CHANGES);
   const [loading, setLoading] = useState(false);
@@ -267,7 +270,9 @@ export function DiffViewerModal(props: {
           </select>
 
           <span className="dv-totals" data-testid="dv-totals">
-            <span className="changes-add">{"+" + changes.totals.additions}</span>
+            <span className="changes-add">
+              {"+" + changes.totals.additions}
+            </span>
             <span className="changes-del">
               {"−" + changes.totals.deletions}
             </span>
@@ -414,11 +419,7 @@ export function DiffViewerModal(props: {
                       : "changes.viewer.untrackedTitle",
                   )}
                 </span>
-                <span>
-                  {t("changes.viewer.untracked" + fileCountKeySuffix(untracked), {
-                    count: untracked,
-                  })}
-                </span>
+                <span>{tp("changes.viewer.untracked", untracked)}</span>
               </div>
             ) : null}
 
@@ -440,7 +441,10 @@ export function DiffViewerModal(props: {
                 return (
                   <DiffFileSection
                     key={file.path}
-                    file={file}
+                    file={{
+                      ...file,
+                      truncated: state?.truncated ?? file.truncated,
+                    }}
                     patch={state?.patch ?? ""}
                     loading={!state}
                     error={state?.error ?? ""}

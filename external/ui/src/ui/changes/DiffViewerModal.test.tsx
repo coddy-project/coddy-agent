@@ -10,6 +10,7 @@ import {
 } from "@testing-library/react";
 import { DiffViewerModal } from "./DiffViewerModal";
 import type { SessionChanges } from "./types";
+import { t } from "../i18n/i18n";
 
 const PATCH = [
   "--- a/src/a.ts",
@@ -62,7 +63,11 @@ const UNCOMMITTED: SessionChanges = {
 };
 
 function jsonResponse(body: unknown) {
-  return { ok: true, status: 200, json: async () => body } as unknown as Response;
+  return {
+    ok: true,
+    status: 200,
+    json: async () => body,
+  } as unknown as Response;
 }
 
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -101,9 +106,7 @@ afterEach(() => {
 });
 
 function open() {
-  return render(
-    <DiffViewerModal open sessionId="s1" onClose={() => {}} />,
-  );
+  return render(<DiffViewerModal open sessionId="s1" onClose={() => {}} />);
 }
 
 test("lists every changed file with its counts and totals", async () => {
@@ -113,6 +116,18 @@ test("lists every changed file with its counts and totals", async () => {
   expect(screen.getByTestId("dv-file-docs/b.md")).toBeTruthy();
   expect(within(viewer).getByTestId("dv-totals")).toHaveTextContent("+5");
   expect(within(viewer).getByTestId("dv-totals")).toHaveTextContent("−1");
+});
+
+test("warns when the per-file response truncates a patch", async () => {
+  fetchMock.mockImplementation(async (input: unknown) =>
+    jsonResponse(
+      String(input).includes("/changes/file")
+        ? { patch: PATCH, truncated: true }
+        : SESSION,
+    ),
+  );
+  open();
+  await screen.findAllByText(t("changes.truncated"));
 });
 
 test("draws the unified view by default and never writes filler line counts", async () => {
@@ -319,7 +334,13 @@ test("leaves an unknown file type as plain text", async () => {
     const url = String(input);
     if (url.includes("/changes/file")) {
       return jsonResponse({
-        patch: ["--- a/notes.txt", "+++ b/notes.txt", "@@ -1 +1 @@", "-a", "+b"].join("\n"),
+        patch: [
+          "--- a/notes.txt",
+          "+++ b/notes.txt",
+          "@@ -1 +1 @@",
+          "-a",
+          "+b",
+        ].join("\n"),
       });
     }
     return jsonResponse({
@@ -362,7 +383,9 @@ test("the all-files scope offers untracked files the git scope leaves out", asyn
 
   open();
   await screen.findByTestId("dv-file-src/a.ts");
-  fireEvent.change(screen.getByTestId("dv-scope"), { target: { value: "all" } });
+  fireEvent.change(screen.getByTestId("dv-scope"), {
+    target: { value: "all" },
+  });
 
   await screen.findByTestId("dv-file-brand-new.txt");
   // Nothing was skipped, so the scope makes no excuses for itself.
@@ -392,7 +415,9 @@ test("the all-files scope reports files it had to leave out", async () => {
 
   open();
   await screen.findByTestId("dv-file-src/a.ts");
-  fireEvent.change(screen.getByTestId("dv-scope"), { target: { value: "all" } });
+  fireEvent.change(screen.getByTestId("dv-scope"), {
+    target: { value: "all" },
+  });
 
   const banner = await screen.findByTestId("dv-untracked");
   expect(banner.textContent || "").toContain("12");

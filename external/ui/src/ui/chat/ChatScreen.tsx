@@ -47,6 +47,7 @@ import {
   transcriptJumpDurationMs,
 } from "./transcriptScrollPosition";
 import { ScrollToBottomButton } from "./ScrollToBottomButton";
+import { openWorkspaceFile } from "../files/fileBus";
 import { TranscriptList, type TranscriptListHandle } from "./TranscriptList";
 
 export function ChatScreen(props: {
@@ -567,7 +568,9 @@ export function ChatScreen(props: {
       ? { backgroundNowMs: props.backgroundNowMs }
       : {}),
     ...(props.onOpenSession ? { onOpenSession: props.onOpenSession } : {}),
-    ...(props.onMentionArtifact ? { onMentionArtifact: props.onMentionArtifact } : {}),
+    ...(props.onMentionArtifact
+      ? { onMentionArtifact: props.onMentionArtifact }
+      : {}),
   };
 
   const mainClassName = [
@@ -668,6 +671,9 @@ export function ChatScreen(props: {
             )}
             {readOnlyNotice ?? (
               <Composer
+                onOpenFiles={
+                  props.sessionId ? () => openWorkspaceFile() : undefined
+                }
                 value={props.draft}
                 isEmpty={true}
                 providerUsage={props.providerUsage ?? null}
@@ -841,6 +847,7 @@ export function ChatScreen(props: {
                   props.onOpenChangesViewer &&
                   props.sessionId ? (
                     <SessionChangesCard
+                      key={props.sessionId}
                       sessionId={props.sessionId}
                       generating={props.generating === true}
                       toolActivity={finishedToolCalls(props.items)}
@@ -874,6 +881,9 @@ export function ChatScreen(props: {
               )}
               {readOnlyNotice ?? (
                 <Composer
+                  onOpenFiles={
+                    props.sessionId ? () => openWorkspaceFile() : undefined
+                  }
                   value={props.draft}
                   isEmpty={false}
                   providerUsage={props.providerUsage ?? null}

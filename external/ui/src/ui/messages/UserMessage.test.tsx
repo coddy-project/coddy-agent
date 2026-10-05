@@ -1,9 +1,16 @@
 import React from "react";
 import { afterEach } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 import { setEnv } from "../env/remoteEnv";
 import { UserMessage } from "./UserMessage";
+import { onOpenWorkspaceFile } from "../files/fileBus";
 
 afterEach(() => cleanup());
 
@@ -32,7 +39,12 @@ test("user bubble does not treat path slashes as skill chips without knownSkillN
 
 test("user bubble renders known skill as chip when knownSkillNames provided", () => {
   const known = new Set(["rpa-gen-rules"]);
-  render(<UserMessage content="please /rpa-gen-rules for me" knownSkillNames={known} />);
+  render(
+    <UserMessage
+      content="please /rpa-gen-rules for me"
+      knownSkillNames={known}
+    />,
+  );
   const chip = screen.getByTestId("coddy-skill-span");
   expect(chip).toHaveTextContent("/rpa-gen-rules");
   expect(chip).toHaveAttribute("data-skill-name", "rpa-gen-rules");
@@ -40,7 +52,9 @@ test("user bubble renders known skill as chip when knownSkillNames provided", ()
 
 test("user bubble does not chip /name absent from knownSkillNames", () => {
   const known = new Set(["rpa-gen-rules"]);
-  render(<UserMessage content="see /unknown-cmd here" knownSkillNames={known} />);
+  render(
+    <UserMessage content="see /unknown-cmd here" knownSkillNames={known} />,
+  );
   expect(screen.queryByTestId("coddy-skill-span")).toBeNull();
   expect(screen.getByTestId("user-message-body")).toHaveTextContent(
     "see /unknown-cmd here",
@@ -61,7 +75,7 @@ test("copy sends raw user text not display-only slash chip source", () => {
   expect(writeText).toHaveBeenCalledWith("hi /demo there");
 });
 
-test("skill and workspace mention tokens copy their literal text on click", async () => {
+test("skills copy their literal text and workspace mentions open Files", async () => {
   const writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(globalThis.navigator, "clipboard", {
     value: { writeText },
@@ -77,13 +91,30 @@ test("skill and workspace mention tokens copy their literal text on click", asyn
 
   await fireEvent.click(screen.getByTestId("user-token-skill-rpa-gen-rules"));
   expect(writeText).toHaveBeenLastCalledWith("/rpa-gen-rules");
+  const open = vi.fn();
+  const unsubscribe = onOpenWorkspaceFile(open);
   await fireEvent.click(screen.getByTestId("user-token-mention-docs_plan_md"));
-  expect(writeText).toHaveBeenLastCalledWith("@docs/plan.md");
+  expect(open).toHaveBeenCalledWith({ path: "docs/plan.md", line: undefined });
+  unsubscribe();
 });
 
 test("edit button is absent when onEdit is not provided", () => {
   render(<UserMessage content="hello" />);
   expect(screen.queryByTestId("user-message-edit")).toBeNull();
+});
+
+test("quoted workspace mentions retain spaces and a line anchor", () => {
+  const open = vi.fn();
+  const unsubscribe = onOpenWorkspaceFile(open);
+  render(<UserMessage content={'open @"notes/my file.go"#L12-L15'} />);
+  fireEvent.click(
+    screen.getByRole("button", { name: '@"notes/my file.go"#L12-L15' }),
+  );
+  expect(open).toHaveBeenCalledWith({
+    path: '"notes/my file.go"#L12-L15',
+    line: undefined,
+  });
+  unsubscribe();
 });
 
 test("edit button is visible when onEdit is provided", () => {
@@ -163,7 +194,9 @@ test("an image in the sent bubble opens the full-size asset enlarged", () => {
   const shown = document.querySelector(
     ".docs-lightbox-stage img",
   ) as HTMLImageElement | null;
-  expect(shown?.getAttribute("src")).toBe("/coddy/sessions/s1/assets/pasted-1.png");
+  expect(shown?.getAttribute("src")).toBe(
+    "/coddy/sessions/s1/assets/pasted-1.png",
+  );
 
   fireEvent.click(screen.getByTestId("docs-lightbox-close"));
   expect(document.querySelector(".docs-lightbox")).toBeNull();
@@ -203,9 +236,14 @@ test("an @coddy: mention in the sent message opens the documentation reader", ()
   const links = Array.from(document.querySelectorAll("a.coddy-doc-mention"));
   expect(links.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
     ["@coddy:operate/swarm", "#/docs/operate/swarm"],
-    ["@coddy:features/mentions#completion", "#/docs/features/mentions#completion"],
+    [
+      "@coddy:features/mentions#completion",
+      "#/docs/features/mentions#completion",
+    ],
   ]);
-  expect(screen.getByTestId("user-message-body").textContent).toContain("как настроить рой?");
+  expect(screen.getByTestId("user-message-body").textContent).toContain(
+    "как настроить рой?",
+  );
 });
 
 // The viewer renders into the body, so a transcript the SPA hides rather than
@@ -238,8 +276,14 @@ test("leaving the screen closes the picture the bubble opened", () => {
 // URL, its token in a header, never in a URL - and shown from an object URL
 // that goes when the bubble does.
 test("in a remote environment the picture comes through it, from an object URL", async () => {
-  setEnv({ mode: "remote", baseUrl: "http://relay.example/swarm/nodes/node", token: "tok" });
-  const fetchMock = vi.fn(async () => new Response(new Blob(["png"], { type: "image/png" })));
+  setEnv({
+    mode: "remote",
+    baseUrl: "http://relay.example/swarm/nodes/node",
+    token: "tok",
+  });
+  const fetchMock = vi.fn(
+    async () => new Response(new Blob(["png"], { type: "image/png" })),
+  );
   vi.stubGlobal("fetch", fetchMock);
   // jsdom has no object URLs: the test hands them out and records the release.
   let made = 0;
@@ -262,15 +306,27 @@ test("in a remote environment the picture comes through it, from an object URL",
       />,
     );
     await waitFor(() =>
-      expect(screen.getByTestId("msg-user-file-thumb")).toHaveAttribute("src", "blob:remote-1"),
+      expect(screen.getByTestId("msg-user-file-thumb")).toHaveAttribute(
+        "src",
+        "blob:remote-1",
+      ),
     );
-    const [thumbUrl, thumbInit] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(thumbUrl).toBe("http://relay.example/swarm/nodes/node/coddy/sessions/s1/assets/pasted-1.png/thumbnail");
-    expect(new Headers(thumbInit.headers).get("Authorization")).toBe("Bearer tok");
+    const [thumbUrl, thumbInit] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(thumbUrl).toBe(
+      "http://relay.example/swarm/nodes/node/coddy/sessions/s1/assets/pasted-1.png/thumbnail",
+    );
+    expect(new Headers(thumbInit.headers).get("Authorization")).toBe(
+      "Bearer tok",
+    );
 
     fireEvent.click(screen.getByLabelText("Open pasted-1.png enlarged"));
     await waitFor(() =>
-      expect(document.querySelector(".docs-lightbox-stage img")?.getAttribute("src")).toBe("blob:remote-2"),
+      expect(
+        document.querySelector(".docs-lightbox-stage img")?.getAttribute("src"),
+      ).toBe("blob:remote-2"),
     );
     expect((fetchMock.mock.calls[1] as unknown as [string])[0]).toBe(
       "http://relay.example/swarm/nodes/node/coddy/sessions/s1/assets/pasted-1.png",

@@ -1955,8 +1955,8 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary": "Roll back every file change of the session",
 					"description": "Reverses every stored turn diff of the session in its cwd: files the session edited go back to the content they had before it started, and files it created are removed. " +
-						"git is not involved, so uncommitted work in those files is lost. " +
-						"While a turn of this session is running the request yields **409** rather than rewriting files under a working agent. **`note`** reports which turns were reversed. " +
+						"git is not involved. All files are checked before writing: a later edit or a changed workspace yields **409** and preserves the recorded diffs. " +
+						"While a turn of this session is running the request also yields **409**. The rollback holds the session turn lock; **`note`** reports the number of restored files. A read or write failure yields **500** and keeps the recorded diffs for recovery. " +
 						"A **`session_changes`** event is published on **`GET /coddy/events`** so every watcher of the session re-reads the now-empty change set.",
 					"operationId": "coddySessionChangesRevert",
 					"parameters": []interface{}{
@@ -4206,6 +4206,7 @@ func openAPISpec() map[string]interface{} {
 	}
 	mergeOpenAPISchedulerDoc(&doc)
 	mergeOpenAPIMemoryDoc(&doc)
+	mergeWorkspaceViewerOpenAPI(doc)
 	return doc
 }
 

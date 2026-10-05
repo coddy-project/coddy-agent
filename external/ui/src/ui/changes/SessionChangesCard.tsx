@@ -6,7 +6,7 @@ import {
   onSessionChangesChange,
 } from "../chat/sessionChangesConfig";
 import { revertSessionChanges } from "./api";
-import { baseName, dirName, fileCountKey } from "./sessionChangesText";
+import { baseName, dirName } from "./sessionChangesText";
 import { useSessionChanges } from "./useSessionChanges";
 import { requestChangesToggle } from "./sessionChangesBus";
 import type { ChangedFile } from "./types";
@@ -19,7 +19,9 @@ const ROW_CAP = 8;
  * the same key reports "ы"; Shift and Alt variants stay the browser's.
  */
 export function isChangesHotkey(e: KeyboardEvent): boolean {
-  return (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.code === "KeyS";
+  return (
+    (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.code === "KeyS"
+  );
 }
 
 /**
@@ -44,7 +46,10 @@ function useChangesHotkey(): void {
   }, []);
 }
 
-function ChangedRow(props: { file: ChangedFile; onOpen: (path: string) => void }) {
+function ChangedRow(props: {
+  file: ChangedFile;
+  onOpen: (path: string) => void;
+}) {
   const { t } = useT();
   const file = props.file;
   const dir = dirName(file.path);
@@ -92,7 +97,7 @@ export function SessionChangesCard(props: {
   /** Opens the full review window, which shows every file at once. */
   onOpenViewer: () => void;
 }) {
-  const { t } = useT();
+  const { t, tp } = useT();
   const enabled = useSyncExternalStore(
     onSessionChangesChange,
     getSessionChangesEnabled,
@@ -107,6 +112,7 @@ export function SessionChangesCard(props: {
   useChangesHotkey();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [revertError, setRevertError] = useState("");
 
   if (!enabled || !shown) {
     return null;
@@ -115,7 +121,10 @@ export function SessionChangesCard(props: {
     // Nothing changed in this chat, so there is nothing to review - unless the
     // user asked for the card, and then the key has to visibly answer.
     return manual ? (
-      <section className="changes-card changes-card--empty" data-testid="changes-card-empty">
+      <section
+        className="changes-card changes-card--empty"
+        data-testid="changes-card-empty"
+      >
         <p className="changes-card-empty">{t("changes.empty")}</p>
       </section>
     ) : null;
@@ -135,9 +144,14 @@ export function SessionChangesCard(props: {
 
   const revert = () => {
     setBusy(true);
+    setRevertError("");
     void (async () => {
-      await revertSessionChanges(props.sessionId);
+      const result = await revertSessionChanges(props.sessionId);
       setBusy(false);
+      if (!result.ok) {
+        setRevertError(result.message);
+        return;
+      }
       setConfirming(false);
       reload();
     })();
@@ -145,9 +159,7 @@ export function SessionChangesCard(props: {
 
   const rows = changes.files.slice(0, ROW_CAP);
   const hidden = changes.files.length - rows.length;
-  const countLabel = t(fileCountKey(changes.totals.files), {
-    count: changes.totals.files,
-  });
+  const countLabel = tp("changes.card.files", changes.totals.files);
 
   return (
     <section className="changes-card" data-testid="session-changes-card">
@@ -160,7 +172,9 @@ export function SessionChangesCard(props: {
         >
           <span className="changes-card-title">{countLabel}</span>
           <span className="changes-card-stat">
-            <span className="changes-add">{"+" + changes.totals.additions}</span>
+            <span className="changes-add">
+              {"+" + changes.totals.additions}
+            </span>
             <span className="changes-del">
               {"−" + changes.totals.deletions}
             </span>
@@ -186,7 +200,10 @@ export function SessionChangesCard(props: {
                 className="changes-action"
                 disabled={busy}
                 data-testid="changes-revert-cancel"
-                onClick={() => setConfirming(false)}
+                onClick={() => {
+                  setConfirming(false);
+                  setRevertError("");
+                }}
               >
                 {t("changes.revertNo")}
               </button>
@@ -214,6 +231,11 @@ export function SessionChangesCard(props: {
           )}
         </div>
       </div>
+      {revertError ? (
+        <p role="alert" className="dv-note dv-note--error">
+          {revertError}
+        </p>
+      ) : null}
       <div className="changes-card-rows">
         {rows.map((file) => (
           <ChangedRow key={file.path} file={file} onOpen={openRow} />

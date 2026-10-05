@@ -184,6 +184,35 @@ The panel is **docked inside the session**, to the right of the transcript, rath
 - **Phones** (**`max-width: 1199px`**) give the panel the screen between the standard insets — there is no room to sit beside a transcript, and the output is what the operator came for. The cards take **12px** of padding and the output box up to **46vh**.
 - **Tasks control** (**`.chat-header-tasks`**, **`HeaderTasksControl`** in **`ChatHeader.tsx`**, **`data-testid="chat-header-tasks"`**) at the **right edge of the sticky chat header** is the opener of the panel and the one place a chat says how much runs in its background. The panel belongs to one chat, so its opener lives in that chat and not in the nav rail; the header does not scroll away, so the control stays in reach however far the reader has gone. It is there **from the first message** - a chat that has not run a task reads **`Tasks`** with a muted dot - so the header does not jump when the first task starts. Once the chat has tasks it adds **`running / total`** (**`chat-header-tasks-counts`**, tabular digits): **`Tasks 1 / 3`** with the running dot, the accent border and tint (**`is-running`**) while work is in flight, **`Tasks 0 / 3`** with the muted dot once everything has finished. Both numbers come from **`countTasks`** (**`tasks/taskStatus.ts`**), which leaves out system tasks such as the memory run of a turn: they are not work the model or the operator started. **26px** high, **12px** text, one size under the title. It carries **`aria-expanded`** for the panel and is a toggle: a second click puts the panel away. On a phone (**`max-width: 599px`**) a control that has counts drops the word and keeps the dot and the numbers (**32px** touch height); **`title`** and **`aria-label`** spell it out (**`Background tasks: 1 running, 3 in total`**). While a turn runs the **live line** names the running tasks too and opens the same panel (**`typing-dots-turn-tasks`**, see **States → Working**), and it stays at the tail with that count alone while tasks outlive the turn. Nothing is rendered under the transcript: the chip that used to sit there is gone.
 
+### Workspace file viewer
+
+The session has one right dock with **Tasks**, **Changed files** and **Files** tabs.
+`useRightDock` owns its open state, active tab and focus return; unclaimed Escape
+closes the visible dock through the same route action as its close control. A menu,
+dialog or rail screen handles its own Escape first. The tab selects the width through
+the shell's classes: Tasks 380px, Changes 560px and Files 520px. Below 1200px Files
+uses the same safe-area and top-navigation insets as the other dock faces.
+
+**`#/s/<id>/files?path=<relative-path>&line=<one-based-line>`** restores the selected
+file and line; **`#/s/<id>/changes`** restores Changes. The composer Files chip, a
+workspace mention and a file tool's path open the viewer. The session owns the root,
+including when the SPA selects a remote environment. Symlink and special-file rows
+are visible but cannot be opened. Hidden-file filtering is navigation convenience.
+
+The tree loads one directory level at a time and filters only loaded rows. The
+preview uses a 300-line window, existing syntax highlighting, wrap and line controls,
+and rendered/source Markdown. ETag revalidation on focus and completed tools reports
+changed content and resets a stale page. Raster images use bounded authenticated
+bytes (20 MiB), typed object URLs retained until the last consumer unmounts, fit/actual
+size and dimensions. Markdown resolves relative images through the same reader;
+external images require a click and send no referrer. Raw HTML remains text.
+
+Native audio and video use a signed URL scoped to the session, workspace, file,
+view/download mode and an expiry of at most one hour. PDF uses a safe download:
+the sandbox spike could not produce a usable viewer across Chromium, Firefox and
+WebKit without weakening the boundary. Mermaid and math reuse the chat's lazy
+embedded renderers and fonts; Files adds no second rendering dependency.
+
 ### Session changed files card
 
 **`external/ui/src/ui/changes/`** (**`SessionChangesCard.tsx`**, **`SessionChangesPanel.tsx`**, **`DiffViewerModal.tsx`**, REST client in **`api.ts`**, pure helpers in **`sessionChangesText.ts`**, **`diffRows.ts`**, **`fileTree.ts`**, **`diffLanguage.ts`**, **`highlightLine.ts`**).
@@ -192,7 +221,7 @@ The panel is **docked inside the session**, to the right of the transcript, rath
 - **Placement.** **`.changes-card`** sits at the **end of the transcript**, next to the subagent permission rows. It reports the net effect of the **whole session**, so it belongs below everything it describes rather than beside one turn. A session that changed nothing — including one where every change cancelled out — renders **no card**.
 - **Head** is a summary button (**`N files changed`** plus **`+A −D`**) and two actions: **Undo**, which asks for confirmation inline before rewriting anything, and **Review**. **Body** is one row per file: name, muted folder, and per-file **`+a −b`**; an added file's name takes the add colour, a deleted one is struck through. Past **8** rows the rest collapse into a **`+N more`** row.
 - **Two destinations, by question.** A **file row** asks about one file and opens the **drawer** on it. The **summary**, **Review** and **`+N more`** ask about the change set and open the **review window**. Both are reachable; neither replaces the other.
-- **Visibility follows the turn.** While the agent works the card is **hidden**. When the turn ends it waits for **`session_changes`** on the server event stream (sent once the turn's diff is on disk), then reads and shows; with no event within **4 s** it reads anyway. Reading on the stream's end raced the background capture. A failed read leaves the previous set on screen.
+- **Visibility follows the turn.** While the agent works the card is **hidden**. When the turn ends it waits for **`session_changes`** on the server event stream (sent once the turn's diff is on disk), then reads and shows; with no event within **4 s** it reads anyway. Capture finishes under the session turn lock, so the next turn cannot change the files before the delta is stored. A failed read leaves the previous set on screen.
 - **Ctrl+S / Cmd+S toggles** it at any time (**`isChangesHotkey`**: matched on **`code === "KeyS"`**, so the Russian layout works; capture-phase listener, **`preventDefault`**, key repeats ignored). Opened mid-turn it shows the finished turns plus the running turn's live diff, and re-reads **400 ms** after each finished tool call while open; hidden, it fetches nothing. Opened with nothing changed it shows one muted line (**`.changes-card-empty`**). Toggle requests closer than **150 ms** fold into one (**`sessionChangesBus.ts`**).
 - **One dock, two faces.** The drawer (**`.changes-panel`**) and the Tasks panel are tabs of one right dock: **`dockTab`** in **`App.tsx`** picks the face, a strip in the panel head (**`DockTabs`**) switches it, and opening one closes the other. The chat column's reserve is the tasks panel's own rule (**`.shell-main.shell-tasks-open`** on **`min-width: 1200px`**); the Changes face is wider (**560px** against the tasks panel's **380px**) and names that width in **`.shell-tasks-open.shell-changes-open`**, so the reserve grows to exactly the face on show. Both faces use the shared **`--coddy-glass-panel-*`** tokens. File list on top (capped at **34%** height), diff below. The diff body is **`PermissionToolPreview`** fed by **`diffPreviewFromPatch`** — the same renderer as the permission gate and the transcript foldouts — so one diff style serves the whole app, and it renders **unclipped** here because reading the whole diff is the point of the screen.
 - **Review window** (**`.dv-window`**, **`DiffViewerModal.tsx`**) is a **modal** over a scrim rather than a drawer, because two diff columns need the full width. Layout: a **toolbar**, then an optional file tree beside one scrolling document of file sections.

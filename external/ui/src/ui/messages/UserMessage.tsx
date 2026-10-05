@@ -12,8 +12,10 @@ import { MessageCopyIconButton } from "./MessageCopyIconButton";
 import { fileTypeIcon } from "./fileTypeIcon";
 import { splitDocMentions } from "../docs/docMentions";
 import { appNavHrefDocs } from "../scheduler/hashRoute";
+import { openWorkspaceFile } from "../files/fileBus";
 
-const USER_MENTION = /(^|[\s([])(@(?:[~./]|[a-zA-Z0-9_-])[\w./~:@#'"-]*)/g;
+const USER_MENTION =
+  /(^|[\s([])(@(?:"[^"\n]+"|'[^'\n]+'|(?:[~./]|[a-zA-Z0-9_-])[\w./~:@#'"-]*)(?:(?::|#L)\d+(?:-L?\d*)?)?)/g;
 
 function copyUserToken(token: string) {
   void navigator.clipboard?.writeText(token);
@@ -28,7 +30,8 @@ function copyableMentions(text: string, keyPrefix: string) {
     const lead = match[1] ?? "";
     const token = match[2] ?? "";
     const prefix = text.slice(last, match.index) + lead;
-    if (prefix) out.push(<span key={`${keyPrefix}-text-${last}`}>{prefix}</span>);
+    if (prefix)
+      out.push(<span key={`${keyPrefix}-text-${last}`}>{prefix}</span>);
     out.push(
       <button
         key={`${keyPrefix}-mention-${match.index}`}
@@ -36,14 +39,25 @@ function copyableMentions(text: string, keyPrefix: string) {
         className="msg-user-token msg-user-token--mention"
         data-testid={`user-token-mention-${token.slice(1).replace(/[^a-zA-Z0-9_-]+/g, "_")}`}
         title={token}
-        onClick={() => copyUserToken(token)}
+        onClick={() => {
+          const path = token.slice(1);
+          if (
+            (path.includes("/") ||
+              path.includes(".") ||
+              /^(README|LICENSE|CHANGELOG)(?:$|[:#])/i.test(path)) &&
+            !/^(session|rule|agent|coddy):/.test(path)
+          )
+            openWorkspaceFile(path);
+          else copyUserToken(token);
+        }}
       >
         {token}
       </button>,
     );
     last = match.index + match[0].length;
   }
-  if (last < text.length) out.push(<span key={`${keyPrefix}-tail`}>{text.slice(last)}</span>);
+  if (last < text.length)
+    out.push(<span key={`${keyPrefix}-tail`}>{text.slice(last)}</span>);
   return out.length > 0 ? out : text;
 }
 
@@ -51,11 +65,17 @@ function copyableMentions(text: string, keyPrefix: string) {
 function withDocMentions(text: string, keyPrefix: string) {
   return splitDocMentions(text).map((part, i) => {
     if (part.type === "text") {
-      return <span key={`${keyPrefix}-${i}`}>{copyableMentions(part.value, `${keyPrefix}-${i}`)}</span>;
+      return (
+        <span key={`${keyPrefix}-${i}`}>
+          {copyableMentions(part.value, `${keyPrefix}-${i}`)}
+        </span>
+      );
     }
     const cut = part.ref.indexOf("#");
     const href =
-      cut < 0 ? appNavHrefDocs(part.ref) : appNavHrefDocs(part.ref.slice(0, cut), part.ref.slice(cut + 1));
+      cut < 0
+        ? appNavHrefDocs(part.ref)
+        : appNavHrefDocs(part.ref.slice(0, cut), part.ref.slice(cut + 1));
     return (
       <a key={`${keyPrefix}-${i}`} className="coddy-doc-mention" href={href}>
         {part.literal}

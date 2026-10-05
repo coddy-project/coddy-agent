@@ -150,11 +150,16 @@ func untrackedPaths(dir string) []string {
 // it declines to read, which the caller counts as skipped.
 func readUntracked(dir, rel string) (WorkChange, bool) {
 	abs := filepath.Join(dir, filepath.FromSlash(rel))
-	info, err := os.Stat(abs)
+	info, err := os.Lstat(abs)
 	if err != nil || !info.Mode().IsRegular() || info.Size() > maxUntrackedBytes {
 		return WorkChange{}, false
 	}
-	content, err := os.ReadFile(abs)
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return WorkChange{}, false
+	}
+	defer func() { _ = root.Close() }()
+	content, err := root.ReadFile(filepath.FromSlash(rel))
 	if err != nil {
 		return WorkChange{}, false
 	}
@@ -250,7 +255,7 @@ func isLineEndingChurn(code byte, change WorkChange) bool {
 
 // changedRecords lists what changed without reading any file content.
 func changedRecords(dir string) ([]changedRecord, error) {
-	out, err := runGitRaw(dir, "diff", "HEAD", "--name-status", "-z", "-M")
+	out, err := runGitRaw(dir, "diff", "HEAD", "--name-status", "-z", "-M", "--relative", "--")
 	if err != nil {
 		return nil, err
 	}
@@ -291,7 +296,7 @@ func buildWorkChange(dir string, code byte, oldPath, newPath string) (WorkChange
 	change := WorkChange{Path: filepath.FromSlash(newPath), Status: statusForCode(code)}
 
 	if code != 'A' && code != 'C' {
-		before, err := runGitRaw(dir, "show", "HEAD:"+oldPath)
+		before, err := runGitRaw(dir, "show", "HEAD:./"+oldPath)
 		if err != nil {
 			// The blob is unreadable (a submodule entry, say). Treat the file as
 			// new rather than failing the whole scope.
@@ -301,7 +306,7 @@ func buildWorkChange(dir string, code byte, oldPath, newPath string) (WorkChange
 		}
 	}
 	if code != 'D' {
-		after, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(newPath)))
+		after, err := readWorktreeFile(dir, filepath.FromSlash(newPath))
 		if err == nil {
 			change.After = normalizeEOL(after)
 		} else if !os.IsNotExist(err) {
@@ -312,6 +317,25 @@ func buildWorkChange(dir string, code byte, oldPath, newPath string) (WorkChange
 		}
 	}
 	return change, nil
+}
+
+// A tracked symlink is its link text, like git's blob, rather than the content
+// of its target. Root also confines reads through replaced parent directories.
+func readWorktreeFile(dir, rel string) ([]byte, error) {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	info, err := root.Lstat(rel)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, err := root.Readlink(rel)
+		return []byte(target), err
+	}
+	return root.ReadFile(rel)
 }
 
 // normalizeEOL strips CR from CRLF pairs.

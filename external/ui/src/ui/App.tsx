@@ -255,6 +255,15 @@ import {
   setDocsHash,
 } from "./scheduler/hashRoute";
 import { DocsView } from "./docs/DocsView";
+import { FilesPanel } from "./files/FilesPanel";
+import { onOpenWorkspaceFile } from "./files/fileBus";
+import { relativeFilePath } from "./files/api";
+import { useRightDock, useRightDockEscape } from "./components/useRightDock";
+import { finishedToolCalls } from "./changes/toolActivity";
+import {
+  setSessionFilesHash,
+  setSessionChangesHash,
+} from "./scheduler/hashRoute";
 import { fetchDocsPage } from "./docs/api";
 import { docsCommandOpensPage } from "./docs/docsCommand";
 import { SchedulerJobEditorSheet } from "./scheduler/SchedulerJobEditorSheet";
@@ -525,7 +534,11 @@ export function App() {
   const [contextBreakdown, setContextBreakdown] = useState<NonNullable<
     SessionStats["contextBreakdown"]
   > | null>(null);
-  const [compactionSettings, setCompactionSettings] = useState({ enabled: true, autoEnabled: true, threshold: 80 });
+  const [compactionSettings, setCompactionSettings] = useState({
+    enabled: true,
+    autoEnabled: true,
+    threshold: 80,
+  });
   // A provider listing can arrive after /v1/models returned its fallback.
   // Keep the live window per session, scoped to its model and config version;
   // stats refreshes must not replace it with the earlier model-list value.
@@ -1160,12 +1173,25 @@ export function App() {
     null,
   );
   const [schedulerRunsLoading, setSchedulerRunsLoading] = useState(false);
-  const [tasksOpen, setTasksOpen] = useState(
-    () => initialRoute.branch === "session" && initialRoute.tasksOpen,
+  const {
+    open: tasksOpen,
+    setOpen: setTasksOpen,
+    tab: dockTab,
+    setTab: setDockTab,
+  } = useRightDock(
+    initialRoute.branch === "session" && initialRoute.tasksOpen,
+    initialRoute.branch === "session"
+      ? initialRoute.dockTab || "tasks"
+      : "tasks",
   );
   // Which face of the shared right dock is showing. Tasks keep every existing
   // entry point; the changed-files card asks for the Changes face.
-  const [dockTab, setDockTab] = useState<"tasks" | "changes">("tasks");
+  const [filePath, setFilePath] = useState(
+    initialRoute.branch === "session" ? initialRoute.filePath || "" : "",
+  );
+  const [fileLine, setFileLine] = useState(
+    initialRoute.branch === "session" ? initialRoute.fileLine || 1 : 1,
+  );
   // The file a card row click asked the Changes face to open on.
   const [changesPath, setChangesPath] = useState<string>("");
   // The full review window is a modal rather than a drawer: it needs the whole
@@ -2036,15 +2062,21 @@ export function App() {
     if (p.branch === "session") {
       setSettingsRoute(false);
       setActiveDraftId("");
+      const switchingSession =
+        viewedSessionIdRef.current !== p.sessionId.trim();
       viewedSessionIdRef.current = p.sessionId.trim();
       setSessionId(p.sessionId);
-      setSessionLoading(true);
+      if (switchingSession) setSessionLoading(true);
       void markCoddySessionActivityRead(p.sessionId);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen((wasOpen) =>
-        p.tasksOpen || (!isStackedShell() && wasOpen),
-      );
+      setTasksOpen((wasOpen) => p.tasksOpen || (!isStackedShell() && wasOpen));
+      if (p.dockTab === "files") {
+        setDockTab("files");
+        setFilePath(p.filePath || "");
+        setFileLine(p.fileLine || 1);
+      } else if (p.dockTab === "changes") setDockTab("changes");
+      else if (p.tasksOpen) setDockTab("tasks");
       if (p.tasksOpen && p.taskId) {
         // A link that names a task opens its card once; the address goes back to
         // saying only that the panel is showing.
@@ -5507,9 +5539,7 @@ export function App() {
       setChangesPath(path || "");
       setDockTab("changes");
       setTasksOpen(true);
-      if (isStackedShell()) {
-        setSessionTasksHash(sid);
-      }
+      setSessionChangesHash(sid);
     },
     [sessionId],
   );
@@ -5518,6 +5548,7 @@ export function App() {
     setTasksOpen(false);
     // A pointer at a task that never showed up does not wait for the next opening.
     setTasksFocus(null);
+    setSessionHashInLocation(sessionId.trim());
     if (!isStackedShell()) {
       return;
     }
@@ -5535,7 +5566,43 @@ export function App() {
         `${window.location.pathname}${window.location.search}`,
       );
     }
-  }, [sessionId, sessionsOpen]);
+  }, [sessionId, sessionsOpen, dockTab]);
+
+  const switchDockTab = (tab: "tasks" | "changes" | "files") => {
+    setDockTab(tab);
+    if (tab === "files") setSessionFilesHash(sessionId, filePath, fileLine);
+    else if (tab === "changes") setSessionChangesHash(sessionId);
+    else setSessionTasksHash(sessionId);
+  };
+
+  useEffect(
+    () =>
+      onOpenWorkspaceFile((request) => {
+        if (!sessionId.trim()) return;
+        const match = /^(.*?)(?:(?::|#L)(\d+)(?:-L?\d*)?)?$/i.exec(
+          request.path,
+        );
+        const raw = (match?.[1] || request.path).replace(
+          /^(["'])(.*)\1$/,
+          "$2",
+        );
+        const path = relativeFilePath(raw, "", workspaceCtx?.path || "");
+        if (path === null) return;
+        setSessionsOpen(false);
+        setSchedulerOpen(false);
+        setSettingsRoute(false);
+        setDockTab("files");
+        setTasksOpen(true);
+        setFilePath(path);
+        setFileLine(request.line || Number(match?.[2]) || 1);
+        setSessionFilesHash(
+          sessionId,
+          path,
+          request.line || Number(match?.[2]) || 1,
+        );
+      }),
+    [sessionId, workspaceCtx?.path],
+  );
 
   /** Opens a session in this tab: the child transcript behind an agent task,
    *  or the parent chat from a read-only notice. Same path as a History pick,
@@ -5654,9 +5721,7 @@ export function App() {
       // same-origin: the relay is then this page's origin. Without that fallback
       // the one entry point this screen exists for silently did nothing.
       const relay =
-        env.mode === "remote"
-          ? swarmRootRelay(env)
-          : window.location.origin;
+        env.mode === "remote" ? swarmRootRelay(env) : window.location.origin;
       if (!relay) {
         return;
       }
@@ -5690,9 +5755,7 @@ export function App() {
         return;
       }
       const relay =
-        env.mode === "remote"
-          ? swarmRootRelay(env)
-          : window.location.origin;
+        env.mode === "remote" ? swarmRootRelay(env) : window.location.origin;
       if (!relay) {
         return;
       }
@@ -5924,6 +5987,11 @@ export function App() {
     settingsRoute ||
     swarmRoute ||
     docsRoute !== null;
+
+  useRightDockEscape(
+    dockOpen && !shellBackdropOpen && !changesViewerOpen,
+    closeTasksDrawer,
+  );
 
   const filteredSchedulerJobs = useMemo(() => {
     const q = schedulerFilterQ.trim().toLowerCase();
@@ -6389,6 +6457,7 @@ export function App() {
           sessionsOpen ? "shell-history-open" : "",
           dockOpen ? "shell-tasks-open" : "",
           dockOpen && dockTab === "changes" ? "shell-changes-open" : "",
+          dockOpen && dockTab === "files" ? "shell-files-open" : "",
         ]
           .filter(Boolean)
           .join(" ")}
@@ -6570,27 +6639,40 @@ export function App() {
         ) : null}
         {changesViewerOpen && sessionId.trim() ? (
           <DiffViewerModal
+            key={sessionId}
             open
             sessionId={sessionId}
             onClose={() => setChangesViewerOpen(false)}
           />
         ) : null}
         {dockOpen ? (
-          dockTab === "changes" ? (
+          dockTab === "files" ? (
+            <FilesPanel
+              key={`${sessionId}:${workspaceCtx?.path || ""}`}
+              sessionId={sessionId}
+              initialPath={filePath}
+              initialLine={fileLine}
+              toolActivity={finishedToolCalls(transcriptItems)}
+              onTab={switchDockTab}
+              onNavigate={(path, line) =>
+                setSessionFilesHash(sessionId, path, line)
+              }
+              onClose={closeTasksDrawer}
+            />
+          ) : dockTab === "changes" ? (
             <SessionChangesPanel
+              key={sessionId}
               open
               sessionId={sessionId}
               initialPath={changesPath || undefined}
               dockTab={dockTab}
-              onDockTab={setDockTab}
+              onDockTab={switchDockTab}
               onClose={closeTasksDrawer}
             />
           ) : (
             <BackgroundTasksPanel
               open
-              headAddon={
-                <DockTabs tab={dockTab} onTab={setDockTab} />
-              }
+              headAddon={<DockTabs tab={dockTab} onTab={switchDockTab} />}
               focus={
                 tasksFocus && tasksFocus.sid === sessionId.trim()
                   ? tasksFocus
@@ -6707,8 +6789,8 @@ export function App() {
             settingsOverrides={settingsOverrides}
             onDraftChange={setDraft}
             onMentionArtifact={(path: string) =>
-              setDraft((current) =>
-                `${current}${current.trim() ? " " : ""}@${path}`,
+              setDraft(
+                (current) => `${current}${current.trim() ? " " : ""}@${path}`,
               )
             }
             generating={generating}

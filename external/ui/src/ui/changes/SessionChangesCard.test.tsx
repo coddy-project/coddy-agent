@@ -1,6 +1,13 @@
 import React from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { SessionChangesCard } from "./SessionChangesCard";
 import { setSessionChangesEnabled } from "../chat/sessionChangesConfig";
 import {
@@ -94,7 +101,11 @@ function renderCard(overrides: Partial<CardProps> = {}) {
 }
 
 function pressKey(init: KeyboardEventInit): KeyboardEvent {
-  const ev = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init });
+  const ev = new KeyboardEvent("keydown", {
+    bubbles: true,
+    cancelable: true,
+    ...init,
+  });
   act(() => {
     window.dispatchEvent(ev);
   });
@@ -117,7 +128,9 @@ test("the card summarises the session and lists its files", async () => {
   expect(card).toHaveTextContent("2 files changed");
   expect(card).toHaveTextContent("+142");
   expect(card).toHaveTextContent("−2");
-  expect(screen.getByTestId("changes-row-src/02-game.js")).toHaveTextContent("+8");
+  expect(screen.getByTestId("changes-row-src/02-game.js")).toHaveTextContent(
+    "+8",
+  );
 });
 
 test("a session that changed nothing renders no card", async () => {
@@ -355,4 +368,26 @@ test("with the card switched off Ctrl+S shows nothing", async () => {
   await new Promise((r) => setTimeout(r, 50));
   expect(screen.queryByTestId("session-changes-card")).toBeNull();
   expect(fetchMock).not.toHaveBeenCalled();
+});
+
+test("a refused rollback shows its error and keeps the confirmation open", async () => {
+  fetchMock.mockImplementation(async (path: string) =>
+    path.endsWith("/revert")
+      ? {
+          ok: false,
+          status: 409,
+          json: async () => ({
+            error: { message: "a.txt changed after this turn" },
+          }),
+        }
+      : jsonResponse(CHANGES),
+  );
+  renderCard();
+  await screen.findByTestId("session-changes-card");
+  fireEvent.click(screen.getByTestId("changes-revert"));
+  fireEvent.click(screen.getByTestId("changes-revert-confirm"));
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "a.txt changed after this turn",
+  );
+  expect(screen.getByTestId("changes-revert-confirm")).not.toBeDisabled();
 });

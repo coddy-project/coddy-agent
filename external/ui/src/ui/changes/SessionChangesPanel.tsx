@@ -3,8 +3,9 @@ import { useT } from "../i18n/I18nProvider";
 import { PermissionToolPreview } from "../chat/PermissionPromptPreview";
 import { diffPreviewFromPatch } from "../chat/permissionToolPreview";
 import { DockTabs } from "../components/DockTabs";
+import type { RightDockTab } from "../components/useRightDock";
 import { fetchSessionChangeFile, fetchSessionChanges } from "./api";
-import { baseName, dirName, fileCountKey, statusKey } from "./sessionChangesText";
+import { baseName, dirName, statusKey } from "./sessionChangesText";
 import { EMPTY_SESSION_CHANGES, type SessionChanges } from "./types";
 
 /**
@@ -22,16 +23,17 @@ export function SessionChangesPanel(props: {
   /** Preselects one file, e.g. when the user clicked its row on the card. */
   initialPath?: string | undefined;
   /** Which face of the shared dock is showing; defaults to this one. */
-  dockTab?: "tasks" | "changes";
+  dockTab?: RightDockTab;
   /** Asks the shell to show the other dock face. */
-  onDockTab?: (tab: "tasks" | "changes") => void;
+  onDockTab?: (tab: RightDockTab) => void;
   onClose: () => void;
 }) {
-  const { t } = useT();
+  const { t, tp } = useT();
   const [changes, setChanges] = useState<SessionChanges>(EMPTY_SESSION_CHANGES);
   const [selected, setSelected] = useState<string>(props.initialPath || "");
   const [patch, setPatch] = useState<string>("");
   const [detailError, setDetailError] = useState<string>("");
+  const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const { open, sessionId, initialPath } = props;
@@ -64,8 +66,10 @@ export function SessionChangesPanel(props: {
   }, [open, sessionId, initialPath]);
 
   useEffect(() => {
+    setPatch("");
+    setTruncated(false);
+    setDetailError("");
     if (!open || !sessionId.trim() || !selected) {
-      setPatch("");
       return;
     }
     let cancelled = false;
@@ -77,6 +81,7 @@ export function SessionChangesPanel(props: {
       }
       if (res.ok) {
         setPatch(res.data.patch || "");
+        setTruncated(res.data.truncated);
       } else {
         setPatch("");
         setDetailError(res.message);
@@ -120,9 +125,7 @@ export function SessionChangesPanel(props: {
       </div>
 
       <div className="changes-panel-summary">
-        <span>
-          {t(fileCountKey(changes.totals.files), { count: changes.totals.files })}
-        </span>
+        <span>{tp("changes.card.files", changes.totals.files)}</span>
         <span className="changes-card-stat">
           <span className="changes-add">{"+" + changes.totals.additions}</span>
           <span className="changes-del">{"−" + changes.totals.deletions}</span>
@@ -153,7 +156,9 @@ export function SessionChangesPanel(props: {
                 ) : null}
               </span>
               {file.binary ? (
-                <span className="changes-row-binary">{t("changes.binary")}</span>
+                <span className="changes-row-binary">
+                  {t("changes.binary")}
+                </span>
               ) : (
                 <span className="changes-row-stat">
                   <span className="changes-add">{"+" + file.additions}</span>
@@ -174,10 +179,12 @@ export function SessionChangesPanel(props: {
               it next to the line counts. */}
           {current ? (
             <div className="changes-diff-head">
-              <span className={"changes-badge changes-badge--" + current.status}>
+              <span
+                className={"changes-badge changes-badge--" + current.status}
+              >
                 {t(statusKey(current.status))}
               </span>
-              {current.truncated ? (
+              {truncated || current.truncated ? (
                 <span className="changes-badge changes-badge--truncated">
                   {t("changes.truncated")}
                 </span>

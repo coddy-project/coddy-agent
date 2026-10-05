@@ -4,18 +4,12 @@ import {
   parseDiffPatch,
   type ParsedDiffLine,
 } from "../messages/parseDiff";
-import {
-  buildTodoToolPreview,
-  type TodoPlanEntry,
-} from "./todoToolPreview";
+import { buildTodoToolPreview, type TodoPlanEntry } from "./todoToolPreview";
 import { permissionPromptDetail } from "./permissionPromptDisplay";
 import type { CoddyPermissionPayload } from "./permissionTypes";
 import { permissionBodyText } from "./permissionTypes";
 import { parseLoadSkillName } from "./loadSkillDisplay";
-import {
-  parseMcpToolName,
-  toolDisplayName,
-} from "../messages/toolDisplayName";
+import { parseMcpToolName, toolDisplayName } from "../messages/toolDisplayName";
 import { t, tp } from "../i18n/i18n";
 
 export type PermissionToolCallContext = {
@@ -32,6 +26,7 @@ type PermissionPreviewBase = {
   header: string;
   meta: string[];
   copyText: string;
+  line?: number;
 };
 
 export type PermissionToolPreview =
@@ -233,7 +228,9 @@ export function toolCallTargetText(context: PermissionToolCallContext): string {
  * row names. Kept apart from `toolCallTargetText`, which stays the path alone for
  * the live status line and for `relativeToolTarget`.
  */
-export function toolCallTargetRange(context: PermissionToolCallContext): string {
+export function toolCallTargetRange(
+  context: PermissionToolCallContext,
+): string {
   const toolName = (
     normalizedToolName(context.title) ||
     normalizedToolName(context.kind) ||
@@ -704,6 +701,7 @@ export function buildToolCallPreview(
       meta,
       copyText: stringArg(args, "path"),
       kind: "path",
+      line: Math.max(1, offset),
     };
   }
 

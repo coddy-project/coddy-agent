@@ -36,6 +36,14 @@ Feature: Reviewing what a session changed
     Then 1 file is reported as changed with 1 addition and 0 deletions
     And "extra.txt" is reported as "added"
 
+  Scenario: A later read-only turn has an empty last-turn scope
+    When the agent runs a turn that writes "notes.txt" as "one\nTWO\nthree\n"
+    And the agent runs a turn without editing files
+    And I ask what the last turn changed
+    Then no files are reported as changed
+    When I ask what the session changed
+    Then "notes.txt" is reported as "modified"
+
   Scenario: The viewer reads the diff of one file
     When the agent runs a turn that writes "notes.txt" as "one\nTWO\nthree\n"
     And I open the diff for "notes.txt"

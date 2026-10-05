@@ -15392,7 +15392,6 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   margin: 4px 8px;
   background: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
 }
-++ b/external/ui/src/styles.css
 /* ── Session changed-files card and viewer ─────────────────────────────────
    The card summarises what the whole session did to the workspace, so it sits
    at the bottom of the transcript next to the background tasks chip: both
@@ -15610,6 +15609,94 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   backdrop-filter: var(--coddy-glass-panel-backdrop);
   box-shadow: var(--coddy-glass-panel-shadow);
   overflow: hidden;
+}
+
+/* The workspace reader shares the Tasks/Changes dock and the grid's breakpoint. */
+.files-panel {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  bottom: 14px;
+  width: min(520px, calc(100vw - 32px));
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  box-sizing: border-box;
+  border-radius: var(--coddy-glass-panel-radius);
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  overflow: hidden;
+}
+.files-panel-head { flex: 0 0 auto; }
+.files-tree-tools, .files-text-tools, .files-preview-head, .files-meta, .files-pages {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  flex-wrap: wrap;
+}
+.files-tree-tools input[type="text"], .files-tree-tools input:not([type]) { min-width: 0; flex: 1; }
+.files-tree-tools label, .files-text-tools label { display: inline-flex; align-items: center; gap: 4px; }
+.files-tree { flex: 0 1 28%; overflow: auto; min-height: 72px; border-bottom: 1px solid var(--coddy-glass-panel-border); }
+.files-tree-row { display: block; width: 100%; text-align: left; padding: 5px 10px; border: 0; background: none; color: inherit; overflow-wrap: anywhere; cursor: pointer; }
+.files-tree-row.is-active, .files-code > .is-active { background: rgb(100 150 255 / 14%); }
+.files-tree-row:disabled { opacity: .5; cursor: default; }
+.files-preview { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: auto; padding-bottom: 16px; }
+.files-tree, .files-preview { overscroll-behavior: contain; }
+.files-preview > p, .files-preview > .md { margin: 12px; }
+.files-preview-head strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.files-meta { font-size: 11px; opacity: .7; padding-top: 0; }
+.files-changed { color: var(--accent); }
+.files-text-tools input[type="number"] { width: 72px; }
+.files-code { font: 12px/1.55 var(--font-mono); min-width: 100%; width: max-content; }
+.files-code > div { display: flex; }
+.files-code code { white-space: pre; flex: 1; min-width: 0; }
+.files-code--wrap { width: 100%; }
+.files-code--wrap code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.files-line-no { flex: 0 0 48px; color: var(--text-muted); text-align: right; padding-right: 12px; user-select: none; }
+.files-image { display: block; padding: 12px; overflow: auto; background: repeating-conic-gradient(rgb(127 127 127 / 8%) 0% 25%, transparent 0% 50%) 50% / 16px 16px; }
+.files-image img { display: block; max-width: 100%; height: auto; margin: 8px auto; }
+.files-image--full img { max-width: none; }
+.files-preview-head button, .files-text-tools > button, .files-pages button, .files-image > button, .files-action {
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 6px;
+  background: var(--coddy-glass-panel-bg);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.files-panel button:disabled { opacity: .5; cursor: default; }
+.files-tree-tools input:not([type]), .files-text-tools input[type="number"] {
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 6px;
+  background: var(--coddy-glass-panel-bg);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 8px;
+}
+.files-tree-tools, .files-text-tools { font-size: 12px; }
+.files-image-dimensions { margin-left: 8px; font-size: 11px; color: var(--text-muted); }
+.files-preview audio, .files-preview video { display: block; max-width: calc(100% - 24px); margin: 12px; }
+.files-open-path { background: none; border: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; text-align: left; }
+.files-open-path:hover { text-decoration: underline; }
+@media (min-width: 1200px) {
+  .shell-main.shell-tasks-open.shell-files-open { --coddy-tasks-panel-band: calc(min(520px, 100vw - 32px) + 14px + 12px); }
+}
+@media (max-width: 1199px) {
+  .files-panel {
+    top: calc(var(--coddy-mobile-top-inset) + 6px);
+    left: max(10px, env(safe-area-inset-left, 0px));
+    right: max(10px, env(safe-area-inset-right, 0px));
+    bottom: max(14px, env(safe-area-inset-bottom, 0px));
+    width: auto;
+    z-index: 70;
+  }
 }
 
 /* Same deal as the tasks panel: the chat column gives up the width instead of
@@ -16210,7 +16297,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 
 /* Narrow shells ------------------------------------------------------------- */
 
-@media (max-width: 899px) {
+@media (max-width: 1199px) {
   .dv-backdrop {
     padding: 0;
   }

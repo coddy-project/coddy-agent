@@ -26,7 +26,15 @@ async function parseJson<T>(res: Response): Promise<ChangesApiResult<T>> {
       message: await readErrorMessage(res),
     };
   }
-  return { ok: true, data: (await res.json()) as T };
+  try {
+    return { ok: true, data: (await res.json()) as T };
+  } catch {
+    return {
+      ok: false,
+      status: res.status,
+      message: t("changes.invalidResponse"),
+    };
+  }
 }
 
 /**

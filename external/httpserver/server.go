@@ -5,6 +5,7 @@ package httpserver
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,6 +37,7 @@ var errInvalidSessionHeader = errors.New("invalid X-Coddy-Session-ID")
 
 // Server serves OpenAI-compatible HTTP endpoints.
 type Server struct {
+	workspaceMediaKey    string
 	cfgAt                atomic.Pointer[config.Config]
 	mgr                  *session.Manager
 	log                  *slog.Logger
@@ -170,6 +172,7 @@ func (s *Server) Drain() {
 // server, and so does one the manager made before the server subscribed.
 func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD string) *Server {
 	s := &Server{
+		workspaceMediaKey:    rand.Text(),
 		mgr:                  mgr,
 		log:                  log,
 		defaultCWD:           defaultCWD,
@@ -682,7 +685,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		wireBridgeSession(bridge, st)
 		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, SurfaceSystemPrompt: surfacePromptFromHTTP(req.Metadata)}
-		beforeSnap := session.TakeWorkspaceSnapshot(st.GetCWD())
+		beforeSnap := s.snapshotTurnWorkspace(st)
 		// The changed-files card, opened mid-turn, compares against this snapshot.
 		live := s.beginLiveTurn(sessionID, st.GetCWD(), beforeSnap)
 		turnsBefore := session.CountUserTurns(st.GetMessages())
@@ -1270,7 +1273,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		// See the /v1/chat/completions path: a blocking model's turn is silent on the
 		// wire until it finishes, and idle proxies drop a stream that says nothing.
-		beforeSnap2 := session.TakeWorkspaceSnapshot(st.GetCWD())
+		beforeSnap2 := s.snapshotTurnWorkspace(st)
 		// The changed-files card, opened mid-turn, compares against this snapshot.
 		live2 := s.beginLiveTurn(sid, st.GetCWD(), beforeSnap2)
 		turnsBefore2 := session.CountUserTurns(st.GetMessages())

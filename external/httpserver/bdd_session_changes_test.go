@@ -52,8 +52,9 @@ type sessionChangesState struct {
 		path    string
 		content string
 	}
-	files []changedFileRow
-	one   changedFileRow
+	files     []changedFileRow
+	one       changedFileRow
+	lastScope string
 
 	// A held turn writes its file, then waits on holdTurn until the scenario
 	// lets it finish; turnWrote says the write is done, turnDone carries the
@@ -86,6 +87,7 @@ func (s *sessionChangesState) reset() error {
 	s.sessionID = ""
 	s.files = nil
 	s.one = changedFileRow{}
+	s.lastScope = ""
 	s.pendingWrite.path = ""
 	s.holdTurn, s.turnWrote, s.turnDone = nil, nil, nil
 	s.events, s.unsubscribeEvents = nil, nil
@@ -172,8 +174,7 @@ func (s *sessionChangesState) workspaceContains(name, content string) error {
 	return os.WriteFile(filepath.Join(s.workspace, name), []byte(gherkinText(content)), 0o644)
 }
 
-// runTurn sends a prompt and waits for the workspace diff of that turn to land:
-// the capture runs on a background goroutine, so the card would otherwise race it.
+// runTurn sends a prompt and verifies its stored workspace diff.
 func (s *sessionChangesState) runTurn(name, content string) error {
 	s.pendingWrite.path = name
 	s.pendingWrite.content = gherkinText(content)
@@ -294,6 +295,7 @@ func (s *sessionChangesState) askWhatChanged() error {
 // askWhatChangedInScope reads the change set the review window would show for
 // one scope; an empty scope exercises the default the card uses.
 func (s *sessionChangesState) askWhatChangedInScope(scope string) error {
+	s.lastScope = scope
 	url := s.ts.URL + "/coddy/sessions/" + s.sessionID + "/changes"
 	if scope != "" {
 		url += "?scope=" + scope
@@ -359,7 +361,7 @@ func (s *sessionChangesState) rollBack() error {
 }
 
 func (s *sessionChangesState) noFilesChanged() error {
-	if err := s.askWhatChanged(); err != nil {
+	if err := s.askWhatChangedInScope(s.lastScope); err != nil {
 		return err
 	}
 	if len(s.files) != 0 {
@@ -436,6 +438,7 @@ func initializeSessionChangesScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a running coddy HTTP server with a workspace$`, s.startServer)
 	sc.Step(`^the workspace contains "([^"]+)" with "([^"]*)"$`, s.workspaceContains)
 	sc.Step(`^the agent runs a turn that writes "([^"]+)" as "([^"]*)"$`, s.runTurn)
+	sc.Step(`^the agent runs a turn without editing files$`, func() error { return s.runTurn("", "") })
 	sc.Step(`^the agent writes "([^"]+)" as "([^"]*)" and keeps working$`, s.startHeldTurn)
 	sc.Step(`^the running turn finishes$`, s.finishHeldTurn)
 	sc.Step(`^a client listening for server events$`, s.listenForServerEvents)

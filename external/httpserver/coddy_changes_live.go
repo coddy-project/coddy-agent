@@ -16,6 +16,16 @@ import (
 // at most once per finished tool call, further apart than this.
 const liveDiffTTL = 300 * time.Millisecond
 
+func (s *Server) snapshotTurnWorkspace(st *session.State) *session.WorkspaceSnapshot {
+	// A configured session store may live inside the workspace. Capturing its
+	// own transcript and diffs recursively would record bookkeeping as edits.
+	var storeRoot string
+	if store := s.mgr.FileStore(); store != nil {
+		storeRoot = store.Root
+	}
+	return session.TakeWorkspaceSnapshot(st.GetCWD(), storeRoot, st.GetPersistedSessionDir())
+}
+
 // liveTurn is a turn this process is running: the workspace it runs in and the
 // snapshot taken before it started. It lets the changed-files card, opened
 // mid-turn, report what the turn has already written - the turn's own diff is
@@ -92,8 +102,8 @@ func (s *Server) liveTurnDiff(sessionID string) (*session.WorkspaceDiff, bool) {
 // told apart by the user-turn count, which only a turn that reached the agent
 // moves; a diff taken for it would file whatever else changed in the folder
 // under the previous turn's number.
-func (s *Server) settleTurnDiff(st *session.State, before *session.WorkspaceSnapshot, live *liveTurn, turnsBefore int, runErr error) {
-	if runErr != nil && session.CountUserTurns(st.GetMessages()) <= turnsBefore {
+func (s *Server) settleTurnDiff(st *session.State, before *session.WorkspaceSnapshot, live *liveTurn, turnsBefore int, _ error) {
+	if session.CountUserTurns(st.GetMessages()) <= turnsBefore {
 		id := st.GetID()
 		s.endLiveTurn(id, live)
 		s.publishSessionChanges(id)
@@ -102,9 +112,9 @@ func (s *Server) settleTurnDiff(st *session.State, before *session.WorkspaceSnap
 	s.captureAndStoreTurnDiff(st, before, live)
 }
 
-// captureAndStoreTurnDiff asynchronously computes the workspace diff against the
-// pre-turn snapshot and stores it in the session directory.
-// It runs in a goroutine to avoid blocking the HTTP response.
+// captureAndStoreTurnDiff computes and stores the diff while the caller still
+// holds the session turn lock. A later turn or rollback must not change either
+// the workspace or the turn number before this capture has finished.
 //
 // The turn's live entry is retired only once the diff is on disk, and then the
 // clients are told the change set settled: a card that reads in between still
@@ -114,25 +124,23 @@ func (s *Server) captureAndStoreTurnDiff(st *session.State, before *session.Work
 	id := st.GetID()
 	sd := strings.TrimSpace(st.GetPersistedSessionDir())
 	cwd := strings.TrimSpace(st.GetCWD())
+	if live != nil {
+		cwd = live.cwd
+	}
 	if sd == "" || cwd == "" {
 		s.endLiveTurn(id, live)
 		s.publishSessionChanges(id)
 		return
 	}
-	s.bgWG.Add(1)
-	go func() {
-		defer s.bgWG.Done()
-		// Deferred calls run last-in first-out: retire, then announce.
-		defer s.publishSessionChanges(id)
-		defer s.endLiveTurn(id, live)
-		turnN := session.CountUserTurns(st.GetMessages())
-		diff, err := session.ComputeWorkspaceDiff(cwd, before)
-		if err != nil {
-			s.log.Warn("compute workspace diff", "turn", turnN, "error", err)
-			return
-		}
-		if err := session.StoreWorkspaceDiff(sd, turnN, diff); err != nil {
-			s.log.Warn("store workspace diff", "turn", turnN, "error", err)
-		}
-	}()
+	defer s.publishSessionChanges(id)
+	defer s.endLiveTurn(id, live)
+	turnN := session.CountUserTurns(st.GetMessages())
+	diff, err := session.ComputeWorkspaceDiff(cwd, before)
+	if err != nil {
+		s.log.Warn("compute workspace diff", "turn", turnN, "error", err)
+		return
+	}
+	if err := session.StoreWorkspaceDiff(sd, turnN, diff); err != nil {
+		s.log.Warn("store workspace diff", "turn", turnN, "error", err)
+	}
 }

@@ -312,8 +312,17 @@ export type QueueMode = "steer" | "after_turn";
  * list is published to every client on every change of the queue. The bytes
  * come back only to the client that takes the message back.
  */
-export type QueuedImage = { name?: string; mimeType?: string; sizeBytes?: number };
-export type QueuedMessage = { id: string; text: string; mode?: QueueMode; imageParts?: QueuedImage[] };
+export type QueuedImage = {
+  name?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+};
+export type QueuedMessage = {
+  id: string;
+  text: string;
+  mode?: QueueMode;
+  imageParts?: QueuedImage[];
+};
 
 /** The mode a queued message goes in when Tab sends it instead of Enter. */
 export function oppositeQueueMode(mode: QueueMode): QueueMode {
@@ -347,7 +356,6 @@ const MODE_TAB_CLASS: Record<string, string> = {
   plan: "mode-plan",
   ask: "mode-ask",
 };
-
 
 /**
  * The command group of the / menu: the server's rows, plus the commands this
@@ -412,7 +420,9 @@ export function Composer(props: {
   contextPct?: number;
   maxContextTokens?: number;
   contextBreakdown?: ContextBreakdown | null;
-  compactionSettings?: { enabled: boolean; autoEnabled: boolean; threshold: number } | undefined;
+  compactionSettings?:
+    | { enabled: boolean; autoEnabled: boolean; threshold: number }
+    | undefined;
   onContextCompacted?: (() => void) | undefined;
   /** Fired when the user opens the context breakdown popover (refresh stats). */
   onContextRingOpen?: () => void;
@@ -462,6 +472,7 @@ export function Composer(props: {
   onWorkspacePickFolder?: (path: string) => void;
   onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
   onWorktreeToggle?: () => void;
+  onOpenFiles?: (() => void) | undefined;
 }) {
   const { t, tp } = useT();
   const isMobileShell = useSyncExternalStore(
@@ -482,9 +493,7 @@ export function Composer(props: {
   const permissionChipRef = useRef<HTMLButtonElement | null>(null);
   const [menuOpen, setMenuOpen] = useState<
     "mode" | "llm" | "reasoning" | "permission" | null
-  >(
-    null,
-  );
+  >(null);
   /** Screen rect of the open trigger, so the portaled menu (frosted glass over chat) can anchor to it. */
   const [menuAnchorRect, setMenuAnchorRect] = useState<DOMRect | null>(null);
   /** Live query for the model menu filter (only meaningful while `menuOpen === "llm"`). */
@@ -518,7 +527,9 @@ export function Composer(props: {
    * key it was sent with is remembered: a message sent with Tab still goes in
    * the other mode once the answer is in, as it does in the console.
    */
-  const [queueChoice, setQueueChoice] = useState<{ alternate: boolean } | null>(null);
+  const [queueChoice, setQueueChoice] = useState<{ alternate: boolean } | null>(
+    null,
+  );
   /**
    * While a turn runs, a draft with text in it is a follow-up, not a Stop: the
    * primary action queues it for the turn to read at its next step. An empty
@@ -782,7 +793,10 @@ export function Composer(props: {
     if (argDraft.kind === "flag") {
       return COMPACT_FLAGS.filter((f) => f.startsWith(argDraft.prefix));
     }
-    return filterLlmModels(orderLlmModels(props.llmModels ?? []), argDraft.prefix);
+    return filterLlmModels(
+      orderLlmModels(props.llmModels ?? []),
+      argDraft.prefix,
+    );
   }, [argDraft, props.llmModels]);
   const argOpen =
     argDraft.open &&
@@ -1553,7 +1567,10 @@ export function Composer(props: {
     }
     const timer = window.setTimeout(() => {
       const scope = workspaceScope(props.sessionId, props.workspacePath);
-      const query = applyWorkspaceQuery(new URLSearchParams(), scope).toString();
+      const query = applyWorkspaceQuery(
+        new URLSearchParams(),
+        scope,
+      ).toString();
       void fetch(`/coddy/mentions/check${query ? `?${query}` : ""}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...scope.headers },
@@ -1670,7 +1687,8 @@ export function Composer(props: {
       case "reasoning":
       case "effort":
         return reasoningChipRef.current
-          ? () => toggleMenu("reasoning", reasoningChipRef.current as HTMLElement)
+          ? () =>
+              toggleMenu("reasoning", reasoningChipRef.current as HTMLElement)
           : null;
       case "permissions":
         return props.onPermissionModeChange && permissionChipRef.current
@@ -2350,9 +2368,7 @@ export function Composer(props: {
                   }}
                 >
                   <span className="slash-row-line">
-                    <span
-                      className={`mention-kind mention-kind--${row.kind}`}
-                    >
+                    <span className={`mention-kind mention-kind--${row.kind}`}>
                       {mentionKindLabel(row.kind)}
                     </span>
                     <span className="slash-row-name">
@@ -2593,10 +2609,21 @@ export function Composer(props: {
                   type="button"
                   className="composer-queue-mode"
                   data-testid={`composer-queue-mode-${q.id}`}
-                  title={q.mode === "after_turn" ? t("composer.queueModeAfterTurnTitle") : t("composer.queueModeSteerTitle")}
-                  onClick={() => props.onSetQueuedMode?.(q.id, oppositeQueueMode(q.mode ?? "steer"))}
+                  title={
+                    q.mode === "after_turn"
+                      ? t("composer.queueModeAfterTurnTitle")
+                      : t("composer.queueModeSteerTitle")
+                  }
+                  onClick={() =>
+                    props.onSetQueuedMode?.(
+                      q.id,
+                      oppositeQueueMode(q.mode ?? "steer"),
+                    )
+                  }
                 >
-                  {q.mode === "after_turn" ? t("composer.queueModeAfterTurn") : t("composer.queueModeSteer")}
+                  {q.mode === "after_turn"
+                    ? t("composer.queueModeAfterTurn")
+                    : t("composer.queueModeSteer")}
                 </button>
                 <button
                   type="button"
@@ -2613,10 +2640,19 @@ export function Composer(props: {
           </ul>
         ) : null}
         {queueChoice ? (
-          <div className="composer-queue-choice" role="group" aria-label={t("composer.queueChoiceLabel")} data-testid="composer-queue-choice">
+          <div
+            className="composer-queue-choice"
+            role="group"
+            aria-label={t("composer.queueChoiceLabel")}
+            data-testid="composer-queue-choice"
+          >
             <span>{t("composer.queueChoiceQuestion")}</span>
-            <button type="button" onClick={() => chooseQueueMode("steer")}>{t("composer.queueChoiceSteer")}</button>
-            <button type="button" onClick={() => chooseQueueMode("after_turn")}>{t("composer.queueChoiceAfterTurn")}</button>
+            <button type="button" onClick={() => chooseQueueMode("steer")}>
+              {t("composer.queueChoiceSteer")}
+            </button>
+            <button type="button" onClick={() => chooseQueueMode("after_turn")}>
+              {t("composer.queueChoiceAfterTurn")}
+            </button>
           </div>
         ) : null}
         <div
@@ -2658,7 +2694,18 @@ export function Composer(props: {
                 sideways-scrolling box on a phone (styles.css). */}
             <div className="composer-context-scroll">
               <EnvironmentChip />
-              {props.workspaceCtx !== undefined && props.onWorkspacePickFolder ? (
+              {props.onOpenFiles ? (
+                <button
+                  type="button"
+                  className="workspace-chip"
+                  onClick={props.onOpenFiles}
+                  data-testid="composer-files"
+                >
+                  {t("files.title")}
+                </button>
+              ) : null}
+              {props.workspaceCtx !== undefined &&
+              props.onWorkspacePickFolder ? (
                 <WorkspaceChips
                   context={props.workspaceCtx ?? null}
                   worktreePref={props.worktreePref ?? false}
@@ -2743,7 +2790,9 @@ export function Composer(props: {
             </div>
           ) : null}
           <div className="composer-field-wrap" ref={composerFieldWrapRef}>
-            <div className={`composer-stack${codeFenceEditing ? " composer-code-editing" : ""}`}>
+            <div
+              className={`composer-stack${codeFenceEditing ? " composer-code-editing" : ""}`}
+            >
               {maskComposerText ? (
                 <div className="composer-mirror" aria-hidden="true">
                   <div
@@ -3013,7 +3062,12 @@ export function Composer(props: {
                     !ev.metaKey
                   ) {
                     ev.preventDefault();
-                    queueDraft(props.queueMode ? oppositeQueueMode(props.queueMode) : undefined, true);
+                    queueDraft(
+                      props.queueMode
+                        ? oppositeQueueMode(props.queueMode)
+                        : undefined,
+                      true,
+                    );
                     return;
                   }
                   const enterAction = composerEnterAction(

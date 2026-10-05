@@ -1,7 +1,8 @@
 # Plan: workspace file viewer panel
 
-Status: design record written 2026-09-08 on branch `claude/rpa-file-viewer-ui-2bf4d3`,
-not implemented. Cross-reviewed by Codex (`gpt-5.6-sol`), Cursor Agent (`auto`) and
+Status: stages 1–5 implemented on 2026-10-06, with the operator-approved PDF
+download fallback. The original design record was written 2026-09-08 on branch
+`claude/rpa-file-viewer-ui-2bf4d3`. Cross-reviewed by Codex (`gpt-5.6-sol`), Cursor Agent (`auto`) and
 Coddy (`neuraldeep/qwen3.8-27b`); every finding was re-verified against the code
 before being accepted or rejected, and section 2 records the ones that did not hold.
 
@@ -327,3 +328,41 @@ SPA at a second `coddy http` and asserts an image actually renders.
 - PDF: accept the cross-browser sandbox spike, or ship PDF as download-only?
 - Separate untrusted-content origin: accept the deployment cost for the stronger boundary, or
   stay with forced attachment plus regression tests?
+
+## 13. Implementation decisions and verification
+
+Stages 1–3 use session-scoped tree/raw/text/media-token endpoints, `os.Root`,
+nonblocking Unix opens and post-open regular-file checks. The line API fixes offset
+at zero-based and the displayed line at one-based. ETags are weak metadata validators;
+reading checks the current pathname too, so an atomic replacement cannot silently
+continue a previous page. Capabilities also bind the workspace, covering the empty
+session's workspace-change window. The configured auth credential provides a stable,
+domain-separated signing key across restarts and replicas.
+
+The shared dock has Tasks, Changed files and Files routes, focus return and Escape.
+The image byte reader is reused for remote session assets. Relative Markdown images
+use it with an explicit raster MIME allowlist; external images remain click-to-load.
+
+Stage 4 uses native audio/video controls with scoped URLs and ranges. A sandboxed
+native PDF iframe was probed in Chromium, Firefox and WebKit. The sandbox did not
+yield a usable portable viewer (Chromium returns an error frame; WebKit refuses the
+sandboxed download; Firefox has no usable frame). The operator accepted safe download
+on 2026-10-05, so the product keeps PDF download-only and does not relax sandbox flags.
+
+Stage 5 reuses the existing chat renderers. The earlier single-file build assumption
+in section 9 is historical: Mermaid, KaTeX and their dependencies already ship as
+lazy hashed embedded chunks. Adding Temml would introduce a second math renderer;
+retaining KaTeX adds **zero** renderer/font assets for Files and preserves chat output.
+The production build measured the KaTeX chunk at **258925 bytes**, **76782 bytes gzip**
+(Node's default gzip level), and all its WOFF2 fonts at **256168 bytes**. A plain chat
+requested no `/chunks/` assets. A Markdown fixture with a flowchart and formula loaded
+the appropriate chunks and fonts only on opening it. These are measurements of emitted
+files, not npm package sizes; the server itself does not enable compression.
+
+Happy paths are executable in `features/workspace_viewer.feature`. Unit tests cover
+large streaming text, encoding boundaries, ETag drift, HEAD/Range/416, MIME mismatch,
+capability mutation/expiry/session/workspace binding, typed bounded image bytes and
+shared URL lifetime. Browser checks use isolated fixtures at 390px and 1280px in
+Chromium, Firefox and WebKit, local and authenticated remote mode with a path prefix.
+The transcript overflow stand is checked across every layout-grid width. Stage 6
+(semantic navigation) remains outside this implementation.
