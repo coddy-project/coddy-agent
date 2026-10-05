@@ -52,3 +52,10 @@ Feature: Every session in the swarm, in one list
     When the child relay asks this relay for its sessions as part of the same chain
     Then the answer is empty and says the branch was already walked
     And no warning is raised, because a closed ring is the shape and not a fault
+
+  Scenario: A ring is walked once and quietly
+    Given a ring of three relays with an agent behind the third holding a session "sess_ring" titled "ring work"
+    When I list swarm sessions with the client token
+    Then the list holds 1 sessions
+    And the session "sess_ring" is reachable through the path "shortcut/agent7"
+    And no warning is raised, because a closed ring is the shape and not a fault

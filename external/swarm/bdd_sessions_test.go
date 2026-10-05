@@ -79,6 +79,7 @@ type sessionsFeatureState struct {
 	agents     []*stubAgent
 	agentNames []string
 	relays     []*httptest.Server
+	ring       *testRing
 
 	childUUID string
 	status    int
@@ -95,6 +96,10 @@ func (s *sessionsFeatureState) reset() {
 	}
 	for _, r := range s.relays {
 		r.Close()
+	}
+	if s.ring != nil {
+		s.ring.Close()
+		s.ring = nil
 	}
 	s.agents, s.agentNames, s.relays = nil, nil, nil
 	s.status, s.body, s.childUUID = 0, nil, ""
@@ -184,6 +189,19 @@ func (s *sessionsFeatureState) childRelayHolding(child, node, id, title string) 
 		AdvertiseURL: childTS.URL, InstanceUUID: "uuid-" + child, Token: "child-secret",
 	})
 	return err
+}
+
+// aRingOfThreeRelays closes the shape of docs/operate/swarm.md into a ring around
+// the relay of the Background: outer asks middle and, by a shortcut, relay3;
+// middle asks relay3; relay3 asks outer again. An agent sits behind relay3.
+func (s *sessionsFeatureState) aRingOfThreeRelays(id, title string) error {
+	outer := &ringRelay{name: "outer", srv: s.srv, ts: s.relay, token: s.client}
+	ring, err := newTestRing(outer, id, title)
+	if err != nil {
+		return err
+	}
+	s.ring = ring
+	return nil
 }
 
 func (s *sessionsFeatureState) listSessions() error {
@@ -353,6 +371,7 @@ func TestSwarmSessionsFeature(t *testing.T) {
 			ctx.Step(`^the node "([^"]*)" holds a session "([^"]*)" titled "([^"]*)"$`, st.nodeHoldsSession)
 			ctx.Step(`^the node "([^"]*)" is registered but unreachable$`, st.unreachableNode)
 			ctx.Step(`^a child relay "([^"]*)" holding a node "([^"]*)" with a session "([^"]*)" titled "([^"]*)"$`, st.childRelayHolding)
+			ctx.Step(`^a ring of three relays with an agent behind the third holding a session "([^"]*)" titled "([^"]*)"$`, st.aRingOfThreeRelays)
 			ctx.Step(`^I list swarm sessions with the client token$`, st.listSessions)
 			ctx.Step(`^I search swarm sessions for "([^"]*)"$`, st.searchSessions)
 			ctx.Step(`^the child relay asks this relay for its sessions as part of the same chain$`, st.askAsPartOfTheSameChain)
@@ -366,6 +385,9 @@ func TestSwarmSessionsFeature(t *testing.T) {
 			ctx.Step(`^I read the swarm topology with the client token$`, st.readTopology)
 			ctx.Step(`^the topology names this relay as its root$`, st.topologyRootIsThisRelay)
 			ctx.Step(`^the topology holds the node "([^"]*)"$`, st.topologyHoldsNode)
+			ctx.Step(`^the topology lists (\d+) nodes, each of them once$`, st.topologyListsEachNodeOnce)
+			ctx.Step(`^an edge leads from relay3 back to this relay$`, st.anEdgeLeadsFromRelay3BackToThisRelay)
+			ctx.Step(`^the topology raises no warning$`, st.topologyRaisesNoWarning)
 			ctx.Step(`^the topology has a route to "([^"]*)"$`, st.topologyHasRouteTo)
 			ctx.Step(`^the route to "([^"]*)" is "([^"]*)"$`, st.routeIs)
 			ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
@@ -388,9 +410,11 @@ func TestSwarmSessionsFeature(t *testing.T) {
 // ---- topology steps ----
 
 type topologyView struct {
-	Root   TopologyNode     `json:"root"`
-	Nodes  []TopologyNode   `json:"nodes"`
-	Routes map[string]Route `json:"routes"`
+	Root     TopologyNode     `json:"root"`
+	Nodes    []TopologyNode   `json:"nodes"`
+	Edges    []TopologyEdge   `json:"edges"`
+	Routes   map[string]Route `json:"routes"`
+	Warnings []string         `json:"warnings"`
 }
 
 func (s *sessionsFeatureState) readTopology() error {
@@ -427,6 +451,61 @@ func (s *sessionsFeatureState) topologyHoldsNode(name string) error {
 		}
 	}
 	return fmt.Errorf("no node %q in the topology: %s", name, s.body)
+}
+
+// A relay reached by two ways, and a relay that walks back to where it started,
+// must each appear once: the graph is merged by identity, not by the number of
+// routes that arrived at it.
+func (s *sessionsFeatureState) topologyListsEachNodeOnce(want int) error {
+	out, err := s.decodeTopology()
+	if err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for _, n := range out.Nodes {
+		if seen[n.UUID] {
+			return fmt.Errorf("node %q (%s) is listed twice: %s", n.Name, n.UUID, s.body)
+		}
+		seen[n.UUID] = true
+	}
+	if len(out.Nodes) != want {
+		return fmt.Errorf("the topology lists %d nodes, want %d: %s", len(out.Nodes), want, s.body)
+	}
+	return nil
+}
+
+// The edge that closes a ring is how a client learns the swarm is a ring and not
+// a tree, so it must survive being answered with "already walked". It has to be
+// the edge from relay3 to the first relay, under the name relay3 knows it by, not
+// merely some edge that happens to end there.
+func (s *sessionsFeatureState) anEdgeLeadsFromRelay3BackToThisRelay() error {
+	if s.ring == nil {
+		return fmt.Errorf("the scenario has no ring")
+	}
+	out, err := s.decodeTopology()
+	if err != nil {
+		return err
+	}
+	for _, e := range out.Edges {
+		if e.FromUUID == s.ring.relay3.srv.UUID() && e.ToUUID == s.srv.UUID() {
+			if e.Name != "outer" {
+				return fmt.Errorf("the closing edge is named %q, want %q: %s", e.Name, "outer", s.body)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("no edge leads from relay3 back to this relay, so the ring looks like a tree: %s", s.body)
+}
+
+func (s *sessionsFeatureState) topologyRaisesNoWarning() error {
+	out, err := s.decodeTopology()
+	if err != nil {
+		return err
+	}
+	if len(out.Warnings) != 0 {
+		return fmt.Errorf("a healthy ring raised topology warnings: %v", out.Warnings)
+	}
+	return nil
 }
 
 func (s *sessionsFeatureState) topologyHasRouteTo(name string) error {
