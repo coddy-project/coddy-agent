@@ -5877,24 +5877,36 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 }
 
 /* The bar over the composer of a running chat (WorkspaceBar.tsx): where the
-   chat works - the repository, the branch or worktree - and git's count of
-   its changes, which opens the edits. Quiet text on the page, the composer
-   card's left edge, one line that never wraps. */
+   chat works - the repository, the branch or worktree - and, at its right
+   edge, git's count of the changes, which opens the edits window. A plate of
+   the queue rows' glass, joined to the top of the composer card: square at the
+   bottom, no bottom border of its own (the card's top border is the seam), the
+   card's top corners squared to meet it (.composer-card--joined). Above the
+   card in the stack, so the card's upward halo does not darken it. One line
+   that never wraps. */
 .workspace-bar {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 14px;
   min-width: 0;
-  /* The docked composer keeps a band above its card; the bar sits in it, a
-     few pixels over the card's edge, rather than a band higher. */
-  margin: 0 0 -10px;
-  padding: 0 12px;
-  font-size: 12.5px;
-  line-height: 1.4;
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  padding: 5px 8px 5px 12px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  font-size: 12px;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--text) 66%, var(--coddy-blend-base));
   white-space: nowrap;
+}
+
+.composer-card.composer-card--joined {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
 }
 
 /* An item is one line of text that ends in an ellipsis when the bar runs out
@@ -5909,7 +5921,7 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 
 .workspace-bar-repo {
   flex: 0 1 auto;
-  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 80%, var(--coddy-blend-base));
 }
 
 .workspace-bar-branch {
@@ -5928,16 +5940,18 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   opacity: 1;
 }
 
-
+/* Git's count, at the right edge: plain digits in the diff colours, no
+   outline; pointed at, a slightly lighter ground says it opens something. */
 .workspace-bar-edits {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   flex: none;
-  padding: 2px 9px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--muted) 28%, transparent);
-  background: var(--coddy-chip-badge-bg);
+  margin-left: auto;
+  padding: 1px 7px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
   font: inherit;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 11.5px;
@@ -5946,12 +5960,13 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 }
 
 .workspace-bar-edits:hover,
-.workspace-bar-edits.is-active {
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+.workspace-bar-edits:focus-visible {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
 }
 
-.workspace-bar-edits.is-active {
-  background: color-mix(in srgb, var(--accent) 14%, var(--coddy-blend-base));
+.workspace-bar-edits:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--text) 35%, transparent);
+  outline-offset: 0;
 }
 
 .workspace-chip {

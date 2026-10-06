@@ -875,42 +875,20 @@ function stubSessionChanges(n: number, vcs = "git") {
   return fetchMock;
 }
 
-test("the Edits button is there only while git reports changes", async () => {
+// The edits open from git's count in the bar over the composer, which is
+// there only while git reports changes; the header has no Edits button.
+test("the count of the edits is there only while git reports changes", async () => {
   stubSessionChanges(0);
-  const props = {
-    generating: false,
-    onOpenBackgroundTasks: () => {},
-    onOpenSessionChanges: () => {},
-    onOpenFiles: () => {},
-  };
-  const { unmount } = render(turnLineScreen(props));
+  const { unmount } = render(turnLineScreen(workspaceProps(true)));
+  await screen.findByTestId("workspace-bar");
   await act(async () => new Promise((r) => setTimeout(r, 20)));
+  expect(screen.queryByTestId("workspace-bar-edits")).toBeNull();
   expect(screen.queryByTestId("chat-views-edits")).toBeNull();
-  expect(screen.getByTestId("chat-views-files")).toBeTruthy();
   unmount();
   stubSessionChanges(2);
-  render(turnLineScreen(props));
-  await screen.findByTestId("chat-views-edits");
-  vi.unstubAllGlobals();
-});
-
-test("the header buttons open the session's edits and its files", async () => {
-  stubSessionChanges(1);
-  const onOpenEdits = vi.fn();
-  const onOpenFiles = vi.fn();
-  render(
-    turnLineScreen({
-      generating: false,
-      onOpenBackgroundTasks: () => {},
-      onOpenSessionChanges: onOpenEdits,
-      onOpenFiles,
-    }),
-  );
-  fireEvent.click(await screen.findByTestId("chat-views-edits"));
-  // The whole set: no file is preselected.
-  expect(onOpenEdits).toHaveBeenCalledWith();
-  fireEvent.click(screen.getByTestId("chat-views-files"));
-  expect(onOpenFiles).toHaveBeenCalledTimes(1);
+  render(turnLineScreen(workspaceProps(true)));
+  await screen.findByTestId("workspace-bar-edits");
+  expect(screen.queryByTestId("chat-views-edits")).toBeNull();
   vi.unstubAllGlobals();
 });
 
@@ -927,7 +905,7 @@ const repoCtx = {
 function workspaceProps(locked: boolean) {
   return {
     generating: false,
-    onOpenSessionChanges: () => {},
+    onOpenEdits: () => {},
     workspaceCtx: repoCtx,
     workspaceLocked: locked,
     worktreePref: false,
@@ -937,13 +915,13 @@ function workspaceProps(locked: boolean) {
   };
 }
 
-// Once the chat runs, where it works is a fact: the bar over the composer
-// names the repository and the branch and counts git's changes, and the
-// composer keeps only its environment chip.
+// Once the chat runs, where it works is a fact: a plate joined to the top of
+// the composer card names the repository and the branch and counts git's
+// changes at its right edge, and the composer keeps only its environment chip.
 test("a running chat names its repository, branch and changes over the composer", async () => {
   stubSessionChanges(2);
   const onOpenEdits = vi.fn();
-  render(turnLineScreen({ ...workspaceProps(true), onOpenSessionChanges: onOpenEdits }));
+  render(turnLineScreen({ ...workspaceProps(true), onOpenEdits }));
   const bar = screen.getByTestId("workspace-bar");
   expect(within(bar).getByTestId("workspace-bar-repo").textContent).toBe("coddy-agent");
   expect(within(bar).getByTestId("workspace-bar-branch").textContent).toBe("feat/session-changes");
@@ -951,9 +929,13 @@ test("a running chat names its repository, branch and changes over the composer"
   expect(edits.textContent).toBe("+2−0");
   fireEvent.click(edits);
   expect(onOpenEdits).toHaveBeenCalledWith();
-  // The bar sits over the composer card, and the card has no folder chips.
+  // The plate is the card's top: right before it, the card joined to it, and
+  // the card has no folder chips.
   const card = document.querySelector(".composer-card")!;
-  expect(bar.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(bar.nextElementSibling).toBe(card);
+  expect(card).toHaveClass("composer-card--joined");
+  // The count is the last thing on the plate, at its right edge.
+  expect(bar.lastElementChild).toBe(edits);
   expect(screen.queryByTestId("composer-workspace-chip")).toBeNull();
   expect(screen.queryByTestId("composer-branch-chip")).toBeNull();
   expect(screen.queryByTestId("composer-files")).toBeNull();

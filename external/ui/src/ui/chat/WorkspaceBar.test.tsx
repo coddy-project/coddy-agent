@@ -48,7 +48,7 @@ function copy(files: number, additions = 0, deletions = 0, vcs = "git"): Working
 }
 
 test("a repository: its name, the branch, and no worktree mark", () => {
-  render(<WorkspaceBar context={repo} workingCopy={copy(0)} editsOpen={false} />);
+  render(<WorkspaceBar context={repo} workingCopy={copy(0)} />);
   const name = screen.getByTestId("workspace-bar-repo");
   expect(name.textContent).toBe("coddy-agent");
   expect(name.getAttribute("title")).toBe("/home/me/src/coddy-agent");
@@ -60,7 +60,7 @@ test("a repository: its name, the branch, and no worktree mark", () => {
 });
 
 test("a linked worktree: the repository's name and a worktree mark before the branch", () => {
-  render(<WorkspaceBar context={worktree} workingCopy={copy(0)} editsOpen={false} />);
+  render(<WorkspaceBar context={worktree} workingCopy={copy(0)} />);
   expect(screen.getByTestId("workspace-bar-repo").textContent).toBe("coddy-agent");
   const branch = screen.getByTestId("workspace-bar-branch");
   const mark = screen.getByTestId("workspace-bar-worktree");
@@ -70,26 +70,22 @@ test("a linked worktree: the repository's name and a worktree mark before the br
   );
 });
 
-test("what git reports opens the edits, and says whether they are on show", () => {
+test("what git reports, at the right edge, opens the edits", () => {
   const onOpenEdits = vi.fn();
-  const { rerender } = render(
-    <WorkspaceBar context={repo} workingCopy={copy(3, 18267, 280)} editsOpen={false} onOpenEdits={onOpenEdits} />,
-  );
+  render(<WorkspaceBar context={repo} workingCopy={copy(3, 18267, 280)} onOpenEdits={onOpenEdits} />);
   const edits = screen.getByTestId("workspace-bar-edits");
   expect(edits.textContent).toBe("+18,267−280");
   expect(edits.getAttribute("aria-label")).toBe("Show the edits: 3 files changed");
-  expect(edits.getAttribute("aria-pressed")).toBe("false");
+  // A plain button: no pressed state, nothing lit.
+  expect(edits.hasAttribute("aria-pressed")).toBe(false);
+  expect(screen.getByTestId("workspace-bar").lastElementChild).toBe(edits);
   fireEvent.click(edits);
   expect(onOpenEdits).toHaveBeenCalledTimes(1);
-  rerender(
-    <WorkspaceBar context={repo} workingCopy={copy(3, 18267, 280)} editsOpen onOpenEdits={onOpenEdits} />,
-  );
-  expect(screen.getByTestId("workspace-bar-edits").getAttribute("aria-pressed")).toBe("true");
 });
 
 test("a folder in no repository has a name and nothing else", () => {
   const plain: WorkspaceContext = { path: "/tmp/demo", name: "demo", is_git_repo: false, is_worktree: false };
-  render(<WorkspaceBar context={plain} workingCopy={copy(0, 0, 0, "")} editsOpen={false} onOpenEdits={() => {}} />);
+  render(<WorkspaceBar context={plain} workingCopy={copy(0, 0, 0, "")} onOpenEdits={() => {}} />);
   expect(screen.getByTestId("workspace-bar-repo").textContent).toBe("demo");
   expect(screen.queryByTestId("workspace-bar-branch")).toBeNull();
   expect(screen.queryByTestId("workspace-bar-edits")).toBeNull();
@@ -97,7 +93,7 @@ test("a folder in no repository has a name and nothing else", () => {
 
 test("the counts follow the language of the page", () => {
   initLocale("ru");
-  render(<WorkspaceBar context={repo} workingCopy={copy(2, 18267, 280)} editsOpen={false} onOpenEdits={() => {}} />);
+  render(<WorkspaceBar context={repo} workingCopy={copy(2, 18267, 280)} onOpenEdits={() => {}} />);
   const edits = screen.getByTestId("workspace-bar-edits");
   expect(edits.textContent).toBe("+18 267−280");
   expect(edits.getAttribute("aria-label")).toBe("Показать правки: изменено 2 файла");

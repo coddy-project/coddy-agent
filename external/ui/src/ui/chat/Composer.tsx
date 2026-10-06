@@ -8,7 +8,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import type { Dispatch, SetStateAction } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import type { TokenUsage } from "./types";
 import { WorkspaceChips } from "./WorkspaceChips";
@@ -483,6 +483,9 @@ export function Composer(props: {
   onWorkspacePickFolder?: (path: string) => void;
   onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
   onWorktreeToggle?: () => void;
+  /** A plate joined to the top edge of the card (the bar over the composer of
+   *  a running chat): under the queue and the banners, flush with the card. */
+  cardTop?: ReactNode;
 }) {
   const { t, tp } = useT();
   const isMobileShell = useSyncExternalStore(
@@ -2745,8 +2748,15 @@ export function Composer(props: {
             </button>
           </div>
         ) : null}
+        {props.cardTop ?? null}
         <div
-          className={`composer-card${dragOverCard ? " composer-card--dragover" : ""}`}
+          className={[
+            "composer-card",
+            dragOverCard ? "composer-card--dragover" : "",
+            props.cardTop ? "composer-card--joined" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
           ref={composerCardRef}
           onDragOver={(ev) => {
             const dt = ev.dataTransfer;

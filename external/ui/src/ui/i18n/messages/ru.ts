@@ -1268,7 +1268,6 @@ export const messagesRu: Record<string, string> = {
   "chat.newChat": "Новый чат",
   "chat.chatTitleAriaLabel": "Заголовок чата",
   "chat.views.label": "Панели этого чата",
-  "chat.views.editsTitle": "Незакоммиченные правки",
   "chat.views.filesTitle": "Файлы рабочей папки ({key})",
   "chat.archived.notice":
     "Этот диалог в архиве. Разархивируйте его, чтобы продолжить работу.",
@@ -1720,7 +1719,6 @@ export const messagesRu: Record<string, string> = {
   "changes.binaryBody": "Бинарный файл: построчного диффа нет.",
   "changes.truncated": "сокращён",
   "changes.empty": "Незакоммиченных правок в этой папке нет.",
-  "changes.panelTitle": "Правки",
   "changes.status.added": "добавлен",
   "changes.status.modified": "изменён",
   "changes.status.deleted": "удалён",

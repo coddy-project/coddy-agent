@@ -59,16 +59,16 @@ function WorktreeIcon() {
 }
 
 /**
- * The bar over the composer of a running chat: the repository the chat works
- * in, its branch - with a worktree mark when the chat runs in a linked
- * worktree - and what git reports as changed there, which opens the edits.
- * The start screen has the folder, branch and worktree chips in the composer
+ * The bar over the composer of a running chat, a plate joined to the top of
+ * the composer card: the repository the chat works in, its branch - with a
+ * worktree mark when the chat runs in a linked worktree - and, at the right
+ * edge, what git reports as changed there, which opens the edits window. The
+ * start screen has the folder, branch and worktree chips in the composer
  * instead, where they are still a choice; once the chat runs they are a fact.
  */
 export function WorkspaceBar(props: {
   context: WorkspaceContext;
   workingCopy: WorkingCopy;
-  editsOpen: boolean;
   onOpenEdits?: (() => void) | undefined;
 }) {
   const { t, tp } = useT();
@@ -101,12 +101,11 @@ export function WorkspaceBar(props: {
       {showEdits ? (
         <button
           type="button"
-          className={"workspace-bar-edits" + (props.editsOpen ? " is-active" : "")}
-          aria-pressed={props.editsOpen}
+          className="workspace-bar-edits"
           aria-label={tp("workspaceBar.editsLabel", totals.files)}
           title={tp("workspaceBar.editsLabel", totals.files)}
           data-testid="workspace-bar-edits"
-          onClick={props.onOpenEdits}
+          onClick={() => props.onOpenEdits?.()}
         >
           <span className="changes-add">{"+" + number.format(totals.additions)}</span>
           <span className="changes-del">{"−" + number.format(totals.deletions)}</span>

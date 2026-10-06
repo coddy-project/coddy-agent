@@ -10,16 +10,16 @@ import (
 
 // The views of a chat are rendered components and the shell's routing, so
 // each step runs the Vitest test that drives them: the header buttons, the
-// tasks dock without a tab strip, the edits window, the bar over the composer,
+// tasks dock without a tab strip, the edits window, the plate over the composer,
 // discarding from the edits, the Files window.
 func TestWebUISessionViewsFeature(t *testing.T) {
 	steps := []struct{ step, file, name string }{
-		{`^the header shows edits, files and background tasks as buttons in a row$`,
+		{`^the header shows files and background tasks as buttons in a row$`,
 			"src/ui/chat/ChatHeader.test.tsx",
-			"the header shows edits, files and background tasks as buttons in a row"},
-		{`^the Edits button is there only while git reports changes$`,
+			"the header shows files and background tasks as buttons in a row"},
+		{`^the count of the edits is there only while git reports changes$`,
 			"src/ui/chat/ChatScreen.test.tsx",
-			"the Edits button is there only while git reports changes"},
+			"the count of the edits is there only while git reports changes"},
 		{`^a button opens its view$`,
 			"src/ui/chat/ChatHeader.test.tsx",
 			"a button opens its view"},

@@ -127,15 +127,13 @@ test("without a way to open the panel the header has no views", () => {
   expect(screen.queryByTestId("chat-views")).toBeNull();
 });
 
-// The views of a chat - its edits, its files, its background tasks - are a row
-// of buttons in the header, the way the views of a session sit at the top of
-// Claude's app: Edits and Files an icon with its short name (a phone keeps the
-// icon alone), Background tasks last with the dot and the counts, the full name
-// in a tooltip; no tab strip inside a panel, no menu to open first.
-function viewsHeader(
-  over: Partial<React.ComponentProps<typeof ChatHeader>> = {},
-  withEdits = true,
-) {
+// The views of a chat in its header - its files, its background tasks - are a
+// row of buttons, the way the views of a session sit at the top of Claude's
+// app: Files an icon with its short name (a phone keeps the icon alone),
+// Background tasks last with the dot and the counts, the full name in a
+// tooltip; no tab strip inside a panel, no menu to open first. The edits open
+// from git's count in the bar over the composer, never from the header.
+function viewsHeader(over: Partial<React.ComponentProps<typeof ChatHeader>> = {}) {
   return (
     <ChatHeader
       title="Hello"
@@ -144,74 +142,59 @@ function viewsHeader(
         task({ id: "bg_2", status: "succeeded", running: false }),
       ]}
       onOpenTasks={() => {}}
-      {...(withEdits ? { onOpenEdits: () => {} } : {})}
       onOpenFiles={() => {}}
       {...over}
     />
   );
 }
 
-test("the header shows edits, files and background tasks as buttons in a row", () => {
+test("the header shows files and background tasks as buttons in a row", () => {
   render(viewsHeader());
   const row = screen.getByRole("toolbar", { name: "Views of this chat" });
   const buttons = Array.from(row.querySelectorAll("button"));
-  // Background tasks stand at the right edge.
+  // Background tasks stand at the right edge; no Edits button.
   expect(buttons.map((b) => b.getAttribute("data-testid"))).toEqual([
-    "chat-views-edits",
     "chat-views-files",
     "chat-views-tasks",
   ]);
-  // Edits and Files: an icon and a short name; Tasks: the dot and the counts.
+  // Files: an icon and a short name; Tasks: the dot and the counts.
   expect(buttons[0]!.querySelector("svg.chat-view-icon")).toBeTruthy();
-  expect(buttons[1]!.querySelector("svg.chat-view-icon")).toBeTruthy();
-  expect(buttons[2]!.querySelector("svg")).toBeNull();
-  expect(buttons[2]!.querySelector(".bgtask-dot")).toBeTruthy();
+  expect(buttons[1]!.querySelector("svg")).toBeNull();
+  expect(buttons[1]!.querySelector(".bgtask-dot")).toBeTruthy();
   expect(
     buttons.map((b) => b.querySelector(".chat-view-label")?.textContent),
-  ).toEqual(["Edits", "Files", "Tasks"]);
+  ).toEqual(["Files", "Tasks"]);
   expect(screen.getByTestId("chat-views-tasks-count").textContent).toBe(
     "1 / 2",
   );
   const tips = Array.from(row.querySelectorAll('[role="tooltip"]')).map(
     (tip) => tip.textContent,
   );
-  expect(tips[0]).toBe("Uncommitted edits");
   // The Files tooltip names its key.
-  expect(tips[1]).toMatch(/^Workspace files \((Ctrl\+Shift\+F|⇧⌘F)\)$/);
-  expect(tips[2]).toBe("Background tasks: 1 running, 2 in total");
+  expect(tips[0]).toMatch(/^Workspace files \((Ctrl\+Shift\+F|⇧⌘F)\)$/);
+  expect(tips[1]).toBe("Background tasks: 1 running, 2 in total");
   expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(tips);
 });
 
 test("a button opens its view", () => {
-  const onOpenEdits = vi.fn();
+  const onOpenTasks = vi.fn();
   const onOpenFiles = vi.fn();
-  render(viewsHeader({ onOpenEdits, onOpenFiles }));
-  fireEvent.click(screen.getByTestId("chat-views-edits"));
-  expect(onOpenEdits).toHaveBeenCalledTimes(1);
+  render(viewsHeader({ onOpenTasks, onOpenFiles }));
   fireEvent.click(screen.getByTestId("chat-views-files"));
   expect(onOpenFiles).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByTestId("chat-views-tasks"));
+  expect(onOpenTasks).toHaveBeenCalledTimes(1);
 });
 
 test("the button of the view on show is pressed", () => {
   const { rerender } = render(viewsHeader());
-  for (const id of ["tasks", "edits", "files"])
+  for (const id of ["tasks", "files"])
     expect(
       screen.getByTestId(`chat-views-${id}`).getAttribute("aria-pressed"),
     ).toBe("false");
-  rerender(viewsHeader({ editsOpen: true }));
-  expect(screen.getByTestId("chat-views-edits").getAttribute("aria-pressed")).toBe(
-    "true",
-  );
-  expect(screen.getByTestId("chat-views-edits")).toHaveClass("is-active");
   rerender(viewsHeader({ filesOpen: true }));
   expect(screen.getByTestId("chat-views-files").getAttribute("aria-pressed")).toBe(
     "true",
   );
-});
-
-test("a chat whose edits are switched off shows its tasks and its files", () => {
-  render(viewsHeader({}, false));
-  expect(screen.queryByTestId("chat-views-edits")).toBeNull();
-  expect(screen.getByTestId("chat-views-tasks")).toBeTruthy();
-  expect(screen.getByTestId("chat-views-files")).toBeTruthy();
+  expect(screen.getByTestId("chat-views-files")).toHaveClass("is-active");
 });

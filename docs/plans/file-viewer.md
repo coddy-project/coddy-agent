@@ -416,8 +416,8 @@ replaces the recorded change set where they differ.
   card under the transcript with its `Ctrl+S` toggle and the `ui.session_changes` key are gone,
   with no compatibility kept. The Edits view is git's report of the session's folder: tracked
   files that differ from `HEAD`, staged or not, and new files git does not ignore, whoever made
-  them. A folder in no repository has no edits, and the Edits button shows only while git
-  reports changes.
+  them. A folder in no repository has no edits, and git's count on the plate over the composer
+  shows only while git reports changes.
 - **Git without the binary.** `internal/gitws` drives the `git` binary when it is on PATH and
   answers through a built-in implementation on go-git (`v5.19.2`, the newest that keeps the
   module on Go 1.25) when it is not, per call. The built-in one detects no renames and cannot
@@ -428,15 +428,18 @@ replaces the recorded change set where they differ.
   `{"all":true}`, never an empty body, refuses a path git does not report before touching
   anything, puts tracked files back at `HEAD` with their index entries, deletes the new ones
   and leaves ignored files alone. A commit is not offered.
-- **No Edits dock.** The dock beside the chat holds the background tasks only. The edits have
-  one view, the window with every diff (the former review window), opened by the Edits button
-  and by git's count in the bar over the composer, with `#/s/<id>/changes` as its address;
-  discarding a file or everything happens there.
-- **The bar over the composer.** Once a chat runs, the folder, branch and worktree chips leave
-  the composer for a bar over it, after Claude's app: the repository, the branch (in a linked
-  worktree a worktree mark in place of the branch icon) and git's `+A −D`, which opens the edits. The
-  composer keeps its environment chip; the start screen keeps the chips and the worktree
-  checkbox, a choice still to make. The composer's Files chip went too: the header has Files.
+- **No Edits dock, no Edits button.** The dock beside the chat holds the background tasks only,
+  and the chat header has Files and Background tasks. The edits have one view, the window with
+  every diff (the former review window), opened by git's count on the plate over the composer,
+  with `#/s/<id>/changes` as its address; discarding a file or everything happens there.
+- **The plate over the composer.** Once a chat runs, the folder, branch and worktree chips leave
+  the composer for a plate over it, after Claude's app: the repository, the branch (in a linked
+  worktree a worktree mark in place of the branch icon) and, at its right edge, git's `+A −D`,
+  which opens the edits. The plate is cut like a queued message and joined to the top edge of
+  the composer card, whose top corners are squared to meet it; the count is a plain button whose
+  background lightens on hover, with no outline. The composer keeps its environment chip; the
+  start screen keeps the chips and the worktree checkbox, a choice still to make. The
+  composer's Files chip went too: the header has Files.
 
 Checks: `internal/gitws/backend_test.go` (every scenario with the binary and with it hidden),
 `features/session_changes.feature`, `external/httpserver/coddy_changes_test.go`,

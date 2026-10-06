@@ -5654,9 +5654,9 @@ export function App() {
     }
   }, [sessionId]);
 
-  /** Opens the edits window, from the header's Edits button or the count in
-   *  the bar over the composer; it takes the Files window's place, so one
-   *  Escape never closes two layers. */
+  /** Opens the edits window, from git's count in the bar over the composer;
+   *  it takes the Files window's place, so one Escape never closes two
+   *  layers. */
   const openEditsWindow = useCallback(() => {
     const sid = sessionId.trim();
     if (!sid) {
@@ -6887,10 +6887,7 @@ export function App() {
           <ChatScreen
             title={currentTitle}
             sessionId={sessionId}
-            onOpenSessionChanges={() =>
-              changesViewerOpen ? closeEditsWindow() : openEditsWindow()
-            }
-            sessionChangesOpen={changesViewerOpen}
+            onOpenEdits={openEditsWindow}
             onOpenFiles={() =>
               filesOpen ? closeFilesWindow() : openFilesWindow()
             }

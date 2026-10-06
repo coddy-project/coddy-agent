@@ -206,8 +206,8 @@ func (s *Server) publishConfigReloaded() {
 // have moved, is turn_ended, which every turn already sends.
 //
 // Thin like configReloadedFrame: what git reports stays behind
-// GET /coddy/sessions/{id}/changes, and the event only tells the Edits view
-// and the bar over the composer to read it again.
+// GET /coddy/sessions/{id}/changes, and the event only tells the edits window
+// and the count on the plate over the composer to read it again.
 func sessionChangesFrame(sessionID string, at time.Time) []byte {
 	body, err := json.Marshal(map[string]interface{}{
 		"object":    "coddy.session_changes",

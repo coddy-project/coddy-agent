@@ -27,7 +27,7 @@ import { forgetOpenFiles } from "./files/FilesView";
 vi.mock("./chat/ChatScreen", () => ({
   ChatScreen: (props: {
     onOpenBackgroundTasks?: () => void;
-    onOpenSessionChanges?: (path?: string) => void;
+    onOpenEdits?: () => void;
     onOpenFiles?: () => void;
   }) => (
     <div data-testid="chat-screen-stub">
@@ -41,7 +41,7 @@ vi.mock("./chat/ChatScreen", () => ({
       <button
         type="button"
         data-testid="open-edits"
-        onClick={() => props.onOpenSessionChanges?.()}
+        onClick={() => props.onOpenEdits?.()}
       >
         Open edits
       </button>
@@ -172,10 +172,6 @@ test("the edits open in their window, and the address names them", async () => {
   expect(screen.queryByTestId("changes-panel")).toBeNull();
   expect(screen.queryByTestId("bgtasks-panel")).toBeNull();
   await waitFor(() => expect(window.location.hash).toBe(`#/s/${SID}/changes`));
-  // Pressed again, the opener puts them away.
-  fireEvent.click(screen.getByTestId("open-edits"));
-  await waitFor(() => expect(screen.queryByTestId("diff-viewer")).toBeNull());
-  await waitFor(() => expect(window.location.hash).toBe(`#/s/${SID}`));
 });
 
 test("an edits address opens the window, and Escape closes it", async () => {

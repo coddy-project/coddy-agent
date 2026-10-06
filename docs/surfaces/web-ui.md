@@ -387,7 +387,7 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 - **Wrapping**: the chips share one **`flex-wrap`** row (**`.composer-context-row`**) with the environment chip and the improve-prompt control; **`.composer-context-chips`** is **`display: contents`** so each chip wraps on its own. On a narrow viewport only the overflow moves down (e.g. environment+folder, then branch+worktree), and the worktree checkbox stays beside the branch until the branch name is long enough to push it.
 - Context loads from **`GET /coddy/workspace/context`** with **`X-Coddy-Session-ID`** whenever the viewed session changes; without a session the server default cwd is shown.
 - **A new chat follows the folder it picked**: before the first message there is no session, and the pick is kept in **`App.tsx`** (**`pendingWorkspaceRef`**, mirrored in the **`pendingWorkspacePath`** state) and applied on the first send. Everything the composer lists while you type is asked for that folder: every cwd-scoped request (**`/coddy/slash-commands`**, **`/coddy/mentions`**, **`POST /coddy/mentions/check`**, **`/coddy/workspace/file`**) carries **`cwd=<folder>`** next to **`X-Coddy-Session-ID`** (helper **`chat/workspaceScope.ts`**), so the **`/`** menu lists that folder's **`.coddy/skills`**, **`@agent:`** its subagents and **`@`** its files. The known skill names that mark a **`/name`** as a skill in the composer and in the transcript follow the same folder: another pick drops them at once and asks again, and an answer for a folder left since is discarded; a slower preview of an earlier pick never paints over a later one. Settings → Skills and Subagents list the same folder.
-- **Chosen once**: folder + branch + worktree are set before the conversation starts. Once the transcript has messages (**`workspaceLocked`**) the chips leave the composer, which keeps its environment chip, and [the bar over the composer](#the-bar-over-the-composer) names where the chat works; the server answers **409** to **`POST .../workspace`**, and a turn already in flight answers **409** as well.
+- **Chosen once**: folder + branch + worktree are set before the conversation starts. Once the transcript has messages (**`workspaceLocked`**) the chips leave the composer, which keeps its environment chip, and [the plate over the composer](#the-plate-over-the-composer) names where the chat works; the server answers **409** to **`POST .../workspace`**, and a turn already in flight answers **409** as well.
 - **Folder chip** opens the **Recent** menu (Claude Desktop style): MRU folders from **`localStorage`** **`coddy_workspace_recents_v1`** (**`chat/workspaceRecents.ts`**), current workspace marked with **✓**, a local filter field for a long recent list, then **`Open folder…`** at the bottom which opens the **folder browser modal** (**`WorkspaceFolderModal.tsx`**) fed by **`GET /coddy/workspace/folders?path=`**: rows navigate into folders, **`..`** goes up, **Open** picks the currently browsed folder, **Cancel** dismisses. The folder list is the dialog's only scrollport: it is the one child allowed to shrink (**`min-height: 0`**), so **Cancel** / **Open** stay reachable on a short browser window instead of being clipped by the dialog's height cap, and a wheel gesture past the last folder stays in the list instead of scrolling the page behind it. Verified in WebKit with **`external/ui/scripts/webkit-scroll-check.mjs`** (see below).
 - **Size**: a centred card 560px wide (less on a narrow window) from the tablet width up; on a phone it opens where History opens, as the same glass panel under the top bar, so the folder list gets the full height of the screen. The head is drawn like the heads of History and the Scheduler, and the field, the rows and the buttons use the app's font.
 - **Links to folders**: a directory symlink in the list carries an arrow on its folder icon and its target after the name (**`→ /path/to/target`**), so a link does not read as an ordinary folder; clicking it browses the link's path.
@@ -963,7 +963,7 @@ Automated checks:
 - **external/ui/src/ui/tasks/taskStatus.test.ts** (timing, progress, overdue, poll cadence, start-time ordering, grouping, agent task helpers)
 - **external/ui/src/ui/tasks/BackgroundTasksPanel.test.tsx** (one card shape for every task, the tag and the title, the card as one control with Stop apart, expanding in place with the command, copy, output and foot, several cards open at once, a card the shell points at, output re-read while a task runs, the finished counter, Clear, Show transcript on the folded card and said once, empty and error states)
 - **external/ui/src/ui/tasks/api.test.ts** (paths, headers, offline degradation)
-- **external/ui/src/ui/chat/ChatHeader.test.tsx** (the view buttons: Edits, Files, Tasks in that order, Tasks with the dot and `running / total` without system tasks, icon, short name and tooltip, `aria-pressed`) and **external/ui/src/ui/changes/useSessionHasEdits.test.tsx** (Edits only while the session has edits) and **ChatScreen.test.tsx** (the toggle, nothing under the transcript)
+- **external/ui/src/ui/chat/ChatHeader.test.tsx** (the view buttons: Files and Tasks in that order and no Edits button, Tasks with the dot and `running / total` without system tasks, icon, short name and tooltip, `aria-pressed`), **external/ui/src/ui/changes/workingCopy.test.tsx** (one read of git's report per chat, read again on the server's word, a finished tool call and the page's focus) and **ChatScreen.test.tsx** (the toggle, the count on the plate only while git reports changes, nothing under the transcript)
 - **external/ui/src/ui/tasks/backgroundTaskCss.test.ts** (panel docking, the tag, the stretched click surface with Stop above it, the hover tint, the bounded output box, the header control, the live line on a phone, reduced motion)
 - **external/ui/src/ui/messages/ToolCallMessage.test.tsx** (the background row: its label, the task clock in the duration slot, and that no outcome leaks onto the row)
 
@@ -1014,23 +1014,23 @@ A held project hooks file surfaces in the transcript as a **notice-level system 
 
 ## Views of a chat
 
-A chat has three views beside the conversation: its **edits**, its **files** and its
-**background tasks**. They are a row of buttons at the top of the chat: **Edits**
-(only while git reports uncommitted changes in the chat's folder), **Files**, and
-**Tasks** at the right edge. On a
-desktop and a tablet Edits and Files are an icon with a short name; a phone shows the
-icon alone, the size of its top bar's buttons. Tasks is the control the header always
-had: a dot and, once the chat has tasks, how many run out of how many there are, the
-dot lit while work is in flight. Every button has its full name in a tooltip, the
-Files one with its key. A button opens its view, and pressed again puts it away; the
-button of the view on show is lit. The background tasks open in the dock beside the
-chat; the edits and the files open in windows over the chat. Each icon beside a word
-sits on the middle of its lowercase letters, not of the capitals: the words are mostly
+A chat has three views beside the conversation: its **files**, its **background
+tasks** and its **edits**. Files and background tasks are a row of buttons at the top
+of the chat: **Files**, and **Tasks** at the right edge. On a desktop and a tablet
+Files is an icon with a short name; a phone shows the icon alone, the size of its top
+bar's buttons. Tasks is the control the header always had: a dot and, once the chat
+has tasks, how many run out of how many there are, the dot lit while work is in
+flight. Every button has its full name in a tooltip, the Files one with its key. A
+button opens its view, and pressed again puts it away; the button of the view on show
+is lit. The background tasks open in the dock beside the chat, the files in a window
+over the chat. The edits have no button in the header: git's count on [the plate over
+the composer](#the-plate-over-the-composer) opens them. Each icon beside a word sits on
+the middle of its lowercase letters, not of the capitals: the words are mostly
 lowercase, and centred on the line the icon reads a pixel high.
 
-![A running chat: the view buttons Edits, Files and Tasks at the top, and the bar over the composer naming the repository, the branch and git's count](../assets/views-toolbar-dark-1280.png)
+![A running chat: the view buttons Files and Tasks at the top, and the plate over the composer naming the repository, the branch and git's count](../assets/views-toolbar-dark-1280.png)
 
-*The view buttons at the top of a chat, and the bar over its composer*
+*The view buttons at the top of a chat, and the plate over its composer*
 
 On a phone: [390 px](../assets/views-toolbar-dark-390.png). `Ctrl+Shift+F`
 (`Cmd+Shift+F` on a Mac) opens and closes the Files window from anywhere in a chat,
@@ -1102,8 +1102,8 @@ built-in implementation (go-git); that one detects no renames, so a staged renam
 reads as a deletion plus an addition.
 
 - Data comes from `GET /coddy/sessions/{id}/changes`. One copy per chat
-  (`changes/workingCopy.ts`) serves every view that shows it: the Edits button of the
-  header, the bar over the composer and the edits window. It is read when
+  (`changes/workingCopy.ts`) serves every view that shows it: git's count on the
+  plate over the composer and the edits window. It is read when
   the chat opens, after every turn of any chat (`event: turn_ended` on
   `GET /coddy/events`, whichever surface ran the turn: chats share folders, so another
   chat's turn moves this one's too), after a discard (`event: session_changes`),
@@ -1117,17 +1117,20 @@ reads as a deletion plus an addition.
 - When the session runs in a subfolder of a repository, only that subfolder is
   reported, by paths relative to it.
 
-### The bar over the composer
+### The plate over the composer
 
-![A running chat in a linked worktree: the bar over the composer names the repository, the worktree's branch with the worktree mark, and git's count](../assets/workspace-bar-worktree-dark-1280.png)
+![A running chat in a linked worktree: the plate joined to the top of the composer names the repository, the worktree's branch with the worktree mark, and git's count at its right edge](../assets/workspace-bar-worktree-dark-1280.png)
 
-*The bar over the composer of a chat that runs in a linked worktree*
+*The plate over the composer of a chat that runs in a linked worktree*
 
 Once a chat runs, where it works is a fact rather than a choice, so the folder, branch
-and worktree chips leave the composer and a bar over it names them
-(`WorkspaceBar.tsx`): the repository (the main checkout's name in a linked worktree,
-with the full path in the tooltip), the branch, and git's `+A −D` for the folder. The
-count opens the edits window and is lit while it shows. A chat that runs
+and worktree chips leave the composer and a plate names them (`WorkspaceBar.tsx`). The
+plate looks like a queued message and is joined to the top edge of the composer card,
+the card's top border being the seam between them. On the left it names the
+repository (the main checkout's name in a linked worktree, with the full path in the
+tooltip) and the branch; at the right edge, while the folder has uncommitted changes,
+git's `+A −D` for it. The count is a plain button whose background lightens on hover,
+and it opens the edits window. A chat that runs
 in a linked worktree carries a worktree mark, a folder holding a branch, in place of
 the branch icon, and the tooltip names the worktree's folder. A folder in no
 repository shows its name alone. The composer keeps its environment chip. Before the
@@ -1138,8 +1141,8 @@ first message the chips stay in the composer with the worktree checkbox
 
 The edits have one view: a window over the chat (`.dv-window`, `DiffViewerModal.tsx`)
 holding every diff of the folder's uncommitted changes in one scrollable document.
-The count in the bar over the composer opens it, and so does the **Edits** button of
-the header; pressed again, either puts it away, and so does Escape. Its address is
+Git's count on the plate over the composer opens it, and Escape or the close button
+puts it away. Its address is
 `#/s/<id>/changes`, so a reload opens it again. There is no dock face for the edits:
 the dock beside the chat holds the background tasks, and stays as it was under the
 window. Its toolbar carries the totals, **Discard all**, collapse/expand all, go to
@@ -1776,18 +1779,21 @@ answer writes a file through the `write` tool, starts a **`coddy serve`** node t
 asks for a bearer token and a **`coddy serve --swarm`** relay that mounts it with its
 own client token, and drives a browser through the relay's mount only. It checks:
 
-- **the view buttons** show Edits, Files and Tasks in that order beside the title,
-  Edits and Files an 18px icon with its short name on a desktop, Tasks the dot, the
-  tooltip in the window on hover (the Files one with its key), the pressed one for the
-  view on show, which a second press puts away; a chat whose turn edited nothing shows
-  no Edits button;
-- **the edits window** opens from the Edits button and from the count in the bar over
-  the composer, with the file the turn wrote and its address, and Escape puts it
-  away; **the dock** shows the background tasks, with no tab strip anywhere; every
-  icon beside a word sits on the middle of its lowercase letters, at every width;
+- **the view buttons** show Files and Tasks in that order beside the title and no
+  Edits button, Files an 18px icon with its short name on a desktop, Tasks the dot,
+  the tooltip in the window on hover (the Files one with its key), the pressed one for
+  the view on show, which a second press puts away;
+- **the plate over the composer** names the repository and the branch, is joined to
+  the top of the composer card with the same left and right edges, carries git's count
+  at its right edge with no outline, and lightens the count's background on hover; a
+  chat in a clean folder has the plate without a count;
+- **the edits window** opens from the count, with the file the turn wrote and its
+  address, and Escape puts it away; **the dock** shows the background tasks, with no
+  tab strip anywhere; every icon beside a word sits on the middle of its lowercase
+  letters, at every width;
 - **discarding** a file from the edits window asks first, goes through the relay, and
-  with nothing left the window says the folder is clean and the Edits button and the
-  count go;
+  with nothing left the window says the folder is clean and the count leaves the
+  plate;
 - **the Files window** opens over the chat with the filter focused, lists folders
   first, finds a file three folders down by name, opens files as tabs, renders a
   README with its relative picture through the relay, expands over the rail, closes
@@ -1797,8 +1803,8 @@ own client token, and drives a browser through the relay's mount only. It checks
   answers a range with no header, a forged one is refused by the node, and
   **Download** saves the file under its name;
 - **on a phone** the window fits the screen, shows a file opened by its address
-  without the tree, and Edits and Files are 40 px icons beside the title, Tasks the dot
-  and its word;
+  without the tree, Files is a 40 px icon beside the title, Tasks the dot and its word,
+  and the plate stays joined to the composer card with the count at its right edge;
 - **from another origin** (the node's own web UI with the relay as its environment)
   the window reads through the relay, a `HEAD` with `If-None-Match` passes the
   relay's preflight, the `ETag` is readable, and an open file is revalidated;

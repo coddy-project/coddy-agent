@@ -1830,7 +1830,7 @@ func openAPISpec() map[string]interface{} {
 						"By default only stats are returned - **`include=patch`** adds the unified diff and **`include=content`** the decoded before/after sides (both may be combined, comma separated). " +
 						"A patch cut short at 256 KB sets **`truncated`**; **`additions`** and **`deletions`** still describe the whole file. " +
 						"New files are read up to 500 of them and 2 MB each, regular files only; **`skipped`** counts the ones left out (a symbolic link and a nested repository included). In a repository with no commit yet, every file of the index is an addition. **`vcs`** is **`git`**, or empty when the folder is in no repository, and the list is then empty. " +
-						"This is what the SPA Edits view, its review window and the bar over the composer read.",
+						"This is what the SPA's edits window and git's count on the plate over the composer read.",
 					"operationId": "coddySessionChangesList",
 					"parameters": []interface{}{
 						map[string]interface{}{

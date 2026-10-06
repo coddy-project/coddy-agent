@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
- * Views of a session check: the chat header's view buttons (background tasks,
- * edits, files), the dock beside the chat without a tab strip, the bar over
- * the composer, discarding an edit, and the Files window over the chat -
+ * Views of a session check: the chat header's view buttons (files, background
+ * tasks), the dock beside the chat without a tab strip, the plate over the
+ * composer with git's count that opens the edits window, discarding an edit,
+ * and the Files window over the chat -
  * driven in a real browser against the real binary and reached through a
  * swarm relay, the path a remote operator takes.
  *
@@ -478,6 +479,43 @@ function iconOffsets(page) {
   });
 }
 
+/**
+ * The plate over the composer and how it sits: joined to the top edge of the
+ * composer card with the same left and right edges, the card's top corners
+ * squared under it, git's count the last thing on it at its right edge, and
+ * the count's look at rest.
+ */
+function plate(page) {
+  return page.evaluate(() => {
+    const el = document.querySelector("[data-testid=workspace-bar]");
+    const card = document.querySelector(".composer-card");
+    if (!el || !card) return null;
+    const b = el.getBoundingClientRect();
+    const c = card.getBoundingClientRect();
+    const count = el.querySelector("[data-testid=workspace-bar-edits]");
+    const k = count?.getBoundingClientRect();
+    const padRight = parseFloat(getComputedStyle(el).paddingRight) || 0;
+    const cardCs = getComputedStyle(card);
+    const countCs = count ? getComputedStyle(count) : null;
+    return {
+      repo: el.querySelector("[data-testid=workspace-bar-repo]")?.textContent,
+      branch: el.querySelector("[data-testid=workspace-bar-branch]")?.textContent,
+      edits: count?.textContent,
+      joined: Math.abs(c.top - b.bottom) <= 1,
+      sameEdges: Math.abs(b.left - c.left) <= 1 && Math.abs(b.right - c.right) <= 1,
+      cardSquareTop: parseFloat(cardCs.borderTopLeftRadius) === 0 && parseFloat(cardCs.borderTopRightRadius) === 0,
+      countAtRight: !!k && el.lastElementChild === count && Math.abs(b.right - padRight - 1 - k.right) <= 1.5,
+      rest: countCs
+        ? { outline: countCs.outlineStyle, transparent: /^rgba\(0, 0, 0, 0\)$|^transparent$/.test(countCs.backgroundColor) }
+        : null,
+      folderChip: !!card.querySelector("[data-testid=composer-workspace-chip]"),
+      box: { left: b.left, right: b.right, top: b.top, bottom: b.bottom },
+      card: { left: c.left, right: c.right, top: c.top },
+      count: k ? { left: k.left, right: k.right } : null,
+    };
+  });
+}
+
 /** No element sticks out of the viewport sideways, and the page does not scroll sideways. */
 function sideways(page) {
   return page.evaluate(() => ({
@@ -499,18 +537,18 @@ async function scenarioViews() {
   check("the turn runs through the relay's mount", a.mountRequests.some((r) => r.startsWith("POST /v1/responses")));
   check("the turn wrote its file on the node", fs.existsSync(path.join(workspace, "notes/release.md")));
 
-  // The header shows the views as buttons in a row: edits, files, tasks.
+  // The header shows the views as buttons in a row: files, tasks.
   const buttons = await viewButtons(a.page);
   check(
-    "the header shows edits, files and background tasks as buttons, in that order",
-    JSON.stringify(buttons.map((b) => b.id)) === JSON.stringify(["chat-views-edits", "chat-views-files", "chat-views-tasks"]),
+    "the header shows files and background tasks as buttons, in that order, and no Edits button",
+    JSON.stringify(buttons.map((b) => b.id)) === JSON.stringify(["chat-views-files", "chat-views-tasks"]),
     JSON.stringify(buttons.map((b) => b.id)),
   );
   check(
-    "on a desktop Edits and Files show an 18px icon and a short name, Tasks the dot and its word",
-    buttons.map((b) => b.label).join(",") === "Edits,Files,Tasks" &&
+    "on a desktop Files shows an 18px icon and a short name, Tasks the dot and its word",
+    buttons.map((b) => b.label).join(",") === "Files,Tasks" &&
       buttons.every((b) => b.labelFits) &&
-      buttons[0].icon === 18 && buttons[1].icon === 18 && !buttons[0].dot && !buttons[1].dot && buttons[2].dot,
+      buttons[0].icon === 18 && !buttons[0].dot && buttons[1].dot,
     JSON.stringify(buttons.map((b) => [b.label, b.labelFits, b.icon, b.dot, b.count])),
   );
   check(
@@ -518,65 +556,64 @@ async function scenarioViews() {
     buttons.every((b) => b.inHeader && b.besideTitle && Math.round(b.box.height) === 36) && new Set(buttons.map((b) => Math.round(b.box.top))).size === 1,
     JSON.stringify(buttons.map((b) => b.box)),
   );
-  check("the Files tooltip names its key", /Ctrl\+Shift\+F|⇧⌘F/.test(buttons[1]?.tip || ""), buttons[1]?.tip);
+  check("the Files tooltip names its key", /Ctrl\+Shift\+F|⇧⌘F/.test(buttons[0]?.tip || ""), buttons[0]?.tip);
   // Hovering a button shows its tooltip, inside the window.
-  await a.page.getByTestId("chat-views-edits").hover();
+  await a.page.getByTestId("chat-views-files").hover();
   await a.page.waitForTimeout(300);
   const tip = await a.page.evaluate(() => {
-    const el = document.querySelector("[data-testid=chat-views-edits]").parentElement.querySelector(".chat-view-tip");
+    const el = document.querySelector("[data-testid=chat-views-files]").parentElement.querySelector(".chat-view-tip");
     const r = el.getBoundingClientRect();
     return { opacity: getComputedStyle(el).opacity, text: el.textContent, left: r.left, right: r.right, vw: window.innerWidth };
   });
-  check("hovering a button shows its tooltip inside the window", tip.opacity === "1" && tip.text === "Uncommitted edits" && tip.left >= 0 && tip.right <= tip.vw, JSON.stringify(tip));
+  check("hovering a button shows its tooltip inside the window", tip.opacity === "1" && /^Workspace files/.test(tip.text) && tip.left >= 0 && tip.right <= tip.vw, JSON.stringify(tip));
   await a.page.mouse.move(5, 400);
   await shoot(a.page, "views-toolbar-relay-dark-1280");
 
-  // The bar over the composer: the repository, the branch, git's count.
-  const bar = await a.page.evaluate(() => {
-    const el = document.querySelector("[data-testid=workspace-bar]");
-    const card = document.querySelector(".composer-card");
-    if (!el || !card) return null;
-    const b = el.getBoundingClientRect();
-    const c = card.getBoundingClientRect();
-    return {
-      repo: el.querySelector("[data-testid=workspace-bar-repo]")?.textContent,
-      branch: el.querySelector("[data-testid=workspace-bar-branch]")?.textContent,
-      edits: el.querySelector("[data-testid=workspace-bar-edits]")?.textContent,
-      above: b.bottom <= c.top + 0.5 && c.top - b.bottom <= 12,
-      aligned: Math.abs(b.left - c.left) <= 1,
-      folderChip: !!card.querySelector("[data-testid=composer-workspace-chip]"),
-    };
-  });
+  // The plate over the composer: the repository, the branch, git's count.
+  const bar = await plate(a.page);
   check(
-    "the bar over the composer names the repository, the branch and git's count",
-    !!bar && bar.repo === "demo-workspace" && bar.branch === "feat/release-notes" && /^\+\d+−\d+$/.test(bar.edits || "") && bar.above && bar.aligned && !bar.folderChip,
+    "the plate over the composer names the repository, the branch and git's count",
+    !!bar && bar.repo === "demo-workspace" && bar.branch === "feat/release-notes" && /^\+\d+−\d+$/.test(bar.edits || "") && !bar.folderChip,
     JSON.stringify(bar),
   );
+  check(
+    "the plate is joined to the top of the composer card, edge to edge",
+    !!bar && bar.joined && bar.sameEdges && bar.cardSquareTop,
+    JSON.stringify(bar),
+  );
+  check("git's count sits at the right edge of the plate", !!bar && bar.countAtRight, JSON.stringify(bar));
+  check("the count has no outline and no background at rest", !!bar && bar.rest.outline === "none" && bar.rest.transparent, JSON.stringify(bar?.rest));
+  await a.page.getByTestId("workspace-bar-edits").hover();
+  await a.page.waitForTimeout(250);
+  const hovered = await a.page.evaluate(() => {
+    const cs = getComputedStyle(document.querySelector("[data-testid=workspace-bar-edits]"));
+    return { outline: cs.outlineStyle, background: cs.backgroundColor };
+  });
+  check(
+    "hovering the count lights its background, no outline",
+    hovered.outline === "none" && !/^rgba\(0, 0, 0, 0\)$|^transparent$/.test(hovered.background),
+    JSON.stringify(hovered),
+  );
+  await a.page.mouse.move(5, 400);
 
   const offsets = await iconOffsets(a.page);
   check(
     "every icon beside a word sits on the middle of its lowercase letters",
-    offsets.length >= 5 && offsets.every((o) => Math.abs(o.off) <= 0.75),
+    offsets.length >= 4 && offsets.every((o) => Math.abs(o.off) <= 0.75),
     JSON.stringify(offsets),
   );
 
-  // Edits: their one view is a window over the chat, with the file the turn wrote.
-  await a.page.getByTestId("chat-views-edits").click();
+  // Edits: their one view is a window over the chat, opened by git's count.
+  await a.page.getByTestId("workspace-bar-edits").click();
   const edits = a.page.getByTestId("diff-viewer");
   await edits.waitFor();
   await edits.getByTestId("dv-file-notes/release.md").waitFor({ timeout: 15000 });
-  check("Edits open in their window, with the file the turn wrote", true);
+  check("the count opens the edits window, with the file the turn wrote", true);
   check("no dock face for the edits, and no tab strip anywhere", (await a.page.locator('[data-testid=changes-panel], [role="tablist"], .dock-tabs').count()) === 0);
   check("the address names the edits", (await a.page.evaluate(() => location.hash)) === `#/s/${sid}/changes`);
   await a.page.keyboard.press("Escape");
   await until("the edits put away", async () => (await edits.count()) === 0);
   check("Escape puts the edits away and gives the address back to the chat", (await a.page.evaluate(() => location.hash)) === `#/s/${sid}`);
-  // The count in the bar opens the same window.
-  await a.page.getByTestId("workspace-bar-edits").click();
-  await edits.waitFor();
-  check("the count in the bar opens the edits window", true);
-  await a.page.keyboard.press("Escape");
-  await until("the edits put away", async () => (await edits.count()) === 0);
 
   // Background tasks: in the dock, its own title, no tab strip.
   await a.page.getByTestId("chat-views-tasks").click();
@@ -688,9 +725,8 @@ async function scenarioViews() {
 }
 
 /**
- * Discarding through the relay: the count in the bar opens the edits, a file
- * is put back after a question, and with nothing left the Edits button and
- * the count go.
+ * Discarding through the relay: the count on the plate opens the edits, a file
+ * is put back after a question, and with nothing left the count goes.
  */
 async function scenarioDiscard(sid) {
   const d = await openPage();
@@ -698,7 +734,7 @@ async function scenarioDiscard(sid) {
   await d.page.getByTestId("workspace-bar-edits").click();
   const edits = d.page.getByTestId("diff-viewer");
   await edits.getByTestId("dv-file-notes/release.md").waitFor({ timeout: 15000 });
-  check("the count in the bar opens the edits", (await d.page.evaluate(() => location.hash)) === `#/s/${sid}/changes`);
+  check("the count on the plate opens the edits", (await d.page.evaluate(() => location.hash)) === `#/s/${sid}/changes`);
   await edits.getByTestId("dv-file-notes/release.md").hover();
   await edits.getByTestId("dv-discard-notes/release.md").click();
   const dialog = d.page.locator(".confirm-dialog");
@@ -711,13 +747,13 @@ async function scenarioDiscard(sid) {
   check("the window says the working copy is clean", true);
   await d.page.keyboard.press("Escape");
   await until("the edits put away", async () => (await edits.count()) === 0);
-  await until("the Edits button goes", async () => (await d.page.getByTestId("chat-views-edits").count()) === 0);
-  check("with nothing left the count leaves the bar", (await d.page.getByTestId("workspace-bar-edits").count()) === 0);
+  await until("the count goes", async () => (await d.page.getByTestId("workspace-bar-edits").count()) === 0);
+  check("with nothing left the count leaves the plate, which stays", (await d.page.getByTestId("workspace-bar").count()) === 1);
   check("no page errors on the way", d.errors.length === 0, d.errors.join(" | "));
   await d.context.close();
 }
 
-/** A chat in a clean working copy has no Edits button: Files and Tasks only. */
+/** A chat in a clean working copy: the plate without a count, Files and Tasks in the header. */
 async function scenarioNoEdits() {
   const c = await openPage();
   await c.page.goto(`${RELAY}/`);
@@ -728,10 +764,12 @@ async function scenarioNoEdits() {
   await c.page.waitForTimeout(800);
   const row = await viewButtons(c.page);
   check(
-    "a chat without edits shows Files and Tasks, and no Edits button",
+    "a chat without edits shows Files and Tasks in the header",
     JSON.stringify(row.map((b) => b.id)) === JSON.stringify(["chat-views-files", "chat-views-tasks"]),
     JSON.stringify(row.map((b) => b.id)),
   );
+  await c.page.getByTestId("workspace-bar").waitFor();
+  check("and the plate over the composer has no count", (await c.page.getByTestId("workspace-bar-edits").count()) === 0);
   await c.context.close();
 }
 
@@ -750,18 +788,18 @@ async function scenarioPhone(sid) {
   await win.getByTestId("files-tree").getByText("README.md", { exact: true }).click();
   await win.locator(".files-file-body h1", { hasText: "Demo workspace" }).waitFor();
   check("a file picked on a phone puts the tree away again", !(await win.getByTestId("files-tree").isVisible().catch(() => false)));
-  // On a phone Edits and Files are the icon alone, in the 40px squares of the
-  // top bar, and Background tasks the dot with its word, all beside the title,
-  // which keeps its room.
+  // On a phone Files is the icon alone, in the 40px square of the top bar, and
+  // Background tasks the dot with its word, both beside the title, which keeps
+  // its room.
   await p.page.keyboard.press("Escape");
   await until("the window put away", async () => (await win.count()) === 0);
   const phoneButtons = await viewButtons(p.page);
-  const [pe, pf, pt] = phoneButtons;
+  const [pf, pt] = phoneButtons;
   check(
-    "on a phone Edits and Files are 40px icons and Tasks the dot, beside the title, inside the header",
-    phoneButtons.length === 3 &&
+    "on a phone Files is a 40px icon and Tasks the dot, beside the title, inside the header",
+    phoneButtons.length === 2 &&
       phoneButtons.every((b) => b.inHeader && b.besideTitle && Math.round(b.box.height) === 40 && b.box.right <= 390) &&
-      [pe, pf].every((b) => b.label === "" && b.icon === 18 && Math.round(b.box.width) === 40) &&
+      pf.label === "" && pf.icon === 18 && Math.round(pf.box.width) === 40 &&
       pt.dot && pt.label === "Tasks" &&
       new Set(phoneButtons.map((b) => Math.round(b.box.top))).size === 1,
     JSON.stringify(phoneButtons.map((b) => [b.id, b.label, b.icon, b.dot, b.box])),
@@ -790,9 +828,16 @@ async function scenarioPhone(sid) {
   check("and the address is the tasks' again", (await p.page.evaluate(() => location.hash)).endsWith("/tasks"));
   await p.page.keyboard.press("Escape");
   await until("the tasks put away", async () => (await p.page.getByTestId("bgtasks-panel").count()) === 0);
-  // On a phone the edits window fits the screen too.
+  // On a phone the plate keeps its shape, and the edits window fits the screen too.
   await p.page.setViewportSize({ width: 390, height: 844 });
-  await p.page.getByTestId("chat-views-edits").click();
+  const phonePlate = await plate(p.page);
+  check(
+    "on a phone the plate is joined to the composer card, git's count at its right edge, nothing sideways",
+    !!phonePlate && phonePlate.joined && phonePlate.sameEdges && phonePlate.countAtRight && phonePlate.box.left >= 0 && phonePlate.box.right <= 390 &&
+      (await p.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)) <= 0,
+    JSON.stringify(phonePlate),
+  );
+  await p.page.getByTestId("workspace-bar-edits").click();
   const edits = p.page.getByTestId("diff-viewer");
   await edits.getByTestId("dv-file-notes/release.md").waitFor({ timeout: 15000 });
   const fits = await p.page.evaluate(() => {
@@ -859,8 +904,8 @@ async function scenarioCrossOrigin(sid) {
 /**
  * The window at every tier of the layout grid, in English and in Russian (its
  * words are longer): inside the viewport, nothing sideways, the tree beside the
- * file wherever both fit, the head's controls inside the window, and the views
- * menu inside the viewport.
+ * file wherever both fit, the head's controls inside the window, and the view
+ * buttons beside the chat's title.
  */
 async function scenarioWidths(sid) {
   for (const lang of ["en", "ru"]) {
@@ -901,16 +946,16 @@ async function scenarioWidths(sid) {
       const height = width < 1200 ? 42 : 36;
       check(
         `${lang} ${width}px: the view buttons sit beside the title in one row, icon and short name whole`,
-        row.length === 3 &&
+        row.length === 2 &&
           row.every((b) => b.inHeader && b.besideTitle && b.label !== "" && b.labelFits && Math.round(b.box.height) === height) &&
-          row[0].icon === 18 && row[1].icon === 18 && row[2].dot &&
+          row[0].icon === 18 && row[1].dot &&
           new Set(row.map((b) => Math.round(b.box.top))).size === 1,
         JSON.stringify(row.map((b) => [b.label, b.labelFits, b.icon, Math.round(b.box.height), b.inHeader, b.besideTitle])),
       );
       const iconRow = await iconOffsets(w.page);
       check(
         `${lang} ${width}px: the icons sit on the middle of their words' lowercase letters`,
-        iconRow.length >= 3 && iconRow.every((o) => Math.abs(o.off) <= 0.75),
+        iconRow.length >= 2 && iconRow.every((o) => Math.abs(o.off) <= 0.75),
         JSON.stringify(iconRow),
       );
       await w.context.close();

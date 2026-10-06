@@ -14,11 +14,6 @@ export function ChatHeader(props: {
   onOpenTasks?: () => void;
   /** The Tasks panel is showing. */
   tasksOpen?: boolean;
-  /** Opens the edits window, or puts it away when it shows. Absent while git
-   *  reports no changes in the chat's folder. */
-  onOpenEdits?: () => void;
-  /** The edits are showing. */
-  editsOpen?: boolean;
   /** Opens the window of the session's files. */
   onOpenFiles?: () => void;
   /** The files window is open. */
@@ -93,8 +88,6 @@ export function ChatHeader(props: {
           tasks={props.tasks ?? []}
           onOpenTasks={props.onOpenTasks}
           tasksOpen={props.tasksOpen === true}
-          {...(props.onOpenEdits ? { onOpenEdits: props.onOpenEdits } : {})}
-          editsOpen={props.editsOpen === true}
           {...(props.onOpenFiles ? { onOpenFiles: props.onOpenFiles } : {})}
           filesOpen={props.filesOpen === true}
         />
@@ -103,27 +96,25 @@ export function ChatHeader(props: {
   );
 }
 
-type ViewId = "tasks" | "edits" | "files";
+type ViewId = "tasks" | "files";
 
 /**
- * The views of a chat - its edits, its files, its background tasks - as a row
- * of buttons at the right of the sticky header, the way the views of a session
- * sit at the top of Claude's app. Edits and Files are an icon the size of the
+ * The views of a chat in its header - its files, its background tasks - as a
+ * row of buttons at the right of the sticky header, the way the views of a
+ * session sit at the top of Claude's app. Files is an icon the size of the
  * rail's, with a short name beside it on a desktop and a tablet; a phone has
  * room for the icon alone, the size of its top bar's. Background tasks come
  * last, at the right edge: the dot and the running / total count of the
  * control the header always had, the dot in the accent while work is in
- * flight. Edits is there only when the session has edits (or they are on
- * show). The full name is in the tooltip everywhere. A button opens its view
- * and, pressed again, puts it away; the button of a view on show is pressed
- * (aria-pressed, the accent).
+ * flight. The edits open from git's count in the bar over the composer, not
+ * from here. The full name is in the tooltip everywhere. A button opens its
+ * view and, pressed again, puts it away; the button of a view on show is
+ * pressed (aria-pressed, the accent).
  */
 function HeaderViews(props: {
   tasks: BackgroundTask[];
   onOpenTasks: () => void;
   tasksOpen: boolean;
-  onOpenEdits?: () => void;
-  editsOpen: boolean;
   onOpenFiles?: () => void;
   filesOpen: boolean;
 }) {
@@ -142,15 +133,6 @@ function HeaderViews(props: {
     pressed: boolean;
     run: () => void;
   }[] = [];
-  if (props.onOpenEdits) {
-    views.push({
-      id: "edits",
-      label: t("changes.panelTitle"),
-      name: t("chat.views.editsTitle"),
-      pressed: props.editsOpen,
-      run: props.onOpenEdits,
-    });
-  }
   if (props.onOpenFiles) {
     views.push({
       id: "files",
@@ -202,7 +184,7 @@ function HeaderViews(props: {
                   aria-hidden="true"
                 />
               ) : (
-                <ViewIcon id={view.id} />
+                <FilesIcon />
               )}
               <span className="chat-view-label" aria-hidden="true">
                 {view.label}
@@ -227,8 +209,8 @@ function HeaderViews(props: {
   );
 }
 
-/** An 18px line icon per view, the size of the rail's, in the button's colour. */
-function ViewIcon(props: { id: Exclude<ViewId, "tasks"> }) {
+/** The Files view's 18px line icon, the size of the rail's, in the button's colour. */
+function FilesIcon() {
   const common = {
     className: "chat-view-icon",
     width: 18,
@@ -241,15 +223,6 @@ function ViewIcon(props: { id: Exclude<ViewId, "tasks"> }) {
     strokeLinejoin: "round" as const,
     "aria-hidden": true,
   };
-  if (props.id === "edits") {
-    // A plus over a minus: what the session changed.
-    return (
-      <svg {...common}>
-        <rect x="1.75" y="1.75" width="12.5" height="12.5" rx="2" />
-        <path d="M8 4.5v4M6 6.5h4M6 11h4" />
-      </svg>
-    );
-  }
   return (
     <svg {...common}>
       <path d="M1.75 4.25c0-.83.67-1.5 1.5-1.5h3l1.5 1.75h5c.83 0 1.5.67 1.5 1.5v6.25c0 .83-.67 1.5-1.5 1.5h-9.5c-.83 0-1.5-.67-1.5-1.5z" />

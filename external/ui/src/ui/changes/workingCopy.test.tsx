@@ -10,8 +10,8 @@ import {
 
 /**
  * What git reports for a chat's folder is read once and shared by every view
- * that shows it: the header's Edits button, the bar over the composer and the
- * edits window.
+ * that shows it: git's count on the plate over the composer and the edits
+ * window.
  */
 
 let files = 0;

@@ -24,7 +24,7 @@ import type { MessageListProps } from "../messages/MessageList";
 import type { BackgroundTask } from "../tasks/types";
 import { countRunningTasks, isAwaitingPermission } from "../tasks/taskStatus";
 import { finishedToolCalls } from "../changes/toolActivity";
-import { hasEdits, useWorkingCopy } from "../changes/workingCopy";
+import { useWorkingCopy } from "../changes/workingCopy";
 import { WorkspaceBar } from "./WorkspaceBar";
 import type { TurnProgress } from "./turnProgress";
 import { SubagentPermissionCards } from "./SubagentPermissionCard";
@@ -170,11 +170,8 @@ export function ChatScreen(props: {
   /** The Tasks panel is showing, for the header control's expanded state. */
   backgroundTasksOpen?: boolean;
   onCloseBackgroundTasks?: () => void;
-  /** Opens the edits window - what git reports for the chat's folder - or puts
-   *  it away when it shows. */
-  onOpenSessionChanges?: () => void;
-  /** The edits window is open. */
-  sessionChangesOpen?: boolean;
+  /** Opens the edits window: what git reports for the chat's folder. */
+  onOpenEdits?: () => void;
   /** Opens (or puts away) the Files window from the header. */
   onOpenFiles?: () => void;
   /** The Files window is open. */
@@ -538,18 +535,23 @@ export function ChatScreen(props: {
     />
   ) : null;
 
-  // What git reports for the chat's folder: the Edits button is there while
-  // it reports changes (or while they are on show), and the bar over the
-  // composer counts them. Every finished tool call may have written a file.
+  // What git reports for the chat's folder, counted by the bar over the
+  // composer, whose count opens the edits window. Every finished tool call may
+  // have written a file.
   const workingCopy = useWorkingCopy(props.sessionId ?? "", {
-    enabled: !!props.onOpenSessionChanges,
+    enabled: !!props.onOpenEdits,
     toolActivity: finishedToolCalls(props.items),
   });
-  const editsOffered =
-    hasEdits(workingCopy) || props.sessionChangesOpen === true;
-  const toggleEdits = props.onOpenSessionChanges
-    ? () => props.onOpenSessionChanges?.()
-    : undefined;
+  // Once the chat runs, where it works is a fact rather than a choice: a plate
+  // joined to the top of the composer card names it.
+  const workspaceBar =
+    !readOnlyNotice && props.sessionId && props.workspaceLocked && props.workspaceCtx ? (
+      <WorkspaceBar
+        context={props.workspaceCtx}
+        workingCopy={workingCopy}
+        onOpenEdits={props.onOpenEdits}
+      />
+    ) : undefined;
   // The Files window belongs to a chat, so it opens only once one exists.
   const openFiles = props.sessionId
     ? (props.onOpenFiles ?? (() => openWorkspaceFile()))
@@ -854,12 +856,7 @@ export function ChatScreen(props: {
                             ? props.onCloseBackgroundTasks
                             : props.onOpenBackgroundTasks,
                         tasksOpen: props.backgroundTasksOpen === true,
-                        ...(toggleEdits && editsOffered
-                          ? {
-                              onOpenEdits: toggleEdits,
-                              editsOpen: props.sessionChangesOpen === true,
-                            }
-                          : {}),
+
                         ...(openFiles
                           ? {
                               onOpenFiles: openFiles,
@@ -922,21 +919,9 @@ export function ChatScreen(props: {
                     : {})}
                 />
               )}
-              {/* Once the chat runs, where it works is a fact rather than a
-                  choice: the bar over the composer names it. */}
-              {!readOnlyNotice &&
-              props.sessionId &&
-              props.workspaceLocked &&
-              props.workspaceCtx ? (
-                <WorkspaceBar
-                  context={props.workspaceCtx}
-                  workingCopy={workingCopy}
-                  editsOpen={props.sessionChangesOpen === true}
-                  onOpenEdits={toggleEdits}
-                />
-              ) : null}
               {readOnlyNotice ?? (
                 <Composer
+                  cardTop={workspaceBar}
                   value={props.draft}
                   isEmpty={false}
                   providerUsage={props.providerUsage ?? null}

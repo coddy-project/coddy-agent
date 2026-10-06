@@ -1239,7 +1239,6 @@ export const messagesEn: Record<string, string> = {
   "chat.newChat": "New chat",
   "chat.chatTitleAriaLabel": "Chat title",
   "chat.views.label": "Views of this chat",
-  "chat.views.editsTitle": "Uncommitted edits",
   "chat.views.filesTitle": "Workspace files ({key})",
   "chat.archived.notice":
     "This conversation is archived. Take it out of the archive to keep working in it.",
@@ -1680,7 +1679,6 @@ export const messagesEn: Record<string, string> = {
   "changes.binaryBody": "Binary file: no line diff to show.",
   "changes.truncated": "shortened",
   "changes.empty": "No uncommitted changes in this folder.",
-  "changes.panelTitle": "Edits",
   "changes.status.added": "added",
   "changes.status.modified": "modified",
   "changes.status.deleted": "deleted",
