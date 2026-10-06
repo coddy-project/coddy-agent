@@ -257,6 +257,12 @@ import {
 import { DocsView } from "./docs/DocsView";
 import { FilesView } from "./files/FilesView";
 import { isFilesHotkey } from "./files/filesHotkey";
+import {
+  readLastWorkspaceDir,
+  readWorktreePref,
+  writeLastWorkspaceDir,
+  writeWorktreePref,
+} from "./chat/workspaceCookies";
 import { onOpenWorkspaceFile } from "./files/fileBus";
 import { relativeFilePath } from "./files/api";
 import { useRightDock, useRightDockEscape } from "./components/useRightDock";
@@ -503,7 +509,8 @@ export function App() {
   const [workspaceCtx, setWorkspaceCtx] = useState<WorkspaceContext | null>(
     null,
   );
-  const [worktreePref, setWorktreePref] = useState(false);
+  // The worktree checkbox is this browser's choice for every folder (cookie).
+  const [worktreePref, setWorktreePref] = useState(() => readWorktreePref());
   // Pre-session workspace choices, applied right before the first send creates the session.
   const pendingWorkspaceRef = useRef<{
     path?: string;
@@ -1784,9 +1791,56 @@ export function App() {
     [isAppEnvironment],
   );
 
+  /**
+   * Reads the start screen's folder again - the pending pick, else the
+   * server's default - so it names the branch the folder is on now: one
+   * switched with git switch since it was last read shows. A branch picked on
+   * the start screen stays the choice over the folder's own.
+   */
+  const refreshHomeWorkspace = useCallback(async () => {
+    const path = pendingWorkspaceRef.current?.path;
+    if (!path) {
+      await refreshWorkspaceContext("");
+      return;
+    }
+    const gen = ++workspaceCtxGenRef.current;
+    try {
+      const res = await fetch(
+        "/coddy/workspace/context?path=" + encodeURIComponent(path),
+      );
+      if (gen !== workspaceCtxGenRef.current) {
+        return;
+      }
+      if (res.status === 400) {
+        // The folder is gone: forget it and fall back to the server's default.
+        if (readLastWorkspaceDir() === path) {
+          writeLastWorkspaceDir("");
+        }
+        setPendingWorkspace(null);
+        await refreshWorkspaceContext("");
+        return;
+      }
+      if (!res.ok) {
+        return;
+      }
+      const ctx = (await res.json()) as WorkspaceContext;
+      if (gen !== workspaceCtxGenRef.current) {
+        return;
+      }
+      const picked = pendingWorkspaceRef.current;
+      setWorkspaceCtx(
+        picked?.branch
+          ? { ...ctx, branch: picked.branch, is_worktree: Boolean(picked.worktree) }
+          : ctx,
+      );
+    } catch {
+      // ignore: the plate keeps the context it has
+    }
+  }, [refreshWorkspaceContext]);
+
   // Load the workspace context whenever the viewed session changes. A pending
-  // home workspace is already being previewed and must survive the route
-  // change so the next chat starts where the user left off.
+  // home workspace survives the route change so the next chat starts where the
+  // user left off, and is read again for the branch it is on now.
   //
   // A folder picked from a History heading is applied here rather than where it
   // was picked: leaving a conversation is asynchronous, and a workspace change
@@ -1801,6 +1855,14 @@ export function App() {
       return;
     }
     if (!sessionId && pendingWorkspaceRef.current?.path) {
+      void refreshHomeWorkspace();
+      return;
+    }
+    // The start screen opens on the folder last picked in this browser.
+    const remembered = sessionId ? "" : readLastWorkspaceDir();
+    if (remembered) {
+      setPendingWorkspace({ path: remembered });
+      void refreshHomeWorkspace();
       return;
     }
     setPendingWorkspace(null);
@@ -1808,9 +1870,28 @@ export function App() {
   }, [
     sessionId,
     refreshWorkspaceContext,
+    refreshHomeWorkspace,
     newChatWorkspaceEpoch,
     setPendingWorkspace,
   ]);
+
+  // On the start screen, coming back to the page reads the folder again: its
+  // branch may have been switched in a terminal meanwhile.
+  useEffect(() => {
+    if (sessionId.trim()) {
+      return undefined;
+    }
+    const reread = () => void refreshHomeWorkspace();
+    const visible = () => {
+      if (document.visibilityState === "visible") reread();
+    };
+    window.addEventListener("focus", reread);
+    document.addEventListener("visibilitychange", visible);
+    return () => {
+      window.removeEventListener("focus", reread);
+      document.removeEventListener("visibilitychange", visible);
+    };
+  }, [sessionId, refreshHomeWorkspace]);
 
   async function switchWorkspace(payload: {
     path?: string;
@@ -1820,6 +1901,10 @@ export function App() {
     const sid = sessionId.trim();
     if (!sid) {
       // No session yet: remember the choice and preview the target context.
+      // A folder picked is this browser's for the next start screen too.
+      if (payload.path) {
+        writeLastWorkspaceDir(payload.path);
+      }
       setPendingWorkspace({
         ...(pendingWorkspaceRef.current || {}),
         ...payload,
@@ -3697,10 +3782,10 @@ export function App() {
   }
 
   function goHome() {
+    // The chat left hands nothing of its workspace to the next one: the start
+    // screen opens on the folder last picked in this browser (the effect on
+    // the session id reads it once the chat is gone), on that folder's branch.
     persistComposerDraftBeforeLeave();
-    if (sessionId && workspaceCtx?.path && !pendingWorkspaceRef.current?.path) {
-      setPendingWorkspace({ path: workspaceCtx.path });
-    }
     setSessionsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
@@ -6917,7 +7002,12 @@ export function App() {
             onWorkspacePickBranch={(b: string, wt: boolean) =>
               void switchWorkspace({ branch: b, worktree: wt })
             }
-            onWorktreeToggle={() => setWorktreePref((v) => !v)}
+            onWorktreeToggle={() =>
+              setWorktreePref((v) => {
+                writeWorktreePref(!v);
+                return !v;
+              })
+            }
             sessionLoading={sessionLoading}
             sessionFadingOut={sessionFadingOut}
             heroAccentVerb={heroAccentVerb}

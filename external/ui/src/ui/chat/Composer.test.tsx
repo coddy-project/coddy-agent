@@ -914,10 +914,14 @@ test("before a chat starts the folder, branch and worktree are picks on the plat
   vi.unstubAllGlobals();
 });
 
+// The worktree choice is the browser's for every folder, but a folder with no
+// git index has no branch to switch: the plate offers the folder alone, even
+// with the worktree checkbox switched on.
 test("a folder in no repository: the plate offers the folder alone", () => {
   stubMatchMediaMobile(false);
   render(
     <Composer
+      worktreePref={true}
       value=""
       isEmpty={true}
       mode="agent"

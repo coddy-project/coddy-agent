@@ -5985,35 +5985,15 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   background: transparent;
 }
 
+/* The worktree checkbox is the browser's own, in the theme's colour scheme
+   and accent, so it reads as the ordinary control it is. */
 .workspace-bar-checkbox {
-  appearance: none;
-  width: 12px;
-  height: 12px;
+  width: 13px;
+  height: 13px;
   margin: 0;
-  border-radius: 3px;
-  border: 1px solid color-mix(in srgb, var(--text) 45%, transparent);
-  background: transparent;
-  cursor: inherit;
-  display: inline-block;
-  position: relative;
   flex: none;
-}
-
-.workspace-bar-checkbox:checked {
-  border-color: color-mix(in srgb, var(--text) 80%, transparent);
-  background: color-mix(in srgb, var(--text) 80%, transparent);
-}
-
-.workspace-bar-checkbox:checked::after {
-  content: "";
-  position: absolute;
-  left: 3px;
-  top: 0.5px;
-  width: 4px;
-  height: 7px;
-  border: solid var(--coddy-blend-base);
-  border-width: 0 1.5px 1.5px 0;
-  transform: rotate(45deg);
+  cursor: inherit;
+  accent-color: var(--accent);
 }
 
 .workspace-bar-check:focus-within {
@@ -6049,12 +6029,6 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   .workspace-bar-checkbox {
     width: 16px;
     height: 16px;
-  }
-
-  .workspace-bar-checkbox:checked::after {
-    left: 5px;
-    top: 1.5px;
-    height: 8px;
   }
 
   .workspace-bar-edits {

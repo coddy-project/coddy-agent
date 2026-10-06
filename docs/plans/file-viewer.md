@@ -455,6 +455,11 @@ replaces the recorded change set where they differ.
   under an invisible 40px hit area. The environment left
   the composer for the foot of the nav rail: a laptop for this server, two chevrons for a
   remote host, the menu beside the rail.
+- **What the start screen remembers.** Only what the operator picked, in cookies of this
+  browser: the folder (one per environment) and the worktree checkbox (one for every folder
+  with git). A chat left for the start screen hands nothing over, its linked worktree
+  included, and the branch is the one the folder is on now, read again on arrival and on the
+  page's focus.
 
 Checks: `internal/gitws/backend_test.go` (every scenario with the binary and with it hidden),
 `features/session_changes.feature`, `external/httpserver/coddy_changes_test.go`,

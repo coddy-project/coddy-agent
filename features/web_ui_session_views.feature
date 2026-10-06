@@ -27,6 +27,8 @@ Feature: The views of a chat
     Then a running chat names its repository, branch and changes over the composer
     And a linked worktree is named in the tooltip of its branch
     And before the chat starts the folder, branch and worktree are picks on the plate
+    And the start screen opens on the folder and the worktree choice remembered in this browser
+    And the start screen shows the branch the folder is on now
 
   Scenario: Uncommitted changes are discarded from the edits, after a question
     Then discarding a file asks first, then puts it back through the server
