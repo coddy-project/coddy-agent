@@ -50,6 +50,13 @@ Feature: Long-term memory runs as a background subagent
     And the memory child transcript records a call of "coddy_memory_save"
     And the memory task log contains "coddy_memory_save"
 
+  Scenario: A persist run keeps a Cyrillic note whole within the character limit
+    Given long-term memory is enabled with a wait of 10 seconds
+    And a parent agent session in that workspace
+    When the user sends "запомни мои предпочтения" and the memory child saves a note of 600 Cyrillic characters then answers "Сохранено"
+    Then a note under the global memory root holds those 600 characters whole
+    And the memory child's save was answered without a truncation warning
+
   Scenario: The memory child never writes to the parent's stream
     Given long-term memory is enabled with a wait of 10 seconds
     And a parent agent session in that workspace

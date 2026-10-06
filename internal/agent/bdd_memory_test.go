@@ -21,6 +21,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cucumber/godog"
 
@@ -368,6 +369,49 @@ func (s *memoryFeatureState) userSendsAndChildSavesThenAnswers(text, title, answ
 		return []scriptStep{toolStep(saveCall("call_save", title)), answerStep(answer)}
 	})
 	return s.runTurn(text, answerStep("parent answer"))
+}
+
+// cyrillicNoteBody is a note body of n two-byte characters: under a cap
+// counted in characters, over one counted in bytes (issue #429).
+func cyrillicNoteBody(n int) string {
+	return strings.Repeat("ж", n)
+}
+
+func (s *memoryFeatureState) userSendsAndChildSavesCyrillicThenAnswers(text string, n int, answer string) error {
+	args, _ := json.Marshal(map[string]interface{}{"title": "Предпочтения", "body": cyrillicNoteBody(n), "scope": "global"})
+	call := llm.ToolCall{ID: "call_save", Name: memtools.NameSave, InputJSON: string(args)}
+	s.setChildSteps(func() []scriptStep { return []scriptStep{toolStep(call), answerStep(answer)} })
+	return s.runTurn(text, answerStep("parent answer"))
+}
+
+func (s *memoryFeatureState) globalNoteHoldsCyrillicWhole(n int) error {
+	notes, err := s.globalNotes()
+	if err != nil {
+		return err
+	}
+	if !utf8.ValidString(notes) {
+		return fmt.Errorf("the saved note is not valid UTF-8")
+	}
+	if strings.TrimSpace(notes) != cyrillicNoteBody(n) {
+		return fmt.Errorf("the saved note holds %d characters, want %d", utf8.RuneCountInString(strings.TrimSpace(notes)), n)
+	}
+	return nil
+}
+
+func (s *memoryFeatureState) childSaveAnsweredWithoutWarning() error {
+	snap, err := s.childSnapshot()
+	if err != nil {
+		return err
+	}
+	for _, m := range snap.Messages {
+		if m.Role == llm.RoleTool && m.ToolCallID == "call_save" {
+			if !strings.HasPrefix(m.Content, "saved as ") || strings.Contains(m.Content, "truncat") {
+				return fmt.Errorf("the save answered %q", m.Content)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("the child transcript holds no result of the save")
 }
 
 func (s *memoryFeatureState) userSendsAndChildWaits(text string) error {
@@ -1175,6 +1219,9 @@ func initializeMemoryScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the user sends "([^"]*)" and the memory child answers "([^"]*)" while the parent takes two steps$`, s.userSendsAndChildAnswersWhileParentTakesTwoSteps)
 	sc.Step(`^the user sends "([^"]*)" and the memory child asks to save a note before answering "([^"]*)"$`, s.userSendsAndChildSavesBeforeAnswering)
 	sc.Step(`^the user sends "([^"]*)" and the memory child saves the note "([^"]*)" then answers "([^"]*)"$`, s.userSendsAndChildSavesThenAnswers)
+	sc.Step(`^the user sends "([^"]*)" and the memory child saves a note of (\d+) Cyrillic characters then answers "([^"]*)"$`, s.userSendsAndChildSavesCyrillicThenAnswers)
+	sc.Step(`^a note under the global memory root holds those (\d+) characters whole$`, s.globalNoteHoldsCyrillicWhole)
+	sc.Step(`^the memory child's save was answered without a truncation warning$`, s.childSaveAnsweredWithoutWarning)
 	sc.Step(`^the user sends "([^"]*)" and the memory child waits to be released$`, s.userSendsAndChildWaits)
 	sc.Step(`^the user sends "([^"]*)" and the memory child waits to be released while the parent starts a background command$`, s.userSendsAndChildWaitsWhileParentStartsCommand)
 	sc.Step(`^the user sends "([^"]*)" and the memory child waits to be released while the parent lists and waits for its tasks$`, s.userSendsAndChildWaitsWhileParentUsesPoolTools)

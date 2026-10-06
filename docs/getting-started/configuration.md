@@ -313,6 +313,7 @@ memory:
   persist_max_turns: 12
   copilot_max_tokens: 4096
   max_search_hits: 8
+  max_note_chars: 900   # longest body one saved note may have, in characters; 0 = no cap
   additional_prompt: ""          # your own instructions for the memory subagent only; the main agent never sees them
   additional_prompt_max_chars: 0 # cut additional_prompt at this many characters (a warning is logged); 0 = no cap
 

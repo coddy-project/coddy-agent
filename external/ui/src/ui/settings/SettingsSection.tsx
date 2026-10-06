@@ -781,6 +781,11 @@ function objectSectionGroups(key: string): SchemaFormGroup[] | undefined {
         paths: ["model", "dir"],
       },
       {
+        id: "instructions",
+        legend: translate("settings.group.memory.instructions"),
+        paths: ["additional_prompt", "additional_prompt_max_chars"],
+      },
+      {
         id: "runs",
         legend: translate("settings.group.memory.runs"),
         paths: ["wait_seconds", "timeout_seconds", "keep_runs"],
@@ -793,12 +798,8 @@ function objectSectionGroups(key: string): SchemaFormGroup[] | undefined {
           "persist_max_turns",
           "copilot_max_tokens",
           "max_search_hits",
+          "max_note_chars",
         ],
-      },
-      {
-        id: "instructions",
-        legend: translate("settings.group.memory.instructions"),
-        paths: ["additional_prompt", "additional_prompt_max_chars"],
       },
     ];
   }

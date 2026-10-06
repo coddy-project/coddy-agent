@@ -1026,6 +1026,14 @@
           "description": "Maximum snippets returned by memory_search.",
           "default": 8
         },
+        "max_note_chars": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Longest body one note saved by coddy_memory_save may have, in characters (not bytes). An explicit 0 removes the cap.",
+          "default": 900
+        },
         "additional_prompt": {
           "type": "string",
           "description": "Operator instructions for the memory subagent alone: a section of its system prompt that the main agent never sees. Empty adds nothing.",
