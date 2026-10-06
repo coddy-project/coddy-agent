@@ -49,6 +49,7 @@ type Sender struct {
 	// lastWrite stamps the most recent frame so the idle keepalive knows whether the
 	// stream has gone quiet. Guarded by mu, like every other write to w.
 	lastWrite time.Time
+	usage     completionUsage
 }
 
 // idleKeepaliveInterval is how long a streaming response may stay silent before a
@@ -220,6 +221,13 @@ func (s *Server) configureSender(bridge *Sender) *Sender {
 
 // SendSessionUpdate forwards agent chunks to SSE when streaming.
 func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
+	if u, ok := update.(acp.TokenUsageUpdate); ok {
+		s.mu.Lock()
+		s.usage.input += u.InputTokens
+		s.usage.output += u.OutputTokens
+		s.usage.cached += u.CachedInputTokens
+		s.mu.Unlock()
+	}
 	if !s.emit || s.w == nil {
 		return nil
 	}
@@ -256,6 +264,13 @@ func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
 	default:
 		return nil
 	}
+}
+
+func (s *Sender) CompletionUsage() map[string]interface{} {
+	s.mu.Lock()
+	usage := s.usage
+	s.mu.Unlock()
+	return usage.openAI()
 }
 
 func (s *Sender) forwardTextChunk(u acp.MessageChunkUpdate) error {

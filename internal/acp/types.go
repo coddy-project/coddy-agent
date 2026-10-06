@@ -493,10 +493,11 @@ type ConfigOptionUpdate struct {
 
 // TokenUsageUpdate reports token consumption for the current turn.
 type TokenUsageUpdate struct {
-	SessionUpdate string `json:"sessionUpdate"` // "token_usage"
-	InputTokens   int    `json:"inputTokens"`
-	OutputTokens  int    `json:"outputTokens"`
-	TotalTokens   int    `json:"totalTokens"`
+	SessionUpdate     string `json:"sessionUpdate"` // "token_usage"
+	InputTokens       int    `json:"inputTokens"`
+	OutputTokens      int    `json:"outputTokens"`
+	TotalTokens       int    `json:"totalTokens"`
+	CachedInputTokens int    `json:"cachedInputTokens,omitempty"`
 }
 
 // TurnProgressUpdate reports how far the running turn has come: when it was
