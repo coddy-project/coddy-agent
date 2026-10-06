@@ -6,15 +6,18 @@ import {
   setSessionTasksHash,
 } from "../scheduler/hashRoute";
 
-test("the dock address owns its tab, selected file and one-based line", () => {
+test("the files address opens the window on its file and one-based line, and leaves the dock alone", () => {
   setSessionFilesHash("sess_test", "folder/a b.md", 402);
-  expect(parseAppHash()).toMatchObject({
+  const files = parseAppHash();
+  expect(files).toMatchObject({
     branch: "session",
-    dockTab: "files",
+    filesOpen: true,
     filePath: "folder/a b.md",
     fileLine: 402,
-    tasksOpen: true,
+    tasksOpen: false,
   });
+  // The Files window is not a face of the dock.
+  expect(files).not.toHaveProperty("dockTab");
   setSessionChangesHash("sess_test");
   expect(parseAppHash()).toMatchObject({ dockTab: "changes", tasksOpen: true });
   setSessionTasksHash("sess_test");

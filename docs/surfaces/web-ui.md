@@ -999,44 +999,79 @@ A held project hooks file surfaces in the transcript as a **notice-level system 
 - **external/ui/src/ui/messages/SystemNoticeMessage.test.tsx** (notice row: status role, notice class, no retry)
 - **external/ui/src/ui/settings/settingsSections.test.ts** (translated label and blurb for the `hooks` config tab)
 
+## Views of a chat
+
+A chat has three views beside the conversation: its **background tasks**, its
+**edits** and its **files**. The **Tasks** control at the right of the chat header
+opens a menu of them; a view on show is checked there, and picking it again puts it
+away. **Edits** is offered while the changed-files card is on (`ui.session_changes`,
+the default). The background tasks and the edits open in the dock beside the chat,
+one at a time; the files open in a window over the chat. On a phone or a tablet the
+menu is a sheet at the foot of the screen.
+
+![The views menu under the Tasks control: Background tasks, Edits, and Files with its key](../assets/views-menu-dark-1280.png)
+
+*The views menu of a chat, opened from the Tasks control in its header*
+
+The arrow keys walk the menu, Escape closes it and leaves the view under it open.
+`Ctrl+Shift+F` (`Cmd+Shift+F` on a Mac) opens and closes the Files window from
+anywhere in a chat, the composer included.
+
 ## Workspace files
 
-Open **Files** beside the workspace chip in a chat's composer, select the **Files**
-tab in the right dock, or click a workspace mention or a file tool's path. The dock
-browses that session's workspace. Its address preserves the file and optional line:
-`#/s/<id>/files?path=notes/readme.md&line=15`. Escape or the close button returns to
-the chat; closing returns focus to the opener. On a phone the dock fits between the
-navigation bar and the safe-area insets.
+The **Files** window shows the session's workspace over the chat, the way the
+documentation reader does: the tree on the left, the files opened from it as tabs on
+the right. Open it from the chat header's views menu, with `Ctrl+Shift+F`, with
+**Files** beside the workspace chip in the composer, or by clicking a workspace
+mention in a sent message or a file tool's path. Its address keeps the file and an
+optional line, `#/s/<id>/files?path=notes/readme.md&line=15`, so a reload opens it
+there. Escape or the close button returns to the chat and gives the focus back to
+what opened the window; whatever the dock showed stays under it, on a phone or a
+tablet too, and a click beside the window closes it the same way. Reopened, the window
+shows the files it had open, each at its line, and the address names the one on show.
 
-![Files showing a workspace README with a relative image, a Mermaid diagram and a formula](../assets/workspace-files-preview-dark-1280.png)
+![The Files window: the workspace tree beside two open files, a README rendered with its picture and a Mermaid diagram](../assets/workspace-files-window-dark-1280.png)
 
-*Files shares the right dock with Tasks and Changed files; the selected workspace
-README renders beside the chat.*
+*The Files window over a chat: folders first in the tree, the open files as tabs*
 
-Additional captures: [Light theme, 1280 px](../assets/workspace-files-preview-light-1280.png)
-and [narrow layout, 390 px](../assets/workspace-files-preview-dark-390.png).
+Additional captures: [Light theme, 1280 px](../assets/workspace-files-window-light-1280.png)
+and [phone, 390 px](../assets/workspace-files-window-dark-390.png).
 
-Directories load as they expand. **Filter loaded files** searches the rows already
-loaded, and **Hidden files** includes dotfiles, `node_modules` and `vendor`. This
-filter does not restrict access: an explicit workspace path may still open a hidden
-file. Symlinks and special files are listed but cannot be previewed.
+The tree lists folders first, then files, and loads each folder as it opens. The
+filter above it searches the **whole workspace by name**, folders nobody opened
+included, with the same index as the composer's `@` picker; Escape clears it. The
+window's **⋮** menu shows hidden files (dotfiles, `node_modules`, `vendor`), wraps
+long lines, and for the file on show reloads it, copies its path or downloads it.
+Showing hidden files does not restrict access: an explicit workspace path may still
+open a hidden file. Symlinks and special files are listed with ↗ but are not opened.
+The tree switch at the left of the head folds the tree away, and the arrows at the
+right expand the window over the whole screen. The open files stay open for the life
+of the page, so closing and reopening the window finds them where they were.
 
-Source files show numbered, highlighted line windows, wrapping and line navigation.
-Large text is paged without the old 512 KiB file limit. Markdown switches between
-rendered and source views and uses the chat's Mermaid and formula rendering.
-Relative images load from the workspace with authentication; external images require
-**Load external image**. HTML is displayed as text. Raster images have fit and actual
-size controls and show their dimensions; images above 20 MiB remain downloadable.
+Source files show numbered, highlighted line windows and the line asked for; large
+text is paged without the old 512 KiB file limit. Markdown switches between rendered
+and source views and uses the chat's Mermaid and formula rendering. Relative images
+load from the workspace with authentication; external images require **Load external
+image**. HTML is displayed as text. Raster images have fit and actual size controls
+and show their dimensions; images above 20 MiB remain downloadable.
 
 Audio and video use native controls and byte ranges, including on an authenticated
-remote server. The temporary media URL expires after one hour; **Reload** renews it.
-PDF and unsupported binary formats can be downloaded safely. PDF remains a download
-because a sandboxed native viewer did not work across all three supported engines.
+remote server and through a swarm relay, which carries the file's temporary signed
+address to the node without vouching for it ([Swarm](../operate/swarm.md)). The
+address expires after one hour; **Reload** renews it. PDF and unsupported binary
+formats can be downloaded safely. PDF remains a download because a sandboxed native
+viewer did not work across all three supported engines.
 
-The header shows size and modification time. Returning to the page or finishing a
-tool call revalidates the preview. A changed file shows **File changed** and resets
-an old text page instead of combining lines from different versions. Selected remote
-environments apply to file previews, Markdown images and session image thumbnails.
+The file's head shows its size and modification time. Returning to the page or
+finishing a tool call checks the open file and the open folders again. A file that
+did not change is not read again, so the text stays where it is and a sound or a
+film keeps playing; a changed file shows **File changed** and starts over at its top
+instead of combining lines from different versions. Folders keep the rows **Load
+more files** added, and a folder that is gone folds away. The filter offers files of
+the workspace only, never paths above it or elsewhere on the disk. Selected remote environments apply to file previews, Markdown images and
+session image thumbnails. On a phone the window shows the tree or the file, one at a
+time: a file picked in the tree takes its place, and the tree switch brings the tree
+back.
 
 ## Session changed files card
 
@@ -1097,18 +1132,18 @@ Two surfaces read the change set, picked by the question being asked. A **file
 row** asks about one file and opens the drawer on it; the **summary**, **Review**
 and **`+N more`** ask about the whole set and open the review window.
 
-The **drawer** (`.changes-panel`, `SessionChangesPanel.tsx`) and the **Tasks
-panel** are two faces of one right dock (`dockTab` in `App.tsx`): opening one
-closes the other, a tab strip in the panel head switches between them, and the
-chat column reserves exactly the width of the face on show. The drawer shows the
+The **drawer** (`.changes-panel`, `SessionChangesPanel.tsx`, headed **Edits**) and
+the **Tasks panel** are two faces of the dock beside the chat (`dockTab` in
+`App.tsx`): opening one closes the other, the chat header's views menu switches
+between them, and the chat column reserves exactly the width of the face on show. The drawer shows the
 file list on top and the unified diff of the selected file below. The diff body
 reuses `PermissionToolPreview` — the same renderer the permission gate and the
 transcript foldouts use — fed by `diffPreviewFromPatch`, so a diff looks the same
 everywhere in the app. A binary file is listed but has no diff to show.
 
-![The right dock on its Changed files face: the file list on top, the diff of notes.txt below](../assets/session-changes-dock-dark-1280.png)
+![The dock beside the chat showing the session's edits: the file list on top, the diff of notes/release.md below](../assets/session-edits-dock-dark-1280.png)
 
-*The shared right dock on the Changed files face; the tab strip in the head switches to Background tasks*
+*The dock on its Edits face, opened from the views menu of the chat header*
 
 The **review window** (`.dv-window`, `DiffViewerModal.tsx`) is a modal holding
 every changed file diff in one scrollable document. Its toolbar carries a scope
@@ -1733,6 +1768,49 @@ CODDY_BIN=build/coddy npm --prefix external/ui run check:queue
 ```
 
 **`CODDY_SHOTS_DIR`** also takes the screenshots of [Message queue](../features/message-queue.md) on a second node reached directly, **`CODDY_BROWSER_PATH`** points at an installed Chromium, **`CODDY_PORT_BASE`** moves its four ports and **`CODDY_E2E_KEEP=1`** leaves the stand running. CI runs it in the **`http,scheduler,ui,memory,cli,swarm`** job of the test matrix, after the transcript check.
+
+### Checking the views of a chat through a swarm relay
+
+The views menu, the dock and the Files window are checked against the real binary by
+**`external/ui/scripts/files-check.mjs`**: it serves a scripted model whose first
+answer writes a file through the `write` tool, starts a **`coddy serve`** node that
+asks for a bearer token and a **`coddy serve --swarm`** relay that mounts it with its
+own client token, and drives a browser through the relay's mount only. It checks:
+
+- **the views menu** offers Background tasks, Edits and Files in that order, hangs
+  under the Tasks control inside the window, checks the view on show and puts it
+  away when picked again;
+- **the dock** shows the edits headed Edits with the file the turn wrote, and the
+  background tasks, with no tab strip anywhere;
+- **the Files window** opens over the chat with the filter focused, lists folders
+  first, finds a file three folders down by name, opens files as tabs, renders a
+  README with its relative picture through the relay, expands over the rail, closes
+  on Escape, opens and closes on `Ctrl+Shift+F` with its tabs kept, and opens a
+  mention of the conversation at its line;
+- **a sound plays through the relay** from its signed address alone, the address
+  answers a range with no header, a forged one is refused by the node, and
+  **Download** saves the file under its name;
+- **on a phone** the window fits the screen, shows a file opened by its address
+  without the tree, and the views menu is a sheet;
+- **from another origin** (the node's own web UI with the relay as its environment)
+  the window reads through the relay, a `HEAD` with `If-None-Match` passes the
+  relay's preflight, the `ETag` is readable, and an open file is revalidated;
+- **at every tier of the grid** (600 to 1920 px), in English and in Russian, the
+  window fits the viewport with the tree beside the file and the views menu stays
+  inside the viewport.
+
+```bash
+make build TAGS="http ui swarm"
+npm --prefix external/ui i --no-save playwright && npx --prefix external/ui playwright install chromium
+CODDY_BIN=build/coddy npm --prefix external/ui run check:files
+```
+
+**`CODDY_ENGINE=webkit`** runs it in WebKit, **`CODDY_SHOTS_DIR`** also takes the
+screenshots of this page on a third node reached directly, **`CODDY_BROWSER_PATH`**
+points at an installed Chromium, **`CODDY_PORT_BASE`** moves its four ports and
+**`CODDY_E2E_KEEP=1`** leaves the stand running. CI runs it in the
+**`http,scheduler,ui,memory,cli,swarm`** job of the test matrix, after the message
+queue check.
 
 ### Checking the Telegram Mini App
 

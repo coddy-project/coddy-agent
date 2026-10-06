@@ -19,8 +19,8 @@ func mergeWorkspaceViewerOpenAPI(doc map[string]interface{}) {
 	entry := object(map[string]interface{}{"name": property("string"), "path_rel": property("string"), "kind": map[string]interface{}{"type": "string", "enum": []string{"file", "directory", "symlink", "special"}}, "size_bytes": property("integer"), "mod_time": map[string]interface{}{"type": "string", "format": "date-time"}})
 	paths["/coddy/sessions/{id}/workspace/tree"] = map[string]interface{}{"get": map[string]interface{}{
 		"operationId": "coddyWorkspaceTreeGet", "summary": "List one workspace directory",
-		"description": "Sorted by name, one level only. Symlinks and special files are listed without following them. Hidden names, node_modules and vendor are hidden unless include_hidden=1; this is a navigation filter, not access control.",
-		"parameters":  []interface{}{id, path, param("limit", "integer", "Default 200; 1..1000."), param("cursor", "string", "Last name from the previous page (next_cursor)."), param("include_hidden", "string", "Set to 1 to list hidden entries.")},
+		"description": "Folders first, then files, each group sorted by name; one level only. Symlinks and special files are listed without following them. Hidden names, node_modules and vendor are hidden unless include_hidden=1; this is a navigation filter, not access control.",
+		"parameters":  []interface{}{id, path, param("limit", "integer", "Default 200; 1..1000."), param("cursor", "string", "next_cursor of the previous page, passed back as it is; an opaque position in the listing (folders first, then files, each by name)."), param("include_hidden", "string", "Set to 1 to list hidden entries.")},
 		"responses":   map[string]interface{}{"200": response(object(map[string]interface{}{"entries": map[string]interface{}{"type": "array", "items": entry}, "next_cursor": property("string"), "has_more": property("boolean")})), "400": errorResponseRef(), "404": errorResponseRef(), "500": errorResponseRef()},
 	}}
 	raw := map[string]interface{}{

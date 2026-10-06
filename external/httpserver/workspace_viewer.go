@@ -107,20 +107,39 @@ func (s *Server) workspaceTree(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	cursor := r.URL.Query().Get("cursor")
+	afterGroup, afterName, ok := parseTreeCursor(r.URL.Query().Get("cursor"))
+	if !ok {
+		writeSubagentsError(w, 400, "invalid cursor")
+		return
+	}
 	hidden := r.URL.Query().Get("include_hidden") == "1"
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
+	// Folders first, then everything else, each group by name: the order a file
+	// tree reads in. A page may end anywhere in it, so the cursor names the
+	// group of its last row as well as the name.
+	sort.Slice(entries, func(i, j int) bool {
+		gi, gj := treeGroup(entries[i]), treeGroup(entries[j])
+		if gi != gj {
+			return gi < gj
+		}
+		return entries[i].Name() < entries[j].Name()
+	})
 	rows := make([]workspaceEntry, 0, limit)
 	hasMore := false
+	lastGroup := byte(0)
 	for _, e := range entries {
 		name := e.Name()
-		if !utf8.ValidString(name) || name <= cursor || (!hidden && (strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor")) {
+		group := treeGroup(e)
+		if afterGroup != 0 && (group < afterGroup || (group == afterGroup && name <= afterName)) {
+			continue
+		}
+		if !utf8.ValidString(name) || (!hidden && (strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor")) {
 			continue
 		}
 		if len(rows) == limit {
 			hasMore = true
 			break
 		}
+		lastGroup = group
 		p := filepath.Join(rel, name)
 		info, err := root.Lstat(p)
 		if err != nil {
@@ -140,9 +159,32 @@ func (s *Server) workspaceTree(w http.ResponseWriter, r *http.Request) {
 	}
 	next := ""
 	if hasMore {
-		next = rows[len(rows)-1].Name
+		next = string(lastGroup) + "/" + rows[len(rows)-1].Name
 	}
 	writeJSON(w, 200, map[string]any{"entries": rows, "next_cursor": next, "has_more": hasMore})
+}
+
+// treeGroup sorts a directory entry into the listing's groups: 'd' for a
+// folder, 'f' for everything else (a link to a folder included: it is not
+// followed, so it is not a folder of this tree).
+func treeGroup(e fs.DirEntry) byte {
+	if e.IsDir() {
+		return 'd'
+	}
+	return 'f'
+}
+
+// parseTreeCursor reads a next_cursor back: the group of the last row listed,
+// a slash, and its name. A slash cannot be part of a name, so the first one is
+// the separator. An empty cursor starts at the top (group 0).
+func parseTreeCursor(cursor string) (byte, string, bool) {
+	if cursor == "" {
+		return 0, "", true
+	}
+	if len(cursor) < 3 || cursor[1] != '/' || (cursor[0] != 'd' && cursor[0] != 'f') {
+		return 0, "", false
+	}
+	return cursor[0], cursor[2:], true
 }
 
 func workspaceETag(rel string, info fs.FileInfo) string {

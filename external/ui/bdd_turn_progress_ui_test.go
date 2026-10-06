@@ -62,8 +62,8 @@ func TestBackgroundTasksWebUIFeature(t *testing.T) {
 			sc.Step(`^once everything has finished the header control keeps the total and drops the live mark$`, func() error {
 				return runVitestScenario(header, "once everything has finished the control keeps the total and drops the live mark")
 			})
-			sc.Step(`^the header control opens the Tasks panel and a second click closes it$`, func() error {
-				return runVitestScenario(screen, "the header control opens the Tasks panel and puts it away again")
+			sc.Step(`^the Tasks row of the header menu opens the Tasks panel and picking it again closes it$`, func() error {
+				return runVitestScenario(screen, "the header menu opens the Tasks panel and puts it away again")
 			})
 			sc.Step(`^the transcript ends with the conversation and the header control is the way to the tasks$`, func() error {
 				return runVitestScenario(screen, "the transcript ends with the conversation: the way to the tasks is the header control")

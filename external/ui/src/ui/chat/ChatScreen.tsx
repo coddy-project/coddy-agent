@@ -48,6 +48,10 @@ import {
 } from "./transcriptScrollPosition";
 import { ScrollToBottomButton } from "./ScrollToBottomButton";
 import { openWorkspaceFile } from "../files/fileBus";
+import {
+  getSessionChangesEnabled,
+  onSessionChangesChange,
+} from "./sessionChangesConfig";
 import { TranscriptList, type TranscriptListHandle } from "./TranscriptList";
 
 export function ChatScreen(props: {
@@ -160,6 +164,12 @@ export function ChatScreen(props: {
   onOpenSessionChanges?: (path?: string) => void;
   /** Opens the full-screen review window from the card summary. */
   onOpenChangesViewer?: () => void;
+  /** The dock beside the chat shows the session's edits. */
+  sessionChangesOpen?: boolean;
+  /** Opens (or puts away) the Files window: the header menu, the composer chip. */
+  onOpenFiles?: () => void;
+  /** The Files window is open. */
+  filesOpen?: boolean;
   /** Re-read the task rows: a background subagent's prompt was answered here. */
   onBackgroundTasksChanged?: () => void;
   /** Roots this session works in - its own directory, then its worktrees -
@@ -519,6 +529,17 @@ export function ChatScreen(props: {
     />
   ) : null;
 
+  // The edits are offered only while the card is switched on (ui.session_changes).
+  const sessionChangesEnabled = useSyncExternalStore(
+    onSessionChangesChange,
+    getSessionChangesEnabled,
+    getSessionChangesEnabled,
+  );
+  // The Files window belongs to a chat, so it opens only once one exists.
+  const openFiles = props.sessionId
+    ? (props.onOpenFiles ?? (() => openWorkspaceFile()))
+    : undefined;
+
   const messageListProps: Omit<
     MessageListProps,
     "items" | "renderStart" | "renderEnd"
@@ -671,9 +692,7 @@ export function ChatScreen(props: {
             )}
             {readOnlyNotice ?? (
               <Composer
-                onOpenFiles={
-                  props.sessionId ? () => openWorkspaceFile() : undefined
-                }
+                onOpenFiles={openFiles}
                 value={props.draft}
                 isEmpty={true}
                 providerUsage={props.providerUsage ?? null}
@@ -803,14 +822,30 @@ export function ChatScreen(props: {
                   {...(props.onOpenBackgroundTasks
                     ? {
                         tasks: props.backgroundTasks ?? [],
-                        // The header control is where the panel was opened
-                        // from, so a second click puts it away again.
+                        // The header menu is where a view was opened from, so
+                        // picking it again puts it away.
                         onOpenTasks:
                           props.backgroundTasksOpen === true &&
                           props.onCloseBackgroundTasks
                             ? props.onCloseBackgroundTasks
                             : props.onOpenBackgroundTasks,
                         tasksOpen: props.backgroundTasksOpen === true,
+                        ...(props.onOpenSessionChanges && sessionChangesEnabled
+                          ? {
+                              onOpenEdits:
+                                props.sessionChangesOpen === true &&
+                                props.onCloseBackgroundTasks
+                                  ? props.onCloseBackgroundTasks
+                                  : () => props.onOpenSessionChanges?.(),
+                              editsOpen: props.sessionChangesOpen === true,
+                            }
+                          : {}),
+                        ...(openFiles
+                          ? {
+                              onOpenFiles: openFiles,
+                              filesOpen: props.filesOpen === true,
+                            }
+                          : {}),
                       }
                     : {})}
                 />
@@ -881,9 +916,7 @@ export function ChatScreen(props: {
               )}
               {readOnlyNotice ?? (
                 <Composer
-                  onOpenFiles={
-                    props.sessionId ? () => openWorkspaceFile() : undefined
-                  }
+                  onOpenFiles={openFiles}
                   value={props.draft}
                   isEmpty={false}
                   providerUsage={props.providerUsage ?? null}

@@ -71,6 +71,25 @@ func TestWorkspaceViewerFeature(t *testing.T) {
 				}
 				return nil
 			})
+			sc.Step(`^the directory lists "([^"]+)" in that order$`, func(want string) error {
+				var tree struct {
+					Entries []workspaceEntry `json:"entries"`
+				}
+				if status != 200 {
+					return fmt.Errorf("tree status %d: %s", status, data)
+				}
+				if err := json.Unmarshal(data, &tree); err != nil {
+					return err
+				}
+				names := make([]string, 0, len(tree.Entries))
+				for _, e := range tree.Entries {
+					names = append(names, e.Name)
+				}
+				if got := strings.Join(names, ", "); got != want {
+					return fmt.Errorf("directory lists %q, want %q", got, want)
+				}
+				return nil
+			})
 			sc.Step(`^a large workspace text file$`, func() error { return s.workspaceContains("large.txt", strings.Repeat("hello world\n", 100000)) })
 			sc.Step(`^I read the large file from line offset (\d+)$`, func(offset int) error {
 				return request("GET", fmt.Sprintf("text?path_rel=large.txt&offset=%d&max_lines=1", offset), "", nil)

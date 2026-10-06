@@ -147,6 +147,9 @@ nothing else: the `Access-Control-*` headers of a node's own answer stay behind 
 node that browsers also reach directly has `httpserver.cors` on, and passed through, its
 headers would sit next to the relay's - a browser refuses a response that names the allowed
 origin twice. The same rule keeps a node's policy from opening a relay whose own CORS is off.
+Since the relay's answer is the only one, it carries what the web UI's Files window needs from
+another origin: `HEAD` among the methods, `Range` and `If-None-Match` among the request headers,
+and `ETag`, `Content-Range`, `Accept-Ranges` and `Content-Disposition` exposed to the page.
 
 A hand-written path is capped at the same hop budget the fan-out uses, so a client cannot
 walk a ring indefinitely by writing hops out one after another.
@@ -391,6 +394,17 @@ hop-by-hop and forwarding headers, removes an SSE query token before the hop, an
 follows a redirect. Path segments are judged **after decoding**: `%2e%2e` passes any check of
 the escaped form and becomes `..` the moment something decodes it, which is how a request
 aimed at a node's API would climb back out into the relay's own routes.
+
+One request is carried without the client token: a `GET` or `HEAD` of a node's
+`/coddy/sessions/{id}/workspace/raw` with an `access_token` and no `Authorization` header. That is
+how the web UI's Files window plays a video or an audio file and downloads a file: a media element
+cannot send a header, so the node signs a capability for one file of one session, valid for an hour,
+and the browser puts it in the address. The relay cannot check that signature and does not vouch for
+it either: the request reaches the node with the capability in its query and without the relay's own
+credential, and the node accepts or refuses it. A request with two `access_token` values is not
+that exception, and a relay's client token is never carried that way, on any route. Without a client
+token such a request learns nothing from the relay itself: whatever the relay would refuse (an unknown
+or unreachable node, a path it does not carry) is the gate's plain `401`.
 
 Credentials are preserved across a config save by **destination**, not by label: renaming an
 entry keeps its token, pointing it at a new address does not.

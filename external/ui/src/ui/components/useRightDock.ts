@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { isUnclaimedEscape } from "../nav/railEscape";
-export type RightDockTab = "tasks" | "changes" | "files";
+/** The faces of the dock beside the chat: its background tasks, its edits.
+ * The files open in a window of their own (files/FilesView.tsx). */
+export type RightDockTab = "tasks" | "changes";
 
 /** One open state and one active tab determine the dock's width and focus.
  * Route and Escape handlers in the shell use this same close operation. */

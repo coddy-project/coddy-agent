@@ -1,5 +1,5 @@
 Feature: Preview a session workspace through the HTTP surface
-  The Files dock reads the session's own workspace, including files larger than
+  The Files window reads the session's own workspace, including files larger than
   the old text preview limit. Native media uses a scoped URL without API headers.
 
   Scenario: Browse one directory without walking the whole workspace
@@ -7,6 +7,14 @@ Feature: Preview a session workspace through the HTTP surface
     And a workspace file "notes/readme.md" containing "# Notes\n"
     When I browse the directory "notes"
     Then the directory lists the file "readme.md"
+
+  Scenario: A directory lists its folders before its files
+    Given a file viewer server with a workspace
+    And a workspace file "notes/a-readme.md" containing "# Notes\n"
+    And a workspace file "notes/drafts/idea.md" containing "idea"
+    And a workspace file "notes/Archive/old.md" containing "old"
+    When I browse the directory "notes"
+    Then the directory lists "Archive, drafts, a-readme.md" in that order
 
   Scenario: Read a line window beyond 512 KiB
     Given a file viewer server with a workspace

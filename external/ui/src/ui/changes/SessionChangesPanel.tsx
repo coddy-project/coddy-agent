@@ -2,15 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { PermissionToolPreview } from "../chat/PermissionPromptPreview";
 import { diffPreviewFromPatch } from "../chat/permissionToolPreview";
-import { DockTabs } from "../components/DockTabs";
-import type { RightDockTab } from "../components/useRightDock";
 import { fetchSessionChangeFile, fetchSessionChanges } from "./api";
 import { baseName, dirName, statusKey } from "./sessionChangesText";
 import { EMPTY_SESSION_CHANGES, type SessionChanges } from "./types";
 
 /**
- * The in-app diff viewer for a session change set: the file list on the left,
- * the unified diff of the selected file on the right.
+ * The session's edits in the dock beside the chat: the changed files on top,
+ * the unified diff of the selected one under them. The chat header's views
+ * menu opens it, and so does a file row of the card under the transcript.
  *
  * Desktop and browser have no native diff viewer to hand the review to, so this
  * is where they read it. Editor panels normally never open this — the card
@@ -22,10 +21,6 @@ export function SessionChangesPanel(props: {
   sessionId: string;
   /** Preselects one file, e.g. when the user clicked its row on the card. */
   initialPath?: string | undefined;
-  /** Which face of the shared dock is showing; defaults to this one. */
-  dockTab?: RightDockTab;
-  /** Asks the shell to show the other dock face. */
-  onDockTab?: (tab: RightDockTab) => void;
   onClose: () => void;
 }) {
   const { t, tp } = useT();
@@ -110,9 +105,6 @@ export function SessionChangesPanel(props: {
     >
       <div className="sessions-head changes-panel-head">
         <span>{t("changes.panelTitle")}</span>
-        {props.onDockTab ? (
-          <DockTabs tab={props.dockTab || "changes"} onTab={props.onDockTab} />
-        ) : null}
         <button
           type="button"
           className="sessions-close"

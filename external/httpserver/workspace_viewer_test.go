@@ -157,7 +157,7 @@ func TestWorkspaceViewerTreeAndLongText(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &tree); err != nil {
 		t.Fatal(err)
 	}
-	if len(tree.Entries) != 1 || tree.Entries[0].Name != "a.go" || !tree.HasMore || tree.Cursor != "a.go" {
+	if len(tree.Entries) != 1 || tree.Entries[0].Name != "a.go" || !tree.HasMore || tree.Cursor == "" {
 		t.Fatalf("page: %+v", tree)
 	}
 	w = workspaceRequest(e, "GET", "text?path_rel=a.go&offset=99998&max_lines=1", nil, nil)
@@ -176,6 +176,73 @@ func TestWorkspaceViewerTreeAndLongText(t *testing.T) {
 	w = workspaceRequest(e, "GET", "text?path_rel=a.go&etag="+url.QueryEscape(etag), nil, nil)
 	if w.Code != 409 {
 		t.Fatalf("changed paging = %d", w.Code)
+	}
+}
+
+// A folder lists its folders first, then its files, each group by name, and a
+// page boundary falls anywhere in that order: the cursor carries the group of
+// the last row as well as its name.
+func TestWorkspaceViewerTreeListsFoldersFirstAcrossPages(t *testing.T) {
+	e := newChangesEnv(t)
+	for _, dir := range []string{"zeta", "Alpha", "mid"} {
+		if err := os.MkdirAll(filepath.Join(e.cwd, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeInWorkspace(t, e.cwd, "b.md", "b")
+	writeInWorkspace(t, e.cwd, "a.go", "a")
+	writeInWorkspace(t, e.cwd, "zeta/z.txt", "z")
+	writeInWorkspace(t, e.cwd, "Alpha/a.txt", "a")
+	writeInWorkspace(t, e.cwd, "mid/m.txt", "m")
+	type page struct {
+		Entries []struct {
+			Name string `json:"name"`
+			Kind string `json:"kind"`
+		}
+		Cursor  string `json:"next_cursor"`
+		HasMore bool   `json:"has_more"`
+	}
+	read := func(query string) page {
+		t.Helper()
+		w := workspaceRequest(e, "GET", "tree?"+query, nil, nil)
+		if w.Code != 200 {
+			t.Fatalf("tree %s: %d %s", query, w.Code, w.Body.String())
+		}
+		var p page
+		if err := json.Unmarshal(w.Body.Bytes(), &p); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	var names []string
+	for _, row := range read("").Entries {
+		names = append(names, row.Name)
+	}
+	// The changes env keeps a file of its own at the root; only the order matters.
+	var ours []string
+	for _, n := range names {
+		switch n {
+		case "Alpha", "mid", "zeta", "a.go", "b.md":
+			ours = append(ours, n)
+		}
+	}
+	if got := strings.Join(ours, ","); got != "Alpha,mid,zeta,a.go,b.md" {
+		t.Fatalf("one page lists %q, want folders first", strings.Join(names, ","))
+	}
+	var walked []string
+	cursor := ""
+	for i := 0; i < 20; i++ {
+		p := read("limit=2&cursor=" + url.QueryEscape(cursor))
+		for _, row := range p.Entries {
+			walked = append(walked, row.Name)
+		}
+		if !p.HasMore {
+			break
+		}
+		cursor = p.Cursor
+	}
+	if strings.Join(walked, ",") != strings.Join(names, ",") {
+		t.Fatalf("pages of two walk %q, one page lists %q", strings.Join(walked, ","), strings.Join(names, ","))
 	}
 }
 

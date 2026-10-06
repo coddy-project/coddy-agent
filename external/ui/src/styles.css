@@ -2381,6 +2381,65 @@ a.rail-brand {
   outline-offset: 2px;
 }
 
+/* A view beside the chat is on show: the control that picked it stays lit. */
+.chat-header-tasks.is-active {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--coddy-blend-base));
+}
+
+/* The views menu of the header control: one row per view, an icon, its name,
+   and what it has to say at the right edge - how many tasks run, the key that
+   opens the files. A view on show is the selected row. */
+.mode-menu.mode-menu--views {
+  min-width: 248px;
+}
+
+.mode-menu--portal.mode-menu--views {
+  left: auto;
+}
+
+.views-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid transparent;
+}
+
+.views-menu-icon {
+  flex: none;
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+}
+
+.views-menu-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.views-menu-count {
+  flex: none;
+  min-width: 20px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 80%, var(--coddy-blend-base));
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.views-menu-key {
+  flex: none;
+  font: inherit;
+  font-size: 11.5px;
+  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+}
+
+.views-menu-item:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: -1.5px;
+}
+
 /* running / total. Tabular digits, so a count that changes does not move the title. */
 .chat-header-tasks-counts {
   font-variant-numeric: tabular-nums;
@@ -15611,91 +15670,719 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   overflow: hidden;
 }
 
-/* The workspace reader shares the Tasks/Changes dock and the grid's breakpoint. */
-.files-panel {
+/* ── Files window ─────────────────────────────────────────────────────────
+   The session's workspace in a window over the chat, framed the way the
+   documentation reader is (.docs-dock-cluster): the same glass sheet right of
+   the rail, no wider than the dock width, centred in what is left. Expanded,
+   it takes the whole window, the rail included. Inside: a header, then the
+   tree beside the open files. DESIGN.md, Workspace files window. */
+.files-dock-cluster {
   position: fixed;
   top: 14px;
-  right: 14px;
   bottom: 14px;
-  width: min(520px, calc(100vw - 32px));
-  z-index: 40;
+  left: calc(var(--rail-shell-track-width) + var(--nav-floating-gutter));
+  right: 14px;
+  width: var(--coddy-dock-width);
+  margin-inline: auto;
+  z-index: 50;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  box-sizing: border-box;
+  overflow: hidden;
   border-radius: var(--coddy-glass-panel-radius);
   border: 1px solid var(--coddy-glass-panel-border);
   background: var(--coddy-glass-panel-bg);
   backdrop-filter: var(--coddy-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
   box-shadow: var(--coddy-glass-panel-shadow);
-  overflow: hidden;
+  color: var(--text);
 }
-.files-panel-head { flex: 0 0 auto; }
-.files-tree-tools, .files-text-tools, .files-preview-head, .files-meta, .files-pages {
+
+.files-dock-cluster.is-expanded {
+  left: 14px;
+  width: auto;
+  margin-inline: 0;
+  z-index: 55;
+}
+
+/* The head of the window: the tree switch and the title on the left, the
+   window's own controls on the right, on one line at every width. */
+.files-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px 12px 12px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+}
+
+.files-title-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.files-title-text {
+  min-width: 0;
+}
+
+/* Spelled like the documentation's title: small capitals in a 72% text tint. */
+.files-title {
+  margin: 0;
+  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.files-subtitle {
+  margin: 2px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.files-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+/* A square control as tall as the close button beside it (30px). */
+.files-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.files-icon-btn:hover,
+.files-icon-btn:focus-visible {
+  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  color: var(--text);
+}
+
+.files-icon-btn.is-active {
+  background: color-mix(in srgb, var(--accent) 16%, var(--coddy-blend-base));
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--coddy-blend-base));
+  color: var(--text);
+}
+
+.files-icon-btn:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.files-more-host {
+  position: relative;
+}
+
+/* The window's menu hangs from its button inside the window, so it is never
+   clipped by the sheet and needs no portal. */
+.files-more-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: auto;
+  z-index: 101;
+  min-width: 210px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.files-menu-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
-  flex-wrap: wrap;
+  white-space: nowrap;
 }
-.files-tree-tools input[type="text"], .files-tree-tools input:not([type]) { min-width: 0; flex: 1; }
-.files-tree-tools label, .files-text-tools label { display: inline-flex; align-items: center; gap: 4px; }
-.files-tree { flex: 0 1 28%; overflow: auto; min-height: 72px; border-bottom: 1px solid var(--coddy-glass-panel-border); }
-.files-tree-row { display: block; width: 100%; text-align: left; padding: 5px 10px; border: 0; background: none; color: inherit; overflow-wrap: anywhere; cursor: pointer; }
-.files-tree-row.is-active, .files-code > .is-active { background: rgb(100 150 255 / 14%); }
-.files-tree-row:disabled { opacity: .5; cursor: default; }
-.files-preview { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: auto; padding-bottom: 16px; }
-.files-tree, .files-preview { overscroll-behavior: contain; }
-.files-preview > p, .files-preview > .md { margin: 12px; }
-.files-preview-head strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.files-meta { font-size: 11px; opacity: .7; padding-top: 0; }
-.files-changed { color: var(--accent); }
-.files-text-tools input[type="number"] { width: 72px; }
-.files-code { font: 12px/1.55 var(--font-mono); min-width: 100%; width: max-content; }
-.files-code > div { display: flex; }
-.files-code code { white-space: pre; flex: 1; min-width: 0; }
-.files-code--wrap { width: 100%; }
-.files-code--wrap code { white-space: pre-wrap; overflow-wrap: anywhere; }
-.files-line-no { flex: 0 0 48px; color: var(--text-muted); text-align: right; padding-right: 12px; user-select: none; }
-.files-image { display: block; padding: 12px; overflow: auto; background: repeating-conic-gradient(rgb(127 127 127 / 8%) 0% 25%, transparent 0% 50%) 50% / 16px 16px; }
-.files-image img { display: block; max-width: 100%; height: auto; margin: 8px auto; }
-.files-image--full img { max-width: none; }
-.files-preview-head button, .files-text-tools > button, .files-pages button, .files-image > button, .files-action {
+
+.files-menu-check {
+  flex: 0 0 14px;
+  text-align: center;
+  color: var(--accent);
+}
+
+.files-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+}
+
+/* Tree and open files, side by side; the tree folds away for the width. */
+.files-layout {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.files-layout.has-tree {
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+}
+
+.files-sidebar {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid
+    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+}
+
+.files-filter {
+  position: relative;
+  flex: none;
+  padding: 10px 10px 8px;
+}
+
+.files-filter-icon {
+  position: absolute;
+  left: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-top: 1px;
+  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+  pointer-events: none;
+}
+
+.files-filter input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 34px;
+  padding: 0 10px 0 32px;
+  border-radius: 10px;
   border: 1px solid var(--coddy-glass-panel-border);
-  border-radius: 6px;
-  background: var(--coddy-glass-panel-bg);
-  color: inherit;
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  color: var(--text);
   font: inherit;
-  font-size: 12px;
-  padding: 4px 8px;
+  font-size: 13px;
+  outline: none;
+}
+
+.files-filter input:focus {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--coddy-blend-base));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.files-filter input::-webkit-search-cancel-button {
   cursor: pointer;
 }
-.files-panel button:disabled { opacity: .5; cursor: default; }
-.files-tree-tools input:not([type]), .files-text-tools input[type="number"] {
-  border: 1px solid var(--coddy-glass-panel-border);
+
+.files-tree {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0 6px 12px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
+}
+
+.files-tree-level {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.files-tree-row,
+.files-tree-more {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 28px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 86%, var(--coddy-blend-base));
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.files-tree-row:hover:not(:disabled),
+.files-tree-more:hover {
+  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+}
+
+.files-tree-row.is-active {
+  background: color-mix(in srgb, var(--accent) 14%, var(--coddy-blend-base));
+  color: var(--text);
+}
+
+.files-tree-row:disabled {
+  cursor: default;
+  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+}
+
+.files-tree-row:focus-visible,
+.files-tree-more:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: -1.5px;
+}
+
+.files-tree-glyph {
+  flex: 0 0 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+}
+
+.files-tree-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files-hit .files-tree-name {
+  direction: rtl;
+  text-align: left;
+}
+
+.files-tree-link {
+  flex: none;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+}
+
+.files-tree-more {
+  color: var(--accent);
+  font-size: 12px;
+}
+
+/* The open files: a strip of tabs over the file on show. */
+.files-main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.files-tabs {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 6px 8px 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+}
+
+.files-tab {
+  flex: none;
+  display: flex;
+  align-items: center;
+  max-width: 240px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 9px 9px 0 0;
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+}
+
+.files-tab:hover {
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+}
+
+.files-tab.is-active {
+  background: color-mix(in srgb, var(--text) 7%, var(--coddy-blend-base));
+  border-color: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+  color: var(--text);
+}
+
+.files-tab-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 7px 4px 7px 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.files-tab-dir {
+  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  font-size: 11px;
+}
+
+.files-tab-close {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-right: 5px;
+  padding: 0;
+  border: 0;
   border-radius: 6px;
-  background: var(--coddy-glass-panel-bg);
+  background: transparent;
+  color: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+.files-tab-close:hover,
+.files-tab-close:focus-visible,
+.files-tab.is-active .files-tab-close {
+  opacity: 1;
+}
+
+.files-tab-close:hover {
+  background: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+}
+
+/* No file open: a quiet note in the middle of the space the files will take. */
+.files-empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px;
+  text-align: center;
+}
+
+.files-empty-icon {
+  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  margin-bottom: 6px;
+}
+
+.files-empty-title {
+  margin: 0;
+  font-size: 15px;
+  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+}
+
+.files-empty-hint {
+  margin: 0;
+  max-width: 360px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+}
+
+/* One open file: where it is and what it is, over its body. */
+.files-file {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.files-file-head {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  padding: 9px 14px;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
+  font-size: 12px;
+}
+
+.files-file-path {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.files-file-dir {
+  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+}
+
+.files-file-name {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.files-file-meta {
+  display: flex;
+  gap: 10px;
+  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+  font-variant-numeric: tabular-nums;
+}
+
+.files-file-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.files-file-tools:empty {
+  display: none;
+}
+
+.files-seg {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 999px;
+  border: 0.5px solid var(--coddy-glass-panel-border);
+}
+
+.files-seg button {
+  min-height: 22px;
+  padding: 2px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 60%, var(--coddy-blend-base));
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.files-seg button.is-active {
+  background: color-mix(in srgb, var(--accent) 14%, var(--coddy-blend-base));
+  color: var(--text);
+}
+
+.files-line-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: color-mix(in srgb, var(--text) 60%, var(--coddy-blend-base));
+}
+
+.files-line-jump input {
+  width: 64px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.files-file-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 16px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
+}
+
+.files-file-body > .md {
+  margin: 14px 18px;
+}
+
+.files-note {
+  margin: 12px 14px;
+  font-size: 13px;
+  color: color-mix(in srgb, var(--text) 60%, var(--coddy-blend-base));
+}
+
+.files-changed {
+  margin: 10px 14px 0;
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.files-code {
+  padding-top: 8px;
+  font: 12px/1.6 var(--font-mono);
+  min-width: 100%;
+  width: max-content;
+}
+
+.files-code > div {
+  display: flex;
+}
+
+.files-code > .is-active {
+  background: color-mix(in srgb, var(--accent) 16%, var(--coddy-blend-base));
+}
+
+.files-code code {
+  white-space: pre;
+  flex: 1;
+  min-width: 0;
+  padding-right: 14px;
+}
+
+.files-code--wrap {
+  width: 100%;
+}
+
+.files-code--wrap code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.files-line-no {
+  flex: 0 0 52px;
+  color: color-mix(in srgb, var(--text) 38%, var(--coddy-blend-base));
+  text-align: right;
+  padding-right: 14px;
+  user-select: none;
+}
+
+.files-image {
+  display: block;
+  padding: 12px;
+  overflow: auto;
+  background: repeating-conic-gradient(
+      rgb(127 127 127 / 8%) 0% 25%,
+      transparent 0% 50%
+    )
+    50% / 16px 16px;
+}
+
+.files-image img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 8px auto;
+}
+
+.files-image--full img {
+  max-width: none;
+}
+
+.files-image-dimensions {
+  margin-left: 8px;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+}
+
+.files-file-body audio,
+.files-file-body video {
+  display: block;
+  max-width: calc(100% - 28px);
+  margin: 14px;
+}
+
+.files-pages {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  font-size: 12px;
+}
+
+.files-pages button,
+.files-image > button,
+.files-action {
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
   color: inherit;
   font: inherit;
   font-size: 12px;
-  padding: 5px 8px;
+  padding: 4px 10px;
+  cursor: pointer;
 }
-.files-tree-tools, .files-text-tools { font-size: 12px; }
-.files-image-dimensions { margin-left: 8px; font-size: 11px; color: var(--text-muted); }
-.files-preview audio, .files-preview video { display: block; max-width: calc(100% - 24px); margin: 12px; }
-.files-open-path { background: none; border: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; text-align: left; }
-.files-open-path:hover { text-decoration: underline; }
-@media (min-width: 1200px) {
-  .shell-main.shell-tasks-open.shell-files-open { --coddy-tasks-panel-band: calc(min(520px, 100vw - 32px) + 14px + 12px); }
+
+.files-pages button:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
+
+/* A file path in a permission preview opens the file in the window. */
+.files-open-path {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.files-open-path:hover {
+  text-decoration: underline;
+}
+
+/* The stacked shell: below the top bar, above the shell's backdrop (which
+   rises to 60 there), inset like the documentation sheet. The tree keeps its
+   column while it fits beside the file. */
 @media (max-width: 1199px) {
-  .files-panel {
+  /* 72: over the dock (70), which the window leaves open under it. */
+  .files-dock-cluster,
+  .files-dock-cluster.is-expanded {
+    z-index: 72;
     top: calc(var(--coddy-mobile-top-inset) + 6px);
-    left: max(10px, env(safe-area-inset-left, 0px));
-    right: max(10px, env(safe-area-inset-right, 0px));
-    bottom: max(14px, env(safe-area-inset-bottom, 0px));
+    left: max(8px, env(safe-area-inset-left, 0px));
+    right: max(8px, env(safe-area-inset-right, 0px));
+    bottom: 8px;
     width: auto;
-    z-index: 70;
+    margin-inline: 0;
+  }
+
+  /* Expanded, over the top bar (80) as well. */
+  .files-dock-cluster.is-expanded {
+    top: max(8px, env(safe-area-inset-top, 0px));
+    z-index: 85;
+  }
+
+  .files-layout.has-tree {
+    grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
+  }
+}
+
+/* A phone shows one column at a time: the tree until a file opens, then the
+   file; the tree switch in the head brings the tree back over it. */
+@media (max-width: 599px) {
+  .files-layout.has-tree {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .files-layout.has-tree .files-main {
+    display: none;
+  }
+
+  .files-layout.has-tree .files-sidebar {
+    border-right: 0;
+  }
+
+  .files-subtitle {
+    max-width: 40vw;
+  }
+
+  /* The line comes from the address or a link; the field would take a row. */
+  .files-line-jump {
+    display: none;
   }
 }
 
@@ -16332,53 +17019,3 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 }
 
 
-/* ── Shared dock tabs ─────────────────────────────────────────────────────
-   Tasks, Changes and Files share one right dock. The active tab labels the
-   panel, leaving room for its close control even when translated tabs scroll. */
-
-.bgtasks-panel-head:has(> .dock-tabs) > span:first-child,
-.changes-panel-head:has(> .dock-tabs) > span:first-child {
-  display: none;
-}
-
-.bgtasks-panel-head .sessions-close,
-.changes-panel-head .sessions-close {
-  flex: 0 0 34px;
-}
-
-.dock-tabs {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-  margin-left: auto;
-  margin-right: 6px;
-  padding: 2px;
-  border-radius: 999px;
-  border: 0.5px solid var(--coddy-glass-panel-border);
-}
-
-.dock-tab {
-  min-height: 22px;
-  padding: 2px 10px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: color-mix(in srgb, var(--text) 60%, var(--coddy-blend-base));
-  font: inherit;
-  font-size: 11.5px;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.dock-tab:hover {
-  color: var(--text);
-}
-
-.dock-tab.is-active {
-  background: color-mix(in srgb, var(--accent) 14%, var(--coddy-blend-base));
-  color: var(--text);
-}

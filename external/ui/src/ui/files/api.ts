@@ -1,4 +1,5 @@
 import { remoteApiRequest } from "../env/remoteEnv";
+import { applyWorkspaceQuery, workspaceScope } from "../chat/workspaceScope";
 
 export interface FileEntry {
   name: string;
@@ -67,12 +68,41 @@ export function readTree(
   cursor = "",
   hidden = false,
   signal?: AbortSignal,
+  limit = 0,
 ): Promise<TreePage> {
   return readJson(
     workspaceUrl(id, "tree", path) +
-      `&cursor=${encodeURIComponent(cursor)}&include_hidden=${hidden ? 1 : 0}`,
+      `&cursor=${encodeURIComponent(cursor)}&include_hidden=${hidden ? 1 : 0}` +
+      (limit > 0 ? `&limit=${limit}` : ""),
     { signal: signal ?? null },
   );
+}
+
+/**
+ * Reads a folder again as far as it was read before: at least `rows` rows
+ * when it has them, so the pages "Load more" added survive a refresh.
+ */
+export async function rereadTree(
+  id: string,
+  path: string,
+  rows: number,
+  hidden: boolean,
+  signal?: AbortSignal,
+): Promise<TreePage> {
+  const limit = Math.min(1000, Math.max(200, rows));
+  let page = await readTree(id, path, "", hidden, signal, limit);
+  while (page.has_more && page.entries.length < rows) {
+    const next = await readTree(id, path, page.next_cursor, hidden, signal, limit);
+    page = { ...next, entries: [...page.entries, ...next.entries] };
+  }
+  return page;
+}
+
+/** A path the "@" index answers that stays inside the workspace. */
+function insideWorkspace(path: string): boolean {
+  if (!path || path.startsWith("/") || path === "~" || path.startsWith("~/") || /^[a-zA-Z]:[\\/]/.test(path))
+    return false;
+  return !path.split(/[\\/]/).some((segment) => segment === "..");
 }
 
 export async function readMeta(
@@ -131,6 +161,46 @@ export async function mediaUrl(
   return (
     remoteApiRequest(raw)?.url || new URL(raw, window.location.origin).href
   );
+}
+
+/** One hit of the window's filter: a file or a folder of the workspace. */
+export interface FileHit {
+  path: string;
+  kind: "file" | "directory";
+}
+
+/**
+ * Searches the session's whole workspace by name, folders that were never
+ * opened included: the same ranked index the composer's "@" picker reads
+ * (`GET /coddy/mentions`). Only files and folders come back; the other things
+ * an "@" can name (sessions, rules, pages) are not files of the workspace.
+ */
+export async function searchFiles(
+  sessionId: string,
+  workspacePath: string,
+  query: string,
+  signal?: AbortSignal,
+): Promise<FileHit[]> {
+  const sp = new URLSearchParams({ q: query, limit: "60" });
+  const scope = workspaceScope(sessionId, workspacePath);
+  applyWorkspaceQuery(sp, scope);
+  const body = await readJson<{
+    items?: { kind?: string; label?: string }[];
+  }>(`/coddy/mentions?${sp.toString()}`, {
+    headers: scope.headers,
+    signal: signal ?? null,
+  });
+  const hits: FileHit[] = [];
+  for (const item of body.items || []) {
+    const label = (item.label || "").trim();
+    // The index also browses the disk for "/", "~/" and "../" queries; the
+    // window shows the session's workspace only.
+    if (!insideWorkspace(label)) continue;
+    if (item.kind === "file") hits.push({ path: label, kind: "file" });
+    else if (item.kind === "directory")
+      hits.push({ path: label.replace(/\/+$/, ""), kind: "directory" });
+  }
+  return hits;
 }
 
 /** Resolves Markdown's ../ links into the canonical paths the server accepts. */

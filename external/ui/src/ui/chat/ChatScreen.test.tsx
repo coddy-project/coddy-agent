@@ -820,7 +820,7 @@ test("the transcript ends with the conversation: the way to the tasks is the hea
   expect(screen.getByTestId("chat-header-tasks")).toBeInTheDocument();
 });
 
-test("the header control opens the Tasks panel and puts it away again", () => {
+test("the header menu opens the Tasks panel and puts it away again", () => {
   const onOpen = vi.fn();
   const onClose = vi.fn();
   const { rerender } = render(
@@ -831,6 +831,7 @@ test("the header control opens the Tasks panel and puts it away again", () => {
     }),
   );
   fireEvent.click(screen.getByTestId("chat-header-tasks"));
+  fireEvent.click(screen.getByTestId("chat-views-tasks"));
   expect(onOpen).toHaveBeenCalledTimes(1);
   rerender(
     turnLineScreen({
@@ -841,8 +842,30 @@ test("the header control opens the Tasks panel and puts it away again", () => {
     }),
   );
   fireEvent.click(screen.getByTestId("chat-header-tasks"));
+  fireEvent.click(screen.getByTestId("chat-views-tasks"));
   expect(onClose).toHaveBeenCalledTimes(1);
   expect(onOpen).toHaveBeenCalledTimes(1);
+});
+
+test("the header menu opens the session's edits and its files", () => {
+  const onOpenEdits = vi.fn();
+  const onOpenFiles = vi.fn();
+  render(
+    turnLineScreen({
+      generating: false,
+      onOpenBackgroundTasks: () => {},
+      onOpenSessionChanges: onOpenEdits,
+      onOpenChangesViewer: () => {},
+      onOpenFiles,
+    }),
+  );
+  fireEvent.click(screen.getByTestId("chat-header-tasks"));
+  fireEvent.click(screen.getByTestId("chat-views-edits"));
+  // The whole set: no file is preselected.
+  expect(onOpenEdits).toHaveBeenCalledWith();
+  fireEvent.click(screen.getByTestId("chat-header-tasks"));
+  fireEvent.click(screen.getByTestId("chat-views-files"));
+  expect(onOpenFiles).toHaveBeenCalledTimes(1);
 });
 
 test("the turn has ended and its tasks have not: the tail keeps the dots and the count", () => {

@@ -24,7 +24,10 @@ export type ParsedAppHash =
       historyOpen: boolean;
       tasksOpen: boolean;
       taskId: string | null;
-      dockTab?: "files" | "changes";
+      /** The dock beside the chat shows the session's edits. */
+      dockTab?: "changes";
+      /** The Files window is open over the chat, on this file and line. */
+      filesOpen?: boolean;
       filePath?: string;
       fileLine?: number;
     }
@@ -218,13 +221,15 @@ export function parseAppHash(): ParsedAppHash {
   if (sessFiles?.[1]) {
     const params = new URLSearchParams(search);
     const requestedLine = Number(params.get("line"));
+    // A window over the chat, not a face of the dock: whatever the dock
+    // showed stays under it.
     return {
       branch: "session",
       sessionId: decodeURIComponent(sessFiles[1]),
       historyOpen,
-      tasksOpen: true,
+      tasksOpen: false,
       taskId: null,
-      dockTab: "files",
+      filesOpen: true,
       filePath: params.get("path") || "",
       fileLine:
         Number.isSafeInteger(requestedLine) && requestedLine > 0

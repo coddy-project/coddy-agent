@@ -255,7 +255,8 @@ import {
   setDocsHash,
 } from "./scheduler/hashRoute";
 import { DocsView } from "./docs/DocsView";
-import { FilesPanel } from "./files/FilesPanel";
+import { FilesView } from "./files/FilesView";
+import { isFilesHotkey } from "./files/filesHotkey";
 import { onOpenWorkspaceFile } from "./files/fileBus";
 import { relativeFilePath } from "./files/api";
 import { useRightDock, useRightDockEscape } from "./components/useRightDock";
@@ -272,7 +273,6 @@ import {
   BackgroundTasksPanel,
   type TaskFocus,
 } from "./tasks/BackgroundTasksPanel";
-import { DockTabs } from "./components/DockTabs";
 import { SessionChangesPanel } from "./changes/SessionChangesPanel";
 import { DiffViewerModal } from "./changes/DiffViewerModal";
 import { emitChangesSettled } from "./changes/sessionChangesBus";
@@ -1184,8 +1184,14 @@ export function App() {
       ? initialRoute.dockTab || "tasks"
       : "tasks",
   );
-  // Which face of the shared right dock is showing. Tasks keep every existing
-  // entry point; the changed-files card asks for the Changes face.
+  // The Files window over the chat: open, and on which file and line. It is not
+  // a face of the dock, whose tasks or edits stay as they were under it.
+  const [filesOpen, setFilesOpen] = useState(
+    initialRoute.branch === "session" && initialRoute.filesOpen === true,
+  );
+  // Bumps on every request to show a file, so the same path asked for again
+  // (its tab closed meanwhile) opens again.
+  const [fileOpenSeq, setFileOpenSeq] = useState(0);
   const [filePath, setFilePath] = useState(
     initialRoute.branch === "session" ? initialRoute.filePath || "" : "",
   );
@@ -2045,6 +2051,8 @@ export function App() {
 
   const applyLocationHash = useCallback(() => {
     const p = parseAppHash();
+    // The Files window has an address of its own; any other one puts it away.
+    if (!(p.branch === "session" && p.filesOpen)) setFilesOpen(false);
     if (p.branch === "docs") {
       setDocsRoute({ slug: p.slug, anchor: p.anchor });
       if (p.slug) {
@@ -2070,12 +2078,18 @@ export function App() {
       void markCoddySessionActivityRead(p.sessionId);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen((wasOpen) => p.tasksOpen || (!isStackedShell() && wasOpen));
-      if (p.dockTab === "files") {
-        setDockTab("files");
+      // The Files window opens over the dock and leaves it as it was, on the
+      // stacked shell too, where any other chat address puts the dock away.
+      setTasksOpen(
+        (wasOpen) =>
+          p.tasksOpen || ((p.filesOpen === true || !isStackedShell()) && wasOpen),
+      );
+      if (p.filesOpen) {
+        setFilesOpen(true);
         setFilePath(p.filePath || "");
         setFileLine(p.fileLine || 1);
-      } else if (p.dockTab === "changes") setDockTab("changes");
+      }
+      if (p.dockTab === "changes") setDockTab("changes");
       else if (p.tasksOpen) setDockTab("tasks");
       if (p.tasksOpen && p.taskId) {
         // A link that names a task opens its card once; the address goes back to
@@ -2229,6 +2243,7 @@ export function App() {
 
   const closeAllShellDrawers = useCallback(() => {
     setSessionsOpen(false);
+    setFilesOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     // On desktop Tasks is the side panel of the chat on screen, not a screen of
@@ -5568,12 +5583,51 @@ export function App() {
     }
   }, [sessionId, sessionsOpen, dockTab]);
 
-  const switchDockTab = (tab: "tasks" | "changes" | "files") => {
-    setDockTab(tab);
-    if (tab === "files") setSessionFilesHash(sessionId, filePath, fileLine);
-    else if (tab === "changes") setSessionChangesHash(sessionId);
-    else setSessionTasksHash(sessionId);
-  };
+  /** Opens the Files window over the chat. Without a path it opens on the
+   *  files it had open; with one, on that file and line. */
+  const openFilesWindow = useCallback(
+    (path?: string, line?: number) => {
+      const sid = sessionId.trim();
+      if (!sid) return;
+      setSessionsOpen(false);
+      setSchedulerOpen(false);
+      setSchedulerEditor(null);
+      setSettingsRoute(false);
+      setDocsRoute(null);
+      setSwarmRoute(false);
+      setFilePath(path || "");
+      setFileLine(line || 1);
+      if (path) setFileOpenSeq((n) => n + 1);
+      setFilesOpen(true);
+      setSessionFilesHash(sid, path || "", line || 1);
+    },
+    [sessionId],
+  );
+
+  /** Puts the Files window away. The address goes back to what the dock under
+   *  it shows: the edits keep theirs, the tasks keep theirs on the stacked shell. */
+  const closeFilesWindow = useCallback(() => {
+    setFilesOpen(false);
+    const sid = sessionId.trim();
+    if (!sid) return;
+    if (tasksOpen && dockTab === "changes") setSessionChangesHash(sid);
+    else if (tasksOpen && isStackedShell()) setSessionTasksHash(sid);
+    else setSessionHashInLocation(sid);
+  }, [sessionId, tasksOpen, dockTab]);
+
+  // Ctrl+Shift+F (Cmd+Shift+F) opens and closes the Files window of the chat
+  // on screen, wherever the focus is, the composer included.
+  useEffect(() => {
+    if (!sessionId.trim()) return undefined;
+    const onKey = (ev: KeyboardEvent) => {
+      if (!isFilesHotkey(ev)) return;
+      ev.preventDefault();
+      if (filesOpen) closeFilesWindow();
+      else openFilesWindow();
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [sessionId, filesOpen, openFilesWindow, closeFilesWindow]);
 
   useEffect(
     () =>
@@ -5588,20 +5642,9 @@ export function App() {
         );
         const path = relativeFilePath(raw, "", workspaceCtx?.path || "");
         if (path === null) return;
-        setSessionsOpen(false);
-        setSchedulerOpen(false);
-        setSettingsRoute(false);
-        setDockTab("files");
-        setTasksOpen(true);
-        setFilePath(path);
-        setFileLine(request.line || Number(match?.[2]) || 1);
-        setSessionFilesHash(
-          sessionId,
-          path,
-          request.line || Number(match?.[2]) || 1,
-        );
+        openFilesWindow(path, request.line || Number(match?.[2]) || 1);
       }),
-    [sessionId, workspaceCtx?.path],
+    [sessionId, workspaceCtx?.path, openFilesWindow],
   );
 
   /** Opens a session in this tab: the child transcript behind an agent task,
@@ -5982,12 +6025,15 @@ export function App() {
   const dockOpen = tasksOpen && !!sessionId.trim();
 
   const shellBackdropOpen =
+    (filesOpen && !!sessionId.trim()) ||
     sessionsOpen ||
     (schedulerOpen && schedulerHttpLinked === true) ||
     settingsRoute ||
     swarmRoute ||
     docsRoute !== null;
 
+  // The Files window over the dock takes Escape itself (FilesView), and the
+  // backdrop covers it, so the dock waits for the next one.
   useRightDockEscape(
     dockOpen && !shellBackdropOpen && !changesViewerOpen,
     closeTasksDrawer,
@@ -6457,7 +6503,6 @@ export function App() {
           sessionsOpen ? "shell-history-open" : "",
           dockOpen ? "shell-tasks-open" : "",
           dockOpen && dockTab === "changes" ? "shell-changes-open" : "",
-          dockOpen && dockTab === "files" ? "shell-files-open" : "",
         ]
           .filter(Boolean)
           .join(" ")}
@@ -6472,9 +6517,11 @@ export function App() {
         <div
           className={`backdrop ${shellBackdropOpen ? "is-open" : ""}`}
           onClick={() => {
-            if (shellBackdropOpen) {
-              closeAllShellDrawers();
-            }
+            if (!shellBackdropOpen) return;
+            // Over the chat the Files window is all the backdrop covers: closing
+            // it gives the address back to what the dock under it shows.
+            if (filesOpen && sessionId.trim()) closeFilesWindow();
+            else closeAllShellDrawers();
           }}
           aria-hidden={!shellBackdropOpen}
         />
@@ -6646,33 +6693,17 @@ export function App() {
           />
         ) : null}
         {dockOpen ? (
-          dockTab === "files" ? (
-            <FilesPanel
-              key={`${sessionId}:${workspaceCtx?.path || ""}`}
-              sessionId={sessionId}
-              initialPath={filePath}
-              initialLine={fileLine}
-              toolActivity={finishedToolCalls(transcriptItems)}
-              onTab={switchDockTab}
-              onNavigate={(path, line) =>
-                setSessionFilesHash(sessionId, path, line)
-              }
-              onClose={closeTasksDrawer}
-            />
-          ) : dockTab === "changes" ? (
+          dockTab === "changes" ? (
             <SessionChangesPanel
               key={sessionId}
               open
               sessionId={sessionId}
               initialPath={changesPath || undefined}
-              dockTab={dockTab}
-              onDockTab={switchDockTab}
               onClose={closeTasksDrawer}
             />
           ) : (
             <BackgroundTasksPanel
               open
-              headAddon={<DockTabs tab={dockTab} onTab={switchDockTab} />}
               focus={
                 tasksFocus && tasksFocus.sid === sessionId.trim()
                   ? tasksFocus
@@ -6694,12 +6725,35 @@ export function App() {
           )
         ) : null}
 
+        {/* After the dock, so on the stacked shell, where both are sheets over
+            the chat, the window is the one on top. */}
+        {filesOpen && sessionId.trim() ? (
+          <FilesView
+            key={`${sessionId}:${workspaceCtx?.path || ""}`}
+            sessionId={sessionId}
+            workspacePath={workspaceCtx?.path || ""}
+            initialPath={filePath}
+            initialLine={fileLine}
+            openSeq={fileOpenSeq}
+            toolActivity={finishedToolCalls(transcriptItems)}
+            onNavigate={(path, line) =>
+              setSessionFilesHash(sessionId, path, line)
+            }
+            onClose={closeFilesWindow}
+          />
+        ) : null}
+
         {atSwarmRoot ? null : (
           <ChatScreen
             title={currentTitle}
             sessionId={sessionId}
             onOpenChangesViewer={() => setChangesViewerOpen(true)}
             onOpenSessionChanges={openChangesDock}
+            sessionChangesOpen={dockOpen && dockTab === "changes"}
+            onOpenFiles={() =>
+              filesOpen ? closeFilesWindow() : openFilesWindow()
+            }
+            filesOpen={filesOpen}
             backgroundTasks={backgroundTasks}
             onOpenBackgroundTasks={openTasksFromNav}
             onBackgroundTasksChanged={() => {

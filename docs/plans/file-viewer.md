@@ -366,3 +366,37 @@ shared URL lifetime. Browser checks use isolated fixtures at 390px and 1280px in
 Chromium, Firefox and WebKit, local and authenticated remote mode with a path prefix.
 The transcript overflow stand is checked across every layout-grid width. Stage 6
 (semantic navigation) remains outside this implementation.
+
+## 14. Revision: a views menu and a Files window (2026-10-06)
+
+The operator's review of the first build turned down two of its shapes, and the decision
+recorded here replaces §8.3 where they differ.
+
+- **No tab strip in the dock.** The switcher between Tasks, Changed files and Files lived in
+  the head of every dock face, so each panel repeated it. The views of a chat are now picked
+  from one menu under the Tasks control of the chat header, as Claude's app does it: Background
+  tasks, **Edits** (the face formerly called Changed files) and Files. A view on show is checked
+  there and picking it again puts it away. The dock keeps two faces, Tasks and Edits.
+- **Files is a window, not a dock face.** The tree and the preview did not fit a 520px column.
+  Files now opens over the chat in the documentation reader's frame: the tree on the left with a
+  filter over the whole workspace (the composer's `@` index, not only loaded folders), the files
+  opened from it as tabs on the right, an empty state that says where open files come from, a
+  head with the tree switch, More, Expand and close. The address stays
+  `#/s/<id>/files?path=&line=`; the window is a state of its own and leaves the dock as it was.
+  `Ctrl+Shift+F` opens and closes it.
+- **Folders first.** The tree route lists folders before files, each group by name. The cursor
+  became opaque (`d/<name>` or `f/<name>`), because a page may end inside either group.
+- **Swarm.** A native media element cannot send a header, so its signed address could not pass
+  a relay: the relay asked for its own client token and removed `access_token` before the hop.
+  The relay now carries a `GET` / `HEAD` of `/coddy/sessions/{id}/workspace/raw` with an
+  `access_token` and no bearer to the node as it came, capability in the query and no credential
+  of the relay's, and the node decides. A relay's own client token is never carried that way.
+  The relay's CORS answer, the only one a browser on another origin hears through a mount, now
+  allows `HEAD`, `Range` and `If-None-Match` and exposes `ETag`, `Content-Range`, `Accept-Ranges`
+  and `Content-Disposition`, so the Files window revalidates a file from the node's own web UI too.
+
+Checks: `features/web_ui_session_views.feature`, the folders-first scenario of
+`features/workspace_viewer.feature`, the relay scenario of `features/swarm_file_transfer.feature`,
+the CORS scenario of `features/swarm_mount.feature`,
+`external/swarm/media_capability_test.go`, and `npm run check:files` in a real browser through an
+authenticated relay at every tier of the grid, in Chromium and WebKit.
