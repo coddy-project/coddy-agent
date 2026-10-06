@@ -193,6 +193,38 @@ func TestProjectCWDStaysInTheWorkspace(t *testing.T) {
 	}
 }
 
+// An absolute cwd that names the workspace or a folder inside it, even through
+// a link to the workspace, is the same place a relative one names: a job
+// written before project jobs existed carries one, and refusing it left the
+// job impossible to enable.
+func TestProjectCWDAcceptsAnAbsolutePathInsideTheWorkspace(t *testing.T) {
+	_, ws := testRoots(t)
+	if err := os.MkdirAll(filepath.Join(ws, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ProjectCWD(ws, ws); err != nil || got != ws {
+		t.Fatalf("cwd = workspace: %q, %v", got, err)
+	}
+	if got, err := ProjectCWD(ws, filepath.Join(ws, "sub")); err != nil || got != filepath.Join(ws, "sub") {
+		t.Fatalf("cwd = workspace/sub: %q, %v", got, err)
+	}
+	if _, err := ProjectCWD(ws, filepath.Join(ws, "..", "other")); !errors.Is(err, ErrUnsafePath) {
+		t.Errorf("an absolute cwd leaving the workspace was accepted: %v", err)
+	}
+	if runtime.GOOS != "windows" {
+		link := filepath.Join(t.TempDir(), "ws-link")
+		if err := os.Symlink(ws, link); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := ProjectCWD(ws, link); err != nil || got != link {
+			t.Fatalf("cwd through a link to the workspace: %q, %v", got, err)
+		}
+		if _, err := ProjectCWD(link, ws); err != nil {
+			t.Fatalf("cwd = real path of a linked workspace: %v", err)
+		}
+	}
+}
+
 func TestASnapshotWithAnEscapingCWDIsInvalid(t *testing.T) {
 	rt, ws := testRoots(t)
 	ref := rt.ProjectRef(ws, "escape")

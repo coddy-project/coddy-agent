@@ -82,7 +82,7 @@ Every trusted job, user or project, runs in the one daemon of the process and it
 
 Trust is decided on one read of the file, before the cron checkpoint is written, and the run is made of that same read, so a file swapped in between never runs under an approval it did not get. The daemon logs once per content that it skipped a job and why.
 
-Containment rules for project jobs: **`.coddy`**, **`.coddy/scheduler`** and the job files must be real folders and files, not links (a link is listed as **invalid** and never written through); a workspace whose project folder would be inside **`${CODDY_HOME}`** (Coddy started in `$HOME` with the default home) has no project jobs; and a project job's **`cwd`** must be empty (its workspace) or a relative path that stays inside the workspace.
+Containment rules for project jobs: **`.coddy`**, **`.coddy/scheduler`** and the job files must be real folders and files, not links (a link is listed as **invalid** and never written through); a workspace whose project folder would be inside **`${CODDY_HOME}`** (Coddy started in `$HOME` with the default home) has no project jobs; and a project job's **`cwd`** must be empty (its workspace), a relative path that stays inside the workspace, or an absolute path that names the workspace or a folder inside it once links are resolved (a job written before project jobs existed often carries one).
 
 ## Job file format
 
@@ -90,7 +90,7 @@ Frontmatter fields:
 
 - **`description`** (string) - short human summary
 - **`schedule`** (string) - five-field crontab, UTC
-- **`cwd`** (string, optional) - for a user job, empty means the Coddy process cwd and relative paths resolve against it at run time; for a project job, empty means its workspace and only a relative path inside the workspace is accepted
+- **`cwd`** (string, optional) - for a user job, empty means the Coddy process cwd and relative paths resolve against it at run time; for a project job, empty means its workspace and only a path inside the workspace is accepted, relative or absolute
 - **`model`** (string, optional) - session model override for the run
 - **`mode`** (string, optional) - **`agent`**, **`plan`**, or **`ask`** (default **`agent`**)
 - **`agent`** (string, optional) - a subagent definition name (**`subagents.dirs`**, see [Subagents](../features/subagents.md)): the run is made under its role, tool allowlist, model, reasoning level and permission narrowing. The definition's `reasoning` applies when the run's model (the job's `model`, else the definition's, else the configured one) offers that level, as for a spawn; a level it does not offer is dropped with a warning in the agent log, and `reasoning: default` keeps the model's own level. A project-scope definition needs its trust receipt like any spawn; a job naming one that is not approved does not start, and a manual run says so. Empty runs a general agent with the full tool set of the mode.

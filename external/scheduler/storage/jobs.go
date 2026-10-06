@@ -291,15 +291,24 @@ func parseJobBytes(data []byte) (*JobFrontmatter, string, error) {
 }
 
 // ProjectCWD resolves the cwd: of a project job. Empty is the workspace; a
-// relative path must stay inside it, lexically and once links are resolved;
-// an absolute path is refused, since nobody approving the file would expect
-// the job to run somewhere else.
+// relative path must stay inside it, lexically and once links are resolved.
+// An absolute path is accepted only when it names the workspace or a folder
+// inside it once links are resolved (a job written before project jobs
+// existed carries one), since nobody approving the file would expect the job
+// to run somewhere else; a rooted path that is not absolute is refused.
 func ProjectCWD(workspace, raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return workspace, nil
 	}
-	if filepath.IsAbs(raw) || strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, `\`) || filepath.VolumeName(raw) != "" {
+	if filepath.IsAbs(raw) {
+		abs := filepath.Clean(raw)
+		if !within(resolved(abs), resolved(workspace)) {
+			return "", fmt.Errorf("%w: absolute cwd %q is outside the workspace", ErrUnsafePath, raw)
+		}
+		return abs, nil
+	}
+	if strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, `\`) || filepath.VolumeName(raw) != "" {
 		return "", fmt.Errorf("%w: cwd %q of a project job must be relative to its workspace", ErrUnsafePath, raw)
 	}
 	joined := filepath.Clean(filepath.Join(workspace, raw))
