@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Views of a session check: the chat header's views menu (background tasks,
+ * Views of a session check: the chat header's view buttons (background tasks,
  * edits, files), the dock beside the chat without a tab strip, and the Files
  * window over the chat - driven in a real browser against the real binary and
  * reached through a swarm relay, the path a remote operator takes.
@@ -387,15 +387,37 @@ async function writeReleaseNotes(page) {
   return sessionIdOf(page);
 }
 
-const menuItems = (page) =>
-  page.$$eval("[data-testid=chat-views-menu] [role=menuitemcheckbox]", (items) =>
-    items.map((i) => ({ id: i.getAttribute("data-testid"), text: i.textContent, checked: i.getAttribute("aria-checked") })),
-  );
-
-async function openViewsMenu(page) {
-  await page.getByTestId("chat-header-tasks").click();
-  await page.getByTestId("chat-views-menu").waitFor();
-}
+/**
+ * The view buttons of the chat header as the reader sees them: which, with what
+ * short name shown (none on a phone), what tooltip, pressed or not, where, and
+ * how big the icon is.
+ */
+const viewButtons = (page) =>
+  page.$$eval("[data-testid=chat-views] button", (buttons) => {
+    const header = document.querySelector(".chat-header").getBoundingClientRect();
+    const title = document.querySelector(".chat-title").getBoundingClientRect();
+    return buttons.map((b) => {
+      const r = b.getBoundingClientRect();
+      const label = b.querySelector(".chat-view-label");
+      const shown = !!label && label.getBoundingClientRect().width > 0;
+      const glyph = b.querySelector("svg.chat-view-icon, .bgtask-dot");
+      const icon = glyph.getBoundingClientRect();
+      const count = b.querySelector(".chat-view-count");
+      return {
+        id: b.getAttribute("data-testid"),
+        label: shown ? label.textContent : "",
+        labelFits: !shown || label.scrollWidth <= label.clientWidth + 1,
+        tip: b.parentElement.querySelector(".chat-view-tip")?.textContent || "",
+        dot: glyph.classList.contains("bgtask-dot"),
+        count: count ? count.textContent : "",
+        pressed: b.getAttribute("aria-pressed"),
+        icon: Math.round(icon.width),
+        box: { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height },
+        inHeader: r.left >= header.left - 0.5 && r.right <= header.right + 0.5 && r.top >= header.top - 0.5 && r.bottom <= header.bottom + 0.5,
+        besideTitle: r.left >= title.right - 0.5 && title.width > 40,
+      };
+    });
+  });
 
 /** No element sticks out of the viewport sideways, and the page does not scroll sideways. */
 function sideways(page) {
@@ -418,24 +440,37 @@ async function scenarioViews() {
   check("the turn runs through the relay's mount", a.mountRequests.some((r) => r.startsWith("POST /v1/responses")));
   check("the turn wrote its file on the node", fs.existsSync(path.join(workspace, "notes/release.md")));
 
-  // The header control opens the views menu: tasks, edits, files.
-  await openViewsMenu(a.page);
-  const items = await menuItems(a.page);
+  // The header shows the views as buttons in a row: edits, files, tasks.
+  const buttons = await viewButtons(a.page);
   check(
-    "the views menu offers background tasks, edits and files, in that order",
-    JSON.stringify(items.map((i) => i.id)) === JSON.stringify(["chat-views-tasks", "chat-views-edits", "chat-views-files"]),
-    JSON.stringify(items),
+    "the header shows edits, files and background tasks as buttons, in that order",
+    JSON.stringify(buttons.map((b) => b.id)) === JSON.stringify(["chat-views-edits", "chat-views-files", "chat-views-tasks"]),
+    JSON.stringify(buttons.map((b) => b.id)),
   );
-  check("the rows read Background tasks, Edits, Files", /Background tasks/.test(items[0]?.text) && /Edits/.test(items[1]?.text) && /^Files/.test(items[2]?.text || ""), JSON.stringify(items.map((i) => i.text)));
-  check("the Files row names its key", /Ctrl\+Shift\+F|⇧⌘F/.test(items[2]?.text || ""));
-  const menuBox = await a.page.getByTestId("chat-views-menu").boundingBox();
-  const controlBox = await a.page.getByTestId("chat-header-tasks").boundingBox();
   check(
-    "the menu hangs under the control, right edges aligned, inside the window",
-    menuBox && controlBox && menuBox.y >= controlBox.y + controlBox.height && Math.abs(menuBox.x + menuBox.width - (controlBox.x + controlBox.width)) <= 1 && menuBox.x >= 0,
-    JSON.stringify({ menuBox, controlBox }),
+    "on a desktop Edits and Files show an 18px icon and a short name, Tasks the dot and its word",
+    buttons.map((b) => b.label).join(",") === "Edits,Files,Tasks" &&
+      buttons.every((b) => b.labelFits) &&
+      buttons[0].icon === 18 && buttons[1].icon === 18 && !buttons[0].dot && !buttons[1].dot && buttons[2].dot,
+    JSON.stringify(buttons.map((b) => [b.label, b.labelFits, b.icon, b.dot, b.count])),
   );
-  await shoot(a.page, "views-menu-relay-dark-1280");
+  check(
+    "on a desktop the buttons sit in one row inside the header, beside the title",
+    buttons.every((b) => b.inHeader && b.besideTitle && Math.round(b.box.height) === 36) && new Set(buttons.map((b) => Math.round(b.box.top))).size === 1,
+    JSON.stringify(buttons.map((b) => b.box)),
+  );
+  check("the Files tooltip names its key", /Ctrl\+Shift\+F|⇧⌘F/.test(buttons[1]?.tip || ""), buttons[1]?.tip);
+  // Hovering a button shows its tooltip, inside the window.
+  await a.page.getByTestId("chat-views-edits").hover();
+  await a.page.waitForTimeout(300);
+  const tip = await a.page.evaluate(() => {
+    const el = document.querySelector("[data-testid=chat-views-edits]").parentElement.querySelector(".chat-view-tip");
+    const r = el.getBoundingClientRect();
+    return { opacity: getComputedStyle(el).opacity, text: el.textContent, left: r.left, right: r.right, vw: window.innerWidth };
+  });
+  check("hovering a button shows its tooltip inside the window", tip.opacity === "1" && tip.text === "Edits of this session" && tip.left >= 0 && tip.right <= tip.vw, JSON.stringify(tip));
+  await a.page.mouse.move(5, 400);
+  await shoot(a.page, "views-toolbar-relay-dark-1280");
 
   // Edits: in the dock, headed Edits, no tab strip, the file the turn wrote.
   await a.page.getByTestId("chat-views-edits").click();
@@ -447,15 +482,13 @@ async function scenarioViews() {
   check("no tab strip anywhere", (await a.page.locator('[role="tablist"], .dock-tabs').count()) === 0);
   check("the address names the edits", (await a.page.evaluate(() => location.hash)) === `#/s/${sid}/changes`);
 
-  // The checked row puts its view away.
-  await openViewsMenu(a.page);
-  check("the menu checks the view on show", (await menuItems(a.page))[1]?.checked === "true");
+  // The pressed button puts its view away.
+  check("the button of the view on show is pressed", (await viewButtons(a.page))[0]?.pressed === "true");
   await a.page.getByTestId("chat-views-edits").click();
   await until("the edits put away", async () => (await changes.count()) === 0);
-  check("picking the checked row puts the edits away", true);
+  check("pressing it again puts the edits away", (await viewButtons(a.page))[0]?.pressed === "false");
 
   // Background tasks: in the dock, its own title, no tab strip.
-  await openViewsMenu(a.page);
   await a.page.getByTestId("chat-views-tasks").click();
   const tasks = a.page.getByTestId("bgtasks-panel");
   await tasks.waitFor();
@@ -464,7 +497,6 @@ async function scenarioViews() {
   await a.page.getByTestId("bgtasks-panel-close").click();
 
   // Files: a window over the chat.
-  await openViewsMenu(a.page);
   await a.page.getByTestId("chat-views-files").click();
   const win = a.page.getByTestId("files-view");
   await win.waitFor();
@@ -565,6 +597,24 @@ async function scenarioViews() {
   return sid;
 }
 
+/** A chat whose turn edits nothing has no Edits button: Files and Tasks only. */
+async function scenarioNoEdits() {
+  const c = await openPage();
+  await c.page.goto(`${RELAY}/`);
+  await composer(c.page).waitFor();
+  await composer(c.page).fill("Say hello");
+  await composer(c.page).press("Enter");
+  await c.page.getByText("Done: the notes are in").first().waitFor({ timeout: 30000 });
+  await c.page.waitForTimeout(800);
+  const row = await viewButtons(c.page);
+  check(
+    "a chat without edits shows Files and Tasks, and no Edits button",
+    JSON.stringify(row.map((b) => b.id)) === JSON.stringify(["chat-views-files", "chat-views-tasks"]),
+    JSON.stringify(row.map((b) => b.id)),
+  );
+  await c.context.close();
+}
+
 async function scenarioPhone(sid) {
   const p = await openPage({ width: 390, height: 844 });
   await p.page.goto(`${RELAY}/#/s/${sid}/files?path=src%2Fmain.go&line=7`);
@@ -580,17 +630,30 @@ async function scenarioPhone(sid) {
   await win.getByTestId("files-tree").getByText("README.md", { exact: true }).click();
   await win.locator(".files-file-body h1", { hasText: "Demo workspace" }).waitFor();
   check("a file picked on a phone puts the tree away again", !(await win.getByTestId("files-tree").isVisible().catch(() => false)));
-  // The views menu is a sheet on the stacked shell.
+  // On a phone Edits and Files are the icon alone, in the 40px squares of the
+  // top bar, and Background tasks the dot with its word, all beside the title,
+  // which keeps its room.
   await p.page.keyboard.press("Escape");
   await until("the window put away", async () => (await win.count()) === 0);
-  await openViewsMenu(p.page);
-  const sheet = await p.page.getByTestId("chat-views-menu").boundingBox();
-  check("on a phone the views menu is a sheet at the foot of the screen", sheet && Math.round(sheet.y + sheet.height) >= 843 && sheet.width >= 389, JSON.stringify(sheet));
+  const phoneButtons = await viewButtons(p.page);
+  const [pe, pf, pt] = phoneButtons;
+  check(
+    "on a phone Edits and Files are 40px icons and Tasks the dot, beside the title, inside the header",
+    phoneButtons.length === 3 &&
+      phoneButtons.every((b) => b.inHeader && b.besideTitle && Math.round(b.box.height) === 40 && b.box.right <= 390) &&
+      [pe, pf].every((b) => b.label === "" && b.icon === 18 && Math.round(b.box.width) === 40) &&
+      pt.dot && pt.label === "Tasks" &&
+      new Set(phoneButtons.map((b) => Math.round(b.box.top))).size === 1,
+    JSON.stringify(phoneButtons.map((b) => [b.id, b.label, b.icon, b.dot, b.box])),
+  );
+  await p.page.getByTestId("chat-views-files").click();
+  await win.waitFor();
+  check("on a phone the Files button opens the window", true);
   await p.page.keyboard.press("Escape");
+  await until("the window put away", async () => (await win.count()) === 0);
   // On a tablet the dock and the window are both sheets: the window opens over
   // the edits and leaves them there.
   await p.page.setViewportSize({ width: 900, height: 900 });
-  await openViewsMenu(p.page);
   await p.page.getByTestId("chat-views-edits").click();
   await p.page.getByTestId("changes-panel").waitFor();
   await p.page.keyboard.press("Control+Shift+F");
@@ -702,13 +765,15 @@ async function scenarioWidths(sid) {
       );
       await w.page.keyboard.press("Escape");
       await until("the window put away", async () => (await win.count()) === 0);
-      await openViewsMenu(w.page);
-      const menu = await w.page.getByTestId("chat-views-menu").boundingBox();
-      const labels = await menuItems(w.page);
+      const row = await viewButtons(w.page);
+      const height = width < 1200 ? 42 : 36;
       check(
-        `${lang} ${width}px: the views menu is inside the viewport`,
-        menu && menu.x >= 0 && menu.x + menu.width <= width && menu.y + menu.height <= 900 && labels.length === 3,
-        JSON.stringify({ menu, labels: labels.map((l) => l.text) }),
+        `${lang} ${width}px: the view buttons sit beside the title in one row, icon and short name whole`,
+        row.length === 3 &&
+          row.every((b) => b.inHeader && b.besideTitle && b.label !== "" && b.labelFits && Math.round(b.box.height) === height) &&
+          row[0].icon === 18 && row[1].icon === 18 && row[2].dot &&
+          new Set(row.map((b) => Math.round(b.box.top))).size === 1,
+        JSON.stringify(row.map((b) => [b.label, b.labelFits, b.icon, Math.round(b.box.height), b.inHeader, b.besideTitle])),
       );
       await w.context.close();
     }
@@ -735,16 +800,14 @@ async function scenarioShots() {
       await shoot(d.page, `${name}-dark-${width}`);
     }
   };
-  await both("views-menu", async () => {
-    await openViewsMenu(d.page);
+  await both("views-toolbar", async () => {
+    await d.page.getByTestId("chat-views").waitFor();
   });
   await both("session-edits-dock", async () => {
-    await openViewsMenu(d.page);
     await d.page.getByTestId("chat-views-edits").click();
     await d.page.getByTestId("changes-panel").getByText("release.md").first().waitFor({ timeout: 15000 });
   });
   await both("background-tasks-dock", async () => {
-    await openViewsMenu(d.page);
     await d.page.getByTestId("chat-views-tasks").click();
     await d.page.getByTestId("bgtasks-panel").waitFor();
   });
@@ -792,6 +855,7 @@ async function scenarioShots() {
 
 try {
   const sid = await scenarioViews();
+  await scenarioNoEdits();
   await scenarioPhone(sid);
   await scenarioCrossOrigin(sid);
   await scenarioWidths(sid);

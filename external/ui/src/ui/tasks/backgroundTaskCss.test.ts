@@ -306,25 +306,32 @@ test("the copy control sits in the corner of the command block, which leaves it 
   );
 });
 
-test("the header control is styled from theme tokens, marks a live session and never shrinks the title away", () => {
-  const control = ruleBody(".chat-header-tasks {");
-  expect(control).toContain("var(--text)");
-  // The title is the flexible child of the header; the control keeps its size.
-  expect(control).toContain("flex: none");
-  expect(ruleBody(".chat-header-tasks.is-running {")).toContain(
-    "var(--accent)",
-  );
+test("the header's view buttons are styled from theme tokens, mark a live session and never shrink the title away", () => {
+  const row = ruleBody(".chat-views {");
+  // The title is the flexible child of the header; the row keeps its size.
+  expect(row).toContain("flex: none");
+  const button = ruleBody(".chat-view-btn {");
+  expect(button).toContain("var(--text)");
+  expect(button).toContain("height: 36px");
+  expect(ruleBody(".chat-view-btn.is-running {")).toContain("var(--accent)");
+  expect(ruleBody(".chat-view-btn.is-active {")).toContain("var(--accent)");
+  // The tooltip is the rail's: the same tokens.
+  const tip = ruleBody(".chat-view-tip {");
+  expect(tip).toContain("var(--coddy-tip-bg)");
+  expect(tip).toContain("var(--coddy-tip-fg)");
 });
 
-test("at phone width the counts speak for the control and the word gives way", () => {
+test("the view buttons take the top bar's sizes: 42px on a tablet, a 40px icon alone on a phone", () => {
+  const stacked = css.slice(
+    css.indexOf(`@media (max-width: 1199px) {\n  .chat-view-btn {`),
+  );
+  expect(stacked.slice(0, 120)).toContain("height: 42px");
   const phone = css.slice(
-    css.indexOf(`@media ${phoneMaxWidthMediaQuery} {\n  .chat-header-tasks`),
+    css.indexOf(`@media ${phoneMaxWidthMediaQuery} {\n  .chat-views {`),
   );
-  const block = phone.slice(0, 260);
-  expect(block).toContain(
-    ".chat-header-tasks.has-tasks .chat-header-tasks-label",
-  );
-  expect(block).toContain("display: none");
+  const block = phone.slice(0, 400);
+  expect(block).toMatch(/\.chat-view-btn \{[^}]*width: 40px;[^}]*height: 40px/);
+  expect(block).toMatch(/\.chat-view-label \{[^}]*display: none/);
 });
 
 test("no opener is left under the transcript", () => {

@@ -1,16 +1,19 @@
-Feature: The views of a chat are picked from its header menu
-  A chat has three views beside the conversation: its background tasks, its
-  edits and its files. The control at the right of the chat header opens a menu
-  of the three, the way the views of a session are picked in Claude's app. The
-  tasks and the edits open in the dock beside the chat, one at a time and
-  without a tab strip of their own; the files open in a window over the chat,
-  the way the documentation does, with the workspace tree on the left and the
-  files opened from it as tabs on the right.
+Feature: The views of a chat are buttons in its header
+  A chat has three views beside the conversation: its edits, its files and its
+  background tasks. They are a row of buttons in the chat header, the way the
+  views of a session sit at the top of Claude's app: Edits (only while the
+  session has edits) and Files as an icon with a short name, Background tasks
+  at the right edge with the dot and the running / total count. The tasks and the edits
+  open in the dock beside the chat, one at a time and without a tab strip of
+  their own; the files open in a window over the chat, the way the
+  documentation does, with the workspace tree on the left and the files opened
+  from it as tabs on the right.
 
-  Scenario: The header menu offers the three views
-    Then the header control opens a menu of background tasks, edits and files
-    And picking a view opens it and puts the menu away
-    And the view on show is checked in the menu
+  Scenario: The header shows the views as buttons
+    Then the header shows edits, files and background tasks as buttons in a row
+    And the Edits button is there only while the session has edits
+    And a button opens its view
+    And the button of the view on show is pressed
 
   Scenario: The edits and the background tasks open in the dock, without a tab strip
     Then the edits open in the dock headed Edits, with no tab strip

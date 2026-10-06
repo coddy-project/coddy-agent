@@ -52,6 +52,7 @@ import {
   getSessionChangesEnabled,
   onSessionChangesChange,
 } from "./sessionChangesConfig";
+import { useSessionHasEdits } from "../changes/useSessionHasEdits";
 import { TranscriptList, type TranscriptListHandle } from "./TranscriptList";
 
 export function ChatScreen(props: {
@@ -542,11 +543,16 @@ export function ChatScreen(props: {
     />
   ) : null;
 
-  // The edits are offered only while the card is switched on (ui.session_changes).
+  // The edits are offered while the card is switched on (ui.session_changes)
+  // and the session has edits, or while they are on show.
   const sessionChangesEnabled = useSyncExternalStore(
     onSessionChangesChange,
     getSessionChangesEnabled,
     getSessionChangesEnabled,
+  );
+  const sessionHasEdits = useSessionHasEdits(
+    props.sessionId ?? "",
+    sessionChangesEnabled && !!props.onOpenSessionChanges,
   );
   // The Files window belongs to a chat, so it opens only once one exists.
   const openFiles = props.sessionId
@@ -853,7 +859,9 @@ export function ChatScreen(props: {
                             ? props.onCloseBackgroundTasks
                             : props.onOpenBackgroundTasks,
                         tasksOpen: props.backgroundTasksOpen === true,
-                        ...(props.onOpenSessionChanges && sessionChangesEnabled
+                        ...(props.onOpenSessionChanges &&
+                        sessionChangesEnabled &&
+                        (sessionHasEdits || props.sessionChangesOpen === true)
                           ? {
                               onOpenEdits:
                                 props.sessionChangesOpen === true &&

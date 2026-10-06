@@ -9,19 +9,22 @@ import (
 )
 
 // The views of a chat are rendered components and the shell's routing, so
-// each step runs the Vitest test that drives them: the header menu, the dock
-// without a tab strip, the Files window.
+// each step runs the Vitest test that drives them: the header buttons, the
+// dock without a tab strip, the Files window.
 func TestWebUISessionViewsFeature(t *testing.T) {
 	steps := []struct{ step, file, name string }{
-		{`^the header control opens a menu of background tasks, edits and files$`,
+		{`^the header shows edits, files and background tasks as buttons in a row$`,
 			"src/ui/chat/ChatHeader.test.tsx",
-			"the views menu offers background tasks, edits and files"},
-		{`^picking a view opens it and puts the menu away$`,
+			"the header shows edits, files and background tasks as buttons in a row"},
+		{`^the Edits button is there only while the session has edits$`,
+			"src/ui/chat/ChatScreen.test.tsx",
+			"the Edits button is there only while the session has edits"},
+		{`^a button opens its view$`,
 			"src/ui/chat/ChatHeader.test.tsx",
-			"picking a view opens it and puts the menu away"},
-		{`^the view on show is checked in the menu$`,
+			"a button opens its view"},
+		{`^the button of the view on show is pressed$`,
 			"src/ui/chat/ChatHeader.test.tsx",
-			"the view on show is checked in the menu"},
+			"the button of the view on show is pressed"},
 		{`^the edits open in the dock headed Edits, with no tab strip$`,
 			"src/ui/App.workspaceViews.test.tsx",
 			"the edits open in the dock, headed Edits, with no tab strip"},

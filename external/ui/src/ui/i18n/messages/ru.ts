@@ -1267,7 +1267,9 @@ export const messagesRu: Record<string, string> = {
 
   "chat.newChat": "Новый чат",
   "chat.chatTitleAriaLabel": "Заголовок чата",
-  "chat.views.menu": "Панели этого чата",
+  "chat.views.label": "Панели этого чата",
+  "chat.views.editsTitle": "Правки этой сессии",
+  "chat.views.filesTitle": "Файлы рабочей папки ({key})",
   "chat.archived.notice":
     "Этот диалог в архиве. Разархивируйте его, чтобы продолжить работу.",
   "chat.archived.unarchive": "Разархивировать",

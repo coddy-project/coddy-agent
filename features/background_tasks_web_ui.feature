@@ -3,8 +3,8 @@ Feature: The background tasks of a chat in the web UI
   chat: a control at the right edge of the chat header. The header is sticky,
   so the control does not scroll away with the transcript, and it is there
   from the first message, so the header does not jump when the first task
-  starts. It says how many tasks run out of how many the chat has, and it
-  opens the chat's views menu, whose first row is the Tasks panel.
+  starts. It says how many tasks run out of how many the chat has, and it is
+  the first of the chat's view buttons in the header, next to Edits and Files.
 
   Scenario: The control is there before any task has run
     Then the tasks control is in the header of a chat that never ran a task, without counts
@@ -13,8 +13,8 @@ Feature: The background tasks of a chat in the web UI
     Then with tasks the header control says how many are running out of how many there are
     And once everything has finished the header control keeps the total and drops the live mark
 
-  Scenario: The control's menu opens the Tasks panel and puts it away again
-    Then the Tasks row of the header menu opens the Tasks panel and picking it again closes it
+  Scenario: The Tasks button opens the Tasks panel and puts it away again
+    Then the Tasks button of the header opens the Tasks panel and pressing it again closes it
 
   Scenario: Nothing is left under the transcript
     Then the transcript ends with the conversation and the header control is the way to the tasks

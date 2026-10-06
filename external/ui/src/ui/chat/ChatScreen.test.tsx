@@ -817,10 +817,10 @@ test("the live line of a running turn names the running tasks and opens the Task
 test("the transcript ends with the conversation: the way to the tasks is the header control", () => {
   render(turnLineScreen({ generating: false }));
   expect(screen.queryByTestId("bgtask-chip")).toBeNull();
-  expect(screen.getByTestId("chat-header-tasks")).toBeInTheDocument();
+  expect(screen.getByTestId("chat-views-tasks")).toBeInTheDocument();
 });
 
-test("the header menu opens the Tasks panel and puts it away again", () => {
+test("the Tasks button opens the Tasks panel and puts it away again", () => {
   const onOpen = vi.fn();
   const onClose = vi.fn();
   const { rerender } = render(
@@ -830,7 +830,6 @@ test("the header menu opens the Tasks panel and puts it away again", () => {
       onCloseBackgroundTasks: onClose,
     }),
   );
-  fireEvent.click(screen.getByTestId("chat-header-tasks"));
   fireEvent.click(screen.getByTestId("chat-views-tasks"));
   expect(onOpen).toHaveBeenCalledTimes(1);
   rerender(
@@ -841,13 +840,60 @@ test("the header menu opens the Tasks panel and puts it away again", () => {
       backgroundTasksOpen: true,
     }),
   );
-  fireEvent.click(screen.getByTestId("chat-header-tasks"));
   fireEvent.click(screen.getByTestId("chat-views-tasks"));
   expect(onClose).toHaveBeenCalledTimes(1);
   expect(onOpen).toHaveBeenCalledTimes(1);
 });
 
-test("the header menu opens the session's edits and its files", () => {
+/** The change set the server answers for the session: n changed files. */
+function stubSessionChanges(n: number) {
+  const fetchMock = vi.fn(async (input: unknown) => {
+    const url = String(input);
+    if (url.includes("/changes")) {
+      return new Response(
+        JSON.stringify({
+          sessionId: "sess_turn",
+          files: Array.from({ length: n }, (_, i) => ({
+            path: `f${i}.txt`,
+            status: "modified",
+            additions: 1,
+            deletions: 0,
+            binary: false,
+            truncated: false,
+          })),
+          totals: { files: n, additions: n, deletions: 0 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return new Response("{}", { status: 404 });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+test("the Edits button is there only while the session has edits", async () => {
+  stubSessionChanges(0);
+  const props = {
+    generating: false,
+    onOpenBackgroundTasks: () => {},
+    onOpenSessionChanges: () => {},
+    onOpenChangesViewer: () => {},
+    onOpenFiles: () => {},
+  };
+  const { unmount } = render(turnLineScreen(props));
+  await act(async () => new Promise((r) => setTimeout(r, 20)));
+  expect(screen.queryByTestId("chat-views-edits")).toBeNull();
+  expect(screen.getByTestId("chat-views-files")).toBeTruthy();
+  unmount();
+  stubSessionChanges(2);
+  render(turnLineScreen(props));
+  await screen.findByTestId("chat-views-edits");
+  vi.unstubAllGlobals();
+});
+
+test("the header buttons open the session's edits and its files", async () => {
+  stubSessionChanges(1);
   const onOpenEdits = vi.fn();
   const onOpenFiles = vi.fn();
   render(
@@ -859,13 +905,12 @@ test("the header menu opens the session's edits and its files", () => {
       onOpenFiles,
     }),
   );
-  fireEvent.click(screen.getByTestId("chat-header-tasks"));
-  fireEvent.click(screen.getByTestId("chat-views-edits"));
+  fireEvent.click(await screen.findByTestId("chat-views-edits"));
   // The whole set: no file is preselected.
   expect(onOpenEdits).toHaveBeenCalledWith();
-  fireEvent.click(screen.getByTestId("chat-header-tasks"));
   fireEvent.click(screen.getByTestId("chat-views-files"));
   expect(onOpenFiles).toHaveBeenCalledTimes(1);
+  vi.unstubAllGlobals();
 });
 
 test("the turn has ended and its tasks have not: the tail keeps the dots and the count", () => {

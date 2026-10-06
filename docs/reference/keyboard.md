@@ -110,7 +110,6 @@ The composer is a plain `textarea`; keys not listed here keep their browser mean
 | Escape / Tab | confirmation dialog | cancel / keep the focus inside the dialog |
 | Ctrl+S / Cmd+S | an open chat, composer included | show or hide the changed-files card; the browser's "Save page" never opens |
 | Ctrl+Shift+F / Cmd+Shift+F | an open chat, composer included | open the Files window, or close it ([Web UI](../surfaces/web-ui.md#workspace-files)) |
-| ArrowUp / ArrowDown, Home / End, Escape | views menu of the chat header (the Tasks control) | move between its rows (Background tasks, Edits while `ui.session_changes` is on, Files), wrapping around / jump to the first or the last / close the menu and leave the view under it open |
 | Escape | Files window | clear the filter when it has text, else close the window; the dock under it stays for the next Escape |
 | F1 | anywhere | open the documentation reader, or close it ([Built-in documentation](../features/built-in-docs.md#the-web-ui-reader)) |
 | / | documentation reader, outside a field | put the cursor in its search box |

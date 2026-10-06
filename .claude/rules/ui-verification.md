@@ -61,14 +61,14 @@ not anchor scrolling, so there the window's own correction is all that keeps the
 
 ## The views of a chat
 
-The views menu of the chat header, the dock beside the chat and the Files window are
+The view buttons of the chat header, the dock beside the chat and the Files window are
 placement, focus and media through a relay, none of which jsdom can see. When the change
 touches **`chat/ChatHeader.tsx`**, the dock, **`files/`**, the files routes or the swarm
 mount, run **`external/ui/scripts/files-check.mjs`** against a binary built with
 **`TAGS="http ui swarm"`** (setup in **`docs/surfaces/web-ui.md`**, *Checking the views of a
 chat through a swarm relay*): it drives the menu, the dock and the window through an
 authenticated relay, plays a sound from its signed address through the relay, and measures
-the window at every tier of the grid in English and in Russian. Run it once more with
+the buttons and the window at every tier of the grid in English and in Russian. Run it once more with
 **`CODDY_ENGINE=webkit`** when the change touches the window's layout.
 
 ## Capture isolation and redaction

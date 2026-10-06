@@ -963,7 +963,7 @@ Automated checks:
 - **external/ui/src/ui/tasks/taskStatus.test.ts** (timing, progress, overdue, poll cadence, start-time ordering, grouping, agent task helpers)
 - **external/ui/src/ui/tasks/BackgroundTasksPanel.test.tsx** (one card shape for every task, the tag and the title, the card as one control with Stop apart, expanding in place with the command, copy, output and foot, several cards open at once, a card the shell points at, output re-read while a task runs, the finished counter, Clear, Show transcript on the folded card and said once, empty and error states)
 - **external/ui/src/ui/tasks/api.test.ts** (paths, headers, offline degradation)
-- **external/ui/src/ui/chat/ChatHeader.test.tsx** (the header control: present in an empty chat, `running / total` without system tasks, `aria-expanded`) and **ChatScreen.test.tsx** (the toggle, nothing under the transcript)
+- **external/ui/src/ui/chat/ChatHeader.test.tsx** (the view buttons: Edits, Files, Tasks in that order, Tasks with the dot and `running / total` without system tasks, icon, short name and tooltip, `aria-pressed`) and **external/ui/src/ui/changes/useSessionHasEdits.test.tsx** (Edits only while the session has edits) and **ChatScreen.test.tsx** (the toggle, nothing under the transcript)
 - **external/ui/src/ui/tasks/backgroundTaskCss.test.ts** (panel docking, the tag, the stretched click surface with Stop above it, the hover tint, the bounded output box, the header control, the live line on a phone, reduced motion)
 - **external/ui/src/ui/messages/ToolCallMessage.test.tsx** (the background row: its label, the task clock in the duration slot, and that no outcome leaks onto the row)
 
@@ -1014,27 +1014,31 @@ A held project hooks file surfaces in the transcript as a **notice-level system 
 
 ## Views of a chat
 
-A chat has three views beside the conversation: its **background tasks**, its
-**edits** and its **files**. The **Tasks** control at the right of the chat header
-opens a menu of them; a view on show is checked there, and picking it again puts it
-away. **Edits** is offered while the changed-files card is on (`ui.session_changes`,
-the default). The background tasks and the edits open in the dock beside the chat,
-one at a time; the files open in a window over the chat. On a phone or a tablet the
-menu is a sheet at the foot of the screen.
+A chat has three views beside the conversation: its **edits**, its **files** and its
+**background tasks**. They are a row of buttons at the top of the chat: **Edits**
+(only while the session has edits, and while the changed-files card is on,
+`ui.session_changes`, the default), **Files**, and **Tasks** at the right edge. On a
+desktop and a tablet Edits and Files are an icon with a short name; a phone shows the
+icon alone, the size of its top bar's buttons. Tasks is the control the header always
+had: a dot and, once the chat has tasks, how many run out of how many there are, the
+dot lit while work is in flight. Every button has its full name in a tooltip, the
+Files one with its key. A button opens its view, and pressed again puts it away; the
+button of the view on show is lit. The edits and the background tasks open in the
+dock beside the chat, one at a time; the files open in a window over the chat.
 
-![The views menu under the Tasks control: Background tasks, Edits, and Files with its key](../assets/views-menu-dark-1280.png)
+![The view buttons of a chat header: Tasks, Edits and Files](../assets/views-toolbar-dark-1280.png)
 
-*The views menu of a chat, opened from the Tasks control in its header*
+*The view buttons at the top of a chat*
 
-The arrow keys walk the menu, Escape closes it and leaves the view under it open.
-`Ctrl+Shift+F` (`Cmd+Shift+F` on a Mac) opens and closes the Files window from
-anywhere in a chat, the composer included.
+On a phone: [390 px](../assets/views-toolbar-dark-390.png). `Ctrl+Shift+F`
+(`Cmd+Shift+F` on a Mac) opens and closes the Files window from anywhere in a chat,
+the composer included.
 
 ## Workspace files
 
 The **Files** window shows the session's workspace over the chat, the way the
 documentation reader does: the tree on the left, the files opened from it as tabs on
-the right. Open it from the chat header's views menu, with `Ctrl+Shift+F`, with
+the right. Open it with the **Files** button of the chat header, with `Ctrl+Shift+F`, with
 **Files** beside the workspace chip in the composer, or by clicking a workspace
 mention in a sent message or a file tool's path. Its address keeps the file and an
 optional line, `#/s/<id>/files?path=notes/readme.md&line=15`, so a reload opens it
@@ -1147,7 +1151,7 @@ and **`+N more`** ask about the whole set and open the review window.
 
 The **drawer** (`.changes-panel`, `SessionChangesPanel.tsx`, headed **Edits**) and
 the **Tasks panel** are two faces of the dock beside the chat (`dockTab` in
-`App.tsx`): opening one closes the other, the chat header's views menu switches
+`App.tsx`): opening one closes the other, the view buttons of the chat header switch
 between them, and the chat column reserves exactly the width of the face on show. The drawer shows the
 file list on top and the unified diff of the selected file below. The diff body
 reuses `PermissionToolPreview` — the same renderer the permission gate and the
@@ -1156,7 +1160,7 @@ everywhere in the app. A binary file is listed but has no diff to show.
 
 ![The dock beside the chat showing the session's edits: the file list on top, the diff of notes/release.md below](../assets/session-edits-dock-dark-1280.png)
 
-*The dock on its Edits face, opened from the views menu of the chat header*
+*The dock on its Edits face, opened with the Edits button of the chat header*
 
 The **review window** (`.dv-window`, `DiffViewerModal.tsx`) is a modal holding
 every changed file diff in one scrollable document. Its toolbar carries a scope
@@ -1784,15 +1788,17 @@ CODDY_BIN=build/coddy npm --prefix external/ui run check:queue
 
 ### Checking the views of a chat through a swarm relay
 
-The views menu, the dock and the Files window are checked against the real binary by
+The view buttons, the dock and the Files window are checked against the real binary by
 **`external/ui/scripts/files-check.mjs`**: it serves a scripted model whose first
 answer writes a file through the `write` tool, starts a **`coddy serve`** node that
 asks for a bearer token and a **`coddy serve --swarm`** relay that mounts it with its
 own client token, and drives a browser through the relay's mount only. It checks:
 
-- **the views menu** offers Background tasks, Edits and Files in that order, hangs
-  under the Tasks control inside the window, checks the view on show and puts it
-  away when picked again;
+- **the view buttons** show Edits, Files and Tasks in that order beside the title,
+  Edits and Files an 18px icon with its short name on a desktop, Tasks the dot, the
+  tooltip in the window on hover (the Files one with its key), the pressed one for the
+  view on show, which a second press puts away; a chat whose turn edited nothing shows
+  no Edits button;
 - **the dock** shows the edits headed Edits with the file the turn wrote, and the
   background tasks, with no tab strip anywhere;
 - **the Files window** opens over the chat with the filter focused, lists folders
@@ -1804,13 +1810,14 @@ own client token, and drives a browser through the relay's mount only. It checks
   answers a range with no header, a forged one is refused by the node, and
   **Download** saves the file under its name;
 - **on a phone** the window fits the screen, shows a file opened by its address
-  without the tree, and the views menu is a sheet;
+  without the tree, and Edits and Files are 40 px icons beside the title, Tasks the dot
+  and its word;
 - **from another origin** (the node's own web UI with the relay as its environment)
   the window reads through the relay, a `HEAD` with `If-None-Match` passes the
   relay's preflight, the `ETag` is readable, and an open file is revalidated;
 - **at every tier of the grid** (600 to 1920 px), in English and in Russian, the
-  window fits the viewport with the tree beside the file and the views menu stays
-  inside the viewport.
+  window fits the viewport with the tree beside the file, and the view buttons sit
+  beside the title in one row, icon and short name whole, at the top bar's height.
 
 ```bash
 make build TAGS="http ui swarm"

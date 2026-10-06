@@ -2342,119 +2342,154 @@ a.rail-brand {
   white-space: nowrap;
 }
 
-/* The Tasks control at the right edge of the sticky header: the opener of the Tasks
-   panel and the one place a chat says how much runs in its background. It is there
-   from the first message, so the header never jumps when the first task starts. */
-.chat-header-tasks {
+/* The views of a chat at the right of the sticky header: a row of buttons -
+   Edits (only when the session has edits), Files, and Background tasks at the
+   right edge. Edits and Files are an icon the size of the rail's with its short
+   name on a desktop and a tablet, the icon alone on a phone; Background tasks
+   are the dot and the running / total count the header always had. The full
+   name is in a tooltip everywhere. The row is there from the first message, so
+   the header never jumps when the first task starts. DESIGN.md, Views of a
+   chat. */
+.chat-views {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+}
+
+.chat-view-tip-host {
+  position: relative;
+  display: inline-flex;
+}
+
+/* The look of the top bar's buttons around an 18px icon and its name: 36px
+   high in a desktop header, the top bar's own 42px on a tablet, and a 40px
+   square around the icon alone on a phone (further down). */
+.chat-view-btn {
+  position: relative;
   flex: none;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 7px;
-  min-height: 26px;
-  margin-left: 10px;
-  padding: 3px 11px 3px 9px;
-  border-radius: 999px;
-  border: 0.5px solid var(--coddy-glass-panel-border);
-  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  height: 36px;
+  padding: 0 12px 0 10px;
   font: inherit;
-  font-size: 12px;
-  font-weight: 400;
+  font-size: 13px;
   white-space: nowrap;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 82%, var(--coddy-blend-base));
   cursor: pointer;
+  transition:
+    color 140ms ease,
+    border-color 140ms ease,
+    background 140ms ease;
 }
 
-.chat-header-tasks:hover,
-.chat-header-tasks[aria-expanded="true"] {
-  color: var(--text);
-  border-color: color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
+.chat-view-btn:hover {
+  color: var(--accent);
 }
 
-.chat-header-tasks.is-running {
+/* The view on show: its button stays pressed, in the accent, as the rail marks
+   the screen on show. */
+.chat-view-btn.is-active {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--accent) 12%, var(--coddy-blend-base));
+}
+
+/* Work in flight in the chat's background: the accent border and tint the
+   Tasks control always had, the dot running. */
+.chat-view-btn.is-running {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--coddy-blend-base));
   background: color-mix(in srgb, var(--accent) 12%, var(--coddy-blend-base));
   color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
 }
 
-.chat-header-tasks:focus-visible {
+.chat-view-btn:focus-visible {
   outline: 1.5px solid var(--accent);
   outline-offset: 2px;
 }
 
-/* A view beside the chat is on show: the control that picked it stays lit. */
-.chat-header-tasks.is-active {
-  color: var(--text);
-  border-color: color-mix(in srgb, var(--accent) 40%, var(--coddy-blend-base));
-}
-
-/* The views menu of the header control: one row per view, an icon, its name,
-   and what it has to say at the right edge - how many tasks run, the key that
-   opens the files. A view on show is the selected row. */
-.mode-menu.mode-menu--views {
-  min-width: 248px;
-}
-
-.mode-menu--portal.mode-menu--views {
-  left: auto;
-}
-
-.views-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  border: 1px solid transparent;
-}
-
-.views-menu-icon {
+.chat-view-icon {
+  display: block;
   flex: none;
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
 }
 
-.views-menu-label {
-  flex: 1 1 auto;
-  min-width: 0;
-  white-space: nowrap;
+.chat-view-label {
+  line-height: 1;
 }
 
-.views-menu-count {
-  flex: none;
-  min-width: 20px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
-  color: color-mix(in srgb, var(--text) 80%, var(--coddy-blend-base));
-  font-size: 11.5px;
+/* running / total beside the dot. Tabular digits, so a count that changes
+   does not move the row. */
+.chat-view-count {
   font-variant-numeric: tabular-nums;
-  text-align: center;
-}
-
-.views-menu-key {
-  flex: none;
-  font: inherit;
-  font-size: 11.5px;
-  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
-}
-
-.views-menu-item:focus-visible {
-  outline: 1.5px solid var(--accent);
-  outline-offset: -1.5px;
-}
-
-/* running / total. Tabular digits, so a count that changes does not move the title. */
-.chat-header-tasks-counts {
-  font-variant-numeric: tabular-nums;
+  line-height: 1;
   color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
 }
 
-/* A phone header has room for the title and little else: once there are counts they
-   speak for themselves, and the word gives way. */
+/* The name of a button, in the rail's tooltip, under the row and kept to its
+   right edge so the tooltip of the last button stays inside the window. */
+.chat-view-tip {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  padding: 6px 12px;
+  border-radius: 12px;
+  background: var(--coddy-tip-bg);
+  border: 1px solid var(--coddy-tip-border);
+  color: var(--coddy-tip-fg);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease;
+  z-index: 80;
+  box-shadow: var(--coddy-tip-shadow);
+}
+
+.chat-view-tip-host:hover .chat-view-tip,
+.chat-view-tip-host:has(.chat-view-btn:focus-visible) .chat-view-tip {
+  opacity: 1;
+}
+
+/* The stacked shell's top bar has 42px buttons, a phone's 40px: the header's
+   take the same size there. */
+@media (max-width: 1199px) {
+  .chat-view-btn {
+    height: 42px;
+  }
+}
+
+/* A phone: Edits and Files are the icon alone, in the 40px square of its top
+   bar's buttons; Background tasks keep the dot and the counts, and the word
+   only while there are no counts yet. */
 @media (max-width: 599px) {
-  .chat-header-tasks {
-    min-height: 32px;
+  .chat-views {
+    gap: 4px;
   }
 
-  .chat-header-tasks.has-tasks .chat-header-tasks-label {
+  .chat-view-btn {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+  }
+
+  .chat-view-label {
     display: none;
+  }
+
+  .chat-view-btn--tasks {
+    width: auto;
+    padding: 0 12px 0 11px;
+  }
+
+  .chat-view-btn--tasks:not(.has-tasks) .chat-view-label {
+    display: inline;
   }
 }
 

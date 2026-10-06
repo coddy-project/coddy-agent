@@ -367,16 +367,21 @@ Chromium, Firefox and WebKit, local and authenticated remote mode with a path pr
 The transcript overflow stand is checked across every layout-grid width. Stage 6
 (semantic navigation) remains outside this implementation.
 
-## 14. Revision: a views menu and a Files window (2026-10-06)
+## 14. Revision: view buttons and a Files window (2026-10-06)
 
 The operator's review of the first build turned down two of its shapes, and the decision
 recorded here replaces §8.3 where they differ.
 
 - **No tab strip in the dock.** The switcher between Tasks, Changed files and Files lived in
-  the head of every dock face, so each panel repeated it. The views of a chat are now picked
-  from one menu under the Tasks control of the chat header, as Claude's app does it: Background
-  tasks, **Edits** (the face formerly called Changed files) and Files. A view on show is checked
-  there and picking it again puts it away. The dock keeps two faces, Tasks and Edits.
+  the head of every dock face, so each panel repeated it. The views of a chat are now a row of
+  buttons in the chat header, as the views of a session sit at the top of Claude's app:
+  **Edits** (the face formerly called Changed files; shown only while the session has edits),
+  Files, and Background tasks at the right edge, the dot and the running / total count the
+  header always had. Edits and Files are an 18px icon (the size of the rail's and the top bar's
+  icons) with a short name on a desktop and a tablet, the icon alone on a phone; the full name is
+  in a tooltip everywhere; the pressed one is the view on show, a second press puts it away. A
+  dropdown menu was tried first and dropped: the operator wants the views at the top, in a row,
+  one press away on any device. The dock keeps two faces, Tasks and Edits.
 - **Files is a window, not a dock face.** The tree and the preview did not fit a 520px column.
   Files now opens over the chat in the documentation reader's frame: the tree on the left with a
   filter over the whole workspace (the composer's `@` index, not only loaded folders), the files
