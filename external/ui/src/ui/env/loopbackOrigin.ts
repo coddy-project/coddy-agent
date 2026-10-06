@@ -15,16 +15,21 @@ export function isLoopbackOrigin(origin: string): boolean {
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return false;
   // A serialized origin is scheme, host and an optional port: a path, a
-  // query, a fragment, user information or a trailing slash makes it a URL.
-  // (The parser's own `origin` cannot be compared against the input, since it
-  // drops a default port the input may spell out.)
+  // query (an empty `?` leaves `search` empty, so the character itself is
+  // checked), a fragment, user information, a trailing slash or port 0 makes
+  // it a URL rather than an origin. (The parser's own `origin` cannot be
+  // compared against the input, since it drops a default port the input may
+  // spell out.)
   if (
     url.username !== "" ||
     url.password !== "" ||
     url.pathname !== "/" ||
     url.search !== "" ||
     url.hash !== "" ||
-    origin.endsWith("/")
+    url.port === "0" ||
+    origin.endsWith("/") ||
+    origin.includes("?") ||
+    origin.includes("#")
   ) {
     return false;
   }

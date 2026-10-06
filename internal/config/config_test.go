@@ -864,6 +864,7 @@ func TestHTTPCORSAllowLoopbackOrigins(t *testing.T) {
 		"http://127.0.0.1:12345",
 		"http://127.1.2.3:80",
 		"http://[::1]:5173",
+		"http://[::1]",
 		"http://app.localhost:3000",
 	} {
 		if allow, ok := c.AllowOrigin(origin); !ok || allow != origin {
@@ -882,9 +883,15 @@ func TestHTTPCORSAllowLoopbackOrigins(t *testing.T) {
 		// A browser sends a serialized origin and nothing more; the echo goes
 		// into Access-Control-Allow-Origin, which must be an origin, not a URL.
 		"http://localhost:5173/path",
+		"http://localhost:5173/",
 		"http://localhost:5173?q=1",
+		"http://localhost?",
 		"http://localhost:5173#f",
+		"http://localhost#",
 		"http://user@localhost:5173",
+		// An IPv6 literal belongs in brackets, and no port is port 0.
+		"http://::1",
+		"http://127.0.0.1:0",
 	} {
 		if allow, ok := c.AllowOrigin(origin); ok || allow != "" {
 			t.Errorf("AllowOrigin(%q) = %q,%v; want refused", origin, allow, ok)

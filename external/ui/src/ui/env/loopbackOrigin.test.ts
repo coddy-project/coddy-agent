@@ -12,6 +12,7 @@ describe("isLoopbackOrigin", () => {
     "http://127.0.0.1:12345",
     "http://127.1.2.3:80",
     "http://[::1]:5173",
+    "http://[::1]",
     "http://app.localhost:3000",
   ])("admits %s", (origin) => {
     expect(isLoopbackOrigin(origin)).toBe(true);
@@ -29,8 +30,12 @@ describe("isLoopbackOrigin", () => {
     "http://localhost:5173/path",
     "http://localhost:5173/",
     "http://localhost:5173?q=1",
+    "http://localhost?",
     "http://localhost:5173#f",
+    "http://localhost#",
     "http://user@localhost:5173",
+    "http://::1",
+    "http://127.0.0.1:0",
   ])("refuses %s", (origin) => {
     expect(isLoopbackOrigin(origin)).toBe(false);
   });

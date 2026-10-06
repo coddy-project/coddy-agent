@@ -110,7 +110,9 @@ With `cors.enable` on, a preflight from an allowed origin gets `204` with `Acces
 
 ![The health alert for a remote that CORS keeps from a page on a loopback address](../assets/remote/env-banner-cors-loopback-dark-1280.png)
 
-*A page served by the laptop's own coddy serve: the alert names the exact-origin list and the `allow_loopback` toggle that admits the page on any port* Because `EventSource` cannot send a header, the two SSE subscription routes, `GET /coddy/sessions/{id}/composer-stream` and `GET /coddy/events`, also accept `?access_token=`; the bundled UI fetches those streams instead, so its header applies and no token lands in a URL. Reference: [HTTP API](../reference/http-api.md#authentication-optional).
+*A page served by the laptop's own coddy serve: the alert names the exact-origin list and the `allow_loopback` toggle that admits the page on any port*
+
+Because `EventSource` cannot send a header, the two SSE subscription routes, `GET /coddy/sessions/{id}/composer-stream` and `GET /coddy/events`, also accept `?access_token=`; the bundled UI fetches those streams instead, so its header applies and no token lands in a URL. Reference: [HTTP API](../reference/http-api.md#authentication-optional).
 
 ## The environment chip
 

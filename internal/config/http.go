@@ -33,7 +33,9 @@ type HTTPServerConfig struct {
 	Login HTTPLoginConfig `yaml:"login"`
 	// PublicDocs keeps /docs and /openapi.* reachable without a token even when auth is enabled.
 	PublicDocs bool `yaml:"public_docs"`
-	// AllowInsecure silences the startup warning about a non-loopback bind without authentication.
+	// AllowInsecure silences the two startup warnings about a server without
+	// authentication - a non-loopback bind, and CORS that admits pages nobody
+	// listed (allow_loopback or "*") - and the --dry-run findings that mirror them.
 	AllowInsecure bool `yaml:"allow_insecure"`
 	// CORS controls cross-origin access so a browser UI on another origin can call this API.
 	CORS HTTPCORSConfig `yaml:"cors"`
@@ -233,20 +235,28 @@ func (c HTTPCORSConfig) OpenToUnlistedOrigins() bool {
 // sends as Origin and which must not be echoed into Access-Control-Allow-Origin.
 func isLoopbackOrigin(origin string) bool {
 	u, err := url.Parse(origin)
-	if err != nil || u.Opaque != "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
 		return false
 	}
-	if u.Scheme != "http" && u.Scheme != "https" {
+	// A serialized origin is the scheme, the host and an optional port and
+	// nothing else. Rebuilding it from the parsed parts and comparing drops a
+	// path, a query (an empty one leaves only ForceQuery behind), a fragment,
+	// user information and a trailing slash in one check.
+	if u.ForceQuery || !strings.EqualFold(u.Scheme+"://"+u.Host, origin) {
 		return false
 	}
 	host := u.Host
 	if h, port, err := net.SplitHostPort(host); err == nil {
-		if _, err := strconv.ParseUint(port, 10, 16); err != nil {
+		if p, err := strconv.ParseUint(port, 10, 16); err != nil || p == 0 {
 			return false
 		}
 		host = h
-	} else {
-		host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
+	} else if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		host = host[1 : len(host)-1]
+	} else if strings.Contains(host, ":") {
+		// An IPv6 literal belongs in brackets; bare colons are neither a
+		// port nor an origin a browser would send.
+		return false
 	}
 	if host == "" {
 		return false
