@@ -263,6 +263,11 @@ func isLoopbackOrigin(origin string) bool {
 	if host == "" {
 		return false
 	}
+	// Brackets belong to an IPv6 literal, with or without a port; [localhost]
+	// and [127.0.0.1] are not origins a browser sends.
+	if strings.HasPrefix(u.Host, "[") && !strings.Contains(host, ":") {
+		return false
+	}
 	return isLoopbackOriginHost(host)
 }
 

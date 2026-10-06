@@ -272,6 +272,31 @@
   {
     "origin": "http://a!b.localhost",
     "loopback": false,
-    "note": "not a character of a host name"
+    "note": "outside the host-name alphabet the contract uses (letters, digits, hyphen, underscore, dot)"
+  },
+  {
+    "origin": "http://[localhost]",
+    "loopback": false,
+    "note": "brackets belong to an IPv6 literal"
+  },
+  {
+    "origin": "http://[localhost]:80",
+    "loopback": false,
+    "note": "brackets around a name, with a port"
+  },
+  {
+    "origin": "http://[127.0.0.1]",
+    "loopback": false,
+    "note": "brackets around an IPv4 address"
+  },
+  {
+    "origin": "http://[127.0.0.1]:3000",
+    "loopback": false,
+    "note": "brackets around an IPv4 address, with a port"
+  },
+  {
+    "origin": "http://[foo.localhost]",
+    "loopback": false,
+    "note": "brackets around a *.localhost name"
   }
 ]
