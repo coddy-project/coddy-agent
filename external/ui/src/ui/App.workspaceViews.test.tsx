@@ -166,7 +166,7 @@ const pressEscape = (target: Element = document.activeElement ?? document.body) 
 test("the edits open in their window, and the address names them", async () => {
   mountAt(`#/s/${SID}`);
   fireEvent.click(await screen.findByTestId("open-edits"));
-  const win = await screen.findByTestId("diff-viewer");
+  const win = await screen.findByTestId("edits-view");
   expect(within(win).getByText(t("changes.viewer.title"))).toBeTruthy();
   // No dock face for the edits: the window is their only view.
   expect(screen.queryByTestId("changes-panel")).toBeNull();
@@ -176,9 +176,21 @@ test("the edits open in their window, and the address names them", async () => {
 
 test("an edits address opens the window, and Escape closes it", async () => {
   mountAt(`#/s/${SID}/changes`);
-  await screen.findByTestId("diff-viewer");
+  await screen.findByTestId("edits-view");
   pressEscape();
-  await waitFor(() => expect(screen.queryByTestId("diff-viewer")).toBeNull());
+  await waitFor(() => expect(screen.queryByTestId("edits-view")).toBeNull());
+  await waitFor(() => expect(window.location.hash).toBe(`#/s/${SID}`));
+});
+
+// The edits window sits over the chat like the Files window: the shell's
+// backdrop covers the chat under it, and a click there puts it away.
+test("a click on the backdrop beside the edits window puts it away", async () => {
+  mountAt(`#/s/${SID}/changes`);
+  await screen.findByTestId("edits-view");
+  const backdrop = document.querySelector(".backdrop") as HTMLElement;
+  expect(backdrop).toHaveClass("is-open");
+  fireEvent.click(backdrop);
+  await waitFor(() => expect(screen.queryByTestId("edits-view")).toBeNull());
   await waitFor(() => expect(window.location.hash).toBe(`#/s/${SID}`));
 });
 
@@ -288,10 +300,10 @@ test("on the stacked shell the files window opens over the background tasks and 
 test("the files window opened over the edits window takes its place", async () => {
   mountAt(`#/s/${SID}`);
   fireEvent.click(await screen.findByTestId("open-edits"));
-  await screen.findByTestId("diff-viewer");
+  await screen.findByTestId("edits-view");
   fireEvent.click(screen.getByTestId("open-files"));
   await screen.findByTestId("files-view");
-  expect(screen.queryByTestId("diff-viewer")).toBeNull();
+  expect(screen.queryByTestId("edits-view")).toBeNull();
 });
 
 test("an edits address over the files window puts the files away", async () => {
@@ -300,6 +312,6 @@ test("an edits address over the files window puts the files away", async () => {
   await act(async () => {
     window.location.hash = `#/s/${SID}/changes`;
   });
-  await screen.findByTestId("diff-viewer");
+  await screen.findByTestId("edits-view");
   await waitFor(() => expect(screen.queryByTestId("files-view")).toBeNull());
 });

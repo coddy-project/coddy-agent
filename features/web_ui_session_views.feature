@@ -11,7 +11,11 @@ Feature: The views of a chat
   the composer card names the repository, the branch - its tooltip naming the
   worktree in a linked one - and, at its right edge and only while git reports
   uncommitted changes in the chat's folder, git's count of them in a light
-  frame, which opens the edits window, every diff in one document.
+  frame, which opens the edits window, every diff in one document. The edits
+  window is framed and headed the way the Files window is: the tree switch and
+  the title on the left, a menu, the expand button and the close button on the
+  right, and on the left a tree of the changed files - only those - whose rows
+  scroll the diffs to their file.
 
   Scenario: The header shows the views as buttons
     Then the header shows files and background tasks as buttons in a row
@@ -29,6 +33,13 @@ Feature: The views of a chat
     And before the chat starts the folder, branch and worktree are picks on the plate
     And the start screen opens on the folder and the worktree choice remembered in this browser
     And the start screen shows the branch the folder is on now
+
+  Scenario: The edits window is framed and headed like the Files window
+    Then the edits window is headed like the Files window
+    And the menu of the edits holds side by side, collapse all and discard all
+    And the tree of the edits lists only the changed files
+    And a file picked in the tree of the edits is scrolled to and marked
+    And a click beside the edits window puts it away
 
   Scenario: Uncommitted changes are discarded from the edits, after a question
     Then discarding a file asks first, then puts it back through the server

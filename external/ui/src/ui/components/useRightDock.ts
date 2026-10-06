@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { isUnclaimedEscape } from "../nav/railEscape";
 /** The dock beside the chat holds its background tasks. The edits and the
- * files open in windows of their own (changes/DiffViewerModal.tsx,
+ * files open in windows of their own (changes/EditsView.tsx,
  * files/FilesView.tsx). One open state, and the focus given back to whatever
  * opened it; route and Escape handlers in the shell use this same close
  * operation. */

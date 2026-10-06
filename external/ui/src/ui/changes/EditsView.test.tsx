@@ -8,7 +8,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { DiffViewerModal } from "./DiffViewerModal";
+import { EditsView } from "./EditsView";
 import type { SessionChanges } from "./types";
 import { t } from "../i18n/i18n";
 import { ConfirmProvider } from "../components/useConfirm";
@@ -95,21 +95,68 @@ async function confirmDialog(): Promise<HTMLElement> {
   return found!;
 }
 
-function open() {
+function open(onClose: () => void = () => {}) {
   return render(
     <ConfirmProvider>
-      <DiffViewerModal open sessionId="s1" onClose={() => {}} />
+      <EditsView sessionId="s1" workspacePath="/home/dev/shop" onClose={onClose} />
     </ConfirmProvider>,
   );
 }
 
+/** Opens the window's ⋮ menu and returns it. */
+function openMenu(): HTMLElement {
+  fireEvent.click(screen.getByTestId("edits-more"));
+  return screen.getByRole("menu");
+}
+
 test("lists every changed file with its counts and totals", async () => {
   open();
-  const viewer = await screen.findByTestId("diff-viewer");
+  const viewer = await screen.findByTestId("edits-view");
   await screen.findByTestId("dv-file-src/a.ts");
   expect(screen.getByTestId("dv-file-docs/b.md")).toBeTruthy();
-  expect(within(viewer).getByTestId("dv-totals")).toHaveTextContent("+5");
-  expect(within(viewer).getByTestId("dv-totals")).toHaveTextContent("−1");
+  expect(within(viewer).getByTestId("edits-totals")).toHaveTextContent("+5");
+  expect(within(viewer).getByTestId("edits-totals")).toHaveTextContent("−1");
+});
+
+// The edits window is framed and headed the way the Files window is: the same
+// sheet beside the rail, the tree switch and the title with the folder on the
+// left, the menu, the expand button and the close button on the right.
+test("is framed and headed like the Files window", async () => {
+  const onClose = vi.fn();
+  open(onClose);
+  const viewer = await screen.findByTestId("edits-view");
+  expect(viewer).toHaveClass("files-dock-cluster");
+  expect(viewer.parentElement).not.toBe(document.body);
+  const head = viewer.querySelector(".files-header") as HTMLElement;
+  expect(head).toBeTruthy();
+  expect(within(head).getByRole("heading").textContent).toBe(t("changes.viewer.title"));
+  expect(head.querySelector(".files-subtitle")?.textContent).toContain("shop");
+  const order = [...head.querySelectorAll("[data-testid]")].map((el) => el.getAttribute("data-testid"));
+  expect(order.filter((id) => id !== "edits-totals")).toEqual([
+    "edits-toggle-tree",
+    "edits-more",
+    "edits-expand",
+    "edits-close",
+  ]);
+  // No toolbar of its own: what the old one held lives in the menu.
+  expect(viewer.querySelector(".dv-toolbar")).toBeNull();
+  expect(screen.queryByTestId("dv-goto")).toBeNull();
+  fireEvent.click(screen.getByTestId("edits-expand"));
+  expect(viewer).toHaveClass("is-expanded");
+  expect(screen.getByTestId("edits-expand")).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(screen.getByTestId("edits-close"));
+  expect(onClose).toHaveBeenCalledTimes(1);
+});
+
+// The menu holds how the diffs are drawn, folding them all, and discarding.
+test("the menu holds side by side, collapse all and discard all", async () => {
+  open();
+  await screen.findByTestId("dv-file-src/a.ts");
+  const menu = openMenu();
+  const items = [...menu.querySelectorAll("[role^=menuitem]")].map((el) => el.getAttribute("data-testid"));
+  expect(items).toEqual(["edits-split", "edits-toggle-all", "edits-discard-all"]);
+  expect(within(menu).getByTestId("edits-split")).toHaveAttribute("aria-checked", "false");
+  expect(menu.querySelector(".files-menu-sep")).toBeTruthy();
 });
 
 test("warns when the per-file response truncates a patch", async () => {
@@ -134,19 +181,22 @@ test("draws the unified view by default and never writes filler line counts", as
   expect(document.body.textContent || "").not.toMatch(/unmodified/i);
 });
 
-test("the view toggle switches to the split view and back", async () => {
+test("side by side in the menu switches to the split view and back", async () => {
   open();
   await waitFor(() =>
     expect(document.body.querySelector(".dv-diff--unified")).toBeTruthy(),
   );
 
-  fireEvent.click(screen.getByTestId("dv-toggle-view"));
+  fireEvent.click(within(openMenu()).getByTestId("edits-split"));
   await waitFor(() =>
     expect(document.body.querySelector(".dv-diff--split")).toBeTruthy(),
   );
   expect(document.body.querySelector(".dv-diff--unified")).toBeNull();
+  // Picking an item puts the menu away.
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(within(openMenu()).getByTestId("edits-split")).toHaveAttribute("aria-checked", "true");
 
-  fireEvent.click(screen.getByTestId("dv-toggle-view"));
+  fireEvent.click(screen.getByTestId("edits-split"));
   await waitFor(() =>
     expect(document.body.querySelector(".dv-diff--unified")).toBeTruthy(),
   );
@@ -176,7 +226,7 @@ test("every new report of git reads the patches again, the old ones staying on s
     });
   });
   emitChangesSettled("s1");
-  await waitFor(() => expect(screen.getByTestId("dv-totals")).toHaveTextContent("+7"));
+  await waitFor(() => expect(screen.getByTestId("edits-totals")).toHaveTextContent("+7"));
   await waitFor(() => expect(details()).toHaveLength(4));
   // While the new patches are on their way the old ones are still drawn.
   expect(document.body.querySelector(".dv-code")).toBeTruthy();
@@ -189,12 +239,12 @@ test("collapse all hides every diff body and expand all brings them back", async
     expect(document.body.querySelector(".dv-file-body")).toBeTruthy(),
   );
 
-  fireEvent.click(screen.getByTestId("dv-toggle-all"));
+  fireEvent.click(within(openMenu()).getByTestId("edits-toggle-all"));
   await waitFor(() =>
     expect(document.body.querySelector(".dv-file-body")).toBeNull(),
   );
 
-  fireEvent.click(screen.getByTestId("dv-toggle-all"));
+  fireEvent.click(within(openMenu()).getByTestId("edits-toggle-all"));
   await waitFor(() =>
     expect(document.body.querySelector(".dv-file-body")).toBeTruthy(),
   );
@@ -211,37 +261,96 @@ test("a file header collapses only its own diff", async () => {
   );
 });
 
-test("go to file filters the list and scrolls to the pick", async () => {
+// The tree beside the diffs holds the changed files and nothing else: the
+// folders they sit in, each file with git's status, no other file of the
+// workspace.
+test("the tree lists only the changed files, in their folders", async () => {
   open();
   await screen.findByTestId("dv-file-src/a.ts");
-
-  fireEvent.click(screen.getByTestId("dv-goto"));
-  const menu = await screen.findByTestId("dv-goto-menu");
-  expect(within(menu).getByTestId("dv-goto-row-docs/b.md")).toBeTruthy();
-
-  fireEvent.change(screen.getByTestId("dv-goto-input"), {
-    target: { value: "b.md" },
-  });
-  await waitFor(() =>
-    expect(screen.queryByTestId("dv-goto-row-src/a.ts")).toBeNull(),
-  );
-
-  fireEvent.click(screen.getByTestId("dv-goto-row-docs/b.md"));
-  expect(scrolled).toContain("dv-file-docs/b.md");
-  // Picking a file closes the menu, so the list is out of the way of the diff.
-  expect(screen.queryByTestId("dv-goto-menu")).toBeNull();
+  const tree = screen.getByTestId("edits-tree");
+  expect(tree.closest(".files-sidebar")).toBeTruthy();
+  const rows = [...tree.querySelectorAll(".files-tree-row")].map((el) => el.textContent);
+  expect(rows).toEqual(["docs", "b.mdA", "src", "a.tsM"]);
+  expect(within(tree).getByTestId("edits-tree-file-docs/b.md").querySelector(".edits-tree-status--added")).toBeTruthy();
+  // The diffs read in the tree's order, and the file at their top is marked.
+  const sections = [...document.querySelectorAll(".dv-file")].map((el) => el.getAttribute("data-testid"));
+  expect(sections).toEqual(["dv-file-docs/b.md", "dv-file-src/a.ts"]);
+  expect(within(tree).getByTestId("edits-tree-file-docs/b.md")).toHaveClass("is-active");
+  expect(screen.getByTestId("edits-toggle-tree")).toHaveAttribute("aria-pressed", "true");
+  // A folder folds its files away.
+  fireEvent.click(within(tree).getByRole("treeitem", { name: /docs/ }));
+  expect(within(tree).queryByTestId("edits-tree-file-docs/b.md")).toBeNull();
 });
 
-test("the file tree opens on demand and scrolls to a picked file", async () => {
+test("a file picked in the tree is scrolled to and marked", async () => {
   open();
   await screen.findByTestId("dv-file-src/a.ts");
-  expect(screen.queryByTestId("dv-tree")).toBeNull();
+  const row = screen.getByTestId("edits-tree-file-src/a.ts");
+  expect(row).not.toHaveClass("is-active");
+  fireEvent.click(row);
+  await waitFor(() => expect(scrolled).toContain("dv-file-src/a.ts"));
+  expect(row).toHaveClass("is-active");
+  expect(row).toHaveAttribute("aria-selected", "true");
+});
 
-  fireEvent.click(screen.getByTestId("dv-toggle-tree"));
-  await screen.findByTestId("dv-tree");
+// The tree marks the file at the top of the diffs as the reader scrolls; a
+// file picked stays marked while it is in sight, even where the diffs cannot
+// bring it to their top (the last of a short set).
+test("the mark follows the scroll, and a file picked keeps it while in sight", async () => {
+  open();
+  await screen.findByTestId("dv-file-src/a.ts");
+  const scroller = screen.getByTestId("dv-scroll");
+  const place = (el: Element, top: number, height: number) =>
+    Object.defineProperty(el, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ top, bottom: top + height, left: 0, right: 800, width: 800, height, x: 0, y: top, toJSON() {} }),
+    });
+  place(scroller, 0, 500);
+  const first = screen.getByTestId("dv-file-docs/b.md");
+  const last = screen.getByTestId("dv-file-src/a.ts");
+  place(first, 0, 300);
+  place(last, 300, 60);
+  const row = (path: string) => screen.getByTestId(`edits-tree-file-${path}`);
 
-  fireEvent.click(screen.getByTestId("dv-tree-file-docs/b.md"));
-  expect(scrolled).toContain("dv-file-docs/b.md");
+  fireEvent.click(row("src/a.ts"));
+  fireEvent.scroll(scroller);
+  expect(row("src/a.ts")).toHaveClass("is-active");
+
+  // Out of sight, the picked file gives the mark back to the file at the top.
+  place(first, -100, 300);
+  place(last, 600, 60);
+  fireEvent.scroll(scroller);
+  await waitFor(() => expect(row("docs/b.md")).toHaveClass("is-active"));
+  place(last, 10, 60);
+  place(first, -300, 300);
+  fireEvent.scroll(scroller);
+  await waitFor(() => expect(row("src/a.ts")).toHaveClass("is-active"));
+});
+
+test("the filter narrows the tree, and the tree switch puts it away", async () => {
+  open();
+  await screen.findByTestId("dv-file-src/a.ts");
+  fireEvent.change(screen.getByTestId("edits-tree-filter"), { target: { value: "b.md" } });
+  await waitFor(() => expect(screen.queryByTestId("edits-tree-file-src/a.ts")).toBeNull());
+  expect(screen.getByTestId("edits-tree-file-docs/b.md")).toBeTruthy();
+  fireEvent.change(screen.getByTestId("edits-tree-filter"), { target: { value: "nothing" } });
+  await screen.findByText(t("changes.viewer.noMatches"));
+  fireEvent.click(screen.getByTestId("edits-toggle-tree"));
+  expect(screen.queryByTestId("edits-tree")).toBeNull();
+  expect(screen.getByTestId("edits-view").querySelector(".files-layout")).not.toHaveClass("has-tree");
+});
+
+// One Escape, one step: the menu goes first, the window with the next one.
+test("Escape puts the menu away before the window", async () => {
+  const onClose = vi.fn();
+  open(onClose);
+  await screen.findByTestId("dv-file-src/a.ts");
+  openMenu();
+  fireEvent.keyDown(document.body, { key: "Escape" });
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(onClose).not.toHaveBeenCalled();
+  fireEvent.keyDown(document.body, { key: "Escape" });
+  expect(onClose).toHaveBeenCalledTimes(1);
 });
 
 test("the header copies the file path", async () => {
@@ -276,7 +385,7 @@ test("a folder in no repository explains itself instead of showing an empty diff
   );
   open();
   await screen.findByTestId("dv-no-vcs");
-  expect(screen.queryByTestId("dv-discard-all")).toBeNull();
+  expect(within(openMenu()).queryByTestId("edits-discard-all")).toBeNull();
 });
 
 test("discarding a file asks first, then puts it back through the server", async () => {
@@ -296,13 +405,13 @@ test("discarding a file asks first, then puts it back through the server", async
 test("discarding everything asks first, and a refusal touches nothing", async () => {
   open();
   await screen.findByTestId("dv-file-src/a.ts");
-  fireEvent.click(screen.getByTestId("dv-discard-all"));
+  fireEvent.click(within(openMenu()).getByTestId("edits-discard-all"));
   let dialog = await confirmDialog();
   fireEvent.click(within(dialog).getByRole("button", { name: t("common.cancel") }));
   await waitFor(() => expect(document.body.querySelector(".confirm-dialog")).toBeNull());
   expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/changes/revert"))).toBe(false);
 
-  fireEvent.click(screen.getByTestId("dv-discard-all"));
+  fireEvent.click(within(openMenu()).getByTestId("edits-discard-all"));
   dialog = await confirmDialog();
   fireEvent.click(within(dialog).getByRole("button", { name: t("changes.discardYes") }));
   await waitFor(() => {
@@ -377,13 +486,9 @@ test("leaves an unknown file type as plain text", async () => {
 // dialog over it takes its own, and closing both at once lost the question.
 test("Escape on the discard question closes the question, not the window", async () => {
   const onClose = vi.fn();
-  render(
-    <ConfirmProvider>
-      <DiffViewerModal open sessionId="s1" onClose={onClose} />
-    </ConfirmProvider>,
-  );
+  open(onClose);
   await screen.findByTestId("dv-file-src/a.ts");
-  fireEvent.click(screen.getByTestId("dv-discard-all"));
+  fireEvent.click(within(openMenu()).getByTestId("edits-discard-all"));
   await confirmDialog();
   fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
   await waitFor(() => expect(document.body.querySelector(".confirm-dialog")).toBeNull());
@@ -425,5 +530,5 @@ test("new files git could not list can still be discarded", async () => {
   );
   open();
   await screen.findByTestId("dv-skipped");
-  expect(screen.getByTestId("dv-discard-all")).toBeTruthy();
+  expect(within(openMenu()).getByTestId("edits-discard-all")).toBeTruthy();
 });

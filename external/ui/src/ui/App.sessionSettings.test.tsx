@@ -1,6 +1,6 @@
 import React from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, expect, test, vi } from "vitest";
 import { App } from "./App";
 import { ConfirmProvider } from "./components/useConfirm";
 import { initLocale } from "./i18n/i18n";
@@ -178,12 +178,17 @@ beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
 });
 
-afterEach(async () => {
+afterEach(() => {
   cleanup();
-  // send() waits for the request only: the turn it starts ends after the test
-  // does, and its last reads (the transcript, the usage) must still meet the
-  // stub rather than the real fetch of a torn-down page.
-  await new Promise((r) => setTimeout(r, 50));
+});
+
+// send() waits for the request only: the turn it starts ends after the test
+// does, and its last reads (the transcript, the usage) must still meet the
+// stub rather than the real fetch of a torn-down page, however late they come
+// on a loaded machine. So the stub stays for the whole file (each test stubs
+// it again) and goes only once the last of them had time to land.
+afterAll(async () => {
+  await new Promise((r) => setTimeout(r, 200));
   vi.unstubAllGlobals();
 });
 

@@ -94,3 +94,16 @@ function toNode(node: Building, prefix: string): FileTreeNode {
   const path = prefix ? prefix + "/" + label : label;
   return { kind: "dir", label, path, children: finish(current, path) };
 }
+
+/** The paths in the order the tree shows them: folders first, each by name. */
+export function treeOrder(paths: string[]): string[] {
+  const out: string[] = [];
+  const walk = (nodes: FileTreeNode[]) => {
+    for (const node of nodes) {
+      if (node.kind === "file") out.push(node.path);
+      else walk(node.children);
+    }
+  };
+  walk(buildFileTree(paths));
+  return out;
+}

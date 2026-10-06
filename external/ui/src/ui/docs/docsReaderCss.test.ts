@@ -69,6 +69,13 @@ test("the reader scrolls its body, not the sheet the header sits in", () => {
 // The picture is dragged and pinched on the stage itself, so the browser must
 // not pan or zoom it first. The rule is on the stage, which lives only while
 // the viewer is open, so the page behind it keeps its own gestures.
+// The header leaves the body's scrollbar free on its right, so the scrollbar's
+// room has to be there from the first frame: a page that grows tall enough to
+// scroll after it loads moved the close button left as the reader opened.
+test("the reader keeps the scrollbar's room before the page scrolls", () => {
+  expect(rule(".docs-body")).toMatch(/scrollbar-gutter:\s*stable/);
+});
+
 test("the lightbox stage takes the touch gestures itself", () => {
   const stage = rule(".docs-lightbox-stage");
   expect(stage).toMatch(/touch-action:\s*none/);

@@ -317,10 +317,10 @@ logger:
 `);
 start(["serve", "--config", path.join(nodeHome, "config.yaml"), "--home", nodeHome, "--cwd", workspace, "-H", "127.0.0.1", "-P", String(NODE_PORT), "--auth-token", NODE_TOKEN], "node");
 start(["serve", "--config", path.join(relayHome, "config.yaml"), "--home", relayHome, "--swarm", "--http=false", "--swarm-host", "127.0.0.1", "--swarm-port", String(RELAY_PORT), "--swarm-auth-token", RELAY_TOKEN], "relay");
-if (SHOTS) {
-  start(["serve", "--config", path.join(shotsHome, "config.yaml"), "--home", shotsHome, "--cwd", shotsWorkspace, "-H", "127.0.0.1", "-P", String(SHOTS_NODE_PORT)], "shots-node");
-  await waitFor(`${SHOTS_NODE}/v1/models`, "the screenshot node");
-}
+// A plain node without a token: the screenshots are taken on it, and the
+// documentation reader is read from it on every run.
+start(["serve", "--config", path.join(shotsHome, "config.yaml"), "--home", shotsHome, "--cwd", shotsWorkspace, "-H", "127.0.0.1", "-P", String(SHOTS_NODE_PORT)], "shots-node");
+await waitFor(`${SHOTS_NODE}/v1/models`, "the screenshot node");
 await waitFor(`${NODE}/v1/models`, "the node", { Authorization: `Bearer ${NODE_TOKEN}` });
 await waitFor(`${RELAY}/swarm/info`, "the relay");
 let mounted = false;
@@ -341,8 +341,8 @@ console.log(`engine: ${ENGINE}`);
  * `from` is the origin the page is served from: the relay's own (same origin as
  * the mount) unless a test asks for another.
  */
-async function openPage({ throughRelay = true, width = 1280, height = 820, theme = "dark", from = "" } = {}) {
-  const context = await browser.newContext({
+async function openPage({ throughRelay = true, width = 1280, height = 820, theme = "dark", from = "", using = browser } = {}) {
+  const context = await using.newContext({
     viewport: { width, height },
     deviceScaleFactor: 1,
     colorScheme: theme === "light" ? "light" : "dark",
@@ -582,6 +582,18 @@ function iconSitsRight(o) {
   return o.id.startsWith("workspace-bar-") ? o.off >= -1.75 && o.off <= -0.25 : Math.abs(o.off) <= 0.75;
 }
 
+/** Where a window over the chat stands in the viewport. */
+function frameOf(page, selector) {
+  return page.evaluate((sel) => {
+    const r = document.querySelector(sel).getBoundingClientRect();
+    const round = (n) => Math.round(n * 10) / 10;
+    return { top: round(r.top), bottom: round(r.bottom), left: round(r.left), right: round(r.right), vw: window.innerWidth, vh: window.innerHeight };
+  }, selector);
+}
+
+/** The edits window's frame at 1280px, which the Files window's must match. */
+let editsFrame = null;
+
 /** No element sticks out of the viewport sideways, and the page does not scroll sideways. */
 function sideways(page) {
   return page.evaluate(() => ({
@@ -726,12 +738,54 @@ async function scenarioViews() {
 
   // Edits: their one view is a window over the chat, opened by git's count.
   await a.page.getByTestId("workspace-bar-edits").click();
-  const edits = a.page.getByTestId("diff-viewer");
+  const edits = a.page.getByTestId("edits-view");
   await edits.waitFor();
   await edits.getByTestId("dv-file-notes/release.md").waitFor({ timeout: 15000 });
   check("the count opens the edits window, with the file the turn wrote", true);
   check("no dock face for the edits, and no tab strip anywhere", (await a.page.locator('[data-testid=changes-panel], [role="tablist"], .dock-tabs').count()) === 0);
   check("the address names the edits", (await a.page.evaluate(() => location.hash)) === `#/s/${sid}/changes`);
+  // Headed like the Files window: the tree switch and the title on the left,
+  // the menu, the expand button and the close button on the right.
+  const editsHead = await edits.evaluate((el) =>
+    [...el.querySelectorAll(".files-header button[data-testid]")].map((b) => b.getAttribute("data-testid")),
+  );
+  check(
+    "the edits window is headed like the Files window",
+    editsHead.join(",") === "edits-toggle-tree,edits-more,edits-expand,edits-close",
+    editsHead.join(","),
+  );
+  // The tree beside the diffs holds the changed files and nothing else.
+  const listed = await edits.evaluate((el) => ({
+    tree: [...el.querySelectorAll("[data-testid^=edits-tree-file-]")].map((b) => b.dataset.testid.slice("edits-tree-file-".length)).sort(),
+    diffs: [...el.querySelectorAll(".dv-file[data-testid^=dv-file-]")].map((d) => d.dataset.testid.slice("dv-file-".length)).sort(),
+  }));
+  check(
+    "the tree lists the changed files and only them",
+    listed.tree.length > 0 && listed.tree.join(",") === listed.diffs.join(","),
+    JSON.stringify(listed),
+  );
+  await edits.getByTestId("edits-tree-file-notes/release.md").click();
+  check(
+    "a file picked in the tree is marked in it",
+    (await edits.getByTestId("edits-tree-file-notes/release.md").getAttribute("aria-selected")) === "true",
+  );
+  await edits.getByTestId("edits-more").click();
+  const editsMenu = await edits.locator("[role=menu] [data-testid]").evaluateAll((items) => items.map((i) => i.getAttribute("data-testid")));
+  check("the menu holds side by side, collapse all and discard all", editsMenu.join(",") === "edits-split,edits-toggle-all,edits-discard-all", editsMenu.join(","));
+  await a.page.keyboard.press("Escape");
+  check("Escape puts the menu away first", (await edits.locator("[role=menu]").count()) === 0 && (await edits.count()) === 1);
+  // The same frame as the Files window: as far from the top and the bottom of
+  // the window as the documentation and the files are.
+  editsFrame = await frameOf(a.page, "[data-testid=edits-view]");
+  check(
+    "the edits window keeps the 14px the other windows keep from the top and the bottom",
+    Math.abs(editsFrame.top - 14) <= 1 && Math.abs(editsFrame.vh - editsFrame.bottom - 14) <= 1,
+    JSON.stringify(editsFrame),
+  );
+  await edits.getByTestId("edits-expand").click();
+  const expanded = await frameOf(a.page, "[data-testid=edits-view]");
+  check("expanded, the edits window takes the whole width", Math.abs(expanded.left - 14) <= 1 && Math.abs(expanded.vw - expanded.right - 14) <= 1, JSON.stringify(expanded));
+  await edits.getByTestId("edits-expand").click();
   await a.page.keyboard.press("Escape");
   await until("the edits put away", async () => (await edits.count()) === 0);
   check("Escape puts the edits away and gives the address back to the chat", (await a.page.evaluate(() => location.hash)) === `#/s/${sid}`);
@@ -777,6 +831,12 @@ async function scenarioViews() {
   const geo = await sideways(a.page);
   const railRight = await a.page.evaluate(() => Math.round(document.querySelector(".rail-pill")?.getBoundingClientRect().right || 0));
   check("the window sits right of the rail and inside the viewport", geo.window && geo.window.left > railRight && geo.window.right <= geo.inner.w && geo.window.bottom <= geo.inner.h, JSON.stringify({ ...geo, railRight }));
+  const filesFrame = await frameOf(a.page, "[data-testid=files-view]");
+  check(
+    "the edits window and the Files window stand in one frame",
+    !!editsFrame && ["top", "bottom", "left", "right"].every((k) => Math.abs(filesFrame[k] - editsFrame[k]) <= 1),
+    JSON.stringify({ files: filesFrame, edits: editsFrame }),
+  );
   await shoot(a.page, "files-window-empty-relay-dark-1280");
 
   // The filter searches the whole workspace: a file three folders down.
@@ -893,7 +953,7 @@ async function scenarioDiscard(sid) {
   const d = await openPage();
   await d.page.goto(`${RELAY}/#/s/${sid}`);
   await d.page.getByTestId("workspace-bar-edits").click();
-  const edits = d.page.getByTestId("diff-viewer");
+  const edits = d.page.getByTestId("edits-view");
   await edits.getByTestId("dv-file-notes/release.md").waitFor({ timeout: 15000 });
   check("the count on the plate opens the edits", (await d.page.evaluate(() => location.hash)) === `#/s/${sid}/changes`);
   await edits.getByTestId("dv-file-notes/release.md").hover();
@@ -1004,10 +1064,17 @@ async function scenarioPhone(sid) {
     JSON.stringify({ height: phonePlate?.countHeight, hitAbove: phonePlate?.hitAbove }),
   );
   await p.page.getByTestId("workspace-bar-edits").click();
-  const edits = p.page.getByTestId("diff-viewer");
+  const edits = p.page.getByTestId("edits-view");
   await edits.getByTestId("dv-file-notes/release.md").waitFor({ timeout: 15000 });
+  check("on a phone the edits window opens on the diffs, the tree put away", (await edits.getByTestId("edits-tree").count()) === 0);
+  await edits.getByTestId("edits-toggle-tree").click();
+  await edits.getByTestId("edits-tree-file-notes/release.md").click();
+  check(
+    "on a phone a file picked in the tree gives the screen back to the diffs",
+    (await edits.getByTestId("edits-tree").count()) === 0 && (await edits.getByTestId("dv-file-notes/release.md").isVisible()),
+  );
   const fits = await p.page.evaluate(() => {
-    const r = document.querySelector("[data-testid=diff-viewer]").getBoundingClientRect();
+    const r = document.querySelector("[data-testid=edits-view]").getBoundingClientRect();
     return { scroll: document.documentElement.scrollWidth - window.innerWidth, left: r.left, right: r.right, vw: window.innerWidth };
   });
   check("on a phone the edits window fits the screen", fits.scroll <= 0 && fits.left >= 0 && fits.right <= fits.vw, JSON.stringify(fits));
@@ -1156,7 +1223,7 @@ async function scenarioShots() {
   });
   await both("session-changes-review-window", async () => {
     await d.page.getByTestId("workspace-bar-edits").click();
-    await d.page.getByTestId("diff-viewer").locator(".dv-file-body").first().waitFor({ timeout: 15000 });
+    await d.page.getByTestId("edits-view").locator(".dv-file-body").first().waitFor({ timeout: 15000 });
     await d.page.mouse.move(5, 5);
   });
   await both("background-tasks-dock", async () => {
@@ -1228,7 +1295,57 @@ async function scenarioShots() {
   await l.context.close();
 }
 
+/**
+ * The documentation reader's close button stays where it first stood: the
+ * header leaves the body's scrollbar free on its right, and a page that grows
+ * tall enough to scroll after it loads used to move the button left as the
+ * reader opened. Read every frame, from a cold load and from the rail.
+ */
+async function scenarioDocsClose() {
+  // Headless Chromium hides scrollbars (Playwright passes --hide-scrollbars),
+  // and a hidden scrollbar takes no room: the reader runs in one that shows
+  // them, as a desktop browser does.
+  const own =
+    ENGINE === "chromium"
+      ? await playwright.chromium.launch({
+          ...(BROWSER_PATH ? { executablePath: BROWSER_PATH } : {}),
+          ignoreDefaultArgs: ["--hide-scrollbars"],
+        })
+      : null;
+  const r = await openPage({ throughRelay: false, using: own || browser });
+  await r.context.addInitScript(() => {
+    window.__closeAt = [];
+    const tick = () => {
+      const el = document.querySelector("[data-testid=docs-close]");
+      if (el) window.__closeAt.push(Math.round(el.getBoundingClientRect().right * 10) / 10);
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+  const settle = async () => {
+    await r.page.getByTestId("docs-article").locator("h1").first().waitFor({ timeout: 15000 });
+    await r.page.waitForTimeout(800);
+    return r.page.evaluate(() => [...new Set(window.__closeAt)]);
+  };
+  await r.page.goto(`${SHOTS_NODE}/#/docs/getting-started/quickstart`);
+  const cold = await settle();
+  const gutter = await r.page.evaluate(() =>
+    document.querySelector("[data-testid=docs-view]").style.getPropertyValue("--docs-scrollbar"),
+  );
+  if (own) check("the reader's body shows a scrollbar that takes room", parseFloat(gutter) > 0, gutter);
+  check("the reader's close button does not move as a page loads", cold.length === 1, JSON.stringify(cold));
+  await r.page.goto(`${SHOTS_NODE}/?again=1`);
+  await composer(r.page).waitFor();
+  await r.page.evaluate(() => (window.__closeAt = []));
+  await r.page.getByTestId("nav-docs").click();
+  const warm = await settle();
+  check("nor as the reader opens from the rail", warm.length === 1, JSON.stringify(warm));
+  await r.context.close();
+  await own?.close();
+}
+
 try {
+  await scenarioDocsClose();
   const sid = await scenarioViews();
   await scenarioPhone(sid);
   await scenarioCrossOrigin(sid);

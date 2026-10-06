@@ -13442,6 +13442,10 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+  /* The scrollbar's room is kept from the first frame, so the header's right
+     edge (and the close button on it) does not move when a page grows tall
+     enough to scroll. */
+  scrollbar-gutter: stable;
   overscroll-behavior: contain;
   container-type: size;
   padding: 0 var(--docs-inline);
@@ -16488,75 +16492,49 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 }
 
 /* ---------------------------------------------------------------------------
-   Edits window (.dv-*) - every changed file diff in one scrollable document.
+   Edits window (EditsView.tsx) - every changed file's diff in one scrollable
+   document, in the frame, head and tree of the Files window (.files-*). What
+   is its own: the totals under the title, git's letter beside a file of the
+   tree, and the diffs (.dv-*).
    Chromium 104 baseline: no :has(), no @container, marker classes instead.
    --------------------------------------------------------------------------- */
 
-.dv-backdrop {
-  position: fixed;
-  inset: 0;
-  /* The modal layer (as .workspace-modal-backdrop uses), not the drawer layer:
-     the nav rail sits at 80 and would otherwise cover the toolbar, which on a
-     narrow shell is the whole top of the window. */
-  z-index: 120;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  box-sizing: border-box;
-  background: rgba(0, 0, 0, 0.42);
+/* The folder, then git's count of the edits, on the subtitle line. */
+.edits-folder {
+  margin-right: 8px;
 }
 
-.dv-window {
-  display: flex;
-  flex-direction: column;
-  width: min(1400px, 100%);
-  height: 100%;
-  min-height: 0;
-  box-sizing: border-box;
-  border-radius: var(--coddy-glass-panel-radius);
-  border: 1px solid var(--coddy-glass-panel-border);
-  background: var(--coddy-glass-panel-bg);
-  backdrop-filter: var(--coddy-glass-panel-backdrop);
-  box-shadow: var(--coddy-glass-panel-shadow);
-  overflow: hidden;
-}
-
-.dv-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: 0 0 auto;
-  padding: 8px 10px 8px 14px;
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
-}
-
-.dv-toolbar-spacer {
-  flex: 1 1 auto;
-}
-
-.dv-title {
-  flex: 0 0 auto;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.dv-totals {
+.edits-totals {
   display: inline-flex;
-  gap: 8px;
-  flex: 0 0 auto;
-  font-size: 12px;
+  gap: 6px;
   font-variant-numeric: tabular-nums;
 }
 
-.dv-tools {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  flex: 0 0 auto;
+/* Git's short status at the right end of a file's row: A, M or D. */
+.edits-tree-status {
+  flex: none;
+  margin-left: auto;
+  padding-left: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
 }
 
+.edits-tree-status--added {
+  color: var(--diff-add-no);
+}
+
+.edits-tree-status--deleted {
+  color: var(--diff-del-no);
+}
+
+/* A menu item that destroys work reads in the colour of a deletion. */
+.files-menu-item--danger:not(:disabled) {
+  color: var(--diff-del-no);
+}
+
+/* Icon buttons of a file's head in the diffs. */
 .dv-icon-btn {
   display: inline-flex;
   align-items: center;
@@ -16587,165 +16565,21 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   cursor: default;
 }
 
-/* A pressed toggle of the edits window brightens like every view toggle. */
-.dv-icon-btn.is-active {
-  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
-  border-color: color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
-  color: var(--text);
-}
-
-/* Go-to-file ---------------------------------------------------------------- */
-
-.dv-goto-host {
-  position: relative;
-  display: inline-flex;
-}
-
-.dv-goto-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 2;
-  width: min(360px, 74vw);
-  display: flex;
-  flex-direction: column;
-  padding: 6px;
-  box-sizing: border-box;
-  border-radius: 10px;
-  border: 1px solid var(--coddy-glass-panel-border);
-  background: var(--coddy-glass-panel-bg);
-  backdrop-filter: var(--coddy-glass-panel-backdrop);
-  box-shadow: var(--coddy-glass-panel-shadow);
-}
-
-.dv-goto-input {
-  width: 100%;
-  padding: 6px 8px;
-  box-sizing: border-box;
-  font: inherit;
-  font-size: 12.5px;
-  color: var(--text);
-  background: transparent;
-  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
-  border-radius: 8px;
-}
-
-.dv-goto-rows {
-  display: flex;
-  flex-direction: column;
-  max-height: min(320px, 46vh);
-  margin-top: 6px;
-  overflow-y: auto;
-}
-
-.dv-goto-row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 5px 8px;
-  text-align: left;
-  background: transparent;
-  border: 0;
-  border-radius: 7px;
-  cursor: pointer;
-  color: var(--text);
-}
-
-.dv-goto-row:hover {
-  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
-}
-
-.dv-goto-name {
-  font-size: 12.5px;
-  white-space: nowrap;
-}
-
-.dv-goto-dir {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: 11px;
-  color: color-mix(in srgb, var(--text) 46%, var(--coddy-blend-base));
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  direction: rtl;
-  text-align: left;
-}
-
-/* Body: optional tree beside the scrolling diff document -------------------- */
-
-.dv-body {
-  display: flex;
-  flex: 1 1 auto;
-  min-height: 0;
-}
-
-.dv-tree {
-  display: flex;
-  flex-direction: column;
-  flex: 0 0 auto;
-  width: 250px;
-  min-height: 0;
-  padding: 8px;
-  box-sizing: border-box;
-  border-right: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
-}
-
-.dv-tree-filter {
-  width: 100%;
-  padding: 5px 8px;
-  box-sizing: border-box;
-  font: inherit;
-  font-size: 12px;
-  color: var(--text);
-  background: transparent;
-  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
-  border-radius: 8px;
-}
-
-.dv-tree-rows {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 auto;
-  min-height: 0;
-  margin-top: 8px;
-  overflow-y: auto;
-}
-
-.dv-tree-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 6px;
-  text-align: left;
-  font-size: 12.5px;
-  color: var(--text);
-  background: transparent;
-  border: 0;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.dv-tree-row:hover {
-  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
-}
-
-.dv-tree-row--dir {
-  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
-}
-
-.dv-tree-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .dv-scroll {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
   padding: 12px 14px 20px;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
+}
+
+/* It takes the focus as the window opens, for the keys that scroll it; the
+   frame around the window already says where the focus is. */
+.dv-scroll:focus {
+  outline: none;
 }
 
 /* Notices ------------------------------------------------------------------- */
@@ -16987,42 +16821,6 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 
 .dv-side--del .dv-num {
   color: var(--diff-del-no);
-}
-
-/* Narrow shells ------------------------------------------------------------- */
-
-@media (max-width: 1199px) {
-  .dv-backdrop {
-    padding: 0;
-  }
-
-  /* Full-bleed, so the glass tint has nothing behind it but the app itself:
-     the chat would read straight through the diff. Opaque here instead. */
-  .dv-window {
-    width: 100%;
-    border-radius: 0;
-    border: 0;
-    background: var(--bg);
-    backdrop-filter: none;
-  }
-
-  /* The tree would leave no room for a diff, so it floats over it instead -
-     over, not through: a translucent panel here shows the diff underneath. */
-  .dv-body--tree .dv-tree {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    z-index: 3;
-    width: min(280px, 82vw);
-    background: var(--bg);
-    border-right: 1px solid color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
-    box-shadow: var(--coddy-glass-panel-shadow);
-  }
-
-  .dv-body {
-    position: relative;
-  }
 }
 
 

@@ -1140,25 +1140,37 @@ look with an invisible 40px hit area laid over it.
 
 ### The edits window
 
-The edits have one view: a window over the chat (`.dv-window`, `DiffViewerModal.tsx`)
-holding every diff of the folder's uncommitted changes in one scrollable document.
-Git's count on the plate over the composer opens it, and Escape or the close button
-puts it away. Its address is
-`#/s/<id>/changes`, so a reload opens it again. There is no dock face for the edits:
-the dock beside the chat holds the background tasks, and stays as it was under the
-window. Its toolbar carries the totals, **Discard all**, collapse/expand all, go to
-file, the unified/split toggle, and the file tree. A file section has a sticky header
-with copy-path, discard and collapse, revealed on hover and always in sight on a touch
-screen. Between hunks sits a wordless separator rather than an `N unmodified lines`
-filler row. In a folder with nothing to show it says so: clean, or not in a git
-repository.
+The edits have one view: a window over the chat (`EditsView.tsx`) holding every diff
+of the folder's uncommitted changes in one scrollable document. It is framed and
+headed the way the [Files window](#workspace-files) is, in the same place and at
+the same distance from the edges of the browser window: on the left of its head the
+tree switch and the title **Edits** over the folder's name and git's `+A −D`, on the
+right the **⋮** menu, the expand button and the close button. The menu holds **Side by
+side** (the split view, not offered on a phone or a tablet, where every diff reads
+inline), **Collapse all** / **Expand all** and **Discard all**. Git's count on the plate
+over the composer opens the window; Escape, the close button or a click beside it puts
+it away. Its address is `#/s/<id>/changes`, so a reload opens it again. There is no dock
+face for the edits: the dock beside the chat holds the background tasks, and stays as
+it was under the window.
 
-![The edits window: the totals and Discard all in the toolbar, one section per changed file](../assets/session-changes-review-window-dark-1280.png)
+On the left the tree lists the changed files and only them, git's uncommitted changes
+in the folders they sit in, each with git's letter at the end of its row (**A** added,
+**M** modified, **D** deleted). The diffs follow in the same order. Its filter narrows the list by path; a
+file picked there scrolls the diffs to it, and as you scroll the tree marks the file
+at the top. On a
+phone the window opens on the diffs and the tree switch brings the list over them.
 
-*The edits window over the folder's uncommitted changes: every diff in one scrollable document*
+A file section has a sticky header with copy-path, discard and collapse, revealed on
+hover and always in sight on a touch screen. Between hunks sits a wordless separator
+rather than an `N unmodified lines` filler row. In a folder with nothing to show it says
+so: clean, or not in a git repository.
 
-**Discard** in a file's header puts that file back at `HEAD`, and **Discard all** every
-change. Each asks first in the shared confirmation dialog, which says whether the file
+![The edits window: the changed files in the tree on the left, one section per changed file on the right](../assets/session-changes-review-window-dark-1280.png)
+
+*The edits window over the folder's uncommitted changes: the tree of the changed files beside every diff in one scrollable document*
+
+**Discard** in a file's header puts that file back at `HEAD`, and **Discard all** in the
+menu every change. Each asks first in the shared confirmation dialog, which says whether the file
 goes back to its last committed content or, new since that commit, is deleted; Escape
 there answers the question and leaves the window open. Then the page posts
 `.../changes/revert` with `{"paths":[...]}` or `{"all":true}`: a tracked file gets its
@@ -1188,7 +1200,7 @@ Automated checks:
 - **external/ui/src/ui/changes/sessionChangesText.test.ts** (path splitting) and **plurals.test.ts** (file counts by locale)
 - **external/ui/src/ui/changes/diffRows.test.ts** (unified and split row building, uneven runs, hunk gaps)
 - **external/ui/src/ui/changes/fileTree.test.ts** (directory grouping and single-child chain collapsing)
-- **external/ui/src/ui/changes/DiffViewerModal.test.tsx** (view toggle, collapse all, go to file, tree, copy path, the skipped banner, the no-git notice, colouring on and off, a re-read only of the files that moved, discarding a file and everything after a question)
+- **external/ui/src/ui/changes/EditsView.test.tsx** (the frame and head of the Files window, the menu: side by side, collapse all, discard all; the tree of the changed files only, its filter, a pick scrolled to and marked; copy path, the skipped banner, the no-git notice, colouring on and off, a re-read only of the files that moved, discarding a file and everything after a question)
 - **external/ui/src/ui/changes/diffLanguage.test.ts** + **highlightLine.test.ts** (grammar choice, and that colouring reproduces the line exactly)
 - **internal/linediff** (unified diff and line stats; Myers' O(ND) algorithm in linear space, so a scattered edit in a large file stays a scattered edit - the old LCS table had to be abandoned above a size cap and reported such a file as a whole rewrite. The search is bounded by `snakeBudget`, which only a pair that is both enormous and almost entirely different can exhaust; that pair falls back to a wholesale replacement)
 - **internal/gitws** (`changes_test.go`, `backend_test.go`: every scenario with the git binary and again with it hidden from PATH - working-copy statuses, untracked files and the read caps, .gitignore, whitespace-preserving blob reads, a nested repository, discarding a file, a subfolder or everything, and paths outside the change set refused before anything is touched; renames with the binary only)

@@ -24,7 +24,6 @@ test.each([
   ".files-icon-btn.is-active",
   ".files-tree-row.is-active",
   ".files-code > .is-active",
-  ".dv-icon-btn.is-active",
 ])("%s brightens from the text colour, not the accent", (selector) => {
   const body = ruleBody(selector);
   expect(body).not.toContain("var(--accent)");
@@ -32,10 +31,9 @@ test.each([
 });
 
 test("a pressed toggle and the active row of the tree carry a light outline too", () => {
+  // The edits window is headed with the Files window's controls, not toggles of its own.
+  expect(css).not.toContain(".dv-icon-btn.is-active");
   expect(ruleBody(".files-icon-btn.is-active")).toMatch(
-    /border-color: color-mix\(in srgb, var\(--text\)/,
-  );
-  expect(ruleBody(".dv-icon-btn.is-active")).toMatch(
     /border-color: color-mix\(in srgb, var\(--text\)/,
   );
   expect(ruleBody(".files-tree-row.is-active")).toMatch(

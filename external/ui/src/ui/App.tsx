@@ -279,7 +279,7 @@ import {
   BackgroundTasksPanel,
   type TaskFocus,
 } from "./tasks/BackgroundTasksPanel";
-import { DiffViewerModal } from "./changes/DiffViewerModal";
+import { EditsView } from "./changes/EditsView";
 import { emitChangesSettled } from "./changes/sessionChangesBus";
 import {
   clearFinishedBackgroundTasks,
@@ -1212,8 +1212,8 @@ export function App() {
   const [fileLine, setFileLine] = useState(
     initialRoute.branch === "session" ? initialRoute.fileLine || 1 : 1,
   );
-  // The edits window (DiffViewerModal) is the one view of the edits: a modal
-  // rather than a drawer, because two diff columns need the whole width.
+  // The edits window (EditsView) is the one view of the edits, a window over
+  // the chat framed like the Files window.
   const [changesViewerOpen, setChangesViewerOpen] = useState(
     initialRoute.branch === "session" && initialRoute.editsOpen === true,
   );
@@ -2152,8 +2152,10 @@ export function App() {
 
   const applyLocationHash = useCallback(() => {
     const p = parseAppHash();
-    // The Files window has an address of its own; any other one puts it away.
+    // The Files and the edits windows have addresses of their own; any other
+    // one puts them away.
     if (!(p.branch === "session" && p.filesOpen)) setFilesOpen(false);
+    if (!(p.branch === "session" && p.editsOpen)) setChangesViewerOpen(false);
     if (p.branch === "docs") {
       setDocsRoute({ slug: p.slug, anchor: p.anchor });
       if (p.slug) {
@@ -2347,6 +2349,7 @@ export function App() {
   const closeAllShellDrawers = useCallback(() => {
     setSessionsOpen(false);
     setFilesOpen(false);
+    setChangesViewerOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     // On desktop Tasks is the side panel of the chat on screen, not a screen of
@@ -5803,7 +5806,7 @@ export function App() {
       setSettingsRoute(false);
       setDocsRoute(null);
       setSwarmRoute(false);
-      // The edits window is a modal over everything; the files take its place.
+      // One window over the chat at a time: the files take the edits' place.
       setChangesViewerOpen(false);
       setFilePath(path || "");
       setFileLine(line || 1);
@@ -6232,20 +6235,20 @@ export function App() {
   // open state, which every Escape path and stacked-shell rule speaks.
   const dockOpen = tasksPanelOpen;
 
+  // A window over the chat - the files or the edits - is one more layer the
+  // shell's backdrop covers the chat under.
+  const chatWindowOpen = (filesOpen || changesViewerOpen) && !!sessionId.trim();
   const shellBackdropOpen =
-    (filesOpen && !!sessionId.trim()) ||
+    chatWindowOpen ||
     sessionsOpen ||
     (schedulerOpen && schedulerHttpLinked === true) ||
     settingsRoute ||
     swarmRoute ||
     docsRoute !== null;
 
-  // The Files window over the dock takes Escape itself (FilesView), and the
+  // A window over the dock (FilesView, EditsView) takes Escape itself, and the
   // backdrop covers it, so the dock waits for the next one.
-  useRightDockEscape(
-    dockOpen && !shellBackdropOpen && !changesViewerOpen,
-    closeTasksDrawer,
-  );
+  useRightDockEscape(dockOpen && !shellBackdropOpen, closeTasksDrawer);
 
   const filteredSchedulerJobs = useMemo(() => {
     const q = schedulerFilterQ.trim().toLowerCase();
@@ -6745,10 +6748,11 @@ export function App() {
           className={`backdrop ${shellBackdropOpen ? "is-open" : ""}`}
           onClick={() => {
             if (!shellBackdropOpen) return;
-            // Over the chat the Files window is all the backdrop covers: closing
-            // it gives the address back to what the dock under it shows.
-            if (filesOpen && sessionId.trim()) {
-              closeFilesWindow();
+            // Over the chat a window is all the backdrop covers: closing it
+            // gives the address back to what the dock under it shows.
+            if (chatWindowOpen) {
+              if (filesOpen) closeFilesWindow();
+              else closeEditsWindow();
               setSessionsOpen(false);
               setSchedulerOpen(false);
               setSchedulerEditor(null);
@@ -6918,14 +6922,6 @@ export function App() {
             />
           </div>
         ) : null}
-        {changesViewerOpen && sessionId.trim() ? (
-          <DiffViewerModal
-            key={`edits:${sessionId}`}
-            open
-            sessionId={sessionId}
-            onClose={closeEditsWindow}
-          />
-        ) : null}
         {dockOpen ? (
             <BackgroundTasksPanel
               open
@@ -6951,6 +6947,14 @@ export function App() {
 
         {/* After the dock, so on the stacked shell, where both are sheets over
             the chat, the window is the one on top. */}
+        {changesViewerOpen && sessionId.trim() ? (
+          <EditsView
+            key={`edits:${sessionId}`}
+            sessionId={sessionId}
+            workspacePath={workspaceCtx?.path || ""}
+            onClose={closeEditsWindow}
+          />
+        ) : null}
         {filesOpen && sessionId.trim() ? (
           <FilesView
             key={`${sessionId}:${workspaceCtx?.path || ""}`}

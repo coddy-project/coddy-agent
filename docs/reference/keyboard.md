@@ -110,7 +110,7 @@ The composer is a plain `textarea`; keys not listed here keep their browser mean
 | Escape / Tab | confirmation dialog | cancel / keep the focus inside the dialog |
 | Ctrl+Shift+F / Cmd+Shift+F | an open chat, composer included | open the Files window, or close it ([Web UI](../surfaces/web-ui.md#workspace-files)) |
 | Escape | Files window | clear the filter when it has text, else close the window; the dock under it stays for the next Escape |
-| Escape | edits window | close the window; with the discard question open, answer that instead and leave the window ([Web UI](../surfaces/web-ui.md#the-edits-window)) |
+| Escape | edits window | put the ⋮ menu away when it is open, clear the tree's filter when it has text, else close the window; with the discard question open, answer that instead and leave the window ([Web UI](../surfaces/web-ui.md#the-edits-window)) |
 | F1 | anywhere | open the documentation reader, or close it ([Built-in documentation](../features/built-in-docs.md#the-web-ui-reader)) |
 | / | documentation reader, outside a field | put the cursor in its search box |
 | ArrowUp / ArrowDown, Enter, Escape | documentation search box | move the selected hit, open it at its section, clear the search; in an empty box Escape closes the reader |
