@@ -28,6 +28,7 @@ import {
   subscribeShellStack,
 } from "../shellBreakpoint";
 import { useActiveEnvHealth } from "../env/activeHealth";
+import { isLoopbackOrigin } from "../env/loopbackOrigin";
 import { rememberRelayHome } from "../env/pageMemory";
 import { useEscapeCloses } from "../components/useEscapeCloses";
 
@@ -182,8 +183,17 @@ export function EnvironmentChip() {
         return probe.relay
           ? t("composer.env.hint.relayToken")
           : t("composer.env.hint.agentToken");
-      case "cors":
-        return t("composer.env.hint.cors", { origin: window.location.origin });
+      case "cors": {
+        // A page on a loopback address - a laptop's own coddy serve - is also
+        // admitted by cors.allow_loopback, on any port, so that is named too.
+        const origin = window.location.origin;
+        return t(
+          isLoopbackOrigin(origin)
+            ? "composer.env.hint.corsLoopback"
+            : "composer.env.hint.cors",
+          { origin },
+        );
+      }
       case "down":
         return t("composer.env.hint.down");
       default:

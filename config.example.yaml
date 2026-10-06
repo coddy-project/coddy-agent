@@ -468,9 +468,13 @@ tools:
 #   public_docs: false      # when auth is on, keep /docs and /openapi.* reachable without a token
 #   allow_insecure: false   # silence the "reachable without auth" warning on a non-loopback bind
 #   # CORS lets a browser UI on another origin call this API (needed when the UI points here as a
-#   # remote). Bearer auth still applies. allowed_origins accepts exact origins or a single "*".
+#   # remote). Bearer auth still applies. allowed_origins accepts exact origins or a single "*";
+#   # allow_loopback admits every page served from the browser's own machine (localhost,
+#   # *.localhost, 127.0.0.0/8, [::1]) on any port - a laptop's own coddy serve, whatever its
+#   # port. Neither "*" nor allow_loopback is safe without a token or the sign-in form.
 #   cors:
 #     enable: false
+#     allow_loopback: false
 #     allowed_origins: ["http://localhost:12345"]
 #   # Remote coddy serve servers and swarm relays offered in the UI environment selector and
 #   # resolved by `coddy --remote <name>`. An entry may carry the token to present (usually a
@@ -621,7 +625,8 @@ logger:
 #     - "${CODDY_SWARM_PAIRING_TOKEN}"
 #   cors:
 #     enable: true
-#     allowed_origins: ["http://localhost:5173"]
+#     allow_loopback: true    # a laptop's web UI on any loopback port
+#     allowed_origins: ["https://ui.example"]
 #   tls:
 #     cert_file: "/etc/coddy/relay.crt"
 #     key_file: "/etc/coddy/relay.key"

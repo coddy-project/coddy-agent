@@ -106,9 +106,10 @@ func swarmUISchema() map[string]interface{} {
 			"cors": objectSchema("CORS", "Pages served from another origin, such as a laptop's coddy serve, that may call this relay from the browser.",
 				map[string]interface{}{
 					"enable":          boolProp("Enable CORS", "Answer cross-origin requests from the origins below."),
+					"allow_loopback":  boolProp("Allow loopback origins", "Also admit any page from the browser's own machine - localhost, *.localhost, 127.0.0.0/8 or [::1] on any port - such as a laptop's coddy serve, whatever port it took. The client token still applies."),
 					"allowed_origins": stringListProp("Allowed origins", "Exact origins, for example http://localhost:12345, or * for any."),
 				},
-				[]string{"enable", "allowed_origins"},
+				[]string{"enable", "allow_loopback", "allowed_origins"},
 				nil),
 			"tls": objectSchema("TLS", "Certificate and key the relay serves HTTPS with. Both or neither.",
 				map[string]interface{}{

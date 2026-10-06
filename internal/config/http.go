@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -142,10 +144,21 @@ func (l *HTTPLoginConfig) SessionTTL() time.Duration {
 	return time.Duration(l.SessionTTLHours) * time.Hour
 }
 
-// HTTPCORSConfig is the optional cross-origin policy for the HTTP gateway.
+// HTTPCORSConfig is the optional cross-origin policy for the HTTP gateway and,
+// as swarm.cors, for the relay. CORS decides whether a browser shows a page the
+// answer; the token or the sign-in form decides whether the server gives one,
+// so none of these settings is a credential.
 type HTTPCORSConfig struct {
 	// Enabled turns on CORS handling (preflight + Access-Control-* headers).
 	Enabled bool `yaml:"enable"`
+	// AllowLoopback also admits every page served from the browser's own
+	// machine: an http or https origin whose host is localhost, a *.localhost
+	// name, 127.0.0.0/8 or [::1], on any port. It is the laptop case of a
+	// remote coddy serve - the web UI comes from the laptop's own coddy serve,
+	// and its port moves between installations - where AllowedOrigins would
+	// need the exact string of each. Narrower than "*", and like "*" only as
+	// safe as the credential behind the API.
+	AllowLoopback bool `yaml:"allow_loopback"`
 	// AllowedOrigins are exact origins permitted to call the API (e.g. "http://localhost:5173").
 	// A single "*" allows any origin (bearer auth still applies).
 	AllowedOrigins []string `yaml:"allowed_origins"`
@@ -171,7 +184,9 @@ func (h *HTTPServerConfig) CORSAllowOrigin(origin string) (string, bool) {
 }
 
 // AllowOrigin answers the same question for any surface holding this policy,
-// which the swarm relay needs because it carries its own CORS settings.
+// which the swarm relay needs because it carries its own CORS settings. The
+// list is consulted first, so "*" keeps winning; a loopback origin admitted by
+// AllowLoopback is echoed, never widened to "*".
 func (c HTTPCORSConfig) AllowOrigin(origin string) (string, bool) {
 	if !c.Enabled || strings.TrimSpace(origin) == "" {
 		return "", false
@@ -185,7 +200,60 @@ func (c HTTPCORSConfig) AllowOrigin(origin string) (string, bool) {
 			return origin, true
 		}
 	}
+	if c.AllowLoopback && isLoopbackOrigin(origin) {
+		return origin, true
+	}
 	return "", false
+}
+
+// OpenToUnlistedOrigins reports whether the policy admits pages nobody named:
+// "*" in the list, or AllowLoopback. Either is only as safe as the credential
+// behind the API, which is what the startup warning and the dry run say when
+// there is none.
+func (c HTTPCORSConfig) OpenToUnlistedOrigins() bool {
+	if !c.Enabled {
+		return false
+	}
+	if c.AllowLoopback {
+		return true
+	}
+	for _, o := range c.AllowedOrigins {
+		if strings.TrimSpace(o) == "*" {
+			return true
+		}
+	}
+	return false
+}
+
+// isLoopbackOrigin reports whether origin is a serialized http or https origin
+// - scheme, host, optional port and nothing else - whose host is loopback. The
+// test is syntactic: no DNS, so a name that resolves to loopback on the
+// browser's machine but is not spelled as loopback is refused, and so is a URL
+// with a path, a query, a fragment or user information, which a browser never
+// sends as Origin and which must not be echoed into Access-Control-Allow-Origin.
+func isLoopbackOrigin(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil || u.Opaque != "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return false
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return false
+	}
+	host := u.Host
+	if h, port, err := net.SplitHostPort(host); err == nil {
+		if _, err := strconv.ParseUint(port, 10, 16); err != nil {
+			return false
+		}
+		host = h
+	} else {
+		host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
+	}
+	if host == "" {
+		return false
+	}
+	// RFC 6761 reserves *.localhost for loopback and browsers resolve it so
+	// without a hosts entry, which is what makes it a usable alias scheme.
+	return isLoopbackHostname(host) || strings.HasSuffix(strings.ToLower(host), ".localhost")
 }
 
 // EffectiveAuthTokens returns the configured token as a slice (empty when unset), so callers can

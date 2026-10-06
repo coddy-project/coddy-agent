@@ -244,6 +244,10 @@ describe("EnvironmentChip with a relay as a remote (issue #401)", () => {
     const hint = await within(menu).findByText(/swarm\.cors/);
     expect(hint.textContent).toContain(window.location.origin);
     expect(hint.textContent).toContain("httpserver.cors");
+    // jsdom serves the page from http://localhost:3000 - the laptop case - so
+    // the line also names the toggle that admits this page on any port.
+    expect(window.location.origin).toMatch(/^http:\/\/localhost/);
+    expect(hint.textContent).toContain("allow_loopback");
   });
 
   it("uses the token the configuration carries for the remote", async () => {

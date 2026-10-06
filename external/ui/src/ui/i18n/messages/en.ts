@@ -139,6 +139,9 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.swarm.cors.enable.label": "Enable CORS",
   "settings.schema.swarm.cors.enable.desc":
     "Answer cross-origin requests from the origins below.",
+  "settings.schema.swarm.cors.allow_loopback.label": "Allow loopback origins",
+  "settings.schema.swarm.cors.allow_loopback.desc":
+    "Also admit any page from the browser's own machine - localhost, *.localhost, 127.0.0.0/8 or [::1] on any port - such as a laptop's coddy serve, whatever port it took. The client token still applies.",
   "settings.schema.swarm.cors.allowed_origins.label": "Allowed origins",
   "settings.schema.swarm.cors.allowed_origins.desc":
     "Exact origins, for example http://localhost:12345, or * for any.",
@@ -1470,6 +1473,8 @@ export const messagesEn: Record<string, string> = {
     "The token of this entry in httpserver.remotes is refused.",
   "composer.env.hint.cors":
     "Blocked by CORS. Allow {origin} in swarm.cors.allowed_origins (relay) or httpserver.cors.allowed_origins (coddy serve).",
+  "composer.env.hint.corsLoopback":
+    "Blocked by CORS. This page is on a loopback address: set swarm.cors.allow_loopback (relay) or httpserver.cors.allow_loopback (coddy serve) to true, or allow {origin} exactly in allowed_origins.",
   "composer.env.relay": "relay",
   "composer.env.nodeOffline": "offline",
   "composer.folderModal.title": "Open folder",
@@ -1501,6 +1506,10 @@ export const messagesEn: Record<string, string> = {
     "{name} answers, but the browser keeps the answer from this page. Add {origin} to {relayCors} on the relay.",
   "env.banner.corsEither":
     "{name} answers, but the browser keeps the answer from this page. Add {origin} to {relayCors} if it is a relay, or to {agentCors} if it is a coddy serve.",
+  "env.banner.corsRelayLoopback":
+    "{name} answers, but the browser keeps the answer from this page. Add {origin} to {relayCors} on the relay, or set {relayLoopback} to true there: this page is on a loopback address, and that admits it on any port.",
+  "env.banner.corsEitherLoopback":
+    "{name} answers, but the browser keeps the answer from this page. Add {origin} to {relayCors} if it is a relay, or to {agentCors} if it is a coddy serve - or set {relayLoopback} / {agentLoopback} to true: this page is on a loopback address, and that admits it on any port.",
   "env.banner.switchLocal": "Switch to Local",
 
   "prompts.questions": "Questions",

@@ -138,6 +138,9 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.swarm.cors.enable.label": "Включить CORS",
   "settings.schema.swarm.cors.enable.desc":
     "Отвечать на кросс-доменные запросы с адресов ниже.",
+  "settings.schema.swarm.cors.allow_loopback.label": "Разрешить loopback-origin",
+  "settings.schema.swarm.cors.allow_loopback.desc":
+    "Также допускать любую страницу с машины самого браузера — localhost, *.localhost, 127.0.0.0/8 или [::1] на любом порту, например coddy serve на ноутбуке, какой бы порт он ни занял. Клиентский токен по-прежнему обязателен.",
   "settings.schema.swarm.cors.allowed_origins.label": "Разрешённые origin",
   "settings.schema.swarm.cors.allowed_origins.desc":
     "Точные origin, например http://localhost:12345, или * для любого.",
@@ -1506,6 +1509,8 @@ export const messagesRu: Record<string, string> = {
     "Токен этой записи в httpserver.remotes не принят.",
   "composer.env.hint.cors":
     "Ответ заблокирован CORS. Разрешите {origin} в swarm.cors.allowed_origins (релей) или httpserver.cors.allowed_origins (coddy serve).",
+  "composer.env.hint.corsLoopback":
+    "Ответ заблокирован CORS. Эта страница открыта с loopback-адреса: включите swarm.cors.allow_loopback (релей) или httpserver.cors.allow_loopback (coddy serve) либо разрешите {origin} точно в allowed_origins.",
   "composer.env.relay": "релей",
   "composer.env.nodeOffline": "не в сети",
   "composer.folderModal.title": "Открыть папку",
@@ -1537,6 +1542,10 @@ export const messagesRu: Record<string, string> = {
     "{name} отвечает, но браузер не отдаёт ответ этой странице. Добавьте {origin} в {relayCors} на релее.",
   "env.banner.corsEither":
     "{name} отвечает, но браузер не отдаёт ответ этой странице. Добавьте {origin} в {relayCors}, если это релей, или в {agentCors}, если это coddy serve.",
+  "env.banner.corsRelayLoopback":
+    "{name} отвечает, но браузер не отдаёт ответ этой странице. Добавьте {origin} в {relayCors} на релее или включите там {relayLoopback}: эта страница открыта с loopback-адреса, и так она будет допущена с любого порта.",
+  "env.banner.corsEitherLoopback":
+    "{name} отвечает, но браузер не отдаёт ответ этой странице. Добавьте {origin} в {relayCors}, если это релей, или в {agentCors}, если это coddy serve, — либо включите {relayLoopback} / {agentLoopback}: эта страница открыта с loopback-адреса, и так она будет допущена с любого порта.",
   "env.banner.switchLocal": "Переключиться на локальное",
 
   "prompts.questions": "Вопросы",

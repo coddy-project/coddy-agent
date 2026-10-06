@@ -214,6 +214,28 @@ func (r *runner) gatewayAdmins() {
 	}
 }
 
+// corsOpen says when the CORS policy admits pages nobody listed - allow_loopback
+// or "*" - on a server that asks for no credential: every page served from the
+// browser's own machine (a dev server, a desktop app), or with "*" every page
+// anywhere, can then read this API, /coddy/config and the provider keys in it
+// included. The bind address does not matter; a loopback bind is exactly where
+// such pages reach. httpserver.allow_insecure silences it like the startup
+// warning it mirrors.
+func (r *runner) corsOpen() {
+	c := r.req.Cfg.HTTPServer.CORS
+	if !r.req.WebUIOpen || !c.OpenToUnlistedOrigins() {
+		return
+	}
+	const path = "httpserver.cors"
+	loc, what := path+".allow_loopback", "every page served from the browser's own machine (allow_loopback: a dev server, a desktop app's page)"
+	if !c.AllowLoopback {
+		loc, what = path+".allowed_origins", "any page anywhere (allowed_origins: \"*\")"
+	}
+	r.rep.add(r.check(StatusWarning, path, loc,
+		"CORS admits "+what+" and the API asks for no credential: such a page can read /coddy/config, provider keys included, and run the agent",
+		"set a token (httpserver.auth_token / --auth-token / "+httpserver.TokenEnvVar+") or run `coddy serve set-password`; httpserver.allow_insecure: true silences this"))
+}
+
 // miniApp says when the bot will not advertise the web UI it is told to offer
 // as its Mini App: the web UI of this process asks for no sign-in.
 func (r *runner) miniApp() {

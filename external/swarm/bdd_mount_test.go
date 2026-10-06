@@ -315,6 +315,14 @@ func (s *mountFeatureState) relayAllowsOrigin(origin string) error {
 	return nil
 }
 
+// relayAllowsLoopbackOrigins is the laptop case: the page comes from the
+// browser's own machine, on whatever port its coddy serve took.
+func (s *mountFeatureState) relayAllowsLoopbackOrigins() error {
+	s.srv.cfg.Swarm.CORS.Enabled = true
+	s.srv.cfg.Swarm.CORS.AllowLoopback = true
+	return nil
+}
+
 // nodeAnswersWithCORS makes the node behave like a coddy serve whose own
 // httpserver.cors is on - a node that browsers also reach directly.
 func (s *mountFeatureState) nodeAnswersWithCORS() error {
@@ -518,6 +526,7 @@ func TestSwarmMountFeature(t *testing.T) {
 			ctx.Step(`^the error names the node "([^"]*)"$`, st.errorNamesNode)
 			ctx.Step(`^the request is rejected as unauthorized$`, st.rejectedUnauthorized)
 			ctx.Step(`^the relay allows the browser origin "([^"]*)"$`, st.relayAllowsOrigin)
+			ctx.Step(`^the relay allows loopback origins$`, st.relayAllowsLoopbackOrigins)
 			ctx.Step(`^the node answers with CORS headers of its own$`, st.nodeAnswersWithCORS)
 			ctx.Step(`^a browser at "([^"]*)" calls "([^"]*)" on node "([^"]*)" with the client token$`, st.browserCallsOnNode)
 			ctx.Step(`^the response allows the origin "([^"]*)" exactly once$`, st.responseAllowsOriginOnce)

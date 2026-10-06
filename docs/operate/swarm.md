@@ -226,9 +226,11 @@ like "this machine has no work".
 Connecting is the ordinary environment flow: the chip in the composer, **Connect to…**, the
 relay's address and its client token - or an entry of `httpserver.remotes` that names the relay,
 with its `token` when you keep it there ([Remote mode](remote.md#the-token)). A page served from
-another machine, a laptop's `coddy serve` for one, also needs its origin in the relay's
-`swarm.cors.allowed_origins`; the environment menu says so on the relay's line when that is what
-stands in the way, and lists the relay's agents once it accepts the token, so a node is one click
+another machine, a laptop's `coddy serve` for one, also needs the relay's `swarm.cors` to admit its
+origin: exactly, in `allowed_origins`, or - for a page on a loopback address, whatever port the
+laptop's `coddy serve` took - through `allow_loopback: true`; the environment menu says so on the
+relay's line when that is what stands in the way, and lists the relay's agents once it accepts the
+token, so a node is one click
 away from the menu too. Because the environment answers as a relay, a **Swarm** entry appears in
 the rail - on a plain agent it is not there at all.
 
@@ -318,7 +320,7 @@ opened from any node and pointed at the relay.
 | Relay's own deployment: bind address, client and pairing tokens, TLS, static upstreams | `swarm:` in `config.yaml`, or the `--swarm-*` flags |
 | Which relays this process joins | `swarm.join` in `config.yaml` - honoured whether or not this process relays |
 | Relays offered in the UI environment menu | `httpserver.remotes` of the page's server: name, URL and, optionally, the client token (`token`, best as a `${ENV}` reference) |
-| Pages served elsewhere that may call the relay | `swarm.cors` (`enable`, `allowed_origins`) |
+| Pages served elsewhere that may call the relay | `swarm.cors` (`enable`, `allow_loopback` for a laptop's web UI on any loopback port, `allowed_origins`) |
 | Credentials out of the file | `CODDY_SWARM_TOKEN`, `CODDY_SWARM_PAIRING_TOKEN`, `--swarm-auth-token`, `--swarm-pairing-token` |
 
 **The relay's own Settings.** Opened on the relay (its map is the page's home), the Settings

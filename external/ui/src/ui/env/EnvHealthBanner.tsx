@@ -7,6 +7,7 @@ import {
 } from "react";
 import { connectLocal, snapshotEnv, subscribeEnv } from "./remoteEnv";
 import { useActiveEnvProbe } from "./activeHealth";
+import { isLoopbackOrigin } from "./loopbackOrigin";
 import type { RemoteProbe } from "./remoteProbe";
 import { useT } from "../i18n/I18nProvider";
 
@@ -29,7 +30,11 @@ function renderWithSlots(
 const HEIGHT_VAR = "--coddy-env-banner-h";
 
 /** Which sentence says why, and which keys it names. */
-function messageKey(probe: RemoteProbe | null, viaRelay: boolean): string {
+function messageKey(
+  probe: RemoteProbe | null,
+  viaRelay: boolean,
+  loopbackPage: boolean,
+): string {
   switch (probe?.reach) {
     case "unauthorized":
       return probe.relay || viaRelay
@@ -37,8 +42,17 @@ function messageKey(probe: RemoteProbe | null, viaRelay: boolean): string {
         : "env.banner.unauthorizedAgent";
     case "cors":
       // Blocked, the browser cannot read whether it is a relay; a node reached
-      // through one is answered by the relay's CORS.
-      return viaRelay ? "env.banner.corsRelay" : "env.banner.corsEither";
+      // through one is answered by the relay's CORS. A page on a loopback
+      // address - a laptop's own coddy serve - is also admitted by the
+      // allow_loopback toggle, on any port, so that sentence names it too.
+      if (viaRelay) {
+        return loopbackPage
+          ? "env.banner.corsRelayLoopback"
+          : "env.banner.corsRelay";
+      }
+      return loopbackPage
+        ? "env.banner.corsEitherLoopback"
+        : "env.banner.corsEither";
     default:
       return "env.banner.down";
   }
@@ -91,14 +105,25 @@ export function EnvHealthBanner() {
       data-reach={probe?.reach ?? "down"}
     >
       <span>
-        {renderWithSlots(t(messageKey(probe, viaRelay)), {
-          name: <strong>{env.name || host}</strong>,
-          origin: code(window.location.origin),
-          agentToken: code("httpserver.auth_token"),
-          relayToken: code("swarm.auth_token"),
-          agentCors: code("httpserver.cors.allowed_origins"),
-          relayCors: code("swarm.cors.allowed_origins"),
-        })}
+        {renderWithSlots(
+          t(
+            messageKey(
+              probe,
+              viaRelay,
+              isLoopbackOrigin(window.location.origin),
+            ),
+          ),
+          {
+            name: <strong>{env.name || host}</strong>,
+            origin: code(window.location.origin),
+            agentToken: code("httpserver.auth_token"),
+            relayToken: code("swarm.auth_token"),
+            agentCors: code("httpserver.cors.allowed_origins"),
+            relayCors: code("swarm.cors.allowed_origins"),
+            agentLoopback: code("httpserver.cors.allow_loopback"),
+            relayLoopback: code("swarm.cors.allow_loopback"),
+          },
+        )}
       </span>
       <button
         type="button"

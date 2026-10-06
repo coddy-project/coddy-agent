@@ -50,3 +50,11 @@ Feature: Driving one node through a relay
     When a browser at "https://app.example" calls "/coddy/sessions" on node "nas02" with the client token
     Then the response comes from the node
     And the response allows the origin "https://app.example" exactly once
+
+  Scenario: A laptop's page on any loopback port hears the relay's answer when the relay allows loopback
+    Given the relay allows loopback origins
+    When a browser at "http://localhost:5173" calls "/coddy/sessions" on node "nas02" with the client token
+    Then the response comes from the node
+    And the response allows the origin "http://localhost:5173" exactly once
+    When a browser at "http://127.0.0.1:12345" calls "/coddy/sessions" on node "nas02" with the client token
+    Then the response allows the origin "http://127.0.0.1:12345" exactly once

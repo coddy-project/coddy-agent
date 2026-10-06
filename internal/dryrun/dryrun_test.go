@@ -875,6 +875,36 @@ func TestMiniAppChecks(t *testing.T) {
 	}
 }
 
+// A CORS setting that admits pages nobody listed - allow_loopback or "*" - is
+// only as safe as the credential behind it. With the web UI open (no token, no
+// sign-in, no allow_insecure) the dry run says so once, under httpserver.cors;
+// a credential, or exact origins alone, keeps it silent.
+func TestCORSOpenToUnlistedOriginsWithoutCredentialIsWarned(t *testing.T) {
+	loopback := "httpserver:\n  cors:\n    enable: true\n    allow_loopback: true\n"
+	c := find(t, run(t, loopback, func(r *Request) { r.WebUIOpen = true }), "httpserver.cors")
+	if c.Status != StatusWarning || !strings.Contains(c.Message, "loopback") || c.Line == 0 {
+		t.Errorf("loopback CORS on an open server: %+v", c)
+	}
+	for _, c := range run(t, loopback, nil).Checks {
+		if c.Path == "httpserver.cors" {
+			t.Errorf("a server with a credential was warned: %+v", c)
+		}
+	}
+
+	star := "httpserver:\n  cors:\n    enable: true\n    allowed_origins: [\"*\"]\n"
+	c = find(t, run(t, star, func(r *Request) { r.WebUIOpen = true }), "httpserver.cors")
+	if c.Status != StatusWarning || !strings.Contains(c.Message, "any page") {
+		t.Errorf("* CORS on an open server: %+v", c)
+	}
+
+	exact := "httpserver:\n  cors:\n    enable: true\n    allowed_origins: [\"http://localhost:12345\"]\n"
+	for _, c := range run(t, exact, func(r *Request) { r.WebUIOpen = true }).Checks {
+		if c.Path == "httpserver.cors" {
+			t.Errorf("exact origins were warned about: %+v", c)
+		}
+	}
+}
+
 func TestGatewayWithoutAdminsIsWarned(t *testing.T) {
 	t.Setenv(config.PachcaBotTokenEnvVar, "")
 	t.Setenv(config.TelegramBotTokenEnvVar, "")
