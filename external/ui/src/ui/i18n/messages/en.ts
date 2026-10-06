@@ -88,7 +88,7 @@ export const messagesEn: Record<string, string> = {
   "settings.section.tools.label": "Tools and permissions",
   "settings.section.mcp_servers.label": "MCP servers",
   "settings.section.skills.label": "Skills",
-  "settings.section.memory.label": "Memory copilot",
+  "settings.section.memory.label": "Memory",
   "settings.section.system.label": "Prompts",
   "settings.section.compaction.label": "Context compaction",
   "settings.section.subagents.label": "Subagents",
@@ -603,6 +603,9 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.memory.max_search_hits.label": "Max search hits",
   "settings.schema.memory.max_search_hits.desc":
     "Maximum snippets returned by memory search tools.",
+  "settings.schema.memory.max_note_chars.label": "Note size cap (characters)",
+  "settings.schema.memory.max_note_chars.desc":
+    "Longest body one saved note may have, in characters; 0 means no cap (default 900).",
   "settings.schema.memory.additional_prompt.label": "Additional instructions",
   "settings.schema.memory.additional_prompt.desc":
     "Your own instructions for the memory subagent, a section of its system prompt; the main agent never sees them.",

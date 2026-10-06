@@ -41,7 +41,7 @@ const rootSchema: JsonSchema = {
     agent: { type: "object", title: "ReAct loop", properties: {} },
     tools: { type: "object", title: "Tools and permissions", properties: {} },
     skills: { type: "object", title: "Skills", properties: {} },
-    memory: { type: "object", title: "Memory copilot", properties: {} },
+    memory: { type: "object", title: "Memory", properties: {} },
     scheduler: { type: "object", title: "Scheduler", properties: {} },
     prompts: { type: "object", title: "Prompts", properties: {} },
     instructions: { type: "object", title: "Instructions", properties: {} },
@@ -154,7 +154,7 @@ test("skills is its own combined tab; english labels match schema titles", () =>
   expect(byId.skills?.kind).toBe("skills");
   expect(byId.agent?.kind).toBe("object");
   expect(byId.agent?.label).toBe("ReAct loop");
-  expect(byId.memory?.label).toBe("Memory copilot");
+  expect(byId.memory?.label).toBe("Memory");
 });
 
 test("known section labels and descriptions follow the active locale", () => {
@@ -165,7 +165,7 @@ test("known section labels and descriptions follow the active locale", () => {
   expect(byId.appearance?.label).toBe("Оформление");
   expect(byId.providers?.label).toBe("Провайдеры LLM");
   expect(byId.tools?.label).toBe("Инструменты и разрешения");
-  expect(byId.memory?.label).toBe("Копайлот памяти");
+  expect(byId.memory?.label).toBe("Память");
   expect(byId.scheduler?.label).toBe("Планировщик");
   expect(byId.compaction?.label).toBe("Сжатие контекста");
   expect(byId.compaction?.description).toBe("Сжатие истории диалога");

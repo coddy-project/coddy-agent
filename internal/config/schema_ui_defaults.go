@@ -85,6 +85,7 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			PersistMaxTurns:  12,
 			CopilotMaxTokens: 4096,
 			MaxSearchHits:    8,
+			MaxNoteChars:     intPtr(MemoryDefaultMaxNoteChars),
 		},
 		Subagents: SubagentsJSON{
 			Enabled:               boolPtr(true),

@@ -83,7 +83,7 @@ export const messagesRu: Record<string, string> = {
   "settings.section.tools.label": "Инструменты и разрешения",
   "settings.section.mcp_servers.label": "MCP-серверы",
   "settings.section.skills.label": "Навыки",
-  "settings.section.memory.label": "Копайлот памяти",
+  "settings.section.memory.label": "Память",
   "settings.section.system.label": "Промпты",
   "settings.section.compaction.label": "Сжатие контекста",
   "settings.section.subagents.label": "Субагенты",
@@ -613,6 +613,9 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.memory.max_search_hits.label": "Максимум результатов поиска",
   "settings.schema.memory.max_search_hits.desc":
     "Максимум фрагментов, возвращаемых инструментами поиска по памяти.",
+  "settings.schema.memory.max_note_chars.label": "Предел размера заметки (символы)",
+  "settings.schema.memory.max_note_chars.desc":
+    "Наибольшая длина тела одной сохраняемой заметки в символах; 0 без предела (по умолчанию 900).",
   "settings.schema.memory.additional_prompt.label": "Дополнительные инструкции",
   "settings.schema.memory.additional_prompt.desc":
     "Ваши собственные инструкции для субагента памяти, раздел его системного промпта; основной агент их не видит.",
