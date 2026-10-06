@@ -133,6 +133,10 @@ function folderName(path: string): string {
 /** How far under the top of the diffs a file still counts as the one on show. */
 const ON_SHOW_SLACK_PX = 24;
 
+/** The gap a picked file keeps from the top of the diffs: their own padding,
+ *  the filter's 10px from the head. */
+const JUMP_GAP_PX = 10;
+
 /**
  * The edits window: every diff of the folder's uncommitted changes in one
  * scrollable document, the one view of the edits. Framed and headed the way
@@ -235,15 +239,33 @@ export function EditsView(props: {
     setJump((prev) => ({ path, seq: (prev?.seq ?? 0) + 1 }));
   };
 
+  // The diffs alone scroll to the file: scrollIntoView would move every
+  // scrollable box around them too, the window's own included. The file stays
+  // pinned there while the diffs above it load or fold, until the reader
+  // scrolls away: a pick made while the patches were still on their way was
+  // carried down by every one that landed above it.
+  const pinRef = useRef<{ path: string; top: number } | null>(null);
+  const align = (path: string) => {
+    const scroller = scrollRef.current;
+    const section = sectionRefs.current.get(path);
+    if (!scroller || !section) return;
+    scroller.scrollTop +=
+      section.getBoundingClientRect().top - scroller.getBoundingClientRect().top - JUMP_GAP_PX;
+    pinRef.current = { path, top: scroller.scrollTop };
+  };
   useLayoutEffect(() => {
-    if (!jump) return;
-    sectionRefs.current.get(jump.path)?.scrollIntoView({ block: "start" });
+    if (jump) align(jump.path);
+    // align reads refs only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jump]);
 
   // The tree marks the file at the top of the diffs as the reader scrolls.
   const followScroll = () => {
     const scroller = scrollRef.current;
     if (!scroller) return;
+    // A scroll the pin did not make is the reader's: the pin lets go.
+    const pin = pinRef.current;
+    if (pin && Math.abs(scroller.scrollTop - pin.top) > 1) pinRef.current = null;
     const port = scroller.getBoundingClientRect();
     const picked = pickedRef.current ? sectionRefs.current.get(pickedRef.current) : undefined;
     if (picked) {
@@ -261,6 +283,13 @@ export function EditsView(props: {
     }
     if (onShowNow && onShowNow !== active) setActive(onShowNow);
   };
+
+  useLayoutEffect(() => {
+    const pin = pinRef.current;
+    if (pin) align(pin.path);
+    // align reads refs only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patches, collapsed, files]);
 
   const allCollapsed =
     changes.files.length > 0 && collapsed.size === changes.files.length;

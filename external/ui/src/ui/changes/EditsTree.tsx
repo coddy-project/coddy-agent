@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import { useT } from "../i18n/I18nProvider";
 import { Chevron } from "../components/Chevron";
@@ -7,6 +7,9 @@ import { buildFileTree } from "./fileTree";
 import type { FileTreeNode } from "./fileTree";
 import { statusKey } from "./sessionChangesText";
 import type { ChangeStatus, ChangedFile } from "./types";
+
+/** How much room a row brought into view keeps from the tree's edge. */
+const ROW_MARGIN_PX = 4;
 
 /** The letter git's short status gives a file, beside its name in the tree. */
 const STATUS_LETTER: Record<ChangeStatus, string> = {
@@ -32,6 +35,19 @@ export function EditsTree(props: {
   const [filter, setFilter] = useState("");
   // Folders are open until folded; a folder is known by its path.
   const [folded, setFolded] = useState<Set<string>>(new Set());
+  const treeRef = useRef<HTMLDivElement | null>(null);
+
+  // With many files the tree scrolls too: the row the diffs mark is brought
+  // into its view, by the tree alone.
+  useLayoutEffect(() => {
+    const tree = treeRef.current;
+    const row = tree?.querySelector<HTMLElement>(".files-tree-row.is-active");
+    if (!tree || !row) return;
+    const port = tree.getBoundingClientRect();
+    const box = row.getBoundingClientRect();
+    if (box.top < port.top) tree.scrollTop -= port.top - box.top + ROW_MARGIN_PX;
+    else if (box.bottom > port.bottom) tree.scrollTop += box.bottom - port.bottom + ROW_MARGIN_PX;
+  }, [props.active]);
 
   const statuses = useMemo(() => {
     const byPath = new Map<string, ChangeStatus>();
@@ -134,7 +150,7 @@ export function EditsTree(props: {
           }}
         />
       </div>
-      <div className="files-tree" data-testid="edits-tree">
+      <div className="files-tree" data-testid="edits-tree" ref={treeRef}>
         {nodes.length === 0 ? (
           props.files.length > 0 ? (
             <p className="files-note">{t("changes.viewer.noMatches")}</p>

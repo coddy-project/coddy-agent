@@ -1066,12 +1066,16 @@ Showing hidden files does not restrict access: an explicit workspace path may st
 open a hidden file. Symlinks and special files are listed with ↗ but are not opened.
 The tree switch at the left of the head folds the tree away, and the arrows at the
 right expand the window over the whole screen. The open files stay open for the life
-of the page, so closing and reopening the window finds them where they were.
+of the page, so closing and reopening the window finds them where they were. Tabs that
+do not fit scroll sideways with the wheel or a swipe, and the tab on show is brought
+into view.
 
 An open file is its content and nothing over it: the tab names it, so the window shows
 no second name, no size or time and no switch of views. Text files show numbered,
-highlighted line windows and the line asked for; large text is paged without the old
-512 KiB file limit. Markdown is text like any other: its source, line by line, so a
+highlighted line windows, a line's number level with its text; a line an address or a
+link names is scrolled to, not marked, since for now a file is only read. A long file
+scrolls through without the old 512 KiB file limit: the next lines are read as you near
+the end of those on screen, so there are no pages to click. Markdown is text like any other: its source, line by line, so a
 picture or HTML in it is a line to read and nothing is loaded or run. Raster images
 have fit and actual size controls; images above 20 MiB remain downloadable.
 
@@ -1156,12 +1160,13 @@ it was under the window.
 On the left the tree lists the changed files and only them, git's uncommitted changes
 in the folders they sit in, each with git's letter at the end of its row (**A** added,
 **M** modified, **D** deleted). The diffs follow in the same order. Its filter narrows the list by path; a
-file picked there scrolls the diffs to it, and as you scroll the tree marks the file
-at the top. On a
+file picked there scrolls the diffs to it and stays put while the diffs above it are
+still loading, and as you scroll the tree marks the file at the top, scrolling itself
+to keep that row in view when the list is long. On a
 phone the window opens on the diffs and the tree switch brings the list over them.
 
-A file section has a sticky header with copy-path, discard and collapse, revealed on
-hover and always in sight on a touch screen. Between hunks sits a wordless separator
+A file section has a sticky header: the name, which folds the diff, then copy-path and
+discard, always in sight, and the file's `+a −b` at the right end. Between hunks sits a wordless separator
 rather than an `N unmodified lines` filler row. In a folder with nothing to show it says
 so: clean, or not in a git repository.
 

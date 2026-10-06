@@ -137,6 +137,13 @@ beforeEach(() => {
           JSON.stringify({ error: { message: "file is not decodable text" } }),
           { status: textStatus[path] },
         );
+      const etag = `"${path}:${contents[path]?.length ?? 0}"`;
+      const asked = query(url, "etag");
+      if (asked && asked !== etag)
+        return new Response(
+          JSON.stringify({ error: { message: "file changed; reload before reading another page" } }),
+          { status: 409 },
+        );
       const all = (contents[path] || "").split("\n");
       const offset = Number(query(url, "offset")) || 0;
       const lines = all.slice(offset, offset + 300);
@@ -284,8 +291,11 @@ test("closing the tab on show shows the one beside it, and the last one the empt
 test("the window opens on the file and the line the address names", async () => {
   render(view({ initialPath: "notes.txt", initialLine: 3 }));
   await screen.findByText("third note");
+  // The window goes to the line the address names, without painting it.
   const row = document.querySelector('[data-file-line="3"]');
-  expect(row).toHaveClass("is-active");
+  expect(row).toBeTruthy();
+  expect(row?.className || "").toBe("");
+  expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
   expect(screen.getByRole("tab", { selected: true }).textContent).toBe(
     "notes.txt",
   );
@@ -527,7 +537,10 @@ test("the window opened again shows its file at the line it was on, and says so 
   const onNavigate = vi.fn();
   render(view({ onNavigate }));
   await screen.findByText("third note");
-  expect(document.querySelector('[data-file-line="3"]')).toHaveClass("is-active");
+  // The window goes to the line; for now a file is only read, so nothing marks it.
+  const line = document.querySelector('[data-file-line="3"]');
+  expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+  expect(line?.className || "").toBe("");
   expect(onNavigate).toHaveBeenCalledWith("notes.txt", 3);
 });
 
@@ -573,14 +586,105 @@ test("a new filter query never shows the hits of the one before", async () => {
   expect(screen.queryByText("src/lib/util.ts")).toBeNull();
 });
 
-test("the next page of a long file moves the line the address names", async () => {
-  contents["long.txt"] = Array.from({ length: 400 }, (_, i) => `line ${i + 1}`).join("\n");
-  const onNavigate = vi.fn();
-  render(view({ initialPath: "long.txt", onNavigate }));
+/** Puts the file's scroll box at `top` of `height`, as a browser would lay it out. */
+function scrollBody(top: number, height = 6000, view = 600) {
+  const body = document.querySelector(".files-file-body") as HTMLElement;
+  Object.defineProperty(body, "scrollHeight", { configurable: true, value: height });
+  Object.defineProperty(body, "clientHeight", { configurable: true, value: view });
+  body.scrollTop = top;
+  fireEvent.scroll(body);
+}
+
+// A long file scrolls through: the next lines are read as the reader nears
+// the end of those on screen, so there are no pages to click through.
+test("a long file reads on as it is scrolled, with no pages to click", async () => {
+  contents["long.txt"] = Array.from({ length: 700 }, (_, i) => `line ${i + 1}`).join("\n");
+  render(view({ initialPath: "long.txt" }));
   await screen.findByText("line 1");
-  fireEvent.click(screen.getByText(t("files.next")));
+  expect(screen.queryByText("line 301")).toBeNull();
+  expect(document.querySelector(".files-pages")).toBeNull();
+  scrollBody(5300);
   await screen.findByText("line 301");
-  expect(onNavigate).toHaveBeenLastCalledWith("long.txt", 301);
+  expect(screen.getByText("line 1")).toBeTruthy();
+  scrollBody(11000, 11600);
+  await screen.findByText("line 700");
+  expect(document.querySelectorAll("[data-file-line]")).toHaveLength(700);
+});
+
+// A view still at the end once the lines went in reads on by itself: no
+// second scroll event comes when the reader already stands at the bottom.
+test("a view still at the end after a read reads on without another scroll", async () => {
+  contents["long.txt"] = Array.from({ length: 700 }, (_, i) => `line ${i + 1}`).join("\n");
+  render(view({ initialPath: "long.txt" }));
+  await screen.findByText("line 1");
+  scrollBody(5500);
+  await screen.findByText("line 700");
+});
+
+// Opened in the middle (an address, a link), the file reads back up as the
+// reader scrolls to the top of what is on screen.
+test("a file opened in the middle reads back up as it is scrolled", async () => {
+  contents["long.txt"] = Array.from({ length: 700 }, (_, i) => `line ${i + 1}`).join("\n");
+  render(view({ initialPath: "long.txt", initialLine: 450 }));
+  await screen.findByText("line 450");
+  expect(screen.queryByText("line 1")).toBeNull();
+  scrollBody(0);
+  await screen.findByText("line 1");
+  expect(screen.getByText("line 450")).toBeTruthy();
+});
+
+// A file rewritten while the reader scrolls on is not spliced from two
+// versions: it says so and starts over at its top.
+test("a file rewritten while it is read on starts over and says so", async () => {
+  contents["long.txt"] = Array.from({ length: 700 }, (_, i) => `line ${i + 1}`).join("\n");
+  render(view({ initialPath: "long.txt" }));
+  await screen.findByText("line 1");
+  contents["long.txt"] = Array.from({ length: 700 }, (_, i) => `new ${i + 1}`).join("\n");
+  scrollBody(5300);
+  await screen.findByRole("status");
+  await screen.findByText("new 1");
+  expect(screen.queryByText("line 1")).toBeNull();
+});
+
+/** Lays the tab strip out as a browser would: `content` wide inside `width`. */
+function layOutTabs(content: number, width = 300) {
+  const strip = document.querySelector(".files-tabs") as HTMLElement;
+  Object.defineProperty(strip, "scrollWidth", { configurable: true, value: content });
+  Object.defineProperty(strip, "clientWidth", { configurable: true, value: width });
+  fireEvent.scroll(strip);
+  return strip;
+}
+
+// Tabs that do not fit scroll sideways with no arrows: the wheel turned over
+// the strip moves it, a finger swipes it, and an end that has more fades out.
+test("tabs that do not fit scroll sideways by the wheel, with no arrows", async () => {
+  render(view({ initialPath: "notes.txt" }));
+  await screen.findByText("first note");
+  const strip = layOutTabs(900);
+  expect(document.querySelector(".files-tabs-bar button:not([role=tab]):not(.files-tab-close)")).toBeNull();
+  expect(strip).toHaveClass("has-more-right");
+  expect(strip).not.toHaveClass("has-more-left");
+  fireEvent.wheel(strip, { deltaY: 120 });
+  expect(strip.scrollLeft).toBe(120);
+  await waitFor(() => expect(strip).toHaveClass("has-more-left"));
+  strip.scrollLeft = 600;
+  fireEvent.scroll(strip);
+  await waitFor(() => expect(strip).not.toHaveClass("has-more-right"));
+});
+
+// The tab on show is brought into the strip's view when it is picked or opened.
+test("the tab on show is scrolled into the strip", async () => {
+  render(view({ initialPath: "notes.txt" }));
+  await screen.findByText("first note");
+  fireEvent.click(screen.getByText("README.md"));
+  await screen.findByText("Welcome.");
+  const strip = layOutTabs(900);
+  // notes.txt lies past the strip's right edge; showing it brings it in.
+  const notes = screen.getByRole("tab", { name: "notes.txt" }).parentElement as HTMLElement;
+  Object.defineProperty(notes, "offsetLeft", { configurable: true, value: 760 });
+  Object.defineProperty(notes, "offsetWidth", { configurable: true, value: 120 });
+  fireEvent.click(screen.getByRole("tab", { name: "notes.txt" }));
+  await waitFor(() => expect(strip.scrollLeft).toBeGreaterThanOrEqual(760 + 120 - 300));
 });
 
 test("Reload puts away the notice that the file changed", async () => {

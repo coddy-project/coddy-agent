@@ -282,13 +282,39 @@ test("the tree lists only the changed files, in their folders", async () => {
   expect(within(tree).queryByTestId("edits-tree-file-docs/b.md")).toBeNull();
 });
 
+/** Lays an element out at `top` with `height`, as a browser would. */
+function place(el: Element, top: number, height: number) {
+  Object.defineProperty(el, "getBoundingClientRect", {
+    configurable: true,
+    value: () => ({ top, bottom: top + height, left: 0, right: 800, width: 800, height, x: 0, y: top, toJSON() {} }),
+  });
+}
+
+/** Lays a section out inside the diffs at `at()` from their content's top,
+ *  moving with their scroll as it does in a browser. */
+function placeIn(scroller: HTMLElement, el: Element, at: () => number, height = 200) {
+  Object.defineProperty(el, "getBoundingClientRect", {
+    configurable: true,
+    value: () => {
+      const top = scroller.getBoundingClientRect().top + at() - scroller.scrollTop;
+      return { top, bottom: top + height, left: 0, right: 800, width: 800, height, x: 0, y: top, toJSON() {} };
+    },
+  });
+}
+
+// A pick scrolls the diffs alone, the file's section 10px under their top -
+// the gap the filter keeps from the head - and nothing around them moves.
 test("a file picked in the tree is scrolled to and marked", async () => {
   open();
   await screen.findByTestId("dv-file-src/a.ts");
+  const scroller = screen.getByTestId("dv-scroll");
+  place(scroller, 100, 500);
+  placeIn(scroller, screen.getByTestId("dv-file-src/a.ts"), () => 800);
   const row = screen.getByTestId("edits-tree-file-src/a.ts");
   expect(row).not.toHaveClass("is-active");
   fireEvent.click(row);
-  await waitFor(() => expect(scrolled).toContain("dv-file-src/a.ts"));
+  await waitFor(() => expect(scroller.scrollTop).toBe(800 - 10));
+  expect(scrolled).toEqual([]);
   expect(row).toHaveClass("is-active");
   expect(row).toHaveAttribute("aria-selected", "true");
 });
@@ -300,11 +326,6 @@ test("the mark follows the scroll, and a file picked keeps it while in sight", a
   open();
   await screen.findByTestId("dv-file-src/a.ts");
   const scroller = screen.getByTestId("dv-scroll");
-  const place = (el: Element, top: number, height: number) =>
-    Object.defineProperty(el, "getBoundingClientRect", {
-      configurable: true,
-      value: () => ({ top, bottom: top + height, left: 0, right: 800, width: 800, height, x: 0, y: top, toJSON() {} }),
-    });
   place(scroller, 0, 500);
   const first = screen.getByTestId("dv-file-docs/b.md");
   const last = screen.getByTestId("dv-file-src/a.ts");
@@ -325,6 +346,59 @@ test("the mark follows the scroll, and a file picked keeps it while in sight", a
   place(first, -300, 300);
   fireEvent.scroll(scroller);
   await waitFor(() => expect(row("src/a.ts")).toHaveClass("is-active"));
+});
+
+// A file picked while the diffs above it still load stays where the pick put
+// it as they land, until the reader scrolls away.
+test("a picked file stays put while the diffs above it load, until the reader scrolls", async () => {
+  open();
+  await screen.findByTestId("dv-file-src/a.ts");
+  const scroller = screen.getByTestId("dv-scroll");
+  place(scroller, 100, 500);
+  let above = 800;
+  placeIn(scroller, screen.getByTestId("dv-file-src/a.ts"), () => above);
+  fireEvent.click(screen.getByTestId("edits-tree-file-src/a.ts"));
+  await waitFor(() => expect(scroller.scrollTop).toBe(790));
+  // The diffs above grow as their patches land (git reports the files again).
+  let edits = 1;
+  const report = () => {
+    edits += 1;
+    fetchMock.mockImplementation(async (input: unknown) =>
+      jsonResponse(
+        String(input).includes("/changes/file")
+          ? { patch: PATCH }
+          : { ...SESSION, files: [SESSION.files[0]!, { ...SESSION.files[1]!, additions: 4 + edits }] },
+      ),
+    );
+    emitChangesSettled("s1");
+  };
+  above = 1300;
+  report();
+  await waitFor(() => expect(scroller.scrollTop).toBe(1290));
+  // The reader scrolls: the pin lets go, and what lands next moves nothing.
+  scroller.scrollTop = 200;
+  fireEvent.scroll(scroller);
+  above = 1600;
+  report();
+  await new Promise((r) => setTimeout(r, 100));
+  expect(scroller.scrollTop).toBe(200);
+});
+
+// With many files the tree scrolls too: the row the diffs' scroll marks is
+// brought into the tree's view.
+test("the row the scroll marks is kept in the tree's view", async () => {
+  open();
+  await screen.findByTestId("dv-file-src/a.ts");
+  const tree = screen.getByTestId("edits-tree");
+  place(tree, 0, 200);
+  const scroller = screen.getByTestId("dv-scroll");
+  place(scroller, 0, 500);
+  place(screen.getByTestId("dv-file-docs/b.md"), -400, 300);
+  place(screen.getByTestId("dv-file-src/a.ts"), 0, 300);
+  place(screen.getByTestId("edits-tree-file-src/a.ts"), 400, 28);
+  fireEvent.scroll(scroller);
+  await waitFor(() => expect(screen.getByTestId("edits-tree-file-src/a.ts")).toHaveClass("is-active"));
+  expect(tree.scrollTop).toBe(400 + 28 - 200 + 4);
 });
 
 test("the filter narrows the tree, and the tree switch puts it away", async () => {
@@ -351,6 +425,23 @@ test("Escape puts the menu away before the window", async () => {
   expect(onClose).not.toHaveBeenCalled();
   fireEvent.keyDown(document.body, { key: "Escape" });
   expect(onClose).toHaveBeenCalledTimes(1);
+});
+
+// A file's head: the fold chevron and the name on the left, then copy and
+// discard, always in sight, and git's counts at the right end; the name folds
+// the diff, so there is no second chevron on the right.
+test("a file's head ends with its counts, after copy and discard, with one chevron", async () => {
+  open();
+  const section = await screen.findByTestId("dv-file-src/a.ts");
+  const head = section.querySelector(".dv-file-head") as HTMLElement;
+  const parts = [...head.children].map((el) => el.className.split(" ")[0]);
+  expect(parts).toEqual(["dv-file-title", "dv-file-actions", "dv-file-stat"]);
+  const actions = [...head.querySelectorAll(".dv-file-actions button")].map((b) => b.getAttribute("data-testid"));
+  expect(actions).toEqual(["dv-copy-src/a.ts", "dv-discard-src/a.ts"]);
+  expect(head.querySelectorAll(".coddy-chevron")).toHaveLength(1);
+  // No status dot before the name: the tree says the status, the name is enough.
+  expect(head.querySelector(".dv-file-badge")).toBeNull();
+  expect(head.querySelector(".dv-file-stat")?.textContent).toBe("+1−1");
 });
 
 test("the header copies the file path", async () => {

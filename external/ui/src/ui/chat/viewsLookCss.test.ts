@@ -3,9 +3,9 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 
 /**
- * How the views of a chat mark what is on show: a pressed toggle, the active
- * row of a tree, the line asked for brighten - text, border and ground from
- * the text colour - the way the Tasks control always marked its open panel.
+ * How the views of a chat mark what is on show: a pressed toggle and the
+ * active row of a tree brighten - text, border and ground from the text
+ * colour - the way the Tasks control always marked its open panel.
  * The accent is the mark of work in flight, not of a choice, so none of them
  * takes it, in any theme.
  */
@@ -23,7 +23,6 @@ function ruleBody(selector: string): string {
 test.each([
   ".files-icon-btn.is-active",
   ".files-tree-row.is-active",
-  ".files-code > .is-active",
 ])("%s brightens from the text colour, not the accent", (selector) => {
   const body = ruleBody(selector);
   expect(body).not.toContain("var(--accent)");

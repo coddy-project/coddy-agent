@@ -5349,7 +5349,7 @@ textarea#composer.composer-ta-masked::selection {
 
 .composer-code-editing .composer-mirror-inner,
 .composer-code-editing textarea#composer {
-  font-family: var(--mono);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 .msg-user-token {
@@ -16091,12 +16091,14 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   cursor: pointer;
 }
 
+/* As wide as the filter over it: a row's edges, the marked one's included,
+   are the filter's (.files-filter's side padding). */
 .files-tree {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
-  padding: 0 6px 12px;
+  padding: 0 10px 12px;
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
 }
@@ -16188,20 +16190,54 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   flex-direction: column;
 }
 
-.files-tabs {
+/* The strip of open files stands as far under the head as the filter beside
+   it. Tabs that do not fit scroll sideways with no scrollbar and no arrows:
+   the wheel and a swipe move it (FilesView.tsx, TabStrip). */
+.files-tabs-bar {
+  position: relative;
   flex: none;
-  display: flex;
-  align-items: stretch;
-  gap: 2px;
-  padding: 6px 8px 0;
-  overflow-x: auto;
-  scrollbar-width: none;
+  padding: 10px 0 0;
   border-bottom: 1px solid
     color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
 }
 
+.files-tabs {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 0 8px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.files-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+/* An end that has more tabs fades out, the strip's only sign of them. */
+.files-tabs.has-more-left {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 28px);
+  mask-image: linear-gradient(to right, transparent, #000 28px);
+}
+
+.files-tabs.has-more-right {
+  -webkit-mask-image: linear-gradient(to left, transparent, #000 28px);
+  mask-image: linear-gradient(to left, transparent, #000 28px);
+}
+
+.files-tabs.has-more-left.has-more-right {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
+}
+
+/* 33px and the strip's 1px line under it: as tall as the filter beside it, so
+   the line the file starts under is level with the filter's bottom edge. */
 .files-tab {
   flex: none;
+  box-sizing: border-box;
+  height: 33px;
   display: flex;
   align-items: center;
   max-width: 240px;
@@ -16222,11 +16258,12 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 }
 
 .files-tab-name {
+  align-self: stretch;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 7px 4px 7px 12px;
+  padding: 0 4px 0 12px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -16328,9 +16365,16 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   color: var(--accent);
 }
 
+/* A line's number and its text are one line box: the block sets the font,
+   the size and the line height, and both take them. The stack is the diffs'
+   (.dv-diff); the code element inherits it instead of the browser's own
+   monospace, whose size and line height would set the text apart from its
+   number. */
 .files-code {
   padding-top: 8px;
-  font: 12px/1.6 var(--font-mono);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.6;
   min-width: 100%;
   width: max-content;
 }
@@ -16339,12 +16383,8 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   display: flex;
 }
 
-/* The line asked for: a brighter band, not the accent. */
-.files-code > .is-active {
-  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
-}
-
 .files-code code {
+  font: inherit;
   white-space: pre;
   flex: 1;
   min-width: 0;
@@ -16397,15 +16437,6 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   margin: 14px;
 }
 
-.files-pages {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  font-size: 12px;
-}
-
-.files-pages button,
 .files-image > button,
 .files-action {
   border: 1px solid var(--coddy-glass-panel-border);
@@ -16416,11 +16447,6 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   font-size: 12px;
   padding: 4px 10px;
   cursor: pointer;
-}
-
-.files-pages button:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 /* A file path in a permission preview opens the file in the window. */
@@ -16499,12 +16525,23 @@ html:not([data-theme="light"]) .swarm-graph-panel {
    Chromium 104 baseline: no :has(), no @container, marker classes instead.
    --------------------------------------------------------------------------- */
 
-/* The folder, then git's count of the edits, on the subtitle line. */
+/* The folder, then git's count of the edits, on the subtitle line. Where
+   the line is short (a phone gives it 40% of the width) the folder's name
+   takes the ellipsis and the count stays whole. */
+.edits-window .files-subtitle {
+  display: flex;
+  align-items: baseline;
+}
+
 .edits-folder {
+  min-width: 0;
   margin-right: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .edits-totals {
+  flex: none;
   display: inline-flex;
   gap: 6px;
   font-variant-numeric: tabular-nums;
@@ -16565,11 +16602,13 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   cursor: default;
 }
 
+/* The diffs keep from the edges of their column what the tree's column keeps
+   (the filter's 10px), and the files stand as far apart. */
 .dv-scroll {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  padding: 12px 14px 20px;
+  padding: 10px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
@@ -16598,7 +16637,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   padding: 9px 12px;
   font-size: 12px;
   color: color-mix(in srgb, var(--text) 74%, var(--coddy-blend-base));
@@ -16610,20 +16649,24 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 /* One file ------------------------------------------------------------------ */
 
 .dv-file {
-  margin-bottom: 14px;
+  margin-bottom: 10px;
   border: 1px solid color-mix(in srgb, var(--text) 11%, var(--coddy-blend-base));
   border-radius: 10px;
   overflow: hidden;
 }
 
+/* The card's 1px border, then 33px with the head's own line: as tall as the
+   filter beside it, the card starting where the filter does. */
 .dv-file-head {
   position: sticky;
   top: 0;
   z-index: 1;
+  box-sizing: border-box;
+  height: 33px;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px 6px 4px;
+  padding: 0 12px 0 4px;
   background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
   border-bottom: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
 }
@@ -16693,26 +16736,12 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   color: color-mix(in srgb, var(--text) 46%, var(--coddy-blend-base));
 }
 
-/* Quiet until pointed at: a long list of files should not read as a wall of
-   buttons. Kept visible for keyboard users through :focus-within. */
+/* Copy and discard, always in sight, between the name and git's counts,
+   which close the row at its right end. */
 .dv-file-actions {
   display: inline-flex;
   gap: 2px;
   flex: 0 0 auto;
-  opacity: 0;
-}
-
-.dv-file-head:hover .dv-file-actions,
-.dv-file-actions:focus-within {
-  opacity: 1;
-}
-
-/* A touch screen has no hover to reveal them: copy, discard and collapse stay
-   in sight. */
-@media (any-hover: none) and (any-pointer: coarse) {
-  .dv-file-actions {
-    opacity: 1;
-  }
 }
 
 .dv-file-body {

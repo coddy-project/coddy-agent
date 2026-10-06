@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { Chevron } from "../components/Chevron";
 import { useEscapeCloses } from "../components/useEscapeCloses";
@@ -417,11 +417,7 @@ export function FilesView(props: {
             </p>
           ) : null}
           {tabs.length > 0 ? (
-            <div
-              className="files-tabs"
-              role="tablist"
-              aria-label={t("files.openFiles")}
-            >
+            <TabStrip active={active} count={tabs.length}>
               {tabs.map((path) => {
                 const name = nameOf(path);
                 const repeated = (repeatedNames.get(name) || 0) > 1;
@@ -460,7 +456,7 @@ export function FilesView(props: {
                   </div>
                 );
               })}
-            </div>
+            </TabStrip>
           ) : null}
           {active ? (
             <FilePreview
@@ -471,10 +467,6 @@ export function FilesView(props: {
               wrap={wrap}
               epoch={epoch}
               activity={props.toolActivity || 0}
-              onLine={(line) => {
-                setLines((prev) => ({ ...prev, [active]: line }));
-                props.onNavigate?.(active, line);
-              }}
             />
           ) : (
             <div className="files-empty" data-testid="files-empty">
@@ -488,6 +480,82 @@ export function FilesView(props: {
     </div>
   );
 }
+
+/**
+ * The strip of open files. Tabs that do not fit scroll sideways, with no
+ * scrollbar and no arrows: the wheel turned over the strip moves it sideways,
+ * a finger swipes it, an end that has more fades out, and the tab on show is
+ * brought into view whenever it changes.
+ */
+function TabStrip(props: { active: string; count: number; children: React.ReactNode }) {
+  const { t } = useT();
+  const stripRef = useRef<HTMLDivElement | null>(null);
+  const [ends, setEnds] = useState({ left: false, right: false });
+
+  const measure = useCallback(() => {
+    const strip = stripRef.current;
+    if (!strip) return;
+    const left = strip.scrollLeft > 1;
+    const right = strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 1;
+    setEnds((prev) => (prev.left === left && prev.right === right ? prev : { left, right }));
+  }, []);
+
+  useEffect(() => {
+    const strip = stripRef.current;
+    if (!strip) return undefined;
+    measure();
+    // A vertical wheel over the strip moves it sideways; the page under it
+    // does not scroll. Not passive, so the default can be held back.
+    const onWheel = (event: WheelEvent) => {
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+      if (strip.scrollWidth <= strip.clientWidth) return;
+      event.preventDefault();
+      strip.scrollLeft += event.deltaY;
+      measure();
+    };
+    strip.addEventListener("wheel", onWheel, { passive: false });
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    ro?.observe(strip);
+    return () => {
+      strip.removeEventListener("wheel", onWheel);
+      ro?.disconnect();
+    };
+  }, [measure]);
+
+  // The tab on show is brought into the strip's view, by the strip alone, so
+  // nothing around the window scrolls with it.
+  useLayoutEffect(() => {
+    const strip = stripRef.current;
+    const tab = strip?.querySelector<HTMLElement>(".files-tab.is-active");
+    if (!strip || !tab) return;
+    const start = tab.offsetLeft;
+    const end = start + tab.offsetWidth;
+    if (start < strip.scrollLeft) strip.scrollLeft = Math.max(0, start - TAB_MARGIN_PX);
+    else if (end > strip.scrollLeft + strip.clientWidth) {
+      strip.scrollLeft = end - strip.clientWidth + TAB_MARGIN_PX;
+    }
+    measure();
+  }, [props.active, props.count, measure]);
+
+  return (
+    <div className="files-tabs-bar">
+      <div
+        ref={stripRef}
+        className={
+          "files-tabs" + (ends.left ? " has-more-left" : "") + (ends.right ? " has-more-right" : "")
+        }
+        role="tablist"
+        aria-label={t("files.openFiles")}
+        onScroll={measure}
+      >
+        {props.children}
+      </div>
+    </div>
+  );
+}
+
+/** How much room a tab brought into view keeps from the strip's edge. */
+const TAB_MARGIN_PX = 8;
 
 /**
  * The left column of the window: the filter over the tree. The tree reads one

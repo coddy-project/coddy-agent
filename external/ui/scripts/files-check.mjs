@@ -134,6 +134,7 @@ function seedWorkspace(dir) {
   write("src/deep/nested/util.ts", "export function clamp(n: number, lo: number, hi: number) {\n  return Math.min(hi, Math.max(lo, n));\n}\n");
   write("assets/logo.png", PNG);
   write("media/tone.wav", toneWav());
+  write("docs/changelog.txt", Array.from({ length: 700 }, (_, i) => `entry ${i + 1}: a change worth a line`).join("\n") + "\n");
   write("docs/brief.pdf", "%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n");
   write(".hidden/secret.txt", "not listed until hidden files are shown\n");
   // A repository on a feature branch: the Edits view is what git reports.
@@ -542,8 +543,16 @@ function plate(page) {
  * accent colours to tell a brightened button from one in the accent.
  */
 async function pressedLook(page, testId) {
-  // The colours move over 140 ms; read them once they have settled.
-  await page.waitForTimeout(400);
+  // The colours move over 140 ms; read them once every transition of the
+  // button has ended (a loaded machine stretches a fixed wait past it).
+  await page.waitForFunction(
+    (id) => {
+      const btn = document.querySelector(`[data-testid=${id}]`);
+      return !!btn && btn.getAnimations().every((a) => a.playState !== "running");
+    },
+    testId,
+    { timeout: 5000 },
+  );
   return page.evaluate((id) => {
     const btn = document.querySelector(`[data-testid=${id}]`);
     const resolve = (value) => {
@@ -759,6 +768,30 @@ async function scenarioViews() {
     tree: [...el.querySelectorAll("[data-testid^=edits-tree-file-]")].map((b) => b.dataset.testid.slice("edits-tree-file-".length)).sort(),
     diffs: [...el.querySelectorAll(".dv-file[data-testid^=dv-file-]")].map((d) => d.dataset.testid.slice("dv-file-".length)).sort(),
   }));
+  check("a file's head has no status dot before its name", (await edits.locator(".dv-file-head .dv-file-badge").count()) === 0);
+  // The diffs keep the tree's distances: the first card starts where the
+  // filter does, its head's line is level with the filter's bottom edge, and
+  // the cards stand 10px from their column's sides, as the filter does.
+  const editsRhythm = await edits.evaluate((el) => {
+    const box = (sel) => el.querySelector(sel).getBoundingClientRect();
+    const filter = box(".files-filter input");
+    const side = box(".files-sidebar");
+    const card = box(".dv-file");
+    const head = box(".dv-file-head");
+    const main = box(".dv-scroll");
+    return {
+      top: Math.round(card.top - filter.top),
+      line: Math.round(head.bottom - filter.bottom),
+      cardLeft: Math.round(card.left - main.left),
+      cardRight: Math.round(main.right - card.right),
+      filterLeft: Math.round(filter.left - side.left),
+    };
+  });
+  check(
+    "the diffs keep the tree's distances: the head as tall as the filter, 10px from the column's sides",
+    editsRhythm.top === 0 && editsRhythm.line === 0 && editsRhythm.cardLeft === editsRhythm.filterLeft && editsRhythm.cardRight >= editsRhythm.filterLeft,
+    JSON.stringify(editsRhythm),
+  );
   check(
     "the tree lists the changed files and only them",
     listed.tree.length > 0 && listed.tree.join(",") === listed.diffs.join(","),
@@ -848,6 +881,35 @@ async function scenarioViews() {
   await hit.click();
   await win.locator('[data-file-line="2"] code').waitFor();
   check("the file opens in a tab with its lines", (await win.getByRole("tab", { selected: true }).innerText()).trim() === "util.ts");
+  // A line's number and its text stand in one line box, in one monospaced
+  // font, and no line is painted as the one asked for.
+  const lineBoxes = await win.evaluate((el) =>
+    [...el.querySelectorAll(".files-code > [data-file-line]")].slice(0, 3).map((row) => {
+      const no = row.querySelector(".files-line-no");
+      const code = row.querySelector("code");
+      const a = getComputedStyle(no);
+      const b = getComputedStyle(code);
+      const r1 = no.getBoundingClientRect();
+      const r2 = code.getBoundingClientRect();
+      return {
+        sameFont: a.fontFamily === b.fontFamily && a.fontSize === b.fontSize && a.lineHeight === b.lineHeight,
+        mono: /monospace/.test(a.fontFamily),
+        topDiff: Math.abs(r1.top - r2.top),
+        heightDiff: Math.abs(r1.height - r2.height),
+        painted: getComputedStyle(row).backgroundColor,
+      };
+    }),
+  );
+  check(
+    "a line's number and its text share one monospaced font and one line box",
+    lineBoxes.length === 3 && lineBoxes.every((l) => l.sameFont && l.mono && l.topDiff <= 0.5 && l.heightDiff <= 0.5),
+    JSON.stringify(lineBoxes),
+  );
+  check(
+    "no line of the file is painted as the one asked for",
+    lineBoxes.every((l) => /^rgba\(0, 0, 0, 0\)$|^transparent$/.test(l.painted)),
+    JSON.stringify(lineBoxes.map((l) => l.painted)),
+  );
   const fileView = await win.evaluate((el) => ({
     head: el.querySelectorAll(".files-file-head").length,
     buttons: el.querySelectorAll("[data-testid=files-file] button").length,
@@ -872,6 +934,28 @@ async function scenarioViews() {
   check("Markdown opens as its source: no heading drawn, no picture loaded", markdown.heading === 0 && markdown.images === 0, JSON.stringify(markdown));
   const tabs = await win.getByRole("tab").allInnerTexts();
   check("two files are open side by side in tabs", JSON.stringify(tabs.map((t) => t.trim())) === JSON.stringify(["util.ts", "README.md"]), JSON.stringify(tabs));
+  // The tabs stand as far under the head as the filter, and the marked row of
+  // the tree is as wide as the filter over it.
+  const rhythm = await win.evaluate((el) => {
+    const box = (sel) => el.querySelector(sel).getBoundingClientRect();
+    const head = box(".files-header");
+    const filter = box(".files-filter input");
+    const tab = box(".files-tab");
+    const bar = box(".files-tabs-bar");
+    const row = box(".files-tree-row.is-active");
+    return {
+      filterGap: Math.round(filter.top - head.bottom),
+      tabGap: Math.round(tab.top - head.bottom),
+      tabLine: Math.round(bar.bottom - filter.bottom),
+      rowLeft: Math.round(row.left - filter.left),
+      rowRight: Math.round(row.right - filter.right),
+    };
+  });
+  check(
+    "the tabs start as far under the head as the filter, and the marked row is as wide as the filter",
+    Math.abs(rhythm.filterGap - rhythm.tabGap) <= 1 && rhythm.tabLine === 0 && Math.abs(rhythm.rowLeft) <= 1 && Math.abs(rhythm.rowRight) <= 1,
+    JSON.stringify(rhythm),
+  );
   await shoot(a.page, "files-window-markdown-relay-dark-1280");
 
   // A picture comes as authenticated bytes through the relay.
@@ -937,7 +1021,7 @@ async function scenarioViews() {
   await a.page.locator(".msg-user-body").getByText("@notes/plan.md:3").first().click();
   await win.waitFor();
   await until("the mentioned file at its line", () =>
-    win.evaluate((el) => el.querySelector('[data-file-line="3"].is-active') !== null));
+    win.evaluate((el) => el.querySelector('[data-file-line="3"]') !== null));
   check("a mention opens its file in the window", (await win.getByRole("tab", { selected: true }).innerText()).trim() === "plan.md");
   check("the address keeps the file and the line", /files\?path=notes%2Fplan\.md&line=3$/.test(await a.page.evaluate(() => location.hash)), await a.page.evaluate(() => location.hash));
   check("no page errors on the way", a.errors.length === 0, a.errors.join(" | "));
@@ -999,7 +1083,7 @@ async function scenarioPhone(sid) {
   await p.page.goto(`${RELAY}/#/s/${sid}/files?path=src%2Fmain.go&line=7`);
   const win = p.page.getByTestId("files-view");
   await win.waitFor();
-  await win.locator('[data-file-line="7"].is-active').waitFor({ timeout: 15000 });
+  await win.locator('[data-file-line="7"]').waitFor({ timeout: 15000 });
   const geo = await sideways(p.page);
   check("on a phone the window fits the screen and nothing scrolls sideways", geo.pageScroll <= 0 && geo.window && geo.window.left >= 0 && geo.window.right <= geo.inner.w, JSON.stringify(geo));
   check("on a phone a file opened by its address shows without the tree", (await win.getByTestId("files-tree").count()) === 0 || !(await win.getByTestId("files-tree").isVisible()));
@@ -1067,6 +1151,12 @@ async function scenarioPhone(sid) {
   const edits = p.page.getByTestId("edits-view");
   await edits.getByTestId("dv-file-notes/release.md").waitFor({ timeout: 15000 });
   check("on a phone the edits window opens on the diffs, the tree put away", (await edits.getByTestId("edits-tree").count()) === 0);
+  const totals = await edits.evaluate((el) => {
+    const count = el.querySelector("[data-testid=edits-totals]").getBoundingClientRect();
+    const line = el.querySelector(".files-subtitle").getBoundingClientRect();
+    return { width: Math.round(count.width), countRight: Math.round(count.right), lineRight: Math.round(line.right) };
+  });
+  check("on a phone git's count under the title stays whole", totals.width > 0 && totals.countRight <= totals.lineRight, JSON.stringify(totals));
   await edits.getByTestId("edits-toggle-tree").click();
   await edits.getByTestId("edits-tree-file-notes/release.md").click();
   check(
@@ -1147,7 +1237,7 @@ async function scenarioWidths(sid) {
       await w.context.addCookies([{ name: "coddy_ui_lang", value: lang, url: RELAY }]);
       await w.page.goto(`${RELAY}/#/s/${sid}/files?path=src%2Fmain.go&line=7`);
       const win = w.page.getByTestId("files-view");
-      await win.locator('[data-file-line="7"].is-active').waitFor({ timeout: 15000 });
+      await win.locator('[data-file-line="7"]').waitFor({ timeout: 15000 });
       const geo = await w.page.evaluate(() => {
         const box = (sel) => {
           const r = document.querySelector(sel)?.getBoundingClientRect();
@@ -1261,7 +1351,7 @@ async function scenarioShots() {
   }
   await d.page.setViewportSize({ width: 390, height: 844 });
   await d.page.goto(`${SHOTS_NODE}/#/s/${sid}/files?path=src%2Fmain.go&line=7`);
-  await win.locator('[data-file-line="7"].is-active').waitFor();
+  await win.locator('[data-file-line="7"]').waitFor();
   await shoot(d.page, "workspace-files-window-dark-390");
   // A chat that runs in a linked worktree: the plate names it in the branch's tooltip.
   const worktree = path.join(shotsWorkspace, ".coddy", "worktrees", "feat-docs-refresh");
@@ -1344,10 +1434,122 @@ async function scenarioDocsClose() {
   await own?.close();
 }
 
+/**
+ * A long file scrolls through: the next lines are read as the reader nears the
+ * end of those on screen, with no pages to click.
+ */
+async function scenarioLongFile(sid) {
+  const l = await openPage();
+  await l.page.goto(`${RELAY}/#/s/${sid}/files?path=docs%2Fchangelog.txt`);
+  const win = l.page.getByTestId("files-view");
+  await win.locator('[data-file-line="1"]').waitFor({ timeout: 15000 });
+  check("a long file shows its first lines and no page buttons", (await win.locator(".files-pages").count()) === 0 && (await win.locator('[data-file-line="301"]').count()) === 0);
+  for (let i = 0; i < 20 && (await win.locator('[data-file-line="700"]').count()) === 0; i++) {
+    await win.locator(".files-file-body").evaluate((el) => (el.scrollTop = el.scrollHeight));
+    await l.page.waitForTimeout(250);
+  }
+  const read = await win.evaluate((el) => ({
+    lines: el.querySelectorAll("[data-file-line]").length,
+    first: el.querySelector("[data-file-line]")?.getAttribute("data-file-line"),
+  }));
+  check("scrolled to its end, the file has read every line on", read.lines >= 700 && read.first === "1", JSON.stringify(read));
+  check("no page errors on the way", l.errors.length === 0, l.errors.join(" | "));
+  await l.context.close();
+}
+
+/**
+ * Tabs that do not fit a phone's strip scroll sideways with no arrows, an end
+ * with more fades out, and the tab on show is in view.
+ */
+async function scenarioTabStrip(sid) {
+  const t = await openPage({ width: 390, height: 844 });
+  const files = ["README.md", "notes/plan.md", "src/main.go", "docs/changelog.txt", "src/deep/nested/util.ts", "notes/release.md"];
+  await t.page.goto(`${RELAY}/#/s/${sid}/files?path=${encodeURIComponent(files[0])}`);
+  const win = t.page.getByTestId("files-view");
+  await win.locator('[data-file-line="1"]').waitFor({ timeout: 15000 });
+  for (const file of files.slice(1)) {
+    await t.page.evaluate((hash) => (location.hash = hash), `#/s/${sid}/files?path=${encodeURIComponent(file)}`);
+    await until(`the tab of ${file}`, async () => (await win.getByRole("tab", { selected: true }).innerText()).trim() === file.split("/").pop());
+  }
+  const strip = await win.evaluate((el) => {
+    const s = el.querySelector(".files-tabs");
+    const tab = el.querySelector(".files-tab.is-active").getBoundingClientRect();
+    const r = s.getBoundingClientRect();
+    return {
+      overflow: s.scrollWidth > s.clientWidth,
+      fadeLeft: s.classList.contains("has-more-left"),
+      arrows: el.querySelectorAll(".files-tabs-bar > button").length,
+      activeInView: tab.left >= r.left - 1 && tab.right <= r.right + 1,
+      pageScroll: document.documentElement.scrollWidth - window.innerWidth,
+    };
+  });
+  check(
+    "on a phone tabs that do not fit scroll sideways, no arrows, the tab on show in view",
+    strip.overflow && strip.fadeLeft && strip.arrows === 0 && strip.activeInView && strip.pageScroll <= 0,
+    JSON.stringify(strip),
+  );
+  await t.context.close();
+}
+
+/**
+ * Many changed files: the diffs scroll, a file picked in the tree is scrolled
+ * to without moving the window, and the row the scroll marks stays in the
+ * tree's view. The files are written on the node for this scenario and taken
+ * away after it.
+ */
+async function scenarioManyEdits(sid) {
+  const made = [];
+  for (const dir of ["api", "web", "store"]) {
+    fs.mkdirSync(path.join(workspace, "pkg", dir), { recursive: true });
+    for (let n = 1; n <= 8; n++) {
+      const rel = `pkg/${dir}/helper${n}.go`;
+      const body = Array.from({ length: 12 }, (_, k) => `func helper${n}_${k}() int { return ${n * k} }`).join("\n");
+      fs.writeFileSync(path.join(workspace, rel), `package ${dir}\n\n${body}\n`);
+      made.push(rel);
+    }
+  }
+  const m = await openPage();
+  await m.page.goto(`${RELAY}/#/s/${sid}/changes`);
+  const edits = m.page.getByTestId("edits-view");
+  await edits.getByTestId("dv-file-pkg/web/helper4.go").waitFor({ timeout: 15000 });
+  const target = "pkg/web/helper4.go";
+  await edits.getByTestId(`edits-tree-file-${target}`).click();
+  await m.page.waitForTimeout(300);
+  const jumped = await edits.evaluate((el, target) => {
+    const scroller = el.querySelector(".dv-scroll").getBoundingClientRect();
+    const section = el.querySelector(`[data-testid="dv-file-${target}"]`).getBoundingClientRect();
+    return {
+      gap: Math.round(section.top - scroller.top),
+      head: Math.round(el.querySelector(".files-header").getBoundingClientRect().top),
+      overflow: el.querySelector(".dv-scroll").scrollHeight > el.querySelector(".dv-scroll").clientHeight,
+    };
+  }, target);
+  check(
+    "with many files a pick in the tree scrolls the diffs to the file, 10px under their top, the window still",
+    // WebKit scrolls by whole pixels, so a card on a fractional offset lands a pixel off.
+    jumped.overflow && Math.abs(jumped.gap - 10) <= 1 && jumped.head === 15,
+    JSON.stringify(jumped),
+  );
+  await edits.locator(".dv-scroll").evaluate((el) => (el.scrollTop = el.scrollHeight));
+  await m.page.waitForTimeout(400);
+  const kept = await edits.evaluate((el) => {
+    const tree = el.querySelector("[data-testid=edits-tree]").getBoundingClientRect();
+    const row = el.querySelector("[data-testid=edits-tree] .files-tree-row.is-active")?.getBoundingClientRect();
+    return row ? { inView: row.top >= tree.top - 1 && row.bottom <= tree.bottom + 1 } : { inView: false };
+  });
+  check("the row the scroll marks stays in the tree's view", kept.inView, JSON.stringify(kept));
+  await m.context.close();
+  for (const rel of made) fs.rmSync(path.join(workspace, rel));
+  fs.rmSync(path.join(workspace, "pkg"), { recursive: true, force: true });
+}
+
 try {
   await scenarioDocsClose();
   const sid = await scenarioViews();
   await scenarioPhone(sid);
+  await scenarioLongFile(sid);
+  await scenarioTabStrip(sid);
+  await scenarioManyEdits(sid);
   await scenarioCrossOrigin(sid);
   await scenarioWidths(sid);
   // The edits are the folder's, not the chat's: once they are discarded, a

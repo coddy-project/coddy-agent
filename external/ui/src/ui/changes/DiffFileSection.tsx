@@ -197,30 +197,17 @@ export function DiffFileSection(props: {
           aria-expanded={!props.collapsed}
           data-testid={`dv-file-toggle-${file.path}`}
           onClick={props.onToggle}
-          title={file.path}
+          title={`${file.path} (${t(statusKey(file.status))})`}
         >
           <Chevron open={!props.collapsed} />
-          <span
-            className={"dv-file-badge dv-file-badge--" + file.status}
-            aria-label={t(statusKey(file.status))}
-          />
           <span className="dv-file-path">
             {dir ? <span className="dv-file-dir">{dir + "/"}</span> : null}
             <span className="dv-file-name">{baseName(file.path)}</span>
           </span>
         </button>
 
-        {file.binary ? (
-          <span className="dv-file-stat dv-file-stat--binary">
-            {t("changes.binary")}
-          </span>
-        ) : (
-          <span className="dv-file-stat">
-            <span className="changes-add">{"+" + file.additions}</span>
-            <span className="changes-del">{"−" + file.deletions}</span>
-          </span>
-        )}
-
+        {/* Copy and discard are always in sight; the name folds the diff,
+            so there is no second chevron here. */}
         <span className="dv-file-actions">
           <button
             type="button"
@@ -249,24 +236,19 @@ export function DiffFileSection(props: {
               </svg>
             </button>
           ) : null}
-          <button
-            type="button"
-            className="dv-icon-btn"
-            title={
-              props.collapsed
-                ? t("changes.viewer.expandFile")
-                : t("changes.viewer.collapseFile")
-            }
-            aria-label={
-              props.collapsed
-                ? t("changes.viewer.expandFile")
-                : t("changes.viewer.collapseFile")
-            }
-            onClick={props.onToggle}
-          >
-            <Chevron open={!props.collapsed} />
-          </button>
         </span>
+
+        {/* Git's counts close the row, at its right end. */}
+        {file.binary ? (
+          <span className="dv-file-stat dv-file-stat--binary">
+            {t("changes.binary")}
+          </span>
+        ) : (
+          <span className="dv-file-stat">
+            <span className="changes-add">{"+" + file.additions}</span>
+            <span className="changes-del">{"−" + file.deletions}</span>
+          </span>
+        )}
       </div>
 
       {props.collapsed ? null : (
