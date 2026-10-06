@@ -3288,6 +3288,22 @@ a.rail-brand {
   position: relative;
 }
 
+/* Message editing: the prompt loaded into the composer is outlined in the
+   accent colour, and every row after it is faded, because sending the edit
+   removes exactly those rows. The rows are siblings under .messages-inner
+   (each row root is a direct child), so a general sibling selector reaches
+   them without the rows knowing about the edit. See DESIGN.md, Message
+   editing. */
+.msg-user-stack--editing .msg-user {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.msg-user-stack--editing ~ * {
+  opacity: 0.45;
+  transition: opacity 0.15s ease;
+}
+
 /* User turns are plain text (no Markdown); preserve composer line breaks. */
 .msg-user-body {
   margin: 0;
@@ -4684,6 +4700,82 @@ code.md-math-pending {
   background: var(--coddy-glass-panel-bg);
   color: var(--text);
   font-size: 12px;
+}
+
+/* The edit banner: the composer says which message it holds while a sent
+   message is being edited, and offers Undo once the edit was sent. The same
+   frosted panel as the queue rows above the card; the cross sits where the
+   queue's remove control sits. */
+.composer-edit-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 6px 0;
+  padding: 6px 12px;
+  border-radius: 12px;
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--coddy-glass-panel-border));
+  box-shadow: var(--coddy-glass-panel-shadow);
+  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* The undo banner is one line: the title and the note side by side, Undo and
+   the cross centred on it. The cross is the queue's control, which sits at the
+   top of its row; here it follows the line like Undo does. */
+.composer-edit-banner--done {
+  align-items: center;
+  border-color: var(--coddy-glass-panel-border);
+}
+
+.composer-edit-banner--done > * {
+  align-self: center;
+}
+
+.composer-edit-banner--done .composer-edit-banner-body {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 6px;
+  padding-top: 0;
+}
+
+.composer-edit-banner-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  padding-top: 4px;
+  color: var(--accent);
+}
+
+.composer-edit-banner-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding-top: 3px;
+}
+
+.composer-edit-banner-title {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.composer-edit-banner-snippet {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.composer-edit-banner-hint {
+  color: var(--muted);
+}
+
+.composer-edit-banner .composer-undo-edit:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 /* The primary control keeps its circle and swaps only its meaning: a draft

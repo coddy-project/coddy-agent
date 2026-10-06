@@ -460,6 +460,25 @@ export function App() {
   const [editingFiles, setEditingFiles] = useState<
     { name: string; mimeType: string }[]
   >([]);
+  // What the edit banner names: the text of the prompt being edited.
+  const [editingSnippet, setEditingSnippet] = useState("");
+  // The draft and attachments the pencil replaced, put back when the edit is
+  // cancelled; null while no edit is open.
+  const editingPrevDraftRef = useRef<{ draft: string; files: File[] } | null>(
+    null,
+  );
+  // The prompt the last rewind edited while the server can still take it
+  // back (rewindUndo of GET .../messages), for the session it was read for.
+  const [rewindUndo, setRewindUndo] = useState<{
+    sid: string;
+    userMsgIdx: number;
+  } | null>(null);
+  // "sid:index" of an undo whose composer banner was put away; the Undo on the
+  // prompt stays.
+  const [rewindUndoDismissed, setRewindUndoDismissed] = useState("");
+  const [rewindUndoBusy, setRewindUndoBusy] = useState(false);
+  // Held synchronously, so two clicks inside one render post one undo.
+  const rewindUndoBusyRef = useRef(false);
   const [draft, setDraft] = useState(() => {
     if (initialRoute.branch !== "draft") return "";
     const id = initialRoute.draftId.trim();
@@ -3153,6 +3172,7 @@ export function App() {
       } | null;
       readOnly?: boolean;
       archived?: boolean;
+      rewindUndo?: { userMessageIndex?: number } | null;
       messagesRev?: number;
       uiLog?: Array<{
         id?: string;
@@ -3225,6 +3245,13 @@ export function App() {
           ? archiveWrite.archived
           : !!res.data.archived,
       );
+      // Every read says whether the last rewind can still be taken back.
+      const undoIdx = res.data.rewindUndo?.userMessageIndex;
+      const offered = typeof undoIdx === "number" && undoIdx >= 0;
+      setRewindUndo(offered ? { sid, userMsgIdx: undoIdx } : null);
+      // A banner put away belongs to that undo only: once it is gone, the
+      // next edit of the same prompt announces itself again.
+      if (!offered) setRewindUndoDismissed("");
     }
     const pageMessages = res.data.messages || [];
     const pageWindow = parseTranscriptWindow(
@@ -4002,25 +4029,109 @@ export function App() {
     try {
       await loadMessages(sid, { freshLoad: true });
     } catch (err) {
+      // The edited text stays in the field as an ordinary draft; the edit
+      // itself is over, so nothing of it may outlive this branch.
       setEditingUserMsgIdx(null);
       setEditingAssetNote("");
       setEditingFiles([]);
+      setEditingSnippet("");
+      editingPrevDraftRef.current = null;
       showRewindError(
         `Rewind applied but reloading failed: ${err instanceof Error ? err.message : String(err)}`,
       );
       return;
     }
-    setDraft("");
+    // The edit is on its way: the draft the pencil set aside comes back, so a
+    // follow-up written before the edit is not lost with it.
+    const prev = editingPrevDraftRef.current;
+    editingPrevDraftRef.current = null;
+    setDraft(prev?.draft ?? "");
+    setComposerFiles(prev?.files ?? []);
     setEditingUserMsgIdx(null);
     setEditingAssetNote("");
     setEditingFiles([]);
+    setEditingSnippet("");
     void streamResponses(text);
+  }
+
+  /**
+   * Takes the last edit back: a turn the edit started is stopped first, then
+   * the server restores the conversation as it was before the rewind and the
+   * transcript is read again.
+   */
+  async function handleUndoEdit() {
+    const sid = sessionId.trim();
+    if (!sid || rewindUndoBusyRef.current) return;
+    rewindUndoBusyRef.current = true;
+    setRewindUndoBusy(true);
+    const showUndoError = (error: string) => {
+      applyStreamItemsForSession(sid, (prev) => [
+        ...prev,
+        {
+          id: newId("s"),
+          type: "system_notice" as const,
+          level: "error" as const,
+          message: t("app.undoEditFailed", { error }),
+          createdAtUtc: new Date().toISOString(),
+        },
+      ]);
+    };
+    try {
+      if (
+        turnActivity.get(sid) ??
+        activeComposerSidRef.current.has(sid)
+      ) {
+        // Releases this tab's stream of the turn; the server cancels the turn
+        // and waits for it to end before restoring anyway.
+        await stopActiveGeneration();
+      }
+      let res: Response;
+      try {
+        res = await fetch(
+          `/coddy/sessions/${encodeURIComponent(sid)}/rewind/undo`,
+          { method: "POST", headers: { ...headers } },
+        );
+      } catch (err) {
+        showUndoError(err instanceof Error ? err.message : String(err));
+        return;
+      }
+      if (!res.ok) {
+        let errMsg = `HTTP ${res.status}`;
+        try {
+          const body = (await res.json()) as { error?: { message?: string } };
+          if (body?.error?.message) errMsg = body.error.message;
+        } catch {
+          /* ignore */
+        }
+        showUndoError(errMsg);
+        return;
+      }
+      // The history changed under this client the way a rewind changes it.
+      setRewindUndo(null);
+      setRewindUndoDismissed("");
+      streamShadowBySidRef.current.delete(sid);
+      clearPermissionPromptRecords(sid);
+      try {
+        await loadMessages(sid, { freshLoad: true });
+      } catch (err) {
+        showUndoError(err instanceof Error ? err.message : String(err));
+      }
+    } finally {
+      rewindUndoBusyRef.current = false;
+      setRewindUndoBusy(false);
+    }
   }
 
   useEffect(() => {
     setEditingUserMsgIdx(null);
     setEditingAssetNote("");
     setEditingFiles([]);
+    setEditingSnippet("");
+    // Attachments outlive a switch of conversation; the ones an open edit set
+    // aside go back to the composer instead of being dropped with the edit.
+    const setAside = editingPrevDraftRef.current;
+    editingPrevDraftRef.current = null;
+    if (setAside && setAside.files.length > 0) setComposerFiles(setAside.files);
     // Another conversation: the older pages read for the last one go, and the
     // reader starts at the newest message of this one.
     setOlderTranscript(null);
@@ -6063,12 +6174,32 @@ export function App() {
   const handleEditUserMessage = useStableHandler(
     (content: string, userMsgIdx: number) => {
       const assetNote = extractSessionAssetsXml(content);
-      setDraft(stripCoddyAttachmentsForUserDisplay(content));
+      const text = stripCoddyAttachmentsForUserDisplay(content);
+      // The draft to come back to is the one written before the first pencil:
+      // a second pencil only switches the message being edited.
+      if (editingPrevDraftRef.current === null) {
+        editingPrevDraftRef.current = { draft, files: composerFiles };
+      }
+      // An edit resends its own attachments; files attached to the draft it
+      // replaced wait for it in editingPrevDraftRef.
+      setComposerFiles([]);
+      setDraft(text);
       setEditingUserMsgIdx(userMsgIdx);
+      setEditingSnippet(text);
       setEditingAssetNote(assetNote);
       setEditingFiles(parseSessionAssetFiles(content));
     },
   );
+  const handleCancelEdit = useStableHandler(() => {
+    const prev = editingPrevDraftRef.current;
+    editingPrevDraftRef.current = null;
+    setEditingUserMsgIdx(null);
+    setEditingSnippet("");
+    setEditingAssetNote("");
+    setEditingFiles([]);
+    setDraft(prev?.draft ?? "");
+    setComposerFiles(prev?.files ?? []);
+  });
   /**
    * Queue the draft for the turn that is running instead of refusing it.
    *
@@ -6737,6 +6868,31 @@ export function App() {
                 })}
             {...(subagentTranscript ? {} : { onEdit: handleEditUserMessage })}
             {...(editingFiles.length > 0 ? { editingFiles } : {})}
+            {...(!subagentTranscript && editingUserMsgIdx !== null
+              ? {
+                  editingUserMsgIdx,
+                  editingSnippet,
+                  onCancelEdit: handleCancelEdit,
+                }
+              : {})}
+            {...(!subagentTranscript
+              ? (() => {
+                  const undoIdx =
+                    rewindUndo && rewindUndo.sid === sessionId.trim()
+                      ? rewindUndo.userMsgIdx
+                      : null;
+                  return {
+                    rewindUndoUserMsgIdx: undoIdx,
+                    rewindUndoBanner:
+                      undoIdx !== null &&
+                      rewindUndoDismissed !== `${sessionId.trim()}:${undoIdx}`,
+                    rewindUndoBusy,
+                    onUndoEdit: () => void handleUndoEdit(),
+                    onDismissRewindUndo: () =>
+                      setRewindUndoDismissed(`${sessionId.trim()}:${undoIdx}`),
+                  };
+                })()
+              : {})}
             {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
             onDocsCommand={openDocsCommand}
             onMCPCommand={() => {
@@ -6773,6 +6929,9 @@ export function App() {
                 void handleRewindSend(textWithAssets, idx);
               } else {
                 setDraft("");
+                // A prompt after the edited turn ends the undo on the server.
+                setRewindUndo(null);
+                setRewindUndoDismissed("");
                 void streamResponses(text, {
                   restoreOnRefusal: true,
                   ...(files ? { files } : {}),

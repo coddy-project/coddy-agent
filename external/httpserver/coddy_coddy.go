@@ -1749,6 +1749,11 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 	if archived, _ := st.ArchiveState(); archived {
 		out["archived"] = true
 	}
+	// The last rewind can still be taken back: the client offers Undo on the
+	// prompt it edited.
+	if idx, ok := s.mgr.RewindUndoAvailable(id); ok {
+		out["rewindUndo"] = map[string]int{"userMessageIndex": idx}
+	}
 	if s.activeCfg() != nil {
 		out["selectedModelId"] = strings.TrimSpace(st.GetSelectedModelID())
 		out["model"] = effectiveYAMLModel(s.activeCfg(), st)

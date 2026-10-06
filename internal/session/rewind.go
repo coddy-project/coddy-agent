@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
@@ -72,11 +73,17 @@ func (m *Manager) RewindSession(sessionID string, userMessageIndex int) (uint64,
 		return 0, err
 	}
 	defer unlock()
+	// The previous snapshot goes before the cut, not after it: a crash between
+	// the save below and its removal would otherwise leave the tail of the
+	// earlier edit offered as the undo of this one.
+	undoDir := filepath.Join(dir, rewindUndoDirName)
+	_ = os.RemoveAll(undoDir)
 	// The flock is ours, so TurnLockHeld would see only ourselves: the recheck
 	// under the state lock looks at the in-process flag alone.
-	if err := st.TruncateMessagesBeforeUserN(userMessageIndex, func() bool {
+	cutMsgs, cutUILog, err := st.TruncateMessagesBeforeUserN(userMessageIndex, func() bool {
 		return m.SessionTurnActiveInProcess(sessionID)
-	}); err != nil {
+	})
+	if err != nil {
 		return 0, err
 	}
 	// The truncated history must reach disk before artifacts are pruned:
@@ -86,28 +93,52 @@ func (m *Manager) RewindSession(sessionID string, userMessageIndex int) (uint64,
 	if err := m.store.Save(st); err != nil {
 		return 0, fmt.Errorf("persist rewound history: %w", err)
 	}
-	rewindCleanupArtifacts(dir, st.GetMessages())
+	// The cut tail is kept as an undo snapshot until a second prompt after
+	// the edited turn (or a rewrite of the kept prefix) retires it; a
+	// snapshot that cannot be written only means the undo is not offered,
+	// it must not fail the rewind itself.
+	keepDir := ""
+	if err := writeRewindUndoSnapshot(undoDir, &rewindUndoSnapshot{
+		UserMessageIndex: userMessageIndex,
+		BaseLen:          len(st.GetMessages()),
+		PrefixDigest:     prefixDigest(st.GetMessages()),
+		Messages:         cutMsgs,
+		UILog:            cutUILog,
+		CreatedAt:        time.Now().UTC().Format(time.RFC3339Nano),
+	}); err != nil {
+		if m.log != nil {
+			m.log.Warn("rewind undo snapshot", "session", sessionID, "error", err)
+		}
+		_ = os.RemoveAll(undoDir)
+	} else {
+		keepDir = filepath.Join(undoDir, toolCallsDirName)
+	}
+	rewindCleanupArtifacts(dir, st.GetMessages(), keepDir)
 	return st.MessagesRev(), nil
 }
 
 // TruncateMessagesBeforeUserN drops the Nth (0-based) user message and every
-// message after it, in place. UI log rows stamped with a turn number beyond
-// the surviving prefix go with the dropped turns (appendUILog stamps a
-// 1-based CountUserTurns, so rows belonging to surviving turns carry
-// userTurnIndex <= n). turnActive, when set, is re-checked under the state
-// lock right before the cut so a turn admitted after the caller's own check
-// still refuses instead of appending onto a rewound history.
-func (s *State) TruncateMessagesBeforeUserN(n int, turnActive func() bool) error {
+// message after it, in place, and hands the cut parts back: cutMsgs is a copy
+// of the dropped tail (the backing array is reused by later appends, so the
+// snapshot an undo reads must not share it) and cutUILog the ui log rows
+// stamped with a turn number beyond the surviving prefix, in order
+// (appendUILog stamps a 1-based CountUserTurns, so rows belonging to
+// surviving turns carry userTurnIndex <= n). turnActive, when set, is
+// re-checked under the state lock right before the cut so a turn admitted
+// after the caller's own check still refuses instead of appending onto a
+// rewound history.
+func (s *State) TruncateMessagesBeforeUserN(n int, turnActive func() bool) (cutMsgs []llm.Message, cutUILog []UILogEntry, err error) {
 	s.mu.Lock()
 	idx := nthUserMessageIndex(s.Messages, n)
 	if idx < 0 {
 		s.mu.Unlock()
-		return ErrRewindOutOfRange
+		return nil, nil, ErrRewindOutOfRange
 	}
 	if turnActive != nil && turnActive() {
 		s.mu.Unlock()
-		return ErrSessionTurnActive
+		return nil, nil, ErrSessionTurnActive
 	}
+	cutMsgs = append([]llm.Message(nil), s.Messages[idx:]...)
 	s.Messages = s.Messages[:idx]
 	// UILog entries are stamped with CountUserTurns, which counts every
 	// user-role row including compaction summaries; the keep bound is the
@@ -117,13 +148,15 @@ func (s *State) TruncateMessagesBeforeUserN(n int, turnActive func() bool) error
 	for _, e := range s.UILog {
 		if e.UserTurnIndex <= uilogBound {
 			kept = append(kept, e)
+		} else {
+			cutUILog = append(cutUILog, e)
 		}
 	}
 	s.UILog = kept
 	s.markMessagesEdited()
 	s.mu.Unlock()
 	s.touchPersist()
-	return nil
+	return cutMsgs, cutUILog, nil
 }
 
 // nthUserMessageIndex returns the index of the Nth (0-based) llm.RoleUser
@@ -146,8 +179,10 @@ func nthUserMessageIndex(msgs []llm.Message, n int) int {
 
 // rewindCleanupArtifacts drops files that only made sense while the truncated
 // tail still existed. Everything here is best-effort: a leftover file is
-// harmless, a failed removal must not fail the rewind.
-func rewindCleanupArtifacts(sessionDir string, msgs []llm.Message) {
+// harmless, a failed removal must not fail the rewind. keepDir, when set, is
+// where the tool-call detail of the cut calls is moved instead of deleted -
+// the rewind undo snapshot keeps it there until the snapshot is spent.
+func rewindCleanupArtifacts(sessionDir string, msgs []llm.Message, keepDir string) {
 	// Legacy fork bookkeeping and per-turn file diffs have no readers left.
 	_ = os.Remove(filepath.Join(sessionDir, "branches.json"))
 	_ = os.RemoveAll(filepath.Join(sessionDir, "diffs"))
@@ -170,7 +205,15 @@ func rewindCleanupArtifacts(sessionDir string, msgs []llm.Message) {
 	if dirs, err := ListToolCalls(sessionDir); err == nil {
 		for _, d := range dirs {
 			if _, ok := keep[d]; !ok {
-				_ = os.RemoveAll(filepath.Join(sessionDir, toolCallsDirName, d))
+				src := filepath.Join(sessionDir, toolCallsDirName, d)
+				if keepDir != "" {
+					if err := os.MkdirAll(keepDir, 0o755); err == nil {
+						if err := os.Rename(src, filepath.Join(keepDir, d)); err == nil {
+							continue
+						}
+					}
+				}
+				_ = os.RemoveAll(src)
 			}
 		}
 	}
