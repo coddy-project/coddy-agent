@@ -5294,9 +5294,9 @@ textarea#composer {
   background: transparent;
   border: 0;
   border-radius: 0;
-  /* 13px on top puts the middle of the first line (15px type, 1.5 line height)
+  /* 9px on top puts the middle of the first line (15px type, 1.5 line height)
      on the middle of the improve-prompt wand in the corner. */
-  padding: 13px 44px 10px 16px;
+  padding: 9px 44px 10px 16px;
   outline: none;
 }
 
@@ -5317,7 +5317,7 @@ textarea#composer {
 .composer-mirror-inner {
   box-sizing: border-box;
   width: 100%;
-  padding: 13px 44px 10px 16px;
+  padding: 9px 44px 10px 16px;
   white-space: pre-wrap;
   word-wrap: break-word;
   overflow-wrap: break-word;
@@ -5389,10 +5389,12 @@ textarea#composer {
 /* The improve-prompt wand stands in the field's top right corner rather than in
    a row of its own, so the field (and its placeholder) starts at the top of the
    card; the textarea and its mirror keep 44px clear on the right for it. Its
-   right edge is the line git's count on the plate above ends on. */
+   right edge is the line git's count on the plate above ends on. 8px under
+   the seam reads as deep as the 12px to the card's edge: the seam is lighter
+   than the edge, and the same 12px above looked deeper. */
 .composer-enhance-btn {
   position: absolute;
-  top: 12px;
+  top: 8px;
   right: 12px;
   z-index: 2;
   display: inline-flex;
@@ -15763,12 +15765,12 @@ html:not([data-theme="light"]) .swarm-graph-panel {
    does not zoom back. Phones in both orientations and touch tablets. */
 @media (max-width: 599px), (any-hover: none) and (any-pointer: coarse) {
   /* The mirror draws the mention highlights under the textarea: the two
-     must keep the same metrics. 12px on top keeps the first line's middle
+     must keep the same metrics. 8px on top keeps the first line's middle
      on the wand's at the larger type. */
   .composer-mirror-inner,
   textarea#composer {
     font-size: 16px;
-    padding-top: 12px;
+    padding-top: 8px;
   }
 
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(

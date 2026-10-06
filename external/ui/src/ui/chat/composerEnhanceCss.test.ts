@@ -17,14 +17,16 @@ test("prompt enhancement control sits in the field's corner and the text keeps c
   const block = css.match(/\.composer-enhance-btn\s*\{([^}]+)\}/s);
   expect(block).not.toBeNull();
   expect(block![1]).toMatch(/position:\s*absolute/);
-  expect(block![1]).toMatch(/top:\s*12px/);
+  // 8px under the seam reads as deep as the 12px to the card's edge: the seam
+  // is lighter than the edge, so the same 12px above looked deeper.
+  expect(block![1]).toMatch(/top:\s*8px/);
   expect(block![1]).toMatch(/right:\s*12px/);
   expect(block![1]).toMatch(/width:\s*24px/);
   expect(block![1]).toMatch(/height:\s*24px/);
   const ta = css.match(/\ntextarea#composer\s*\{([^}]+)\}/s)![1]!;
   const mirror = css.match(/\n\.composer-mirror-inner\s*\{([^}]+)\}/s)![1]!;
   const pad = (body: string) => /padding:\s*([^;]+);/.exec(body)![1]!.trim();
-  expect(pad(ta)).toBe("13px 44px 10px 16px");
+  expect(pad(ta)).toBe("9px 44px 10px 16px");
   expect(pad(mirror)).toBe(pad(ta));
 });
 
