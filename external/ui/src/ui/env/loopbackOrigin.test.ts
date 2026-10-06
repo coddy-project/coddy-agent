@@ -1,42 +1,35 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { isLoopbackOrigin } from "./loopbackOrigin";
 
-// The same table the server's isLoopbackOrigin is held to
-// (internal/config/config_test.go), so the hint names the toggle exactly where
-// the server would honour it.
+// The cases live in internal/config/testdata/loopback_origin_cases.json, which
+// the server's test (internal/config/config_test.go) reads too: the server and
+// this hint are held to the same literals, so the hint names the toggle exactly
+// where the server would honour it. Change both or neither.
+type OriginCase = { origin: string; loopback: boolean; note?: string };
+
+const cases = JSON.parse(
+  readFileSync(
+    join(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../../../../internal/config/testdata/loopback_origin_cases.json",
+    ),
+    "utf8",
+  ),
+) as OriginCase[];
+
 describe("isLoopbackOrigin", () => {
-  it.each([
-    "http://localhost",
-    "http://localhost:1",
-    "https://LOCALHOST:443",
-    "http://127.0.0.1:12345",
-    "http://127.1.2.3:80",
-    "http://[::1]:5173",
-    "http://[::1]",
-    "http://app.localhost:3000",
-  ])("admits %s", (origin) => {
+  it("reads the shared cases", () => {
+    expect(cases.length).toBeGreaterThanOrEqual(40);
+  });
+
+  it.each(cases.filter((c) => c.loopback))("admits $origin", ({ origin }) => {
     expect(isLoopbackOrigin(origin)).toBe(true);
   });
 
-  it.each([
-    "http://localhost.evil.com",
-    "http://evil.com",
-    "http://10.0.0.5:12345",
-    "http://0.0.0.0:1",
-    "ftp://localhost",
-    "localhost:12345",
-    "null",
-    "",
-    "http://localhost:5173/path",
-    "http://localhost:5173/",
-    "http://localhost:5173?q=1",
-    "http://localhost?",
-    "http://localhost:5173#f",
-    "http://localhost#",
-    "http://user@localhost:5173",
-    "http://::1",
-    "http://127.0.0.1:0",
-  ])("refuses %s", (origin) => {
+  it.each(cases.filter((c) => !c.loopback))("refuses $origin", ({ origin }) => {
     expect(isLoopbackOrigin(origin)).toBe(false);
   });
 });

@@ -155,11 +155,13 @@ type HTTPCORSConfig struct {
 	Enabled bool `yaml:"enable"`
 	// AllowLoopback also admits every page served from the browser's own
 	// machine: an http or https origin whose host is localhost, a *.localhost
-	// name, 127.0.0.0/8 or [::1], on any port. It is the laptop case of a
-	// remote coddy serve - the web UI comes from the laptop's own coddy serve,
-	// and its port moves between installations - where AllowedOrigins would
-	// need the exact string of each. Narrower than "*", and like "*" only as
-	// safe as the credential behind the API.
+	// name, 127.0.0.0/8 or [::1], on any port (an IPv4-mapped IPv6 spelling
+	// such as [::ffff:127.0.0.1] is none of those: list it in AllowedOrigins if
+	// it is wanted). It is the laptop case of a remote coddy serve - the web UI
+	// comes from the laptop's own coddy serve, and its port moves between
+	// installations - where AllowedOrigins would need the exact string of each.
+	// Narrower than "*", and like "*" only as safe as the credential behind the
+	// API.
 	AllowLoopback bool `yaml:"allow_loopback"`
 	// AllowedOrigins are exact origins permitted to call the API (e.g. "http://localhost:5173").
 	// A single "*" allows any origin (bearer auth still applies).
@@ -261,9 +263,48 @@ func isLoopbackOrigin(origin string) bool {
 	if host == "" {
 		return false
 	}
+	return isLoopbackOriginHost(host)
+}
+
+// isLoopbackOriginHost is the host half of the origin test: localhost, a
+// *.localhost name, an address of 127.0.0.0/8 in dotted form, or ::1 in any
+// spelling of it. It is narrower than isLoopbackHostname on purpose. A bind
+// address is judged by that one; a page's origin, which the echo makes a
+// statement about, by this:
+//   - net.IP.IsLoopback also admits an IPv4-mapped IPv6 address, and the page
+//     at [::ffff:127.0.0.1] has the origin http://[::ffff:7f00:1]:<port>, which
+//     is neither spelling the setting names;
+//   - url.Parse tolerates characters in a host (a bracket, a non-ASCII letter)
+//     that no browser sends in a name, so a name is checked for the characters
+//     of a host name before its suffix is read.
+func isLoopbackOriginHost(host string) bool {
+	if ip := net.ParseIP(host); ip != nil {
+		if strings.Contains(host, ":") {
+			return ip.Equal(net.IPv6loopback)
+		}
+		return ip.IsLoopback()
+	}
+	if !isHostNameText(host) {
+		return false
+	}
 	// RFC 6761 reserves *.localhost for loopback and browsers resolve it so
 	// without a hosts entry, which is what makes it a usable alias scheme.
-	return isLoopbackHostname(host) || strings.HasSuffix(strings.ToLower(host), ".localhost")
+	host = strings.ToLower(host)
+	return host == "localhost" || strings.HasSuffix(host, ".localhost")
+}
+
+// isHostNameText reports whether s is made only of the characters a host name
+// is written with: letters, digits, hyphen, underscore and dot.
+func isHostNameText(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '-', c == '_', c == '.':
+		default:
+			return false
+		}
+	}
+	return s != ""
 }
 
 // EffectiveAuthTokens returns the configured token as a slice (empty when unset), so callers can

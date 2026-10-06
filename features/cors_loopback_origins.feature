@@ -13,7 +13,7 @@ Feature: A laptop's page on any loopback port may call a remote coddy serve
     Then the preflight is answered with 204
     And the response allows the origin "http://localhost:5173"
 
-  Scenario: A loopback page on any port and in any spelling reads the model list
+  Scenario: A loopback page on any port and in each spelling of loopback reads the model list
     Given a coddy HTTP server with token "remote-secret" whose CORS allows loopback origins
     When a page at "http://127.0.0.1:12345" requests "/v1/models" with the token
     Then the request succeeds
