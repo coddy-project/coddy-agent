@@ -4,7 +4,7 @@ import { languageForPath } from "../changes/diffLanguage";
 import { highlightLine } from "../changes/highlightLine";
 import { FileImage } from "./FileImage";
 import { FileMarkdown } from "./FileMarkdown";
-import { mediaUrl, readMeta, readText } from "./api";
+import { HttpError, mediaUrl, readMeta, readText } from "./api";
 import type { FileMeta, TextPage } from "./api";
 
 /** How many lines one text window holds. */
@@ -73,6 +73,11 @@ export function FilePreview(props: {
   const [text, setText] = useState<TextPage | null>(null);
   const [source, setSource] = useState(false);
   const [error, setError] = useState("");
+  // The failed read was of a file that is not text (415), not a network or
+  // permission failure: only then does the notice offer the download.
+  const [binary, setBinary] = useState(false);
+  // What the line field shows while it is typed in; it moves the file on Enter.
+  const [lineDraft, setLineDraft] = useState(String(props.line));
   const [changed, setChanged] = useState(false);
   const [loading, setLoading] = useState(false);
   const [media, setMedia] = useState("");
@@ -106,8 +111,16 @@ export function FilePreview(props: {
 
   useEffect(() => {
     setSource(false);
-    setChanged(false);
   }, [path]);
+
+  // The notice that the file changed stays until another file or Reload.
+  useEffect(() => {
+    setChanged(false);
+  }, [path, props.epoch]);
+
+  useEffect(() => {
+    setLineDraft(String(props.line));
+  }, [props.line]);
 
   useEffect(() => {
     const refresh = () => setFocusEpoch((n) => n + 1);
@@ -140,6 +153,7 @@ export function FilePreview(props: {
       setMeta(null);
     }
     setError("");
+    setBinary(false);
     const abort = new AbortController();
     setLoading(true);
     void (async () => {
@@ -202,6 +216,7 @@ export function FilePreview(props: {
         if (!abort.signal.aborted) {
           const message = err instanceof Error ? err.message : String(err);
           setError(message);
+          setBinary(err instanceof HttpError && err.status === 415);
           props.onError?.(message);
         }
       } finally {
@@ -227,6 +242,12 @@ export function FilePreview(props: {
       ?.querySelector(`[data-file-line="${props.line}"]`)
       ?.scrollIntoView({ block: "center" });
   }, [text, props.line]);
+
+  const commitLine = () => {
+    const n = Math.max(1, Math.floor(Number(lineDraft)) || 1);
+    setLineDraft(String(n));
+    if (n !== props.line) props.onLine(n);
+  };
 
   const kind = meta ? renderer(path, meta.type) : null;
   const language = languageForPath(path);
@@ -283,11 +304,12 @@ export function FilePreview(props: {
               <input
                 type="number"
                 min={1}
-                value={props.line}
-                onChange={(e) => {
-                  const n = Math.max(1, Math.floor(Number(e.target.value)) || 1);
-                  props.onLine(n);
+                value={lineDraft}
+                onChange={(e) => setLineDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitLine();
                 }}
+                onBlur={commitLine}
               />
             </label>
           ) : null}
@@ -305,8 +327,12 @@ export function FilePreview(props: {
         {error ? (
           <p role="alert" className="files-note">
             {error}
-            <br />
-            {t("files.binary")}
+            {binary ? (
+              <>
+                <br />
+                {t("files.binary")}
+              </>
+            ) : null}
           </p>
         ) : null}
         {kind === "image" && meta ? (
@@ -332,14 +358,14 @@ export function FilePreview(props: {
         {kind === "pdf" ? (
           <p className="files-note">{t("files.pdfDownload")}</p>
         ) : null}
-        {text ? (
+        {text && (kind === "text" || kind === "markdown") ? (
           <>
             {kind === "markdown" && !source ? (
               <FileMarkdown
                 sessionId={sessionId}
                 path={path}
                 text={text.lines.join("\n")}
-                version={`${meta?.etag || ""}:${props.epoch}:${props.activity}`}
+                version={`${meta?.etag || ""}:${props.epoch}`}
               />
             ) : (
               <div
@@ -382,7 +408,7 @@ export function FilePreview(props: {
                 <button
                   type="button"
                   disabled={!offset}
-                  onClick={() => setOffset(Math.max(0, offset - PAGE_LINES))}
+                  onClick={() => props.onLine(Math.max(0, offset - PAGE_LINES) + 1)}
                 >
                   {t("files.previous")}
                 </button>
@@ -392,7 +418,7 @@ export function FilePreview(props: {
                 <button
                   type="button"
                   disabled={!text.has_more}
-                  onClick={() => setOffset(text.next_offset)}
+                  onClick={() => props.onLine(text.next_offset + 1)}
                 >
                   {t("files.next")}
                 </button>

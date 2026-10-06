@@ -310,3 +310,27 @@ func TestRelayCORSCarriesTheFilesWindowHeaders(t *testing.T) {
 		t.Errorf("ETag %q did not cross the relay", res.Header.Get("ETag"))
 	}
 }
+
+// A relay that asks no client token hands a capability request on the same
+// way: mounted under a relay that has a gate, it must not vouch for what the
+// outer relay let in on a capability, or a forged one would read any file.
+func TestAnOpenRelayInAChainLeavesTheCapabilityToTheNode(t *testing.T) {
+	node := &mediaCapabilityNode{}
+	ns := node.server()
+	defer ns.Close()
+	inner, innerTS := mountTestRelay(t, ns.URL)
+	defer innerTS.Close()
+	inner.cfg.Swarm.AuthToken = ""
+	_, outer := mountTestRelay(t, innerTS.URL)
+	defer outer.Close()
+
+	res, err := http.Get(outer.URL + "/swarm/nodes/nas02/swarm/nodes/nas02/coddy/sessions/sess_1/workspace/raw?path_rel=a.txt&access_token=" + url.QueryEscape(mediaCapability))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	got := node.last(t)
+	if got.authorization != "" || got.accessToken != mediaCapability {
+		t.Fatalf("node saw authorization %q and access_token %q: the open relay vouched for a capability request", got.authorization, got.accessToken)
+	}
+}

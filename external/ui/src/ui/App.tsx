@@ -5595,6 +5595,8 @@ export function App() {
       setSettingsRoute(false);
       setDocsRoute(null);
       setSwarmRoute(false);
+      // The review window is a modal over everything; the files take its place.
+      setChangesViewerOpen(false);
       setFilePath(path || "");
       setFileLine(line || 1);
       if (path) setFileOpenSeq((n) => n + 1);
@@ -6520,8 +6522,12 @@ export function App() {
             if (!shellBackdropOpen) return;
             // Over the chat the Files window is all the backdrop covers: closing
             // it gives the address back to what the dock under it shows.
-            if (filesOpen && sessionId.trim()) closeFilesWindow();
-            else closeAllShellDrawers();
+            if (filesOpen && sessionId.trim()) {
+              closeFilesWindow();
+              setSessionsOpen(false);
+              setSchedulerOpen(false);
+              setSchedulerEditor(null);
+            } else closeAllShellDrawers();
           }}
           aria-hidden={!shellBackdropOpen}
         />

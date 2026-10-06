@@ -267,3 +267,17 @@ test("a view opened from elsewhere puts the menu away", () => {
   rerender(viewsHeader({ filesOpen: true }));
   expect(screen.queryByRole("menu")).toBeNull();
 });
+
+// Tab leaves a menu the way it leaves any other control: the menu goes and the
+// focus moves on from the control that opened it, in the same key press.
+test("Tab puts the menu away and lets the focus move on from its control", () => {
+  render(viewsHeader());
+  const control = screen.getByTestId("chat-header-tasks");
+  fireEvent.click(control);
+  const moved = fireEvent.keyDown(screen.getByTestId("chat-views-tasks"), {
+    key: "Tab",
+  });
+  expect(moved).toBe(true);
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(document.activeElement).toBe(control);
+});

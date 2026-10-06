@@ -27,8 +27,10 @@ export function forgetOpenFiles(): void {
 // The paths of one server mean nothing on another.
 onEnvironmentSwitch(forgetOpenFiles);
 
-function memoryKey(sessionId: string, workspacePath: string): string {
-  return `${sessionId}\n${workspacePath}`;
+// A chat's workspace is chosen once, before its first message, so the chat
+// alone names its files; the window remounts when it learns the folder.
+function memoryKey(sessionId: string): string {
+  return sessionId;
 }
 
 /** The last segment of the workspace folder, the way the window names it. */
@@ -75,7 +77,7 @@ export function FilesView(props: {
   const { t } = useT();
   const { sessionId } = props;
   const workspacePath = props.workspacePath || "";
-  const key = memoryKey(sessionId, workspacePath);
+  const key = memoryKey(sessionId);
 
   const [tabs, setTabs] = useState<string[]>(() => {
     const kept = openFilesMemory.get(key)?.tabs ?? [];
@@ -536,16 +538,23 @@ function FilesSidebar(props: {
       ),
     ).then((results) => {
       if (abort.signal.aborted) return;
-      const next = new Map<string, TreePage>();
       const gone = new Set<string>();
       results.forEach((result, i) => {
-        if (result.status === "fulfilled") next.set(dirs[i]!, result.value);
-        else gone.add(dirs[i]!);
+        if (result.status === "rejected") gone.add(dirs[i]!);
       });
       setTreeError(
         gone.has("") ? String((results[dirs.indexOf("")] as PromiseRejectedResult).reason) : "",
       );
-      setDirectories(next);
+      // Merged, not replaced: a folder opened or paged while this read was on
+      // its way keeps what it loaded.
+      setDirectories((prev) => {
+        const next = new Map(prev);
+        results.forEach((result, i) => {
+          if (result.status === "fulfilled") next.set(dirs[i]!, result.value);
+          else next.delete(dirs[i]!);
+        });
+        return next;
+      });
       if (gone.size > 0) {
         setExpanded((prev) => {
           const kept = new Set([...prev].filter((d) => d === "" || !gone.has(d)));
@@ -574,8 +583,9 @@ function FilesSidebar(props: {
 
   const query = filter.trim();
   useEffect(() => {
+    // The hits of the query before are never shown for this one.
+    setHits(null);
     if (!query) {
-      setHits(null);
       setSearching(false);
       return;
     }
@@ -622,12 +632,16 @@ function FilesSidebar(props: {
   const loadMore = async (dir: string, page: TreePage) => {
     try {
       const next = await readTree(sessionId, dir, page.next_cursor, hidden);
-      setDirectories((prev) =>
-        new Map(prev).set(dir, {
+      setDirectories((prev) => {
+        const current = prev.get(dir);
+        // A refresh read the folder again meanwhile: its rows already go on
+        // from somewhere else, and these would repeat them.
+        if (current && current.next_cursor !== page.next_cursor) return prev;
+        return new Map(prev).set(dir, {
           ...next,
-          entries: [...page.entries, ...next.entries],
-        }),
-      );
+          entries: [...(current ?? page).entries, ...next.entries],
+        });
+      });
     } catch (err) {
       setTreeError(String(err));
     }

@@ -157,7 +157,7 @@ func TestWorkspaceViewerTreeAndLongText(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &tree); err != nil {
 		t.Fatal(err)
 	}
-	if len(tree.Entries) != 1 || tree.Entries[0].Name != "a.go" || !tree.HasMore || tree.Cursor == "" {
+	if len(tree.Entries) != 1 || tree.Entries[0].Name != "a.go" || !tree.HasMore || tree.Cursor != "f/a.go" {
 		t.Fatalf("page: %+v", tree)
 	}
 	w = workspaceRequest(e, "GET", "text?path_rel=a.go&offset=99998&max_lines=1", nil, nil)

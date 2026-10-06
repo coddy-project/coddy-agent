@@ -55,5 +55,5 @@ Feature: Driving one node through a relay
     Given the relay allows the browser origin "https://app.example"
     When a browser at "https://app.example" calls "/coddy/sessions/s1/workspace/raw?path_rel=a.txt" on node "nas02" with the client token
     Then the response comes from the node
-    And the response lets the browser read "ETag, Content-Range, Accept-Ranges"
+    And the response lets the browser read "ETag, Content-Range, Accept-Ranges, Content-Disposition"
     And the relay lets a browser send "If-None-Match, Range" on a "HEAD"

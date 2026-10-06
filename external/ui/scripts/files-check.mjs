@@ -131,6 +131,7 @@ function seedWorkspace(dir) {
   write("src/deep/nested/util.ts", "export function clamp(n: number, lo: number, hi: number) {\n  return Math.min(hi, Math.max(lo, n));\n}\n");
   write("assets/logo.png", PNG);
   write("media/tone.wav", toneWav());
+  write("docs/brief.pdf", "%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n");
   write(".hidden/secret.txt", "not listed until hidden files are shown\n");
 }
 
@@ -299,11 +300,13 @@ if (SHOTS) {
 }
 await waitFor(`${NODE}/v1/models`, "the node", { Authorization: `Bearer ${NODE_TOKEN}` });
 await waitFor(`${RELAY}/swarm/info`, "the relay");
-for (let i = 0; i < 80; i++) {
+let mounted = false;
+for (let i = 0; i < 80 && !mounted; i++) {
   const res = await fetch(`${MOUNT}/v1/models`, { headers: { Authorization: `Bearer ${RELAY_TOKEN}` } }).catch(() => null);
-  if (res && res.ok) break;
-  await new Promise((r) => setTimeout(r, 250));
+  mounted = !!res && res.ok;
+  if (!mounted) await new Promise((r) => setTimeout(r, 250));
 }
+if (!mounted) throw new Error(`the node never came up behind the relay's mount; logs in ${scratch}`);
 
 // ----------------------------------------------------------------- browser
 
@@ -472,7 +475,7 @@ async function scenarioViews() {
   const tree = win.getByTestId("files-tree");
   await tree.getByText("README.md", { exact: true }).waitFor();
   const top = await tree.locator(":scope > ul > li > button .files-tree-name").allInnerTexts();
-  check("the tree lists the top of the workspace, folders first", top.join(",").startsWith("assets,media,notes,src") && top.includes("README.md"), top.join(","));
+  check("the tree lists the top of the workspace, folders first", top.join(",").startsWith("assets,docs,media,notes,src") && top.includes("README.md"), top.join(","));
   check("hidden folders stay out of the tree", !top.includes(".hidden"));
   check("an empty preview says where open files go", /Open files appear here/.test(await win.getByTestId("files-empty").innerText()));
   const geo = await sideways(a.page);
@@ -615,8 +618,16 @@ async function scenarioPhone(sid) {
 async function scenarioCrossOrigin(sid) {
   const x = await openPage({ from: NODE });
   const etags = [];
-  x.page.on("response", async (r) => {
-    if (r.request().method() === "HEAD" && r.url().includes("/workspace/raw")) etags.push(r.status());
+  // Counted as each answer arrives (no await in the listener, or an answer
+  // lands in the count after the moment it is read); the script's own probe
+  // with a stale ETag is not the window's.
+  const textReads = [];
+  x.page.on("response", (r) => {
+    if (r.url().includes("/workspace/text")) textReads.push(r.status());
+    if (r.request().method() !== "HEAD" || !r.url().includes("/workspace/raw")) return;
+    const inm = r.request().headers()["if-none-match"];
+    if (inm === '"stale"') return;
+    etags.push({ status: r.status(), conditional: !!inm });
   });
   await x.page.goto(`${NODE}/#/s/${sid}/files?path=notes%2Fplan.md&line=2`);
   const win = x.page.getByTestId("files-view");
@@ -630,10 +641,22 @@ async function scenarioCrossOrigin(sid) {
     return { status: res.status, etag: res.headers.get("ETag") };
   }, { mount: MOUNT, token: RELAY_TOKEN, sid });
   check("a cross-origin HEAD with If-None-Match passes the relay's preflight and reads the ETag", exposed.status === 200 && !!exposed.etag, JSON.stringify(exposed));
-  // Coming back to the page revalidates the open file with its ETag.
+  // Coming back to the page revalidates the open file with its ETag: a new,
+  // conditional HEAD, counted from the focus on, and the text not read again.
+  // Chromium hands the page the node's 304; WebKit answers the same request
+  // from its own cache with a 200 and the same ETag, which the window takes
+  // for "unchanged" just as well.
+  const beforeFocus = etags.length;
+  const textBefore = textReads.length;
   await x.page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await until("a revalidation", async () => etags.length >= 2, 10000).catch(() => false);
-  check("the open file is revalidated across origins", etags.length >= 2 && etags.every((st) => st === 200 || st === 304), JSON.stringify(etags));
+  await until("a revalidation", async () => etags.slice(beforeFocus).some((e) => e.conditional), 10000).catch(() => false);
+  await x.page.waitForTimeout(500);
+  const after = etags.slice(beforeFocus);
+  check(
+    "the open file is revalidated across origins and not read again",
+    after.some((e) => e.conditional && (e.status === 304 || e.status === 200)) && textReads.length === textBefore,
+    JSON.stringify({ after, textReads: textReads.slice(textBefore) }),
+  );
   check("no page errors from another origin", x.errors.length === 0, x.errors.join(" | "));
   await x.context.close();
 }
@@ -692,17 +715,44 @@ async function scenarioWidths(sid) {
   }
 }
 
-/** The documentation's screenshots: the plain local setup, no relay. */
+/**
+ * The screenshots of the documentation and the pull request: the plain local
+ * setup, no relay, at 1280 and 390 px.
+ */
 async function scenarioShots() {
   if (!SHOTS) return;
   const d = await openPage({ throughRelay: false });
   await d.page.goto(`${SHOTS_NODE}/`);
   const sid = await writeReleaseNotes(d.page);
-  await openViewsMenu(d.page);
-  await shoot(d.page, "views-menu-dark-1280");
-  await d.page.getByTestId("chat-views-edits").click();
-  await d.page.getByTestId("changes-panel").getByText("release.md").first().waitFor({ timeout: 15000 });
-  await shoot(d.page, "session-edits-dock-dark-1280");
+  const both = async (name, show) => {
+    for (const [width, height] of [[1280, 820], [390, 844]]) {
+      await d.page.setViewportSize({ width, height });
+      // A hash alone does not reload: the page starts over with nothing open.
+      await d.page.goto(`${SHOTS_NODE}/#/s/${sid}`);
+      await d.page.reload();
+      await composer(d.page).waitFor();
+      await show();
+      await shoot(d.page, `${name}-dark-${width}`);
+    }
+  };
+  await both("views-menu", async () => {
+    await openViewsMenu(d.page);
+  });
+  await both("session-edits-dock", async () => {
+    await openViewsMenu(d.page);
+    await d.page.getByTestId("chat-views-edits").click();
+    await d.page.getByTestId("changes-panel").getByText("release.md").first().waitFor({ timeout: 15000 });
+  });
+  await both("background-tasks-dock", async () => {
+    await openViewsMenu(d.page);
+    await d.page.getByTestId("chat-views-tasks").click();
+    await d.page.getByTestId("bgtasks-panel").waitFor();
+  });
+  await both("workspace-files-window-empty", async () => {
+    await d.page.keyboard.press("Control+Shift+F");
+    await d.page.getByTestId("files-view").getByText("README.md", { exact: true }).waitFor();
+  });
+  await d.page.setViewportSize({ width: 1280, height: 820 });
   await d.page.goto(`${SHOTS_NODE}/#/s/${sid}/files?path=README.md`);
   const win = d.page.getByTestId("files-view");
   await win.locator(".files-file-body h1", { hasText: "Demo workspace" }).waitFor();
@@ -711,6 +761,22 @@ async function scenarioShots() {
   await win.getByRole("tab", { name: "README.md" }).click();
   await d.page.waitForTimeout(800);
   await shoot(d.page, "workspace-files-window-dark-1280");
+  // One capture per renderer of the window: a picture, a sound, a PDF.
+  for (const [file, name, ready] of [
+    ["assets/logo.png", "image", ".files-file-body img"],
+    ["media/tone.wav", "audio", ".files-file-body audio"],
+    ["docs/brief.pdf", "pdf", ".files-file-body .files-note"],
+  ]) {
+    await d.page.goto(`${SHOTS_NODE}/#/s/${sid}/files?path=${encodeURIComponent(file)}`);
+    await d.page.reload();
+    await win.locator(ready).first().waitFor({ timeout: 15000 });
+    if (name === "audio") {
+      await until("the sound's length", () =>
+        win.evaluate((el) => (el.querySelector("audio")?.duration || 0) > 0), 15000);
+    }
+    await d.page.waitForTimeout(500);
+    await shoot(d.page, `workspace-files-window-${name}-dark-1280`);
+  }
   await d.page.setViewportSize({ width: 390, height: 844 });
   await d.page.goto(`${SHOTS_NODE}/#/s/${sid}/files?path=src%2Fmain.go&line=7`);
   await win.locator('[data-file-line="7"].is-active').waitFor();
@@ -734,8 +800,11 @@ try {
   check("the run finished", false, err instanceof Error ? err.message : String(err));
 } finally {
   await browser.close();
-  modelServer.closeAllConnections?.();
-  modelServer.close();
+  // A stand left for a look keeps its model, so a turn there still answers.
+  if (!KEEP) {
+    modelServer.closeAllConnections?.();
+    modelServer.close();
+  }
   if (KEEP) {
     console.log(`stand left running: node ${NODE} (token ${NODE_TOKEN}), relay ${RELAY} (token ${RELAY_TOKEN}), home ${scratch}`);
     await new Promise(() => {});

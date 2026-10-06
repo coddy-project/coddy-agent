@@ -232,8 +232,9 @@ function HeaderViewsControl(props: {
     else if (e.key === "Home") next = 0;
     else if (e.key === "End") next = items.length - 1;
     else if (e.key === "Tab") {
-      // A menu is left with Escape or a pick; Tab puts it away too.
-      e.preventDefault();
+      // Tab puts the menu away and moves on from its control in the same
+      // press: the focus goes back to the control and the browser's own Tab
+      // takes it from there.
       close();
       return;
     }

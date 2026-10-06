@@ -217,6 +217,10 @@ func (b *declaredBody) Close() error { return b.rc.Close() }
 // rewriteFor builds the request the node will see.
 func (s *Server) rewriteFor(node Node, target *url.URL, rest string) func(*httputil.ProxyRequest) {
 	return func(pr *httputil.ProxyRequest) {
+		// Decided on the request alone, whether this relay asks a client token
+		// or not: a relay without one, mounted under a relay with one, must not
+		// vouch for a request the outer relay let in on a capability, or the
+		// outer gate could be walked around through it.
 		capability := s.workspaceMediaCapability(pr.In)
 		out := pr.Out
 		out.URL.Scheme = target.Scheme

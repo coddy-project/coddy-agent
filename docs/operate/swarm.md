@@ -403,8 +403,10 @@ and the browser puts it in the address. The relay cannot check that signature an
 it either: the request reaches the node with the capability in its query and without the relay's own
 credential, and the node accepts or refuses it. A request with two `access_token` values is not
 that exception, and a relay's client token is never carried that way, on any route. Without a client
-token such a request learns nothing from the relay itself: whatever the relay would refuse (an unknown
-or unreachable node, a path it does not carry) is the gate's plain `401`.
+token such a request gets nothing from the relay itself but the gate's plain `401` for whatever the
+relay would refuse (an unknown or unreachable node, a path it does not carry); only the node answers it
+otherwise. A relay that asks no client token hands such a request on the same way, without its own
+credential, so a relay with a gate above it in a chain cannot be walked around through it.
 
 Credentials are preserved across a config save by **destination**, not by label: renaming an
 entry keeps its token, pointing it at a new address does not.

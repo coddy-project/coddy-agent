@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { getEnv, setEnv } from "../env/remoteEnv";
-import { mediaUrl, relativeFilePath } from "./api";
+import { mediaUrl, relativeFilePath, rereadTree } from "./api";
 const original = getEnv();
 afterEach(() => {
   setEnv(original);
@@ -39,4 +39,29 @@ test("Markdown links normalize parents without escaping the workspace", () => {
   expect(relativeFilePath("C:\\project\\src\\a.go", "", "C:\\project")).toBe(
     "src/a.go",
   );
+});
+
+// A server that says there is more and gives nothing more must not hold the
+// refresh of a folder forever.
+test("reading a folder again stops when a page brings nothing new", async () => {
+  let calls = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => {
+      calls += 1;
+      return new Response(
+        JSON.stringify({
+          entries:
+            calls === 1
+              ? [{ name: "a", path_rel: "a", kind: "file", size_bytes: 1, mod_time: "" }]
+              : [],
+          has_more: true,
+          next_cursor: "f/a",
+        }),
+      );
+    }),
+  );
+  const page = await rereadTree("sess_1", "", 500, false);
+  expect(page.entries.map((e) => e.name)).toEqual(["a"]);
+  expect(calls).toBeLessThanOrEqual(3);
 });

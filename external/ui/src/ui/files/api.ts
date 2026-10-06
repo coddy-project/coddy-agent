@@ -48,6 +48,16 @@ export function resourceRequest(
   return remote ? fetch(remote.url, remote.init) : fetch(path, init);
 }
 
+/** A failed API read, with the HTTP status the server answered. */
+export class HttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
 export async function readJson<T>(
   path: string,
   init: RequestInit = {},
@@ -57,7 +67,7 @@ export async function readJson<T>(
     const body = (await res.json().catch(() => null)) as {
       error?: { message?: string };
     } | null;
-    throw new Error(body?.error?.message || `HTTP ${res.status}`);
+    throw new HttpError(body?.error?.message || `HTTP ${res.status}`, res.status);
   }
   return res.json() as Promise<T>;
 }
@@ -91,16 +101,26 @@ export async function rereadTree(
 ): Promise<TreePage> {
   const limit = Math.min(1000, Math.max(200, rows));
   let page = await readTree(id, path, "", hidden, signal, limit);
-  while (page.has_more && page.entries.length < rows) {
+  // A page that brings nothing, or names the cursor it was asked from, ends
+  // the walk: a server that says "more" and gives nothing must not hold it.
+  for (let i = 0; i < 50 && page.has_more && page.entries.length < rows; i++) {
     const next = await readTree(id, path, page.next_cursor, hidden, signal, limit);
+    const stuck = next.entries.length === 0 || next.next_cursor === page.next_cursor;
     page = { ...next, entries: [...page.entries, ...next.entries] };
+    if (stuck) break;
   }
   return page;
 }
 
 /** A path the "@" index answers that stays inside the workspace. */
 function insideWorkspace(path: string): boolean {
-  if (!path || path.startsWith("/") || path === "~" || path.startsWith("~/") || /^[a-zA-Z]:[\\/]/.test(path))
+  if (
+    !path ||
+    /^[\\/]/.test(path) ||
+    path === "~" ||
+    path.startsWith("~/") ||
+    /^[a-zA-Z]:[\\/]/.test(path)
+  )
     return false;
   return !path.split(/[\\/]/).some((segment) => segment === "..");
 }
@@ -117,7 +137,7 @@ export async function readMeta(
     headers: etag ? { "If-None-Match": etag } : {},
   });
   if (res.status === 304) return null;
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) throw new HttpError(`HTTP ${res.status}`, res.status);
   return {
     etag: res.headers.get("ETag") || "",
     modTime: res.headers.get("Last-Modified") || "",

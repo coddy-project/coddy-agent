@@ -29,6 +29,7 @@ vi.mock("./chat/ChatScreen", () => ({
     onOpenBackgroundTasks?: () => void;
     onOpenSessionChanges?: (path?: string) => void;
     onOpenFiles?: () => void;
+    onOpenChangesViewer?: () => void;
   }) => (
     <div data-testid="chat-screen-stub">
       <button
@@ -44,6 +45,13 @@ vi.mock("./chat/ChatScreen", () => ({
         onClick={() => props.onOpenSessionChanges?.()}
       >
         Open edits
+      </button>
+      <button
+        type="button"
+        data-testid="open-review"
+        onClick={() => props.onOpenChangesViewer?.()}
+      >
+        Open review
       </button>
       <button
         type="button"
@@ -278,4 +286,13 @@ test("on the stacked shell the files window opens over the edits and leaves them
   await waitFor(() => expect(screen.queryByTestId("files-view")).toBeNull());
   expect(screen.getByTestId("changes-panel")).toBeTruthy();
   await waitFor(() => expect(window.location.hash).toBe(`#/s/${SID}/changes`));
+});
+
+test("the files window opened over the review window takes its place", async () => {
+  mountAt(`#/s/${SID}`);
+  fireEvent.click(await screen.findByTestId("open-review"));
+  await screen.findByTestId("diff-viewer");
+  fireEvent.click(screen.getByTestId("open-files"));
+  await screen.findByTestId("files-view");
+  expect(screen.queryByTestId("diff-viewer")).toBeNull();
 });

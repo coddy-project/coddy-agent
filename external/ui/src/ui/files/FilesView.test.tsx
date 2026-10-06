@@ -42,6 +42,18 @@ const tree: Record<string, FileEntry[]> = {
   big: ["a", "b", "c", "d", "e"].map((n) => entry(`big/${n}.txt`)),
 };
 let mediaTokens = 0;
+/** Overrides of the file type the node reports, by path. */
+let types: Record<string, string> = {};
+/** Status the node answers a text read of a path with, instead of the text. */
+let textStatus: Record<string, number> = {};
+/** Holds the tree reads of these folders until released. */
+let holdTree: { dirs: Set<string>; release: () => void; waiting: (() => void)[] } = {
+  dirs: new Set(),
+  release() {
+    for (const go of this.waiting.splice(0)) go();
+  },
+  waiting: [],
+};
 
 let contents: Record<string, string>;
 let fetcher: ReturnType<typeof vi.fn>;
@@ -53,6 +65,10 @@ function query(url: string, name: string): string {
 beforeEach(() => {
   forgetOpenFiles();
   mediaTokens = 0;
+  types = {};
+  textStatus = {};
+  holdTree.dirs = new Set();
+  holdTree.waiting = [];
   tree[""] = tree[""]!.filter((e) => e.path_rel !== "new.txt");
   tree.src = [entry("src/main.go"), entry("src/lib", "directory")];
   if (!tree[""]!.some((e) => e.path_rel === "big"))
@@ -71,6 +87,8 @@ beforeEach(() => {
     const url = String(input);
     if (url.includes("/workspace/tree")) {
       const dir = query(url, "path_rel");
+      if (holdTree.dirs.has(dir))
+        await new Promise<void>((go) => holdTree.waiting.push(go));
       const all = tree[dir];
       if (!all) return new Response("{}", { status: 404 });
       // The big folder pages two rows at a time unless a limit says otherwise.
@@ -101,7 +119,9 @@ beforeEach(() => {
       return new Response(null, {
         headers: {
           ETag: etag,
-          "Content-Type": path.endsWith(".wav")
+          "Content-Type": types[path]
+            ? types[path]!
+            : path.endsWith(".wav")
             ? "audio/wav"
             : path.endsWith(".md")
               ? "text/markdown; charset=utf-8"
@@ -113,14 +133,21 @@ beforeEach(() => {
     }
     if (url.includes("/workspace/text")) {
       const path = query(url, "path_rel");
-      const lines = (contents[path] || "").split("\n");
+      if (textStatus[path])
+        return new Response(
+          JSON.stringify({ error: { message: "file is not decodable text" } }),
+          { status: textStatus[path] },
+        );
+      const all = (contents[path] || "").split("\n");
+      const offset = Number(query(url, "offset")) || 0;
+      const lines = all.slice(offset, offset + 300);
       return new Response(
         JSON.stringify({
           path_rel: path,
           lines,
-          offset: 0,
-          next_offset: lines.length,
-          has_more: false,
+          offset,
+          next_offset: offset + lines.length,
+          has_more: offset + lines.length < all.length,
           etag: `"${path}:${contents[path]?.length ?? 0}"`,
         }),
       );
@@ -136,6 +163,8 @@ beforeEach(() => {
               { kind: "file", insert: "@/etc/outside", label: "/etc/outside" },
               { kind: "file", insert: "@~/outside", label: "~/outside" },
               { kind: "directory", insert: "@../up/", label: "../up/" },
+              { kind: "file", insert: "@\\Windows\\win.ini", label: "\\Windows\\win.ini" },
+              { kind: "file", insert: "@\\\\server\\share\\x", label: "\\\\server\\share\\x" },
               { kind: "file", insert: "@notes/outside.md", label: "notes/outside.md" },
             ],
           }),
@@ -443,7 +472,14 @@ test("the filter keeps to the workspace: paths that leave it are not offered", a
     target: { value: "outside" },
   });
   await screen.findByText("notes/outside.md");
-  for (const away of ["../outside.txt", "/etc/outside", "~/outside", "../up"])
+  for (const away of [
+    "../outside.txt",
+    "/etc/outside",
+    "~/outside",
+    "../up",
+    "\\Windows\\win.ini",
+    "\\\\server\\share\\x",
+  ])
     expect(screen.queryByText(away)).toBeNull();
 });
 
@@ -487,4 +523,110 @@ test("the window opened again shows its file at the line it was on, and says so 
   await screen.findByText("third note");
   expect(document.querySelector('[data-file-line="3"]')).toHaveClass("is-active");
   expect(onNavigate).toHaveBeenCalledWith("notes.txt", 3);
+});
+
+test("a file rewritten as another kind under the same path does not keep showing the old text", async () => {
+  render(view({ initialPath: "notes.txt" }));
+  await screen.findByText("second note");
+  types["notes.txt"] = "application/pdf";
+  contents["notes.txt"] = "%PDF-1.7 not text any more";
+  await act(async () => {
+    fireEvent.focus(window);
+  });
+  await screen.findByText(t("files.pdfDownload"));
+  expect(screen.queryByText("second note")).toBeNull();
+});
+
+test("a folder opened while the open ones are read again keeps its rows", async () => {
+  render(view());
+  fireEvent.click(await screen.findByText("src"));
+  await screen.findByText("main.go");
+  holdTree.dirs = new Set(["", "src"]);
+  await act(async () => {
+    fireEvent.focus(window);
+  });
+  fireEvent.click(screen.getByText("big"));
+  await waitFor(() => expect(holdTree.waiting.length).toBeGreaterThan(0));
+  holdTree.dirs = new Set();
+  // big is not held: it loads while the refresh still waits.
+  await screen.findByText("b.txt");
+  await act(async () => {
+    holdTree.release();
+    await new Promise((r) => setTimeout(r, 20));
+  });
+  expect(screen.getByText("b.txt")).toBeTruthy();
+});
+
+test("a new filter query never shows the hits of the one before", async () => {
+  render(view());
+  await screen.findByText("README.md");
+  const filter = screen.getByRole("searchbox", { name: t("files.search") });
+  fireEvent.change(filter, { target: { value: "util" } });
+  await screen.findByText("src/lib/util.ts");
+  fireEvent.change(filter, { target: { value: "readme" } });
+  expect(screen.queryByText("src/lib/util.ts")).toBeNull();
+});
+
+test("the next page of a long file moves the line the address names", async () => {
+  contents["long.txt"] = Array.from({ length: 400 }, (_, i) => `line ${i + 1}`).join("\n");
+  const onNavigate = vi.fn();
+  render(view({ initialPath: "long.txt", onNavigate }));
+  await screen.findByText("line 1");
+  fireEvent.click(screen.getByText(t("files.next")));
+  await screen.findByText("line 301");
+  expect(onNavigate).toHaveBeenLastCalledWith("long.txt", 301);
+});
+
+test("the line field moves the file when the number is entered, not on every digit", async () => {
+  contents["long.txt"] = Array.from({ length: 400 }, (_, i) => `line ${i + 1}`).join("\n");
+  const onNavigate = vi.fn();
+  render(view({ initialPath: "long.txt", onNavigate }));
+  await screen.findByText("line 1");
+  onNavigate.mockClear();
+  const field = screen.getByRole("spinbutton");
+  fireEvent.change(field, { target: { value: "3" } });
+  fireEvent.change(field, { target: { value: "31" } });
+  fireEvent.change(field, { target: { value: "312" } });
+  expect(onNavigate).not.toHaveBeenCalled();
+  fireEvent.keyDown(field, { key: "Enter" });
+  expect(onNavigate).toHaveBeenLastCalledWith("long.txt", 312);
+  await screen.findByText("line 312");
+});
+
+test("Reload puts away the notice that the file changed", async () => {
+  render(view({ initialPath: "notes.txt" }));
+  await screen.findByText("first note");
+  contents["notes.txt"] = "rewritten note";
+  await act(async () => {
+    fireEvent.focus(window);
+  });
+  await screen.findByRole("status");
+  fireEvent.click(screen.getByTestId("files-more"));
+  fireEvent.click(screen.getByRole("menuitem", { name: t("files.reload") }));
+  await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
+});
+
+test("the binary notice is for a file that is not text, not for any failed read", async () => {
+  textStatus["blob.bin"] = 415;
+  contents["blob.bin"] = "\u0000\u0001";
+  render(view({ initialPath: "blob.bin" }));
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain(t("files.binary"));
+  cleanup();
+  textStatus["notes.txt"] = 500;
+  render(view({ initialPath: "notes.txt" }));
+  const failed = await screen.findByRole("alert");
+  expect(failed.textContent).not.toContain(t("files.binary"));
+});
+
+test("the open files survive the window learning its workspace folder", async () => {
+  const { unmount } = render(view({ workspacePath: "" }));
+  fireEvent.click(await screen.findByText("notes.txt"));
+  await screen.findByText("second note");
+  unmount();
+  render(view({ workspacePath: "/work/demo" }));
+  const tabs = await screen.findByRole("tablist");
+  expect(within(tabs).getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+    "notes.txt",
+  ]);
 });
