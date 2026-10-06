@@ -177,7 +177,8 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 			outputTokens = int(e.Usage.OutputTokens)
 
 		case anthropic.MessageStartEvent:
-			inputTokens = int(e.Message.Usage.InputTokens)
+			inputTokens = anthropicTotalInputTokens(e.Message.Usage.InputTokens,
+				e.Message.Usage.CacheCreationInputTokens, e.Message.Usage.CacheReadInputTokens)
 			cachedInputTokens = int(e.Message.Usage.CacheReadInputTokens)
 		}
 	}
@@ -429,8 +430,9 @@ func (p *anthropicProvider) buildParams(system string, messages []anthropic.Mess
 
 func (p *anthropicProvider) parseResponse(resp anthropic.Message) (*Response, error) {
 	r := &Response{
-		StopReason:        mapAnthropicStopReason(string(resp.StopReason)),
-		InputTokens:       int(resp.Usage.InputTokens),
+		StopReason: mapAnthropicStopReason(string(resp.StopReason)),
+		InputTokens: anthropicTotalInputTokens(resp.Usage.InputTokens,
+			resp.Usage.CacheCreationInputTokens, resp.Usage.CacheReadInputTokens),
 		OutputTokens:      int(resp.Usage.OutputTokens),
 		CachedInputTokens: int(resp.Usage.CacheReadInputTokens),
 	}
@@ -453,6 +455,12 @@ func (p *anthropicProvider) parseResponse(resp anthropic.Message) (*Response, er
 	}
 
 	return r, nil
+}
+
+// Anthropic reports uncached input, cache writes and cache reads separately.
+// Response.InputTokens includes all three, like OpenAI prompt_tokens does.
+func anthropicTotalInputTokens(input, cacheCreation, cacheRead int64) int {
+	return int(input + cacheCreation + cacheRead)
 }
 
 func mapAnthropicStopReason(reason string) string {

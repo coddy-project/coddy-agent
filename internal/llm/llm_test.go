@@ -673,6 +673,27 @@ func TestAnthropicStreamWithTerminalEventSucceeds(t *testing.T) {
 	}
 }
 
+func TestAnthropicStreamIncludesCacheInInputUsage(t *testing.T) {
+	prefix := strings.Replace(anthropicStreamPrefix,
+		`"input_tokens":3,"output_tokens":0`,
+		`"input_tokens":3,"cache_creation_input_tokens":7,"cache_read_input_tokens":11,"output_tokens":0`, 1)
+	p, done := anthropicStreamStub(t, prefix+
+		"event: content_block_stop\n"+
+		"data: {\"type\":\"content_block_stop\",\"index\":0}\n\n"+
+		"event: message_delta\n"+
+		"data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":5}}\n\n"+
+		"event: message_stop\n"+
+		"data: {\"type\":\"message_stop\"}\n\n")
+	defer done()
+	resp, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.InputTokens != 21 || resp.OutputTokens != 5 || resp.CachedInputTokens != 11 {
+		t.Fatalf("usage = in %d out %d cached %d, want 21/5/11", resp.InputTokens, resp.OutputTokens, resp.CachedInputTokens)
+	}
+}
+
 // TestProviderTimeoutBoundsRequest verifies that providers[].timeout_ms
 // reaches the HTTP client: a hung upstream fails within the configured
 // bound instead of waiting forever, and the timeout is not retried (the
