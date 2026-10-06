@@ -209,7 +209,9 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 
 	// A ring can deliver the same agent through more than one child. The rows
 	// are the same sessions, so they collapse on identity; the route kept is
-	// the shortest one, because that is the one a client should use.
+	// the shortest one, because that is the one a client should use, and of
+	// equally short ones the one the topology picks, so it does not change from
+	// one request to the next.
 	rows = dedupeByIdentity(rows)
 	sortSessionRows(rows)
 
