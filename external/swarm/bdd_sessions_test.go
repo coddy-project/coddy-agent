@@ -84,6 +84,8 @@ type sessionsFeatureState struct {
 	childUUID string
 	status    int
 	body      []byte
+	// lists keeps every answer of a repeated listing, in order.
+	lists [][]byte
 }
 
 func (s *sessionsFeatureState) reset() {
@@ -102,7 +104,7 @@ func (s *sessionsFeatureState) reset() {
 		s.ring = nil
 	}
 	s.agents, s.agentNames, s.relays = nil, nil, nil
-	s.status, s.body, s.childUUID = 0, nil, ""
+	s.status, s.body, s.childUUID, s.lists = 0, nil, "", nil
 }
 
 func (s *sessionsFeatureState) aRelay(pair, client string) error {
@@ -204,8 +206,69 @@ func (s *sessionsFeatureState) aRingOfThreeRelays(id, title string) error {
 	return nil
 }
 
+// twoChildRelaysReachTheSameAgent builds a diamond under the relay of the
+// Background: two child relays, each holding the same agent, so the agent is
+// reached by two routes of the same length.
+func (s *sessionsFeatureState) twoChildRelaysReachTheSameAgent(left, right, node, id, title string) error {
+	outer := &ringRelay{name: "outer", srv: s.srv, ts: s.relay, token: s.client}
+	agent := newStubAgent()
+	agent.add(id, title)
+	s.agents = append(s.agents, agent)
+	s.agentNames = append(s.agentNames, node)
+	for _, name := range []string{left, right} {
+		child, err := newRingRelay(name)
+		if err != nil {
+			return err
+		}
+		s.relays = append(s.relays, child.ts)
+		if err := outer.knows(child, name); err != nil {
+			return err
+		}
+		if err := child.holdsAgent(node, agent); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *sessionsFeatureState) listSessions() error {
 	return s.get("/swarm/sessions", nil)
+}
+
+// listSessionsTimes asks the same question again and again: an answer that
+// depends on the order the fan-out happened to finish in shows up as two
+// different answers.
+func (s *sessionsFeatureState) listSessionsTimes(n int) error {
+	s.lists = nil
+	for i := 0; i < n; i++ {
+		if err := s.listSessions(); err != nil {
+			return err
+		}
+		s.lists = append(s.lists, s.body)
+	}
+	return nil
+}
+
+func (s *sessionsFeatureState) everyListReachesThrough(id, path string) error {
+	if len(s.lists) == 0 {
+		return fmt.Errorf("no repeated listing was made")
+	}
+	for i, body := range s.lists {
+		var out aggregatedList
+		if err := json.Unmarshal(body, &out); err != nil {
+			return fmt.Errorf("decode list %d: %w (%s)", i+1, err, body)
+		}
+		var routes []string
+		for _, row := range out.Sessions {
+			if row.ID == id {
+				routes = append(routes, strings.Join(row.NodePath, "/"))
+			}
+		}
+		if len(routes) != 1 || routes[0] != path {
+			return fmt.Errorf("list %d reaches %q by %v, want once by %q", i+1, id, routes, path)
+		}
+	}
+	return nil
 }
 
 func (s *sessionsFeatureState) searchSessions(term string) error {
@@ -372,7 +435,10 @@ func TestSwarmSessionsFeature(t *testing.T) {
 			ctx.Step(`^the node "([^"]*)" is registered but unreachable$`, st.unreachableNode)
 			ctx.Step(`^a child relay "([^"]*)" holding a node "([^"]*)" with a session "([^"]*)" titled "([^"]*)"$`, st.childRelayHolding)
 			ctx.Step(`^a ring of three relays with an agent behind the third holding a session "([^"]*)" titled "([^"]*)"$`, st.aRingOfThreeRelays)
+			ctx.Step(`^two child relays "([^"]*)" and "([^"]*)" that both reach the agent "([^"]*)" holding a session "([^"]*)" titled "([^"]*)"$`, st.twoChildRelaysReachTheSameAgent)
 			ctx.Step(`^I list swarm sessions with the client token$`, st.listSessions)
+			ctx.Step(`^I list swarm sessions with the client token (\d+) times$`, st.listSessionsTimes)
+			ctx.Step(`^every list holds the session "([^"]*)" once, reachable through the path "([^"]*)"$`, st.everyListReachesThrough)
 			ctx.Step(`^I search swarm sessions for "([^"]*)"$`, st.searchSessions)
 			ctx.Step(`^the child relay asks this relay for its sessions as part of the same chain$`, st.askAsPartOfTheSameChain)
 			ctx.Step(`^the list holds (\d+) sessions$`, st.listHolds)

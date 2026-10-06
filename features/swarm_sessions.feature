@@ -59,3 +59,10 @@ Feature: Every session in the swarm, in one list
     Then the list holds 1 sessions
     And the session "sess_ring" is reachable through the path "shortcut/agent7"
     And no warning is raised, because a closed ring is the shape and not a fault
+
+  Scenario: An agent reached two equal ways is listed by the same route every time
+    Given two child relays "left" and "right" that both reach the agent "x" holding a session "sess_both" titled "reached two ways"
+    When I list swarm sessions with the client token 16 times
+    Then every list holds the session "sess_both" once, reachable through the path "left/x"
+    When I read the swarm topology with the client token
+    Then the route to "x" is "left/x"
