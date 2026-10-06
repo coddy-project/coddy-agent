@@ -1764,7 +1764,7 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary": "Rewind the session history to a user message",
 					"description": "Truncates the conversation **in place**: the user message at **userMessageIndex** (0-based over **`user`** rows, a background wake counting as one) and everything after it are dropped, so resending an edited version of that message continues the same session rather than forking a new one. " +
-						"The truncation bumps **messagesRev**, removes legacy **branches.json** and **diffs/** artifacts from the bundle, clears a pending permission prompt whose tool call left the transcript, prunes orphaned **`tool_calls/`** entries, and drops **`ui_log`** rows of the dropped turns. " +
+						"The truncation bumps **messagesRev**, removes legacy **branches.json** and **diffs/** artifacts from the bundle, clears a pending permission prompt whose tool call left the transcript, moves the **`tool_calls/`** entries and **`ui_log`** rows of the dropped turns into the bundle's undo snapshot, which **POST /coddy/sessions/{id}/rewind/undo** restores. " +
 						"A **`session_rewound`** event is published on **`GET /coddy/events`** so other watchers of the session refetch their transcript. The session must be idle: a turn in flight is refused.",
 					"operationId": "coddyRewind",
 					"parameters": []interface{}{
@@ -1811,6 +1811,48 @@ func openAPISpec() map[string]interface{} {
 						"404": errorResponseRef(),
 						"409": map[string]interface{}{
 							"description": "The session is a read-only transcript (a subagent child or the session of a scheduler job), or a turn is in flight.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
+								},
+							},
+						},
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions/{id}/rewind/undo": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Undo the last rewind of the session",
+					"operationId": "coddyRewindUndo",
+					"description": "Takes back the last **POST /coddy/sessions/{id}/rewind**: a running turn of the session (the edited prompt) is cancelled first, whatever was appended after the cut is dropped, and the cut messages, their **uiLog** rows and tool-call detail come back. Available while **GET /coddy/sessions/{id}/messages** carries **rewindUndo**: until a second prompt follows the edited one, another rewind replaces it, or the kept prefix changes (a compaction). File changes the removed turns made are not reverted. Publishes **session_rewound** on **GET /coddy/events**.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Last rewind taken back",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":      map[string]string{"type": "string"},
+											"sessionId":   map[string]string{"type": "string"},
+											"messagesRev": map[string]string{"type": "integer"},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": map[string]interface{}{
+							"description": "There is no rewind to undo, the edited turn is still running, or the session is a read-only transcript.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
@@ -1889,7 +1931,8 @@ func openAPISpec() map[string]interface{} {
 						"Immediately after **POST /coddy/sessions/{id}/cancel**, the returned **messages** list can briefly omit or shorten the in-progress **assistant** row compared to what was already streamed; UIs that keep a local shadow should merge when the server snapshot is a strict prefix of on-screen rows. " +
 						"For a child session spawned by **spawn_agent** the payload also carries **readOnly** **true** and **subagent** **`{parentSessionId, name, taskId}`**: the transcript is served from the live child while it runs and from its bundle afterwards, and no route accepts a prompt for it (**409**), so a UI replaces the composer with a notice linking to the parent chat. " +
 						"**Paged reads.** Without **limit**, **before** or **from** the whole history is returned. **`?limit=N`** returns a page of about **N** messages ending at **before** (default: the end of the history); **`?limit=N&before=K`** is the page before a window that starts at message **K**; **`?from=K`** re-reads a window from message **K** to **before** or the end (it cannot be combined with **limit**); **before** alone is refused, since it would read the whole prefix. A page never splits a tool step - a start or an end that falls on a tool result moves back to the assistant message that issued the call - and with **limit** it starts at the prompt of its turn when one lies within half a page, so consecutive pages join without a gap or an overlap. Positions past the history are clamped; a value that is not a non-negative integer, or a **limit** outside 1..1000, is **400**. " +
-						"Every read carries **window** **`{offset, total, turnsBefore, userRowsBefore}`**: **offset** is the index of the first returned message and **total** the length of the history; **turnsBefore** counts the user messages before the page that are not compaction summaries (a prompt's **userMessageIndex** for **POST /coddy/sessions/{id}/rewind** is **turnsBefore** plus its position among the page's prompts) and **userRowsBefore** counts every user-role message before it (the numbering of **uiLog** **userTurnIndex**). **uiLog** holds only the rows of the page: a row stamped with turn **t** sits before the **t**-th user-role message (0-based), or at the end of the history, and a row on the boundary between two pages opens the newer one, so the newest page still shows what ended the turn before it.",
+						"Every read carries **window** **`{offset, total, turnsBefore, userRowsBefore}`**: **offset** is the index of the first returned message and **total** the length of the history; **turnsBefore** counts the user messages before the page that are not compaction summaries (a prompt's **userMessageIndex** for **POST /coddy/sessions/{id}/rewind** is **turnsBefore** plus its position among the page's prompts) and **userRowsBefore** counts every user-role message before it (the numbering of **uiLog** **userTurnIndex**). **uiLog** holds only the rows of the page: a row stamped with turn **t** sits before the **t**-th user-role message (0-based), or at the end of the history, and a row on the boundary between two pages opens the newer one, so the newest page still shows what ended the turn before it. " +
+						"**rewindUndo** **`{userMessageIndex}`** is present while the last rewind can be taken back with **POST /coddy/sessions/{id}/rewind/undo**; **userMessageIndex** names the prompt that was edited.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
 						map[string]interface{}{"name": "activate_mcp", "in": "query", "required": false, "description": "Set to `1` only on the SPA's initial, unpaged selected-session read with a matching `X-Coddy-Session-ID` header. It starts that restored ordinary session's deferred configured MCP connections in the background; all other reads remain passive.", "schema": map[string]interface{}{"type": "string", "enum": []string{"1"}}},

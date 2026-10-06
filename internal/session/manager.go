@@ -2237,6 +2237,9 @@ func (m *Manager) acquireTurnLockWithReloadDrain(sessionID string, st *State) (f
 		return nil, err
 	}
 	return func() {
+		// A turn that followed an edited one ends the undo of that edit; its
+		// kept tail leaves the bundle while the lock is still ours.
+		retireStaleRewindUndo(st)
 		unlock()
 		m.drainPendingMCPReload(sessionID, st)
 	}, nil
