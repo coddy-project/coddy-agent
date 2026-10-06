@@ -90,12 +90,6 @@ type Server struct {
 	composerRelayMu sync.Mutex
 	composerRelays  map[string]*composerStreamRelay
 
-	// liveTurnMu guards liveTurns: the pre-turn snapshot of every turn this
-	// process is running, which the changed-files card reads when it is opened
-	// mid-turn (coddy_changes_live.go).
-	liveTurnMu sync.Mutex
-	liveTurns  map[string]*liveTurn
-
 	// detachedPrompts is the broker turns this server builds itself hand their
 	// detached subagents; nil means this server alone (SetDetachedPrompts).
 	detachedPrompts agent.DetachedPermissionBroker
@@ -685,10 +679,6 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		wireBridgeSession(bridge, st)
 		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, SurfaceSystemPrompt: surfacePromptFromHTTP(req.Metadata)}
-		beforeSnap := s.snapshotTurnWorkspace(st)
-		// The changed-files card, opened mid-turn, compares against this snapshot.
-		live := s.beginLiveTurn(sessionID, st.GetCWD(), beforeSnap)
-		turnsBefore := session.CountUserTurns(st.GetMessages())
 		// A model configured with stream: false emits nothing until its whole answer is
 		// generated, so the stream has to announce it is still alive by itself.
 		stopKeepalive := bridge.StartIdleKeepalive()
@@ -700,7 +690,6 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			Meta:       sessionPromptMetaFromHTTP(req.Metadata),
 		}, bridge, promptOpts)
 		stopKeepalive()
-		s.settleTurnDiff(st, beforeSnap, live, turnsBefore, err)
 		if err != nil {
 			s.log.Error("session prompt", "error", err)
 			// Watchers hear about the failure either way; only the caller's own answer
@@ -1273,15 +1262,10 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		// See the /v1/chat/completions path: a blocking model's turn is silent on the
 		// wire until it finishes, and idle proxies drop a stream that says nothing.
-		beforeSnap2 := s.snapshotTurnWorkspace(st)
-		// The changed-files card, opened mid-turn, compares against this snapshot.
-		live2 := s.beginLiveTurn(sid, st.GetCWD(), beforeSnap2)
-		turnsBefore2 := session.CountUserTurns(st.GetMessages())
 		stopKeepalive := bridge.StartIdleKeepalive()
 		defer stopKeepalive()
 		promptRes, err := s.mgr.HandleSessionPromptWithSender(profileCtx, promptParams, bridge, promptOpts)
 		stopKeepalive()
-		s.settleTurnDiff(st, beforeSnap2, live2, turnsBefore2, err)
 		if err != nil {
 			s.log.Error("responses prompt", "error", err)
 			_ = bridge.SendErrorFor(err)

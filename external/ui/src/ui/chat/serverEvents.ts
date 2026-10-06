@@ -22,10 +22,8 @@ export type ServerEventHandlers = {
    *  follow-up onto the turn it is watching. Carries the whole queue and its
    *  version; the caller keeps the highest version it has seen. */
   onMessageQueue?: (sessionId: string, queue: QueuedMessageEvent) => void;
-  /** A session's recorded change set settled or moved: a finished turn's workspace
-   *  diff is on disk, or the session was rolled back. The changed-files card reads
-   *  the set when this arrives rather than when the stream ends, which the capture
-   *  can still be racing. */
+  /** Uncommitted changes of a session's folder were discarded, from this window
+   *  or another: every Edits view of the session reads git's report again. */
   onSessionChanges?: (sessionId: string) => void;
   /** A session's settings changed - model, reasoning, mode, permission mode,
    *  the overrides for the next turns - from any surface. Carries the whole

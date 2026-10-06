@@ -11,6 +11,8 @@ import {
 import { DiffViewerModal } from "./DiffViewerModal";
 import type { SessionChanges } from "./types";
 import { t } from "../i18n/i18n";
+import { ConfirmProvider } from "../components/useConfirm";
+import { emitChangesSettled } from "./sessionChangesBus";
 
 const PATCH = [
   "--- a/src/a.ts",
@@ -24,7 +26,7 @@ const PATCH = [
 
 const SESSION: SessionChanges = {
   sessionId: "s1",
-  scope: "session",
+  vcs: "git",
   files: [
     {
       path: "src/a.ts",
@@ -44,22 +46,6 @@ const SESSION: SessionChanges = {
     },
   ],
   totals: { files: 2, additions: 5, deletions: 1 },
-};
-
-const TURN: SessionChanges = {
-  sessionId: "s1",
-  scope: "turn",
-  files: [SESSION.files[0]!],
-  totals: { files: 1, additions: 1, deletions: 1 },
-};
-
-const UNCOMMITTED: SessionChanges = {
-  sessionId: "s1",
-  scope: "uncommitted",
-  files: [SESSION.files[0]!],
-  totals: { files: 1, additions: 1, deletions: 1 },
-  untracked: 3,
-  vcsAvailable: true,
 };
 
 function jsonResponse(body: unknown) {
@@ -89,12 +75,6 @@ beforeEach(() => {
     if (url.includes("/changes/file")) {
       return jsonResponse({ patch: PATCH });
     }
-    if (url.includes("scope=turn")) {
-      return jsonResponse(TURN);
-    }
-    if (url.includes("scope=uncommitted")) {
-      return jsonResponse(UNCOMMITTED);
-    }
     return jsonResponse(SESSION);
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -105,8 +85,22 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/** The shared confirmation dialog, over the edits window (itself a dialog). */
+async function confirmDialog(): Promise<HTMLElement> {
+  let found: HTMLElement | null = null;
+  await waitFor(() => {
+    found = document.body.querySelector<HTMLElement>(".confirm-dialog");
+    expect(found).toBeTruthy();
+  });
+  return found!;
+}
+
 function open() {
-  return render(<DiffViewerModal open sessionId="s1" onClose={() => {}} />);
+  return render(
+    <ConfirmProvider>
+      <DiffViewerModal open sessionId="s1" onClose={() => {}} />
+    </ConfirmProvider>,
+  );
 }
 
 test("lists every changed file with its counts and totals", async () => {
@@ -158,38 +152,35 @@ test("the view toggle switches to the split view and back", async () => {
   );
 });
 
-test("switching the scope refetches and updates the totals", async () => {
+test("every new report of git reads the patches again, the old ones staying on screen meanwhile", async () => {
   open();
-  await screen.findByTestId("dv-file-docs/b.md");
-
-  fireEvent.change(screen.getByTestId("dv-scope"), {
-    target: { value: "turn" },
-  });
-
-  await waitFor(() => {
-    expect(
-      fetchMock.mock.calls.some((c) => String(c[0]).includes("scope=turn")),
-    ).toBe(true);
-  });
   await waitFor(() =>
-    expect(screen.queryByTestId("dv-file-docs/b.md")).toBeNull(),
+    expect(document.body.querySelectorAll(".dv-file-body")).toHaveLength(2),
   );
-  expect(screen.getByTestId("dv-totals")).toHaveTextContent("+1");
-});
-
-test("the per-file patch is fetched in the scope the list was read in", async () => {
-  open();
-  await screen.findByTestId("dv-file-src/a.ts");
-  fireEvent.change(screen.getByTestId("dv-scope"), {
-    target: { value: "uncommitted" },
+  const details = () =>
+    fetchMock.mock.calls.map((c) => String(c[0])).filter((u) => u.includes("/changes/file"));
+  await waitFor(() => expect(details()).toHaveLength(2));
+  await waitFor(() => expect(document.body.querySelector(".dv-code")).toBeTruthy());
+  let release: () => void = () => {};
+  const held = new Promise<void>((r) => (release = r));
+  fetchMock.mockImplementation(async (input: unknown) => {
+    const url = String(input);
+    if (url.includes("/changes/file")) {
+      await held;
+      return jsonResponse({ patch: PATCH });
+    }
+    return jsonResponse({
+      ...SESSION,
+      files: [{ ...SESSION.files[0]!, additions: 3 }, SESSION.files[1]!],
+      totals: { files: 2, additions: 7, deletions: 1 },
+    });
   });
-
-  await waitFor(() => {
-    const detail = fetchMock.mock.calls
-      .map((c) => String(c[0]))
-      .filter((u) => u.includes("/changes/file"));
-    expect(detail.some((u) => u.includes("scope=uncommitted"))).toBe(true);
-  });
+  emitChangesSettled("s1");
+  await waitFor(() => expect(screen.getByTestId("dv-totals")).toHaveTextContent("+7"));
+  await waitFor(() => expect(details()).toHaveLength(4));
+  // While the new patches are on their way the old ones are still drawn.
+  expect(document.body.querySelector(".dv-code")).toBeTruthy();
+  release();
 });
 
 test("collapse all hides every diff body and expand all brings them back", async () => {
@@ -260,41 +251,64 @@ test("the header copies the file path", async () => {
   expect(navigator.clipboard.writeText).toHaveBeenCalledWith("src/a.ts");
 });
 
-test("the uncommitted scope says how many untracked files it skipped", async () => {
-  open();
-  await screen.findByTestId("dv-file-src/a.ts");
-  fireEvent.change(screen.getByTestId("dv-scope"), {
-    target: { value: "uncommitted" },
-  });
-  const banner = await screen.findByTestId("dv-untracked");
-  expect(banner.textContent || "").toContain("3");
-});
-
-test("an unversioned workspace explains itself instead of showing an empty diff", async () => {
+test("says how many new files it left out", async () => {
   fetchMock.mockImplementation(async (input: unknown) => {
     const url = String(input);
-    if (url.includes("scope=uncommitted")) {
-      return jsonResponse({
-        sessionId: "s1",
-        scope: "uncommitted",
-        files: [],
-        totals: { files: 0, additions: 0, deletions: 0 },
-        untracked: 0,
-        vcsAvailable: false,
-      });
-    }
     if (url.includes("/changes/file")) {
       return jsonResponse({ patch: PATCH });
     }
-    return jsonResponse(SESSION);
+    return jsonResponse({ ...SESSION, skipped: 12 });
   });
+  open();
+  const banner = await screen.findByTestId("dv-skipped");
+  expect(banner.textContent || "").toContain("12");
+});
 
+test("a folder in no repository explains itself instead of showing an empty diff", async () => {
+  fetchMock.mockImplementation(async () =>
+    jsonResponse({
+      sessionId: "s1",
+      vcs: "",
+      files: [],
+      totals: { files: 0, additions: 0, deletions: 0 },
+      skipped: 0,
+    }),
+  );
+  open();
+  await screen.findByTestId("dv-no-vcs");
+  expect(screen.queryByTestId("dv-discard-all")).toBeNull();
+});
+
+test("discarding a file asks first, then puts it back through the server", async () => {
   open();
   await screen.findByTestId("dv-file-src/a.ts");
-  fireEvent.change(screen.getByTestId("dv-scope"), {
-    target: { value: "uncommitted" },
+  fireEvent.click(screen.getByTestId("dv-discard-src/a.ts"));
+  const dialog = await confirmDialog();
+  expect(dialog.textContent || "").toContain("a.ts");
+  fireEvent.click(within(dialog).getByRole("button", { name: t("changes.discardYes") }));
+  await waitFor(() => {
+    const post = fetchMock.mock.calls.find((c) => String(c[0]).endsWith("/changes/revert"));
+    expect(post).toBeTruthy();
+    expect(JSON.parse(String((post![1] as RequestInit).body))).toEqual({ paths: ["src/a.ts"] });
   });
-  await screen.findByTestId("dv-no-vcs");
+});
+
+test("discarding everything asks first, and a refusal touches nothing", async () => {
+  open();
+  await screen.findByTestId("dv-file-src/a.ts");
+  fireEvent.click(screen.getByTestId("dv-discard-all"));
+  let dialog = await confirmDialog();
+  fireEvent.click(within(dialog).getByRole("button", { name: t("common.cancel") }));
+  await waitFor(() => expect(document.body.querySelector(".confirm-dialog")).toBeNull());
+  expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/changes/revert"))).toBe(false);
+
+  fireEvent.click(screen.getByTestId("dv-discard-all"));
+  dialog = await confirmDialog();
+  fireEvent.click(within(dialog).getByRole("button", { name: t("changes.discardYes") }));
+  await waitFor(() => {
+    const post = fetchMock.mock.calls.find((c) => String(c[0]).endsWith("/changes/revert"));
+    expect(JSON.parse(String((post![1] as RequestInit).body))).toEqual({ all: true });
+  });
 });
 
 test("colours the code when the file has a known language", async () => {
@@ -312,7 +326,7 @@ test("colours the code when the file has a known language", async () => {
     }
     return jsonResponse({
       sessionId: "s1",
-      scope: "session",
+      vcs: "git",
       files: [SESSION.files[0]!],
       totals: { files: 1, additions: 1, deletions: 1 },
     });
@@ -345,7 +359,7 @@ test("leaves an unknown file type as plain text", async () => {
     }
     return jsonResponse({
       sessionId: "s1",
-      scope: "session",
+      vcs: "git",
       files: [{ ...SESSION.files[0]!, path: "notes.txt" }],
       totals: { files: 1, additions: 1, deletions: 1 },
     });
@@ -359,67 +373,57 @@ test("leaves an unknown file type as plain text", async () => {
   expect(document.body.querySelector(".hljs-keyword")).toBeNull();
 });
 
-test("the all-files scope offers untracked files the git scope leaves out", async () => {
-  fetchMock.mockImplementation(async (input: unknown) => {
-    const url = String(input);
-    if (url.includes("/changes/file")) {
-      return jsonResponse({ patch: PATCH });
-    }
-    if (url.includes("scope=all")) {
-      return jsonResponse({
-        sessionId: "s1",
-        scope: "all",
-        files: [
-          SESSION.files[0]!,
-          { ...SESSION.files[1]!, path: "brand-new.txt", status: "added" },
-        ],
-        totals: { files: 2, additions: 5, deletions: 1 },
-        untracked: 0,
-        vcsAvailable: true,
-      });
-    }
-    return jsonResponse(SESSION);
-  });
-
-  open();
+// The window answers only an Escape nobody nearer claimed: the confirmation
+// dialog over it takes its own, and closing both at once lost the question.
+test("Escape on the discard question closes the question, not the window", async () => {
+  const onClose = vi.fn();
+  render(
+    <ConfirmProvider>
+      <DiffViewerModal open sessionId="s1" onClose={onClose} />
+    </ConfirmProvider>,
+  );
   await screen.findByTestId("dv-file-src/a.ts");
-  fireEvent.change(screen.getByTestId("dv-scope"), {
-    target: { value: "all" },
-  });
-
-  await screen.findByTestId("dv-file-brand-new.txt");
-  // Nothing was skipped, so the scope makes no excuses for itself.
-  expect(screen.queryByTestId("dv-untracked")).toBeNull();
+  fireEvent.click(screen.getByTestId("dv-discard-all"));
+  await confirmDialog();
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+  await waitFor(() => expect(document.body.querySelector(".confirm-dialog")).toBeNull());
+  expect(onClose).not.toHaveBeenCalled();
+  fireEvent.keyDown(document.body, { key: "Escape" });
+  expect(onClose).toHaveBeenCalledTimes(1);
 });
 
-// Past the cap the scope says how much it left out, and says it differently
-// from the tracked-only scope: there the omission is the rule, here a limit.
-test("the all-files scope reports files it had to leave out", async () => {
+test("a first read that fails says why instead of an empty window", async () => {
+  fetchMock.mockImplementation(async () => ({
+    ok: false,
+    status: 503,
+    json: async () => ({ error: { message: "server restarting" } }),
+  }) as unknown as Response);
+  open();
+  const note = await screen.findByTestId("dv-error");
+  expect(note.textContent).toContain("server restarting");
+});
+
+test("a file edited again with the same counts shows its new diff", async () => {
+  let body = "new";
   fetchMock.mockImplementation(async (input: unknown) => {
     const url = String(input);
     if (url.includes("/changes/file")) {
-      return jsonResponse({ patch: PATCH });
+      return jsonResponse({ patch: PATCH.replace("+new", "+" + body) });
     }
-    if (url.includes("scope=all")) {
-      return jsonResponse({
-        sessionId: "s1",
-        scope: "all",
-        files: [SESSION.files[0]!],
-        totals: { files: 1, additions: 1, deletions: 1 },
-        untracked: 12,
-        vcsAvailable: true,
-      });
-    }
-    return jsonResponse(SESSION);
+    return jsonResponse({ ...SESSION, files: [SESSION.files[0]!], totals: { files: 1, additions: 1, deletions: 1 } });
   });
-
   open();
-  await screen.findByTestId("dv-file-src/a.ts");
-  fireEvent.change(screen.getByTestId("dv-scope"), {
-    target: { value: "all" },
-  });
+  await waitFor(() => expect(document.body.textContent).toContain("new"));
+  body = "rewritten";
+  emitChangesSettled("s1");
+  await waitFor(() => expect(document.body.textContent).toContain("rewritten"));
+});
 
-  const banner = await screen.findByTestId("dv-untracked");
-  expect(banner.textContent || "").toContain("12");
-  expect(banner.textContent || "").not.toContain("Only tracked changes");
+test("new files git could not list can still be discarded", async () => {
+  fetchMock.mockImplementation(async () =>
+    jsonResponse({ sessionId: "s1", vcs: "git", files: [], totals: { files: 0, additions: 0, deletions: 0 }, skipped: 3 }),
+  );
+  open();
+  await screen.findByTestId("dv-skipped");
+  expect(screen.getByTestId("dv-discard-all")).toBeTruthy();
 });

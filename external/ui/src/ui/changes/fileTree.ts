@@ -1,5 +1,5 @@
 /**
- * The changed-file paths arranged as a tree for the review window's file panel.
+ * The changed-file paths arranged as a tree for the edits window's file panel.
  *
  * Pure so the shape - especially the chain collapsing - is testable without
  * rendering anything.

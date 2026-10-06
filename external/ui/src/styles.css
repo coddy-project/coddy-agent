@@ -2414,14 +2414,36 @@ a.rail-brand {
   outline-offset: 2px;
 }
 
-.chat-view-icon {
+/* The icon (or the tasks dot), the name and the counts are one line of text,
+   and the icon sits on it with vertical-align: middle - the middle of the
+   lowercase letters, in whatever font the engine draws. Centred on the line box
+   instead, an icon reads a pixel high beside mostly lowercase names, by an
+   amount that differs per font. A phone shows the icon alone, centred in its
+   square (below). */
+.chat-view-face {
   display: block;
-  flex: none;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.chat-view-face > * + * {
+  margin-left: 7px;
+}
+
+.chat-view-icon {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.chat-view-face .bgtask-dot {
+  display: inline-block;
+  vertical-align: middle;
 }
 
 .chat-view-label {
   line-height: 1;
 }
+
 
 /* running / total beside the dot. Tabular digits, so a count that changes
    does not move the row. */
@@ -2481,6 +2503,10 @@ a.rail-brand {
 
   .chat-view-label {
     display: none;
+  }
+
+  .chat-view-icon {
+    display: block;
   }
 
   .chat-view-btn--tasks {
@@ -5848,6 +5874,84 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
    enough to push it. Gap and alignment come from .composer-context-row. */
 .composer-context-chips {
   display: contents;
+}
+
+/* The bar over the composer of a running chat (WorkspaceBar.tsx): where the
+   chat works - the repository, the branch or worktree - and git's count of
+   its changes, which opens the edits. Quiet text on the page, the composer
+   card's left edge, one line that never wraps. */
+.workspace-bar {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  /* The docked composer keeps a band above its card; the bar sits in it, a
+     few pixels over the card's edge, rather than a band higher. */
+  margin: 0 0 -10px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  white-space: nowrap;
+}
+
+/* An item is one line of text that ends in an ellipsis when the bar runs out
+   of room; its icon sits on that line with vertical-align: middle, the middle
+   of the lowercase letters in whatever font the engine draws. */
+.workspace-bar-item {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workspace-bar-repo {
+  flex: 0 1 auto;
+  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+}
+
+.workspace-bar-branch {
+  flex: 0 1 auto;
+}
+
+.workspace-bar-icon {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 6px;
+  opacity: 0.85;
+}
+
+.workspace-bar-icon--worktree {
+  color: var(--accent);
+  opacity: 1;
+}
+
+
+.workspace-bar-edits {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--muted) 28%, transparent);
+  background: var(--coddy-chip-badge-bg);
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.workspace-bar-edits:hover,
+.workspace-bar-edits.is-active {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.workspace-bar-edits.is-active {
+  background: color-mix(in srgb, var(--accent) 14%, var(--coddy-blend-base));
 }
 
 .workspace-chip {
@@ -15722,70 +15826,10 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   margin: 4px 8px;
   background: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
 }
-/* ── Session changed-files card and viewer ─────────────────────────────────
-   The card summarises what the whole session did to the workspace, so it sits
-   at the bottom of the transcript next to the background tasks chip: both
-   describe the chat above them rather than any single message. The viewer is a
-   docked drawer in the same slot as the tasks panel. */
-
-.changes-card {
-  margin: 8px 0 2px;
-  border: 0.5px solid var(--coddy-glass-panel-border);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
-  overflow: hidden;
-}
-
-/* Shown by Ctrl+S in a chat that changed nothing: the key still answers. */
-.changes-card-empty {
-  margin: 0;
-  padding: 10px 14px;
-  font-size: 12.5px;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
-}
-
-.changes-card-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  padding: 8px 10px;
-  border-bottom: 0.5px solid var(--coddy-glass-panel-border);
-}
-
-.changes-card-summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  flex: 1 1 auto;
-  min-width: 0;
-  padding: 2px 4px;
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.changes-card-title {
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.changes-card-stat,
-.changes-row-stat {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex: 0 0 auto;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
-  white-space: nowrap;
-}
+/* ── Edits: what git reports for the chat's folder ─────────────────────────
+   Their one view is the edits window further down (.dv-*); these are the
+   colours of the counts and the buttons it shares with the bar over the
+   composer. */
 
 .changes-add {
   color: var(--diff-add-no);
@@ -15793,13 +15837,6 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 
 .changes-del {
   color: var(--diff-del-no);
-}
-
-.changes-card-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex: 0 0 auto;
 }
 
 .changes-action {
@@ -15824,121 +15861,9 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   cursor: default;
 }
 
-.changes-action--primary {
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--accent) 12%, var(--coddy-blend-base));
-  color: var(--text);
-}
-
 .changes-action--danger:hover:not(:disabled) {
   border-color: var(--diff-del-no);
   color: var(--diff-del-no);
-}
-
-.changes-confirm-text {
-  font-size: 12px;
-  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
-}
-
-.changes-card-rows {
-  display: flex;
-  flex-direction: column;
-}
-
-.changes-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-height: 28px;
-  padding: 4px 12px;
-  border: 0;
-  border-top: 0.5px solid
-    color-mix(in srgb, var(--text) 7%, var(--coddy-blend-base));
-  background: transparent;
-  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.changes-card-rows .changes-row:first-child {
-  border-top: 0;
-}
-
-.changes-row:hover,
-.changes-row.is-active {
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
-  color: var(--text);
-}
-
-.changes-row-path {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 8px;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.changes-row-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* The folder is context, not identity: it yields the space when a row is tight. */
-.changes-row-dir {
-  flex: 0 1 auto;
-  min-width: 0;
-  font-size: 11px;
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  direction: rtl;
-  text-align: left;
-}
-
-.changes-row-binary {
-  flex: 0 0 auto;
-  font-size: 11px;
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
-}
-
-.changes-row--added .changes-row-name {
-  color: var(--diff-add-no);
-}
-
-.changes-row--deleted .changes-row-name {
-  text-decoration: line-through;
-  color: var(--diff-del-no);
-}
-
-.changes-row--more {
-  justify-content: center;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
-}
-
-/* ── Viewer drawer ──────────────────────────────────────────────────────── */
-
-.changes-panel {
-  position: fixed;
-  top: 14px;
-  right: 14px;
-  bottom: 14px;
-  width: min(560px, calc(100vw - 32px));
-  z-index: 40;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  box-sizing: border-box;
-  border-radius: var(--coddy-glass-panel-radius);
-  border: 1px solid var(--coddy-glass-panel-border);
-  background: var(--coddy-glass-panel-bg);
-  backdrop-filter: var(--coddy-glass-panel-backdrop);
-  box-shadow: var(--coddy-glass-panel-shadow);
-  overflow: hidden;
 }
 
 /* ── Files window ─────────────────────────────────────────────────────────
@@ -16657,110 +16582,14 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   }
 }
 
-/* Same deal as the tasks panel: the chat column gives up the width instead of
-   hiding behind the drawer. The dock is one slot, so the reserve rule is the
-   tasks panel's own (shell-tasks-open); the Changes face is wider, and the
-   band below names exactly that width for the reserve to grow to. */
-@media (min-width: 1200px) {
-  .shell-main.shell-tasks-open.shell-changes-open {
-    --coddy-tasks-panel-band: calc(min(560px, 100vw - 32px) + 14px + 12px);
-  }
-}
-
-.changes-panel-head {
-  flex: 0 0 auto;
-}
-
-.changes-panel-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  flex: 0 0 auto;
-  padding: 6px 14px 8px;
-  font-size: 12px;
-  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
-}
-
-.changes-panel-body {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 auto;
-  min-height: 0;
-}
-
-.changes-panel-list {
-  flex: 0 0 auto;
-  max-height: 34%;
-  overflow-y: auto;
-  border-top: 0.5px solid var(--coddy-glass-panel-border);
-  border-bottom: 0.5px solid var(--coddy-glass-panel-border);
-}
-
-.changes-panel-diff {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: auto;
-  padding: 10px 12px 14px;
-}
-
-.changes-diff-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding-bottom: 8px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
-  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
-}
-
-.changes-badge {
-  flex: 0 0 auto;
-  padding: 1px 7px;
-  border-radius: 999px;
-  border: 0.5px solid var(--coddy-glass-panel-border);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.changes-badge--added {
-  color: var(--diff-add-no);
-  border-color: var(--diff-add-no);
-}
-
-.changes-badge--deleted {
-  color: var(--diff-del-no);
-  border-color: var(--diff-del-no);
-}
-
-/* The viewer is the place to read a whole diff, so its body is not clipped the
-   way an inline transcript preview is. */
-.changes-panel-diff .permission-preview-viewport {
-  max-height: none;
-}
-
 @media (max-width: 1199px) {
-  .changes-panel {
-    top: calc(var(--coddy-mobile-top-inset) + 6px);
-    left: max(10px, env(safe-area-inset-left, 0px));
-    right: max(10px, env(safe-area-inset-right, 0px));
-    bottom: max(14px, env(safe-area-inset-bottom, 0px));
-    width: auto;
-    z-index: 70;
-  }
-
-  .changes-row {
-    min-height: 34px;
-  }
-
   .changes-action {
     min-height: 32px;
   }
 }
 
 /* ---------------------------------------------------------------------------
-   Review window (.dv-*) - every changed file diff in one scrollable document.
+   Edits window (.dv-*) - every changed file diff in one scrollable document.
    Chromium 104 baseline: no :has(), no @container, marker classes instead.
    --------------------------------------------------------------------------- */
 
@@ -16807,16 +16636,11 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   flex: 1 1 auto;
 }
 
-.dv-scope {
+.dv-title {
   flex: 0 0 auto;
-  max-width: 210px;
-  padding: 4px 8px;
-  font: inherit;
   font-size: 13px;
+  font-weight: 600;
   color: var(--text);
-  background: transparent;
-  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
-  border-radius: 8px;
 }
 
 .dv-totals {
@@ -16853,6 +16677,15 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 .dv-icon-btn:hover {
   background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
   color: var(--text);
+}
+
+.dv-icon-btn--danger:hover:not(:disabled) {
+  color: var(--diff-del-no);
+}
+
+.dv-icon-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .dv-icon-btn.is-active {
@@ -17040,11 +16873,6 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
 }
 
-.dv-banner-title {
-  font-weight: 600;
-  color: var(--text);
-}
-
 /* One file ------------------------------------------------------------------ */
 
 .dv-file {
@@ -17143,6 +16971,14 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 .dv-file-head:hover .dv-file-actions,
 .dv-file-actions:focus-within {
   opacity: 1;
+}
+
+/* A touch screen has no hover to reveal them: copy, discard and collapse stay
+   in sight. */
+@media (any-hover: none) and (any-pointer: coarse) {
+  .dv-file-actions {
+    opacity: 1;
+  }
 }
 
 .dv-file-body {

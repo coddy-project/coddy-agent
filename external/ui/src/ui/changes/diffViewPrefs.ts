@@ -1,5 +1,5 @@
 /**
- * Which way the review window draws a diff, remembered per browser.
+ * Which way the edits window draws a diff, remembered per browser.
  *
  * Presentation only, so it follows the house style for that kind of preference
  * (theme, nav rail, reasoning level) and lives in a cookie rather than the

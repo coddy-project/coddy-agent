@@ -14,8 +14,8 @@ export function ChatHeader(props: {
   onOpenTasks?: () => void;
   /** The Tasks panel is showing. */
   tasksOpen?: boolean;
-  /** Opens the session's edits beside the chat, or puts them away when they show.
-   *  Absent when the edits are switched off (`ui.session_changes: false`). */
+  /** Opens the edits window, or puts it away when it shows. Absent while git
+   *  reports no changes in the chat's folder. */
   onOpenEdits?: () => void;
   /** The edits are showing. */
   editsOpen?: boolean;
@@ -193,26 +193,30 @@ function HeaderViews(props: {
             aria-label={view.name}
             onClick={view.run}
           >
-            {view.id === "tasks" ? (
-              <span
-                className={`bgtask-dot ${live ? "bgtask-dot--running" : "bgtask-dot--muted"}`}
-                aria-hidden="true"
-              />
-            ) : (
-              <ViewIcon id={view.id} />
-            )}
-            <span className="chat-view-label" aria-hidden="true">
-              {view.label}
-            </span>
-            {view.id === "tasks" && total > 0 ? (
-              <span
-                className="chat-view-count"
-                data-testid="chat-views-tasks-count"
-                aria-hidden="true"
-              >
-                {t("tasks.header.counts", { running, total })}
+            {/* One line of text: the icon sits on it with vertical-align:
+                middle, the middle of the lowercase letters in any font. */}
+            <span className="chat-view-face">
+              {view.id === "tasks" ? (
+                <span
+                  className={`bgtask-dot ${live ? "bgtask-dot--running" : "bgtask-dot--muted"}`}
+                  aria-hidden="true"
+                />
+              ) : (
+                <ViewIcon id={view.id} />
+              )}
+              <span className="chat-view-label" aria-hidden="true">
+                {view.label}
               </span>
-            ) : null}
+              {view.id === "tasks" && total > 0 ? (
+                <span
+                  className="chat-view-count"
+                  data-testid="chat-views-tasks-count"
+                  aria-hidden="true"
+                >
+                  {t("tasks.header.counts", { running, total })}
+                </span>
+              ) : null}
+            </span>
           </button>
           <span className="chat-view-tip" role="tooltip">
             {view.name}

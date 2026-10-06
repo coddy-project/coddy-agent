@@ -1,8 +1,9 @@
 // Package linediff computes line-level differences between two versions of a
 // text file and renders them as a standard unified diff.
 //
-// It exists because the session changed-files card and its diff viewers need
-// one answer to "what changed" on every surface that renders one. Deriving
+// It exists because the Edits views of a chat - the count in the bar over the
+// composer and the edits window - need one answer to "what changed" on every
+// surface that renders one. Deriving
 // that separately per surface is how the same edit ends up reported as
 // "+8 -0" in one place and "+9 -1" in another.
 package linediff

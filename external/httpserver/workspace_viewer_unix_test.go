@@ -3,6 +3,7 @@
 package httpserver
 
 import (
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,5 +34,21 @@ func TestWorkspaceViewerRejectsSymlinksAndFIFOs(t *testing.T) {
 				t.Fatalf("%s %s: %d", route, path, w.Code)
 			}
 		}
+	}
+}
+
+// On a POSIX system a backslash is a character of a file name: the detail
+// route reads the file git lists under that very name.
+func TestSessionChangeFileWithABackslashInItsName(t *testing.T) {
+	e := newChangesEnv(t)
+	e.commitWorkspace(t, map[string]string{`dir\file.txt`: "old\n", "dir/file.txt": "other old\n"})
+	writeInWorkspace(t, e.cwd, `dir\file.txt`, "new\n")
+	writeInWorkspace(t, e.cwd, "dir/file.txt", "other new\n")
+	rec := e.do(t, http.MethodGet, "/coddy/sessions/"+e.id+"/changes/file?path=dir%5Cfile.txt")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	if body := decodeJSON(t, rec); body["after"] != "new\n" {
+		t.Fatalf("read the wrong file: %v", body["after"])
 	}
 }

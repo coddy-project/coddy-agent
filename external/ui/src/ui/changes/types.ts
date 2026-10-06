@@ -2,7 +2,7 @@
 
 export type ChangeStatus = "added" | "modified" | "deleted";
 
-/** One file in the session change set, net of every turn. */
+/** One file of the working copy that differs from HEAD, as git reports it. */
 export interface ChangedFile {
   path: string;
   status: ChangeStatus;
@@ -22,32 +22,14 @@ export interface SessionChangeTotals {
   deletions: number;
 }
 
-/**
- * Which edits a change set describes. The card always asks for the session; the
- * review window's switcher offers the other two.
- */
-export type ChangeScope = "session" | "turn" | "uncommitted" | "all";
-
-export const CHANGE_SCOPES: ChangeScope[] = [
-  "session",
-  "turn",
-  "uncommitted",
-  "all",
-];
-
 export interface SessionChanges {
   sessionId: string;
   files: ChangedFile[];
   totals: SessionChangeTotals;
-  /** Echoed by the server; absent on a response from an older backend. */
-  scope?: ChangeScope;
-  /** Working-copy scopes only: files not shown because they are untracked -
-   *  all of them under `uncommitted`, only those past the cap under `all`. */
-  untracked?: number;
-  /** Working-copy scopes only: false when the folder is under no VCS at all. */
-  vcsAvailable?: boolean;
-  /** Which system answered: "git", "svn", or "" when the folder is under none. */
+  /** "git" when the folder is inside a repository, "" when it is in none. */
   vcs?: string;
+  /** New files not listed: past the server's cap, or too large to read. */
+  skipped?: number;
 }
 
 /** A single file with its unified patch, from the detail route. */

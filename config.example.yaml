@@ -490,7 +490,6 @@ tools:
 # requiring httpserver.auth_token when configured. Defaults to enabled when omitted.
 # ui:
 #   enable: true
-#   session_changes: true # false = hide the changed-files card under the transcript
 
 # Cron scheduler (external/scheduler + lib/, tools/; build with: go build -tags=scheduler).
 # Jobs live in two fixed folders: your own in ${CODDY_HOME}/scheduler, and the project jobs a repository carries in

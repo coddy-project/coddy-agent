@@ -3,8 +3,9 @@
 package httpserver
 
 // Godog harness for features/session_changes.feature: drives the live
-// /coddy/sessions/{id}/changes surface behind the changed-files card, from
-// a real turn that edits the workspace through to rolling the session back.
+// /coddy/sessions/{id}/changes surface behind the Edits view over a workspace
+// that is a git repository, from a turn that edits it through to discarding
+// the uncommitted changes.
 
 import (
 	"context"
@@ -15,6 +16,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -52,16 +54,9 @@ type sessionChangesState struct {
 		path    string
 		content string
 	}
-	files     []changedFileRow
-	one       changedFileRow
-	lastScope string
-
-	// A held turn writes its file, then waits on holdTurn until the scenario
-	// lets it finish; turnWrote says the write is done, turnDone carries the
-	// POST's outcome.
-	holdTurn  chan struct{}
-	turnWrote chan struct{}
-	turnDone  chan error
+	files []changedFileRow
+	one   changedFileRow
+	vcs   string
 
 	// events is a subscription to the server-wide event stream.
 	events            <-chan []byte
@@ -87,20 +82,13 @@ func (s *sessionChangesState) reset() error {
 	s.sessionID = ""
 	s.files = nil
 	s.one = changedFileRow{}
-	s.lastScope = ""
+	s.vcs = ""
 	s.pendingWrite.path = ""
-	s.holdTurn, s.turnWrote, s.turnDone = nil, nil, nil
 	s.events, s.unsubscribeEvents = nil, nil
 	return nil
 }
 
 func (s *sessionChangesState) close() {
-	// A scenario that failed while a turn was held must not leave the runner
-	// blocked for the server shutdown to wait on.
-	if s.holdTurn != nil {
-		close(s.holdTurn)
-		s.holdTurn = nil
-	}
 	if s.unsubscribeEvents != nil {
 		s.unsubscribeEvents()
 		s.unsubscribeEvents = nil
@@ -119,6 +107,33 @@ func (s *sessionChangesState) close() {
 	}
 }
 
+// git runs the git binary in the workspace for the fixture, with no global or
+// system configuration in the way.
+func (s *sessionChangesState) git(args ...string) error {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = s.workspace
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git %v: %v\n%s", args, err, out)
+	}
+	return nil
+}
+
+// startGitServer is startServer over a workspace that is a fresh git
+// repository. A machine without git cannot build it and skips.
+func (s *sessionChangesState) startGitServer() error {
+	if _, err := exec.LookPath("git"); err != nil {
+		return godog.ErrSkip
+	}
+	if err := os.MkdirAll(s.workspace, 0o755); err != nil {
+		return err
+	}
+	if err := s.git("init", "-b", "main"); err != nil {
+		return err
+	}
+	return s.startServer()
+}
+
 func (s *sessionChangesState) startServer() error {
 	for _, d := range []string{s.home, s.workspace, s.sessRoot} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
@@ -126,7 +141,7 @@ func (s *sessionChangesState) startServer() error {
 		}
 	}
 	// The stub agent performs whatever edit the scenario queued, standing in
-	// for a real tool call so the turn diff is captured the usual way.
+	// for a real tool call.
 	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
 		if s.pendingWrite.path != "" {
 			target := filepath.Join(s.workspace, s.pendingWrite.path)
@@ -135,15 +150,6 @@ func (s *sessionChangesState) startServer() error {
 			}
 			s.pendingWrite.path = ""
 		}
-		// A held turn stays running after its edit, the way a real turn keeps
-		// working after one tool call, until the scenario releases it.
-		if hold := s.holdTurn; hold != nil {
-			close(s.turnWrote)
-			<-hold
-		}
-		// Record the exchange the way the real ReAct loop does: turn diffs are
-		// filed under the user-turn count, so a stub that never grows the
-		// transcript would overwrite turn 0 on every prompt.
 		text := ""
 		if len(prompt) > 0 {
 			text = prompt[0].Text
@@ -174,19 +180,27 @@ func (s *sessionChangesState) workspaceContains(name, content string) error {
 	return os.WriteFile(filepath.Join(s.workspace, name), []byte(gherkinText(content)), 0o644)
 }
 
-// runTurn sends a prompt and verifies its stored workspace diff.
+// committed writes a file and commits it, so HEAD holds it.
+func (s *sessionChangesState) committed(name, content string) error {
+	if err := os.WriteFile(filepath.Join(s.workspace, name), []byte(gherkinText(content)), 0o644); err != nil {
+		return err
+	}
+	if err := s.git("add", "--", name); err != nil {
+		return err
+	}
+	return s.git("-c", "user.email=coddy@test", "-c", "user.name=coddy", "commit", "-q", "-m", "add "+name)
+}
+
+// changedOnDisk edits a file the way an editor next to the agent would.
+func (s *sessionChangesState) changedOnDisk(name, content string) error {
+	return os.WriteFile(filepath.Join(s.workspace, name), []byte(gherkinText(content)), 0o644)
+}
+
+// runTurn sends a prompt whose turn writes one file.
 func (s *sessionChangesState) runTurn(name, content string) error {
 	s.pendingWrite.path = name
 	s.pendingWrite.content = gherkinText(content)
-
-	before, err := session.ListStoredTurnDiffs(filepath.Join(s.sessRoot, s.sessionID))
-	if err != nil {
-		return err
-	}
-	if err := s.postPrompt(); err != nil {
-		return err
-	}
-	return s.awaitStoredTurn(len(before), name)
+	return s.postPrompt()
 }
 
 // postPrompt sends one turn and waits for its answer.
@@ -210,69 +224,15 @@ func (s *sessionChangesState) postPrompt() error {
 	return nil
 }
 
-// awaitStoredTurn waits until more than had turn diffs are on disk.
-func (s *sessionChangesState) awaitStoredTurn(had int, name string) error {
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		now, err := session.ListStoredTurnDiffs(filepath.Join(s.sessRoot, s.sessionID))
-		if err != nil {
-			return err
-		}
-		if len(now) > had {
-			return nil
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	return fmt.Errorf("turn diff for %q was never stored", name)
-}
-
-// startHeldTurn starts a turn that writes one file and then keeps working,
-// and returns once the write is done.
-func (s *sessionChangesState) startHeldTurn(name, content string) error {
-	s.pendingWrite.path = name
-	s.pendingWrite.content = gherkinText(content)
-	s.holdTurn = make(chan struct{})
-	s.turnWrote = make(chan struct{})
-	s.turnDone = make(chan error, 1)
-	go func() { s.turnDone <- s.postPrompt() }()
-	select {
-	case <-s.turnWrote:
-		return nil
-	case err := <-s.turnDone:
-		return fmt.Errorf("the turn ended before it wrote: %v", err)
-	case <-time.After(10 * time.Second):
-		return fmt.Errorf("the turn never wrote %q", name)
-	}
-}
-
-// finishHeldTurn lets the held turn end and waits for its diff to be stored.
-func (s *sessionChangesState) finishHeldTurn() error {
-	before, err := session.ListStoredTurnDiffs(filepath.Join(s.sessRoot, s.sessionID))
-	if err != nil {
-		return err
-	}
-	close(s.holdTurn)
-	s.holdTurn = nil
-	select {
-	case err := <-s.turnDone:
-		if err != nil {
-			return err
-		}
-	case <-time.After(10 * time.Second):
-		return fmt.Errorf("the released turn never answered")
-	}
-	return s.awaitStoredTurn(len(before), "the running turn")
-}
-
 // listenForServerEvents subscribes to the stream GET /coddy/events serves.
 func (s *sessionChangesState) listenForServerEvents() error {
 	s.events, s.unsubscribeEvents = s.srv.events.subscribe()
 	return nil
 }
 
-// hearChangesRecorded waits for the event that tells the card this session's
-// change set can be read.
-func (s *sessionChangesState) hearChangesRecorded() error {
+// hearWorkingCopyMoved waits for the event that tells the Edits view to read
+// this session's working copy again.
+func (s *sessionChangesState) hearWorkingCopyMoved() error {
 	deadline := time.After(10 * time.Second)
 	for {
 		select {
@@ -288,19 +248,9 @@ func (s *sessionChangesState) hearChangesRecorded() error {
 	}
 }
 
+// askWhatChanged reads the change set the Edits view shows.
 func (s *sessionChangesState) askWhatChanged() error {
-	return s.askWhatChangedInScope("")
-}
-
-// askWhatChangedInScope reads the change set the review window would show for
-// one scope; an empty scope exercises the default the card uses.
-func (s *sessionChangesState) askWhatChangedInScope(scope string) error {
-	s.lastScope = scope
-	url := s.ts.URL + "/coddy/sessions/" + s.sessionID + "/changes"
-	if scope != "" {
-		url += "?scope=" + scope
-	}
-	res, err := http.Get(url)
+	res, err := http.Get(s.ts.URL + "/coddy/sessions/" + s.sessionID + "/changes")
 	if err != nil {
 		return err
 	}
@@ -310,6 +260,7 @@ func (s *sessionChangesState) askWhatChangedInScope(scope string) error {
 	}
 	var body struct {
 		Object string           `json:"object"`
+		VCS    string           `json:"vcs"`
 		Files  []changedFileRow `json:"files"`
 		Totals struct {
 			Files     int `json:"files"`
@@ -327,6 +278,14 @@ func (s *sessionChangesState) askWhatChangedInScope(scope string) error {
 		return fmt.Errorf("totals.files = %d but %d files listed", body.Totals.Files, len(body.Files))
 	}
 	s.files = body.Files
+	s.vcs = body.VCS
+	return nil
+}
+
+func (s *sessionChangesState) gitIsNamed() error {
+	if s.vcs != "git" {
+		return fmt.Errorf("vcs = %q, want git", s.vcs)
+	}
 	return nil
 }
 
@@ -342,12 +301,15 @@ func (s *sessionChangesState) openDiff(name string) error {
 	return json.NewDecoder(res.Body).Decode(&s.one)
 }
 
-func (s *sessionChangesState) rollBack() error {
+// discard asks the server to put the working copy back at HEAD: the body
+// names the files, or says all of them.
+func (s *sessionChangesState) discard(body string) error {
 	req, err := http.NewRequest(http.MethodPost,
-		s.ts.URL+"/coddy/sessions/"+s.sessionID+"/changes/revert", nil)
+		s.ts.URL+"/coddy/sessions/"+s.sessionID+"/changes/revert", strings.NewReader(body))
 	if err != nil {
 		return err
 	}
+	req.Header.Set("Content-Type", "application/json")
 	res, err := s.ts.Client().Do(req)
 	if err != nil {
 		return err
@@ -361,9 +323,6 @@ func (s *sessionChangesState) rollBack() error {
 }
 
 func (s *sessionChangesState) noFilesChanged() error {
-	if err := s.askWhatChangedInScope(s.lastScope); err != nil {
-		return err
-	}
 	if len(s.files) != 0 {
 		return fmt.Errorf("want no changed files, got %d: %+v", len(s.files), s.files)
 	}
@@ -435,21 +394,20 @@ func initializeSessionChangesScenario(sc *godog.ScenarioContext) {
 		return ctx, nil
 	})
 
-	sc.Step(`^a running coddy HTTP server with a workspace$`, s.startServer)
-	sc.Step(`^the workspace contains "([^"]+)" with "([^"]*)"$`, s.workspaceContains)
+	sc.Step(`^a running coddy HTTP server whose workspace is a git repository$`, s.startGitServer)
+	sc.Step(`^the repository has "([^"]+)" committed as "([^"]*)"$`, s.committed)
+	sc.Step(`^"([^"]+)" is changed on disk to "([^"]*)"$`, s.changedOnDisk)
 	sc.Step(`^the agent runs a turn that writes "([^"]+)" as "([^"]*)"$`, s.runTurn)
-	sc.Step(`^the agent runs a turn without editing files$`, func() error { return s.runTurn("", "") })
-	sc.Step(`^the agent writes "([^"]+)" as "([^"]*)" and keeps working$`, s.startHeldTurn)
-	sc.Step(`^the running turn finishes$`, s.finishHeldTurn)
 	sc.Step(`^a client listening for server events$`, s.listenForServerEvents)
-	sc.Step(`^the client hears that the session's changes are recorded$`, s.hearChangesRecorded)
-	sc.Step(`^I ask what the session changed$`, s.askWhatChanged)
-	sc.Step(`^I ask what the last turn changed$`, func() error {
-		return s.askWhatChangedInScope("turn")
-	})
+	sc.Step(`^the client hears that the session's working copy changed$`, s.hearWorkingCopyMoved)
+	sc.Step(`^I ask what the working copy changed$`, s.askWhatChanged)
 	sc.Step(`^I open the diff for "([^"]+)"$`, s.openDiff)
-	sc.Step(`^I roll the session changes back$`, s.rollBack)
+	sc.Step(`^I discard the changes of "([^"]+)"$`, func(name string) error {
+		return s.discard(`{"paths":["` + name + `"]}`)
+	})
+	sc.Step(`^I discard every change$`, func() error { return s.discard(`{"all":true}`) })
 
+	sc.Step(`^git is named as the version control$`, s.gitIsNamed)
 	sc.Step(`^no files are reported as changed$`, s.noFilesChanged)
 	sc.Step(`^(\d+) files? (?:is|are) reported as changed with (\d+) additions? and (\d+) deletions?$`, s.countAndStats)
 	sc.Step(`^"([^"]+)" is reported as "([^"]+)"$`, s.reportedAs)

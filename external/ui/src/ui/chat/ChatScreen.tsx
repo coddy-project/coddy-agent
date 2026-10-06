@@ -24,7 +24,8 @@ import type { MessageListProps } from "../messages/MessageList";
 import type { BackgroundTask } from "../tasks/types";
 import { countRunningTasks, isAwaitingPermission } from "../tasks/taskStatus";
 import { finishedToolCalls } from "../changes/toolActivity";
-import { SessionChangesCard } from "../changes/SessionChangesCard";
+import { hasEdits, useWorkingCopy } from "../changes/workingCopy";
+import { WorkspaceBar } from "./WorkspaceBar";
 import type { TurnProgress } from "./turnProgress";
 import { SubagentPermissionCards } from "./SubagentPermissionCard";
 import { SubagentReadOnlyNotice } from "./SubagentReadOnlyNotice";
@@ -48,11 +49,6 @@ import {
 } from "./transcriptScrollPosition";
 import { ScrollToBottomButton } from "./ScrollToBottomButton";
 import { openWorkspaceFile } from "../files/fileBus";
-import {
-  getSessionChangesEnabled,
-  onSessionChangesChange,
-} from "./sessionChangesConfig";
-import { useSessionHasEdits } from "../changes/useSessionHasEdits";
 import { TranscriptList, type TranscriptListHandle } from "./TranscriptList";
 
 export function ChatScreen(props: {
@@ -174,13 +170,12 @@ export function ChatScreen(props: {
   /** The Tasks panel is showing, for the header control's expanded state. */
   backgroundTasksOpen?: boolean;
   onCloseBackgroundTasks?: () => void;
-  /** Opens the session diff viewer from the changed-files card under the transcript. */
-  onOpenSessionChanges?: (path?: string) => void;
-  /** Opens the full-screen review window from the card summary. */
-  onOpenChangesViewer?: () => void;
-  /** The dock beside the chat shows the session's edits. */
+  /** Opens the edits window - what git reports for the chat's folder - or puts
+   *  it away when it shows. */
+  onOpenSessionChanges?: () => void;
+  /** The edits window is open. */
   sessionChangesOpen?: boolean;
-  /** Opens (or puts away) the Files window: the header menu, the composer chip. */
+  /** Opens (or puts away) the Files window from the header. */
   onOpenFiles?: () => void;
   /** The Files window is open. */
   filesOpen?: boolean;
@@ -543,17 +538,18 @@ export function ChatScreen(props: {
     />
   ) : null;
 
-  // The edits are offered while the card is switched on (ui.session_changes)
-  // and the session has edits, or while they are on show.
-  const sessionChangesEnabled = useSyncExternalStore(
-    onSessionChangesChange,
-    getSessionChangesEnabled,
-    getSessionChangesEnabled,
-  );
-  const sessionHasEdits = useSessionHasEdits(
-    props.sessionId ?? "",
-    sessionChangesEnabled && !!props.onOpenSessionChanges,
-  );
+  // What git reports for the chat's folder: the Edits button is there while
+  // it reports changes (or while they are on show), and the bar over the
+  // composer counts them. Every finished tool call may have written a file.
+  const workingCopy = useWorkingCopy(props.sessionId ?? "", {
+    enabled: !!props.onOpenSessionChanges,
+    toolActivity: finishedToolCalls(props.items),
+  });
+  const editsOffered =
+    hasEdits(workingCopy) || props.sessionChangesOpen === true;
+  const toggleEdits = props.onOpenSessionChanges
+    ? () => props.onOpenSessionChanges?.()
+    : undefined;
   // The Files window belongs to a chat, so it opens only once one exists.
   const openFiles = props.sessionId
     ? (props.onOpenFiles ?? (() => openWorkspaceFile()))
@@ -721,7 +717,6 @@ export function ChatScreen(props: {
             )}
             {readOnlyNotice ?? (
               <Composer
-                onOpenFiles={openFiles}
                 value={props.draft}
                 isEmpty={true}
                 providerUsage={props.providerUsage ?? null}
@@ -859,15 +854,9 @@ export function ChatScreen(props: {
                             ? props.onCloseBackgroundTasks
                             : props.onOpenBackgroundTasks,
                         tasksOpen: props.backgroundTasksOpen === true,
-                        ...(props.onOpenSessionChanges &&
-                        sessionChangesEnabled &&
-                        (sessionHasEdits || props.sessionChangesOpen === true)
+                        ...(toggleEdits && editsOffered
                           ? {
-                              onOpenEdits:
-                                props.sessionChangesOpen === true &&
-                                props.onCloseBackgroundTasks
-                                  ? props.onCloseBackgroundTasks
-                                  : () => props.onOpenSessionChanges?.(),
+                              onOpenEdits: toggleEdits,
                               editsOpen: props.sessionChangesOpen === true,
                             }
                           : {}),
@@ -909,18 +898,6 @@ export function ChatScreen(props: {
                       onAnswered={() => props.onBackgroundTasksChanged?.()}
                     />
                   ) : null}
-                  {props.onOpenSessionChanges &&
-                  props.onOpenChangesViewer &&
-                  props.sessionId ? (
-                    <SessionChangesCard
-                      key={props.sessionId}
-                      sessionId={props.sessionId}
-                      generating={props.generating === true}
-                      toolActivity={finishedToolCalls(props.items)}
-                      onOpenReview={props.onOpenSessionChanges}
-                      onOpenViewer={props.onOpenChangesViewer}
-                    />
-                  ) : null}
                 </>
               }
             />
@@ -945,9 +922,21 @@ export function ChatScreen(props: {
                     : {})}
                 />
               )}
+              {/* Once the chat runs, where it works is a fact rather than a
+                  choice: the bar over the composer names it. */}
+              {!readOnlyNotice &&
+              props.sessionId &&
+              props.workspaceLocked &&
+              props.workspaceCtx ? (
+                <WorkspaceBar
+                  context={props.workspaceCtx}
+                  workingCopy={workingCopy}
+                  editsOpen={props.sessionChangesOpen === true}
+                  onOpenEdits={toggleEdits}
+                />
+              ) : null}
               {readOnlyNotice ?? (
                 <Composer
-                  onOpenFiles={openFiles}
                   value={props.draft}
                   isEmpty={false}
                   providerUsage={props.providerUsage ?? null}

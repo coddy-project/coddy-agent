@@ -173,8 +173,7 @@ type RulesJSON struct {
 
 // UIJSON mirrors UIConfig for JSON APIs.
 type UIJSON struct {
-	Enabled        *bool `json:"enable,omitempty"`
-	SessionChanges *bool `json:"session_changes,omitempty"`
+	Enabled *bool `json:"enable,omitempty"`
 }
 
 // ToolsJSON mirrors Tools for JSON APIs.
@@ -634,7 +633,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			Dial:                   swarmDialToJSON(j.Dial),
 		})
 	}
-	out.UI = UIJSON{Enabled: cloneBoolPtr(c.UI.Enabled), SessionChanges: cloneBoolPtr(c.UI.SessionChanges)}
+	out.UI = UIJSON{Enabled: cloneBoolPtr(c.UI.Enabled)}
 	out.Scheduler = SchedulerJSON{
 		Enabled: c.Scheduler.Enabled, MaxQueue: c.Scheduler.MaxQueue,
 		Timeout: c.Scheduler.Timeout, RetainSessions: c.Scheduler.RetainSessions,
@@ -859,7 +858,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			Dial:   swarmDialFromJSON(jn.Dial),
 		})
 	}
-	cfg.UI = UIConfig{Enabled: cloneBoolPtr(j.UI.Enabled), SessionChanges: cloneBoolPtr(j.UI.SessionChanges)}
+	cfg.UI = UIConfig{Enabled: cloneBoolPtr(j.UI.Enabled)}
 	cfg.Scheduler = SchedulerConfig{
 		Enabled: j.Scheduler.Enabled, MaxQueue: j.Scheduler.MaxQueue,
 		Timeout: j.Scheduler.Timeout, RetainSessions: j.Scheduler.RetainSessions,

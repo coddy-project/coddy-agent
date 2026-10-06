@@ -483,7 +483,6 @@ export function Composer(props: {
   onWorkspacePickFolder?: (path: string) => void;
   onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
   onWorktreeToggle?: () => void;
-  onOpenFiles?: (() => void) | undefined;
 }) {
   const { t, tp } = useT();
   const isMobileShell = useSyncExternalStore(
@@ -2785,18 +2784,12 @@ export function Composer(props: {
                 sideways-scrolling box on a phone (styles.css). */}
             <div className="composer-context-scroll">
               <EnvironmentChip />
-              {props.onOpenFiles ? (
-                <button
-                  type="button"
-                  className="workspace-chip"
-                  onClick={props.onOpenFiles}
-                  data-testid="composer-files"
-                >
-                  {t("files.title")}
-                </button>
-              ) : null}
+              {/* The folder, the branch and the worktree are a choice until
+                  the chat starts; after that the bar over the composer
+                  (WorkspaceBar) names them. */}
               {props.workspaceCtx !== undefined &&
-              props.onWorkspacePickFolder ? (
+              props.onWorkspacePickFolder &&
+              !props.workspaceLocked ? (
                 <WorkspaceChips
                   context={props.workspaceCtx ?? null}
                   worktreePref={props.worktreePref ?? false}

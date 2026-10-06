@@ -108,9 +108,9 @@ The composer is a plain `textarea`; keys not listed here keep their browser mean
 | Enter | question prompt | send the answer, once every question has one; typed in the composer it still belongs to the composer |
 | Escape | question prompt | skip the questions, unless a screen of the rail is open over the chat or a picker of the composer took the key |
 | Escape / Tab | confirmation dialog | cancel / keep the focus inside the dialog |
-| Ctrl+S / Cmd+S | an open chat, composer included | show or hide the changed-files card; the browser's "Save page" never opens |
 | Ctrl+Shift+F / Cmd+Shift+F | an open chat, composer included | open the Files window, or close it ([Web UI](../surfaces/web-ui.md#workspace-files)) |
 | Escape | Files window | clear the filter when it has text, else close the window; the dock under it stays for the next Escape |
+| Escape | edits window | close the window; with the discard question open, answer that instead and leave the window ([Web UI](../surfaces/web-ui.md#the-edits-window)) |
 | F1 | anywhere | open the documentation reader, or close it ([Built-in documentation](../features/built-in-docs.md#the-web-ui-reader)) |
 | / | documentation reader, outside a field | put the cursor in its search box |
 | ArrowUp / ArrowDown, Enter, Escape | documentation search box | move the selected hit, open it at its section, clear the search; in an empty box Escape closes the reader |

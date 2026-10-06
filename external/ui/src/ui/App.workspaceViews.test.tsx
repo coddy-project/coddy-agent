@@ -18,10 +18,10 @@ import { shellStackMaxWidthMediaQuery } from "./shellBreakpoint";
 import { forgetOpenFiles } from "./files/FilesView";
 
 /**
- * The views of a session are picked from the chat header's menu: its
- * background tasks and its edits open in the dock beside the chat, one at a
- * time and without a tab strip of their own; its files open in a window over
- * the chat, the way the documentation does, with an address of its own.
+ * The views of a session are buttons of the chat header: its background tasks
+ * open in the dock beside the chat, without a tab strip; its edits open in a
+ * window of their own, and its files in a window over the chat, the way the
+ * documentation does, each with an address of its own.
  */
 
 vi.mock("./chat/ChatScreen", () => ({
@@ -29,7 +29,6 @@ vi.mock("./chat/ChatScreen", () => ({
     onOpenBackgroundTasks?: () => void;
     onOpenSessionChanges?: (path?: string) => void;
     onOpenFiles?: () => void;
-    onOpenChangesViewer?: () => void;
   }) => (
     <div data-testid="chat-screen-stub">
       <button
@@ -45,13 +44,6 @@ vi.mock("./chat/ChatScreen", () => ({
         onClick={() => props.onOpenSessionChanges?.()}
       >
         Open edits
-      </button>
-      <button
-        type="button"
-        data-testid="open-review"
-        onClick={() => props.onOpenChangesViewer?.()}
-      >
-        Open review
       </button>
       <button
         type="button"
@@ -90,6 +82,7 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
   if (path.startsWith(`/coddy/sessions/${SID}/changes`)) {
     return json({
       session_id: SID,
+      vcs: "git",
       files: [
         {
           path: "notes.txt",
@@ -170,15 +163,27 @@ function mountAt(hash: string) {
 const pressEscape = (target: Element = document.activeElement ?? document.body) =>
   fireEvent.keyDown(target, { key: "Escape" });
 
-test("the edits open in the dock, headed Edits, with no tab strip", async () => {
+test("the edits open in their window, and the address names them", async () => {
   mountAt(`#/s/${SID}`);
   fireEvent.click(await screen.findByTestId("open-edits"));
-  const panel = await screen.findByTestId("changes-panel");
-  expect(panel.getAttribute("aria-label")).toBe(t("changes.panelTitle"));
-  expect(t("changes.panelTitle")).toBe("Edits");
-  expect(within(panel).getByText("Edits")).toBeTruthy();
-  expect(document.querySelector('[role="tablist"]')).toBeNull();
+  const win = await screen.findByTestId("diff-viewer");
+  expect(within(win).getByText(t("changes.viewer.title"))).toBeTruthy();
+  // No dock face for the edits: the window is their only view.
+  expect(screen.queryByTestId("changes-panel")).toBeNull();
+  expect(screen.queryByTestId("bgtasks-panel")).toBeNull();
   await waitFor(() => expect(window.location.hash).toBe(`#/s/${SID}/changes`));
+  // Pressed again, the opener puts them away.
+  fireEvent.click(screen.getByTestId("open-edits"));
+  await waitFor(() => expect(screen.queryByTestId("diff-viewer")).toBeNull());
+  await waitFor(() => expect(window.location.hash).toBe(`#/s/${SID}`));
+});
+
+test("an edits address opens the window, and Escape closes it", async () => {
+  mountAt(`#/s/${SID}/changes`);
+  await screen.findByTestId("diff-viewer");
+  pressEscape();
+  await waitFor(() => expect(screen.queryByTestId("diff-viewer")).toBeNull());
+  await waitFor(() => expect(window.location.hash).toBe(`#/s/${SID}`));
 });
 
 test("the background tasks open in the dock with no tab strip", async () => {
@@ -211,19 +216,18 @@ test("a files address opens the window on its file", async () => {
   );
 });
 
-test("over the edits the files window is the first thing Escape takes away", async () => {
+test("over the background tasks the files window is the first thing Escape takes away", async () => {
   mountAt(`#/s/${SID}`);
-  fireEvent.click(await screen.findByTestId("open-edits"));
-  await screen.findByTestId("changes-panel");
+  fireEvent.click(await screen.findByTestId("open-tasks"));
+  await screen.findByTestId("bgtasks-panel");
   fireEvent.click(screen.getByTestId("open-files"));
   await screen.findByTestId("files-view");
-  expect(screen.getByTestId("changes-panel")).toBeTruthy();
+  expect(screen.getByTestId("bgtasks-panel")).toBeTruthy();
   pressEscape();
   await waitFor(() => expect(screen.queryByTestId("files-view")).toBeNull());
-  expect(screen.getByTestId("changes-panel")).toBeTruthy();
-  await waitFor(() => expect(window.location.hash).toBe(`#/s/${SID}/changes`));
+  expect(screen.getByTestId("bgtasks-panel")).toBeTruthy();
   pressEscape();
-  await waitFor(() => expect(screen.queryByTestId("changes-panel")).toBeNull());
+  await waitFor(() => expect(screen.queryByTestId("bgtasks-panel")).toBeNull());
 });
 
 test("Ctrl+Shift+F opens the files window, and closes it", async () => {
@@ -250,21 +254,18 @@ test("Ctrl+Shift+F opens the files window, and closes it", async () => {
   await waitFor(() => expect(screen.queryByTestId("files-view")).toBeNull());
 });
 
-test("a click beside the files window closes it and gives the address back to the edits", async () => {
+test("a click beside the files window closes it and gives the address back to the chat", async () => {
   mountAt(`#/s/${SID}`);
-  fireEvent.click(await screen.findByTestId("open-edits"));
-  await screen.findByTestId("changes-panel");
-  fireEvent.click(screen.getByTestId("open-files"));
+  fireEvent.click(await screen.findByTestId("open-files"));
   await screen.findByTestId("files-view");
   fireEvent.click(document.querySelector(".backdrop.is-open")!);
   await waitFor(() => expect(screen.queryByTestId("files-view")).toBeNull());
-  await waitFor(() => expect(window.location.hash).toBe(`#/s/${SID}/changes`));
-  expect(screen.getByTestId("changes-panel")).toBeTruthy();
+  await waitFor(() => expect(window.location.hash).toBe(`#/s/${SID}`));
 });
 
 // The stacked shell shows the dock over the chat; the files window opens over
 // the dock and leaves it there.
-test("on the stacked shell the files window opens over the edits and leaves them open", async () => {
+test("on the stacked shell the files window opens over the background tasks and leaves them open", async () => {
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: query === shellStackMaxWidthMediaQuery,
     media: query,
@@ -276,23 +277,33 @@ test("on the stacked shell the files window opens over the edits and leaves them
     dispatchEvent: () => false,
   }));
   mountAt(`#/s/${SID}`);
-  fireEvent.click(await screen.findByTestId("open-edits"));
-  await screen.findByTestId("changes-panel");
+  fireEvent.click(await screen.findByTestId("open-tasks"));
+  await screen.findByTestId("bgtasks-panel");
   fireEvent.click(screen.getByTestId("open-files"));
   await screen.findByTestId("files-view");
   await act(async () => new Promise((r) => setTimeout(r, 30)));
-  expect(screen.getByTestId("changes-panel")).toBeTruthy();
+  expect(screen.getByTestId("bgtasks-panel")).toBeTruthy();
   pressEscape();
   await waitFor(() => expect(screen.queryByTestId("files-view")).toBeNull());
-  expect(screen.getByTestId("changes-panel")).toBeTruthy();
-  await waitFor(() => expect(window.location.hash).toBe(`#/s/${SID}/changes`));
+  expect(screen.getByTestId("bgtasks-panel")).toBeTruthy();
+  await waitFor(() => expect(window.location.hash).toBe(`#/s/${SID}/tasks`));
 });
 
-test("the files window opened over the review window takes its place", async () => {
+test("the files window opened over the edits window takes its place", async () => {
   mountAt(`#/s/${SID}`);
-  fireEvent.click(await screen.findByTestId("open-review"));
+  fireEvent.click(await screen.findByTestId("open-edits"));
   await screen.findByTestId("diff-viewer");
   fireEvent.click(screen.getByTestId("open-files"));
   await screen.findByTestId("files-view");
   expect(screen.queryByTestId("diff-viewer")).toBeNull();
+});
+
+test("an edits address over the files window puts the files away", async () => {
+  mountAt(`#/s/${SID}/files?path=notes.txt`);
+  await screen.findByTestId("files-view");
+  await act(async () => {
+    window.location.hash = `#/s/${SID}/changes`;
+  });
+  await screen.findByTestId("diff-viewer");
+  await waitFor(() => expect(screen.queryByTestId("files-view")).toBeNull());
 });

@@ -387,7 +387,7 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 - **Wrapping**: the chips share one **`flex-wrap`** row (**`.composer-context-row`**) with the environment chip and the improve-prompt control; **`.composer-context-chips`** is **`display: contents`** so each chip wraps on its own. On a narrow viewport only the overflow moves down (e.g. environment+folder, then branch+worktree), and the worktree checkbox stays beside the branch until the branch name is long enough to push it.
 - Context loads from **`GET /coddy/workspace/context`** with **`X-Coddy-Session-ID`** whenever the viewed session changes; without a session the server default cwd is shown.
 - **A new chat follows the folder it picked**: before the first message there is no session, and the pick is kept in **`App.tsx`** (**`pendingWorkspaceRef`**, mirrored in the **`pendingWorkspacePath`** state) and applied on the first send. Everything the composer lists while you type is asked for that folder: every cwd-scoped request (**`/coddy/slash-commands`**, **`/coddy/mentions`**, **`POST /coddy/mentions/check`**, **`/coddy/workspace/file`**) carries **`cwd=<folder>`** next to **`X-Coddy-Session-ID`** (helper **`chat/workspaceScope.ts`**), so the **`/`** menu lists that folder's **`.coddy/skills`**, **`@agent:`** its subagents and **`@`** its files. The known skill names that mark a **`/name`** as a skill in the composer and in the transcript follow the same folder: another pick drops them at once and asks again, and an answer for a folder left since is discarded; a slower preview of an earlier pick never paints over a later one. Settings → Skills and Subagents list the same folder.
-- **Chosen once**: folder + branch + worktree are set before the conversation starts. Once the transcript has messages the chips lock (**`workspaceLocked`** — controls disabled, menus closed) and the server answers **409** to **`POST .../workspace`**, and a turn already in flight answers **409** as well.
+- **Chosen once**: folder + branch + worktree are set before the conversation starts. Once the transcript has messages (**`workspaceLocked`**) the chips leave the composer, which keeps its environment chip, and [the bar over the composer](#the-bar-over-the-composer) names where the chat works; the server answers **409** to **`POST .../workspace`**, and a turn already in flight answers **409** as well.
 - **Folder chip** opens the **Recent** menu (Claude Desktop style): MRU folders from **`localStorage`** **`coddy_workspace_recents_v1`** (**`chat/workspaceRecents.ts`**), current workspace marked with **✓**, a local filter field for a long recent list, then **`Open folder…`** at the bottom which opens the **folder browser modal** (**`WorkspaceFolderModal.tsx`**) fed by **`GET /coddy/workspace/folders?path=`**: rows navigate into folders, **`..`** goes up, **Open** picks the currently browsed folder, **Cancel** dismisses. The folder list is the dialog's only scrollport: it is the one child allowed to shrink (**`min-height: 0`**), so **Cancel** / **Open** stay reachable on a short browser window instead of being clipped by the dialog's height cap, and a wheel gesture past the last folder stays in the list instead of scrolling the page behind it. Verified in WebKit with **`external/ui/scripts/webkit-scroll-check.mjs`** (see below).
 - **Size**: a centred card 560px wide (less on a narrow window) from the tablet width up; on a phone it opens where History opens, as the same glass panel under the top bar, so the folder list gets the full height of the screen. The head is drawn like the heads of History and the Scheduler, and the field, the rows and the buttons use the app's font.
 - **Links to folders**: a directory symlink in the list carries an arrow on its folder icon and its target after the name (**`→ /path/to/target`**), so a link does not read as an ordinary folder; clicking it browses the link's path.
@@ -1016,19 +1016,21 @@ A held project hooks file surfaces in the transcript as a **notice-level system 
 
 A chat has three views beside the conversation: its **edits**, its **files** and its
 **background tasks**. They are a row of buttons at the top of the chat: **Edits**
-(only while the session has edits, and while the changed-files card is on,
-`ui.session_changes`, the default), **Files**, and **Tasks** at the right edge. On a
+(only while git reports uncommitted changes in the chat's folder), **Files**, and
+**Tasks** at the right edge. On a
 desktop and a tablet Edits and Files are an icon with a short name; a phone shows the
 icon alone, the size of its top bar's buttons. Tasks is the control the header always
 had: a dot and, once the chat has tasks, how many run out of how many there are, the
 dot lit while work is in flight. Every button has its full name in a tooltip, the
 Files one with its key. A button opens its view, and pressed again puts it away; the
-button of the view on show is lit. The edits and the background tasks open in the
-dock beside the chat, one at a time; the files open in a window over the chat.
+button of the view on show is lit. The background tasks open in the dock beside the
+chat; the edits and the files open in windows over the chat. Each icon beside a word
+sits on the middle of its lowercase letters, not of the capitals: the words are mostly
+lowercase, and centred on the line the icon reads a pixel high.
 
-![The view buttons of a chat header: Tasks, Edits and Files](../assets/views-toolbar-dark-1280.png)
+![A running chat: the view buttons Edits, Files and Tasks at the top, and the bar over the composer naming the repository, the branch and git's count](../assets/views-toolbar-dark-1280.png)
 
-*The view buttons at the top of a chat*
+*The view buttons at the top of a chat, and the bar over its composer*
 
 On a phone: [390 px](../assets/views-toolbar-dark-390.png). `Ctrl+Shift+F`
 (`Cmd+Shift+F` on a Mac) opens and closes the Files window from anywhere in a chat,
@@ -1038,9 +1040,8 @@ the composer included.
 
 The **Files** window shows the session's workspace over the chat, the way the
 documentation reader does: the tree on the left, the files opened from it as tabs on
-the right. Open it with the **Files** button of the chat header, with `Ctrl+Shift+F`, with
-**Files** beside the workspace chip in the composer, or by clicking a workspace
-mention in a sent message or a file tool's path. Its address keeps the file and an
+the right. Open it with the **Files** button of the chat header, with `Ctrl+Shift+F`,
+or by clicking a workspace mention in a sent message or a file tool's path. Its address keeps the file and an
 optional line, `#/s/<id>/files?path=notes/readme.md&line=15`, so a reload opens it
 there. Escape or the close button returns to the chat and gives the focus back to
 what opened the window; whatever the dock showed stays under it, on a phone or a
@@ -1090,89 +1091,79 @@ session image thumbnails. On a phone the window shows the tree or the file, one 
 time: a file picked in the tree takes its place, and the tree switch brings the tree
 back.
 
-## Session changed files card
+## Edits of a chat
 
-The card sits at the **end of the transcript**, next to the subagent permission
-rows (`.changes-card`, `external/ui/src/ui/changes/`). It summarises what the
-**whole session** did to the workspace — `N files changed`, `+A −D`, then a row
-per file with its own counts — because the numbers describe every turn above it
-together, not any single message.
+The edits of a chat are what git reports for its folder: every tracked file that
+differs from `HEAD`, staged or not, and every new file git does not ignore. Nothing is
+recorded per turn, so a file written by the `edit` tool, by a shell command or by an
+editor beside Coddy reads the same, and a folder that is not in a git repository has
+no edits to show. Without the `git` binary on PATH the server answers through its
+built-in implementation (go-git); that one detects no renames, so a staged rename
+reads as a deletion plus an addition.
 
-![The changed-files card under a finished turn: 3 files changed, +8 −1, with Undo and Review](../assets/session-changes-card-dark-1280.png)
+- Data comes from `GET /coddy/sessions/{id}/changes`. One copy per chat
+  (`changes/workingCopy.ts`) serves every view that shows it: the Edits button of the
+  header, the bar over the composer and the edits window. It is read when
+  the chat opens, after every turn of any chat (`event: turn_ended` on
+  `GET /coddy/events`, whichever surface ran the turn: chats share folders, so another
+  chat's turn moves this one's too), after a discard (`event: session_changes`),
+  shortly after a burst of finished tool calls, and when the page gets the focus back,
+  since the folder may have been edited elsewhere. A failed read keeps the last answer
+  on screen, since a restarting server must not look like a clean folder, and the
+  edits window says why the read failed when it has nothing to show yet.
+- New files are read up to 500 of them and 2 MB each; the edits window says how many
+  it left out. A repository nested in the folder is one entry, the way
+  git lists it: nothing in it is read or discarded. Files git ignores never appear.
+- When the session runs in a subfolder of a repository, only that subfolder is
+  reported, by paths relative to it.
 
-*The changed-files card under the transcript: the net change of the whole session, one row per file*
+### The bar over the composer
 
-- Data comes from `GET /coddy/sessions/{id}/changes`, which collapses the
-  per-turn workspace diffs stored in the session bundle. Those diffs are captured
-  by snapshotting the workspace around each turn, so an edit made by a shell
-  command is listed exactly like one made by the `edit` tool.
-- **While the agent works the card steps aside**; the set is still moving. When the
-  turn ends it waits for **`event: session_changes`** on `GET /coddy/events`,
-  which the server sends once the turn's diff is on disk, then reads and shows the
-  set. Reading on the end of the stream instead raced the capture and could show the
-  old set. With no event within 4 s (the stream is down, the turn came through
-  another door) it reads anyway. A failed read keeps the previous set on screen — a
-  restarting server must not look like "nothing changed".
-- **Ctrl+S / Cmd+S shows or hides the card** at any time; the browser's "Save
-  page" never opens. Opened mid-turn it lists the finished turns plus what the
-  running turn has written so far — the server compares the workspace with the
-  turn's pre-turn snapshot — and it re-reads after every finished tool call while
-  it stays open. Hidden, it reads nothing. Opened in a chat that changed nothing,
-  it says so in one line.
-- A session that changed nothing renders **no card at all**, and neither does one
-  where every change cancelled out (a file created and removed again, or edited
-  and edited back, is left out of the set).
-- **Review** and the summary open the review window; **clicking a file row**
-  opens the docked drawer on that one file.
-- **`.idea`, `.vscode`, `.git` and `.svn` never appear.** An editor rewrites its
-  settings on its own schedule and a VCS client rewrites its administrative area.
-  The rule is `session.IsToolStatePath` and it applies three times over: the
-  workspace snapshot skips those folders, the aggregate drops them when a session
-  recorded by an older build is read back, and the working-copy scopes filter them
-  as well. Matching is on whole path segments, so `docs/idea.md`, `.ideas/plan.md`
-  and `git-notes.txt` are ordinary files.
-- **Undo** asks first, then POSTs `.../changes/revert`, which reverses every turn
-  diff of the session: edited files go back to their pre-session content and
-  created files are removed. Tool state is skipped here too - putting `.git/index`
-  back would leave the client describing a tree that is no longer there. Git is
-  not involved, so the confirmation says plainly that it undoes the whole session.
-  Before writing, Undo checks every file against its recorded state. A later
-  edit or a workspace switch returns **409** and preserves both the workspace
-  and the recordings. A read or write error returns **500** and keeps the
-  recordings for recovery. Capture and Undo hold the session turn lock, so a
-  new turn cannot overlap either operation. An empty final turn stays empty in
-  the **Last turn** scope.
-- `ui.session_changes: false` in config.yaml hides the card and stops it
-  fetching; omitted keeps the default (on).
+![A running chat in a linked worktree: the bar over the composer names the repository, the worktree's branch with the worktree mark, and git's count](../assets/workspace-bar-worktree-dark-1280.png)
 
-Two surfaces read the change set, picked by the question being asked. A **file
-row** asks about one file and opens the drawer on it; the **summary**, **Review**
-and **`+N more`** ask about the whole set and open the review window.
+*The bar over the composer of a chat that runs in a linked worktree*
 
-The **drawer** (`.changes-panel`, `SessionChangesPanel.tsx`, headed **Edits**) and
-the **Tasks panel** are two faces of the dock beside the chat (`dockTab` in
-`App.tsx`): opening one closes the other, the view buttons of the chat header switch
-between them, and the chat column reserves exactly the width of the face on show. The drawer shows the
-file list on top and the unified diff of the selected file below. The diff body
-reuses `PermissionToolPreview` — the same renderer the permission gate and the
-transcript foldouts use — fed by `diffPreviewFromPatch`, so a diff looks the same
-everywhere in the app. A binary file is listed but has no diff to show.
+Once a chat runs, where it works is a fact rather than a choice, so the folder, branch
+and worktree chips leave the composer and a bar over it names them
+(`WorkspaceBar.tsx`): the repository (the main checkout's name in a linked worktree,
+with the full path in the tooltip), the branch, and git's `+A −D` for the folder. The
+count opens the edits window and is lit while it shows. A chat that runs
+in a linked worktree carries a worktree mark, a folder holding a branch, in place of
+the branch icon, and the tooltip names the worktree's folder. A folder in no
+repository shows its name alone. The composer keeps its environment chip. Before the
+first message the chips stay in the composer with the worktree checkbox
+([Per-session workspace](#per-session-workspace-folder--branch--worktree-chips)).
 
-![The dock beside the chat showing the session's edits: the file list on top, the diff of notes/release.md below](../assets/session-edits-dock-dark-1280.png)
+### The edits window
 
-*The dock on its Edits face, opened with the Edits button of the chat header*
+The edits have one view: a window over the chat (`.dv-window`, `DiffViewerModal.tsx`)
+holding every diff of the folder's uncommitted changes in one scrollable document.
+The count in the bar over the composer opens it, and so does the **Edits** button of
+the header; pressed again, either puts it away, and so does Escape. Its address is
+`#/s/<id>/changes`, so a reload opens it again. There is no dock face for the edits:
+the dock beside the chat holds the background tasks, and stays as it was under the
+window. Its toolbar carries the totals, **Discard all**, collapse/expand all, go to
+file, the unified/split toggle, and the file tree. A file section has a sticky header
+with copy-path, discard and collapse, revealed on hover and always in sight on a touch
+screen. Between hunks sits a wordless separator rather than an `N unmodified lines`
+filler row. In a folder with nothing to show it says so: clean, or not in a git
+repository.
 
-The **review window** (`.dv-window`, `DiffViewerModal.tsx`) is a modal holding
-every changed file diff in one scrollable document. Its toolbar carries a scope
-select (**All edits** / **Last turn** / **Uncommitted** / **All changed files**,
-with that scope's `+A −D` beside it), collapse/expand all, go to file, the
-unified/split toggle, and the file tree. A file section has a sticky header with
-copy-path and collapse on hover. Between hunks sits a wordless separator rather
-than an `N unmodified lines` filler row.
+![The edits window: the totals and Discard all in the toolbar, one section per changed file](../assets/session-changes-review-window-dark-1280.png)
 
-![The review window: a scope select, the totals, and one section per changed file](../assets/session-changes-review-window-dark-1280.png)
+*The edits window over the folder's uncommitted changes: every diff in one scrollable document*
 
-*The review window over the whole change set: every file diff in one scrollable document*
+**Discard** in a file's header puts that file back at `HEAD`, and **Discard all** every
+change. Each asks first in the shared confirmation dialog, which says whether the file
+goes back to its last committed content or, new since that commit, is deleted; Escape
+there answers the question and leaves the window open. Then the page posts
+`.../changes/revert` with `{"paths":[...]}` or `{"all":true}`: a tracked file gets its
+content and index entry from `HEAD` back, a file `HEAD` does not hold is deleted along
+with any folder it leaves empty, and files git ignores are never touched. A turn running in
+that folder, in this chat or in another one working there, refuses the discard
+(**409**); so does a file git no longer reports - committed or put
+back meanwhile - and then nothing of the request is applied. A commit is not offered:
+the window reads, and discarding is the one thing it writes.
 
 Code is coloured by `lowlight` (highlight.js behind a tree API, the same engine
 `rehype-highlight` gives the markdown renderer), so the `hljs-*` styles already
@@ -1180,33 +1171,24 @@ in the stylesheet apply and the viewer never injects markup. The grammar comes
 from the file extension via `diffLanguage.ts`; an unknown extension renders as
 plain text rather than being guessed at.
 
-The scopes come from `?scope=` on the same two routes. `turn` folds only the
-newest stored turn. `uncommitted` leaves the session behind and diffs the
-**tracked** working copy against **`git HEAD`**, counting untracked files in a
-banner without reading them. `all` is that plus the untracked files themselves,
-for when the question is what is in this folder that HEAD has not — capped at 500
-files and 2 MB each, with whatever it left out reported in the same banner under a
-different heading. Neither reads what git is told to ignore, so a build directory
-or a virtualenv stays out on its own. In a folder that is not a git repository
-the window says so instead of showing an empty diff (`vcsAvailable: false`).
-
-The detail route reads only the file it was asked for
-(`gitws.UncommittedChangeFor`, `gitws.WorktreeChangeFor`): the viewer loads one
-patch at a time, and resolving the whole set per request meant a git subprocess
-per changed file on every one of them. An untracked path is only read once git
-has named it, so the route cannot be pointed at an arbitrary file.
+The detail route reads only the file it was asked for (`gitws.WorktreeChangeFor`):
+the viewer loads one patch at a time, and resolving the whole set per request meant a
+git subprocess per changed file on every one of them. A new file is only read once
+git has named it, so the route cannot be pointed at an arbitrary file. When git's
+report moves, the window reads again only the files whose state moved.
 
 Automated checks:
 
-- **external/ui/src/ui/changes/sessionChangesText.test.ts** (Russian plural buckets, path splitting)
-- **external/ui/src/ui/changes/SessionChangesCard.test.tsx** (counts, empty session, preference off, undo confirmation, which surface each entry point opens)
+- **external/ui/src/ui/changes/workingCopy.test.tsx** (one read for every view of a chat, the reads on the server's word, a tool call and the page's focus, a failed read, a folder in no repository, another environment)
+- **external/ui/src/ui/chat/WorkspaceBar.test.tsx** (the repository, the branch, the worktree mark, the count and its language)
+- **external/ui/src/ui/changes/sessionChangesText.test.ts** (path splitting) and **plurals.test.ts** (file counts by locale)
 - **external/ui/src/ui/changes/diffRows.test.ts** (unified and split row building, uneven runs, hunk gaps)
 - **external/ui/src/ui/changes/fileTree.test.ts** (directory grouping and single-child chain collapsing)
-- **external/ui/src/ui/changes/DiffViewerModal.test.tsx** (scope switching, view toggle, collapse all, go to file, tree, copy path, untracked banner, no-git notice, colouring on and off)
+- **external/ui/src/ui/changes/DiffViewerModal.test.tsx** (view toggle, collapse all, go to file, tree, copy path, the skipped banner, the no-git notice, colouring on and off, a re-read only of the files that moved, discarding a file and everything after a question)
 - **external/ui/src/ui/changes/diffLanguage.test.ts** + **highlightLine.test.ts** (grammar choice, and that colouring reproduces the line exactly)
 - **internal/linediff** (unified diff and line stats; Myers' O(ND) algorithm in linear space, so a scattered edit in a large file stays a scattered edit - the old LCS table had to be abandoned above a size cap and reported such a file as a whole rewrite. The search is bounded by `snakeBudget`, which only a pair that is both enormous and almost entirely different can exhaust; that pair falls back to a wholesale replacement)
-- **internal/gitws/changes_test.go** (working-copy statuses, untracked counting and inclusion, the read caps, .gitignore, whitespace-preserving blob reads, renames, and that an unlisted path stays unreadable)
-- **features/session_changes.feature** (end to end: a turn edits a file, the card reports it, the viewer reads the diff, the last-turn scope narrows it, undo restores the workspace)
+- **internal/gitws** (`changes_test.go`, `backend_test.go`: every scenario with the git binary and again with it hidden from PATH - working-copy statuses, untracked files and the read caps, .gitignore, whitespace-preserving blob reads, a nested repository, discarding a file, a subfolder or everything, and paths outside the change set refused before anything is touched; renames with the binary only)
+- **features/session_changes.feature** (end to end over a repository: a turn edits a file and git reports it, an edit made outside the agent too, the viewer reads the diff, one file and then everything is discarded)
 
 ### Subagent transcripts
 
@@ -1799,8 +1781,13 @@ own client token, and drives a browser through the relay's mount only. It checks
   tooltip in the window on hover (the Files one with its key), the pressed one for the
   view on show, which a second press puts away; a chat whose turn edited nothing shows
   no Edits button;
-- **the dock** shows the edits headed Edits with the file the turn wrote, and the
-  background tasks, with no tab strip anywhere;
+- **the edits window** opens from the Edits button and from the count in the bar over
+  the composer, with the file the turn wrote and its address, and Escape puts it
+  away; **the dock** shows the background tasks, with no tab strip anywhere; every
+  icon beside a word sits on the middle of its lowercase letters, at every width;
+- **discarding** a file from the edits window asks first, goes through the relay, and
+  with nothing left the window says the folder is clean and the Edits button and the
+  count go;
 - **the Files window** opens over the chat with the filter focused, lists folders
   first, finds a file three folders down by name, opens files as tabs, renders a
   README with its relative picture through the relay, expands over the rail, closes

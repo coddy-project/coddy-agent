@@ -3,7 +3,7 @@ import type { TranscriptItem } from "../chat/types";
 /**
  * Tool calls in the transcript that have finished, however they ended. Every
  * one can have touched the workspace - a shell command as much as an edit - so
- * the changed-files card, open mid-turn, re-reads each time this moves.
+ * the working copy of the chat and the Files window read again when it moves.
  */
 export function finishedToolCalls(items: readonly TranscriptItem[]): number {
   let n = 0;

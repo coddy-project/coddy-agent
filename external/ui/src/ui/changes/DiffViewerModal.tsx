@@ -8,6 +8,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n/I18nProvider";
+import { useEscapeCloses } from "../components/useEscapeCloses";
 import {
   serverSnapshotShellStack,
   snapshotShellStack,
@@ -21,10 +22,11 @@ import {
   writeDiffViewCookie,
 } from "./diffViewPrefs";
 import type { DiffView } from "./diffViewPrefs";
-import { fetchSessionChangeFile, fetchSessionChanges } from "./api";
+import { fetchSessionChangeFile } from "./api";
 import { baseName, dirName } from "./sessionChangesText";
-import { CHANGE_SCOPES, EMPTY_SESSION_CHANGES } from "./types";
-import type { ChangeScope, SessionChanges } from "./types";
+import type { ChangedFile } from "./types";
+import { useDiscard } from "./useDiscard";
+import { useWorkingCopy } from "./workingCopy";
 
 /** How many patches are in flight at once. Enough to fill a screen quickly
  *  without opening a request per file in a large change set. */
@@ -41,17 +43,28 @@ interface PatchState {
  *
  * The list call deliberately carries no patches, so the window can render its
  * file rows and counts immediately; the bodies fill in behind that. Fetching
- * per file also means one enormous file cannot hold up the rest.
+ * per file also means one enormous file cannot hold up the rest. Every new
+ * report of git reads every patch again - the same counts do not mean the same
+ * lines - while the patch already on screen stays until its successor lands,
+ * so a re-read does not blank the window. A failed read is never kept.
  */
 function usePatches(
   sessionId: string,
-  scope: ChangeScope,
-  files: SessionChanges["files"],
+  files: ChangedFile[],
 ): Map<string, PatchState> {
   const [patches, setPatches] = useState<Map<string, PatchState>>(new Map());
+  const patchesRef = useRef(patches);
+  patchesRef.current = patches;
 
   useEffect(() => {
-    setPatches(new Map());
+    const listed = new Set(files.map((f) => f.path));
+    const kept = new Map<string, PatchState>();
+    for (const [path, state] of patchesRef.current) {
+      if (listed.has(path) && !state.error) {
+        kept.set(path, state);
+      }
+    }
+    setPatches(kept);
     if (!sessionId.trim()) {
       return;
     }
@@ -67,7 +80,7 @@ function usePatches(
           return;
         }
         const path = queue[index]!;
-        const res = await fetchSessionChangeFile(sessionId, path, scope);
+        const res = await fetchSessionChangeFile(sessionId, path);
         if (cancelled) {
           return;
         }
@@ -90,17 +103,17 @@ function usePatches(
     return () => {
       cancelled = true;
     };
-  }, [sessionId, scope, files]);
+  }, [sessionId, files]);
 
   return patches;
 }
 
 /**
- * The review window: every changed file diff in one scrollable document.
- *
- * Separate from the side drawer on purpose. The drawer answers what happened to
- * one file; this answers what happened, which needs the whole set at once, a
- * way to move between files, and a choice of how a diff is drawn.
+ * The edits window: every diff of the folder's uncommitted changes in one
+ * scrollable document, the one view of the edits. A modal rather than a
+ * drawer, because two diff columns need the whole width; it carries the whole
+ * set at once, a way to move between files, a choice of how a diff is drawn,
+ * and discarding a file or all of them.
  */
 export function DiffViewerModal(props: {
   open: boolean;
@@ -108,10 +121,6 @@ export function DiffViewerModal(props: {
   onClose: () => void;
 }) {
   const { t, tp } = useT();
-  const [scope, setScope] = useState<ChangeScope>("session");
-  const [changes, setChanges] = useState<SessionChanges>(EMPTY_SESSION_CHANGES);
-  const [loading, setLoading] = useState(false);
-  const [listError, setListError] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [view, setView] = useState<DiffView>(DEFAULT_DIFF_VIEW);
   const [treeOpen, setTreeOpen] = useState(false);
@@ -120,6 +129,9 @@ export function DiffViewerModal(props: {
 
   const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const { open, sessionId, onClose } = props;
+  const wc = useWorkingCopy(sessionId, { enabled: open });
+  const changes = wc.changes;
+  const discard = useDiscard(sessionId);
 
   // Two columns of code need width the stacked shell does not have, so the
   // narrow layout reads every diff inline and hides the choice rather than
@@ -139,46 +151,12 @@ export function DiffViewerModal(props: {
     }
   }, [open]);
 
-  useEffect(() => {
-    if (!open || !sessionId.trim()) {
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    setListError("");
-    void (async () => {
-      const res = await fetchSessionChanges(sessionId, scope);
-      if (cancelled) {
-        return;
-      }
-      setLoading(false);
-      if (res.ok) {
-        setChanges(res.data);
-        setCollapsed(new Set());
-      } else {
-        setChanges(EMPTY_SESSION_CHANGES);
-        setListError(res.message);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [open, sessionId, scope]);
+  // Escape closes the window and claims the key, so nothing under it closes
+  // on the same press; the confirmation dialog over it answers its own first
+  // (it listens on window, ahead of this).
+  useEscapeCloses(open, onClose);
 
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
-  const patches = usePatches(sessionId, scope, changes.files);
+  const patches = usePatches(sessionId, changes.files);
 
   const registerRef = useCallback((path: string, el: HTMLDivElement | null) => {
     if (el) {
@@ -234,9 +212,11 @@ export function DiffViewerModal(props: {
     return null;
   }
 
-  const untracked = changes.untracked ?? 0;
-  const workingCopyScope = scope === "uncommitted" || scope === "all";
-  const unversioned = workingCopyScope && changes.vcsAvailable === false;
+  const skipped = changes.skipped ?? 0;
+  const unversioned = wc.loaded && changes.vcs !== "git";
+  // Discard all reaches the new files git reports but the server did not
+  // read, too.
+  const discardable = changes.files.length > 0 || skipped > 0;
 
   return createPortal(
     <div
@@ -255,19 +235,7 @@ export function DiffViewerModal(props: {
         data-testid="diff-viewer"
       >
         <div className="dv-toolbar">
-          <select
-            className="dv-scope"
-            value={scope}
-            aria-label={t("changes.viewer.scopeLabel")}
-            data-testid="dv-scope"
-            onChange={(e) => setScope(e.target.value as ChangeScope)}
-          >
-            {CHANGE_SCOPES.map((id) => (
-              <option key={id} value={id}>
-                {t("changes.viewer.scope." + id)}
-              </option>
-            ))}
-          </select>
+          <span className="dv-title">{t("changes.viewer.title")}</span>
 
           <span className="dv-totals" data-testid="dv-totals">
             <span className="changes-add">
@@ -279,6 +247,19 @@ export function DiffViewerModal(props: {
           </span>
 
           <span className="dv-toolbar-spacer" />
+
+          {discardable ? (
+            <button
+              type="button"
+              className="changes-action changes-action--danger"
+              title={t("changes.discardAllTitle")}
+              disabled={discard.busy}
+              data-testid="dv-discard-all"
+              onClick={() => void discard.discardAll()}
+            >
+              {t("changes.discardAll")}
+            </button>
+          ) : null}
 
           <div className="dv-tools">
             <button
@@ -410,30 +391,28 @@ export function DiffViewerModal(props: {
           ) : null}
 
           <div className="dv-scroll" data-testid="dv-scroll">
-            {untracked > 0 ? (
-              <div className="dv-banner" data-testid="dv-untracked">
-                <span className="dv-banner-title">
-                  {t(
-                    scope === "all"
-                      ? "changes.viewer.untrackedTitleAll"
-                      : "changes.viewer.untrackedTitle",
-                  )}
-                </span>
-                <span>{tp("changes.viewer.untracked", untracked)}</span>
+            {skipped > 0 ? (
+              <div className="dv-banner" data-testid="dv-skipped">
+                <span>{tp("changes.skipped", skipped)}</span>
+              </div>
+            ) : null}
+            {discard.error ? (
+              <div className="dv-note dv-note--error" role="alert" data-testid="dv-discard-error">
+                {discard.error}
               </div>
             ) : null}
 
-            {unversioned ? (
+            {!wc.loaded && wc.error ? (
+              <div className="dv-note dv-note--error" role="alert" data-testid="dv-error">
+                {wc.error}
+              </div>
+            ) : unversioned ? (
               <div className="dv-note" data-testid="dv-no-vcs">
                 {t("changes.viewer.noVcs")}
               </div>
-            ) : listError ? (
-              <div className="dv-note dv-note--error" data-testid="dv-error">
-                {listError}
-              </div>
-            ) : changes.files.length === 0 && !loading ? (
+            ) : changes.files.length === 0 && wc.loaded ? (
               <div className="dv-note" data-testid="dv-empty">
-                {t("changes.viewer.emptyScope")}
+                {t("changes.empty")}
               </div>
             ) : (
               changes.files.map((file) => {
@@ -452,6 +431,8 @@ export function DiffViewerModal(props: {
                     view={effectiveView}
                     onToggle={() => toggleOne(file.path)}
                     registerRef={registerRef}
+                    discardBusy={discard.busy}
+                    onDiscard={() => void discard.discardFile(file.path, file.status)}
                   />
                 );
               })

@@ -1,7 +1,7 @@
 import type { ParsedDiffHunk, ParsedDiffLine } from "../messages/parseDiff";
 
 /**
- * Diff lines arranged for display, in the two shapes the review window offers.
+ * Diff lines arranged for display, in the two shapes the edits window offers.
  *
  * Kept separate from the components so the pairing rules - which decide what
  * lines up against what in the side-by-side view - can be tested on their own.

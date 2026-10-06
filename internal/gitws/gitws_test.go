@@ -9,9 +9,17 @@ import (
 	"testing"
 )
 
+// gitBin is the git binary the fixtures are built with, resolved once: a test
+// of the built-in backend hides git from PATH (eachBackend), and the fixtures
+// still need it.
+var gitBin, _ = exec.LookPath("git")
+
 func mustGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	if gitBin == "" {
+		t.Skip("git binary not available to build the fixture")
+	}
+	cmd := exec.Command(gitBin, args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
 		"GIT_CONFIG_GLOBAL=/dev/null",
@@ -37,7 +45,7 @@ func normPath(t *testing.T, p string) string {
 // "feature/login" branch pointing at the same commit.
 func initRepo(t *testing.T) string {
 	t.Helper()
-	if !GitAvailable() {
+	if gitBin == "" {
 		t.Skip("git binary not available")
 	}
 	dir := t.TempDir()
@@ -192,100 +200,107 @@ func TestEnsureWorktreeRefusesSymlinkedWorktreesRoot(t *testing.T) {
 }
 
 func TestCloneAndPull(t *testing.T) {
-	if !GitAvailable() {
-		t.Skip("git binary not available")
-	}
-	// Source repo with a committed SKILL.md on main.
-	src := t.TempDir()
-	mustGit(t, src, "init", "-b", "main")
-	if err := os.WriteFile(filepath.Join(src, "SKILL.md"), []byte("---\nname: demo\n---\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	mustGit(t, src, "-c", "user.email=coddy@test", "-c", "user.name=coddy", "add", "SKILL.md")
-	mustGit(t, src, "-c", "user.email=coddy@test", "-c", "user.name=coddy", "commit", "-m", "add skill")
+	eachBackend(t, func(t *testing.T) {
+		// Source repo with a committed SKILL.md on main.
+		src := t.TempDir()
+		mustGit(t, src, "init", "-b", "main")
+		if err := os.WriteFile(filepath.Join(src, "SKILL.md"), []byte("---\nname: demo\n---\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		mustGit(t, src, "-c", "user.email=coddy@test", "-c", "user.name=coddy", "add", "SKILL.md")
+		mustGit(t, src, "-c", "user.email=coddy@test", "-c", "user.name=coddy", "commit", "-m", "add skill")
 
-	dest := filepath.Join(t.TempDir(), "clone")
-	if err := Clone(src, "", dest); err != nil {
-		t.Fatalf("Clone: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dest, "SKILL.md")); err != nil {
-		t.Fatalf("cloned SKILL.md missing: %v", err)
-	}
-	// Pull is a no-op fast-forward here, but must not error on a clean clone.
-	if err := Pull(dest); err != nil {
-		t.Fatalf("Pull: %v", err)
-	}
+		dest := filepath.Join(t.TempDir(), "clone")
+		if err := Clone(src, "", dest); err != nil {
+			t.Fatalf("Clone: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(dest, "SKILL.md")); err != nil {
+			t.Fatalf("cloned SKILL.md missing: %v", err)
+		}
+		// Pull is a no-op fast-forward here, but must not error on a clean clone.
+		if err := Pull(dest); err != nil {
+			t.Fatalf("Pull: %v", err)
+		}
+	})
 }
 
 func TestDescribePlainFolder(t *testing.T) {
-	dir := t.TempDir()
-	info := Describe(dir)
-	if info.IsGitRepo {
-		t.Fatalf("plain folder reported as git repo: %+v", info)
-	}
-	if info.Path == "" {
-		t.Fatal("expected Path to be set")
-	}
-	if info.IsWorktree {
-		t.Fatal("plain folder cannot be a worktree")
-	}
+	eachBackend(t, func(t *testing.T) {
+		dir := t.TempDir()
+		info := Describe(dir)
+		if info.IsGitRepo {
+			t.Fatalf("plain folder reported as git repo: %+v", info)
+		}
+		if info.Path == "" {
+			t.Fatal("expected Path to be set")
+		}
+		if info.IsWorktree {
+			t.Fatal("plain folder cannot be a worktree")
+		}
+	})
 }
 
 func TestDescribeRepo(t *testing.T) {
-	dir := initRepo(t)
-	info := Describe(dir)
-	if !info.IsGitRepo {
-		t.Fatalf("expected git repo: %+v", info)
-	}
-	if info.Branch != "main" {
-		t.Fatalf("branch = %q, want main", info.Branch)
-	}
-	if normPath(t, info.RepoRoot) != dir {
-		t.Fatalf("repo root = %q, want %q", info.RepoRoot, dir)
-	}
-	if info.BaseBranch != "main" {
-		t.Fatalf("base branch = %q, want main", info.BaseBranch)
-	}
-	if got := normPath(t, MainCheckoutRoot(dir)); got != dir {
-		t.Fatalf("main checkout root = %q, want %q", got, dir)
-	}
-	if !slices.Contains(info.Branches, "main") || !slices.Contains(info.Branches, "feature/login") {
-		t.Fatalf("branches = %v, want main and feature/login", info.Branches)
-	}
-	if info.IsWorktree {
-		t.Fatal("main checkout must not be flagged as worktree")
-	}
-	if len(info.Worktrees) != 1 || !info.Worktrees[0].Main {
-		t.Fatalf("worktrees = %+v, want single main entry", info.Worktrees)
-	}
+	eachBackend(t, func(t *testing.T) {
+		dir := initRepo(t)
+		info := Describe(dir)
+		if !info.IsGitRepo {
+			t.Fatalf("expected git repo: %+v", info)
+		}
+		if info.Branch != "main" {
+			t.Fatalf("branch = %q, want main", info.Branch)
+		}
+		if normPath(t, info.RepoRoot) != dir {
+			t.Fatalf("repo root = %q, want %q", info.RepoRoot, dir)
+		}
+		if info.BaseBranch != "main" {
+			t.Fatalf("base branch = %q, want main", info.BaseBranch)
+		}
+		if got := normPath(t, MainCheckoutRoot(dir)); got != dir {
+			t.Fatalf("main checkout root = %q, want %q", got, dir)
+		}
+		if !slices.Contains(info.Branches, "main") || !slices.Contains(info.Branches, "feature/login") {
+			t.Fatalf("branches = %v, want main and feature/login", info.Branches)
+		}
+		if info.IsWorktree {
+			t.Fatal("main checkout must not be flagged as worktree")
+		}
+		if len(info.Worktrees) != 1 || !info.Worktrees[0].Main {
+			t.Fatalf("worktrees = %+v, want single main entry", info.Worktrees)
+		}
+	})
 }
 
 func TestDescribeSubdirOfRepo(t *testing.T) {
-	dir := initRepo(t)
-	sub := filepath.Join(dir, "pkg")
-	if err := os.MkdirAll(sub, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	info := Describe(sub)
-	if !info.IsGitRepo {
-		t.Fatal("subdir of a repo must report the repo")
-	}
-	if normPath(t, info.RepoRoot) != dir {
-		t.Fatalf("repo root = %q, want %q", info.RepoRoot, dir)
-	}
+	eachBackend(t, func(t *testing.T) {
+		dir := initRepo(t)
+		sub := filepath.Join(dir, "pkg")
+		if err := os.MkdirAll(sub, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		info := Describe(sub)
+		if !info.IsGitRepo {
+			t.Fatal("subdir of a repo must report the repo")
+		}
+		if normPath(t, info.RepoRoot) != dir {
+			t.Fatalf("repo root = %q, want %q", info.RepoRoot, dir)
+		}
+	})
 }
 
 func TestCheckout(t *testing.T) {
-	dir := initRepo(t)
-	if err := Checkout(dir, "feature/login"); err != nil {
-		t.Fatalf("checkout: %v", err)
-	}
-	if got := Describe(dir).Branch; got != "feature/login" {
-		t.Fatalf("branch after checkout = %q", got)
-	}
-	if err := Checkout(dir, "no-such-branch"); err == nil {
-		t.Fatal("expected error for unknown branch")
-	}
+	eachBackend(t, func(t *testing.T) {
+		dir := initRepo(t)
+		if err := Checkout(dir, "feature/login"); err != nil {
+			t.Fatalf("checkout: %v", err)
+		}
+		if got := Describe(dir).Branch; got != "feature/login" {
+			t.Fatalf("branch after checkout = %q", got)
+		}
+		if err := Checkout(dir, "no-such-branch"); err == nil {
+			t.Fatal("expected error for unknown branch")
+		}
+	})
 }
 
 func TestEnsureWorktree(t *testing.T) {
@@ -522,16 +537,15 @@ func TestBranchDirName(t *testing.T) {
 }
 
 func TestCloneRejectsOptionLikeArgs(t *testing.T) {
-	if !GitAvailable() {
-		t.Skip("git binary not available")
-	}
-	dest := filepath.Join(t.TempDir(), "dest")
-	// A URL or ref that starts with "-" must be rejected, not passed to git
-	// where it would be parsed as a flag (option injection).
-	if err := Clone("--upload-pack=touch pwned", "", dest); err == nil {
-		t.Error("expected rejection of option-like url")
-	}
-	if err := Clone("https://example.com/x.git", "--foo", dest); err == nil {
-		t.Error("expected rejection of option-like ref")
-	}
+	eachBackend(t, func(t *testing.T) {
+		dest := filepath.Join(t.TempDir(), "dest")
+		// A URL or ref that starts with "-" must be rejected, not passed to git
+		// where it would be parsed as a flag (option injection).
+		if err := Clone("--upload-pack=touch pwned", "", dest); err == nil {
+			t.Error("expected rejection of option-like url")
+		}
+		if err := Clone("https://example.com/x.git", "--foo", dest); err == nil {
+			t.Error("expected rejection of option-like ref")
+		}
+	})
 }

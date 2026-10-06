@@ -354,7 +354,6 @@ Controls the bundled single-page UI (only meaningful in binaries built with -tag
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `ui.enable` | boolean or null | true | Serve the embedded SPA at GET /. Defaults to true; set false to run an API-only server (the API still requires httpserver.auth_token when configured). |
-| `ui.session_changes` | boolean or null | true | Show a card under the transcript summarising every file the session changed, with a review window for the per-file diffs and a button to roll the whole session back. Defaults to true; set false to hide the card. |
 
 ### `scheduler`
 

@@ -16,12 +16,12 @@ test("the files address opens the window on its file and one-based line, and lea
     fileLine: 402,
     tasksOpen: false,
   });
-  // The Files window is not a face of the dock.
-  expect(files).not.toHaveProperty("dockTab");
+  // Neither window is a face of the dock.
+  expect(files).not.toHaveProperty("editsOpen");
   setSessionChangesHash("sess_test");
-  expect(parseAppHash()).toMatchObject({ dockTab: "changes", tasksOpen: true });
+  expect(parseAppHash()).toMatchObject({ editsOpen: true, tasksOpen: false });
   setSessionTasksHash("sess_test");
-  expect(parseAppHash()).not.toHaveProperty("dockTab");
+  expect(parseAppHash()).not.toHaveProperty("editsOpen");
 });
 
 test("malformed line links start at the first line", () => {

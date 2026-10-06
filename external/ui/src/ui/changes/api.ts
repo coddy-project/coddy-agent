@@ -1,5 +1,5 @@
 import { t } from "../i18n/i18n";
-import type { ChangeScope, SessionChangeDetail, SessionChanges } from "./types";
+import type { SessionChangeDetail, SessionChanges } from "./types";
 
 export type ChangesApiResult<T> =
   | { ok: true; data: T }
@@ -38,8 +38,9 @@ async function parseJson<T>(res: Response): Promise<ChangesApiResult<T>> {
 }
 
 /**
- * The card refetches whenever a turn ends, so a server that is restarting must
- * degrade into a normal error result rather than an unhandled rejection.
+ * The working copy is read again whenever a turn ends, so a server that is
+ * restarting must degrade into a normal error result rather than an unhandled
+ * rejection.
  */
 async function request(
   path: string,
@@ -66,43 +67,43 @@ function headers(sessionId: string): Record<string, string> {
   return { "X-Coddy-Session-ID": sessionId };
 }
 
-/** `?scope=` is omitted for the session default so older backends still answer. */
-function scopeQuery(scope: ChangeScope | undefined, separator: string): string {
-  return scope && scope !== "session" ? `${separator}scope=${scope}` : "";
-}
-
-/** Stats only: the card never needs the patches, which can be large. */
+/** What git reports for the session's folder, stats only: the patches can be large. */
 export async function fetchSessionChanges(
   sessionId: string,
-  scope?: ChangeScope,
 ): Promise<ChangesApiResult<SessionChanges>> {
-  const res = await request(basePath(sessionId) + scopeQuery(scope, "?"), {
+  const res = await request(basePath(sessionId), {
     headers: headers(sessionId),
   });
   return res ? parseJson<SessionChanges>(res) : offline();
 }
 
-/** One file with its unified patch, fetched when the viewer selects a row. */
+/** One file with its unified patch, fetched when a viewer shows it. */
 export async function fetchSessionChangeFile(
   sessionId: string,
   path: string,
-  scope?: ChangeScope,
 ): Promise<ChangesApiResult<SessionChangeDetail>> {
   const res = await request(
-    `${basePath(sessionId)}/file?path=${encodeURIComponent(path)}` +
-      scopeQuery(scope, "&"),
+    `${basePath(sessionId)}/file?path=${encodeURIComponent(path)}`,
     { headers: headers(sessionId) },
   );
   return res ? parseJson<SessionChangeDetail>(res) : offline();
 }
 
-/** Reverses every turn diff of the session. Destructive and not undoable. */
-export async function revertSessionChanges(
+/** Which uncommitted changes a discard puts back at HEAD. */
+export type DiscardSelection = { paths: string[] } | { all: true };
+
+/**
+ * Puts files of the session's folder back at HEAD through git: a tracked file
+ * gets HEAD's content back, a new one is deleted. Destructive and not undoable.
+ */
+export async function discardSessionChanges(
   sessionId: string,
-): Promise<ChangesApiResult<{ note: string }>> {
+  selection: DiscardSelection,
+): Promise<ChangesApiResult<{ sessionId: string }>> {
   const res = await request(`${basePath(sessionId)}/revert`, {
     method: "POST",
-    headers: headers(sessionId),
+    headers: { ...headers(sessionId), "Content-Type": "application/json" },
+    body: JSON.stringify(selection),
   });
-  return res ? parseJson<{ note: string }>(res) : offline();
+  return res ? parseJson<{ sessionId: string }>(res) : offline();
 }

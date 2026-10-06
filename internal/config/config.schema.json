@@ -1420,14 +1420,6 @@
           ],
           "description": "Serve the embedded SPA at GET /. Defaults to true; set false to run an API-only server (the API still requires httpserver.auth_token when configured).",
           "default": true
-        },
-        "session_changes": {
-          "type": [
-            "boolean",
-            "null"
-          ],
-          "description": "Show a card under the transcript summarising every file the session changed, with a review window for the per-file diffs and a button to roll the whole session back. Defaults to true; set false to hide the card.",
-          "default": true
         }
       }
     },

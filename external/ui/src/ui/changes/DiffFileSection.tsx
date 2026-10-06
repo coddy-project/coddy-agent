@@ -115,10 +115,10 @@ function SplitBody({
 }
 
 /**
- * One file of the review window: a header that names it and states its line
+ * One file of the edits window: a header that names it and states its line
  * counts, over its diff.
  *
- * The header carries the two per-file actions the window offers, revealed on
+ * The header carries the per-file actions the window offers, revealed on
  * hover so a long list of files stays quiet until pointed at.
  */
 export function DiffFileSection(props: {
@@ -132,6 +132,9 @@ export function DiffFileSection(props: {
   onToggle: () => void;
   /** Registers the section element so the toolbar can scroll to it. */
   registerRef: (path: string, el: HTMLDivElement | null) => void;
+  /** Puts this file back at HEAD, after asking. */
+  onDiscard?: (() => void) | undefined;
+  discardBusy?: boolean;
 }) {
   const { t } = useT();
   const [copied, setCopied] = useState(false);
@@ -231,6 +234,21 @@ export function DiffFileSection(props: {
           >
             {copied ? "✓" : "⧉"}
           </button>
+          {props.onDiscard ? (
+            <button
+              type="button"
+              className="dv-icon-btn dv-icon-btn--danger"
+              title={t("changes.discardFileTitle", { name: file.path })}
+              aria-label={t("changes.discardFileTitle", { name: file.path })}
+              disabled={props.discardBusy === true}
+              data-testid={`dv-discard-${file.path}`}
+              onClick={props.onDiscard}
+            >
+              <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                <path d="M3.5 6.5h6a3.5 3.5 0 0 1 0 7H7M3.5 6.5 6 4M3.5 6.5 6 9" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          ) : null}
           <button
             type="button"
             className="dv-icon-btn"

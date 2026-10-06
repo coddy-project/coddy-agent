@@ -201,13 +201,13 @@ func (s *Server) publishConfigReloaded() {
 	}
 }
 
-// sessionChangesFrame says that the recorded change set of one session settled
-// or moved: a finished turn's workspace diff is on disk (or there was nothing
-// to store), or the session was rolled back.
+// sessionChangesFrame says that the uncommitted changes of one session's
+// folder were discarded. The end of a turn, the other moment the folder may
+// have moved, is turn_ended, which every turn already sends.
 //
-// Thin like configReloadedFrame: the change set itself stays behind
-// GET /coddy/sessions/{id}/changes, and the event only tells the changed-files
-// card that reading it now gives the answer the turn left.
+// Thin like configReloadedFrame: what git reports stays behind
+// GET /coddy/sessions/{id}/changes, and the event only tells the Edits view
+// and the bar over the composer to read it again.
 func sessionChangesFrame(sessionID string, at time.Time) []byte {
 	body, err := json.Marshal(map[string]interface{}{
 		"object":    "coddy.session_changes",
@@ -224,7 +224,8 @@ func sessionChangesFrame(sessionID string, at time.Time) []byte {
 	return frame
 }
 
-// publishSessionChanges announces a settled change set to every events subscriber.
+// publishSessionChanges tells every events subscriber to read the session's
+// working copy again.
 func (s *Server) publishSessionChanges(sessionID string) {
 	if s.events == nil || sessionID == "" {
 		return

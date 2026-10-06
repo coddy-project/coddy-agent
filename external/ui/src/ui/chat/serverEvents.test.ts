@@ -216,8 +216,8 @@ test("a message_queue frame reaches its handler with the session and the version
   ]);
 });
 
-// The changed-files card reads the change set when this says a finished turn's
-// diff is on disk - reading earlier races the capture and shows the old set.
+// The Edits views read the folder again when this says its changes were
+// discarded, from this window or another.
 test("a session_changes frame reaches its handler with the session", async () => {
   const settled: string[] = [];
   const ctl = new AbortController();

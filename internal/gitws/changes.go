@@ -45,15 +45,14 @@ func runGitRaw(dir string, args ...string) ([]byte, error) {
 // into a review would bury the edits the user came to read. The caller surfaces
 // the count instead.
 //
-// A folder that is not a repository, a repository with no commit yet, or a
-// missing git binary all yield an empty result rather than an error, so the
-// viewer can offer the scope everywhere and simply show nothing.
+// A folder that is not a repository yields an empty result rather than an
+// error, so the viewer can offer the view everywhere and simply show nothing.
+// In a repository with no commit yet, every file of the index is an addition.
 func UncommittedChanges(dir string) ([]WorkChange, int, error) {
-	if !GitAvailable() || !Describe(dir).IsGitRepo {
-		return nil, 0, nil
+	if !GitAvailable() {
+		return builtinUncommittedChanges(dir)
 	}
-	// A fresh repository has no HEAD to diff against.
-	if _, err := runGit(dir, "rev-parse", "--verify", "HEAD"); err != nil {
+	if !Describe(dir).IsGitRepo {
 		return nil, 0, nil
 	}
 
@@ -120,7 +119,7 @@ func WorktreeChangeFor(dir, path string) (*WorkChange, error) {
 	if err != nil || tracked != nil {
 		return tracked, err
 	}
-	if !GitAvailable() || !Describe(dir).IsGitRepo {
+	if !Describe(dir).IsGitRepo {
 		return nil, nil
 	}
 	want := filepath.FromSlash(path)
@@ -139,6 +138,9 @@ func WorktreeChangeFor(dir, path string) (*WorkChange, error) {
 
 // untrackedPaths lists the files git would add, honouring .gitignore.
 func untrackedPaths(dir string) []string {
+	if !GitAvailable() {
+		return builtinUntrackedPaths(dir)
+	}
 	out, err := runGitRaw(dir, "ls-files", "--others", "--exclude-standard", "-z")
 	if err != nil {
 		return nil
@@ -183,22 +185,22 @@ func UncommittedChangeFor(dir, path string) (*WorkChange, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, nil
 	}
-	if !GitAvailable() || !Describe(dir).IsGitRepo {
+	if !GitAvailable() {
+		return builtinUncommittedChangeFor(dir, path)
+	}
+	if !Describe(dir).IsGitRepo {
 		return nil, nil
 	}
-	if _, err := runGit(dir, "rev-parse", "--verify", "HEAD"); err != nil {
-		return nil, nil
-	}
-	records, err := changedRecords(dir)
+	records, err := listedRecords(dir)
 	if err != nil {
 		return nil, err
 	}
 	want := filepath.FromSlash(path)
 	for _, rec := range records {
-		if filepath.FromSlash(rec.newPath) != want {
+		if filepath.FromSlash(rec.newPath) != want || indexOnly(dir, rec) {
 			continue
 		}
-		change, err := buildWorkChange(dir, rec.code, rec.oldPath, rec.newPath)
+		change, err := buildWorkChange(dir, rec.code, rec.oldPath, rec.newPath, gitShowHEAD(dir))
 		if err != nil {
 			return nil, err
 		}
@@ -223,13 +225,86 @@ type changedRecord struct {
 // quotes; -M asks git to detect renames so a moved file reads as one change
 // instead of a delete plus an add.
 func trackedChanges(dir string) ([]WorkChange, error) {
-	records, err := changedRecords(dir)
+	records, err := listedRecords(dir)
 	if err != nil {
 		return nil, err
 	}
+	return assembleChanges(dir, records, gitShowHEAD(dir))
+}
+
+// hasHead reports whether the repository holding dir has a commit to compare
+// with: a fresh `git init` has none.
+func hasHead(dir string) bool {
+	_, err := runGit(dir, "rev-parse", "--verify", "--quiet", "HEAD")
+	return err == nil
+}
+
+// listedRecords is what the working copy holds that HEAD does not: the
+// changed records against HEAD, or, in a repository with no commit yet, every
+// file of the index as an addition.
+func listedRecords(dir string) ([]changedRecord, error) {
+	if hasHead(dir) {
+		return changedRecords(dir)
+	}
+	return indexRecords(dir)
+}
+
+// indexRecords lists every file of the index under dir as an addition, for a
+// repository whose HEAD is not born yet.
+func indexRecords(dir string) ([]changedRecord, error) {
+	out, err := runGitRaw(dir, "ls-files", "-z", "--")
+	if err != nil {
+		return nil, err
+	}
+	var records []changedRecord
+	for _, p := range splitNUL(out) {
+		records = append(records, changedRecord{code: 'A', oldPath: p, newPath: p})
+	}
+	return records, nil
+}
+
+// stagedRecords lists what the index holds that HEAD does not, file by file
+// and without rename pairing: `git diff HEAD` compares HEAD with the disk and
+// misses a staged edit written back, or a staged new file deleted since, both
+// of which a discard still has to clear from the index.
+func stagedRecords(dir string) ([]changedRecord, error) {
+	out, err := runGitRaw(dir, "diff", "--cached", "--name-status", "-z", "--no-renames", "--relative", "HEAD", "--")
+	if err != nil {
+		return nil, err
+	}
+	fields := splitNUL(out)
+	var records []changedRecord
+	for i := 0; i+1 < len(fields); i += 2 {
+		code := fields[i][0]
+		if code != 'A' {
+			// HEAD holds it: putting it back restores the index entry too.
+			code = 'M'
+		}
+		records = append(records, changedRecord{code: code, oldPath: fields[i+1], newPath: fields[i+1]})
+	}
+	return records, nil
+}
+
+// indexOnly reports an addition that exists only in the index: added, then
+// deleted from the disk. There is nothing to show for it, but a discard still
+// drops it from the index.
+func indexOnly(dir string, rec changedRecord) bool {
+	if rec.code != 'A' {
+		return false
+	}
+	_, err := os.Lstat(filepath.Join(dir, filepath.FromSlash(rec.newPath)))
+	return err != nil
+}
+
+// assembleChanges loads both sides of every record; how the HEAD side is read
+// is the one thing the two backends do differently, so the caller supplies it.
+func assembleChanges(dir string, records []changedRecord, head headBlobReader) ([]WorkChange, error) {
 	changes := make([]WorkChange, 0, len(records))
 	for _, rec := range records {
-		change, err := buildWorkChange(dir, rec.code, rec.oldPath, rec.newPath)
+		if indexOnly(dir, rec) {
+			continue
+		}
+		change, err := buildWorkChange(dir, rec.code, rec.oldPath, rec.newPath, head)
 		if err != nil {
 			return nil, err
 		}
@@ -289,14 +364,26 @@ func changedRecords(dir string) ([]changedRecord, error) {
 	return records, nil
 }
 
+// headBlobReader reads one dir-relative path out of HEAD; the git backend
+// shells out to `git show`, the built-in one walks HEAD's tree.
+type headBlobReader func(rel string) ([]byte, error)
+
+// gitShowHEAD reads a blob with `git show HEAD:./path`, run in dir so the
+// dir-relative record path resolves like the diff that produced it.
+func gitShowHEAD(dir string) headBlobReader {
+	return func(rel string) ([]byte, error) {
+		return runGitRaw(dir, "show", "HEAD:./"+rel)
+	}
+}
+
 // buildWorkChange loads both sides of one changed file. The before side comes
 // from HEAD's blob and the after side from the working copy, so a file staged
 // and then edited again reports what is on disk now.
-func buildWorkChange(dir string, code byte, oldPath, newPath string) (WorkChange, error) {
+func buildWorkChange(dir string, code byte, oldPath, newPath string, head headBlobReader) (WorkChange, error) {
 	change := WorkChange{Path: filepath.FromSlash(newPath), Status: statusForCode(code)}
 
 	if code != 'A' && code != 'C' {
-		before, err := runGitRaw(dir, "show", "HEAD:./"+oldPath)
+		before, err := head(oldPath)
 		if err != nil {
 			// The blob is unreadable (a submodule entry, say). Treat the file as
 			// new rather than failing the whole scope.

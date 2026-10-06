@@ -5,9 +5,11 @@ package httpserver
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/gitws"
 	"github.com/EvilFreelancer/coddy-agent/internal/linediff"
@@ -15,10 +17,10 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/textenc"
 )
 
-// changedFileDTO is one file in the session change set. Patch, Before and After
-// are pointers so an empty string still serialises: a binary file legitimately
-// has an empty patch, and the caller must be able to tell that apart from a
-// field it did not ask for.
+// changedFileDTO is one file of the session's working copy changes. Patch,
+// Before and After are pointers so an empty string still serialises: a binary
+// file legitimately has an empty patch, and the caller must be able to tell
+// that apart from a field it did not ask for.
 type changedFileDTO struct {
 	Path      string  `json:"path"`
 	Status    string  `json:"status"`
@@ -31,32 +33,17 @@ type changedFileDTO struct {
 	After     *string `json:"after,omitempty"`
 }
 
-// registerChangesRoutes adds the session change-set endpoints behind the
-// changed-files card and its diff viewers.
+// registerChangesRoutes adds the routes behind a chat's Edits view: what git
+// reports for the session's folder, one file of it, and discarding it.
 func (s *Server) registerChangesRoutes() {
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/changes", s.coddySessionChangesList)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/changes/file", s.coddySessionChangeFile)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/changes/revert", s.coddySessionChangesRevert)
 }
 
-// sessionChangeDir resolves the persisted bundle directory of a session, writing
-// the HTTP error itself when the session is unknown or was never persisted.
-func (s *Server) sessionChangeDir(w http.ResponseWriter, r *http.Request, id string) (*session.State, string) {
-	st := s.coddyEnsureLoaded(w, r, id)
-	if st == nil {
-		return nil, ""
-	}
-	sd := strings.TrimSpace(st.GetPersistedSessionDir())
-	if sd == "" {
-		http.Error(w, `{"error":{"message":"session not persisted"}}`, http.StatusBadRequest)
-		return nil, ""
-	}
-	return st, sd
-}
-
-// decodeSide turns stored file bytes into text. textenc owns the encoding
-// decision for the whole tree, so a Windows-1251 source reads the same here as
-// it does through the file tools. Undecodable content is reported as binary.
+// decodeSide turns file bytes into text. textenc owns the encoding decision for
+// the whole tree, so a Windows-1251 source reads the same here as it does
+// through the file tools. Undecodable content is reported as binary.
 func decodeSide(data []byte) (text string, binary bool) {
 	if data == nil {
 		return "", false
@@ -71,17 +58,13 @@ func decodeSide(data []byte) (text string, binary bool) {
 	return decoded, false
 }
 
-// buildChangedFile renders one aggregated change into its wire form.
-func buildChangedFile(change session.FileChange, withPatch, withContent bool) changedFileDTO {
+// buildChangedFile renders one working copy change into its wire form.
+func buildChangedFile(change gitws.WorkChange, withPatch, withContent bool) changedFileDTO {
 	before, beforeBinary := decodeSide(change.Before)
 	after, afterBinary := decodeSide(change.After)
-	binary := change.Binary || beforeBinary || afterBinary
+	binary := beforeBinary || afterBinary
 
-	dto := changedFileDTO{
-		Path:   change.Path,
-		Status: string(change.Kind),
-		Binary: binary,
-	}
+	dto := changedFileDTO{Path: change.Path, Status: change.Status, Binary: binary}
 	if !binary {
 		dto.Additions, dto.Deletions = linediff.Stat(before, after)
 	}
@@ -101,183 +84,19 @@ func buildChangedFile(change session.FileChange, withPatch, withContent bool) ch
 	return dto
 }
 
-// visibleChanges drops what no review should open with: the folders a tool
-// keeps its own bookkeeping in.
-//
-// session.AggregateSessionChanges already filters the recorded scopes; this is
-// for the working-copy ones, which report whatever git happens to track. The
-// rule itself lives in internal/session so both sides answer alike.
-func visibleChanges(changes []session.FileChange) []session.FileChange {
-	out := changes[:0]
-	for _, change := range changes {
-		if session.IsToolStatePath(change.Path) {
-			continue
-		}
-		out = append(out, change)
-	}
-	return out
-}
-
-// changeScope selects which set of edits a viewer request describes. The card
-// only ever wants the whole session; the viewer's switcher asks for the rest.
-type changeScope string
-
-const (
-	scopeSession     changeScope = "session"
-	scopeTurn        changeScope = "turn"
-	scopeUncommitted changeScope = "uncommitted"
-	// scopeAll is scopeUncommitted plus the files git does not track yet, for
-	// when the question is "what is in this folder that HEAD has not" rather
-	// than "what has git noticed".
-	scopeAll changeScope = "all"
-)
-
-// parseChangeScope maps the `scope` query parameter. An empty value keeps the
-// whole-session default, so existing callers (the card, the review window) are
-// unaffected; anything unrecognised is rejected rather than silently widened.
-func parseChangeScope(raw string) (changeScope, bool) {
-	switch changeScope(strings.ToLower(strings.TrimSpace(raw))) {
-	case "", scopeSession:
-		return scopeSession, true
-	case scopeTurn:
-		return scopeTurn, true
-	case scopeUncommitted:
-		return scopeUncommitted, true
-	case scopeAll:
-		return scopeAll, true
-	}
-	return "", false
-}
-
-// changeSetResult is one scope's change set plus the two facts only the
-// working-copy scopes produce.
-type changeSetResult struct {
-	changes []session.FileChange
-	// untracked counts untracked files the scope did not show: under
-	// scopeUncommitted that is every one of them, under scopeAll only those
-	// past the cap. Either way it is what the viewer reports as skipped.
-	untracked int
-	// vcs names the system that answered ("git") and is empty when the
-	// workspace is under none. The viewer says so instead of showing an empty
-	// diff and leaving the reader to guess why.
-	vcs string
-}
-
-// workingCopyVCS reports which version control system governs cwd. An empty
-// result is a plain folder, or a git client that is not installed.
-func (s *Server) workingCopyVCS(cwd string) string {
-	if cwd == "" {
-		return ""
-	}
-	if gitws.GitAvailable() && gitws.Describe(cwd).IsGitRepo {
-		return "git"
-	}
-	return ""
-}
-
-// loadChangeSet resolves one scope into the shape every viewer renders.
-func (s *Server) loadChangeSet(st *session.State, sessionDir string, scope changeScope) (changeSetResult, error) {
-	// A running turn has no stored diff yet; the card opened mid-turn still has
-	// to show what it wrote, so it counts as the newest turn.
-	live, running := s.liveTurnDiff(st.GetID())
-
-	switch scope {
-	case scopeTurn:
-		if running {
-			return changeSetResult{changes: visibleChanges(session.AggregateWorkspaceDiff(live))}, nil
-		}
-		turn, err := session.LatestTurnNumber(sessionDir)
-		if err != nil {
-			return changeSetResult{}, err
-		}
-		changes, err := session.AggregateTurnChanges(sessionDir, turn)
-		return changeSetResult{changes: visibleChanges(changes)}, err
-
-	case scopeUncommitted, scopeAll:
-		cwd := strings.TrimSpace(st.GetCWD())
-		// Resolved here rather than inside the client calls so the response can
-		// tell "nothing changed" apart from "this folder is not versioned".
-		vcs := s.workingCopyVCS(cwd)
-		if vcs == "" {
-			return changeSetResult{}, nil
-		}
-		withUnversioned := scope == scopeAll
-
-		var work []gitws.WorkChange
-		var untracked int
-		var err error
-		if withUnversioned {
-			work, untracked, err = gitws.WorktreeChanges(cwd)
-		} else {
-			work, untracked, err = gitws.UncommittedChanges(cwd)
-		}
-		if err != nil {
-			return changeSetResult{}, err
-		}
-		changes := make([]session.FileChange, 0, len(work))
-		for _, w := range work {
-			changes = append(changes, fileChangeFromWork(w))
-		}
-		return changeSetResult{changes: visibleChanges(changes), untracked: untracked, vcs: vcs}, nil
-
-	default:
-		if running {
-			changes, err := session.AggregateSessionChangesWithLive(sessionDir, live)
-			return changeSetResult{changes: visibleChanges(changes)}, err
-		}
-		changes, err := session.AggregateSessionChanges(sessionDir)
-		return changeSetResult{changes: visibleChanges(changes)}, err
-	}
-}
-
-// loadChangeFile resolves the one file the detail route was asked for.
-//
-// It exists so that route does not pay for the whole change set. Under the git
-// scope that difference is a git subprocess per changed file, on every request,
-// and the viewer makes one request per file - which turned opening a review of
-// a large working copy into tens of seconds of pointless blob reads.
-func (s *Server) loadChangeFile(st *session.State, sessionDir string, scope changeScope, path string) ([]session.FileChange, error) {
-	if session.IsToolStatePath(path) {
-		// Hidden from the list, so not reachable one at a time either.
-		return nil, nil
-	}
-	if scope != scopeUncommitted && scope != scopeAll {
-		// The session scopes fold JSON already on disk, so narrowing afterwards
-		// costs nothing worth a second code path.
-		set, err := s.loadChangeSet(st, sessionDir, scope)
-		return set.changes, err
+// sessionWorkspace resolves the folder a session works in, writing the HTTP
+// error itself when the session is unknown or has none.
+func (s *Server) sessionWorkspace(w http.ResponseWriter, r *http.Request, id string) (*session.State, string) {
+	st := s.coddyEnsureLoaded(w, r, id)
+	if st == nil {
+		return nil, ""
 	}
 	cwd := strings.TrimSpace(st.GetCWD())
-	withUnversioned := scope == scopeAll
-
-	if s.workingCopyVCS(cwd) != "git" {
-		return nil, nil
+	if cwd == "" {
+		writeSubagentsError(w, http.StatusBadRequest, "session has no workspace")
+		return nil, ""
 	}
-	var work *gitws.WorkChange
-	var err error
-	if withUnversioned {
-		work, err = gitws.WorktreeChangeFor(cwd, path)
-	} else {
-		work, err = gitws.UncommittedChangeFor(cwd, path)
-	}
-	if err != nil || work == nil {
-		return nil, err
-	}
-	return []session.FileChange{fileChangeFromWork(*work)}, nil
-}
-
-// fileChangeFromWork adapts a git working-copy change to the session shape.
-// Binary is left false on purpose: buildChangedFile detects it per side through
-// textenc, which is the one place that decision is made.
-func fileChangeFromWork(w gitws.WorkChange) session.FileChange {
-	kind := session.FileModified
-	switch w.Status {
-	case "added":
-		kind = session.FileAdded
-	case "deleted":
-		kind = session.FileDeleted
-	}
-	return session.FileChange{Path: w.Path, Kind: kind, Before: w.Before, After: w.After}
+	return st, cwd
 }
 
 // parseChangeIncludes reads the comma-separated `include` query parameter.
@@ -297,139 +116,168 @@ func parseChangeIncludes(raw string) (withPatch, withContent bool) {
 //
 // Response:
 //
-//	{ "object": "coddy.session_changes", "sessionId": "...",
+//	{ "object": "coddy.session_changes", "sessionId": "...", "vcs": "git",
 //	  "files": [ { "path": "...", "status": "modified", "additions": 2, "deletions": 1,
 //	               "binary": false, "truncated": false } ],
-//	  "totals": { "files": 1, "additions": 2, "deletions": 1 } }
+//	  "totals": { "files": 1, "additions": 2, "deletions": 1 },
+//	  "skipped": 0 }
 //
-// `?include=patch,content` adds the unified patch and the decoded file sides.
-// `?scope=session|turn|uncommitted|all` picks the change set; the working-copy
-// scopes also report `untracked`, `vcsAvailable` and `vcs`.
+// The set is git's report of the session's folder: tracked files that differ
+// from HEAD and new files git does not ignore. `vcs` is empty when the folder
+// is not inside a repository, and the set is then empty. `skipped` counts new
+// files left out (past the cap, or too large to read). `?include=patch,content`
+// adds the unified patch and the decoded file sides.
 func (s *Server) coddySessionChangesList(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("id"))
-	scope, ok := parseChangeScope(r.URL.Query().Get("scope"))
-	if !ok {
-		http.Error(w, `{"error":{"message":"unknown scope"}}`, http.StatusBadRequest)
+	_, cwd := s.sessionWorkspace(w, r, id)
+	if cwd == "" {
 		return
 	}
-	st, sd := s.sessionChangeDir(w, r, id)
-	if sd == "" {
-		return
-	}
-	set, err := s.loadChangeSet(st, sd, scope)
-	if err != nil {
-		s.log.Error("load session changes", "session", id, "scope", scope, "error", err)
-		http.Error(w, `{"error":{"message":"read failed"}}`, http.StatusInternalServerError)
-		return
+	vcs := ""
+	var work []gitws.WorkChange
+	skipped := 0
+	if gitws.Describe(cwd).IsGitRepo {
+		vcs = "git"
+		var err error
+		work, skipped, err = gitws.WorktreeChanges(cwd)
+		if err != nil {
+			s.log.Error("read working copy changes", "session", id, "error", err)
+			writeSubagentsError(w, http.StatusInternalServerError, "read failed")
+			return
+		}
 	}
 
 	withPatch, withContent := parseChangeIncludes(r.URL.Query().Get("include"))
-	files := make([]changedFileDTO, 0, len(set.changes))
+	files := make([]changedFileDTO, 0, len(work))
 	totalAdd, totalDel := 0, 0
-	for _, change := range set.changes {
+	for _, change := range work {
 		dto := buildChangedFile(change, withPatch, withContent)
 		totalAdd += dto.Additions
 		totalDel += dto.Deletions
 		files = append(files, dto)
 	}
-
-	body := map[string]interface{}{
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"object":    "coddy.session_changes",
 		"sessionId": id,
-		"scope":     string(scope),
+		"vcs":       vcs,
 		"files":     files,
 		"totals": map[string]int{
 			"files":     len(files),
 			"additions": totalAdd,
 			"deletions": totalDel,
 		},
-	}
-	// Only the git scopes can report these, and a caller must not read a missing
-	// field as "no untracked files" when the question was never asked.
-	if scope == scopeUncommitted || scope == scopeAll {
-		body["untracked"] = set.untracked
-		body["vcsAvailable"] = set.vcs != ""
-		body["vcs"] = set.vcs
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(body)
+		"skipped": skipped,
+	})
 }
 
 // coddySessionChangeFile handles GET /coddy/sessions/{id}/changes/file?path=...
 //
-// The path is matched against the session's change set rather than resolved on
-// disk, so this route cannot be pointed at a file the session never touched.
+// The path is matched against what git reports rather than resolved on disk,
+// so this route cannot be pointed at a file outside the change set. Only the
+// wanted file is read: the review window asks a file at a time, and reading
+// every changed blob per request would be a git process per file on each one.
 func (s *Server) coddySessionChangeFile(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("id"))
 	path := r.URL.Query().Get("path")
 	if strings.TrimSpace(path) == "" {
-		http.Error(w, `{"error":{"message":"path is required"}}`, http.StatusBadRequest)
+		writeSubagentsError(w, http.StatusBadRequest, "path is required")
 		return
 	}
-	// The same scope as the list it was opened from, or expanding a row would
-	// show the session's diff while the list showed one turn's.
-	scope, ok := parseChangeScope(r.URL.Query().Get("scope"))
-	if !ok {
-		http.Error(w, `{"error":{"message":"unknown scope"}}`, http.StatusBadRequest)
+	_, cwd := s.sessionWorkspace(w, r, id)
+	if cwd == "" {
 		return
 	}
-	st, sd := s.sessionChangeDir(w, r, id)
-	if sd == "" {
-		return
-	}
-	changes, err := s.loadChangeFile(st, sd, scope, path)
-	if err != nil {
-		s.log.Error("load session change", "session", id, "scope", scope, "error", err)
-		http.Error(w, `{"error":{"message":"read failed"}}`, http.StatusInternalServerError)
-		return
-	}
-	// The change set is the only thing consulted; nothing is resolved on disk,
-	// so a traversing path simply names no changed file. Separators are levelled
-	// because the session scope reports OS-shaped paths while a caller may well
-	// send the same file with the other kind of separator: the change set of a
-	// Windows session carries backslashes and a Linux one slashes, and either
-	// caller must match either set, so both sides are canonicalised to slashes
-	// (filepath.FromSlash alone is a no-op on Linux and leaves a backslash
-	// request unmatched).
-	want := changePathKey(path)
-	for _, change := range changes {
-		if changePathKey(change.Path) != want {
-			continue
+	// The exact name git listed first: on a POSIX system a backslash is a
+	// character of a file name. Then the other separator, since the list is
+	// OS-shaped and a caller may send either form of a Windows path.
+	var change *gitws.WorkChange
+	if gitws.Describe(cwd).IsGitRepo {
+		for _, want := range []string{path, filepath.FromSlash(strings.ReplaceAll(path, `\`, "/"))} {
+			var err error
+			change, err = gitws.WorktreeChangeFor(cwd, want)
+			if err != nil {
+				s.log.Error("read working copy change", "session", id, "error", err)
+				writeSubagentsError(w, http.StatusInternalServerError, "read failed")
+				return
+			}
+			if change != nil {
+				break
+			}
 		}
-		dto := buildChangedFile(change, true, true)
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"object":    "coddy.session_change",
-			"sessionId": id,
-			"path":      dto.Path,
-			"status":    dto.Status,
-			"additions": dto.Additions,
-			"deletions": dto.Deletions,
-			"binary":    dto.Binary,
-			"truncated": dto.Truncated,
-			"patch":     dto.Patch,
-			"before":    dto.Before,
-			"after":     dto.After,
-		})
+	}
+	if change == nil {
+		writeSubagentsError(w, http.StatusNotFound, "file is not among the working copy changes")
 		return
 	}
-	http.Error(w, `{"error":{"message":"file not changed in this session"}}`, http.StatusNotFound)
+	dto := buildChangedFile(*change, true, true)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"object":    "coddy.session_change",
+		"sessionId": id,
+		"path":      dto.Path,
+		"status":    dto.Status,
+		"additions": dto.Additions,
+		"deletions": dto.Deletions,
+		"binary":    dto.Binary,
+		"truncated": dto.Truncated,
+		"patch":     dto.Patch,
+		"before":    dto.Before,
+		"after":     dto.After,
+	})
+}
+
+// discardRequest is the body of a discard: the files to put back at HEAD, or
+// all of them. It never defaults to everything - an empty body, both keys, an
+// empty list or an unknown key is refused - because the call deletes the new
+// files it covers.
+type discardRequest struct {
+	// Raw, so a "paths" that is there but null or empty is told apart from
+	// one that is not there at all.
+	Paths json.RawMessage `json:"paths"`
+	All   bool            `json:"all"`
 }
 
 // coddySessionChangesRevert handles POST /coddy/sessions/{id}/changes/revert.
 //
-// It reverses every stored turn diff of the session, which restores files the
-// session edited and removes files it created. git is not involved.
+// It discards uncommitted changes of the session's folder through git: a
+// tracked file gets HEAD's content and index entry back, a file HEAD does not
+// hold is deleted. Files git ignores are never touched.
 func (s *Server) coddySessionChangesRevert(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("id"))
-	st, sd := s.sessionChangeDir(w, r, id)
-	if sd == "" {
+	// Exactly one JSON object: whatever follows it would make a destructive
+	// request mean something other than what its first half says.
+	var req discardRequest
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil || dec.Decode(&struct{}{}) != io.EOF {
+		writeSubagentsError(w, http.StatusBadRequest, `body must be {"paths":[...]} or {"all":true}`)
 		return
 	}
-	// Rewriting files under an agent that is mid-edit would leave the workspace
-	// in a state neither side expects.
+	var paths []string
+	if len(req.Paths) > 0 {
+		if err := json.Unmarshal(req.Paths, &paths); err != nil || len(paths) == 0 {
+			writeSubagentsError(w, http.StatusBadRequest, `"paths" must name at least one file`)
+			return
+		}
+	}
+	if req.All == (len(req.Paths) > 0) {
+		writeSubagentsError(w, http.StatusBadRequest, `name the files in "paths" or set "all", not both and not neither`)
+		return
+	}
+	st, cwd := s.sessionWorkspace(w, r, id)
+	if cwd == "" {
+		return
+	}
+	// Rewriting files under an agent that is mid-edit would leave the folder in
+	// a state neither side expects - this chat's agent, or that of any other
+	// chat working in the same folder, or in one inside or around it.
 	if s.sessionTurnActive(id) {
 		writeSubagentsError(w, http.StatusConflict, "session "+id+" has a turn in flight")
+		return
+	}
+	if busy := s.turnInFolder(id, cwd); busy != "" {
+		writeSubagentsError(w, http.StatusConflict, "session "+busy+" has a turn in flight in this folder")
 		return
 	}
 	unlock, err := s.mgr.AcquireComposerTurnLock(id, st)
@@ -442,42 +290,68 @@ func (s *Server) coddySessionChangesRevert(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	defer unlock()
-	cwd := strings.TrimSpace(st.GetCWD())
-	if cwd == "" {
-		http.Error(w, `{"error":{"message":"session has no workspace"}}`, http.StatusBadRequest)
-		return
-	}
-	note, err := session.RestoreWorkspaceFiles(cwd, sd, 0)
-	if err != nil {
-		s.log.Error("revert session changes", "session", id, "error", err)
-		status := http.StatusInternalServerError
-		if errors.Is(err, session.ErrWorkspaceConflict) {
-			status = http.StatusConflict
+
+	if err := gitws.Discard(cwd, paths); err != nil {
+		switch {
+		case errors.Is(err, gitws.ErrNotRepository):
+			writeSubagentsError(w, http.StatusBadRequest, "the session's folder is not a git repository")
+		case errors.Is(err, gitws.ErrNotChanged):
+			// The client asked for a file its list showed and git no longer
+			// reports: committed, or put back, since it last read.
+			writeSubagentsError(w, http.StatusConflict, err.Error())
+		default:
+			s.log.Error("discard working copy changes", "session", id, "error", err)
+			// A failure halfway may have put some files back already, so
+			// every window reads the folder again.
+			s.publishSessionChanges(id)
+			writeSubagentsError(w, http.StatusInternalServerError, "discard failed")
 		}
-		writeSubagentsError(w, status, err.Error())
 		return
 	}
-	// The workspace is back where the session found it, so the recorded diffs
-	// no longer describe anything true; leaving them would keep the card
-	// reporting work that has been undone.
-	if err := session.ClearStoredTurnDiffs(sd); err != nil {
-		s.log.Warn("clear turn diffs after revert", "session", id, "error", err)
-		writeSubagentsError(w, http.StatusInternalServerError, "could not clear turn diffs after rollback")
-		return
-	}
-	// Another window showing this session reads the empty set as well.
+	// Another window showing this session reads the new state as well.
 	s.publishSessionChanges(id)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"object":    "coddy.session_changes_reverted",
 		"sessionId": id,
-		"note":      note,
+		"at":        time.Now().UTC().Format(time.RFC3339Nano),
 	})
 }
 
-// changePathKey canonicalises a workspace path for change-set matching: to
-// slash form on every platform, so a request and a recorded change agree
-// whichever separator each of them was shaped with.
-func changePathKey(p string) string {
-	return strings.ReplaceAll(filepath.ToSlash(p), `\`, "/")
+// turnInFolder names another session of this process with a turn running in
+// cwd, in a folder inside it or in one around it, or returns "". A discard
+// rewrites the folder, so their agents would find their files changed under
+// them.
+func (s *Server) turnInFolder(self, cwd string) string {
+	for _, other := range s.mgr.ActiveTurnSessionIDs() {
+		if other == self {
+			continue
+		}
+		st := s.mgr.SessionByID(other)
+		if st == nil {
+			continue
+		}
+		if foldersOverlap(cwd, st.GetCWD()) {
+			return other
+		}
+	}
+	return ""
+}
+
+// foldersOverlap reports whether one folder is the other or lies inside it,
+// compared in their canonical form (links resolved, case folded where the
+// filesystem does).
+func foldersOverlap(a, b string) bool {
+	if strings.TrimSpace(a) == "" || strings.TrimSpace(b) == "" {
+		return false
+	}
+	if session.SameWorkspacePath(a, b) {
+		return true
+	}
+	ca, cb := session.CanonicalWorkspacePath(a), session.CanonicalWorkspacePath(b)
+	inside := func(root, p string) bool {
+		rel, err := filepath.Rel(root, p)
+		return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
+	}
+	return inside(ca, cb) || inside(cb, ca)
 }

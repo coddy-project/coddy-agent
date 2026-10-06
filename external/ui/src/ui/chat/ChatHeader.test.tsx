@@ -175,7 +175,7 @@ test("the header shows edits, files and background tasks as buttons in a row", (
   const tips = Array.from(row.querySelectorAll('[role="tooltip"]')).map(
     (tip) => tip.textContent,
   );
-  expect(tips[0]).toBe("Edits of this session");
+  expect(tips[0]).toBe("Uncommitted edits");
   // The Files tooltip names its key.
   expect(tips[1]).toMatch(/^Workspace files \((Ctrl\+Shift\+F|⇧⌘F)\)$/);
   expect(tips[2]).toBe("Background tasks: 1 running, 2 in total");

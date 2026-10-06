@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 /**
  * Views of a session check: the chat header's view buttons (background tasks,
- * edits, files), the dock beside the chat without a tab strip, and the Files
- * window over the chat - driven in a real browser against the real binary and
- * reached through a swarm relay, the path a remote operator takes.
+ * edits, files), the dock beside the chat without a tab strip, the bar over
+ * the composer, discarding an edit, and the Files window over the chat -
+ * driven in a real browser against the real binary and reached through a
+ * swarm relay, the path a remote operator takes.
  *
- * The script is self-contained. It serves a scripted OpenAI-compatible model
- * whose first answer writes a file through the `write` tool, so the session
- * has real edits, and starts the binary twice: a `coddy serve` node that asks
+ * The script is self-contained. The workspace is a git repository on a
+ * feature branch, and a scripted OpenAI-compatible model's first answer writes
+ * a file through the `write` tool, so git has real edits to report. It starts
+ * the binary twice: a `coddy serve` node that asks
  * for a bearer token, and a `coddy serve --swarm` relay that mounts it with its
  * own client token. The browser talks to the node through the relay's mount
  * only. A media file of the workspace plays from its signed address through
@@ -32,7 +34,7 @@
  *   CODDY_E2E_KEEP=1    leave the stand running after the checks, for a look
  */
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
@@ -133,6 +135,26 @@ function seedWorkspace(dir) {
   write("media/tone.wav", toneWav());
   write("docs/brief.pdf", "%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n");
   write(".hidden/secret.txt", "not listed until hidden files are shown\n");
+  // A repository on a feature branch: the Edits view is what git reports.
+  const git = (...args) => {
+    const res = spawnSync("git", args, {
+      cwd: dir,
+      env: {
+        ...process.env,
+        GIT_CONFIG_GLOBAL: os.devNull,
+        GIT_CONFIG_SYSTEM: os.devNull,
+        GIT_AUTHOR_NAME: "Demo",
+        GIT_AUTHOR_EMAIL: "demo@example.com",
+        GIT_COMMITTER_NAME: "Demo",
+        GIT_COMMITTER_EMAIL: "demo@example.com",
+      },
+    });
+    if (res.status !== 0) throw new Error(`git ${args.join(" ")}: ${res.stderr}`);
+  };
+  git("init", "-q", "-b", "main");
+  git("add", "-A");
+  git("commit", "-q", "-m", "Demo workspace");
+  git("checkout", "-q", "-b", "feat/release-notes");
 }
 
 // ------------------------------------------------------------ scripted model
@@ -406,7 +428,13 @@ const viewButtons = (page) =>
       return {
         id: b.getAttribute("data-testid"),
         label: shown ? label.textContent : "",
-        labelFits: !shown || label.scrollWidth <= label.clientWidth + 1,
+        // The name is a run of text inside the button: whole when it ends
+        // inside the button's box (an inline span has no client width to
+        // compare its scroll width with in every engine).
+        labelFits: !shown || (() => {
+          const l = label.getBoundingClientRect();
+          return l.left >= r.left - 0.5 && l.right <= r.right + 0.5;
+        })(),
         tip: b.parentElement.querySelector(".chat-view-tip")?.textContent || "",
         dot: glyph.classList.contains("bgtask-dot"),
         count: count ? count.textContent : "",
@@ -418,6 +446,37 @@ const viewButtons = (page) =>
       };
     });
   });
+
+/**
+ * How far each icon beside a word sits from the middle of that word's
+ * lowercase letters (the x-height band above the baseline): the view buttons
+ * of the header with their names, and the repository and branch of the bar
+ * over the composer. Centred on the line box instead, an icon reads a pixel
+ * high next to lowercase text. Items whose word is hidden (a phone's icon-only
+ * buttons) are left out.
+ */
+function iconOffsets(page) {
+  return page.evaluate(() => {
+    const out = [];
+    for (const item of document.querySelectorAll(".chat-view-btn, .workspace-bar-item")) {
+      const label = item.querySelector(".chat-view-label, .workspace-bar-text");
+      const icon = item.querySelector("svg, .bgtask-dot");
+      if (!label || !icon || label.getBoundingClientRect().width === 0) continue;
+      const probe = document.createElement("span");
+      probe.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline";
+      label.appendChild(probe);
+      const baseline = probe.getBoundingClientRect().bottom;
+      probe.remove();
+      const cs = getComputedStyle(label);
+      const ctx = document.createElement("canvas").getContext("2d");
+      ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+      const xMid = baseline - ctx.measureText("x").actualBoundingBoxAscent / 2;
+      const r = icon.getBoundingClientRect();
+      out.push({ id: item.getAttribute("data-testid"), off: Math.round(((r.top + r.bottom) / 2 - xMid) * 100) / 100 });
+    }
+    return out;
+  });
+}
 
 /** No element sticks out of the viewport sideways, and the page does not scroll sideways. */
 function sideways(page) {
@@ -468,25 +527,56 @@ async function scenarioViews() {
     const r = el.getBoundingClientRect();
     return { opacity: getComputedStyle(el).opacity, text: el.textContent, left: r.left, right: r.right, vw: window.innerWidth };
   });
-  check("hovering a button shows its tooltip inside the window", tip.opacity === "1" && tip.text === "Edits of this session" && tip.left >= 0 && tip.right <= tip.vw, JSON.stringify(tip));
+  check("hovering a button shows its tooltip inside the window", tip.opacity === "1" && tip.text === "Uncommitted edits" && tip.left >= 0 && tip.right <= tip.vw, JSON.stringify(tip));
   await a.page.mouse.move(5, 400);
   await shoot(a.page, "views-toolbar-relay-dark-1280");
 
-  // Edits: in the dock, headed Edits, no tab strip, the file the turn wrote.
-  await a.page.getByTestId("chat-views-edits").click();
-  const changes = a.page.getByTestId("changes-panel");
-  await changes.waitFor();
-  check("Edits open in the dock headed Edits", /^edits/i.test((await changes.locator(".sessions-head").innerText()).trim()));
-  await changes.getByText("release.md").first().waitFor({ timeout: 15000 });
-  check("the dock lists the file the turn wrote", true);
-  check("no tab strip anywhere", (await a.page.locator('[role="tablist"], .dock-tabs').count()) === 0);
-  check("the address names the edits", (await a.page.evaluate(() => location.hash)) === `#/s/${sid}/changes`);
+  // The bar over the composer: the repository, the branch, git's count.
+  const bar = await a.page.evaluate(() => {
+    const el = document.querySelector("[data-testid=workspace-bar]");
+    const card = document.querySelector(".composer-card");
+    if (!el || !card) return null;
+    const b = el.getBoundingClientRect();
+    const c = card.getBoundingClientRect();
+    return {
+      repo: el.querySelector("[data-testid=workspace-bar-repo]")?.textContent,
+      branch: el.querySelector("[data-testid=workspace-bar-branch]")?.textContent,
+      edits: el.querySelector("[data-testid=workspace-bar-edits]")?.textContent,
+      above: b.bottom <= c.top + 0.5 && c.top - b.bottom <= 12,
+      aligned: Math.abs(b.left - c.left) <= 1,
+      folderChip: !!card.querySelector("[data-testid=composer-workspace-chip]"),
+    };
+  });
+  check(
+    "the bar over the composer names the repository, the branch and git's count",
+    !!bar && bar.repo === "demo-workspace" && bar.branch === "feat/release-notes" && /^\+\d+−\d+$/.test(bar.edits || "") && bar.above && bar.aligned && !bar.folderChip,
+    JSON.stringify(bar),
+  );
 
-  // The pressed button puts its view away.
-  check("the button of the view on show is pressed", (await viewButtons(a.page))[0]?.pressed === "true");
+  const offsets = await iconOffsets(a.page);
+  check(
+    "every icon beside a word sits on the middle of its lowercase letters",
+    offsets.length >= 5 && offsets.every((o) => Math.abs(o.off) <= 0.75),
+    JSON.stringify(offsets),
+  );
+
+  // Edits: their one view is a window over the chat, with the file the turn wrote.
   await a.page.getByTestId("chat-views-edits").click();
-  await until("the edits put away", async () => (await changes.count()) === 0);
-  check("pressing it again puts the edits away", (await viewButtons(a.page))[0]?.pressed === "false");
+  const edits = a.page.getByTestId("diff-viewer");
+  await edits.waitFor();
+  await edits.getByTestId("dv-file-notes/release.md").waitFor({ timeout: 15000 });
+  check("Edits open in their window, with the file the turn wrote", true);
+  check("no dock face for the edits, and no tab strip anywhere", (await a.page.locator('[data-testid=changes-panel], [role="tablist"], .dock-tabs').count()) === 0);
+  check("the address names the edits", (await a.page.evaluate(() => location.hash)) === `#/s/${sid}/changes`);
+  await a.page.keyboard.press("Escape");
+  await until("the edits put away", async () => (await edits.count()) === 0);
+  check("Escape puts the edits away and gives the address back to the chat", (await a.page.evaluate(() => location.hash)) === `#/s/${sid}`);
+  // The count in the bar opens the same window.
+  await a.page.getByTestId("workspace-bar-edits").click();
+  await edits.waitFor();
+  check("the count in the bar opens the edits window", true);
+  await a.page.keyboard.press("Escape");
+  await until("the edits put away", async () => (await edits.count()) === 0);
 
   // Background tasks: in the dock, its own title, no tab strip.
   await a.page.getByTestId("chat-views-tasks").click();
@@ -597,7 +687,37 @@ async function scenarioViews() {
   return sid;
 }
 
-/** A chat whose turn edits nothing has no Edits button: Files and Tasks only. */
+/**
+ * Discarding through the relay: the count in the bar opens the edits, a file
+ * is put back after a question, and with nothing left the Edits button and
+ * the count go.
+ */
+async function scenarioDiscard(sid) {
+  const d = await openPage();
+  await d.page.goto(`${RELAY}/#/s/${sid}`);
+  await d.page.getByTestId("workspace-bar-edits").click();
+  const edits = d.page.getByTestId("diff-viewer");
+  await edits.getByTestId("dv-file-notes/release.md").waitFor({ timeout: 15000 });
+  check("the count in the bar opens the edits", (await d.page.evaluate(() => location.hash)) === `#/s/${sid}/changes`);
+  await edits.getByTestId("dv-file-notes/release.md").hover();
+  await edits.getByTestId("dv-discard-notes/release.md").click();
+  const dialog = d.page.locator(".confirm-dialog");
+  await dialog.waitFor();
+  check("discarding asks first", /release\.md/.test(await dialog.innerText()));
+  await dialog.getByRole("button", { name: "Discard" }).click();
+  await until("the file is gone on the node", async () => !fs.existsSync(path.join(workspace, "notes/release.md")));
+  check("the discard went through the relay's mount", d.mountRequests.some((r) => r.startsWith(`POST /coddy/sessions/${sid}/changes/revert`)));
+  await edits.getByTestId("dv-empty").waitFor({ timeout: 15000 });
+  check("the window says the working copy is clean", true);
+  await d.page.keyboard.press("Escape");
+  await until("the edits put away", async () => (await edits.count()) === 0);
+  await until("the Edits button goes", async () => (await d.page.getByTestId("chat-views-edits").count()) === 0);
+  check("with nothing left the count leaves the bar", (await d.page.getByTestId("workspace-bar-edits").count()) === 0);
+  check("no page errors on the way", d.errors.length === 0, d.errors.join(" | "));
+  await d.context.close();
+}
+
+/** A chat in a clean working copy has no Edits button: Files and Tasks only. */
 async function scenarioNoEdits() {
   const c = await openPage();
   await c.page.goto(`${RELAY}/`);
@@ -652,10 +772,10 @@ async function scenarioPhone(sid) {
   await p.page.keyboard.press("Escape");
   await until("the window put away", async () => (await win.count()) === 0);
   // On a tablet the dock and the window are both sheets: the window opens over
-  // the edits and leaves them there.
+  // the background tasks and leaves them there.
   await p.page.setViewportSize({ width: 900, height: 900 });
-  await p.page.getByTestId("chat-views-edits").click();
-  await p.page.getByTestId("changes-panel").waitFor();
+  await p.page.getByTestId("chat-views-tasks").click();
+  await p.page.getByTestId("bgtasks-panel").waitFor();
   await p.page.keyboard.press("Control+Shift+F");
   await win.waitFor();
   const onTop = await p.page.evaluate(() => {
@@ -663,13 +783,25 @@ async function scenarioPhone(sid) {
     const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
     return !!hit?.closest("[data-testid=files-view]");
   });
-  check("on a tablet the files window is drawn over the edits", onTop);
+  check("on a tablet the files window is drawn over the background tasks", onTop);
   await p.page.keyboard.press("Escape");
   await until("the window put away", async () => (await win.count()) === 0);
-  check("on a tablet Escape takes the window and leaves the edits open", await p.page.getByTestId("changes-panel").isVisible());
-  check("and the address is the edits' again", (await p.page.evaluate(() => location.hash)).endsWith("/changes"));
+  check("on a tablet Escape takes the window and leaves the tasks open", await p.page.getByTestId("bgtasks-panel").isVisible());
+  check("and the address is the tasks' again", (await p.page.evaluate(() => location.hash)).endsWith("/tasks"));
   await p.page.keyboard.press("Escape");
-  await until("the edits put away", async () => (await p.page.getByTestId("changes-panel").count()) === 0);
+  await until("the tasks put away", async () => (await p.page.getByTestId("bgtasks-panel").count()) === 0);
+  // On a phone the edits window fits the screen too.
+  await p.page.setViewportSize({ width: 390, height: 844 });
+  await p.page.getByTestId("chat-views-edits").click();
+  const edits = p.page.getByTestId("diff-viewer");
+  await edits.getByTestId("dv-file-notes/release.md").waitFor({ timeout: 15000 });
+  const fits = await p.page.evaluate(() => {
+    const r = document.querySelector("[data-testid=diff-viewer]").getBoundingClientRect();
+    return { scroll: document.documentElement.scrollWidth - window.innerWidth, left: r.left, right: r.right, vw: window.innerWidth };
+  });
+  check("on a phone the edits window fits the screen", fits.scroll <= 0 && fits.left >= 0 && fits.right <= fits.vw, JSON.stringify(fits));
+  await p.page.keyboard.press("Escape");
+  await until("the edits put away", async () => (await edits.count()) === 0);
   await p.context.close();
 }
 
@@ -775,6 +907,12 @@ async function scenarioWidths(sid) {
           new Set(row.map((b) => Math.round(b.box.top))).size === 1,
         JSON.stringify(row.map((b) => [b.label, b.labelFits, b.icon, Math.round(b.box.height), b.inHeader, b.besideTitle])),
       );
+      const iconRow = await iconOffsets(w.page);
+      check(
+        `${lang} ${width}px: the icons sit on the middle of their words' lowercase letters`,
+        iconRow.length >= 3 && iconRow.every((o) => Math.abs(o.off) <= 0.75),
+        JSON.stringify(iconRow),
+      );
       await w.context.close();
     }
   }
@@ -803,9 +941,10 @@ async function scenarioShots() {
   await both("views-toolbar", async () => {
     await d.page.getByTestId("chat-views").waitFor();
   });
-  await both("session-edits-dock", async () => {
-    await d.page.getByTestId("chat-views-edits").click();
-    await d.page.getByTestId("changes-panel").getByText("release.md").first().waitFor({ timeout: 15000 });
+  await both("session-changes-review-window", async () => {
+    await d.page.getByTestId("workspace-bar-edits").click();
+    await d.page.getByTestId("diff-viewer").locator(".dv-file-body").first().waitFor({ timeout: 15000 });
+    await d.page.mouse.move(5, 5);
   });
   await both("background-tasks-dock", async () => {
     await d.page.getByTestId("chat-views-tasks").click();
@@ -844,6 +983,29 @@ async function scenarioShots() {
   await d.page.goto(`${SHOTS_NODE}/#/s/${sid}/files?path=src%2Fmain.go&line=7`);
   await win.locator('[data-file-line="7"].is-active').waitFor();
   await shoot(d.page, "workspace-files-window-dark-390");
+  // A chat that runs in a linked worktree: the bar carries the worktree mark.
+  const worktree = path.join(shotsWorkspace, ".coddy", "worktrees", "feat-docs-refresh");
+  const res = spawnSync("git", ["worktree", "add", "-q", "-b", "feat/docs-refresh", worktree], {
+    cwd: shotsWorkspace,
+    env: { ...process.env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_SYSTEM: os.devNull },
+  });
+  if (res.status !== 0) throw new Error(`git worktree add: ${res.stderr}`);
+  fs.writeFileSync(path.join(shotsWorkspace, ".coddy", "worktrees", ".gitignore"), "*\n");
+  fs.appendFileSync(path.join(worktree, "README.md"), "\nThe docs are being refreshed.\n");
+  const wtSid = "sess_" + Array.from({ length: 36 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+  const post = (route, body, headers = {}) =>
+    fetch(`${SHOTS_NODE}${route}`, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body) });
+  const moved = await post(`/coddy/sessions/${wtSid}/workspace`, { path: worktree });
+  if (!moved.ok) throw new Error(`move the session into the worktree: ${moved.status} ${await moved.text()}`);
+  const turn = await post("/v1/responses", { model: "agent", input: "Refresh the docs", stream: false }, { "X-Coddy-Session-ID": wtSid });
+  if (!turn.ok) throw new Error(`the worktree turn: ${turn.status}`);
+  await d.page.setViewportSize({ width: 1280, height: 820 });
+  await d.page.goto(`${SHOTS_NODE}/#/s/${wtSid}`);
+  await d.page.reload();
+  await d.page.getByTestId("workspace-bar-worktree").waitFor({ timeout: 15000 });
+  await d.page.getByTestId("workspace-bar-edits").waitFor({ timeout: 15000 });
+  check("a chat in a linked worktree carries the worktree mark in the bar", true);
+  await shoot(d.page, "workspace-bar-worktree-dark-1280");
   await d.context.close();
   const l = await openPage({ throughRelay: false, theme: "light" });
   await l.page.goto(`${SHOTS_NODE}/#/s/${sid}/files?path=README.md`);
@@ -855,10 +1017,13 @@ async function scenarioShots() {
 
 try {
   const sid = await scenarioViews();
-  await scenarioNoEdits();
   await scenarioPhone(sid);
   await scenarioCrossOrigin(sid);
   await scenarioWidths(sid);
+  // The edits are the folder's, not the chat's: once they are discarded, a
+  // chat that writes nothing has none to show.
+  await scenarioDiscard(sid);
+  await scenarioNoEdits();
   await scenarioShots();
 } catch (err) {
   check("the run finished", false, err instanceof Error ? err.message : String(err));

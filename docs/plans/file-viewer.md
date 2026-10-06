@@ -405,3 +405,40 @@ Checks: `features/web_ui_session_views.feature`, the folders-first scenario of
 the CORS scenario of `features/swarm_mount.feature`,
 `external/swarm/media_capability_test.go`, and `npm run check:files` in a real browser through an
 authenticated relay at every tier of the grid, in Chromium and WebKit.
+
+## 15. Revision: the edits are what git reports (2026-10-06)
+
+The operator's next review replaced how the edits are known, and the decision recorded here
+replaces the recorded change set where they differ.
+
+- **Git only.** The workspace snapshot around every turn, its stored diffs, the session and
+  last-turn scopes, the live diff of a running turn, the snapshot-based Undo, the changed-files
+  card under the transcript with its `Ctrl+S` toggle and the `ui.session_changes` key are gone,
+  with no compatibility kept. The Edits view is git's report of the session's folder: tracked
+  files that differ from `HEAD`, staged or not, and new files git does not ignore, whoever made
+  them. A folder in no repository has no edits, and the Edits button shows only while git
+  reports changes.
+- **Git without the binary.** `internal/gitws` drives the `git` binary when it is on PATH and
+  answers through a built-in implementation on go-git (`v5.19.2`, the newest that keeps the
+  module on Go 1.25) when it is not, per call. The built-in one detects no renames and cannot
+  open a linked worktree, which it refuses by name (`ErrNeedsGitBinary`). A repository nested
+  in the folder stays one entry in both, as git lists it.
+- **Discarding.** The Edits views can discard uncommitted changes, one file or all of them,
+  after a question: `POST /coddy/sessions/{id}/changes/revert` takes `{"paths":[...]}` or
+  `{"all":true}`, never an empty body, refuses a path git does not report before touching
+  anything, puts tracked files back at `HEAD` with their index entries, deletes the new ones
+  and leaves ignored files alone. A commit is not offered.
+- **No Edits dock.** The dock beside the chat holds the background tasks only. The edits have
+  one view, the window with every diff (the former review window), opened by the Edits button
+  and by git's count in the bar over the composer, with `#/s/<id>/changes` as its address;
+  discarding a file or everything happens there.
+- **The bar over the composer.** Once a chat runs, the folder, branch and worktree chips leave
+  the composer for a bar over it, after Claude's app: the repository, the branch (in a linked
+  worktree a worktree mark in place of the branch icon) and git's `+A −D`, which opens the edits. The
+  composer keeps its environment chip; the start screen keeps the chips and the worktree
+  checkbox, a choice still to make. The composer's Files chip went too: the header has Files.
+
+Checks: `internal/gitws/backend_test.go` (every scenario with the binary and with it hidden),
+`features/session_changes.feature`, `external/httpserver/coddy_changes_test.go`,
+`changes/workingCopy.test.tsx`, `chat/WorkspaceBar.test.tsx`, and `npm run check:files`, which
+discards an edit through an authenticated relay.

@@ -274,13 +274,8 @@ import {
   BackgroundTasksPanel,
   type TaskFocus,
 } from "./tasks/BackgroundTasksPanel";
-import { SessionChangesPanel } from "./changes/SessionChangesPanel";
 import { DiffViewerModal } from "./changes/DiffViewerModal";
 import { emitChangesSettled } from "./changes/sessionChangesBus";
-import {
-  setSessionChangesEnabled,
-  readSessionChangesFromConfigDoc,
-} from "./chat/sessionChangesConfig";
 import {
   clearFinishedBackgroundTasks,
   getBackgroundTask,
@@ -1194,19 +1189,11 @@ export function App() {
     null,
   );
   const [schedulerRunsLoading, setSchedulerRunsLoading] = useState(false);
-  const {
-    open: tasksOpen,
-    setOpen: setTasksOpen,
-    tab: dockTab,
-    setTab: setDockTab,
-  } = useRightDock(
+  const { open: tasksOpen, setOpen: setTasksOpen } = useRightDock(
     initialRoute.branch === "session" && initialRoute.tasksOpen,
-    initialRoute.branch === "session"
-      ? initialRoute.dockTab || "tasks"
-      : "tasks",
   );
   // The Files window over the chat: open, and on which file and line. It is not
-  // a face of the dock, whose tasks or edits stay as they were under it.
+  // a face of the dock, whose tasks stay as they were under it.
   const [filesOpen, setFilesOpen] = useState(
     initialRoute.branch === "session" && initialRoute.filesOpen === true,
   );
@@ -1219,11 +1206,11 @@ export function App() {
   const [fileLine, setFileLine] = useState(
     initialRoute.branch === "session" ? initialRoute.fileLine || 1 : 1,
   );
-  // The file a card row click asked the Changes face to open on.
-  const [changesPath, setChangesPath] = useState<string>("");
-  // The full review window is a modal rather than a drawer: it needs the whole
-  // width to put two diff columns side by side.
-  const [changesViewerOpen, setChangesViewerOpen] = useState(false);
+  // The edits window (DiffViewerModal) is the one view of the edits: a modal
+  // rather than a drawer, because two diff columns need the whole width.
+  const [changesViewerOpen, setChangesViewerOpen] = useState(
+    initialRoute.branch === "session" && initialRoute.editsOpen === true,
+  );
   // A card the shell asks the Tasks panel to open from a task-targeted link. Which
   // cards are open otherwise is the panel's own business and is not part of the address.
   //
@@ -2108,19 +2095,21 @@ export function App() {
       void markCoddySessionActivityRead(p.sessionId);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      // The Files window opens over the dock and leaves it as it was, on the
-      // stacked shell too, where any other chat address puts the dock away.
+      // The Files and the edits windows open over the dock and leave it as it
+      // was, on the stacked shell too, where any other chat address puts the
+      // dock away.
       setTasksOpen(
         (wasOpen) =>
-          p.tasksOpen || ((p.filesOpen === true || !isStackedShell()) && wasOpen),
+          p.tasksOpen ||
+          ((p.filesOpen === true || p.editsOpen === true || !isStackedShell()) &&
+            wasOpen),
       );
       if (p.filesOpen) {
         setFilesOpen(true);
         setFilePath(p.filePath || "");
         setFileLine(p.fileLine || 1);
       }
-      if (p.dockTab === "changes") setDockTab("changes");
-      else if (p.tasksOpen) setDockTab("tasks");
+      setChangesViewerOpen(p.editsOpen === true);
       if (p.tasksOpen && p.taskId) {
         // A link that names a task opens its card once; the address goes back to
         // saying only that the panel is showing.
@@ -2900,7 +2889,6 @@ export function App() {
           autoEnabled: compaction?.auto_enable !== false,
           threshold: threshold >= 1 && threshold <= 100 ? threshold : 80,
         });
-        setSessionChangesEnabled(readSessionChangesFromConfigDoc(res.data));
       }
     })();
   }, [headers, configEpoch]);
@@ -3093,7 +3081,11 @@ export function App() {
           notifyLocalApiUnauthorized();
       },
       onTurnStarted: (sid) => serverEventHandlersRef.current.turnStarted(sid),
-      onTurnEnded: (sid) => serverEventHandlersRef.current.turnEnded(sid),
+      onTurnEnded: (sid) => {
+        // Whatever surface ran it, the turn may have edited the folder.
+        emitChangesSettled(sid);
+        serverEventHandlersRef.current.turnEnded(sid);
+      },
       onProviderUsage: (_sid, usage) =>
         serverEventHandlersRef.current.providerUsage(usage),
       onConfigReloaded: () => serverEventHandlersRef.current.configReloaded(),
@@ -5656,32 +5648,40 @@ export function App() {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setSettingsRoute(false);
-    setDockTab("tasks");
     setTasksOpen(true);
     if (isStackedShell()) {
       setSessionTasksHash(sid);
     }
   }, [sessionId]);
 
-  /** Opens the dock on its Changes face, from the changed-files card. An empty
-   *  path is the whole set; a path preselects the clicked file's diff. */
-  const openChangesDock = useCallback(
-    (path?: string) => {
-      const sid = sessionId.trim();
-      if (!sid) {
-        return;
-      }
-      setSessionsOpen(false);
-      setSchedulerOpen(false);
-      setSchedulerEditor(null);
-      setSettingsRoute(false);
-      setChangesPath(path || "");
-      setDockTab("changes");
-      setTasksOpen(true);
-      setSessionChangesHash(sid);
-    },
-    [sessionId],
-  );
+  /** Opens the edits window, from the header's Edits button or the count in
+   *  the bar over the composer; it takes the Files window's place, so one
+   *  Escape never closes two layers. */
+  const openEditsWindow = useCallback(() => {
+    const sid = sessionId.trim();
+    if (!sid) {
+      return;
+    }
+    setSessionsOpen(false);
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    setSettingsRoute(false);
+    setDocsRoute(null);
+    setSwarmRoute(false);
+    setFilesOpen(false);
+    setChangesViewerOpen(true);
+    setSessionChangesHash(sid);
+  }, [sessionId]);
+
+  /** Puts the edits window away; the address goes back to the chat, or to the
+   *  tasks when the dock under it shows them on the stacked shell. */
+  const closeEditsWindow = useCallback(() => {
+    setChangesViewerOpen(false);
+    const sid = sessionId.trim();
+    if (!sid) return;
+    if (tasksOpen && isStackedShell()) setSessionTasksHash(sid);
+    else setSessionHashInLocation(sid);
+  }, [sessionId, tasksOpen]);
 
   const closeTasksDrawer = useCallback(() => {
     setTasksOpen(false);
@@ -5705,7 +5705,7 @@ export function App() {
         `${window.location.pathname}${window.location.search}`,
       );
     }
-  }, [sessionId, sessionsOpen, dockTab]);
+  }, [sessionId, sessionsOpen]);
 
   /** Opens the Files window over the chat. Without a path it opens on the
    *  files it had open; with one, on that file and line. */
@@ -5719,7 +5719,7 @@ export function App() {
       setSettingsRoute(false);
       setDocsRoute(null);
       setSwarmRoute(false);
-      // The review window is a modal over everything; the files take its place.
+      // The edits window is a modal over everything; the files take its place.
       setChangesViewerOpen(false);
       setFilePath(path || "");
       setFileLine(line || 1);
@@ -5730,16 +5730,15 @@ export function App() {
     [sessionId],
   );
 
-  /** Puts the Files window away. The address goes back to what the dock under
-   *  it shows: the edits keep theirs, the tasks keep theirs on the stacked shell. */
+  /** Puts the Files window away. The address goes back to the chat, or to the
+   *  tasks when the dock under it shows them on the stacked shell. */
   const closeFilesWindow = useCallback(() => {
     setFilesOpen(false);
     const sid = sessionId.trim();
     if (!sid) return;
-    if (tasksOpen && dockTab === "changes") setSessionChangesHash(sid);
-    else if (tasksOpen && isStackedShell()) setSessionTasksHash(sid);
+    if (tasksOpen && isStackedShell()) setSessionTasksHash(sid);
     else setSessionHashInLocation(sid);
-  }, [sessionId, tasksOpen, dockTab]);
+  }, [sessionId, tasksOpen]);
 
   // Ctrl+Shift+F (Cmd+Shift+F) opens and closes the Files window of the chat
   // on screen, wherever the focus is, the composer included.
@@ -6144,11 +6143,10 @@ export function App() {
   }, [backgroundTasks]);
 
   // The panel belongs to a chat, so it only exists when one is open.
-  const tasksPanelOpen = tasksOpen && dockTab === "tasks" && !!sessionId.trim();
-  // Tasks and Changes are two faces of one right dock: `tasksOpen` keeps being
-  // the dock's open state (every Escape path and stacked-shell rule already
-  // speaks it), the tab picks the face on show.
-  const dockOpen = tasksOpen && !!sessionId.trim();
+  const tasksPanelOpen = tasksOpen && !!sessionId.trim();
+  // The dock beside the chat holds the background tasks; `tasksOpen` is its
+  // open state, which every Escape path and stacked-shell rule speaks.
+  const dockOpen = tasksPanelOpen;
 
   const shellBackdropOpen =
     (filesOpen && !!sessionId.trim()) ||
@@ -6648,7 +6646,6 @@ export function App() {
           "shell-main",
           sessionsOpen ? "shell-history-open" : "",
           dockOpen ? "shell-tasks-open" : "",
-          dockOpen && dockTab === "changes" ? "shell-changes-open" : "",
         ]
           .filter(Boolean)
           .join(" ")}
@@ -6839,22 +6836,13 @@ export function App() {
         ) : null}
         {changesViewerOpen && sessionId.trim() ? (
           <DiffViewerModal
-            key={sessionId}
+            key={`edits:${sessionId}`}
             open
             sessionId={sessionId}
-            onClose={() => setChangesViewerOpen(false)}
+            onClose={closeEditsWindow}
           />
         ) : null}
         {dockOpen ? (
-          dockTab === "changes" ? (
-            <SessionChangesPanel
-              key={sessionId}
-              open
-              sessionId={sessionId}
-              initialPath={changesPath || undefined}
-              onClose={closeTasksDrawer}
-            />
-          ) : (
             <BackgroundTasksPanel
               open
               focus={
@@ -6875,7 +6863,6 @@ export function App() {
               }}
               onOpenSession={openSessionInPlace}
             />
-          )
         ) : null}
 
         {/* After the dock, so on the stacked shell, where both are sheets over
@@ -6900,9 +6887,10 @@ export function App() {
           <ChatScreen
             title={currentTitle}
             sessionId={sessionId}
-            onOpenChangesViewer={() => setChangesViewerOpen(true)}
-            onOpenSessionChanges={openChangesDock}
-            sessionChangesOpen={dockOpen && dockTab === "changes"}
+            onOpenSessionChanges={() =>
+              changesViewerOpen ? closeEditsWindow() : openEditsWindow()
+            }
+            sessionChangesOpen={changesViewerOpen}
             onOpenFiles={() =>
               filesOpen ? closeFilesWindow() : openFilesWindow()
             }

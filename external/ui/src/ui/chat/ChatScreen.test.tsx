@@ -5,6 +5,7 @@ import {
   cleanup,
   fireEvent,
   render,
+  within,
   screen,
   waitFor,
 } from "@testing-library/react";
@@ -845,14 +846,15 @@ test("the Tasks button opens the Tasks panel and puts it away again", () => {
   expect(onOpen).toHaveBeenCalledTimes(1);
 });
 
-/** The change set the server answers for the session: n changed files. */
-function stubSessionChanges(n: number) {
+/** What git reports for the session's folder: n changed files. */
+function stubSessionChanges(n: number, vcs = "git") {
   const fetchMock = vi.fn(async (input: unknown) => {
     const url = String(input);
     if (url.includes("/changes")) {
       return new Response(
         JSON.stringify({
           sessionId: "sess_turn",
+          vcs,
           files: Array.from({ length: n }, (_, i) => ({
             path: `f${i}.txt`,
             status: "modified",
@@ -862,6 +864,7 @@ function stubSessionChanges(n: number) {
             truncated: false,
           })),
           totals: { files: n, additions: n, deletions: 0 },
+          skipped: 0,
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
@@ -872,13 +875,12 @@ function stubSessionChanges(n: number) {
   return fetchMock;
 }
 
-test("the Edits button is there only while the session has edits", async () => {
+test("the Edits button is there only while git reports changes", async () => {
   stubSessionChanges(0);
   const props = {
     generating: false,
     onOpenBackgroundTasks: () => {},
     onOpenSessionChanges: () => {},
-    onOpenChangesViewer: () => {},
     onOpenFiles: () => {},
   };
   const { unmount } = render(turnLineScreen(props));
@@ -901,7 +903,6 @@ test("the header buttons open the session's edits and its files", async () => {
       generating: false,
       onOpenBackgroundTasks: () => {},
       onOpenSessionChanges: onOpenEdits,
-      onOpenChangesViewer: () => {},
       onOpenFiles,
     }),
   );
@@ -910,6 +911,62 @@ test("the header buttons open the session's edits and its files", async () => {
   expect(onOpenEdits).toHaveBeenCalledWith();
   fireEvent.click(screen.getByTestId("chat-views-files"));
   expect(onOpenFiles).toHaveBeenCalledTimes(1);
+  vi.unstubAllGlobals();
+});
+
+const repoCtx = {
+  path: "/home/me/src/coddy-agent",
+  name: "coddy-agent",
+  is_git_repo: true,
+  is_worktree: false,
+  repo_root: "/home/me/src/coddy-agent",
+  branch: "feat/session-changes",
+  branches: ["main", "feat/session-changes"],
+};
+
+function workspaceProps(locked: boolean) {
+  return {
+    generating: false,
+    onOpenSessionChanges: () => {},
+    workspaceCtx: repoCtx,
+    workspaceLocked: locked,
+    worktreePref: false,
+    onWorkspacePickFolder: () => {},
+    onWorkspacePickBranch: () => {},
+    onWorktreeToggle: () => {},
+  };
+}
+
+// Once the chat runs, where it works is a fact: the bar over the composer
+// names the repository and the branch and counts git's changes, and the
+// composer keeps only its environment chip.
+test("a running chat names its repository, branch and changes over the composer", async () => {
+  stubSessionChanges(2);
+  const onOpenEdits = vi.fn();
+  render(turnLineScreen({ ...workspaceProps(true), onOpenSessionChanges: onOpenEdits }));
+  const bar = screen.getByTestId("workspace-bar");
+  expect(within(bar).getByTestId("workspace-bar-repo").textContent).toBe("coddy-agent");
+  expect(within(bar).getByTestId("workspace-bar-branch").textContent).toBe("feat/session-changes");
+  const edits = await within(bar).findByTestId("workspace-bar-edits");
+  expect(edits.textContent).toBe("+2−0");
+  fireEvent.click(edits);
+  expect(onOpenEdits).toHaveBeenCalledWith();
+  // The bar sits over the composer card, and the card has no folder chips.
+  const card = document.querySelector(".composer-card")!;
+  expect(bar.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.queryByTestId("composer-workspace-chip")).toBeNull();
+  expect(screen.queryByTestId("composer-branch-chip")).toBeNull();
+  expect(screen.queryByTestId("composer-files")).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+test("before the chat starts the folder, branch and worktree are chips of the composer", () => {
+  stubSessionChanges(0);
+  render(turnLineScreen(workspaceProps(false)));
+  expect(screen.queryByTestId("workspace-bar")).toBeNull();
+  expect(screen.getByTestId("composer-workspace-chip")).toBeTruthy();
+  expect(screen.getByTestId("composer-branch-chip")).toBeTruthy();
+  expect(screen.getByTestId("composer-worktree-checkbox")).toBeTruthy();
   vi.unstubAllGlobals();
 });
 

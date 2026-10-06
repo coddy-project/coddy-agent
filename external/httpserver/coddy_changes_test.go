@@ -5,6 +5,7 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -13,18 +14,17 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
-	"github.com/EvilFreelancer/coddy-agent/internal/gitws"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 type changesEnv struct {
-	srv        *Server
-	id         string
-	cwd        string
-	sessionDir string
+	srv *Server
+	id  string
+	cwd string
 }
 
 func newChangesEnv(t *testing.T) *changesEnv {
@@ -53,32 +53,27 @@ func newChangesEnvWithRunner(t *testing.T, runner func(context.Context, *session
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &changesEnv{
-		srv:        srv,
-		id:         newRes.SessionID,
-		cwd:        cwd,
-		sessionDir: filepath.Join(root, "sessions", newRes.SessionID),
-	}
-}
-
-func (e *changesEnv) storeTurn(t *testing.T, turn int, changes ...session.WorkspaceChange) {
-	t.Helper()
-	if err := session.StoreWorkspaceDiff(e.sessionDir, turn, &session.WorkspaceDiff{Changes: changes}); err != nil {
-		t.Fatalf("store turn %d: %v", turn, err)
-	}
+	return &changesEnv{srv: srv, id: newRes.SessionID, cwd: cwd}
 }
 
 func (e *changesEnv) do(t *testing.T, method, target string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(method, target, nil)
-	req.SetPathValue("id", e.id)
+	return e.doBody(t, method, target, "")
+}
+
+func (e *changesEnv) doBody(t *testing.T, method, target, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	var reader io.Reader
+	if body != "" {
+		reader = strings.NewReader(body)
+	}
+	req := httptest.NewRequest(method, target, reader)
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	rec := httptest.NewRecorder()
 	e.srv.mux.ServeHTTP(rec, req)
 	return rec
-}
-
-func wsFile(content string) *session.WorkspaceFile {
-	return &session.WorkspaceFile{Content: []byte(content), Mode: 0o644}
 }
 
 func decodeJSON(t *testing.T, rec *httptest.ResponseRecorder) map[string]interface{} {
@@ -90,491 +85,448 @@ func decodeJSON(t *testing.T, rec *httptest.ResponseRecorder) map[string]interfa
 	return out
 }
 
-func TestSessionChangesEmpty(t *testing.T) {
-	e := newChangesEnv(t)
-	rec := e.do(t, http.MethodGet, "/coddy/sessions/"+e.id+"/changes")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
-	}
-	body := decodeJSON(t, rec)
-	files, _ := body["files"].([]interface{})
-	if len(files) != 0 {
-		t.Fatalf("want no files, got %v", files)
-	}
-	totals, _ := body["totals"].(map[string]interface{})
-	if totals["files"].(float64) != 0 {
-		t.Fatalf("want zero totals, got %v", totals)
-	}
-}
-
-func TestSessionChangesListStats(t *testing.T) {
-	e := newChangesEnv(t)
-	e.storeTurn(t, 1,
-		session.WorkspaceChange{Path: "a.txt", Before: wsFile("one\ntwo\n"), After: wsFile("one\nTWO\nthree\n")},
-		session.WorkspaceChange{Path: "b.txt", After: wsFile("x\ny\n")},
-	)
-
-	rec := e.do(t, http.MethodGet, "/coddy/sessions/"+e.id+"/changes")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
-	}
-	body := decodeJSON(t, rec)
-	files := body["files"].([]interface{})
-	if len(files) != 2 {
-		t.Fatalf("want 2 files, got %d", len(files))
-	}
-	first := files[0].(map[string]interface{})
-	if first["path"] != "a.txt" || first["status"] != "modified" {
-		t.Fatalf("unexpected first file: %v", first)
-	}
-	if first["additions"].(float64) != 2 || first["deletions"].(float64) != 1 {
-		t.Fatalf("a.txt stats wrong: %v", first)
-	}
-	if _, ok := first["patch"]; ok {
-		t.Fatalf("list must not carry patches by default: %v", first)
-	}
-	second := files[1].(map[string]interface{})
-	if second["status"] != "added" || second["additions"].(float64) != 2 {
-		t.Fatalf("b.txt wrong: %v", second)
-	}
-	totals := body["totals"].(map[string]interface{})
-	if totals["files"].(float64) != 2 || totals["additions"].(float64) != 4 || totals["deletions"].(float64) != 1 {
-		t.Fatalf("totals wrong: %v", totals)
-	}
-}
-
-func TestSessionChangesIncludePatchAndContent(t *testing.T) {
-	e := newChangesEnv(t)
-	e.storeTurn(t, 1, session.WorkspaceChange{Path: "a.txt", Before: wsFile("one\n"), After: wsFile("two\n")})
-
-	rec := e.do(t, http.MethodGet, "/coddy/sessions/"+e.id+"/changes?include=patch,content")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
-	}
-	file := decodeJSON(t, rec)["files"].([]interface{})[0].(map[string]interface{})
-	patch, _ := file["patch"].(string)
-	if !strings.Contains(patch, "-one") || !strings.Contains(patch, "+two") {
-		t.Fatalf("patch missing changes: %q", patch)
-	}
-	if file["before"] != "one\n" || file["after"] != "two\n" {
-		t.Fatalf("content sides wrong: %v", file)
-	}
-}
-
-func TestSessionChangesFileDetail(t *testing.T) {
-	e := newChangesEnv(t)
-	e.storeTurn(t, 1, session.WorkspaceChange{Path: "dir/a.txt", Before: wsFile("one\n"), After: wsFile("two\n")})
-
-	rec := e.do(t, http.MethodGet, "/coddy/sessions/"+e.id+"/changes/file?path=dir/a.txt")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
-	}
-	body := decodeJSON(t, rec)
-	if body["path"] != "dir/a.txt" || body["status"] != "modified" {
-		t.Fatalf("unexpected body: %v", body)
-	}
-	if !strings.Contains(body["patch"].(string), "+++ b/dir/a.txt") {
-		t.Fatalf("patch header missing: %v", body["patch"])
-	}
-}
-
-// The path comes from the request, so it is matched against the change set
-// rather than resolved on disk: a traversal attempt names no changed file.
-func TestSessionChangesFileRejectsUnknownPath(t *testing.T) {
-	e := newChangesEnv(t)
-	e.storeTurn(t, 1, session.WorkspaceChange{Path: "a.txt", After: wsFile("x\n")})
-
-	for _, p := range []string{"../../etc/passwd", "b.txt", ""} {
-		rec := e.do(t, http.MethodGet, "/coddy/sessions/"+e.id+"/changes/file?path="+p)
-		if rec.Code == http.StatusOK {
-			t.Fatalf("path %q was served: %s", p, rec.Body.String())
-		}
-	}
-}
-
-// A binary file has no line diff; it must still be listed so the user knows it
-// changed, but with no patch and no line counts.
-func TestSessionChangesMarksBinary(t *testing.T) {
-	e := newChangesEnv(t)
-	e.storeTurn(t, 1, session.WorkspaceChange{
-		Path:  "logo.png",
-		After: &session.WorkspaceFile{Content: []byte{0x89, 'P', 'N', 'G', 0x00, 0x01}, Mode: 0o644},
-	})
-
-	rec := e.do(t, http.MethodGet, "/coddy/sessions/"+e.id+"/changes?include=patch")
-	file := decodeJSON(t, rec)["files"].([]interface{})[0].(map[string]interface{})
-	if file["binary"] != true {
-		t.Fatalf("want binary, got %v", file)
-	}
-	if file["additions"].(float64) != 0 || file["patch"] != "" {
-		t.Fatalf("binary file must carry no line diff: %v", file)
-	}
-}
-
-func TestSessionChangesRevertRestoresFiles(t *testing.T) {
-	e := newChangesEnv(t)
-	edited := filepath.Join(e.cwd, "a.txt")
-	created := filepath.Join(e.cwd, "new.txt")
-	if err := os.WriteFile(edited, []byte("new\n"), 0o644); err != nil {
+func writeInWorkspace(t *testing.T, cwd, rel, content string) {
+	t.Helper()
+	p := filepath.Join(cwd, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(created, []byte("fresh\n"), 0o644); err != nil {
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	e.storeTurn(t, 1,
-		session.WorkspaceChange{Path: "a.txt", Before: wsFile("old\n"), After: wsFile("new\n")},
-		session.WorkspaceChange{Path: "new.txt", After: wsFile("fresh\n")},
-	)
-
-	rec := e.do(t, http.MethodPost, "/coddy/sessions/"+e.id+"/changes/revert")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
-	}
-	got, err := os.ReadFile(edited)
-	if err != nil || string(got) != "old\n" {
-		t.Fatalf("a.txt not restored: %q %v", got, err)
-	}
-	if _, err := os.Stat(created); !os.IsNotExist(err) {
-		t.Fatalf("new.txt should have been removed, got %v", err)
-	}
 }
 
-// The viewer's scope switcher asks the same route for a narrower change set;
-// "turn" must describe only the newest turn.
-func TestSessionChangesTurnScope(t *testing.T) {
-	e := newChangesEnv(t)
-	e.storeTurn(t, 1, session.WorkspaceChange{Path: "old.txt", After: wsFile("one\n")})
-	e.storeTurn(t, 2, session.WorkspaceChange{Path: "new.txt", After: wsFile("two\nthree\n")})
-
-	rec := e.do(t, http.MethodGet, "/coddy/sessions/"+e.id+"/changes?scope=turn")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+func readInWorkspace(t *testing.T, cwd, rel string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(cwd, filepath.FromSlash(rel)))
+	if err != nil {
+		t.Fatalf("read %s: %v", rel, err)
 	}
-	body := decodeJSON(t, rec)
-	if body["scope"] != "turn" {
-		t.Fatalf("scope not echoed: %v", body["scope"])
-	}
-	files := body["files"].([]interface{})
-	if len(files) != 1 {
-		t.Fatalf("want only the last turn's file, got %v", files)
-	}
-	if files[0].(map[string]interface{})["path"] != "new.txt" {
-		t.Fatalf("wrong file: %v", files[0])
-	}
-	totals := body["totals"].(map[string]interface{})
-	if totals["additions"].(float64) != 2 {
-		t.Fatalf("totals must cover the turn only: %v", totals)
-	}
-}
-
-// Default scope stays the whole session so the card and the viewer agree.
-func TestSessionChangesDefaultsToSessionScope(t *testing.T) {
-	e := newChangesEnv(t)
-	e.storeTurn(t, 1, session.WorkspaceChange{Path: "old.txt", After: wsFile("one\n")})
-	e.storeTurn(t, 2, session.WorkspaceChange{Path: "new.txt", After: wsFile("two\n")})
-
-	rec := e.do(t, http.MethodGet, "/coddy/sessions/"+e.id+"/changes")
-	body := decodeJSON(t, rec)
-	if body["scope"] != "session" {
-		t.Fatalf("want session scope, got %v", body["scope"])
-	}
-	if len(body["files"].([]interface{})) != 2 {
-		t.Fatalf("want both turns' files: %v", body["files"])
-	}
-}
-
-func TestSessionChangesRejectsUnknownScope(t *testing.T) {
-	e := newChangesEnv(t)
-	rec := e.do(t, http.MethodGet, "/coddy/sessions/"+e.id+"/changes?scope=everything")
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("want 400 for an unknown scope, got %d: %s", rec.Code, rec.Body.String())
-	}
-}
-
-// The detail route has to honour the same scope, or expanding a file in the
-// viewer would show the session's diff while the list showed the turn's.
-func TestSessionChangeFileHonoursScope(t *testing.T) {
-	e := newChangesEnv(t)
-	e.storeTurn(t, 1, session.WorkspaceChange{Path: "old.txt", After: wsFile("one\n")})
-	e.storeTurn(t, 2, session.WorkspaceChange{Path: "new.txt", After: wsFile("two\n")})
-
-	rec := e.do(t, http.MethodGet,
-		"/coddy/sessions/"+e.id+"/changes/file?scope=turn&path=new.txt")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
-	}
-	// old.txt belongs to an earlier turn, so it is not in this scope.
-	rec = e.do(t, http.MethodGet,
-		"/coddy/sessions/"+e.id+"/changes/file?scope=turn&path=old.txt")
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("want 404 outside the scope, got %d", rec.Code)
-	}
-}
-
-// On a workspace that is not a repository the scope answers empty and says git
-// is unavailable, so the viewer disables the option instead of erroring.
-func TestSessionChangesUncommittedOutsideARepo(t *testing.T) {
-	e := newChangesEnv(t)
-	rec := e.do(t, http.MethodGet, "/coddy/sessions/"+e.id+"/changes?scope=uncommitted")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
-	}
-	body := decodeJSON(t, rec)
-	if body["vcsAvailable"] != false {
-		t.Fatalf("want vcsAvailable false outside a repo: %v", body)
-	}
-	if len(body["files"].([]interface{})) != 0 {
-		t.Fatalf("want no files: %v", body["files"])
-	}
+	return string(b)
 }
 
 func gitInRepo(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
 }
 
-// The uncommitted scope reads the working copy rather than the session's turn
-// diffs, so it reports edits the agent never made - and maps git's statuses onto
-// the same added/modified/deleted vocabulary every other scope uses.
-func TestSessionChangesUncommittedScopeReadsWorkingCopy(t *testing.T) {
-	if !gitws.GitAvailable() {
+// commitWorkspace makes the session's folder a repository whose HEAD holds
+// files. A machine without git cannot build the fixture and skips.
+func (e *changesEnv) commitWorkspace(t *testing.T, files map[string]string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git binary not available")
 	}
-	e := newChangesEnv(t)
-	if err := os.WriteFile(filepath.Join(e.cwd, "tracked.txt"), []byte("old\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	gitInRepo(t, e.cwd, "init", "-b", "main")
+	for name, body := range files {
+		writeInWorkspace(t, e.cwd, name, body)
+	}
 	gitInRepo(t, e.cwd, "add", "-A")
-	gitInRepo(t, e.cwd, "-c", "user.email=coddy@test", "-c", "user.name=coddy",
-		"commit", "-m", "init")
+	gitInRepo(t, e.cwd, "-c", "user.email=coddy@test", "-c", "user.name=coddy", "commit", "-q", "-m", "init")
+}
 
-	// One tracked edit the session knows nothing about, one ignored-by-nobody
-	// new file that must be counted but not listed.
-	if err := os.WriteFile(filepath.Join(e.cwd, "tracked.txt"), []byte("new\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(e.cwd, "loose.txt"), []byte("x\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	rec := e.do(t, http.MethodGet, "/coddy/sessions/"+e.id+"/changes?scope=uncommitted")
+func changedFiles(t *testing.T, rec *httptest.ResponseRecorder) map[string]map[string]interface{} {
+	t.Helper()
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
 	}
 	body := decodeJSON(t, rec)
-	if body["vcsAvailable"] != true {
-		t.Fatalf("want vcsAvailable true in a repo: %v", body)
+	files, _ := body["files"].([]interface{})
+	out := make(map[string]map[string]interface{}, len(files))
+	for _, f := range files {
+		row, _ := f.(map[string]interface{})
+		p, _ := row["path"].(string)
+		out[filepath.ToSlash(p)] = row
 	}
-	if body["untracked"].(float64) != 1 {
-		t.Fatalf("want 1 untracked, got %v", body["untracked"])
-	}
-	files := body["files"].([]interface{})
-	if len(files) != 1 {
-		t.Fatalf("untracked files must not be listed: %v", files)
-	}
-	file := files[0].(map[string]interface{})
-	if file["path"] != "tracked.txt" || file["status"] != "modified" {
-		t.Fatalf("unexpected file: %v", file)
-	}
-	if file["additions"].(float64) != 1 || file["deletions"].(float64) != 1 {
-		t.Fatalf("stats wrong: %v", file)
+	return out
+}
+
+// waitForSessionChanges reads frames until the one that says the session's
+// working copy may have moved, and fails the test if none arrives.
+func waitForSessionChanges(t *testing.T, frames <-chan []byte, sessionID string) {
+	t.Helper()
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case f := <-frames:
+			s := string(f)
+			if strings.HasPrefix(s, "event: session_changes\n") && strings.Contains(s, `"sessionId":"`+sessionID+`"`) {
+				return
+			}
+		case <-deadline:
+			t.Fatal("no session_changes event for the session")
+		}
 	}
 }
 
-// The list reports OS-shaped paths, so on Windows they carry backslashes. A
-// caller that sends the same file with forward slashes means the same file, and
-// the match is on the change set either way - it never touches the filesystem.
-func TestSessionChangeFileAcceptsEitherSeparator(t *testing.T) {
+// A folder that is not a repository has no edits: the list is empty and names
+// no version control, so the client hides the Edits view rather than erroring.
+func TestSessionChangesOutsideARepo(t *testing.T) {
 	e := newChangesEnv(t)
-	e.storeTurn(t, 1, session.WorkspaceChange{
-		Path:   filepath.Join("dir", "sub", "a.txt"),
-		Before: wsFile("one\n"),
-		After:  wsFile("two\n"),
-	})
+	writeInWorkspace(t, e.cwd, "a.txt", "a\n")
+	rec := e.do(t, http.MethodGet, "/coddy/sessions/"+e.id+"/changes")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	body := decodeJSON(t, rec)
+	if body["object"] != "coddy.session_changes" || body["vcs"] != "" {
+		t.Fatalf("want an empty answer naming no vcs: %v", body)
+	}
+	if files := body["files"].([]interface{}); len(files) != 0 {
+		t.Fatalf("want no files: %v", files)
+	}
+	totals := body["totals"].(map[string]interface{})
+	if totals["files"].(float64) != 0 || totals["additions"].(float64) != 0 || totals["deletions"].(float64) != 0 {
+		t.Fatalf("totals %v", totals)
+	}
+}
+
+// The list is git's report of the working copy: tracked edits and the new
+// files git does not ignore, with their line counts, whoever made them.
+func TestSessionChangesReportTheWorkingCopy(t *testing.T) {
+	e := newChangesEnv(t)
+	e.commitWorkspace(t, map[string]string{".gitignore": "*.log\n", "tracked.txt": "old\n", "keep.txt": "same\n"})
+	writeInWorkspace(t, e.cwd, "tracked.txt", "new\n")
+	writeInWorkspace(t, e.cwd, "loose.txt", "x\ny\n")
+	writeInWorkspace(t, e.cwd, "debug.log", "noise\n")
+
+	rec := e.do(t, http.MethodGet, "/coddy/sessions/"+e.id+"/changes")
+	body := decodeJSON(t, rec)
+	if body["vcs"] != "git" {
+		t.Fatalf("want vcs git: %v", body)
+	}
+	if body["skipped"].(float64) != 0 {
+		t.Fatalf("nothing is skipped here: %v", body["skipped"])
+	}
+	files := changedFiles(t, rec)
+	if len(files) != 2 {
+		t.Fatalf("want tracked.txt and loose.txt, got %v", files)
+	}
+	if f := files["tracked.txt"]; f["status"] != "modified" || f["additions"].(float64) != 1 || f["deletions"].(float64) != 1 {
+		t.Fatalf("tracked.txt %v", f)
+	}
+	if f := files["loose.txt"]; f["status"] != "added" || f["additions"].(float64) != 2 || f["deletions"].(float64) != 0 {
+		t.Fatalf("loose.txt %v", f)
+	}
+	totals := body["totals"].(map[string]interface{})
+	if totals["files"].(float64) != 2 || totals["additions"].(float64) != 3 || totals["deletions"].(float64) != 1 {
+		t.Fatalf("totals %v", totals)
+	}
+	// The list carries no patch unless asked.
+	if _, ok := files["tracked.txt"]["patch"]; ok {
+		t.Fatalf("patch sent without include: %v", files["tracked.txt"])
+	}
+}
+
+func TestSessionChangesIncludePatchAndContent(t *testing.T) {
+	e := newChangesEnv(t)
+	e.commitWorkspace(t, map[string]string{"a.txt": "old\n"})
+	writeInWorkspace(t, e.cwd, "a.txt", "new\n")
+
+	files := changedFiles(t, e.do(t, http.MethodGet, "/coddy/sessions/"+e.id+"/changes?include=patch,content"))
+	f := files["a.txt"]
+	patch, _ := f["patch"].(string)
+	if !strings.Contains(patch, "\n-old\n") || !strings.Contains(patch, "\n+new\n") {
+		t.Fatalf("patch %q", patch)
+	}
+	if f["before"] != "old\n" || f["after"] != "new\n" {
+		t.Fatalf("sides %v / %v", f["before"], f["after"])
+	}
+}
+
+// The detail route reads one file of the change set, by either separator; a
+// path git does not report - unchanged, ignored, outside the folder - is 404.
+func TestSessionChangeFileDetail(t *testing.T) {
+	e := newChangesEnv(t)
+	e.commitWorkspace(t, map[string]string{".gitignore": "*.log\n", "dir/sub/a.txt": "one\n", "keep.txt": "same\n"})
+	writeInWorkspace(t, e.cwd, "dir/sub/a.txt", "two\n")
+	writeInWorkspace(t, e.cwd, "debug.log", "noise\n")
 
 	for _, p := range []string{"dir/sub/a.txt", "dir%5Csub%5Ca.txt"} {
-		rec := e.do(t, http.MethodGet,
-			"/coddy/sessions/"+e.id+"/changes/file?path="+p)
+		rec := e.do(t, http.MethodGet, "/coddy/sessions/"+e.id+"/changes/file?path="+p)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("path %q returned %d: %s", p, rec.Code, rec.Body.String())
 		}
-	}
-
-	// A path outside the change set is still refused, whichever separator it uses.
-	rec := e.do(t, http.MethodGet,
-		"/coddy/sessions/"+e.id+"/changes/file?path=dir/sub/other.txt")
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("unknown path must be 404, got %d", rec.Code)
-	}
-}
-
-// The all-files scope answers "what is in this working copy that HEAD has not",
-// which is the tracked edits plus the brand-new files the git scope leaves out.
-func TestSessionChangesAllScopeIncludesUntracked(t *testing.T) {
-	if !gitws.GitAvailable() {
-		t.Skip("git binary not available")
-	}
-	e := newChangesEnv(t)
-	if err := os.WriteFile(filepath.Join(e.cwd, "tracked.txt"), []byte("old\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	gitInRepo(t, e.cwd, "init", "-b", "main")
-	gitInRepo(t, e.cwd, "add", "-A")
-	gitInRepo(t, e.cwd, "-c", "user.email=coddy@test", "-c", "user.name=coddy",
-		"commit", "-m", "init")
-	if err := os.WriteFile(filepath.Join(e.cwd, "tracked.txt"), []byte("new\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(e.cwd, "fresh.txt"), []byte("a\nb\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	rec := e.do(t, http.MethodGet, "/coddy/sessions/"+e.id+"/changes?scope=all")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
-	}
-	body := decodeJSON(t, rec)
-	if body["scope"] != "all" {
-		t.Fatalf("scope not echoed: %v", body["scope"])
-	}
-	if body["vcsAvailable"] != true {
-		t.Fatalf("want vcsAvailable true in a repo: %v", body)
-	}
-	if body["untracked"].(float64) != 0 {
-		t.Fatalf("nothing was skipped, so untracked must be 0: %v", body["untracked"])
-	}
-	byPath := map[string]map[string]interface{}{}
-	for _, f := range body["files"].([]interface{}) {
-		row := f.(map[string]interface{})
-		byPath[row["path"].(string)] = row
-	}
-	if len(byPath) != 2 {
-		t.Fatalf("want tracked and untracked, got %v", byPath)
-	}
-	if row := byPath["fresh.txt"]; row["status"] != "added" || row["additions"].(float64) != 2 {
-		t.Fatalf("fresh.txt wrong: %v", row)
-	}
-	// The tracked-only scope still leaves the new file out; that is the whole
-	// reason the two scopes both exist.
-	rec = e.do(t, http.MethodGet, "/coddy/sessions/"+e.id+"/changes?scope=uncommitted")
-	for _, f := range decodeJSON(t, rec)["files"].([]interface{}) {
-		if f.(map[string]interface{})["path"] == "fresh.txt" {
-			t.Fatal("the uncommitted scope must stay tracked-only")
+		body := decodeJSON(t, rec)
+		if body["object"] != "coddy.session_change" || body["status"] != "modified" ||
+			!strings.Contains(body["patch"].(string), "+two") || body["before"] != "one\n" {
+			t.Fatalf("detail %v", body)
 		}
 	}
+	for _, p := range []string{"keep.txt", "debug.log", "../escape.txt", "missing.txt"} {
+		rec := e.do(t, http.MethodGet, "/coddy/sessions/"+e.id+"/changes/file?path="+p)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("path %q must be 404, got %d: %s", p, rec.Code, rec.Body.String())
+		}
+	}
+	if rec := e.do(t, http.MethodGet, "/coddy/sessions/"+e.id+"/changes/file"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("a missing path must be 400, got %d", rec.Code)
+	}
 }
 
-// Expanding an untracked file must read that file and no others.
-func TestSessionChangeFileServesAnUntrackedFile(t *testing.T) {
-	if !gitws.GitAvailable() {
-		t.Skip("git binary not available")
-	}
+// A binary file has no line diff; it is listed so the reader knows it changed,
+// with no line counts.
+func TestSessionChangesMarkBinary(t *testing.T) {
 	e := newChangesEnv(t)
-	if err := os.WriteFile(filepath.Join(e.cwd, "kept.txt"), []byte("k\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	gitInRepo(t, e.cwd, "init", "-b", "main")
-	gitInRepo(t, e.cwd, "add", "-A")
-	gitInRepo(t, e.cwd, "-c", "user.email=coddy@test", "-c", "user.name=coddy",
-		"commit", "-m", "init")
-	if err := os.WriteFile(filepath.Join(e.cwd, "fresh.txt"), []byte("hello\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	e.commitWorkspace(t, map[string]string{"a.txt": "a\n"})
+	writeInWorkspace(t, e.cwd, "blob.bin", "\x00\x01\x02binary\x00")
 
-	rec := e.do(t, http.MethodGet,
-		"/coddy/sessions/"+e.id+"/changes/file?scope=all&path=fresh.txt")
+	files := changedFiles(t, e.do(t, http.MethodGet, "/coddy/sessions/"+e.id+"/changes"))
+	f := files["blob.bin"]
+	if f == nil || f["binary"] != true || f["additions"].(float64) != 0 {
+		t.Fatalf("blob.bin %v", f)
+	}
+}
+
+func TestSessionChangesDiscardOneFile(t *testing.T) {
+	e := newChangesEnv(t)
+	e.commitWorkspace(t, map[string]string{"a.txt": "old\n"})
+	writeInWorkspace(t, e.cwd, "a.txt", "new\n")
+	writeInWorkspace(t, e.cwd, "loose.txt", "x\n")
+
+	rec := e.doBody(t, http.MethodPost, "/coddy/sessions/"+e.id+"/changes/revert", `{"paths":["a.txt"]}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
 	}
-	body := decodeJSON(t, rec)
-	if body["status"] != "added" || !strings.Contains(body["patch"].(string), "+hello") {
-		t.Fatalf("unexpected body: %v", body)
+	if body := decodeJSON(t, rec); body["object"] != "coddy.session_changes_reverted" || body["sessionId"] != e.id {
+		t.Fatalf("answer %v", body)
 	}
-	// A file git does not report is not reachable through the scope either.
-	rec = e.do(t, http.MethodGet,
-		"/coddy/sessions/"+e.id+"/changes/file?scope=all&path=kept.txt")
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("an unchanged file must be 404, got %d", rec.Code)
+	if got := readInWorkspace(t, e.cwd, "a.txt"); got != "old\n" {
+		t.Fatalf("a.txt = %q, want HEAD's content", got)
+	}
+	if got := readInWorkspace(t, e.cwd, "loose.txt"); got != "x\n" {
+		t.Fatalf("loose.txt was not named and must stay: %q", got)
 	}
 }
 
-// Sessions recorded before the snapshot learned to skip them still carry the
-// editor's settings folders, and the git scopes see whatever the repository
-// tracks. Neither is review material, so the route drops them in every scope.
-func TestSessionChangesHidesEditorSettings(t *testing.T) {
+func TestSessionChangesDiscardEverything(t *testing.T) {
 	e := newChangesEnv(t)
-	e.storeTurn(t, 1,
-		session.WorkspaceChange{Path: filepath.Join(".idea", "workspace.xml"),
-			Before: wsFile("a\n"), After: wsFile("b\n")},
-		session.WorkspaceChange{Path: filepath.Join(".vscode", "settings.json"),
-			Before: wsFile("a\n"), After: wsFile("b\n")},
-		session.WorkspaceChange{Path: filepath.Join("src", ".idea", "nested.xml"),
-			After: wsFile("x\n")},
-		session.WorkspaceChange{Path: "real.txt", After: wsFile("x\n")},
-	)
+	e.commitWorkspace(t, map[string]string{"a.txt": "old\n"})
+	writeInWorkspace(t, e.cwd, "a.txt", "new\n")
+	writeInWorkspace(t, e.cwd, "loose.txt", "x\n")
 
-	rec := e.do(t, http.MethodGet, "/coddy/sessions/"+e.id+"/changes")
+	rec := e.doBody(t, http.MethodPost, "/coddy/sessions/"+e.id+"/changes/revert", `{"all":true}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
 	}
-	body := decodeJSON(t, rec)
-	files := body["files"].([]interface{})
-	if len(files) != 1 || files[0].(map[string]interface{})["path"] != "real.txt" {
-		t.Fatalf("want only real.txt, got %v", files)
+	if got := readInWorkspace(t, e.cwd, "a.txt"); got != "old\n" {
+		t.Fatalf("a.txt = %q", got)
 	}
-	if body["totals"].(map[string]interface{})["files"].(float64) != 1 {
-		t.Fatalf("totals must count only what is shown: %v", body["totals"])
+	if _, err := os.Stat(filepath.Join(e.cwd, "loose.txt")); !os.IsNotExist(err) {
+		t.Fatalf("loose.txt must be deleted: %v", err)
 	}
-
-	// And they are not reachable one at a time either.
-	rec = e.do(t, http.MethodGet,
-		"/coddy/sessions/"+e.id+"/changes/file?path=.idea/workspace.xml")
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("an editor settings file must be 404, got %d", rec.Code)
+	if files := changedFiles(t, e.do(t, http.MethodGet, "/coddy/sessions/"+e.id+"/changes")); len(files) != 0 {
+		t.Fatalf("want a clean working copy: %v", files)
 	}
 }
 
-// A file that merely mentions the folder name is ordinary source.
-func TestSessionChangesKeepsLookalikePaths(t *testing.T) {
+// Discarding deletes files, so the request says what it means: a list of paths
+// or all of them. An empty or malformed body is refused and touches nothing.
+func TestSessionChangesDiscardNeedsAnExplicitSelection(t *testing.T) {
 	e := newChangesEnv(t)
-	e.storeTurn(t, 1,
-		session.WorkspaceChange{Path: "docs/idea.md", After: wsFile("x\n")},
-		session.WorkspaceChange{Path: ".ideas/plan.md", After: wsFile("x\n")},
-		session.WorkspaceChange{Path: "vscode-notes.txt", After: wsFile("x\n")},
-	)
+	e.commitWorkspace(t, map[string]string{"a.txt": "old\n"})
+	writeInWorkspace(t, e.cwd, "a.txt", "new\n")
 
-	rec := e.do(t, http.MethodGet, "/coddy/sessions/"+e.id+"/changes")
-	if n := len(decodeJSON(t, rec)["files"].([]interface{})); n != 3 {
-		t.Fatalf("want all 3 kept, got %d", n)
+	for _, body := range []string{"", "{}", `{"paths":[]}`, `{"all":false}`, "{bad", `{"all":true,"paths":["a.txt"]}`} {
+		rec := e.doBody(t, http.MethodPost, "/coddy/sessions/"+e.id+"/changes/revert", body)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("body %q: want 400, got %d: %s", body, rec.Code, rec.Body.String())
+		}
+	}
+	if got := readInWorkspace(t, e.cwd, "a.txt"); got != "new\n" {
+		t.Fatalf("a refused request touched a.txt: %q", got)
 	}
 }
 
-// The version control client's own bookkeeping is noise for the same reason the
-// editor's is, and a session recorded before the snapshot skipped it still has
-// it stored.
-func TestSessionChangesHidesVCSAdminDirs(t *testing.T) {
+// A path that is not in the change set - it was committed meanwhile, it is
+// unchanged or ignored - is a conflict with what the client saw, and nothing
+// of the request is applied.
+func TestSessionChangesDiscardRefusesAPathOutsideTheSet(t *testing.T) {
 	e := newChangesEnv(t)
-	e.storeTurn(t, 1,
-		session.WorkspaceChange{Path: filepath.Join(".svn", "wc.db"),
-			Before: wsFile("a\n"), After: wsFile("b\n")},
-		session.WorkspaceChange{Path: filepath.Join(".git", "index"),
-			Before: wsFile("a\n"), After: wsFile("b\n")},
-		session.WorkspaceChange{Path: "git-notes.txt", After: wsFile("x\n")},
-		session.WorkspaceChange{Path: "app.js", After: wsFile("x\n")},
-	)
+	e.commitWorkspace(t, map[string]string{"a.txt": "old\n", "keep.txt": "same\n"})
+	writeInWorkspace(t, e.cwd, "a.txt", "new\n")
 
-	rec := e.do(t, http.MethodGet, "/coddy/sessions/"+e.id+"/changes")
-	paths := []string{}
-	for _, f := range decodeJSON(t, rec)["files"].([]interface{}) {
-		paths = append(paths, f.(map[string]interface{})["path"].(string))
+	rec := e.doBody(t, http.MethodPost, "/coddy/sessions/"+e.id+"/changes/revert", `{"paths":["a.txt","keep.txt"]}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("want 409, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if len(paths) != 2 {
-		t.Fatalf("want app.js and git-notes.txt, got %v", paths)
+	if got := readInWorkspace(t, e.cwd, "a.txt"); got != "new\n" {
+		t.Fatalf("a refused request touched a.txt: %q", got)
+	}
+}
+
+func TestSessionChangesDiscardOutsideARepo(t *testing.T) {
+	e := newChangesEnv(t)
+	writeInWorkspace(t, e.cwd, "a.txt", "a\n")
+	rec := e.doBody(t, http.MethodPost, "/coddy/sessions/"+e.id+"/changes/revert", `{"all":true}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := readInWorkspace(t, e.cwd, "a.txt"); got != "a\n" {
+		t.Fatalf("a plain folder was touched: %q", got)
+	}
+}
+
+// Every window showing the session reads its working copy again after a
+// discard.
+func TestSessionChangesDiscardAnnouncesTheChange(t *testing.T) {
+	e := newChangesEnv(t)
+	e.commitWorkspace(t, map[string]string{"a.txt": "old\n"})
+	writeInWorkspace(t, e.cwd, "a.txt", "new\n")
+	frames, unsubscribe := e.srv.events.subscribe()
+	defer unsubscribe()
+
+	rec := e.doBody(t, http.MethodPost, "/coddy/sessions/"+e.id+"/changes/revert", `{"all":true}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	waitForSessionChanges(t, frames, e.id)
+}
+
+// Rewriting files under an agent that is mid-edit would leave the folder in a
+// state neither side expects, so a discard waits for the turn to end.
+func TestSessionChangesDiscardRefusedWhileATurnRuns(t *testing.T) {
+	release := make(chan struct{})
+	started := make(chan struct{})
+	e := newChangesEnvWithRunner(t, func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		close(started)
+		<-release
+		return string(acp.StopReasonEndTurn), nil
+	})
+	e.commitWorkspace(t, map[string]string{"a.txt": "old\n"})
+	writeInWorkspace(t, e.cwd, "a.txt", "new\n")
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		req := httptest.NewRequest(http.MethodPost, "/v1/responses",
+			strings.NewReader(`{"model":"agent","input":"work","stream":false}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Coddy-Session-ID", e.id)
+		e.srv.Handler().ServeHTTP(httptest.NewRecorder(), req)
+	}()
+	defer func() {
+		close(release)
+		<-done
+	}()
+	select {
+	case <-started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the turn never started")
+	}
+
+	rec := e.doBody(t, http.MethodPost, "/coddy/sessions/"+e.id+"/changes/revert", `{"all":true}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("want 409 while a turn runs, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := readInWorkspace(t, e.cwd, "a.txt"); got != "new\n" {
+		t.Fatalf("a refused discard touched a.txt: %q", got)
+	}
+}
+
+func TestSessionChangesFrameShape(t *testing.T) {
+	at := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
+	frame := string(sessionChangesFrame("sess_x", at))
+	if !strings.HasPrefix(frame, "event: session_changes\ndata: ") || !strings.HasSuffix(frame, "\n\n") {
+		t.Fatalf("frame %q", frame)
+	}
+	var body map[string]interface{}
+	data := strings.TrimSuffix(strings.TrimPrefix(frame, "event: session_changes\ndata: "), "\n\n")
+	if err := json.Unmarshal([]byte(data), &body); err != nil {
+		t.Fatalf("decode %q: %v", data, err)
+	}
+	if body["object"] != "coddy.session_changes" || body["sessionId"] != "sess_x" || body["at"] != "2026-09-27T12:00:00Z" {
+		t.Fatalf("body %v", body)
+	}
+}
+
+// Only one JSON object: anything after it makes the request ambiguous, and a
+// destructive one is refused rather than read as its first half.
+func TestSessionChangesDiscardRefusesTrailingData(t *testing.T) {
+	e := newChangesEnv(t)
+	e.commitWorkspace(t, map[string]string{"a.txt": "old\n", "b.txt": "old\n"})
+	writeInWorkspace(t, e.cwd, "a.txt", "new\n")
+	writeInWorkspace(t, e.cwd, "b.txt", "new\n")
+
+	for _, body := range []string{`{"all":true}{"paths":["a.txt"]}`, `{"all":true} trailing`, `{"paths":["a.txt"]}]`} {
+		rec := e.doBody(t, http.MethodPost, "/coddy/sessions/"+e.id+"/changes/revert", body)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("body %q: want 400, got %d: %s", body, rec.Code, rec.Body.String())
+		}
+	}
+	if got := readInWorkspace(t, e.cwd, "a.txt"); got != "new\n" {
+		t.Fatalf("a refused request touched a.txt: %q", got)
+	}
+	// Whitespace after the object is not data.
+	rec := e.doBody(t, http.MethodPost, "/coddy/sessions/"+e.id+"/changes/revert", "{\"paths\":[\"a.txt\"]}\n  ")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("trailing whitespace: want 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// A discard rewrites the folder, not a session: a turn running in another chat
+// of the same folder refuses it as much as one of its own.
+func TestSessionChangesDiscardRefusedWhileAnotherChatOfTheFolderRuns(t *testing.T) {
+	release := make(chan struct{})
+	started := make(chan struct{})
+	e := newChangesEnvWithRunner(t, func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		close(started)
+		<-release
+		return string(acp.StopReasonEndTurn), nil
+	})
+	e.commitWorkspace(t, map[string]string{"a.txt": "old\n"})
+	writeInWorkspace(t, e.cwd, "a.txt", "new\n")
+	other, err := e.srv.mgr.HandleSessionNew(t.Context(), acp.SessionNewParams{CWD: e.cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		req := httptest.NewRequest(http.MethodPost, "/v1/responses",
+			strings.NewReader(`{"model":"agent","input":"work","stream":false}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Coddy-Session-ID", other.SessionID)
+		e.srv.Handler().ServeHTTP(httptest.NewRecorder(), req)
+	}()
+	defer func() {
+		close(release)
+		<-done
+	}()
+	select {
+	case <-started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the other chat's turn never started")
+	}
+
+	rec := e.doBody(t, http.MethodPost, "/coddy/sessions/"+e.id+"/changes/revert", `{"all":true}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("want 409 while another chat of the folder runs, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := readInWorkspace(t, e.cwd, "a.txt"); got != "new\n" {
+		t.Fatalf("a refused discard touched a.txt: %q", got)
+	}
+}
+
+// A selection says one thing: both keys, an empty list, or a key the route
+// does not know is refused, never read as "all".
+func TestSessionChangesDiscardRefusesAnUnclearSelection(t *testing.T) {
+	e := newChangesEnv(t)
+	e.commitWorkspace(t, map[string]string{"a.txt": "old\n"})
+	writeInWorkspace(t, e.cwd, "a.txt", "new\n")
+	for _, body := range []string{`{"all":true,"paths":[]}`, `{"all":true,"paths":null}`, `{"all":true,"path":["a.txt"]}`, `{"paths":null}`} {
+		rec := e.doBody(t, http.MethodPost, "/coddy/sessions/"+e.id+"/changes/revert", body)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("body %q: want 400, got %d: %s", body, rec.Code, rec.Body.String())
+		}
+	}
+	if got := readInWorkspace(t, e.cwd, "a.txt"); got != "new\n" {
+		t.Fatalf("a refused request touched a.txt: %q", got)
 	}
 }

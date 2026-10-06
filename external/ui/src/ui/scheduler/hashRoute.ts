@@ -24,8 +24,8 @@ export type ParsedAppHash =
       historyOpen: boolean;
       tasksOpen: boolean;
       taskId: string | null;
-      /** The dock beside the chat shows the session's edits. */
-      dockTab?: "changes";
+      /** The edits window is open over the chat. */
+      editsOpen?: boolean;
       /** The Files window is open over the chat, on this file and line. */
       filesOpen?: boolean;
       filePath?: string;
@@ -243,9 +243,9 @@ export function parseAppHash(): ParsedAppHash {
       branch: "session",
       sessionId: decodeURIComponent(sessChanges[1]),
       historyOpen,
-      tasksOpen: true,
+      tasksOpen: false,
       taskId: null,
-      dockTab: "changes",
+      editsOpen: true,
     };
   }
   const sessTask = /^s\/([^/]+)\/tasks\/(.+)$/.exec(h);
