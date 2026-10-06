@@ -624,7 +624,7 @@ func schedulerFingerprint(c *config.Config) string {
 	}
 	s := c.Scheduler
 	return strings.Join([]string{
-		strconv.FormatBool(s.Enabled), s.Dir, s.Timeout,
+		strconv.FormatBool(s.Enabled), c.SchedulerUserDir(), s.Timeout,
 		strconv.Itoa(s.MaxQueue), strconv.Itoa(s.RetainSessions),
 	}, "\x00")
 }
@@ -698,7 +698,7 @@ func printServeBanner(cfg *config.Config, enabled []serve.Subsystem, httpAddr, s
 		case serve.KindGatewayPachca:
 			fmt.Fprintf(os.Stderr, "  gateway     pachca\n")
 		case serve.KindScheduler:
-			fmt.Fprintf(os.Stderr, "  scheduler   %s\n", cfg.Scheduler.Dir)
+			fmt.Fprintf(os.Stderr, "  scheduler   %s\n", cfg.SchedulerUserDir())
 		}
 	}
 }

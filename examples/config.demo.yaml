@@ -51,7 +51,6 @@ httpserver:
 
 scheduler:
   enable: true
-  dir: ""
   max_queue: 10
   timeout: "6m"
 

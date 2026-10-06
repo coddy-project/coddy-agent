@@ -225,6 +225,10 @@ type State struct {
 	// schedulerJobId, which is what keeps it out of the working list.
 	SchedulerRun   bool
 	SchedulerJobID string
+	// SchedulerJobWorkspace is the canonical workspace of a project job's
+	// session; empty for a user job. It is what keeps a user job and a project
+	// job of the same id from finding each other's session.
+	SchedulerJobWorkspace string
 
 	// PermissionMode is the session-level override for tools.permission_mode.
 	// Empty means use the config default. Values: "ask", "accept_edits", "bypass".
@@ -390,6 +394,22 @@ func (s *State) SetSchedulerJobWithoutPersist(jobID string) {
 	s.mu.Unlock()
 }
 
+// SetSchedulerJobWorkspaceWithoutPersist records the workspace of a project
+// job's session (see SchedulerJobWorkspace); empty for a user job.
+func (s *State) SetSchedulerJobWorkspaceWithoutPersist(workspace string) {
+	s.mu.Lock()
+	s.SchedulerJobWorkspace = strings.TrimSpace(workspace)
+	s.mu.Unlock()
+}
+
+// GetSchedulerJobWorkspace returns the workspace of a project job's session,
+// "" for a user job or an ordinary session.
+func (s *State) GetSchedulerJobWorkspace() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.SchedulerJobWorkspace
+}
+
 // IsSchedulerJob reports whether this session belongs to a scheduler job: the
 // parent of that job's runs, never a chat.
 func (s *State) IsSchedulerJob() bool {
@@ -510,8 +530,11 @@ type SubagentMeta struct {
 
 // SchedulerRunMeta is the origin of a scheduled run.
 type SchedulerRunMeta struct {
-	// JobID is the scheduler job (the file basename under scheduler.dir).
+	// JobID is the scheduler job (the basename of its *.md file).
 	JobID string
+	// Workspace is the canonical workspace of a project job; empty for a
+	// user job.
+	Workspace string
 	// Trigger is "cron" for a run the tick started, "manual" for one asked
 	// for through the API or a tool.
 	Trigger string

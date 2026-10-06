@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://coddy.dev/config.schema.json",
   "title": "Coddy config.yaml",
-  "description": "Configuration file for the Coddy agent (default location: ~/.coddy/config.yaml). Reference: https://coddy.dev/docs/reference/config. Any string value may reference environment variables with ${VAR_NAME}. ${CODDY_HOME} is expanded by the loader; ${CWD} stays in the value and is expanded per session by whatever reads the path (skills.dirs, subagents.dirs, hooks.files, prompts.dir), except in the process-scoped sessions.dir, scheduler.dir, memory.dir and logger.file, where it means the default working directory. MCP servers are not declared here: they live in <home>/mcp.json and the project's .coddy/mcp.json, and an old mcp_servers key is moved into <home>/mcp.json on load.",
+  "description": "Configuration file for the Coddy agent (default location: ~/.coddy/config.yaml). Reference: https://coddy.dev/docs/reference/config. Any string value may reference environment variables with ${VAR_NAME}. ${CODDY_HOME} is expanded by the loader; ${CWD} stays in the value and is expanded per session by whatever reads the path (skills.dirs, subagents.dirs, hooks.files, prompts.dir), except in the process-scoped sessions.dir, memory.dir and logger.file, where it means the default working directory. MCP servers are not declared here: they live in <home>/mcp.json and the project's .coddy/mcp.json, and an old mcp_servers key is moved into <home>/mcp.json on load.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -1026,6 +1026,14 @@
           "description": "Maximum snippets returned by memory_search.",
           "default": 8
         },
+        "max_note_chars": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Longest body one note saved by coddy_memory_save may have, in characters (not bytes). An explicit 0 removes the cap.",
+          "default": 900
+        },
         "additional_prompt": {
           "type": "string",
           "description": "Operator instructions for the memory subagent alone: a section of its system prompt that the main agent never sees. Empty adds nothing.",
@@ -1426,18 +1434,13 @@
     "scheduler": {
       "type": "object",
       "title": "Cron scheduler",
-      "description": "Cron-driven scheduled jobs (used only by binaries built with -tags scheduler). Jobs are flat *.md files with YAML frontmatter under scheduler.dir; five-field crontab in UTC. A run is a background agent task under the job's own session, which is the job's run history.",
+      "description": "Cron-driven scheduled jobs (used only by binaries built with -tags scheduler). Jobs are flat *.md files with YAML frontmatter in ${CODDY_HOME}/scheduler (user jobs) and <workspace>/.coddy/scheduler (project jobs, which run once approved); five-field crontab in UTC. A run is a background agent task under the job's own session, which is the job's run history.",
       "additionalProperties": false,
       "properties": {
         "enable": {
           "type": "boolean",
           "description": "Run the scheduler daemon and expose the coddy_scheduler_* tools. Can also be forced per process with coddy serve --scheduler (or coddy acp -scheduler).",
           "default": false
-        },
-        "dir": {
-          "type": "string",
-          "description": "Directory with *.md job definitions. Empty resolves to ${CODDY_HOME}/scheduler.",
-          "default": ""
         },
         "max_queue": {
           "type": "integer",
@@ -1448,6 +1451,16 @@
           "type": "string",
           "description": "Wall-clock limit for one run, as a Go duration (e.g. \"30m\", \"1h30m\"); the background task pool still caps it at tools.background.max_timeout_seconds.",
           "default": "30m"
+        },
+        "project_trust": {
+          "type": "string",
+          "description": "Trust policy for project jobs, the *.md files in <workspace>/.coddy/scheduler that travel with the checkout: \"ask\" lists them but runs one only once the operator approved that exact file for that workspace (the shield in the scheduler drawer, or POST /coddy/scheduler/jobs/{job_id}/trust?scope=project from a session in it); a job the operator creates through Coddy is approved at once; \"allow\" runs them like the operator's own jobs; \"deny\" never runs them. See https://coddy.dev/docs/operate/scheduler#project-jobs-and-trust.",
+          "default": "ask",
+          "enum": [
+            "ask",
+            "allow",
+            "deny"
+          ]
         },
         "retain_sessions": {
           "type": "integer",

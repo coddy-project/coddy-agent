@@ -209,7 +209,9 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 
 	// A ring can deliver the same agent through more than one child. The rows
 	// are the same sessions, so they collapse on identity; the route kept is
-	// the shortest one, because that is the one a client should use.
+	// the shortest one, because that is the one a client should use, and of
+	// equally short ones the one the topology picks, so it does not change from
+	// one request to the next.
 	rows = dedupeByIdentity(rows)
 	sortSessionRows(rows)
 
@@ -459,7 +461,12 @@ func (s *Server) relayName() string {
 	return s.uuid[:8]
 }
 
-// dedupeByIdentity collapses the same session arriving by several routes.
+// dedupeByIdentity collapses the same session arriving by several routes. The
+// shortest route is kept and, of routes of the same length, the one whose hops
+// sort first. The rows arrive in the order the fan-out happened to finish in,
+// so without a tie-break of its own the same session would come back by a
+// different route from one request to the next, and by another one than the
+// topology gives the agent.
 func dedupeByIdentity(rows []sessionRow) []sessionRow {
 	if len(rows) < 2 {
 		return rows
@@ -480,11 +487,27 @@ func dedupeByIdentity(rows []sessionRow) []sessionRow {
 			out = append(out, row)
 			continue
 		}
-		if len(row.NodePath) < len(out[idx].NodePath) {
+		if preferredRoute(row.NodePath, out[idx].NodePath) {
 			out[idx] = row
 		}
 	}
 	return out
+}
+
+// preferredRoute reports whether route a is kept over route b: fewer hops, then
+// the first hop that differs sorting first by name, which is the order
+// ComputeRoutes walks the graph in. Hops are compared one by one rather than as
+// a joined path, where a hyphen in one name would sort before the separator.
+func preferredRoute(a, b []string) bool {
+	if len(a) != len(b) {
+		return len(a) < len(b)
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return a[i] < b[i]
+		}
+	}
+	return false
 }
 
 // sortSessionRows orders by recency, then deterministically, so two clients

@@ -81,7 +81,9 @@ The model-facing pool tools do not see the run: `background_list` omits system t
 | `coddy_memory_save` | `title`, `body`, `scope`, optional `relative_path` | | yes |
 | `coddy_memory_delete` | `path` (a file, or a folder with everything under it; never a root) | | yes |
 
-Paths are `scope:relative/path.md` - `global:preferences.md`, `project:architecture/api.md` - and links inside a note body should use the same form (or a Markdown link with such a target) so they stay unambiguous across the two roots. Search ranks every file under the chosen roots by word overlap between the query and the file's path plus body, returns at most `max_search_hits` snippets of up to 1,200 characters, and is meant as an entry point: the child opens the hits with `coddy_memory_read` and follows the links inside. A save without `relative_path` gets a flat file name derived from the title; with it the note lands in that folder.
+Paths are `scope:relative/path.md` - `global:preferences.md`, `project:architecture/api.md` - and links inside a note body should use the same form (or a Markdown link with such a target) so they stay unambiguous across the two roots. Search ranks every file under the chosen roots by word overlap between the query and the file's path plus body, returns at most `max_search_hits` snippets of up to 1,200 characters, and is meant as an entry point: the child opens the hits with `coddy_memory_read` and follows the links inside. A save without `relative_path` gets a flat file name derived from the title, letters of any script kept; with it the note lands in that folder.
+
+A note body holds at most `memory.max_note_chars` characters (default 900; characters, not bytes, so a note in Cyrillic or another non-Latin script gets the same room as one in English). The tool definition states the cap, so the child knows it before the call, and its prompt tells it to split a longer topic into several notes. A body over the cap is cut at a character boundary, ends with a `...` line, and the save answers `saved as <path> (warning: body truncated to 900 characters)` instead of the plain `saved as <path>`, so a cut is never silent ([issue #429](https://github.com/coddy-project/coddy-agent/issues/429)). `0` removes the cap.
 
 ## Storage layout
 
@@ -104,7 +106,7 @@ A binary built with both `http` and `memory` serves the two roots of a session a
 | POST | `/coddy/sessions/{id}/memory/dir` | `{"root","path"}` creates a folder |
 | DELETE | `/coddy/sessions/{id}/memory/file` | `root` and `path`; a file, or a folder recursively; `400` for the root itself |
 
-`workspace` is the project root of that session's cwd. Traversal outside a root is rejected. The session's own notes (`agentMemory` in `session.json`) are not editable here. These routes are the contract written down under [Long term memory](../surfaces/web-ui.md#long-term-memory) in the web UI notes; the memory keys themselves are the **Memory copilot** tab of the web UI's Settings.
+`workspace` is the project root of that session's cwd. Traversal outside a root is rejected. The session's own notes (`agentMemory` in `session.json`) are not editable here. These routes are the contract written down under [Long term memory](../surfaces/web-ui.md#long-term-memory) in the web UI notes; the memory keys themselves are the **Memory** tab of the web UI's Settings.
 
 ## Configuration
 
@@ -121,6 +123,7 @@ memory:
   persist_max_turns: 12
   copilot_max_tokens: 4096 # completion cap of the memory model's calls
   max_search_hits: 8
+  max_note_chars: 900      # longest body one saved note may have, in characters; 0 = no cap
   additional_prompt: ""    # your own instructions for the memory subagent only; the main agent never sees them
   additional_prompt_max_chars: 0 # cut that text at so many characters (a warning is logged); 0 keeps it whole
 ```
@@ -137,14 +140,15 @@ memory:
 | `recall_max_turns`, `persist_max_turns` | `6`, `12` | bound the child's ReAct rounds; the effective cap is the larger of the two |
 | `copilot_max_tokens` | `4096` | completion cap for the memory model's calls |
 | `max_search_hits` | `8` | snippets returned by `coddy_memory_search` |
+| `max_note_chars` | `900` | longest body one note saved by `coddy_memory_save` may have, in characters; a longer one is cut with a warning in the tool's answer; `0` removes the cap |
 | `additional_prompt` | `""` | your own instructions for the memory subagent, rendered as its **Operator instructions** section; the main agent never sees them |
 | `additional_prompt_max_chars` | `0` | cut `additional_prompt` at that many characters, with a warning in the agent log and a `coddy -t` finding; `0` keeps it whole |
 
-The field table is in the [config.yaml reference](../reference/config.md#memory); `config.example.yaml` carries the same block with comments. The web UI edits the same keys under **Settings → Memory copilot**, grouped into **Model and storage**, **Runs**, **Limits** and **Instructions**.
+The field table is in the [config.yaml reference](../reference/config.md#memory); `config.example.yaml` carries the same block with comments. The web UI edits the same keys under **Settings → Memory**, grouped into **Model and storage**, the **Fallback memory models** list under it, **Instructions**, **Runs** and **Limits**.
 
-![Settings → Memory copilot: the Runs, Limits and Instructions blocks](../assets/memory/memory-settings-dark-1280.png)
+![Settings → Memory: the model, the fallback models, the instructions, the runs and the limits](../assets/memory/memory-settings-dark-1280.png)
 
-*Settings → Memory copilot: the wait, the timeout and the runs kept, the turn and token limits, and the operator's additional instructions with their cap*
+*Settings → Memory: the model and the fallback models, the operator's additional instructions with their cap, the wait, the timeout and the runs kept, and the turn and token limits with the note size cap*
 
 ## Cost and latency
 
@@ -152,6 +156,6 @@ Every user turn with memory on is a second model conversation: the child's own s
 
 ## Testing
 
-- `features/memory_subagent.feature` (harness `internal/agent/bdd_memory_test.go`, `-tags memory`): the run in the pool and the child bundle, the report in the first system prompt, a late report in the turn context, the recall-only child of ask mode, a persist, the isolation of the parent's stream, the fallback chain, a Stop during the wait, retention and the pool cap. `features/memory_http.feature` (`external/httpserver/bdd_memory_http_test.go`, `-tags http,memory`): the system task row and the read-only child transcript over REST.
-- Unit tests: `external/memory/agent_test.go` (the template, the task bound, the tool sets), `external/memory/storage/storage_test.go` (search, nested writes, traversal, deletion, link targets), `external/memory/tools/register_test.go` (the tool definitions), `internal/agent/memory_run_test.go` (the in-flight bounds, the wait, the token clamp, the templated prompt, the turn context section), `external/httpserver/memory_http_test.go` (traversal over REST).
+- `features/memory_subagent.feature` (harness `internal/agent/bdd_memory_test.go`, `-tags memory`): the run in the pool and the child bundle, the report in the first system prompt, a late report in the turn context, the recall-only child of ask mode, a persist, a Cyrillic note kept whole under the character cap, the isolation of the parent's stream, the fallback chain, a Stop during the wait, retention and the pool cap. `features/memory_http.feature` (`external/httpserver/bdd_memory_http_test.go`, `-tags http,memory`): the system task row and the read-only child transcript over REST.
+- Unit tests: `external/memory/agent_test.go` (the template, the task bound, the tool sets), `external/memory/storage/storage_test.go` (search, snippets cut in characters, nested writes, file names from non-Latin titles, traversal, deletion, link targets), `external/memory/tools/register_test.go` (the tool definitions), `external/memory/tools/mem_save_test.go` (the note cap in characters, the truncation warning, `max_note_chars`), `internal/agent/memory_run_test.go` (the in-flight bounds, the wait, the token clamp, the templated prompt, the turn context section), `external/httpserver/memory_http_test.go` (traversal over REST).
 - `examples/acp/acp_e2e_memory.py`, `examples/httpserver/http_e2e_memory.py` and `examples/cli/cli_e2e_memory.py` drive a real model: a pre-seeded global note is recalled and shapes the reply, a `remember` turn persists a note, the ACP harness then asks for that fact in a fresh session so the answer can only come from disk, and the run's record is checked where the surface shows it (the `memory` task row over HTTP, the child bundle under `<session>/subagents/` for ACP and the console).

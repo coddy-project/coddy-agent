@@ -74,8 +74,8 @@ func (r *runner) paths() {
 		r.hookFile(fmt.Sprintf("hooks.files[%d]", i), config.ExpandPathVars(f, r.req.Paths))
 	}
 
-	if cfg.SchedulerEffectiveEnabled() && strings.TrimSpace(cfg.Scheduler.Dir) != "" {
-		r.rep.add(r.creatableDir("scheduler.dir", cfg.Scheduler.Dir))
+	if cfg.SchedulerEffectiveEnabled() && cfg.SchedulerUserDir() != "" {
+		r.rep.add(r.creatableDir("scheduler.enable", cfg.SchedulerUserDir()))
 	}
 	if cfg.Memory.Enabled && strings.TrimSpace(cfg.Memory.Dir) != "" {
 		r.rep.add(r.creatableDir("memory.dir", cfg.Memory.Dir))

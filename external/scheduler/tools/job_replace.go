@@ -3,12 +3,13 @@
 package schedtools
 
 import (
+	schedservice "github.com/EvilFreelancer/coddy-agent/external/scheduler/service"
+
 	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 
-	"github.com/EvilFreelancer/coddy-agent/external/scheduler/service"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
@@ -23,6 +24,7 @@ func jobReplaceTool(cfg *config.Config) *tooling.Tool {
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
+					"scope":           scopeProperty(),
 					"job_id":          map[string]interface{}{"type": "string"},
 					"description":     map[string]interface{}{"type": "string"},
 					"schedule":        map[string]interface{}{"type": "string", "description": "5-field cron UTC"},
@@ -44,8 +46,12 @@ func jobReplaceTool(cfg *config.Config) *tooling.Tool {
 				return "", err
 			}
 			jobID := strings.TrimSpace(in.JobID)
-			op := schedservice.NewService(cfg, nil, toolEnvCWD(env))
-			if err := op.ReplaceJob(jobID, in); err != nil {
+			op := toolService(cfg, env)
+			addr, err := toolAddr(op, in.Scope, jobID)
+			if err != nil {
+				return "", err
+			}
+			if err := op.ReplaceJob(addr, in); err != nil {
 				return "", err
 			}
 			return fmt.Sprintf(`{"object":"coddy.scheduler_job_replaced","job_id":%q}`, jobID), nil

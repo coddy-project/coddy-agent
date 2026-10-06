@@ -21,7 +21,8 @@ func TestPatchJobRenameJobID(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
-		Scheduler: config.SchedulerConfig{Enabled: true, Dir: schedDir},
+		Paths:     config.Paths{Home: root, CWD: root},
+		Scheduler: config.SchedulerConfig{Enabled: true},
 	}
 	cfg.Scheduler.Normalize(config.Paths{CWD: root})
 	cfg.Scheduler.ApplyDefaults(config.Paths{CWD: root})
@@ -36,19 +37,19 @@ func TestPatchJobRenameJobID(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := []byte(`{"last_scheduled_utc":"2026-05-01T12:00:00Z"}`)
-	oldAbs, _ := svc.jobAbsPath("old-name")
+	oldAbs, _ := svc.roots().UserRef("old-name").Path, error(nil)
 	if err := os.WriteFile(storage.StatePath(oldAbs), state, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	newID := "new-name"
-	if err := svc.PatchJob("old-name", SchedulerJobPatch{JobID: &newID}); err != nil {
+	if err := svc.PatchJob(UserJob("old-name"), SchedulerJobPatch{JobID: &newID}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(oldAbs); !os.IsNotExist(err) {
 		t.Fatalf("old .md should be gone: %v", err)
 	}
-	newAbs, err := svc.jobAbsPath("new-name")
+	newAbs, err := svc.roots().UserRef("new-name").Path, error(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +59,7 @@ func TestPatchJobRenameJobID(t *testing.T) {
 	if _, err := os.Stat(storage.StatePath(newAbs)); err != nil {
 		t.Fatalf("state sidecar should move with rename: %v", err)
 	}
-	got, err := svc.GetJob("new-name")
+	got, err := svc.GetJob(UserJob("new-name"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +75,8 @@ func TestPatchJobRenameJobIDConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
-		Scheduler: config.SchedulerConfig{Enabled: true, Dir: schedDir},
+		Paths:     config.Paths{Home: root, CWD: root},
+		Scheduler: config.SchedulerConfig{Enabled: true},
 	}
 	cfg.Scheduler.Normalize(config.Paths{CWD: root})
 	cfg.Scheduler.ApplyDefaults(config.Paths{CWD: root})
@@ -87,7 +89,7 @@ func TestPatchJobRenameJobIDConflict(t *testing.T) {
 		}
 	}
 	target := "taken"
-	if err := svc.PatchJob("mover", SchedulerJobPatch{JobID: &target}); err != ErrJobExists {
+	if err := svc.PatchJob(UserJob("mover"), SchedulerJobPatch{JobID: &target}); err != ErrJobExists {
 		t.Fatalf("want ErrJobExists, got %v", err)
 	}
 }
@@ -98,8 +100,8 @@ type runningStubRuntime struct {
 	running string
 }
 
-func (r *runningStubRuntime) RunningRun(jobPath string) (RunRef, bool) {
-	if jobPath == r.running {
+func (r *runningStubRuntime) RunningRun(ref storage.JobRef) (RunRef, bool) {
+	if ref.Path == r.running {
 		return RunRef{JobID: "running"}, true
 	}
 	return RunRef{}, false
@@ -114,7 +116,8 @@ func TestDeleteAndRenameAreBlockedWhileTheJobRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
-		Scheduler: config.SchedulerConfig{Enabled: true, Dir: schedDir},
+		Paths:     config.Paths{Home: root, CWD: root},
+		Scheduler: config.SchedulerConfig{Enabled: true},
 	}
 	cfg.Scheduler.Normalize(config.Paths{CWD: root})
 	cfg.Scheduler.ApplyDefaults(config.Paths{CWD: root})
@@ -124,17 +127,17 @@ func TestDeleteAndRenameAreBlockedWhileTheJobRuns(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	abs, err := svc.jobAbsPath("busy")
+	abs, err := svc.roots().UserRef("busy").Path, error(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	SetRuntime(&runningStubRuntime{running: abs})
 	defer SetRuntime(nil)
-	if err := svc.DeleteJob("busy"); err != ErrJobBusy {
+	if err := svc.DeleteJob(UserJob("busy")); err != ErrJobBusy {
 		t.Fatalf("delete: want ErrJobBusy, got %v", err)
 	}
 	newID := "renamed"
-	if err := svc.PatchJob("busy", SchedulerJobPatch{JobID: &newID}); err != ErrJobBusy {
+	if err := svc.PatchJob(UserJob("busy"), SchedulerJobPatch{JobID: &newID}); err != ErrJobBusy {
 		t.Fatalf("rename: want ErrJobBusy, got %v", err)
 	}
 	if _, err := os.Stat(abs); err != nil {
@@ -152,7 +155,8 @@ func TestCreateJobValidatesAgentAndPermissionMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
-		Scheduler: config.SchedulerConfig{Enabled: true, Dir: schedDir},
+		Paths:     config.Paths{Home: root, CWD: root},
+		Scheduler: config.SchedulerConfig{Enabled: true},
 	}
 	cfg.Scheduler.Normalize(config.Paths{CWD: root})
 	cfg.Scheduler.ApplyDefaults(config.Paths{CWD: root})
@@ -172,14 +176,14 @@ func TestCreateJobValidatesAgentAndPermissionMode(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("valid fields refused: %v", err)
 	}
-	job, err := svc.GetJob("a")
+	job, err := svc.GetJob(UserJob("a"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if job.Agent != "reviewer" || job.PermissionMode != "accept_edits" {
 		t.Fatalf("fields lost on the way through the file: %+v", job)
 	}
-	abs, _ := svc.jobAbsPath("a")
+	abs, _ := svc.roots().UserRef("a").Path, error(nil)
 	fm, _, err := storage.ParseJobFile(abs)
 	if err != nil {
 		t.Fatal(err)
@@ -196,7 +200,8 @@ func TestPatchJobRenameRejectsInvalidID(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
-		Scheduler: config.SchedulerConfig{Enabled: true, Dir: schedDir},
+		Paths:     config.Paths{Home: root, CWD: root},
+		Scheduler: config.SchedulerConfig{Enabled: true},
 	}
 	cfg.Scheduler.Normalize(config.Paths{CWD: root})
 	cfg.Scheduler.ApplyDefaults(config.Paths{CWD: root})
@@ -207,7 +212,7 @@ func TestPatchJobRenameRejectsInvalidID(t *testing.T) {
 		t.Fatal(err)
 	}
 	bad := "bad/id"
-	renameErr := svc.PatchJob("ok", SchedulerJobPatch{JobID: &bad})
+	renameErr := svc.PatchJob(UserJob("ok"), SchedulerJobPatch{JobID: &bad})
 	if renameErr == nil {
 		t.Fatal("want invalid job_id error")
 	}

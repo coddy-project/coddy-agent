@@ -346,6 +346,13 @@ var movedKeys = map[string]struct{ message, fix, doc string }{
 			"and removes it from config.yaml, keeping the old file as config.yaml.bak-<time>",
 		doc: "https://coddy.dev/docs/features/skills#marketplaces-and-sources",
 	},
+	"scheduler.dir": {
+		message: "scheduler.dir is no longer read from config.yaml",
+		fix: "user jobs live in ${CODDY_HOME}/scheduler and project jobs in <workspace>/.coddy/scheduler; " +
+			"the next start copies the jobs of this folder into ${CODDY_HOME}/scheduler (a job the folder already has is kept) " +
+			"and removes the key from config.yaml, keeping the old file as config.yaml.bak-<time>",
+		doc: "https://coddy.dev/docs/operate/scheduler#where-jobs-live",
+	},
 }
 
 func (v *schemaValidator) unknownKey(path string, k *yaml.Node, s *schemaNode) {

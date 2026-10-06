@@ -312,6 +312,7 @@ type MemoryJSON struct {
 	PersistMaxTurns  int      `json:"persist_max_turns,omitempty"`
 	CopilotMaxTokens int      `json:"copilot_max_tokens,omitempty"`
 	MaxSearchHits    int      `json:"max_search_hits,omitempty"`
+	MaxNoteChars     *int     `json:"max_note_chars,omitempty"`
 	// AdditionalPrompt and its cap: the operator's instructions for the
 	// memory subagent (issue #266).
 	AdditionalPrompt         string `json:"additional_prompt,omitempty"`
@@ -450,10 +451,10 @@ type HooksJSON struct {
 // SchedulerJSON mirrors SchedulerConfig.
 type SchedulerJSON struct {
 	Enabled        bool   `json:"enable,omitempty"`
-	Dir            string `json:"dir,omitempty"`
 	MaxQueue       int    `json:"max_queue,omitempty"`
 	Timeout        string `json:"timeout,omitempty"`
 	RetainSessions int    `json:"retain_sessions,omitempty"`
+	ProjectTrust   string `json:"project_trust,omitempty"`
 }
 
 // ConfigToJSONDTO copies a loaded Config into ConfigJSON (for GET /coddy/config).
@@ -569,6 +570,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		WaitSeconds: cloneIntPtr(c.Memory.WaitSeconds), TimeoutSeconds: c.Memory.TimeoutSeconds, KeepRuns: cloneIntPtr(c.Memory.KeepRuns),
 		RecallMaxTurns: c.Memory.RecallMaxTurns, PersistMaxTurns: c.Memory.PersistMaxTurns,
 		CopilotMaxTokens: c.Memory.CopilotMaxTokens, MaxSearchHits: c.Memory.MaxSearchHits,
+		MaxNoteChars:     cloneIntPtr(c.Memory.MaxNoteChars),
 		AdditionalPrompt: c.Memory.AdditionalPrompt, AdditionalPromptMaxChars: c.Memory.AdditionalPromptMaxChars,
 	}
 	out.HTTPServer = HTTPServerJSON{
@@ -634,8 +636,9 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	}
 	out.UI = UIJSON{Enabled: cloneBoolPtr(c.UI.Enabled), SessionChanges: cloneBoolPtr(c.UI.SessionChanges)}
 	out.Scheduler = SchedulerJSON{
-		Enabled: c.Scheduler.Enabled, Dir: c.Scheduler.Dir, MaxQueue: c.Scheduler.MaxQueue,
+		Enabled: c.Scheduler.Enabled, MaxQueue: c.Scheduler.MaxQueue,
 		Timeout: c.Scheduler.Timeout, RetainSessions: c.Scheduler.RetainSessions,
+		ProjectTrust: c.Scheduler.ProjectTrust,
 	}
 	out.Subagents = SubagentsJSON{
 		Enabled:               cloneBoolPtr(c.Subagents.Enabled),
@@ -799,6 +802,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		WaitSeconds: cloneIntPtr(j.Memory.WaitSeconds), TimeoutSeconds: j.Memory.TimeoutSeconds, KeepRuns: cloneIntPtr(j.Memory.KeepRuns),
 		RecallMaxTurns: j.Memory.RecallMaxTurns, PersistMaxTurns: j.Memory.PersistMaxTurns,
 		CopilotMaxTokens: j.Memory.CopilotMaxTokens, MaxSearchHits: j.Memory.MaxSearchHits,
+		MaxNoteChars:     cloneIntPtr(j.Memory.MaxNoteChars),
 		AdditionalPrompt: j.Memory.AdditionalPrompt, AdditionalPromptMaxChars: j.Memory.AdditionalPromptMaxChars,
 	}
 	cfg.HTTPServer = HTTPServerConfig{
@@ -857,8 +861,9 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	}
 	cfg.UI = UIConfig{Enabled: cloneBoolPtr(j.UI.Enabled), SessionChanges: cloneBoolPtr(j.UI.SessionChanges)}
 	cfg.Scheduler = SchedulerConfig{
-		Enabled: j.Scheduler.Enabled, Dir: j.Scheduler.Dir, MaxQueue: j.Scheduler.MaxQueue,
+		Enabled: j.Scheduler.Enabled, MaxQueue: j.Scheduler.MaxQueue,
 		Timeout: j.Scheduler.Timeout, RetainSessions: j.Scheduler.RetainSessions,
+		ProjectTrust: j.Scheduler.ProjectTrust,
 	}
 	cfg.Subagents = Subagents{
 		Enabled:               cloneBoolPtr(j.Subagents.Enabled),

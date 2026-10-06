@@ -2,8 +2,11 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -21,8 +24,11 @@ type SchedulerJobSessionSpec struct {
 	// ID is the session id the job's sidecar records; minted by the scheduler
 	// before the first run so the pointer exists before the bundle does.
 	ID string
-	// JobID is the scheduler job (the file basename under scheduler.dir).
+	// JobID is the scheduler job (the basename of its *.md file).
 	JobID string
+	// Workspace is the canonical workspace of a project job; empty for a user
+	// job.
+	Workspace string
 	// CWD is the job's resolved working directory.
 	CWD string
 	// Title is pinned as the session title; the job id when empty.
@@ -52,7 +58,7 @@ func schedulerRunMetaFromSnapshot(meta SessionMeta) *SchedulerRunMeta {
 	if jobID == "" {
 		return nil
 	}
-	out := &SchedulerRunMeta{JobID: jobID, Trigger: strings.TrimSpace(meta.SchedulerTrigger)}
+	out := &SchedulerRunMeta{JobID: jobID, Workspace: strings.TrimSpace(meta.SchedulerJobWorkspace), Trigger: strings.TrimSpace(meta.SchedulerTrigger)}
 	if raw := strings.TrimSpace(meta.SchedulerFireSlot); raw != "" {
 		if slot, err := time.Parse(time.RFC3339, raw); err == nil {
 			out.FireSlot = slot.UTC()
@@ -117,6 +123,7 @@ func (m *Manager) EnsureSchedulerJobSession(ctx context.Context, spec SchedulerJ
 		contextWindows: m,
 	}
 	state.SetSchedulerJobWithoutPersist(jobID)
+	state.SetSchedulerJobWorkspaceWithoutPersist(spec.Workspace)
 	title := strings.TrimSpace(spec.Title)
 	if title == "" {
 		title = jobID
@@ -141,4 +148,36 @@ func (m *Manager) EnsureSchedulerJobSession(ctx context.Context, spec SchedulerJ
 	}
 	m.log.Info("scheduler job session created", "id", id, "job", jobID, "cwd", cwd)
 	return state, nil
+}
+
+// RenameSchedulerJobSession rewrites the job id a scheduler job session names
+// in its session.json, after the job was renamed. Without it the bundle would
+// still claim the old id, and a later job created under that id would adopt
+// the renamed job's run history through the bundle walk. The rest of the
+// record is kept as it is on disk. A session that has no bundle is not an
+// error: a job that never ran has nothing to rename.
+func (f *FileStore) RenameSchedulerJobSession(sessionID, jobID string) error {
+	if f == nil || strings.TrimSpace(sessionID) == "" {
+		return nil
+	}
+	if err := ValidateFolderSessionID(sessionID); err != nil {
+		return err
+	}
+	path := filepath.Join(f.SessionPath(sessionID), sessionMetaFile)
+	raw, err := readFileWithRetry(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	var doc map[string]interface{}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return fmt.Errorf("session.json: %w", err)
+	}
+	if run, _ := doc["schedulerRun"].(bool); !run {
+		return fmt.Errorf("session %s is not the session of a scheduler job", sessionID)
+	}
+	doc["schedulerJobId"] = strings.TrimSpace(jobID)
+	return writeJSONAtomic(path, doc)
 }

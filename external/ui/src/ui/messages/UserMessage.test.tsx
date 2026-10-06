@@ -345,3 +345,23 @@ test("in a remote environment the picture comes through it, from an object URL",
     vi.unstubAllGlobals();
   }
 });
+
+test("the message being edited is marked on its bubble", () => {
+  const { container } = render(<UserMessage content="hello" editing />);
+  expect(container.querySelector(".msg-user-stack")).toHaveClass("msg-user-stack--editing");
+});
+
+test("a bubble that is not being edited carries no mark", () => {
+  const { container } = render(<UserMessage content="hello" />);
+  expect(container.querySelector(".msg-user-stack")).not.toHaveClass("msg-user-stack--editing");
+  expect(screen.queryByTestId("user-message-undo-edit")).toBeNull();
+});
+
+test("the prompt of an undoable edit offers Undo", () => {
+  const onUndoEdit = vi.fn();
+  render(<UserMessage content="edited" onUndoEdit={onUndoEdit} />);
+  const btn = screen.getByTestId("user-message-undo-edit");
+  expect(btn).toHaveAccessibleName("Undo edit");
+  fireEvent.click(btn);
+  expect(onUndoEdit).toHaveBeenCalledTimes(1);
+});

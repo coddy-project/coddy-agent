@@ -3,7 +3,7 @@
 
 Every run gets a private CODDY_HOME built from ~/.coddy: config.yaml with every
 absolute /home/<user>/.coddy path rewritten to the copy (sessions.dir,
-logger.file, scheduler.dir, skills.dirs), plus .env, mcp.json, providers/,
+logger.file, skills.dirs), plus .env, mcp.json, providers/,
 skills/, agents/, memory/ and the trust files. Sessions, logs and backups are not
 copied. The real home is never written to, which the script checks.
 

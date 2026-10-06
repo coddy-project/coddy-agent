@@ -21,6 +21,9 @@ func (m *MemoryConfig) Validate(cfg *Config) error {
 	if m.KeepRuns != nil && *m.KeepRuns < 0 {
 		return fmt.Errorf("memory.keep_runs must be 0 or more, got %d", *m.KeepRuns)
 	}
+	if m.MaxNoteChars != nil && *m.MaxNoteChars < 0 {
+		return fmt.Errorf("memory.max_note_chars must be 0 or more, got %d", *m.MaxNoteChars)
+	}
 	if m.AdditionalPromptMaxChars < 0 {
 		return fmt.Errorf("memory.additional_prompt_max_chars must be 0 or more, got %d", m.AdditionalPromptMaxChars)
 	}

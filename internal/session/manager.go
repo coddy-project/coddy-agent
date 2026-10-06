@@ -836,6 +836,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		// it carries, and nothing below (skills, hooks, MCP) is for it, since
 		// no turn ever runs on it.
 		st.SetSchedulerJobWithoutPersist(snap.Meta.SchedulerJobID)
+		st.SetSchedulerJobWorkspaceWithoutPersist(snap.Meta.SchedulerJobWorkspace)
 		jobSession = true
 	} else if kept, ok := m.keptProcessSettings(params.SessionID); ok {
 		// A surface let go of this session earlier in this process: its
@@ -2236,6 +2237,9 @@ func (m *Manager) acquireTurnLockWithReloadDrain(sessionID string, st *State) (f
 		return nil, err
 	}
 	return func() {
+		// A turn that followed an edited one ends the undo of that edit; its
+		// kept tail leaves the bundle while the lock is still ours.
+		retireStaleRewindUndo(st)
 		unlock()
 		m.drainPendingMCPReload(sessionID, st)
 	}, nil

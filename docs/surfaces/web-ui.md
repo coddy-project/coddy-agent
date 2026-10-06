@@ -106,9 +106,9 @@ Clear the field to use the session model for summarization.
 
 ## Settings: tabs and form layout
 
-- The tabs read in groups: **Appearance** and **Sessions**; where the models come from (**LLM providers**, **Logical models**); the loop that runs them (**ReAct loop**, **Context compaction**, **Memory copilot**); what the agent can do (**Tools and permissions**, **MCP servers**, **Skills**, **Subagents**, **Hooks**); what runs it without a person at the composer (**Scheduler**, **Gateways**); and the operation of the process (**Logger**, **Prompts**). **Prompts** holds the prompt templates and the instruction files and is always last.
+- The tabs read in groups: **Appearance** and **Sessions**; where the models come from (**LLM providers**, **Logical models**); the loop that runs them (**ReAct loop**, **Context compaction**, **Memory**); what the agent can do (**Tools and permissions**, **MCP servers**, **Skills**, **Subagents**, **Hooks**); what runs it without a person at the composer (**Scheduler**, **Gateways**); and the operation of the process (**Logger**, **Prompts**). **Prompts** holds the prompt templates and the instruction files and is always last.
 - **Sessions** edits where the session bundles are stored (**Storage**, `sessions.dir`) above the table of stored sessions; the table itself acts at once, the storage path saves with **Save all**.
-- A tab's own **Enabled** switch opens the form, above every block (Subagents, Hooks, Memory copilot, Context compaction, Scheduler). The other fields sit in fieldsets by meaning, for example **Model and turns**, **Retries**, **Stream timeouts**, **Loop guard** and **Usage limits** on **ReAct loop**; a list (definition directories, fallback models, component levels) is a block of its own beside them. Inside a nested block a list keeps its frame (the Telegram admins, user groups and per-chat overrides).
+- A tab's own **Enabled** switch opens the form, above every block (Subagents, Hooks, Memory, Context compaction, Scheduler). The other fields sit in fieldsets by meaning, for example **Model and turns**, **Retries**, **Stream timeouts**, **Loop guard** and **Usage limits** on **ReAct loop**; a list (definition directories, fallback models, component levels) is a block of its own beside them. Inside a nested block a list keeps its frame (the Telegram admins, user groups and per-chat overrides).
 - A list of values is its inputs, each with a trash button, and **Add** under them: no per-row label and no rule between rows. An entry of a list of objects is a frame of its own, without a numbered title.
 - A map of values, such as the **Default headers** of **HTTP requests** (`tools.http_request.default_headers`), is a row per entry: the name and the value side by side, a trash button, and **Add** under the rows. A row without a name stays on screen and out of the saved configuration; an empty value is saved, and for a header it means "leave this header out".
 - Empty path fields show where the default leads (`${CODDY_HOME}/sessions`, `${CODDY_HOME}/memory`) or an example of what to write.
@@ -917,9 +917,19 @@ Automated checks:
 Editing a sent message rewrites the conversation in place: the history is rewound to that message and the edited text is sent in the same session - no sibling conversation, nothing to navigate.
 
 - Every user bubble carries a pencil button (**`.msg-user-edit`**, **`data-testid="user-message-edit"`**, accessible name **`Edit message`**) in **`.msg-user-foot`**, directly left of the copy control with the same **`.msg-copy-icon-btn`** chrome - always visible, in flow. It loads that message back into the composer draft (attachment chips are recovered from the persisted session-assets annotation) and records the 0-based **user** message index being edited.
+- While a message is loaded for an edit, the composer says so: a banner above the card (**`.composer-edit-banner`**, **`data-testid="composer-edit-banner"`**) names it (**Editing message**, the start of its text, *Sending rewinds the conversation to this message*), the send button's accessible name becomes **Send edit**, the bubble is outlined (**`.msg-user-stack--editing`**) and every row after it is faded, since sending removes exactly those rows. **Escape** in the field (once no picker or popover claimed it) or the banner's cross (**`data-testid="composer-edit-cancel"`**) leaves the edit and puts back the draft and attachments the pencil replaced; a second pencil switches the message and keeps the same draft to return to. Sending the edit gives that draft back too, so a follow-up written before the pencil is not lost.
 - Sending that draft calls **`POST /coddy/sessions/{id}/rewind`** with **`{"userMessageIndex"}`**. The draft and the editing state stay until the rewind lands - a failed request surfaces as a UI-log error row and nothing is lost.
 - On **200** the client drops the shadow transcript and the persisted permission prompts of the removed tail, reloads the kept prefix from **`GET .../messages`**, and sends the edited text as the next turn of the same session.
-- The server truncates **`messages.json`** at the edit point, prunes the **`tool_calls/`** entries and **`ui_log`** rows of the removed turns, and clears a pending permission prompt whose tool call left the transcript. **`session_rewound`** on **`GET /coddy/events`** tells every other tab or surface holding the session to reload the same way.
+- The server truncates **`messages.json`** at the edit point, moves the **`tool_calls/`** entries and **`ui_log`** rows of the removed turns into the undo snapshot (**`rewind_undo/`**, removed once a later prompt or another rewind retires it), and clears a pending permission prompt whose tool call left the transcript. **`session_rewound`** on **`GET /coddy/events`** tells every other tab or surface holding the session to reload the same way.
+- A sent edit can be taken back while **`GET .../messages`** carries **`rewindUndo`**: the edited prompt carries **Undo edit** in its foot (**`.msg-user-undo-edit`**, **`data-testid="user-message-undo-edit"`**) and the banner slot says **Message edited** with **Undo** (**`data-testid="composer-undo-banner"`**, hidden by its cross for that edit; the prompt's control stays). Undo stops the edited turn if it still runs, calls **`POST /coddy/sessions/{id}/rewind/undo`**, and reloads the transcript; a refusal is an error row. Sending another prompt ends the undo, as it does on the server. File changes the removed turns made are not reverted, and both controls say so.
+
+![The edit banner above the composer while a sent message is being edited](../assets/web-ui/message-edit-banner-dark-1280.png)
+
+*Editing a sent message: the banner names it, the bubble is outlined and the turns sending will remove are faded.*
+
+![The undo banner after an edit was sent](../assets/web-ui/message-edit-undo-dark-1280.png)
+
+*After the edit is sent, Undo on the prompt and in the banner restores the conversation as it was.*
 
 Automated checks:
 
@@ -927,7 +937,10 @@ Automated checks:
 - **features/session_rewind.feature** + **external/httpserver/bdd_rewind_test.go** (the endpoint's happy path)
 - **external/ui/src/ui/messages/userMsgIndices.test.ts** (the index an edit names, a wake counting as a turn)
 - **external/ui/src/ui/messages/MessageList.test.tsx** (the index an edit names when the transcript holds only the end of a long history, see **Long sessions**)
-- **external/ui/src/ui/messages/UserMessage.test.tsx** (edit control visibility)
+- **external/ui/src/ui/messages/UserMessage.test.tsx** (edit control visibility, the editing mark, Undo edit)
+- **external/ui/src/ui/chat/Composer.editBanner.test.tsx** (the edit and undo banners, Escape, the send button's name)
+- **external/ui/src/ui/App.messageEdit.test.tsx** (cancelling restores the draft, Undo restores the conversation)
+- **internal/session/rewind_undo_test.go**, **features/session_rewind_undo.feature** and **external/httpserver/coddy_rewind_undo_test.go** (the kept tail, when the undo ends, stopping the edited turn)
 
 ## Background tasks panel
 

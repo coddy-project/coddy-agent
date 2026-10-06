@@ -673,8 +673,8 @@ agent:
 		t.Fatalf("max_queue %d", cfg.Scheduler.MaxQueue)
 	}
 	wantDir := filepath.Join(home, "scheduler")
-	if cfg.Scheduler.Dir != wantDir {
-		t.Fatalf("dir %q want %q", cfg.Scheduler.Dir, wantDir)
+	if got := cfg.SchedulerUserDir(); got != wantDir {
+		t.Fatalf("user jobs dir %q want %q", got, wantDir)
 	}
 }
 
@@ -1577,7 +1577,6 @@ logger:
 		want string
 	}{
 		{"sessions.dir", cfg.Sessions.Dir, filepath.Join(launch, "sessions")},
-		{"scheduler.dir", cfg.Scheduler.Dir, filepath.Join(launch, ".scheduler")},
 		{"memory.dir", cfg.Memory.Dir, filepath.Join(launch, "memory")},
 		{"logger.file", cfg.Logger.File, filepath.Join(launch, "coddy.log")},
 	}
@@ -1961,5 +1960,106 @@ func TestLegacySkillsSourcesMoveIntoHomeMarketplacesJSON(t *testing.T) {
 	}
 	if backups, _ := filepath.Glob(path + ".bak-*"); len(backups) != 1 {
 		t.Fatalf("want one backup for both moves, got %v", backups)
+	}
+}
+
+// scheduler.dir left config.yaml: the user jobs folder is fixed at
+// ${CODDY_HOME}/scheduler. A config that still names another folder has its
+// jobs and their .state sidecars copied there on load - a job the target has
+// with the same bytes is skipped, one with other bytes lands as
+// <id>-migrated.md - the old folder left as it was, and the key cut out.
+func TestLegacySchedulerDirCopiesJobsIntoTheHome(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	old := filepath.Join(dir, "jobs")
+	userDir := filepath.Join(home, "scheduler")
+	for _, d := range []string{old, userDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write := func(path, body string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(old, "nightly.md"), "---\nschedule: \"0 3 * * *\"\n---\nold nightly\n")
+	write(filepath.Join(old, "nightly.state"), "{\"session_id\":\"sess_x\"}\n")
+	write(filepath.Join(old, "taken.md"), "---\nschedule: \"0 4 * * *\"\n---\nold taken\n")
+	write(filepath.Join(old, "taken.state"), "{\"session_id\":\"sess_old\"}\n")
+	write(filepath.Join(userDir, "taken.md"), "---\nschedule: \"0 5 * * *\"\n---\nhome taken\n")
+	write(filepath.Join(old, "same.md"), "---\nschedule: \"0 6 * * *\"\n---\nsame\n")
+	write(filepath.Join(userDir, "same.md"), "---\nschedule: \"0 6 * * *\"\n---\nsame\n")
+	write(filepath.Join(old, "same.state"), "{\"session_id\":\"sess_same\"}\n")
+	write(filepath.Join(old, "twice.md"), "---\nschedule: \"0 7 * * *\"\n---\nold twice\n")
+	write(filepath.Join(userDir, "twice.md"), "---\nschedule: \"0 7 * * *\"\n---\nhome twice\n")
+	write(filepath.Join(userDir, "twice-migrated.md"), "---\nschedule: \"0 7 * * *\"\n---\nan earlier copy\n")
+
+	body := "agent:\n  model: local/m\nscheduler:\n  enable: true\n  dir: " + old + "\n  max_queue: 3\n"
+	path := filepath.Join(dir, "config.yaml")
+	write(path, body)
+	cfg, err := config.LoadWithPaths(config.Paths{Home: home, CWD: dir, ConfigPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Scheduler.MaxQueue != 3 || !cfg.Scheduler.Enabled {
+		t.Fatalf("the rest of the scheduler section was lost: %+v", cfg.Scheduler)
+	}
+	if got, _ := os.ReadFile(filepath.Join(userDir, "nightly.md")); !strings.Contains(string(got), "old nightly") {
+		t.Fatalf("nightly.md not copied: %q", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(userDir, "nightly.state")); !strings.Contains(string(got), "sess_x") {
+		t.Fatalf("nightly.state not copied: %q", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(userDir, "taken.md")); !strings.Contains(string(got), "home taken") {
+		t.Fatalf("a job the home already had was overwritten: %q", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(userDir, "taken-migrated.md")); !strings.Contains(string(got), "old taken") {
+		t.Fatalf("a clashing job was not copied aside: %q", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(userDir, "taken-migrated.state")); !strings.Contains(string(got), "sess_old") {
+		t.Fatalf("the clashing job's state did not follow it: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(userDir, "same-migrated.md")); err == nil {
+		t.Fatal("a job with the same bytes was copied aside")
+	}
+	if got, _ := os.ReadFile(filepath.Join(userDir, "same.state")); !strings.Contains(string(got), "sess_same") {
+		t.Fatalf("the checkpoint of a job the home already had was not carried: %q", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(userDir, "twice-migrated-2.md")); !strings.Contains(string(got), "old twice") {
+		t.Fatalf("a job whose -migrated name was taken was dropped: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(old, "nightly.md")); err != nil {
+		t.Fatalf("the old folder was touched: %v", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "agent:\n  model: local/m\nscheduler:\n  enable: true\n  max_queue: 3\n"; string(after) != want {
+		t.Fatalf("config.yaml after the move:\n%s\nwant:\n%s", after, want)
+	}
+}
+
+// A scheduler.dir that already names ${CODDY_HOME}/scheduler only leaves the
+// file.
+func TestLegacySchedulerDirAtTheDefaultIsCutOnly(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	body := "scheduler:\n  dir: ${CODDY_HOME}/scheduler\n  enable: false\n"
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.LoadWithPaths(config.Paths{Home: home, CWD: dir, ConfigPath: path}); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "scheduler:\n  enable: false\n"; string(after) != want {
+		t.Fatalf("config.yaml after the move:\n%s\nwant:\n%s", after, want)
 	}
 }

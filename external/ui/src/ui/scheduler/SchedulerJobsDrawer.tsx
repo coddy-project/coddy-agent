@@ -1,4 +1,6 @@
 import type { SchedulerInfo, SchedulerJob, SchedulerRunEntry } from "./types";
+import { schedulerJobRef } from "./types";
+import { IconShield } from "../settings/icons";
 import { SchedulerIconPlus, SchedulerIconRuns } from "./schedulerToolbarIcons";
 import { appNavHrefSchedulerJob, appNavHrefSchedulerJobRuns } from "./hashRoute";
 import { sameTabInAppNavClick } from "../nav/sameTabInAppNav";
@@ -49,6 +51,20 @@ function LastRunMark(props: { jobId: string; run: SchedulerRunEntry }) {
   );
 }
 
+/** Dictionary key of a trust state. */
+function trustKey(trust: string): string {
+  switch (trust) {
+    case "needs_approval":
+      return "needsApproval";
+    case "denied":
+    case "conflict":
+    case "invalid":
+      return trust;
+    default:
+      return "trusted";
+  }
+}
+
 /** Dictionary key of a task status (`timed_out` is spelled `timedOut`). */
 function statusKey(status: string): string {
   switch (status) {
@@ -91,6 +107,52 @@ export function formatNextRunUtc(iso: string | undefined): string {
   }
 }
 
+/** Last path segment of a workspace, the name its heading shows. */
+export function workspaceName(path: string): string {
+  const parts = (path || "").split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] ?? path;
+}
+
+/**
+ * The drawer's sections: the user jobs, then one per workspace with project
+ * jobs - the chat's own workspace first. Only the project sections get a
+ * heading when there are no project jobs at all, the list looks as it always
+ * did.
+ */
+export type SchedulerJobGroup = {
+  key: string;
+  workspace: string;
+  jobs: SchedulerJob[];
+};
+
+export function groupSchedulerJobs(
+  jobs: SchedulerJob[],
+  currentWorkspace: string,
+): SchedulerJobGroup[] {
+  const user: SchedulerJob[] = [];
+  const byWorkspace = new Map<string, SchedulerJob[]>();
+  for (const j of jobs) {
+    if (j.scope === "project" && (j.workspace || "").trim()) {
+      const ws = (j.workspace || "").trim();
+      const list = byWorkspace.get(ws) || [];
+      list.push(j);
+      byWorkspace.set(ws, list);
+    } else {
+      user.push(j);
+    }
+  }
+  const groups: SchedulerJobGroup[] = [{ key: "user", workspace: "", jobs: user }];
+  const order = [...byWorkspace.keys()].sort((a, b) => {
+    if (a === currentWorkspace) return -1;
+    if (b === currentWorkspace) return 1;
+    return a.localeCompare(b);
+  });
+  for (const ws of order) {
+    groups.push({ key: `project:${ws}`, workspace: ws, jobs: byWorkspace.get(ws) || [] });
+  }
+  return groups;
+}
+
 export function SchedulerJobsDrawer(props: {
   open: boolean;
   /** Job id shown in the editor; same row highlight as History `session-item.active`. */
@@ -116,6 +178,9 @@ export function SchedulerJobsDrawer(props: {
   if (!props.open) {
     return null;
   }
+  const currentWorkspace = (props.scheduler?.workspace || "").trim();
+  const groups = groupSchedulerJobs(props.jobs, currentWorkspace);
+  const withHeadings = groups.length > 1;
 
   return (
     <aside
@@ -178,26 +243,54 @@ export function SchedulerJobsDrawer(props: {
             {t("scheduler.loading")}
           </div>
         ) : null}
-        {props.jobs.map((j) => {
-          const selected = props.selectedJobId === j.job_id;
+        {groups.map((g) =>
+          g.jobs.length === 0 && !withHeadings ? null : (
+          <div
+            key={g.key}
+            className="scheduler-job-group"
+            data-testid={g.workspace ? `scheduler-group-project` : "scheduler-group-user"}
+          >
+            {withHeadings ? (
+              <div
+                className="scheduler-job-group-head"
+                title={g.workspace || props.scheduler?.dir || undefined}
+              >
+                {g.workspace
+                  ? g.workspace === currentWorkspace
+                    ? t("scheduler.group.thisProject", { name: workspaceName(g.workspace) })
+                    : t("scheduler.group.project", { name: workspaceName(g.workspace) })
+                  : t("scheduler.group.user")}
+              </div>
+            ) : null}
+            {g.workspace === "" && g.jobs.length === 0 ? (
+              <div className="scheduler-job-group-empty">{t("scheduler.group.userEmpty")}</div>
+            ) : null}
+        {g.jobs.map((j) => {
+          const ref = schedulerJobRef(j);
+          const selected = props.selectedJobId === ref;
+          const trust = j.trust || "trusted";
+          const trusted = trust === "trusted";
           return (
           <div
-            key={j.job_id}
+            key={ref}
             className={[
               "session-item",
               "scheduler-job-row",
               selected ? "active" : "",
+              trusted ? "" : "scheduler-job-row-untrusted",
             ]
               .filter(Boolean)
               .join(" ")}
             data-testid={`scheduler-job-row-${j.job_id}`}
+            data-scope={j.scope || "user"}
+            data-trust={trust}
           >
             <a
-              href={appNavHrefSchedulerJob(j.job_id)}
+              href={appNavHrefSchedulerJob(ref)}
               className="scheduler-job-row-main"
               aria-current={selected ? "true" : undefined}
               onClick={(ev) =>
-                sameTabInAppNavClick(ev, () => props.onOpenJob(j.job_id))
+                sameTabInAppNavClick(ev, () => props.onOpenJob(ref))
               }
             >
               <div className="scheduler-job-row-text-block">
@@ -205,7 +298,15 @@ export function SchedulerJobsDrawer(props: {
                   <div className="scheduler-job-row-id" title={j.job_id}>
                     {j.job_id}
                   </div>
-                  {j.paused ? (
+                  {!trusted ? (
+                    <span
+                      className={`scheduler-job-trust scheduler-job-trust--${trust}`}
+                      title={j.trust_reason || undefined}
+                      data-testid={`scheduler-trust-${j.job_id}`}
+                    >
+                      {t(`scheduler.trust.${trustKey(trust)}`)}
+                    </span>
+                  ) : j.paused ? (
                     <span className="scheduler-job-paused">{t("scheduler.paused")}</span>
                   ) : (
                     <span
@@ -237,19 +338,34 @@ export function SchedulerJobsDrawer(props: {
             </a>
             <div className="scheduler-job-row-actions">
               <a
-                href={appNavHrefSchedulerJobRuns(j.job_id)}
+                href={appNavHrefSchedulerJobRuns(ref)}
                 className="scheduler-btn scheduler-btn-icon-only scheduler-job-runs-icon"
                 aria-label={t("scheduler.openRuns", { jobId: j.job_id })}
                 title={t("scheduler.runs")}
                 data-testid={`scheduler-runs-${j.job_id}`}
                 onClick={(ev) => {
                   ev.stopPropagation();
-                  sameTabInAppNavClick(ev, () => props.onOpenRuns(j.job_id));
+                  sameTabInAppNavClick(ev, () => props.onOpenRuns(ref));
                 }}
               >
                 <SchedulerIconRuns />
               </a>
-              {j.running ? (
+              {trust === "needs_approval" ? (
+                <a
+                  href={appNavHrefSchedulerJob(ref)}
+                  className="scheduler-btn scheduler-btn-icon-only scheduler-job-approve-icon"
+                  aria-label={t("scheduler.trust.reviewAria", { jobId: j.job_id })}
+                  title={t("scheduler.trust.review")}
+                  data-testid={`scheduler-approve-${j.job_id}`}
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    sameTabInAppNavClick(ev, () => props.onOpenJob(ref));
+                  }}
+                >
+                  <IconShield />
+                </a>
+              ) : null}
+              {trust === "needs_approval" && !j.running ? null : j.running ? (
                 <button
                   type="button"
                   className="composer-icon composer-run-icon composer-send-stop scheduler-job-run-icon composer-run-icon--stop"
@@ -257,7 +373,7 @@ export function SchedulerJobsDrawer(props: {
                   data-testid={`scheduler-stop-${j.job_id}`}
                   onClick={(ev) => {
                     ev.stopPropagation();
-                    props.onCancelJob(j.job_id);
+                    props.onCancelJob(ref);
                   }}
                 >
                   <span className="composer-send-glyph" aria-hidden="true">
@@ -269,11 +385,11 @@ export function SchedulerJobsDrawer(props: {
                   type="button"
                   className="composer-icon composer-run-icon composer-send-play scheduler-job-run-icon composer-run-icon--play"
                   aria-label={t("scheduler.runJobNow")}
-                  disabled={j.paused}
+                  disabled={j.paused || !trusted}
                   data-testid={`scheduler-run-${j.job_id}`}
                   onClick={(ev) => {
                     ev.stopPropagation();
-                    props.onRunJob(j.job_id);
+                    props.onRunJob(ref);
                   }}
                 >
                   <span className="composer-send-glyph" aria-hidden="true">
@@ -287,6 +403,9 @@ export function SchedulerJobsDrawer(props: {
           </div>
           );
         })}
+          </div>
+          ),
+        )}
       </div>
 
       <div className="scheduler-drawer-footer">

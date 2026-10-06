@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/EvilFreelancer/coddy-agent/external/scheduler/service"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
@@ -22,6 +21,7 @@ func jobRunsTool(cfg *config.Config) *tooling.Tool {
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
+					"scope":  scopeProperty(),
 					"job_id": map[string]interface{}{"type": "string"},
 					"limit":  map[string]interface{}{"type": "integer", "description": "Max rows to return"},
 				},
@@ -31,13 +31,18 @@ func jobRunsTool(cfg *config.Config) *tooling.Tool {
 		Execute: func(ctx context.Context, argsJSON string, env *tooling.Env) (string, error) {
 			var in struct {
 				JobID string `json:"job_id"`
+				Scope string `json:"scope"`
 				Limit int    `json:"limit"`
 			}
 			if err := json.Unmarshal([]byte(argsJSON), &in); err != nil {
 				return "", err
 			}
-			op := schedservice.NewService(cfg, nil, toolEnvCWD(env))
-			runs, err := op.ListJobRuns(strings.TrimSpace(in.JobID), in.Limit)
+			op := toolService(cfg, env)
+			addr, err := toolAddr(op, in.Scope, in.JobID)
+			if err != nil {
+				return "", err
+			}
+			runs, err := op.ListJobRuns(addr, in.Limit)
 			if err != nil {
 				return "", err
 			}

@@ -169,7 +169,10 @@ Each row carries **both** an identity and a route:
 - `agent_uuid` + `id` - the agent that owns the session and the id that agent knows it by.
   This pair survives a rename, a failover, or a relay restart.
 - `node_path` - how this relay could reach it just now. In a ring there may be several, and
-  the shortest is the one reported.
+  the shortest is the one reported. Of two equally short ones, the route whose first differing
+  hop sorts first by name wins, compared hop by hop rather than as one joined path. That is how
+  the topology picks a node's route too, so a row does not change routes from one request to
+  the next.
 
 Session ids are chosen per node and **do** collide, so nothing keyed on a bare id is safe.
 

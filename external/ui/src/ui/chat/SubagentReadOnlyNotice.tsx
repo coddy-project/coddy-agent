@@ -5,6 +5,7 @@ import {
   appNavHrefSession,
 } from "../scheduler/hashRoute";
 import type { SubagentTranscriptMeta } from "./subagentTranscript";
+import { schedulerJobRef } from "../scheduler/types";
 
 /**
  * Stands in for the composer on a read-only transcript. A child session is
@@ -28,9 +29,16 @@ export function SubagentReadOnlyNotice(props: {
 
   if (sched) {
     const jobId = sched.jobId;
+    // A project job is addressed by its workspace too, so the link opens
+    // that job and not a user job of the same id.
+    const jobRef = schedulerJobRef({
+      job_id: jobId,
+      scope: sched.workspace ? "project" : "user",
+      workspace: sched.workspace || "",
+    });
     const runsHref = props.meta.jobSession
-      ? appNavHrefSchedulerJobRuns(jobId)
-      : appNavHrefSchedulerJobRuns(jobId, props.meta.taskId);
+      ? appNavHrefSchedulerJobRuns(jobRef)
+      : appNavHrefSchedulerJobRuns(jobRef, props.meta.taskId);
     return (
       <div
         className="subagent-readonly-notice"

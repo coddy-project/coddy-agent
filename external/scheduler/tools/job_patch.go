@@ -3,12 +3,13 @@
 package schedtools
 
 import (
+	schedservice "github.com/EvilFreelancer/coddy-agent/external/scheduler/service"
+
 	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 
-	"github.com/EvilFreelancer/coddy-agent/external/scheduler/service"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
@@ -23,6 +24,7 @@ func jobPatchTool(cfg *config.Config) *tooling.Tool {
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
+					"scope":           scopeProperty(),
 					"job_id":          map[string]interface{}{"type": "string"},
 					"new_job_id":      map[string]interface{}{"type": "string", "description": "Rename the job to this id (moves the .md and its .state sidecar; the run history follows)."},
 					"description":     map[string]interface{}{"type": "string"},
@@ -42,6 +44,7 @@ func jobPatchTool(cfg *config.Config) *tooling.Tool {
 		Execute: func(ctx context.Context, argsJSON string, env *tooling.Env) (string, error) {
 			type patchIn struct {
 				JobID          string          `json:"job_id"`
+				Scope          string          `json:"scope"`
 				NewJobID       json.RawMessage `json:"new_job_id"`
 				Description    json.RawMessage `json:"description"`
 				Schedule       json.RawMessage `json:"schedule"`
@@ -110,8 +113,12 @@ func jobPatchTool(cfg *config.Config) *tooling.Tool {
 				}
 			}
 			jobID := strings.TrimSpace(wrap.JobID)
-			op := schedservice.NewService(cfg, nil, toolEnvCWD(env))
-			if err := op.PatchJob(jobID, p); err != nil {
+			op := toolService(cfg, env)
+			addr, err := toolAddr(op, wrap.Scope, jobID)
+			if err != nil {
+				return "", err
+			}
+			if err := op.PatchJob(addr, p); err != nil {
 				return "", err
 			}
 			outID := jobID

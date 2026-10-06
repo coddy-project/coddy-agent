@@ -167,6 +167,13 @@ export function transcriptItemsFromMessages(p: {
       return;
     }
     if (role === "assistant") {
+      // A notice the turn went on after belongs before the first message
+      // stored later than it.
+      next.push(
+        ...notices.beforeMessageAt(
+          readMessageCreatedAtUTC(m as Record<string, unknown>),
+        ),
+      );
       const pdRaw = (m as Record<string, unknown>).plan_document;
       if (pdRaw && typeof pdRaw === "object" && !Array.isArray(pdRaw)) {
         const pd = pdRaw as Record<string, unknown>;

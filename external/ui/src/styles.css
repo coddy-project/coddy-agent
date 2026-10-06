@@ -3347,6 +3347,22 @@ a.rail-brand {
   position: relative;
 }
 
+/* Message editing: the prompt loaded into the composer is outlined in the
+   accent colour, and every row after it is faded, because sending the edit
+   removes exactly those rows. The rows are siblings under .messages-inner
+   (each row root is a direct child), so a general sibling selector reaches
+   them without the rows knowing about the edit. See DESIGN.md, Message
+   editing. */
+.msg-user-stack--editing .msg-user {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.msg-user-stack--editing ~ * {
+  opacity: 0.45;
+  transition: opacity 0.15s ease;
+}
+
 /* User turns are plain text (no Markdown); preserve composer line breaks. */
 .msg-user-body {
   margin: 0;
@@ -4743,6 +4759,82 @@ code.md-math-pending {
   background: var(--coddy-glass-panel-bg);
   color: var(--text);
   font-size: 12px;
+}
+
+/* The edit banner: the composer says which message it holds while a sent
+   message is being edited, and offers Undo once the edit was sent. The same
+   frosted panel as the queue rows above the card; the cross sits where the
+   queue's remove control sits. */
+.composer-edit-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 6px 0;
+  padding: 6px 12px;
+  border-radius: 12px;
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--coddy-glass-panel-border));
+  box-shadow: var(--coddy-glass-panel-shadow);
+  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* The undo banner is one line: the title and the note side by side, Undo and
+   the cross centred on it. The cross is the queue's control, which sits at the
+   top of its row; here it follows the line like Undo does. */
+.composer-edit-banner--done {
+  align-items: center;
+  border-color: var(--coddy-glass-panel-border);
+}
+
+.composer-edit-banner--done > * {
+  align-self: center;
+}
+
+.composer-edit-banner--done .composer-edit-banner-body {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 6px;
+  padding-top: 0;
+}
+
+.composer-edit-banner-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  padding-top: 4px;
+  color: var(--accent);
+}
+
+.composer-edit-banner-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding-top: 3px;
+}
+
+.composer-edit-banner-title {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.composer-edit-banner-snippet {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.composer-edit-banner-hint {
+  color: var(--muted);
+}
+
+.composer-edit-banner .composer-undo-edit:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 /* The primary control keeps its circle and swaps only its meaning: a draft
@@ -7593,6 +7685,150 @@ html:not([data-theme="light"]) .context-usage-note--error {
   padding: 1px 6px;
   border-radius: 6px;
   background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+}
+
+/* Project jobs: the drawer's sections, the trust badge of a row that does
+   not run, and the approval block of the editor (DESIGN.md, Scheduler). */
+.scheduler-job-group + .scheduler-job-group {
+  margin-top: 6px;
+}
+
+.scheduler-job-group-head {
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: color-mix(in srgb, var(--text) 48%, var(--coddy-blend-base));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scheduler-job-group-empty {
+  padding: 2px 10px 6px;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
+}
+
+.scheduler-job-trust {
+  flex-shrink: 0;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
+}
+
+.scheduler-job-trust--needs_approval {
+  color: #ff9f0a;
+  border-color: color-mix(in srgb, #ff9f0a 45%, transparent);
+}
+
+.scheduler-job-trust--conflict,
+.scheduler-job-trust--invalid,
+.scheduler-job-trust--denied {
+  color: #ff453a;
+  border-color: color-mix(in srgb, #ff453a 45%, transparent);
+}
+
+.scheduler-job-row-untrusted .scheduler-job-row-id {
+  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
+}
+
+.scheduler-job-approve-icon {
+  color: #ff9f0a;
+}
+
+.scheduler-trust-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+}
+
+.scheduler-trust-block--needs_approval {
+  border-color: color-mix(in srgb, #ff9f0a 45%, transparent);
+}
+
+.scheduler-trust-block--conflict,
+.scheduler-trust-block--invalid,
+.scheduler-trust-block--denied {
+  border-color: color-mix(in srgb, #ff453a 45%, transparent);
+}
+
+.scheduler-trust-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.scheduler-trust-state {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.scheduler-trust-state::first-letter {
+  text-transform: uppercase;
+}
+
+.scheduler-trust-block--needs_approval .scheduler-trust-state {
+  color: #ff9f0a;
+}
+
+.scheduler-trust-note,
+.scheduler-trust-reason {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  overflow-wrap: anywhere;
+}
+
+.scheduler-trust-raw {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+}
+
+.scheduler-scope-field {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.scheduler-scope-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 2px;
+}
+
+.scheduler-scope-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  min-width: 0;
+}
+
+.scheduler-scope-option input:disabled + span {
+  opacity: 0.5;
 }
 
 .scheduler-job-row-actions {

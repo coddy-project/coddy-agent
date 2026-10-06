@@ -13,7 +13,8 @@ type SystemNotice = Extract<TranscriptItem, { type: "system_notice" }>;
 
 /**
  * Hands out the notices the server keeps for a session (an LLM error, a
- * settings change) at the end of the turn they belong to.
+ * settings change) at the end of the turn they belong to, or earlier in that
+ * turn when the turn went on after them.
  *
  * The server stamps a row with the number of user-role messages the history
  * held at that moment, compaction summaries and background wakes included,
@@ -22,6 +23,12 @@ type SystemNotice = Extract<TranscriptItem, { type: "system_notice" }>;
  * and places the rows it returns before that message; `end` returns the rest
  * after the last message. A row whose turn the history no longer reaches
  * still comes out of `end`, so an error is never silently dropped.
+ *
+ * `beforeMessageAt` places a row inside its turn: called with the time a
+ * message of the current turn was stored, it returns the rows of that turn
+ * stamped before it. A provider failure the turn recovered from then stands
+ * between the rows around the break instead of under the final answer, where
+ * it read as the answer having failed. A row without a time keeps to the end.
  */
 export function uiLogNoticeFeed(
   rows: RawUiLogRow[] | undefined,
@@ -29,7 +36,11 @@ export function uiLogNoticeFeed(
   /** User-role messages before the page the rows belong to (its window's
    *  `userRowsBefore`): the count the feed starts from. */
   userRowsBefore = 0,
-): { beforeUserRow: () => SystemNotice[]; end: () => SystemNotice[] } {
+): {
+  beforeUserRow: () => SystemNotice[];
+  beforeMessageAt: (createdAtUtc: string | undefined) => SystemNotice[];
+  end: () => SystemNotice[];
+} {
   const pending: Array<{ turn: number; order: number; item: SystemNotice }> = [];
   (rows || []).forEach((raw, order) => {
     const message = typeof raw.message === "string" ? raw.message.trim() : "";
@@ -69,8 +80,21 @@ export function uiLogNoticeFeed(
     }
     return out;
   };
+  const before = (createdAtUtc: string | undefined): SystemNotice[] => {
+    const at = createdAtUtc ? Date.parse(createdAtUtc) : Number.NaN;
+    const out: SystemNotice[] = [];
+    if (!Number.isFinite(at)) return out;
+    while (next < pending.length && pending[next]!.turn <= userRows) {
+      const stamped = Date.parse(pending[next]!.item.createdAtUtc || "");
+      if (!(stamped < at)) break;
+      out.push(pending[next]!.item);
+      next++;
+    }
+    return out;
+  };
   return {
     beforeUserRow: () => upTo(userRows++),
+    beforeMessageAt: before,
     end: () => upTo(Number.POSITIVE_INFINITY),
   };
 }

@@ -1,0 +1,24 @@
+---
+description: The shipped build tag set is spelled in several places that move together
+globs:
+  - "Makefile"
+  - "Dockerfile"
+  - ".github/workflows/**"
+  - "packaging/homebrew/**"
+  - "docs/contributing/build.md"
+alwaysApply: false
+---
+# Shipped build tags
+
+The set of build tags that ships (`http ui scheduler memory cli gateway swarm` today) is not read from one place. A change to it - a tag added, removed or renamed - updates every copy in the same commit:
+
+- `Makefile`, `FULL_TAGS` (and the examples in its header comment); `make test` and `TEST_TAG_SETS` derive from it;
+- `Dockerfile`, `ARG BUILD_TAGS` (comma-separated, in its own order);
+- `.github/workflows/docker-build-push.yaml`, `BUILD_TAGS`;
+- `.github/workflows/release-binaries.yaml`, `GO_BUILD_TAGS`;
+- `.github/workflows/tests-on-pr.yaml`, `PKG_TAGS` of the packages job (deliberately without `ui`, so the job needs no npm);
+- `packaging/homebrew/coddy-formula.rb.tmpl`, the `tags` array (the cask installs a built archive and names no tags);
+- `make check-windows`, which spells its tag combinations by hand;
+- the build commands in `docs/contributing/build.md`, `README.md` and `AGENTS.md`.
+
+A subcommand that reaches the packages for the first time with a new tag also takes the man page and both completions in the same commit (the packaging invariants in `AGENTS.md`). Check the shipped combination itself, not only each tag alone: `make build TAGS="$(FULL_TAGS)"`, then the packages with the same tags.

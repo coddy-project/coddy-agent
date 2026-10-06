@@ -289,3 +289,58 @@ test("a tool result without pictures names none", () => {
   const tool = items.find((it) => it.type === "tool_call");
   expect(tool && "images" in tool).toBe(false);
 });
+
+test("a notice a turn recovered from stands where it happened, not after the answer", () => {
+  // The stream broke between the tool call and the final answer, and the
+  // turn went on: the notice belongs between them, at its own time. Below
+  // the answer it read as the answer having failed.
+  const msgs: RawSessionMessage[] = [
+    { role: "user", content: "merge it", created_at: "2026-10-05T11:19:00Z" },
+    {
+      role: "assistant",
+      content: "",
+      reasoning: "merging",
+      created_at: "2026-10-05T11:20:17Z",
+      tool_calls: [{ id: "c1", function: { name: "run_command", arguments: "{}" } }],
+    },
+    { role: "tool", content: "merged", tool_call_id: "c1" },
+    { role: "assistant", content: "", reasoning: "checking", created_at: "2026-10-05T11:21:09Z" },
+    { role: "assistant", content: "PR merged.", created_at: "2026-10-05T11:22:11Z" },
+  ];
+  const items = mapPage(msgs, 0, msgs.length, [
+    {
+      id: "n1",
+      level: "notice",
+      message: "recovered",
+      userTurnIndex: 1,
+      createdAt: "2026-10-05T11:20:47Z",
+    },
+  ]);
+  expect(shape(items)).toEqual([
+    "user:merge it",
+    "thinking:merging",
+    "tool:c1:completed",
+    "notice:recovered",
+    "thinking:checking",
+    "answer:PR merged.",
+  ]);
+});
+
+test("a notice later than every message of its turn still ends the turn", () => {
+  const msgs: RawSessionMessage[] = [
+    { role: "user", content: "go", created_at: "2026-10-05T11:00:00Z" },
+    { role: "assistant", content: "partial", created_at: "2026-10-05T11:00:05Z" },
+    { role: "user", content: "again", created_at: "2026-10-05T11:05:00Z" },
+    { role: "assistant", content: "done", created_at: "2026-10-05T11:05:05Z" },
+  ];
+  const items = mapPage(msgs, 0, msgs.length, [
+    { id: "e1", level: "error", message: "HTTP 500", userTurnIndex: 1, createdAt: "2026-10-05T11:00:09Z" },
+  ]);
+  expect(shape(items)).toEqual([
+    "user:go",
+    "answer:partial",
+    "notice:HTTP 500",
+    "user:again",
+    "answer:done",
+  ]);
+});

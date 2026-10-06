@@ -15,6 +15,9 @@ const (
 	MemoryDefaultTimeoutSeconds = 300
 	// MemoryDefaultKeepRuns is how many finished memory runs a session keeps.
 	MemoryDefaultKeepRuns = 20
+	// MemoryDefaultMaxNoteChars caps the body of one saved memory note, in
+	// characters.
+	MemoryDefaultMaxNoteChars = 900
 )
 
 // MemoryConfig controls the optional long-term memory subagent (implementation in external/memory).
@@ -61,6 +64,11 @@ type MemoryConfig struct {
 
 	// MaxSearchHits is the maximum number of snippets returned by memory_search.
 	MaxSearchHits int `yaml:"max_search_hits"`
+
+	// MaxNoteChars caps the body of one note coddy_memory_save writes, in
+	// characters (issue #429). A nil pointer means the default (900); an
+	// explicit 0 removes the cap.
+	MaxNoteChars *int `yaml:"max_note_chars"`
 
 	// AdditionalPrompt is the operator's own instructions for the memory
 	// subagent: a section of its system prompt and nothing else reads it
@@ -131,6 +139,15 @@ func (m *MemoryConfig) EffectiveKeepRuns() int {
 		return MemoryDefaultKeepRuns
 	}
 	return max(*m.KeepRuns, 0)
+}
+
+// EffectiveMaxNoteChars returns max_note_chars with the default applied; an
+// explicit 0 means no cap.
+func (m *MemoryConfig) EffectiveMaxNoteChars() int {
+	if m.MaxNoteChars == nil {
+		return MemoryDefaultMaxNoteChars
+	}
+	return max(*m.MaxNoteChars, 0)
 }
 
 // EffectiveAdditionalPrompt is additional_prompt as the memory subagent

@@ -77,3 +77,4 @@ the window at every tier of the grid in English and in Russian. Run it once more
 - Navigate the capture page through localhost to avoid host-specific zoom. Set the viewport explicitly and blur focus unless focus is what the screenshot documents.
 - Screenshot stands use isolated `HOME` and `CODDY_HOME` with neutral fixtures.
 - Before pushing, inspect every PNG for skill names, hosts, tokens, usernames, and personal paths.
+- Screenshots for English pages and pull requests are taken with `?lang=en`, so the browser's locale does not decide the language of the capture.

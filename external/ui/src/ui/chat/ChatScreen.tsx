@@ -148,6 +148,19 @@ export function ChatScreen(props: {
   onPlanDocumentDiscard?: (itemId: string, slug: string) => void;
   onEdit?: (content: string, userMsgIdx: number) => void;
   editingFiles?: { name: string; mimeType: string }[];
+  /** The server index of the prompt loaded into the composer for an edit. */
+  editingUserMsgIdx?: number | null;
+  /** What the edit banner names: the text of that prompt. */
+  editingSnippet?: string;
+  /** Leaves the edit and puts back the draft it replaced. */
+  onCancelEdit?: () => void;
+  /** The prompt of the last edit while the server can still take it back. */
+  rewindUndoUserMsgIdx?: number | null;
+  /** The composer's banner offers that Undo too, until dismissed. */
+  rewindUndoBanner?: boolean;
+  rewindUndoBusy?: boolean;
+  onUndoEdit?: () => void;
+  onDismissRewindUndo?: () => void;
   sessionLoading?: boolean;
   sessionFadingOut?: boolean;
   knownSkillNames?: Set<string>;
@@ -577,6 +590,16 @@ export function ChatScreen(props: {
       ? { onPlanDocumentDiscard: props.onPlanDocumentDiscard }
       : {}),
     ...(props.onEdit ? { onEdit: props.onEdit } : {}),
+    ...(props.editingUserMsgIdx !== undefined
+      ? { editingUserMsgIdx: props.editingUserMsgIdx }
+      : {}),
+    ...(props.rewindUndoUserMsgIdx !== undefined && props.onUndoEdit
+      ? {
+          rewindUndoUserMsgIdx: props.rewindUndoUserMsgIdx,
+          onUndoEdit: props.onUndoEdit,
+          ...(props.rewindUndoBusy ? { undoEditBusy: true } : {}),
+        }
+      : {}),
     ...(props.knownSkillNames
       ? { knownSkillNames: props.knownSkillNames }
       : {}),
@@ -1011,6 +1034,25 @@ export function ChatScreen(props: {
                     : {})}
                   {...(props.editingFiles && props.editingFiles.length > 0
                     ? { editingFiles: props.editingFiles }
+                    : {})}
+                  {...(props.editingUserMsgIdx != null && props.onCancelEdit
+                    ? {
+                        editingMessage: {
+                          snippet: props.editingSnippet ?? "",
+                          onCancel: props.onCancelEdit,
+                        },
+                      }
+                    : {})}
+                  {...(props.rewindUndoBanner === true &&
+                  props.onUndoEdit &&
+                  props.onDismissRewindUndo
+                    ? {
+                        rewindUndo: {
+                          onUndo: props.onUndoEdit,
+                          onDismiss: props.onDismissRewindUndo,
+                          ...(props.rewindUndoBusy ? { busy: true } : {}),
+                        },
+                      }
                     : {})}
                   {...(props.onWorkspacePickFolder
                     ? {

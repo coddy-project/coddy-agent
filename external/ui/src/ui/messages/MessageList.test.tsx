@@ -543,3 +543,30 @@ test("an edit names the prompt by the server's index when the list holds only th
   fireEvent.click(edits[0]!);
   expect(onEdit).toHaveBeenLastCalledWith("the first prompt held", 374);
 });
+
+test("the prompt being edited is marked and Undo sits on the prompt of an undoable edit", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "first" },
+    { id: "a1", type: "assistant_message", content: "one" },
+    { id: "u2", type: "user_message", content: "second" },
+    { id: "a2", type: "assistant_message", content: "two" },
+  ];
+  const onUndoEdit = vi.fn();
+  const { container } = render(
+    <MessageList
+      items={items}
+      onEdit={() => {}}
+      editingUserMsgIdx={0}
+      rewindUndoUserMsgIdx={1}
+      onUndoEdit={onUndoEdit}
+    />,
+  );
+  const stacks = container.querySelectorAll(".msg-user-stack");
+  expect(stacks[0]).toHaveClass("msg-user-stack--editing");
+  expect(stacks[1]).not.toHaveClass("msg-user-stack--editing");
+  const undo = screen.getAllByTestId("user-message-undo-edit");
+  expect(undo).toHaveLength(1);
+  expect(stacks[1]!.contains(undo[0]!)).toBe(true);
+  fireEvent.click(undo[0]!);
+  expect(onUndoEdit).toHaveBeenCalledTimes(1);
+});

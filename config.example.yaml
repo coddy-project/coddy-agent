@@ -493,13 +493,14 @@ tools:
 #   session_changes: true # false = hide the changed-files card under the transcript
 
 # Cron scheduler (external/scheduler + lib/, tools/; build with: go build -tags=scheduler).
-# Jobs live under scheduler.dir (${CODDY_HOME}/scheduler when dir is empty or omitted): YAML frontmatter description, schedule
-# (5-field crontab, UTC), optional cwd, model, mode; markdown body is the one-shot agent instruction. Sidecars: basename.state,
-# basename.lock during a run.
+# Jobs live in two fixed folders: your own in ${CODDY_HOME}/scheduler, and the project jobs a repository carries in
+# <workspace>/.coddy/scheduler, which run only once approved (project_trust). YAML frontmatter description, schedule
+# (5-field crontab, UTC), optional cwd, model, mode; markdown body is the one-shot agent instruction. Sidecar: basename.state
+# (kept in ${CODDY_HOME} for a project job).
 # Enable with scheduler.enable, or per run with `coddy serve --scheduler`.
 # scheduler:
 #   enable: false
-#   dir: ""              # empty = ${CODDY_HOME}/scheduler
+#   project_trust: ask   # ask (approve each project job), allow (run them like your own) or deny
 #   max_queue: 10        # concurrent scheduled runs (default); when saturated the daemon skips extras until slots free (see logs)
 #   timeout: "30m"       # per scheduled agent run
 
@@ -524,6 +525,7 @@ tools:
 #   persist_max_turns: 12
 #   copilot_max_tokens: 4096
 #   max_search_hits: 8
+#   max_note_chars: 900  # longest body one saved note may have, in characters; 0 = no cap
 #   additional_prompt: ""          # your own instructions for the memory subagent only, e.g. "only deal with the
 #                                  # notes; never answer the task itself"; the main agent never sees them
 #   additional_prompt_max_chars: 0 # cut additional_prompt at this many characters (a warning is logged); 0 = no cap

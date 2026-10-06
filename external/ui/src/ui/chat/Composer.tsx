@@ -412,6 +412,17 @@ export function Composer(props: {
   onLlmReasoningChange?: (level: string) => void;
   /** Files carried over from the message being edited — shown as read-only chips. */
   editingFiles?: { name: string; mimeType: string }[];
+  /**
+   * A sent message is loaded into the field for an edit: a banner above the
+   * card names it, the send button says it sends the edit, and Escape or the
+   * banner's cross calls onCancel (which puts back the draft it replaced).
+   */
+  editingMessage?: { snippet: string; onCancel: () => void };
+  /**
+   * The last edit can still be taken back: the banner slot offers Undo. An
+   * edit in progress wins the slot.
+   */
+  rewindUndo?: { onUndo: () => void; onDismiss: () => void; busy?: boolean };
   /** Pristine home (no session). Ring stays empty; tooltip does not imply usage. */
   contextIdle?: boolean;
   tokenUsage?: TokenUsage | null;
@@ -2655,6 +2666,86 @@ export function Composer(props: {
             </button>
           </div>
         ) : null}
+        {props.editingMessage ? (
+          <div
+            className="composer-edit-banner"
+            role="status"
+            data-testid="composer-edit-banner"
+          >
+            <span className="composer-edit-banner-icon" aria-hidden="true">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+              </svg>
+            </span>
+            <span className="composer-edit-banner-body">
+              <span className="composer-edit-banner-title">
+                {t("composer.editingMessage")}
+              </span>
+              <span
+                className="composer-edit-banner-snippet"
+                title={props.editingMessage.snippet}
+              >
+                {props.editingMessage.snippet}
+              </span>
+              <span className="composer-edit-banner-hint">
+                {t("composer.editingHint")}
+              </span>
+            </span>
+            <button
+              type="button"
+              className="sessions-close composer-queue-remove composer-edit-cancel"
+              data-testid="composer-edit-cancel"
+              aria-label={t("composer.cancelEdit")}
+              title={t("composer.cancelEdit")}
+              onClick={() => props.editingMessage?.onCancel()}
+            >
+              ×
+            </button>
+          </div>
+        ) : props.rewindUndo ? (
+          <div
+            className="composer-edit-banner composer-edit-banner--done"
+            role="status"
+            data-testid="composer-undo-banner"
+          >
+            <span className="composer-edit-banner-body">
+              <span className="composer-edit-banner-title">
+                {t("composer.messageEdited")}
+              </span>
+              <span className="composer-edit-banner-hint">
+                {t("composer.undoEditHint")}
+              </span>
+            </span>
+            <button
+              type="button"
+              className="composer-queue-mode composer-undo-edit"
+              data-testid="composer-undo-edit"
+              disabled={props.rewindUndo.busy === true}
+              onClick={() => props.rewindUndo?.onUndo()}
+            >
+              {t("composer.undoEdit")}
+            </button>
+            <button
+              type="button"
+              className="sessions-close composer-queue-remove"
+              data-testid="composer-undo-dismiss"
+              aria-label={t("composer.undoDismiss")}
+              title={t("composer.undoDismiss")}
+              onClick={() => props.rewindUndo?.onDismiss()}
+            >
+              ×
+            </button>
+          </div>
+        ) : null}
         <div
           className={`composer-card${dragOverCard ? " composer-card--dragover" : ""}`}
           ref={composerCardRef}
@@ -2943,6 +3034,21 @@ export function Composer(props: {
                   ) {
                     ev.preventDefault();
                     dismissSlashAtPickers();
+                    return;
+                  }
+                  // Escape leaves an edit the way the banner's cross does,
+                  // once no picker or popover above claimed it.
+                  if (
+                    ev.key === "Escape" &&
+                    props.editingMessage &&
+                    !ev.repeat &&
+                    !ev.shiftKey &&
+                    !ev.altKey &&
+                    !ev.ctrlKey &&
+                    !ev.metaKey
+                  ) {
+                    ev.preventDefault();
+                    props.editingMessage.onCancel();
                     return;
                   }
                   if (argOpen && argItems.length > 0) {
@@ -3330,7 +3436,9 @@ export function Composer(props: {
                     ? t("composer.queueSend")
                     : props.generating
                       ? t("composer.stopGeneration")
-                      : t("composer.send")
+                      : props.editingMessage
+                        ? t("composer.sendEdit")
+                        : t("composer.send")
                 }
                 disabled={!props.generating && idleSendDisabled}
                 onClick={() => {

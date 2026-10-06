@@ -369,6 +369,11 @@ func marshalJobState(st JobState) ([]byte, error) {
 
 func persistJobState(path string, data []byte) error {
 	dir := filepath.Dir(path)
+	// A project job's state folder under ${CODDY_HOME}/scheduler/.projects
+	// does not exist before its first write.
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
 	f, err := os.CreateTemp(dir, filepath.Base(path)+".")
 	if err != nil {
 		return err

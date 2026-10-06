@@ -83,7 +83,7 @@ export const messagesRu: Record<string, string> = {
   "settings.section.tools.label": "Инструменты и разрешения",
   "settings.section.mcp_servers.label": "MCP-серверы",
   "settings.section.skills.label": "Навыки",
-  "settings.section.memory.label": "Копайлот памяти",
+  "settings.section.memory.label": "Память",
   "settings.section.system.label": "Промпты",
   "settings.section.compaction.label": "Сжатие контекста",
   "settings.section.subagents.label": "Субагенты",
@@ -613,6 +613,9 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.memory.max_search_hits.label": "Максимум результатов поиска",
   "settings.schema.memory.max_search_hits.desc":
     "Максимум фрагментов, возвращаемых инструментами поиска по памяти.",
+  "settings.schema.memory.max_note_chars.label": "Предел размера заметки (символы)",
+  "settings.schema.memory.max_note_chars.desc":
+    "Наибольшая длина тела одной сохраняемой заметки в символах; 0 без предела (по умолчанию 900).",
   "settings.schema.memory.additional_prompt.label": "Дополнительные инструкции",
   "settings.schema.memory.additional_prompt.desc":
     "Ваши собственные инструкции для субагента памяти, раздел его системного промпта; основной агент их не видит.",
@@ -659,8 +662,9 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.scheduler.enable.label": "Включено",
   "settings.schema.scheduler.enable.desc":
     "Когда включено, этот процесс может запускать демон планировщика и REST API.",
-  "settings.schema.scheduler.dir.label": "Каталог заданий",
-  "settings.schema.scheduler.dir.desc": "Каталог markdown-определений заданий.",
+  "settings.schema.scheduler.project_trust.label": "Проектные задания",
+  "settings.schema.scheduler.project_trust.desc":
+    'Задания в .coddy/scheduler рабочей папки приходят вместе с checkout. "ask": показывать их, но не запускать, пока задание не одобрено для этой папки (щит в панели планировщика). "allow": запускать как свои. "deny": никогда не запускать.',
   "settings.schema.scheduler.max_queue.label": "Максимум очереди",
   "settings.schema.scheduler.max_queue.desc":
     "Максимум одновременных запусков агента по расписанию.",
@@ -1109,6 +1113,7 @@ export const messagesRu: Record<string, string> = {
   "app.chatBusy":
     "Этот чат занят в другом клиенте. Попробуйте снова через момент.",
   "app.stopFailed": "Не удалось остановить генерацию. Попробуйте ещё раз.",
+  "app.undoEditFailed": "Не удалось отменить правку: {error}",
   "app.emptyResponseBody": "Пустое тело ответа",
 
   "nav.ariaLabel": "Навигация",
@@ -1351,6 +1356,14 @@ export const messagesRu: Record<string, string> = {
     "Не удалось прочитать вложенный файл {name}, сообщение не отправлено ({reason}).",
   "composer.queueFailed": "Не удалось поставить сообщение в очередь.",
   "composer.send": "Отправить",
+  "composer.sendEdit": "Отправить правку",
+  "composer.editingMessage": "Правка сообщения",
+  "composer.editingHint": "При отправке разговор откатится к этому сообщению",
+  "composer.cancelEdit": "Отменить правку (Esc)",
+  "composer.messageEdited": "Сообщение изменено.",
+  "composer.undoEditHint": "Отмена вернёт разговор как был, изменения в файлах не откатываются",
+  "composer.undoEdit": "Отменить",
+  "composer.undoDismiss": "Скрыть",
   "composer.stopGeneration": "Остановить генерацию",
   "composer.enhance": "Улучшить промпт",
   "composer.enhanceNoModel": "Не удалось улучшить промпт: модель не настроена.",
@@ -1563,6 +1576,29 @@ export const messagesRu: Record<string, string> = {
   "scheduler.loading": "Загрузка…",
   "scheduler.noDescription": "—",
   "scheduler.paused": "на паузе",
+  "scheduler.group.user": "Общие",
+  "scheduler.group.userEmpty": "Общих заданий нет",
+  "scheduler.group.thisProject": "Этот проект · {name}",
+  "scheduler.group.project": "Проект · {name}",
+  "scheduler.trust.trusted": "Одобрено",
+  "scheduler.trust.needsApproval": "ждёт одобрения",
+  "scheduler.trust.denied": "запрещено",
+  "scheduler.trust.conflict": "конфликт id",
+  "scheduler.trust.invalid": "ошибка",
+  "scheduler.trust.review": "Проверить и одобрить",
+  "scheduler.trust.reviewAria": "Проверить и одобрить проектное задание {jobId}",
+  "scheduler.trust.approveTitle": "Одобрить задание для этой папки",
+  "scheduler.trust.withdrawTitle": "Отозвать одобрение",
+  "scheduler.trust.from": "Проектное задание из {workspace}",
+  "scheduler.trust.reviewNote":
+    "Оно пришло с репозиторием и по расписанию запускает агента с вашими правами. Одобрение относится ровно к файлу ниже; любое изменение потребует одобрить его снова.",
+  "scheduler.field.scope": "Где хранится задание",
+  "scheduler.field.scopeHelp":
+    "Общие задания лежат в домашней папке Coddy. Проектное задание сохраняется в репозитории (.coddy/scheduler) и переезжает вместе с ним; для вас оно одобрено, остальные одобряют его сами.",
+  "scheduler.field.scopeNoSession":
+    "Откройте чат в проекте, чтобы создать в нём проектное задание.",
+  "scheduler.scope.user": "Общее",
+  "scheduler.scope.project": "Этот проект ({name})",
   "scheduler.addJob": "Добавить задачу",
   "scheduler.runJobNow": "Запустить сейчас",
   "scheduler.stopJob": "Остановить задачу",
@@ -1579,7 +1615,7 @@ export const messagesRu: Record<string, string> = {
   "scheduler.field.schedulePlaceholder": "0 * * * *",
   "scheduler.field.cwd": "cwd (необязательно)",
   "scheduler.field.cwdHelp":
-    "По умолчанию — рабочая директория агента для этого экземпляра.",
+    "По умолчанию рабочая директория агента этого экземпляра; у проектного задания cwd задаётся относительно его рабочей папки.",
   "scheduler.field.mode": "mode",
   "scheduler.mode.agent": "agent",
   "scheduler.mode.ask": "ask",
@@ -1753,6 +1789,8 @@ export const messagesRu: Record<string, string> = {
   "messages.copyMessage": "Копировать сообщение",
   "messages.copyErrorMessage": "Копировать сообщение об ошибке",
   "messages.editMessage": "Редактировать сообщение",
+  "messages.undoEdit": "Отменить правку",
+  "messages.undoEditTitle": "Вернуть разговор к виду до этой правки. Изменения в файлах не откатываются.",
   "messages.attachedFiles": "Прикреплённые файлы",
   "messages.openAttachmentImage": "Открыть {fileName} крупнее",
   "messages.toolImages": "Картинки, которые вызов показал модели",

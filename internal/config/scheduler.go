@@ -11,14 +11,17 @@ import (
 type SchedulerConfig struct {
 	Enabled bool `yaml:"enable"`
 
-	// Dir is the filesystem root containing *.md job definitions. Empty defaults to ${CODDY_HOME}/scheduler.
-	Dir string `yaml:"dir"`
-
 	// MaxQueue caps concurrent scheduled sub-agent runs (default 10). When saturated, pending jobs are skipped until a slot frees.
 	MaxQueue int `yaml:"max_queue"`
 
 	// Timeout limits one scheduled agent run (LLM + tools), e.g. "30m".
 	Timeout string `yaml:"timeout"`
+
+	// ProjectTrust decides what a job found in <workspace>/.coddy/scheduler
+	// may do: ask (default: listed, run only once approved for that exact
+	// content), allow (run like the operator's own jobs), or deny (never run).
+	// Same vocabulary as hooks.project_trust and mcp.project_trust.
+	ProjectTrust string `yaml:"project_trust"`
 
 	// RetainSessions keeps at most N completed scheduler-run session dirs per job_id under sessions.dir (default 5 when unset or 0).
 	RetainSessions int `yaml:"retain_sessions"`
@@ -29,42 +32,46 @@ func (c *Config) SchedulerEffectiveEnabled() bool {
 	return c != nil && c.Scheduler.Enabled
 }
 
-// SchedulerScanRoots returns normalized job scan directories (currently a single Dir after defaults).
-func (c *Config) SchedulerScanRoots() []string {
+// SchedulerUserDirName is the folder of the user jobs inside the coddy home.
+const SchedulerUserDirName = "scheduler"
+
+// SchedulerProjectDir is the folder of a workspace's project jobs, relative to
+// the workspace root.
+var SchedulerProjectDir = filepath.Join(".coddy", "scheduler")
+
+// SchedulerUserDir is where the user jobs live: ${CODDY_HOME}/scheduler. The
+// location is fixed; a process with no home (tests) falls back to
+// <cwd>/.scheduler.
+func (c *Config) SchedulerUserDir() string {
 	if c == nil {
-		return nil
+		return ""
 	}
-	d := strings.TrimSpace(c.Scheduler.Dir)
-	if d == "" {
-		return nil
-	}
-	return []string{filepath.Clean(d)}
+	return SchedulerUserDirFor(c.Paths)
 }
 
-// Normalize trims scheduler paths; ${CODDY_HOME} and ${CWD} expand against the
-// process (the scheduler store is not owned by any session).
-func (s *SchedulerConfig) Normalize(p Paths) {
-	s.Dir = strings.TrimSpace(s.Dir)
-	if s.Dir != "" {
-		s.Dir = filepath.Clean(ExpandPathVars(s.Dir, p))
+// SchedulerUserDirFor is SchedulerUserDir for a set of paths.
+func SchedulerUserDirFor(p Paths) string {
+	if h := strings.TrimSpace(p.Home); h != "" {
+		return filepath.Join(filepath.Clean(h), SchedulerUserDirName)
 	}
+	if cwd := strings.TrimSpace(p.CWD); cwd != "" {
+		return filepath.Join(filepath.Clean(cwd), ".scheduler")
+	}
+	return ""
+}
+
+// Normalize trims the scheduler settings.
+func (s *SchedulerConfig) Normalize(_ Paths) {
 	s.Timeout = strings.TrimSpace(s.Timeout)
 }
 
 // ApplyDefaults fills scheduler defaults after Normalize.
-func (s *SchedulerConfig) ApplyDefaults(p Paths) {
+func (s *SchedulerConfig) ApplyDefaults(_ Paths) {
 	if s.MaxQueue <= 0 {
 		s.MaxQueue = 10
 	}
 	if s.Timeout == "" {
 		s.Timeout = "30m"
-	}
-	if s.Dir == "" {
-		if p.Home != "" {
-			s.Dir = filepath.Join(p.Home, "scheduler")
-		} else {
-			s.Dir = filepath.Join(p.CWD, ".scheduler")
-		}
 	}
 	if s.RetainSessions <= 0 {
 		s.RetainSessions = 5
@@ -83,16 +90,36 @@ func (c *Config) SchedulerRetainSessionsEffective() int {
 	return n
 }
 
-// Validate checks scheduler settings when enabled (effective).
+// ResolvedProjectTrust returns ProjectTrust with the safe default of ask.
+func (s SchedulerConfig) ResolvedProjectTrust() string {
+	switch v := strings.ToLower(strings.TrimSpace(s.ProjectTrust)); v {
+	case ProjectTrustAllow, ProjectTrustDeny:
+		return v
+	default:
+		return ProjectTrustAsk
+	}
+}
+
+// Validate checks scheduler settings: project_trust always, the rest when the
+// scheduler is enabled.
 func (s *SchedulerConfig) Validate(cfg *Config) error {
+	switch v := strings.ToLower(strings.TrimSpace(s.ProjectTrust)); v {
+	case "":
+		s.ProjectTrust = ""
+	case ProjectTrustAsk, ProjectTrustAllow, ProjectTrustDeny:
+		s.ProjectTrust = v
+	default:
+		return fmt.Errorf("scheduler.project_trust: must be one of %q, %q, %q (got %q)",
+			ProjectTrustAsk, ProjectTrustAllow, ProjectTrustDeny, s.ProjectTrust)
+	}
 	if cfg == nil || !cfg.SchedulerEffectiveEnabled() {
 		return nil
 	}
 	if _, err := time.ParseDuration(s.Timeout); err != nil {
 		return fmt.Errorf("scheduler.timeout: %w", err)
 	}
-	if strings.TrimSpace(s.Dir) == "" {
-		return fmt.Errorf("scheduler.dir resolved empty")
+	if cfg.SchedulerUserDir() == "" {
+		return fmt.Errorf("scheduler: no coddy home to keep the jobs in")
 	}
 	return nil
 }

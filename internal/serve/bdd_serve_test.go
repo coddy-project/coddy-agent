@@ -112,7 +112,7 @@ func (s *serveFeatureState) describe(gatewayAvailable bool) []Subsystem {
 			Kind: KindScheduler, ConfigKey: "scheduler.enable", BuildTag: "scheduler", Available: true,
 			NeedsSessions: true,
 			Enabled:       func(c *config.Config) bool { return c.Scheduler.Enabled },
-			Fingerprint:   func(c *config.Config) string { return c.Scheduler.Dir },
+			Fingerprint:   func(c *config.Config) string { return c.Scheduler.Timeout },
 			Run:           block(KindScheduler),
 		},
 	}

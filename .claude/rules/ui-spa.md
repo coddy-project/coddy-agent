@@ -48,3 +48,12 @@ paths:
 - Optimistic composer clear remains reversible until the server accepts the turn.
 - A network, file-read, or pre-response failure restores text and attachments and preserves the underlying cause where safe.
 - Final reconciliation cannot erase the only error or recoverable draft.
+- A report of a lost prompt is diagnosed from the session before the code: a request that never reached the server leaves no message in `messages.json` and no `serve.log` line after the turn, while the `session.json` mtime still matches the attempt (mark-read). Check `.coddy-turn.lock` with `flock` and `ui_log.json`, and tell a `409` refusal (not logged) from a connection that dropped.
+
+## SPA tests and tooling
+
+- `external/ui` is not Prettier-clean (`styles.css`, `App.tsx`). Never run `npm run fmt` (`prettier -w .`) or `prettier --write` over them: unrelated lines move and the CSS source-contract tests that match rules by regular expression break. Format only the files the change touched, and undo stray reformatting with a three-way `git merge-file` against `HEAD`.
+- `SwarmView.test.tsx` reads the **last** `@media (prefers-reduced-motion: reduce)` block of `styles.css`. A new rule set with such a block goes before the swarm section.
+- In Playwright, `goto` to the same URL that differs only in its `#fragment` is a same-document navigation and the page state survives it; vary a query parameter to start a page over.
+- A zoomed image inside a flex stage needs `flex: none`, or the stage shrinks it back.
+- `go test ./external/ui` can come back `(cached)` after a TypeScript edit, because the files vitest reads are not tracked by the Go test cache. Run it with `-count=1`.

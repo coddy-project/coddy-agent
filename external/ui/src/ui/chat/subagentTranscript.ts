@@ -20,7 +20,7 @@ export type SubagentTranscriptMeta = {
    * Set when the transcript belongs to the scheduler: the job the run (or the
    * job session itself) belongs to, and how a run was triggered.
    */
-  scheduler?: { jobId: string; trigger: string };
+  scheduler?: { jobId: string; trigger: string; workspace?: string };
   /** True for the session of a scheduler job, which holds the job's runs. */
   jobSession?: boolean;
 };
@@ -31,9 +31,9 @@ export type SubagentTranscriptPayload = {
     parentSessionId?: unknown;
     name?: unknown;
     taskId?: unknown;
-    scheduler?: { jobId?: unknown; trigger?: unknown } | null;
+    scheduler?: { jobId?: unknown; trigger?: unknown; workspace?: unknown } | null;
   } | null;
-  schedulerJob?: { jobId?: unknown } | null;
+  schedulerJob?: { jobId?: unknown; workspace?: unknown } | null;
   readOnly?: unknown;
   model?: unknown;
 };
@@ -68,8 +68,14 @@ export function parseSubagentTranscriptMeta(
   const sched = block?.scheduler;
   if (sched && typeof sched === "object" && str(sched.jobId)) {
     meta.scheduler = { jobId: str(sched.jobId), trigger: str(sched.trigger) };
+    if (str(sched.workspace)) {
+      meta.scheduler.workspace = str(sched.workspace);
+    }
   } else if (jobBlock && str(jobBlock.jobId)) {
     meta.scheduler = { jobId: str(jobBlock.jobId), trigger: "" };
+    if (str(jobBlock.workspace)) {
+      meta.scheduler.workspace = str(jobBlock.workspace);
+    }
     meta.jobSession = true;
   }
   return meta;
