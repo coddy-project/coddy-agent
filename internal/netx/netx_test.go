@@ -497,12 +497,22 @@ func TestEgressPolicyRefusesSharedAddressSpace(t *testing.T) {
 	}
 }
 
+// setProxyEnv sets a proxy variable in both spellings for the test's lifetime.
+// httpproxy reads the lowercase one first (golang.org/x/net v0.58.0 and later;
+// earlier versions read the uppercase one first), so a test that set one
+// spelling alone inherited the other from the developer's shell.
+func setProxyEnv(t *testing.T, name, value string) {
+	t.Helper()
+	t.Setenv(name, value)
+	t.Setenv(strings.ToLower(name), value)
+}
+
 // Which proxy variable applies depends on the scheme, so a caller dialling a
 // plain relay must not be routed by the rule meant for TLS.
 func TestProxyFromEnvironmentFollowsTheScheme(t *testing.T) {
-	t.Setenv("HTTP_PROXY", "http://plain-proxy:3128")
-	t.Setenv("HTTPS_PROXY", "http://tls-proxy:3129")
-	t.Setenv("NO_PROXY", "")
+	setProxyEnv(t, "HTTP_PROXY", "http://plain-proxy:3128")
+	setProxyEnv(t, "HTTPS_PROXY", "http://tls-proxy:3129")
+	setProxyEnv(t, "NO_PROXY", "")
 
 	plain, err := proxyFromEnvironment("relay.example:80", "http")
 	if err != nil {
@@ -521,8 +531,8 @@ func TestProxyFromEnvironmentFollowsTheScheme(t *testing.T) {
 }
 
 func TestProxyFromEnvironmentHonoursNoProxy(t *testing.T) {
-	t.Setenv("HTTPS_PROXY", "http://tls-proxy:3129")
-	t.Setenv("NO_PROXY", "relay.example")
+	setProxyEnv(t, "HTTPS_PROXY", "http://tls-proxy:3129")
+	setProxyEnv(t, "NO_PROXY", "relay.example")
 	got, err := proxyFromEnvironment("relay.example:443", "https")
 	if err != nil {
 		t.Fatal(err)
@@ -536,8 +546,8 @@ func TestProxyFromEnvironmentHonoursNoProxy(t *testing.T) {
 // the first as if it were the second yields a connection that looks established
 // and then answers nothing intelligible.
 func TestEnvironmentProxySchemeIsRespected(t *testing.T) {
-	t.Setenv("HTTPS_PROXY", "socks5://127.0.0.1:1")
-	t.Setenv("NO_PROXY", "")
+	setProxyEnv(t, "HTTPS_PROXY", "socks5://127.0.0.1:1")
+	setProxyEnv(t, "NO_PROXY", "")
 	dial, err := (Options{Scheme: "https"}).DialFunc()
 	if err != nil {
 		t.Fatal(err)
@@ -555,8 +565,8 @@ func TestEnvironmentProxySchemeIsRespected(t *testing.T) {
 // A malformed proxy variable is a configuration mistake; going direct instead
 // would quietly leave the network the operator said to go through.
 func TestEnvironmentProxyErrorIsNotSilentlyIgnored(t *testing.T) {
-	t.Setenv("HTTPS_PROXY", "://not-a-url")
-	t.Setenv("NO_PROXY", "")
+	setProxyEnv(t, "HTTPS_PROXY", "://not-a-url")
+	setProxyEnv(t, "NO_PROXY", "")
 	dial, err := (Options{Scheme: "https"}).DialFunc()
 	if err != nil {
 		t.Fatal(err)

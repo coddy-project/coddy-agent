@@ -16,7 +16,7 @@ COPY docs/assets/coddy-logo-*.svg docs/assets/favicon-32.png docs/assets/favicon
 RUN npm run build:go
 
 
-FROM golang:1.25-bookworm AS build
+FROM golang:1.26-bookworm AS build
 
 WORKDIR /src
 

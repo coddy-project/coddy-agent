@@ -4,13 +4,13 @@ This page is the detailed reference for local builds. For a short version, see [
 
 ## Prerequisites
 
-- **Go** - match `go` in [`go.mod`](../../go.mod) (currently **1.25**).
+- **Go** - match `go` in [`go.mod`](../../go.mod) (currently **1.26**).
 - **Git** - the Makefile embeds a version string from tags or `git describe` when available.
 - **Node.js and npm** - required when you build with both **`http`** and **`ui`**, because the Makefile runs **`ui-build`** (see [`Makefile`](../../Makefile)) to produce the assets that **`go:embed`** picks up, and by **`make test`** and **`make lint`**, which run the SPA's vitest suite and its TypeScript check.
 
 Optional:
 
-- **`golangci-lint` v2.x** (built with Go **1.25** or newer) - for **`make lint`**. CI uses **`golangci/golangci-lint-action@v7`** or newer (v6 supports only golangci-lint v1).
+- **`golangci-lint` v2.x** (built with Go **1.26** or newer) - for **`make lint`**. CI uses **`golangci/golangci-lint-action@v7`** or newer (v6 supports only golangci-lint v1).
 
 ## Recommended full binary (HTTP, UI, scheduler, memory, console)
 
