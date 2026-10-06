@@ -1,6 +1,7 @@
 /**
  * Which top bar items fit on a phone and which fold into the More menu.
- * History and swarm never fold; the rest come back into the bar in
+ * History, swarm and the environment never fold (the environment says where
+ * the page works and whether that host answers); the rest come back into the bar in
  * NAV_RETURN_ORDER as room grows, and the menu lists what is left in
  * NAV_MENU_ORDER, sign-out last.
  */
@@ -10,9 +11,10 @@ export type NavItemId =
   | "swarm"
   | "docs"
   | "settings"
+  | "environment"
   | "signOut";
 
-export const NAV_ALWAYS: readonly NavItemId[] = ["history", "swarm"];
+export const NAV_ALWAYS: readonly NavItemId[] = ["history", "swarm", "environment"];
 export const NAV_RETURN_ORDER: readonly NavItemId[] = [
   "settings",
   "scheduler",

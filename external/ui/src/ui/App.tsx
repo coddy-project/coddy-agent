@@ -123,7 +123,6 @@ import { setHostShell } from "./chat/hostShell";
 import { NavRail } from "./nav/NavRail";
 import { shellStackMaxWidthMediaQuery } from "./shellBreakpoint";
 import { SwarmView } from "./swarm/SwarmView";
-import { EnvironmentChip } from "./chat/EnvironmentChip";
 import { probeSwarm } from "./swarm/api";
 import {
   connectLocal,
@@ -1307,7 +1306,7 @@ export function App() {
   );
   // The remotes this server offers as environments, read from the local config
   // rather than the active one - the list of places to go must not travel with
-  // the place you are. Shared with the composer's environment chip and read
+  // the place you are. Shared with the rail's environment menu and read
   // again on every config reload (env/configuredRemotes.ts).
   const configuredRemotes = useConfiguredRemotes();
   // A folder picked from a History heading, waiting for the conversation on
@@ -5853,7 +5852,7 @@ export function App() {
     if (localServer !== "agent" || getEnv().mode !== "remote") {
       return undefined;
     }
-    return { name: localHost || t("composer.env.local") };
+    return { name: localHost || t("env.local") };
   }, [localServer, localHost, t]);
 
   // Entering a node points the whole app at that node's mount, so every screen
@@ -6185,8 +6184,8 @@ export function App() {
    * The environments the History filter offers. Two kinds share the list,
    * because to an operator they are one question - where is this conversation:
    * the origin rows narrow the listing of whichever server is being read, and a
-   * remote row points the whole app at another server, the way the composer's
-   * environment chip does.
+   * remote row points the whole app at another server, the way the rail's
+   * environment menu does.
    */
   const sessionEnvironments = useMemo<SessionsEnvironmentOption[]>(() => {
     const onRemote = activeEnv.mode === "remote";

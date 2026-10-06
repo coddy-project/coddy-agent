@@ -178,8 +178,12 @@ beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
 });
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  // send() waits for the request only: the turn it starts ends after the test
+  // does, and its last reads (the transcript, the usage) must still meet the
+  // stub rather than the real fetch of a torn-down page.
+  await new Promise((r) => setTimeout(r, 50));
   vi.unstubAllGlobals();
 });
 

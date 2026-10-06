@@ -917,7 +917,7 @@ function workspaceProps(locked: boolean) {
 
 // Once the chat runs, where it works is a fact: a plate joined to the top of
 // the composer card names the repository and the branch and counts git's
-// changes at its right edge, and the composer keeps only its environment chip.
+// changes at its right edge, and the composer carries no workspace chips.
 test("a running chat names its repository, branch and changes over the composer", async () => {
   stubSessionChanges(2);
   const onOpenEdits = vi.fn();
@@ -942,13 +942,29 @@ test("a running chat names its repository, branch and changes over the composer"
   vi.unstubAllGlobals();
 });
 
-test("before the chat starts the folder, branch and worktree are chips of the composer", () => {
+// The plate is git's: a running chat in a folder outside any repository has
+// no branch and no count to show, so it has no plate at all.
+test("a running chat in a folder with no git has no plate over the composer", () => {
   stubSessionChanges(0);
-  render(turnLineScreen(workspaceProps(false)));
+  const plain = { path: "/tmp/plain", name: "plain", is_git_repo: false, is_worktree: false };
+  render(turnLineScreen({ ...workspaceProps(true), workspaceCtx: plain }));
   expect(screen.queryByTestId("workspace-bar")).toBeNull();
-  expect(screen.getByTestId("composer-workspace-chip")).toBeTruthy();
-  expect(screen.getByTestId("composer-branch-chip")).toBeTruthy();
-  expect(screen.getByTestId("composer-worktree-checkbox")).toBeTruthy();
+  expect(document.querySelector(".composer-card")).not.toHaveClass("composer-card--joined");
+  vi.unstubAllGlobals();
+});
+
+// Before the first message the plate over the composer is a choice: the
+// folder and the branch are picks, the worktree a checkbox, and git's count
+// waits for the chat to start.
+test("before the chat starts the folder, branch and worktree are picks on the plate", () => {
+  stubSessionChanges(2);
+  render(turnLineScreen(workspaceProps(false)));
+  const plate = screen.getByTestId("workspace-bar");
+  expect(plate).toHaveClass("workspace-bar--pick");
+  expect(within(plate).getByTestId("composer-workspace-chip").tagName).toBe("BUTTON");
+  expect(within(plate).getByTestId("composer-branch-chip").tagName).toBe("BUTTON");
+  expect(within(plate).getByTestId("composer-worktree-checkbox")).toBeTruthy();
+  expect(within(plate).queryByTestId("workspace-bar-edits")).toBeNull();
   vi.unstubAllGlobals();
 });
 

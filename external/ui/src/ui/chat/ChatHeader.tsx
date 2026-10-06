@@ -109,7 +109,8 @@ type ViewId = "tasks" | "files";
  * flight. The edits open from git's count in the bar over the composer, not
  * from here. The full name is in the tooltip everywhere. A button opens its
  * view and, pressed again, puts it away; the button of a view on show is
- * pressed (aria-pressed, the accent).
+ * pressed (aria-pressed: brighter text, border and ground, the way the Tasks
+ * control always marked its open panel).
  */
 function HeaderViews(props: {
   tasks: BackgroundTask[];

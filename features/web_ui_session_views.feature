@@ -6,11 +6,12 @@ Feature: The views of a chat
   the dot and the running / total count. The tasks open in the dock beside the
   chat, without a tab strip; the files open in a window over the chat, the way
   the documentation does, with the workspace tree on the left and the files
-  opened from it as tabs on the right. Over the composer of a running chat a
-  plate joined to the top of the composer card names the repository, the
-  branch - with a worktree mark in a linked worktree - and, at its right edge
-  and only while git reports uncommitted changes in the chat's folder, git's
-  count of them, which opens the edits window, every diff in one document.
+  opened from it as tabs on the right, each shown as its source with nothing
+  over it. Over the composer of a running chat a plate joined to the top of
+  the composer card names the repository, the branch - its tooltip naming the
+  worktree in a linked one - and, at its right edge and only while git reports
+  uncommitted changes in the chat's folder, git's count of them in a light
+  frame, which opens the edits window, every diff in one document.
 
   Scenario: The header shows the views as buttons
     Then the header shows files and background tasks as buttons in a row
@@ -24,8 +25,8 @@ Feature: The views of a chat
 
   Scenario: The plate over the composer names where a running chat works
     Then a running chat names its repository, branch and changes over the composer
-    And a linked worktree carries a worktree mark before the branch
-    And before the chat starts the folder, branch and worktree are chips of the composer
+    And a linked worktree is named in the tooltip of its branch
+    And before the chat starts the folder, branch and worktree are picks on the plate
 
   Scenario: Uncommitted changes are discarded from the edits, after a question
     Then discarding a file asks first, then puts it back through the server
@@ -35,6 +36,7 @@ Feature: The views of a chat
     Then the files open in a window over the chat, not in the dock
     And the window shows the workspace tree beside an empty preview
     And a file picked in the tree opens in a tab, and a second one beside it
+    And a file opens straight on its source, with no head over it
     And the filter searches the whole workspace
     And a files address opens the window on its file
     And Ctrl+Shift+F opens the files window and closes it

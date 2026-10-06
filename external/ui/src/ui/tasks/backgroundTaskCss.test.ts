@@ -313,8 +313,17 @@ test("the header's view buttons are styled from theme tokens, mark a live sessio
   const button = ruleBody(".chat-view-btn {");
   expect(button).toContain("var(--text)");
   expect(button).toContain("height: 36px");
+  // The accent says that work runs in the background, nothing else.
   expect(ruleBody(".chat-view-btn.is-running {")).toContain("var(--accent)");
-  expect(ruleBody(".chat-view-btn.is-active {")).toContain("var(--accent)");
+  // Pointed at, or with its view on show, a button only brightens: its text,
+  // its border and its ground, the way the Tasks control always marked its
+  // open panel.
+  const pressed = ruleBody(".chat-view-btn.is-active {");
+  expect(pressed).not.toContain("var(--accent)");
+  expect(pressed).toMatch(/color: var\(--text\)/);
+  expect(pressed).toMatch(/border-color: color-mix\(in srgb, var\(--text\)/);
+  expect(pressed).toMatch(/background: color-mix\(in srgb, var\(--text\)/);
+  expect(css).toMatch(/\.chat-view-btn:hover,\n\.chat-view-btn\.is-active \{/);
   // The tooltip is the rail's: the same tokens.
   const tip = ruleBody(".chat-view-tip {");
   expect(tip).toContain("var(--coddy-tip-bg)");

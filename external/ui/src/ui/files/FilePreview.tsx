@@ -3,7 +3,6 @@ import { useT } from "../i18n/I18nProvider";
 import { languageForPath } from "../changes/diffLanguage";
 import { highlightLine } from "../changes/highlightLine";
 import { FileImage } from "./FileImage";
-import { FileMarkdown } from "./FileMarkdown";
 import { HttpError, mediaUrl, readMeta, readText } from "./api";
 import type { FileMeta, TextPage } from "./api";
 
@@ -13,14 +12,13 @@ const PAGE_LINES = 300;
 /** A signed media address lives an hour; a check after this long signs a new one. */
 const MEDIA_RENEW_MS = 50 * 60 * 1000;
 
-type Kind = "image" | "audio" | "video" | "pdf" | "markdown" | "text";
+type Kind = "image" | "audio" | "video" | "pdf" | "text";
 
-function renderer(path: string, type: string): Kind {
+function renderer(type: string): Kind {
   if (type.startsWith("image/")) return "image";
   if (type.startsWith("audio/")) return "audio";
   if (type.startsWith("video/")) return "video";
   if (type === "application/pdf") return "pdf";
-  if (/\.(md|markdown)$/i.test(path)) return "markdown";
   return "text";
 }
 
@@ -40,11 +38,11 @@ export function nameOf(path: string): string {
 }
 
 /**
- * One open file of the Files window: its head (where it is, how big, when it
- * changed, how to see it) over its body. A text file is read a window of
- * lines at a time; a picture comes through the authenticated reader; audio
- * and video play from a short-lived signed address, which a swarm relay
- * carries to the node as it is (docs/operate/swarm.md).
+ * One open file of the Files window, with nothing over it: the tab already
+ * names the file. A text file - Markdown included, shown as its source - is
+ * read a window of lines at a time; a picture comes through the authenticated
+ * reader; audio and video play from a short-lived signed address, which a
+ * swarm relay carries to the node as it is (docs/operate/swarm.md).
  *
  * The preview checks the file again when the page comes back into view and
  * when a tool call of the turn finishes (`activity`), with its ETag: a file that
@@ -71,13 +69,10 @@ export function FilePreview(props: {
   const [meta, setMeta] = useState<FileMeta | null>(null);
   const metaRef = useRef<{ path: string; meta: FileMeta } | null>(null);
   const [text, setText] = useState<TextPage | null>(null);
-  const [source, setSource] = useState(false);
   const [error, setError] = useState("");
   // The failed read was of a file that is not text (415), not a network or
   // permission failure: only then does the notice offer the download.
   const [binary, setBinary] = useState(false);
-  // What the line field shows while it is typed in; it moves the file on Enter.
-  const [lineDraft, setLineDraft] = useState(String(props.line));
   const [changed, setChanged] = useState(false);
   const [loading, setLoading] = useState(false);
   const [media, setMedia] = useState("");
@@ -109,18 +104,10 @@ export function FilePreview(props: {
     setOffset(pageOf(props.line));
   }, [path, props.line]);
 
-  useEffect(() => {
-    setSource(false);
-  }, [path]);
-
   // The notice that the file changed stays until another file or Reload.
   useEffect(() => {
     setChanged(false);
   }, [path, props.epoch]);
-
-  useEffect(() => {
-    setLineDraft(String(props.line));
-  }, [props.line]);
 
   useEffect(() => {
     const refresh = () => setFocusEpoch((n) => n + 1);
@@ -181,7 +168,7 @@ export function FilePreview(props: {
         metaRef.current = { path, meta: next };
         setMeta(next);
         if (!moved && !reread) return;
-        const kind = renderer(path, next.type);
+        const kind = renderer(next.type);
         let content = false;
         let signedAt = 0;
         if (kind === "audio" || kind === "video") {
@@ -190,7 +177,7 @@ export function FilePreview(props: {
           setMedia(url);
           content = true;
           signedAt = Date.now();
-        } else if (kind === "text" || kind === "markdown") {
+        } else if (kind === "text") {
           const page = await readText(
             sessionId,
             path,
@@ -243,13 +230,7 @@ export function FilePreview(props: {
       ?.scrollIntoView({ block: "center" });
   }, [text, props.line]);
 
-  const commitLine = () => {
-    const n = Math.max(1, Math.floor(Number(lineDraft)) || 1);
-    setLineDraft(String(n));
-    if (n !== props.line) props.onLine(n);
-  };
-
-  const kind = meta ? renderer(path, meta.type) : null;
+  const kind = meta ? renderer(meta.type) : null;
   const language = languageForPath(path);
   const highlightPage = useMemo(
     () =>
@@ -260,61 +241,6 @@ export function FilePreview(props: {
 
   return (
     <div className="files-file" data-testid="files-file">
-      <div className="files-file-head">
-        <div className="files-file-path" title={path}>
-          <span className="files-file-dir">{folderOf(path)}</span>
-          <span className="files-file-name">{nameOf(path)}</span>
-        </div>
-        {meta ? (
-          <div className="files-file-meta">
-            <span>
-              {meta.size.toLocaleString()} {t("files.bytes")}
-            </span>
-            {meta.modTime ? (
-              <time dateTime={new Date(meta.modTime).toISOString()}>
-                {new Date(meta.modTime).toLocaleString()}
-              </time>
-            ) : null}
-          </div>
-        ) : null}
-        <div className="files-file-tools">
-          {kind === "markdown" && text ? (
-            <span className="files-seg" role="group">
-              <button
-                type="button"
-                className={!source ? "is-active" : ""}
-                aria-pressed={!source}
-                onClick={() => setSource(false)}
-              >
-                {t("files.rendered")}
-              </button>
-              <button
-                type="button"
-                className={source ? "is-active" : ""}
-                aria-pressed={source}
-                onClick={() => setSource(true)}
-              >
-                {t("files.source")}
-              </button>
-            </span>
-          ) : null}
-          {text && (kind === "text" || source) ? (
-            <label className="files-line-jump">
-              {t("files.line")}
-              <input
-                type="number"
-                min={1}
-                value={lineDraft}
-                onChange={(e) => setLineDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") commitLine();
-                }}
-                onBlur={commitLine}
-              />
-            </label>
-          ) : null}
-        </div>
-      </div>
       <div className="files-file-body" ref={bodyRef}>
         {changed ? (
           <p role="status" className="files-changed">
@@ -339,12 +265,7 @@ export function FilePreview(props: {
           <FileImage sessionId={sessionId} path={path} version={meta.etag} />
         ) : null}
         {kind === "audio" && media ? (
-          <audio
-            src={media}
-            controls
-            preload="metadata"
-            onError={retryMedia}
-          />
+          <audio src={media} controls preload="metadata" onError={retryMedia} />
         ) : null}
         {kind === "video" && media ? (
           <video
@@ -358,57 +279,48 @@ export function FilePreview(props: {
         {kind === "pdf" ? (
           <p className="files-note">{t("files.pdfDownload")}</p>
         ) : null}
-        {text && (kind === "text" || kind === "markdown") ? (
+        {text && kind === "text" ? (
           <>
-            {kind === "markdown" && !source ? (
-              <FileMarkdown
-                sessionId={sessionId}
-                path={path}
-                text={text.lines.join("\n")}
-                version={`${meta?.etag || ""}:${props.epoch}`}
-              />
-            ) : (
-              <div
-                className={
-                  "files-code" + (props.wrap ? " files-code--wrap" : "")
-                }
-              >
-                {text.lines.map((value, i) => {
-                  const no = text.offset + i + 1;
-                  const spans =
-                    value.length <= 4096 && highlightPage
-                      ? highlightLine(value, language)
-                      : null;
-                  return (
-                    <div
-                      key={no}
-                      data-file-line={no}
-                      className={no === props.line ? "is-active" : ""}
-                    >
-                      <span className="files-line-no">{no}</span>
-                      <code>
-                        {spans
-                          ? spans.map((span, n) => (
-                              <span
-                                key={n}
-                                className={span.className || undefined}
-                              >
-                                {span.text}
-                              </span>
-                            ))
-                          : value || " "}
-                      </code>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            <div
+              className={"files-code" + (props.wrap ? " files-code--wrap" : "")}
+            >
+              {text.lines.map((value, i) => {
+                const no = text.offset + i + 1;
+                const spans =
+                  value.length <= 4096 && highlightPage
+                    ? highlightLine(value, language)
+                    : null;
+                return (
+                  <div
+                    key={no}
+                    data-file-line={no}
+                    className={no === props.line ? "is-active" : ""}
+                  >
+                    <span className="files-line-no">{no}</span>
+                    <code>
+                      {spans
+                        ? spans.map((span, n) => (
+                            <span
+                              key={n}
+                              className={span.className || undefined}
+                            >
+                              {span.text}
+                            </span>
+                          ))
+                        : value || " "}
+                    </code>
+                  </div>
+                );
+              })}
+            </div>
             {offset > 0 || text.has_more ? (
               <div className="files-pages">
                 <button
                   type="button"
                   disabled={!offset}
-                  onClick={() => props.onLine(Math.max(0, offset - PAGE_LINES) + 1)}
+                  onClick={() =>
+                    props.onLine(Math.max(0, offset - PAGE_LINES) + 1)
+                  }
                 >
                   {t("files.previous")}
                 </button>

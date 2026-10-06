@@ -6,9 +6,10 @@ import type { WorkingCopy } from "../changes/workingCopy";
 import { initLocale } from "../i18n/i18n";
 
 /**
- * The bar over the composer of a running chat names where the chat works: the
- * repository, the branch - with a worktree mark when the chat runs in a linked
- * worktree - and what git reports as changed, which opens the edits.
+ * The plate over the composer of a running chat names where the chat works:
+ * the repository, the branch - its tooltip naming the worktree when the chat
+ * runs in a linked one - and what git reports as changed, which opens the
+ * edits.
  */
 
 afterEach(() => {
@@ -59,12 +60,19 @@ test("a repository: its name, the branch, and no worktree mark", () => {
   expect(screen.queryByTestId("workspace-bar-edits")).toBeNull();
 });
 
-test("a linked worktree: the repository's name and a worktree mark before the branch", () => {
+test("a linked worktree: the repository's name, the branch glyph, and the worktree in the tooltip", () => {
+  const { unmount } = render(<WorkspaceBar context={repo} workingCopy={copy(0)} />);
+  const branchGlyph = screen.getByTestId("workspace-bar-branch").querySelector("svg")!.innerHTML;
+  unmount();
   render(<WorkspaceBar context={worktree} workingCopy={copy(0)} />);
   expect(screen.getByTestId("workspace-bar-repo").textContent).toBe("coddy-agent");
   const branch = screen.getByTestId("workspace-bar-branch");
   const mark = screen.getByTestId("workspace-bar-worktree");
   expect(branch.firstElementChild).toBe(mark);
+  // The mark is the branch glyph, in the plate's colour: the tooltip tells
+  // a worktree apart.
+  expect(mark.innerHTML).toBe(branchGlyph);
+  expect(mark.getAttribute("class")).toBe("workspace-bar-icon");
   expect(branch.getAttribute("title")).toBe(
     "Worktree /home/me/src/coddy-agent/.coddy/worktrees/feat-session-changes on branch feat/session-changes",
   );

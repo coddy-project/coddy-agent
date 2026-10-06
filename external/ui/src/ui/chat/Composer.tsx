@@ -11,9 +11,8 @@ import {
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import type { TokenUsage } from "./types";
-import { WorkspaceChips } from "./WorkspaceChips";
+import { WorkspaceBar } from "./WorkspaceBar";
 import { useT } from "../i18n/I18nProvider";
-import { EnvironmentChip } from "./EnvironmentChip";
 import { ImageLightbox } from "../components/ImageLightbox";
 import { PaperclipIcon } from "../components/PaperclipIcon";
 import { useEscapeCloses } from "../components/useEscapeCloses";
@@ -483,8 +482,9 @@ export function Composer(props: {
   onWorkspacePickFolder?: (path: string) => void;
   onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
   onWorktreeToggle?: () => void;
-  /** A plate joined to the top edge of the card (the bar over the composer of
-   *  a running chat): under the queue and the banners, flush with the card. */
+  /** A plate joined to the top edge of the card (the plate of a running chat,
+   *  naming where it works): under the queue and the banners, flush with the
+   *  card. Without one, a chat that has not started gets the plate of picks. */
   cardTop?: ReactNode;
 }) {
   const { t, tp } = useT();
@@ -2578,6 +2578,25 @@ export function Composer(props: {
         : t("composer.slashCommandsAriaLabel");
   const pickerRole = atRangeOpen ? "group" : "listbox";
 
+  // The plate over the card: the one a running chat hands in (cardTop), or,
+  // before the chat starts, the folder, branch and worktree as picks on it.
+  const plate: ReactNode =
+    props.cardTop ??
+    (props.workspaceCtx &&
+    props.onWorkspacePickFolder &&
+    !props.workspaceLocked ? (
+      <WorkspaceBar
+        context={props.workspaceCtx}
+        pick={{
+          worktreePref: props.worktreePref ?? false,
+          onPickFolder: props.onWorkspacePickFolder,
+          onPickBranch: props.onWorkspacePickBranch ?? (() => {}),
+          onWorktreeToggle: props.onWorktreeToggle ?? (() => {}),
+          opensUp: !props.isEmpty,
+        }}
+      />
+    ) : null);
+
   return (
     <>
       <footer
@@ -2748,12 +2767,12 @@ export function Composer(props: {
             </button>
           </div>
         ) : null}
-        {props.cardTop ?? null}
+        {plate}
         <div
           className={[
             "composer-card",
             dragOverCard ? "composer-card--dragover" : "",
-            props.cardTop ? "composer-card--joined" : "",
+            plate ? "composer-card--joined" : "",
           ]
             .filter(Boolean)
             .join(" ")}
@@ -2789,53 +2808,6 @@ export function Composer(props: {
             setAttachedFiles((prev) => [...prev, ...files]);
           }}
         >
-          <div className="composer-context-row">
-            {/* One strip for the chips: display: contents on a wide shell, a
-                sideways-scrolling box on a phone (styles.css). */}
-            <div className="composer-context-scroll">
-              <EnvironmentChip />
-              {/* The folder, the branch and the worktree are a choice until
-                  the chat starts; after that the bar over the composer
-                  (WorkspaceBar) names them. */}
-              {props.workspaceCtx !== undefined &&
-              props.onWorkspacePickFolder &&
-              !props.workspaceLocked ? (
-                <WorkspaceChips
-                  context={props.workspaceCtx ?? null}
-                  worktreePref={props.worktreePref ?? false}
-                  onPickFolder={props.onWorkspacePickFolder}
-                  onPickBranch={props.onWorkspacePickBranch ?? (() => {})}
-                  onWorktreeToggle={props.onWorktreeToggle ?? (() => {})}
-                  opensUp={!props.isEmpty}
-                  locked={props.workspaceLocked ?? false}
-                />
-              ) : null}
-            </div>
-            <button
-              type="button"
-              className="composer-enhance-btn"
-              aria-label={t("composer.enhance")}
-              title={t("composer.enhance")}
-              data-testid="composer-enhance-btn"
-              disabled={enhancing || props.generating || idleSendDisabled}
-              onClick={() => void enhancePrompt()}
-            >
-              <svg
-                className={
-                  enhancing
-                    ? "composer-enhance-icon is-spinning"
-                    : "composer-enhance-icon"
-                }
-                viewBox="0 0 16 16"
-                fill="currentColor"
-                width="12"
-                height="12"
-                aria-hidden="true"
-              >
-                <path d="M9.5 1l.7 1.8L12 3.5l-1.8.7L9.5 6l-.7-1.8L7 3.5l1.8-.7L9.5 1zM3.2 5.6l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2L1.5 7.3l1.2-.5.5-1.2zM8.9 6.6a1 1 0 011.5 0l.9.9a1 1 0 010 1.5l-5.3 5.3a1 1 0 01-1.5 0l-.9-.9a1 1 0 010-1.5l5.3-5.3zm.8 1.5l-4.6 4.6.5.5 4.6-4.6-.5-.5z" />
-              </svg>
-            </button>
-          </div>
           {(props.editingFiles && props.editingFiles.length > 0) ||
           attachedFiles.length > 0 ? (
             <div
@@ -2884,6 +2856,32 @@ export function Composer(props: {
             </div>
           ) : null}
           <div className="composer-field-wrap" ref={composerFieldWrapRef}>
+            {/* The wand stands in the field's top right corner, so the field
+                starts at the top of the card; the text keeps clear of it. */}
+            <button
+              type="button"
+              className="composer-enhance-btn"
+              aria-label={t("composer.enhance")}
+              title={t("composer.enhance")}
+              data-testid="composer-enhance-btn"
+              disabled={enhancing || props.generating || idleSendDisabled}
+              onClick={() => void enhancePrompt()}
+            >
+              <svg
+                className={
+                  enhancing
+                    ? "composer-enhance-icon is-spinning"
+                    : "composer-enhance-icon"
+                }
+                viewBox="0 0 16 16"
+                fill="currentColor"
+                width="12"
+                height="12"
+                aria-hidden="true"
+              >
+                <path d="M9.5 1l.7 1.8L12 3.5l-1.8.7L9.5 6l-.7-1.8L7 3.5l1.8-.7L9.5 1zM3.2 5.6l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2L1.5 7.3l1.2-.5.5-1.2zM8.9 6.6a1 1 0 011.5 0l.9.9a1 1 0 010 1.5l-5.3 5.3a1 1 0 01-1.5 0l-.9-.9a1 1 0 010-1.5l5.3-5.3zm.8 1.5l-4.6 4.6.5.5 4.6-4.6-.5-.5z" />
+              </svg>
+            </button>
             <div
               className={`composer-stack${codeFenceEditing ? " composer-code-editing" : ""}`}
             >

@@ -199,8 +199,6 @@ function MarkdownPre(props: PreProps) {
 
 export const Markdown = memo(function Markdown(props: {
   text: string;
-  renderImage?: (props: ImgProps) => ReactNode;
-  onLink?: (href: string) => boolean;
   /** The text is still arriving: a diagram that does not parse yet is not an error. */
   streaming?: boolean;
 }) {
@@ -241,9 +239,6 @@ export const Markdown = memo(function Markdown(props: {
         return (
           <a
             href={href}
-            onClick={(event) => {
-              if (props.onLink?.(href)) event.preventDefault();
-            }}
             {...(external
               ? ({ target: "_blank", rel: "noreferrer noopener" } as const)
               : {})}
@@ -253,9 +248,7 @@ export const Markdown = memo(function Markdown(props: {
         );
       },
       img: (p: ImgProps) =>
-        props.renderImage ? (
-          props.renderImage(p)
-        ) : p.src && VIDEO_SRC.test(p.src) ? (
+        p.src && VIDEO_SRC.test(p.src) ? (
           <video
             className="md-video"
             // #t=0.1 shows a first frame before it plays, not a black box.
@@ -274,7 +267,7 @@ export const Markdown = memo(function Markdown(props: {
           />
         ),
     }),
-    [props.renderImage, props.onLink],
+    [],
   );
 
   const urlTransform = useCallback((url: string) => {

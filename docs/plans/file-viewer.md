@@ -440,6 +440,21 @@ replaces the recorded change set where they differ.
   background lightens on hover, with no outline. The composer keeps its environment chip; the
   start screen keeps the chips and the worktree checkbox, a choice still to make. The
   composer's Files chip went too: the header has Files.
+- **The pressed look and the open file.** A pressed view button brightens like a
+  pointed-at one instead of taking the accent, which stays the mark of running tasks. An
+  open file is its body alone: no head with the name the tab already shows, no size or
+  time, no line field, and Markdown is its source rather than a rendering with a switch, so
+  the window loads and runs nothing a workspace file names.
+- **One plate, the environment in the rail.** The composer card has no chip row. Before the
+  first message the plate over it offers the folder and the branch as picks and the worktree
+  as a checkbox (the last two only in git), with no git count until a session exists; once the
+  chat runs the plate names the repository and the branch with git's count, and a chat in a
+  folder outside git has no plate. The improve-prompt wand stands in the field's top right
+  corner, so the placeholder starts at the top, and the count above ends on its right edge.
+  On a phone or a touch screen the picks are 36px tall and the count keeps its slim look
+  under an invisible 40px hit area. The environment left
+  the composer for the foot of the nav rail: a laptop for this server, two chevrons for a
+  remote host, the menu beside the rail.
 
 Checks: `internal/gitws/backend_test.go` (every scenario with the binary and with it hidden),
 `features/session_changes.feature`, `external/httpserver/coddy_changes_test.go`,

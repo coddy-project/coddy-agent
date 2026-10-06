@@ -7,17 +7,14 @@ import { snapshotEnv, subscribeEnv } from "../env/remoteEnv";
 export function FileImage(props: {
   sessionId: string;
   path: string;
-  alt?: string | undefined;
   version?: string | undefined;
 }) {
   const { t } = useT();
   const env = useSyncExternalStore(subscribeEnv, snapshotEnv, snapshotEnv);
   const [state, setState] = useState({ url: "", error: false });
   const [full, setFull] = useState(false);
-  const [dimensions, setDimensions] = useState("");
   useEffect(() => {
     setState({ url: "", error: false });
-    setDimensions("");
     const lease = acquireObjectUrl(
       workspaceUrl(props.sessionId, "raw", props.path) +
         "&v=" +
@@ -46,19 +43,8 @@ export function FileImage(props: {
       <button type="button" onClick={() => setFull((v) => !v)}>
         {t(full ? "files.fit" : "files.actualSize")}
       </button>
-      {dimensions ? (
-        <span className="files-image-dimensions">{dimensions}</span>
-      ) : null}
       {state.url ? (
-        <img
-          src={state.url}
-          alt={props.alt || props.path}
-          onLoad={(e) =>
-            setDimensions(
-              `${e.currentTarget.naturalWidth} × ${e.currentTarget.naturalHeight}`,
-            )
-          }
-        />
+        <img src={state.url} alt={props.path} />
       ) : (
         <span>{t("files.loading")}</span>
       )}

@@ -9,7 +9,6 @@ import {
   within,
 } from "@testing-library/react";
 import { FilesView, forgetOpenFiles } from "./FilesView";
-import { FileMarkdown } from "./FileMarkdown";
 import { t } from "../i18n/i18n";
 import type { FileEntry } from "./api";
 
@@ -408,28 +407,35 @@ test("an open file revalidates on focus and reports a concurrent rewrite", async
   expect(screen.getByRole("status")).toHaveTextContent(t("files.changed"));
 });
 
-test("workspace Markdown blocks external images and never inserts raw HTML", async () => {
-  const blocked = vi.fn();
-  vi.stubGlobal("fetch", blocked);
-  render(
-    <FileMarkdown
-      sessionId="s1"
-      path="docs/readme.md"
-      text={
-        "![remote](https://example.test/track.png)\n\n<script>window.stolen=true</script>"
-      }
-    />,
-  );
-  await waitFor(() =>
-    expect(screen.getByText(t("files.loadExternalImage"))).toBeTruthy(),
-  );
+// The tab names the file; the preview is its text and nothing over it: no
+// second name, no size or time, no switch between a rendering and the source.
+test("a file opens straight on its source, with no head over it", async () => {
+  contents["README.md"] = "# Demo\n\nSome *text* here.";
+  render(view({ initialPath: "README.md" }));
+  await line(1, "# Demo");
+  await line(3, "Some *text* here.");
+  const preview = screen.getByTestId("files-file");
+  expect(preview.querySelector(".files-file-head")).toBeNull();
+  expect(within(preview).queryByRole("heading")).toBeNull();
+  expect(within(preview).queryByRole("spinbutton")).toBeNull();
+  expect(within(preview).queryAllByRole("button")).toEqual([]);
+  expect(preview.textContent).not.toMatch(/bytes|байт/);
+  expect(preview.querySelector("time")).toBeNull();
+});
+
+// Markdown is text like any other: a picture or a script in it is a line to
+// read, never something the window loads or runs.
+test("workspace Markdown is shown as text: its pictures are not loaded and its HTML never runs", async () => {
+  contents["docs/readme.md"] =
+    "![remote](https://example.test/track.png)\n\n<script>window.stolen=true</script>";
+  render(view({ initialPath: "docs/readme.md" }));
+  await line(1, "![remote](https://example.test/track.png)");
+  await line(3, "<script>window.stolen=true</script>");
   expect(document.querySelector("script")).toBeNull();
   expect(document.querySelector("img")).toBeNull();
-  expect(blocked).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByText(t("files.loadExternalImage")));
-  expect(document.querySelector("img")?.getAttribute("referrerpolicy")).toBe(
-    "no-referrer",
-  );
+  expect(
+    fetcher.mock.calls.some(([url]) => String(url).includes("example.test")),
+  ).toBe(false);
 });
 
 // Coming back to the page checks the open file; a file that did not change is
@@ -575,22 +581,6 @@ test("the next page of a long file moves the line the address names", async () =
   fireEvent.click(screen.getByText(t("files.next")));
   await screen.findByText("line 301");
   expect(onNavigate).toHaveBeenLastCalledWith("long.txt", 301);
-});
-
-test("the line field moves the file when the number is entered, not on every digit", async () => {
-  contents["long.txt"] = Array.from({ length: 400 }, (_, i) => `line ${i + 1}`).join("\n");
-  const onNavigate = vi.fn();
-  render(view({ initialPath: "long.txt", onNavigate }));
-  await screen.findByText("line 1");
-  onNavigate.mockClear();
-  const field = screen.getByRole("spinbutton");
-  fireEvent.change(field, { target: { value: "3" } });
-  fireEvent.change(field, { target: { value: "31" } });
-  fireEvent.change(field, { target: { value: "312" } });
-  expect(onNavigate).not.toHaveBeenCalled();
-  fireEvent.keyDown(field, { key: "Enter" });
-  expect(onNavigate).toHaveBeenLastCalledWith("long.txt", 312);
-  await screen.findByText("line 312");
 });
 
 test("Reload puts away the notice that the file changed", async () => {

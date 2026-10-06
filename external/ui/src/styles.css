@@ -1056,6 +1056,24 @@ body {
   position: relative;
 }
 
+/* The environment item of the rail (EnvironmentSwitcher.tsx): the host's
+   icon - a laptop for this browser's server, two chevrons for another host -
+   with the reachability dot on its lower right corner, ringed in the rail's
+   ground so it reads over the glyph. */
+.rail-env-icon {
+  position: relative;
+  display: inline-flex;
+}
+
+.rail-env-status {
+  position: absolute;
+  right: -3px;
+  bottom: -2px;
+  width: 7px;
+  height: 7px;
+  box-shadow: 0 0 0 1.5px var(--coddy-canvas-gradient-top);
+}
+
 .rail-active-count {
   position: absolute;
   top: 2px;
@@ -2343,11 +2361,11 @@ a.rail-brand {
 }
 
 /* The views of a chat at the right of the sticky header: a row of buttons -
-   Edits (only when the session has edits), Files, and Background tasks at the
-   right edge. Edits and Files are an icon the size of the rail's with its short
-   name on a desktop and a tablet, the icon alone on a phone; Background tasks
-   are the dot and the running / total count the header always had. The full
-   name is in a tooltip everywhere. The row is there from the first message, so
+   Files, and Background tasks at the right edge. Files is an icon the size of
+   the rail's with its short name on a desktop and a tablet, the icon alone on
+   a phone; Background tasks are the dot and the running / total count the
+   header always had. The full name and the view's key are in a tooltip
+   everywhere. The row is there from the first message, so
    the header never jumps when the first task starts. DESIGN.md, Views of a
    chat. */
 .chat-views {
@@ -2389,16 +2407,14 @@ a.rail-brand {
     background 140ms ease;
 }
 
-.chat-view-btn:hover {
-  color: var(--accent);
-}
-
-/* The view on show: its button stays pressed, in the accent, as the rail marks
-   the screen on show. */
+/* Pointed at, and while its view shows: brighter text, border and ground, the
+   way the Tasks control always marked its open panel. The accent is kept for
+   work in flight (.is-running, below), which wins over this. */
+.chat-view-btn:hover,
 .chat-view-btn.is-active {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--accent) 12%, var(--coddy-blend-base));
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
 }
 
 /* Work in flight in the chat's background: the accent border and tint the
@@ -4737,7 +4753,7 @@ code.md-math-pending {
   justify-content: space-between;
   gap: 8px;
   /* 12px on the right puts the remove cross on the vertical line of the
-     improve-prompt button of the card below (the row's 12px, the same 24px
+     improve-prompt wand in the field's corner below (12px in, the same 24px
      control): composerQueueCss.test.ts. */
   padding: 6px 12px;
   border-radius: 12px;
@@ -5278,7 +5294,9 @@ textarea#composer {
   background: transparent;
   border: 0;
   border-radius: 0;
-  padding: 16px 16px 10px;
+  /* 13px on top puts the middle of the first line (15px type, 1.5 line height)
+     on the middle of the improve-prompt wand in the corner. */
+  padding: 13px 44px 10px 16px;
   outline: none;
 }
 
@@ -5299,7 +5317,7 @@ textarea#composer {
 .composer-mirror-inner {
   box-sizing: border-box;
   width: 100%;
-  padding: 16px 16px 10px;
+  padding: 13px 44px 10px 16px;
   white-space: pre-wrap;
   word-wrap: break-word;
   overflow-wrap: break-word;
@@ -5368,9 +5386,15 @@ textarea#composer {
   font-variant-numeric: normal;
 }
 
+/* The improve-prompt wand stands in the field's top right corner rather than in
+   a row of its own, so the field (and its placeholder) starts at the top of the
+   card; the textarea and its mirror keep 44px clear on the right for it. Its
+   right edge is the line git's count on the plate above ends on. */
 .composer-enhance-btn {
-  flex: 0 0 24px;
-  margin-left: auto;
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -5386,8 +5410,8 @@ textarea#composer {
 
 .composer-enhance-btn:hover:not(:disabled) {
   color: var(--text);
-  background: color-mix(in srgb, var(--accent) 17%, var(--coddy-surface-muted));
-  border-color: color-mix(in srgb, var(--accent) 52%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 9%, var(--coddy-surface-muted));
+  border-color: color-mix(in srgb, var(--text) 30%, var(--coddy-blend-base));
 }
 
 .composer-enhance-btn:disabled {
@@ -5620,36 +5644,10 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   margin-top: 2px;
 }
 
-/* Environment selector: workspace-row chip + local/remote menu. */
-
-/* Top workspace-context row now hosts the env chip alongside folder/branch/worktree. */
-.composer-context-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 12px 0;
-}
-
-/* The chips' strip. Not a box on a wide shell, so the chips stay flex items
-   of the wrapping row; a phone makes it a sideways-scrolling strip (Phone
-   layout at the end of this file). */
-.composer-context-scroll {
-  display: contents;
-}
-
-.workspace-chip-wrap {
-  display: inline-flex;
-}
-
-.workspace-chip--env {
-  gap: 6px;
-}
-
 .mode-menu--env {
   min-width: 240px;
   max-width: min(340px, calc(100vw - 24px));
-  /* The anchored menu gets the room it has as max-height (EnvironmentChip);
+  /* The anchored menu gets the room it has as max-height (EnvironmentSwitcher);
      past that it scrolls rather than running off the window. */
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -5865,17 +5863,6 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   padding: 7px 9px;
 }
 
-/* display:contents dissolves this wrapper so the folder/branch/worktree chips
-   become direct flex items of .composer-context-row alongside the environment
-   chip. Without it the chips form a nested flex box that wraps as one unit, so
-   a long branch pushed the whole group onto its own lines (env alone on line 1,
-   folder+branch on line 2, worktree on line 3). Flattened, only the chips that
-   overflow wrap, and worktree stays beside the branch until the branch is long
-   enough to push it. Gap and alignment come from .composer-context-row. */
-.composer-context-chips {
-  display: contents;
-}
-
 /* The bar over the composer of a running chat (WorkspaceBar.tsx): where the
    chat works - the repository, the branch or worktree - and, at its right
    edge, git's count of the changes, which opens the edits window. A plate of
@@ -5891,7 +5878,9 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   align-items: center;
   gap: 14px;
   min-width: 0;
-  padding: 5px 8px 5px 12px;
+  /* 16px on the left: the plate's first word starts where the field's text
+     does. 12px on the right: git's count ends where the wand below does. */
+  padding: 5px 12px 5px 16px;
   border: 1px solid var(--coddy-glass-panel-border);
   border-bottom: 0;
   border-radius: 12px 12px 0 0;
@@ -5911,7 +5900,9 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 
 /* An item is one line of text that ends in an ellipsis when the bar runs out
    of room; its icon sits on that line with vertical-align: middle, the middle
-   of the lowercase letters in whatever font the engine draws. */
+   of the lowercase letters in whatever font the engine draws, and a pixel
+   above it: the glyphs carry their ink low, and on the middle they read as
+   sunk below the words. */
 .workspace-bar-item {
   display: block;
   min-width: 0;
@@ -5931,27 +5922,168 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 .workspace-bar-icon {
   display: inline-block;
   vertical-align: middle;
+  position: relative;
+  top: -1px;
   margin-right: 6px;
   opacity: 0.85;
 }
 
-.workspace-bar-icon--worktree {
-  color: var(--accent);
-  opacity: 1;
+/* Before the chat starts the plate offers the workspace as a choice
+   (WorkspaceChips on it): the folder and the branch are buttons, the worktree
+   a checkbox, each a row item that a lighter ground marks as pressable. The
+   picks carry their own padding, so the plate's own left padding gives way
+   and the folder still starts on the placeholder's left edge. */
+.workspace-bar--pick {
+  padding-left: 10px;
+  gap: 4px;
 }
 
-/* Git's count, at the right edge: plain digits in the diff colours, no
-   outline; pointed at, a slightly lighter ground says it opens something. */
+.workspace-bar-picks {
+  display: contents;
+}
+
+.workspace-bar-pick,
+.workspace-bar-check {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 1px 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.workspace-bar-pick:hover,
+.workspace-bar-pick:focus-visible,
+.workspace-bar-pick.is-open,
+.workspace-bar-check:hover {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  color: var(--text);
+  outline: none;
+}
+
+.workspace-bar-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  user-select: none;
+}
+
+.workspace-bar-check.is-locked {
+  cursor: default;
+  opacity: 0.75;
+}
+
+.workspace-bar-check.is-locked:hover {
+  background: transparent;
+}
+
+.workspace-bar-checkbox {
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  border-radius: 3px;
+  border: 1px solid color-mix(in srgb, var(--text) 45%, transparent);
+  background: transparent;
+  cursor: inherit;
+  display: inline-block;
+  position: relative;
+  flex: none;
+}
+
+.workspace-bar-checkbox:checked {
+  border-color: color-mix(in srgb, var(--text) 80%, transparent);
+  background: color-mix(in srgb, var(--text) 80%, transparent);
+}
+
+.workspace-bar-checkbox:checked::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 0.5px;
+  width: 4px;
+  height: 7px;
+  border: solid var(--coddy-blend-base);
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+}
+
+.workspace-bar-check:focus-within {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+}
+
+/* A finger needs a target of its own: on a phone and on any touch screen the
+   picks and the worktree checkbox are 36px tall (they have no ground at rest,
+   so only the plate grows around them), and git's count keeps its slim framed
+   look with an invisible hit area 40px tall laid over it. */
+@media (max-width: 599px), (any-hover: none) and (any-pointer: coarse) {
+  .workspace-bar {
+    font-size: 13px;
+  }
+
+  .workspace-bar--pick {
+    padding-top: 3px;
+    padding-bottom: 3px;
+    padding-left: 6px;
+  }
+
+  .workspace-bar-pick {
+    min-height: 36px;
+    padding: 1px 10px;
+    line-height: 34px;
+  }
+
+  .workspace-bar-check {
+    min-height: 36px;
+    padding: 0 10px;
+  }
+
+  .workspace-bar-checkbox {
+    width: 16px;
+    height: 16px;
+  }
+
+  .workspace-bar-checkbox:checked::after {
+    left: 5px;
+    top: 1.5px;
+    height: 8px;
+  }
+
+  .workspace-bar-edits {
+    position: relative;
+  }
+
+  .workspace-bar-edits::after {
+    content: "";
+    position: absolute;
+    left: -6px;
+    right: -6px;
+    top: 50%;
+    height: 40px;
+    transform: translateY(-50%);
+  }
+}
+
+/* Git's count, at the right edge: the digits in the diff colours inside a
+   light frame, so it reads as a button; pointed at, the frame and the ground
+   brighten. Never the accent. */
 .workspace-bar-edits {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   flex: none;
   margin-left: auto;
-  padding: 1px 7px;
-  border: 0;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
   border-radius: 7px;
   background: transparent;
+  line-height: 15px;
   font: inherit;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 11.5px;
@@ -5961,37 +6093,9 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 
 .workspace-bar-edits:hover,
 .workspace-bar-edits:focus-visible {
+  border-color: color-mix(in srgb, var(--text) 34%, transparent);
   background: color-mix(in srgb, var(--text) 9%, transparent);
-}
-
-.workspace-bar-edits:focus-visible {
-  outline: 1px solid color-mix(in srgb, var(--text) 35%, transparent);
-  outline-offset: 0;
-}
-
-.workspace-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 9px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--muted) 28%, transparent);
-  background: var(--coddy-chip-badge-bg);
-  color: var(--coddy-chip-badge-fg);
-  font-size: 11.5px;
-  line-height: 1.4;
-  cursor: pointer;
-  max-width: 220px;
-}
-
-.workspace-chip:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  color: var(--text);
-}
-
-.workspace-chip:disabled {
-  cursor: default;
-  opacity: 0.75;
+  outline: none;
 }
 
 .workspace-chip-icon {
@@ -5999,58 +6103,6 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   align-items: center;
   flex: none;
   opacity: 0.85;
-}
-
-.workspace-chip-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.workspace-chip--check {
-  gap: 6px;
-  user-select: none;
-}
-
-.workspace-chip--check.is-active {
-  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
-  color: var(--accent);
-}
-
-.workspace-chip--check.is-locked {
-  cursor: default;
-  opacity: 0.75;
-}
-
-.workspace-chip-checkbox {
-  appearance: none;
-  width: 12px;
-  height: 12px;
-  margin: 0;
-  border-radius: 3px;
-  border: 1px solid color-mix(in srgb, var(--muted) 55%, transparent);
-  background: transparent;
-  cursor: inherit;
-  display: inline-block;
-  position: relative;
-  flex: none;
-}
-
-.workspace-chip-checkbox:checked {
-  border-color: var(--accent);
-  background: var(--accent);
-}
-
-.workspace-chip-checkbox:checked::after {
-  content: "";
-  position: absolute;
-  left: 3px;
-  top: 0.5px;
-  width: 4px;
-  height: 7px;
-  border: solid #fff;
-  border-width: 0 1.5px 1.5px 0;
-  transform: rotate(45deg);
 }
 
 .workspace-recent-item {
@@ -15595,52 +15647,6 @@ html:not([data-theme="light"]) .swarm-graph-panel {
     height: 40px;
   }
 
-  /* Context row: env / folder / branch / worktree in one scrolling strip,
-     the improve-prompt button fixed at the row's end. */
-  .composer-context-row {
-    flex-wrap: nowrap;
-  }
-
-  .composer-context-scroll {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex: 1 1 auto;
-    min-width: 0;
-    overflow-x: auto;
-    overflow-y: hidden;
-    overscroll-behavior-x: contain;
-    scrollbar-width: none;
-    /* Room for focus rings inside the scroller. */
-    padding: 3px;
-    margin: -3px;
-    -webkit-mask-image: linear-gradient(
-      to right,
-      #000 calc(100% - 16px),
-      transparent
-    );
-    mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
-  }
-
-  .composer-context-scroll::-webkit-scrollbar {
-    display: none;
-  }
-
-  /* Trailing room so the last chip can scroll clear of the fade. */
-  .composer-context-scroll::after {
-    content: "";
-    flex: 0 0 12px;
-  }
-
-  .composer-context-scroll > *,
-  .composer-context-chips > * {
-    flex-shrink: 0;
-  }
-
-  .workspace-chip {
-    max-width: 42vw;
-  }
-
   /* Selector chips: one strip that scrolls under a fade, Send stays put. */
   .composer-bar {
     gap: 8px;
@@ -15757,10 +15763,12 @@ html:not([data-theme="light"]) .swarm-graph-panel {
    does not zoom back. Phones in both orientations and touch tablets. */
 @media (max-width: 599px), (any-hover: none) and (any-pointer: coarse) {
   /* The mirror draws the mention highlights under the textarea: the two
-     must keep the same metrics. */
+     must keep the same metrics. 12px on top keeps the first line's middle
+     on the wand's at the larger type. */
   .composer-mirror-inner,
   textarea#composer {
     font-size: 16px;
+    padding-top: 12px;
   }
 
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
@@ -15994,9 +16002,11 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   color: var(--text);
 }
 
+/* A pressed toggle brightens - text, border and ground - like the view
+   buttons of the chat header; the accent is the mark of work in flight. */
 .files-icon-btn.is-active {
-  background: color-mix(in srgb, var(--accent) 16%, var(--coddy-blend-base));
-  border-color: color-mix(in srgb, var(--accent) 35%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+  border-color: color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
   color: var(--text);
 }
 
@@ -16141,8 +16151,10 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
 }
 
+/* The file on show: a brighter row with a light outline, not the accent. */
 .files-tree-row.is-active {
-  background: color-mix(in srgb, var(--accent) 14%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 18%, var(--coddy-blend-base));
   color: var(--text);
 }
 
@@ -16305,102 +16317,12 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
 }
 
-/* One open file: where it is and what it is, over its body. */
+/* One open file: its body alone, the tab above names it. */
 .files-file {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
-}
-
-.files-file-head {
-  flex: none;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 14px;
-  padding: 9px 14px;
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
-  font-size: 12px;
-}
-
-.files-file-path {
-  min-width: 0;
-  flex: 1 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
-}
-
-.files-file-dir {
-  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
-}
-
-.files-file-name {
-  color: var(--text);
-  font-weight: 600;
-}
-
-.files-file-meta {
-  display: flex;
-  gap: 10px;
-  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
-  font-variant-numeric: tabular-nums;
-}
-
-.files-file-tools {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.files-file-tools:empty {
-  display: none;
-}
-
-.files-seg {
-  display: inline-flex;
-  padding: 2px;
-  border-radius: 999px;
-  border: 0.5px solid var(--coddy-glass-panel-border);
-}
-
-.files-seg button {
-  min-height: 22px;
-  padding: 2px 10px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: color-mix(in srgb, var(--text) 60%, var(--coddy-blend-base));
-  font: inherit;
-  font-size: 11.5px;
-  cursor: pointer;
-}
-
-.files-seg button.is-active {
-  background: color-mix(in srgb, var(--accent) 14%, var(--coddy-blend-base));
-  color: var(--text);
-}
-
-.files-line-jump {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: color-mix(in srgb, var(--text) 60%, var(--coddy-blend-base));
-}
-
-.files-line-jump input {
-  width: 64px;
-  height: 24px;
-  padding: 0 6px;
-  border-radius: 6px;
-  border: 1px solid var(--coddy-glass-panel-border);
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
-  color: var(--text);
-  font: inherit;
-  font-size: 12px;
 }
 
 .files-file-body {
@@ -16412,10 +16334,6 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   padding-bottom: 16px;
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
-}
-
-.files-file-body > .md {
-  margin: 14px 18px;
 }
 
 .files-note {
@@ -16441,8 +16359,9 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   display: flex;
 }
 
+/* The line asked for: a brighter band, not the accent. */
 .files-code > .is-active {
-  background: color-mix(in srgb, var(--accent) 16%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
 }
 
 .files-code code {
@@ -16489,12 +16408,6 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 
 .files-image--full img {
   max-width: none;
-}
-
-.files-image-dimensions {
-  margin-left: 8px;
-  font-size: 11px;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
 }
 
 .files-file-body audio,
@@ -16589,11 +16502,6 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 
   .files-subtitle {
     max-width: 40vw;
-  }
-
-  /* The line comes from the address or a link; the field would take a row. */
-  .files-line-jump {
-    display: none;
   }
 }
 
@@ -16703,9 +16611,10 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   cursor: default;
 }
 
+/* A pressed toggle of the edits window brightens like every view toggle. */
 .dv-icon-btn.is-active {
-  background: color-mix(in srgb, var(--accent) 16%, var(--coddy-blend-base));
-  border-color: color-mix(in srgb, var(--accent) 34%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+  border-color: color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
   color: var(--text);
 }
 

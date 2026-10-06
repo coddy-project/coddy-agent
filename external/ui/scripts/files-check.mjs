@@ -505,8 +505,28 @@ function plate(page) {
       sameEdges: Math.abs(b.left - c.left) <= 1 && Math.abs(b.right - c.right) <= 1,
       cardSquareTop: parseFloat(cardCs.borderTopLeftRadius) === 0 && parseFloat(cardCs.borderTopRightRadius) === 0,
       countAtRight: !!k && el.lastElementChild === count && Math.abs(b.right - padRight - 1 - k.right) <= 1.5,
+      // How tall the count looks, and whether a finger 8px above it still
+      // lands on it (the hit area a touch screen lays over it).
+      countHeight: k ? Math.round(k.height) : 0,
+      // The repository's icon stands on the placeholder's left edge.
+      repoOnPlaceholder: (() => {
+        const icon = el.querySelector("[data-testid=workspace-bar-repo] .workspace-bar-icon")?.getBoundingClientRect();
+        const ta = document.querySelector("textarea#composer");
+        if (!icon || !ta) return false;
+        return Math.abs(icon.left - (ta.getBoundingClientRect().left + parseFloat(getComputedStyle(ta).paddingLeft))) <= 1;
+      })(),
+      hitAbove: !!k && !!document.elementFromPoint((k.left + k.right) / 2, k.top - 8)?.closest("[data-testid=workspace-bar-edits]"),
+      // Git's count and the improve-prompt wand under it end on one line.
+      countOverWand: (() => {
+        const wand = card.querySelector("[data-testid=composer-enhance-btn]")?.getBoundingClientRect();
+        return !!k && !!wand && Math.abs(k.right - wand.right) <= 1;
+      })(),
       rest: countCs
-        ? { outline: countCs.outlineStyle, transparent: /^rgba\(0, 0, 0, 0\)$|^transparent$/.test(countCs.backgroundColor) }
+        ? {
+            outline: countCs.outlineStyle,
+            transparent: /^rgba\(0, 0, 0, 0\)$|^transparent$/.test(countCs.backgroundColor),
+            border: countCs.borderTopStyle === "solid" ? countCs.borderTopColor : "",
+          }
         : null,
       folderChip: !!card.querySelector("[data-testid=composer-workspace-chip]"),
       box: { left: b.left, right: b.right, top: b.top, bottom: b.bottom },
@@ -514,6 +534,52 @@ function plate(page) {
       count: k ? { left: k.left, right: k.right } : null,
     };
   });
+}
+
+/**
+ * How a view button looks: its text, border and ground colours now and at
+ * rest (a fresh button of the same class beside it), and the page's text and
+ * accent colours to tell a brightened button from one in the accent.
+ */
+async function pressedLook(page, testId) {
+  // The colours move over 140 ms; read them once they have settled.
+  await page.waitForTimeout(400);
+  return page.evaluate((id) => {
+    const btn = document.querySelector(`[data-testid=${id}]`);
+    const resolve = (value) => {
+      const probe = document.createElement("span");
+      probe.style.color = value;
+      document.body.appendChild(probe);
+      const out = getComputedStyle(probe).color;
+      probe.remove();
+      return out;
+    };
+    const twin = document.createElement("button");
+    twin.className = "chat-view-btn";
+    btn.parentElement.appendChild(twin);
+    const rest = getComputedStyle(twin);
+    const restLook = { border: rest.borderTopColor, background: rest.backgroundColor };
+    twin.remove();
+    const cs = getComputedStyle(btn);
+    return {
+      pressed: btn.getAttribute("aria-pressed"),
+      color: cs.color,
+      border: cs.borderTopColor,
+      background: cs.backgroundColor,
+      rest: restLook,
+      text: resolve("var(--text)"),
+      accent: resolve("var(--accent)"),
+    };
+  }, testId);
+}
+
+/**
+ * Where an icon should sit against its word: the header's on the middle of
+ * the lowercase letters, the plate's a pixel above it (their glyphs carry
+ * their ink low and read as sunk on the middle).
+ */
+function iconSitsRight(o) {
+  return o.id.startsWith("workspace-bar-") ? o.off >= -1.75 && o.off <= -0.25 : Math.abs(o.off) <= 0.75;
 }
 
 /** No element sticks out of the viewport sideways, and the page does not scroll sideways. */
@@ -530,9 +596,59 @@ function sideways(page) {
 
 // ---------------------------------------------------------------- scenarios
 
+/**
+ * The start screen: the plate over the composer offers the folder, the branch
+ * and the worktree as a choice, with no count before a session; the card has
+ * no row of chips, so the field starts at its top, the wand in its corner.
+ */
+async function startScreen(page) {
+  await composer(page).waitFor();
+  await page.getByTestId("workspace-bar").waitFor({ timeout: 15000 });
+  return page.evaluate(() => {
+    const plate = document.querySelector("[data-testid=workspace-bar]");
+    const card = document.querySelector(".composer-card").getBoundingClientRect();
+    const field = document.querySelector("textarea#composer").getBoundingClientRect();
+    const wand = document.querySelector("[data-testid=composer-enhance-btn]").getBoundingClientRect();
+    const pick = (id) => plate.querySelector(`[data-testid=${id}]`);
+    return {
+      pick: plate.classList.contains("workspace-bar--pick"),
+      folder: pick("composer-workspace-chip")?.tagName,
+      branch: pick("composer-branch-chip")?.tagName,
+      worktree: !!pick("composer-worktree-checkbox"),
+      count: !!pick("workspace-bar-edits"),
+      chipRow: !!document.querySelector(".composer-context-row"),
+      fieldAtTop: Math.abs(field.top - (card.top + 1)) <= 1,
+      wandInCorner: wand.top >= field.top && wand.top - field.top <= 14 && Math.abs(card.right - 1 - 12 - wand.right) <= 1,
+      // The folder's icon stands on the placeholder's left edge.
+      folderOnPlaceholder: (() => {
+        const icon = plate.querySelector("[data-testid=composer-workspace-chip] .workspace-bar-icon").getBoundingClientRect();
+        const cs = getComputedStyle(document.querySelector("textarea#composer"));
+        return Math.abs(icon.left - (field.left + parseFloat(cs.paddingLeft))) <= 1;
+      })(),
+      // The middle of the field's first line is the middle of the wand.
+      firstLineLevel: (() => {
+        const cs = getComputedStyle(document.querySelector("textarea#composer"));
+        const lineMiddle = field.top + parseFloat(cs.paddingTop) + parseFloat(cs.lineHeight) / 2;
+        return Math.abs(lineMiddle - (wand.top + wand.bottom) / 2) <= 1;
+      })(),
+    };
+  });
+}
+
 async function scenarioViews() {
   const a = await openPage();
   await a.page.goto(`${RELAY}/`);
+  const start = await startScreen(a.page);
+  check(
+    "on the start screen the plate offers the folder, the branch and the worktree, and no count",
+    start.pick && start.folder === "BUTTON" && start.branch === "BUTTON" && start.worktree && !start.count,
+    JSON.stringify(start),
+  );
+  check(
+    "the card has no chip row: the field starts at its top, the wand in its corner, the first line level with it",
+    !start.chipRow && start.fieldAtTop && start.wandInCorner && start.firstLineLevel && start.folderOnPlaceholder,
+    JSON.stringify(start),
+  );
   const sid = await writeReleaseNotes(a.page);
   check("the turn runs through the relay's mount", a.mountRequests.some((r) => r.startsWith("POST /v1/responses")));
   check("the turn wrote its file on the node", fs.existsSync(path.join(workspace, "notes/release.md")));
@@ -577,29 +693,34 @@ async function scenarioViews() {
     JSON.stringify(bar),
   );
   check(
-    "the plate is joined to the top of the composer card, edge to edge",
-    !!bar && bar.joined && bar.sameEdges && bar.cardSquareTop,
+    "the plate is joined to the top of the composer card, edge to edge, its first word over the placeholder's",
+    !!bar && bar.joined && bar.sameEdges && bar.cardSquareTop && bar.repoOnPlaceholder,
     JSON.stringify(bar),
   );
   check("git's count sits at the right edge of the plate", !!bar && bar.countAtRight, JSON.stringify(bar));
-  check("the count has no outline and no background at rest", !!bar && bar.rest.outline === "none" && bar.rest.transparent, JSON.stringify(bar?.rest));
+  check("git's count ends on the line the improve-prompt wand under it ends on", !!bar && bar.countOverWand, JSON.stringify(bar));
+  check(
+    "at rest the count is framed in a light border, with no ground and no outline",
+    !!bar && bar.rest.outline === "none" && bar.rest.transparent && !!bar.rest.border && !/^rgba\(0, 0, 0, 0\)$/.test(bar.rest.border),
+    JSON.stringify(bar?.rest),
+  );
   await a.page.getByTestId("workspace-bar-edits").hover();
   await a.page.waitForTimeout(250);
   const hovered = await a.page.evaluate(() => {
     const cs = getComputedStyle(document.querySelector("[data-testid=workspace-bar-edits]"));
-    return { outline: cs.outlineStyle, background: cs.backgroundColor };
+    return { outline: cs.outlineStyle, background: cs.backgroundColor, border: cs.borderTopColor };
   });
   check(
-    "hovering the count lights its background, no outline",
-    hovered.outline === "none" && !/^rgba\(0, 0, 0, 0\)$|^transparent$/.test(hovered.background),
+    "hovering the count brightens its frame and ground, no outline",
+    hovered.outline === "none" && !/^rgba\(0, 0, 0, 0\)$|^transparent$/.test(hovered.background) && hovered.border !== bar?.rest.border,
     JSON.stringify(hovered),
   );
   await a.page.mouse.move(5, 400);
 
   const offsets = await iconOffsets(a.page);
   check(
-    "every icon beside a word sits on the middle of its lowercase letters",
-    offsets.length >= 4 && offsets.every((o) => Math.abs(o.off) <= 0.75),
+    "every icon beside a word sits on the middle of its lowercase letters, the plate's a pixel above it",
+    offsets.length >= 4 && offsets.every(iconSitsRight),
     JSON.stringify(offsets),
   );
 
@@ -621,13 +742,29 @@ async function scenarioViews() {
   await tasks.waitFor();
   check("Background tasks open in the dock with their title", /Background tasks/i.test(await tasks.locator(".sessions-head").innerText()));
   check("still no tab strip", (await a.page.locator('[role="tablist"], .dock-tabs').count()) === 0);
+  // The button of the view on show brightens - its text, border and ground -
+  // and keeps off the accent, which says that work runs.
+  const pressed = await pressedLook(a.page, "chat-views-tasks");
+  check(
+    "the pressed Tasks button is brighter, not in the accent",
+    pressed.pressed === "true" && pressed.color === pressed.text && pressed.color !== pressed.accent &&
+      pressed.border !== pressed.rest.border && pressed.background !== pressed.rest.background,
+    JSON.stringify(pressed),
+  );
   await a.page.getByTestId("bgtasks-panel-close").click();
+  await until("the tasks put away", async () => (await tasks.count()) === 0);
 
   // Files: a window over the chat.
   await a.page.getByTestId("chat-views-files").click();
   const win = a.page.getByTestId("files-view");
   await win.waitFor();
   check("Files open in a window over the chat, not in the dock", (await win.getAttribute("role")) === "dialog" && (await a.page.getByTestId("bgtasks-panel").count()) === 0);
+  const filesPressed = await pressedLook(a.page, "chat-views-files");
+  check(
+    "the pressed Files button is brighter, not in the accent",
+    filesPressed.pressed === "true" && filesPressed.color === filesPressed.text && filesPressed.color !== filesPressed.accent,
+    JSON.stringify(filesPressed),
+  );
   check("the address names the window", (await a.page.evaluate(() => location.hash)) === `#/s/${sid}/files`);
   const filter = win.getByRole("searchbox", { name: "Filter files" });
   check("the filter has the focus", await filter.evaluate((el) => el === document.activeElement));
@@ -651,21 +788,41 @@ async function scenarioViews() {
   await hit.click();
   await win.locator('[data-file-line="2"] code').waitFor();
   check("the file opens in a tab with its lines", (await win.getByRole("tab", { selected: true }).innerText()).trim() === "util.ts");
+  const fileView = await win.evaluate((el) => ({
+    head: el.querySelectorAll(".files-file-head").length,
+    buttons: el.querySelectorAll("[data-testid=files-file] button").length,
+    size: /\bbytes\b/.test(el.querySelector("[data-testid=files-file]")?.textContent || ""),
+    time: el.querySelectorAll("[data-testid=files-file] time").length,
+  }));
+  check(
+    "the file is its lines alone: no second name, no size or time, no buttons over it",
+    fileView.head === 0 && fileView.buttons === 0 && !fileView.size && fileView.time === 0,
+    JSON.stringify(fileView),
+  );
   await filter.press("Escape");
   check("Escape in the filter clears it and keeps the window", (await filter.inputValue()) === "" && (await win.count()) === 1);
 
-  // README: Markdown rendered, its relative picture loaded through the relay.
+  // README: Markdown is its source, line by line, nothing rendered or loaded.
   await tree.getByText("README.md", { exact: true }).click();
-  await win.locator(".files-file-body h1", { hasText: "Demo workspace" }).waitFor();
-  const imgWidth = await until("the README picture", () =>
-    win.evaluate((el) => {
-      const img = el.querySelector(".files-file-body img[alt=Logo], .files-file-body .md img");
-      return img && img.complete && img.naturalWidth > 0 ? img.naturalWidth : 0;
-    }), 15000).catch(() => 0);
-  check("the README's relative picture loads through the relay", imgWidth === 32, String(imgWidth));
+  await win.locator('[data-file-line="1"] code', { hasText: "# Demo workspace" }).waitFor();
+  const markdown = await win.evaluate((el) => ({
+    heading: el.querySelectorAll(".files-file-body h1").length,
+    images: el.querySelectorAll(".files-file-body img").length,
+  }));
+  check("Markdown opens as its source: no heading drawn, no picture loaded", markdown.heading === 0 && markdown.images === 0, JSON.stringify(markdown));
   const tabs = await win.getByRole("tab").allInnerTexts();
   check("two files are open side by side in tabs", JSON.stringify(tabs.map((t) => t.trim())) === JSON.stringify(["util.ts", "README.md"]), JSON.stringify(tabs));
   await shoot(a.page, "files-window-markdown-relay-dark-1280");
+
+  // A picture comes as authenticated bytes through the relay.
+  await tree.getByText("assets", { exact: true }).click();
+  await tree.getByText("logo.png", { exact: true }).click();
+  const imgWidth = await until("the picture", () =>
+    win.evaluate((el) => {
+      const img = el.querySelector(".files-file-body img");
+      return img && img.complete && img.naturalWidth > 0 ? img.naturalWidth : 0;
+    }), 15000).catch(() => 0);
+  check("a picture of the workspace loads through the relay", imgWidth === 32, String(imgWidth));
 
   // A sound plays from its signed address, through the relay, with no header.
   await tree.getByText("media", { exact: true }).click();
@@ -707,7 +864,11 @@ async function scenarioViews() {
   await a.page.keyboard.press("Control+Shift+F");
   await win.waitFor();
   const kept = await win.getByRole("tab").allInnerTexts();
-  check("Ctrl+Shift+F opens the window with the files it had open", kept.length === 3, JSON.stringify(kept));
+  check(
+    "Ctrl+Shift+F opens the window with the files it had open",
+    JSON.stringify(kept.map((t) => t.trim())) === JSON.stringify(["util.ts", "README.md", "logo.png", "tone.wav"]),
+    JSON.stringify(kept),
+  );
   await a.page.keyboard.press("Control+Shift+F");
   await until("the window put away by the key", async () => (await win.count()) === 0);
   check("Ctrl+Shift+F closes it again", true);
@@ -716,7 +877,7 @@ async function scenarioViews() {
   await a.page.locator(".msg-user-body").getByText("@notes/plan.md:3").first().click();
   await win.waitFor();
   await until("the mentioned file at its line", () =>
-    win.evaluate((el) => el.querySelector('[data-file-line="3"].is-active') !== null || el.querySelector(".files-file-name")?.textContent === "plan.md"));
+    win.evaluate((el) => el.querySelector('[data-file-line="3"].is-active') !== null));
   check("a mention opens its file in the window", (await win.getByRole("tab", { selected: true }).innerText()).trim() === "plan.md");
   check("the address keeps the file and the line", /files\?path=notes%2Fplan\.md&line=3$/.test(await a.page.evaluate(() => location.hash)), await a.page.evaluate(() => location.hash));
   check("no page errors on the way", a.errors.length === 0, a.errors.join(" | "));
@@ -786,7 +947,7 @@ async function scenarioPhone(sid) {
   await win.getByTestId("files-tree").getByText("README.md", { exact: true }).waitFor();
   check("the tree switch brings the tree back over the file", await win.getByTestId("files-tree").isVisible());
   await win.getByTestId("files-tree").getByText("README.md", { exact: true }).click();
-  await win.locator(".files-file-body h1", { hasText: "Demo workspace" }).waitFor();
+  await win.locator('[data-file-line="1"] code', { hasText: "# Demo workspace" }).waitFor();
   check("a file picked on a phone puts the tree away again", !(await win.getByTestId("files-tree").isVisible().catch(() => false)));
   // On a phone Files is the icon alone, in the 40px square of the top bar, and
   // Background tasks the dot with its word, both beside the title, which keeps
@@ -837,6 +998,11 @@ async function scenarioPhone(sid) {
       (await p.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)) <= 0,
     JSON.stringify(phonePlate),
   );
+  check(
+    "on a phone git's count keeps its slim look and a finger above it still lands on it",
+    !!phonePlate && phonePlate.countHeight <= 22 && phonePlate.hitAbove,
+    JSON.stringify({ height: phonePlate?.countHeight, hitAbove: phonePlate?.hitAbove }),
+  );
   await p.page.getByTestId("workspace-bar-edits").click();
   const edits = p.page.getByTestId("diff-viewer");
   await edits.getByTestId("dv-file-notes/release.md").waitFor({ timeout: 15000 });
@@ -871,7 +1037,7 @@ async function scenarioCrossOrigin(sid) {
   });
   await x.page.goto(`${NODE}/#/s/${sid}/files?path=notes%2Fplan.md&line=2`);
   const win = x.page.getByTestId("files-view");
-  await win.locator(".files-file-body h1", { hasText: "Plan" }).waitFor({ timeout: 20000 });
+  await win.locator('[data-file-line="1"] code', { hasText: "# Plan" }).waitFor({ timeout: 20000 });
   check("from another origin the Files window reads through the relay", true);
   const exposed = await x.page.evaluate(async ({ mount, token, sid }) => {
     const res = await fetch(`${mount}/coddy/sessions/${sid}/workspace/raw?path_rel=notes%2Fplan.md`, {
@@ -942,6 +1108,8 @@ async function scenarioWidths(sid) {
       );
       await w.page.keyboard.press("Escape");
       await until("the window put away", async () => (await win.count()) === 0);
+      // The chat under the window may still be loading its session.
+      await w.page.locator(".chat-header [data-testid=chat-views]").waitFor({ timeout: 15000 });
       const row = await viewButtons(w.page);
       const height = width < 1200 ? 42 : 36;
       check(
@@ -955,7 +1123,7 @@ async function scenarioWidths(sid) {
       const iconRow = await iconOffsets(w.page);
       check(
         `${lang} ${width}px: the icons sit on the middle of their words' lowercase letters`,
-        iconRow.length >= 2 && iconRow.every((o) => Math.abs(o.off) <= 0.75),
+        iconRow.length >= 2 && iconRow.every(iconSitsRight),
         JSON.stringify(iconRow),
       );
       await w.context.close();
@@ -1002,7 +1170,7 @@ async function scenarioShots() {
   await d.page.setViewportSize({ width: 1280, height: 820 });
   await d.page.goto(`${SHOTS_NODE}/#/s/${sid}/files?path=README.md`);
   const win = d.page.getByTestId("files-view");
-  await win.locator(".files-file-body h1", { hasText: "Demo workspace" }).waitFor();
+  await win.locator('[data-file-line="1"] code', { hasText: "# Demo workspace" }).waitFor();
   await win.getByTestId("files-tree").getByText("src", { exact: true }).click();
   await win.getByTestId("files-tree").getByText("main.go", { exact: true }).click();
   await win.getByRole("tab", { name: "README.md" }).click();
@@ -1028,7 +1196,7 @@ async function scenarioShots() {
   await d.page.goto(`${SHOTS_NODE}/#/s/${sid}/files?path=src%2Fmain.go&line=7`);
   await win.locator('[data-file-line="7"].is-active').waitFor();
   await shoot(d.page, "workspace-files-window-dark-390");
-  // A chat that runs in a linked worktree: the bar carries the worktree mark.
+  // A chat that runs in a linked worktree: the plate names it in the branch's tooltip.
   const worktree = path.join(shotsWorkspace, ".coddy", "worktrees", "feat-docs-refresh");
   const res = spawnSync("git", ["worktree", "add", "-q", "-b", "feat/docs-refresh", worktree], {
     cwd: shotsWorkspace,
@@ -1049,12 +1217,12 @@ async function scenarioShots() {
   await d.page.reload();
   await d.page.getByTestId("workspace-bar-worktree").waitFor({ timeout: 15000 });
   await d.page.getByTestId("workspace-bar-edits").waitFor({ timeout: 15000 });
-  check("a chat in a linked worktree carries the worktree mark in the bar", true);
+  check("a chat in a linked worktree is named in the tooltip of the branch on the plate", true);
   await shoot(d.page, "workspace-bar-worktree-dark-1280");
   await d.context.close();
   const l = await openPage({ throughRelay: false, theme: "light" });
   await l.page.goto(`${SHOTS_NODE}/#/s/${sid}/files?path=README.md`);
-  await l.page.getByTestId("files-view").locator(".files-file-body h1", { hasText: "Demo workspace" }).waitFor();
+  await l.page.getByTestId("files-view").locator('[data-file-line="1"] code', { hasText: "# Demo workspace" }).waitFor();
   await l.page.waitForTimeout(800);
   await shoot(l.page, "workspace-files-window-light-1280");
   await l.context.close();

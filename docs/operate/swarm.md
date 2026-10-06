@@ -269,10 +269,9 @@ transit relay readable as part of the connection without implying that it is the
 **A relay's home screen is the swarm.** Of an agent's API a relay serves only its own settings
 (`/coddy/config*`) - no sessions, no workspace, no model, no documentation - so there is nothing
 for a composer to send to and nothing for a history drawer to list. Pointed at a relay the app therefore drops the chat screen, hides History and
-Scheduler in the rail, and shows the map instead. The environment selector moves into the
-map's header, since the composer that usually carries it is not on screen. The selector remains in
-that header even while the map reports an error, including a relay that needs a token, so the
-operator can switch environments or supply the needed credentials. Enter a node and all of it
+Scheduler in the rail, and shows the map instead. The environment menu stays where it always is,
+at the foot of the rail, so even while the map reports an error, including a relay that needs a
+token, the operator can switch environments or supply the needed credentials. Enter a node and all of it
 comes back, because the node does have those things.
 
 **Working on a node.** Click a node on the map and the app points at that node's mount, with the

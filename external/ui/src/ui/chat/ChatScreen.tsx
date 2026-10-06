@@ -539,13 +539,19 @@ export function ChatScreen(props: {
   // composer, whose count opens the edits window. Every finished tool call may
   // have written a file.
   const workingCopy = useWorkingCopy(props.sessionId ?? "", {
-    enabled: !!props.onOpenEdits,
+    // Outside a git repository there is no count to show, and no plate.
+    enabled: !!props.onOpenEdits && props.workspaceCtx?.is_git_repo !== false,
     toolActivity: finishedToolCalls(props.items),
   });
   // Once the chat runs, where it works is a fact rather than a choice: a plate
   // joined to the top of the composer card names it.
+  // The plate of a running chat is git's - the repository, the branch, the
+  // count - so a folder outside any repository has none.
   const workspaceBar =
-    !readOnlyNotice && props.sessionId && props.workspaceLocked && props.workspaceCtx ? (
+    !readOnlyNotice &&
+    props.sessionId &&
+    props.workspaceLocked &&
+    props.workspaceCtx?.is_git_repo ? (
       <WorkspaceBar
         context={props.workspaceCtx}
         workingCopy={workingCopy}
