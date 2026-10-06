@@ -274,8 +274,8 @@ func TestAChainAtTheHopBudgetIsRefusedWithAWarningAndNotCalledLooped(t *testing.
 	if refused.Looped {
 		t.Fatal("a chain that is merely too long was reported as a closed ring")
 	}
-	if len(refused.Warnings) != 1 {
-		t.Fatalf("a chain at the budget should raise exactly one warning: %v", refused.Warnings)
+	if len(refused.Warnings) != 1 || !saysTooDeepAt(refused.Warnings[0], relay.name) {
+		t.Fatalf("a chain at the budget should raise exactly one warning, saying it is too deep here: %v", refused.Warnings)
 	}
 }
 
@@ -295,8 +295,8 @@ func TestTopologyOfAChainAtTheHopBudgetWarnsAndIsNotLooped(t *testing.T) {
 	if len(refused.Nodes) != 0 {
 		t.Fatalf("a chain at the budget was walked: %+v", refused.Nodes)
 	}
-	if len(refused.Warnings) != 1 {
-		t.Fatalf("a chain at the budget should raise exactly one warning: %v", refused.Warnings)
+	if len(refused.Warnings) != 1 || !saysTooDeepAt(refused.Warnings[0], relay.name) {
+		t.Fatalf("a chain at the budget should raise exactly one warning, saying it is too deep here: %v", refused.Warnings)
 	}
 	if refused.Root.UUID != relay.srv.UUID() {
 		t.Fatal("the answer still has to say who answered")
@@ -324,28 +324,41 @@ func TestTopologyOfALoopedChainIsSilentAndStillNamesTheRelay(t *testing.T) {
 	}
 }
 
+// The topology walk is held to the same count as the sessions walk: one relay
+// down costs exactly one warning naming it while the rest of the swarm survives
+// the other way round, and two relays down cost two.
 func TestTopologyNamesAChildRelayThatDoesNotAnswer(t *testing.T) {
 	ring := mustRing(t)
 	ring.middle.ts.Close()
 
-	topo := ring.outer.topology(t, nil)
-	var named bool
-	for _, w := range topo.Warnings {
-		if strings.Contains(w, "middle") {
-			named = true
-		}
-	}
-	if !named {
-		t.Fatalf("a relay that does not answer vanished from the topology without a word: %v", topo.Warnings)
+	oneDown := ring.outer.topology(t, nil)
+	if len(oneDown.Warnings) != 1 || !strings.Contains(oneDown.Warnings[0], "middle") {
+		t.Fatalf("a relay that does not answer should cost exactly one warning, naming it: %v", oneDown.Warnings)
 	}
 	var sawAgent bool
-	for _, n := range topo.Nodes {
+	for _, n := range oneDown.Nodes {
 		if n.Name == "agent7" {
 			sawAgent = true
 		}
 	}
 	if !sawAgent {
-		t.Fatalf("the rest of the swarm should survive one unreachable relay: %+v", topo.Nodes)
+		t.Fatalf("the rest of the swarm should survive one unreachable relay: %+v", oneDown.Nodes)
+	}
+	if !topologyHolds(oneDown, "middle") {
+		t.Fatalf("a relay that does not answer is still known here and should stay on the map: %+v", oneDown.Nodes)
+	}
+
+	// A warning for one lost branch must not hide the loss of another.
+	ring.relay3.ts.Close()
+	twoDown := ring.outer.topology(t, nil)
+	if len(twoDown.Warnings) != 2 {
+		t.Fatalf("two relays that do not answer should cost two warnings, got %d: %v", len(twoDown.Warnings), twoDown.Warnings)
+	}
+	joined := strings.Join(twoDown.Warnings, "\n")
+	for _, name := range []string{"middle", "shortcut"} {
+		if !strings.Contains(joined, name) {
+			t.Fatalf("no warning names %q: %v", name, twoDown.Warnings)
+		}
 	}
 }
 
@@ -392,5 +405,232 @@ func TestANodeWithoutAConnectionIsNamedByBothWalksAndTheRestSurvives(t *testing.
 	}
 	if !sawAgent {
 		t.Fatalf("the rest of the topology should survive one relay without a connection: %+v", topo.Nodes)
+	}
+	for _, name := range []string{"pending-agent", "pending-relay"} {
+		if !topologyHolds(topo, name) {
+			t.Fatalf("a node without a connection is still known here and should stay on the map: no %q in %+v", name, topo.Nodes)
+		}
+	}
+}
+
+// A second mutation pass, over the warnings that have to cross a hop, found
+// faults the tests above let through: a parent that dropped the warnings of a
+// child relay, kept only the first of them or lost the branch they came from,
+// a topology that kept only its first warning, and a chain that the forged
+// headers above never build for real. The tests below pin those behaviours.
+
+// knowsRelayAt makes the relay hold a child relay at url, the way a join does,
+// whatever answers there.
+func (r *ringRelay) knowsRelayAt(name, url string) error {
+	_, err := r.srv.registry.Register(swarmdto.RegisterRequest{
+		Name: name, Kind: swarmdto.KindRelay, Transport: swarmdto.TransportDirect,
+		AdvertiseURL: url, InstanceUUID: "uuid-" + name, Token: "tok-" + name,
+	})
+	return err
+}
+
+// deadURL is an address that nothing answers on any more.
+func deadURL() string {
+	gone := httptest.NewServer(http.NotFoundHandler())
+	url := gone.URL
+	gone.Close()
+	return url
+}
+
+// saysTooDeepAt reports whether a warning is the hop budget running out at the
+// named relay rather than some other fault.
+func saysTooDeepAt(warning, relay string) bool {
+	return strings.Contains(warning, "too deep") && strings.Contains(warning, relay)
+}
+
+// topologyHolds reports whether the topology has a node by that name.
+func topologyHolds(topo Topology, name string) bool {
+	for _, n := range topo.Nodes {
+		if n.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// namedOnce reports whether name appears in exactly one of the warnings.
+func namedOnce(warnings []string, name string) bool {
+	n := 0
+	for _, w := range warnings {
+		if strings.Contains(w, name) {
+			n++
+		}
+	}
+	return n == 1
+}
+
+// A relay's answer carries the warnings of everything behind it, and the client
+// of the outermost relay has to get every one of them, prefixed with the branch
+// it came from: a node that is down two hops away is as down as one next door,
+// and the prefix is what tells an operator which relay to look behind. The two
+// walks shape this differently - the sessions list folds a child's warnings
+// into one entry for that branch, the topology keeps one entry per warning -
+// and each is pinned as it is.
+func TestWarningsFromBehindAChildRelaySurviveTheHopAndNameTheirBranch(t *testing.T) {
+	outer, err := newRingRelay("outer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(outer.ts.Close)
+	inner, err := newRingRelay("inner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(inner.ts.Close)
+	if err := outer.knows(inner, "inner"); err != nil {
+		t.Fatal(err)
+	}
+	agent := newStubAgent()
+	t.Cleanup(agent.ts.Close)
+	agent.add("sess_near", "behind the child")
+	if err := inner.holdsAgent("near", agent); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"lost-a", "lost-b"} {
+		if err := inner.knowsRelayAt(name, deadURL()); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	sessions := outer.sessionList(t, nil)
+	if len(sessions.Sessions) != 1 || strings.Join(sessions.Sessions[0].NodePath, "/") != "inner/near" {
+		t.Fatalf("the agent that answers should still be listed through the child: %+v", sessions.Sessions)
+	}
+	if len(sessions.Warnings) != 1 || !strings.HasPrefix(sessions.Warnings[0], "inner") {
+		t.Fatalf("the child's warnings should arrive as one entry for its branch, named first: %v", sessions.Warnings)
+	}
+	for _, name := range []string{"lost-a", "lost-b"} {
+		if !strings.Contains(sessions.Warnings[0], name) {
+			t.Fatalf("a warning from behind the child was lost on the way: no %q in %v", name, sessions.Warnings)
+		}
+	}
+
+	topo := outer.topology(t, nil)
+	if len(topo.Warnings) != 2 {
+		t.Fatalf("the child's two warnings should both survive the hop, got %d: %v", len(topo.Warnings), topo.Warnings)
+	}
+	for _, w := range topo.Warnings {
+		if !strings.HasPrefix(w, "inner") {
+			t.Fatalf("a warning from behind the child does not name its branch: %v", topo.Warnings)
+		}
+	}
+	for _, name := range []string{"lost-a", "lost-b"} {
+		if !namedOnce(topo.Warnings, name) {
+			t.Fatalf("every relay the child cannot walk should be named once: no single %q in %v", name, topo.Warnings)
+		}
+	}
+	if !topologyHolds(topo, "near") {
+		t.Fatalf("the rest of the child's branch should survive: %+v", topo.Nodes)
+	}
+}
+
+// lineOfRelays builds n relays, each joined by the one before it under its own
+// name: line0 -> line1 -> ... -> line(n-1).
+func lineOfRelays(t *testing.T, n int) []*ringRelay {
+	t.Helper()
+	relays := make([]*ringRelay, n)
+	for i := range relays {
+		relay, err := newRingRelay(fmt.Sprintf("line%d", i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(relay.ts.Close)
+		relays[i] = relay
+		if i > 0 {
+			if err := relays[i-1].knows(relay, relay.name); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	return relays
+}
+
+// namesTheWay reports whether a warning names every relay of way, in order.
+func namesTheWay(warning string, way []string) bool {
+	rest := warning
+	for _, hop := range way {
+		i := strings.Index(rest, hop)
+		if i < 0 {
+			return false
+		}
+		rest = rest[i+len(hop):]
+	}
+	return true
+}
+
+// A line of relays longer than the hop budget is cut where the budget runs out.
+// The hop-budget tests above forge the header for one relay; here the path is
+// built for real, so every relay on the way has to extend it and pass it on, or
+// the far end is reached after all. What lies inside the budget is still served,
+// and the cut comes back as a single warning that says the chain is too deep
+// and names the way to it, so "something out there cannot be reached" also
+// says where.
+func TestALineOfRelaysLongerThanTheBudgetIsCutWithOneWarningNamingTheWay(t *testing.T) {
+	relays := lineOfRelays(t, swarmMaxHops+1)
+	nearAgent, farAgent := newStubAgent(), newStubAgent()
+	t.Cleanup(nearAgent.ts.Close)
+	t.Cleanup(farAgent.ts.Close)
+	nearAgent.add("sess_near", "the last relay inside the budget")
+	farAgent.add("sess_far", "the first relay past it")
+	if err := relays[swarmMaxHops-1].holdsAgent("near", nearAgent); err != nil {
+		t.Fatal(err)
+	}
+	if err := relays[swarmMaxHops].holdsAgent("far", farAgent); err != nil {
+		t.Fatal(err)
+	}
+
+	var way []string
+	for _, relay := range relays[1:] {
+		way = append(way, relay.name)
+	}
+	cutAt := relays[swarmMaxHops].name
+	nearPath := strings.Join(way[:len(way)-1], "/") + "/near"
+
+	sessions := relays[0].sessionList(t, nil)
+	if len(sessions.Sessions) != 1 || sessions.Sessions[0].ID != "sess_near" {
+		t.Fatalf("only the session inside the budget should be listed: %+v", sessions.Sessions)
+	}
+	if got := strings.Join(sessions.Sessions[0].NodePath, "/"); got != nearPath {
+		t.Fatalf("the session inside the budget has path %q, want %q", got, nearPath)
+	}
+	if sessions.Looped {
+		t.Fatal("a line of relays was reported as a closed ring")
+	}
+	if len(sessions.Warnings) != 1 || !saysTooDeepAt(sessions.Warnings[0], cutAt) || !namesTheWay(sessions.Warnings[0], way) {
+		t.Fatalf("the cut should come back as one warning naming the way to it: %v", sessions.Warnings)
+	}
+
+	topo := relays[0].topology(t, nil)
+	if topo.Looped {
+		t.Fatal("a line of relays was reported as a closed ring")
+	}
+	if len(topo.Warnings) != 1 || !saysTooDeepAt(topo.Warnings[0], cutAt) || !namesTheWay(topo.Warnings[0], way) {
+		t.Fatalf("the cut should come back as one warning naming the way to it: %v", topo.Warnings)
+	}
+	byName := map[string]TopologyNode{}
+	for _, n := range topo.Nodes {
+		byName[n.Name] = n
+	}
+	// The relay that cut the walk still answered, so it is on the map; what it
+	// holds is not.
+	for _, relay := range relays {
+		if _, ok := byName[relay.name]; !ok {
+			t.Fatalf("relay %q is missing from the topology: %+v", relay.name, topo.Nodes)
+		}
+	}
+	if _, ok := byName["far"]; ok {
+		t.Fatalf("a node past the budget was walked: %+v", topo.Nodes)
+	}
+	near, ok := byName["near"]
+	if !ok {
+		t.Fatalf("the agent inside the budget is missing from the topology: %+v", topo.Nodes)
+	}
+	if got := strings.Join(topo.Routes[near.UUID].Path, "/"); got != nearPath {
+		t.Fatalf("the route to the agent inside the budget is %q, want %q", got, nearPath)
 	}
 }

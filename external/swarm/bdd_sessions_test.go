@@ -390,6 +390,7 @@ func TestSwarmSessionsFeature(t *testing.T) {
 			ctx.Step(`^the topology raises no warning$`, st.topologyRaisesNoWarning)
 			ctx.Step(`^the topology has a route to "([^"]*)"$`, st.topologyHasRouteTo)
 			ctx.Step(`^the route to "([^"]*)" is "([^"]*)"$`, st.routeIs)
+			ctx.Step(`^the route to "([^"]*)" is "([^"]*)", with "([^"]*)" kept as an alternate$`, st.routeKeepsAlternate)
 			ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
 				st.reset()
 				return ctx, nil
@@ -524,10 +525,36 @@ func (s *sessionsFeatureState) routeIs(name, want string) error {
 	return nil
 }
 
+// The long way round a ring is where a client fails over when the short hop
+// dies, so it has to survive the merge as an alternate of the relay it leads to.
+func (s *sessionsFeatureState) routeKeepsAlternate(name, want, alternate string) error {
+	route, err := s.routeOf(name)
+	if err != nil {
+		return err
+	}
+	if got := strings.Join(route.Path, "/"); got != want {
+		return fmt.Errorf("route to %q is %q, want %q", name, got, want)
+	}
+	for _, alt := range route.Alternates {
+		if strings.Join(alt, "/") == alternate {
+			return nil
+		}
+	}
+	return fmt.Errorf("route to %q keeps no alternate %q: %v", name, alternate, route.Alternates)
+}
+
 func (s *sessionsFeatureState) routeTo(name string) (string, error) {
-	out, err := s.decodeTopology()
+	route, err := s.routeOf(name)
 	if err != nil {
 		return "", err
+	}
+	return strings.Join(route.Path, "/"), nil
+}
+
+func (s *sessionsFeatureState) routeOf(name string) (Route, error) {
+	out, err := s.decodeTopology()
+	if err != nil {
+		return Route{}, err
 	}
 	for _, n := range out.Nodes {
 		if n.Name != name {
@@ -535,9 +562,9 @@ func (s *sessionsFeatureState) routeTo(name string) (string, error) {
 		}
 		route, ok := out.Routes[n.UUID]
 		if !ok {
-			return "", fmt.Errorf("node %q has no route: %s", name, s.body)
+			return Route{}, fmt.Errorf("node %q has no route: %s", name, s.body)
 		}
-		return strings.Join(route.Path, "/"), nil
+		return route, nil
 	}
-	return "", fmt.Errorf("no node %q in the topology: %s", name, s.body)
+	return Route{}, fmt.Errorf("no node %q in the topology: %s", name, s.body)
 }

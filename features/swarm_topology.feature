@@ -26,3 +26,4 @@ Feature: The shape of the swarm
     And an edge leads from relay3 back to this relay
     And the topology raises no warning
     And the route to "agent7" is "shortcut/agent7"
+    And the route to "relay3" is "shortcut", with "middle/relay3" kept as an alternate
