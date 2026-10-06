@@ -111,6 +111,7 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 	var toolCalls []ToolCall
 	var stopReason string
 	var inputTokens, outputTokens, cachedInputTokens int
+	var uncachedInput, cacheCreation, cacheRead int64
 	var thinkingBuf strings.Builder
 	var thinkingSig string
 
@@ -175,11 +176,28 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 		case anthropic.MessageDeltaEvent:
 			stopReason = mapAnthropicStopReason(string(e.Delta.StopReason))
 			outputTokens = int(e.Usage.OutputTokens)
+			// A final delta normally carries only output usage. Anthropic may
+			// also replace the input counters after a model fallback mid-stream.
+			if e.Usage.JSON.InputTokens.Valid() || e.Usage.JSON.CacheCreationInputTokens.Valid() || e.Usage.JSON.CacheReadInputTokens.Valid() {
+				if e.Usage.JSON.InputTokens.Valid() {
+					uncachedInput = e.Usage.InputTokens
+				}
+				if e.Usage.JSON.CacheCreationInputTokens.Valid() {
+					cacheCreation = e.Usage.CacheCreationInputTokens
+				}
+				if e.Usage.JSON.CacheReadInputTokens.Valid() {
+					cacheRead = e.Usage.CacheReadInputTokens
+				}
+				inputTokens = anthropicTotalInputTokens(uncachedInput, cacheCreation, cacheRead)
+				cachedInputTokens = int(cacheRead)
+			}
 
 		case anthropic.MessageStartEvent:
-			inputTokens = anthropicTotalInputTokens(e.Message.Usage.InputTokens,
-				e.Message.Usage.CacheCreationInputTokens, e.Message.Usage.CacheReadInputTokens)
-			cachedInputTokens = int(e.Message.Usage.CacheReadInputTokens)
+			uncachedInput = e.Message.Usage.InputTokens
+			cacheCreation = e.Message.Usage.CacheCreationInputTokens
+			cacheRead = e.Message.Usage.CacheReadInputTokens
+			inputTokens = anthropicTotalInputTokens(uncachedInput, cacheCreation, cacheRead)
+			cachedInputTokens = int(cacheRead)
 		}
 	}
 
