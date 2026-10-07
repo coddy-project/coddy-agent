@@ -76,6 +76,10 @@ supervisor:
 
 The checking model is chosen per goal first: `/goal --model <id> --reasoning <level>` wins over `supervisor.model`, which wins over the session's model. `model` names a configured `models[].model`. Left empty, the session's own model checks its own work. Research on model judges finds that a model rates its own output higher, so a model of another family is the better choice even when it is smaller. The check runs without tools, through the same retries and proxy as the agent's own calls. An answer without valid JSON is asked for once more, and a check that fails twice pauses the goal. **Settings → Session goal** in the web UI edits the same keys.
 
+![Settings → Session goal: the supervisor model picked from the configured models, the goal checks and the watchdog](../assets/session-supervisor/goal-settings-dark-1280.png)
+
+*Settings → Session goal (Dark, 1280 px).*
+
 `enable: true` puts ordinary turns under the same checks, with the latest request as the objective. Nothing is stored for them: a `blocked` or limited run ends with a notice. A goal is checked whatever `enable` says.
 
 ## The goal on every surface
@@ -84,6 +88,18 @@ The checking model is chosen per goal first: `/goal --model <id> --reasoning <le
 - **Console**: the footer shows the goal's status and continuations; a bare `/goal` opens the goal modal with the same details (the checker on a **Checked by** line) and actions. Under `--remote` both follow the server.
 - **HTTP**: `GET`, `PATCH` (`{"status":"paused"}` or `{"objective":"..."}`) and `DELETE /coddy/sessions/{id}/goal`, the `session_goal` and `goal_turn` events of a turn's stream, `event: session_goal` on `GET /coddy/events`, and `goal` in `GET /coddy/sessions/{id}/messages`; see [HTTP API](../reference/http-api.md).
 - **ACP editors**: the `session_goal` and `goal_turn` session updates; an editor that renders neither still gets the command's answer as text.
+
+![The goal menu over a finished goal: the objective, the verified last check, the checklist, the model that checked it and the numbers](../assets/session-supervisor/goal-menu-complete-dark-1280.png)
+
+*The goal menu of a goal the supervisor checked and the verifier confirmed (Dark, 1280 px).*
+
+![The same goal menu on the light theme](../assets/session-supervisor/goal-menu-complete-light-1280.png)
+
+*The same menu on the Light theme (1280 px).*
+
+![The goal menu as a bottom sheet on a phone](../assets/session-supervisor/goal-menu-complete-dark-390.png)
+
+*On a phone the menu is a bottom sheet (Dark, 390 px).*
 
 ## Compared with other agents
 

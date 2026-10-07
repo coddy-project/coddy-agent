@@ -40,7 +40,7 @@ https://github.com/user-attachments/assets/34752734-2715-4aa3-936b-acfb5c7233bf
 
 ## Session goal
 
-When the session has a goal, a goal chip sits in the composer toolbar: a target mark, the status (in work, paused, needs you, done, budget used up) and the objective cut to fit. It opens the goal menu: the whole objective, the status and its reason, the supervisor's last check with a **verified** mark when the read-only verifier confirmed it, the requirement checklist, the continuations, checks, active time and tokens, and the actions **Pause**, **Resume**, **Edit** (sends `/goal <new objective>`, which replaces the goal and starts work) and **Clear** (asks first). A bare `/goal` sent from the composer opens the same menu and sends nothing; with no goal it offers a field to set one. The turns the supervisor starts show as one-line goal rows, not as your messages, live and after a reload. **Settings → Session goal** edits the `supervisor` keys. See [Session goal and supervisor](../features/session-supervisor.md).
+When the session has a goal, a goal chip sits in the composer toolbar: a target mark, the status (in work, paused, needs you, done, budget used up) and the objective cut to fit. It opens the goal menu: the whole objective, the status and its reason, the supervisor's last check with a **verified** mark when the read-only verifier confirmed it, the requirement checklist, the model and the reasoning level that check it (**Checked by**), the continuations, checks, active time and tokens, and the actions **Pause**, **Resume**, **Edit** (sends `/goal <new objective>` with the same checker, which replaces the goal and starts work) and **Clear** (asks first). A bare `/goal` sent from the composer opens the same menu and sends nothing; with no goal it offers a field to set one. The turns the supervisor starts show as one-line goal rows, not as your messages, live and after a reload. **Settings → Session goal** edits the `supervisor` keys. See [Session goal and supervisor](../features/session-supervisor.md).
 
 ## Settings: compaction model
 
@@ -728,6 +728,10 @@ After **`--reasoning `** (or **`-r`**) the list holds **`default`** and the leve
 ![The model list under the composer after /compact --model](../assets/compact-model-picker-open-dark-1280.png)
 
 *The composer completing the value of `--model` (Dark, 1280 px).*
+
+![The reasoning levels under the composer after /compact -m luna -r](../assets/compact-reasoning-picker-open-dark-1280.png)
+
+*The composer completing `-r` with the levels of the model `-m` names (Dark, 1280 px).*
 
 - The list is the third face of the picker shell (**`.slash-menu`**, the bottom sheet on the stacked shell), **`data-testid="command-arg-menu"`**, rows **`command-arg-row-<id>`**; it needs no request.
 - Visibility, the replaced range and the typed prefix come from **`commandArgDraftAtCaret`** in **`external/ui/src/ui/skills/draftCommandArg.ts`**, which mirrors **`parseCompactCommand`** (**`internal/agent/compact.go`**) and **`ParseGoalCommand`** (**`internal/session/goal_command.go`**): the command opens the draft, options come first, and the first word that is not an option starts the instructions or the objective, where nothing is completed. A bare **`/compact `** or **`/goal `** opens nothing, so **Enter** still sends the command.

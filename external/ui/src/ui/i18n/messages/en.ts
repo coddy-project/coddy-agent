@@ -1453,12 +1453,12 @@ export const messagesEn: Record<string, string> = {
   "composer.commandArgOptionsTitle": "Options",
   "composer.commandArgSummaryReasoningTitle": "Reasoning level of the summary",
   "composer.commandArgSummaryReasoningFlagDesc":
-    "the reasoning level the summary is written at",
+    "The reasoning level the summary is written at",
   "composer.commandArgReasoningTitle": "Reasoning level of the check",
   "composer.commandArgGoalModelsTitle": "Model that checks the goal",
   "composer.commandArgReasoningFlagDesc":
-    "the reasoning level the goal is checked at",
-  "composer.commandArgGoalModelFlagDesc": "the model that checks this goal",
+    "The reasoning level the goal is checked at",
+  "composer.commandArgGoalModelFlagDesc": "The model that checks this goal",
   "composer.commandArgModelFlagDesc":
     "The model that writes the summary, for this one compaction",
   "composer.commandArgAriaLabel": "Complete the command option",
