@@ -24,6 +24,15 @@ func TestWebUIMenusFeature(t *testing.T) {
 		{`^the environment menu stays inside the window$`,
 			"src/ui/nav/EnvironmentSwitcher.test.tsx",
 			"EnvironmentSwitcher menu direction stays inside the window when the item is near the right edge"},
+		{`^on a phone the choices of a History filter fold out under their row$`,
+			"src/ui/sessions/SessionsFilterMenu.test.tsx",
+			"History filter menu on a phone folds a section's choices out under its row, inside the screen"},
+		{`^the History filter menu is never wider than the room left of its control$`,
+			"src/ui/sessions/SessionsFilterMenu.test.tsx",
+			"History filter menu on a phone is never wider than the room left of its trigger"},
+		{`^clicking a History filter row the pointer just opened keeps it open$`,
+			"src/ui/sessions/SessionsFilterMenu.test.tsx",
+			"History filter menu with a mouse keeps a section the pointer just opened when the same pointer clicks it"},
 	}
 	suite := godog.TestSuite{
 		Name: "web_ui_menus",

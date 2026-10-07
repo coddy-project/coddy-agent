@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n/I18nProvider";
 import {
@@ -61,8 +61,39 @@ type MenuSection = {
   startsGroup?: boolean;
 };
 
-/** Width the submenu is assumed to need when deciding which side to open on. */
-const SUBMENU_WIDTH = 190;
+/** Gap between a row and the list of its choices opened beside it. */
+const SUBMENU_GAP = 4;
+/** Room the menu and its lists keep from the edges of the window. */
+const WINDOW_MARGIN = 8;
+/** Gap between the trigger and the menu hung under it. */
+const MENU_OFFSET = 6;
+
+/**
+ * Where the choices of an open section go: beside the menu on the right (the
+ * drawer sits at the left of the window, so that side normally has the room),
+ * beside it on the left near the right edge of the window, or folded out under
+ * their row, inside the menu, when neither side has the room - a phone, where
+ * the drawer is the width of the screen and the trigger sits at its right edge.
+ */
+export type FilterSubmenuPlacement = "right" | "left" | "inline";
+
+/**
+ * Picks the side a list of choices `width` pixels wide fits on, next to a row
+ * spanning `row.left`..`row.right` in a window `viewport` pixels wide.
+ */
+export function placeFilterSubmenu(
+  row: { left: number; right: number },
+  width: number,
+  viewport: number,
+): FilterSubmenuPlacement {
+  if (row.right + SUBMENU_GAP + width <= viewport - WINDOW_MARGIN) {
+    return "right";
+  }
+  if (row.left - SUBMENU_GAP - width >= WINDOW_MARGIN) {
+    return "left";
+  }
+  return "inline";
+}
 
 function Check() {
   return (
@@ -99,12 +130,57 @@ export function SessionsFilterMenu(props: {
   const { t } = useT();
   const { open, onClose } = props;
   const [openSection, setOpenSection] = useState<string | null>(null);
+  // The side the open section's choices were measured to fit on. Once a list
+  // had to fold out inline, every section does until the menu closes: the
+  // window is too narrow for a list beside the menu, and switching between
+  // the two kinds of list would move the rows under the reader's finger.
+  const [placement, setPlacement] = useState<{
+    section: string;
+    side: FilterSubmenuPlacement;
+  } | null>(null);
+  const submenuRef = useRef<HTMLDivElement | null>(null);
+  // The section a mouse hover has just opened. The click that follows the
+  // same pointer onto its row lands on a section that is already open, and
+  // must not fold it straight back; a later click, or a key press on the row,
+  // is a deliberate one.
+  const hoverOpenedRef = useRef<string | null>(null);
+  const inline = placement?.side === "inline";
+  const side: FilterSubmenuPlacement | null = inline
+    ? "inline"
+    : placement && placement.section === openSection
+      ? placement.side
+      : null;
 
   useEffect(() => {
     if (!open) {
       setOpenSection(null);
+      setPlacement(null);
+      hoverOpenedRef.current = null;
     }
   }, [open]);
+
+  // A list that is not placed yet is drawn beside the menu for one layout
+  // pass, which is how wide it wants to be, and placed before the browser
+  // paints it: its width depends on the labels of the locale and on the names
+  // of the remotes, so no fixed guess fits every list.
+  useLayoutEffect(() => {
+    if (!openSection || side !== null) {
+      return;
+    }
+    const submenu = submenuRef.current;
+    const row = submenu?.parentElement;
+    if (!submenu || !row) {
+      return;
+    }
+    setPlacement({
+      section: openSection,
+      side: placeFilterSubmenu(
+        row.getBoundingClientRect(),
+        submenu.getBoundingClientRect().width,
+        window.innerWidth,
+      ),
+    });
+  }, [openSection, side]);
 
   useEffect(() => {
     if (!open) {
@@ -116,18 +192,18 @@ export function SessionsFilterMenu(props: {
       }
       ev.stopPropagation();
       // A folded section first, the menu second: escape undoes one step of what
-      // opening did, the way it does in every other menu.
-      setOpenSection((section) => {
-        if (section) {
-          return null;
-        }
-        onClose();
-        return null;
-      });
+      // opening did, the way it does in every other menu. The section is read
+      // from the render, not from a state updater: an updater runs while React
+      // renders, and closing the menu from there updates the drawer mid-render.
+      if (openSection) {
+        setOpenSection(null);
+        return;
+      }
+      onClose();
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [open, onClose]);
+  }, [open, onClose, openSection]);
 
   if (!open) {
     return null;
@@ -217,12 +293,7 @@ export function SessionsFilterMenu(props: {
   );
 
   const anchor = props.anchor ?? null;
-  // The drawer sits at the left of the window, so a submenu normally has room
-  // on the right; near the edge it opens on the other side instead.
-  const opensLeft =
-    !!anchor &&
-    typeof window !== "undefined" &&
-    anchor.right + SUBMENU_WIDTH > window.innerWidth;
+  const top = anchor ? anchor.bottom + MENU_OFFSET : 0;
 
   const menu = (
     <>
@@ -237,14 +308,22 @@ export function SessionsFilterMenu(props: {
         }}
       />
       <div
-        className={`sessions-filter-menu${opensLeft ? " opens-left" : ""}`}
+        className={`sessions-filter-menu${inline ? " has-inline-submenu" : ""}`}
         data-testid="sessions-filter-menu"
         role="menu"
         style={
           anchor
             ? {
-                top: anchor.bottom + 6,
+                top,
                 right: window.innerWidth - anchor.right,
+                // Hung from the trigger's right edge, the menu grows to the
+                // left: never past the window's left edge.
+                maxWidth: anchor.right - WINDOW_MARGIN,
+                // With the choices folded in, the menu is as tall as the
+                // longest list; it scrolls rather than run off the screen.
+                ...(inline
+                  ? { maxHeight: window.innerHeight - top - WINDOW_MARGIN }
+                  : {}),
               }
             : undefined
         }
@@ -255,7 +334,23 @@ export function SessionsFilterMenu(props: {
             <div
               className={`sessions-filter-parent${section.startsGroup ? " starts-group" : ""}`}
               key={section.key}
-              onMouseEnter={() => setOpenSection(section.key)}
+              onPointerEnter={(ev) => {
+                // Only a mouse hovers. A touch opens a row by its tap: iOS
+                // drops the click of a tap whose emulated hover shows new
+                // content, so opening on that hover would cost a tap. Folded
+                // inline, a hover that opened another section would move the
+                // rows under the pointer; a click switches instead.
+                if (ev.pointerType !== "mouse") {
+                  // A device with a mouse and a touchscreen: the tap that
+                  // follows the mouse's hover is the reader's own click.
+                  hoverOpenedRef.current = null;
+                  return;
+                }
+                if (!inline && openSection !== section.key) {
+                  hoverOpenedRef.current = section.key;
+                  setOpenSection(section.key);
+                }
+              }}
             >
               <button
                 type="button"
@@ -264,7 +359,21 @@ export function SessionsFilterMenu(props: {
                 aria-haspopup="menu"
                 aria-expanded={expanded}
                 data-testid={`sessions-filter-section-${section.key}`}
-                onClick={() => setOpenSection(expanded ? null : section.key)}
+                onPointerLeave={() => {
+                  if (hoverOpenedRef.current === section.key) {
+                    hoverOpenedRef.current = null;
+                  }
+                }}
+                onClick={(ev) => {
+                  const hoverOpened = hoverOpenedRef.current === section.key;
+                  hoverOpenedRef.current = null;
+                  // A key press clicks with detail 0, a pointer with its count.
+                  if (hoverOpened && ev.detail !== 0) {
+                    setOpenSection(section.key);
+                    return;
+                  }
+                  setOpenSection(expanded ? null : section.key);
+                }}
               >
                 <span className="sessions-filter-label">{section.label}</span>
                 <span
@@ -272,10 +381,26 @@ export function SessionsFilterMenu(props: {
                 >
                   {section.value}
                 </span>
-                <Chevron className="sessions-filter-chevron" />
+                {/* Beside the menu the list opens the way the chevron points;
+                    folded out under the row it is a disclosure, turned down. */}
+                <Chevron
+                  className="sessions-filter-chevron"
+                  open={expanded && side === "inline"}
+                />
               </button>
               {expanded ? (
-                <div className="sessions-filter-submenu" role="menu">
+                <div
+                  ref={submenuRef}
+                  className={`sessions-filter-submenu${
+                    side === "left"
+                      ? " opens-left"
+                      : side === "inline"
+                        ? " opens-inline"
+                        : ""
+                  }`}
+                  data-testid={`sessions-filter-submenu-${section.key}`}
+                  role="menu"
+                >
                   {section.options.map((option) => (
                     <button
                       key={option.key}
