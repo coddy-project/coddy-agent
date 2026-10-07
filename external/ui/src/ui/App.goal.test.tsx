@@ -15,7 +15,7 @@ import { initLocale } from "./i18n/i18n";
 
 /**
  * The session goal in the shell (chat/goal.ts, DESIGN.md "Session goal"): the
- * chip mirrors the goal the messages read, the turn stream and the events
+ * mark mirrors the goal the messages read, the turn stream and the events
  * stream deliver, the popover's actions reach the goal's routes or go out as
  * /goal prompts, and the turns the supervisor started read as goal rows.
  */
@@ -172,7 +172,7 @@ afterEach(() => {
 });
 
 const settle = () => act(async () => new Promise((r) => setTimeout(r, 50)));
-const chip = () => screen.getByTestId("composer-goal");
+const mark = () => screen.getByTestId("composer-goal");
 
 async function mountSession() {
   history.replaceState(null, "", `/#/s/${SID}`);
@@ -196,10 +196,10 @@ async function pushEvent(name: string, data: unknown) {
   });
 }
 
-test("the goal of the session read shows on the chip, and its turns as goal rows", async () => {
+test("the goal of the session read shows on the mark, and its turns as goal rows", async () => {
   await mountSession();
-  expect(chip()).toHaveTextContent("active");
-  expect(chip()).toHaveTextContent(OBJECTIVE);
+  expect(mark()).toHaveAttribute("aria-label", "Goal: active");
+  expect(screen.getByTestId("composer-goal-tip")).toHaveTextContent(OBJECTIVE);
 
   const rows = screen.getAllByTestId("goal-turn-row");
   expect(rows.map((r) => r.dataset.goalKind)).toEqual(["kickoff", "continue"]);
@@ -213,20 +213,22 @@ test("the goal of the session read shows on the chip, and its turns as goal rows
   expect(screen.queryByText(/continuation instruction/)).toBeNull();
 });
 
-test("Pause reaches PATCH /goal and the answer moves the chip", async () => {
+test("Pause reaches PATCH /goal and the answer moves the mark", async () => {
   await mountSession();
-  fireEvent.click(chip());
+  fireEvent.click(mark());
   await act(async () => {
     fireEvent.click(screen.getByTestId("goal-pause"));
   });
-  await waitFor(() => expect(chip()).toHaveTextContent("paused"));
+  await waitFor(() =>
+    expect(mark()).toHaveAttribute("aria-label", "Goal: paused"),
+  );
   expect(goalCalls).toEqual([{ method: "PATCH", body: { status: "paused" } }]);
   expect(posted).toEqual([]);
 });
 
-test("Clear asks, then reaches DELETE /goal, and the chip goes", async () => {
+test("Clear asks, then reaches DELETE /goal, and the mark goes", async () => {
   await mountSession();
-  fireEvent.click(chip());
+  fireEvent.click(mark());
   fireEvent.click(screen.getByTestId("goal-clear"));
   const dialog = await screen.findByTestId("app-confirm-dialog");
   expect(goalCalls).toEqual([]);
@@ -242,7 +244,7 @@ test("Resume sends /goal resume as a prompt and leaves the draft alone", async (
   await mountSession();
   const field = screen.getByRole("textbox", { name: "Message" });
   fireEvent.change(field, { target: { value: "a draft in progress" } });
-  fireEvent.click(chip());
+  fireEvent.click(mark());
   fireEvent.click(screen.getByTestId("goal-resume"));
   await waitFor(() => expect(posted.length).toBe(1));
   expect(posted[0]!.input).toBe("/goal resume");
@@ -250,7 +252,7 @@ test("Resume sends /goal resume as a prompt and leaves the draft alone", async (
   expect(goalCalls).toEqual([]);
 });
 
-test("the events stream moves the chip; an older or another session's snapshot does not", async () => {
+test("the events stream moves the mark; an older or another session's snapshot does not", async () => {
   await mountSession();
   await pushEvent("session_goal", {
     object: "coddy.session_goal",
@@ -259,7 +261,9 @@ test("the events stream moves the chip; an older or another session's snapshot d
     version: 500,
     notice: "Goal blocked: Which branch?",
   });
-  await waitFor(() => expect(chip()).toHaveTextContent("needs you"));
+  await waitFor(() =>
+    expect(mark()).toHaveAttribute("aria-label", "Goal: needs you"),
+  );
   await pushEvent("session_goal", {
     object: "coddy.session_goal",
     sessionId: SID,
@@ -275,7 +279,7 @@ test("the events stream moves the chip; an older or another session's snapshot d
     notice: "",
   });
   await settle();
-  expect(chip()).toHaveTextContent("needs you");
+  expect(mark()).toHaveAttribute("aria-label", "Goal: needs you");
   await pushEvent("session_goal", {
     object: "coddy.session_goal",
     sessionId: SID,
@@ -309,7 +313,9 @@ test("a new chat forgets the goal version, so a restarted server's snapshot is r
     goal: activeGoal({ status: "blocked", statusReason: "Which branch?" }),
     version: 5000,
   });
-  await waitFor(() => expect(chip()).toHaveTextContent("needs you"));
+  await waitFor(() =>
+    expect(mark()).toHaveAttribute("aria-label", "Goal: needs you"),
+  );
 
   // The server restarts (its version counter starts over) while the
   // operator is on a new chat, then the operator comes back.
@@ -329,5 +335,7 @@ test("a new chat forgets the goal version, so a restarted server's snapshot is r
   });
   await screen.findByText("Fixed the lexer too.");
   await settle();
-  await waitFor(() => expect(chip()).toHaveTextContent("paused"));
+  await waitFor(() =>
+    expect(mark()).toHaveAttribute("aria-label", "Goal: paused"),
+  );
 });

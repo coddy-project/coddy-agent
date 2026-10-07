@@ -5727,41 +5727,103 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   --goal-tone: var(--coddy-todo-completed);
 }
 
-/* The goal chip follows the selectors and is the one that gives way: the
-   objective ends in an ellipsis before any selector is pushed out. */
-.composer-tabs > .mode.composer-goal-host {
+/* The goal mark: the target in the status's tone on the plate over the card,
+   left of git's count, a 22px button. Its tip is the context ring's: the
+   status, then the objective, above the mark. */
+.composer-goal-tip-host {
+  position: relative;
   display: flex;
-  flex: 0 1 auto;
-  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
 }
 
-.composer-tab.composer-goal {
+.composer-goal {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-width: 0;
-  max-width: 100%;
-  overflow: hidden;
-  white-space: nowrap;
-  border-color: color-mix(in srgb, var(--goal-tone) 55%, transparent);
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--goal-tone);
+  cursor: pointer;
+}
+
+.composer-goal:hover,
+.composer-goal[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.composer-goal:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(147, 51, 234, 0.35);
 }
 
 .composer-goal-icon {
   flex: none;
-  color: var(--goal-tone);
 }
 
-.composer-goal-status {
+/* On the plate the mark goes to the right edge, and git's count, when there
+   is one, follows it 8px away instead of taking the free room itself. */
+.workspace-bar > .composer-goal-tip-host {
   flex: none;
-  color: var(--goal-tone);
+  margin-left: auto;
 }
 
-.composer-goal-objective {
-  min-width: 0;
-  max-width: 16em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+.workspace-bar > .composer-goal-tip-host + .workspace-bar-edits {
+  margin-left: -6px;
+}
+
+/* Near the plate's right edge the tip ends at the mark instead of centring
+   on it, so it stays over the card. */
+.workspace-bar .composer-goal-tip-host .composer-goal-tip.rail-tip {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
+@media (hover: hover) {
+  .composer-goal-tip-host:hover .rail-tip {
+    opacity: 1;
+  }
+}
+
+.composer-goal:focus-visible + .rail-tip {
+  opacity: 1;
+}
+
+.composer-goal-tip-host .composer-goal-tip.rail-tip {
+  left: 50%;
+  right: auto;
+  top: auto;
+  bottom: calc(100% + 12px);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  white-space: normal;
+  width: max-content;
+  min-width: 180px;
+  max-width: min(320px, calc(100vw - 32px));
+  padding: 10px 14px;
+  font-weight: 500;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
+  box-shadow: var(--coddy-tip-shadow);
+}
+
+.composer-goal-tip-status {
+  color: var(--goal-tone);
+  font-weight: 600;
+}
+
+.composer-goal-tip-objective {
+  overflow-wrap: anywhere;
 }
 
 .mode-menu {
@@ -6247,6 +6309,17 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 
   .workspace-bar-edits {
     position: relative;
+  }
+
+  /* The goal mark keeps its small look with a finger's 40px over it. */
+  .workspace-bar .composer-goal::after {
+    content: "";
+    position: absolute;
+    left: -9px;
+    right: -9px;
+    top: 50%;
+    height: 40px;
+    transform: translateY(-50%);
   }
 
   .workspace-bar-edits::after {
@@ -7486,7 +7559,7 @@ html:not([data-theme="light"]) .context-breakdown-error {
 }
 
 /* Goal popover (GoalPopover.tsx, DESIGN.md "Session goal"): the context
-   popover's shell - a portal anchored over the goal chip on a desktop, a
+   popover's shell - a portal anchored over the goal mark on a desktop, a
    bottom sheet over the scrim on the stacked shell - as a column whose head
    and actions stay put while the body scrolls. */
 .goal-popover {
@@ -7821,6 +7894,52 @@ html:not([data-theme="light"]) .context-breakdown-error {
 }
 
 .goal-btn--danger {
+  color: var(--coddy-danger);
+  border-color: color-mix(in srgb, var(--coddy-danger) 45%, transparent);
+}
+
+/* The goal's actions - resume, pause, edit, clear - are icons: rounded
+   squares of the same 36px a finger hits, on the buttons' colours, named in
+   their tip and for a screen reader. */
+.goal-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
+  background: var(--coddy-surface-muted);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.goal-icon-btn:hover:not(:disabled) {
+  background: var(--coddy-surface-raised);
+}
+
+.goal-icon-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(147, 51, 234, 0.35);
+}
+
+.goal-icon-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.goal-icon-btn--primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--coddy-on-accent-fg);
+}
+
+.goal-icon-btn--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 85%, var(--text));
+}
+
+.goal-icon-btn--danger {
   color: var(--coddy-danger);
   border-color: color-mix(in srgb, var(--coddy-danger) 45%, transparent);
 }
@@ -16435,18 +16554,6 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   .composer-overrides {
     flex: none;
     max-width: 40vw;
-  }
-
-  /* The goal chip keeps the target and the status word, the objective one
-     tap away in the popover, and leads the strip: at the end it stood under
-     the fade, out of sight until the strip was scrolled. */
-  .composer-tabs > .mode.composer-goal-host {
-    flex: none;
-    order: -1;
-  }
-
-  .composer-goal-objective {
-    display: none;
   }
 
   /* Settings tiles: a phone has no hover, so a name cut to an ellipsis is out

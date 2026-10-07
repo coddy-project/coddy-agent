@@ -11,6 +11,7 @@ import {
 import { afterEach, expect, test, vi } from "vitest";
 
 import { Composer } from "./Composer";
+import { WorkspaceBar } from "./WorkspaceBar";
 import { ConfirmProvider } from "../components/useConfirm";
 import type { GoalActions } from "./GoalPopover";
 import { parseSessionGoal, type SessionGoal } from "./goal";
@@ -73,12 +74,36 @@ function Harness(props: {
         goal={props.goal}
         {...(props.actions ? { goalActions: props.actions } : {})}
         {...(props.generating ? { generating: true, onStop: () => {} } : {})}
+        // The plate a running chat hands in, with git's count on it.
+        cardTop={(goalMark) => (
+          <WorkspaceBar
+            context={{
+              path: "/work/parser",
+              name: "parser",
+              is_git_repo: true,
+              is_worktree: false,
+              branch: "main",
+            }}
+            workingCopy={{
+              loaded: true,
+              error: "",
+              changes: {
+                sessionId: "sess_1",
+                vcs: "git",
+                files: [],
+                totals: { files: 2, additions: 4, deletions: 2 },
+              },
+            }}
+            onOpenEdits={() => {}}
+            goal={goalMark}
+          />
+        )}
       />
     </ConfirmProvider>
   );
 }
 
-const chip = () => screen.getByTestId("composer-goal");
+const mark = () => screen.getByTestId("composer-goal");
 const popover = () => screen.getByTestId("goal-popover");
 
 test.each([
@@ -88,18 +113,63 @@ test.each([
   ["complete", "goal-tone-done", "complete"],
   ["limited", "goal-tone-muted", "out of budget"],
 ])(
-  "the chip of a %s goal names its status in its tone",
+  "the mark of a %s goal is the target in its tone, its status in the name and the tip",
   (status, tone, word) => {
     render(<Harness goal={goalOf({ status })} actions={actionsMock()} />);
-    expect(chip()).toHaveClass("composer-goal", tone);
-    expect(chip().dataset.goalStatus).toBe(status);
-    expect(chip()).toHaveTextContent(word);
-    expect(chip()).toHaveTextContent("Make every test of the parser pass");
-    expect(chip()).toHaveAttribute("aria-label", `Goal: ${word}`);
+    expect(mark()).toHaveClass("composer-goal", tone);
+    expect(mark().dataset.goalStatus).toBe(status);
+    // An icon: no words on the bar.
+    expect(mark().textContent).toBe("");
+    expect(mark()).toHaveAttribute("aria-label", `Goal: ${word}`);
+    const tip = screen.getByTestId("composer-goal-tip");
+    expect(tip).toHaveTextContent(`Goal: ${word}`);
+    expect(tip).toHaveTextContent("Make every test of the parser pass");
   },
 );
 
-test("no goal, no chip; no actions, no chip either", () => {
+test("the goal mark stands on the plate over the card, left of git's count", () => {
+  render(<Harness goal={goalOf()} actions={actionsMock()} />);
+  const host = mark().parentElement!;
+  expect(host).toHaveClass("composer-goal-tip-host");
+  expect(host.parentElement).toBe(screen.getByTestId("workspace-bar"));
+  expect(host.nextElementSibling).toBe(
+    screen.getByTestId("workspace-bar-edits"),
+  );
+  // Nowhere on the bar under the field.
+  expect(mark().closest(".composer-bar-actions")).toBeNull();
+  expect(mark().closest(".composer-tabs")).toBeNull();
+});
+
+test("the goal's actions are square icons, named and with a tip", () => {
+  render(<Harness goal={goalOf()} actions={actionsMock()} />);
+  fireEvent.click(mark());
+  for (const [id, name] of [
+    ["goal-pause", "Pause"],
+    ["goal-edit", "Edit"],
+    ["goal-clear", "Clear"],
+  ] as const) {
+    const button = within(popover()).getByTestId(id);
+    expect(button).toHaveClass("goal-icon-btn");
+    expect(button.textContent).toBe("");
+    expect(button.querySelector("svg")).not.toBeNull();
+    expect(button).toHaveAttribute("aria-label", name);
+    expect(button).toHaveAttribute("title", name);
+  }
+  expect(within(popover()).getByTestId("goal-clear")).toHaveClass(
+    "goal-icon-btn--danger",
+  );
+  cleanup();
+  render(
+    <Harness goal={goalOf({ status: "paused" })} actions={actionsMock()} />,
+  );
+  fireEvent.click(mark());
+  const resume = within(popover()).getByTestId("goal-resume");
+  expect(resume).toHaveClass("goal-icon-btn", "goal-icon-btn--primary");
+  expect(resume.textContent).toBe("");
+  expect(resume).toHaveAttribute("aria-label", "Resume");
+});
+
+test("no goal, no mark; no actions, no mark either", () => {
   const { unmount } = render(<Harness goal={null} actions={actionsMock()} />);
   expect(screen.queryByTestId("composer-goal")).toBeNull();
   unmount();
@@ -107,15 +177,15 @@ test("no goal, no chip; no actions, no chip either", () => {
   expect(screen.queryByTestId("composer-goal")).toBeNull();
 });
 
-test("the chip opens the popover with everything the supervisor knows", () => {
+test("the mark opens the popover with everything the supervisor knows", () => {
   render(
     <Harness
       goal={goalOf({ status: "blocked", statusReason: "Which branch?" })}
       actions={actionsMock()}
     />,
   );
-  fireEvent.click(chip());
-  expect(chip()).toHaveAttribute("aria-expanded", "true");
+  fireEvent.click(mark());
+  expect(mark()).toHaveAttribute("aria-expanded", "true");
   const p = popover();
   expect(within(p).getByTestId("goal-objective")).toHaveTextContent(
     "Make every test of the parser pass",
@@ -150,7 +220,7 @@ test("the chip opens the popover with everything the supervisor knows", () => {
 test("Pause asks the server to pause; it is offered only while the goal is active", async () => {
   const actions = actionsMock();
   render(<Harness goal={goalOf()} actions={actions} />);
-  fireEvent.click(chip());
+  fireEvent.click(mark());
   expect(within(popover()).queryByTestId("goal-resume")).toBeNull();
   await act(async () => {
     fireEvent.click(within(popover()).getByTestId("goal-pause"));
@@ -163,7 +233,7 @@ test("a refused pause says so in the popover", async () => {
   const actions = actionsMock();
   actions.pause.mockResolvedValueOnce(false);
   render(<Harness goal={goalOf()} actions={actions} />);
-  fireEvent.click(chip());
+  fireEvent.click(mark());
   await act(async () => {
     fireEvent.click(within(popover()).getByTestId("goal-pause"));
   });
@@ -175,7 +245,7 @@ test("a refused pause says so in the popover", async () => {
 test("Resume sends /goal resume through the composer's send path and closes", () => {
   const actions = actionsMock();
   render(<Harness goal={goalOf({ status: "paused" })} actions={actions} />);
-  fireEvent.click(chip());
+  fireEvent.click(mark());
   fireEvent.click(within(popover()).getByTestId("goal-resume"));
   expect(actions.sendPrompt).toHaveBeenCalledWith("/goal resume");
   expect(screen.queryByTestId("goal-popover")).toBeNull();
@@ -190,7 +260,7 @@ test("while a turn runs, Resume waits and the popover says why", () => {
       generating={true}
     />,
   );
-  fireEvent.click(chip());
+  fireEvent.click(mark());
   expect(within(popover()).getByTestId("goal-resume")).toBeDisabled();
   expect(within(popover()).getByTestId("goal-busy-note")).toBeInTheDocument();
 });
@@ -198,7 +268,7 @@ test("while a turn runs, Resume waits and the popover says why", () => {
 test("Edit replaces the goal by sending /goal with the new objective", () => {
   const actions = actionsMock();
   render(<Harness goal={goalOf()} actions={actions} />);
-  fireEvent.click(chip());
+  fireEvent.click(mark());
   fireEvent.click(within(popover()).getByTestId("goal-edit"));
   const field = within(popover()).getByTestId(
     "goal-objective-input",
@@ -216,7 +286,7 @@ test("Edit replaces the goal by sending /goal with the new objective", () => {
 
 test("Escape leaves the edit first, then the popover", () => {
   render(<Harness goal={goalOf()} actions={actionsMock()} />);
-  fireEvent.click(chip());
+  fireEvent.click(mark());
   fireEvent.click(within(popover()).getByTestId("goal-edit"));
   fireEvent.keyDown(document, { key: "Escape" });
   expect(within(popover()).queryByTestId("goal-form")).toBeNull();
@@ -228,7 +298,7 @@ test("Escape leaves the edit first, then the popover", () => {
 test("an objective over 4000 characters cannot be sent", () => {
   const actions = actionsMock();
   render(<Harness goal={goalOf()} actions={actions} />);
-  fireEvent.click(chip());
+  fireEvent.click(mark());
   fireEvent.click(within(popover()).getByTestId("goal-edit"));
   fireEvent.change(within(popover()).getByTestId("goal-objective-input"), {
     target: { value: "x".repeat(4001) },
@@ -245,7 +315,7 @@ test("an objective over 4000 characters cannot be sent", () => {
 test("Clear asks first and clears only on yes", async () => {
   const actions = actionsMock();
   render(<Harness goal={goalOf()} actions={actions} />);
-  fireEvent.click(chip());
+  fireEvent.click(mark());
   fireEvent.click(within(popover()).getByTestId("goal-clear"));
   const dialog = await screen.findByTestId("app-confirm-dialog");
   expect(dialog).toHaveTextContent("Clear the goal?");
@@ -346,7 +416,7 @@ test("the card names the checker and, beside it, the level the check runs at", (
     ],
   ] as const) {
     render(<Harness goal={goalOf(over)} actions={actionsMock()} />);
-    fireEvent.click(chip());
+    fireEvent.click(mark());
     expect(within(popover()).getByTestId("goal-checker")).toHaveTextContent(
       new RegExp(`^${model}$`),
     );
@@ -381,7 +451,7 @@ test("Edit keeps the model and the level that check the goal", () => {
       actions={actions}
     />,
   );
-  fireEvent.click(chip());
+  fireEvent.click(mark());
   expect(within(popover()).getByTestId("goal-checker")).toHaveTextContent(
     "hub/qwen3-coder",
   );

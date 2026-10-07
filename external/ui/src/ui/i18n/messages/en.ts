@@ -2277,7 +2277,6 @@ export const messagesEn: Record<string, string> = {
   "goal.title": "Goal",
   "goal.close": "Close the goal",
   "goal.chipLabel": "Goal: {status}",
-  "goal.chipTitle": "Goal ({status}): {objective}",
   "goal.status.active": "active",
   "goal.status.paused": "paused",
   "goal.status.blocked": "needs you",

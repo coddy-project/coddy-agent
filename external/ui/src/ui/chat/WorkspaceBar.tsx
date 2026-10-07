@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { getLocale } from "../i18n/i18n";
 import { hasEdits, type WorkingCopy } from "../changes/workingCopy";
@@ -33,13 +34,15 @@ export type WorkspacePick = {
  * repository. Once the chat runs it is a fact: the repository, its branch -
  * the tooltip naming the worktree when the chat runs in a linked one - and, at
  * the right edge in a light frame, what git reports as changed there, which
- * opens the edits window. Git's count waits for a session.
+ * opens the edits window. Git's count waits for a session. The goal mark of a
+ * session with a goal (`goal`, the composer's) stands left of the count.
  */
 export function WorkspaceBar(props: {
   context: WorkspaceContext;
   workingCopy?: WorkingCopy | undefined;
   onOpenEdits?: (() => void) | undefined;
   pick?: WorkspacePick | undefined;
+  goal?: ReactNode;
 }) {
   const { t, tp } = useT();
   const ctx = props.context;
@@ -97,6 +100,7 @@ export function WorkspaceBar(props: {
           ) : null}
         </>
       )}
+      {props.goal}
       {showEdits && totals ? (
         <button
           type="button"

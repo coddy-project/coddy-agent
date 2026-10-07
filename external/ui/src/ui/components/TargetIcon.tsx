@@ -1,5 +1,5 @@
 /**
- * The target that stands for the session goal: on the composer's goal chip,
+ * The target that stands for the session goal: the composer's goal mark,
  * at the head of the goal popover and on the goal rows of the transcript.
  * Stroked with the current colour, 1em square unless the caller sizes it.
  */

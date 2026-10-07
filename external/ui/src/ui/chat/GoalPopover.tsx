@@ -27,6 +27,12 @@ import {
   type GoalChecklistItem,
   type SessionGoal,
 } from "./goal";
+import {
+  GoalIconClear,
+  GoalIconEdit,
+  GoalIconPause,
+  GoalIconResume,
+} from "./goalActionIcons";
 import { formatElapsedSeconds } from "./liveStatus";
 import { formatTurnTokens } from "./turnProgress";
 
@@ -162,8 +168,9 @@ function ChecklistRow(props: { item: GoalChecklistItem }) {
  * GoalPopover shows the session goal and what can be done with it: the
  * objective, where the supervisor stands and why, its last check, the
  * checklist, the numbers, and Pause, Resume, Edit and Clear. Without a goal it
- * offers to set one. Anchored over the chip (or the composer) on a desktop, a
- * bottom sheet over a scrim on the stacked shell (DESIGN.md, Session goal).
+ * offers to set one. Anchored over the goal mark (or the composer) on a
+ * desktop, a bottom sheet over a scrim on the stacked shell (DESIGN.md,
+ * Session goal).
  */
 export function GoalPopover(props: {
   open: boolean;
@@ -171,8 +178,11 @@ export function GoalPopover(props: {
   goal: SessionGoal | null;
   /** Stacked shell: a bottom sheet instead of an anchored panel. */
   useSheet: boolean;
-  /** What the panel is placed from on a desktop: the chip, else the composer. */
+  /** What the panel is placed from on a desktop: the mark, else the composer. */
   anchorRef: RefObject<HTMLElement | null>;
+  /** The box whose right edge the panel keeps to on a desktop (the composer
+   *  card); without one the panel starts at the anchor's left edge. */
+  alignRef?: RefObject<HTMLElement | null>;
   /** The control that toggles the popover: a press on it is not outside. */
   toggleRef?: RefObject<HTMLElement | null>;
   /** A turn is running: the prompts (Resume, Save, Set) wait until it ends. */
@@ -213,7 +223,11 @@ export function GoalPopover(props: {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const width = Math.min(400, Math.max(260, vw - 24));
-    const left = Math.max(12, Math.min(r.left, vw - width - 12));
+    const align = props.alignRef?.current?.getBoundingClientRect();
+    const left = Math.max(
+      12,
+      Math.min(align ? align.right - width : r.left, vw - width - 12),
+    );
     const above = r.top - 20;
     const below = vh - r.bottom - 20;
     if (above >= 280 || above >= below) {
@@ -615,42 +629,50 @@ export function GoalPopover(props: {
         {goalCanPause(goal) ? (
           <button
             type="button"
-            className="goal-btn"
+            className="goal-icon-btn"
             data-testid="goal-pause"
+            aria-label={t("goal.pause")}
+            title={t("goal.pause")}
             disabled={busy}
             onClick={onPause}
           >
-            {t("goal.pause")}
+            <GoalIconPause />
           </button>
         ) : null}
         {goalCanResume(goal) ? (
           <button
             type="button"
-            className="goal-btn goal-btn--primary"
+            className="goal-icon-btn goal-icon-btn--primary"
             data-testid="goal-resume"
+            aria-label={t("goal.resume")}
+            title={t("goal.resume")}
             disabled={busy || props.generating}
             onClick={onResume}
           >
-            {t("goal.resume")}
+            <GoalIconResume />
           </button>
         ) : null}
         <button
           type="button"
-          className="goal-btn"
+          className="goal-icon-btn"
           data-testid="goal-edit"
+          aria-label={t("goal.edit")}
+          title={t("goal.edit")}
           disabled={busy}
           onClick={startEdit}
         >
-          {t("goal.edit")}
+          <GoalIconEdit />
         </button>
         <button
           type="button"
-          className="goal-btn goal-btn--danger"
+          className="goal-icon-btn goal-icon-btn--danger"
           data-testid="goal-clear"
+          aria-label={t("goal.clear")}
+          title={t("goal.clear")}
           disabled={busy}
           onClick={() => void onClear()}
         >
-          {t("goal.clear")}
+          <GoalIconClear />
         </button>
       </div>
     ) : null;

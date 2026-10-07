@@ -45,3 +45,11 @@ test("no cell spans columns, and a long model id wraps in its own", () => {
   const dd = css.match(/\.goal-numbers dd\s*\{([^}]*)\}/);
   expect(squash(dd?.[1] ?? "")).toContain("overflow-wrap: anywhere");
 });
+
+test("the goal's action icons are rounded squares a finger can hit", () => {
+  const rule = css.match(/\.goal-icon-btn\s*\{([^}]*)\}/);
+  const body = squash(rule?.[1] ?? "");
+  expect(body).toContain("width: 36px");
+  expect(body).toContain("height: 36px");
+  expect(body).toContain("border-radius: 10px");
+});

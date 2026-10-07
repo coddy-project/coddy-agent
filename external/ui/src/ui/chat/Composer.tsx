@@ -510,8 +510,10 @@ export function Composer(props: {
     | undefined;
   /** A plate joined to the top edge of the card (the plate of a running chat,
    *  naming where it works): under the queue and the banners, flush with the
-   *  card. Without one, a chat that has not started gets the plate of picks. */
-  cardTop?: ReactNode;
+   *  card. Without one, a chat that has not started gets the plate of picks.
+   *  Given as a function, it is handed the goal mark to carry (null without
+   *  a goal): the mark stands on the plate, left of git's count. */
+  cardTop?: ReactNode | ((goalMark: ReactNode) => ReactNode);
 }) {
   const { t, tp } = useT();
   const isMobileShell = useSyncExternalStore(
@@ -539,7 +541,7 @@ export function Composer(props: {
   const [llmQuery, setLlmQuery] = useState("");
   const llmFilterRef = useRef<HTMLInputElement | null>(null);
   const [contextPopoverOpen, setContextPopoverOpen] = useState(false);
-  /** The goal popover, opened by the goal chip or a bare `/goal`. */
+  /** The goal popover, opened by the goal mark or a bare `/goal`. */
   const [goalPopoverOpen, setGoalPopoverOpen] = useState(false);
   const goalChipRef = useRef<HTMLButtonElement | null>(null);
   /** After closing the breakdown, hide hover tooltip until pointer leaves the ring. */
@@ -2111,35 +2113,46 @@ export function Composer(props: {
   const llmLabel = llmVal
     ? displayLlmId(llmVal, t("composer.model"))
     : t("composer.model");
-  // The goal chip: the target, the status word in the status's tone and the
-  // objective cut to one line. It shrinks before anything else in the strip,
-  // and on a phone it keeps the target and the status only.
+  // The goal mark: the target in the status's tone, on the plate over the
+  // card left of git's count, only while the session has a goal. The status
+  // and the objective are in its tip and its menu, so it carries no words.
   const goal = props.goalActions ? (props.goal ?? null) : null;
   const goalStatusWord = goal ? t(goalStatusKey(goal.status)) : "";
-  const goalChip = goal ? (
-    <div className="mode composer-goal-host">
+  const goalMark = goal ? (
+    // The tone class on the host too: the tip is the button's sibling and
+    // reads the same --goal-tone.
+    <div
+      className={`composer-goal-tip-host goal-tone-${goalTone(goal.status)}`}
+    >
       <button
         type="button"
         ref={goalChipRef}
-        className={`composer-tab composer-goal goal-tone-${goalTone(goal.status)}`}
+        className={`composer-goal goal-tone-${goalTone(goal.status)}`}
         data-testid="composer-goal"
         data-goal-status={goal.status}
         aria-haspopup="dialog"
         aria-expanded={goalPopoverOpen}
         aria-label={t("goal.chipLabel", { status: goalStatusWord })}
-        title={t("goal.chipTitle", {
-          status: goalStatusWord,
-          objective:
-            goal.objective.length > 200
-              ? `${goal.objective.slice(0, 200)}…`
-              : goal.objective,
-        })}
         onClick={() => setGoalPopoverOpen((open) => !open)}
       >
-        <TargetIcon className="composer-goal-icon" size={14} />
-        <span className="composer-goal-status">{goalStatusWord}</span>
-        <span className="composer-goal-objective">{goal.objective}</span>
+        <TargetIcon className="composer-goal-icon" size={15} />
       </button>
+      {!goalPopoverOpen ? (
+        <span
+          className="rail-tip composer-goal-tip"
+          role="tooltip"
+          data-testid="composer-goal-tip"
+        >
+          <span className="composer-goal-tip-status">
+            {t("goal.chipLabel", { status: goalStatusWord })}
+          </span>
+          <span className="composer-goal-tip-objective">
+            {goal.objective.length > 200
+              ? `${goal.objective.slice(0, 200)}…`
+              : goal.objective}
+          </span>
+        </span>
+      ) : null}
     </div>
   ) : null;
   const contextIdle = props.contextIdle === true;
@@ -2721,25 +2734,28 @@ export function Composer(props: {
         : t("composer.slashCommandsAriaLabel");
   const pickerRole = atRangeOpen ? "group" : "listbox";
 
-  // The plate over the card: the one a running chat hands in (cardTop), or,
-  // before the chat starts, the folder, branch and worktree as picks on it.
+  // The plate over the card: the one a running chat hands in (cardTop), with
+  // the goal mark on it, or, before the chat starts, the folder, branch and
+  // worktree as picks on it.
   const plate: ReactNode =
-    props.cardTop ??
-    (props.workspaceCtx &&
-    props.onWorkspacePickFolder &&
-    !props.workspaceLocked ? (
-      <WorkspaceBar
-        context={props.workspaceCtx}
-        pick={{
-          worktreePref: props.worktreePref ?? false,
-          onPickFolder: props.onWorkspacePickFolder,
-          onPickBranch: props.onWorkspacePickBranch ?? (() => {}),
-          onWorktreeToggle: props.onWorktreeToggle ?? (() => {}),
-          onRefreshBranches: props.onWorkspaceRefreshBranches,
-          opensUp: !props.isEmpty,
-        }}
-      />
-    ) : null);
+    typeof props.cardTop === "function"
+      ? props.cardTop(goalMark)
+      : (props.cardTop ??
+        (props.workspaceCtx &&
+        props.onWorkspacePickFolder &&
+        !props.workspaceLocked ? (
+          <WorkspaceBar
+            context={props.workspaceCtx}
+            pick={{
+              worktreePref: props.worktreePref ?? false,
+              onPickFolder: props.onWorkspacePickFolder,
+              onPickBranch: props.onWorkspacePickBranch ?? (() => {}),
+              onWorktreeToggle: props.onWorktreeToggle ?? (() => {}),
+              onRefreshBranches: props.onWorkspaceRefreshBranches,
+              opensUp: !props.isEmpty,
+            }}
+          />
+        ) : null));
 
   return (
     <>
@@ -3503,8 +3519,6 @@ export function Composer(props: {
                 </div>
               ) : null}
 
-              {goalChip}
-
               {overrideLines.length > 0 ? (
                 <span
                   className="composer-overrides"
@@ -3662,6 +3676,7 @@ export function Composer(props: {
           goal={props.goal ?? null}
           useSheet={menuUseSheet}
           anchorRef={goal ? goalChipRef : composerCardRef}
+          alignRef={composerCardRef}
           toggleRef={goalChipRef}
           generating={props.generating === true}
           actions={props.goalActions}

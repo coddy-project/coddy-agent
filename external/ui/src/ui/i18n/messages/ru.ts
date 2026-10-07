@@ -2358,7 +2358,6 @@ export const messagesRu: Record<string, string> = {
   "goal.title": "Цель",
   "goal.close": "Закрыть цель",
   "goal.chipLabel": "Цель: {status}",
-  "goal.chipTitle": "Цель ({status}): {objective}",
   "goal.status.active": "в работе",
   "goal.status.paused": "на паузе",
   "goal.status.blocked": "ждёт вас",

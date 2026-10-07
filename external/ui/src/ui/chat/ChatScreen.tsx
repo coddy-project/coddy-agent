@@ -1,4 +1,4 @@
-import type { CSSProperties, Dispatch, SetStateAction } from "react";
+import type { CSSProperties, Dispatch, ReactNode, SetStateAction } from "react";
 import { HeroFooter } from "./HeroFooter";
 import {
   useCallback,
@@ -107,7 +107,7 @@ export function ChatScreen(props: {
   configuredPermissionMode?: string;
   onPermissionModeChange?: ((mode: string) => void) | undefined;
   settingsOverrides?: TurnOverride[];
-  /** The session goal and what the composer's goal chip and popover can do
+  /** The session goal and what the composer's goal mark and popover can do
    *  with it (chat/goal.ts); passed through to the composer. */
   goal?: SessionGoal | null;
   goalActions?: GoalActions;
@@ -557,18 +557,26 @@ export function ChatScreen(props: {
   // Once the chat runs, where it works is a fact rather than a choice: a plate
   // joined to the top of the composer card names it.
   // The plate of a running chat is git's - the repository, the branch, the
-  // count - so a folder outside any repository has none.
+  // count - so a folder outside any repository has none, unless the session
+  // has a goal: the plate carries the goal mark (left of the count), and then
+  // names the folder alone.
+  const hasGoal = !!props.goalActions && !!props.goal;
+  const workspaceCtx = props.workspaceCtx;
   const workspaceBar =
     !readOnlyNotice &&
     props.sessionId &&
     props.workspaceLocked &&
-    props.workspaceCtx?.is_git_repo ? (
-      <WorkspaceBar
-        context={props.workspaceCtx}
-        workingCopy={workingCopy}
-        onOpenEdits={props.onOpenEdits}
-      />
-    ) : undefined;
+    workspaceCtx &&
+    (workspaceCtx.is_git_repo || hasGoal)
+      ? (goalMark: ReactNode) => (
+          <WorkspaceBar
+            context={workspaceCtx}
+            workingCopy={workingCopy}
+            onOpenEdits={props.onOpenEdits}
+            goal={goalMark}
+          />
+        )
+      : undefined;
   // The Files window belongs to a chat, so it opens only once one exists.
   const openFiles = props.sessionId
     ? (props.onOpenFiles ?? (() => openWorkspaceFile()))
